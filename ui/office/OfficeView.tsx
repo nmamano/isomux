@@ -13,6 +13,7 @@ import { LOBBY_ROOM_ID, ordinaryRooms } from "../../shared/types.ts";
 import { useMemo, useState, useEffect, useCallback, useContext } from "react";
 import { SceneDecorationContext } from "./scene-decoration.tsx";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
+import { openPagesFor } from "../pager-sync.ts";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { RoomProps } from "./RoomProps.tsx";
@@ -47,6 +48,7 @@ import {
   TasksIcon,
   ClockIcon,
   AppsIcon,
+  PagerIcon,
   SettingsIcon,
 } from "../components/NavIcons.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
@@ -154,6 +156,8 @@ interface OfficeViewProps {
   onOpenTasks: () => void;
   onOpenCronjobs: () => void;
   onOpenApps: () => void;
+  // Absent in fixtures that render the office without the pager.
+  onOpenPager?: () => void;
   onOpenUpdate: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
@@ -171,6 +175,7 @@ export function OfficeView({
   onOpenTasks,
   onOpenCronjobs,
   onOpenApps,
+  onOpenPager,
   onOpenUpdate,
   onSwipeLeft,
   onSwipeRight,
@@ -190,7 +195,12 @@ export function OfficeView({
     presences,
     sessionContext,
     lobbyOpen,
+    pager,
   } = useAppState();
+  const openPages = useMemo(
+    () => openPagesFor(pager, sessionContext?.userId ?? null),
+    [pager, sessionContext?.userId],
+  );
   const [newRoomOpen, setNewRoomOpen] = useState(false);
   const closeNewRoom = useCallback(() => setNewRoomOpen(false), []);
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
@@ -373,6 +383,20 @@ export function OfficeView({
       title: t("nav.appsShortcut"),
       onClick: onOpenApps,
     },
+    ...(onOpenPager
+      ? [
+          {
+            id: "pager",
+            icon: PagerIcon,
+            label: t("common.pager"),
+            title: openPages
+              ? i18n.tn("nav.pagerOpenCount", openPages)
+              : t("common.pager"),
+            onClick: onOpenPager,
+            badge: openPages,
+          },
+        ]
+      : []),
     // One gear for every setting. The office, room, user and device buttons
     // that used to sit here are sidebar rows on the settings page now, and the
     // vent on the wall opens the same page.

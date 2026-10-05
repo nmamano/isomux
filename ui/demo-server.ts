@@ -58,6 +58,7 @@ import type {
   UserRecord,
   UserRole,
   MembersChatMessage,
+  PagerEntry,
 } from "../shared/types.ts";
 import {
   LOBBY_ROOM_ID,
@@ -922,6 +923,91 @@ const demoApps: AppWire[] = [
     url: "https://cost-tracker.office.example",
   },
 ];
+
+// Pages, built on the first list so they can name the viewer and the demo's
+// agents: one open page from an agent and one acked page from an app, so the
+// office bar shows a badge and the pager view shows both kinds of source.
+let demoPager: PagerEntry[] | null = null;
+
+function demoPagerEntries(): PagerEntry[] {
+  if (demoPager) return demoPager;
+  const now = Date.now();
+  const target = sessionContext?.userId ?? "demo-user";
+  const pam = state.getState().agents.find((a) => a.name === "Pam");
+  const firstRoomId = state.getState().rooms[0]?.id ?? null;
+  demoPager = [
+    ...(pam
+      ? [
+          {
+            id: "d3m0a001",
+            createdAt: now - 25 * 60_000,
+            lastRaisedAt: now - 4 * 60_000,
+            raiseCount: 3,
+            source: {
+              kind: "agent" as const,
+              agentId: pam.id,
+              name: pam.name,
+              roomId: pam.roomId,
+            },
+            targetUserId: target,
+            title: "Print vendor needs a decision on the poster proof",
+            body: "The vendor holds the slot until 5 pm. Approve proof B or pick a new date.",
+            key: "poster-proof",
+            state: "open" as const,
+            delivery: {
+              state: "delivered" as const,
+              sends: 3,
+              lastAttemptAt: now - 4 * 60_000,
+            },
+          },
+        ]
+      : []),
+    {
+      id: "d3m0a002",
+      createdAt: now - 50 * 60_000,
+      lastRaisedAt: now - 50 * 60_000,
+      raiseCount: 1,
+      source: {
+        kind: "app",
+        appName: "cost-tracker",
+        registrationGen: 1,
+        name: "cost-tracker",
+        roomId: firstRoomId,
+      },
+      targetUserId: target,
+      title: "Token spend passed the daily limit",
+      state: "acked",
+      acked: { by: "Ricky", at: now - 40 * 60_000 },
+      delivery: {
+        state: "not_delivered",
+        sends: 0,
+        lastAttemptAt: now - 50 * 60_000,
+        lastFailure: "no_webhook",
+      },
+    },
+  ];
+  return demoPager;
+}
+
+// pager.ack / pager.resolve: the server's transitions, without delivery.
+function demoPagerAct(id: string, verb: "ack" | "resolve"): PagerEntry {
+  const entries = demoPagerEntries();
+  const i = entries.findIndex((e) => e.id === id);
+  if (i === -1) throw new ApiError(404, "not_found", "");
+  const entry = entries[i];
+  if (entry.state === "resolved")
+    throw new ApiError(409, "already_resolved", "the page is already resolved");
+  const by = { by: sessionContext?.username ?? "Ricky", at: Date.now() };
+  const next: PagerEntry =
+    verb === "ack"
+      ? entry.state === "open"
+        ? { ...entry, state: "acked", acked: by }
+        : entry
+      : { ...entry, state: "resolved", resolved: by };
+  entries[i] = next;
+  shimEmit({ type: "pager_upserted", entry: next });
+  return next;
+}
 
 function demoAppLog(app: Pick<AppWire, "port">): string[] {
   return [
@@ -1940,6 +2026,9 @@ export async function demoApi(
     case "PUT /api/office/access":
       // No-op in the demo (no bind/origin policy to persist).
       return { signInUrl: null, restartRequired: false };
+    // pager.list - the client filters, so the demo returns every page.
+    case "GET /api/pager":
+      return [...demoPagerEntries()];
     // apps.list - the Apps tab fetches on open and polls while it is open.
     case "GET /api/apps":
       return [...demoApps];
@@ -2435,6 +2524,15 @@ export async function demoApi(
   // prune notif/default to the new access (mirror the server clamp). An owner
   // target accesses all rooms by rule, so don't prune theirs. Listed before the
   // bare /:username route.
+  const pagerActMatch = pathname.match(
+    /^\/api\/pager\/([^/]+)\/(ack|resolve)$/,
+  );
+  if (pagerActMatch && method === "POST") {
+    return demoPagerAct(
+      decodeURIComponent(pagerActMatch[1]),
+      pagerActMatch[2] as "ack" | "resolve",
+    );
+  }
   // pagerSettings.* - the visitor's own pager settings round-trip in memory,
   // and the test send always "arrives": the demo has no Discord to reach.
   // Only the mask is kept, as the server returns nothing more.

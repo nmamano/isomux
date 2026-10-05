@@ -1,4 +1,4 @@
-// The office UI's four full-page views are real URLs, and this module is the
+// The office UI's full-page views are real URLs, and this module is the
 // whole mapping between a path and a page. It is pure and DOM-free on purpose
 // (ruling 6 of internal-docs/url-routing-loop.md): the table is unit-tested
 // here, and App's wiring is covered by the render tests instead.
@@ -6,7 +6,7 @@
 // Agent chats and settings sections are deliberately NOT routes (ruling 3), so
 // a chat, a settings section and the office all share one path, "/".
 
-export type Page = "tasks" | "cronjobs" | "apps" | "settings";
+export type Page = "tasks" | "cronjobs" | "apps" | "settings" | "pager";
 
 /**
  * The page a pathname names, or null for the office.
@@ -29,6 +29,8 @@ export function pageForPath(pathname: string): Page | null {
       return "apps";
     case "/settings":
       return "settings";
+    case "/pager":
+      return "pager";
     // "users" is what the settings page was called before it was renamed, and
     // the saved-spot parser still reads that name (ui/view-persistence.ts).
     // Accepted so an old link keeps working, never produced.
@@ -37,6 +39,25 @@ export function pageForPath(pathname: string): Page | null {
     default:
       return null;
   }
+}
+
+// The longest id the deep link accepts. Ids are 8 hex characters today; the
+// bound only keeps a pasted URL from carrying junk into the view.
+const PAGER_LINK_ID_MAX = 64;
+
+/**
+ * The page id in a Discord link, `<origin>/?pager=<id>` (server/pager-delivery.ts),
+ * or null. The parameter opens the pager view on any path, so the link keeps
+ * working if the office ever moves its root.
+ */
+export function pagerIdForSearch(search: string): string | null {
+  const id = new URLSearchParams(search).get("pager")?.trim() ?? "";
+  return id.length > 0 && id.length <= PAGER_LINK_ID_MAX ? id : null;
+}
+
+/** The page the URL opens at boot: the pager link first, then the path. */
+export function pageForLocation(pathname: string, search: string): Page | null {
+  return pagerIdForSearch(search) !== null ? "pager" : pageForPath(pathname);
 }
 
 /** The canonical path for a page, or "/" for the office. */
@@ -49,6 +70,7 @@ export interface PageFlags {
   tasksOpen: boolean;
   cronjobsOpen: boolean;
   appsOpen: boolean;
+  pagerOpen: boolean;
 }
 
 /** Shared by history and the rendered page switch. Flags can overlap. */
@@ -61,7 +83,9 @@ export function pageForFlags(flags: PageFlags): Page | null {
         ? "cronjobs"
         : flags.appsOpen
           ? "apps"
-          : null;
+          : flags.pagerOpen
+            ? "pager"
+            : null;
 }
 
 export interface PageShortcutInput {
@@ -76,6 +100,7 @@ export interface PageShortcutUpdate {
   tasksOpen?: boolean | ((open: boolean) => boolean);
   cronjobsOpen?: boolean;
   appsOpen?: boolean;
+  pagerOpen?: boolean;
   usersOpen?: true;
 }
 
@@ -100,7 +125,12 @@ export function pageShortcut(
   if (input.key === "a") {
     if (flags.appsOpen && !flags.tasksOpen && !flags.cronjobsOpen)
       return "home";
-    return { tasksOpen: false, cronjobsOpen: false, appsOpen: true };
+    return {
+      tasksOpen: false,
+      cronjobsOpen: false,
+      appsOpen: true,
+      pagerOpen: false,
+    };
   }
   // Settings only opens; leaving it must pass its own unsaved-edit guard.
   if (input.key === "s") return { usersOpen: true };

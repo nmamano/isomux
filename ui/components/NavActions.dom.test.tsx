@@ -94,4 +94,33 @@ describe("NavActions", () => {
     // Choosing an action closes the menu.
     expect(view.queryByText("Apps")).toBeNull();
   });
+
+  it("shows a badge count on desktop, and a dot plus the count on mobile", () => {
+    const badged = [
+      { id: "pager", icon: null, label: "Pager", onClick: () => {}, badge: 3 },
+      { id: "apps", icon: null, label: "Apps", onClick: () => {}, badge: 0 },
+    ];
+    const desktop = render(<NavActions actions={badged} viewport="desktop" />);
+    const pills = desktop.container.querySelectorAll(".nav-action-badge");
+    expect(pills.length).toBe(1);
+    expect(pills[0].textContent).toBe("3");
+    expect(
+      desktop.getByText("Pager").closest("button")!.contains(pills[0]),
+    ).toBe(true);
+    desktop.unmount();
+
+    const mobile = render(<NavActions actions={badged} viewport="mobile" />);
+    expect(
+      mobile.container.querySelector(".nav-action-badge-dot"),
+    ).not.toBeNull();
+    fireEvent.click(mobile.getByRole("button"));
+    const row = mobile.getByText("Pager").closest("button")!;
+    expect(row.querySelector(".nav-action-badge")?.textContent).toBe("3");
+    mobile.unmount();
+
+    const quiet = render(
+      <NavActions actions={actions(() => {})} viewport="mobile" />,
+    );
+    expect(quiet.container.querySelector(".nav-action-badge-dot")).toBeNull();
+  });
 });

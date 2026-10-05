@@ -133,7 +133,7 @@ describe("parseSavedView (strict)", () => {
   });
 
   it("accepts exactly the known panel values", () => {
-    for (const panel of ["tasks", "cronjobs", "users"] as const) {
+    for (const panel of ["tasks", "cronjobs", "users", "pager"] as const) {
       expect(parseSavedView(JSON.stringify({ user: "u", panel }))?.panel).toBe(
         panel,
       );

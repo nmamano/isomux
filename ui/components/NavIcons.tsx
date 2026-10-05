@@ -237,6 +237,23 @@ export const ClockIcon = (
   </svg>
 );
 
+export const PagerIcon = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ display: "block" }}
+  >
+    <path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.2 1.3H2.8z" />
+    <path d="M6.6 14.2a1.5 1.5 0 0 0 2.8 0" />
+  </svg>
+);
+
 export const AppsIcon = (
   <svg
     width="15"

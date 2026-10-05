@@ -4,12 +4,14 @@ import {
   pathForPage,
   pageForFlags,
   pageShortcut,
+  pagerIdForSearch,
+  pageForLocation,
   type Page,
   type PageFlags,
   type PageShortcutInput,
 } from "./routes.ts";
 
-const PAGES: Page[] = ["tasks", "cronjobs", "apps", "settings"];
+const PAGES: Page[] = ["tasks", "cronjobs", "apps", "settings", "pager"];
 
 describe("pageForPath", () => {
   it("names each page from its canonical path", () => {
@@ -54,6 +56,23 @@ describe("pageForPath", () => {
   });
 });
 
+describe("the pager link", () => {
+  it("reads the page id from the query on any path", () => {
+    expect(pagerIdForSearch("?pager=1a2b3c4d")).toBe("1a2b3c4d");
+    expect(pageForLocation("/", "?pager=1a2b3c4d")).toBe("pager");
+    expect(pageForLocation("/tasks", "?pager=1a2b3c4d")).toBe("pager");
+  });
+
+  it("falls back to the path without a usable id", () => {
+    for (const search of ["", "?pager=", "?pager=%20", "?other=1"]) {
+      expect(pagerIdForSearch(search)).toBeNull();
+      expect(pageForLocation("/tasks", search)).toBe("tasks");
+      expect(pageForLocation("/", search)).toBeNull();
+    }
+    expect(pagerIdForSearch(`?pager=${"a".repeat(65)}`)).toBeNull();
+  });
+});
+
 describe("pathForPage", () => {
   it("formats each page and the office", () => {
     expect(pathForPage(null)).toBe("/");
@@ -75,6 +94,7 @@ const office: PageFlags = {
   tasksOpen: false,
   cronjobsOpen: false,
   appsOpen: false,
+  pagerOpen: false,
 };
 
 // Apply the returned setters as React does, including functional updates.
@@ -131,6 +151,12 @@ describe("page shortcuts and rendered-page precedence", () => {
     expect(update.tasksOpen(update.tasksOpen(false))).toBe(false);
   });
 
+  it("leaves the pager for Apps on a", () => {
+    const shown = pressPageKey({ ...office, pagerOpen: true }, "a");
+    expect(pageForFlags(shown)).toBe("apps");
+    expect(shown.pagerOpen).toBe(false);
+  });
+
   it("only closes Apps when Apps is the visible page", () => {
     expect(pageShortcut({ key: "a" }, { ...office, appsOpen: true })).toBe(
       "home",
@@ -165,6 +191,7 @@ describe("page shortcuts and rendered-page precedence", () => {
         tasksOpen: true,
         cronjobsOpen: true,
         appsOpen: true,
+        pagerOpen: true,
       }),
     ).toBe("settings");
   });

@@ -136,6 +136,12 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.
 - **Deleting an app keeps its data** - the data directory moves to `.retired` next to the other apps' data, on the office's disk. Nothing is erased automatically.
 
+### Pager
+
+- **Agents and apps page you** when a person must act: a blocked process, a failure they cannot fix, a decision only you can make.
+- **Pages reach your Discord** through a webhook you set in Settings → You → Pager, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
+- **Pager view**: every page you can see, open pages first, with ack and resolve. A badge on the Pager button counts your open pages.
+
 ### Lifecycle and safety
 
 - **Agents persist across server restarts**; auto-resume last conversation on restart.

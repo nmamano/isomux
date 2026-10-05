@@ -28,6 +28,7 @@ import type {
   SkillInfo,
   TaskItem,
   AppListWire,
+  PagerEntry,
   OfficeSettings,
   OfficeWire,
   RoomWire,
@@ -155,6 +156,21 @@ export interface AppState {
   // revision has moved is refused. Ordering GETs against each other is not
   // enough - the race is a GET against a DELTA.
   appsRevision: number;
+  // Pages (internal-docs/pager-design.md) the viewer can see, in every state.
+  // There is no hydration event: usePagerSync (ui/pager-sync.ts) reads
+  // GET /api/pager on every hydrationEpoch, and pager_upserted keeps the list
+  // live. App-level, not view-level, because the office bar's badge counts
+  // open pages while the view is closed.
+  pager: PagerEntry[];
+  pagerLoaded: boolean;
+  // The last snapshot fetch failed. Kept apart from pagerLoaded so a failed
+  // first load shows an error, never an empty list.
+  pagerLoadFailed: boolean;
+  // Bumped by every pager_upserted; a snapshot issued before a delta is
+  // refused, as for apps.
+  pagerRevision: number;
+  // Bumped to ask usePagerSync for a new snapshot: a refused one, or Retry.
+  pagerFetchSeq: number;
   // The jobs this viewer may see: its maker's, office owners', and those of
   // the viewer's rooms.
   cronjobs: CronjobListWire[];
@@ -342,6 +358,12 @@ type Action =
   | { type: "apps_loaded"; apps: AppListWire[]; revision: number }
   | { type: "app_upserted"; app: AppListWire }
   | { type: "app_deleted"; name: string }
+  // CLIENT-LOCAL (not ServerMessages): usePagerSync dispatches the first three
+  // around its GET /api/pager; the view's Retry dispatches pager_refetch.
+  | { type: "pager_loaded"; entries: PagerEntry[]; revision: number }
+  | { type: "pager_load_failed" }
+  | { type: "pager_refetch" }
+  | { type: "pager_upserted"; entry: PagerEntry }
   | { type: "set_current_room"; roomId: string }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
@@ -1027,6 +1049,37 @@ export function reducer(state: AppState, action: Action): AppState {
         appsRevision: state.appsRevision + 1,
       };
     }
+    // A snapshot older than a delta we hold is refused, and the refusal asks
+    // for a new one: the pager has no poll to converge it later.
+    case "pager_loaded":
+      if (action.revision !== state.pagerRevision) {
+        return { ...state, pagerFetchSeq: state.pagerFetchSeq + 1 };
+      }
+      return {
+        ...state,
+        pager: action.entries,
+        pagerLoaded: true,
+        pagerLoadFailed: false,
+      };
+    case "pager_load_failed":
+      return { ...state, pagerLoadFailed: true };
+    case "pager_refetch":
+      return {
+        ...state,
+        pagerLoadFailed: false,
+        pagerFetchSeq: state.pagerFetchSeq + 1,
+      };
+    // Replace-or-append, like task_upserted: a page can be new to this viewer.
+    case "pager_upserted": {
+      const idx = state.pager.findIndex((e) => e.id === action.entry.id);
+      const pager =
+        idx === -1
+          ? [...state.pager, action.entry]
+          : state.pager.map((e) =>
+              e.id === action.entry.id ? action.entry : e,
+            );
+      return { ...state, pager, pagerRevision: state.pagerRevision + 1 };
+    }
     case "set_current_room":
       return { ...state, currentRoomId: action.roomId, lobbyOpen: false };
     case "set_lobby_open":
@@ -1317,6 +1370,11 @@ export const initialState: AppState = {
   apps: [],
   appsLoaded: false,
   appsRevision: 0,
+  pager: [],
+  pagerLoaded: false,
+  pagerLoadFailed: false,
+  pagerRevision: 0,
+  pagerFetchSeq: 0,
   cronjobs: [],
   cronjobsLoaded: false,
   cronjobsPrompt: null,

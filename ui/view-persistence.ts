@@ -68,7 +68,13 @@ function defaultStorage(): StorageLike | null {
 // to the same page: the parser rejects a whole payload on an unknown panel
 // value, so dropping it would make an older saved spot lose its room and agent
 // too, not just its panel. New writes use "settings".
-export type SavedPanel = "tasks" | "cronjobs" | "apps" | "settings" | "users";
+export type SavedPanel =
+  | "tasks"
+  | "cronjobs"
+  | "apps"
+  | "settings"
+  | "users"
+  | "pager";
 
 export interface SavedView {
   user: string; // lowercased owner username; loads reject on mismatch
@@ -93,7 +99,8 @@ function readPanel(x: unknown): SavedPanel | null | undefined {
     x === "cronjobs" ||
     x === "apps" ||
     x === "settings" ||
-    x === "users"
+    x === "users" ||
+    x === "pager"
     ? x
     : undefined;
 }

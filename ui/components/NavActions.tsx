@@ -12,7 +12,33 @@ export type NavAction = {
   // Shown but inert, for an action that exists and has nothing to act on
   // (End with no conversation running).
   disabled?: boolean;
+  // A count that needs the member, such as open pages. Zero or absent shows
+  // nothing.
+  badge?: number;
 };
+
+function Badge({ count }: { count: number }) {
+  return (
+    <span
+      className="nav-action-badge"
+      style={{
+        minWidth: 16,
+        height: 16,
+        padding: "0 4px",
+        borderRadius: 8,
+        background: "var(--red)",
+        color: "#fff",
+        fontSize: 10,
+        fontWeight: 700,
+        lineHeight: "16px",
+        textAlign: "center",
+        boxSizing: "border-box",
+      }}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
 
 export function NavActions({
   actions,
@@ -63,6 +89,7 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
             {a.icon}
           </span>
           <span className="nav-action-label">{a.label}</span>
+          {a.badge ? <Badge count={a.badge} /> : null}
         </button>
       ))}
     </div>
@@ -75,6 +102,8 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  // The menu hides its rows, so the trigger carries a dot for any badge.
+  const badged = actions.some((a) => a.badge);
 
   useEffect(() => {
     if (!open) return;
@@ -119,9 +148,25 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
           fontSize: 16,
           cursor: "pointer",
           lineHeight: 1,
+          position: "relative",
         }}
       >
         &#8943;
+        {badged && (
+          <span
+            className="nav-action-badge-dot"
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: -3,
+              right: -3,
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "var(--red)",
+            }}
+          />
+        )}
       </button>
       {open && pos && (
         <Portal>
@@ -177,7 +222,8 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                 >
                   {a.icon}
                 </span>
-                <span>{a.label}</span>
+                <span style={{ flex: 1 }}>{a.label}</span>
+                {a.badge ? <Badge count={a.badge} /> : null}
               </button>
             ))}
           </div>

@@ -21,6 +21,8 @@ import {
 import { TaskView, type TaskOpenRequest } from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
 import { AppsView } from "./components/AppsView.tsx";
+import { PagerView, type PagerSelectRequest } from "./components/PagerView.tsx";
+import { usePagerSync } from "./pager-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { CSS } from "./styles.ts";
 import { getUsername, getDevice } from "./device-settings.ts";
@@ -33,7 +35,9 @@ import { LOBBY_ROOM_ID, type AgentInfo } from "../shared/types.ts";
 import { swipeTarget } from "./office/room-cycle.ts";
 import { isValidDesk } from "../shared/desks.ts";
 import {
+  pageForLocation,
   pageForPath,
+  pagerIdForSearch,
   pathForPage,
   pageForFlags,
   pageShortcut,
@@ -85,14 +89,15 @@ function pageFromEntry(state: unknown): Page | null | undefined {
   return entry.page === "tasks" ||
     entry.page === "cronjobs" ||
     entry.page === "apps" ||
-    entry.page === "settings"
+    entry.page === "settings" ||
+    entry.page === "pager"
     ? entry.page
     : undefined;
 }
 
 /**
  * `routing` is how the app is DEPLOYED, not something it can work out for
- * itself. The office owns its origin's root, so its four full-page views are
+ * itself. The office owns its origin's root, so its full-page views are
  * real URLs. The landing demo serves this same App under /demo
  * (ui/demo-entry.tsx, built to site/demo/), where writing "/tasks" would name a
  * public URL that does not exist - so it passes false and keeps the pre-routing
@@ -133,7 +138,10 @@ export function App({ routing = true }: { routing?: boolean }) {
   // The page the URL asked for, read once at mount. Every page flag below
   // starts from it, so a shared link renders its page on the FIRST paint - no
   // flash of the office, and no wait for the websocket.
-  const [bootPage] = useState(() => pageForPath(window.location.pathname));
+  // A Discord page link (`/?pager=<id>`) opens the pager on that page.
+  const [bootPage] = useState(() =>
+    pageForLocation(window.location.pathname, window.location.search),
+  );
   // Full-page Settings (like tasks/cronjobs): part of the main view
   // switch, closed via goHome/popstate.
   const [usersOpen, setUsersOpen] = useState(bootPage === "settings");
@@ -154,6 +162,19 @@ export function App({ routing = true }: { routing?: boolean }) {
     useState<TaskOpenRequest | null>(null);
   const [cronjobsOpen, setCronjobsOpen] = useState(bootPage === "cronjobs");
   const [appsOpen, setAppsOpen] = useState(bootPage === "apps");
+  const [pagerOpen, setPagerOpen] = useState(bootPage === "pager");
+  // Read once, like bootPage. The sync effect below rewrites the URL to
+  // /pager, so the id lives here until the view has shown it.
+  const [pagerSelectRequest, setPagerSelectRequest] =
+    useState<PagerSelectRequest | null>(() => {
+      const id = pagerIdForSearch(window.location.search);
+      return id === null ? null : { id };
+    });
+  const clearPagerSelectRequest = useCallback(
+    () => setPagerSelectRequest(null),
+    [],
+  );
+  usePagerSync();
 
   // Refresh persistence: reopen the same spot (room / agent chat / tasks /
   // cronjobs) after a page reload, and restore unsent chat drafts. The
@@ -222,6 +243,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     if (saved.panel === "tasks") setTasksOpen(true);
     else if (saved.panel === "cronjobs") setCronjobsOpen(true);
     else if (saved.panel === "apps") setAppsOpen(true);
+    else if (saved.panel === "pager") setPagerOpen(true);
     // "users" is the old name for the same page; a spot saved by an earlier
     // build still reopens it.
     else if (saved.panel === "settings" || saved.panel === "users")
@@ -252,7 +274,9 @@ export function App({ routing = true }: { routing?: boolean }) {
             ? "cronjobs"
             : appsOpen
               ? "apps"
-              : null,
+              : pagerOpen
+                ? "pager"
+                : null,
     });
   }, [
     persistEnabled,
@@ -263,6 +287,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     tasksOpen,
     cronjobsOpen,
     appsOpen,
+    pagerOpen,
     usersOpen,
     lobbyOpen,
   ]);
@@ -384,7 +409,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   // dedupes on its end so identical updates don't cascade into a
   // broadcast.
   const viewMode: "office" | "log" | "away" =
-    tasksOpen || cronjobsOpen || appsOpen || usersOpen
+    tasksOpen || cronjobsOpen || appsOpen || pagerOpen || usersOpen
       ? "away"
       : focusedAgentId
         ? "log"
@@ -433,7 +458,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   );
 
   // The one place a page is applied from outside the UI - boot and popstate.
-  // Exactly one flag is set and the other three are cleared, so no restore can
+  // Exactly one flag is set and the others are cleared, so no restore can
   // leave two pages open. The settings section and the preselected user are
   // deliberately dropped: neither is part of a route (ruling 3), so a Forward
   // into settings lands on the generic page instead of resurrecting whichever
@@ -442,6 +467,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     setTasksOpen(page === "tasks");
     setCronjobsOpen(page === "cronjobs");
     setAppsOpen(page === "apps");
+    setPagerOpen(page === "pager");
     setUsersOpen(page === "settings");
     setEditingUserId(null);
     setSettingsTarget(null);
@@ -521,7 +547,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           ctrlKey: e.ctrlKey,
           altKey: e.altKey,
         },
-        { usersOpen, tasksOpen, cronjobsOpen, appsOpen },
+        { usersOpen, tasksOpen, cronjobsOpen, appsOpen, pagerOpen },
       );
       if (pageUpdate !== null) {
         e.preventDefault();
@@ -533,6 +559,8 @@ export function App({ routing = true }: { routing?: boolean }) {
             setCronjobsOpen(pageUpdate.cronjobsOpen);
           if (pageUpdate.appsOpen !== undefined)
             setAppsOpen(pageUpdate.appsOpen);
+          if (pageUpdate.pagerOpen !== undefined)
+            setPagerOpen(pageUpdate.pagerOpen);
           // "s" opens the settings of the room you are standing in; the lobby
           // has no room row, so it opens the office row instead (Nil, 2026-09-14).
           if (pageUpdate.usersOpen)
@@ -636,6 +664,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     appsOpen,
     tasksOpen,
     cronjobsOpen,
+    pagerOpen,
     openSettings,
     lobbyOpen,
   ]);
@@ -643,7 +672,13 @@ export function App({ routing = true }: { routing?: boolean }) {
   // Which page is showing, in the same precedence as the view switch below. A
   // chat is not a page: agent chats are not routes (ruling 3), so a chat and
   // the office share the path "/".
-  const page = pageForFlags({ usersOpen, tasksOpen, cronjobsOpen, appsOpen });
+  const page = pageForFlags({
+    usersOpen,
+    tasksOpen,
+    cronjobsOpen,
+    appsOpen,
+    pagerOpen,
+  });
   const isDeep = page !== null || focusedAgentId !== null;
   useEffect(() => {
     const write = (method: "pushState" | "replaceState") => {
@@ -741,6 +776,16 @@ export function App({ routing = true }: { routing?: boolean }) {
             dispatch({ type: "focus", agentId });
           }}
         />
+      ) : page === "pager" ? (
+        <PagerView
+          onClose={goHome}
+          selectRequest={pagerSelectRequest}
+          onSelectRequestHandled={clearPagerSelectRequest}
+          onFocusAgent={(agentId) => {
+            setPagerOpen(false);
+            dispatch({ type: "focus", agentId });
+          }}
+        />
       ) : focusedAgent ? (
         <LogView
           key={focusedAgent.id}
@@ -774,6 +819,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           onOpenTasks={openTasks}
           onOpenCronjobs={() => setCronjobsOpen(true)}
           onOpenApps={() => setAppsOpen(true)}
+          onOpenPager={() => setPagerOpen(true)}
           onOpenUpdate={() =>
             openSettings({ kind: "section", section: "updates" })
           }
