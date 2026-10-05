@@ -36,8 +36,8 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("the office theme default", () => {
-  it("is Dracula, a dark theme", () => {
-    expect(DEFAULT_THEME_ID).toBe("dracula");
+  it("is Nord, a dark theme", () => {
+    expect(DEFAULT_THEME_ID).toBe("nord");
     expect(getThemeById(DEFAULT_THEME_ID).mode).toBe("dark");
   });
 

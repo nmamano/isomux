@@ -3,7 +3,7 @@
 //
 // State lives in the `isomux-theme` localStorage key. When absent, the host
 // page follows the OS `prefers-color-scheme` via @media in its own CSS.
-// When present (a registered app theme id like "dracula" or
+// When present (a registered app theme id like "nord" or
 // "solarized-light"), the `data-theme` attr on <html> overrides the media
 // query (see the `:root[data-theme-mode=...]` blocks in the host CSS).
 //
@@ -82,10 +82,10 @@
     btn.innerHTML = mode === "light" ? MOON_SVG : SUN_SVG;
   }
 
-  // The dark side writes "dracula", the app's default dark theme, so the
+  // The dark side writes "nord", the app's default dark theme, so the
   // embedded /demo iframe follows with the same palette.
   function toggle() {
-    const next = currentMode() === "light" ? "dracula" : "light";
+    const next = currentMode() === "light" ? "nord" : "light";
     try {
       localStorage.setItem(KEY, next);
     } catch (e) {}

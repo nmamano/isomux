@@ -768,7 +768,7 @@ export const THEMES: readonly Theme[] = [
 
 // The dark default for a member with no stored pick (an OS light preference
 // still gets "light"; see ui/store.tsx). A stored pick always wins.
-export const DEFAULT_THEME_ID = "dracula";
+export const DEFAULT_THEME_ID = "nord";
 
 export function getThemeById(id: string): Theme {
   return (
