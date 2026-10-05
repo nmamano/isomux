@@ -46,6 +46,8 @@ full at every slice. Where this file and the design disagree, this file wins.
   routes-agents-manifest.test.ts
 - a slice that adds a capability also runs
   server/test-support/identity-tokens.test.ts (it pins each scope's exact set)
+- a slice that names a route in an agent-reference page or the system prompt
+  also runs server/backends/opencode/authority-broker.prompt-routes.test.ts
 - eslint on touched files
 - `bunx tsc --noEmit`
 
