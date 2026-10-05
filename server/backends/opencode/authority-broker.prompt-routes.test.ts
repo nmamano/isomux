@@ -23,6 +23,10 @@ import { PRIVILEGED_AGENT_CAPABILITIES } from "../../identity/index.ts";
 const EXCLUDED: Record<string, string> = {
   "POST /api/app/message":
     "App-server route: the app's own token never goes through the agent proxy.",
+  "POST /api/app/pager":
+    "App-server route: the app's own token never goes through the agent proxy.",
+  "POST /api/app/pager/resolve":
+    "App-server route: the app's own token never goes through the agent proxy.",
 };
 
 const cleanup: Array<() => void | Promise<void>> = [];
