@@ -767,7 +767,13 @@ export function App({ routing = true }: { routing?: boolean }) {
           }}
         />
       ) : page === "cronjobs" ? (
-        <CronjobsView onClose={goHome} />
+        <CronjobsView
+          onClose={goHome}
+          onFocusAgent={(agentId) => {
+            setCronjobsOpen(false);
+            dispatch({ type: "focus", agentId });
+          }}
+        />
       ) : page === "apps" ? (
         <AppsView
           onClose={goHome}

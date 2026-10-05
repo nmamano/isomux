@@ -132,11 +132,26 @@ describe("webhook delivery store", () => {
   });
 
   it("trims to the row limit, and a trimmed body is new again", () => {
+    // Design section 6 and ruling 8.
+    expect(WEBHOOK_DELIVERY_LOG_MAX).toBe(500);
+    // A full log is seeded in one write: filling it through the store costs
+    // a whole-file write per claim and per settle, seconds in total.
+    const seed = createWebhookDeliveryStore({ dir, now });
+    const first = claimed(seed.claim(HOOK, input("b0")));
+    seed.settle(first.log, first.row.id, final("no_match", 200));
+    const [template] = onDisk();
+    const full = Array.from({ length: WEBHOOK_DELIVERY_LOG_MAX }, (_, i) => ({
+      ...template,
+      id: `d_${i}`,
+      bodyHash: `sha256:b${i}`,
+    }));
+    writeFileSync(join(dir, HOOK, "deliveries.json"), JSON.stringify(full));
+
     const store = createWebhookDeliveryStore({ dir, now });
-    for (let i = 0; i <= WEBHOOK_DELIVERY_LOG_MAX; i++) {
-      const c = claimed(store.claim(HOOK, input(`b${i}`)));
-      store.settle(c.log, c.row.id, final("no_match", 200));
-    }
+    const last = claimed(
+      store.claim(HOOK, input(`b${WEBHOOK_DELIVERY_LOG_MAX}`)),
+    );
+    store.settle(last.log, last.row.id, final("no_match", 200));
     const rows = onDisk();
     expect(rows).toHaveLength(WEBHOOK_DELIVERY_LOG_MAX);
     expect(rows[0].bodyHash).toBe("sha256:b1");

@@ -1,16 +1,20 @@
 import { StatusShape } from "./StatusShape.tsx";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type { CronUpdateReq } from "../../shared/contract-shapes.ts";
 import { CronjobDialog } from "./CronjobDialog.tsx";
 import { CronjobsPromptDialog } from "./CronjobsPromptDialog.tsx";
 import { CronjobRunView } from "./CronjobRunView.tsx";
+import { WebhooksView } from "./WebhooksView.tsx";
+import { WebhookDialog } from "./WebhookDialog.tsx";
 import {
   type CronjobListWire,
   type CronjobRun,
   type CronjobRunStatus,
+  type WebhookWire,
 } from "../../shared/types.ts";
+import { lastRunAt } from "../webhook-helpers.ts";
 import { getRoomFilter, setRoomFilter } from "../device-settings.ts";
 import {
   effectiveRoomFilter,
@@ -31,12 +35,13 @@ import { scheduleText } from "../../shared/i18n/schedule.ts";
 import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 
-type Tab = "runs" | "cronjobs";
+type Tab = "runs" | "cronjobs" | "webhooks";
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
 const TAB_LABEL: Record<Tab, Extract<MessageKey, `schedules.tab.${string}`>> = {
   runs: "schedules.tab.runs",
   cronjobs: "schedules.tab.cronjobs",
+  webhooks: "schedules.tab.webhooks",
 };
 
 const STATUS_ICON: Record<CronjobRunStatus, React.ReactNode> = {
@@ -112,7 +117,13 @@ function formatStartedAt(language: SupportedLanguageCode, ts: number): string {
   return `${formatDateTime(language, ts, "monthDay")} ${time}`;
 }
 
-export function CronjobsView({ onClose }: { onClose: () => void }) {
+export function CronjobsView({
+  onClose,
+  onFocusAgent,
+}: {
+  onClose: () => void;
+  onFocusAgent?: (agentId: string) => void;
+}) {
   const {
     cronjobs,
     cronjobsLoaded,
@@ -125,10 +136,28 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
     currentRoomId,
     lobbyOpen,
     sessionContext,
+    webhooks,
   } = useAppState();
   const { t } = useI18n();
   const dispatch = useDispatch();
   const [tab, setTab] = useState<Tab>("runs");
+  // The open hook on the Webhooks tab, and a delivery row to point at when a
+  // webhook run's link opened it.
+  const [openHook, setOpenHook] = useState<{
+    id: string;
+    deliveryId: string | null;
+    seq: number;
+  } | null>(null);
+  const focusSeqRef = useRef(0);
+  // null: closed; {}: a new hook; {webhook}: an edit.
+  const [webhookDialog, setWebhookDialog] = useState<{
+    webhook?: WebhookWire;
+  } | null>(null);
+  // An edit closes when the viewer no longer sees the hook.
+  const webhookDialogLive =
+    webhookDialog !== null &&
+    (webhookDialog.webhook === undefined ||
+      webhooks.some((w) => w.id === webhookDialog.webhook!.id));
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<CronjobListWire | null>(null);
   const roomOptions = roomFilterOptions(rooms, allRooms);
@@ -227,8 +256,11 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
     if (openRun && !openRunReadable) setOpenRun(null);
     if (editing && !editingAllowed) setEditing(null);
     if (runFilter && !runFilterReadable) setRunFilter(null);
+    if (webhookDialog && !webhookDialogLive) setWebhookDialog(null);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [
+    webhookDialog,
+    webhookDialogLive,
     openRun,
     openRunReadable,
     editing,
@@ -265,6 +297,8 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
           setOpenRun(null);
           return;
         }
+        // The webhook dialog handles its own Escape (with its discard check).
+        if (webhookDialog) return;
         if (editing || creating || editingPrompt) {
           e.stopPropagation();
           setEditing(null);
@@ -272,11 +306,16 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
           setEditingPrompt(false);
           return;
         }
+        if (tab === "webhooks" && openHook) {
+          e.stopPropagation();
+          setOpenHook(null);
+          return;
+        }
       }
     }
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
-  }, [openRun, editing, creating, editingPrompt]);
+  }, [openRun, editing, creating, editingPrompt, webhookDialog, tab, openHook]);
 
   return (
     <div
@@ -331,10 +370,11 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
               overflow: "hidden",
             }}
           >
-            {(["runs", "cronjobs"] as Tab[]).map((name) => (
+            {(["runs", "cronjobs", "webhooks"] as Tab[]).map((name) => (
               <button
                 key={name}
                 onClick={() => setTab(name)}
+                data-schedules-tab={name}
                 style={{
                   padding: "5px 12px",
                   border: "none",
@@ -351,29 +391,37 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
-          <RoomFilterSelect
-            value={roomFilter}
-            rooms={roomOptions}
-            onChange={changeRoomFilter}
-          />
+          {/* A hook has no room. */}
+          {tab !== "webhooks" && (
+            <RoomFilterSelect
+              value={roomFilter}
+              rooms={roomOptions}
+              onChange={changeRoomFilter}
+            />
+          )}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {tab !== "webhooks" && (
+            <button
+              onClick={() => setEditingPrompt(true)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "transparent",
+                color: "var(--text-dim)",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              {t("common.settings")}
+            </button>
+          )}
           <button
-            onClick={() => setEditingPrompt(true)}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--text-dim)",
-              fontSize: 11,
-              cursor: "pointer",
-            }}
-          >
-            {t("common.settings")}
-          </button>
-          <button
-            onClick={() => setCreating(true)}
+            onClick={() =>
+              tab === "webhooks" ? setWebhookDialog({}) : setCreating(true)
+            }
+            data-schedules-new=""
             style={{
               padding: "4px 10px",
               borderRadius: 6,
@@ -385,7 +433,9 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
               cursor: "pointer",
             }}
           >
-            {t("schedules.newButton")}
+            {tab === "webhooks"
+              ? t("webhooks.newButton")
+              : t("schedules.newButton")}
           </button>
         </div>
       </div>
@@ -428,7 +478,18 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
 
       {/* Body */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        {tab === "cronjobs" ? (
+        {tab === "webhooks" ? (
+          <WebhooksView
+            openHookId={openHook?.id ?? null}
+            focusDeliveryId={openHook?.deliveryId ?? null}
+            focusSeq={openHook?.seq ?? 0}
+            onOpenHook={(id) => setOpenHook({ id, deliveryId: null, seq: 0 })}
+            onCloseHook={() => setOpenHook(null)}
+            onEdit={(webhook) => setWebhookDialog({ webhook })}
+            onOpenRun={(jobId, runId) => setOpenRun({ jobId, runId })}
+            onFocusAgent={onFocusAgent}
+          />
+        ) : tab === "cronjobs" ? (
           <CronjobsTable
             cronjobs={shownCronjobs}
             filtered={shownCronjobs.length < cronjobs.length}
@@ -475,6 +536,13 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
       {editing && editingAllowed && (
         <CronjobDialog cronjob={editing} onClose={() => setEditing(null)} />
       )}
+      {webhookDialog && webhookDialogLive && (
+        <WebhookDialog
+          webhook={webhookDialog.webhook}
+          onClose={() => setWebhookDialog(null)}
+          onDeleted={() => setOpenHook(null)}
+        />
+      )}
       {editingPrompt && (
         <CronjobsPromptDialog onClose={() => setEditingPrompt(false)} />
       )}
@@ -483,6 +551,15 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
           jobId={openRun.jobId}
           runId={openRun.runId}
           onClose={() => setOpenRun(null)}
+          onOpenWebhook={(webhookId, deliveryRowId) => {
+            setOpenRun(null);
+            setTab("webhooks");
+            setOpenHook({
+              id: webhookId,
+              deliveryId: deliveryRowId,
+              seq: ++focusSeqRef.current,
+            });
+          }}
         />
       )}
     </div>
@@ -668,8 +745,9 @@ function CronjobsTable({
                     color: "var(--text-muted)",
                     fontFamily: "'JetBrains Mono',monospace",
                   }}
+                  data-last-run={c.id}
                 >
-                  {timeAgo(language, t, c.lastFireAt)}
+                  {timeAgo(language, t, lastRunAt(c, runs))}
                 </td>
               )}
               <td
@@ -882,9 +960,22 @@ function RunsTable({
                   fontSize: 12,
                   textAlign: "center",
                 }}
-                title={r.trigger}
+                title={
+                  r.trigger === "webhook" && r.webhook
+                    ? t("schedules.trigger.webhookBy", {
+                        name: r.webhook.webhookName,
+                      })
+                    : r.trigger
+                }
+                data-run-trigger={r.trigger}
               >
-                {r.trigger === "manual" ? <StatusShape kind="triangle" /> : "⏲"}
+                {r.trigger === "manual" ? (
+                  <StatusShape kind="triangle" />
+                ) : r.trigger === "webhook" ? (
+                  <StatusShape kind="hook" />
+                ) : (
+                  "⏲"
+                )}
               </td>
               <td style={{ padding: cellPad, fontSize: 12, fontWeight: 600 }}>
                 {r.cronjobName}

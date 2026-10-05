@@ -227,7 +227,8 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Activity badge on desk when attention needed
 
 ### Schedules
-- Schedule recurring agent runs (daily at HH:MM, weekly on a weekday, or every N minutes). Use case: a 09:00 schedule that summarizes what every agent did yesterday.
+- Schedule recurring agent runs (daily at HH:MM, weekly on a weekday, or every N minutes). Use case: a 09:00 schedule that summarizes what every agent did yesterday. A schedule can also run on demand only, from "Run now" or a webhook.
+- Webhooks: an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. The Webhooks tab of the Schedules page shows the GitHub settings, the delivery log and a rule test. GitHub must reach the office from the internet, so an office that only the tailnet can see gets no deliveries.
 - Schedules are not desk agents; they have no persistent identity. Each scheduled fire spawns a fresh SDK session that runs to completion, then the transcript is preserved.
 - Each run is browsable, resumable, and forkable from the UI: a daily report can become an interactive follow-up.
 - Same configurability as a desk agent: model, thinking effort, cwd, permission mode

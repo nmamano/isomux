@@ -18,6 +18,7 @@ import { appendBlockToDraft } from "../log-view/draft-append.ts";
 import { sendAttempt, takeAttempt } from "../log-view/outbox.ts";
 import { OutboxRows } from "../log-view/OutboxRows.tsx";
 import { errMessage } from "../../shared/errors.ts";
+import { useWebhookList } from "./WebhooksView.tsx";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -63,12 +64,16 @@ export function CronjobRunView({
   jobId,
   runId,
   onClose,
+  onOpenWebhook,
 }: {
   jobId: string;
   runId: string;
   onClose: () => void;
+  // Opens the hook's detail at the delivery row that started this run.
+  onOpenWebhook?: (webhookId: string, deliveryRowId: string) => void;
 }) {
   const {
+    webhooks,
     cronjobs,
     cronjobRunsByJob,
     isMobile,
@@ -193,6 +198,50 @@ export function CronjobRunView({
   const run =
     runs.find((r) => r.id === runId) ??
     (fetchedRun?.key === runKey ? fetchedRun.run : undefined);
+
+  // A webhook run links to its hook while the viewer manages it. The list is
+  // fetched here, so the link does not depend on an earlier visit to the
+  // Webhooks tab.
+  useWebhookList(run?.trigger === "webhook");
+  const runWebhook = run?.webhook;
+  const webhookLink =
+    runWebhook && onOpenWebhook
+      ? webhooks.some((w) => w.id === runWebhook.webhookId)
+        ? () => onOpenWebhook(runWebhook.webhookId, runWebhook.deliveryRowId)
+        : null
+      : null;
+  const triggerText = (r: CronjobRun) =>
+    r.trigger === "manual"
+      ? r.triggeredBy
+        ? t("schedules.trigger.manualBy", { who: r.triggeredBy })
+        : t("schedules.trigger.manual")
+      : r.trigger === "webhook"
+        ? r.webhook
+          ? t("schedules.trigger.webhookBy", { name: r.webhook.webhookName })
+          : t("schedules.trigger.webhook")
+        : t("schedules.trigger.scheduled");
+  const triggerNode = (r: CronjobRun) =>
+    webhookLink ? (
+      <button
+        type="button"
+        onClick={webhookLink}
+        title={t("webhooks.openDelivery")}
+        data-run-webhook-link=""
+        style={{
+          background: "none",
+          border: "none",
+          padding: 0,
+          font: "inherit",
+          color: "var(--accent-text)",
+          cursor: "pointer",
+          textDecoration: "underline",
+        }}
+      >
+        {triggerText(r)}
+      </button>
+    ) : (
+      triggerText(r)
+    );
 
   // ESC closes the view, unless the user is editing a message - then ESC
   // cancels the edit (handled inside EditableUserMessage).
@@ -448,13 +497,13 @@ export function CronjobRunView({
                   {formatDateTime(language, run.startedAt, "monthDayTime")}
                 </span>
                 <span style={{ color: "var(--text-ghost)" }}>
-                  {t(
-                    run.trigger === "manual"
-                      ? "schedules.trigger.manual"
-                      : run.trigger === "webhook"
-                        ? "schedules.trigger.webhook"
-                        : "schedules.trigger.scheduled",
-                  )}
+                  {run.trigger === "webhook"
+                    ? triggerNode(run)
+                    : t(
+                        run.trigger === "manual"
+                          ? "schedules.trigger.manual"
+                          : "schedules.trigger.scheduled",
+                      )}
                 </span>
               </div>
             </div>
@@ -505,17 +554,7 @@ export function CronjobRunView({
                   fontFamily: "'JetBrains Mono',monospace",
                 }}
               >
-                {run.trigger === "manual"
-                  ? run.triggeredBy
-                    ? t("schedules.trigger.manualBy", { who: run.triggeredBy })
-                    : t("schedules.trigger.manual")
-                  : run.trigger === "webhook"
-                    ? run.webhook
-                      ? t("schedules.trigger.webhookBy", {
-                          name: run.webhook.webhookName,
-                        })
-                      : t("schedules.trigger.webhook")
-                    : t("schedules.trigger.scheduled")}
+                {triggerNode(run)}
               </span>
             </div>
           )

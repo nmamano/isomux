@@ -34,6 +34,7 @@ import type {
   RoomWire,
   CronjobListWire,
   CronjobRun,
+  WebhookWire,
   PresenceInfo,
   UserRecord,
   UserPublicWire,
@@ -171,6 +172,15 @@ export interface AppState {
   pagerRevision: number;
   // Bumped to ask usePagerSync for a new snapshot: a refused one, or Retry.
   pagerFetchSeq: number;
+  // The webhooks this viewer may manage: its own, or every hook for an office
+  // owner. Fetched by the Webhooks tab (and by a webhook run's view, which
+  // links to its hook) and kept fresh by the webhook_upserted /
+  // webhook_deleted deltas. Same revision rule as apps: a list GET that a
+  // delta overtook is refused, so it cannot undo an edit or a delete. The
+  // secret is never in this slice.
+  webhooks: WebhookWire[];
+  webhooksLoaded: boolean;
+  webhooksRevision: number;
   // The jobs this viewer may see: its maker's, office owners', and those of
   // the viewer's rooms.
   cronjobs: CronjobListWire[];
@@ -364,6 +374,11 @@ type Action =
   | { type: "pager_load_failed" }
   | { type: "pager_refetch" }
   | { type: "pager_upserted"; entry: PagerEntry }
+  // CLIENT-LOCAL (not a ServerMessage): the webhook list fetch. Refused, like
+  // apps_loaded, when a delta landed while it was in flight.
+  | { type: "webhooks_loaded"; webhooks: WebhookWire[]; revision: number }
+  | { type: "webhook_upserted"; webhook: WebhookWire }
+  | { type: "webhook_deleted"; id: string }
   | { type: "set_current_room"; roomId: string }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
@@ -1080,6 +1095,32 @@ export function reducer(state: AppState, action: Action): AppState {
             );
       return { ...state, pager, pagerRevision: state.pagerRevision + 1 };
     }
+    case "webhooks_loaded":
+      if (action.revision !== state.webhooksRevision) {
+        return { ...state, webhooksLoaded: true };
+      }
+      return { ...state, webhooks: action.webhooks, webhooksLoaded: true };
+    case "webhook_upserted": {
+      const known = state.webhooks.some((w) => w.id === action.webhook.id);
+      const webhooks = known
+        ? state.webhooks.map((w) =>
+            w.id === action.webhook.id ? action.webhook : w,
+          )
+        : [...state.webhooks, action.webhook];
+      return {
+        ...state,
+        webhooks,
+        webhooksRevision: state.webhooksRevision + 1,
+      };
+    }
+    // The revision moves for an unknown id too: a list GET in flight may
+    // still carry the hook.
+    case "webhook_deleted":
+      return {
+        ...state,
+        webhooks: state.webhooks.filter((w) => w.id !== action.id),
+        webhooksRevision: state.webhooksRevision + 1,
+      };
     case "set_current_room":
       return { ...state, currentRoomId: action.roomId, lobbyOpen: false };
     case "set_lobby_open":
@@ -1375,6 +1416,9 @@ export const initialState: AppState = {
   pagerLoadFailed: false,
   pagerRevision: 0,
   pagerFetchSeq: 0,
+  webhooks: [],
+  webhooksLoaded: false,
+  webhooksRevision: 0,
   cronjobs: [],
   cronjobsLoaded: false,
   cronjobsPrompt: null,

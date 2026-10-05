@@ -82,6 +82,7 @@ This section is about an attacker who has no credential.
 | Personal API token                           | `isomux_pat_` and 32 random bytes | 30 days, 365 days or no expiry                                | SHA-256 hash in `api-tokens.json`                                                   |
 | Agent and run tokens                         | 32 random bytes                   | Until the agent stops or the run ends, or the server restarts | Process memory only                                                                 |
 | App token                                    | 32 random bytes                   | Until the app is deleted                                      | SHA-256 hash in `apps/app-tokens.json`; the raw value in the app's environment file |
+| Webhook secret                               | 32 random bytes                   | Until the owner rotates it or deletes the hook                | Plain text in `webhooks/secrets.json`, because the HMAC check needs it              |
 
 Isomux compares hashes in constant time. Isomux does not write the credentials that it mints to its logs. A secret that a person or an agent types into a message is a different case (section 8.3).
 
@@ -118,6 +119,7 @@ Rate limits use the client address: the rightmost `X-Forwarded-For` entry from t
 - `/readyz`: 30 requests per minute for each client. On-box requests have no limit.
 - App sign-in: a limit for each app and client.
 - The container setup form: a limit for each client.
+- Webhook deliveries (`POST /hooks/:id`, which needs only a valid signature): for each hook, 300 requests per minute with a burst of 60, before the body read and the signature check. An unknown hook id gets 404 before this limit. A delivery rejected before the signature check only raises a counter; it writes no log row. Signed deliveries start at most 10 dispatches per minute and 500 accepted dispatches per day for each hook.
 
 Limits of this design:
 
