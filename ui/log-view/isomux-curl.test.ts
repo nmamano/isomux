@@ -1376,6 +1376,30 @@ describe("humanizeIsomuxRequest", () => {
   });
 });
 
+describe("agent reference card", () => {
+  const ref = (path: string) =>
+    parseIsomuxCurl(
+      `curl -s localhost:4000${path} -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`,
+    )!;
+
+  test("a page read names the page it read", () => {
+    const label = humanizeIsomuxRequest(
+      EN,
+      ref("/api/agent-reference/scheduled-messages"),
+    );
+    expect(label).toContain("scheduled-messages");
+    expect(
+      humanizeIsomuxRequest(EN, ref("/api/agent-reference/tasks")),
+    ).toContain("tasks");
+  });
+
+  test("the index read keeps the static label", () => {
+    const req = ref("/api/agent-reference");
+    expect(humanizeIsomuxRequest(EN, req)).toBeNull();
+    expect(req.actionKey).toBe("apiCall.agentReference.read");
+  });
+});
+
 describe("agent discovery route label", () => {
   test("GET /agents and /api/agents get the manifest label", () => {
     const req = parseIsomuxCurl(

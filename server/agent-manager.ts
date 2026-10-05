@@ -118,7 +118,7 @@ import {
 } from "./backend-failure-text.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
-import { generateOutfit } from "./outfit.ts";
+import { randomOutfit } from "../shared/outfit-options.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { capturePreview } from "./preview-capture.ts";
 import type { BrowserResult } from "./browser-actions.ts";
@@ -8578,7 +8578,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       cwd: resolvedCwd,
       // Legacy entries default to a fresh random outfit + Claude. Validators
       // inside restoreOrReviveAgent canonicalize modelFamily/effort/etc.
-      outfit: entry.outfit ?? generateOutfit(),
+      outfit: entry.outfit ?? randomOutfit(),
       permissionMode: entry.permissionMode ?? "auto",
       modelFamily: entry.modelFamily,
       effort: entry.effort,

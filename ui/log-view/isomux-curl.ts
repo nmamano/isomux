@@ -1159,6 +1159,12 @@ export function humanizeIsomuxRequest(
   if (segs.length === 1 && segs[0] === "cron-runs" && m === "GET")
     return t("apiCall.cronjobs.listRecentRuns");
 
+  // The index keeps the static label; a page read names the page.
+  if (segs.length === 2 && segs[0] === "agent-reference" && m === "GET")
+    return t("apiCall.agentReference.readPage", {
+      page: truncateLabel(segs[1], 32),
+    });
+
   return null;
 }
 

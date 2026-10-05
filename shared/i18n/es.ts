@@ -1204,6 +1204,8 @@ Cosas que puedes hacer por él:
   "apiCall.agents.logsList": "Listar las sesiones de los registros de {who}",
   "apiCall.agents.instructions": "Leer las instrucciones del agente",
   "apiCall.agentReference.read": "Leer la referencia de la API de la oficina",
+  "apiCall.agentReference.readPage":
+    "Leer la referencia de la API de la oficina: {page}",
   "apiCall.agents.systemPrompt": "Leer el prompt de sistema del agente",
   "apiCall.agents.clearConversation": "Borrar la conversación de {who}",
   "apiCall.agents.flushQueue": "Vaciar ahora la cola de {who}",

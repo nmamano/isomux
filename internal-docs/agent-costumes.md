@@ -21,9 +21,11 @@ costume is selected. The Hat control still saves a choice; that choice appears
 again under None or Doctor. The saved shirt color also returns under None.
 Accessories, skin, hair, beard and pose animations keep their current behavior.
 
-All three random appearance generators (`server/outfit.ts`,
-`shared/office-state.ts`, and the dialog's `makeRandomOutfit`) still omit the
-costume key. Randomize therefore resets the costume to None. The receptionist
+Every random appearance (server spawn, `shared/office-state.ts`, and the
+dialog's default and Randomize) comes from `randomOutfit` in
+`shared/outfit-options.ts`. It picks again when `isUnusualOutfit` matches
+(a beard or bald head with a hair bow, or a beard with pigtails); a member's
+own picks are never checked. It omits the costume key. Randomize therefore resets the costume to None. The receptionist
 profile, welcome outfits, LobbyEditor and lobby preview fixtures
 are unchanged and omit the key. Health Navigator uses `costume: "doctor"`.
 The other templates omit the key. Construction for Side Project Builder and

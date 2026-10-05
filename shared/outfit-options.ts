@@ -74,3 +74,36 @@ export const ACCESSORIES: AgentOutfit["accessory"][] = [
   "tie",
   "earrings",
 ];
+
+// Combinations a random outfit never gets. Only random picks are checked: a
+// member's choice in the outfit picker is never blocked.
+export function isUnusualOutfit(
+  outfit: Pick<AgentOutfit, "hat" | "beard" | "hairStyle">,
+): boolean {
+  const bearded = outfit.beard !== "none";
+  return (
+    (outfit.hat === "bow" && (bearded || outfit.hairStyle === "bald")) ||
+    (bearded && outfit.hairStyle === "pigtails")
+  );
+}
+
+function pick<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Picks each part at random and picks again when the result is unusual. The
+// result has no costume key, so the costume is None.
+export function randomOutfit(): AgentOutfit {
+  for (;;) {
+    const outfit: AgentOutfit = {
+      hat: pick(HATS),
+      color: pick(SHIRT_COLORS),
+      hair: pick(HAIR_COLORS),
+      hairStyle: pick(HAIR_STYLES),
+      skin: pick(SKIN_COLORS),
+      beard: pick(BEARDS),
+      accessory: pick(ACCESSORIES),
+    };
+    if (!isUnusualOutfit(outfit)) return outfit;
+  }
+}

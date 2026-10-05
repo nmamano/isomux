@@ -24,15 +24,7 @@ import { generateTaskId, generateRoomId } from "./types.ts";
 import { versionOf } from "./blob-version.ts";
 import { roomSlotCount, isValidDesk } from "./desks.ts";
 import { taskVersion } from "./task-board.ts";
-import {
-  SHIRT_COLORS,
-  HAIR_COLORS,
-  SKIN_COLORS,
-  HAIR_STYLES,
-  BEARDS,
-  HATS,
-  ACCESSORIES,
-} from "./outfit-options.ts";
+import { randomOutfit } from "./outfit-options.ts";
 
 // Domain events - callers translate these to ServerMessage
 export type OfficeEvent =
@@ -69,22 +61,6 @@ export type TaskChange =
   // ones for whom "visible before" is true while "visible now" is false.
   | { kind: "updated"; task: TaskItem; prevRoomId?: string }
   | { kind: "deleted"; task: TaskItem };
-
-function pick<T>(arr: readonly T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function generateOutfit(): AgentOutfit {
-  return {
-    hat: pick(HATS),
-    color: pick(SHIRT_COLORS),
-    hair: pick(HAIR_COLORS),
-    hairStyle: pick(HAIR_STYLES),
-    skin: pick(SKIN_COLORS),
-    beard: pick(BEARDS),
-    accessory: pick(ACCESSORIES),
-  };
-}
 
 export interface OfficeStateData {
   agents: AgentInfo[];
@@ -298,7 +274,7 @@ export class OfficeState {
       desk,
       roomId: targetRoomId,
       cwd: opts.cwd,
-      outfit: opts.outfit ?? generateOutfit(),
+      outfit: opts.outfit ?? randomOutfit(),
       permissionMode: opts.permissionMode,
       modelFamily: opts.modelFamily ?? "opus",
       effort: opts.effort ?? DEFAULT_EFFORT,

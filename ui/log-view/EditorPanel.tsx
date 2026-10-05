@@ -39,6 +39,8 @@ import {
   setEditorViewState,
   type PersistedTab,
 } from "./editor-state.ts";
+import { citationBlock, citedLines } from "./cite.ts";
+import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 
 interface Tab {
   path: string;
@@ -158,12 +160,16 @@ export function EditorPanel({
   initialPath,
   onClose,
   onPathOpened,
+  onCite,
   mobile = false,
 }: {
   agentId: string;
   initialPath: string | null;
   onClose: () => void;
   onPathOpened?: (path: string) => void;
+  // Receives the citation block for the selected text; the "Cite" pill
+  // shows only when this is set.
+  onCite?: (block: string) => void;
   // When true, renders mobile-friendly chrome: a tab dropdown instead of an
   // overflowing tab strip, an explicit Save button (mobile has no Ctrl+S),
   // a hidden line-number gutter, no autocomplete popup, and contentAttributes
@@ -180,6 +186,12 @@ export function EditorPanel({
   const connectionId = sessionContext?.connectionId ?? "";
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // Where the "Cite" pill goes: the end of the selection, in viewport
+  // coordinates. Null when nothing is selected or the editor has no focus.
+  const [citeAt, setCiteAt] = useState<{
+    rect: DOMRect;
+    containerRect: DOMRect;
+  } | null>(null);
   const langCompartmentRef = useRef<Compartment>(new Compartment());
   const themeCompartmentRef = useRef<Compartment>(new Compartment());
   const readonlyCompartmentRef = useRef<Compartment>(new Compartment());
@@ -626,7 +638,40 @@ export function EditorPanel({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Layout reads go through requestMeasure: CodeMirror does not allow them
+    // during an update. The key makes repeated requests in a frame one read.
+    const citeMeasureKey = {};
+    const measureCite = (v: EditorView) =>
+      v.requestMeasure({
+        key: citeMeasureKey,
+        read: (v) => {
+          const sel = v.state.selection.main;
+          if (!activePathRef.current || sel.empty || !v.hasFocus) return null;
+          const end = v.coordsAtPos(sel.to, -1);
+          if (!end) return null;
+          const box = v.scrollDOM.getBoundingClientRect();
+          if (end.bottom <= box.top || end.top >= box.bottom) return null;
+          return {
+            rect: new DOMRect(
+              end.left,
+              end.top,
+              end.right - end.left,
+              end.bottom - end.top,
+            ),
+            containerRect: box,
+          };
+        },
+        write: (at) => setCiteAt(at),
+      });
+
     const updateListener = EditorView.updateListener.of((update) => {
+      if (
+        update.selectionSet ||
+        update.docChanged ||
+        update.focusChanged ||
+        update.geometryChanged
+      )
+        measureCite(update.view);
       const path = activePathRef.current;
       if (!path) return;
       if (
@@ -728,10 +773,13 @@ export function EditorPanel({
     view.scrollDOM.addEventListener("scroll", rememberScroll, {
       passive: true,
     });
+    const followScroll = () => measureCite(view);
+    view.scrollDOM.addEventListener("scroll", followScroll, { passive: true });
 
     return () => {
       rememberScroll();
       view.scrollDOM.removeEventListener("scroll", rememberScroll);
+      view.scrollDOM.removeEventListener("scroll", followScroll);
       view.destroy();
       viewRef.current = null;
     };
@@ -960,6 +1008,26 @@ export function EditorPanel({
       prev.map((t) => (t.path === activeTab.path ? { ...t, banner: null } : t)),
     );
   }, [activeTab, setTabsAndPersist]);
+
+  // Put the selection into the chat composer as a citation with the file path
+  // and line range, then collapse the selection, as the chat's "Cite" does.
+  function citeSelection() {
+    const view = viewRef.current;
+    const path = activePathRef.current;
+    if (!view || !path || !onCite) return;
+    const sel = view.state.selection.main;
+    if (sel.empty) return;
+    // A whole-line selection ends in a newline that is not part of the cite.
+    const text = view.state.sliceDoc(sel.from, sel.to).replace(/\n$/, "");
+    onCite(
+      citationBlock(text, {
+        path,
+        ...citedLines(view.state.doc, sel.from, sel.to),
+      }),
+    );
+    view.dispatch({ selection: { anchor: sel.to } });
+    setCiteAt(null);
+  }
 
   return (
     <div
@@ -1574,6 +1642,14 @@ export function EditorPanel({
             </span>
           )}
         </div>
+      )}
+      {citeAt && onCite && (
+        <CiteSelectionButton
+          cite={citeAt}
+          containerRect={citeAt.containerRect}
+          onClick={citeSelection}
+          pinned={mobile}
+        />
       )}
     </div>
   );

@@ -1188,6 +1188,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.agents.logsList": "List {who}'s log sessions",
   "apiCall.agents.instructions": "Read agent instructions",
   "apiCall.agentReference.read": "Read office API reference",
+  "apiCall.agentReference.readPage": "Read office API reference: {page}",
   "apiCall.agents.systemPrompt": "Read the agent system prompt",
   "apiCall.agents.clearConversation": "Clear {who}'s conversation",
   "apiCall.agents.flushQueue": "Flush {who}'s queue now",

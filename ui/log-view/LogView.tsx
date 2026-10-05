@@ -1774,8 +1774,8 @@ export function LogView({
 
   // Insert a multi-line block into the draft: at the caret when the textarea
   // is focused, appended at the end otherwise, always separated from
-  // surrounding text by newlines. Shared by the cite pill and the terminal
-  // "send to chat" affordance.
+  // surrounding text by newlines. Shared by the cite pills (chat and editor)
+  // and the terminal "send to chat" affordance.
   function insertBlockIntoDraft(block: string) {
     const ta = textareaRef.current;
     const current = inputRef.current;
@@ -3450,6 +3450,7 @@ export function LogView({
               initialPath={editorInitialPath}
               onClose={() => setEditorOpen(false)}
               onPathOpened={() => setEditorInitialPath(null)}
+              onCite={insertBlockIntoDraft}
             />
           </div>
         )}
@@ -3520,6 +3521,12 @@ export function LogView({
             initialPath={editorInitialPath}
             onClose={() => setEditorOpen(false)}
             onPathOpened={() => setEditorInitialPath(null)}
+            // Full-screen overlay over the composer: close it, as the
+            // terminal does, so the inserted cite is visible.
+            onCite={(block) => {
+              insertBlockIntoDraft(block);
+              setEditorOpen(false);
+            }}
             mobile
           />
         </div>

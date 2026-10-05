@@ -19,15 +19,7 @@ import {
   familyDisplayLabel,
 } from "../../shared/types.ts";
 import { roomSlotCount } from "../../shared/desks.ts";
-import {
-  SHIRT_COLORS,
-  HAIR_COLORS,
-  SKIN_COLORS,
-  HAIR_STYLES,
-  BEARDS,
-  HATS,
-  ACCESSORIES,
-} from "../../shared/outfit-options.ts";
+import { randomOutfit } from "../../shared/outfit-options.ts";
 import { OutfitPicker } from "./OutfitPicker.tsx";
 import { Character } from "../office/Character.tsx";
 import { apiFetch, ApiError } from "../api.ts";
@@ -169,18 +161,6 @@ export function templateValuesAfterEngineSwitch(
   );
 }
 
-function makeRandomOutfit(): AgentOutfit {
-  return {
-    hat: HATS[Math.floor(Math.random() * HATS.length)],
-    color: SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)],
-    hair: HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)],
-    hairStyle: HAIR_STYLES[Math.floor(Math.random() * HAIR_STYLES.length)],
-    skin: SKIN_COLORS[Math.floor(Math.random() * SKIN_COLORS.length)],
-    beard: BEARDS[Math.floor(Math.random() * BEARDS.length)],
-    accessory: ACCESSORIES[Math.floor(Math.random() * ACCESSORIES.length)],
-  };
-}
-
 // Every value the dialog's form holds, flattened for the unsaved-changes check
 // `outfit` is pre-serialized because the form replaces the
 // whole object on each swatch click, so identity says nothing.
@@ -297,7 +277,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [name, setName] = useState(agent?.name ?? "");
   const [cwd, setCwd] = useState(agent?.cwd ?? props.defaultCwd ?? "~");
   const [outfit, setOutfit] = useState<AgentOutfit>(
-    agent ? { ...agent.outfit } : makeRandomOutfit,
+    agent ? { ...agent.outfit } : randomOutfit,
   );
   const [customInstructions, setCustomInstructions] = useState(
     agent?.customInstructions ?? "",
@@ -1969,7 +1949,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   <Character state="idle" outfit={outfit} />
                 </div>
                 <button
-                  onClick={() => setOutfit(makeRandomOutfit())}
+                  onClick={() => setOutfit(randomOutfit())}
                   style={randomBtnStyle}
                 >
                   {t("dialogs.agent.randomize")}
