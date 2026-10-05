@@ -75,7 +75,7 @@ PARKED FOR NIL items.
 
 ## Slices
 
-- [ ] S1 - pure core (verify, match, block)
+- [x] S1 - pure core (verify, match, block): 541fcef2, 102 tests; intro line variants for hmac-sha256 and empty event or delivery id are in block.ts
 - [ ] S2 - registry, API, auth
 - [ ] S3 - ingress and the agent target
 - [ ] S4 - cronjob target, and the "none" schedule (ruling 7)
@@ -103,3 +103,42 @@ removes the `<` escape or the surrogate-pair guard fails a test.
 Decide with the reviewer: module boundaries and type names.
 
 Locked: rulings above; the design's rule language and block format.
+
+## PICKUP S2 (Worker 2 / Reviewer 2)
+
+Goal: design section 11, S2: `server/webhooks/registry.ts` (records and
+secrets, design section 2), the agent routes of design section 7 (all except
+`hooks.deliver`, which is S3), capabilities `webhook:read`/`webhook:write`, the
+owner guard, the `webhookTargetAllowed` precondition, events, the backup
+exclusion, the storage label, the `webhooks` agent-reference page and the
+ROUTE_LABELS entries (four locales). Dry run uses the S1 core and writes no
+row. No ingress, no dispatch, no UI.
+
+What S1 left (merged as one commit on main): `server/webhooks/{verify,match,block}.ts`
+with exported limit constants; `WebhookScheme` and `WebhookRule` in
+shared/types.ts. Reuse them for validation; do not redefine the limits.
+
+Mechanics and traps:
+- PATCH merges the request into the stored record and runs the target check on
+  the whole result, also when the request does not name `target` (design
+  section 4, "Who may point a hook at what").
+- The secret lives only in `webhooks/secrets.json` (0600, dir 0700). The test
+  that no webhook route response contains the secret covers every route.
+- Secret routes accept `scope === "user"` only: an agent, a privileged agent, a
+  cron run, an app and an API token get 403.
+- `shared/storage-labels.ts` is touched, so `bun run build:demo` is in the
+  gates.
+- The pager loop adds its own reference page, capabilities and ROUTE_LABELS
+  entries in parallel. Additions only; on a rebase conflict, keep both sides.
+- The reference page text in design section 7 is a draft for Nil to cut: put
+  the final text verbatim in the slice report.
+- The cronjob target check uses the existing cronjob guards; ruling 7's "none"
+  schedule is S4, not here.
+
+Acceptance: every S2 test in design section 11 exists and passes, through the
+real route table.
+
+Decide with the reviewer: module split between registry and handlers, the wire
+shape details not fixed by the design.
+
+Locked: rulings above; design sections 2 and 7.
