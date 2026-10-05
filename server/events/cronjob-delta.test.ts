@@ -100,10 +100,7 @@ describe("cronjobDeltaFor", () => {
       ),
     ).toEqual({ type: "cronjob_deleted", id: JOB.id });
     expect(
-      cronjobDeltaFor(
-        { kind: "deleted", id: JOB.id, before: at(null) },
-        maker,
-      ),
+      cronjobDeltaFor({ kind: "deleted", id: JOB.id, before: at(null) }, maker),
     ).toEqual({ type: "cronjob_deleted", id: JOB.id });
   });
 });

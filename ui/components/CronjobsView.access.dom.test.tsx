@@ -220,7 +220,10 @@ it("a deleted job's open run view closes for a member and stays for an office ow
 
 it("an owner's open run fetches its transcript again after the delete drops it, and the run list refetches", async () => {
   const ownerState = stateFor(
-    { cronjobs: [managedJob], cronjobRunsByJob: new Map([["job00001", [run]]]) },
+    {
+      cronjobs: [managedJob],
+      cronjobRunsByJob: new Map([["job00001", [run]]]),
+    },
     "owner",
   );
   const view = render(tree(ownerState));
