@@ -119,3 +119,51 @@ it("offers no owner filter without a session, and a stored one hides nothing", a
   expect(listed()).toEqual(apps.map((a) => a.name));
   view.unmount();
 });
+
+it("filters by the creator agent's live room and remembers the room on this device", async () => {
+  const roomed = [
+    { ...app("in-alpha", SELF, "running"), createdByAgentId: "agent-a" },
+    { ...app("in-beta", "u2", "running"), createdByAgentId: "agent-b" },
+    { ...app("creator-gone", "u2", "running"), createdByAgentId: "gone" },
+  ];
+  const state = {
+    apps: roomed,
+    appsLoaded: true,
+    rooms: [
+      { id: "a1a1a1a1", name: "Alpha" },
+      { id: "b2b2b2b2", name: "Beta" },
+    ],
+    agents: [
+      { id: "agent-a", name: "A", roomId: "a1a1a1a1" },
+      { id: "agent-b", name: "B", roomId: "b2b2b2b2" },
+    ],
+  } as unknown as Parameters<typeof onLanguage>[2];
+  const mountRooms = async () => {
+    const view = render(onLanguage("en", <AppsView onClose={() => {}} />, state));
+    await act(async () => {});
+    const listed = () =>
+      roomed
+        .map((a) => a.name)
+        .filter((name) => view.queryByRole("link", { name }) !== null);
+    const select = () =>
+      view.container.querySelector<HTMLSelectElement>(
+        "select[data-room-filter]",
+      )!;
+    return { view, listed, select };
+  };
+  const { fireEvent } = await import("@testing-library/react");
+  const first = await mountRooms();
+  expect(first.listed()).toEqual(["in-alpha", "in-beta", "creator-gone"]);
+  await act(async () => {
+    fireEvent.change(first.select(), { target: { value: "b2b2b2b2" } });
+  });
+  expect(first.listed()).toEqual(["in-beta"]);
+  await act(async () => {
+    fireEvent.change(first.select(), { target: { value: "none" } });
+  });
+  expect(first.listed()).toEqual(["creator-gone"]);
+  first.view.unmount();
+  const again = await mountRooms();
+  expect(again.select().value).toBe("none");
+  again.view.unmount();
+});

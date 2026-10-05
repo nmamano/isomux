@@ -41,6 +41,7 @@ import {
   type CodexSandboxMode,
   type Cronjob,
   type CronjobRun,
+  type CronjobLastRun,
   type CronjobPermissionMode,
   type LogEntry,
   type Schedule,
@@ -141,11 +142,15 @@ interface ActiveRun {
 
 export type CronjobEvent =
   | { type: "cronjob_added"; cronjob: Cronjob }
-  | { type: "cronjob_updated"; cronjob: Cronjob }
-  | { type: "cronjob_deleted"; id: string }
+  // `previous` rides an edit, which can move the job between rooms; the
+  // per-recipient delta needs who could see it before.
+  | { type: "cronjob_updated"; cronjob: Cronjob; previous?: Cronjob }
+  // The removed record, so the delta knows who could see it.
+  | { type: "cronjob_deleted"; id: string; cronjob: Cronjob }
   | { type: "cronjobs_prompt_updated"; value: string | null }
   | { type: "cronjob_run_updated"; run: CronjobRun }
-  | { type: "log_entry"; entry: LogEntry }
+  // jobId routes a live run entry to the job's maker and office owners.
+  | { type: "log_entry"; entry: LogEntry; jobId: string }
   | { type: "clear_logs"; agentId: string };
 
 // CronjobManager was a singleton function-module (module-level cronjobs /
@@ -262,10 +267,86 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
 
   // Event sink (instance-scoped). isomux-office.ts overrides via onCronjobEvent() after
   // construction; deps.eventSink lets tests capture emitted events.
-  let eventHandler: (e: CronjobEvent) => void = deps.eventSink ?? (() => {});
+  let eventSink: (e: CronjobEvent) => void = deps.eventSink ?? (() => {});
 
   function onCronjobEvent(handler: (e: CronjobEvent) => void) {
-    eventHandler = handler;
+    eventSink = handler;
+  }
+
+  function eventHandler(e: CronjobEvent) {
+    if (e.type === "cronjob_run_updated") noteRun(e.run);
+    eventSink(e);
+  }
+
+  // The latest run of each job BY START TIME, for the room viewer's last-run
+  // outcome. Not the last completion: a manual run can overlap a scheduled one,
+  // and a resumed older run changes status again, so runs finish out of order.
+  // Seeded from runs.json on first use per job, then kept current from the run
+  // events this manager emits. A job with no runs maps to null.
+  const latestRunByJob = new Map<
+    string,
+    { runId: string; startedAt: number; last: CronjobLastRun } | null
+  >();
+
+  function latestRunEntry(jobId: string) {
+    if (!latestRunByJob.has(jobId)) {
+      let latest: CronjobRun | null = null;
+      // Later rows win a startedAt tie: runs.json is append-ordered.
+      for (const run of loadRuns(jobId)) {
+        if (!latest || run.startedAt >= latest.startedAt) latest = run;
+      }
+      latestRunByJob.set(
+        jobId,
+        latest
+          ? {
+              runId: latest.id,
+              startedAt: latest.startedAt,
+              last: { status: latest.status, endedAt: latest.endedAt },
+            }
+          : null,
+      );
+    }
+    return latestRunByJob.get(jobId) ?? null;
+  }
+
+  // runId → jobId, for routing a run's files and live entries to the job's
+  // readers. Filled from run events, and from disk on a miss.
+  const runJobIndex = new Map<string, string>();
+
+  function jobIdForRun(runId: string): string | null {
+    const hit = runJobIndex.get(runId);
+    if (hit) return hit;
+    for (const jobId of listAllCronjobIdsOnDisk()) {
+      for (const run of loadRuns(jobId)) runJobIndex.set(run.id, jobId);
+    }
+    return runJobIndex.get(runId) ?? null;
+  }
+
+  function noteRun(run: CronjobRun) {
+    runJobIndex.set(run.id, run.cronjobId);
+    const current = latestRunEntry(run.cronjobId);
+    if (
+      current &&
+      current.runId !== run.id &&
+      run.startedAt < current.startedAt
+    ) {
+      return;
+    }
+    latestRunByJob.set(run.cronjobId, {
+      runId: run.id,
+      startedAt: run.startedAt,
+      last: { status: run.status, endedAt: run.endedAt },
+    });
+  }
+
+  function getLastRun(jobId: string): CronjobLastRun | null {
+    return latestRunEntry(jobId)?.last ?? null;
+  }
+
+  // The id of the latest run by start time, so a caller can tell whether a run
+  // event changed the job's last-run outcome.
+  function getLastRunId(jobId: string): string | null {
+    return latestRunEntry(jobId)?.runId ?? null;
   }
 
   function computeNextFire(
@@ -360,6 +441,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     // Stable identity reference for per-user env at fire time. Optional
     // for legacy/unowned cronjobs; new caller paths pass session.userId.
     userId?: string | null;
+    // Absent = no room (maker + office owners only).
+    roomId?: string;
   }
 
   function addCronjob(input: AddCronjobInput): Cronjob {
@@ -393,6 +476,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         input.userId ??
         (input.username ? (getUserByName(input.username)?.id ?? null) : null),
       username: input.username,
+      ...(input.roomId ? { roomId: input.roomId } : {}),
       createdAt: now,
       lastFireAt: null,
       nextFireAt: computeNextFire(schedule, now, now),
@@ -422,6 +506,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         | "permissionMode"
         | "codexSandbox"
         | "enabled"
+        | "roomId"
       >
     >,
   ): Cronjob | null {
@@ -470,6 +555,11 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       else delete next.codexSandbox;
     }
     if (changes.enabled !== undefined) next.enabled = changes.enabled;
+    // "" clears the room; the caller validated any other value.
+    if (changes.roomId !== undefined) {
+      if (changes.roomId) next.roomId = changes.roomId;
+      else delete next.roomId;
+    }
     if (changes.schedule !== undefined) {
       next.schedule = clampSchedule(changes.schedule);
       // Anchor to the most recent fire (or createdAt if never fired) so an
@@ -484,7 +574,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const history = loadCronjobHistory();
     history[next.id] = { lastName: next.name };
     saveCronjobHistory(history);
-    eventHandler({ type: "cronjob_updated", cronjob: next });
+    eventHandler({ type: "cronjob_updated", cronjob: next, previous: prev });
     return next;
   }
 
@@ -497,7 +587,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const history = loadCronjobHistory();
     history[removed.id] = { lastName: removed.name };
     saveCronjobHistory(history);
-    eventHandler({ type: "cronjob_deleted", id });
+    eventHandler({ type: "cronjob_deleted", id, cronjob: removed });
     return true;
   }
 
@@ -981,7 +1071,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       // Pre-init: buffer until processCronjobMessage(system/init) flushes us.
       active.pendingEntries.push(entry);
     }
-    eventHandler({ type: "log_entry", entry });
+    eventHandler({ type: "log_entry", entry, jobId: active.jobId });
     return true;
   }
 
@@ -1577,7 +1667,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       ...(metadata ? { metadata } : {}),
     });
     appendRunLog(jobId, runId, sessionId, entry);
-    eventHandler({ type: "log_entry", entry });
+    eventHandler({ type: "log_entry", entry, jobId });
   }
 
   // Build CreateSessionOptions for a resumed cronjob run. The current run's
@@ -2229,7 +2319,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       }
       eventHandler({ type: "clear_logs", agentId: streamId });
       for (const e of parentEntries) {
-        eventHandler({ type: "log_entry", entry: e });
+        eventHandler({ type: "log_entry", entry: e, jobId });
       }
 
       // 8. Wire up the active run, persist the new edited message, send it.
@@ -2396,6 +2486,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     getRunsForCronjob,
     getAllRunsByJob,
     getRunTranscript,
+    getLastRun,
+    getLastRunId,
+    jobIdForRun,
     buildCronjobSystemPrompt,
     runCronjobNow,
     findRun,

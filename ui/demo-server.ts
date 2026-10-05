@@ -46,6 +46,7 @@ import type {
   LogEntry,
   ModelFamily,
   Cronjob,
+  CronjobDetailWire,
   CronjobRun,
   PresenceInfo,
   Schedule,
@@ -864,6 +865,12 @@ function demoReply(agentId: string): string {
 // Cron jobs: maintained as plain in-memory state (not via OfficeState).
 const cronjobs: Cronjob[] = [];
 let cronjobsPrompt: string | null = null;
+// The demo's one user makes every schedule, so each is the maker's whole record.
+const demoCronjobWire = (cronjob: Cronjob): CronjobDetailWire => ({
+  ...cronjob,
+  detail: true,
+  canManage: true,
+});
 
 // Agent-built apps. The demo has no systemd, so `state` is whatever the last
 // verb set it to - enough to exercise the Apps tab's list, verbs and log view.
@@ -1946,13 +1953,14 @@ export async function demoApi(
         createdBy: "Ricky",
         userId: null,
         username: "Ricky",
+        ...(b.roomId ? { roomId: b.roomId } : {}),
         createdAt: now,
         lastFireAt: null,
         nextFireAt: computeNextFireDemo(b.schedule, now, now),
       };
       cronjobs.push(cronjob);
-      shimEmit({ type: "cronjob_added", cronjob });
-      return cronjob;
+      shimEmit({ type: "cronjob_added", cronjob: demoCronjobWire(cronjob) });
+      return demoCronjobWire(cronjob);
     }
     // cron.setPrompt - set + broadcast; no body returned (204-like).
     case "PUT /api/cron-prompt": {
@@ -2331,6 +2339,8 @@ export async function demoApi(
       if (idx < 0) return undefined;
       const changes = (body ?? {}) as CronUpdateReq;
       const merged: Cronjob = { ...cronjobs[idx], ...changes };
+      // "" clears the room, as on the server.
+      if (changes.roomId === "") delete merged.roomId;
       if (changes.schedule) {
         const anchor = merged.lastFireAt ?? merged.createdAt;
         merged.nextFireAt = computeNextFireDemo(
@@ -2340,8 +2350,8 @@ export async function demoApi(
         );
       }
       cronjobs[idx] = merged;
-      shimEmit({ type: "cronjob_updated", cronjob: merged });
-      return merged;
+      shimEmit({ type: "cronjob_updated", cronjob: demoCronjobWire(merged) });
+      return demoCronjobWire(merged);
     }
     if (idx >= 0) {
       cronjobs.splice(idx, 1);
@@ -2817,7 +2827,11 @@ export function sendInitialState() {
     interactions: [],
   });
   shimEmit({ type: "tasks", tasks: s.tasks });
-  shimEmit({ type: "cronjobs_state", cronjobs: [...cronjobs], cronjobsPrompt });
+  shimEmit({
+    type: "cronjobs_state",
+    cronjobs: cronjobs.map(demoCronjobWire),
+    cronjobsPrompt,
+  });
   // DEMO ONLY (non-production): the demo has a single simulated user and no ACL
   // boundary, so it sends FULL records on the public users_list. The live
   // server sends UserPublicWire here plus the subject's full record via

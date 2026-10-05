@@ -816,6 +816,11 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
   function stubDeps(over: Partial<CronDeps>): CronDeps {
     const base: CronDeps = {
       listCronjobs: () => [],
+      listCronjobsFor: () => [],
+      projectCronjobFor: () => null,
+      runsVisibleTo: () => true,
+      assignableRoomIds: () => new Set(),
+      defaultCreateRoomId: () => undefined,
       buildCronjobSystemPrompt: () => "system prompt",
       createCronjob: () => {
         throw new Error("unused");

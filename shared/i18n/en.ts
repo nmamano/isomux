@@ -1671,6 +1671,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apps.filter.hideStopped": "Hide stopped",
   "apps.filter.onlyMine": "Only mine",
   "apps.filter.noMatch": "No apps match these filters.",
+  "roomFilter.title": "Filter by room",
+  "roomFilter.all": "All rooms",
+  "roomFilter.none": "No room",
+  "schedules.noMatch": "No schedules match this filter.",
+  "dialogs.schedule.room": "Room",
+  "dialogs.schedule.roomHint": "Room members see this schedule but not its prompt or runs.",
   "apps.unavailable.needsLinux":
     "App hosting needs Linux with systemd, so it is not available on this computer.",
   "apps.loadFailed": "Could not load apps.",

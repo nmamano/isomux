@@ -85,13 +85,15 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // user and to office owners, never to the office.
   app_upserted: "recipient-scoped",
   app_deleted: "recipient-scoped",
-  cronjobs_state: "all",
-  cronjob_added: "all",
-  cronjob_updated: "all",
-  cronjob_deleted: "all",
+  // Cronjobs and their runs are per-recipient (maker, office owners, members
+  // of the job's live room); the shared cron prompt stays office-wide.
+  cronjobs_state: "recipient-scoped",
+  cronjob_added: "recipient-scoped",
+  cronjob_updated: "recipient-scoped",
+  cronjob_deleted: "recipient-scoped",
   cronjobs_prompt_updated: "all",
-  cronjob_run_updated: "all",
-  cron_run_log_entry: "all",
+  cronjob_run_updated: "recipient-scoped",
+  cron_run_log_entry: "recipient-scoped",
   office_settings_updated: "all",
   update_status: "all",
   // Auth-sensitive

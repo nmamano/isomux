@@ -1699,6 +1699,12 @@ Coses que pots fer per ell:
   "apps.filter.hideStopped": "Amaga les aturades",
   "apps.filter.onlyMine": "Només les meves",
   "apps.filter.noMatch": "Cap app no coincideix amb aquests filtres.",
+  "roomFilter.title": "Filtra per sala",
+  "roomFilter.all": "Totes les sales",
+  "roomFilter.none": "Sense sala",
+  "schedules.noMatch": "Cap programació no coincideix amb aquest filtre.",
+  "dialogs.schedule.room": "Sala",
+  "dialogs.schedule.roomHint": "Els membres de la sala veuen aquesta programació, però no el seu prompt ni les seves execucions.",
   "apps.unavailable.needsLinux":
     "L'allotjament d'apps necessita Linux amb systemd, així que no està disponible en aquest ordinador.",
   "apps.loadFailed": "No s'han pogut carregar les apps.",

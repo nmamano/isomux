@@ -34,7 +34,7 @@ const { createElement } = await import("react");
 type View = ReturnType<typeof render>;
 type Language = "ca" | "es" | null;
 type AgentInfo = import("../shared/types.ts").AgentInfo;
-type Cronjob = import("../shared/types.ts").Cronjob;
+type CronjobListWire = import("../shared/types.ts").CronjobListWire;
 
 // The pages fetch on mount. An empty answer keeps every list empty, which is
 // the state whose words this file reads; the seeded `loaded` flags are what
@@ -116,7 +116,10 @@ const appsView = (language: Language) =>
     appsLoaded: true,
   });
 
-const cronjobsView = (language: Language, cronjobs: Cronjob[] = []) =>
+const cronjobsView = (
+  language: Language,
+  cronjobs: CronjobListWire[] = [],
+) =>
   onLanguage(language, createElement(CronjobsView, { onClose: noop }), {
     hasReceivedInitialState: true,
     cronjobs,
@@ -144,7 +147,9 @@ const CRONJOB = {
   createdAt: 0,
   lastFireAt: null,
   nextFireAt: Date.now() + 20_000,
-} as unknown as Cronjob;
+  detail: true,
+  canManage: true,
+} as unknown as CronjobListWire;
 
 // 12345 of 200000 tokens: five digits, so the grouping mark shows.
 const battery = (language: Language) =>

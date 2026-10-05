@@ -15,7 +15,7 @@ import {
   type AgentBackendType,
   type BackendModelWire,
   type CodexSandboxMode,
-  type Cronjob,
+  type CronjobDetailWire,
   type CronjobPermissionMode,
   type EffortLevel,
   type Schedule,
@@ -45,6 +45,7 @@ import {
 import { useI18n } from "../i18n.tsx";
 import { effortLabel } from "../effort-label.ts";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
+import { roomFilterOptions } from "../room-filter.ts";
 
 // The weekday select. The day is an id, its name is a catalog key: no hand-built
 // weekday table survives here (ruling 12 keeps date words out of the code, and
@@ -79,6 +80,8 @@ export interface CronjobFormSnapshot {
   permissionMode: CronjobPermissionMode;
   codexSandbox: CodexSandboxMode;
   enabled: boolean;
+  // "" = no room.
+  roomId: string;
 }
 
 export function cronjobFormDirty(
@@ -99,7 +102,8 @@ export function cronjobFormDirty(
     current.effort !== baseline.effort ||
     current.permissionMode !== baseline.permissionMode ||
     current.codexSandbox !== baseline.codexSandbox ||
-    current.enabled !== baseline.enabled
+    current.enabled !== baseline.enabled ||
+    current.roomId !== baseline.roomId
   );
 }
 
@@ -114,15 +118,30 @@ export function updateCronjobMachineDefaults(
 
 export function CronjobDialog({
   cronjob,
+  defaultRoomId = "",
   onClose,
 }: {
-  cronjob?: Cronjob;
+  cronjob?: CronjobDetailWire;
+  // Create only: the room the new schedule starts in ("" = no room).
+  defaultRoomId?: string;
   onClose: () => void;
 }) {
   const isEdit = !!cronjob;
   const i18n = useI18n();
   const { t } = i18n;
-  const { recentCwds, isMobile, unavailableEngines } = useAppState();
+  const { recentCwds, isMobile, unavailableEngines, rooms, allRooms } =
+    useAppState();
+  const roomOptions = roomFilterOptions(rooms, allRooms);
+  // A stored room this viewer cannot name (closed, or no longer theirs) shows
+  // as no room. Only a changed room is sent, so an unrelated edit never
+  // rewrites it.
+  const initialRoomId =
+    cronjob === undefined
+      ? defaultRoomId
+      : roomOptions.some((room) => room.id === cronjob.roomId)
+        ? (cronjob.roomId ?? "")
+        : "";
+  const [roomId, setRoomId] = useState(initialRoomId);
 
   const [name, setName] = useState(cronjob?.name ?? "");
   const [scheduleType, setScheduleType] = useState<ScheduleType>(
@@ -203,6 +222,7 @@ export function CronjobDialog({
     permissionMode,
     codexSandbox,
     enabled,
+    roomId,
   };
   const baselineRef = useRef<CronjobFormSnapshot | null>(null);
   // Copy, never alias: the machine-defaults re-stamp mutates the baseline in
@@ -447,6 +467,9 @@ export function CronjobDialog({
         permissionMode,
         ...(isCodex ? { codexSandbox } : {}),
         enabled,
+        // Only a changed room is sent: moving the job is the maker's or an
+        // office owner's explicit choice.
+        ...(roomId !== initialRoomId ? { roomId } : {}),
       };
       req = apiFetch(
         "PATCH",
@@ -465,6 +488,7 @@ export function CronjobDialog({
         effort,
         permissionMode,
         ...(isCodex ? { codexSandbox } : {}),
+        roomId,
       };
       req = apiFetch("POST", "/api/cronjobs", body);
     }
@@ -566,6 +590,32 @@ export function CronjobDialog({
             autoFocus={!isEdit}
             style={inputStyle}
           />
+
+          <label style={{ ...labelStyle, marginTop: 14 }}>
+            {t("dialogs.schedule.room")}
+          </label>
+          <select
+            data-cronjob-room=""
+            value={roomId}
+            onChange={(e) => setRoomId(e.target.value)}
+            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+          >
+            <option value="">{t("roomFilter.none")}</option>
+            {roomOptions.map((room) => (
+              <option key={room.id} {...noTranslate()} value={room.id}>
+                {room.name}
+              </option>
+            ))}
+          </select>
+          <p
+            style={{
+              fontSize: 10,
+              color: "var(--text-ghost)",
+              margin: "3px 0 0",
+            }}
+          >
+            {t("dialogs.schedule.roomHint")}
+          </p>
 
           <label style={{ ...labelStyle, marginTop: 14 }}>
             {t("common.schedule")}

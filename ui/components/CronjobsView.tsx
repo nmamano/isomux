@@ -7,10 +7,21 @@ import { CronjobDialog } from "./CronjobDialog.tsx";
 import { CronjobsPromptDialog } from "./CronjobsPromptDialog.tsx";
 import { CronjobRunView } from "./CronjobRunView.tsx";
 import {
-  type Cronjob,
+  type CronjobDetailWire,
+  type CronjobListWire,
   type CronjobRun,
   type CronjobRunStatus,
 } from "../../shared/types.ts";
+import { getRoomFilter, setRoomFilter } from "../device-settings.ts";
+import {
+  effectiveRoomFilter,
+  knownRoomId,
+  roomFilterMatches,
+  roomFilterOptions,
+  ROOM_FILTER_ALL,
+  ROOM_FILTER_NONE,
+} from "../room-filter.ts";
+import { RoomFilterSelect } from "./RoomFilterSelect.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
   formatDateTime,
@@ -35,6 +46,17 @@ const STATUS_ICON: Record<CronjobRunStatus, React.ReactNode> = {
   failed: "✗",
   timed_out: "⏱",
   skipped: "⊘",
+};
+
+const STATUS_LABEL: Record<
+  CronjobRunStatus,
+  Extract<MessageKey, `schedules.status.${string}`>
+> = {
+  running: "schedules.status.running",
+  completed: "schedules.status.completed",
+  failed: "schedules.status.failed",
+  timed_out: "schedules.status.timedOut",
+  skipped: "schedules.status.skipped",
 };
 
 const STATUS_COLOR: Record<CronjobRunStatus, string> = {
@@ -108,13 +130,45 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
     cronjobsLoaded,
     cronjobRunsByJob,
     cronjobRunsLoaded,
+    cronjobsStateSeq,
     isMobile,
+    rooms,
+    allRooms,
+    currentRoomId,
+    lobbyOpen,
+    sessionContext,
   } = useAppState();
   const { t } = useI18n();
   const dispatch = useDispatch();
   const [tab, setTab] = useState<Tab>("runs");
   const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState<Cronjob | null>(null);
+  const [editing, setEditing] = useState<CronjobDetailWire | null>(null);
+  const roomOptions = roomFilterOptions(rooms, allRooms);
+  const [storedRoomFilter, setStoredRoomFilter] = useState(() =>
+    getRoomFilter("schedules"),
+  );
+  const roomFilter = effectiveRoomFilter(storedRoomFilter, roomOptions);
+  const changeRoomFilter = (value: string) => {
+    setStoredRoomFilter(value);
+    setRoomFilter("schedules", value);
+  };
+  // A job's room, as this viewer can name it: a closed room reads as no room.
+  const jobRoomId = (job: CronjobListWire) =>
+    knownRoomId(job.roomId, roomOptions);
+  const shownCronjobs = cronjobs.filter((job) =>
+    roomFilterMatches(roomFilter, jobRoomId(job)),
+  );
+  // A new schedule is filed where the page is filtered to, else the room the
+  // office shows, else no room.
+  const createRoomId =
+    roomFilter !== ROOM_FILTER_ALL && roomFilter !== ROOM_FILTER_NONE
+      ? roomFilter
+      : roomFilter === ROOM_FILTER_ALL &&
+          !lobbyOpen &&
+          currentRoomId &&
+          roomOptions.some((room) => room.id === currentRoomId)
+        ? currentRoomId
+        : "";
   const [editingPrompt, setEditingPrompt] = useState(false);
   const [runFilter, setRunFilter] = useState<{
     jobId: string;
@@ -137,12 +191,14 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
       "GET",
       "/api/cron-runs",
     )
-      .then(({ jobs }) => dispatch({ type: "cronjob_runs_loaded", jobs }))
+      .then(({ jobs }) =>
+        dispatch({ type: "cronjob_runs_loaded", jobs, seq: cronjobsStateSeq }),
+      )
       .catch(() => {
         // Transport error: leave the table as-is (matches the old no-reply
         // behavior - a dropped runs stream never cleared the table).
       });
-  }, [cronjobs.length, dispatch]);
+  }, [cronjobs.length, cronjobsStateSeq, dispatch]);
 
   // Re-request runs for a specific job when the user pins a filter to it,
   // so the table is current even if a previous update was missed.
@@ -153,12 +209,50 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
       `/api/cronjobs/${encodeURIComponent(runFilter.jobId)}/runs`,
     )
       .then(({ runs }) =>
-        dispatch({ type: "cronjob_runs", cronjobId: runFilter.jobId, runs }),
+        dispatch({
+          type: "cronjob_runs",
+          cronjobId: runFilter.jobId,
+          runs,
+          seq: cronjobsStateSeq,
+        }),
       )
       .catch(() => {});
     // Depend only on the id; full runFilter object identity churns per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runFilter?.jobId]);
+  }, [runFilter?.jobId, cronjobsStateSeq]);
+
+  // Who may still read a job's runs, from what the server last sent: the
+  // maker and office owners get the job with detail:true; a deleted job's
+  // runs are office owners' only. The run view, the edit dialog and the run
+  // filter close the moment that ends (demotion, deletion), so no local copy
+  // of a prompt, cwd or transcript outlives the access.
+  const isOfficeOwner = sessionContext?.role === "owner";
+  const runsReadable = (jobId: string) => {
+    const job = cronjobs.find((c) => c.id === jobId);
+    return job ? job.detail : isOfficeOwner;
+  };
+  const editable = (jobId: string) => {
+    const job = cronjobs.find((c) => c.id === jobId);
+    return job?.detail === true && job.canManage;
+  };
+  const openRunReadable = openRun !== null && runsReadable(openRun.jobId);
+  const editingAllowed = editing !== null && editable(editing.id);
+  const runFilterReadable =
+    runFilter !== null && runsReadable(runFilter.jobId);
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (openRun && !openRunReadable) setOpenRun(null);
+    if (editing && !editingAllowed) setEditing(null);
+    if (runFilter && !runFilterReadable) setRunFilter(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [
+    openRun,
+    openRunReadable,
+    editing,
+    editingAllowed,
+    runFilter,
+    runFilterReadable,
+  ]);
 
   const allRuns: CronjobRun[] = useMemo(() => {
     const all: CronjobRun[] = [];
@@ -167,9 +261,19 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
   }, [cronjobRunsByJob]);
 
   const filteredRuns = useMemo(() => {
-    if (!runFilter) return allRuns;
-    return allRuns.filter((r) => r.cronjobId === runFilter.jobId);
-  }, [allRuns, runFilter]);
+    if (runFilter) return allRuns.filter((r) => r.cronjobId === runFilter.jobId);
+    if (roomFilter === ROOM_FILTER_ALL) return allRuns;
+    // A run of a deleted job has no room.
+    const roomByJob = new Map(
+      cronjobs.map((job) => [
+        job.id,
+        knownRoomId(job.roomId, roomOptions),
+      ]),
+    );
+    return allRuns.filter((r) =>
+      roomFilterMatches(roomFilter, roomByJob.get(r.cronjobId) ?? null),
+    );
+  }, [allRuns, runFilter, roomFilter, cronjobs, roomOptions]);
 
   // ESC closes (handled at App level by goHome → popstate; local Escape just dismisses our overlays)
   useEffect(() => {
@@ -266,6 +370,11 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
+          <RoomFilterSelect
+            value={roomFilter}
+            rooms={roomOptions}
+            onChange={changeRoomFilter}
+          />
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button
@@ -340,7 +449,8 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
       <div style={{ flex: 1, overflow: "auto" }}>
         {tab === "cronjobs" ? (
           <CronjobsTable
-            cronjobs={cronjobs}
+            cronjobs={shownCronjobs}
+            filtered={shownCronjobs.length < cronjobs.length}
             loaded={cronjobsLoaded}
             runsByJob={cronjobRunsByJob}
             isMobile={isMobile}
@@ -375,14 +485,19 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
-      {creating && <CronjobDialog onClose={() => setCreating(false)} />}
-      {editing && (
+      {creating && (
+        <CronjobDialog
+          defaultRoomId={createRoomId}
+          onClose={() => setCreating(false)}
+        />
+      )}
+      {editing && editingAllowed && (
         <CronjobDialog cronjob={editing} onClose={() => setEditing(null)} />
       )}
       {editingPrompt && (
         <CronjobsPromptDialog onClose={() => setEditingPrompt(false)} />
       )}
-      {openRun && (
+      {openRun && openRunReadable && (
         <CronjobRunView
           jobId={openRun.jobId}
           runId={openRun.runId}
@@ -395,6 +510,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
 
 function CronjobsTable({
   cronjobs,
+  filtered,
   loaded,
   runsByJob,
   isMobile,
@@ -403,21 +519,22 @@ function CronjobsTable({
   onToggleEnabled,
   onRunNow,
 }: {
-  cronjobs: Cronjob[];
+  cronjobs: CronjobListWire[];
+  filtered: boolean;
   loaded: boolean;
   runsByJob: Map<string, CronjobRun[]>;
   isMobile: boolean;
-  onRowClick: (c: Cronjob) => void;
-  onEdit: (c: Cronjob) => void;
-  onToggleEnabled: (c: Cronjob) => void;
-  onRunNow: (c: Cronjob) => void;
+  onRowClick: (c: CronjobDetailWire) => void;
+  onEdit: (c: CronjobDetailWire) => void;
+  onToggleEnabled: (c: CronjobDetailWire) => void;
+  onRunNow: (c: CronjobDetailWire) => void;
 }) {
   const { t, language } = useI18n();
   // Brief visual ack after clicking Run. Cleared after 1.8s so subsequent
   // clicks always re-flash. The persistent in-flight badge (below) is the
   // longer-lived signal that something is actually executing.
   const [justStarted, setJustStarted] = useState<Set<string>>(new Set());
-  function handleRunClick(c: Cronjob) {
+  function handleRunClick(c: CronjobDetailWire) {
     onRunNow(c);
     setJustStarted((prev) => new Set(prev).add(c.id));
     setTimeout(() => {
@@ -446,7 +563,11 @@ function CronjobsTable({
       <div
         style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}
       >
-        {loaded ? t("schedules.empty") : t("common.loadingDots")}
+        {!loaded
+          ? t("common.loadingDots")
+          : filtered
+            ? t("schedules.noMatch")
+            : t("schedules.empty")}
       </div>
     );
   }
@@ -468,34 +589,44 @@ function CronjobsTable({
       <tbody>
         {cronjobs.map((c) => {
           const runs = runsByJob.get(c.id) ?? [];
+          // A room member sees the job, not its runs or controls.
+          const detail = c.detail ? c : null;
+          const managed = detail?.canManage ? detail : null;
           return (
             <tr
               key={c.id}
-              onClick={() => onRowClick(c)}
+              data-cronjob-row={c.id}
+              onClick={detail ? () => onRowClick(detail) : undefined}
               style={{
-                cursor: "pointer",
+                cursor: detail ? "pointer" : "default",
                 borderBottom: "1px solid var(--border-subtle)",
                 color: c.enabled ? undefined : "var(--text-hint)",
               }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "var(--bg-hover)")
-              }
+              onMouseEnter={(e) => {
+                if (detail) e.currentTarget.style.background = "var(--bg-hover)";
+              }}
               onMouseLeave={(e) =>
                 (e.currentTarget.style.background = "transparent")
               }
             >
               <td
                 style={{ padding: cellPad }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleEnabled(c);
-                }}
+                onClick={
+                  managed
+                    ? (e) => {
+                        e.stopPropagation();
+                        onToggleEnabled(managed);
+                      }
+                    : undefined
+                }
               >
                 <span
                   title={
-                    c.enabled
-                      ? t("schedules.enabledToggle")
-                      : t("schedules.pausedToggle")
+                    !managed
+                      ? undefined
+                      : c.enabled
+                        ? t("schedules.enabledToggle")
+                        : t("schedules.pausedToggle")
                   }
                   style={{
                     display: "inline-block",
@@ -583,7 +714,19 @@ function CronjobsTable({
                   fontFamily: "'JetBrains Mono',monospace",
                 }}
               >
-                {runs.length}
+                {c.detail ? (
+                  runs.length
+                ) : c.lastRun ? (
+                  <span
+                    data-cronjob-last-run={c.lastRun.status}
+                    title={t(STATUS_LABEL[c.lastRun.status])}
+                    style={{ color: STATUS_COLOR[c.lastRun.status] }}
+                  >
+                    {STATUS_ICON[c.lastRun.status]}
+                  </span>
+                ) : (
+                  " - "
+                )}
               </td>
               {!isMobile && (
                 <td
@@ -610,11 +753,12 @@ function CronjobsTable({
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
+                {managed && (
                 <div
                   style={{ display: "inline-flex", gap: 6, flexWrap: "nowrap" }}
                 >
                   <button
-                    onClick={() => handleRunClick(c)}
+                    onClick={() => handleRunClick(managed)}
                     title={t("schedules.runNow")}
                     style={{
                       padding: "3px 10px",
@@ -636,7 +780,7 @@ function CronjobsTable({
                     {t("schedules.run")}
                   </button>
                   <button
-                    onClick={() => onEdit(c)}
+                    onClick={() => onEdit(managed)}
                     title={t("common.edit")}
                     style={{
                       padding: "3px 10px",
@@ -652,6 +796,7 @@ function CronjobsTable({
                     {t("common.edit")}
                   </button>
                 </div>
+                )}
               </td>
             </tr>
           );
@@ -732,6 +877,7 @@ function RunsTable({
           {pageRuns.map((r) => (
             <tr
               key={r.id}
+              data-cronjob-run-row={r.id}
               onClick={() => onRowClick(r)}
               style={{
                 cursor: "pointer",

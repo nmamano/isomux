@@ -67,7 +67,13 @@ export function CronjobRunView({
   runId: string;
   onClose: () => void;
 }) {
-  const { cronjobRunsByJob, isMobile, logs, hydrationEpoch } = useAppState();
+  const {
+    cronjobRunsByJob,
+    isMobile,
+    logs,
+    hydrationEpoch,
+    cronjobsStateSeq,
+  } = useAppState();
   const { t, language } = useI18n();
   const dispatch = useDispatch();
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
@@ -117,8 +123,13 @@ export function CronjobRunView({
   // mobile socket without ever flipping connected false (dead socket, ping
   // throw, pong timeout), so a false->true edge is not something every
   // reconnect produces. full_state always arrives.
+  //
+  // cronjobsStateSeq joins the key for the same reason: a cronjob delete or
+  // re-projection drops cached run transcripts it cannot tie to a readable job
+  // (store.tsx dropCronjobRuns), and a view still open is one its parent still
+  // allows, so it fetches its transcript again.
   const runKey = `${jobId}\u0000${runId}`;
-  const fetchKey = `${runKey}\u0000${hydrationEpoch}`;
+  const fetchKey = `${runKey}\u0000${hydrationEpoch}\u0000${cronjobsStateSeq}`;
   const fetchedKeyRef = useRef<string | null>(null);
   // The run as the server returned it, kept only as a header fallback for when
   // the store has no copy (see `run` below). Keyed by runKey, NOT fetchKey, so
@@ -140,6 +151,11 @@ export function CronjobRunView({
     // (the same stream live `log_entry` events feed during an active run). The
     // batch reducer dedupes by id, so overlapping live entries are neither
     // dropped nor duplicated.
+    //
+    // An answer that lands after this view closed, or after a newer fetch
+    // replaced this one, is dropped: the parent closes the view when detail
+    // access ends, and a late answer must not seed the transcript back.
+    let cancelled = false;
     apiFetch<{ run: CronjobRun; entries: LogEntry[] }>(
       "GET",
       `/api/cronjobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(
@@ -147,6 +163,7 @@ export function CronjobRunView({
       )}`,
     )
       .then(({ run, entries }) => {
+        if (cancelled) return;
         dispatch({ type: "log_entries_batch", entries });
         setFetchedRun({ key: runKey, run });
       })
@@ -156,6 +173,11 @@ export function CronjobRunView({
         // the view still shows "No log entries."; any live entries already in the
         // stream are preserved, and the header keeps its "Run #<id>" fallback.
       });
+    return () => {
+      cancelled = true;
+      // A dropped fetch did not fill this key, so a remount fetches again.
+      if (fetchedKeyRef.current === fetchKey) fetchedKeyRef.current = null;
+    };
   }, [jobId, runId, runKey, fetchKey, hydrationEpoch, dispatch]);
 
   // Store first, fetched copy second. The store (cronjobRunsByJob) is the live

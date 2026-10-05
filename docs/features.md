@@ -123,13 +123,14 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Resume or fork** any past run, turning a daily summary into an interactive follow-up.
 - **Manual "Run now"** for any schedule, independent of its timing.
 - **Agent alerts** - a schedule can message an agent that its creator can see. The message is labeled as coming from the scheduled job, not a person or peer agent.
+- **Room visibility** - a schedule belongs to a room. Its members see the schedule and its last result; only its maker and office owners see its prompt and runs. Filter the page by room.
 - Per schedule token usage rolled into `/isomux-usage` (for owners).
 - OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.
 
 ### Apps
 
 - **Your personal app suite** - apps agents make for you or for other members of the office, available 24/7 from any device that can access the office. Room visibility decides which apps you see: share a room, share the apps.
-- **Apps tab**: see all your apps and their screenshot previews in one place.
+- **Apps tab**: see all your apps and their screenshot previews in one place, filtered by room if you like.
 - **Its own web address** - on an office with its own domain and wildcard DNS, an app can get an address like `myapp.myoffice.com`, so it opens from any device ([setup](self-hosted.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.

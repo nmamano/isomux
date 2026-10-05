@@ -129,6 +129,29 @@ export function setAppFilter(filter: AppFilter, on: boolean): void {
   } catch {}
 }
 
+// The room filter on the Apps and Schedules pages, each remembered on this
+// device. Absent = all rooms.
+export type RoomFilterPage = "apps" | "schedules";
+const ROOM_FILTER_KEYS: Record<RoomFilterPage, string> = {
+  apps: "isomux-apps-room-filter",
+  schedules: "isomux-schedules-room-filter",
+};
+
+export function getRoomFilter(page: RoomFilterPage): string {
+  try {
+    return localStorage.getItem(ROOM_FILTER_KEYS[page]) ?? "all";
+  } catch {
+    return "all";
+  }
+}
+
+export function setRoomFilter(page: RoomFilterPage, value: string): void {
+  try {
+    if (value === "all") localStorage.removeItem(ROOM_FILTER_KEYS[page]);
+    else localStorage.setItem(ROOM_FILTER_KEYS[page], value);
+  } catch {}
+}
+
 function readAppPreviewOpens(): Record<string, number> {
   if (typeof localStorage === "undefined") return {};
   try {

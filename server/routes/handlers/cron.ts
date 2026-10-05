@@ -29,7 +29,12 @@ import {
 import type { Identity } from "../../identity/index.ts";
 import type { RunSendResult } from "../../internal-types.ts";
 import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
-import type { Cronjob, CronjobRun, LogEntry } from "../../../shared/types.ts";
+import type {
+  Cronjob,
+  CronjobListWire,
+  CronjobRun,
+  LogEntry,
+} from "../../../shared/types.ts";
 import type {
   CronCreateReq,
   CronUpdateReq,
@@ -42,6 +47,18 @@ import type {
 
 export interface CronDeps {
   listCronjobs(): Cronjob[];
+  // The jobs this caller may see, each projected for them
+  // (server/cronjob-visibility.ts): the maker and office owners get the whole
+  // record, a member of the job's room the schedule and last-run outcome.
+  listCronjobsFor(identity: Identity): CronjobListWire[];
+  projectCronjobFor(identity: Identity, cronjob: Cronjob): CronjobListWire | null;
+  // DETAIL on a job's runs (maker + office owners). A job that is gone keeps
+  // only office owners.
+  runsVisibleTo(identity: Identity, jobId: string): boolean;
+  // Room ids this caller may file a cronjob into: live rooms they can access.
+  assignableRoomIds(identity: Identity): ReadonlySet<string>;
+  // The room a create with no roomId defaults to: an agent caller's own room.
+  defaultCreateRoomId(identity: Identity): string | undefined;
   buildCronjobSystemPrompt(cronjob: Cronjob): string;
   createCronjob(input: {
     name: string;
@@ -55,6 +72,7 @@ export interface CronDeps {
     codexSandbox?: Cronjob["codexSandbox"];
     username: string | undefined;
     userId: string | null;
+    roomId: string | undefined;
   }): Cronjob;
   updateCronjob(id: string, changes: CronUpdateReq): Cronjob | null;
   deleteCronjob(id: string): boolean;
@@ -113,13 +131,41 @@ export interface CronDeps {
   ): string | null;
 }
 
+// The roomId field, task semantics. `undefined` = the body has no roomId; ""
+// = no room; any other value must be a live room the caller can access, and an
+// inaccessible or unknown room is one indistinguishable 404.
+function roomIdFromBody(
+  body: object,
+  identity: Identity,
+  deps: CronDeps,
+):
+  | { ok: true; roomId: string | undefined }
+  | { ok: false; response: ReturnType<typeof fail> } {
+  if (!Object.prototype.hasOwnProperty.call(body, "roomId")) {
+    return { ok: true, roomId: undefined };
+  }
+  const raw = (body as { roomId?: unknown }).roomId;
+  if (typeof raw !== "string") {
+    return {
+      ok: false,
+      response: fail(400, "invalid_request", "roomId must be a string"),
+    };
+  }
+  if (raw.length === 0 || deps.assignableRoomIds(identity).has(raw)) {
+    return { ok: true, roomId: raw };
+  }
+  return { ok: false, response: fail(404, "not_found") };
+}
+
 export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
   return {
-    "cron.list": () => ok(deps.listCronjobs()),
+    "cron.list": (ctx) => ok(deps.listCronjobsFor(ctx.identity)),
 
+    // A job the caller may not see is the same 404 as an unknown id.
     "cron.get": (ctx) => {
       const job = deps.listCronjobs().find((c) => c.id === ctx.params.id);
-      return job ? ok(job) : fail(404, "not_found");
+      const projected = job ? deps.projectCronjobFor(ctx.identity, job) : null;
+      return projected ? ok(projected) : fail(404, "not_found");
     },
 
     "cron.readSystemPrompt": (ctx) => {
@@ -164,6 +210,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         body.modelFamily,
       );
       if (familyErr) return fail(422, "invalid_model_family", familyErr);
+      const room = roomIdFromBody(body, ctx.identity, deps);
+      if (!room.ok) return room.response;
       deps.saveRecentCwd(body.cwd);
       const { username } = deps.attributionFor(ctx.identity);
       const job = deps.createCronjob({
@@ -178,8 +226,17 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         codexSandbox: body.codexSandbox,
         username,
         userId: ctx.identity.userId,
+        roomId:
+          room.roomId === undefined
+            ? deps.defaultCreateRoomId(ctx.identity)
+            : room.roomId || undefined,
       });
-      return created(job);
+      // The creator is the maker, so the projection is the whole record; a
+      // null here would be a rule bug, and it must not fall back to the raw job.
+      const projected = deps.projectCronjobFor(ctx.identity, job);
+      return projected
+        ? created(projected)
+        : fail(500, "internal_error", "created cronjob is not visible");
     },
 
     "cron.update": (ctx) => {
@@ -187,6 +244,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       // route guard. Re-validate cwd if it's being changed (the now-retired WS
       // arm did the same).
       const body = (ctx.body ?? {}) as CronUpdateReq;
+      const room = roomIdFromBody(body, ctx.identity, deps);
+      if (!room.ok) return room.response;
       if (body.cwd !== undefined) {
         const cwdErr = deps.validateCwd(body.cwd);
         if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
@@ -203,8 +262,13 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         );
         if (familyErr) return fail(422, "invalid_model_family", familyErr);
       }
-      const job = deps.updateCronjob(ctx.params.id, body);
-      return job ? ok(job) : fail(404, "not_found");
+      const { roomId: _roomId, ...rest } = body;
+      const job = deps.updateCronjob(ctx.params.id, {
+        ...rest,
+        ...(room.roomId !== undefined ? { roomId: room.roomId } : {}),
+      });
+      const projected = job ? deps.projectCronjobFor(ctx.identity, job) : null;
+      return projected ? ok(projected) : fail(404, "not_found");
     },
 
     "cron.delete": (ctx) =>
@@ -231,10 +295,12 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
     // Map the manager's internal `jobId` to the public `cronjobId` so the wire
     // matches the documented contract and the rest of the cron surface (every
     // other cron field identifies a cronjob by `cronjobId`).
-    "cron.listAllRuns": () =>
+    // Only jobs whose runs the caller may read (maker + office owners).
+    "cron.listAllRuns": (ctx) =>
       ok({
         jobs: deps
           .allRunsByJob()
+          .filter((j) => deps.runsVisibleTo(ctx.identity, j.jobId))
           .map((j) => ({ cronjobId: j.jobId, runs: j.runs })),
       }),
 

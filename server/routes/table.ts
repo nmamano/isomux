@@ -41,6 +41,7 @@ import {
   logSearchAccess,
   sessionListAccess,
   cronjobOwnerOrOfficeOwner,
+  cronjobDetailReader,
   appOwnerOrOfficeOwner,
   appScope,
   hasOwningUser,
@@ -56,7 +57,8 @@ import type {
   AgentInfo,
   RoomWire,
   TaskItem,
-  Cronjob,
+  CronjobDetailWire,
+  CronjobListWire,
   CronjobRun,
   ScheduledMessageEntry,
   SessionInfo,
@@ -1475,14 +1477,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  defineRoute<void, Cronjob[]>({
+  defineRoute<void, CronjobListWire[]>({
     opId: "cron.list",
     method: "GET",
     path: "/api/cronjobs",
     auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
-  defineRoute<void, Cronjob>({
+  defineRoute<void, CronjobListWire>({
     opId: "cron.get",
     method: "GET",
     path: "/api/cronjobs/:id",
@@ -1493,17 +1495,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.readSystemPrompt",
     method: "GET",
     path: "/api/cronjobs/:id/system-prompt",
-    auth: cap("cron:read", operationalAuthenticated),
+    auth: cap("cron:read", cronjobDetailReader("id")),
     emits: [],
   }),
-  defineRoute<CronCreateReq, Cronjob>({
+  defineRoute<CronCreateReq, CronjobDetailWire>({
     opId: "cron.create",
     method: "POST",
     path: "/api/cronjobs",
     auth: cap("cron:manage", operationalAuthenticated),
     emits: ["cronjob_added"],
   }),
-  defineRoute<CronUpdateReq, Cronjob>({
+  defineRoute<CronUpdateReq, CronjobDetailWire>({
     opId: "cron.update",
     method: "PATCH",
     path: "/api/cronjobs/:id",
@@ -1536,7 +1538,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.listRuns",
     method: "GET",
     path: "/api/cronjobs/:id/runs",
-    auth: cap("cron:read", operationalAuthenticated),
+    auth: cap("cron:read", cronjobDetailReader("id")),
     emits: [],
   }),
   defineRoute<void, { jobs: { cronjobId: string; runs: CronjobRun[] }[] }>({
@@ -1550,7 +1552,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.getRun",
     method: "GET",
     path: "/api/cronjobs/:id/runs/:runId",
-    auth: cap("cron:read", operationalAuthenticated),
+    auth: cap("cron:read", cronjobDetailReader("id")),
     emits: [],
   }),
   defineRoute<CronRunMessageReq, MessageAck>({

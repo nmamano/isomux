@@ -934,6 +934,9 @@ export interface CronCreateReq {
   effort: Cronjob["effort"];
   permissionMode: Cronjob["permissionMode"];
   codexSandbox?: Cronjob["codexSandbox"];
+  // Task semantics: omitted = an agent caller's own room, else no room;
+  // "" = no room; any other value must be a room the caller can access.
+  roomId?: string;
 }
 
 export type CronUpdateReq = Partial<{
@@ -947,6 +950,9 @@ export type CronUpdateReq = Partial<{
   permissionMode: Cronjob["permissionMode"];
   codexSandbox: Cronjob["codexSandbox"];
   enabled: boolean;
+  // Omitted keeps the room; "" clears it; any other value must be a room the
+  // caller can access.
+  roomId: string;
 }>;
 
 export interface CronRunMessageReq {

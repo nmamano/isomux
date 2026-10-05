@@ -39,6 +39,8 @@ const {
   pruneAppPreviewOpens,
   getUsagePin,
   setUsagePin,
+  getRoomFilter,
+  setRoomFilter,
 } = await import("./device-settings.ts");
 
 describe("app previews", () => {
@@ -171,4 +173,18 @@ it("defaults a missing or unknown desktop chat visibility value to visible", () 
   expect(getMembersChatHidden()).toBe(false);
   store.set("isomux-members-chat-hidden", "broken");
   expect(getMembersChatHidden()).toBe(false);
+});
+
+describe("room filters", () => {
+  beforeEach(() => store.clear());
+  it("default to all rooms and remember each page's choice apart", () => {
+    expect(getRoomFilter("apps")).toBe("all");
+    expect(getRoomFilter("schedules")).toBe("all");
+    setRoomFilter("schedules", "a1b2c3d4");
+    setRoomFilter("apps", "none");
+    expect(getRoomFilter("schedules")).toBe("a1b2c3d4");
+    expect(getRoomFilter("apps")).toBe("none");
+    setRoomFilter("schedules", "all");
+    expect(getRoomFilter("schedules")).toBe("all");
+  });
 });

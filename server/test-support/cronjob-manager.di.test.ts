@@ -340,6 +340,73 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     fake.sessions.forEach((s) => s.close());
   });
 
+  it("lastRun follows the latest run by START time, not the last to finish", async () => {
+    let now = FIXED_NOW;
+    const fake = new FakeBackend();
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, clock: { now: () => now } }),
+    );
+    const job = mgr.addCronjob(intervalInput("Overlap"));
+    expect(mgr.getLastRun(job.id)).toBeNull();
+    const older = mgr.runCronjobNow(job.id, "Nil")!;
+    now += 1000;
+    const newer = mgr.runCronjobNow(job.id, "Nil")!;
+    expect(mgr.getLastRunId(job.id)).toBe(newer.id);
+    expect(mgr.getLastRun(job.id)).toEqual({ status: "running", endedAt: null });
+
+    const sessionFor = (runId: string) =>
+      fake.sessions.find((s) =>
+        String(s.opts.systemPrompt ?? "").includes(runId),
+      );
+    const deadline = Date.now() + 2000;
+    while (!(sessionFor(older.id) && sessionFor(newer.id))) {
+      if (Date.now() > deadline) throw new Error("run sessions never started");
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    // The newer run finishes first; the older one fails afterwards.
+    sessionFor(newer.id)!.completeTurn({ text: "done" });
+    const settle = async (pred: () => boolean) => {
+      const until = Date.now() + 2000;
+      while (!pred()) {
+        if (Date.now() > until) throw new Error("run never settled");
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    };
+    await settle(() => mgr.getLastRun(job.id)?.status === "completed");
+    sessionFor(older.id)!.completeTurn({ status: "failed", error: "boom" });
+    await settle(
+      () =>
+        mgr.getRunsForCronjob(job.id).find((r) => r.id === older.id)
+          ?.status === "failed",
+    );
+    expect(mgr.getLastRunId(job.id)).toBe(newer.id);
+    expect(mgr.getLastRun(job.id)?.status).toBe("completed");
+    fake.sessions.forEach((s) => s.close());
+  });
+
+  it("seeds lastRun and the run index from runs on disk", () => {
+    const persistence = makeFakeCronPersistence();
+    const mgr = createCronjobManager(baseDeps({ persistence }));
+    const job = mgr.addCronjob(intervalInput("Seeded"));
+    const row = (id: string, startedAt: number, status: "completed" | "failed") =>
+      ({
+        id,
+        cronjobId: job.id,
+        startedAt,
+        endedAt: startedAt + 5,
+        status,
+      }) as unknown as Parameters<typeof persistence.saveRuns>[1][number];
+    persistence.saveRuns(job.id, [
+      row("later-in-file", 100, "failed"),
+      row("latest-start", 200, "completed"),
+      row("earliest", 50, "failed"),
+    ]);
+    expect(mgr.getLastRunId(job.id)).toBe("latest-start");
+    expect(mgr.getLastRun(job.id)).toEqual({ status: "completed", endedAt: 205 });
+    expect(mgr.jobIdForRun("earliest")).toBe(job.id);
+    expect(mgr.jobIdForRun("no-such-run")).toBeNull();
+  });
+
   it("selects the Codex backend and passes its run options through unchanged", async () => {
     const claude = new FakeBackend();
     const codex = new FakeBackend({

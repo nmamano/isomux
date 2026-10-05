@@ -1042,10 +1042,47 @@ export interface Cronjob {
   // unowned cronjobs.
   userId: string | null;
   username: string | null; // Human member this record is on behalf of
+  // The room whose members may see this job (not its prompt or runs). Absent
+  // = no room: the maker and office owners only. Records written before rooms
+  // carried no roomId and load as no room.
+  roomId?: string;
   createdAt: number;
   lastFireAt: number | null;
   nextFireAt: number;
 }
+
+// The latest run by start time: its status and finish time only.
+export interface CronjobLastRun {
+  status: CronjobRunStatus;
+  endedAt: number | null;
+}
+
+// What the maker and office owners receive: the whole record. canManage is
+// the run/edit/delete authority, which read access alone never grants.
+export type CronjobDetailWire = Cronjob & { detail: true; canManage: boolean };
+
+// What a member of the job's room receives: the schedule and the last run's
+// outcome. No prompt, cwd, engine settings, run list or transcript excerpt -
+// a run uses the maker's environment.
+export interface CronjobViewerWire {
+  detail: false;
+  canManage: false;
+  id: string;
+  name: string;
+  schedule: Schedule;
+  enabled: boolean;
+  agentType: AgentBackendType;
+  roomId?: string;
+  createdBy: string;
+  userId: string | null;
+  username: string | null;
+  createdAt: number;
+  lastFireAt: number | null;
+  nextFireAt: number;
+  lastRun: CronjobLastRun | null;
+}
+
+export type CronjobListWire = CronjobDetailWire | CronjobViewerWire;
 
 export type CronjobRunStatus =
   | "running"
@@ -1751,11 +1788,11 @@ export type ServerMessage =
   | ({ type: "update_status" } & UpdateStatusWire)
   | {
       type: "cronjobs_state";
-      cronjobs: Cronjob[];
+      cronjobs: CronjobListWire[];
       cronjobsPrompt: string | null;
     }
-  | { type: "cronjob_added"; cronjob: Cronjob }
-  | { type: "cronjob_updated"; cronjob: Cronjob }
+  | { type: "cronjob_added"; cronjob: CronjobListWire }
+  | { type: "cronjob_updated"; cronjob: CronjobListWire }
   | { type: "cronjob_deleted"; id: string }
   | { type: "cronjobs_prompt_updated"; value: string | null }
   | { type: "cronjob_run_updated"; run: CronjobRun }

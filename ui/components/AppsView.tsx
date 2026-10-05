@@ -23,10 +23,19 @@ import {
 import {
   getAppFilter,
   getAppPreviews,
+  getRoomFilter,
   setAppFilter,
   setAppPreviews,
+  setRoomFilter,
   type AppFilter,
 } from "../device-settings.ts";
+import {
+  appRoomId,
+  effectiveRoomFilter,
+  roomFilterMatches,
+  roomFilterOptions,
+} from "../room-filter.ts";
+import { RoomFilterSelect } from "./RoomFilterSelect.tsx";
 import type { AppListWire, AppState, AppWire } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import type {
@@ -651,6 +660,8 @@ export function AppsView({
     agents,
     unavailableFeatures,
     sessionContext,
+    rooms,
+    allRooms,
   } = useAppState();
   const { t } = useI18n();
   const dispatch = useDispatch();
@@ -666,6 +677,17 @@ export function AppsView({
     onlyMine: getAppFilter("onlyMine"),
   }));
   const selfUserId = sessionContext?.userId ?? null;
+  // An app's room is its creator agent's live room, the rule that decides who
+  // sees it; an app with no visible creator has no room.
+  const roomOptions = roomFilterOptions(rooms, allRooms);
+  const [storedRoomFilter, setStoredRoomFilter] = useState(() =>
+    getRoomFilter("apps"),
+  );
+  const roomFilter = effectiveRoomFilter(storedRoomFilter, roomOptions);
+  const changeRoomFilter = (value: string) => {
+    setStoredRoomFilter(value);
+    setRoomFilter("apps", value);
+  };
   const setFilter = (filter: AppFilter, on: boolean) => {
     setFilters((prev) => ({ ...prev, [filter]: on }));
     setAppFilter(filter, on);
@@ -838,7 +860,9 @@ export function AppsView({
   }, [confirmDelete]);
 
   const sorted = [...apps].sort((a, b) => a.name.localeCompare(b.name));
-  const shown = filterApps(sorted, filters, selfUserId);
+  const shown = filterApps(sorted, filters, selfUserId).filter((app) =>
+    roomFilterMatches(roomFilter, appRoomId(app, agents, roomOptions)),
+  );
 
   useEffect(() => {
     if (appsLoaded) evictDeletedAppPreviews(apps);
@@ -994,6 +1018,11 @@ export function AppsView({
                 {t(FILTER_LABELS[filter])}
               </label>
             ))}
+          <RoomFilterSelect
+            value={roomFilter}
+            rooms={roomOptions}
+            onChange={changeRoomFilter}
+          />
         </div>
       )}
 

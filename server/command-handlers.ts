@@ -34,6 +34,7 @@ import {
   type CommandConfig,
 } from "./commands.ts";
 import { listCronjobs } from "./cronjob-manager.ts";
+import { cronjobDetailFor } from "./cronjob-visibility.ts";
 import { resolveSkillPrompt, type UserSkillRoot } from "./skills.ts";
 import { recordSkillUse } from "./skill-usage.ts";
 import {
@@ -812,7 +813,22 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       const query = args.join(" ").trim();
-      const all = listCronjobs();
+      // Only jobs whose prompt the typing user may read (maker + office
+      // owners). The chat carries the job's name; each reader's prompt button
+      // fetches the prompt with that reader's own authority.
+      const typer = username ? getUserByName(username) : undefined;
+      const all = listCronjobs().filter((cronjob) =>
+        cronjobDetailFor(
+          { makerUserId: cronjob.userId ?? null, liveRoomId: null },
+          {
+            userId: typer?.id ?? null,
+            isOfficeOwner: typer?.role === "owner",
+            canRead: typer !== undefined,
+            canManage: typer !== undefined,
+            hasRoomAccess: () => false,
+          },
+        ),
+      );
 
       if (!query) {
         if (all.length === 0) {

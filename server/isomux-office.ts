@@ -99,7 +99,13 @@ import {
   modelFamilyMismatchError,
   resolveInteractiveModelSelection,
 } from "./agent-validators.ts";
-import type { TaskItem } from "../shared/types.ts";
+import type {
+  Cronjob,
+  CronjobListWire,
+  CronjobRun,
+  LogEntry,
+  TaskItem,
+} from "../shared/types.ts";
 import {
   CODEX_MODELS,
   LOBBY_ROOM_ID,
@@ -333,6 +339,17 @@ import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import { taskDeltaFor } from "./events/task-delta.ts";
 import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
+import {
+  cronjobDeltaFor,
+  type CronjobChange,
+} from "./events/cronjob-delta.ts";
+import {
+  cronjobDetailFor,
+  cronjobViewerForIdentity,
+  projectCronjob,
+  type CronjobViewer,
+  type CronjobVisibilityFacts,
+} from "./cronjob-visibility.ts";
 import type { TaskChange } from "../shared/office-state.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
 import { identityHasCapability, type Identity } from "./identity/index.ts";
@@ -2182,15 +2199,97 @@ function appViewerFacts(
   };
 }
 
+// Cronjob visibility: server/cronjob-visibility.ts holds the rule; these
+// helpers feed it live office state. A job's room counts only while it is a
+// live ordinary room, so a closed room leaves the job to its maker and office
+// owners (it keeps firing: the run never depended on the room).
+function cronjobFacts(
+  job: Pick<Cronjob, "userId" | "roomId">,
+): CronjobVisibilityFacts {
+  const roomId = job.roomId;
+  return {
+    makerUserId: job.userId ?? null,
+    liveRoomId:
+      roomId && agentManager.getOrdinaryRooms().some((r) => r.id === roomId)
+        ? roomId
+        : null,
+  };
+}
+
+// A job that is gone has no maker record left: office owners only.
+const GONE_CRONJOB_FACTS: CronjobVisibilityFacts = {
+  makerUserId: null,
+  liveRoomId: null,
+};
+
+function cronjobFactsById(jobId: string): CronjobVisibilityFacts {
+  const job = cronjobManager.listCronjobs().find((c) => c.id === jobId);
+  return job ? cronjobFacts(job) : GONE_CRONJOB_FACTS;
+}
+
+function cronjobViewerFor(identity: Identity): CronjobViewer {
+  const guardDeps = buildLiveGuardDeps();
+  return cronjobViewerForIdentity(identity, (roomId) =>
+    guardDeps.hasRoomAccess(identity, roomId),
+  );
+}
+
+// A browser socket is a USER session. Role and room access are read live from
+// the user record, the way the task projection reads them; a socket whose user
+// is gone sees nothing.
+function cronjobViewerForSession(session: SessionLookup): CronjobViewer {
+  const user = getUserById(session.userId);
+  let accessible: Set<string> | null = null;
+  return {
+    userId: user ? user.id : null,
+    isOfficeOwner: user?.role === "owner",
+    canRead: user !== undefined,
+    canManage: user !== undefined,
+    hasRoomAccess: (roomId) => {
+      if (!user) return false;
+      accessible ??= accessibleRoomIdsFor(user);
+      return accessible.has(roomId);
+    },
+  };
+}
+
+function projectCronjobFor(
+  job: Cronjob,
+  viewer: CronjobViewer,
+): CronjobListWire | null {
+  return projectCronjob(
+    job,
+    cronjobFacts(job),
+    viewer,
+    cronjobManager.getLastRun(job.id),
+  );
+}
+
+function cronjobsFor(viewer: CronjobViewer): CronjobListWire[] {
+  const out: CronjobListWire[] = [];
+  for (const job of cronjobManager.listCronjobs()) {
+    const projected = projectCronjobFor(job, viewer);
+    if (projected) out.push(projected);
+  }
+  return out;
+}
+
 // Who may reach an agent's files on the legacy /api/upload, /api/files and
 // /api/images routes. A live agent's files follow its room, as on
 // agents.getFile. A killed agent's files follow the room it was in; once that
 // room is gone, only office owners. A cronjob run's files sit under its
 // cronrun-<runId> stream id, which has no room, so they follow the run
-// transcript's own gate (cron:read).
+// transcript's own rule: the job's maker and office owners. An unknown run
+// denies; a run whose job is gone is office owners' only.
 function mayReachAgentFiles(identity: Identity, agentId: string): boolean {
-  if (agentId.startsWith(cronjobRunStreamId(""))) {
-    return identityHasCapability(identity, "cron:read");
+  const runPrefix = cronjobRunStreamId("");
+  if (agentId.startsWith(runPrefix)) {
+    const jobId = cronjobManager.jobIdForRun(agentId.slice(runPrefix.length));
+    if (jobId === null) return false;
+    return cronjobDetailFor(
+      cronjobFactsById(jobId),
+      cronjobViewerFor(identity),
+    );
   }
   const guardDeps = buildLiveGuardDeps();
   const liveRoomId = guardDeps.roomIdForAgent(agentId);
@@ -2516,6 +2615,23 @@ function buildExecutorDeps(
   register(
     cronHandlers({
       listCronjobs: () => cronjobManager.listCronjobs(),
+      listCronjobsFor: (identity) => cronjobsFor(cronjobViewerFor(identity)),
+      projectCronjobFor: (identity, job) =>
+        projectCronjobFor(job, cronjobViewerFor(identity)),
+      runsVisibleTo: (identity, jobId) =>
+        cronjobDetailFor(cronjobFactsById(jobId), cronjobViewerFor(identity)),
+      // Live ordinary rooms the caller can access: a member's grants can name
+      // a room that has since closed.
+      assignableRoomIds: (identity) => {
+        const accessible = accessibleRoomIdsForIdentity(identity);
+        return new Set(
+          agentManager
+            .getOrdinaryRooms()
+            .map((room) => room.id)
+            .filter((id) => accessible.has(id)),
+        );
+      },
+      defaultCreateRoomId: defaultCreateRoomIdForIdentity,
       buildCronjobSystemPrompt: (cronjob) =>
         cronjobManager.buildCronjobSystemPrompt(cronjob),
       createCronjob: (input) =>
@@ -3138,6 +3254,7 @@ function buildExecutorDeps(
         if (roleChanged) {
           pushProjectedFullStateForUserId(result.user.id);
           pushTasksForUserId(result.user.id);
+          pushCronjobsForUserId(result.user.id);
           if (appAudienceBefore) announceAppAudienceChanges(appAudienceBefore);
         }
         if (presenceTouched || roleChanged) pushPresenceListToEachWs();
@@ -3181,8 +3298,10 @@ function buildExecutorDeps(
         // sanitizes currentRoomId.
         emitPrivateUserRecord(result.user);
         pushProjectedFullStateForUserId(result.user.id);
-        // Their accessible-room set changed → re-project the room-scoped board.
+        // Their accessible-room set changed → re-project the room-scoped board
+        // and cronjobs.
         pushTasksForUserId(result.user.id);
+        pushCronjobsForUserId(result.user.id);
         const presenceTouched = refreshPresenceForUser(
           result.user.id,
           {
@@ -3333,6 +3452,7 @@ function buildExecutorDeps(
             // Creator's accessible set grew by the new room - re-project the
             // board (the room is empty today, but keeps access↔board in lockstep).
             pushTasksForUserId(creator.id);
+            pushCronjobsForUserId(creator.id);
           }
         }
         // A new room is empty so no ghost moves post-cut (room ids are stable);
@@ -3395,6 +3515,9 @@ function buildExecutorDeps(
         // and leaks nothing (each socket re-projects against its OWN access).
         // Rare event, so the whole-board cost is irrelevant.
         pushTasksToEachWs();
+        // A job filed in the closed room falls back to its maker and office
+        // owners; re-project so room members' lists drop it live.
+        pushCronjobsToEachWs();
         announceAppAudienceChanges(appAudienceBefore);
         return true;
       },
@@ -4783,6 +4906,77 @@ function pushAppDeltaToEachWs(change: AppChange) {
   }
 }
 
+// Cronjobs: per-recipient like tasks. sendCronjobsTo is the connect hydration
+// and the re-projection after a change that shifts what a socket may see with
+// no single job to point at (room close, a user's access or role change).
+function sendCronjobsTo(ws: ServerWebSocket<OfficeWsData>) {
+  ws.send(
+    JSON.stringify({
+      type: "cronjobs_state",
+      cronjobs: cronjobsFor(cronjobViewerForSession(ws.data.session)),
+      cronjobsPrompt: cronjobManager.getCronjobsPrompt(),
+    }),
+  );
+}
+
+function pushCronjobsToEachWs() {
+  for (const ws of browsers) sendCronjobsTo(ws);
+}
+
+function pushCronjobsForUserId(userId: string) {
+  for (const ws of browsers) {
+    if (ws.data.session.userId === userId) sendCronjobsTo(ws);
+  }
+}
+
+function pushCronjobDeltaToEachWs(change: CronjobChange) {
+  const lastRun =
+    change.kind === "deleted"
+      ? null
+      : cronjobManager.getLastRun(change.cronjob.id);
+  for (const ws of browsers) {
+    const delta = cronjobDeltaFor(
+      change,
+      cronjobViewerForSession(ws.data.session),
+      lastRun,
+    );
+    if (delta) ws.send(JSON.stringify(delta));
+  }
+}
+
+// A run row (status, prompt snapshot, preview excerpt) goes only to the job's
+// maker and office owners. A room viewer of the job hears the new last-run
+// outcome as a projected cronjob_updated, and only when this run is the job's
+// latest by start time.
+function pushCronjobRunToEachWs(run: CronjobRun) {
+  const job = cronjobManager
+    .listCronjobs()
+    .find((c) => c.id === run.cronjobId);
+  const facts = job ? cronjobFacts(job) : GONE_CRONJOB_FACTS;
+  const isLatest =
+    job !== undefined && cronjobManager.getLastRunId(job.id) === run.id;
+  for (const ws of browsers) {
+    const viewer = cronjobViewerForSession(ws.data.session);
+    if (cronjobDetailFor(facts, viewer)) {
+      ws.send(JSON.stringify({ type: "cronjob_run_updated", run }));
+    } else if (job && isLatest) {
+      const projected = projectCronjobFor(job, viewer);
+      if (projected) {
+        ws.send(JSON.stringify({ type: "cronjob_updated", cronjob: projected }));
+      }
+    }
+  }
+}
+
+function pushCronjobRunEntryToEachWs(entry: LogEntry, jobId: string) {
+  const facts = cronjobFactsById(jobId);
+  for (const ws of browsers) {
+    if (cronjobDetailFor(facts, cronjobViewerForSession(ws.data.session))) {
+      ws.send(JSON.stringify({ type: "log_entry", entry }));
+    }
+  }
+}
+
 // Re-project the WHOLE board to every socket. Not a mutation path - a mutation
 // sends one delta (pushTaskDeltaToEachWs). This is for the rare change that
 // shifts what MANY recipients may see at once with no single task to point at:
@@ -5324,33 +5518,47 @@ function wireEventSinks(): void {
     switch (event.type) {
       // The clean `all`-audience cron events route through the emit() helper
       // (byte-identical broadcast); matching registry ids + payload shapes.
+      // Cronjob records are per-recipient: who sees a job, and how much of
+      // it, depends on the socket (server/events/cronjob-delta.ts).
       case "cronjob_added":
-        liveEmit("cronjob_added", { cronjob: event.cronjob });
+        pushCronjobDeltaToEachWs({
+          kind: "added",
+          cronjob: event.cronjob,
+          facts: cronjobFacts(event.cronjob),
+        });
         break;
       case "cronjob_updated":
-        liveEmit("cronjob_updated", { cronjob: event.cronjob });
+        pushCronjobDeltaToEachWs({
+          kind: "updated",
+          cronjob: event.cronjob,
+          facts: cronjobFacts(event.cronjob),
+          before: cronjobFacts(event.previous ?? event.cronjob),
+        });
         break;
       case "cronjob_deleted":
-        liveEmit("cronjob_deleted", { id: event.id });
+        pushCronjobDeltaToEachWs({
+          kind: "deleted",
+          id: event.id,
+          before: cronjobFacts(event.cronjob),
+        });
         break;
       case "cronjobs_prompt_updated":
         liveEmit("cronjobs_prompt_updated", { value: event.value });
         break;
       case "cronjob_run_updated":
-        liveEmit("cronjob_run_updated", { run: event.run });
+        pushCronjobRunToEachWs(event.run);
         break;
       // COMPATIBILITY BRIDGE: cron-run transcript entries stream as `log_entry`
       // with a synthetic cronrun-<runId> agentId. The TARGET registry event is
-      // the office-wide `cron_run_log_entry`, but the UI/demo still key cron
-      // transcripts on `log_entry` (ui/store.tsx), and the target `log_entry`
-      // registry entry is room-ACL (it would fail-closed on the non-existent
-      // synthetic agent). So these stay on the raw broadcast until the
-      // UI-coordinated cron_run_log_entry wire migration (a later contract step,
-      // in the same bucket as retiring the *_response messages). Do NOT route
-      // through liveEmit until shared ServerMessage, ui/store, and demo-server
-      // switch together.
+      // `cron_run_log_entry`, but the UI/demo still key cron transcripts on
+      // `log_entry` (ui/store.tsx), and the target `log_entry` registry entry
+      // is room-ACL (it would fail-closed on the non-existent synthetic agent).
+      // So these keep the `log_entry` wire shape, sent only to the sockets
+      // that may read the job's transcripts (maker + office owners). Do NOT
+      // route through liveEmit until shared ServerMessage, ui/store, and
+      // demo-server switch together.
       case "log_entry":
-        broadcast({ type: "log_entry", entry: event.entry });
+        pushCronjobRunEntryToEachWs(event.entry, event.jobId);
         break;
     }
   });
@@ -6458,13 +6666,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // Send tasks - room-scoped to this session's accessible rooms ∪ globals
         // (same projection as the live per-recipient re-push).
         sendTasksTo(ws);
-        ws.send(
-          JSON.stringify({
-            type: "cronjobs_state",
-            cronjobs: cronjobManager.listCronjobs(),
-            cronjobsPrompt: cronjobManager.getCronjobsPrompt(),
-          }),
-        );
+        // Cronjobs - the ones this session may see, each projected for it.
+        sendCronjobsTo(ws);
         // Send update status - always, not only when available: the client
         // needs the mode (and current-version info) even while quiet, and a
         // reconnect after a cleared banner must hydrate the false state.

@@ -31,7 +31,7 @@ import type {
   OfficeSettings,
   OfficeWire,
   RoomWire,
-  Cronjob,
+  CronjobListWire,
   CronjobRun,
   PresenceInfo,
   UserRecord,
@@ -45,6 +45,7 @@ import type {
   UnavailableEngines,
   UnavailableFeatures,
 } from "../shared/types.ts";
+import { cronjobRunStreamId } from "../shared/types.ts";
 import {
   type UserView,
   upsertUserView,
@@ -154,7 +155,13 @@ export interface AppState {
   // revision has moved is refused. Ordering GETs against each other is not
   // enough - the race is a GET against a DELTA.
   appsRevision: number;
-  cronjobs: Cronjob[];
+  // Each job projected for this viewer: the whole record for its maker and
+  // office owners (detail: true), the schedule and last-run outcome for a
+  // member of its room (detail: false).
+  cronjobs: CronjobListWire[];
+  // Bumped by every cronjobs_state, so the Schedules page refetches the run
+  // lists it just dropped.
+  cronjobsStateSeq: number;
   cronjobsLoaded: boolean;
   cronjobsPrompt: string | null;
   cronjobRunsByJob: Map<string, CronjobRun[]>; // jobId → run list (loaded on demand)
@@ -366,21 +373,29 @@ type Action =
   | ({ type: "update_status" } & UpdateStatusWire)
   | {
       type: "cronjobs_state";
-      cronjobs: Cronjob[];
+      cronjobs: CronjobListWire[];
       cronjobsPrompt: string | null;
     }
-  | { type: "cronjob_added"; cronjob: Cronjob }
-  | { type: "cronjob_updated"; cronjob: Cronjob }
+  | { type: "cronjob_added"; cronjob: CronjobListWire }
+  | { type: "cronjob_updated"; cronjob: CronjobListWire }
   | { type: "cronjob_deleted"; id: string }
   | { type: "cronjobs_prompt_updated"; value: string | null }
   // cronjob_runs + cronjob_runs_loaded are CLIENT-LOCAL actions (NOT
   // ServerMessage members): CronjobsView dispatches them after the REST
   // cron.listRuns / cron.listAllRuns fetches to seed cronjobRunsByJob. Live
   // cronjob_run_updated events (still on the wire) merge into the same map.
-  | { type: "cronjob_runs"; cronjobId: string; runs: CronjobRun[] }
+  // `seq` is the cronjobsStateSeq the fetch started under: an answer to a
+  // fetch made before a re-projection or a delete is stale and dropped.
+  | {
+      type: "cronjob_runs";
+      cronjobId: string;
+      runs: CronjobRun[];
+      seq: number;
+    }
   | {
       type: "cronjob_runs_loaded";
       jobs: { cronjobId: string; runs: CronjobRun[] }[];
+      seq: number;
     }
   | { type: "cronjob_run_updated"; run: CronjobRun };
 
@@ -413,6 +428,59 @@ function clearStreamInReplay(
     logEntryIds.set(streamId, new Set());
   }
   return { ...replay, logs, logEntryIds };
+}
+
+// Drop cached cronjob runs whose job this viewer no longer reads in detail,
+// and every run transcript stream that is not a kept run's. Conservative on
+// purpose: a transcript can be cached for a run with no row in the run lists
+// (a run view opened on a run the list never loaded), and such a stream has
+// no job to check, so it goes too. An open run view that may still read its
+// run refetches the transcript, because its fetch key follows
+// cronjobsStateSeq, which every caller bumps. Streams go from a replay buffer
+// in flight as well, or its commit would bring them back.
+function dropCronjobRuns(
+  state: AppState,
+  dropJob: (jobId: string) => boolean,
+): Pick<
+  AppState,
+  "cronjobRunsByJob" | "logs" | "logEntryIds" | "logsReplay"
+> {
+  const cronjobRunsByJob = new Map<string, CronjobRun[]>();
+  const keptStreams = new Set<string>();
+  for (const [jobId, runs] of state.cronjobRunsByJob) {
+    if (dropJob(jobId)) continue;
+    cronjobRunsByJob.set(jobId, runs);
+    for (const run of runs) keptStreams.add(cronjobRunStreamId(run.id));
+  }
+  const runPrefix = cronjobRunStreamId("");
+  const dropped = (streamId: string) =>
+    streamId.startsWith(runPrefix) && !keptStreams.has(streamId);
+  const logs = new Map(state.logs);
+  const logEntryIds = new Map(state.logEntryIds);
+  let logsReplay = state.logsReplay;
+  const streams = new Set([
+    ...state.logs.keys(),
+    ...state.logEntryIds.keys(),
+    ...(state.logsReplay?.logs.keys() ?? []),
+  ]);
+  for (const streamId of streams) {
+    if (!dropped(streamId)) continue;
+    logs.delete(streamId);
+    logEntryIds.delete(streamId);
+    logsReplay = clearStreamInReplay(logsReplay, streamId, "delete");
+  }
+  return { cronjobRunsByJob, logs, logEntryIds, logsReplay };
+}
+
+// Merge fetched runs into a job's cached list: a fetched run replaces the
+// cached copy with its id, and a cached run the answer does not carry (one
+// that started after the server read runs.json) stays.
+function mergeRuns(
+  cached: CronjobRun[] | undefined,
+  fetched: CronjobRun[],
+): CronjobRun[] {
+  const ids = new Set(fetched.map((run) => run.id));
+  return [...fetched, ...(cached ?? []).filter((run) => !ids.has(run.id))];
 }
 
 export function reducer(state: AppState, action: Action): AppState {
@@ -1130,42 +1198,76 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     case "session_expired":
       return { ...state, sessionExpired: true };
-    case "cronjobs_state":
+    // A whole re-projection: on connect, and after a change in what this
+    // viewer may see (room close, access or role change). Cached runs and
+    // their transcripts survive only for jobs this viewer still reads in
+    // detail; the rest (including runs of deleted jobs, which only office
+    // owners read) drop, and the Schedules page refetches what the server
+    // still gives. The seq bump also voids run-list fetches already in flight.
+    case "cronjobs_state": {
+      const detailIds = new Set(
+        action.cronjobs.filter((c) => c.detail).map((c) => c.id),
+      );
       return {
         ...state,
+        ...dropCronjobRuns(state, (jobId) => !detailIds.has(jobId)),
         cronjobs: action.cronjobs,
         cronjobsPrompt: action.cronjobsPrompt,
         cronjobsLoaded: true,
+        cronjobsStateSeq: state.cronjobsStateSeq + 1,
       };
+    }
+    // Added and updated are one idempotent upsert by id: a job moved into a
+    // room this viewer can see arrives as an update for a row they never had,
+    // and a repeated event must not duplicate a row.
     case "cronjob_added":
-      return { ...state, cronjobs: [...state.cronjobs, action.cronjob] };
-    case "cronjob_updated":
+    case "cronjob_updated": {
+      const exists = state.cronjobs.some((c) => c.id === action.cronjob.id);
       return {
         ...state,
-        cronjobs: state.cronjobs.map((c) =>
-          c.id === action.cronjob.id ? action.cronjob : c,
-        ),
+        cronjobs: exists
+          ? state.cronjobs.map((c) =>
+              c.id === action.cronjob.id ? action.cronjob : c,
+            )
+          : [...state.cronjobs, action.cronjob],
       };
+    }
+    // A deleted job's runs are office owners' only, and the client does not
+    // decide who that is: drop them with their transcripts and let the
+    // Schedules page refetch (seq bump), which returns them to owners alone.
     case "cronjob_deleted":
       return {
         ...state,
+        ...dropCronjobRuns(state, (jobId) => jobId === action.id),
         cronjobs: state.cronjobs.filter((c) => c.id !== action.id),
+        cronjobsStateSeq: state.cronjobsStateSeq + 1,
       };
     case "cronjobs_prompt_updated":
       return { ...state, cronjobsPrompt: action.value };
     // Client-local seed for a single job (cron.listRuns REST fetch).
     case "cronjob_runs": {
+      if (action.seq !== state.cronjobsStateSeq) return state;
       const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
-      cronjobRunsByJob.set(action.cronjobId, action.runs);
+      cronjobRunsByJob.set(
+        action.cronjobId,
+        mergeRuns(cronjobRunsByJob.get(action.cronjobId), action.runs),
+      );
       return { ...state, cronjobRunsByJob };
     }
-    // Client-local seed for the all-runs fetch (cron.listAllRuns REST). Per-job
-    // set (NOT a wholesale replace), so a job absent from the payload keeps its
-    // existing entry - preserving the old per-job cronjob_runs stream behavior.
+    // Client-local seed for the all-runs fetch (cron.listAllRuns REST). Merged
+    // run by run (mergeRuns), so neither a job absent from the answer nor a run
+    // that arrived live while the fetch was out is lost. That keeps nothing
+    // private: every loss of detail access arrives as cronjobs_state or
+    // cronjob_deleted, which drop the job's runs and bump the seq that voids
+    // fetches already in flight.
     case "cronjob_runs_loaded": {
+      if (action.seq !== state.cronjobsStateSeq) return state;
       const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
       for (const { cronjobId, runs } of action.jobs) {
-        cronjobRunsByJob.set(cronjobId, runs);
+        cronjobRunsByJob.set(
+          cronjobId,
+          mergeRuns(cronjobRunsByJob.get(cronjobId), runs),
+        );
       }
       return { ...state, cronjobRunsByJob, cronjobRunsLoaded: true };
     }
@@ -1224,6 +1326,7 @@ export const initialState: AppState = {
   cronjobs: [],
   cronjobsLoaded: false,
   cronjobsPrompt: null,
+  cronjobsStateSeq: 0,
   cronjobRunsByJob: new Map(),
   cronjobRunsLoaded: false,
   currentRoomId: null,
@@ -1253,7 +1356,8 @@ export const initialState: AppState = {
 // always goes through StoreProvider; nothing but tests should use this
 // directly.
 export const StateCtx = createContext<AppState>(initialState);
-const DispatchCtx = createContext<Dispatch<Action>>(() => {});
+// Exported for the same reason: a test can observe what a view dispatches.
+export const DispatchCtx = createContext<Dispatch<Action>>(() => {});
 
 // Notification sound - AudioContext initialized on first user interaction
 let audioCtx: AudioContext | null = null;

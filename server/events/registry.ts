@@ -40,7 +40,7 @@ import type {
   OfficeWire,
   TaskItem,
   AppListWire,
-  Cronjob,
+  CronjobListWire,
   CronjobRun,
   InviteWire,
   SessionWire,
@@ -210,16 +210,26 @@ export interface EventPayloads {
   // cannot see an app is told nothing rather than sent an empty frame.
   app_upserted: { app: AppListWire };
   app_deleted: { name: string };
-  cronjobs_state: { cronjobs: Cronjob[]; cronjobsPrompt: string | null };
-  cronjob_added: { cronjob: Cronjob };
-  cronjob_updated: { cronjob: Cronjob };
+  // Cronjobs: per-recipient, like tasks. A socket sees the jobs it may see
+  // (maker, office owners, members of the job's live room), each projected:
+  // the whole record for the maker and owners, the schedule and last-run
+  // outcome for a room member. See server/cronjob-visibility.ts.
+  cronjobs_state: {
+    cronjobs: CronjobListWire[];
+    cronjobsPrompt: string | null;
+  };
+  cronjob_added: { cronjob: CronjobListWire };
+  cronjob_updated: { cronjob: CronjobListWire };
   cronjob_deleted: { id: string };
+  // The shared cron prompt is office configuration owners write for every
+  // run, like office instructions: office-wide.
   cronjobs_prompt_updated: { value: string | null };
+  // Run rows and live run entries: the job's maker and office owners only. A
+  // run uses the maker's environment, so its transcript can show their secrets.
   cronjob_run_updated: { run: CronjobRun };
   // NEW. Live cron-run transcript stream; entry.agentId = synthetic
-  // `cronrun-<runId>`. Office-wide today (the accepted cron exposure); tightens
-  // to cron:read under Follow-up 3. AGENT scope still cannot read STORED
-  // transcripts (that read is not in the agent capability set).
+  // `cronrun-<runId>`. Maker + office owners only (today it still rides the
+  // `log_entry` wire shape, sent per recipient).
   cron_run_log_entry: { entry: LogEntry };
   // TARGET: public office metadata only; `envFile` is owner-only via
   // office.getSettings and never rides this `all` event.
@@ -418,13 +428,31 @@ export const EVENT_REGISTRY = {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },
-  cronjobs_state: { audience: "all", projectionKey: { kind: "all" } },
-  cronjob_added: { audience: "all", projectionKey: { kind: "all" } },
-  cronjob_updated: { audience: "all", projectionKey: { kind: "all" } },
-  cronjob_deleted: { audience: "all", projectionKey: { kind: "all" } },
+  cronjobs_state: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  cronjob_added: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  cronjob_updated: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  cronjob_deleted: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
   cronjobs_prompt_updated: { audience: "all", projectionKey: { kind: "all" } },
-  cronjob_run_updated: { audience: "all", projectionKey: { kind: "all" } },
-  cron_run_log_entry: { audience: "all", projectionKey: { kind: "all" } },
+  cronjob_run_updated: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  cron_run_log_entry: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
   office_settings_updated: { audience: "all", projectionKey: { kind: "all" } },
   update_status: { audience: "all", projectionKey: { kind: "all" } },
 
@@ -446,17 +474,12 @@ export const EVENT_REGISTRY = {
 // list (a deliberate, reviewed act) fails the test. Each is justified as
 // reduced office-wide metadata (no user access or office envFile/
 // prompt rides an `all` channel). The task board LEFT this class when it became
-// room-scoped - it is now per-recipient projected (see the `tasks` entry).
+// room-scoped - it is now per-recipient projected (see the `tasks` entry) -
+// and so did cronjobs and their runs when they gained rooms.
 export const ALL_AUDIENCE_ALLOWLIST: ReadonlySet<EventId> = new Set<EventId>([
   "users_list",
   "user_updated",
-  "cronjobs_state",
-  "cronjob_added",
-  "cronjob_updated",
-  "cronjob_deleted",
   "cronjobs_prompt_updated",
-  "cronjob_run_updated",
-  "cron_run_log_entry",
   "office_settings_updated",
   "update_status",
   "members_chat_message",

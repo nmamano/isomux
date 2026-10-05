@@ -24,6 +24,8 @@ import { UserSettingsView } from "./components/UserSettingsView.tsx";
 import { RoomTabBar } from "./office/RoomTabBar.tsx";
 import type {
   AppWire,
+  CronjobListWire,
+  CronjobRun,
   LogEntry,
   MembersChatMessage,
   TaskItem,
@@ -364,6 +366,185 @@ function boardTask(id: string, title: string, roomId?: string): TaskItem {
     version: "v1",
   };
 }
+
+describe("reducer: cronjobs", () => {
+  const viewerRow = (id: string): CronjobListWire =>
+    ({ id, name: id, detail: false, canManage: false }) as CronjobListWire;
+  const detailRow = (id: string): CronjobListWire =>
+    ({ id, name: id, detail: true, canManage: true }) as CronjobListWire;
+  const run = (cronjobId: string) =>
+    ({ id: `run-${cronjobId}`, cronjobId }) as CronjobRun;
+
+  it("added and updated are one idempotent upsert by id", () => {
+    let state: AppState = { ...initialState, cronjobs: [] };
+    state = reducer(state, { type: "cronjob_added", cronjob: viewerRow("a") });
+    state = reducer(state, { type: "cronjob_added", cronjob: viewerRow("a") });
+    expect(state.cronjobs.map((c) => c.id)).toEqual(["a"]);
+    // A job moved into a visible room arrives as an update for an unknown row.
+    state = reducer(state, { type: "cronjob_updated", cronjob: viewerRow("b") });
+    expect(state.cronjobs.map((c) => c.id)).toEqual(["a", "b"]);
+    state = reducer(state, { type: "cronjob_updated", cronjob: detailRow("a") });
+    expect(state.cronjobs.map((c) => [c.id, c.detail])).toEqual([
+      ["a", true],
+      ["b", false],
+    ]);
+  });
+
+  const stream = (jobId: string) => `cronrun-run-${jobId}`;
+  const withRunsAndLogs = (jobIds: string[]): AppState => ({
+    ...initialState,
+    cronjobRunsByJob: new Map(jobIds.map((id) => [id, [run(id)]])),
+    logs: new Map(jobIds.map((id) => [stream(id), [entry("e", stream(id), 1)]])),
+    logEntryIds: new Map(jobIds.map((id) => [stream(id), new Set(["e"])])),
+  });
+
+  it("a re-projection drops the transcripts of runs it drops and keeps the rest", () => {
+    const state = reducer(withRunsAndLogs(["kept", "now-viewer"]), {
+      type: "cronjobs_state",
+      cronjobs: [detailRow("kept"), viewerRow("now-viewer")],
+      cronjobsPrompt: null,
+    });
+    expect([...state.logs.keys()]).toEqual([stream("kept")]);
+    expect([...state.logEntryIds.keys()]).toEqual([stream("kept")]);
+  });
+
+  it("a delete drops the job's runs and transcripts and voids run fetches in flight", () => {
+    const before = withRunsAndLogs(["gone", "other"]);
+    const seq = before.cronjobsStateSeq;
+    const state = reducer(before, { type: "cronjob_deleted", id: "gone" });
+    expect([...state.cronjobRunsByJob.keys()]).toEqual(["other"]);
+    expect(state.logs.has(stream("gone"))).toBe(false);
+    expect(state.logs.has(stream("other"))).toBe(true);
+    expect(state.cronjobsStateSeq).toBe(seq + 1);
+  });
+
+  // A transcript cached for a run with no row in any run list: a run view
+  // opened on a run the list never loaded.
+  const unindexed = (state: AppState): AppState =>
+    reducer(state, {
+      type: "log_entries_batch",
+      entries: [entry("u1", "cronrun-unlisted", 1)],
+    });
+
+  it("a delete and a re-projection drop a transcript that no run row ties to a job", () => {
+    const before = unindexed(withRunsAndLogs(["other"]));
+    expect(before.logs.has("cronrun-unlisted")).toBe(true);
+    const afterDelete = reducer(before, { type: "cronjob_deleted", id: "x" });
+    expect(afterDelete.logs.has("cronrun-unlisted")).toBe(false);
+    expect(afterDelete.logs.has(stream("other"))).toBe(true);
+    const afterState = reducer(before, {
+      type: "cronjobs_state",
+      cronjobs: [detailRow("other")],
+      cronjobsPrompt: null,
+    });
+    expect(afterState.logs.has("cronrun-unlisted")).toBe(false);
+    expect(afterState.logs.has(stream("other"))).toBe(true);
+  });
+
+  it("an older run-list answer keeps a run that arrived live, and the job's delete still drops its transcript", () => {
+    // Reviewer 6's sequence: live run, its transcript, then an older answer
+    // with no runs for that job.
+    let state = reducer(initialState, {
+      type: "cronjob_run_updated",
+      run: run("job"),
+    });
+    state = reducer(state, {
+      type: "log_entries_batch",
+      entries: [entry("t1", stream("job"), 1)],
+    });
+    state = reducer(state, {
+      type: "cronjob_runs_loaded",
+      jobs: [{ cronjobId: "job", runs: [] }],
+      seq: state.cronjobsStateSeq,
+    });
+    expect(state.cronjobRunsByJob.get("job")?.map((r) => r.id)).toEqual([
+      run("job").id,
+    ]);
+    const deleted = reducer(state, { type: "cronjob_deleted", id: "job" });
+    expect(deleted.logs.has(stream("job"))).toBe(false);
+  });
+
+  it("a re-projection also drops a dropped transcript from a reconnect replay in flight", () => {
+    const before: AppState = {
+      ...withRunsAndLogs([]),
+      logsReplay: {
+        logs: new Map([["cronrun-unlisted", [entry("r1", "cronrun-unlisted", 1)]]]),
+        logEntryIds: new Map([["cronrun-unlisted", new Set(["r1"])]]),
+        seq: 1,
+      },
+    };
+    const state = reducer(before, {
+      type: "cronjobs_state",
+      cronjobs: [],
+      cronjobsPrompt: null,
+    });
+    expect(state.logsReplay?.logs.has("cronrun-unlisted")).toBe(false);
+    expect(state.logsReplay?.logEntryIds.has("cronrun-unlisted")).toBe(false);
+  });
+
+  it("a fetched run replaces the cached copy with its id", () => {
+    let state = reducer(initialState, {
+      type: "cronjob_run_updated",
+      run: { ...run("job"), status: "running" },
+    });
+    state = reducer(state, {
+      type: "cronjob_runs",
+      cronjobId: "job",
+      runs: [{ ...run("job"), status: "completed" }],
+      seq: state.cronjobsStateSeq,
+    });
+    expect(state.cronjobRunsByJob.get("job")?.map((r) => r.status)).toEqual([
+      "completed",
+    ]);
+  });
+
+  it("a run-list answer to a fetch made before the last re-projection is dropped", () => {
+    let state: AppState = { ...initialState, cronjobRunsByJob: new Map() };
+    const staleSeq = state.cronjobsStateSeq;
+    state = reducer(state, {
+      type: "cronjobs_state",
+      cronjobs: [],
+      cronjobsPrompt: null,
+    });
+    state = reducer(state, {
+      type: "cronjob_runs_loaded",
+      jobs: [{ cronjobId: "x", runs: [run("x")] }],
+      seq: staleSeq,
+    });
+    state = reducer(state, {
+      type: "cronjob_runs",
+      cronjobId: "y",
+      runs: [run("y")],
+      seq: staleSeq,
+    });
+    expect(state.cronjobRunsByJob.size).toBe(0);
+    state = reducer(state, {
+      type: "cronjob_runs_loaded",
+      jobs: [{ cronjobId: "x", runs: [run("x")] }],
+      seq: state.cronjobsStateSeq,
+    });
+    expect([...state.cronjobRunsByJob.keys()]).toEqual(["x"]);
+  });
+
+  it("a re-projection keeps cached runs only for jobs still read in detail", () => {
+    let state: AppState = {
+      ...initialState,
+      cronjobRunsByJob: new Map([
+        ["kept", [run("kept")]],
+        ["now-viewer", [run("now-viewer")]],
+        ["deleted", [run("deleted")]],
+      ]),
+    };
+    const seq = state.cronjobsStateSeq;
+    state = reducer(state, {
+      type: "cronjobs_state",
+      cronjobs: [detailRow("kept"), viewerRow("now-viewer")],
+      cronjobsPrompt: null,
+    });
+    expect([...state.cronjobRunsByJob.keys()]).toEqual(["kept"]);
+    expect(state.cronjobsStateSeq).toBe(seq + 1);
+  });
+});
 
 describe("reducer: task deltas", () => {
   const hydrated = () =>

@@ -21,6 +21,7 @@ const CLAUDE_CREATE: CronjobFormSnapshot = {
   permissionMode: "bypassPermissions",
   codexSandbox: "workspace-write",
   enabled: true,
+  roomId: "",
 };
 
 const CODEX_CREATE: CronjobFormSnapshot = {
@@ -75,6 +76,7 @@ describe("cronjobFormDirty", () => {
       { permissionMode: "never" },
       { codexSandbox: "read-only" },
       { enabled: false },
+      { roomId: "a1b2c3d4" },
     ];
     for (const edit of edits) {
       expect(
