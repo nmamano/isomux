@@ -1214,6 +1214,21 @@ function webhookAgentReachable(
   return accessibleRoomIdsFor(owner).has(target.roomId) ? "ok" : "unavailable";
 }
 
+// A webhook's cronjob target: the hook OWNER must still own the cronjob or be
+// an office owner. Checked when the target is set and again on each dispatch.
+function webhookCronjobRunnable(
+  userId: string | null,
+  cronjobId: string,
+): "ok" | "missing" | "forbidden" {
+  const job = cronjobManager
+    .listCronjobs()
+    .find((candidate) => candidate.id === cronjobId);
+  if (!job) return "missing";
+  if (userId === null) return "forbidden";
+  if (getUserById(userId)?.role === "owner") return "ok";
+  return job.userId === userId ? "ok" : "forbidden";
+}
+
 // Centralized Idempotency-Key cache. Process-global; reset per boot in
 // resetServerModuleState so a repeated in-process harness boot starts clean.
 const idempotencyCache = createIdempotencyCache();
@@ -2742,14 +2757,8 @@ function buildExecutorDeps(
           params: { id: cronjobId },
           deps: buildLiveGuardDeps(),
         }).ok,
-      userMayRunCronjob: (userId, cronjobId) => {
-        if (userId === null) return false;
-        if (getUserById(userId)?.role === "owner") return true;
-        const job = cronjobManager
-          .listCronjobs()
-          .find((candidate) => candidate.id === cronjobId);
-        return job?.userId === userId;
-      },
+      userMayRunCronjob: (userId, cronjobId) =>
+        webhookCronjobRunnable(userId, cronjobId) === "ok",
     }),
   );
 
@@ -7339,6 +7348,15 @@ export async function startServer(
     enqueueToAgent: (agentId, sender, text) => {
       const result = agentManager.enqueueMessage(agentId, { sender, text });
       return result.ok ? { ok: true } : { ok: false, code: result.error };
+    },
+    cronjobRunnableByUser: webhookCronjobRunnable,
+    startCronjobRun: (cronjobId, webhook, block) => {
+      const run = cronjobManager.runCronjobFromWebhook(
+        cronjobId,
+        webhook,
+        block,
+      );
+      return run ? { runId: run.id } : null;
     },
   });
   webhookIngress.recover();

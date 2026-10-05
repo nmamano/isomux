@@ -943,6 +943,7 @@ Cosas que puedes hacer por él:
   "dialogs.schedule.daily": "Cada día",
   "dialogs.schedule.weekly": "Cada semana",
   "dialogs.schedule.interval": "Cada N minutos",
+  "dialogs.schedule.none": "Bajo demanda",
   "dialogs.schedule.weekday.sunday": "Domingo",
   "dialogs.schedule.weekday.monday": "Lunes",
   "dialogs.schedule.weekday.tuesday": "Martes",
@@ -1685,6 +1686,8 @@ Cosas que puedes hacer por él:
   "schedules.trigger.manual": "manual",
   "schedules.trigger.manualBy": "manual · {who}",
   "schedules.trigger.scheduled": "programada",
+  "schedules.trigger.webhook": "webhook",
+  "schedules.trigger.webhookBy": "webhook · {name}",
   "schedules.runNumber": "Ejecución n.º {id}",
   "schedules.promptLabel": "PROMPT",
   "schedules.snapshot":
@@ -1824,6 +1827,7 @@ Cosas que puedes hacer por él:
   "schedules.human.everyMinutes": "Cada {minutes}m",
   "schedules.human.everyHours": "Cada {hours}h",
   "schedules.human.everyHoursMinutes": "Cada {hours}h{minutes}m",
+  "schedules.human.none": "Bajo demanda",
   "schedules.nextRunIn": "en {duration}",
 
   "commands.clear.description": "Borrar el historial de la conversación",

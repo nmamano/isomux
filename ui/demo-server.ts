@@ -944,7 +944,8 @@ function computeNextFireDemo(
   schedule: Schedule,
   anchor: number,
   now: number = Date.now(),
-): number {
+): number | null {
+  if (schedule.type === "none") return null;
   if (schedule.type === "interval") {
     const intervalMs = Math.max(5, schedule.minutes) * 60_000;
     if (now <= anchor) return anchor + intervalMs;

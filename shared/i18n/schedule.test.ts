@@ -24,6 +24,7 @@ const WEEKLY: Schedule = { type: "weekly", weekday: 1, hour: 17, minute: 30 };
 const EVERY_MINUTES: Schedule = { type: "interval", minutes: 45 };
 const EVERY_HOURS: Schedule = { type: "interval", minutes: 180 };
 const EVERY_MIXED: Schedule = { type: "interval", minutes: 150 };
+const NONE: Schedule = { type: "none" };
 
 describe("weekdayName", () => {
   it("uses the known Sunday anchor and gives every day a label", () => {
@@ -53,6 +54,9 @@ describe("scheduleText", () => {
       const mixed = say(code, EVERY_MIXED);
       expect(mixed).toContain("2");
       expect(mixed).toContain("30");
+      // No clock: a sentence with no time in it.
+      expect(say(code, NONE), code).toBeTruthy();
+      expect(say(code, NONE), code).not.toMatch(/\d/);
     }
   });
 
@@ -88,6 +92,7 @@ describe("the English and humanizeSchedule", () => {
       EVERY_MINUTES,
       EVERY_HOURS,
       EVERY_MIXED,
+      NONE,
       { type: "weekly", weekday: 6, hour: 0, minute: 0 } as Schedule,
       { type: "interval", minutes: 1 } as Schedule,
     ])

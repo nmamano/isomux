@@ -682,9 +682,11 @@ function CronjobsTable({
                   fontFamily: "'JetBrains Mono',monospace",
                 }}
               >
-                {c.enabled
-                  ? timeUntil(language, t, c.nextFireAt)
-                  : t("schedules.paused")}
+                {!c.enabled
+                  ? t("schedules.paused")
+                  : c.nextFireAt === null
+                    ? "-"
+                    : timeUntil(language, t, c.nextFireAt)}
               </td>
               <td
                 style={{

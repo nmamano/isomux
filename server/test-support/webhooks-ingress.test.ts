@@ -90,6 +90,7 @@ const sign = (secret: string, body: Uint8Array) =>
 
 interface Office {
   srv: TestServer;
+  bossSession: string;
   aliceSession: string;
   aliceId: string;
   agent: AgentInfo;
@@ -112,7 +113,7 @@ async function office(
     startServer: { webhookNow: () => clock },
   });
   server = srv;
-  await srv.seedOwner("Boss");
+  const boss = await srv.seedOwner("Boss");
   const roomA = srv.agentManager.createRoom("Alpha");
   const alice = await srv.seedMember("Alice");
   const aliceId = getUserByName("Alice")!.id;
@@ -152,6 +153,7 @@ async function office(
   const { secret } = (await secretRes.json()) as { secret: string };
   return {
     srv,
+    bossSession: boss.rawSessionId,
     aliceSession: alice.rawSessionId,
     aliceId,
     agent,
@@ -710,30 +712,138 @@ describe("POST /hooks/:id: verified deliveries", () => {
     await expectMessages(o, 1);
   });
 
-  it("a cronjob target is target_unavailable until cronjob targets exist", async () => {
-    clock = Date.now();
-    const o = await office({ rules: [{ event: "*" }] });
-    // A hook record pointed at a cronjob, written straight to the registry:
-    // creating one through the API needs a cronjob the owner manages, which
-    // is S4's ground.
-    const updated = webhookRegistry.update(o.hook.id, {
-      name: NAME,
-      scheme: "github-hmac-sha256",
-      signatureHeader: null,
-      eventHeader: null,
-      deliveryHeader: null,
-      rules: [{ event: "*" }],
-      target: { kind: "cronjob", cronjobId: "1a2b3c4d" },
-      enabled: true,
+  // Alice's cronjob, as the hook's target. The precondition lets her set it
+  // because she made the cronjob.
+  async function cronjobTarget(o: Office, session = o.aliceSession) {
+    const job = o.srv.cronjobManager.addCronjob({
+      name: "triage",
+      schedule: { type: "none" },
+      prompt: "Triage the pull request.",
+      cwd: o.srv.stateRoot,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      username: "Alice",
+      userId: o.aliceId,
     });
-    expect(updated?.target.kind).toBe("cronjob");
+    const res = await o.srv.http(`/api/webhooks/${o.hook.id}`, {
+      method: "PATCH",
+      rawSessionId: session,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target: { kind: "cronjob", cronjobId: job.id },
+      }),
+    });
+    expect(res.status).toBe(200);
+    return job;
+  }
+
+  // The run ids of the cronjob's runs.
+  const runIds = (o: Office, jobId: string) =>
+    o.srv.cronjobManager.getRunsForCronjob(jobId).map((run) => run.id);
+
+  it("a cronjob target starts a webhook run, and the run and the row name each other", async () => {
+    const o = await office({ fakeBackend: parkingBackend() });
+    const job = await cronjobTarget(o);
+    const res = await deliver(o, { body: prOpened(42) });
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ ok: true });
+
+    const [row] = await rows(o);
+    expect(row.outcome).toBe("dispatched");
+    expect(row.target?.kind).toBe("cronjob");
+    const runId =
+      row.target?.kind === "cronjob" ? (row.target.runId ?? "") : "";
+    const run = o.srv.cronjobManager.findRun(job.id, runId);
+    expect(run).toMatchObject({
+      trigger: "webhook",
+      webhook: {
+        webhookId: o.hook.id,
+        webhookName: NAME,
+        deliveryRowId: row.id,
+      },
+    });
+    // The prompt, a blank line, and the block with the rendered args.
+    const [prompt, blank, ...block] = run!.promptSnapshot.split("\n");
+    expect(prompt).toBe(job.prompt);
+    expect(blank).toBe("");
+    expect(block.at(-1)).toBe("</webhook-data>");
+    expect(JSON.parse(block.at(-2)!)).toEqual({ pr: "42" });
+    await waitUntil(
+      () =>
+        o.srv.fakeBackend.sessions.some((s) =>
+          s.sent.some((m) => m.text === run!.promptSnapshot),
+        ),
+      3000,
+      "run prompt sent",
+    );
+    // No agent got a message.
+    await expectMessages(o, 0);
+  });
+
+  it("a deleted cronjob gives target_unavailable and starts no run", async () => {
+    const o = await office({ fakeBackend: parkingBackend() });
+    const job = await cronjobTarget(o);
+    expect(o.srv.cronjobManager.deleteCronjob(job.id)).toBe(true);
     const res = await deliver(o);
     expect(res.status).toBe(503);
     expect(res.body).toEqual({ error: "target_unavailable" });
+    const [row] = await rows(o);
+    expect(row).toMatchObject({
+      outcome: "target_unavailable",
+      target: { kind: "cronjob", cronjobId: job.id },
+    });
+    expect(row.detail).toBeTruthy();
+    expect(o.srv.cronjobManager.getRunsForCronjob(job.id)).toEqual([]);
+  });
+
+  it("a hook owner who no longer owns the cronjob starts no run; the row retries once they do", async () => {
+    const o = await office({ fakeBackend: parkingBackend() });
+    const job = await cronjobTarget(o);
+    // The live record: the cronjob passes to another member.
+    job.userId = "someone-else";
+    const res = await deliver(o, { body: prOpened(5) });
+    expect(res.status).toBe(503);
     expect((await rows(o))[0]).toMatchObject({
       outcome: "target_unavailable",
-      target: { kind: "cronjob", cronjobId: "1a2b3c4d" },
+      target: { kind: "cronjob", cronjobId: job.id },
     });
+    expect(runIds(o, job.id)).toEqual([]);
+    job.userId = o.aliceId;
+    expect((await deliver(o, { body: prOpened(5) })).status).toBe(202);
+    const [row] = await rows(o);
+    expect(row).toMatchObject({ outcome: "dispatched", attempts: 2 });
+    expect(runIds(o, job.id)).toEqual([
+      row.target?.kind === "cronjob" ? (row.target.runId ?? "") : "",
+    ]);
+  });
+
+  it("an office owner's hook runs a member's cronjob", async () => {
+    const o = await office({ fakeBackend: parkingBackend() });
+    const job = await cronjobTarget(o);
+    // Boss did not make the cronjob; Boss's own hook targets it.
+    const made = await o.srv.http("/api/webhooks", {
+      method: "POST",
+      rawSessionId: o.bossSession,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "boss-hook",
+        scheme: "github-hmac-sha256",
+        rules: RULES,
+        target: { kind: "cronjob", cronjobId: job.id },
+      }),
+    });
+    expect(made.status).toBe(201);
+    const bossHook = (await made.json()) as WebhookWire;
+    expect(bossHook.userId).not.toBe(job.userId);
+    const secretRes = await o.srv.http(`/api/webhooks/${bossHook.id}/secret`, {
+      rawSessionId: o.bossSession,
+    });
+    const { secret } = (await secretRes.json()) as { secret: string };
+    const res = await deliver({ ...o, hook: bossHook, secret });
+    expect(res.status).toBe(202);
+    expect(runIds(o, job.id)).toHaveLength(1);
   });
 
   it("the dispatch limit answers 429 dispatch_limited, and the row retries after the minute", async () => {

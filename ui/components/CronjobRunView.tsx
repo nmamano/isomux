@@ -451,7 +451,9 @@ export function CronjobRunView({
                   {t(
                     run.trigger === "manual"
                       ? "schedules.trigger.manual"
-                      : "schedules.trigger.scheduled",
+                      : run.trigger === "webhook"
+                        ? "schedules.trigger.webhook"
+                        : "schedules.trigger.scheduled",
                   )}
                 </span>
               </div>
@@ -507,7 +509,13 @@ export function CronjobRunView({
                   ? run.triggeredBy
                     ? t("schedules.trigger.manualBy", { who: run.triggeredBy })
                     : t("schedules.trigger.manual")
-                  : t("schedules.trigger.scheduled")}
+                  : run.trigger === "webhook"
+                    ? run.webhook
+                      ? t("schedules.trigger.webhookBy", {
+                          name: run.webhook.webhookName,
+                        })
+                      : t("schedules.trigger.webhook")
+                    : t("schedules.trigger.scheduled")}
               </span>
             </div>
           )

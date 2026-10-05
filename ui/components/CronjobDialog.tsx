@@ -63,7 +63,7 @@ const WEEKDAYS: {
   { value: 6, key: "dialogs.schedule.weekday.saturday" },
 ];
 
-type ScheduleType = "daily" | "weekly" | "interval";
+type ScheduleType = Schedule["type"];
 
 export interface CronjobFormSnapshot {
   name: string;
@@ -435,6 +435,7 @@ export function CronjobDialog({
     if (scheduleType === "daily") return { type: "daily", hour, minute };
     if (scheduleType === "weekly")
       return { type: "weekly", weekday, hour, minute };
+    if (scheduleType === "none") return { type: "none" };
     return { type: "interval", minutes: intervalMinutes };
   }
 
@@ -633,6 +634,7 @@ export function CronjobDialog({
             <option value="daily">{t("dialogs.schedule.daily")}</option>
             <option value="weekly">{t("dialogs.schedule.weekly")}</option>
             <option value="interval">{t("dialogs.schedule.interval")}</option>
+            <option value="none">{t("dialogs.schedule.none")}</option>
           </select>
           {scheduleType === "weekly" && (
             <select
@@ -729,15 +731,17 @@ export function CronjobDialog({
               />
             </div>
           )}
-          <p
-            style={{
-              fontSize: 10,
-              color: "var(--text-ghost)",
-              margin: "6px 0 0",
-            }}
-          >
-            {t("dialogs.schedule.serverLocal")}
-          </p>
+          {scheduleType !== "none" && (
+            <p
+              style={{
+                fontSize: 10,
+                color: "var(--text-ghost)",
+                margin: "6px 0 0",
+              }}
+            >
+              {t("dialogs.schedule.serverLocal")}
+            </p>
+          )}
 
           <label style={{ ...labelStyle, marginTop: 14 }}>
             {t("dialogs.schedule.prompt")}

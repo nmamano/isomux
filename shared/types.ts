@@ -1087,7 +1087,9 @@ export type Schedule =
       hour: number;
       minute: number;
     }
-  | { type: "interval"; minutes: number };
+  | { type: "interval"; minutes: number }
+  // No clock: the job runs only from Run now and from webhooks.
+  | { type: "none" };
 
 // Permission modes available for cronjobs. Subset of each backend's full set:
 // modes that block on human approval would hang forever in an unattended run.
@@ -1133,7 +1135,8 @@ export interface Cronjob {
   roomId?: string;
   createdAt: number;
   lastFireAt: number | null;
-  nextFireAt: number;
+  // null exactly when the schedule is "none".
+  nextFireAt: number | null;
 }
 
 // A cronjob as its viewer receives it. canManage is the run/edit/delete
@@ -1146,7 +1149,7 @@ export type CronjobRunStatus =
   | "failed"
   | "timed_out"
   | "skipped";
-export type CronjobRunTrigger = "scheduled" | "manual";
+export type CronjobRunTrigger = "scheduled" | "manual" | "webhook";
 
 export interface CronjobRun {
   id: string; // 8-char hex
@@ -1175,6 +1178,9 @@ export interface CronjobRun {
   // triggered the run so the UI can show "Manually triggered by Nil".
   // Scheduled fires leave this undefined.
   triggeredBy?: string;
+  // Set on webhook fires only: the hook and the delivery row that started
+  // the run.
+  webhook?: { webhookId: string; webhookName: string; deliveryRowId: string };
 }
 
 // Cronjob runs piggy-back on the LogEntry.agentId routing by using a
@@ -1291,6 +1297,7 @@ export function humanizeSchedule(s: Schedule): string {
     const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     return `Weekly ${weekdays[s.weekday]} at ${pad(s.hour)}:${pad(s.minute)}`;
   }
+  if (s.type === "none") return "On demand";
   if (s.minutes < 60) return `Every ${s.minutes}m`;
   if (s.minutes % 60 === 0) return `Every ${s.minutes / 60}h`;
   return `Every ${Math.floor(s.minutes / 60)}h${s.minutes % 60}m`;

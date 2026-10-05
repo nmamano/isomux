@@ -938,6 +938,7 @@ Coses que pots fer per ell:
   "dialogs.schedule.daily": "Cada dia",
   "dialogs.schedule.weekly": "Cada setmana",
   "dialogs.schedule.interval": "Cada N minuts",
+  "dialogs.schedule.none": "A demanda",
   "dialogs.schedule.weekday.sunday": "Diumenge",
   "dialogs.schedule.weekday.monday": "Dilluns",
   "dialogs.schedule.weekday.tuesday": "Dimarts",
@@ -1681,6 +1682,8 @@ Coses que pots fer per ell:
   "schedules.trigger.manual": "manual",
   "schedules.trigger.manualBy": "manual · {who}",
   "schedules.trigger.scheduled": "programada",
+  "schedules.trigger.webhook": "webhook",
+  "schedules.trigger.webhookBy": "webhook · {name}",
   "schedules.runNumber": "Execució núm. {id}",
   "schedules.promptLabel": "PROMPT",
   "schedules.snapshot":
@@ -1819,6 +1822,7 @@ Coses que pots fer per ell:
   "schedules.human.everyMinutes": "Cada {minutes}m",
   "schedules.human.everyHours": "Cada {hours}h",
   "schedules.human.everyHoursMinutes": "Cada {hours}h{minutes}m",
+  "schedules.human.none": "A demanda",
   "schedules.nextRunIn": "d'aquí a {duration}",
 
   "commands.clear.description": "Esborrar l'historial de la conversa",

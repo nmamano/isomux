@@ -125,6 +125,19 @@ export interface WebhookIngressDeps {
     sender: WebhookSender,
     text: string,
   ): { ok: true } | { ok: false; code: string };
+  // The cronjob exists and the hook owner still owns it or is an office
+  // owner: the precondition's rule, checked again per dispatch.
+  cronjobRunnableByUser(
+    userId: string,
+    cronjobId: string,
+  ): "ok" | "missing" | "forbidden";
+  // runCronjobFromWebhook. Synchronous: it returns the run row and the run
+  // continues on its own. null when the cronjob is gone.
+  startCronjobRun(
+    cronjobId: string,
+    webhook: { webhookId: string; webhookName: string; deliveryRowId: string },
+    block: string,
+  ): { runId: string } | null;
 }
 
 export interface WebhookIngress {
@@ -226,6 +239,11 @@ const REFUSAL_DETAIL: Record<string, string> = {
   queue_full: "agent queue full",
   usage_cap: "usage cap reached",
 };
+
+const CRONJOB_DETAIL = {
+  missing: "cronjob deleted",
+  forbidden: "the hook owner no longer owns the cronjob",
+} as const;
 
 export function createWebhookIngress(deps: WebhookIngressDeps): WebhookIngress {
   const { registry } = deps;
@@ -358,7 +376,55 @@ export function createWebhookIngress(deps: WebhookIngressDeps): WebhookIngress {
         "target_unavailable",
       );
     if (target.kind === "cronjob") {
-      return unavailable("cronjob targets are not supported yet");
+      // No await from the check to the start, so they are one step.
+      const runnable = deps.cronjobRunnableByUser(
+        record.userId,
+        target.cronjobId,
+      );
+      if (runnable !== "ok") return unavailable(CRONJOB_DETAIL[runnable]);
+      // A hold of its own, even with no await: commitDaily settles a hold
+      // when there is one, so without it this commit would spend the hold of
+      // an agent delivery still in flight on the same hook.
+      limiter.holdDaily(record.id);
+      let started: { runId: string } | null;
+      try {
+        started = deps.startCronjobRun(
+          target.cronjobId,
+          {
+            webhookId: record.id,
+            webhookName: record.name,
+            deliveryRowId: rowId,
+          },
+          plan.block,
+        );
+      } catch (err) {
+        console.error(
+          `[webhooks] run of cronjob ${target.cronjobId} failed:`,
+          err,
+        );
+        limiter.releaseDaily(record.id);
+        return unavailable("cronjob run failed to start");
+      }
+      if (!started) {
+        limiter.releaseDaily(record.id);
+        return unavailable(CRONJOB_DETAIL.missing);
+      }
+      // 13: dispatched.
+      limiter.commitDaily(record.id);
+      return settled(
+        {
+          ...matched,
+          outcome: "dispatched",
+          status: 202,
+          target: {
+            kind: "cronjob",
+            cronjobId: target.cronjobId,
+            runId: started.runId,
+          },
+          detail: null,
+        },
+        null,
+      );
     }
     const unreachable = "agent deleted or outside the hook owner's rooms";
     if (deps.agentReachableByUser(record.userId, target.agentId) !== "ok") {

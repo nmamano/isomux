@@ -939,6 +939,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "dialogs.schedule.daily": "Daily",
   "dialogs.schedule.weekly": "Weekly",
   "dialogs.schedule.interval": "Every N minutes",
+  "dialogs.schedule.none": "On demand",
   "dialogs.schedule.weekday.sunday": "Sunday",
   "dialogs.schedule.weekday.monday": "Monday",
   "dialogs.schedule.weekday.tuesday": "Tuesday",
@@ -1655,6 +1656,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "schedules.trigger.manual": "manual",
   "schedules.trigger.manualBy": "manual · {who}",
   "schedules.trigger.scheduled": "scheduled",
+  "schedules.trigger.webhook": "webhook",
+  "schedules.trigger.webhookBy": "webhook · {name}",
   "schedules.runNumber": "Run #{id}",
   "schedules.promptLabel": "PROMPT",
   "schedules.snapshot":
@@ -1789,6 +1792,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "schedules.human.everyMinutes": "Every {minutes}m",
   "schedules.human.everyHours": "Every {hours}h",
   "schedules.human.everyHoursMinutes": "Every {hours}h{minutes}m",
+  "schedules.human.none": "On demand",
   "schedules.nextRunIn": "in {duration}",
 
   // --- S7: text the server writes for a signed-in reader -------------------

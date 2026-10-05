@@ -24,6 +24,7 @@ import {
 import type { WebhookDelivery, WebhookRecord } from "../../shared/types.ts";
 
 const AGENT = "agent-1";
+const CRONJOB = "1a2b3c4d";
 // Far enough apart that the minute cap never blocks a dispatch.
 const SPACING_MS =
   Math.ceil(APP_MESSAGE_BURST_WINDOW_MS / APP_MESSAGE_BURST_LIMIT) + 1;
@@ -54,9 +55,14 @@ interface Rig {
   failWrites: { value: boolean };
   // Called inside enqueueToAgent, after the message is accepted.
   onEnqueue: { fn: () => void };
+  // The cronjob target: the dispatch-time check, and each run started.
+  runnable: { value: "ok" | "missing" | "forbidden" };
+  started: { cronjobId: string; deliveryRowId: string; block: string }[];
+  // Replaces startCronjobRun's answer when set.
+  onStart: { fn: (() => { runId: string } | null) | null };
 }
 
-function rig(): Rig {
+function rig(target: "agent" | "cronjob" = "agent"): Rig {
   const registry = createWebhookRegistry({ dir, now: () => t });
   const hook = registry.create({
     fields: {
@@ -71,7 +77,10 @@ function rig(): Rig {
           args: { pr: "{{payload.pull_request.number}}" },
         },
       ],
-      target: { kind: "agent", agentId: AGENT },
+      target:
+        target === "agent"
+          ? { kind: "agent", agentId: AGENT }
+          : { kind: "cronjob", cronjobId: CRONJOB },
       enabled: true,
     },
     userId: "user-1",
@@ -88,6 +97,9 @@ function rig(): Rig {
     onPrepare: { fn: async () => {} },
     failWrites: { value: false },
     onEnqueue: { fn: () => {} },
+    runnable: { value: "ok" },
+    started: [],
+    onStart: { fn: null },
   };
   const deps: WebhookIngressDeps = {
     registry,
@@ -104,6 +116,16 @@ function rig(): Rig {
       r.enqueued.push(text);
       r.onEnqueue.fn();
       return { ok: true };
+    },
+    cronjobRunnableByUser: () => r.runnable.value,
+    startCronjobRun: (cronjobId, webhook, block) => {
+      if (r.onStart.fn) return r.onStart.fn();
+      r.started.push({
+        cronjobId,
+        deliveryRowId: webhook.deliveryRowId,
+        block,
+      });
+      return { runId: `run-${r.started.length}` };
     },
   };
   return { ...r, ingress: createWebhookIngress(deps) };
@@ -375,6 +397,43 @@ describe("webhook ingress: the daily dispatch cap", () => {
     },
     CAP_TEST_TIMEOUT_MS,
   );
+
+  it(
+    "a cronjob dispatch does not spend the hold of an agent delivery in flight",
+    async () => {
+      const r = rig();
+      for (let i = 0; i < APP_MESSAGE_DAILY_CAP - 2; i++) {
+        t += SPACING_MS;
+        expect((await deliver(r, i)).status).toBe(202);
+      }
+      // An agent delivery holds a daily slot while prepareEnqueue waits.
+      const gate = deferred();
+      const entered = deferred();
+      r.onPrepare.fn = async () => {
+        entered.resolve();
+        await gate.promise;
+      };
+      t += SPACING_MS;
+      const pending = deliver(r, 7000);
+      await entered.promise;
+      // The hook moves to a cronjob: one run takes the last free slot.
+      r.registry.update(r.hook.id, {
+        ...r.hook,
+        target: { kind: "cronjob", cronjobId: CRONJOB },
+      });
+      t += SPACING_MS;
+      expect((await deliver(r, 7001)).status).toBe(202);
+      t += SPACING_MS;
+      expect((await deliver(r, 7002)).status).toBe(429);
+      // Back to the agent: the held delivery still has its slot.
+      r.registry.update(r.hook.id, r.hook);
+      gate.resolve();
+      expect((await pending).status).toBe(202);
+      expect(r.enqueued.length + r.started.length).toBe(APP_MESSAGE_DAILY_CAP);
+      expect(r.started).toHaveLength(1);
+    },
+    CAP_TEST_TIMEOUT_MS,
+  );
 });
 
 describe("webhook ingress: a failed log write after the dispatch", () => {
@@ -396,4 +455,81 @@ describe("webhook ingress: a failed log write after the dispatch", () => {
     expect(rows(r)).toHaveLength(1);
     expect(rows(r)[0]).toMatchObject({ outcome: "dispatched", duplicates: 1 });
   });
+});
+
+describe("webhook ingress: the cronjob target", () => {
+  it("starts one run linked to the delivery row, and the row names the run", async () => {
+    const r = rig("cronjob");
+    const res = await deliver(r, 1);
+    expect(res.status).toBe(202);
+    const [row] = rows(r);
+    expect(row).toMatchObject({
+      outcome: "dispatched",
+      target: { kind: "cronjob", cronjobId: CRONJOB, runId: "run-1" },
+    });
+    expect(r.started).toHaveLength(1);
+    expect(r.started[0]).toMatchObject({
+      cronjobId: CRONJOB,
+      deliveryRowId: row.id,
+    });
+    // The JSON line is the one before the closing tag.
+    const lines = r.started[0].block.split("\n");
+    expect(lines.at(-1)).toBe("</webhook-data>");
+    expect(JSON.parse(lines.at(-2)!)).toEqual({ pr: "1" });
+    expect(r.enqueued).toEqual([]);
+  });
+
+  for (const value of ["missing", "forbidden"] as const) {
+    it(`a cronjob that is ${value} at dispatch starts no run, and the row retries`, async () => {
+      const r = rig("cronjob");
+      r.runnable.value = value;
+      expect((await deliver(r, 1)).status).toBe(503);
+      expect(r.started).toEqual([]);
+      expect(rows(r)[0]).toMatchObject({
+        outcome: "target_unavailable",
+        target: { kind: "cronjob", cronjobId: CRONJOB },
+      });
+      expect(rows(r)[0].detail).toBeTruthy();
+      // The target comes back: the same body retries on the same row.
+      r.runnable.value = "ok";
+      expect((await deliver(r, 1)).status).toBe(202);
+      expect(rows(r)).toHaveLength(1);
+      expect(rows(r)[0]).toMatchObject({ outcome: "dispatched", attempts: 2 });
+      expect(r.started).toHaveLength(1);
+    });
+  }
+
+  it("a cronjob gone at the start, or a start that throws, leaves a retryable row", async () => {
+    const r = rig("cronjob");
+    r.onStart.fn = () => null;
+    expect((await deliver(r, 1)).status).toBe(503);
+    expect(rows(r)[0].outcome).toBe("target_unavailable");
+    r.onStart.fn = () => {
+      throw new Error("disk full");
+    };
+    t += SPACING_MS;
+    expect((await deliver(r, 2)).status).toBe(503);
+    expect(rows(r)[0].outcome).toBe("target_unavailable");
+  });
+
+  it(
+    "only a started run spends a daily slot",
+    async () => {
+      const r = rig("cronjob");
+      r.runnable.value = "missing";
+      for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++) {
+        t += SPACING_MS;
+        expect((await deliver(r, i)).status).toBe(503);
+      }
+      r.runnable.value = "ok";
+      for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++) {
+        t += SPACING_MS;
+        expect((await deliver(r, 1000 + i)).status).toBe(202);
+      }
+      t += SPACING_MS;
+      expect((await deliver(r, 9999)).status).toBe(429);
+      expect(r.started).toHaveLength(APP_MESSAGE_DAILY_CAP);
+    },
+    CAP_TEST_TIMEOUT_MS,
+  );
 });
