@@ -5,7 +5,7 @@ same time as the pager loop (internal-docs/pager-loop.md) and two batch lanes,
 so it works in a worktree, not in main. Lanes alternate: Isomux Worker 1 /
 Isomux Reviewer 1 on odd slices, Isomux Worker 2 / Isomux Reviewer 2 on even
 slices. One worktree, `loop-webhooks` (branch `loop-webhooks`), kept for the
-whole loop. At every slice start the worker runs `git reset --hard main` in it
+whole loop. At every slice start the worker runs `git merge --ff-only main` in it (the safety hook blocks `git reset --hard`)
 (the PM has merged the previous slice into main by then). The worker re-reads
 this whole file at every slice. Delete this file at loop close.
 
@@ -79,7 +79,7 @@ PARKED FOR NIL items.
 
 - [x] S1 - pure core (verify, match, block): 541fcef2, 102 tests; intro line variants for hmac-sha256 and empty event or delivery id are in block.ts
 - [x] S2 - registry, API, auth: 19845377; the system-prompt line landed here (system-prompt.test requires every reference topic to be advertised)
-- [ ] S3 - ingress and the agent target
+- [x] S3 - ingress and the agent target: d022a0e8; a cronjob target answers target_unavailable ("cronjob targets are not supported yet") until S4
 - [ ] S4 - cronjob target, and the "none" schedule (ruling 7)
 - [ ] S5 - UI and docs
 
@@ -190,3 +190,45 @@ Decide with the reviewer: the module split between ingress and deliveries, the
 deps shape for the office wiring.
 
 Locked: rulings above; design sections 1, 5 and 6.
+
+## PICKUP S4 (Worker 2 / Reviewer 2)
+
+Goal: design section 11, S4: the cronjob target. `runCronjobFromWebhook` in
+server/cronjob-manager.ts calls `fire(job, "webhook", ...)`; the first user
+message is `job.prompt`, a blank line, and the data block; `promptSnapshot`
+stores that text; `CronjobRunTrigger` gains `"webhook"`; `CronjobRun.webhook`
+links the run to the delivery row; the cronjob system prompt gets the one
+sentence for webhook runs (design section 4b). The S3 ingress branch that
+answers `target_unavailable` for a cronjob target is replaced by the real
+dispatch. Plus ruling 7: the `{ type: "none" }` schedule.
+
+What S3 left (merged as d022a0e8): the ingress, the delivery log, the
+dispatch path for agent targets, and the placeholder cronjob branch with the
+detail "cronjob targets are not supported yet".
+
+Mechanics and traps:
+- Ruling 7: every place that switches on `Schedule["type"]` is found by grep:
+  the scheduler (never fires "none"), next-run computation, validation, the
+  cronjob dialog (offers it as a schedule option), the list and run views,
+  the cronjob agent-reference page, and anything that formats a schedule for
+  humans or agents. An older state file with no "none" job loads unchanged.
+- At dispatch time the cronjob must exist and the hook owner must still own it
+  or be an office owner (design section 4, "Who may point a hook at what").
+  A deleted cronjob gives `target_unavailable`.
+- Overlap follows ruling 6: a webhook run ignores the in-flight skip and never
+  blocks a scheduled run. The usage cap, timeout and run token still apply,
+  because they live in `fire()`.
+- A webhook run of a disabled cronjob runs, as Run now does.
+- The run row links to the delivery row, and the delivery row's `target`
+  names the run id.
+- Tests for the cronjob side go in cronjob-manager.di.test.ts, as the design
+  says; the ingress side extends the S3 route tests.
+
+Acceptance: every S4 test in design section 11 exists and passes; a "none"
+job never fires on the clock (fake clock) and runs from Run now and from a
+webhook; a mutant that lets the scheduler fire a "none" job fails.
+
+Decide with the reviewer: how the dialog presents "none", the human-readable
+schedule text for it (put it verbatim in the report).
+
+Locked: rulings above; design section 4b except where ruling 7 overrides it.

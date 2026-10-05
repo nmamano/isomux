@@ -5,7 +5,7 @@ same time as the webhooks loop (internal-docs/webhooks-loop.md) and two batch
 lanes, so it works in a worktree, not in main. Lanes alternate: Isomux Worker 3
 / Isomux Reviewer 3 on odd slices, Isomux Worker 4 / Isomux Reviewer 4 on even
 slices. One worktree, `loop-pager` (branch `loop-pager`), kept for the whole
-loop. At every slice start the worker runs `git reset --hard main` in it (the
+loop. At every slice start the worker runs `git merge --ff-only main` in it (the safety hook blocks `git reset --hard`) (the
 PM has merged the previous slice into main by then). The worker re-reads this
 whole file at every slice. Delete this file at loop close.
 
