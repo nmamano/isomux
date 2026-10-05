@@ -37,6 +37,8 @@ disagree, this file wins.
   routes-agents-manifest.test.ts
 - a slice that adds a capability also runs
   server/test-support/identity-tokens.test.ts (it pins each scope's exact set)
+- a slice that names a route in an agent-reference page or the system prompt
+  also runs server/backends/opencode/authority-broker.prompt-routes.test.ts
 - eslint on touched files
 - `bunx tsc --noEmit`
 
@@ -70,7 +72,7 @@ PARKED FOR NIL items.
 
 - [x] P1 - page record, store, agent route: dabd298e; the reference page says pages are not sent yet, which P2 must change
 - [x] P2 - Discord delivery and member settings: 2b90953a; link shape `<origin>/?pager=<id>` (pagerLink in server/pager-delivery.ts)
-- [ ] P3 - app route
+- [x] P3 - app route: c19de80d; the broker route test excluded the two app routes in f7d47dd8
 - [ ] P4 - pager view, badge, docs
 
 ## PICKUP P1 (Worker 3 / Reviewer 3)
@@ -192,3 +194,47 @@ sees and acks it.
 Decide with the reviewer: route paths, the source union shape.
 
 Locked: rulings above; the PM ruling on the APP scope in this pickup.
+
+## PICKUP P4 (Worker 4 / Reviewer 4)
+
+Goal: design "Pager view" and "Docs to update". A pager view modeled on the
+task board (ui/components/TaskView.tsx, routed as `page === "tasks"` in
+ui/App.tsx): pages the member can see, open first and newest first; filters
+for state (default open and acked) and room; a row with title, source, room,
+age, raise count, state and delivery status; ack and resolve; a link to the
+source agent's chat (for an app page, to the app). The Discord link
+`<origin>/?pager=<id>` opens the view with that page selected. A badge on the
+view's entry point counts the member's open pages. Then the doc surfaces in
+internal-docs/documentation.md.
+
+What P1-P3 left (merged as dabd298e, 2b90953a, c19de80d): the routes
+(`GET /api/pager` with `state` and `roomId`), `pager_upserted` pushed to
+sockets that can see the page, the record shape with `delivery` and the
+`pager.failure.*` catalog keys, the settings pane, and app pages whose room
+can be null.
+
+Mechanics and traps:
+- The UI already uses `page` for its views; the view's code name uses
+  `pager` (ruling 2). Find how the task board loads its data and follows its
+  events, and do the same; there is no hydration event, so the view reads
+  `GET /api/pager` and then applies `pager_upserted`.
+- The badge counts open pages whose target is the member, or all open pages
+  the member can see: settle it with the reviewer from the design text
+  ("counts open pages for the member") and say which in the report.
+- iOS renders dingbats as emoji: state and delivery marks are SVG or
+  `StatusShape` (office memory, 2026-09-01).
+- Mobile: the view works at 390px.
+- Docs: README and landing copy are Nil's; propose wording in the report and
+  do not edit them. docs/features.md, api/chat.ts and docs/developer-api.md
+  (line 51 lists an API token's reach and does not name pages) get short
+  drafts in the slice, quoted verbatim in the report for his sign-off.
+- `ui/demo-server.ts` gets fixture pages if the demo needs them; that adds
+  `build:demo` to the gates.
+
+Acceptance: DOM tests for the list, the filters, ack and resolve, the deep
+link selecting a page, and the badge count; the four-locale i18n test; a
+headless-Chrome screenshot of the view at desktop and 390px width.
+
+Decide with the reviewer: the entry point's place in the nav, the row layout.
+
+Locked: rulings above; the design's view contents.
