@@ -5,10 +5,10 @@
  * neither can ask `auth()` while it renders. They ask this shape instead, over
  * `/api/session`, and swap in the signed-in content when it comes back.
  *
- * THE OFFICE LIST IS A NAMED FOUR FIELDS, not the projection. `officesForAccount`
+ * THE OFFICE LIST IS A FEW NAMED FIELDS, not the projection. `officesForAccount`
  * returns `ProgressView[]`, which carries the ssh command, the access window, the
  * handoff, the subscription and the lifecycle. None of that reaches the browser
- * today: the page renders on the server and only these four fields survive into
+ * today: the page renders on the server and only these fields survive into
  * HTML. Handing the whole projection to the client would widen what the browser
  * holds as a side effect of a caching change, so the route maps down to exactly
  * what the card draws.
@@ -20,6 +20,7 @@ export interface OfficeCard {
   officeName: string;
   hostname: string;
   ready: boolean;
+  ended: boolean;
 }
 
 /**

@@ -38,6 +38,7 @@ describe("the prerendered shells", () => {
       officeName: "acme",
       hostname: "acme.isomux.app",
       ready: true,
+      ended: false,
     };
     const one = renderToStaticMarkup(
       <Dashboard
@@ -172,6 +173,7 @@ const baseView: ProgressView = {
   steps: [],
   otherOperations: [],
   ready: false,
+  ended: false,
   attention: [],
   access: { state: "gone", expiresAt: null, ceilingProven: true },
   handoff: {

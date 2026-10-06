@@ -1,0 +1,13 @@
+# Hosted Isomux: one tick of the automatic deploy from main (auto-deploy.sh).
+# Installed by hand once; after that auto-deploy.sh keeps this file equal to
+# the deployed release's copy.
+[Unit]
+Description=Deploy Hosted Isomux from main when a green commit changes it
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/isomux-hosted/current/control-plane/deploy/vps/auto-deploy.sh
+# A build, the replacement and its checks, and a rollback with its checks.
+TimeoutStartSec=30min

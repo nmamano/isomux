@@ -7,6 +7,7 @@ import {
   formatDuration,
   nextClock,
   OfficeView,
+  progressBusy,
   progressPollInterval,
   startProgressPolling,
   stableProgressSignature,
@@ -36,6 +37,7 @@ const baseView: ProgressView = {
   steps: [],
   otherOperations: [],
   ready: false,
+  ended: false,
   attention: [],
   access: { state: "gone", expiresAt: null, ceilingProven: true },
   handoff: {
@@ -413,4 +415,59 @@ test("refund terms stay visible before and after cancellation is scheduled", () 
   const refundHtml = refund.replaceAll("'", "&#x27;");
   expect(offered).toContain(`data-testid="refund-notice">${refundHtml}`);
   expect(scheduled).toContain(`data-testid="refund-notice">${refundHtml}`);
+});
+
+test("a deleted office reads as ended, with nothing to open, reach or restart", () => {
+  const render = (view: ProgressView) =>
+    renderToStaticMarkup(
+      <OfficeView language="en" initial={view} instanceId={view.instanceId} />,
+    );
+  const status = (html: string) =>
+    /data-testid="office-status">([^<]*)</.exec(html)?.[1];
+  // The projection never sends an ended office as ready.
+  const lifecycle: NonNullable<ProgressView["lifecycle"]> = {
+    phase: "ended",
+    graceEnd: null,
+    retentionEnd: null,
+    poweredOff: false,
+    reinstate: { allowed: false, reason: "the office is gone" },
+  };
+  const notReady = render({ ...baseView, serviceState: "live", lifecycle });
+  const ended = render({
+    ...baseView,
+    serviceState: "deprovisioned",
+    ended: true,
+    lifecycle,
+  });
+
+  expect(status(ended)).toBeTruthy();
+  expect(status(ended)).not.toBe(status(notReady));
+  expect(ended).not.toContain('href="https://test-office.example.test"');
+  for (const section of [
+    "handoff",
+    "restart-button",
+    "cancel-ended",
+    "payment-guidance",
+  ]) {
+    expect(ended).not.toContain(`data-testid="${section}"`);
+  }
+  // Payment guidance is the one block that needs no subscription.
+  expect(
+    render({ ...baseView, ended: true, subscription: null }),
+  ).not.toContain('data-testid="payment-guidance"');
+  expect(render({ ...baseView, subscription: null })).toContain(
+    'data-testid="payment-guidance"',
+  );
+  // The status line says it once; the cancellation panel does not repeat it.
+  expect(notReady).toContain('data-testid="cancel-ended"');
+  expect(notReady).toContain('data-testid="handoff"');
+  expect(notReady).toContain('data-testid="restart-button"');
+});
+
+test("an ended office does not poll as if it were still being built", () => {
+  expect(progressBusy({ ...baseView, ready: false }, false)).toBe(true);
+  expect(progressBusy({ ...baseView, ready: false, ended: true }, false)).toBe(
+    false,
+  );
+  expect(progressBusy({ ...baseView, ended: true }, true)).toBe(true);
 });

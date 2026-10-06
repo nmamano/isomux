@@ -205,6 +205,10 @@ export interface ProgressView {
    * happened. */
   otherOperations: ProgressStep[];
   ready: boolean;
+  /** The box is gone (service_state deprovisioned). An ended office is never
+   * ready, and its projection carries no SSH command and no attention: there
+   * is nothing left for the customer to open, reach or check. */
+  ended: boolean;
   attention: AttentionView[];
   access: AccessView;
   handoff: HandoffView;
@@ -683,13 +687,15 @@ export async function projectionFor(
     asOf,
   );
 
+  const ended = instance.service_state === "deprovisioned";
+
   return {
     asOf,
     instanceId: instance.id,
     officeName: reservation.name,
     hostname: instance.name,
     sshCommand:
-      instance.customer_ssh_key_fingerprint && instance.ssh_login_user
+      !ended && instance.customer_ssh_key_fingerprint && instance.ssh_login_user
         ? `ssh ${instance.ssh_login_user}@${instance.name}`
         : null,
     plan: reservation.plan,
@@ -702,9 +708,11 @@ export async function projectionFor(
       stepFor(kind as OperationKind, byKind),
     ),
     // The one terminal claim, and it rests on a SUCCEEDED probe rather than on
-    // how far down the ladder we are.
-    ready: verifyHttps?.status === "succeeded",
-    attention,
+    // how far down the ladder we are. A probe that succeeded before the box was
+    // deleted does not make a deleted office ready.
+    ready: !ended && verifyHttps?.status === "succeeded",
+    ended,
+    attention: ended ? [] : attention,
     access,
     handoff: handoffFor(access, byKind, operations),
     liveness,

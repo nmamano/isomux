@@ -296,6 +296,47 @@ describe("it does not invent progress", () => {
   });
 });
 
+describe("a deleted office", () => {
+  test("is ended: not ready, with no SSH command and no attention", async () => {
+    const store = await tempStore();
+    const { reservation, account } = await signedUp(store);
+    const id = reservation.instance_id;
+    await addOp(store, id, "verify_https", "succeeded");
+    await store.sqlRun(
+      "update instances set customer_ssh_key_fingerprint = $1, ssh_login_user = $2 where id = $3",
+      ["SHA256:test", "owner", id],
+    );
+    await raiseAttention(store, {
+      instanceId: id,
+      sourceOpId: "lifecycle-promise-broken",
+      reasonClass: "operation_condition",
+      reason: "the provider asset is gone before the promised date",
+      severity: "critical",
+      actor: "lifecycle",
+    });
+    const read = async () =>
+      (await projectionFor(store, { accountId: account.id, instanceId: id }))!;
+
+    // The same rows before the box is gone: the fixture is a ready office.
+    const live = await read();
+    expect(live).toMatchObject({ ready: true, ended: false });
+    expect(live.sshCommand).not.toBeNull();
+    expect(live.attention).toHaveLength(1);
+
+    await store.sqlRun(
+      "update instances set service_state = 'deprovisioned' where id = $1",
+      [id],
+    );
+    const gone = await read();
+    expect(gone).toMatchObject({
+      ready: false,
+      ended: true,
+      sshCommand: null,
+      attention: [],
+    });
+  });
+});
+
 describe("the adopted path", () => {
   test("an adopted run never shows a waiting create step beside real progress", async () => {
     const store = await tempStore();

@@ -1,0 +1,10 @@
+# Hosted Isomux: run the automatic deploy five minutes after the last tick ends.
+[Unit]
+Description=Deploy Hosted Isomux from main every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target

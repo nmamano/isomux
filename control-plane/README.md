@@ -971,6 +971,10 @@ all. It is never deleted or rewritten, and it can only ever refuse a create.
 
 ## Deployed: the web app on Vercel
 
+Retired 2026-10-06: the storefront runs on the Docker host and deploys from
+main (see "Deployed: Hosted Isomux on one Docker host"). Vercel stays only for a
+rollback until Nil retires it.
+
 The storefront is a Next.js app inside a repository that already belongs to
 something else, and that sentence is the whole difficulty. Every step below is
 here because a deployment failed without it, and the failures are recorded
@@ -2439,6 +2443,7 @@ control-plane/deploy/vps/deploy.sh <commit>            # on the host, from a clo
 control-plane/deploy/vps/deploy.sh --prepare <commit>  # a first install that starts no app, for a move
 control-plane/deploy/vps/restore.sh <dump> <fingerprint>  # the old database into a prepared install
 control-plane/deploy/vps/local-proof.sh <commit>       # the same, on throwaway names, then torn down
+control-plane/deploy/vps/auto-deploy.sh                # one run of the deploy from main (below); the timer runs it
 ```
 
 `deploy.sh` builds from `git archive <commit>`, never from the working tree, in
@@ -2450,7 +2455,9 @@ script then starts the services and proves: each running container's image is
 the one it built, with the commit's label; health is `ok` with
 `database_identity` true at that commit; the storefront home page answers 200;
 the database publishes no port. It keeps the release before this one, for a
-rollback, and removes older images and release trees.
+rollback, and removes older images and release trees. When a step fails after
+it starts to replace the running release, it puts the previous release back
+(see "Deploying from main").
 
 | Service     | Image                                 | Networks | Published      | Ceiling          |
 | ----------- | ------------------------------------- | -------- | -------------- | ---------------- |
@@ -2474,6 +2481,8 @@ The host layout, with the defaults that `ISOMUX_HOSTED_PROJECT`,
 ```
 /etc/isomux-hosted/              0700, owned by the deploying user (root on a host)
   web.env, provisioner.env       0600, written by the operator from deploy/vps/*.env.example
+  auto-deploy.env                0600, the clone and the GitHub repository for the deploy from main
+  auto-deploy.hold               present: the deploy from main does nothing
   generated/                     0700, written by deploy.sh on the first install only
     db.env                       the superuser password, used only through the container socket
     owner-db.env, web-db.env, provisioner-db.env
@@ -2484,6 +2493,8 @@ The host layout, with the defaults that `ISOMUX_HOSTED_PROJECT`,
   releases/<commit>/             the archived tree; compose.yaml runs from it
   current -> releases/<commit>
   release.env                    the image tags, deployment id and ports compose.yaml interpolates; no secret
+  release.env.previous           the release.env a deploy replaced, for its rollback
+  auto-deploy/                   status.json, the failed list and the stopped marker of the deploy from main
   deploy-<time>.log              build and Compose output, which can hold a database error
   restore-<time>.log             restore.sh's database output, which can quote a row
 ```
@@ -2554,6 +2565,87 @@ pruned, and that a missing state volume refuses without a build or a new
 volume. Then it checks that teardown leaves no container, volume, network,
 image, builder or file. Measured 2026-10-06 on the office box: about
 17 minutes, most of it the three builds.
+
+### Deploying from main
+
+A commit on `main` that changes what Hosted runs deploys itself.
+`isomux-hosted-autodeploy.timer` starts `auto-deploy.sh` as root five minutes
+after the last run ends. The script runs from the release that last passed
+(`/opt/isomux-hosted/current`). One run:
+
+1. Fetches `main` from the public repository into the clone named in
+   `/etc/isomux-hosted/auto-deploy.env`, with no credential.
+2. Picks T: the newest commit on `main` after the deployed commit D (in `main`'s
+   ancestry, not by run time) whose GitHub Build is green. A green Build is the
+   newest `build.yml` run for a push to `main` with that head commit, completed
+   with `success`. The script reads up to three pages of 100 runs from the
+   public API, with no token, inside the provisioner image.
+3. Deploys T only when `git diff --no-renames D T` touches a Hosted input: any
+   path under `control-plane/`, `deploy/install.sh` or the root `.dockerignore`.
+   T's own `deploy.sh` does the deploy, under the deploy lock that
+   `auto-deploy.sh` holds for the whole run. A manual `deploy.sh` meanwhile
+   refuses.
+4. Checks which commit runs healthy, with the check from the release that
+   started the run (its physical directory, not the `current` link), and writes
+   `/opt/isomux-hosted/auto-deploy/status.json`.
+
+**A failed deploy.** When `deploy.sh` fails after it starts to replace the
+running release, it puts the previous release back: the provisioner and the
+storefront only, never the database. It then checks that the previous release
+serves, and exits 5. There is a gap while the containers are replaced.
+`auto-deploy.sh` marks T failed and never deploys it again; a newer green
+commit can deploy. A failure before the replacement, such as a build, is tried
+on two more runs before T is marked. When the previous release does not serve
+after a failure, `auto-deploy.sh` writes `auto-deploy/stopped` and deploys
+nothing until an operator recovers the host and deletes that file.
+
+**It deploys nothing** when the fetch or the API read fails (`tick_error`;
+no commit is marked), when D is not on `main`, when T changes
+`control-plane/deploy/vps/compose.yaml` (deploy it by hand), while
+`/etc/isomux-hosted/auto-deploy.hold` exists, while another deploy holds the
+lock, and on an install that `--prepare` left or that did not finish.
+
+**Compatibility.** A rollback restores the app images, not the data. Every
+release must work on the schema and data that the next release writes: change
+them additively, and remove the old shape only in a later release (expand,
+then contract). `Store.open` refuses a schema that is behind, so a commit that
+needs a `migrate-*` command fails its health check and rolls back. Open gap:
+the `owner` service runs the deployed provisioner image, so a `migrate-*`
+command that is new in that commit is not in it, and `deploy.sh` has no step
+that runs a migration with the image it builds. No procedure for such a commit
+exists yet; set the hold before it reaches `main`.
+
+**Rolling back.** Revert the commit on `main`; the next run deploys the revert.
+When that is too slow: create the hold file, run `deploy.sh <good commit>` by
+hand, and remove the hold once `main` is fixed.
+
+**The status file** is replaced on every run. business-health reads it.
+
+| Field                                  | Value                                                                                                                                                                                                                                   |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tick_at`                              | when the run ended (UTC)                                                                                                                                                                                                                |
+| `deployed`                             | the commit that runs, or null                                                                                                                                                                                                           |
+| `result`                               | `deployed`, `up_to_date`, `waiting` (an input change waits for a green Build), `rolled_back`, `build_failed`, `failed`, `failed_target`, `manual_deploy_needed`, `diverged`, `tick_error`, `rollback_failed`, `stopped`, `held`, `locked`, `refused` or `error` |
+| `phase`                                | where the run ended, for example `api`, `fetch`, `clone`, `build`, `config`                                                                                                                                                             |
+| `target`                               | T, when the run got that far                                                                                                                                                                                                            |
+| `stopped`, `held`                      | whether the stopped marker and the hold file exist                                                                                                                                                                                      |
+| `waiting`, `waiting_since`             | whether main has an input change that is not deployed, and since when (null when not waiting; a run that stops before it reads main reports false) |
+| `tick_error_since`                     | the start of the current run of fetch or API failures, or null                                                                                                                                                                          |
+| `units`                                | `ok`, `absent` (never installed) or `error`                                                                                                                                                                                             |
+| `last_attempt`                         | `at`, `target` and `result` of the last deploy attempt                                                                                                                                                                                  |
+
+Each run installs the units under the deploy lock, before the hold and stopped
+checks. New unit bytes stay pending until `systemctl daemon-reload` and the
+timer restart both succeed, so a failed activation is tried again on the next
+run.
+
+**First install**, once per host: a clone of the public repository that
+`deploy.sh` has run from, `auto-deploy.env` from `control-plane/deploy/vps/auto-deploy.env.example`
+(0600), a manual `deploy.sh` of a commit that carries `auto-deploy.sh`, and the
+two unit files from `control-plane/deploy/vps/` copied to `/etc/systemd/system`, then
+`systemctl daemon-reload` and `systemctl enable --now
+isomux-hosted-autodeploy.timer`. After that, the units follow the deployed release, so a unit
+change ships like code.
 
 ### Moving Hosted Isomux to a Docker host
 
@@ -4215,25 +4307,18 @@ must keep it in this runbook rather than reconstruct it from task history:
 1. From the exact committed release tree, run
    `bun control-plane/cli.ts migrate-customer-ssh-key` once against production.
    Prove the new columns are present before starting either runtime.
-2. Deploy the provisioner image with
-   `bun control-plane/deploy/activate.ts --redeploy --plan` and then
-   `--execute`. Plain `--execute` is the first-arming gate and refuses on a
-   production that already carries a provider-linked asset, which is
-   production's normal state since 2026-08-13; `--redeploy` requires the four
-   provider names already on the app instead (added 2026-08-21). Its build
-   must prove every runtime payload is
-   present, including `/app/deploy/install.sh` and the customer-key installer.
-3. Deploy the control-plane web app with
-   `bun control-plane/deploy/production-phase.ts --redeploy`. The local probe
-   preflight must pass before the deployment may contact Vercel.
-4. Run one complete customer acceptance pass with a new office and a real
+2. Deploy the provisioner and the web app: since 2026-10-06 both deploy from
+   main on the Docker host ("Deploying from main"). A release that needs step 1
+   follows the compatibility rule there. The Fly and Vercel commands that this
+   step named before are retired.
+3. Run one complete customer acceptance pass with a new office and a real
    customer SSH public key. Prove the key is installed, root SSH works, the
    built-in Isomux terminal remains unable to sudo, our temporary key is
    revoked, the customer key still works afterward, office links use the office
    name, and the handoff flow cannot revoke access before browser confirmation.
    The installer must complete without copying a missing file into the live
    provisioner.
-5. Publish a current Isomux release only after the combined tree passes CI.
+4. Publish a current Isomux release only after the combined tree passes CI.
    Install or update the acceptance office through the real release channel and
    verify the Apps tab and current hosted capabilities.
 

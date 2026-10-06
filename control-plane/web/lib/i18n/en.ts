@@ -26,6 +26,7 @@ export const en = {
   "home.officeHeading": "Your office",
   "home.ready": "ready",
   "home.notReady": "not ready yet",
+  "home.ended": "deleted",
   "home.viewOffice": "View office",
   "home.setUpAnother": "<link>Set up another office</link>.",
   "home.noOffice": "You have no office yet. <link>Set one up</link>.",

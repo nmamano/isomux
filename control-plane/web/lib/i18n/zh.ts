@@ -12,6 +12,7 @@ export const zh: Catalog = {
   "home.officeHeading": "你的办公室",
   "home.ready": "就绪",
   "home.notReady": "尚未就绪",
+  "home.ended": "已删除",
   "home.viewOffice": "查看办公室",
   "home.setUpAnother": "<link>设置另一个办公室</link>。",
   "home.noOffice": "还没有办公室。<link>设置一个</link>。",

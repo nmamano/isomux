@@ -1,5 +1,8 @@
 # cloud.isomux.com: deploy from main automatically (feasibility)
 
+Superseded 2026-10-06: Hosted Isomux left Vercel for one Docker host, which
+deploys from main by itself (`control-plane/README.md`, "Deploying from main").
+
 Task f87752d1. Written 2026-10-05 by Isomux Worker 5. No provider writes were
 made. The provider facts below come from read-only Vercel and GitHub API calls
 on 2026-10-05; the vendor facts come from the Vercel docs pages linked inline,

@@ -25,6 +25,7 @@ export const es: Catalog = {
   "home.officeHeading": "Tu oficina",
   "home.ready": "lista",
   "home.notReady": "aún no está lista",
+  "home.ended": "eliminada",
   "home.viewOffice": "Ver oficina",
   "home.setUpAnother": "<link>Configurar otra oficina</link>.",
   "home.noOffice":

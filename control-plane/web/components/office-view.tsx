@@ -116,6 +116,20 @@ export function stableProgressSignature(view: ProgressView): string {
   return JSON.stringify(stable);
 }
 
+/** Whether the page polls fast: an office still being built (an ended one
+ * never will be), or work in flight. */
+export function progressBusy(
+  view: ProgressView,
+  explicitAction: boolean,
+): boolean {
+  return (
+    (!view.ready && !view.ended) ||
+    explicitAction ||
+    view.handoff.invite.state === "active" ||
+    view.handoff.revocation.state === "active"
+  );
+}
+
 export function progressPollInterval(args: {
   busy: boolean;
   explicitAction: boolean;
@@ -420,11 +434,7 @@ export function OfficeView({
     invite.phase === "waiting" ||
     handoffPending ||
     view.restart.active;
-  const busy =
-    !view.ready ||
-    explicitAction ||
-    view.handoff.invite.state === "active" ||
-    view.handoff.revocation.state === "active";
+  const busy = progressBusy(view, explicitAction);
 
   const hasRunningStep = [...view.steps, ...view.otherOperations].some(
     (step) => step.state === "active" || step.state === "checking",
@@ -482,11 +492,7 @@ export function OfficeView({
           return landed ? null : asked;
         });
         return progressPollInterval({
-          busy:
-            !next.ready ||
-            explicitAction ||
-            next.handoff.invite.state === "active" ||
-            next.handoff.revocation.state === "active",
+          busy: progressBusy(next, explicitAction),
           explicitAction,
           unchangedMs: observedAt - unchangedSince.current,
         });
@@ -640,9 +646,13 @@ export function OfficeView({
         )}
       </section>
       <p className="lead" data-testid="office-status">
-        {view.ready ? i18n.t("office.ready") : i18n.t("office.notReady")}
+        {view.ended
+          ? i18n.t("office.cancel.ended")
+          : view.ready
+            ? i18n.t("office.ready")
+            : i18n.t("office.notReady")}
       </p>
-      {!view.subscription && (
+      {!view.subscription && !view.ended && (
         <section className="card" data-testid="payment-guidance">
           <p>{i18n.t("office.completePayment")}</p>
           <form className="form" method="post" action="/api/signup">
@@ -710,6 +720,9 @@ export function OfficeView({
         </>
       )}
 
+      {/* An ended office has no box: nothing to get into, watch or restart. */}
+      {!view.ended && (
+      <>
       <h2>{i18n.t("office.gettingInHeading")}</h2>
       <section className="card" data-testid="handoff">
         {view.sshCommand && (
@@ -933,6 +946,8 @@ export function OfficeView({
           </p>
         )}
       </div>
+      </>
+      )}
 
       <h2>{i18n.t("office.planHeading")}</h2>
       <div className="card">
@@ -1052,7 +1067,8 @@ function CancelPanel({
   ) => void;
 }) {
   const sub = view.subscription;
-  if (!sub) return null;
+  // An ended office says so in its status line, and has nothing to cancel.
+  if (!sub || view.ended) return null;
   const life = view.lifecycle;
 
   if (pending === "cancel") {

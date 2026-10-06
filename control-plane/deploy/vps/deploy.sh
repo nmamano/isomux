@@ -19,6 +19,12 @@
 # provisioner state imported before the provisioner first runs (README, "Moving
 # Hosted Isomux to a Docker host"). The next run without it starts the apps.
 #
+# Once the new release starts to replace the running one, any failure puts the
+# previous release back (provisioner and web only, never the database) and
+# checks that it serves: exit 5 when it does, exit 6 when it does not. A first
+# install has nothing to go back to and exits 1. auto-deploy.sh runs this
+# script with ISOMUX_HOSTED_LOCK_INHERITED=1 and the deploy lock held on fd 9.
+#
 # Output is step lines and booleans. No value from an env file is printed, put
 # on a command line, baked into an image or written to a log.
 set -euo pipefail
@@ -35,6 +41,8 @@ die() {
   say "FAIL $*"
   exit 1
 }
+# shellcheck source=running.sh
+source "$(dirname "$0")/running.sh"
 
 prepare=false
 if [[ ${1:-} == --prepare ]]; then
@@ -61,8 +69,16 @@ private_file "$env_dir/web.env"
 private_file "$env_dir/provisioner.env"
 
 mkdir -p "$root/releases"
-exec 9>"$root/deploy.lock"
-flock -n 9 || die "another deploy holds $root/deploy.lock"
+if [[ ${ISOMUX_HOSTED_LOCK_INHERITED:-} == 1 ]]; then
+  # The caller holds the lock on this descriptor; reopening the file here
+  # would not be the caller's lock.
+  [[ $(readlink /proc/$$/fd/9 2>/dev/null) == "$(realpath "$root/deploy.lock")" ]] ||
+    die "ISOMUX_HOSTED_LOCK_INHERITED is set but fd 9 is not $root/deploy.lock"
+  flock -n 9 || die "the inherited deploy lock is not held"
+else
+  exec 9>"$root/deploy.lock"
+  flock -n 9 || die "another deploy holds $root/deploy.lock"
+fi
 
 # --- First install, redeploy, or a state to refuse. The install is the
 # generated credentials and the two named volumes together: the database, and
@@ -187,12 +203,53 @@ if $first_install; then
   say "generated: database passwords, identity and seam token"
 fi
 
-# The release this one replaces, kept for a rollback.
+# The release this one replaces, kept for a rollback. Its values are saved
+# before release.env is written.
 previous_release=$(readlink "$root/current" 2>/dev/null || true)
 previous_images=()
 if [[ -f $root/release.env ]]; then
   mapfile -t previous_images < <(sed -n 's/^ISOMUX_\(WEB\|PROVISIONER\)_IMAGE=//p' "$root/release.env")
+  cp -p "$root/release.env" "$root/release.env.previous"
 fi
+can_roll_back=false
+if ! $first_install && [[ -n $previous_release && -f $root/release.env.previous &&
+  -f $previous_release/control-plane/deploy/vps/compose.yaml ]]; then
+  can_roll_back=true
+fi
+
+# --- From the first write below, a failure puts the previous release back. ---
+roll_back() {
+  local previous_commit reason
+  previous_commit=$(basename "$previous_release")
+  say "FAIL the new release did not come up; rolling back to $previous_commit"
+  cp -p "$root/release.env.previous" "$root/release.env"
+  ln -sfn "$previous_release" "$root/current"
+  dcp() { docker compose --env-file "$root/release.env" -f "$previous_release/control-plane/deploy/vps/compose.yaml" "$@"; }
+  # --no-deps: the database stays as it is.
+  if ! dcp up -d --no-deps --wait --wait-timeout 240 provisioner web >>"$log" 2>&1; then
+    say "FAIL rollback: the previous release did not start; see $log"
+    return 6
+  fi
+  if ! reason=$(release_healthy "$previous_commit" "$web_port" dcp); then
+    say "FAIL rollback: $reason"
+    return 6
+  fi
+  say "ROLLED BACK $project to $previous_commit; it serves"
+  return 5
+}
+armed=false
+on_exit() {
+  local status=$?
+  if $armed && [[ $status -ne 0 ]]; then
+    armed=false
+    set +e
+    roll_back
+    exit $?
+  fi
+}
+trap on_exit EXIT
+trap 'exit 1' INT TERM
+$can_roll_back && armed=true
 
 # --- The values compose.yaml interpolates. Nothing secret. ---
 cat <<EOF | write_private "$root/release.env"
@@ -279,6 +336,8 @@ say "web: home page 200 on 127.0.0.1:$web_port"
 
 [[ -z $(docker port "$(dc ps -q db)") ]] || die "the database publishes a port"
 say "db: no published port"
+# The new release serves: nothing after this point rolls it back.
+armed=false
 
 # --- Keep this release and the one before it; remove older ones. ---
 keep=" $web_image $provisioner_image ${previous_images[*]} "

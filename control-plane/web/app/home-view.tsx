@@ -116,11 +116,18 @@ export function Dashboard({
               <p className="lead">
                 <span className="address">{office.hostname}</span> -{" "}
                 {/* The same chip the provisioning ladder uses, so "ready" reads
-                    the same here as it does inside the office. */}
-                <span data-state={office.ready ? "done" : "active"}>
-                  {office.ready
-                    ? i18n.t("home.ready")
-                    : i18n.t("home.notReady")}
+                    the same here as it does inside the office. An ended office
+                    gets the plain chip. */}
+                <span
+                  data-state={
+                    office.ended ? "ended" : office.ready ? "done" : "active"
+                  }
+                >
+                  {office.ended
+                    ? i18n.t("home.ended")
+                    : office.ready
+                      ? i18n.t("home.ready")
+                      : i18n.t("home.notReady")}
                 </span>
               </p>
               <span className="office-card-action">

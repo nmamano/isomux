@@ -1,5 +1,8 @@
 # Hosted launch sitting runbook
 
+Superseded 2026-10-06: Hosted Isomux left Vercel for one Docker host, which
+deploys from main by itself (`control-plane/README.md`, "Deploying from main").
+
 Parked 2026-08-22 by Isomux PM on Nil's instruction. This document is the
 complete, self-contained plan for the one sitting that takes Hosted Isomux
 live. It survives PM session resets; the board task `9f69ed8e` points here.

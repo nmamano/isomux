@@ -14,7 +14,10 @@
 # provisioner state, and must build the commit's bytes even when the cached
 # release tree was changed. Around them it checks each container's resource
 # ceiling, and that deploy.sh refuses an unfinished or incomplete install (exit
-# 3 and 4) before it builds or creates anything.
+# 3 and 4) before it builds or creates anything. Last, one auto-deploy.sh tick
+# from a local origin deploys a commit whose provisioner cannot start, under
+# the lock that a manual deploy.sh meanwhile cannot take, and deploy.sh puts
+# the previous release back.
 set -euo pipefail
 umask 077
 
@@ -47,8 +50,10 @@ leftovers() {
 }
 [[ -z $(leftovers) ]] || die "a previous $project run left containers, volumes, networks, images or builders"
 
+api_pid=""
 teardown() {
   local status=$?
+  [[ -z $api_pid ]] || kill "$api_pid" 2>/dev/null || true
   # On failure, keep the logs: every value in this run is synthetic.
   if [[ $status -ne 0 && -d $work/root ]]; then
     local kept
@@ -251,6 +256,60 @@ for service in provisioner web; do
     die "$service was built with a file that is not in the commit"
 done
 say "redeploy: identity, generated credentials, data and provisioner state kept; built from the commit's bytes; containers replaced"
+
+# A manual deploy refuses while another holds the lock, before it builds.
+bash -c 'exec 9>"$0"; flock 9; exec sleep 600' "$work/root/deploy.lock" &
+holder=$!
+sleep 1
+images_before=$(project_images)
+refuses 1 "the deploy lock held by another process"
+kill "$holder"
+wait "$holder" 2>/dev/null || true
+[[ $(project_images) -eq $images_before ]] || die "a deploy refused by the lock built an image"
+say "lock: a manual deploy refuses while another holds the lock, nothing built"
+
+# One auto-deploy tick: a local origin whose main has a commit after this one
+# that stops the provisioner from starting, and a stub of the Build-runs API
+# that calls it green.
+git init -q --bare -b main "$work/origin.git"
+git -C "$here" push -q --no-verify "$work/origin.git" "$commit:refs/heads/main"
+git clone -q -b main "$work/origin.git" "$work/src"
+printf 'if (process.argv[2] === "run") process.exit(1);\n' |
+  cat - "$work/src/control-plane/cli.ts" >"$work/cli.ts"
+mv "$work/cli.ts" "$work/src/control-plane/cli.ts"
+git -C "$work/src" -c user.name=proof -c user.email=proof@example.com commit -qam "a provisioner that cannot start"
+git -C "$work/src" push -q --no-verify origin HEAD:main
+broken=$(git -C "$work/src" rev-parse HEAD)
+cat >"$work/api.ts" <<'API'
+const runs = [{ head_sha: process.env.BROKEN, run_number: 1, status: "completed", conclusion: "success" }];
+const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ workflow_runs: runs }) });
+await Bun.write(process.env.PORT_FILE!, String(server.port));
+API
+BROKEN=$broken PORT_FILE=$work/api.port bun "$work/api.ts" &
+api_pid=$!
+for _ in {1..50}; do
+  [[ -s $work/api.port ]] && break
+  sleep 0.1
+done
+[[ -s $work/api.port ]] || die "the stub API did not start"
+printf 'ISOMUX_HOSTED_SRC=%s\nISOMUX_HOSTED_GITHUB_REPO=owner/repo\n' "$work/src" >"$work/env/auto-deploy.env"
+chmod 600 "$work/env/auto-deploy.env"
+mkdir "$work/units"
+ISOMUX_HOSTED_GITHUB_API=http://127.0.0.1:$(cat "$work/api.port") ISOMUX_HOSTED_UNIT_DIR=$work/units \
+  "$work/root/current/control-plane/deploy/vps/auto-deploy.sh" >"$work/auto-deploy.log" 2>&1 ||
+  die "auto-deploy.sh exited non-zero"
+status=$(cat "$work/root/auto-deploy/status.json")
+[[ $status == *'"result":"rolled_back"'* && $status == *"\"deployed\":\"$commit\""* &&
+  $status == *"\"target\":\"$broken\""* && $status == *'"stopped":false'* ]] ||
+  die "the tick did not end rolled back to $commit: $status"
+grep -qx "$broken" "$work/root/auto-deploy/failed" || die "the broken commit is not marked failed"
+[[ $(readlink "$work/root/current") == "$work/root/releases/$commit" ]] || die "current does not point at $commit"
+# shellcheck source=running.sh
+reason=$(source "$here/running.sh" && release_healthy "$commit" "$ISOMUX_HOSTED_WEB_PORT" dc) ||
+  die "the previous release does not serve after the rollback: $reason"
+[[ $(echo "select count(*) from accounts where id = 'proof-account';" | sql) == 1 ]] || die "the rollback lost data"
+[[ $(dc exec -T provisioner cat /data/proof-sentinel) == proof ]] || die "the rollback lost the provisioner state"
+say "auto-deploy: a green commit whose provisioner cannot start rolls back to $commit, which serves; the commit is marked failed"
 
 # A lost state volume refuses: no empty volume is created in its place.
 dc rm -sf provisioner >/dev/null 2>&1

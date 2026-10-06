@@ -43,6 +43,7 @@ export async function GET(request: Request): Promise<Response> {
       officeName: office.officeName,
       hostname: office.hostname,
       ready: office.ready,
+      ended: office.ended,
     })),
   });
 }

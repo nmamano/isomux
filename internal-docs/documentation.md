@@ -186,8 +186,9 @@ These aren't user-facing docs, but they do describe features and can fall out of
   plane: its store and driver protocol, the web app (including its own copy of
   the i18n catalogs under `control-plane/web/lib/i18n/`, which the office's
   `shared/i18n/` cannot be imported into), billing, invites,
-  cancellation, and the deployed topology (Neon, fly.io, Vercel) with the
-  operator procedures for each. Unlike the design documents in `internal-docs/`,
+  cancellation, and the deployed topology (since 2026-10-06 one Docker host that
+  deploys from main; the retired Neon, fly.io and Vercel sections stay for a
+  rollback) with the operator procedures for each. Unlike the design documents in `internal-docs/`,
   keep it current as the control plane changes - it is what the next person
   reads before touching a deployment, and every measured claim in it carries a
   date.
