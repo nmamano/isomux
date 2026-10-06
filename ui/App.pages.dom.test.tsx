@@ -65,7 +65,7 @@ const PAGES: Array<{
   {
     page: "apps",
     button: "Apps (a)",
-    showing: (v) => v.queryByTitle("Hide app previews") !== null,
+    showing: (v) => v.baseElement.querySelector("[data-apps-page]") !== null,
   },
 ];
 

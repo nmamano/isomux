@@ -1246,6 +1246,7 @@ export function AppsView({
 
   return (
     <div
+      data-apps-page=""
       style={{
         height: isMobile
           ? "calc(100dvh - var(--banner-h, 0px))"

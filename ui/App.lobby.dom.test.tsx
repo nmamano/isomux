@@ -7,6 +7,7 @@ setUpDomTestFile();
 const { act, render, fireEvent } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { App } = await import("./App.tsx");
+const { en } = await import("../shared/i18n/en.ts");
 const { setApiShim } = await import("./api.ts");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 
@@ -23,7 +24,7 @@ beforeEach(() => {
 
 for (const [label, path] of [
   ["Apps", "/apps"],
-  ["Schedules", "/cronjobs"],
+  [en["common.automations"], "/cronjobs"],
 ] as const) {
   it(`opens ${path} from its lobby wall control`, async () => {
     const view = render(
