@@ -44,7 +44,7 @@ Loop slice N+1 is design slice N (section 8 of the design).
 - [x] Slice 1: design doc. Approved by Reviewer 2 at 6472be7b, merged as one commit. Rulings in item 8.
 - [x] Slice 2 (design slice 1): runner, AgentHost, trusted checks, terminal, Node probe, whole diff, tier-1 rig. Approved by Reviewer 3 at b8341b92, merged as one commit. Bun 1.3.11 cannot listen on an inherited fd, so slice 6 uses the RuntimeDirectory layout (design 2.3). Notes: Bun drops a close made inside Bun.listen open() (the runner defers it); Bun's net client reports an immediate peer close as ECONNREFUSED (the rig's raw client is Python); a rig build takes 4-7 min under load; in split mode the welcome agents' default cwd is the server HOME (fix in a later slice).
 - [ ] Slice 3 (design slice 2): agent backends, identity rule, tier-2 live tests
-- [ ] Slice 4 (design slice 3): fence, agent-space files, routes that replace state reads
+- [ ] Slice 4 (design slice 3): fence, agent-space files, routes that replace state reads. Also carries, from slice 3 (Isomux PM, 2026-10-06): the async conversion of `inspectStoredSession` and `checkSessionResumable` for all three backends and their callers (boot, canDemote, pickAutoResumeSessionId), with the Claude transcript and Codex rollout existence checks. Until then a split office keeps the stored session id when the inspect throws.
 - [ ] Slice 5 (design slice 4): apps, preview, cron, backups, admin.sock
 - [ ] Slice 6 (design slice 5): installer, migration with undo, container split, docs; removes the rig-only gate
 
