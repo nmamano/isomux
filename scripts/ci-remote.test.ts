@@ -166,7 +166,9 @@ describe("ci-remote, with a target", () => {
     const [run] = f.remoteRuns();
     expect(run).toMatch(new RegExp(`^bash -s -- --remote ${head} \\S+$`));
     // The remote half is this script, and the commit is in the remote repo.
-    expect(read(join(f.dir, "remote-script"))).toBe(readFileSync(SCRIPT, "utf8"));
+    expect(read(join(f.dir, "remote-script"))).toBe(
+      readFileSync(SCRIPT, "utf8"),
+    );
     const bare = join(f.home, REMOTE_ROOT, "repo.git");
     expect(git(bare, "cat-file", "-t", head)).toBe("commit");
     // The ref that carried it is gone once the run ends.
