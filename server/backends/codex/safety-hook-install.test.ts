@@ -168,6 +168,23 @@ describe("Codex safety hook installation", () => {
     expect(goldenAfter.mtimeMs).toBe(goldenBefore.mtimeMs);
   });
 
+  it("concurrent repairs in one process all keep the safety check", async () => {
+    expect((await ensureCodexSafetyHook(defaultHome)).warning).toBeNull();
+    const bytes = readFileSync(CODEX_SAFETY_HOOK_PATH);
+    bytes[Math.floor(bytes.length / 2)] ^= 0xff;
+    writeFileSync(CODEX_SAFETY_HOOK_PATH, bytes);
+
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => ensureCodexSafetyHook(defaultHome)),
+    );
+    for (const result of results) expect(result.warning).toBeNull();
+    expect(readFileSync(CODEX_SAFETY_HOOK_PATH)).toEqual(
+      readFileSync(_test.goldenPath),
+    );
+    // Four full preflights in parallel: well under 5 s alone, slower on a
+    // loaded box.
+  }, 30_000);
+
   // Quarantined on Intel macOS (task 7cf318ac): the rebuild timed out at 5 s there.
   it.skipIf(INTEL_MAC)(
     "repairs a stale boot artifact by rebuilding, not by copying it to the installed path",

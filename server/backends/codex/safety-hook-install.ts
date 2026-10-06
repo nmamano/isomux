@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "fs";
 import { basename, dirname, join } from "path";
+import { randomUUID } from "crypto";
 import { errMessage } from "../../../shared/errors.ts";
 import { STATE_ROOT } from "../../config.ts";
 import { inAgentSpace } from "../../agent-host.ts";
@@ -127,7 +128,7 @@ async function prepareArtifact(): Promise<PreparedArtifact> {
     }
   }
   if (rebuild) {
-    const temporary = `${GOLDEN_HOOK_PATH}.new-${process.pid}-${Date.now()}`;
+    const temporary = `${GOLDEN_HOOK_PATH}.new-${process.pid}-${randomUUID()}`;
     try {
       await buildCodexSafetyHook(temporary);
       renameSync(temporary, GOLDEN_HOOK_PATH);
@@ -236,7 +237,7 @@ function isCurrentOwnedMatcher(
 }
 
 function atomicWriteText(path: string, text: string, mode = 0o600): void {
-  const temporary = `${path}.new-${process.pid}-${Date.now()}`;
+  const temporary = `${path}.new-${process.pid}-${randomUUID()}`;
   writeFileSync(temporary, text, { mode });
   renameSync(temporary, path);
 }
@@ -491,7 +492,10 @@ async function repairInstalledArtifact(
   // Explicit: a umask or a missing setgid bit must not decide the share mode.
   if (SPLIT_CONFIG)
     chmodShare(dirname(CODEX_SAFETY_HOOK_PATH), INSTALLED_DIR_MODE);
-  const temporary = `${CODEX_SAFETY_HOOK_PATH}.new-${process.pid}-${Date.now()}`;
+  // Unique per call: two repairs in one process within the same millisecond
+  // must not share a temporary file, or the second one fails and its tool
+  // call runs without the safety check.
+  const temporary = `${CODEX_SAFETY_HOOK_PATH}.new-${process.pid}-${randomUUID()}`;
   try {
     await Bun.write(temporary, Bun.file(artifact.path));
     chmodSync(temporary, INSTALLED_HOOK_MODE);
