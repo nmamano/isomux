@@ -838,26 +838,147 @@ function checkOutboundTunnel(command: string): TunnelMatch | null {
   return null;
 }
 
-const SOCKET_CLIENTS = ["curl", "nc", "ncat", "netcat", "socat"];
+const SOCKET_CLIENTS = ["nc", "ncat", "netcat", "socat"];
 const SCRIPT_RUNNERS = ["bun", "bunx", "node", "npx", "tsx", "ts-node", "deno"];
+const PACKAGE_RUNNERS = ["bunx", "npx"];
 const ADMIN_CLI_SCRIPT = /(?:^|\/)admin-cli(?:\.[cm]?[jt]s)?$/;
+
+// curl options that take the next word as their value (curl 8.5.0
+// `--help all`). curl also accepts any unambiguous prefix of a long option.
+const CURL_VALUE_SHORT = new Set("EKCbcdDFPHmoxUQreXYytzTuAw");
+const CURL_VALUE_LONG = [
+  "--cert", "--config", "--continue-at", "--cookie", "--cookie-jar", "--data",
+  "--data-ascii", "--data-binary", "--data-raw", "--data-urlencode",
+  "--dump-header", "--form", "--form-string", "--ftp-port", "--header",
+  "--json", "--max-time", "--output", "--output-dir", "--proxy",
+  "--proxy-header", "--proxy-user", "--quote", "--range", "--referer",
+  "--request", "--speed-limit", "--speed-time", "--stderr", "--telnet-option",
+  "--time-cond", "--trace", "--trace-ascii", "--upload-file", "--url",
+  "--url-query", "--user", "--user-agent", "--variable", "--write-out",
+];
+// curl flags whose full name is a prefix of a value option above. curl
+// prefers the exact name, so `--head` is a flag and not `--header`.
+const CURL_FLAG_PREFIXES = ["--head"];
+const CURL_SOCKET_OPTIONS = ["--unix-socket", "--abstract-unix-socket"];
+
+/** True when `word` names exactly one of `options`, in full or as a prefix. */
+function namesOneOf(word: string, options: string[]): boolean {
+  if (options.includes(word)) return true;
+  return options.filter((o) => o.startsWith(word)).length === 1;
+}
+
+/**
+ * The socket paths a curl command may connect through. The word after a
+ * socket option is taken as a path but is still read as a word in its own
+ * right, so a socket option given as the value of an option this scan does
+ * not know cannot hide the real one after it.
+ */
+function curlSocketPaths(args: ShellWord[]): string[] {
+  const paths: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const text = args[i].text;
+    if (text === "--") break;
+    if (text.startsWith("--")) {
+      const [name, value] = text.split(/=(.*)/s);
+      if (name.length >= 4 && namesOneOf(name, CURL_SOCKET_OPTIONS)) {
+        if (value !== undefined) paths.push(value);
+        else if (i + 1 < args.length) paths.push(args[i + 1].text);
+      } else if (
+        text.length >= 3 &&
+        !CURL_FLAG_PREFIXES.includes(text) &&
+        namesOneOf(text, CURL_VALUE_LONG)
+      )
+        i++;
+    } else if (text.length > 1 && text.startsWith("-")) {
+      // A short bundle (`-sSo`): a value option takes the rest of the word,
+      // or the next word when it ends the bundle.
+      const value = [...text.slice(1)].findIndex((c) => CURL_VALUE_SHORT.has(c));
+      if (value === text.length - 2) i++;
+    }
+  }
+  return paths;
+}
+
+// Package-runner options of bunx and npx, by how many words they take.
+const PACKAGE_RUNNER_VALUE_OPTIONS = ["-p", "--package"];
+const PACKAGE_RUNNER_CALL_OPTIONS = ["-c", "--call"];
+const PACKAGE_RUNNER_FLAGS = [
+  "--bun", "--no-install", "--verbose", "--silent", "-y", "--yes", "--no",
+  "-q", "--quiet",
+];
+
+/** `tsx@4` and `node_modules/.bin/tsx` both name `tsx`. */
+function packageName(spec: string): string {
+  const name = basename(spec);
+  const version = name.lastIndexOf("@");
+  return version > 0 ? name.slice(0, version) : name;
+}
+
+/** True when a script runner, given these words, may run admin-cli. */
+function runnerRunsAdminCli(name: string, args: ShellWord[]): boolean {
+  if (name === "bun" && args[0]?.text === "x")
+    return runnerRunsAdminCli("bunx", args.slice(1));
+  if (!PACKAGE_RUNNERS.includes(name))
+    return args.some(
+      (arg) => arg.text === "owner-login" || ADMIN_CLI_SCRIPT.test(arg.text),
+    );
+  return packageRunnerRunsAdminCli(args, 0, new Map());
+}
+
+/**
+ * A package runner runs the first word after its options. `bunx eslint
+ * server/admin-cli.ts` lints that file and does not run it; `npx tsx
+ * server/admin-cli.ts` runs it. An option this scan does not know may or may
+ * not take the next word, so both readings are judged and either one can
+ * refuse. `-c` runs its value as a command line.
+ */
+function packageRunnerRunsAdminCli(
+  args: ShellWord[],
+  start: number,
+  seen: Map<number, boolean>,
+): boolean {
+  const known = seen.get(start);
+  if (known !== undefined) return known;
+  let result = false;
+  let i = start;
+  for (; i < args.length && args[i].text.startsWith("-"); i++) {
+    const [name, value] = args[i].text.split(/=(.*)/s);
+    if (PACKAGE_RUNNER_CALL_OPTIONS.includes(name)) {
+      const call = value ?? args[++i]?.text ?? "";
+      if (usesAdminSocket(call)) result = true;
+    } else if (PACKAGE_RUNNER_VALUE_OPTIONS.includes(name)) {
+      if (value === undefined) i++;
+    } else if (!PACKAGE_RUNNER_FLAGS.includes(name) && value === undefined) {
+      if (packageRunnerRunsAdminCli(args, i + 2, seen)) result = true;
+    }
+  }
+  if (!result && i < args.length) {
+    const pkg = packageName(args[i].text);
+    result =
+      ADMIN_CLI_SCRIPT.test(pkg) ||
+      (SCRIPT_RUNNERS.includes(pkg) && runnerRunsAdminCli(pkg, args.slice(i + 1)));
+  }
+  seen.set(start, result);
+  return result;
+}
 
 /**
  * The admin socket mints an owner sign-in link for anyone who can connect,
  * and every agent runs as the server's OS user. Refuse the recognized ways to
  * use it: a socket client pointed at admin.sock, or a script runner starting
- * admin-cli or the `owner-login` subcommand. Mentioning it (`grep admin.sock`)
- * stays allowed.
+ * admin-cli or the `owner-login` subcommand. A mention is not a use: curl
+ * counts only its socket option, so a message body that names admin.sock
+ * passes, and a package run on admin-cli as a file (`bunx eslint`) passes.
  */
 function usesAdminSocket(command: string): boolean {
-  return collectCommands(command).some(({ name, args }) => {
-    if (SOCKET_CLIENTS.includes(name))
-      return args.some((arg) => arg.text.includes("admin.sock"));
-    if (SCRIPT_RUNNERS.includes(name))
-      return args.some(
-        (arg) => arg.text === "owner-login" || ADMIN_CLI_SCRIPT.test(arg.text),
-      );
-    return false;
+  return collectCommands(command).some((cmd) => {
+    if (cmd.name === "curl")
+      return curlSocketPaths(cmd.args).some((p) => p.includes("admin.sock"));
+    if (SOCKET_CLIENTS.includes(cmd.name))
+      return cmd.args.some((arg) => arg.text.includes("admin.sock"));
+    return (
+      SCRIPT_RUNNERS.includes(cmd.name) && runnerRunsAdminCli(cmd.name, cmd.args)
+    );
   });
 }
 

@@ -290,6 +290,28 @@ describe("the admin socket is not for agents (F6 guardrail)", () => {
     "bun server/admin-cli.ts owner-login --name Nil",
     "bun run server/isomux-office.ts owner-login --name Nil",
     "sudo -u isomux bun run server/index.ts owner-login --name Nil",
+    `curl --un ${sock} http://localhost/`,
+    `curl --abstract-unix-socket ${sock} http://localhost/`,
+    `curl -d '{"a":1}' --unix-socket ${sock} http://localhost/admin/owner-login`,
+    "node server/admin-cli.ts",
+    "npx tsx server/admin-cli.ts owner-login --name Nil",
+    "bunx --bun tsx server/admin-cli.ts",
+    "bun x tsx server/admin-cli.ts",
+    "npx -p tsx tsx server/admin-cli.ts",
+    "npx -p eslint tsx server/admin-cli.ts",
+    "bunx admin-cli owner-login",
+    "npx tsx server/isomux-office.ts owner-login --name Nil",
+    "npx tsx@4 server/admin-cli.ts owner-login --name Nil",
+    "bunx tsx@4 server/admin-cli.ts",
+    "npx --package=eslint tsx server/admin-cli.ts",
+    `curl -d "--unix-socket" --unix-socket ${sock} http://localhost/`,
+    `curl -sSd x -H "A: b" --unix-socket ${sock} http://localhost/`,
+    `curl --data-ra "--unix-socket" --unix-socket ${sock} http://localhost/`,
+    `curl --head --unix-socket ${sock} http://localhost/`,
+    "npx --registry r tsx server/admin-cli.ts",
+    "npx --some-flag tsx server/isomux-office.ts owner-login --name Nil",
+    "npx -c 'tsx server/admin-cli.ts'",
+    "npx --call='node server/admin-cli.ts owner-login'",
   ])("denies %p", (command) => {
     expect(decision(command)).toBe("deny");
   });
@@ -301,6 +323,29 @@ describe("the admin socket is not for agents (F6 guardrail)", () => {
     "bun run server/isomux-office.ts",
     "bun test server/safety-policy-segments.test.ts",
   ])("allows %p", (command) => {
+    expect(decision(command)).toBe("allow");
+  });
+
+  // A mention is not a use (task 6079230f): a message body that names the
+  // socket, and a package that takes admin-cli as a file to read.
+  const body = JSON.stringify({
+    text: `curl --unix-socket ${sock} http://localhost/admin/owner-login`,
+  });
+  it.each([
+    `curl -s -X POST localhost:4000/api/agents/a1/messages -H "Content-Type: application/json" -d '${body}'`,
+    `curl -s localhost:4000/x --data-raw '${body}' -o admin.sock.log`,
+    `bash -c "curl -s localhost:4000/x -d 'bun server/admin-cli.ts owner-login ${sock}'"`,
+    "bunx eslint server/admin-cli.ts",
+    "bunx prettier --check server/admin-cli.ts server/safety-policy.ts",
+    "bun x eslint server/admin-cli.ts",
+    "npx -y eslint server/admin-cli.ts",
+    "bunx eslint tsx server/admin-cli.ts",
+    `curl -d "--unix-socket" http://example.com/admin.sock`,
+    `curl -sd --unix-socket http://example.com/admin.sock`,
+    `curl -- --unix-socket ${sock}`,
+    `curl --data-ra "--unix-socket" http://example.com/admin.sock`,
+    "npx -c 'cat server/admin-cli.ts'",
+  ])("allows the mention %p", (command) => {
     expect(decision(command)).toBe("allow");
   });
 });
