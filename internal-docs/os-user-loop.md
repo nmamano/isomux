@@ -15,6 +15,15 @@ The server process runs as one OS user (the server user). Agents, terminals, app
 5. In scope: a directory fence on the routes that make the server read a file at a path an agent names (`resolveEditorPath` in server/file-editor.ts: POST /api/agents/:id/read-file and the JSON `{path}` form of PUT /api/apps/:name/thumbnail from task a5ab665e). Once the server has its own user, those routes must not read what the agent user cannot.
 6. The office box (auntie) moves to the split only with Nil present: it needs sudo and a restart. The loop ships code, installer and docs; the box migration is PARKED FOR NIL.
 7. Never restart the running office server. Never use sudo. Real two-user tests run in a container (Docker is available to office processes) or in a throwaway ISOMUX_HOME, never against the live office.
+8. Isomux PM, 2026-10-06, on the design (internal-docs/os-user-split-design.md, section 10), all as designed unless stated:
+   - The state layout, `split.json`, `SHARE_ROOT` and the identity rule (section 3.1.2).
+   - The upload move with compatibility symlinks.
+   - The switch `ISOMUX_AGENT_RUNNER` and the rig-only gate `ISOMUX_SPLIT_RIG=1` until the last slice.
+   - The server user is `isomux-server`. The image gets a fixed uid that the slice proves is free in the base image.
+   - The container switch is the env var `ISOMUX_SPLIT=1` on the same image.
+   - Kubernetes, self-hosted-by-owner and macOS stay single-user by default in this loop.
+   - Agent-reference pages stop pointing agents at state files in every mode, not only in split mode: discovery.md and cronjobs.md point at API routes. Reuse an existing route where one exists; add the smallest route where none does. `logDir` stays in the response.
+9. The design's PARKED FOR NIL items (P1 docker/sudo on this box, P2 served code on this box, P3 split by default on fresh installs) wait for Nil. No slice depends on them before the last one.
 
 ## Decision protocol
 
@@ -28,8 +37,14 @@ The room prompt gates (build:ui, scoped tests, eslint on touched files, `bunx ts
 
 ## Slices
 
-- [ ] Slice 1: design doc (no product code)
-- [ ] Slice 2+: cut from the approved design; the PM writes each pickup below
+Loop slice N+1 is design slice N (section 8 of the design).
+
+- [x] Slice 1: design doc. Approved by Reviewer 2 at 6472be7b, merged as one commit. Rulings in item 8.
+- [ ] Slice 2 (design slice 1): runner, AgentHost, trusted checks, terminal, Node probe, whole diff, tier-1 rig
+- [ ] Slice 3 (design slice 2): agent backends, identity rule, tier-2 live tests
+- [ ] Slice 4 (design slice 3): fence, agent-space files, routes that replace state reads
+- [ ] Slice 5 (design slice 4): apps, preview, cron, backups, admin.sock
+- [ ] Slice 6 (design slice 5): installer, migration with undo, container split, docs; removes the rig-only gate
 
 ## SLICE-1 PICKUP: design
 
@@ -52,3 +67,22 @@ Traps:
 - Do not read or scan ~/.claude/projects.
 
 Acceptance: the reviewer approves the doc; the worker reports the approved hash, the slice plan, and any item marked PARKED FOR NIL with a recommendation.
+
+## SLICE-2 PICKUP: the runner and the proof (design slice 1)
+
+Read internal-docs/os-user-split-design.md in full first; it is the spec. Rulings 8 and 9 settle its section 10.
+
+Goal: design slice 1 (section 8, item 1). `server/agent-runner/`, its protocol and fixed entries, the `AgentHost` interface with `LocalAgentHost` and `RunnerAgentHost`, the trusted checks and the runner diagnostic (section 2.4). Move the terminal (#7), the Node probe (#7b) and the whole `/isomux-diff` (#11) onto `AgentHost`. Bring up the tier-1 rig (section 7) with the boundary, trusted-check, false-denial and diff tests.
+
+Mechanics and traps:
+- Single-user behavior must not change: `LocalAgentHost` is today's code path, and the existing suite runs unchanged with `ISOMUX_AGENT_RUNNER` unset.
+- Split mode starts only with `ISOMUX_SPLIT_RIG=1` as well. No doc, installer or release text mentions split mode in this slice.
+- Check whether Bun can listen on an inherited socket fd (section 2.3) and report the result; the unit design follows it in slice 6.
+- Every denial assertion checks the exact errno (EACCES or EPERM). Agent-side checks run with `docker exec -u <agent>`, never through the runner.
+- Keep the rig small: one script and one gated test file, as the design says. No rig framework.
+- Container builds can balloon: fence heavy runs with `systemd-run --user --scope -p MemoryMax=...`.
+
+Acceptance: the tier-1 tests named above pass in the rig, the single-user scoped tests pass, the reviewer re-runs the rig on the approved hash, and the report names the rig command, its result and the inherited-fd finding.
+
+Decide with the reviewer: the frame format, the fixed-entry layout, the test split between unit tests and the rig.
+Locked: rulings 1-9 and the design.
