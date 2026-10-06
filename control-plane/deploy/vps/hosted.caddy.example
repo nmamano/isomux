@@ -1,0 +1,28 @@
+# Site blocks for Hosted Isomux, to drop beside the host's existing Caddyfile
+# (for example through an `import` line). Replace the two example hostnames, and
+# the ports if deploy.sh ran with other ones. Each product keeps its own blocks
+# and upstreams.
+
+https://storefront.example.com {
+	request_body {
+		max_size 1MiB
+	}
+	reverse_proxy 127.0.0.1:3100
+}
+
+# Only the paths callers outside this host use: the Stripe webhook and the
+# certificate renewal and status that customer offices call. The storefront
+# reaches the rest of the seam on the Compose network, and deploy.sh reads
+# health inside the container, so nothing else is published.
+https://provisioner.example.com {
+	request_body {
+		max_size 1MiB
+	}
+	@public path /stripe/webhook /internal/certificates/renew /internal/certificates/status
+	handle @public {
+		reverse_proxy 127.0.0.1:4311
+	}
+	handle {
+		respond 404
+	}
+}

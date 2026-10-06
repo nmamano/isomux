@@ -1,0 +1,10 @@
+# The build context for web.Dockerfile. Deny first, then name the storefront's
+# sources: the web package and the control-plane modules it imports.
+*
+!control-plane
+control-plane/**/node_modules
+control-plane/web/.next
+control-plane/web/tsconfig.tsbuildinfo
+control-plane/**/*.test.ts
+control-plane/**/*.test.tsx
+control-plane/web/e2e

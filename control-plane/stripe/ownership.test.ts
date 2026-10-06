@@ -206,7 +206,7 @@ describe("live-mode test isolation", () => {
     const liveEnvironmentHelper =
       /^[^"'`\n]*stripe(?:Key|WebhookSecret)FromEnv\s*\([^,]+,\s*process\.env/m;
     const productionRuntime =
-      /(?:VERCEL_ENV\s*:\s*["']production|FLY_APP_NAME\s*:\s*["']isomux-provisioner)/;
+      /(?:VERCEL_ENV\s*:\s*["']production|FLY_APP_NAME\s*:\s*["']isomux-provisioner|ISOMUX_PRODUCTION_RUNTIME\s*:\s*["']vps)/;
     for (const file of testSurfaceFiles()) {
       const bytes = fs.readFileSync(file, "utf8");
       expect({

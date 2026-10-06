@@ -2425,6 +2425,118 @@ bookkeeping, and by itself it says nothing about the login credential either
 way. An earlier draft of this file claimed `~/.fly` is never written to, which
 the first deploy disproved.
 
+## Deployed: Hosted Isomux on one Docker host
+
+`deploy/vps/` runs the storefront, the provisioner and their PostgreSQL 18.6 as
+one Compose project on a plain Linux host with Docker. The project shares no
+network, volume or env file with other projects on the host. The Vercel and Fly
+paths above stay as they are.
+
+```
+control-plane/deploy/vps/deploy.sh <commit>        # on the host, from a clone that has the commit
+control-plane/deploy/vps/local-proof.sh <commit>   # the same, on throwaway names, then torn down
+```
+
+`deploy.sh` builds from `git archive <commit>`, never from the working tree, in
+a BuildKit builder capped at 3 GiB and 2 CPUs (a scope around `docker build`
+does not cap it: the daemon does the build). Both images carry the commit as
+their `org.opencontainers.image.revision` label, and the provisioner also bakes
+it into `release-identity.json`, so `/internal/health` reports it as on Fly. The
+script then starts the services and proves: each running container's image is
+the one it built, with the commit's label; health is `ok` with
+`database_identity` true at that commit; the storefront home page answers 200;
+the database publishes no port. It keeps the release before this one, for a
+rollback, and removes older images and release trees.
+
+| Service     | Image                                 | Networks | Published      | Ceiling          |
+| ----------- | ------------------------------------- | -------- | -------------- | ---------------- |
+| db          | `postgres:18.6`, pinned by digest     | db       | none           | 1.0 CPU, 2 GiB   |
+| provisioner | `deploy/Dockerfile`                   | db, edge | 127.0.0.1:4311 | 0.5 CPU, 512 MiB |
+| web         | `deploy/vps/web.Dockerfile` (Node 24) | db, edge | 127.0.0.1:3100 | 0.5 CPU, 768 MiB |
+| owner       | `deploy/Dockerfile`, profile `owner`  | db       | none           | 0.5 CPU, 512 MiB |
+
+The `db` network is internal. The storefront reaches the seam at
+`http://provisioner:4311` on the project network. `owner` runs only as
+`docker compose ... run --rm owner bun control-plane/cli.ts <command>` and gets
+only the owner's DSN: no provider or Stripe values and no state volume. The
+provisioner state root is the named volume `provisioner-state` at `/data`, as on
+the Fly volume. Containers restart with the Docker daemon, so the host needs no
+unit of its own.
+
+The host layout, with the defaults that `ISOMUX_HOSTED_PROJECT`,
+`ISOMUX_HOSTED_ENV_DIR`, `ISOMUX_HOSTED_ROOT`, `ISOMUX_HOSTED_WEB_PORT` and
+`ISOMUX_HOSTED_PROVISIONER_PORT` change:
+
+```
+/etc/isomux-hosted/              0700, owned by the deploying user (root on a host)
+  web.env, provisioner.env       0600, written by the operator from deploy/vps/*.env.example
+  generated/                     0700, written by deploy.sh on the first install only
+    db.env                       the superuser password, used only through the container socket
+    owner-db.env, web-db.env, provisioner-db.env
+                                 CONTROL_PLANE_DB for cp_owner, cp_web, cp_provisioner, and CONTROL_PLANE_DB_IDENTITY
+    seam.env                     CONTROL_PLANE_MINT_TOKEN, for the storefront and the provisioner
+    installed                    written last, when the first install is complete
+/opt/isomux-hosted/
+  releases/<commit>/             the archived tree; compose.yaml runs from it
+  current -> releases/<commit>
+  release.env                    the image tags, deployment id and ports compose.yaml interpolates; no secret
+  deploy-<time>.log              build and Compose output, which can hold a database error
+```
+
+**The first install** is the run that finds neither `generated/` nor the
+database volume. It generates every password, the identity and the seam token
+(random hex), creates `cp_owner` (login, `CREATEROLE`, not a superuser) and the
+`isomux` database it owns, runs `bootstrap` as `cp_owner`, gives `cp_web` and
+`cp_provisioner` their logins (after bootstrap, whose preflight refuses runtime
+roles that can log in), and stamps the identity with `set-database-identity`.
+Every later run only builds, replaces the two app containers and checks them.
+It never bootstraps, regrants, resets a password or stamps the identity. A
+database restored into the volume carries its source's identity row, so after
+the restore the owner stamps it with
+`docker compose ... run --rm owner bun control-plane/cli.ts set-database-identity`
+before a runtime points at it.
+
+The install is `generated/` and the two named volumes together: `pgdata` and
+`provisioner-state`, which holds the keys that revoke our access, the intent
+records and the ACME account. Any other state refuses before it builds or
+creates anything. Exit 4: a part is missing, for example a volume without
+`generated/` (credentials are never regenerated for existing volumes) or
+`generated/` and the database without the state volume (no empty volume is
+created in place of a lost one). Exit 3: all three exist but `installed` does
+not, so the first install did not finish; the database can hold data, so
+inspect it before you change anything. A redeploy also requires health to
+report `state_persisted` true. The operator never types a database password or
+the seam token, and no value goes on a command line, into an image or into the
+transcript.
+
+Every deploy unpacks the commit again into `releases/<commit>`, so a tree
+changed on the host after an earlier deploy never reaches a build labelled with
+the commit.
+
+**Live Stripe.** `stripe/mode.ts` accepts live mode in three production
+runtimes: Vercel production, the `isomux-provisioner` Fly app, and
+`ISOMUX_PRODUCTION_RUNTIME=vps`, which only `deploy/vps/compose.yaml` sets.
+
+**Caddy.** `deploy/vps/hosted.caddy.example` holds the two site blocks with
+example hostnames, to drop beside the host's Caddyfile. The provisioner block
+passes only `/stripe/webhook` and the two `/internal/certificates/*` paths that
+customer offices call. Set `ISOMUX_CERTIFICATE_ENDPOINT` in `provisioner.env` to
+the public renew URL.
+
+**The local proof** (`local-proof.sh`) deploys the commit twice with synthetic
+values: Stripe test mode, the staging certificate target, no provider account.
+Before the first run it checks that a leftover state volume blocks a first
+install. Between the two runs it checks each container's ceilings as Docker
+applied them, that the unfinished and the incomplete install refuse without a
+build, and it changes the cached release tree. After the redeploy it checks that
+the identity, the generated credentials, a row and a state-volume file written
+between the runs are unchanged, that both images hold the commit's bytes and
+not the changed tree's, that the previous release is kept and an older one is
+pruned, and that a missing state volume refuses without a build or a new
+volume. Then it checks that teardown leaves no container, volume, network,
+image, builder or file. Measured 2026-10-06 on the office box: about
+10 minutes, most of it the two builds.
+
 ## The driver protocol
 
 Marker polling alone cannot tell a slow step from a dead process, and a blind

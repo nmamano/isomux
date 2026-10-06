@@ -1,0 +1,162 @@
+# Hosted Isomux on one Docker host: the storefront, the provisioner and their
+# PostgreSQL, as one Compose project that shares no network, volume or env file
+# with any other project on the host.
+#
+# deploy.sh is the only writer of the values interpolated here: it writes them
+# to release.env and passes that file as --env-file. The secrets reach the
+# containers through env_file only, so `docker compose config` never sees them
+# as part of this file, and nothing here is private (the repository is public).
+name: ${ISOMUX_HOSTED_PROJECT:-isomux-hosted}
+
+x-hardened: &hardened
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+services:
+  db:
+    # 18.6, the version the Neon database runs. Pinned by digest: this image
+    # cannot report a source commit, so the digest is its identity.
+    image: postgres:18.6-bookworm@sha256:7d3852670a11f0cb9cb1cd50916dc02a0021143fb22d96b78eeef26348abe55c
+    restart: unless-stopped
+    env_file: ${ISOMUX_HOSTED_ENV_DIR:?}/generated/db.env
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      # The encoding and collation the Neon database has.
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale-provider=builtin --builtin-locale=C.UTF-8
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - max_connections=100
+      - -c
+      - TimeZone=GMT
+    # The PostgreSQL 18 image keeps its data under /var/lib/postgresql/18.
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks: [db]
+    # No ports: only the services on the internal db network reach it.
+    cpus: 1.0
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 256
+    shm_size: 256m
+    stop_grace_period: 60s
+    healthcheck:
+      # -h 127.0.0.1: the init-time server listens on the socket only, so the
+      # check stays red until the real server is up.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 30s
+
+  provisioner:
+    <<: *hardened
+    image: ${ISOMUX_PROVISIONER_IMAGE:?}
+    restart: unless-stopped
+    env_file:
+      - ${ISOMUX_HOSTED_ENV_DIR:?}/provisioner.env
+      - ${ISOMUX_HOSTED_ENV_DIR:?}/generated/provisioner-db.env
+      - ${ISOMUX_HOSTED_ENV_DIR:?}/generated/seam.env
+    environment:
+      ISOMUX_PRODUCTION_RUNTIME: vps
+    command:
+      - bun
+      - control-plane/cli.ts
+      - run
+      - --bind
+      - 0.0.0.0
+      - --deployment
+      - ${ISOMUX_DEPLOYMENT_ID:?}
+    # The state root ($HOME/.isomux-control-plane) and the DNS intents, as on
+    # the Fly volume. Never copied and never backed up as a whole.
+    volumes:
+      - provisioner-state:/data
+    networks: [db, edge]
+    ports:
+      - "127.0.0.1:${ISOMUX_HOSTED_PROVISIONER_PORT:-4311}:4311"
+    depends_on:
+      db:
+        condition: service_healthy
+    # The tick loop finishes its pass on SIGINT (cli.ts driveTicks).
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 256
+    healthcheck:
+      # The health route is behind the seam bearer, which this process already
+      # holds; only the exit status leaves the container.
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:4311/internal/health', { headers: { authorization: 'Bearer ' + process.env.CONTROL_PLANE_MINT_TOKEN } }).then(r => r.json()).then(h => process.exit(h.ok === true ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+
+  web:
+    <<: *hardened
+    image: ${ISOMUX_WEB_IMAGE:?}
+    restart: unless-stopped
+    env_file:
+      - ${ISOMUX_HOSTED_ENV_DIR:?}/web.env
+      - ${ISOMUX_HOSTED_ENV_DIR:?}/generated/web-db.env
+      - ${ISOMUX_HOSTED_ENV_DIR:?}/generated/seam.env
+    environment:
+      ISOMUX_PRODUCTION_RUNTIME: vps
+      # The seam on the project network, not through the public provisioner
+      # address.
+      CONTROL_PLANE_MINT_URL: http://provisioner:4311
+    networks: [db, edge]
+    ports:
+      - "127.0.0.1:${ISOMUX_HOSTED_WEB_PORT:-3100}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    cpus: 0.5
+    mem_limit: 768m
+    memswap_limit: 768m
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.status === 200 ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  # The database owner's CLI (bootstrap, set-database-identity, migrate-*).
+  # Started only by `run --rm owner ...`: no provider or Stripe values, no
+  # state volume, and no network but the database's.
+  owner:
+    <<: *hardened
+    image: ${ISOMUX_PROVISIONER_IMAGE:?}
+    profiles: [owner]
+    env_file: ${ISOMUX_HOSTED_ENV_DIR:?}/generated/owner-db.env
+    environment:
+      HOME: /tmp
+    networks: [db]
+    depends_on:
+      db:
+        condition: service_healthy
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
+
+networks:
+  db:
+    internal: true
+  edge: {}
+
+volumes:
+  pgdata: {}
+  provisioner-state: {}
