@@ -2437,6 +2437,7 @@ paths above stay as they are.
 ```
 control-plane/deploy/vps/deploy.sh <commit>            # on the host, from a clone that has the commit
 control-plane/deploy/vps/deploy.sh --prepare <commit>  # a first install that starts no app, for a move
+control-plane/deploy/vps/restore.sh <dump> <fingerprint>  # the old database into a prepared install
 control-plane/deploy/vps/local-proof.sh <commit>       # the same, on throwaway names, then torn down
 ```
 
@@ -2484,6 +2485,7 @@ The host layout, with the defaults that `ISOMUX_HOSTED_PROJECT`,
   current -> releases/<commit>
   release.env                    the image tags, deployment id and ports compose.yaml interpolates; no secret
   deploy-<time>.log              build and Compose output, which can hold a database error
+  restore-<time>.log             restore.sh's database output, which can quote a row
 ```
 
 **The first install** is the run that finds neither `generated/` nor the
@@ -2494,10 +2496,8 @@ database volume. It generates every password, the identity and the seam token
 roles that can log in), and stamps the identity with `set-database-identity`.
 Every later run only builds, replaces the two app containers and checks them.
 It never bootstraps, regrants, resets a password or stamps the identity. A
-database restored into the volume carries its source's identity row, so after
-the restore the owner stamps it with
-`docker compose ... run --rm owner bun control-plane/cli.ts set-database-identity`
-before a runtime points at it.
+restored database carries its source's identity row, and `restore.sh` stamps
+this install's over it.
 
 `--prepare` does the first install and stops before the provisioner and the
 storefront start. It creates the state volume empty and writes `installed` and
@@ -2539,8 +2539,11 @@ values: Stripe test mode, the staging certificate target, no provider account.
 Before the first run it checks that a leftover state volume blocks a first
 install. It installs the way a move does: `--prepare`, which must create no app
 container and leave the state volume empty, and must refuse a second time; a
-state import with one latched intent, which must refuse a second time; a normal
-run, whose provisioner must hold the imported latch in `create_intents`. Then it
+restore of a dump whose column order differs from the bootstrap's, which must
+keep that order and stamp the install's identity, after a cut dump that must
+fail and change nothing; a state import with one latched intent, which must
+refuse a second time; a normal run, whose provisioner must hold the imported
+latch in `create_intents`, and after which a restore refuses. Then it
 checks each container's ceilings as Docker applied them, that the unfinished and
 the incomplete install refuse without a build, and it changes the cached release
 tree and redeploys. After the redeploy it checks that
@@ -2550,7 +2553,7 @@ not the changed tree's, that the previous release is kept and an older one is
 pruned, and that a missing state volume refuses without a build or a new
 volume. Then it checks that teardown leaves no container, volume, network,
 image, builder or file. Measured 2026-10-06 on the office box: about
-14 minutes, most of it the three builds.
+17 minutes, most of it the three builds.
 
 ### Moving Hosted Isomux to a Docker host
 
@@ -2558,14 +2561,39 @@ No app starts on the new host before the database is restored and the
 provisioner state is imported: a provisioner that starts with live provider
 credentials before the create latches arrive can pay for a box twice. In order:
 
-1. `deploy.sh --prepare <commit>` on the host.
-2. Stop every writer on the old database, restore its dump into the `isomux`
-   database, and `restore-check.ts compare` the fingerprints of the two.
-3. `docker compose ... run --rm owner bun control-plane/cli.ts set-database-identity`.
-4. Export the provisioner state from the old Fly machine (below).
-5. On the host, into the empty state volume:
+1. Ahead of the move: `deploy.sh --prepare <commit>` on the host; the
+   provisioner hostname in DNS and its Caddy block; the storefront hostname's
+   DNS TTL lowered to a minute, at least one old TTL before step 2. Register
+   `https://<provisioner host>/stripe/webhook` in Stripe with the old
+   endpoint's events and put its signing secret in `provisioner.env`. Stripe
+   retries deliveries there until the provisioner starts, and the provisioner
+   claims each event id once, so an event that both endpoints get applies once.
+2. Stop every writer on the old database: the Fly machine (autostart off, then
+   stop, and read both back in one `fly machine status`) and the storefront
+   (pause the Vercel project). The provisioner writes a row on every tick, so a
+   fingerprint matches a dump only when both come from a stopped source.
+3. Fingerprint the old database and then dump it:
+   `restore-check.ts fingerprint > source.json` with the old owner's string, and
+   `pg_dump -Fc` 18.6 from its direct endpoint, not a pooler, with the password
+   in `PGPASSWORD` and not on the command line.
+4. On the host: `deploy/vps/restore.sh <dump> source.json` (below).
+5. Export the provisioner state from the old Fly machine (below).
+6. On the host, into the empty state volume:
    `docker compose ... run --rm --no-deps -T provisioner bun control-plane/state-move.ts import < state.json`
-6. `deploy.sh <commit>`, which starts the apps.
+7. `deploy.sh <commit>`, which starts the apps.
+8. Point the storefront hostname at the host, and only then add its Caddy block:
+   Caddy backs off for minutes after a certificate order fails. Run the Fly app
+   as the certificate forwarder (below), and disable the old Stripe endpoint.
+
+`restore.sh` runs only on an install that `--prepare` left and whose apps have
+never started. A fresh bootstrap can order a table's columns differently from
+the old database, so the data does not go into the bootstrap's tables. In one
+transaction, the script drops them, restores the dump's tables as `cp_owner`
+and grants the bootstrap's privileges again. It commits only when every table
+has the bootstrap's owner and privileges. Then the owner stamps this install's
+identity, and `restore-check.ts compare` must find the copy equal to the
+source. A failure before the commit leaves the database as it was, and a newer
+dump can be restored until the apps first start.
 
 `state-move.ts` moves only what a new provisioner needs, as freshly serialized
 records, never as copied files:

@@ -123,6 +123,55 @@ code=0
 [[ $code == 1 && $(project_images) -eq $images_before ]] || die "a second --prepare did not refuse before it built"
 say "prepare: install finished, no app container, state volume empty; a second --prepare refuses"
 
+sql() { dc exec -T db psql -qAt -v ON_ERROR_STOP=1 -U postgres -d isomux; }
+account() { echo "select count(*) from accounts where id = '$1';" | sql; }
+columns() { echo "select string_agg(attname, ',' order by attnum) from pg_attribute where attrelid = 'accounts'::regclass and attnum > 0 and not attisdropped;" | sql; }
+unchanged() { [[ $(account stray-account) == 1 && $(account moved-account) == 0 && $(columns) == "$target_columns" ]]; }
+
+# The old database of a move: a column where a fresh bootstrap does not put it,
+# a row, and another install's identity.
+sql <<'EOF'
+alter table accounts drop column google_subject;
+alter table accounts add column google_subject text;
+insert into accounts (id, email, version, created_at, updated_at, google_subject) values ('moved-account', 'moved@example.com', 1, 0, 0, 'moved');
+update schema_meta set value = 'the old database' where key = 'database_identity';
+EOF
+source_columns=$(columns)
+dc run --rm -T owner bun control-plane/restore-check.ts fingerprint >"$work/source.json"
+dc exec -T db pg_dump -U postgres -Fc -d isomux >"$work/source.dump"
+# The target: another column order, and a row the restore must remove.
+sql <<'EOF'
+delete from accounts;
+alter table accounts drop column stripe_customer_id;
+alter table accounts add column stripe_customer_id text;
+insert into accounts (id, email, version, created_at, updated_at) values ('stray-account', 'stray@example.com', 1, 0, 0);
+EOF
+target_columns=$(columns)
+[[ $target_columns != "$source_columns" ]] || die "the target's column order is the source's"
+
+head -c "$(($(stat -c %s "$work/source.dump") / 2))" "$work/source.dump" >"$work/cut.dump"
+code=0
+"$here/restore.sh" "$work/cut.dump" "$work/source.json" >"$work/refusal.log" 2>&1 || code=$?
+[[ $code == 1 ]] && unchanged || die "a restore of a cut dump did not fail with the database as it was"
+say "restore: a cut dump fails and leaves the database as it was"
+
+# A pg_restore that writes the whole restore and then fails. The image puts
+# /usr/local/bin before /usr/bin on PATH.
+dc exec -T db sh -c 'printf "%s\n" "#!/bin/sh" "/usr/bin/pg_restore \"\$@\" && touch /tmp/restore-written" "exit 1" >/usr/local/bin/pg_restore && chmod 755 /usr/local/bin/pg_restore'
+code=0
+"$here/restore.sh" "$work/source.dump" "$work/source.json" >"$work/refusal.log" 2>&1 || code=$?
+dc exec -T db test -e /tmp/restore-written || die "the failing pg_restore did not write the restore"
+dc exec -T db rm /usr/local/bin/pg_restore /tmp/restore-written
+[[ $code == 1 ]] && unchanged || die "a pg_restore that failed after writing the restore did not leave the database as it was"
+say "restore: a pg_restore that fails after its output leaves the database as it was"
+
+"$here/restore.sh" "$work/source.dump" "$work/source.json"
+[[ $(account moved-account) == 1 && $(account stray-account) == 0 ]] || die "the restore did not replace the data"
+[[ $(columns) == "$source_columns" ]] || die "the restore did not bring the old database's column order"
+[[ $(echo "select value from schema_meta where key = 'database_identity';" | sql) == "$(sed -n 's/^CONTROL_PLANE_DB_IDENTITY=//p' "$work/env/generated/owner-db.env")" ]] ||
+  die "the restore did not stamp this install's identity"
+say "restore: the old database's rows and column order, this install's identity"
+
 # The provisioner state a move brings: one latched create and one audit event.
 cat >"$work/state.json" <<'EOF'
 {"format":"isomux-provisioner-state","version":1,"exportedAt":"2026-10-06T00:00:00.000Z","intents":[{"intentId":"proof-latched","state":"intended","latchedAt":1700000000000,"plan":"V153","region":"EU"}],"audit":[{"ts":"2026-08-12T10:00:00.000Z","actor":"control-plane-cli","action":"reinstall","target":"100200","outcome":"succeeded"}],"left":{"revokedRuns":0,"auditLinesDropped":0}}
@@ -136,8 +185,10 @@ say "import: the state loads into the empty volume; a second import refuses"
 
 "$here/deploy.sh" "$commit"
 [[ ! -e $work/env/generated/prepared ]] || die "the first start left the prepared marker"
-
-sql() { dc exec -T db psql -qAt -v ON_ERROR_STOP=1 -U postgres -d isomux; }
+code=0
+"$here/restore.sh" "$work/source.dump" "$work/source.json" >"$work/refusal.log" 2>&1 || code=$?
+[[ $code == 1 && $(account moved-account) == 1 ]] || die "a restore after the apps started did not refuse"
+say "refusal: no restore once the apps have started"
 
 # The ceilings as the engine applied them, not as the file asks.
 for expected in "db 1000000000 2147483648" "provisioner 500000000 536870912" "web 500000000 805306368"; do
