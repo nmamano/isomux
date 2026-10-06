@@ -347,6 +347,8 @@ describe("POST /hooks/:id: the stages before the signature write no row", () => 
     expect(get.body).toEqual({ error: expect.any(String) });
   });
 
+  // 100 requests in series: about 1.7 s alone, but it passed 5 s in a
+  // full-suite run on a loaded box (2026-10-06).
   it("100 bad signatures leave the log empty and the counter at 100", async () => {
     const o = await office();
     for (let i = 0; i < 100; i++) {
@@ -358,7 +360,7 @@ describe("POST /hooks/:id: the stages before the signature write no row", () => 
     const { counters } = await wire(o);
     expect(counters.bad_signature?.count).toBe(100);
     expect(counters.bad_signature?.lastAt).toBe(clock);
-  });
+  }, 30_000);
 
   it("the ingress limit answers 429 with Retry-After, keyed on the hook and not the client", async () => {
     const o = await office();

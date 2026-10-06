@@ -179,6 +179,15 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
     id: "app-runtime-credentials",
     archivePatterns: (root) => rootedDirectory(root, "apps/units"),
   },
+  // The container app supervisor keeps each app's raw token beside its runtime
+  // state (deploy/container/supervisor.py); the .tmp is the token mid-write.
+  {
+    id: "container-app-tokens",
+    archivePatterns: (root) => [
+      `${root}/container-runtime/*.token.json`,
+      `${root}/container-runtime/*.token.tmp`,
+    ],
+  },
   {
     id: "personal-environment",
     archivePatterns: (root) => rootedDirectory(root, "user-env"),

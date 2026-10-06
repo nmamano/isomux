@@ -179,6 +179,8 @@ describe("verified backup publication", () => {
     const f = fixture();
     const excluded = [
       "apps/units/hello.env",
+      "container-runtime/hello.token.json",
+      "container-runtime/hello.token.tmp",
       "user-env/u-alice.env",
       "office-env/office.env",
       "codex-home/auth.json",
@@ -203,6 +205,8 @@ describe("verified backup publication", () => {
       "pager.json",
       "apps/apps.json",
       "apps/app-tokens.json",
+      "container-runtime/hello.exit.json",
+      "container-runtime/hello.log",
       "apps/data/hello/state.json",
       "apps/data/hello/user-env/keep.txt",
       "api-tokens.json",
