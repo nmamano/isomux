@@ -3589,6 +3589,11 @@ mint_invite() {
 # one. A failure to reach the control plane exits with no report. The next
 # daily run retries, and the control plane raises attention after three
 # missed daily contacts.
+#
+# A renew answer can name the control plane's current endpoint. After a good
+# install the helper sends its ok report there, and only when that answers 200
+# does it write the new endpoint into the enrollment, keeping the bearer. This
+# is how an office moves off a retired hostname without a visit.
 write_hosted_tls_renewal() {
   local domain=$1
   install -d -m 0750 -o root -g caddy /etc/isomux/tls
@@ -3624,6 +3629,43 @@ report_status() {
     -H 'Content-Type: application/json' --data "{\"status\":\"$1\"}" \
     "$status_endpoint" >/dev/null
 }
+endpoint_re='^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[1-9][0-9]{0,4})?/internal/certificates/renew$'
+# The ok report at the new endpoint is the proof that it works for this box: a
+# redirect or any answer but 200 keeps the old one.
+report_ok_at() {
+  local code
+  code=$(curl --fail --silent --show-error --max-time 60 \
+    --retry 3 --retry-all-errors --config "$curl_config" \
+    -H 'Content-Type: application/json' --data '{"status":"ok"}' \
+    --output /dev/null --write-out '%{http_code}' "$1") || return 1
+  [[ $code == 200 ]]
+}
+move_enrollment() {
+  local dir=${enrollment%/*} tmp
+  tmp=$(mktemp "$dir/.enrollment.XXXXXX") || return 1
+  if jq --arg endpoint "$1" '.endpoint = $endpoint' "$enrollment" > "$tmp" &&
+    [[ $(jq -er .token "$tmp") == "$token" ]] &&
+    [[ $(jq -er .endpoint "$tmp") == "$1" ]] &&
+    chmod 0600 "$tmp" && sync -f "$tmp" && mv -f "$tmp" "$enrollment"; then
+    sync -f "$dir"
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+# The certificate is installed by now. Nothing here may undo it: a failed
+# move leaves the old enrollment and only warns.
+report_ok() {
+  local next
+  next=$(jq -r '.endpoint // empty | strings' "$answer" 2>/dev/null) || next=""
+  if [[ -n $next && $next != "$endpoint" && $next =~ $endpoint_re ]] &&
+    report_ok_at "${next%/renew}/status"; then
+    move_enrollment "$next" ||
+      echo "warning: could not record the new renewal endpoint" >&2
+    return 0
+  fi
+  report_status ok
+}
 openssl req -new -key "$key" -subj "/CN=$domain" \
   -addext "subjectAltName=DNS:$domain,DNS:*.$domain" -out "$csr"
 # Issuance can wait on DNS propagation, and the control plane answers 409
@@ -3648,7 +3690,7 @@ runuser -u caddy -- openssl x509 -in "$cert_tmp" -noout >/dev/null
 runuser -u caddy -- openssl pkey -in "$key" -noout >/dev/null
 if [[ -f $tls_dir/cert.pem ]] && cmp -s "$cert_tmp" "$tls_dir/cert.pem"; then
   trap - ERR
-  report_status ok
+  report_ok
   exit 0
 fi
 sync -f "$cert_tmp"
@@ -3668,7 +3710,7 @@ if systemctl is-active --quiet caddy && ! systemctl restart caddy; then
 fi
 rm -f "$old_cert"
 trap - ERR
-report_status ok
+report_ok
 RENEW_HELPER
   write_file /etc/systemd/system/isomux-certificate-renew.service 644 <<EOF
 [Unit]

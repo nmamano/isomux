@@ -567,7 +567,12 @@ describe("install.sh: the managed Caddyfile", () => {
     );
     expect(helper).toContain("status_endpoint=${endpoint%/renew}/status");
     expect(helper).toContain("report_status failed || true");
-    expect(helper.match(/report_status ok/g)?.length).toBe(2);
+    // Both success paths report ok: at a new endpoint the answer names when
+    // it answers there, else at the enrolled one.
+    expect(helper.match(/^\s*report_ok$/gm)?.length).toBe(2);
+    expect(helper).toMatch(
+      /\nreport_ok\(\) \{\n[\s\S]*?\n {2}report_status ok\n\}\n/,
+    );
     expect(helper).toContain(
       "trap 'rc=$?; trap - ERR; report_status failed || true; exit \"$rc\"' ERR",
     );

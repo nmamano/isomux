@@ -795,32 +795,39 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
         "ISOMUX_ACME_EMAIL and ISOMUX_CF_TOKEN are required for hosted certificate renewal",
       );
     }
-    const certificateService = new CertificateService(store, {
-      issue: (input) =>
-        obtainCertificateWithLego(
-          {
-            root: path.join(STATE_ROOT, "certificates"),
-            target: certificateTarget,
-            email: process.env.ISOMUX_ACME_EMAIL ?? "",
-            dnsHookPath: path.join(import.meta.dir, "cloudflare-dns-hook.ts"),
-            cloudflareToken: process.env.ISOMUX_CF_TOKEN ?? "",
-            run: async (argv, environment) => {
-              const proc = Bun.spawn(argv, {
-                env: { ...process.env, ...environment },
-                stdout: "pipe",
-                stderr: "pipe",
-              });
-              const [stdout, stderr, code] = await Promise.all([
-                new Response(proc.stdout).text(),
-                new Response(proc.stderr).text(),
-                proc.exited,
-              ]);
-              return { stdout, stderr, code };
+    const certificateService = new CertificateService(
+      store,
+      {
+        issue: (input) =>
+          obtainCertificateWithLego(
+            {
+              root: path.join(STATE_ROOT, "certificates"),
+              target: certificateTarget,
+              email: process.env.ISOMUX_ACME_EMAIL ?? "",
+              dnsHookPath: path.join(import.meta.dir, "cloudflare-dns-hook.ts"),
+              cloudflareToken: process.env.ISOMUX_CF_TOKEN ?? "",
+              run: async (argv, environment) => {
+                const proc = Bun.spawn(argv, {
+                  env: { ...process.env, ...environment },
+                  stdout: "pipe",
+                  stderr: "pipe",
+                });
+                const [stdout, stderr, code] = await Promise.all([
+                  new Response(proc.stdout).text(),
+                  new Response(proc.stderr).text(),
+                  proc.exited,
+                ]);
+                return { stdout, stderr, code };
+              },
             },
-          },
-          input,
-        ),
-    });
+            input,
+          ),
+      },
+      {
+        endpoint: process.env.ISOMUX_CERTIFICATE_ENDPOINT,
+        report: (line) => reporter.line(line),
+      },
+    );
     seam = startMintSeam({
       store,
       hold,

@@ -143,10 +143,11 @@ esac`,
     "curl",
     `${opts.realCurl ? 'exec /usr/bin/curl "$@"' : ""}
 url=\${@: -1}
-data=""; prev=""; out=/dev/stdout
+data=""; prev=""; out=/dev/stdout; wout=""
 for arg in "$@"; do
   [[ $prev == --data ]] && data=$arg
   [[ $prev == --output ]] && out=$arg
+  [[ $prev == --write-out ]] && wout=$arg
   prev=$arg
 done
 printf '%s\\t%s\\t%s\\n' "\${url##*/}" "$data" "$*" >> "${root}/curl.log"
@@ -160,10 +161,22 @@ case $url in
     jq -r .csr <<<"$request" |
       openssl x509 -req -signkey "${tls}/key.pem" -days 30 \\
         -copy_extensions copy -out "${root}/issued.pem" 2>/dev/null
-    jq -n --rawfile c "${root}/issued.pem" '{certificate:$c}' > "$out" ;;
+    if [[ -e "${root}/answer-endpoint" ]]; then
+      jq -n --rawfile c "${root}/issued.pem" --slurpfile e "${root}/answer-endpoint" \\
+        '{certificate:$c, endpoint:$e[0]}' > "$out"
+    else
+      jq -n --rawfile c "${root}/issued.pem" '{certificate:$c}' > "$out"
+    fi ;;
   */status)
     [[ ! -e "${root}/status-unreachable" ]] || { echo "curl: (56) Recv failure" >&2; exit 56; }
-    jq -r .status <<<"$data" >> "${root}/status.log" ;;
+    code=200
+    if [[ $url != https://cp.test/* ]]; then
+      [[ ! -e "${root}/new-status-unreachable" ]] || { echo "curl: (7) Failed to connect" >&2; exit 7; }
+      [[ ! -e "${root}/new-status-code" ]] || code=$(cat "${root}/new-status-code")
+    fi
+    printf '%s\\t%s\\n' "$url" "$code" >> "${root}/status-urls.log"
+    [[ $code != 200 ]] || jq -r .status <<<"$data" >> "${root}/status.log"
+    [[ -z $wout ]] || printf '%s' "$code" ;;
 esac`,
   );
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, DOMAIN };
@@ -175,6 +188,16 @@ esac`,
     env,
     run: () => Bun.spawnSync(["bash", helper], { env }),
     statuses: () => read("status.log").split("\n").filter(Boolean),
+    /** Each status call as [url, HTTP status]. */
+    statusCalls: () =>
+      read("status-urls.log")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split("\t")),
+    enrollmentPath: join(etc, "renewal/enrollment.json"),
+    /** The endpoint the next signed answer names, as a JSON value. */
+    answerEndpoint: (value: unknown) =>
+      writeFileSync(join(root, "answer-endpoint"), JSON.stringify(value)),
     curlCalls: () => read("curl.log").split("\n").filter(Boolean),
     systemctl: () => read("systemctl.log"),
     flag: (name: string) => writeFileSync(join(root, name), ""),
@@ -310,6 +333,151 @@ describe("certificate renewal helper", () => {
     } finally {
       server.close();
     }
+  });
+});
+
+describe("moving to the endpoint a renew answer names", () => {
+  const OLD = "https://cp.test/internal/certificates/renew";
+  const NEW = "https://new.test/internal/certificates/renew";
+  const statusOf = (renew: string) => renew.replace(/\/renew$/, "/status");
+  const enrollment = (box: ReturnType<typeof makeBox>) =>
+    readFileSync(box.enrollmentPath, "utf8");
+
+  it("moves after a replaced certificate, once its ok report there answers 200", () => {
+    const box = makeBox();
+    const before = JSON.parse(enrollment(box));
+    box.answerEndpoint(NEW);
+    expect(box.run().exitCode).toBe(0);
+    expect(box.cert()).toContain("BEGIN CERTIFICATE");
+    expect(box.statusCalls()).toEqual([[statusOf(NEW), "200"]]);
+    expect(box.statuses()).toEqual(["ok"]);
+    expect(JSON.parse(enrollment(box))).toEqual({
+      endpoint: NEW,
+      token: before.token,
+    });
+    expect(statSync(box.enrollmentPath).mode & 0o777).toBe(0o600);
+    // The next run calls the new endpoint only.
+    rmSync(join(box.root, "curl.log"));
+    expect(box.run().exitCode).toBe(0);
+    const urls = box.curlCalls().map((call) => call.split(" ").at(-1));
+    expect(urls).toEqual([NEW, statusOf(NEW)]);
+  });
+
+  it("moves after an unchanged certificate too", () => {
+    const box = makeBox({ installed: true });
+    box.answer(JSON.stringify({ ...JSON.parse(OFFICE.answer), endpoint: NEW }));
+    expect(box.run().exitCode).toBe(0);
+    expect(box.systemctl()).not.toContain("restart");
+    expect(box.statusCalls()).toEqual([[statusOf(NEW), "200"]]);
+    expect(JSON.parse(enrollment(box)).endpoint).toBe(NEW);
+  });
+
+  it("keeps every other field of the enrollment", () => {
+    const box = makeBox();
+    writeFileSync(
+      box.enrollmentPath,
+      JSON.stringify({ endpoint: OLD, token: "k".repeat(43), extra: [1] }),
+    );
+    box.answerEndpoint(NEW);
+    expect(box.run().exitCode).toBe(0);
+    expect(JSON.parse(enrollment(box))).toEqual({
+      endpoint: NEW,
+      token: "k".repeat(43),
+      extra: [1],
+    });
+  });
+
+  it("keeps the old endpoint and reports there when the new one cannot be reached", () => {
+    const box = makeBox();
+    const before = enrollment(box);
+    box.answerEndpoint(NEW);
+    box.flag("new-status-unreachable");
+    expect(box.run().exitCode).toBe(0);
+    expect(enrollment(box)).toBe(before);
+    expect(box.statusCalls()).toEqual([[statusOf(OLD), "200"]]);
+    expect(box.statuses()).toEqual(["ok"]);
+  });
+
+  it("does not count a redirect or an error answer as proof", () => {
+    for (const code of ["301", "307", "308", "202"]) {
+      const box = makeBox();
+      const before = enrollment(box);
+      box.answerEndpoint(NEW);
+      writeFileSync(join(box.root, "new-status-code"), code);
+      expect(box.run().exitCode).toBe(0);
+      expect(enrollment(box)).toBe(before);
+      expect(box.statusCalls()).toEqual([
+        [statusOf(NEW), code],
+        [statusOf(OLD), "200"],
+      ]);
+    }
+  }, 30_000);
+
+  it("ignores a malformed endpoint and calls nothing but the old one", () => {
+    const malformed: unknown[] = [
+      "",
+      42,
+      null,
+      [NEW],
+      { endpoint: NEW },
+      OLD,
+      "http://new.test/internal/certificates/renew",
+      "https://user@new.test/internal/certificates/renew",
+      "https://user:pw@new.test/internal/certificates/renew",
+      "https://new.test/internal/certificates/renew?x=1",
+      "https://new.test/internal/certificates/renew#x",
+      "https://new.test/internal/certificates/renew/",
+      "https://new.test/internal/certificates/status",
+      "https://new.test/x/../internal/certificates/renew",
+      " https://new.test/internal/certificates/renew",
+      "https://new.test/internal/certificates/renew x",
+      "https://new.test/internal/certificates/renew\nhttps://new.test/internal/certificates/renew",
+      "https://new .test/internal/certificates/renew",
+      "https://new.test:/internal/certificates/renew",
+      "https://new.test:0/internal/certificates/renew",
+      "https://new.test:abc/internal/certificates/renew",
+      "https://-new.test/internal/certificates/renew",
+    ];
+    for (const value of malformed) {
+      const box = makeBox();
+      const before = enrollment(box);
+      box.answerEndpoint(value);
+      expect(box.run().exitCode).toBe(0);
+      expect([value, enrollment(box)]).toEqual([value, before]);
+      expect([value, box.statusCalls()]).toEqual([
+        value,
+        [[statusOf(OLD), "200"]],
+      ]);
+    }
+    // One helper run per value, each about a second.
+  }, 90_000);
+
+  it("keeps the installed certificate when the enrollment cannot be written", () => {
+    const box = makeBox();
+    const before = enrollment(box);
+    box.answerEndpoint(NEW);
+    const dir = join(box.root, "etc/isomux/renewal");
+    chmodSync(dir, 0o500);
+    try {
+      const result = box.run();
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr.toString()).toContain("warning");
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+    expect(box.cert()).toContain("BEGIN CERTIFICATE");
+    expect(enrollment(box)).toBe(before);
+    expect(box.statuses()).toEqual(["ok"]);
+  });
+
+  it("does not move on a failed renewal", () => {
+    const box = makeBox({ installed: true });
+    const before = enrollment(box);
+    box.answer(JSON.stringify({ ...JSON.parse(OTHER.answer), endpoint: NEW }));
+    expect(box.run().exitCode).not.toBe(0);
+    expect(enrollment(box)).toBe(before);
+    expect(box.statusCalls()).toEqual([[statusOf(OLD), "200"]]);
+    expect(box.statuses()).toEqual(["failed"]);
   });
 });
 

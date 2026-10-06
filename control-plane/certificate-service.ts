@@ -5,9 +5,47 @@ import { clearAttention, raiseAttention } from "./attention.ts";
 export const CERTIFICATE_RENEW_PATH = "/internal/certificates/renew";
 export const CERTIFICATE_STATUS_PATH = "/internal/certificates/status";
 export const MAX_CSR_BYTES = 32 * 1024;
+/** Set by the certificate forwarder (deploy/forwarder/forwarder.ts). */
+export const CERTIFICATE_FORWARDED_HEADER = "isomux-forwarded";
 const FAILURE_REASON = "the hosted office certificate could not be renewed";
 const LOCAL_FAILURE_REASON =
   "the hosted office could not install its renewed certificate";
+
+/** Where a call came from, for the operator's log. The forwarder that serves
+ * the old provisioner hostname marks its calls; the mark is not a credential. */
+export type CertificateCallRoute = "direct" | "forwarder";
+
+/**
+ * The renewal URL an office is enrolled with: HTTPS, the renew route, nothing
+ * else. Provisioning writes it into a new office's enrollment, and a renew
+ * answer hands it to an existing office's helper, which moves to it.
+ */
+export function parseCertificateEndpoint(
+  value: string | undefined,
+): { url: URL } | { reason: string } {
+  if (!value) {
+    return { reason: "the hosted certificate endpoint is not configured" };
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return { reason: "the hosted certificate endpoint is invalid" };
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.pathname !== CERTIFICATE_RENEW_PATH ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    url.username !== "" ||
+    url.password !== ""
+  ) {
+    return {
+      reason: "the hosted certificate endpoint is not the HTTPS renewal route",
+    };
+  }
+  return { url };
+}
 
 export interface CertificateIssuer {
   issue(input: {
@@ -19,14 +57,39 @@ export interface CertificateIssuer {
 
 export class CertificateService {
   private readonly active = new Set<string>();
+  /** This provisioner's renewal URL, sent with every certificate. Unset when
+   * the configured value is not a valid endpoint. */
+  readonly endpoint: string | undefined;
+  private readonly report: (line: string) => void;
   constructor(
     private readonly store: Store,
     private readonly issuer: CertificateIssuer,
-  ) {}
+    opts: { endpoint?: string; report?: (line: string) => void } = {},
+  ) {
+    this.report = opts.report ?? (() => {});
+    const parsed = parseCertificateEndpoint(opts.endpoint);
+    this.endpoint = "url" in parsed ? parsed.url.href : undefined;
+    if (opts.endpoint && "reason" in parsed)
+      this.report(`certificate renewal: ${parsed.reason}; answers carry none`);
+  }
+
+  /** One line per call: the outcome, the office once it is known, and the
+   * route. The operator reads these to see when no office needs the old
+   * hostname (control-plane/README.md, "The certificate forwarder"). */
+  private line(
+    call: "renewal" | "status",
+    outcome: string,
+    instanceId: string | null,
+    via: CertificateCallRoute,
+  ) {
+    const office = instanceId ? ` office=${instanceId}` : "";
+    this.report(`certificate ${call}: ${outcome}${office} via=${via}`);
+  }
 
   async renew(
     token: string,
     csrPem: string,
+    via: CertificateCallRoute = "direct",
   ): Promise<
     | { status: "ok"; certificatePem: string }
     | { status: "unauthorized" | "busy" | "bad_request" | "failed" }
@@ -34,10 +97,28 @@ export class CertificateService {
     if (
       !csrPem.includes("BEGIN CERTIFICATE REQUEST") ||
       Buffer.byteLength(csrPem) > MAX_CSR_BYTES
-    )
+    ) {
+      this.line("renewal", "bad_request", null, via);
       return { status: "bad_request" };
+    }
     const identity = await authenticateCertificateCredential(this.store, token);
-    if (!identity) return { status: "unauthorized" };
+    if (!identity) {
+      this.line("renewal", "unauthorized", null, via);
+      return { status: "unauthorized" };
+    }
+    const result = await this.renewFor(identity, csrPem);
+    this.line("renewal", result.status, identity.row.instance_id, via);
+    return result;
+  }
+
+  private async renewFor(
+    identity: NonNullable<
+      Awaited<ReturnType<typeof authenticateCertificateCredential>>
+    >,
+    csrPem: string,
+  ): Promise<
+    { status: "ok"; certificatePem: string } | { status: "busy" | "failed" }
+  > {
     // lego owns one central ACME account directory. One process may mutate it
     // at a time, even when two different offices ask together.
     if (this.active.size > 0) return { status: "busy" };
@@ -77,13 +158,18 @@ export class CertificateService {
   async reportStatus(
     token: string,
     status: "ok" | "failed",
+    via: CertificateCallRoute = "direct",
   ): Promise<"ok" | "unauthorized"> {
     const identity = await authenticateCertificateCredential(
       this.store,
       token,
       { contact: true },
     );
-    if (!identity) return "unauthorized";
+    if (!identity) {
+      this.line("status", "unauthorized", null, via);
+      return "unauthorized";
+    }
+    this.line("status", status, identity.row.instance_id, via);
     const open = (
       await this.store.openReasons(identity.row.instance_id)
     ).filter(

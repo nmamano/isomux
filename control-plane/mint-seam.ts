@@ -91,6 +91,7 @@ export function readReleaseIdentity(
   };
 }
 import {
+  CERTIFICATE_FORWARDED_HEADER,
   CERTIFICATE_RENEW_PATH,
   CERTIFICATE_STATUS_PATH,
   MAX_CSR_BYTES,
@@ -305,6 +306,9 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
       // learns nothing beyond "no".
       const authorized = () =>
         tokenMatches(bearerOf(req.headers.get("authorization")), opts.token);
+      const via = req.headers.has(CERTIFICATE_FORWARDED_HEADER)
+        ? "forwarder"
+        : "direct";
 
       // This is deliberately before the bearer gate: Stripe cannot present the
       // private seam token. The processor verifies the signature over the raw
@@ -328,10 +332,16 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
         const result = await opts.certificates.renew(
           bearerOf(req.headers.get("authorization")),
           csr,
+          via,
         );
-        report(`certificate renewal: ${result.status}`);
+        // The endpoint moves an office that still calls an old hostname
+        // (deploy/install.sh, the renewal helper). Older helpers ignore it.
+        const endpoint = opts.certificates.endpoint;
         if (result.status === "ok")
-          return Response.json({ certificate: result.certificatePem });
+          return Response.json({
+            certificate: result.certificatePem,
+            ...(endpoint ? { endpoint } : {}),
+          });
         const status =
           result.status === "unauthorized"
             ? 401
@@ -363,6 +373,7 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
         const result = await opts.certificates.reportStatus(
           bearerOf(req.headers.get("authorization")),
           status,
+          via,
         );
         return result === "ok"
           ? new Response("ok\n")

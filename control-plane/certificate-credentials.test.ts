@@ -13,7 +13,15 @@ import {
   releaseTestStores,
 } from "./testing/pg.ts";
 import type { Store } from "./store.ts";
-import { CertificateService } from "./certificate-service.ts";
+import {
+  CERTIFICATE_FORWARDED_HEADER,
+  CERTIFICATE_RENEW_PATH,
+  CERTIFICATE_STATUS_PATH,
+  CertificateService,
+  parseCertificateEndpoint,
+} from "./certificate-service.ts";
+import { InviteHold } from "./invite-hold.ts";
+import { startMintSeam } from "./mint-seam.ts";
 
 let store: Store;
 
@@ -25,11 +33,11 @@ afterAll(async () => {
   await releaseTestStores();
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
-async function office(id = "inst-cert") {
+async function office(id = "inst-cert", label = "cert") {
   await store.createInstance({
     id,
     run_id: null,
-    name: "cert.test.isomux.app",
+    name: `${label}.test.isomux.app`,
     plan: "V153",
     region: "EU",
     service_state: "live",
@@ -39,8 +47,8 @@ async function office(id = "inst-cert") {
   const now = store.now();
   await store.sqlRun(
     "insert into name_reservations (name, id, account_id, instance_id, plan, coupon_id, version, created_at, updated_at) " +
-      "values ('cert', $1, $2, $3, 'monthly', null, 1, $4, $5)",
-    [`res-${id}`, `acct-${id}`, id, now, now],
+      "values ($6, $1, $2, $3, 'monthly', null, 1, $4, $5)",
+    [`res-${id}`, `acct-${id}`, id, now, now, label],
   );
 }
 
@@ -177,5 +185,120 @@ describe("one-office certificate credentials", () => {
     );
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain("inactive office");
+  });
+});
+
+describe("the office's renewal calls on the seam", () => {
+  const ENDPOINT =
+    "https://provisioner.example.com/internal/certificates/renew";
+  const CSR =
+    "-----BEGIN CERTIFICATE REQUEST-----\nfake\n-----END CERTIFICATE REQUEST-----\n";
+
+  async function seamFor(endpoint: string | undefined) {
+    const lines: string[] = [];
+    const service = new CertificateService(
+      store,
+      { issue: async () => ({ certificatePem: "public chain" }) },
+      { endpoint, report: (line) => lines.push(line) },
+    );
+    const seam = startMintSeam({
+      store,
+      hold: new InviteHold(),
+      token: "s".repeat(40),
+      port: 0,
+      certificates: service,
+    });
+    const call = (
+      route: string,
+      body: unknown,
+      headers: Record<string, string>,
+    ) =>
+      fetch(`http://127.0.0.1:${seam.port}${route}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      });
+    return { lines, seam, call };
+  }
+
+  test("answers a renewal with this provisioner's endpoint and logs the office and the route", async () => {
+    await office("inst-route", "route");
+    const issued = await issueCertificateCredential(store, "inst-route");
+    const { lines, seam, call } = await seamFor(ENDPOINT);
+    try {
+      const bearer = { authorization: `Bearer ${issued.token}` };
+      const direct = await call(CERTIFICATE_RENEW_PATH, { csr: CSR }, bearer);
+      expect(direct.status).toBe(200);
+      expect(await direct.json()).toEqual({
+        certificate: "public chain",
+        endpoint: ENDPOINT,
+      });
+      const forwarded = await call(
+        CERTIFICATE_STATUS_PATH,
+        { status: "ok" },
+        { ...bearer, [CERTIFICATE_FORWARDED_HEADER]: "1" },
+      );
+      expect(forwarded.status).toBe(200);
+      const refused = await call(
+        CERTIFICATE_RENEW_PATH,
+        { csr: CSR },
+        {
+          authorization: `Bearer ${"x".repeat(43)}`,
+          [CERTIFICATE_FORWARDED_HEADER]: "1",
+        },
+      );
+      expect(refused.status).toBe(401);
+      expect(lines).toEqual([
+        "certificate renewal: ok office=inst-route via=direct",
+        "certificate status: ok office=inst-route via=forwarder",
+        "certificate renewal: unauthorized via=forwarder",
+      ]);
+      expect(lines.join("\n")).not.toContain(issued.token);
+    } finally {
+      await seam.stop();
+    }
+  });
+
+  test("sends no endpoint it would not enroll an office with", async () => {
+    await office("inst-noend", "noend");
+    const issued = await issueCertificateCredential(store, "inst-noend");
+    for (const endpoint of [
+      undefined,
+      "http://provisioner.example.com/internal/certificates/renew",
+      "https://user@provisioner.example.com/internal/certificates/renew",
+    ]) {
+      const { lines, seam, call } = await seamFor(endpoint);
+      try {
+        const answer = await call(
+          CERTIFICATE_RENEW_PATH,
+          { csr: CSR },
+          { authorization: `Bearer ${issued.token}` },
+        );
+        expect(await answer.json()).toEqual({ certificate: "public chain" });
+        // A configured but unusable value is said out loud at start.
+        expect(lines.length).toBe(endpoint ? 2 : 1);
+      } finally {
+        await seam.stop();
+      }
+    }
+  });
+
+  test("takes only an HTTPS renew URL as an endpoint", () => {
+    expect(parseCertificateEndpoint(ENDPOINT)).toEqual({
+      url: new URL(ENDPOINT),
+    });
+    for (const bad of [
+      undefined,
+      "",
+      "not a url",
+      "http://provisioner.example.com/internal/certificates/renew",
+      "https://provisioner.example.com/internal/certificates/status",
+      "https://provisioner.example.com/internal/certificates/renew?x=1",
+      "https://provisioner.example.com/internal/certificates/renew#x",
+      "https://user:pass@provisioner.example.com/internal/certificates/renew",
+      "https://user@provisioner.example.com/internal/certificates/renew",
+    ]) {
+      expect(parseCertificateEndpoint(bad)).toHaveProperty("reason");
+    }
   });
 });

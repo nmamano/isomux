@@ -70,6 +70,7 @@ import {
   issueCertificateCredential,
   revokeCertificateCredentials,
 } from "./certificate-credentials.ts";
+import { parseCertificateEndpoint } from "./certificate-service.ts";
 import type { OfficeDnsWriter } from "./cloudflare-dns.ts";
 
 export interface HandlerDeps {
@@ -629,33 +630,13 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
       const attempts = (ev.attempts as unknown[]) ?? [];
 
       if (phase === "") {
-        if (!deps.certificateEndpoint) {
-          return {
-            kind: "fatal",
-            reason: "the hosted certificate endpoint is not configured",
-          };
+        const parsedEndpoint = parseCertificateEndpoint(
+          deps.certificateEndpoint,
+        );
+        if ("reason" in parsedEndpoint) {
+          return { kind: "fatal", reason: parsedEndpoint.reason };
         }
-        let certificateEndpoint: URL;
-        try {
-          certificateEndpoint = new URL(deps.certificateEndpoint);
-        } catch {
-          return {
-            kind: "fatal",
-            reason: "the hosted certificate endpoint is invalid",
-          };
-        }
-        if (
-          certificateEndpoint.protocol !== "https:" ||
-          certificateEndpoint.pathname !== "/internal/certificates/renew" ||
-          certificateEndpoint.search !== "" ||
-          certificateEndpoint.hash !== ""
-        ) {
-          return {
-            kind: "fatal",
-            reason:
-              "the hosted certificate endpoint is not the HTTPS renewal route",
-          };
-        }
+        const certificateEndpoint = parsedEndpoint.url;
         // A retry replaces the prior unused identity. The raw token exists only
         // here and in the root-owned file sent on stdin; it is never evidence,
         // an argument, or a log field.

@@ -2530,7 +2530,9 @@ runtimes: Vercel production, the `isomux-provisioner` Fly app, and
 example hostnames, to drop beside the host's Caddyfile. The provisioner block
 passes only `/stripe/webhook` and the two `/internal/certificates/*` paths that
 customer offices call. Set `ISOMUX_CERTIFICATE_ENDPOINT` in `provisioner.env` to
-the public renew URL.
+the public renew URL. New offices are enrolled with it, and every renew answer
+carries it, which moves an office enrolled with an older URL (see "The
+certificate forwarder").
 
 **The local proof** (`local-proof.sh`) deploys the commit with synthetic
 values: Stripe test mode, the staging certificate target, no provider account.
@@ -2600,6 +2602,79 @@ fly machine stop <machine> -a <app>
 
 A rollback to the old provisioner gives the machine the image's own command
 again (the `CMD` in `deploy/Dockerfile`).
+
+### The certificate forwarder
+
+A customer office renews its certificate and reports its status at the URL in
+`/etc/isomux/renewal/enrollment.json`. Offices enrolled before the move hold
+the Fly hostname, and DNS cannot repoint it. After the move the Fly app runs
+`deploy/forwarder/forwarder.ts` in place of the provisioner:
+
+- It passes a POST to exactly `/internal/certificates/renew` or
+  `/internal/certificates/status`, with the office's `Authorization` header,
+  `Content-Type` and body unchanged, to `ISOMUX_FORWARD_TO`, the new
+  provisioner's `https://` origin. The new provisioner checks the bearer. Any
+  other path, method or query gets 404, a body over 36 KiB gets 413, and a
+  redirect is not followed.
+- It bounds renew at 570 s and status at 50 s, under the helper's own 600 s and
+  60 s, and turns off Bun's built-in 300 s fetch limit.
+  `bun control-plane/deploy/forwarder/long-call-proof.ts` (about 5.5 minutes)
+  shows a 310 s answer arriving through it; measured 2026-10-06 on Bun 1.3.11.
+  When the new provisioner cannot be reached, or its answer stalls, it answers
+  503 or 504 with `Retry-After`, and the helper's curl retries.
+- It logs one line at start and nothing per call, reads no state and mounts no
+  volume.
+- It refuses to start while its environment holds a provisioner credential
+  name (`CONTROL_PLANE_*`, `STRIPE_*`, `CONTABO_*`, `ISOMUX_CF_*`,
+  `ISOMUX_ACME_*`, `PROBE_CANARY`). Fly gives app secrets to every machine of
+  the app, so they are unset first. A rollback to the old provisioner stages
+  them again with the programs in "Hosted certificate configuration" and
+  `deploy/secrets.ts`.
+
+After the state export, with the old machine stopped and autostart off, and
+the new provisioner serving. `--stage` matters: without it, `secrets unset`
+deploys to the app's machines, which can start the old one. These commands have
+not been run yet:
+
+```
+fly machine status <machine> -a <app>     # stopped, autostart off
+fly secrets list -a <app>                 # names only
+fly secrets unset --stage -a <app> <every credential name from the list>
+fly machine status <machine> -a <app>     # still stopped, autostart off
+fly machine run . --dockerfile control-plane/deploy/forwarder/Dockerfile \
+  -a <app> -r <region> --name certificate-forwarder \
+  --port 443:8080/tcp:tls:http --autostop off --restart always \
+  --vm-memory 256 --env ISOMUX_FORWARD_TO=https://<new provisioner host>
+fly machine status <machine> -a <app>     # the old machine is still stopped
+```
+
+The new forwarder machine has no volume. The old machine and its volume stay
+for a rollback until Nil retires the app.
+
+**Moving the offices.** The provisioner's renew answer carries
+`ISOMUX_CERTIFICATE_ENDPOINT` as `endpoint`. The renewal helper in
+`deploy/install.sh` sends its ok report to that URL's status path after a good
+install, and only when that answers 200 does it write the new URL into the
+enrollment, atomically and with the same bearer. A failed report there, a
+redirect, a URL that is not `https://<host>[:port]/internal/certificates/renew`
+or a failed write leaves the enrollment as it was. An office gets this helper
+from an update its owner starts (`isomux-update`, which refreshes the helper),
+or from a new install. An office that never updates keeps calling the Fly
+hostname.
+
+**When Fly can go.** The provisioner logs every renew and status call as
+`certificate renewal|status: <outcome> office=<instance id> via=direct|forwarder`,
+with no office id when the bearer did not authenticate:
+
+```
+docker compose ... logs provisioner | grep -E 'certificate (renewal|status):'
+```
+
+Fly can go when every office with an active certificate credential has a
+`certificate status: ok office=<id> via=direct` line and no `via=forwarder`
+line after it. A silent office proves nothing: the helper runs daily, so read
+the log at least two days after the last deploy, which starts a new container
+and a new log.
 
 ## The driver protocol
 
