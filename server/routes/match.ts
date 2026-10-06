@@ -40,7 +40,7 @@ function kindsLess(a: readonly number[], b: readonly number[]): boolean {
 
 // Match a concrete (method, pathname) against the supplied routes. Returns the
 // most-specific matching route and its decoded params, or null when nothing
-// matches (the caller then falls through to the legacy handlers / static serve).
+// matches (the caller then falls through to the legacy handlers / a JSON 404).
 export function matchRoute(
   routes: readonly RouteDef[],
   method: string,

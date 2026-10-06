@@ -6473,8 +6473,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // dispatched through the executor: identity -> authorize -> preconditions
         // -> idempotency -> handler -> emit. Identity is REQUIRED (cookie or
         // bearer). An unmatched or not-yet-migrated /api path falls through to the
-        // legacy handlers (/api/upload, /api/files, /api/images) and the static
-        // serve below.
+        // legacy handlers (/api/upload, /api/files, /api/images), and then to a
+        // JSON 404 before the static serve.
         if (url.pathname.startsWith("/api/")) {
           const apiMatch = matchRoute(API_ROUTES, req.method, url.pathname);
           if (apiMatch && executorDeps.handlers.has(apiMatch.route.opId)) {
@@ -6927,6 +6927,14 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               "Content-Type": httpContentTypeForFilename(filename),
             },
           });
+        }
+
+        // An /api path that no route or legacy handler took is a wrong or
+        // retired route: answer the executor's own 404 envelope, not the SPA
+        // shell's 200 text/html. Matched after one %2f decode, as the retired
+        // wall above is, so `/api%2fx` cannot reach the shell.
+        if (url.pathname.replace(/%2f/gi, "/").startsWith("/api/")) {
+          return errorResponse(404, "not_found");
         }
 
         // Static file serving. The shell carries the cookie migration (the seam
