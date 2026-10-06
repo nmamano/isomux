@@ -7,7 +7,14 @@
 // Seam: startTestServer() with the fake app supervisor. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -20,8 +27,10 @@ import {
   MAX_APP_THUMBNAIL_BYTES,
   createAppThumbnailStore,
   readCappedBody,
+  readCappedFile,
   sniffAppThumbnailType,
 } from "../app-thumbnails.ts";
+import { resolveEditorPath } from "../file-editor.ts";
 import type { AppWire } from "../../shared/contract-shapes.ts";
 import type { AgentInfo, AppListWire, AppRecord } from "../../shared/types.ts";
 import { appsHandlers, type AppsDeps } from "../routes/handlers/apps.ts";
@@ -286,6 +295,78 @@ describe("routes/apps REST: thumbnails", () => {
     expect((await getThumb(srv, viewer.rawSessionId)).status).toBe(200);
   });
 
+  it("the app's agent uploads by a path relative to its cwd", async () => {
+    const { srv, owner, token } = await seed();
+    writeFileSync(join(srv.stateRoot, "shot.png"), JPEG);
+    const put = await api(srv, "/api/apps/hello/thumbnail", {
+      method: "PUT",
+      bearer: token,
+      json: { path: "shot.png" },
+    });
+    expect(put.status).toBe(200);
+    const res = await getThumb(srv, owner.rawSessionId);
+    expect(res.headers.get("content-type")).toBe("image/jpeg");
+    expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(
+      Array.from(JPEG),
+    );
+  });
+
+  it("a path to no usable file is refused and the picture stays", async () => {
+    const { srv, owner, token } = await seed();
+    const first = await api(srv, "/api/apps/hello/thumbnail", {
+      method: "PUT",
+      bearer: token,
+      raw: PNG,
+    });
+    const big = new Uint8Array(MAX_APP_THUMBNAIL_BYTES + 1);
+    big.set(PNG);
+    writeFileSync(join(srv.stateRoot, "big.png"), big);
+    writeFileSync(join(srv.stateRoot, "notes.txt"), "not an image");
+    for (const path of ["missing.png", ".", "big.png"]) {
+      const res = await api(srv, "/api/apps/hello/thumbnail", {
+        method: "PUT",
+        bearer: token,
+        json: { path },
+      });
+      expect(res.status).toBe(400);
+      expect(errCode(res)).toBe("invalid_request");
+      // The answer does not echo where the path resolved.
+      expect(JSON.stringify(res.body)).not.toContain(srv.stateRoot);
+    }
+    const text = await api(srv, "/api/apps/hello/thumbnail", {
+      method: "PUT",
+      bearer: token,
+      json: { path: "notes.txt" },
+    });
+    expect(text.status).toBe(415);
+    expect(errCode(text)).toBe("unsupported_image");
+    const after = await api(srv, "/api/apps/hello", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect((after.body as AppWire).thumbnailUpdatedAt).toBe(
+      (first.body as AppWire).thumbnailUpdatedAt,
+    );
+  });
+
+  it("a member cannot upload by path, only by bytes", async () => {
+    const { srv, owner } = await seed();
+    const file = join(srv.stateRoot, "shot.png");
+    writeFileSync(file, PNG);
+    const byPath = await api(srv, "/api/apps/hello/thumbnail", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      json: { path: file },
+    });
+    expect(byPath.status).toBe(403);
+    expect(existsSync(thumbDir())).toBe(false);
+    const byBytes = await api(srv, "/api/apps/hello/thumbnail", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      raw: PNG,
+    });
+    expect(byBytes.status).toBe(200);
+  });
+
   it("an app with no thumbnail is a 404", async () => {
     const { srv, owner } = await seed();
     expect((await getThumb(srv, owner.rawSessionId)).status).toBe(404);
@@ -454,6 +535,8 @@ function deps(over: Partial<AppsDeps>): AppsDeps {
       remove: () => {},
       removeRegistration: () => {},
     },
+    resolveAgentPath: unexpected("resolveAgentPath"),
+    readThumbnailFile: unexpected("readThumbnailFile"),
     now: () => 1000,
     resolveMessageTarget: () => "ok",
     attributionFor: () => ({ createdBy: "Agent1", username: "alice" }),
@@ -493,6 +576,19 @@ const ctx = (req: Request = new Request("http://localhost/")) =>
 
 const upload = (bytes: Uint8Array<ArrayBuffer>) =>
   new Request("http://localhost/", { method: "PUT", body: bytes });
+
+const uploadPath = (path: string) =>
+  new Request("http://localhost/", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+
+const asAgent = (req: Request) =>
+  ({
+    ...ctx(req),
+    identity: { scope: "agent", agentId: "agent-1", userId: "u-alice" },
+  }) as unknown as RouteHandlerContext;
 
 const running = (state: AppRuntime["state"]) =>
   new Map([["hello", { ...UNKNOWN_RUNTIME, state }]]);
@@ -593,6 +689,54 @@ describe("routes/apps: thumbnail upload ordering", () => {
       }),
     )["apps.delete"](ctx());
     expect(calls).toEqual(["remove", "thumbnails:hello:3"]);
+  });
+});
+
+describe("routes/apps: thumbnail by path, refusals", () => {
+  // The real read-file check behind the dep, with every call recorded.
+  const recorded = () => {
+    const calls: string[] = [];
+    const over: Partial<AppsDeps> = {
+      resolveAgentPath: (agentId, raw) => {
+        calls.push(`resolve:${agentId}:${raw}`);
+        const r = resolveEditorPath(raw, "/srv/agent-cwd");
+        return r.kind === "ok" ? r.path : null;
+      },
+      readThumbnailFile: (path) => {
+        calls.push(`read:${path}`);
+        return { ok: false };
+      },
+    };
+    return { calls, over };
+  };
+
+  it("a blank path is refused before any file is read", async () => {
+    const { calls, over } = recorded();
+    const handler = appsHandlers(deps(over))["apps.setThumbnail"];
+    const empty = await handler(asAgent(uploadPath("")));
+    expect(empty).toMatchObject({ kind: "error", status: 400 });
+    // Whitespace passes the handler and reaches the shared check, which
+    // refuses it.
+    const blank = await handler(asAgent(uploadPath("  \t ")));
+    expect(blank).toMatchObject({ kind: "error", status: 400 });
+    expect(calls).toEqual(["resolve:agent-1:  \t "]);
+    // A path the check accepts does reach the read, resolved against the cwd.
+    await handler(asAgent(uploadPath("shot.png")));
+    expect(calls.slice(1)).toEqual([
+      "resolve:agent-1:shot.png",
+      "read:/srv/agent-cwd/shot.png",
+    ]);
+  });
+
+  it("a caller that is not an agent is refused before its body is read", async () => {
+    const { calls, over } = recorded();
+    const req = uploadPath("/srv/agent-cwd/shot.png");
+    const result = await appsHandlers(deps(over))["apps.setThumbnail"](
+      ctx(req),
+    );
+    expect(result).toMatchObject({ kind: "error", status: 403 });
+    expect(calls).toEqual([]);
+    expect(req.bodyUsed).toBe(false);
   });
 });
 
@@ -707,6 +851,24 @@ describe("app-thumbnails", () => {
     });
     expect(await readCappedBody(req, 9)).toEqual({ ok: false });
     expect(pulled).toBe(false);
+  });
+
+  it("reads a regular file up to the cap and nothing else", () => {
+    const dir = mkdtempSync(join(tmpdir(), "thumb-file-"));
+    tmpDirs.push(dir);
+    const exact = join(dir, "exact");
+    writeFileSync(exact, new Uint8Array(9));
+    const read = readCappedFile(exact, 9);
+    expect(read.ok && read.bytes.length).toBe(9);
+    expect(readCappedFile(exact, 8)).toEqual({ ok: false });
+    expect(readCappedFile(join(dir, "missing"), 9)).toEqual({ ok: false });
+    expect(readCappedFile(dir, 9)).toEqual({ ok: false });
+    // A device reads like an empty file; it is not a regular one.
+    expect(readCappedFile("/dev/null", 9)).toEqual({ ok: false });
+    // A FIFO with no writer: refused at once, not waited on.
+    const fifo = join(dir, "fifo");
+    expect(Bun.spawnSync(["mkfifo", fifo]).exitCode).toBe(0);
+    expect(readCappedFile(fifo, 9)).toEqual({ ok: false });
   });
 
   it("keeps each registration's files apart", () => {

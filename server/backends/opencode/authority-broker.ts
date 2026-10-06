@@ -81,12 +81,16 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
     path: /^\/api\/agents\/[^/]+(?:\/queue\/[^/]+|\/scheduled-messages\/[^/]+)?$/,
   },
   { method: "POST", path: /^\/api\/agents$/ },
-  { method: "GET", path: /^\/api\/apps(?:\/[^/]+(?:\/logs)?)?$/ },
+  {
+    method: "GET",
+    path: /^\/api\/apps(?:\/[^/]+(?:\/logs|\/thumbnail)?)?$/,
+  },
   {
     method: "POST",
     path: /^\/api\/apps(?:\/[^/]+\/(restart|start|stop|archive|unarchive))?$/,
   },
   { method: "PATCH", path: /^\/api\/apps\/[^/]+$/ },
+  { method: "PUT", path: /^\/api\/apps\/[^/]+\/thumbnail$/ },
   { method: "DELETE", path: /^\/api\/apps\/[^/]+$/ },
   {
     method: "GET",
@@ -322,9 +326,24 @@ export class OpenCodeAuthorityBroker {
   }
 }
 
+// On the bytes, not on decoded text: an image (GET /api/apps/:name/thumbnail)
+// passes unchanged, and a text body gets the same result as a string replace,
+// because the token is ASCII.
 function scrubToken(body: Buffer, token: string): Buffer {
-  return Buffer.from(body.toString("utf8").split(token).join("[REDACTED]"));
+  const needle = Buffer.from(token);
+  if (needle.length === 0) return body;
+  const parts: Buffer[] = [];
+  let from = 0;
+  for (let at = body.indexOf(needle); at !== -1; at = body.indexOf(needle, from)) {
+    parts.push(body.subarray(from, at), REDACTED);
+    from = at + needle.length;
+  }
+  if (from === 0) return body;
+  parts.push(body.subarray(from));
+  return Buffer.concat(parts);
 }
+
+const REDACTED = Buffer.from("[REDACTED]");
 
 async function readCappedResponse(response: Response): Promise<Buffer | null> {
   if (!response.body) return Buffer.alloc(0);

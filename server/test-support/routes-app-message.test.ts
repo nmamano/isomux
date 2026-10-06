@@ -561,6 +561,8 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
       remove: () => {},
       removeRegistration: () => {},
     },
+    resolveAgentPath: () => null,
+    readThumbnailFile: () => ({ ok: false }),
     now: () => 1,
     announce: () => {},
     announceRemoved: () => {},

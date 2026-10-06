@@ -14,10 +14,15 @@
 //     read, or be served, a file of the app that held the name before.
 
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   rmdirSync,
   unlinkSync,
@@ -77,6 +82,38 @@ export async function readCappedBody(
     }
   } finally {
     reader.releaseLock();
+  }
+}
+
+// Read a file named by the JSON path form of the upload, refusing more than
+// `max` bytes. The open is nonblocking, so a FIFO cannot stall the server, and
+// every check runs on that one descriptor: a non-regular file is refused, and a
+// file that grows after the stat still cannot deliver more than `max` bytes.
+export function readCappedFile(
+  path: string,
+  max: number,
+): { ok: true; bytes: Uint8Array } | { ok: false } {
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  } catch {
+    return { ok: false };
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.size > max) return { ok: false };
+    const out = Buffer.alloc(max + 1);
+    let size = 0;
+    for (;;) {
+      const n = readSync(fd, out, size, out.length - size, null);
+      if (n === 0) return { ok: true, bytes: out.subarray(0, size) };
+      size += n;
+      if (size > max) return { ok: false };
+    }
+  } catch {
+    return { ok: false };
+  } finally {
+    closeSync(fd);
   }
 }
 

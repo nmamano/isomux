@@ -1456,8 +1456,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("app:read", operationalAuthenticated),
     emits: [],
   }),
-  // A raw PNG, JPEG or WebP body, so the executor leaves the body to the
-  // handler (body: "binary").
+  // A raw PNG, JPEG or WebP body, or JSON {path} from an agent, so the
+  // executor leaves the body to the handler (body: "binary").
   defineRoute<Uint8Array, AppWire>({
     opId: "apps.setThumbnail",
     method: "PUT",

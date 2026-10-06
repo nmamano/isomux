@@ -69,6 +69,7 @@ import {
   type AppThumbnailStore,
 } from "../../app-thumbnails.ts";
 import type {
+  AffordanceReadFileReq,
   AppErrorCode,
   AppListWire,
   AppLogsRes,
@@ -125,6 +126,14 @@ export interface AppsDeps {
   // new one.
   registrationGeneration(app: AppRecord): number;
   thumbnails: AppThumbnailStore;
+  // The JSON form of the thumbnail upload. resolveAgentPath is the path check
+  // of the read-file affordance (resolveEditorPath against the agent's cwd),
+  // null when it refuses; readThumbnailFile is readCappedFile.
+  resolveAgentPath(agentId: string, rawPath: string): string | null;
+  readThumbnailFile(
+    path: string,
+    max: number,
+  ): { ok: true; bytes: Uint8Array } | { ok: false };
   now(): number;
   // Resolve a proposed message target against the APP OWNER's access, not the
   // caller's. An office owner managing somebody else's app must not widen what
@@ -267,6 +276,106 @@ function refuseUnsupportedHost(deps: AppsDeps) {
   return reason === null ? null : fail(501, "apps_not_supported", reason);
 }
 
+// A JSON body names a file; it holds one short path, so 16 KB is generous.
+const MAX_THUMBNAIL_PATH_BODY_BYTES = 16 * 1024;
+
+type ThumbnailBytes =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; refusal: ReturnType<RouteHandler> };
+
+// The raw form: the body is the image itself.
+async function thumbnailFromBody(req: Request): Promise<ThumbnailBytes> {
+  const body = await readCappedBody(req, MAX_APP_THUMBNAIL_BYTES);
+  if (!body.ok) {
+    return {
+      ok: false,
+      refusal: fail(
+        413,
+        "payload_too_large",
+        `the image must be at most ${MAX_APP_THUMBNAIL_BYTES} bytes`,
+      ),
+    };
+  }
+  if (body.bytes.length === 0) {
+    return {
+      ok: false,
+      refusal: fail(
+        400,
+        "invalid_request",
+        "send the image as the request body",
+      ),
+    };
+  }
+  return { ok: true, bytes: body.bytes };
+}
+
+// The JSON form {path}. Agent-only, and every refusal up to the resolved path
+// answers as POST /api/agents/:id/read-file does: a non-agent caller gets the
+// guard's 403 before its body is read, an empty path the handler's 400, and a
+// path the shared check refuses the manager's 400. There is no directory
+// fence, as in read-file: the agent and the server run as one OS user.
+async function thumbnailFromPath(
+  deps: AppsDeps,
+  ctx: Parameters<RouteHandler>[0],
+): Promise<ThumbnailBytes> {
+  const agentId =
+    ctx.identity.scope === "agent" ? ctx.identity.agentId : undefined;
+  if (!agentId) return { ok: false, refusal: fail(403, "forbidden") };
+  const raw = await readCappedBody(ctx.req, MAX_THUMBNAIL_PATH_BODY_BYTES);
+  if (!raw.ok) {
+    return {
+      ok: false,
+      refusal: fail(
+        413,
+        "payload_too_large",
+        `the JSON body must be at most ${MAX_THUMBNAIL_PATH_BODY_BYTES} bytes`,
+      ),
+    };
+  }
+  let body: Partial<AffordanceReadFileReq> | null;
+  try {
+    body = JSON.parse(new TextDecoder().decode(raw.bytes));
+  } catch {
+    return {
+      ok: false,
+      refusal: fail(400, "invalid_json", "Request body is not valid JSON"),
+    };
+  }
+  const path = body?.path;
+  if (typeof path !== "string" || path.length === 0) {
+    return {
+      ok: false,
+      refusal: fail(400, "invalid_request", "path is required"),
+    };
+  }
+  const resolved = deps.resolveAgentPath(agentId, path);
+  if (resolved === null) {
+    return {
+      ok: false,
+      refusal: fail(400, "read_file_failed", "missing or empty path"),
+    };
+  }
+  // One answer for a missing, non-regular, oversize or unreadable file, with
+  // no echo of the resolved path.
+  const file = deps.readThumbnailFile(resolved, MAX_APP_THUMBNAIL_BYTES);
+  if (!file.ok) {
+    return {
+      ok: false,
+      refusal: fail(
+        400,
+        "invalid_request",
+        `path must name a readable file of at most ${MAX_APP_THUMBNAIL_BYTES} bytes`,
+      ),
+    };
+  }
+  return { ok: true, bytes: file.bytes };
+}
+
+function isJsonRequest(req: Request): boolean {
+  const type = req.headers.get("content-type") ?? "";
+  return type.split(";")[0].trim().toLowerCase() === "application/json";
+}
+
 export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
   // toWire with this office's address rule applied, so no call site can build
   // a wire object for one app carrying another's URL - or forget the field.
@@ -343,8 +452,10 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
       }
     },
 
-    // The body is the image itself. Read here, after authorization, with a
-    // cap; the bytes decide the type and Content-Type is never consulted.
+    // Two body forms, told apart by Content-Type: application/json carries
+    // {path} (thumbnailFromPath), anything else is the image itself. Read
+    // here, after authorization, with a cap; the bytes decide the type and
+    // Content-Type is never consulted for that.
     "apps.setThumbnail": async (ctx) => {
       const refused = refuseUnsupportedHost(deps);
       if (refused) return refused;
@@ -353,21 +464,10 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         if (!before) return fail(404, "not_found");
         const gen = deps.registrationGeneration(before);
 
-        const body = await readCappedBody(ctx.req, MAX_APP_THUMBNAIL_BYTES);
-        if (!body.ok) {
-          return fail(
-            413,
-            "payload_too_large",
-            `the image must be at most ${MAX_APP_THUMBNAIL_BYTES} bytes`,
-          );
-        }
-        if (body.bytes.length === 0) {
-          return fail(
-            400,
-            "invalid_request",
-            "send the image as the request body",
-          );
-        }
+        const body = isJsonRequest(ctx.req)
+          ? await thumbnailFromPath(deps, ctx)
+          : await thumbnailFromBody(ctx.req);
+        if (!body.ok) return body.refusal;
         if (!sniffAppThumbnailType(body.bytes)) {
           return fail(
             415,

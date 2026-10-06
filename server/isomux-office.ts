@@ -256,7 +256,7 @@ import {
   webhooksHandlers,
   webhookTargetPrecondition,
 } from "./routes/handlers/webhooks.ts";
-import { appThumbnailStore } from "./app-thumbnails.ts";
+import { appThumbnailStore, readCappedFile } from "./app-thumbnails.ts";
 import { handleAppHostRequest } from "./app-hosts.ts";
 import {
   appHostDomain,
@@ -2819,6 +2819,9 @@ function buildExecutorDeps(
       canAccess: canUserAccessApp,
       registrationGeneration: appRegistrationGeneration,
       thumbnails: appThumbnailStore,
+      resolveAgentPath: (agentId, rawPath) =>
+        agentManager.resolveEditorPathForAgent(agentId, rawPath),
+      readThumbnailFile: readCappedFile,
       now: () => Date.now(),
       install: (record) => appSupervisor.install(record),
       reinstall: (record) => appSupervisor.reinstall(record),

@@ -13,15 +13,27 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "isomux-authority-broker-"));
   const socketPath = join(root, "private", "authority.sock");
   const seen: Array<{ authorization: string | null; path: string }> = [];
+  const bodies: Array<{ contentType: string | null; body: string }> = [];
   const upstream = Bun.serve({
     port: 0,
-    fetch(request) {
+    async fetch(request) {
       const url = new URL(request.url);
       seen.push({
         authorization: request.headers.get("authorization"),
         path: `${url.pathname}${url.search}`,
       });
+      if (request.method === "PUT") {
+        bodies.push({
+          contentType: request.headers.get("content-type"),
+          body: await request.text(),
+        });
+      }
       if (url.searchParams.has("leak")) return new Response("token-b");
+      if (url.searchParams.has("image")) {
+        return new Response(IMAGE, {
+          headers: { "Content-Type": "image/png" },
+        });
+      }
       if (url.searchParams.has("large")) {
         let sent = 0;
         return new Response(
@@ -46,7 +58,39 @@ function fixture() {
     await upstream.stop(true);
     rmSync(root, { recursive: true, force: true });
   });
-  return { broker, socketPath, seen };
+  return { broker, socketPath, seen, bodies };
+}
+
+// PNG-signed bytes that are not valid UTF-8 (0x89, 0xff, a lone 0x80), with
+// the token in the middle.
+const IMAGE = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x80]),
+  Buffer.from("token-b"),
+  Buffer.from([0x00, 0xc3, 0xff]),
+]);
+
+// The response body as bytes, through curl, which the request helper's text
+// decoding would change.
+async function requestBytes(
+  socketPath: string,
+  handle: string,
+  path: string,
+): Promise<Buffer> {
+  const curl = Bun.spawn(
+    [
+      "curl",
+      "-sS",
+      "--unix-socket",
+      socketPath,
+      `http://isomux${path}`,
+      "-H",
+      `X-Isomux-Turn: ${handle}`,
+    ],
+    { stdout: "pipe" },
+  );
+  const body = Buffer.from(await new Response(curl.stdout).arrayBuffer());
+  expect(await curl.exited).toBe(0);
+  return body;
 }
 
 async function request(
@@ -174,6 +218,45 @@ describe("OpenCode office proxy", () => {
     ).toBe(200);
     expect(seen).toEqual([{ authorization: "Bearer token-b", path: inbox }]);
     expect((await request(socketPath, handle, inbox)).status).toBe(403);
+  });
+
+  it("carries the thumbnail upload by path and serves the image bytes unchanged", async () => {
+    const { broker, socketPath, seen, bodies } = fixture();
+    const handle = broker.bind("agent-b", "token-b").activate(process.pid);
+    const thumbnail = "/api/apps/hello/thumbnail";
+    expect(
+      (
+        await request(
+          socketPath,
+          handle,
+          thumbnail,
+          "PUT",
+          '{"path":"shot.png"}',
+        )
+      ).status,
+    ).toBe(200);
+    expect(bodies).toEqual([
+      { contentType: "application/json", body: '{"path":"shot.png"}' },
+    ]);
+    const image = await requestBytes(
+      socketPath,
+      handle,
+      `${thumbnail}?v=1&image=1`,
+    );
+    // Every byte survives except the token itself.
+    expect(Array.from(image)).toEqual(
+      Array.from(
+        Buffer.concat([
+          IMAGE.subarray(0, 10),
+          Buffer.from("[REDACTED]"),
+          IMAGE.subarray(17),
+        ]),
+      ),
+    );
+    expect(seen.map((s) => s.path)).toEqual([
+      thumbnail,
+      `${thumbnail}?v=1&image=1`,
+    ]);
   });
 
   it("limits calls for each turn", async () => {
