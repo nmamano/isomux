@@ -97,6 +97,8 @@ bun control-plane/cli.ts bootstrap                # an empty database -> schema-
 bun control-plane/cli.ts set-database-identity    # owner writes CONTROL_PLANE_DB_IDENTITY into the database
 bun control-plane/restore-check.ts fingerprint    # counts, hashes and definitions of CONTROL_PLANE_DB
 bun control-plane/restore-check.ts compare <source.json> <target.json>
+bun control-plane/state-move.ts export [--data /data] > state.json   # the key-free provisioner state, for a move
+bun control-plane/state-move.ts import [--data /data] < state.json   # into an empty state volume
 ```
 
 A rebuild always issues a fresh hosted TLS key and certificate. The TLS-key
@@ -2433,8 +2435,9 @@ network, volume or env file with other projects on the host. The Vercel and Fly
 paths above stay as they are.
 
 ```
-control-plane/deploy/vps/deploy.sh <commit>        # on the host, from a clone that has the commit
-control-plane/deploy/vps/local-proof.sh <commit>   # the same, on throwaway names, then torn down
+control-plane/deploy/vps/deploy.sh <commit>            # on the host, from a clone that has the commit
+control-plane/deploy/vps/deploy.sh --prepare <commit>  # a first install that starts no app, for a move
+control-plane/deploy/vps/local-proof.sh <commit>       # the same, on throwaway names, then torn down
 ```
 
 `deploy.sh` builds from `git archive <commit>`, never from the working tree, in
@@ -2496,6 +2499,12 @@ the restore the owner stamps it with
 `docker compose ... run --rm owner bun control-plane/cli.ts set-database-identity`
 before a runtime points at it.
 
+`--prepare` does the first install and stops before the provisioner and the
+storefront start. It creates the state volume empty and writes `installed` and
+`generated/prepared`. It refuses when any part of an install exists. The next
+run without it starts the apps; it does not require `state_persisted` on that
+first start, and removes `prepared` once health passes.
+
 The install is `generated/` and the two named volumes together: `pgdata` and
 `provisioner-state`, which holds the keys that revoke our access, the intent
 records and the ACME account. Any other state refuses before it builds or
@@ -2523,19 +2532,74 @@ passes only `/stripe/webhook` and the two `/internal/certificates/*` paths that
 customer offices call. Set `ISOMUX_CERTIFICATE_ENDPOINT` in `provisioner.env` to
 the public renew URL.
 
-**The local proof** (`local-proof.sh`) deploys the commit twice with synthetic
+**The local proof** (`local-proof.sh`) deploys the commit with synthetic
 values: Stripe test mode, the staging certificate target, no provider account.
 Before the first run it checks that a leftover state volume blocks a first
-install. Between the two runs it checks each container's ceilings as Docker
-applied them, that the unfinished and the incomplete install refuse without a
-build, and it changes the cached release tree. After the redeploy it checks that
+install. It installs the way a move does: `--prepare`, which must create no app
+container and leave the state volume empty, and must refuse a second time; a
+state import with one latched intent, which must refuse a second time; a normal
+run, whose provisioner must hold the imported latch in `create_intents`. Then it
+checks each container's ceilings as Docker applied them, that the unfinished and
+the incomplete install refuse without a build, and it changes the cached release
+tree and redeploys. After the redeploy it checks that
 the identity, the generated credentials, a row and a state-volume file written
 between the runs are unchanged, that both images hold the commit's bytes and
 not the changed tree's, that the previous release is kept and an older one is
 pruned, and that a missing state volume refuses without a build or a new
 volume. Then it checks that teardown leaves no container, volume, network,
 image, builder or file. Measured 2026-10-06 on the office box: about
-10 minutes, most of it the two builds.
+14 minutes, most of it the three builds.
+
+### Moving Hosted Isomux to a Docker host
+
+No app starts on the new host before the database is restored and the
+provisioner state is imported: a provisioner that starts with live provider
+credentials before the create latches arrive can pay for a box twice. In order:
+
+1. `deploy.sh --prepare <commit>` on the host.
+2. Stop every writer on the old database, restore its dump into the `isomux`
+   database, and `restore-check.ts compare` the fingerprints of the two.
+3. `docker compose ... run --rm owner bun control-plane/cli.ts set-database-identity`.
+4. Export the provisioner state from the old Fly machine (below).
+5. On the host, into the empty state volume:
+   `docker compose ... run --rm --no-deps -T provisioner bun control-plane/state-move.ts import < state.json`
+6. `deploy.sh <commit>`, which starts the apps.
+
+`state-move.ts` moves only what a new provisioner needs, as freshly serialized
+records, never as copied files:
+
+- `intents/`, the legacy create latch. Every latch moves; a record that does not
+  read as a valid one moves as `ambiguous`, which still forbids a create.
+- `audit.jsonl`, without the free-text `detail`. A line that does not fit the
+  fixed fields stays on the old volume and is counted.
+
+Nothing else moves. Keys, `known_hosts`, run records, CSRs, the lego directory
+and the `.deployment` marker stay on the old volume. With an empty
+`certificates/`, lego registers a new ACME account on first use (lego 5.3.1,
+`run` creates the account key and registers it when no account file exists).
+The export refuses while a run is not revoked (its key is the only way to finish
+or revoke it) and while either DNS challenge journal
+(`<state root>/certificate-dns-intents`, `/data/certificate-dns-intents`) holds
+a file; the refusal names each one and says how to clear it. It lstats every
+path it reads and refuses a symlink or a file that is not regular. The import
+re-validates the document field by field and refuses a volume that holds
+anything.
+
+The old machine has no exporter, so the script travels on stdin: it imports
+only node built-ins. It is read-only, so it can run on the live machine first to
+show what would refuse. At the cutover, with the machine stopped and autostart
+off, boot it idle (no provisioner process), export, and stop it. The idle
+machine serves nothing on 4311, so the update skips the TCP check from
+`fly.toml`. These commands and the rollback below have not been run yet:
+
+```
+fly machine update <machine> -a <app> --command "sleep infinity" --autostart=false --restart no --skip-health-checks --yes
+fly ssh console -a <app> --machine <machine> -C "bun run - export" < control-plane/state-move.ts > state.json
+fly machine stop <machine> -a <app>
+```
+
+A rollback to the old provisioner gives the machine the image's own command
+again (the `CMD` in `deploy/Dockerfile`).
 
 ## The driver protocol
 

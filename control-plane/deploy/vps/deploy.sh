@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy one source commit of Hosted Isomux to this Docker host.
 #
-#   control-plane/deploy/vps/deploy.sh <commit>
+#   control-plane/deploy/vps/deploy.sh [--prepare] <commit>
 #
 # Run it from any clone of the repository that has the commit. It builds from a
 # `git archive` of that commit, never from the working tree. On the production
@@ -13,6 +13,11 @@
 # creates the roles, bootstraps the schema and stamps the identity. Every later
 # run only builds, replaces the two app containers and checks them: it never
 # bootstraps, regrants, resets a password or stamps the identity.
+#
+# --prepare does the first install and stops before any app starts: no
+# provisioner, no web. It is for a move, where the database is restored and the
+# provisioner state imported before the provisioner first runs (README, "Moving
+# Hosted Isomux to a Docker host"). The next run without it starts the apps.
 #
 # Output is step lines and booleans. No value from an env file is printed, put
 # on a command line, baked into an image or written to a log.
@@ -31,7 +36,12 @@ die() {
   exit 1
 }
 
-[[ $# -eq 1 ]] || die "usage: deploy.sh <commit>"
+prepare=false
+if [[ ${1:-} == --prepare ]]; then
+  prepare=true
+  shift
+fi
+[[ $# -eq 1 ]] || die "usage: deploy.sh [--prepare] <commit>"
 [[ $project =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "the project name must be lowercase letters, digits and dashes"
 [[ $web_port =~ ^[0-9]+$ && $provisioner_port =~ ^[0-9]+$ ]] || die "the ports must be numbers"
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -93,6 +103,11 @@ case "${have[*]}" in
   exit 4
   ;;
 esac
+! $prepare || $first_install || die "--prepare is for a first install only; nothing was changed"
+# A prepared install whose apps have not started yet. Its provisioner state
+# has nothing to persist until the first start.
+first_start=false
+[[ -f $generated/prepared ]] && first_start=true
 
 # --- The release: the commit's own tree, unpacked fresh for every deploy, so
 # that only the commit's bytes reach the build that is labelled with it. ---
@@ -209,9 +224,20 @@ if $first_install; then
     "alter role cp_provisioner login password '$provisioner_pw';" |
     quiet dc exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d isomux
   quiet dc run --rm owner bun control-plane/cli.ts set-database-identity
+  if $prepare; then
+    # The state volume, created by Compose with no process of the provisioner
+    # running in it, so it stays empty for the import.
+    quiet dc run --rm --no-deps -T provisioner true
+    : >"$generated/prepared"
+    chmod 600 "$generated/prepared"
+  fi
   : >"$generated/installed"
   chmod 600 "$generated/installed"
   say "db: owner and runtime roles, schema and identity in place"
+fi
+if $prepare; then
+  say "PASS $project prepared at $commit: no app started"
+  exit 0
 fi
 
 quiet dc up -d --wait --wait-timeout 240 provisioner web
@@ -243,7 +269,8 @@ read -r ok identity persisted running_commit <<<"$health"
   die "provisioner health is not ok with database_identity true at $commit (ok $ok, database_identity $identity, commit $([[ $running_commit == "$commit" ]] && echo match || echo mismatch))"
 # A redeploy must find the state the last release left. ok does not count it,
 # because on a first install there is nothing to find.
-$first_install || [[ $persisted == true ]] || die "the provisioner state did not persist across the redeploy"
+$first_install || $first_start || [[ $persisted == true ]] || die "the provisioner state did not persist across the redeploy"
+rm -f "$generated/prepared"
 say "provisioner health: ok true, database_identity true, state_persisted $persisted, commit $commit"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$web_port/") || code=none

@@ -6,12 +6,15 @@
 #
 #   control-plane/deploy/vps/local-proof.sh <commit>
 #
-# It deploys the commit twice. The first run is a first install; the second is
-# a redeploy that must keep the database identity, the generated credentials,
-# the data and the provisioner state, and must build the commit's bytes even
-# when the cached release tree was changed. Around them it checks each
-# container's resource ceiling, and that deploy.sh refuses an unfinished or
-# incomplete install (exit 3 and 4) before it builds or creates anything.
+# It installs the commit the way a move does: `deploy.sh --prepare`, which must
+# start no app, then a provisioner state import into the empty state volume,
+# then a normal run that starts the apps, whose provisioner must take the
+# imported create latch into its database. A third run is a redeploy that must
+# keep the database identity, the generated credentials, the data and the
+# provisioner state, and must build the commit's bytes even when the cached
+# release tree was changed. Around them it checks each container's resource
+# ceiling, and that deploy.sh refuses an unfinished or incomplete install (exit
+# 3 and 4) before it builds or creates anything.
 set -euo pipefail
 umask 077
 
@@ -109,7 +112,30 @@ docker volume rm "${project}_provisioner-state" >/dev/null
 [[ ! -e $work/env/generated ]] || die "a refused deploy generated credentials"
 say "refusal: a leftover state volume blocks a first install"
 
+"$here/deploy.sh" --prepare "$commit"
+[[ -z $(dc ps -aq provisioner web) ]] || die "--prepare created an app container"
+[[ -f $work/env/generated/installed && -f $work/env/generated/prepared ]] ||
+  die "--prepare did not finish the install"
+[[ -z $(dc run --rm --no-deps -T provisioner ls -A /data) ]] || die "the prepared state volume is not empty"
+images_before=$(project_images)
+code=0
+"$here/deploy.sh" --prepare "$commit" >"$work/refusal.log" 2>&1 || code=$?
+[[ $code == 1 && $(project_images) -eq $images_before ]] || die "a second --prepare did not refuse before it built"
+say "prepare: install finished, no app container, state volume empty; a second --prepare refuses"
+
+# The provisioner state a move brings: one latched create and one audit event.
+cat >"$work/state.json" <<'EOF'
+{"format":"isomux-provisioner-state","version":1,"exportedAt":"2026-10-06T00:00:00.000Z","intents":[{"intentId":"proof-latched","state":"intended","latchedAt":1700000000000,"plan":"V153","region":"EU"}],"audit":[{"ts":"2026-08-12T10:00:00.000Z","actor":"control-plane-cli","action":"reinstall","target":"100200","outcome":"succeeded"}],"left":{"revokedRuns":0,"auditLinesDropped":0}}
+EOF
+dc run --rm --no-deps -T provisioner bun control-plane/state-move.ts import <"$work/state.json" >>"$work/import.log" 2>&1 ||
+  die "the state import failed"
+code=0
+dc run --rm --no-deps -T provisioner bun control-plane/state-move.ts import <"$work/state.json" >>"$work/import.log" 2>&1 || code=$?
+[[ $code == 1 ]] || die "a second state import did not refuse"
+say "import: the state loads into the empty volume; a second import refuses"
+
 "$here/deploy.sh" "$commit"
+[[ ! -e $work/env/generated/prepared ]] || die "the first start left the prepared marker"
 
 sql() { dc exec -T db psql -qAt -v ON_ERROR_STOP=1 -U postgres -d isomux; }
 
@@ -126,18 +152,22 @@ say "ceilings: db 1.0 CPU / 2 GiB, provisioner 0.5 / 512 MiB, web 0.5 / 768 MiB,
 echo "insert into accounts (id, email, version, created_at, updated_at) values ('proof-account', 'proof@example.com', 1, 0, 0);" | sql
 identity_before=$(echo "select md5(value) from schema_meta where key = 'database_identity';" | sql)
 [[ -n $identity_before ]] || die "no identity row after the first install"
+[[ $(echo "select state from create_intents where intent_id = 'proof-latched';" | sql) == intended ]] ||
+  die "the provisioner did not take the imported latch into its database"
+say "first start: the provisioner holds the imported latch"
 generated_before=$(cat "$work/env/generated"/* | sha256sum)
 first_provisioner=$(dc ps -q provisioner)
 dc exec -T provisioner sh -c 'echo proof >/data/proof-sentinel'
 
 # An unfinished or incomplete install refuses before anything is built.
+images_before=$(project_images)
 mv "$work/env/generated/installed" "$work/installed"
 refuses 3 "no installed marker"
 mv "$work/installed" "$work/env/generated/installed"
 mv "$work/env/generated" "$work/generated"
 refuses 4 "the volumes but no generated/"
 mv "$work/generated" "$work/env/generated"
-[[ $(project_images) -eq 2 ]] || die "a refused deploy built an image"
+[[ $(project_images) -eq $images_before ]] || die "a refused deploy built an image"
 say "refusals: unfinished install and missing credentials, nothing built"
 
 # Changed bytes in the cached release tree must not reach the build.
