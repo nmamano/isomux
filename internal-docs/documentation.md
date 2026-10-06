@@ -35,7 +35,7 @@ Keep these consistent across all surfaces below.
   - `<section id="how-it-works">` - one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.
 - **Update when:** headline features change. Always update this file, the README and the two translated copies in the same commit so they don't drift.
 - **Languages:** the English file is the source. Every edit to it is repeated in the Spanish, Catalan and Simplified Chinese copies in the same commit; a copy that keeps an English sentence is a bug, not a fallback. All four carry the same five `rel=alternate hreflang` links and the same language menu in the footer (a `<details>` that names the page's language and links the others). `scripts/site-i18n-check.test.ts` holds the eight pages to that.
-- **Footer:** one layout on the landing, hosted, about and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in all twelve. The about and legal pages are English only and carry no language menu.
+- **Footer:** one layout on the landing, hosted, about, AI instructions and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in all thirteen. The about, AI instructions and legal pages are English only and carry no language menu.
 - **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`). `cleanUrls` serves the copies at `/es` and `/ca`; both appear in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`).
 
 ## 2b. Hosted landing page (isomux.com/hosted)
@@ -68,6 +68,15 @@ Keep these consistent across all surfaces below.
 - **Language:** English only for now. The landing and hosted footers link it in all four languages.
 - **Deploy note:** static, `cleanUrls`, served at `/about`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
 
+## 2e. AI instructions page (isomux.com/ai-instructions)
+
+- **File:** `site/ai-instructions.html`.
+- **Audience:** AI assistants and the AI answers that search engines show for branded searches (Google AI Overviews, ChatGPT search). SEO practitioners report that such answers cite a footer-linked page of this kind (Nectiv, 2026); Google says no special page is required.
+- **Structure:** a short Information list and an "Instructions for AI assistants" list that says how to describe Isomux. Team, facts, FAQ and competitors stay on the about page (section 2d); features stay on the landing. Styled like the about page.
+- **Update when:** the category pitch, license, free tier, supported agents, hosting options or beta status changes. Every line traces to the README, the landing or the about page; the landing wins where they differ.
+- **Language:** English only. All footers link it; the Spanish, Catalan and Chinese footers translate the link label (Instrucciones para IA, Instruccions per a IA, AI 说明).
+- **Deploy note:** static, `cleanUrls`, served at `/ai-instructions`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
+
 ## 3. Site chatbot system prompt
 
 - **File:** `api/chat.ts` - `SYSTEM_PROMPT` constant (around line 25).
@@ -98,7 +107,7 @@ Keep these consistent across all surfaces below.
 
 ## 4b. Machine-readable site resources
 
-- **Files:** `site/llms.txt`, `site/openapi.json`, the `SoftwareApplication` JSON-LD in `site/index.html`, the `AboutPage` JSON-LD in `site/about.html`, `site/_agent/index.md`, and the generated `site/_agent/docs/` Markdown variants.
+- **Files:** `site/llms.txt`, `site/openapi.json`, the `SoftwareApplication` JSON-LD in `site/index.html`, the `AboutPage` JSON-LD in `site/about.html`, `site/ai-instructions.html` (section 2e), `site/_agent/index.md`, and the generated `site/_agent/docs/` Markdown variants.
 - **Audience:** Agents, API clients, and search indexes.
 - **Update when:** public site routes, the website API, docs paths, or the product's developer-resource links change.
 - **Deploy note:** Vercel Routing Middleware negotiates HTML and Markdown for the landing and docs URLs. The response must keep `Vary: Accept, Accept-Encoding`; unsupported media types return 406.

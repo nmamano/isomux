@@ -42,13 +42,14 @@ const SITE_ORIGIN = "https://isomux.com";
 // page declares its own language versions through its rel=alternate hreflang
 // links, which is what tells a crawler they are one page in four languages.
 // The docs and the legal pages exist in English only and appear once.
-const STATIC_PATHS = [
+export const STATIC_PATHS = [
   "/",
   "/es",
   "/ca",
   "/zh",
   "/demo",
   "/about",
+  "/ai-instructions",
   "/hosted",
   "/es/hosted",
   "/ca/hosted",

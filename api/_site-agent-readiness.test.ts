@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import chat from "./chat.ts";
 import notFound from "./not-found.ts";
 import middleware, { negotiate } from "../middleware.ts";
-import { rewriteMarkdownLinks } from "../scripts/build-docs.ts";
+import { STATIC_PATHS, rewriteMarkdownLinks } from "../scripts/build-docs.ts";
 
 describe("isomux.com agent readiness", () => {
   it("negotiates Markdown with q-values and rejects unsupported types", () => {
@@ -155,6 +155,27 @@ describe("isomux.com agent readiness", () => {
 
     const llms = await Bun.file("site/llms.txt").text();
     expect(llms).toContain(canonical![1]);
+  });
+
+  it("links the AI instructions page from the sitemap, llms.txt, and every site footer", async () => {
+    const page = await Bun.file("site/ai-instructions.html").text();
+    const canonical = page.match(/<link rel="canonical" href="([^"]+)"/);
+    expect(canonical).not.toBeNull();
+    const path = new URL(canonical![1]).pathname;
+    expect(page).toContain('id="instructions"');
+    expect(STATIC_PATHS).toContain(path);
+    expect(await Bun.file("site/llms.txt").text()).toContain(canonical![1]);
+
+    const footerPages: string[] = [];
+    for await (const file of new Bun.Glob("site/**/*.html").scan(".")) {
+      const html = await Bun.file(file).text();
+      const footer = html.match(/<footer class="site-footer">([\s\S]*?)<\/footer>/);
+      if (!footer?.[1].includes('class="footer-columns"')) continue;
+      footerPages.push(file);
+      expect(footer[1], file).toContain(`href="${path}"`);
+    }
+    expect(footerPages).toContain("site/index.html");
+    expect(footerPages).toContain("site/ai-instructions.html");
   });
 
   it("rewrites cross-document Markdown links to canonical docs URLs", () => {
