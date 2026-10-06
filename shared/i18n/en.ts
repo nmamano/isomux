@@ -1538,7 +1538,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "office.tabs.newRoom": "Create new room",
   "office.tabs.tuckedRooms": "Tucked rooms",
   "office.tabs.tuck": "Tuck",
-  "office.tabs.untuck": "Untuck",
   "office.tabs.onlineUsers.one": "{count} online member",
   "office.tabs.onlineUsers.other": "{count} online members",
   "office.zoom.in": "Zoom in",

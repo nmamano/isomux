@@ -708,9 +708,6 @@ export function RoomTabBar({
         dragging={dragFrom !== null}
         onTuckDrop={tuckDragged}
         onSelect={(roomId) => dispatch({ type: "set_current_room", roomId })}
-        onUntuck={(roomId) =>
-          writeTuckedList(tucked.filter((id) => id !== roomId))
-        }
       />
     </div>
   );

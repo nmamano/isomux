@@ -35,12 +35,17 @@ export function tuckedChipSummary(
   };
 }
 
-// Display names of the members present in a room, one per member.
-export function presentMemberNames(presences: readonly PresenceInfo[]) {
+// Display names of the members present in a room, one per member. This
+// device's own connection is left out, as its ghost is, so a member looking
+// from inside a tucked room does not see their own name there.
+export function presentMemberNames(
+  presences: readonly PresenceInfo[],
+  selfConnectionId: string | null,
+) {
   const seen = new Set<string>();
   const names: string[] = [];
   for (const p of presences) {
-    if (seen.has(p.userId)) continue;
+    if (p.connectionId === selfConnectionId || seen.has(p.userId)) continue;
     seen.add(p.userId);
     names.push(p.username);
   }
@@ -65,7 +70,8 @@ function ActivityDot({ color }: { color: string | null }) {
 }
 
 // The +N chip at the right end of the room tab bar. A tab dropped on it is
-// tucked; a click opens the list of tucked rooms.
+// tucked; a click opens the list of tucked rooms. Untucking is in Settings >
+// Rooms only: an Untuck button in this list was easy to hit by accident.
 export function TuckedRoomsChip({
   tuckedRooms,
   activeRoomId,
@@ -76,7 +82,6 @@ export function TuckedRoomsChip({
   dragging,
   onTuckDrop,
   onSelect,
-  onUntuck,
 }: {
   tuckedRooms: RoomWire[];
   activeRoomId: string | null;
@@ -87,7 +92,6 @@ export function TuckedRoomsChip({
   dragging: boolean;
   onTuckDrop: () => void;
   onSelect: (roomId: string) => void;
-  onUntuck: (roomId: string) => void;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -206,7 +210,7 @@ export function TuckedRoomsChip({
             width: "min(300px, calc(100vw - 16px))",
             maxHeight: "60vh",
             overflowY: "auto",
-            background: "var(--bg-hud)",
+            background: "var(--bg-surface-solid)",
             border: "1px solid var(--border)",
             borderRadius: 8,
             boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
@@ -223,7 +227,7 @@ export function TuckedRoomsChip({
               isActive,
             );
             const presences = presencesByRoom.get(room.id) ?? [];
-            const names = presentMemberNames(presences);
+            const names = presentMemberNames(presences, selfConnectionId);
             return (
               <div
                 key={room.id}
@@ -301,21 +305,6 @@ export function TuckedRoomsChip({
                   max={MAX_MINI_GHOSTS}
                   overlap={MINI_GHOST_OVERLAP}
                 />
-                <button
-                  onClick={() => onUntuck(room.id)}
-                  style={{
-                    padding: "2px 8px",
-                    borderRadius: 4,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-code)",
-                    color: "var(--text-secondary)",
-                    fontSize: 10,
-                    cursor: "pointer",
-                    flexShrink: 0,
-                  }}
-                >
-                  {t("office.tabs.untuck")}
-                </button>
               </div>
             );
           })}

@@ -1396,7 +1396,6 @@ App 的一些原则：
   "office.tabs.newRoom": "创建新房间",
   "office.tabs.tuckedRooms": "收起的房间",
   "office.tabs.tuck": "收起",
-  "office.tabs.untuck": "放回标签栏",
   "office.tabs.onlineUsers.one": "{count} 位成员在线",
   "office.tabs.onlineUsers.other": "{count} 位成员在线",
   "office.zoom.in": "放大",

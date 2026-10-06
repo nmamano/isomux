@@ -1562,7 +1562,6 @@ Coses que pots fer per ell:
   "office.tabs.newRoom": "Crea una sala nova",
   "office.tabs.tuckedRooms": "Sales recollides",
   "office.tabs.tuck": "Recull",
-  "office.tabs.untuck": "Torna a la barra",
   "office.tabs.onlineUsers.one": "{count} membre en línia",
   "office.tabs.onlineUsers.other": "{count} membres en línia",
   "office.zoom.in": "Apropa",

@@ -1566,7 +1566,6 @@ Cosas que puedes hacer por él:
   "office.tabs.newRoom": "Crear una sala nueva",
   "office.tabs.tuckedRooms": "Salas recogidas",
   "office.tabs.tuck": "Recoger",
-  "office.tabs.untuck": "Volver a la barra",
   "office.tabs.onlineUsers.one": "{count} miembro en línea",
   "office.tabs.onlineUsers.other": "{count} miembros en línea",
   "office.zoom.in": "Acercar",

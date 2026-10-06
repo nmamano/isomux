@@ -227,25 +227,13 @@ describe("tucked rooms in the tab bar", () => {
     expect(writes.map((w) => w.tucked)).toEqual([["a"]]);
   });
 
-  it("untucks from the list at once; the server record confirms it", async () => {
+  it("offers no untuck control in the list", () => {
     const { container } = mount(["a", "b", "c"], ["b", "c"]);
     act(() => {
       fireEvent.click(chipButton(container));
     });
-    const untuck = container.querySelectorAll(
-      '[data-tucked-room="b"] button',
-    )[1] as HTMLButtonElement;
-    act(() => {
-      fireEvent.click(untuck);
-    });
-    expect(writes.map((w) => w.tucked)).toEqual([["c"]]);
-    expect(barIds(container)).toEqual(["a", "b"]);
-    act(() => {
-      shimEmit({ type: "user_self_updated", user: self(["c"]) });
-    });
-    await act(async () => writes[0].resolve());
-    expect(barIds(container)).toEqual(["a", "b"]);
-    expect(chipButton(container).textContent).toContain("1");
+    const row = container.querySelector('[data-tucked-room="b"]')!;
+    expect(row.querySelectorAll("button").length).toBe(1);
   });
 
   it("drags the last untucked tab onto the chip", () => {
@@ -354,11 +342,30 @@ describe("tuckedChipSummary", () => {
 
   it("lists each present member once", () => {
     expect(
-      presentMemberNames([
-        presence("c1", "u1", "b"),
-        presence("c2", "u1", "b"),
-        presence("c3", "u2", "b"),
-      ]),
+      presentMemberNames(
+        [
+          presence("c1", "u1", "b"),
+          presence("c2", "u1", "b"),
+          presence("c3", "u2", "b"),
+        ],
+        null,
+      ),
     ).toEqual(["Name u1", "Name u2"]);
+  });
+
+  it("leaves out this device's own connection, as its ghost is", () => {
+    expect(
+      presentMemberNames(
+        [presence("c1", "u1", "b"), presence("c3", "u2", "b")],
+        "c1",
+      ),
+    ).toEqual(["Name u2"]);
+    // The same member on another device in the room still shows.
+    expect(
+      presentMemberNames(
+        [presence("c1", "u1", "b"), presence("c2", "u1", "b")],
+        "c1",
+      ),
+    ).toEqual(["Name u1"]);
   });
 });
