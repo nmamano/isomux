@@ -2523,21 +2523,28 @@ Coses que pots fer per ell:
     "Benvinguts al vestíbul. En una oficina real responc preguntes sobre Isomux i sobre aquesta oficina. Això és una demo, així que no s'ha enviat res a cap model.",
   "settings.sidebar.pager": "Avisos",
   "pager.settings.intro":
-    "Els avisos dels teus agents arriben a Discord i es repeteixen fins que els confirmis.",
+    "Quan un agent o una app et necessita i potser no mires l'oficina, envia un avís. L'avís apareix a la vista d'Avisos i arriba al teu Discord, on et menciona perquè el mòbil t'avisi. Un avís obert es repeteix fins que el confirmes (l'has vist) o algú el resol (el problema s'ha acabat).",
   "pager.settings.webhook": "URL del webhook de Discord",
   "pager.settings.webhookHint":
-    "A Discord: configuració del canal → Integracions → Webhooks → Nou webhook → Copia l'URL del webhook.",
-  "pager.settings.webhookCurrent":
-    "Desada: {masked}. Enganxa una URL nova per substituir-la.",
+    "<b>On trobar-la:</b> a Discord, obre la configuració del canal → Integracions → Webhooks → Webhook nou → Copia l'URL del webhook.",
   "pager.settings.webhookNone":
     "Sense configurar. Els avisos es queden a l'oficina.",
   "pager.settings.webhookRemove": "Treu el webhook",
   "pager.settings.userId": "ID d'usuari de Discord",
   "pager.settings.userIdHint":
-    "Els avisos et mencionen perquè Discord t'avisi. A Discord, activa el mode de desenvolupador i després fes clic dret al teu nom → Copia l'ID d'usuari.",
+    "Els avisos et mencionen perquè Discord et notifiqui. <b>On trobar-lo:</b> a Discord, activa Configuració d'usuari → Avançat → Mode de desenvolupador i després fes clic dret al teu nom (mantén premut al mòbil) → Copia l'ID d'usuari.",
   "pager.settings.repeat": "Repeteix un avís obert",
   "pager.settings.repeatNever": "Mai",
   "pager.settings.repeatEvery": "Cada {count} min",
+  "pager.settings.phoneHint":
+    "<b>Al mòbil:</b> deixa activades les notificacions de Discord per a aquest servidor, almenys per a les @mencions.",
+  "pager.settings.repeatEveryHours.other": "Cada {count} hores",
+  "pager.settings.repeatEveryHours.one": "Cada {count} hora",
+  "pager.settings.webhookReplace":
+    "Enganxa a dalt un URL nou per substituir-la.",
+  "pager.settings.webhookSaved": "Desada",
+  "pager.settings.onlyDiscord":
+    "De moment, Discord és l'única destinació d'avisos. <link>Obre una issue a GitHub</link> si vols més integracions.",
   "pager.settings.saved": "Desat.",
   "pager.settings.loadFailed": "No s'han pogut carregar els ajustos d'avisos.",
   "pager.settings.test": "Envia un avís de prova",

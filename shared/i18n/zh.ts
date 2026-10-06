@@ -2259,19 +2259,26 @@ App 的一些原则：
     "欢迎来到大厅。在真实办公室中，我会回答有关 Isomux 和此办公室的问题。这是演示，没有向模型发送任何内容。",
   "settings.sidebar.pager": "呼叫",
   "pager.settings.intro":
-    "智能体发出的呼叫会发送到 Discord，并重复发送，直到你确认。",
+    "当智能体或应用需要你、而你可能没在看办公室时，它会发起呼叫。呼叫会显示在呼叫视图中，并发送到你的 Discord，在那里提及你，让手机通知你。未处理的呼叫会重复发送，直到你确认（表示已看到）或有人解决（问题已结束）。",
   "pager.settings.webhook": "Discord Webhook URL",
   "pager.settings.webhookHint":
-    "在 Discord 中：频道设置 → 整合 → Webhook → 新 Webhook → 复制 Webhook URL。",
-  "pager.settings.webhookCurrent": "已保存：{masked}。粘贴新的 URL 即可替换。",
+    "<b>在哪里找到：</b>在 Discord 中打开频道设置 → 整合 → Webhooks → 新 Webhook → 复制 Webhook URL。",
   "pager.settings.webhookNone": "未设置。呼叫只保留在办公室中。",
   "pager.settings.webhookRemove": "移除 Webhook",
   "pager.settings.userId": "Discord 用户 ID",
   "pager.settings.userIdHint":
-    "呼叫会提及你，Discord 因此会通知你。在 Discord 中开启开发者模式，然后右键点击你的名字 → 复制用户 ID。",
+    "呼叫会提及你，让 Discord 通知你。<b>在哪里找到：</b>在 Discord 中打开 用户设置 → 高级 → 开发者模式，然后右键点击你的名字（手机上长按）→ 复制用户 ID。",
   "pager.settings.repeat": "重复发送未处理的呼叫",
   "pager.settings.repeatNever": "从不",
   "pager.settings.repeatEvery": "每 {count} 分钟",
+  "pager.settings.phoneHint":
+    "<b>在手机上：</b>为此服务器保持 Discord 通知开启，至少开启 @提及 通知。",
+  "pager.settings.repeatEveryHours.other": "每 {count} 小时",
+  "pager.settings.repeatEveryHours.one": "每 {count} 小时",
+  "pager.settings.webhookReplace": "在上方粘贴新的 URL 即可替换。",
+  "pager.settings.webhookSaved": "已保存",
+  "pager.settings.onlyDiscord":
+    "目前 Discord 是唯一支持的呼叫目的地。如需更多集成，请<link>在 GitHub 上提交 issue</link>。",
   "pager.settings.saved": "已保存。",
   "pager.settings.loadFailed": "无法加载呼叫设置。",
   "pager.settings.test": "发送测试呼叫",

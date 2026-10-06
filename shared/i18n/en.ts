@@ -2511,20 +2511,26 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   // failure classes (server/pager-delivery.ts).
   "settings.sidebar.pager": "Pager",
   "pager.settings.intro":
-    "Pages from your agents go to Discord and repeat until you ack them.",
+    "When an agent or app needs you and you may not be looking at the office, it raises a page. The page shows in the Pager view and goes to your Discord, where it mentions you so your phone notifies you. An open page repeats until you ack it (you saw it) or someone resolves it (the problem is over).",
   "pager.settings.webhook": "Discord webhook URL",
   "pager.settings.webhookHint":
-    "In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.",
-  "pager.settings.webhookCurrent":
-    "Saved: {masked}. Paste a new URL to replace it.",
+    "<b>Where to find it:</b> in Discord, open the channel's settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.",
   "pager.settings.webhookNone": "Not set. Pages stay in the office.",
   "pager.settings.webhookRemove": "Remove webhook",
   "pager.settings.userId": "Discord user ID",
   "pager.settings.userIdHint":
-    "Pages mention you so that Discord notifies you. In Discord, turn on Developer Mode, then right-click your name → Copy User ID.",
+    "Pages mention you so that Discord notifies you. <b>Where to find it:</b> in Discord, turn on User Settings → Advanced → Developer Mode, then right-click your name (long-press on a phone) → Copy User ID.",
   "pager.settings.repeat": "Repeat an open page",
   "pager.settings.repeatNever": "Never",
   "pager.settings.repeatEvery": "Every {count} min",
+  "pager.settings.phoneHint":
+    "<b>On your phone:</b> keep Discord notifications on for this server, at least for @mentions.",
+  "pager.settings.repeatEveryHours.other": "Every {count} hours",
+  "pager.settings.repeatEveryHours.one": "Every {count} hour",
+  "pager.settings.webhookReplace": "Paste a new URL above to replace it.",
+  "pager.settings.webhookSaved": "Saved",
+  "pager.settings.onlyDiscord":
+    "Discord is the only pager destination supported for now. <link>File an issue on GitHub</link> if you'd like more integrations.",
   "pager.settings.saved": "Saved.",
   "pager.settings.loadFailed": "Could not load the pager settings.",
   "pager.settings.test": "Send test page",

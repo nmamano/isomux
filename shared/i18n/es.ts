@@ -2528,21 +2528,28 @@ Cosas que puedes hacer por él:
     "Bienvenidos al vestíbulo. En una oficina real respondo preguntas sobre Isomux y sobre esta oficina. Esto es una demo, así que no se ha enviado nada a un modelo.",
   "settings.sidebar.pager": "Avisos",
   "pager.settings.intro":
-    "Los avisos de tus agentes llegan a Discord y se repiten hasta que los confirmes.",
+    "Cuando un agente o una app te necesita y quizá no estás mirando la oficina, envía un aviso. El aviso aparece en la vista de Avisos y llega a tu Discord, donde te menciona para que tu móvil te avise. Un aviso abierto se repite hasta que lo confirmas (lo has visto) o alguien lo resuelve (el problema ha terminado).",
   "pager.settings.webhook": "URL del webhook de Discord",
   "pager.settings.webhookHint":
-    "En Discord: ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL del webhook.",
-  "pager.settings.webhookCurrent":
-    "Guardada: {masked}. Pega una URL nueva para reemplazarla.",
+    "<b>Dónde encontrarla:</b> en Discord, abre los ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL del webhook.",
   "pager.settings.webhookNone":
     "Sin configurar. Los avisos se quedan en la oficina.",
   "pager.settings.webhookRemove": "Quitar webhook",
   "pager.settings.userId": "ID de usuario de Discord",
   "pager.settings.userIdHint":
-    "Los avisos te mencionan para que Discord te notifique. En Discord, activa el modo desarrollador y luego haz clic derecho en tu nombre → Copiar ID de usuario.",
+    "Los avisos te mencionan para que Discord te notifique. <b>Dónde encontrarlo:</b> en Discord, activa Ajustes de usuario → Avanzado → Modo desarrollador y luego haz clic derecho en tu nombre (mantén pulsado en el móvil) → Copiar ID de usuario.",
   "pager.settings.repeat": "Repetir un aviso abierto",
   "pager.settings.repeatNever": "Nunca",
   "pager.settings.repeatEvery": "Cada {count} min",
+  "pager.settings.phoneHint":
+    "<b>En tu móvil:</b> deja activadas las notificaciones de Discord para este servidor, al menos para las @menciones.",
+  "pager.settings.repeatEveryHours.other": "Cada {count} horas",
+  "pager.settings.repeatEveryHours.one": "Cada {count} hora",
+  "pager.settings.webhookReplace":
+    "Pega arriba una URL nueva para sustituirla.",
+  "pager.settings.webhookSaved": "Guardada",
+  "pager.settings.onlyDiscord":
+    "Por ahora, Discord es el único destino de avisos. <link>Abre una issue en GitHub</link> si quieres más integraciones.",
   "pager.settings.saved": "Guardado.",
   "pager.settings.loadFailed": "No se pudieron cargar los ajustes de avisos.",
   "pager.settings.test": "Enviar aviso de prueba",
