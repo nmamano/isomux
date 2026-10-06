@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { readSplitConfig, startSplitMode } from "./start.ts";
+import { readSplitConfig } from "./roots.ts";
+import { startSplitMode } from "./start.ts";
 
 let dir: string | null = null;
 afterEach(() => {

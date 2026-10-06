@@ -13,7 +13,9 @@
 // mode: if a configured env file is missing or fails to parse, throw - the
 // caller is responsible for surfacing the error to the agent/run log.
 
+import { getAgentHost } from "./agent-host.ts";
 import { readEnvFile } from "./persistence.ts";
+import { logicalAgentPath } from "./split/roots.ts";
 import { getUserByName } from "./users.ts";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
@@ -79,10 +81,12 @@ function pendingImportError(path: string): Error {
 // with no spawning user, cronjobs not bound to a user). Returns
 // `undefined` when no managed variables or personal provider are active - the
 // SDK then inherits process.env as-is. `base` is the environment the merge
-// starts from; the terminal passes the agent host's own (server/agent-host.ts).
+// starts from: the agent host's own (server/agent-host.ts). In split mode the
+// result is never undefined, so no agent process inherits the server's
+// process.env.
 export function buildEnvForUserId(
   userId: string | null | undefined,
-  base: { [key: string]: string | undefined } = process.env,
+  base: { [key: string]: string | undefined } = getAgentHost().baseEnv(),
 ): { [key: string]: string | undefined } | undefined {
   const officeEnvFile = resolveOfficeEnvSource();
   const userEnvFile = resolveUserEnvSource(userId);
@@ -93,7 +97,7 @@ export function buildEnvForUserId(
     userId && getPersonalProviderActive(userId, "codex"),
   );
   if (!officeEnvFile && !userEnvFile && !personalClaude && !personalCodex)
-    return undefined;
+    return getAgentHost().kind === "runner" ? { ...base } : undefined;
 
   const merged: { [key: string]: string | undefined } = { ...base };
   if (officeEnvFile) {
@@ -119,7 +123,9 @@ export function buildEnvForUserId(
 export function buildOfficeEnv(): {
   [key: string]: string | undefined;
 } {
-  const merged: { [key: string]: string | undefined } = { ...process.env };
+  const merged: { [key: string]: string | undefined } = {
+    ...getAgentHost().baseEnv(),
+  };
   const officeEnvFile = resolveOfficeEnvSource();
   if (officeEnvFile) Object.assign(merged, readEnvFile(officeEnvFile));
   return merged;
@@ -142,7 +148,9 @@ export function environmentSourceKeyForUserId(
     (path): path is string => Boolean(path),
   );
   if (sources.length === 0) return "default";
-  const identity = sources.map((path) => resolve(path));
+  // In split mode the files moved with the server state; the key hashes the
+  // paths they had before (design section 3.1.2), so it does not change.
+  const identity = sources.map((path) => logicalAgentPath(resolve(path)));
   return createHash("sha256")
     .update(JSON.stringify(identity))
     .digest("hex")

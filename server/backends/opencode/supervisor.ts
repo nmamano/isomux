@@ -1,8 +1,7 @@
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
-import { STATE_ROOT } from "../../config.ts";
+import { getAgentHost } from "../../agent-host.ts";
+import { AGENT_ROOT } from "../../split/roots.ts";
 import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
 import { processIdentityMatches } from "./process-identity.ts";
@@ -144,7 +143,7 @@ export class OpenCodeSupervisor {
 
   constructor(options: OpenCodeSupervisorOptions = {}) {
     this.profileDir =
-      options.profileDir ?? join(STATE_ROOT, "opencode", "profiles", "default");
+      options.profileDir ?? join(AGENT_ROOT, "opencode", "profiles", "default");
     this.recordPath = join(this.profileDir, "server.lock");
     // Resolved on first use, not here: the default supervisor is built at
     // import time, and a host without OpenCode must still boot the office.
@@ -155,7 +154,7 @@ export class OpenCodeSupervisor {
       autoupdate: false,
     };
     this.configRevision = this.computeConfigRevision(this.config);
-    this.serverCwd = options.serverCwd ?? STATE_ROOT;
+    this.serverCwd = options.serverCwd ?? AGENT_ROOT;
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};
     this.environmentRevision = options.environmentRevision ?? "default";
@@ -254,20 +253,21 @@ export class OpenCodeSupervisor {
     if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
     this.idleTimer = null;
     if (openCodeUnsupportedReason(this.platform)) return;
-    await mkdir(this.profileDir, { recursive: true });
-    const proc = Bun.spawn(this.helperCommand(), {
+    // The profile, its record and the helper are agent space (design
+    // section 3.2): the agent host does all of it as the agent user.
+    const host = getAgentHost();
+    await host.fs.mkdir(this.profileDir, 0o777);
+    await host.run(this.helperCommand(), {
       env: {
-        ...process.env,
+        ...host.baseEnv(),
         ...this.helperLockEnvironment(),
         ISOMUX_AGENT_TOKEN: undefined,
         OPENCODE_SERVER_ACTION: "stop",
         OPENCODE_PROFILE_DIR: this.profileDir,
         OPENCODE_SERVER_RECORD: this.recordPath,
       },
-      stdout: "ignore",
-      stderr: "ignore",
+      output: "ignore",
     });
-    await proc.exited;
     this.record = null;
   }
 
@@ -299,17 +299,18 @@ export class OpenCodeSupervisor {
   private async ensureServer(): Promise<void> {
     this.ensureServerSink();
     const binary = this.binary;
-    await mkdir(this.profileDir, { recursive: true });
+    const host = getAgentHost();
+    await host.fs.mkdir(this.profileDir, 0o777);
     const configPath = join(this.profileDir, "opencode.json");
-    await writeFile(configPath, `${JSON.stringify(this.config)}\n`, {
+    await host.fs.writeText(configPath, `${JSON.stringify(this.config)}\n`, {
       mode: 0o600,
     });
-    await chmod(configPath, 0o600);
+    await host.fs.chmod(configPath, 0o600);
     const password = randomBytes(32).toString("base64url");
-    const proc = Bun.spawn(this.helperCommand(), {
+    const { stdout, stderr, exitCode } = await host.run(this.helperCommand(), {
       cwd: this.serverCwd,
       env: {
-        ...process.env,
+        ...host.baseEnv(),
         ...this.launchEnv,
         ...this.helperLockEnvironment(),
         ISOMUX_AGENT_TOKEN: undefined,
@@ -325,14 +326,7 @@ export class OpenCodeSupervisor {
         OPENCODE_ENVIRONMENT_REVISION: this.environmentRevision,
         OPENCODE_CONFIG_REVISION: this.configRevision,
       },
-      stdout: "pipe",
-      stderr: "pipe",
     });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
     if (exitCode !== 0)
       throw new Error(`OpenCode startup failed: ${stderr.trim()}`);
     JSON.parse(stdout);
@@ -372,7 +366,8 @@ export class OpenCodeSupervisor {
 
   private async replaceServerIfRequested(): Promise<void> {
     const marker = join(this.profileDir, "server.replace");
-    if (!existsSync(marker) && !this.replacementRequested) return;
+    if (!this.replacementRequested && !(await getAgentHost().fs.exists(marker)))
+      return;
     if (!this.replacementPromise) {
       this.replacementPromise = (async () => {
         const deadline = Date.now() + this.replacementDrainMs;
@@ -384,7 +379,7 @@ export class OpenCodeSupervisor {
           );
         }
         await this.shutdown();
-        await rm(marker, { force: true });
+        await getAgentHost().fs.rm(marker);
         this.replacementRequested = false;
       })().finally(() => {
         this.replacementPromise = null;
@@ -396,7 +391,7 @@ export class OpenCodeSupervisor {
   private async readRecord(): Promise<ServerRecord | null> {
     try {
       return JSON.parse(
-        await readFile(this.recordPath, "utf8"),
+        await getAgentHost().fs.readText(this.recordPath),
       ) as ServerRecord;
     } catch {
       return null;

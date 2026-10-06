@@ -26,14 +26,17 @@ import {
   writeFileSync,
 } from "fs";
 import { join } from "path";
-import { STATE_ROOT, IS_DEFAULT_STATE_ROOT } from "../../config.ts";
+import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "../../split/roots.ts";
 
 import { errMessage } from "../../../shared/errors.ts";
+import { getAgentHost } from "../../agent-host.ts";
 
 const ISOMUX_ROOT = join(import.meta.dir, "..", "..", "..");
 
-export const ISOMUX_CODEX_HOME = join(STATE_ROOT, "codex-home");
-const ISOMUX_BIN_DIR = join(STATE_ROOT, "bin");
+// Agent space: in split mode these stay at the old state root (design
+// section 3.1.2), so the paths the wrapper and sessions hold do not change.
+export const ISOMUX_CODEX_HOME = join(AGENT_ROOT, "codex-home");
+const ISOMUX_BIN_DIR = join(AGENT_ROOT, "bin");
 const ISOMUX_CODEX_WRAPPER_PATH = join(ISOMUX_BIN_DIR, "codex");
 
 let cachedLauncherPath: string | null = null;
@@ -119,9 +122,11 @@ export function getCodexPinnedVersion(): string {
 export function withIsomuxCodexHome(
   baseEnv: { [key: string]: string | undefined } | undefined,
 ): { [key: string]: string | undefined } {
-  const merged = { ...(baseEnv ?? process.env) };
+  const host = getAgentHost();
+  const merged = { ...(baseEnv ?? host.baseEnv()) };
   if (!merged.CODEX_HOME) {
-    ensureIsomuxCodexHomeExists();
+    // The runner host creates it as the agent user (client.ts start()).
+    if (host.kind === "local") ensureIsomuxCodexHomeExists();
     merged.CODEX_HOME = ISOMUX_CODEX_HOME;
   }
   return merged;
@@ -150,7 +155,7 @@ export function withIsomuxCodexHome(
 export function isCodexAuthenticated(env?: {
   [key: string]: string | undefined;
 }): boolean {
-  const effective = env ?? process.env;
+  const effective = env ?? getAgentHost().baseEnv();
   if (effective.OPENAI_API_KEY) return true;
   const codexHome = effective.CODEX_HOME ?? ISOMUX_CODEX_HOME;
   return existsSync(join(codexHome, "auth.json"));
@@ -188,7 +193,7 @@ function buildCodexWrapperScript(): string {
   // an arbitrary absolute path: inside double quotes, a shell-quoted `word`
   // keeps its quotes literally, corrupting the path. An explicit CODEX_HOME in
   // the env still wins in both branches.
-  const codexHomeDefaultBlock = IS_DEFAULT_STATE_ROOT
+  const codexHomeDefaultBlock = AGENT_ROOT_IS_DEFAULT
     ? `export CODEX_HOME="\${CODEX_HOME:-$HOME/.isomux/codex-home/}"`
     : `[ -n "\${CODEX_HOME}" ] || CODEX_HOME=${shellSingleQuote(ISOMUX_CODEX_HOME)}\nexport CODEX_HOME`;
   return `#!/bin/sh
@@ -215,7 +220,7 @@ exec ${shellSingleQuote(process.execPath)} ${shellSingleQuote(launcher)} "$@"
 // that ensureCodexWrapperScript actually wrote, so terminal cards target the
 // live file rather than a stale/absent `~/.isomux/bin/codex`.
 export function codexWrapperCommandForShell(): string {
-  return IS_DEFAULT_STATE_ROOT
+  return AGENT_ROOT_IS_DEFAULT
     ? "~/.isomux/bin/codex"
     : shellSingleQuote(ISOMUX_CODEX_WRAPPER_PATH);
 }

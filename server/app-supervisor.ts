@@ -56,7 +56,8 @@ import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
-import { IS_DEFAULT_STATE_ROOT, STATE_ROOT } from "./config.ts";
+import { STATE_ROOT } from "./config.ts";
+import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { appHostDomain, appPublicUrl } from "./app-domain.ts";
 import type { AppRecord } from "../shared/types.ts";
@@ -704,7 +705,7 @@ export function createAppSupervisor(
 ): AppSupervisor {
   const host = options.host ?? createSystemdHost();
   const prefix =
-    options.unitPrefix ?? unitPrefixFor(STATE_ROOT, IS_DEFAULT_STATE_ROOT);
+    options.unitPrefix ?? unitPrefixFor(AGENT_ROOT, AGENT_ROOT_IS_DEFAULT);
   const runtimeBinDir = options.runtimeBinDir ?? dirname(process.execPath);
   const now = options.now ?? (() => Date.now());
   const cacheMs = options.cacheMs ?? APP_STATE_CACHE_MS;

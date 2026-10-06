@@ -778,7 +778,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return {
       provider,
       scope: "office",
-      dir: effectiveProviderDirectory(provider, env ?? process.env),
+      dir: effectiveProviderDirectory(
+        provider,
+        env ?? getAgentHost().baseEnv(),
+      ),
     };
   }
 
@@ -2081,7 +2084,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           );
           ensureSessionClaudeConfigDir(p.id, p.lastSessionId, root);
           restoreEnv = {
-            ...(restoreEnv ?? process.env),
+            ...(restoreEnv ?? getAgentHost().baseEnv()),
             CLAUDE_CONFIG_DIR: root,
           };
         }
@@ -5193,7 +5196,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         logWords(managed.info.id),
       );
       ensureSessionClaudeConfigDir(managed.info.id, sessionId, root);
-      base = { ...(base ?? process.env), CLAUDE_CONFIG_DIR: root };
+      base = { ...(base ?? getAgentHost().baseEnv()), CLAUDE_CONFIG_DIR: root };
     }
     const token = getAgentTokenRaw(managed.info.id);
     if (!token) return base;
@@ -5202,7 +5205,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // persisted/logged; spread process.env when there's no env-file base so the
     // subprocess keeps PATH/HOME/etc. Redaction tests assert it stays out of
     // prompts, logs, errors, diffs, and the WS.
-    return { ...(base ?? process.env), ISOMUX_AGENT_TOKEN: token };
+    return { ...(base ?? getAgentHost().baseEnv()), ISOMUX_AGENT_TOKEN: token };
   }
 
   function claudeConfigDirFor(managed: ManagedAgent): string {

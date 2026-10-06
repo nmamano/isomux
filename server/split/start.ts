@@ -6,45 +6,20 @@
 // mode also needs ISOMUX_SPLIT_RIG=1 (the test rig only).
 
 import { spawnSync } from "child_process";
-import { readFileSync, realpathSync } from "fs";
+import { realpathSync } from "fs";
 import { join, resolve } from "path";
 import { RunnerAgentHost } from "../agent-runner/client.ts";
+import { readSplitConfig, type SplitConfig } from "./roots.ts";
 import {
   runTrustedChecks,
   type AgentIdentity,
   type CheckFailure,
 } from "./trusted-checks.ts";
 
-// STATE_ROOT/split.json, written by the migration (design section 3.1).
-export interface SplitConfig {
-  agentUser: string;
-  agentUid: number;
-  agentRoot: string;
-  agentRootWasDefault: boolean;
-  shareRoot: string;
-}
-
 export const CODE_ROOT = resolve(import.meta.dir, "..", "..");
-// Depth of the code walk at start; `bun server/split/check.ts` walks it all.
-export const START_CODE_DEPTH = 2;
-
-export function readSplitConfig(stateRoot: string): SplitConfig {
-  const raw = JSON.parse(
-    readFileSync(join(stateRoot, "split.json"), "utf8"),
-  ) as Partial<SplitConfig>;
-  if (
-    typeof raw.agentUser !== "string" ||
-    !raw.agentUser ||
-    typeof raw.agentUid !== "number" ||
-    !Number.isSafeInteger(raw.agentUid) ||
-    typeof raw.agentRoot !== "string" ||
-    typeof raw.agentRootWasDefault !== "boolean" ||
-    typeof raw.shareRoot !== "string" ||
-    !raw.shareRoot.startsWith("/")
-  )
-    throw new Error("split.json is incomplete");
-  return raw as SplitConfig;
-}
+// Depth of the code walk at start: the whole tree (ruling 10 of task 01f5038c;
+// bun install leaves dependency files at mode 0666).
+export const START_CODE_DEPTH = Infinity;
 
 // The agent user's uid, primary group and groups, from the system's user
 // database (`id`), never from the runner.
@@ -64,8 +39,8 @@ export interface SplitCheckSetup {
   agent: AgentIdentity;
 }
 
-// The trusted checks for this server process. codeDepth is START_CODE_DEPTH
-// at start and Infinity for the full check.
+// The trusted checks for this server process. codeDepth limits the code walk
+// (tests); the start and server/split/check.ts walk the whole tree.
 export function checkSplit(
   stateRoot: string,
   codeDepth: number,

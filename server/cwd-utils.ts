@@ -13,6 +13,7 @@ import {
   statSync,
 } from "fs";
 import { errMessage, errCode } from "../shared/errors.ts";
+import { getAgentHost } from "./agent-host.ts";
 
 // Path to the Claude CLI native binary that ships with the Agent SDK.
 // The SDK's auto-resolver tries the musl variant first on Linux, which fails
@@ -78,7 +79,8 @@ export function claudeProjectDir(
   cwd: string,
   env?: { [key: string]: string | undefined },
 ): string {
-  const configDir = env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const configDir =
+    env?.CLAUDE_CONFIG_DIR || join(getAgentHost().home(), ".claude");
   return join(configDir, "projects", cwd.replace(/[^a-zA-Z0-9-]/g, "-"));
 }
 

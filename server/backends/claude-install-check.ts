@@ -16,11 +16,12 @@ import { accessSync, constants, existsSync } from "fs";
 import { homedir } from "os";
 import { delimiter, join } from "path";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import { getAgentHost } from "../agent-host.ts";
 
 export function isClaudeCodeInstalled(env?: {
   [key: string]: string | undefined;
 }): boolean {
-  const effective = env ?? process.env;
+  const effective = env ?? getAgentHost().baseEnv();
   for (const dir of effective.PATH?.split(delimiter) ?? []) {
     if (!dir) continue;
     try {
@@ -57,7 +58,7 @@ export function isClaudeCodeInstalled(env?: {
 export function isClaudeCodeAuthenticated(env?: {
   [key: string]: string | undefined;
 }): boolean {
-  const effective = env ?? process.env;
+  const effective = env ?? getAgentHost().baseEnv();
   if (isClaudeCloudSelected(effective)) return true;
   if (effective.ANTHROPIC_API_KEY) return true;
   const configured = effective.CLAUDE_CONFIG_DIR;
@@ -172,7 +173,7 @@ export function claudeSignInState(
   env?: Env,
   deps: ClaudeSignInDeps = {},
 ): Promise<ClaudeSignInState> {
-  const effective = env ?? process.env;
+  const effective = env ?? getAgentHost().baseEnv();
   if (isClaudeCodeAuthenticated(effective)) return Promise.resolve("signed_in");
   if ((deps.platform ?? process.platform) !== "darwin")
     return Promise.resolve("signed_out");

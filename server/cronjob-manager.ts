@@ -924,7 +924,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       translatorForUserId(job?.userId ?? null).t,
     );
     ensureRunSessionClaudeConfigDir(run.cronjobId, run.id, sessionId, root);
-    return { ...(env ?? process.env), CLAUDE_CONFIG_DIR: root };
+    return { ...(env ?? getAgentHost().baseEnv()), CLAUDE_CONFIG_DIR: root };
   }
 
   function sessionAccessForRun(run: CronjobRun): SessionAccessOptions {
@@ -1287,7 +1287,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     if (job.agentType !== "opencode") {
       const runToken = mintRunToken(jobId, runId, job.userId ?? null);
       environment.env = {
-        ...(environment.env ?? process.env),
+        ...(environment.env ?? getAgentHost().baseEnv()),
         ISOMUX_AGENT_TOKEN: runToken,
       };
     }
@@ -1695,7 +1695,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     if (run.agentTypeSnapshot !== "opencode") {
       const runToken = mintRunToken(run.cronjobId, run.id, job?.userId ?? null);
       environment.env = {
-        ...(environment.env ?? process.env),
+        ...(environment.env ?? getAgentHost().baseEnv()),
         ISOMUX_AGENT_TOKEN: runToken,
       };
     }

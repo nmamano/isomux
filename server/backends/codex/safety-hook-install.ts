@@ -12,6 +12,9 @@ import {
 import { basename, dirname, join } from "path";
 import { errMessage } from "../../../shared/errors.ts";
 import { STATE_ROOT } from "../../config.ts";
+import { inAgentSpace } from "../../agent-host.ts";
+import { SHARE_ROOT, SPLIT_CONFIG } from "../../split/roots.ts";
+import { chmodShare } from "../../split/share-mode.ts";
 import {
   buildCodexSafetyHook,
   hashCodexSafetyHookSources,
@@ -19,10 +22,15 @@ import {
 import { SAFETY_WARNING } from "./safety-hook.ts";
 import { getCodexPinnedVersion } from "./native-bin.ts";
 
+// The installed hook. In split mode it is in the share, where the agent user
+// can run it and cannot change it (design section 3.1.1); the golden copy
+// stays in the server's own state.
 export const CODEX_SAFETY_HOOK_PATH = join(
-  STATE_ROOT,
+  SHARE_ROOT,
   "bin/isomux-codex-safety-hook",
 );
+const INSTALLED_DIR_MODE = SPLIT_CONFIG ? 0o2750 : 0o700;
+const INSTALLED_HOOK_MODE = SPLIT_CONFIG ? 0o750 : 0o700;
 const GOLDEN_HOOK_PATH = join(
   STATE_ROOT,
   "bin/.isomux-codex-safety-hook.golden",
@@ -149,10 +157,21 @@ function measuredTrustedHash(): Promise<string> {
   return trustMeasurement;
 }
 
+// The pinned Codex measures the hash as the agent user in split mode: the
+// codex it starts is an agent process (server/agent-runner/entries).
 async function discoverTrustedHash(): Promise<string> {
-  const { discoverCodexHookTrustedHash } =
-    await import("./safety-hook-trust-probe.ts");
-  return discoverCodexHookTrustedHash(CODEX_SAFETY_HOOK_PATH);
+  const hash = await inAgentSpace(
+    "codex-trust-hash",
+    { commandPath: CODEX_SAFETY_HOOK_PATH },
+    async () => {
+      const { discoverCodexHookTrustedHash } =
+        await import("./safety-hook-trust-probe.ts");
+      return discoverCodexHookTrustedHash(CODEX_SAFETY_HOOK_PATH);
+    },
+  );
+  if (typeof hash !== "string" || !hash.startsWith("sha256:"))
+    throw new Error("the Codex hook trust measurement returned no hash");
+  return hash;
 }
 
 export function prepareCodexSafetyHookArtifact(): Promise<void> {
@@ -176,14 +195,17 @@ async function preparedArtifact(): Promise<PreparedArtifact> {
   }
 }
 
-function ownedMatcher(): HookMatcher {
+function ownedMatcher(hookPath: string): HookMatcher {
   return {
     matcher: ".*",
-    hooks: [{ type: "command", command: CODEX_SAFETY_HOOK_PATH }],
+    hooks: [{ type: "command", command: hookPath }],
   };
 }
 
-function isIsomuxShapedMatcher(value: unknown): value is HookMatcher {
+function isIsomuxShapedMatcher(
+  value: unknown,
+  hookPath: string,
+): value is HookMatcher {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const matcher = value as HookMatcher;
   if (!Array.isArray(matcher.hooks)) return false;
@@ -193,12 +215,14 @@ function isIsomuxShapedMatcher(value: unknown): value is HookMatcher {
       typeof hook === "object" &&
       !Array.isArray(hook) &&
       typeof (hook as HookCommand).command === "string" &&
-      basename((hook as HookCommand).command as string) ===
-        basename(CODEX_SAFETY_HOOK_PATH),
+      basename((hook as HookCommand).command as string) === basename(hookPath),
   );
 }
 
-function isCurrentOwnedMatcher(value: unknown): value is HookMatcher {
+function isCurrentOwnedMatcher(
+  value: unknown,
+  hookPath: string,
+): value is HookMatcher {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const matcher = value as HookMatcher;
   if (!Array.isArray(matcher.hooks)) return false;
@@ -207,7 +231,7 @@ function isCurrentOwnedMatcher(value: unknown): value is HookMatcher {
       !!hook &&
       typeof hook === "object" &&
       !Array.isArray(hook) &&
-      (hook as HookCommand).command === CODEX_SAFETY_HOOK_PATH,
+      (hook as HookCommand).command === hookPath,
   );
 }
 
@@ -217,7 +241,10 @@ function atomicWriteText(path: string, text: string, mode = 0o600): void {
   renameSync(temporary, path);
 }
 
-function mergeHooksFile(codexHome: string): {
+function mergeHooksFile(
+  codexHome: string,
+  hookPath: string,
+): {
   hooksPath: string;
   matcherIndex: number;
   removedOwnedIndices: number[];
@@ -245,14 +272,16 @@ function mergeHooksFile(codexHome: string): {
   }
   const matchers = Array.isArray(current) ? [...current] : [];
   const ownedIndices = matchers
-    .map((matcher, index) => (isIsomuxShapedMatcher(matcher) ? index : -1))
+    .map((matcher, index) =>
+      isIsomuxShapedMatcher(matcher, hookPath) ? index : -1,
+    )
     .filter((index) => index >= 0);
   let matcherIndex: number;
   const removedOwnedIndices: number[] = [];
   const trustKeyRewrites = new Map<string, string>();
   if (ownedIndices.length === 0) {
     matcherIndex = matchers.length;
-    matchers.push(ownedMatcher());
+    matchers.push(ownedMatcher(hookPath));
   } else {
     matcherIndex = ownedIndices[0];
     for (const ownedIndex of ownedIndices) {
@@ -290,7 +319,7 @@ function mergeHooksFile(codexHome: string): {
         ...matchers.filter((_, index) => !duplicates.has(index)),
       );
     }
-    matchers[matcherIndex] = ownedMatcher();
+    matchers[matcherIndex] = ownedMatcher(hookPath);
   }
   hooks.PreToolUse = matchers;
   parsed.hooks = hooks;
@@ -405,6 +434,7 @@ function mergeTrustConfig(
 
 function verifyConfiguration(
   codexHome: string,
+  hookPath: string,
   hooksPath: string,
   matcherIndex: number,
   trustedHash: string,
@@ -413,7 +443,7 @@ function verifyConfiguration(
   const matchers = hooksFile.hooks?.PreToolUse;
   if (
     !Array.isArray(matchers) ||
-    !isCurrentOwnedMatcher(matchers[matcherIndex])
+    !isCurrentOwnedMatcher(matchers[matcherIndex], hookPath)
   ) {
     throw new Error("post-write hooks.json verification failed");
   }
@@ -425,7 +455,7 @@ function verifyConfiguration(
   if (
     matcher.hooks.length !== 1 ||
     command.type !== "command" ||
-    command.command !== CODEX_SAFETY_HOOK_PATH ||
+    command.command !== hookPath ||
     "timeout" in command ||
     !trustedHash.startsWith("sha256:")
   ) {
@@ -456,16 +486,104 @@ async function repairInstalledArtifact(
   }
   mkdirSync(dirname(CODEX_SAFETY_HOOK_PATH), {
     recursive: true,
-    mode: 0o700,
+    mode: INSTALLED_DIR_MODE,
   });
+  // Explicit: a umask or a missing setgid bit must not decide the share mode.
+  if (SPLIT_CONFIG)
+    chmodShare(dirname(CODEX_SAFETY_HOOK_PATH), INSTALLED_DIR_MODE);
   const temporary = `${CODEX_SAFETY_HOOK_PATH}.new-${process.pid}-${Date.now()}`;
   try {
     await Bun.write(temporary, Bun.file(artifact.path));
-    chmodSync(temporary, 0o700);
+    chmodSync(temporary, INSTALLED_HOOK_MODE);
     renameSync(temporary, CODEX_SAFETY_HOOK_PATH);
   } finally {
     rmSync(temporary, { force: true });
   }
+}
+
+// The hooks.json and config.toml merge in CODEX_HOME, which is agent space:
+// in split mode the agent user runs it (server/agent-runner/entries).
+export function configureCodexHooks(
+  codexHome: string,
+  hookPath: string,
+  trustedHash: string,
+): CodexSafetyPreflightResult {
+  let merged: ReturnType<typeof mergeHooksFile>;
+  try {
+    merged = mergeHooksFile(codexHome, hookPath);
+  } catch (err) {
+    console.error(
+      `[codex safety] hooks.json merge failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
+    );
+    return { warning: SAFETY_WARNING, hookIdentity: null };
+  }
+  try {
+    mergeTrustConfig(
+      codexHome,
+      merged.hooksPath,
+      merged.matcherIndex,
+      merged.removedOwnedIndices,
+      merged.trustKeyRewrites,
+      trustedHash,
+    );
+  } catch (err) {
+    console.error(
+      `[codex safety] config.toml write failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
+    );
+    return { warning: SAFETY_WARNING, hookIdentity: null };
+  }
+  try {
+    return {
+      warning: null,
+      hookIdentity: verifyConfiguration(
+        codexHome,
+        hookPath,
+        merged.hooksPath,
+        merged.matcherIndex,
+        trustedHash,
+      ),
+    };
+  } catch (err) {
+    console.error(
+      `[codex safety] hook configuration verification failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
+    );
+    return { warning: SAFETY_WARNING, hookIdentity: null };
+  }
+}
+
+async function configureInAgentSpace(
+  codexHome: string,
+  trustedHash: string,
+): Promise<CodexSafetyPreflightResult> {
+  let result: unknown;
+  try {
+    result = await inAgentSpace(
+      "codex-hook-config",
+      { codexHome, hookPath: CODEX_SAFETY_HOOK_PATH, trustedHash },
+      () => configureCodexHooks(codexHome, CODEX_SAFETY_HOOK_PATH, trustedHash),
+    );
+  } catch (err) {
+    console.error(
+      `[codex safety] hook configuration failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
+    );
+    return { warning: SAFETY_WARNING, hookIdentity: null };
+  }
+  // Agent-space data: accept only a complete identity.
+  const identity = (result as { hookIdentity?: unknown } | null)
+    ?.hookIdentity as Partial<CodexSafetyHookIdentity> | null | undefined;
+  if (
+    identity &&
+    typeof identity.sourcePath === "string" &&
+    Number.isInteger(identity.displayOrder)
+  )
+    return {
+      warning: null,
+      hookIdentity: {
+        sourcePath: identity.sourcePath,
+        displayOrder: identity.displayOrder as number,
+      },
+    };
+  return { warning: SAFETY_WARNING, hookIdentity: null };
 }
 
 export async function ensureCodexSafetyHook(
@@ -506,7 +624,7 @@ export async function ensureCodexSafetyHook(
           `expected ${artifact.sha256}, received ${repairedHash}`,
         );
       }
-      chmodSync(CODEX_SAFETY_HOOK_PATH, 0o700);
+      chmodSync(CODEX_SAFETY_HOOK_PATH, INSTALLED_HOOK_MODE);
     } catch (err) {
       console.error(
         `[codex safety] installed artifact verification failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
@@ -514,46 +632,7 @@ export async function ensureCodexSafetyHook(
       return { warning: SAFETY_WARNING, hookIdentity: null };
     }
 
-    let merged: ReturnType<typeof mergeHooksFile>;
-    try {
-      merged = mergeHooksFile(codexHome);
-    } catch (err) {
-      console.error(
-        `[codex safety] hooks.json merge failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
-      );
-      return { warning: SAFETY_WARNING, hookIdentity: null };
-    }
-    try {
-      mergeTrustConfig(
-        codexHome,
-        merged.hooksPath,
-        merged.matcherIndex,
-        merged.removedOwnedIndices,
-        merged.trustKeyRewrites,
-        artifact.trustedHash,
-      );
-    } catch (err) {
-      console.error(
-        `[codex safety] config.toml write failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
-      );
-      return { warning: SAFETY_WARNING, hookIdentity: null };
-    }
-    try {
-      return {
-        warning: null,
-        hookIdentity: verifyConfiguration(
-          codexHome,
-          merged.hooksPath,
-          merged.matcherIndex,
-          artifact.trustedHash,
-        ),
-      };
-    } catch (err) {
-      console.error(
-        `[codex safety] hook configuration verification failed: ${errMessage(err)}; ${SAFETY_WARNING}`,
-      );
-      return { warning: SAFETY_WARNING, hookIdentity: null };
-    }
+    return await configureInAgentSpace(codexHome, artifact.trustedHash);
   } catch (err) {
     console.error(
       `[codex safety] unexpected preflight failure: ${errMessage(err)}; ${SAFETY_WARNING}`,

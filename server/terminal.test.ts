@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { homedir, userInfo } from "os";
 import type { ManagedAgent } from "./internal-types.ts";
 import { openTerminal, type TerminalDeps } from "./terminal.ts";
-import type { AgentHost } from "./agent-host.ts";
+import { localAgentHost, type AgentHost } from "./agent-host.ts";
 
 afterEach(() => mock.restore());
 
@@ -114,6 +114,7 @@ describe("terminal on an agent host", () => {
       argv,
     }));
     const host: AgentHost = {
+      ...localAgentHost,
       kind: "runner",
       baseEnv: () => ({ PATH: "/agent/bin", SHELL: "/bin/zsh", USER: "agent" }),
       home: () => "/agent/home",

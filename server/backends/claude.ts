@@ -1,4 +1,5 @@
 import { claudeSessionStore } from "./claude/session-store.ts";
+import { withAgentSpawn } from "./claude/agent-spawn.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 // Claude backend.
 //
@@ -627,7 +628,7 @@ export const realV1SdkClient: SdkClient = {
     const abortController = new AbortController();
     const q = query({
       prompt: input.iterable,
-      options: { ...sessionOptsToV1(opts), abortController },
+      options: withAgentSpawn({ ...sessionOptsToV1(opts), abortController }),
     });
     return wrapV1Query(q, input, abortController);
   },
@@ -636,7 +637,10 @@ export const realV1SdkClient: SdkClient = {
     const abortController = new AbortController();
     const q = query({
       prompt: input.iterable,
-      options: { ...sessionOptsToV1(opts, sessionId), abortController },
+      options: withAgentSpawn({
+        ...sessionOptsToV1(opts, sessionId),
+        abortController,
+      }),
     });
     return wrapV1Query(q, input, abortController);
   },
@@ -653,7 +657,7 @@ export const realV1SdkClient: SdkClient = {
     // settingSources/systemPrompt.
     const q = query({
       prompt,
-      options: {
+      options: withAgentSpawn({
         model,
         pathToClaudeCodeExecutable,
         tools: [],
@@ -663,7 +667,7 @@ export const realV1SdkClient: SdkClient = {
         ...(systemPrompt ? { systemPrompt } : {}),
         ...(settings ? { settings } : {}),
         ...(env ? { env } : {}),
-      },
+      }),
     });
     let result: SDKResultMessage | null = null;
     for await (const msg of q) {

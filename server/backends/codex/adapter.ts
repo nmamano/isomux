@@ -63,6 +63,7 @@ import type {
   NormalizedMessage,
   OneShotOptions,
   PermissionModeOption,
+  SessionAccessOptions,
   SubscriptionUsageResult,
   SubscriptionUsageWindow,
   TokenUsage,
@@ -2962,11 +2963,16 @@ export const codexBackend: Backend = {
   async forkSessionBeforeMessage(
     sessionId: string,
     targetMessageId: string | null,
+    access?: SessionAccessOptions,
   ): Promise<ForkSessionBeforeMessageResult> {
     // thread/fork leaves the parent unaltered. Always a linked fork, also for
     // a first-message edit (the child is empty), so /resume shows the parent
-    // as the original branch.
-    const client = new JsonRpcLiteClient();
+    // as the original branch. The agent's cwd and env pick the CODEX_HOME
+    // that holds the thread (task d32356f2).
+    const client = new JsonRpcLiteClient({
+      cwd: access?.cwd,
+      env: access?.env,
+    });
     try {
       await client.start();
       await client.initialize({
@@ -3000,12 +3006,19 @@ export const codexBackend: Backend = {
     }
   },
 
-  async getSessionMessages(sessionId: string): Promise<NormalizedMessage[]> {
+  async getSessionMessages(
+    sessionId: string,
+    cwd: string,
+    access?: SessionAccessOptions,
+  ): Promise<NormalizedMessage[]> {
     // The paged history APIs return turns and items separately. Each Turn
     // is one round of work; we flatten user and assistant items across all
     // turns in order so the orchestrator's edit-message matching can find
     // user messages by content + occurrence index.
-    const client = new JsonRpcLiteClient();
+    const client = new JsonRpcLiteClient({
+      cwd: access?.cwd ?? cwd,
+      env: access?.env,
+    });
     try {
       await client.start();
       await client.initialize({

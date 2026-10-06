@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import type { ProviderAccountProvider } from "../shared/types.ts";
 import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
 import { CLAUDE_LAUNCH_SETTINGS } from "./backends/claude.ts";
+import { withAgentSpawn } from "./backends/claude/agent-spawn.ts";
 import { JsonRpcLiteClient } from "./backends/codex/client.ts";
 import {
   CODEX_LEGACY_LIMIT_KEY,
@@ -142,14 +143,14 @@ export function claudeOfficeProbe(
   }
   const q = createQuery({
     prompt: input(),
-    options: {
+    options: withAgentSpawn({
       cwd: tmpdir(),
       env,
       settingSources: [],
       settings: CLAUDE_LAUNCH_SETTINGS,
       pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
       abortController,
-    },
+    }),
   }) as UsageQuery;
   return {
     async read() {

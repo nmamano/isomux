@@ -29,9 +29,13 @@
 // isolation, simpler auth/request-id scoping). The transport layer is
 // designed to support sharing later without breaking the contract.
 
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { errMessage } from "../../../shared/errors.ts";
-import { resolveCodexLauncherPath, withIsomuxCodexHome } from "./native-bin.ts";
+import { getAgentHost, type AgentChild } from "../../agent-host.ts";
+import {
+  ISOMUX_CODEX_HOME,
+  resolveCodexLauncherPath,
+  withIsomuxCodexHome,
+} from "./native-bin.ts";
 import {
   ensureCodexSafetyHook,
   type CodexSafetyPreflightResult,
@@ -116,7 +120,7 @@ type Pending = {
 };
 
 export class JsonRpcLiteClient {
-  private child: ChildProcessWithoutNullStreams | null = null;
+  private child: AgentChild | null = null;
   private nextRequestId = 1;
   private pending = new Map<JsonRpcId, Pending>();
   private stdoutBuffer = "";
@@ -152,7 +156,12 @@ export class JsonRpcLiteClient {
       throw new Error("JsonRpcLiteClient is closed");
     }
     this.starting = true;
+    const host = getAgentHost();
     const effectiveEnv = withIsomuxCodexHome(this.opts.env);
+    // In split mode the office codex-home is in agent space; the agent user
+    // creates it (withIsomuxCodexHome does it in process otherwise).
+    if (host.kind === "runner" && effectiveEnv.CODEX_HOME === ISOMUX_CODEX_HOME)
+      await host.fs.mkdir(ISOMUX_CODEX_HOME, 0o700).catch(() => {});
     let safety: CodexSafetyPreflightResult = {
       warning: null,
       hookIdentity: null,
@@ -186,37 +195,37 @@ export class JsonRpcLiteClient {
     // all spawn with the same effective env. withIsomuxCodexHome honors a
     // caller-set CODEX_HOME verbatim (per-user managed variables for billing isolation, see
     // server/backends/codex/native-bin.ts).
+    let child: AgentChild;
     try {
-      this.child = spawn(bin, spawnArgs, {
+      // The agent host starts the launcher as its own process-group leader, so
+      // close() can signal the whole group and reap the native codex
+      // grandchild too - the launcher does not forward signals, so without
+      // this a SIGTERM/SIGKILL to the launcher alone leaks the native child.
+      // The native does not setsid away, so it stays in this group. Safe
+      // because the group is the launcher's own, never isomux's. Note: the
+      // group is a POSIX process group, not a cgroup, so a systemd service
+      // restart still reaps the subtree via the cgroup.
+      child = this.child = host.spawnChild([bin, ...spawnArgs], {
         cwd: this.opts.cwd,
         env: effectiveEnv,
-        stdio: ["pipe", "pipe", "pipe"],
-        // Make the launcher its own process-group leader so close() can signal
-        // the whole group (`process.kill(-pid)`) and reap the native codex
-        // grandchild too - the launcher does not forward signals, so without this
-        // a SIGTERM/SIGKILL to the launcher alone leaks the native child. The
-        // native does not setsid away, so it stays in this group. Safe because
-        // the group is the launcher's own, never isomux's. Note: detached only
-        // changes the POSIX process group, not cgroup membership, so a systemd
-        // service restart still reaps the subtree via the cgroup.
-        detached: true,
+        stderr: "pipe",
       });
     } finally {
       this.starting = false;
     }
 
-    this.child.stdout.setEncoding("utf8");
-    this.child.stderr.setEncoding("utf8");
+    child.stdout.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
 
-    this.child.stdout.on("data", (chunk: string) => this.onStdoutChunk(chunk));
-    this.child.stderr.on("data", (chunk: string) => {
+    child.stdout.on("data", (chunk: string) => this.onStdoutChunk(chunk));
+    child.stderr?.on("data", (chunk: string) => {
       for (const h of this.stderrHandlers) {
         try {
           h(chunk);
         } catch {}
       }
     });
-    this.child.on("error", (err: NodeJS.ErrnoException) => {
+    child.on("error", (err: NodeJS.ErrnoException) => {
       // Spawn failure. Translate ENOENT to a user-actionable reinstall hint
       // (bundled binary missing or corrupt) rather than just the raw errno;
       // every other failure falls through to the underlying message. Mark
@@ -231,7 +240,7 @@ export class JsonRpcLiteClient {
         this.failAllPending(this.closedReason);
       }
     });
-    this.child.on("exit", (code, signal) => {
+    child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
       this.exitInfo = { code, signal };
       this.closed = true;
       this.closedReason = new Error(
@@ -255,6 +264,13 @@ export class JsonRpcLiteClient {
         } catch {}
       }
     });
+    // A runner reports the pid after the start; wait for it (or the start
+    // error) so write() can tell a running child from a failed launch.
+    if (child.pid === undefined && host.kind === "runner")
+      await new Promise<void>((resolve) => {
+        child.once("spawn", resolve);
+        child.once("error", () => resolve());
+      });
     return safety;
   }
 
@@ -285,25 +301,20 @@ export class JsonRpcLiteClient {
     if (!this.killed) {
       this.killed = true;
       const child = this.child;
-      if (child && child.pid !== undefined && !child.killed) {
+      if (child && !child.killed) {
         try {
           child.stdin.end();
         } catch {}
-        // The launcher is its own group leader (spawned detached), so its pid
-        // is also its process-group id. Signal the negative pid to hit the
+        // The launcher leads its own process group, so signalGroup hits the
         // whole group - launcher AND the native codex grandchild - without
         // depending on the launcher forwarding signals. SIGTERM first, then
         // escalate to SIGKILL if the group hasn't exited within the grace
         // window (the fallback the old comment promised but never implemented).
-        const pgid = child.pid;
-        try {
-          process.kill(-pgid, "SIGTERM");
-        } catch {}
-        const timer = setTimeout(() => {
-          try {
-            process.kill(-pgid, "SIGKILL");
-          } catch {}
-        }, CODEX_KILL_GRACE_MS);
+        child.signalGroup("SIGTERM");
+        const timer = setTimeout(
+          () => child.signalGroup("SIGKILL"),
+          CODEX_KILL_GRACE_MS,
+        );
         // Don't let the escalation timer keep the event loop alive on its own;
         // the exit handler clears it once the process is reaped.
         //

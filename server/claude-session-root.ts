@@ -1,13 +1,15 @@
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { claudeProjectDir, claudeSessionFileExists } from "./cwd-utils.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
 import { personalProviderHome } from "./provider-homes.ts";
 import { translatorFor, type Translator } from "../shared/i18n/translate.ts";
+import { getAgentHost } from "./agent-host.ts";
 
 type Env = Record<string, string | undefined>;
 export function claudeConfigRoot(env: Env = process.env): string {
-  return resolve(env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"));
+  return resolve(
+    env?.CLAUDE_CONFIG_DIR || join(getAgentHost().home(), ".claude"),
+  );
 }
 
 // Only exact owned ids are checked. No native project directory is enumerated.

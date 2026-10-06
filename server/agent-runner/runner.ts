@@ -8,6 +8,7 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { chmodSync, existsSync, lstatSync, unlinkSync } from "fs";
+import { chmod, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { homedir, userInfo } from "os";
 import { join } from "path";
 import {
@@ -24,13 +25,21 @@ import {
   FRAME_STDOUT,
   type ClientControl,
   type Frame,
+  type FsRequest,
   type RunnerControl,
   type RunnerRequest,
 } from "./frames.ts";
 
 // The fixed entries. Each one reads one JSON value on stdin and writes one on
 // stdout.
-export const ENTRY_NAMES = new Set(["diff", "real-node", "diagnose"]);
+export const ENTRY_NAMES = new Set([
+  "diff",
+  "real-node",
+  "diagnose",
+  "codex-hook-config",
+  "codex-trust-hash",
+  "opencode-inspect",
+]);
 const ENTRY_DIR = join(import.meta.dir, "entries");
 
 // After the server's connection closes, the process group gets SIGTERM, and
@@ -53,12 +62,19 @@ interface Connection {
   ended: boolean;
   drainWaiters: (() => void)[];
   started: boolean;
-  inputPaused: boolean;
+  stdinQueue: Buffer[];
+  stdinBlocked: boolean;
+  stdinEnd: boolean;
   child: ChildProcess | null;
   // The process group of the spawned process (its pid). It stays set after
   // the leader exits: a descendant can keep the group alive.
   group: number | null;
   groupStopped: boolean;
+  // The bytes of a writeText, until stdin-end.
+  pendingWrite: {
+    request: FsRequest & { call: "writeText" };
+    chunks: Buffer[];
+  } | null;
 }
 
 type RunnerSocket = Bun.Socket<Connection>;
@@ -174,6 +190,74 @@ function startChild(
   });
 }
 
+function validMode(mode: unknown): mode is number {
+  return (
+    Number.isInteger(mode) &&
+    (mode as number) >= 0 &&
+    (mode as number) <= 0o7777
+  );
+}
+
+async function runFs(
+  socket: RunnerSocket,
+  request: FsRequest,
+  data?: Buffer,
+): Promise<void> {
+  try {
+    switch (request.call) {
+      case "readText":
+        send(socket, encodeData(FRAME_STDOUT, await readFile(request.path)));
+        finish(socket, { type: "fs" });
+        return;
+      case "writeText":
+        await writeFile(request.path, data ?? Buffer.alloc(0), {
+          mode: request.mode,
+          flag: request.exclusive ? "wx" : "w",
+        });
+        break;
+      case "mkdir":
+        await mkdir(request.path, { recursive: true, mode: request.mode });
+        break;
+      case "rm":
+        await rm(request.path, { force: true });
+        break;
+      case "exists":
+        finish(socket, { type: "fs", value: existsSync(request.path) });
+        return;
+      case "chmod":
+        await chmod(request.path, request.mode);
+        break;
+    }
+    finish(socket, { type: "fs" });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    fail(socket, err.code ?? "fs_failed", err.message);
+  }
+}
+
+function handleFs(socket: RunnerSocket, request: FsRequest): void {
+  const needsMode =
+    request.call === "writeText" ||
+    request.call === "mkdir" ||
+    request.call === "chmod";
+  if (
+    typeof request.path !== "string" ||
+    !request.path.startsWith("/") ||
+    !["readText", "writeText", "mkdir", "rm", "exists", "chmod"].includes(
+      request.call,
+    ) ||
+    (needsMode && !validMode((request as { mode?: unknown }).mode))
+  ) {
+    fail(socket, "bad_request", "fs needs a call, an absolute path and a mode");
+    return;
+  }
+  if (request.call === "writeText") {
+    socket.data.pendingWrite = { request, chunks: [] };
+    return;
+  }
+  void runFs(socket, request);
+}
+
 function handleRequest(socket: RunnerSocket, request: RunnerRequest): void {
   if (request.op === "info") {
     const user = userInfo();
@@ -192,22 +276,28 @@ function handleRequest(socket: RunnerSocket, request: RunnerRequest): void {
     return;
   }
   if (request.op === "spawn") {
-    const { argv, cwd, env, stderr } = request;
+    const { argv, cwd, env, fullEnv, stderr } = request;
     if (
       !Array.isArray(argv) ||
       argv.length === 0 ||
-      !argv.every((part) => typeof part === "string" && part.length > 0) ||
+      !argv.every((part) => typeof part === "string") ||
+      !argv[0] ||
       (cwd !== undefined && typeof cwd !== "string") ||
-      (env !== undefined && !isStringRecord(env))
+      (env !== undefined && !isStringRecord(env)) ||
+      (fullEnv !== undefined && !isStringRecord(fullEnv))
     ) {
       fail(socket, "bad_request", "spawn needs argv, and string cwd and env");
       return;
     }
     startChild(socket, argv, {
       cwd,
-      env: { ...process.env, ...env },
+      env: fullEnv ?? { ...process.env, ...env },
       stderr: stderr === "pipe" ? "pipe" : "ignore",
     });
+    return;
+  }
+  if (request.op === "fs") {
+    handleFs(socket, request);
     return;
   }
   if (request.op === "entry") {
@@ -247,18 +337,35 @@ function handleFrame(socket: RunnerSocket, frame: Frame): void {
     handleRequest(socket, request);
     return;
   }
+  const pendingWrite = data.pendingWrite;
+  if (pendingWrite) {
+    if (frame.type === FRAME_STDIN) {
+      pendingWrite.chunks.push(frame.payload);
+      // The bytes are taken: the client's stdin window must not stop them.
+      send(socket, [
+        encodeJson({ type: "stdin-ack", bytes: frame.payload.length }),
+      ]);
+    } else if (frame.type === FRAME_JSON) {
+      let control: ClientControl | null = null;
+      try {
+        control = JSON.parse(frame.payload.toString("utf8")) as ClientControl;
+      } catch {}
+      if (control?.type === "stdin-end") {
+        data.pendingWrite = null;
+        void runFs(
+          socket,
+          pendingWrite.request,
+          Buffer.concat(pendingWrite.chunks),
+        );
+      }
+    }
+    return;
+  }
   const child = data.child;
   if (!child) return;
   if (frame.type === FRAME_STDIN) {
-    // Backpressure: stop reading the server while the child's stdin is full.
-    if (child.stdin && !child.stdin.write(frame.payload) && !data.inputPaused) {
-      data.inputPaused = true;
-      socket.pause();
-      child.stdin.once("drain", () => {
-        data.inputPaused = false;
-        socket.resume();
-      });
-    }
+    data.stdinQueue.push(frame.payload);
+    pumpStdin(socket, child);
     return;
   }
   if (frame.type !== FRAME_JSON) return;
@@ -268,9 +375,39 @@ function handleFrame(socket: RunnerSocket, frame: Frame): void {
   } catch {
     return;
   }
-  if (control.type === "stdin-end") child.stdin?.end();
-  else if (control.type === "signal" && typeof control.signal === "string")
+  if (control.type === "stdin-end") {
+    data.stdinEnd = true;
+    pumpStdin(socket, child);
+  } else if (control.type === "signal" && typeof control.signal === "string")
     signalGroup(data.group, control.signal);
+}
+
+// Input for the child. The socket is never paused for it, so a signal behind
+// a full pipe still arrives; the server sends at most STDIN_WINDOW_BYTES that
+// the runner has not acknowledged, which bounds this queue. Each chunk is
+// acknowledged once it is in the pipe, and stdin-end closes the pipe only
+// after the queue is empty.
+function pumpStdin(socket: RunnerSocket, child: ChildProcess): void {
+  const data = socket.data;
+  const stdin = child.stdin;
+  if (!stdin) return;
+  while (!data.stdinBlocked && data.stdinQueue.length > 0) {
+    const chunk = data.stdinQueue.shift()!;
+    const room = stdin.write(chunk, () =>
+      send(socket, [encodeJson({ type: "stdin-ack", bytes: chunk.length })]),
+    );
+    if (!room) {
+      data.stdinBlocked = true;
+      stdin.once("drain", () => {
+        data.stdinBlocked = false;
+        pumpStdin(socket, child);
+      });
+    }
+  }
+  if (data.stdinEnd && !data.stdinBlocked && data.stdinQueue.length === 0) {
+    data.stdinEnd = false;
+    stdin.end();
+  }
 }
 
 // The end of an operation ends its process group, also when the leader has
@@ -304,10 +441,13 @@ export function startRunner(options: RunnerOptions): { stop(): void } {
           ended: false,
           drainWaiters: [],
           started: false,
-          inputPaused: false,
+          stdinQueue: [],
+          stdinBlocked: false,
+          stdinEnd: false,
           child: null,
           group: null,
           groupStopped: false,
+          pendingWrite: null,
         };
         const fd = socketFileDescriptor(socket);
         const uid = fd === null ? null : readPeerUid(fd);

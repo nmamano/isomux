@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { tmpdir } from "node:os";
 import { CLAUDE_NATIVE_BIN } from "../../cwd-utils.ts";
 import { CLAUDE_LAUNCH_SETTINGS } from "../claude.ts";
+import { withAgentSpawn } from "./agent-spawn.ts";
 
 type ClaudeOAuthSeam = {
   claudeAuthenticate?: (
@@ -61,14 +62,14 @@ export class ClaudeAccountClient {
     }
     const raw = this.createQuery({
       prompt: input(),
-      options: {
+      options: withAgentSpawn({
         cwd: tmpdir(),
         env: this.env,
         settingSources: [],
         settings: CLAUDE_LAUNCH_SETTINGS,
         pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
         abortController,
-      },
+      }),
     }) as ClaudeOAuthSeam;
     this.closeQuery = () => raw.close?.();
     if (abortController.signal.aborted) {

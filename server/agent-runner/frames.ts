@@ -10,6 +10,9 @@ export const FRAME_STDOUT = 3;
 export const FRAME_STDERR = 4;
 
 export const MAX_FRAME_BYTES = 1024 * 1024;
+// Stdin bytes the server may send that the runner has not yet put into the
+// child's pipe (runner.ts pumpStdin).
+export const STDIN_WINDOW_BYTES = 1024 * 1024;
 
 export type FrameType =
   | typeof FRAME_JSON
@@ -80,10 +83,25 @@ export type RunnerRequest =
       cwd?: string;
       // Overlay on the runner's own environment.
       env?: Record<string, string>;
+      // The whole environment, in place of the runner's own and env.
+      fullEnv?: Record<string, string>;
       stderr?: "pipe" | "ignore";
     }
   | { op: "entry"; name: string; input: unknown }
+  | ({ op: "fs" } & FsRequest)
   | { op: "info" };
+
+// File operations in agent space, done by the runner as the agent user. A
+// readText answers with stdout frames; a writeText takes its bytes as stdin
+// frames up to stdin-end. Each answers with an "fs" message or an "error"
+// whose code is the errno name.
+export type FsRequest =
+  | { call: "readText"; path: string }
+  | { call: "writeText"; path: string; mode: number; exclusive?: boolean }
+  | { call: "mkdir"; path: string; mode: number }
+  | { call: "rm"; path: string }
+  | { call: "exists"; path: string }
+  | { call: "chmod"; path: string; mode: number };
 
 // Control messages after the request.
 export type ClientControl =
@@ -93,6 +111,9 @@ export type ClientControl =
 export type RunnerControl =
   | { type: "spawned"; pid: number }
   | { type: "exit"; code: number | null; signal: string | null }
+  | { type: "fs"; value?: boolean }
+  // This many stdin bytes are in the child's pipe.
+  | { type: "stdin-ack"; bytes: number }
   | { type: "error"; code: string; message: string }
   | {
       type: "info";

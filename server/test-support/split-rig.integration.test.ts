@@ -19,7 +19,7 @@ import {
   setDefaultTimeout,
 } from "bun:test";
 import { spawnSync } from "child_process";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 
 const ENABLED = process.env.ISOMUX_TEST_SPLIT_RIG === "1";
 // Each case runs several docker commands; the stop in afterAll removes
@@ -31,6 +31,9 @@ const STATE = "/var/data/server/.isomux";
 const SHARE = "/var/data/server/share";
 const SOCKET = "/run/isomux-agent-runner/runner.sock";
 const CODE = "/opt/isomux";
+// The agents' workspace: the server user can still check that it exists
+// (task 01f5038c moves that check to the agent user in a later slice).
+const WORK = "/tmp/rig-work";
 const AGENT_UID = "1000";
 const SERVER_UID = "10001";
 const OWNER = "Rig Owner Marker";
@@ -111,6 +114,121 @@ function firstAgent(name: string, cookie: string): string {
     `curl -s http://127.0.0.1:10000/agents -H 'Cookie: ${cookie}'`,
   );
   return (JSON.parse(r.out) as { id: string }[])[0].id;
+}
+
+// An office API call with a JSON body, from inside the container.
+function api(
+  name: string,
+  cookie: string,
+  method: string,
+  path: string,
+  body: unknown,
+): Record<string, unknown> {
+  const r = run(
+    "docker",
+    [
+      "exec",
+      "-i",
+      name,
+      "curl",
+      "-s",
+      "-X",
+      method,
+      `http://127.0.0.1:10000${path}`,
+      "-H",
+      `Cookie: ${cookie}`,
+      "-H",
+      "Origin: http://localhost:10000",
+      "-H",
+      "Content-Type: application/json",
+      "--data-binary",
+      "@-",
+    ],
+    JSON.stringify(body),
+  );
+  return JSON.parse(r.out) as Record<string, unknown>;
+}
+
+interface LogLine {
+  id: string;
+  kind: string;
+  content: string;
+}
+
+// An agent's log as the office wrote it, read as root.
+function logLines(name: string, agentId: string): LogLine[] {
+  return sh(name, "root", `cat ${STATE}/logs/${agentId}/*.jsonl 2>/dev/null`)
+    .out.split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as LogLine);
+}
+
+// What the stub providers report about themselves (scripts/split-rig.sh);
+// each backend fills its own fields.
+interface Report {
+  backend: string;
+  uid: string;
+  home: string;
+  serverEnv: string[];
+  transcript: string;
+  codexHome: string;
+  hook: { command: string; exitCode: number; stdout: string };
+  servePid: number;
+  authority: { status: string; pid: number };
+}
+
+async function reports(
+  name: string,
+  agentId: string,
+  count: number,
+): Promise<Report[]> {
+  const deadline = Date.now() + 90_000;
+  for (;;) {
+    const found = logLines(name, agentId)
+      .filter((l) => l.kind === "text" && l.content.startsWith("RIG_REPORT "))
+      .map((l) => JSON.parse(l.content.slice("RIG_REPORT ".length)) as Report);
+    if (found.length >= count || Date.now() > deadline) return found;
+    await Bun.sleep(250);
+  }
+}
+
+function spawnAgent(
+  name: string,
+  cookie: string,
+  agentType: string,
+  desk: number,
+  modelFamily?: string,
+): string {
+  const agents = JSON.parse(
+    sh(
+      name,
+      "root",
+      `curl -s http://127.0.0.1:10000/agents -H 'Cookie: ${cookie}'`,
+    ).out,
+  ) as { roomId: string }[];
+  const roomId = agents.find((a) => a.roomId !== "lobby")!.roomId;
+  const result = api(name, cookie, "POST", "/api/agents", {
+    name: `Rig ${agentType}`,
+    cwd: WORK,
+    roomId,
+    desk,
+    agentType,
+    ...(modelFamily ? { modelFamily } : {}),
+  });
+  return (result.agent as { id: string }).id;
+}
+
+function send(name: string, cookie: string, agentId: string, text: string) {
+  api(name, cookie, "POST", `/api/agents/${agentId}/messages`, { text });
+}
+
+// A request to the OpenCode authority socket as one user, through curl.
+function authorityStatus(name: string, user: string): string {
+  return sh(
+    name,
+    user,
+    `curl -s -o /dev/null -w '%{http_code}' --unix-socket ${SHARE}/authority/authority.sock -H 'X-Isomux-Turn: rig' http://isomux/api/memory`,
+  ).out;
 }
 
 // An office client in the container: a WebSocket with the owner's cookie.
@@ -378,6 +496,184 @@ echo two >> a.txt; ${extra}`,
       expect(diff.files.map((f) => f.path)).not.toContain("leak");
       expect(JSON.stringify(entry)).not.toContain(OWNER);
     });
+
+    describe("agent backends (stub providers)", () => {
+      beforeAll(() => {
+        expect(sh(name, "node", `install -d -m 755 ${WORK}`).status).toBe(0);
+      });
+
+      it("keeps server-only variables in the server process", () => {
+        // The stubs report these as absent; the proof needs them present here.
+        // Only the same uid may read it (root lacks CAP_SYS_PTRACE here).
+        const environ = sh(
+          name,
+          "isomux-server",
+          `tr '\\0' '\\n' < /proc/$(pgrep -u ${SERVER_UID} -f isomux-office.ts | head -1)/environ`,
+        ).out;
+        expect(environ).toContain("SPLIT_RIG_SERVER_SENTINEL=server-only");
+        expect(environ).toContain("ISOMUX_AGENT_RUNNER=");
+      });
+
+      it("runs Claude as the agent user and forks its transcript as the agent user", async () => {
+        const agentId = spawnAgent(name, cookie, "claude", 5);
+        send(name, cookie, agentId, "one");
+        const [first] = await reports(name, agentId, 1);
+        expect(first).toMatchObject({
+          backend: "claude",
+          uid: AGENT_UID,
+          home: "/var/data/home",
+          serverEnv: [],
+        });
+        send(name, cookie, agentId, "two");
+        expect((await reports(name, agentId, 2)).length).toBe(2);
+        const project = dirname(first.transcript);
+        const before = sh(name, "root", `ls ${project}`).out.trim();
+        expect(before.split("\n")).toEqual([basename(first.transcript)]);
+        // The production edit path: it reads the transcript and writes the
+        // fork through the session store.
+        const second = logLines(name, agentId).filter(
+          (l) => l.kind === "user_message",
+        )[1];
+        api(
+          name,
+          cookie,
+          "PATCH",
+          `/api/agents/${agentId}/messages/${second.id}`,
+          {
+            newText: "two, edited",
+          },
+        );
+        let fork = "";
+        const deadline = Date.now() + 30_000;
+        while (!fork && Date.now() < deadline) {
+          fork =
+            sh(name, "root", `ls ${project}`)
+              .out.trim()
+              .split("\n")
+              .find((f) => f && !before.includes(f)) ?? "";
+          if (!fork) await Bun.sleep(250);
+        }
+        expect(fork).toMatch(/^[0-9a-f-]{36}\.jsonl$/);
+        expect(
+          sh(name, "root", `stat -c '%u %a' ${project}/${fork}`).out.trim(),
+        ).toBe(`${AGENT_UID} 600`);
+        // The fork copies the original conversation up to the edited message.
+        const original = basename(first.transcript, ".jsonl");
+        expect(sh(name, "root", `cat ${project}/${fork}`).out).toContain(
+          `"forkedFrom":{"sessionId":"${original}"`,
+        );
+      });
+
+      it("runs Codex as the agent user with the safety hook from the share", async () => {
+        const agentId = spawnAgent(name, cookie, "codex", 6, "gpt-rig");
+        send(name, cookie, agentId, "hello");
+        const [report] = await reports(name, agentId, 1);
+        expect(report).toMatchObject({
+          backend: "codex",
+          uid: AGENT_UID,
+          serverEnv: [],
+          codexHome: "/var/data/home/.isomux/codex-home",
+        });
+        // The agent user ran the real hook from the share, and it decided.
+        expect(report.hook.command).toBe(
+          `${SHARE}/bin/isomux-codex-safety-hook`,
+        );
+        expect(report.hook.exitCode).toBe(0);
+        expect(JSON.parse(report.hook.stdout)).toMatchObject({
+          hookSpecificOutput: { permissionDecision: "deny" },
+        });
+        // The hook configuration was merged in agent space by the agent user.
+        expect(
+          sh(
+            name,
+            "root",
+            `stat -c '%u' ${report.codexHome}/hooks.json ${report.codexHome}/config.toml`,
+          )
+            .out.trim()
+            .split("\n"),
+        ).toEqual([AGENT_UID, AGENT_UID]);
+        expect(
+          agentTry(
+            name,
+            `fs.closeSync(fs.openSync("${report.hook.command}", "r+"))`,
+          ),
+        ).toBe("EACCES");
+      });
+
+      it("runs OpenCode as the agent user, and its child reaches the office through the authority socket", async () => {
+        const agentId = spawnAgent(name, cookie, "opencode", 7, "rig/stub");
+        send(name, cookie, agentId, "hello");
+        const [report] = await reports(name, agentId, 1);
+        expect(report).toMatchObject({
+          backend: "opencode",
+          uid: AGENT_UID,
+          serverEnv: [],
+        });
+        expect(
+          sh(name, "root", `ps -o uid= -p ${report.servePid}`).out.trim(),
+        ).toBe(AGENT_UID);
+        // The broker accepted a child of the serve process, walking its
+        // ancestry across the two users up to the serve pid.
+        expect(report.authority.status).toBe("200");
+        const line = logs(name)
+          .split("\n")
+          .find((l) =>
+            l.includes(
+              `[opencode-office-proxy] agent=${agentId} peer=${report.authority.pid} `,
+            ),
+          );
+        expect(line).toContain(`,${report.servePid}:`);
+        expect(line).not.toContain("ancestry=refused");
+      });
+
+      it("refuses the authority socket to every other process, by peer check or by the kernel", () => {
+        // The server user is in the agent group: the kernel lets it connect,
+        // and the broker's peer check refuses it.
+        expect(authorityStatus(name, "isomux-server")).toBe("403");
+        // The agent user outside an OpenCode turn: the ancestry check refuses.
+        expect(authorityStatus(name, "node")).toBe("403");
+        // A third user cannot pass through the share: the kernel refuses.
+        const third = run(
+          "docker",
+          ["exec", "-i", "-u", "nobody", name, "python3", "-"],
+          `import socket
+s = socket.socket(socket.AF_UNIX)
+try:
+    s.connect("${SHARE}/authority/authority.sock")
+    print("connected")
+except OSError as e:
+    print(e.errno)`,
+        );
+        expect(third.out.trim()).toBe("13");
+      });
+
+      it("inspects OpenCode storage as the agent user", () => {
+        const db = "/var/data/home/rig.db";
+        expect(
+          sh(name, "node", `printf 'not sqlite' > ${db} && chmod 600 ${db}`)
+            .status,
+        ).toBe(0);
+        // The server user cannot even see it.
+        expect(sh(name, "isomux-server", `test -e ${db}`).status).toBe(1);
+        const opened = runnerRequest(name, "isomux-server", {
+          op: "entry",
+          name: "opencode-inspect",
+          input: { databasePath: db, sessionId: "ses_rig" },
+        });
+        // The agent user found the file and SQLite refused it; the server
+        // user would have answered "missing".
+        expect(opened.at(-1)).toEqual({ type: "exit", code: 1, signal: null });
+        const missing = runnerRequest(name, "isomux-server", {
+          op: "entry",
+          name: "opencode-inspect",
+          input: {
+            databasePath: "/var/data/home/absent.db",
+            sessionId: "ses_rig",
+          },
+        });
+        expect(missing).toContainEqual({ stdout: '"missing"' });
+      });
+    });
   });
 
   describe("a broken split", () => {
@@ -393,11 +689,19 @@ echo two >> a.txt; ${extra}`,
       ],
       ["code-hop-link", "private-owner at /opt/split-rig-hop:"],
       ["code-relative-link", "private-owner at /opt/split-rig-agent:"],
+      // Three levels deep: the start walks the whole code tree (ruling 10).
+      [
+        "code-deep-acl",
+        `private-agent-write at ${CODE}/server/backends/claude.ts`,
+      ],
     ];
-    // What the kernel reads through the link, as the server user: the case
-    // is only a proof if the link really ends in agent space.
+    // Each case is only a proof if the break is real: what the kernel reads
+    // through the link as the server user, and what the agent user can write.
     const kernelReads: Record<string, [string, string]> = {
       "code-relative-link": [`${CODE}/split-rig-relative`, "agent-controlled"],
+    };
+    const agentWrites: Record<string, string> = {
+      "code-deep-acl": `${CODE}/server/backends/claude.ts`,
     };
 
     // One container per case, all started at once; one test per case, so a
@@ -414,25 +718,14 @@ echo two >> a.txt; ${extra}`,
         const read = kernelReads[brk];
         if (read)
           expect(sh(name, "isomux-server", `cat ${read[0]}`).out).toBe(read[1]);
+        const writable = agentWrites[brk];
+        if (writable)
+          expect(
+            agentTry(name, `fs.closeSync(fs.openSync("${writable}", "r+"))`),
+          ).toBe("ok");
         expect(exit).toBe(1);
         expect(logs(name)).toContain(`[split] refusing to start: ${expected}`);
       });
-
-    it("leaves a deep ACL grant to the full check", async () => {
-      const name = start("deep-acl", "code-deep-acl");
-      expect(await settle(name)).toBeNull();
-      const target = `${CODE}/server/backends/claude.ts`;
-      expect(
-        agentTry(name, `fs.closeSync(fs.openSync("${target}", "r+"))`),
-      ).toBe("ok");
-      const check = sh(
-        name,
-        "isomux-server",
-        `cd ${CODE} && ISOMUX_HOME=${STATE} bun server/split/check.ts`,
-      );
-      expect(check.status).toBe(1);
-      expect(check.err).toContain(`private-agent-write at ${target}`);
-    });
 
     it("refuses even when a false runner claims every try was denied", async () => {
       const name = start("stub", "state-readable", "stub");

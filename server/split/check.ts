@@ -1,4 +1,4 @@
-// The full trusted check: the start checks plus the whole code tree.
+// The trusted checks of a split-mode start, without the start.
 // Run it as the server user; it exits 1 and names each failed check.
 //
 //   bun server/split/check.ts

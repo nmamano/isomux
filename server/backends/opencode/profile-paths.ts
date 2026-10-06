@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { STATE_ROOT } from "../../config.ts";
+import { AGENT_ROOT } from "../../split/roots.ts";
 
 export interface OpenCodeProfilePaths {
   profileDir: string;
@@ -21,7 +21,8 @@ export function openCodeProfilePaths(
     .update(environmentKey)
     .digest("hex")
     .slice(0, 16);
-  const profileDir = join(STATE_ROOT, "opencode", "profiles", key);
+  // Agent space; in split mode the old state root (design section 3.1.2).
+  const profileDir = join(AGENT_ROOT, "opencode", "profiles", key);
   return {
     profileDir,
     configPath: join(profileDir, "opencode.json"),

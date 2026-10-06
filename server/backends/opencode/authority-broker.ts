@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
+import { SPLIT_CONFIG } from "../../split/roots.ts";
+import { chmodShare } from "../../split/share-mode.ts";
 import { openCodeAuthoritySocketPath } from "./office-proxy-shared.ts";
 import { readProcessHop, type ProcessHop } from "./process-identity.ts";
 import {
@@ -131,9 +133,14 @@ export class OpenCodeAuthorityBroker {
 
   constructor(
     private readonly socketPath = openCodeAuthoritySocketPath(),
-    private readonly expectedUid = process.getuid?.() ?? -1,
+    // The OpenCode processes run as the agent user: in split mode that is
+    // not this process's uid.
+    private readonly expectedUid = SPLIT_CONFIG?.agentUid ??
+      process.getuid?.() ??
+      -1,
     private readonly upstreamOrigin = `http://127.0.0.1:${PORT}`,
     private readonly readers = HOST_PROCESS_READERS,
+    private readonly split = SPLIT_CONFIG !== null,
   ) {}
 
   bind(agentId: string, token: string): OpenCodeAuthorityBinding {
@@ -182,8 +189,11 @@ export class OpenCodeAuthorityBroker {
   private ensureListening(): void {
     if (this.server) return;
     const directory = dirname(this.socketPath);
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    chmodSync(directory, 0o700);
+    // Split mode: the agent user's group may pass through and connect; only
+    // the server can create, rename or remove entries (design 3.1.1).
+    const directoryMode = this.split ? 0o2750 : 0o700;
+    mkdirSync(directory, { recursive: true, mode: directoryMode });
+    chmodShare(directory, directoryMode);
     rmSync(this.socketPath, { force: true });
     this.server = Bun.listen<ConnectionData>({
       unix: this.socketPath,
@@ -232,6 +242,9 @@ export class OpenCodeAuthorityBroker {
         },
       },
     });
+    // A process needs write permission on a socket to connect. Until this
+    // chmod the socket is closed to the group, the safe direction.
+    if (this.split) chmodSync(this.socketPath, 0o660);
   }
 
   private readPeer(fd: number): PeerIdentity | null {

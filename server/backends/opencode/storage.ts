@@ -2,6 +2,7 @@ import { Database, SQLiteError } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { inAgentSpace } from "../../agent-host.ts";
 import type { StoredSessionState } from "../types.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
 
@@ -57,6 +58,25 @@ export function inspectOpenCodeStoredSession(
     "opencode.db",
   );
   return inspectOpenCodeDatabase(databasePath, sessionId);
+}
+
+const STORED_STATES = new Set<unknown>(["missing", "empty", "durable"]);
+
+// The database is in agent space: in split mode the agent user inspects it
+// (server/agent-runner/entries/opencode-inspect.ts) and only the state comes
+// back. Slice 4 of task 01f5038c moves the Backend callers onto this.
+export async function inspectOpenCodeDatabaseInAgentSpace(
+  databasePath: string,
+  sessionId: string,
+): Promise<StoredSessionState> {
+  const state = await inAgentSpace(
+    "opencode-inspect",
+    { databasePath, sessionId },
+    () => inspectOpenCodeDatabase(databasePath, sessionId),
+  );
+  if (!STORED_STATES.has(state))
+    throw new Error("the OpenCode storage inspection returned no state");
+  return state as StoredSessionState;
 }
 
 export function inspectOpenCodeDatabase(
