@@ -4,7 +4,7 @@ navTitle: Security audit
 
 # Isomux security audit
 
-**Date:** 2026-10-03, last updated 2026-10-05. This audit replaces the audit of 2026-05-17.
+**Date:** 2026-10-03, last updated 2026-10-06. This audit replaces the audit of 2026-05-17.
 
 **Method:** Static review of the Isomux source. No live attack tests were done.
 
@@ -16,7 +16,7 @@ navTitle: Security audit
 
 ## 1. Summary
 
-Each office API request and each office WebSocket connection needs a valid credential. Each credential that Isomux mints is a 256-bit random value. The credential files keep SHA-256 hashes, not raw values. Section 4.1 tells where raw values exist. The browser surface rejects cross-site requests and cross-site WebSocket connections.
+Each office API request and each office WebSocket connection needs a valid credential. Each credential that Isomux mints is a 256-bit random value. The credential files keep SHA-256 hashes, not raw values. Section 4.1 tells where raw values exist. The browser surface rejects cross-site requests and cross-site WebSocket connections. Webhook deliveries (`POST /hooks/:id`) need no credential, only a valid signature (section 4.7).
 
 Inside the office, the boundary is the operating-system user. On every hosting setup, the server, its agents, the terminal panels, the apps and the scheduled runs all run as the same OS user. Thus a member or an agent that runs a shell command can read and change everything that the server can: the office state and the credentials of other members. On the installer and on a self-hosted office, it can also change the server code. Room access and the safety hooks do not change this. This is a design choice: one shared OS user lets members and agents work on the same files and with each other. Separate OS users would make that collaboration harder, and agents that talk to each other could still pass data across.
 
@@ -31,10 +31,10 @@ Thus, give office access only to persons you trust with a shell on the server. A
 | Owner              | Browser session cookie                        | Everything a member can do. Also: create members, mint sign-in links, change room access, change office settings, revoke the sessions of any member. |
 | Member             | Browser session cookie                        | Use the rooms the owner gives them: agents, terminal panels, tasks, files, apps, schedules. Mint their own device links and API tokens.              |
 | Personal API token | `Authorization: Bearer isomux_pat_…`          | The reach of the member who minted it, with some exclusions. See section 5.                                                                          |
-| Agent              | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs and apps.                                                           |
+| Agent              | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs, apps, webhooks, and pages to its manager.                          |
 | Privileged agent   | The same agent token, with more capabilities  | Also: drive other agents, manage rooms and schedules, all inside the reach of the member who spawned it. See section 6.2.                            |
 | Scheduled run      | A run token in the run environment            | Its own run affordances, messages that show the schedule as sender, and office-wide tasks.                                                           |
-| App                | `ISOMUX_APP_TOKEN` in the app environment     | Send messages to the agent that built it. Nothing else.                                                                                              |
+| App                | `ISOMUX_APP_TOKEN` in the app environment     | Send messages to the agent that built it, and raise and resolve its own pages to its owner. Nothing else.                                            |
 
 Isomux reads the role and the room access of a member from the live state on each request. A change to a role, to room access or to a member record has an effect on the next request.
 
@@ -55,7 +55,7 @@ No code in Isomux starts an agent, a terminal, an app or a scheduled run as a di
 ### 3.2 What follows
 
 - **Members have shell access.** A member can open a terminal panel on each agent in their rooms. The terminal runs as the server's OS user. An agent can also run shell commands for the member.
-- **Shell access is access to all office state.** The state directory (`~/.isomux`) holds the user records, the session and invite hashes, the API token hashes, the managed environment files of all members (`user-env/`, `office-env/`), and the provider sign-ins of all members (`provider-homes/`). File modes such as 0600 do not stop a process that runs as the owner of the file.
+- **Shell access is access to all office state.** The state directory (`~/.isomux`) holds the user records, the session and invite hashes, the API token hashes, the managed environment files of all members (`user-env/`, `office-env/`), the webhook secrets, the Discord webhook URLs of the pager, and the provider sign-ins of all members (`provider-homes/`). File modes such as 0600 do not stop a process that runs as the owner of the file.
 - **A process with that user can change what the server does.** It can write state that the server reads at start. After the next restart, it can have a sign-in that it made itself. On the installer and on a self-hosted office, that user also owns the server code and can change it. In the container image, root owns the code.
 - **Room access is not a boundary against a member.** Room access controls what the office UI and API show. A shell in one room can read the files of all rooms.
 - **The safety hooks are a guardrail, not a boundary.** See section 6.3.
@@ -132,13 +132,26 @@ The sign-in link page (`/i/<token>`) and the accept form have no rate limit. Wit
 
 Each app has its own host name (`<label>.<app domain>`), which is a different origin from the office. The relay removes the office cookies before it sends a request to the app. An app session lasts 12 hours at most. A host name that has no live app gets the same answer as a live app, so an attacker cannot list app names.
 
+### 4.7 Webhooks
+
+A webhook lets an outside service, such as GitHub, send a message to an agent or start a schedule run. Each hook has a public URL, `<office origin>/hooks/<id>`, with 64 random bits in the id.
+
+- **The signature is the only check.** A delivery needs no session or token, and Isomux reads no forwarding header for it. Isomux computes the HMAC-SHA256 of the raw body with the hook's secret, and compares it with the signature header in constant time. A header with a wrong form fails before any decode. The route answers only on the office host, not on an app host.
+- **Before the signature check**, Isomux finds the hook, checks the method and the rate limit (section 4.5), and reads at most 5 MiB of body. A disabled hook gets the same 404 as an unknown id.
+- **Replays.** The signature covers the body only. It has no time stamp, and it does not cover the event and delivery-id headers. While the body's SHA-256 hash is in the hook's delivery log of the last 24 hours (500 rows at most), a copy of the body is a duplicate, and Isomux does not dispatch it. One exception: when the earlier delivery hit the dispatch limit or found no target, the copy is a retry with the stored event, and it can dispatch. After that window, a person who has a signed body can send it again with any event header, and Isomux can dispatch it again. The secret, the rules, the limits and the target checks still apply.
+- **What reaches the target.** Isomux does not send the payload. It sends only the args that the hook's rule takes from the payload, in a data block. Isomux writes each line outside the JSON. In the JSON line, `<`, `>` and `&` are `\u` escapes and there is no newline, so a value cannot close the block. The block tells the model that the JSON comes from an outside sender and is data, not instructions. An agent message starts with `[Webhook "<name>"]`, and a hook name has only lowercase letters, digits and hyphens. The system prompt of a run that a webhook starts has the same statement.
+- **Prompt injection.** The block keeps the layout. It does not stop a model from following text in a value as an instruction. The signature proves the sender, not the author of the content: a GitHub hook on a public repository carries issue and comment text from any GitHub user. The target agent runs shell commands with its manager's environment, and a schedule run uses the environment of its maker (section 7).
+- **Targets.** A hook targets an agent in a room that the hook owner can access, or a schedule. To point a hook at a schedule, the caller must be able to manage that schedule: its maker, an office owner, or the maker's API token or privileged agent. Also, the hook owner must have made it or be an office owner. Isomux checks the target again on each delivery. A webhook starts a run also when the schedule is turned off, as Run now does.
+- **Who sees a hook.** A hook belongs to the member who created it, also when their agent created it. The hook owner and office owners see the hook, its rules and its delivery log, and can change or delete it. An agent and an API token have the reach of their member. An agent needs no privileged flag for this.
+- **The secret.** Only a browser session of the hook owner or of an office owner can read or rotate the secret. An agent, a scheduled run, an app and an API token get 403. This is a guardrail, not a boundary: an agent with a shell can read `webhooks/secrets.json` (section 3.2).
+
 ---
 
 ## 5. Personal API tokens
 
 ### 5.1 Reach
 
-A personal API token acts as the member who minted it. It has that member's live role and room access. It can drive agents, rooms, tasks, apps, schedules, memory and files, and read logs. It can read and replace its member's managed environment variables. An owner's token can also create a member and give that member room access. The new member cannot sign in until a human owner mints a sign-in link.
+A personal API token acts as the member who minted it. It has that member's live role and room access. It can drive agents, rooms, tasks, apps, schedules, memory and files, and read logs. It can read and replace its member's managed environment variables. It can replace its member's pager settings, which hold the Discord webhook URL, but it reads only the masked URL. It can manage its member's webhooks. An owner's token can also create a member and give that member room access. The new member cannot sign in until a human owner mints a sign-in link.
 
 A token cannot:
 
@@ -148,6 +161,7 @@ A token cannot:
 - change member records or room access,
 - change office settings,
 - make an agent privileged,
+- read or rotate a webhook secret,
 - open a terminal panel.
 
 These exclusions do not make a boundary. A token can spawn an agent, and the agent runs shell commands as the server's OS user (section 3). Thus a token has shell-equivalent access. Treat it like a password for a shell account on the server.
@@ -239,11 +253,11 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 
 ### 8.1 State files
 
-All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files hold their values as plain text.
+All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files hold their values as plain text.
 
 ### 8.2 Backups
 
-Daily backups do not include the managed environment files, the app environment files, the webhook secrets, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
+Daily backups do not include the managed environment files, the app environment files, the webhook secrets, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. They also include `pager-settings.json`, with the Discord webhook URLs as plain text (finding 9). Logs can hold sensitive text that a member typed or that a tool printed.
 
 ### 8.3 Secret redaction in logs
 
@@ -259,6 +273,16 @@ Isomux turns off Claude Code usage metrics and error reports for each agent sess
 
 Model requests, sign-in, updates and operator-configured OpenTelemetry still go to their services. The data policy of each provider applies to model requests.
 
+### 8.5 Pager
+
+An agent can page its manager, and an app can page its owner. Isomux takes the source and the target from the token, not from the request body. A member, an API token and a scheduled run cannot raise a page. A source has at most 50 open or acknowledged pages. A title has 200 characters at most, and a body 2000.
+
+- **Who sees a page.** A page follows the room of its source, as tasks do. The members with access to that room, and their agents, can read, acknowledge and resolve it. An app page is also open to the app owner and office owners. Thus a member or an agent in the room can acknowledge or resolve a page to another member, and that stops its Discord repeats.
+- **The Discord webhook URL.** Each member can save one Discord webhook URL. Anyone who has the URL can post to that channel. Isomux keeps it in `pager-settings.json` (mode 0600), not in the managed environment, so agents do not get it in their environment. Only the member's browser session and the member's API tokens reach the settings routes. The responses show only the host and the last 4 characters of the URL. An agent with a shell can read the file (section 3.2).
+- **Outbound requests.** Isomux accepts only an `https` URL on `discord.com` or `discordapp.com` with a Discord webhook path, and with no port, user, query or fragment. It does not follow redirects, and it stops a request after 10 seconds. It reads the response body only to get the wait of a 429 answer. Its log lines do not include the URL.
+- **Mentions.** Each message sets `allowed_mentions` with no `parse` types. Thus `@everyone`, `@here` and role mentions in a title or body ping nobody. Only the Discord user ID saved in the member's settings, if there is one, gets a ping. The "resolved" message pings nobody.
+- **What leaves the office.** The title, the body, the source name, the room name and a link to the page go to Discord. The source writes the title and the body, so they can hold text that an agent read in a file or in a webhook delivery.
+
 ---
 
 ## 9. Findings
@@ -272,10 +296,13 @@ Model requests, sign-in, updates and operator-configured OpenTelemetry still go 
 | 5   | Low      | The members of a schedule's room can read its run transcripts, which can show the maker's secrets (section 7).                                                                                                          | By design: they can read them through a terminal panel.                                                               |
 | 6   | Low      | A sign-in link is a bearer URL. Someone who reads it in the browser history or in the delivery channel before the recipient uses it gets the access.                                                                    | Mitigated: 24-hour or shorter life, one use, `no-referrer`.                                                           |
 | 7   | Low      | A session on a shared device stays valid for up to one year (section 7).                                                                                                                                                | Mitigated: revocation per device.                                                                                     |
-| 8   | Info     | The sign-in link page shows a different message for a used link, an expired link and an unknown link. With 256-bit tokens, this does not help an attacker.                                                              | Accepted.                                                                                                             |
-| 9   | Info     | The sign-in link page and the accept form have no rate limit (section 4.5).                                                                                                                                             | Accepted.                                                                                                             |
-| 10  | Info     | On macOS, `claude auth status` runs without Claude Code's own telemetry opt-out (section 8.4). Isomux has no telemetry.                                                                                                 | Open.                                                                                                                 |
-| 11  | Info     | The browser extension socket accepts any Chrome extension origin. The pairing code and the stored pairing are the real control.                                                                                         | Accepted.                                                                                                             |
+| 8   | Low      | Webhook args carry text from outside the office to an agent or a schedule run that has a shell and its member's environment. A model can follow that text as instructions (section 4.7). | By design: the data block marks the args as outside data, and only the args that the hook owner selects reach the target. |
+| 9   | Low      | Daily backups include `pager-settings.json`, which holds the Discord webhook URL of each member as plain text. Backups leave out the webhook secrets, but not these URLs (section 8.2). | Open. |
+| 10  | Low      | A webhook signature has no time stamp and does not cover the event header. A person who has a signed body can send it again after the 24-hour dedup window, with any event header, and Isomux can dispatch it again (section 4.7). | Open. |
+| 11  | Info     | The sign-in link page shows a different message for a used link, an expired link and an unknown link. With 256-bit tokens, this does not help an attacker.                                                              | Accepted.                                                                                                             |
+| 12  | Info     | The sign-in link page and the accept form have no rate limit (section 4.5).                                                                                                                                             | Accepted.                                                                                                             |
+| 13  | Info     | On macOS, `claude auth status` runs without Claude Code's own telemetry opt-out (section 8.4). Isomux has no telemetry.                                                                                                 | Open.                                                                                                                 |
+| 14  | Info     | The browser extension socket accepts any Chrome extension origin. The pairing code and the stored pairing are the real control.                                                                                         | Accepted.                                                                                                             |
 
 ---
 
@@ -289,5 +316,30 @@ Model requests, sign-in, updates and operator-configured OpenTelemetry still go 
 - Apps: `server/app-auth.ts`, `server/app-hosts.ts`, `server/app-proxy.ts`, `server/app-tokens.ts`
 - Files: `server/routes/handlers/uploads.ts`, `server/mime-types.ts`
 - Data: `server/user-env.ts`, `server/env-loader.ts`, `server/backup.ts`, `server/log-redaction.ts`
+- Webhooks: `server/webhooks/`, `server/routes/handlers/webhooks.ts`, `server/cronjob-manager.ts`
+- Pager: `server/pager-store.ts`, `server/pager-settings.ts`, `server/pager-delivery.ts`, `server/routes/handlers/pager.ts`, `server/routes/handlers/pager-settings.ts`
 - Other: `server/preview-capture.ts`, `server/browser-extension-service.ts`, `server/office-usage.ts`
 - Hosting: `deploy/install.sh`, `deploy/container/`, `deploy/kubernetes/`
+
+## Appendix: sources for the webhook and pager statements
+
+Paths are under `server/`, except those that start with `shared/`.
+
+- Section 2 (Agent, App rows) and section 8.5 (who raises): `AGENT_CAPABILITIES` and `APP_CAPABILITIES` in `identity/index.ts`; the `pager.*` and `webhooks.*` routes in `routes/table.ts`.
+- Section 3.2 and section 8.1: `createWebhookRegistry` in `webhooks/registry.ts`; `createPagerSettingsFilePersistence` in `pager-settings.ts`.
+- Section 4.7, URL and id: `WEBHOOK_ID_PATTERN` and `create` in `webhooks/registry.ts`; `toWire` in `routes/handlers/webhooks.ts`.
+- Section 4.7, signature: `verifyWebhookSignature` in `webhooks/verify.ts`; `createWebhookIngress` (`handle`) in `webhooks/ingress.ts`; the `/hooks/:id` branch of `buildServer` in `isomux-office.ts`.
+- Section 4.7, before the signature check: `handle`, `readCapped` and `WEBHOOK_BODY_MAX_BYTES` in `webhooks/ingress.ts`.
+- Section 4.7, replays, and finding 10: `claim` and `WEBHOOK_DEDUP_WINDOW_MS` in `webhooks/deliveries.ts`; `WEBHOOK_DELIVERY_LOG_MAX` in `webhooks/registry.ts`; `handle` and `dispatch` in `webhooks/ingress.ts`.
+- Section 4.7, what reaches the target: `planWebhookDelivery` in `webhooks/ingress.ts`; `buildWebhookBlock` and `escapeArgsJson` in `webhooks/block.ts`; `renderArgs` in `webhooks/match.ts`; `formatWebhookSenderPrefix` in `shared/identity.ts`; the webhook branch of the run system prompt in `cronjob-manager.ts`.
+- Section 4.7, prompt injection, and finding 8: as above, and `runCronjobFromWebhook` in `cronjob-manager.ts`.
+- Section 4.7, targets: `webhookTargetPrecondition` in `routes/handlers/webhooks.ts`; `webhookAgentReachable` and `webhookCronjobRunnable` in `isomux-office.ts`; `cronjobOwnerOrOfficeOwner` in `identity/guards.ts`; `dispatch` in `webhooks/ingress.ts`; `runCronjobFromWebhook` in `cronjob-manager.ts`.
+- Section 4.7, who sees a hook: `webhookOwnerOrOfficeOwner` in `identity/guards.ts`; `webhooks.list` in `routes/handlers/webhooks.ts`; `hasOfficeWideReach` in `isomux-office.ts`.
+- Section 4.7, the secret: the `webhooks.readSecret` and `webhooks.rotateSecret` routes in `routes/table.ts`; `userScope` in `identity/guards.ts`; `SENSITIVE_EXACT` and `SENSITIVE_PATTERNS` in `safety-policy.ts`.
+- Section 5.1: `API_CAPABILITIES` in `identity/index.ts`; `selfUserOrApi` and `webhookOwnerOrOfficeOwner` in `identity/guards.ts`; `toPagerSettingsRes` in `pager-settings.ts`.
+- Section 8.2 and finding 9: `BACKUP_EXCLUSIONS` in `backup.ts`.
+- Section 8.5, raise: `pager.raise` and `pager.appRaise` in `routes/handlers/pager.ts`; `parseRaiseFields`, `PAGER_TITLE_MAX`, `PAGER_BODY_MAX` and `PAGER_MAX_ACTIVE_PER_SOURCE` in `pager-store.ts`.
+- Section 8.5, who sees a page: `pagerEntryVisible` in `pager-store.ts`; `pager.ack` and `pager.resolve` in `routes/handlers/pager.ts`; `onTransitioned` in `pager-delivery.ts`.
+- Section 8.5, the Discord webhook URL: `createPagerSettingsFilePersistence` and `maskWebhookUrl` in `pager-settings.ts`; `pagerSettingsHandlers` in `routes/handlers/pager-settings.ts`; the `pagerSettings.*` routes in `routes/table.ts`.
+- Section 8.5, outbound requests: `parseDiscordWebhookUrl` in `pager-settings.ts`; `post`, `retryAfterMs` and `PAGER_SEND_TIMEOUT_MS` in `pager-delivery.ts`.
+- Section 8.5, mentions and what leaves the office: `buildPageMessage` and `mentions` in `pager-delivery.ts`; `parsePagerSettingsPatch` in `pager-settings.ts`.
