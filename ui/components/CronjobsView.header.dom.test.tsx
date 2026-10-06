@@ -92,9 +92,9 @@ type View = ReturnType<typeof render>;
 const q = (view: View, selector: string) =>
   view.container.querySelector<HTMLElement>(selector);
 const tabs = (view: View) =>
-  [
-    ...view.container.querySelectorAll<HTMLElement>("[data-schedules-tab]"),
-  ].map((tab) => tab.dataset.schedulesTab);
+  [...view.container.querySelectorAll<HTMLElement>("[data-schedules-tab]")].map(
+    (tab) => tab.dataset.schedulesTab,
+  );
 // The header's controls, by what they are, not by their words.
 const headerControls = (view: View) =>
   [

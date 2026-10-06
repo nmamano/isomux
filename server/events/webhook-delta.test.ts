@@ -10,8 +10,14 @@ const ROOM_A = "a1a1a1a1";
 const ROOM_B = "b2b2b2b2";
 const HOOK = { id: "wh_0000000000000001" } as WebhookWire;
 
-const inA: WebhookVisibilityFacts = { ownerUserId: "u-owner", liveRoomId: ROOM_A };
-const inB: WebhookVisibilityFacts = { ownerUserId: "u-owner", liveRoomId: ROOM_B };
+const inA: WebhookVisibilityFacts = {
+  ownerUserId: "u-owner",
+  liveRoomId: ROOM_A,
+};
+const inB: WebhookVisibilityFacts = {
+  ownerUserId: "u-owner",
+  liveRoomId: ROOM_B,
+};
 
 const memberOf = (roomId: string): WebhookViewer => ({
   userId: `u-${roomId}`,
@@ -64,7 +70,12 @@ describe("webhookDeltaFor", () => {
 
   it("an audience change speaks only to a recipient whose sight changed", () => {
     const change = (wasVisible: boolean) =>
-      ({ kind: "audience_changed", webhook: HOOK, facts: inA, wasVisible }) as const;
+      ({
+        kind: "audience_changed",
+        webhook: HOOK,
+        facts: inA,
+        wasVisible,
+      }) as const;
     expect(webhookDeltaFor(change(true), memberOf(ROOM_A))).toBeNull();
     expect(webhookDeltaFor(change(false), memberOf(ROOM_A))).toEqual({
       type: "webhook_upserted",

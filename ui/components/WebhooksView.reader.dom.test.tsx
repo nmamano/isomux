@@ -21,7 +21,10 @@ let requests: string[] = [];
 setApiShim(async (method, path) => {
   requests.push(`${method} ${path}`);
   if (method === "GET" && path === "/api/webhooks") return [];
-  if (method === "GET" && path.startsWith(`/api/webhooks/${HOOK_ID}/deliveries`))
+  if (
+    method === "GET" &&
+    path.startsWith(`/api/webhooks/${HOOK_ID}/deliveries`)
+  )
     return { deliveries: [deliveryRow({ id: ROW_ID })] };
   throw new Error(`Unexpected request: ${method} ${path}`);
 });

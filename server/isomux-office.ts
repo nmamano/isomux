@@ -2493,8 +2493,7 @@ function announceCronjobHookAudience(
 ): void {
   const before = snapshotWebhookAudience(
     (record) =>
-      record.target.kind === "cronjob" &&
-      record.target.cronjobId === cronjobId,
+      record.target.kind === "cronjob" && record.target.cronjobId === cronjobId,
     (record) => ({ ownerUserId: record.userId, liveRoomId: roomBefore }),
   );
   announceWebhookAudienceChanges(before);

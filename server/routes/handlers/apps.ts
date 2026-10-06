@@ -910,8 +910,7 @@ function actionHandler(
         // not turn a start that worked into an error. The app shows as running
         // whatever the flag says, and the next start clears it.
         try {
-          record =
-            deps.update(record.name, { archived: false }) ?? record;
+          record = deps.update(record.name, { archived: false }) ?? record;
         } catch (err) {
           console.error(
             `[apps] "${record.name}" started but is still archived:`,

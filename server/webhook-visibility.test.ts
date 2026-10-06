@@ -54,7 +54,10 @@ describe("webhookVisibleTo", () => {
       ),
     ).toBe(false);
     expect(
-      webhookVisibleTo(facts({ liveRoomId: null }), viewer({ userId: "u-owner" })),
+      webhookVisibleTo(
+        facts({ liveRoomId: null }),
+        viewer({ userId: "u-owner" }),
+      ),
     ).toBe(true);
   });
 
@@ -119,8 +122,11 @@ describe("webhookViewerForIdentity", () => {
 
   it("office-wide reach follows the live owner record, for an agent of an owner too", () => {
     expect(
-      webhookViewerForIdentity(identity({ userId: "u-boss" }), owners, () => false)
-        .officeWide,
+      webhookViewerForIdentity(
+        identity({ userId: "u-boss" }),
+        owners,
+        () => false,
+      ).officeWide,
     ).toBe(true);
     expect(
       webhookViewerForIdentity(

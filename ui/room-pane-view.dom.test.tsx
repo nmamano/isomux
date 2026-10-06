@@ -18,7 +18,10 @@ afterAll(() => setApiShim(null));
 beforeEach(() => h.resetCalls());
 
 it("shows no view block for the lobby", async () => {
-  const { view } = await mount({}, { rooms: [h.LOBBY, h.WARD], roomId: "lobby" });
+  const { view } = await mount(
+    {},
+    { rooms: [h.LOBBY, h.WARD], roomId: "lobby" },
+  );
   expect(box(view, "shown")).toBeNull();
   view.unmount();
 });

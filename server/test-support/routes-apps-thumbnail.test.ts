@@ -401,7 +401,10 @@ describe("routes/apps REST: archive", () => {
   it("stop keeps the flag; only the app's managers may set it", async () => {
     const { srv, viewer, token } = await seed();
     await stop(srv, token);
-    await api(srv, "/api/apps/hello/archive", { method: "POST", bearer: token });
+    await api(srv, "/api/apps/hello/archive", {
+      method: "POST",
+      bearer: token,
+    });
     const stopped = await stop(srv, token);
     expect((stopped.body as AppWire).archived).toBe(true);
     for (const verb of ["archive", "unarchive"]) {

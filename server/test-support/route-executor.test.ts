@@ -284,18 +284,26 @@ describe("executor: result rendering", () => {
 
   it("a binary route refused by authorization never reads the body", async () => {
     const r: RouteDef = {
-      ...route("app.upload", "PUT", "/api/u", capAuth("app:write", officeOwner)),
+      ...route(
+        "app.upload",
+        "PUT",
+        "/api/u",
+        capAuth("app:write", officeOwner),
+      ),
       body: "binary",
     };
     let pulled = 0;
-    const stream = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        pulled++;
-        controller.enqueue(new Uint8Array(1024));
-        controller.close();
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulled++;
+          controller.enqueue(new Uint8Array(1024));
+          controller.close();
+        },
+        // highWaterMark 0: nothing is pulled until somebody reads.
       },
-      // highWaterMark 0: nothing is pulled until somebody reads.
-    }, { highWaterMark: 0 });
+      { highWaterMark: 0 },
+    );
     let ran = false;
     const deps = makeDeps({
       "app.upload": () => {

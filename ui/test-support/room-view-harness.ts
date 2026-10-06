@@ -163,9 +163,7 @@ export async function mount(
 
 export type View = Awaited<ReturnType<typeof mount>>["view"];
 export const box = (view: View, key: string) =>
-  view.container.querySelector<HTMLInputElement>(
-    `[data-view-choice="${key}"]`,
-  );
+  view.container.querySelector<HTMLInputElement>(`[data-view-choice="${key}"]`);
 export async function click(view: View, key: string) {
   await act(async () => fireEvent.click(box(view, key)!));
 }

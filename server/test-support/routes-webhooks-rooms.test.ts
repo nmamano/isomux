@@ -278,8 +278,10 @@ describe("webhook rooms: REST", () => {
       ).secret,
     ).toBe(secret);
     expect(
-      ((await api(srv, `/api/webhooks/${hook.id}`, asAlice)).body as WebhookWire)
-        .enabled,
+      (
+        (await api(srv, `/api/webhooks/${hook.id}`, asAlice))
+          .body as WebhookWire
+      ).enabled,
     ).toBe(true);
   });
 
@@ -362,9 +364,9 @@ describe("webhook rooms: the audience moves with the target", () => {
     );
     expect(await statusesOn(srv, asDan, hook.id)).toEqual(NOTHING);
     expect(await listIds(srv, asAlice)).toEqual([hook.id]);
-    expect(
-      await listIds(srv, { rawSessionId: owner.rawSessionId }),
-    ).toEqual([hook.id]);
+    expect(await listIds(srv, { rawSessionId: owner.rawSessionId })).toEqual([
+      hook.id,
+    ]);
 
     // Revived into room A: Carol gets it back.
     const revived = await api(srv, `/api/agents/${bot.id}/revive`, asAlice, {
@@ -454,9 +456,9 @@ describe("webhook rooms: the audience moves with the target", () => {
     expect(updateUserById(idOf("Carol"), { allowedRooms: [roomC] }).ok).toBe(
       true,
     );
-    expect(
-      updateUserById(idOf("Alice"), { allowedRooms: [roomC] }).ok,
-    ).toBe(true);
+    expect(updateUserById(idOf("Alice"), { allowedRooms: [roomC] }).ok).toBe(
+      true,
+    );
     const job = seedJob(srv, "Alice", roomC);
     const hook = await createHook(srv, asAlice, {
       kind: "cronjob",

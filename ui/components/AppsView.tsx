@@ -251,7 +251,9 @@ export function resolveCreatorAgentId(
  */
 export type AppSection = "running" | "stopped" | "archived";
 
-export function appSection(app: Pick<AppListWire, "state" | "archived">): AppSection {
+export function appSection(
+  app: Pick<AppListWire, "state" | "archived">,
+): AppSection {
   if (app.state === "running" || app.state === "starting") return "running";
   return app.archived === true ? "archived" : "stopped";
 }
@@ -473,23 +475,23 @@ function AppThumbnail({
           </span>
         )}
         <span
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              right: 5,
-              bottom: 5,
-              display: "grid",
-              placeItems: "center",
-              width: 22,
-              height: 22,
-              borderRadius: 6,
-              background: "var(--bg-overlay)",
-              color: "var(--text-primary)",
-              border: "1px solid var(--border-light)",
-            }}
-          >
-            <OpenIcon />
-          </span>
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            right: 5,
+            bottom: 5,
+            display: "grid",
+            placeItems: "center",
+            width: 22,
+            height: 22,
+            borderRadius: 6,
+            background: "var(--bg-overlay)",
+            color: "var(--text-primary)",
+            border: "1px solid var(--border-light)",
+          }}
+        >
+          <OpenIcon />
+        </span>
       </a>
     );
   }
@@ -586,7 +588,11 @@ function AppActionsMenu({
   const { t } = useI18n();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [at, setAt] = useState<{ right: number; top?: number; bottom?: number } | null>(null);
+  const [at, setAt] = useState<{
+    right: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!at) return;
@@ -655,7 +661,13 @@ function AppActionsMenu({
           cursor: "pointer",
         }}
       >
-        <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 16 16"
+          width="16"
+          height="16"
+          fill="currentColor"
+        >
           <circle cx="3.5" cy="8" r="1.3" />
           <circle cx="8" cy="8" r="1.3" />
           <circle cx="12.5" cy="8" r="1.3" />

@@ -306,9 +306,7 @@ describe("handoff carries the queue to the fresh session", () => {
     expect(visibleQueue(mgr, info.id).map((m) => m.text)).toEqual([
       "CARRIED-ONE",
     ]);
-    expect(persistedQueue(info.id).map((m) => m.text)).toEqual([
-      "CARRIED-ONE",
-    ]);
+    expect(persistedQueue(info.id).map((m) => m.text)).toEqual(["CARRIED-ONE"]);
 
     // clear_logs is emitted while the queue is held aside.
     fault.throwOnce = "clear_logs";

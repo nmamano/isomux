@@ -2301,8 +2301,7 @@ App 的一些原则：
   "pager.view.allRooms": "所有房间",
   "pager.view.noRoom": "无房间",
   "pager.view.empty": "没有呼叫",
-  "pager.view.discordUnset":
-    "未设置 Discord，你的呼叫只保留在办公室中。",
+  "pager.view.discordUnset": "未设置 Discord，你的呼叫只保留在办公室中。",
   "pager.view.settingsLink": "呼叫设置",
   "pager.view.loadFailed": "无法加载呼叫。",
   "pager.view.retry": "重试",

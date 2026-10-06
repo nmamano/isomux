@@ -78,9 +78,15 @@ async function busyAgentWithQueuedMessage(queued: string) {
     ))!;
   const a = await spawn("AgentA");
   const b = await spawn("AgentB");
-  await call(srv, "POST", `/api/agents/${a.id}/messages`, { agentId: b.id }, {
-    text: "kickoff",
-  });
+  await call(
+    srv,
+    "POST",
+    `/api/agents/${a.id}/messages`,
+    { agentId: b.id },
+    {
+      text: "kickoff",
+    },
+  );
   await waitUntil(
     () => agentOf(srv, a.id).state === "thinking",
     "A is mid-turn",

@@ -480,7 +480,9 @@ describe("pager store: retention", () => {
     targetUserId: "u1",
     title: id,
     state,
-    ...(resolvedAt !== undefined ? { resolved: { by: "Boss", at: resolvedAt } } : {}),
+    ...(resolvedAt !== undefined
+      ? { resolved: { by: "Boss", at: resolvedAt } }
+      : {}),
     delivery: { state: "delivered", sends: 1 },
   });
 
