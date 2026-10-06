@@ -1,65 +1,34 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import {
-  BEARDS,
-  HAIR_STYLES,
-  HATS,
-  isUnusualOutfit,
-  randomOutfit,
-} from "./outfit-options.ts";
-
-describe("isUnusualOutfit", () => {
-  it("flags a hair bow with a beard or a bald head", () => {
-    expect(
-      isUnusualOutfit({ hat: "bow", beard: "full", hairStyle: "short" }),
-    ).toBe(true);
-    expect(
-      isUnusualOutfit({ hat: "bow", beard: "none", hairStyle: "bald" }),
-    ).toBe(true);
-  });
-
-  it("flags a beard with pigtails", () => {
-    expect(
-      isUnusualOutfit({ hat: "none", beard: "goatee", hairStyle: "pigtails" }),
-    ).toBe(true);
-  });
-
-  it("allows each part on its own", () => {
-    expect(
-      isUnusualOutfit({ hat: "bow", beard: "none", hairStyle: "long" }),
-    ).toBe(false);
-    expect(
-      isUnusualOutfit({ hat: "cap", beard: "full", hairStyle: "bald" }),
-    ).toBe(false);
-    expect(
-      isUnusualOutfit({ hat: "none", beard: "none", hairStyle: "pigtails" }),
-    ).toBe(false);
-  });
-});
+import { BEARDS, randomOutfit } from "./outfit-options.ts";
 
 describe("randomOutfit", () => {
-  // Math.random value that picks arr[index].
-  const at = <T>(arr: readonly T[], value: T) =>
-    (arr.indexOf(value) + 0.5) / arr.length;
-
-  it("picks again when the first pick is unusual", () => {
-    // Pick order: hat, color, hair, hairStyle, skin, beard, accessory.
-    const first = [at(HATS, "bow"), 0, 0, at(HAIR_STYLES, "short"), 0];
-    const unusual = [...first, at(BEARDS, "full"), 0];
-    const usual = [...first, at(BEARDS, "none"), 0];
-    const values = [...unusual, ...usual];
+  it("gives no beard on the low half of the coin", () => {
+    // Pick order: hat, color, hair, hairStyle, skin, beard coin, accessory.
+    const values = [0, 0, 0, 0, 0, 0.49, 0];
     const spy = spyOn(Math, "random").mockImplementation(
       () => values.shift() ?? 0,
     );
     const outfit = randomOutfit();
-    const calls = spy.mock.calls.length;
     spy.mockRestore();
-    expect(calls).toBe(unusual.length + usual.length);
-    expect(isUnusualOutfit(outfit)).toBe(false);
-    expect(outfit.hat).toBe("bow");
+    expect(outfit.beard).toBe("none");
   });
 
-  it("never returns an unusual outfit", () => {
-    for (let i = 0; i < 500; i++)
-      expect(isUnusualOutfit(randomOutfit())).toBe(false);
+  it("picks a beard style on the high half of the coin", () => {
+    const values = [0, 0, 0, 0, 0, 0.5, 0, 0];
+    const spy = spyOn(Math, "random").mockImplementation(
+      () => values.shift() ?? 0,
+    );
+    const outfit = randomOutfit();
+    spy.mockRestore();
+    expect(outfit.beard).not.toBe("none");
+    expect(BEARDS).toContain(outfit.beard);
+  });
+
+  it("has no beard about half the time", () => {
+    let none = 0;
+    const n = 4000;
+    for (let i = 0; i < n; i++) if (randomOutfit().beard === "none") none++;
+    expect(none / n).toBeGreaterThan(0.44);
+    expect(none / n).toBeLessThan(0.56);
   });
 });
