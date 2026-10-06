@@ -246,7 +246,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Pager
 - Agents and apps can page their manager or owner when a person must act. The page goes to the member's Discord and repeats until someone acks or resolves it.
-- The Pager view in the office bar lists every page the member can see, with ack and resolve. A badge counts their open pages. Resolved pages are deleted after 30 days.
+- The Pager view in the office bar lists every page the member can see, with ack and resolve. A badge counts their open pages.
 
 ### Other
 - Voice-to-text prompting (HTTPS or localhost) and text-to-speech responses. Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.

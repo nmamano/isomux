@@ -19,11 +19,6 @@
 //   - unreadable (EACCES...)  → the store refuses every operation; an
 //                               unreadable file is not an empty file
 //
-// Retention: pruneResolved() deletes resolved pages older than
-// PAGER_RESOLVED_RETENTION_MS. The store runs it once at load; the office runs
-// it again on a timer. A prune pushes no event, so an open pager view keeps a
-// pruned page until its next load.
-//
 // LEAF: imports only shared types and the atomic writer, so the state machine
 // is unit-testable with an in-memory persistence.
 
@@ -46,9 +41,6 @@ export const PAGER_KEY_MAX = 200;
 // Open plus acked pages one source may hold, so a looping agent cannot fill
 // the store. A raise that dedupes into an existing page does not count.
 export const PAGER_MAX_ACTIVE_PER_SOURCE = 50;
-// The store deletes a resolved page this long after it was resolved (Nil,
-// 2026-10-06). Open and acked pages stay until they resolve.
-export const PAGER_RESOLVED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const PAGER_STATES: ReadonlySet<string> = new Set([
   "open",
@@ -314,8 +306,6 @@ export interface PagerStore {
   resolve(id: string, by: string): PagerActResult;
   // Replace the delivery block of one page. Null when the page is gone.
   recordDelivery(id: string, delivery: PagerDelivery): PagerEntry | null;
-  // Delete the resolved pages past retention. Returns how many it deleted.
-  pruneResolved(): number;
 }
 
 const copy = (e: PagerEntry): PagerEntry => structuredClone(e);
@@ -342,33 +332,6 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
   const ensureAvailable = () => {
     if (!available) throw new PagerUnavailableError();
   };
-
-  // Save first, then commit, as every other write. A failed save throws and
-  // keeps the pages. A resolved record with no resolved time (only a
-  // malformed one) is kept: the store does not know when it resolved.
-  const pruneResolved = (): number => {
-    ensureAvailable();
-    const cutoff = now() - PAGER_RESOLVED_RETENTION_MS;
-    const next = entries.filter(
-      (e) =>
-        e.state !== "resolved" ||
-        e.resolved === undefined ||
-        e.resolved.at > cutoff,
-    );
-    const pruned = entries.length - next.length;
-    if (pruned === 0) return 0;
-    deps.persistence.save(next);
-    entries = next;
-    return pruned;
-  };
-
-  if (available && entries.length > 0) {
-    try {
-      pruneResolved();
-    } catch (err) {
-      console.error(`[pager] cannot prune resolved pages: ${errMessage(err)}`);
-    }
-  }
 
   // Save first, then commit, then notify.
   const commit = (next: PagerEntry[], changed: PagerEntry) => {
@@ -517,7 +480,5 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
       commit(replace(updated), updated);
       return copy(updated);
     },
-
-    pruneResolved,
   };
 }

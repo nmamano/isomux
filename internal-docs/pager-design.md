@@ -52,8 +52,7 @@ A page is durable state, not a chat message. Fields:
   `network`). Never the webhook URL or the raw response body.
 
 Pages persist across server restarts, with the same storage pattern as the task
-board. The server deletes a resolved page 30 days after it was resolved (Nil,
-2026-10-06): at boot and on an hourly sweep. Open and acked pages stay.
+board.
 
 Code naming: the UI already uses `page` for its views (`entry.page === "tasks"`
 in `ui/App.tsx`). Use a distinct type name in code, for example `PagerEntry`,

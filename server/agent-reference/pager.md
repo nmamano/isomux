@@ -4,7 +4,7 @@ A page tells your manager that something needs them. The office sends it to your
 
 Raise with `POST /api/pager` and `{title, body?, key?}`. The title is one line, up to 200 characters; the body is up to 2000. The token sets the source (you and your room) and the target (your manager). Give a `key` (a non-empty string, up to 200 characters) when the same problem can come back: a raise with the key of your open or acked page updates that page (new title and body, a higher raise count) instead of making a new one, and does not re-open an acked page. A raise without `body` clears the body of the page it updates. After a resolve, the same key makes a new page. A source can hold 50 open or acked pages.
 
-Resolve your page with `POST /api/pager/:id/resolve` when the problem is gone: the repeats stop, and the office tells your manager it resolved. Members ack a page to say they saw it. List with `GET /api/pager`: open and acked pages by default, or `state=open|acked|resolved|all`, and `roomId` for one room. The office deletes a resolved page 30 days after it was resolved.
+Resolve your page with `POST /api/pager/:id/resolve` when the problem is gone: the repeats stop, and the office tells your manager it resolved. Members ack a page to say they saw it. List with `GET /api/pager`: open and acked pages by default, or `state=open|acked|resolved|all`, and `roomId` for one room.
 
 An app you built can page its owner from its server code with its `ISOMUX_APP_TOKEN`: `POST /api/app/pager` with the same fields, and `POST /api/app/pager/resolve` with `{id}` or `{key}` to resolve its own open or acked page. The page's room is the room of the agent that registered the app, or none when that agent is gone.
 

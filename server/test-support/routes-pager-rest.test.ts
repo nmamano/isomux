@@ -3,8 +3,7 @@
 // Pins: source and target come from the agent's token and agent record, never
 // the body; key dedupe over HTTP; room-access visibility for list, get, ack,
 // resolve and the per-socket event; the source resolves its own page even
-// without room access; pages survive a cold restart, and a boot deletes
-// resolved pages past retention.
+// without room access; pages survive a cold restart.
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -16,9 +15,6 @@ import {
 } from "./harness.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
-import { PAGER_RESOLVED_RETENTION_MS } from "../pager-store.ts";
-import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
 import type { AgentInfo, PagerEntry } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -432,47 +428,5 @@ describe("pager REST: durability", () => {
     expect(again.status).toBe(200);
     expect((again.body as PagerEntry).id).toBe(first.id);
     expect((again.body as PagerEntry).state).toBe("acked");
-  });
-
-  it("a boot deletes resolved pages past retention and keeps the rest", async () => {
-    const { srv, boss, bot } = await office();
-    const raiseAndResolve = async (title: string) => {
-      const page = (
-        await api(srv, "/api/pager", {
-          method: "POST",
-          bearer: bot.token,
-          body: { title },
-        })
-      ).body as PagerEntry;
-      await api(srv, `/api/pager/${page.id}/resolve`, {
-        method: "POST",
-        rawSessionId: boss.rawSessionId,
-      });
-      return page.id;
-    };
-    const oldId = await raiseAndResolve("old");
-    const recentId = await raiseAndResolve("recent");
-    const open = (
-      await api(srv, "/api/pager", {
-        method: "POST",
-        bearer: bot.token,
-        body: { title: "open" },
-      })
-    ).body as PagerEntry;
-    // Age the first resolve past retention on disk.
-    const file = join(srv.stateRoot, "pager.json");
-    const saved = JSON.parse(readFileSync(file, "utf-8")) as PagerEntry[];
-    const old = saved.find((e) => e.id === oldId)!;
-    old.resolved!.at = Date.now() - PAGER_RESOLVED_RETENTION_MS - 1000;
-    writeFileSync(file, JSON.stringify(saved));
-    const restarted = await srv.restart();
-    server = restarted;
-    const list = await api(restarted, "/api/pager?state=all", {
-      rawSessionId: boss.rawSessionId,
-    });
-    const ids = (list.body as PagerEntry[]).map((e) => e.id).sort();
-    expect(ids).toEqual([recentId, open.id].sort());
-    const onDisk = JSON.parse(readFileSync(file, "utf-8")) as PagerEntry[];
-    expect(onDisk.map((e) => e.id).sort()).toEqual(ids);
   });
 });
