@@ -445,11 +445,11 @@ export function getSessionEngineConfig(
 
 // Overwrite a session's stored engine config to match the agent's current
 // values. Unlike ensureSessionCwd this is a deliberate overwrite, not a
-// backfill: it's called at every session bootstrap (system_init), and because
-// every model/effort/permission/engine change funnels through a session replace
-// (and thus a fresh system_init), this keeps the active session's stored config
-// in lockstep with the live agent - so a later resume restores exactly what the
-// session last ran as. Does not touch lastModified, so it never reorders the
+// backfill: it's called at every session bootstrap (system_init) and after
+// every settings swap that keeps the session (a backend can report system_init
+// only at its first send). This keeps the active session's stored config in
+// lockstep with the live agent - so a later resume restores the session's
+// current settings. Does not touch lastModified, so it never reorders the
 // resume picker.
 export function stampSessionEngineConfig(
   agentId: string,

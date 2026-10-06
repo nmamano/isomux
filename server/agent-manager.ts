@@ -1592,6 +1592,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           }
           throw err;
         }
+        // A backend can report system_init only at its first send (OpenCode),
+        // so stamp the resumed session now. Otherwise a resume before that
+        // turn restores the old model from the stale stamp (task a987d05b).
+        if (sessionId) stampCurrentEngine(agentId, managed, sessionId);
       }
 
       // Record the active session's new cwd as source of truth (after any replace
@@ -4294,19 +4298,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // restores engine/model/effort from it, but permission posture always
           // comes from the live agent record through the resolver.
           //
-          // LOAD-BEARING: this is the ONLY thing that keeps a session's stored
-          // engine/model/effort in sync with the live agent. A future code path
-          // that mutates those fields via a bare officeState.updateAgent WITHOUT
-          // replacing the session would silently desync the stored config and
-          // break resume fidelity - route it through replaceSession, or re-stamp
-          // here. Permission posture is recorded for fidelity, not restored.
-          stampSessionEngineConfig(agentId, sessionId, {
-            agentType: managed.info.agentType,
-            modelFamily: managed.info.modelFamily,
-            effort: managed.info.effort,
-            permissionMode: managed.info.permissionMode,
-            codexSandbox: managed.info.codexSandbox,
-          });
+          // LOAD-BEARING: this stamp and the settings-swap stamps (editAgent,
+          // /model, /effort) keep a session's stored engine/model/effort in
+          // sync with the live agent. A future code path that mutates those
+          // fields via a bare officeState.updateAgent without a re-stamp would
+          // silently desync the stored config and break resume fidelity.
+          // Permission posture is recorded for fidelity, not restored.
+          stampCurrentEngine(agentId, managed, sessionId);
           // Backfill: write any cached log entries that were created before sessionId was known.
           // Skip ephemeral entries - they're UI-only by design and must not reach disk.
           if (!hadPreviousSession) {
@@ -7649,6 +7647,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             modelFamily: picked,
           }))
             emit(event);
+          // See the matching stamp in editAgent.
+          if (sessionId) stampCurrentEngine(agentId, managed, sessionId);
           // A sample measured against the old model's window isn't actionable;
           // invalidate the measurement (the conversation itself continues -
           // no gen bump). Repopulates at the end of the next completed turn.
@@ -7727,6 +7727,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             effort: picked.level,
           }))
             emit(event);
+          // See the matching stamp in editAgent.
+          if (sessionId) stampCurrentEngine(agentId, managed, sessionId);
           addLogEntry(
             agentId,
             "system",
@@ -8955,6 +8957,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       emit(event);
   }
 
+  // Record the agent's current engine config as the config of one session.
+  function stampCurrentEngine(
+    agentId: string,
+    managed: ManagedAgent,
+    sessionId: string,
+  ) {
+    stampSessionEngineConfig(agentId, sessionId, {
+      agentType: managed.info.agentType,
+      modelFamily: managed.info.modelFamily,
+      effort: managed.info.effort,
+      permissionMode: managed.info.permissionMode,
+      codexSandbox: managed.info.codexSandbox,
+    });
+  }
+
   // Engine, model, and effort are properties of the session, mirroring cwd.
   // Permission posture belongs to the live agent record and is resolved for
   // the target engine below. Recomputes capabilities from the new backend so UI
@@ -9455,13 +9472,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // before that init: an un-tagged orphan fork resumed after a later engine
         // switch would dead-end on the wrong backend (same trap as legacy
         // sessions). managed.info holds the current engine at fork time.
-        stampSessionEngineConfig(agentId, newSessionId, {
-          agentType: managed.info.agentType,
-          modelFamily: managed.info.modelFamily,
-          effort: managed.info.effort,
-          permissionMode: managed.info.permissionMode,
-          codexSandbox: managed.info.codexSandbox,
-        });
+        stampCurrentEngine(agentId, managed, newSessionId);
       }
 
       // 4. Create new session from fork (or fresh session for non-linked
