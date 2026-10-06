@@ -176,8 +176,7 @@ describe("a settings change reaches a resume of the same session (a987d05b)", ()
     await server.seedOwner();
     const agent = await spawn(server, agentType, refused, "high");
     const sessionId = await runTurn(server, agent.id, "error");
-    if (agentType === "claude")
-      stubClaudeSession(server, agent.cwd, sessionId);
+    if (agentType === "claude") stubClaudeSession(server, agent.cwd, sessionId);
     expect(getSessionEngineConfig(agent.id, sessionId)).toMatchObject({
       modelFamily: refused,
       effort: "high",
@@ -297,8 +296,6 @@ describe("a settings change reaches a resume of the same session (a987d05b)", ()
       modelFamily: "gate/other-model",
     });
     expect(agentOf(server, agent.id).modelFamily).toBe("gate/other-model");
-    expect(getSessionEngineConfig(agent.id, sessionId)?.modelFamily).toBe(
-      GOOD,
-    );
+    expect(getSessionEngineConfig(agent.id, sessionId)?.modelFamily).toBe(GOOD);
   });
 });

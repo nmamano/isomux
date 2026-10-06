@@ -847,14 +847,46 @@ const ADMIN_CLI_SCRIPT = /(?:^|\/)admin-cli(?:\.[cm]?[jt]s)?$/;
 // `--help all`). curl also accepts any unambiguous prefix of a long option.
 const CURL_VALUE_SHORT = new Set("EKCbcdDFPHmoxUQreXYytzTuAw");
 const CURL_VALUE_LONG = [
-  "--cert", "--config", "--continue-at", "--cookie", "--cookie-jar", "--data",
-  "--data-ascii", "--data-binary", "--data-raw", "--data-urlencode",
-  "--dump-header", "--form", "--form-string", "--ftp-port", "--header",
-  "--json", "--max-time", "--output", "--output-dir", "--proxy",
-  "--proxy-header", "--proxy-user", "--quote", "--range", "--referer",
-  "--request", "--speed-limit", "--speed-time", "--stderr", "--telnet-option",
-  "--time-cond", "--trace", "--trace-ascii", "--upload-file", "--url",
-  "--url-query", "--user", "--user-agent", "--variable", "--write-out",
+  "--cert",
+  "--config",
+  "--continue-at",
+  "--cookie",
+  "--cookie-jar",
+  "--data",
+  "--data-ascii",
+  "--data-binary",
+  "--data-raw",
+  "--data-urlencode",
+  "--dump-header",
+  "--form",
+  "--form-string",
+  "--ftp-port",
+  "--header",
+  "--json",
+  "--max-time",
+  "--output",
+  "--output-dir",
+  "--proxy",
+  "--proxy-header",
+  "--proxy-user",
+  "--quote",
+  "--range",
+  "--referer",
+  "--request",
+  "--speed-limit",
+  "--speed-time",
+  "--stderr",
+  "--telnet-option",
+  "--time-cond",
+  "--trace",
+  "--trace-ascii",
+  "--upload-file",
+  "--url",
+  "--url-query",
+  "--user",
+  "--user-agent",
+  "--variable",
+  "--write-out",
 ];
 // curl flags whose full name is a prefix of a value option above. curl
 // prefers the exact name, so `--head` is a flag and not `--header`.
@@ -892,7 +924,9 @@ function curlSocketPaths(args: ShellWord[]): string[] {
     } else if (text.length > 1 && text.startsWith("-")) {
       // A short bundle (`-sSo`): a value option takes the rest of the word,
       // or the next word when it ends the bundle.
-      const value = [...text.slice(1)].findIndex((c) => CURL_VALUE_SHORT.has(c));
+      const value = [...text.slice(1)].findIndex((c) =>
+        CURL_VALUE_SHORT.has(c),
+      );
       if (value === text.length - 2) i++;
     }
   }
@@ -903,8 +937,15 @@ function curlSocketPaths(args: ShellWord[]): string[] {
 const PACKAGE_RUNNER_VALUE_OPTIONS = ["-p", "--package"];
 const PACKAGE_RUNNER_CALL_OPTIONS = ["-c", "--call"];
 const PACKAGE_RUNNER_FLAGS = [
-  "--bun", "--no-install", "--verbose", "--silent", "-y", "--yes", "--no",
-  "-q", "--quiet",
+  "--bun",
+  "--no-install",
+  "--verbose",
+  "--silent",
+  "-y",
+  "--yes",
+  "--no",
+  "-q",
+  "--quiet",
 ];
 
 /** `tsx@4` and `node_modules/.bin/tsx` both name `tsx`. */
@@ -956,7 +997,8 @@ function packageRunnerRunsAdminCli(
     const pkg = packageName(args[i].text);
     result =
       ADMIN_CLI_SCRIPT.test(pkg) ||
-      (SCRIPT_RUNNERS.includes(pkg) && runnerRunsAdminCli(pkg, args.slice(i + 1)));
+      (SCRIPT_RUNNERS.includes(pkg) &&
+        runnerRunsAdminCli(pkg, args.slice(i + 1)));
   }
   seen.set(start, result);
   return result;
@@ -977,7 +1019,8 @@ function usesAdminSocket(command: string): boolean {
     if (SOCKET_CLIENTS.includes(cmd.name))
       return cmd.args.some((arg) => arg.text.includes("admin.sock"));
     return (
-      SCRIPT_RUNNERS.includes(cmd.name) && runnerRunsAdminCli(cmd.name, cmd.args)
+      SCRIPT_RUNNERS.includes(cmd.name) &&
+      runnerRunsAdminCli(cmd.name, cmd.args)
     );
   });
 }

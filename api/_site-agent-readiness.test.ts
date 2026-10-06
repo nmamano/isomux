@@ -169,7 +169,9 @@ describe("isomux.com agent readiness", () => {
     const footerPages: string[] = [];
     for await (const file of new Bun.Glob("site/**/*.html").scan(".")) {
       const html = await Bun.file(file).text();
-      const footer = html.match(/<footer class="site-footer">([\s\S]*?)<\/footer>/);
+      const footer = html.match(
+        /<footer class="site-footer">([\s\S]*?)<\/footer>/,
+      );
       if (!footer?.[1].includes('class="footer-columns"')) continue;
       footerPages.push(file);
       expect(footer[1], file).toContain(`href="${path}"`);
