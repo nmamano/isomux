@@ -31,54 +31,11 @@ const {
   getMembersChatHidden,
   getMembersChatWidth,
   setMembersChatWidth,
-  APP_PREVIEW_OPEN_TTL_MS,
-  getAppPreviewOpenedAt,
-  markAppPreviewOpened,
-  pruneAppPreviewOpens,
   getUsagePin,
   setUsagePin,
   getRoomFilter,
   setRoomFilter,
 } = await import("./device-settings.ts");
-
-describe("app previews", () => {
-  beforeEach(() => store.clear());
-
-  it("remembers an exact app URL only for the app-session lifetime", () => {
-    markAppPreviewOpened("https://habits.office.example", 1000);
-    expect(getAppPreviewOpenedAt("https://habits.office.example", 1001)).toBe(
-      1000,
-    );
-    expect(getAppPreviewOpenedAt("https://other.office.example", 1001)).toBe(
-      null,
-    );
-    expect(
-      getAppPreviewOpenedAt(
-        "https://habits.office.example",
-        1000 + APP_PREVIEW_OPEN_TTL_MS,
-      ),
-    ).toBe(null);
-  });
-
-  it("prunes open facts for apps that are no longer listed", () => {
-    markAppPreviewOpened("https://keep.office.example", 1000);
-    markAppPreviewOpened("https://gone.office.example", 1000);
-    pruneAppPreviewOpens(["https://keep.office.example"]);
-    expect(getAppPreviewOpenedAt("https://keep.office.example", 1001)).toBe(
-      1000,
-    );
-    expect(getAppPreviewOpenedAt("https://gone.office.example", 1001)).toBe(
-      null,
-    );
-  });
-
-  it("does not rewrite the open facts when every listed app remains", () => {
-    const raw = '{ "https://keep.office.example": 1000 }';
-    store.set("isomux-app-preview-opens", raw);
-    pruneAppPreviewOpens(["https://keep.office.example"]);
-    expect(store.get("isomux-app-preview-opens")).toBe(raw);
-  });
-});
 
 // The usage pill's pinned limit (task df489513). Stored per device per agent
 // AND per provider: an agent switched between engines must not stay pinned to a
