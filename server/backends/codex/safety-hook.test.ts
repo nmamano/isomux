@@ -249,6 +249,8 @@ describe("standalone Codex safety hook", () => {
     });
   });
 
+  // One compiled-hook process per corpus case, run in series: about 1.4 s
+  // alone, but it passed 5 s in a full-suite run on a loaded box (2026-10-06).
   it("diffs the in-process core and compiled executable exactly", async () => {
     for (const testCase of corpus) {
       const expected = coreOutput(testCase.input);
@@ -264,7 +266,7 @@ describe("standalone Codex safety hook", () => {
         `${testCase.name}: compiled output`,
       ).toEqual(expected);
     }
-  });
+  }, 30_000);
 
   it("uses the envelope cwd for relative apply_patch paths", async () => {
     const relativeProtected = envelope("apply_patch", {
