@@ -43,10 +43,11 @@ Loop slice N+1 is design slice N (section 8 of the design).
 
 - [x] Slice 1: design doc. Approved by Reviewer 2 at 6472be7b, merged as one commit. Rulings in item 8.
 - [x] Slice 2 (design slice 1): runner, AgentHost, trusted checks, terminal, Node probe, whole diff, tier-1 rig. Approved by Reviewer 3 at b8341b92, merged as one commit. Bun 1.3.11 cannot listen on an inherited fd, so slice 6 uses the RuntimeDirectory layout (design 2.3). Notes: Bun drops a close made inside Bun.listen open() (the runner defers it); Bun's net client reports an immediate peer close as ECONNREFUSED (the rig's raw client is Python); a rig build takes 4-7 min under load; in split mode the welcome agents' default cwd is the server HOME (fix in a later slice).
-- [ ] Slice 3 (design slice 2): agent backends, identity rule, tier-2 live tests
-- [ ] Slice 4 (design slice 3): fence, agent-space files, routes that replace state reads. Also carries, from slice 3 (Isomux PM, 2026-10-06): the async conversion of `inspectStoredSession` and `checkSessionResumable` for all three backends and their callers (boot, canDemote, pickAutoResumeSessionId), with the Claude transcript and Codex rollout existence checks. Until then a split office keeps the stored session id when the inspect throws.
-- [ ] Slice 5 (design slice 4): apps, preview, cron, backups, admin.sock
-- [ ] Slice 6 (design slice 5): installer, migration with undo, container split, docs; removes the rig-only gate
+- [x] Slice 3 (design slice 2): agent backends, identity rule. Approved by Reviewer 2 at 3c631f37, merged as one commit. Task d32356f2 reproduced and fixed. Bun 1.3.11 chmod drops the setgid bit, so the share uses chmod(1). Tier-2 live run: `scripts/split-rig-tier2.sh <rev>` copies the operator's Claude and Codex sign-ins into a throwaway rig container; PARKED FOR NIL, to run once on the slice-7 candidate.
+- [ ] Slice 4 (design slice 3, part 1): session checks and resume paths in agent space
+- [ ] Slice 5 (design slice 3, part 2): fence, agent-space files, routes that replace state reads
+- [ ] Slice 6 (design slice 4): apps, preview, cron, backups, admin.sock, OOM stamping of runner children (measure first)
+- [ ] Slice 7 (design slice 5): installer, migration with undo, container split, docs; removes the rig-only gate
 
 ## SLICE-1 PICKUP: design
 
@@ -105,4 +106,23 @@ Mechanics and traps:
 Acceptance: the stub-backend rig tests prove each spawn runs as the agent uid, the session store reads and writes through the runner (a forked transcript is owned by the agent user), the safety hook runs from the share as the agent user, and an OpenCode authority request crosses the two users. The single-user scoped backend tests pass. The reviewer re-runs the rig on the approved hash. Report the rig command and result, the d32356f2 finding, and the tier-2 command left for Nil.
 
 Decide with the reviewer: the adapter shapes for SpawnedProcess and the Codex client; how the stub binaries live in the rig.
+Locked: rulings 1-11 and the design.
+
+## SLICE-4 PICKUP: session checks and resume paths (design slice 3, part 1)
+
+Goal: in split mode, every check the server makes on a stored session reads agent space through the runner and never mistakes "denied" for "missing". After this slice a split office resumes Claude, Codex and OpenCode sessions as a single-user office does.
+
+Scope:
+- Make `Backend.inspectStoredSession` and `checkSessionResumable` async for all three backends and convert their callers: the boot restore (an async pre-pass), `canDemote` (resolve, then re-check without an await between the check and the change), `pickAutoResumeSessionId` (12 call sites in agent-manager, one in cronjob-manager).
+- The Claude transcript existence and tail reads (claude.ts, agent-manager.ts, cwd-utils.ts) and the Codex rollout walk (cwd-utils.ts) go through AgentHost. In the slice-3 rig, a fork works but the resume after it fails: that must pass here.
+- Denied access is indeterminate, never missing: EACCES, EPERM, and an existsSync false where stat would deny. Keep the stored id. Reproducer from review: /tmp/os3-review-r1/inspect-permission.ts (copy it into a test before /tmp loses it).
+- Codex sign-in state (`isCodexAuthenticated`) and the `bin/codex` wrapper write move to agent space. In a slice-3 dry run, a signed-out Codex agent in split mode got the Claude sign-in text: fix it.
+- Unchecked from slice 3: in 2 of 3 dry runs without credentials, a Codex agent's session ended before any log entry and the message was not logged. Check single-user mode first. If it happens there too, it is a separate bug: report it and do not fix it in this slice.
+- Fix the two comments that still say the stdin bound is 1 MiB (frames.ts, client.ts); the measured bound is under 2 MiB.
+
+Traps: single-user behavior must not change; the auto-resume and demote paths have tests that pin their no-await guards, so read them before converting. Write your state to a file in /tmp as you go and hand off near 50% context.
+
+Acceptance: the rig resumes a Claude, a Codex and an OpenCode session after a split-office restart (stub binaries), keeps the stored id under a denied directory, and shows the Codex signed-out text for a signed-out Codex agent; the single-user scoped tests pass. The reviewer re-runs the rig on the approved hash.
+
+Decide with the reviewer: the shape of the boot pre-pass; how the stub binaries model a resumable session.
 Locked: rulings 1-11 and the design.
