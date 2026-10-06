@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
@@ -22,6 +22,14 @@ import {
   type RoomLook,
 } from "../room-look.ts";
 import { RoomDecorPicker } from "./RoomDecorPicker.tsx";
+import { isFullUserView } from "../user-merge.ts";
+import {
+  followRecord,
+  roomViewChoice,
+  sameRoomViewChoice,
+  withRoom,
+  type RoomViewChoice,
+} from "../room-view-choice.ts";
 import {
   UnsavedChangesPrompt,
   useUnsavedChangesPrompt,
@@ -41,7 +49,7 @@ export function RoomPane({
   onDeleted: () => void;
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
-  const { agents, rooms } = useAppState();
+  const { agents, rooms, users, sessionContext } = useAppState();
   const { t } = useI18n();
   const room = rooms.find((r) => r.id === roomId);
   // Protection is server-authoritative and carried explicitly on the wire:
@@ -89,6 +97,32 @@ export function RoomPane({
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const settingsLoaded = settingsVersion != null;
+
+  // The viewer's own choices for this room (Settings > Rooms edits the same
+  // fields for every room). The lobby has none, and neither does a viewer
+  // whose full record has not arrived.
+  const selfId = sessionContext?.userId ?? null;
+  const self = useMemo(() => {
+    for (const u of users.values()) {
+      if (u.id === selfId && isFullUserView(u)) return u;
+    }
+    return null;
+  }, [users, selfId]);
+  // The save reads the record through this ref after each await, so a write
+  // never sends a list from before a change that landed mid-save.
+  const selfRef = useRef(self);
+  useEffect(() => {
+    selfRef.current = self;
+  });
+  const liveView =
+    self && room && room.type !== "lobby" ? roomViewChoice(self, roomId) : null;
+  const [view, setView] = useState<RoomViewChoice | null>(liveView);
+  const [viewBase, setViewBase] = useState<RoomViewChoice | null>(liveView);
+  if (!sameRoomViewChoice(liveView, viewBase)) {
+    setViewBase(liveView);
+    setView(followRecord(view, viewBase, liveView));
+  }
+  const viewDirty = !sameRoomViewChoice(view, viewBase);
 
   useEffect(() => {
     let cancelled = false;
@@ -189,6 +223,8 @@ export function RoomPane({
           setError(m.message);
           return;
         }
+        const viewError = await saveView();
+        if (viewError) setError(viewError);
       } catch (e) {
         if (e instanceof ApiError && e.code === "version_conflict") {
           setError(t("settings.room.conflict"));
@@ -199,6 +235,68 @@ export function RoomPane({
         setSaving(false);
       }
     })();
+  }
+
+  // Only the controls that differ from the baseline write, each list built
+  // from the live record with only this room changed. A hide writes last: it
+  // takes the room out of this viewer's rooms, and this pane with it, so no
+  // write may come after it and fail out of sight.
+  // Resolves to an error line for a failed room-list read; an ApiError from
+  // a write throws through to the save's own catch.
+  async function saveView(): Promise<string | null> {
+    const want = view;
+    const base = viewBase;
+    const first = selfRef.current;
+    if (!want || !base || !first) return null;
+    const record = () => selfRef.current ?? first;
+    const writeTucked = async () => {
+      await apiFetch<void>("PUT", "/api/me/view/tucked", {
+        tucked: withRoom(record().tucked ?? [], roomId, want.tucked),
+      });
+      setViewBase((b) => b && { ...b, tucked: want.tucked });
+    };
+    const writeNotif = async () => {
+      await apiFetch<void>("PUT", "/api/me/view/notif-rooms", {
+        notifRooms: withRoom(record().notifRooms, roomId, want.notif),
+      });
+      setViewBase((b) => b && { ...b, notif: want.notif });
+    };
+    // The shown list is the complement of hidden over the rooms the viewer
+    // can reach, read fresh: a room left out of it is hidden, so a stale list
+    // would hide a room granted since (the guard Settings > Rooms uses).
+    const writeShown = async (): Promise<boolean> => {
+      let accessible: { id: string }[];
+      try {
+        accessible = (
+          await apiFetch<{ rooms: { id: string; name: string }[] }>(
+            "GET",
+            "/api/me/rooms",
+          )
+        ).rooms;
+      } catch {
+        return false;
+      }
+      const hidden = withRoom(record().hidden, roomId, !want.shown);
+      await apiFetch<void>("PUT", "/api/me/view/shown", {
+        shown: accessible.map((r) => r.id).filter((id) => !hidden.includes(id)),
+      });
+      setViewBase((b) => b && { ...b, shown: want.shown });
+      return true;
+    };
+    const roomListFailed = t("settings.profile.roomListFailed");
+    if (base.shown && !want.shown) {
+      // No notifications write: the server drops a hidden room's.
+      if (want.tucked !== base.tucked) await writeTucked();
+      if (!(await writeShown())) return roomListFailed;
+      onDeleted();
+      return null;
+    }
+    if (want.shown !== base.shown && !(await writeShown())) {
+      return roomListFailed;
+    }
+    if (want.notif !== base.notif) await writeNotif();
+    if (want.tucked !== base.tucked) await writeTucked();
+    return null;
   }
 
   useEffect(() => {
@@ -218,11 +316,13 @@ export function RoomPane({
       (name.trim() !== baselineName ||
         prompt !== baselinePrompt ||
         roomLookBody(look, baselineLook) !== null)) ||
-    mem.dirty;
+    mem.dirty ||
+    viewDirty;
   const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
     setName(baselineName);
     setPrompt(baselinePrompt);
     setLook(baselineLook);
+    setView(viewBase);
     mem.reset();
     setError(null);
   });
@@ -379,6 +479,63 @@ export function RoomPane({
           </>
         )}
 
+        {view && (
+          <>
+            <h4
+              className="agent-settings-group-title"
+              style={{ marginTop: 24 }}
+            >
+              {t("settings.room.yourView")}
+            </h4>
+            {/* Same gates as the Settings > Rooms row: a hidden room keeps
+                its tucked flag but locks it, and loses its notifications. */}
+            <label style={viewRowStyle}>
+              <input
+                type="checkbox"
+                data-view-choice="shown"
+                checked={view.shown}
+                onChange={() =>
+                  setView(
+                    view.shown
+                      ? { ...view, shown: false, notif: false }
+                      : { ...view, shown: true },
+                  )
+                }
+                style={checkboxStyle(true)}
+              />
+              {t("settings.profile.displayedColumn")}
+            </label>
+            <label style={viewRowStyle}>
+              <input
+                type="checkbox"
+                data-view-choice="tucked"
+                checked={view.tucked}
+                disabled={!view.shown}
+                onChange={() => {
+                  if (!view.shown) return;
+                  setView({ ...view, tucked: !view.tucked });
+                }}
+                style={checkboxStyle(view.shown)}
+              />
+              {t("settings.profile.tuckedColumn")}
+            </label>
+            <label style={viewRowStyle}>
+              <input
+                type="checkbox"
+                data-view-choice="notif"
+                checked={view.notif}
+                disabled={!view.shown}
+                onChange={() => {
+                  if (!view.shown) return;
+                  setView({ ...view, notif: !view.notif });
+                }}
+                style={checkboxStyle(view.shown)}
+              />
+              {t("settings.profile.notificationsColumn")}
+            </label>
+          </>
+        )}
+
         {error && (
           <p
             style={{
@@ -429,6 +586,7 @@ export function RoomPane({
                 setName(baselineName);
                 setPrompt(baselinePrompt);
                 setLook(baselineLook);
+                setView(viewBase);
                 mem.reset();
                 setError(null);
               }}
@@ -465,6 +623,20 @@ export function RoomPane({
 }
 
 const inputStyle: React.CSSProperties = dialogInput;
+const viewRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontSize: 12,
+  color: "var(--text-primary)",
+  marginTop: 10,
+};
+const checkboxStyle = (enabled: boolean): React.CSSProperties => ({
+  accentColor: "var(--accent)",
+  cursor: enabled ? "pointer" : "default",
+  opacity: enabled ? 1 : 0.35,
+  margin: 0,
+});
 const cancelBtnStyle: React.CSSProperties = {
   ...dialogCancelBtn,
   fontFamily: "'DM Sans',sans-serif",

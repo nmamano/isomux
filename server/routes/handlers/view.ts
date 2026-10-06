@@ -20,7 +20,8 @@
 // so the view invariants - order deduped + filtered to accessible; hidden =
 // accessible minus shown; notifRooms within effective shown - live in exactly
 // one place. The handler NEVER emits; the core fans out (projected full_state
-// for order/shown, user_updated for notifRooms, the private record for tucked).
+// for shown, room_order_updated for order, user_updated for notifRooms, the private
+// record for tucked).
 //
 // NO-ORACLE (Isomuxer3 Q2): handlers reject malformed body SHAPES (a non-array
 // where room ids are expected), but NEVER an unknown / inaccessible /

@@ -814,6 +814,57 @@ describe("reducer: reconnect replay window (full_state → log_replay_complete)"
   });
 });
 
+describe("reducer: room_order_updated", () => {
+  // An order-only view change (task 49bebe8d). full_state would drop every
+  // stream but the focused one and clear the unread badges; this frame
+  // carries only the rooms, so nothing else may move.
+  it("replaces the rooms and leaves transcripts, badges and the rest as they were", () => {
+    const room = (id: string) => ({
+      id,
+      name: id,
+      type: "office" as const,
+      prompt: null,
+      canCloseWhenEmpty: false,
+    });
+    let s = reducer(initialState, {
+      type: "log_entry",
+      entry: entry("a1", "agent-a", 1),
+    });
+    s = reducer(s, { type: "log_entry", entry: entry("b1", "agent-b", 2) });
+    const before: AppState = {
+      ...s,
+      rooms: [room("r1"), room("r2")],
+      currentRoomId: "r2",
+      focusedAgentId: "agent-a",
+      needsAttention: new Set(["agent-b"]),
+      slashCommands: new Map([["agent-b", { commands: [], skills: [] }]]),
+      stateChangedAt: new Map([["agent-b", 5]]),
+      hydrationEpoch: 3,
+      membersChat: { ...s.membersChat, loaded: true },
+    };
+    const after = reducer(before, {
+      type: "room_order_updated",
+      rooms: [room("r2"), room("r1")],
+    });
+    expect(after.rooms.map((r) => r.id)).toEqual(["r2", "r1"]);
+    expect(after.currentRoomId).toBe("r2");
+    for (const key of [
+      "logs",
+      "logEntryIds",
+      "logsReplay",
+      "needsAttention",
+      "slashCommands",
+      "stateChangedAt",
+      "hydrationEpoch",
+      "membersChat",
+      "focusedAgentId",
+    ] as const) {
+      expect(after[key]).toBe(before[key]);
+    }
+    expect([...after.logs.keys()].sort()).toEqual(["agent-a", "agent-b"]);
+  });
+});
+
 describe("reducer: structured choice interactions", () => {
   const interaction = {
     id: "interaction-1",

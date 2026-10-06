@@ -55,6 +55,7 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   session_context: "recipient-scoped",
   full_state: "recipient-scoped",
   all_rooms_list: "owners",
+  room_order_updated: "recipient-scoped",
   presence_list: "recipient-scoped",
   provider_accounts_updated: "recipient-scoped",
   editor_external_change: "recipient-scoped",

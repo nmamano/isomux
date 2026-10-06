@@ -490,6 +490,7 @@ Cosas que puedes hacer por él:
   "settings.room.conflict":
     "Los ajustes de la sala cambiaron en otro sitio desde que se cargó esta página. Elige otra fila y vuelve para cargar la última versión.",
   "settings.room.deleteEmpty": "Eliminar la sala vacía",
+  "settings.room.yourView": "Tu vista",
 
   "settings.theme.intro":
     "Se guarda en este navegador. También puedes hacer clic en la ventana de la oficina para recorrer los temas sin abrir esta página.",

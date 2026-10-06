@@ -322,6 +322,7 @@ type Action =
   // one on a timeout, for the window where a fresh UI build is talking to a
   // server old enough not to send it (UI builds go live before a restart).
   | { type: "log_replay_complete" }
+  | { type: "room_order_updated"; rooms: RoomWire[] }
   | { type: "set_mobile"; isMobile: boolean }
   | {
       type: "office_settings_updated";
@@ -869,6 +870,14 @@ export function reducer(state: AppState, action: Action): AppState {
         logsReplay: null,
       };
     }
+    // Order only, so only the rooms change: no transcript, badge or other
+    // slice is touched, unlike full_state.
+    case "room_order_updated":
+      return {
+        ...state,
+        rooms: action.rooms,
+        currentRoomId: resolveSelectedRoomId(action.rooms, state.currentRoomId),
+      };
     case "set_mobile":
       return { ...state, isMobile: action.isMobile };
     case "office_settings_updated":

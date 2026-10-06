@@ -501,6 +501,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.room.conflict":
     "Room settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
   "settings.room.deleteEmpty": "Delete empty room",
+  "settings.room.yourView": "Your view",
 
   "settings.theme.intro":
     "Stored in this browser. You can also click the office window to walk through the themes without opening this page.",

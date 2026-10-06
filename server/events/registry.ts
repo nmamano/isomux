@@ -164,6 +164,8 @@ export interface EventPayloads {
     interactions: AgentChoiceInteraction[];
   };
   all_rooms_list: { rooms: RoomWire[] };
+  // The member's own reorder: their projected rooms, no transcript replay.
+  room_order_updated: { rooms: RoomWire[] };
   // recipient-scoped per connectionId: each socket gets its OWN dense-remapped
   // payload. emit() sends this once per socket in a loop (deliver() shapes per
   // recipient) - it is NOT a broadcast event, despite reaching many sockets.
@@ -364,6 +366,10 @@ export const EVENT_REGISTRY = {
   all_rooms_list: {
     audience: "owners",
     projectionKey: { kind: "owners" },
+  },
+  room_order_updated: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "userId" },
   },
   presence_list: {
     audience: "recipient-scoped",

@@ -1052,8 +1052,9 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
   it("reorder_rooms is PER-USER (3b.4 flip): a member reorders their own visible rooms; the global order is unchanged; an owner's reorder does not affect the member", async () => {
     // 3b.4 FLIP of the old global/owner-only reorder. Reorder is now a per-user
     // VIEW preference (applyViewChange): always allowed, NO global _rooms
-    // mutation, NO rooms_reordered event. Each user's full_state reflects only
-    // THEIR own order; one user's reorder never reprojects another.
+    // mutation, NO global rooms_reordered event. The reordering user's own
+    // sockets get room_order_updated (task 49bebe8d: their projected list, no
+    // full_state replay); one user's reorder never reprojects another.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -1064,20 +1065,21 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     await setAccess(server, owner.rawSessionId, member.username, [r1, r2]); // member sees R1, R2
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r1, r2]);
+    const memberFullStates = bag(memberSock).filter(
+      (m) => m.type === "full_state",
+    ).length;
 
     // Member reorders their OWN visible slice (R2 before R1) - always allowed,
-    // no owner gate. They get a projected full_state in their new order; an
-    // inaccessible id in the request (none here) would be silently filtered.
+    // no owner gate. An inaccessible id in the request (none here) would be
+    // silently filtered.
     await httpMut(server, member.rawSessionId, "PUT", "/api/me/view/order", {
       order: [r2, r1],
     });
-    await waitForMessageWhere(
+    const memberReorder = await waitForMessageWhere(
       memberSock,
-      (m) =>
-        m.type === "full_state" &&
-        fullStateRoomIds(m).join() === [r2, r1].join(),
+      (m) => m.type === "room_order_updated",
     );
-    expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r2, r1]);
+    expect(fullStateRoomIds(memberReorder)).toEqual([r2, r1]);
     // The GLOBAL room order is UNCHANGED - reorder no longer mutates _rooms.
     expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
       r1,
@@ -1094,15 +1096,20 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     await httpMut(server, owner.rawSessionId, "PUT", "/api/me/view/order", {
       order: [r3, r2, r1],
     });
-    await waitForMessageWhere(
+    const ownerReorder = await waitForMessageWhere(
       ownerSock,
-      (m) =>
-        m.type === "full_state" &&
-        fullStateRoomIds(m).join() === [r3, r2, r1].join(),
+      (m) => m.type === "room_order_updated",
     );
-    expect(fullStateRoomIds(latestFullState(ownerSock)!)).toEqual([r3, r2, r1]);
-    // Member's order is untouched by the owner's reorder; global still stable.
-    expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r2, r1]);
+    expect(fullStateRoomIds(ownerReorder)).toEqual([r3, r2, r1]);
+    await sleep(50);
+    // Member's order is untouched by the owner's reorder: no second
+    // room_order_updated and no full_state; global still stable.
+    expect(
+      bag(memberSock).filter((m) => m.type === "room_order_updated").length,
+    ).toBe(1);
+    expect(bag(memberSock).filter((m) => m.type === "full_state").length).toBe(
+      memberFullStates,
+    );
     expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
       r1,
       r2,

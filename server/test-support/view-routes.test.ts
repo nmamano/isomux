@@ -74,6 +74,24 @@ async function connectSettled(
   return sock;
 }
 
+// waitFor matches any frame already in the bag; this one only frames after
+// `mark`, for a fanout whose type also arrived at connect.
+async function waitForAfter(
+  sock: TestSocket,
+  mark: number,
+  type: string,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    const found = (sock.messages as Record<string, unknown>[])
+      .slice(mark)
+      .find((m) => m.type === type);
+    if (found) return found;
+    if (Date.now() > deadline) throw new Error(`no ${type} after ${mark}`);
+    await sleep(5);
+  }
+}
+
 async function waitForFullState(
   sock: TestSocket,
   roomIds: string[],
@@ -153,32 +171,73 @@ describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
     ]);
   });
 
-  it("multi-socket: a view change fans out a projected full_state to ALL the caller's sockets, and to no other user", async () => {
+  it("multi-socket: an order-only change sends room_order_updated with the projected rooms to ALL the caller's sockets, replays nothing, and reaches no other user", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
-    grant(member.username, [r1, r2]);
+    const r3 = server.agentManager.createRoom("R3"); // hidden from Mia's view
+    server.agentManager.createRoom("R4"); // inaccessible to Mia
+    grant(member.username, [r1, r2, r3]);
+    hide(member.username, [r3]);
+    const agent = await server.agentManager.spawn(
+      "A",
+      server.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      r1,
+    );
+    if (!agent) throw new Error("spawn failed");
+    await server.agentManager.sendMessage(agent.id, "/help", owner.username);
 
     const sock1 = await connectSettled(server, member.rawSessionId);
     const sock2 = await connectSettled(server, member.rawSessionId);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    const ownerFsBefore = bagLen(ownerSock, "full_state");
+    // Enabling condition: a replay to this member carries transcript and
+    // command frames, so their absence below is the change, not an empty office.
+    expect(bagLen(sock1, "log_entry")).toBeGreaterThan(0);
+    expect(bagLen(sock1, "slash_commands")).toBeGreaterThan(0);
+    const before = (sock: TestSocket) => sock.messages.length;
+    const mark1 = before(sock1);
+    const mark2 = before(sock2);
+    const markOwner = before(ownerSock);
 
-    await putView(server, member.rawSessionId, "order", { order: [r2, r1] });
+    await putView(server, member.rawSessionId, "order", {
+      order: [r2, r3, r1],
+    });
 
-    // BOTH of the member's sockets receive a full_state in the new order.
-    expect(fullStateRoomIds(await waitForFullState(sock1, [r2, r1]))).toEqual([
-      r2,
-      r1,
-    ]);
-    expect(fullStateRoomIds(await waitForFullState(sock2, [r2, r1]))).toEqual([
-      r2,
-      r1,
-    ]);
-    // The unrelated owner gets NO new full_state from the member's view change.
-    expect(bagLen(ownerSock, "full_state")).toBe(ownerFsBefore);
+    for (const [sock, mark] of [
+      [sock1, mark1],
+      [sock2, mark2],
+    ] as const) {
+      const msg = await waitForAfter(sock, mark, "room_order_updated");
+      // The socket's projection: hidden r3 and inaccessible R4 stay out.
+      expect((msg.rooms as RoomWire[]).map((r) => r.id)).toEqual([r2, r1]);
+      // Presence follows room_order_updated on the same socket, so every frame
+      // of this fanout has arrived by the time it shows.
+      await waitForAfter(sock, mark, "presence_list");
+      const types = (sock.messages as Record<string, unknown>[])
+        .slice(mark)
+        .map((m) => m.type);
+      for (const replayType of [
+        "full_state",
+        "log_entry",
+        "slash_commands",
+        "log_replay_complete",
+      ]) {
+        expect(types).not.toContain(replayType);
+      }
+    }
+    // The unrelated owner gets nothing from the member's view change.
+    await sleep(50);
+    expect(
+      (ownerSock.messages as Record<string, unknown>[])
+        .slice(markOwner)
+        .map((m) => m.type),
+    ).not.toContain("room_order_updated");
+    expect(bagLen(ownerSock, "full_state")).toBe(1);
   });
 });
 
@@ -221,19 +280,39 @@ describe("view.setShown + view.listRooms (task 9301d0f4)", () => {
     ).toBe(422);
   });
 
-  it("setShown fans out the projected full_state (hidden room gone) and refreshes the self record", async () => {
+  it("setShown fans out the projected full_state (hidden room gone) with the transcript replay, and refreshes the self record", async () => {
     server = await startTestServer();
-    await server.seedOwner("Boss");
+    const owner = await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
     grant(member.username, [r1, r2]);
+    const agent = await server.agentManager.spawn(
+      "A",
+      server.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      r1,
+    );
+    if (!agent) throw new Error("spawn failed");
+    await server.agentManager.sendMessage(agent.id, "/help", owner.username);
 
     const sock = await connectSettled(server, member.rawSessionId);
+    const mark = sock.messages.length;
     await putView(server, member.rawSessionId, "shown", { shown: [r1] });
 
     // Projection excludes the hidden room.
     expect(fullStateRoomIds(await waitForFullState(sock, [r1]))).toEqual([r1]);
+    // The visible set changed, so the still-visible agent's transcript and
+    // commands replay behind it, up to the fence.
+    await waitForAfter(sock, mark, "log_replay_complete");
+    const types = (sock.messages as Record<string, unknown>[])
+      .slice(mark)
+      .map((m) => m.type);
+    expect(types).toContain("log_entry");
+    expect(types).toContain("slash_commands");
+    expect(types).not.toContain("room_order_updated");
     // The subject's own record refreshes (user_self_updated carries hidden) so
     // the Users-page form can read back what it just saved. Poll the bag for
     // the post-write emission (connect-time self records precede it).

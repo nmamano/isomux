@@ -490,6 +490,7 @@ Coses que pots fer per ell:
   "settings.room.conflict":
     "La configuració de la sala ha canviat en un altre lloc des que es va carregar aquesta pàgina. Tria una altra fila i torna per carregar l'última versió.",
   "settings.room.deleteEmpty": "Elimina la sala buida",
+  "settings.room.yourView": "La teva vista",
 
   "settings.theme.intro":
     "Es desa en aquest navegador. També pots fer clic a la finestra de l'oficina per recórrer els temes sense obrir aquesta pàgina.",

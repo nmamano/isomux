@@ -461,6 +461,7 @@ App 的一些原则：
   "settings.room.conflict":
     "此页面加载后，房间设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
   "settings.room.deleteEmpty": "删除空房间",
+  "settings.room.yourView": "你的视图",
   "settings.theme.intro":
     "存储在此浏览器中。也可以点击办公室的窗户来切换主题，无需打开此页面。",
   "settings.device.intro":

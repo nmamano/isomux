@@ -5201,6 +5201,21 @@ function pushProjectedFullStateForUserId(userId: string) {
   }
 }
 
+// An order-only view change: each of the user's sockets gets its own projected
+// room list, and no transcript replay.
+function pushRoomOrderForUserId(userId: string) {
+  for (const ws of browsers) {
+    if (ws.data.session.userId === userId) {
+      ws.send(
+        JSON.stringify({
+          type: "room_order_updated",
+          rooms: visibleRoomProjection(ws.data.session).rooms,
+        } satisfies ServerMessage),
+      );
+    }
+  }
+}
+
 // Push the presence_list to just ONE user's sockets (each per-recipient
 // projected). Used after a per-user view change alters which rooms that user
 // sees (hidden/order): buildPresenceListFor re-filters their ghosts, but no
@@ -5483,8 +5498,9 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   }
 
   // Fanout, scoped to what actually changed. order/hidden change the PROJECTION
-  // (which rooms the target sees and in what order) → projected full_state to the
-  // target's own sockets. notifRooms and hidden are record fields not carried
+  // (which rooms the target sees and in what order) → to the target's own
+  // sockets, a projected full_state when hidden changed, else room_order_updated,
+  // which replays no transcripts. notifRooms and hidden are record fields not carried
   // in full_state → emitUserUpdated (public wire to all, full record to
   // owners via the admin channel and to the subject via the self channel) +
   // emitUsersList. hidden joined the record fan-out with the hide-rooms UI. The
@@ -5494,13 +5510,17 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   // record field; RoomTabBar is echo-authoritative).
   const hiddenChanged =
     [...next.hidden].sort().join("\u0000") !== prevHiddenKey;
-  const projectionChanged =
-    next.order.join("\u0000") !== prevOrderKey || hiddenChanged;
+  const orderChanged = next.order.join("\u0000") !== prevOrderKey;
   const recordChanged =
     hiddenChanged ||
     [...next.notifRooms].sort().join("\u0000") !== prevNotifKey;
-  if (projectionChanged) {
+  if (hiddenChanged) {
+    // The visible set changed: newly shown rooms need their transcripts.
     pushProjectedFullStateForUserId(targetUserId);
+  } else if (orderChanged) {
+    pushRoomOrderForUserId(targetUserId);
+  }
+  if (hiddenChanged || orderChanged) {
     // Re-push the target's OWN presence list: hiding/reordering changes which
     // rooms are visible to them, so buildPresenceListFor re-filters their ghosts
     // (full_state carries no presence; only this user's sockets are affected).

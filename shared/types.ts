@@ -1838,6 +1838,10 @@ export type ServerMessage =
   // at the end. A client that never receives it (old server, dropped frame)
   // must still converge on its own.
   | { type: "log_replay_complete" }
+  // The member reordered their rooms and the visible set did not change: the
+  // socket's projected room list in the new order, to that member's sockets
+  // only. A full_state would replay every visible transcript for a move.
+  | { type: "room_order_updated"; rooms: RoomWire[] }
   | {
       type: "slash_commands";
       agentId: string;
