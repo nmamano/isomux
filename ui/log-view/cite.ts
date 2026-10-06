@@ -1,7 +1,9 @@
 import type { Text } from "@codemirror/state";
+import { shortenCwd } from "../cwd-display.ts";
 
 // The block the composer inserts when a member cites selected chat text, or
-// selected editor text (then with the file path and line range).
+// selected editor text (then with the file path, home shortened to ~, and
+// the line range).
 //
 // Dollars are escaped: a cited sentence with two of them ("$PORT ... $TOKEN")
 // is otherwise read by the Markdown renderer as inline math between them and
@@ -15,7 +17,7 @@ export function citationBlock(text: string, source?: CiteSource): string {
       ? `line ${source.fromLine}`
       : `lines ${source.fromLine}-${source.toLine}`
     : "";
-  const from = source ? ` from ${source.path} (${lines})` : "";
+  const from = source ? ` from ${shortenCwd(source.path)} (${lines})` : "";
   return `Cited text${from}:\n"""\n${text}\n"""\n`.replace(/\$/g, "\\$");
 }
 

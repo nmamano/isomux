@@ -30,6 +30,16 @@ describe("citationBlock with an editor source", () => {
     expect(block).toContain('"""\na\nb\n"""');
   });
 
+  it("shortens a home directory to ~", () => {
+    const header = citationBlock("a", {
+      path: "/home/nil/blog/post.mdx",
+      fromLine: 1,
+      toLine: 1,
+    }).split("\n")[0];
+    expect(header).toContain("~/blog/post.mdx");
+    expect(header).not.toContain("/home/");
+  });
+
   it("names one line when the range is one line", () => {
     const header = citationBlock("a", {
       path: "x.ts",
