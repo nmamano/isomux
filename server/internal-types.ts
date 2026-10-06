@@ -220,7 +220,7 @@ export interface ManagedAgent {
     inputSummary: Record<string, string>;
     session: BackendSession | null;
   }[];
-  ptySidecar: import("bun").Subprocess | null;
+  ptySidecar: import("./agent-host.ts").AgentProcess | null;
   ptyBuffer: string;
   // /isomux-usage tracking. The SDK's `result` reports session-cumulative totals,
   // which are written to sessions.json on every turn (`usage` field) along

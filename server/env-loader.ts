@@ -78,9 +78,11 @@ function pendingImportError(path: string): Error {
 // the stable user record id; pass null for an unowned context (agents
 // with no spawning user, cronjobs not bound to a user). Returns
 // `undefined` when no managed variables or personal provider are active - the
-// SDK then inherits process.env as-is.
+// SDK then inherits process.env as-is. `base` is the environment the merge
+// starts from; the terminal passes the agent host's own (server/agent-host.ts).
 export function buildEnvForUserId(
   userId: string | null | undefined,
+  base: { [key: string]: string | undefined } = process.env,
 ): { [key: string]: string | undefined } | undefined {
   const officeEnvFile = resolveOfficeEnvSource();
   const userEnvFile = resolveUserEnvSource(userId);
@@ -93,7 +95,7 @@ export function buildEnvForUserId(
   if (!officeEnvFile && !userEnvFile && !personalClaude && !personalCodex)
     return undefined;
 
-  const merged: { [key: string]: string | undefined } = { ...process.env };
+  const merged: { [key: string]: string | undefined } = { ...base };
   if (officeEnvFile) {
     const officeEnv = readEnvFile(officeEnvFile);
     Object.assign(merged, officeEnv);

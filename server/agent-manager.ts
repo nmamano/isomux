@@ -120,7 +120,7 @@ import {
 import { buildSystemPrompt } from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { randomOutfit } from "../shared/outfit-options.ts";
-import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
+import { getAgentHost } from "./agent-host.ts";
 import { capturePreview } from "./preview-capture.ts";
 import type { BrowserResult } from "./browser-actions.ts";
 import {
@@ -2773,23 +2773,25 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Run the same diff machinery as /isomux-diff and emit the result into the
   // agent's chat stream. Used by POST /api/agents/:id/diff so an agent can show
   // the member a styled diff card without the member invoking the slash command.
-  function emitAgentDiff(
+  async function emitAgentDiff(
     agentId: string,
     dir?: string,
     commit?: string,
-  ): { ok: true } | { ok: false; status: number; error: string } {
+  ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
-    const resolved = resolveDiffCwd(dir, managed.info.cwd);
-    if (resolved.kind === "bad_dir") {
-      return {
-        ok: false,
-        status: 400,
-        error: `\`${resolved.attempted}\` is not a directory`,
-      };
-    }
-    const result = computeIsomuxDiff(resolved.cwd, { commit });
+    const result = await getAgentHost().isomuxDiff({
+      dir,
+      agentCwd: managed.info.cwd,
+      commit,
+    });
     switch (result.kind) {
+      case "bad_dir":
+        return {
+          ok: false,
+          status: 400,
+          error: `\`${result.attempted}\` is not a directory`,
+        };
       case "not_repo":
         addLogEntry(
           agentId,
@@ -9667,7 +9669,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   const terminalDeps: TerminalDeps = {
-    buildEnvForUserId,
+    // The terminal starts from the agent host's environment, so a split
+    // office never copies the server's own environment into the shell.
+    buildEnvForUserId: (userId) =>
+      buildEnvForUserId(userId, getAgentHost().baseEnv()),
     getAgent: (agentId) => agents.get(agentId),
     emit: (event) => emit(event),
   };
@@ -9719,7 +9724,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       kill() {
         /* test stub: no real PTY process to signal */
       },
-    } as unknown as import("bun").Subprocess;
+    } as unknown as import("./agent-host.ts").AgentProcess;
     managed.ptyBuffer = buffer;
     return true;
   }

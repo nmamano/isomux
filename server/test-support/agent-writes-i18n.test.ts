@@ -147,7 +147,7 @@ describe("the diff request writes in the owner's language", () => {
     server = await startTestServer();
     const agent = await agentOwnedBy(server, "spanish");
     const dir = notARepo();
-    expect(server.agentManager.emitAgentDiff(agent.id, dir)).toEqual({
+    expect(await server.agentManager.emitAgentDiff(agent.id, dir)).toEqual({
       ok: true,
     });
     expect(systemEntries(server, agent.id)).toContain(
@@ -159,7 +159,7 @@ describe("the diff request writes in the owner's language", () => {
     server = await startTestServer();
     const agent = await agentOwnedBy(server, "neverChose");
     const dir = notARepo();
-    expect(server.agentManager.emitAgentDiff(agent.id, dir)).toEqual({
+    expect(await server.agentManager.emitAgentDiff(agent.id, dir)).toEqual({
       ok: true,
     });
     expect(systemEntries(server, agent.id)).toContain(

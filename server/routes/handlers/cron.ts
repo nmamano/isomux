@@ -120,7 +120,7 @@ export interface CronDeps {
     runId: string,
     dir: string | undefined,
     commit: string | undefined,
-  ): { ok: true } | { ok: false; status: number; error: string };
+  ): Promise<{ ok: true } | { ok: false; status: number; error: string }>;
   attributionFor(identity: Identity): {
     createdBy: string;
     username: string | undefined;
@@ -406,11 +406,11 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         : fail(r.status as HandlerErrorStatus, "run_read_file_failed", r.error);
     },
 
-    "cron.runDiff": (ctx) => {
+    "cron.runDiff": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<AffordanceDiffReq>;
       const dir = typeof body.dir === "string" ? body.dir : undefined;
       const commit = typeof body.commit === "string" ? body.commit : undefined;
-      const r = deps.emitCronjobRunDiff(
+      const r = await deps.emitCronjobRunDiff(
         ctx.params.id,
         ctx.params.runId,
         dir,

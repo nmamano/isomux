@@ -44,7 +44,7 @@ import {
 import { renderUsageReport, usageAudienceForUser } from "./usage-report.ts";
 import { aggregateOnly, type StorageUsage } from "./storage-usage.ts";
 import { renderStorageReport, type AgentLabel } from "./storage-report.ts";
-import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
+import { getAgentHost } from "./agent-host.ts";
 import {
   resolveEditorPath,
   openFile as openEditorFile,
@@ -999,18 +999,18 @@ export function createCommandHandling(deps: HandlerDeps) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
-      const resolved = resolveDiffCwd(args[0], managed.info.cwd);
-      if (resolved.kind === "bad_dir") {
-        deps.addLogEntry(
-          agentId,
-          "system",
-          t("commands.isomuxDiff.notDirectory", { path: resolved.attempted }),
-        );
-        deps.updateState(agentId, "waiting_for_response");
-        return true;
-      }
-      const result = computeIsomuxDiff(resolved.cwd);
+      const result = await getAgentHost().isomuxDiff({
+        dir: args[0],
+        agentCwd: managed.info.cwd,
+      });
       switch (result.kind) {
+        case "bad_dir":
+          deps.addLogEntry(
+            agentId,
+            "system",
+            t("commands.isomuxDiff.notDirectory", { path: result.attempted }),
+          );
+          break;
         case "not_repo":
           deps.addLogEntry(
             agentId,

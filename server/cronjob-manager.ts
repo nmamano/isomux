@@ -55,7 +55,7 @@ import {
   type PersistedUsage,
 } from "./persistence.ts";
 import { resolveEditorPath } from "./file-editor.ts";
-import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
+import { getAgentHost } from "./agent-host.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { existsSync, statSync, readFileSync } from "fs";
 import { basename } from "path";
@@ -1566,28 +1566,30 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // targets a different directory (defaults to the run's cwd snapshot);
   // optional `commit` shows a specific ref or range instead of uncommitted
   // changes. See computeIsomuxDiff for the supported commit syntax.
-  function emitCronjobRunDiff(
+  async function emitCronjobRunDiff(
     jobId: string,
     runId: string,
     dir?: string,
     commit?: string,
-  ): { ok: true } | { ok: false; status: number; error: string } {
+  ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
     const active = activeRuns.get(runId);
     if (!active || active.jobId !== jobId) {
       return { ok: false, status: 404, error: "active run not found" };
     }
     const run = findRun(jobId, runId);
     if (!run) return { ok: false, status: 404, error: "run not found" };
-    const resolved = resolveDiffCwd(dir, run.cwdSnapshot);
-    if (resolved.kind === "bad_dir") {
-      return {
-        ok: false,
-        status: 400,
-        error: `\`${resolved.attempted}\` is not a directory`,
-      };
-    }
-    const result = computeIsomuxDiff(resolved.cwd, { commit });
+    const result = await getAgentHost().isomuxDiff({
+      dir,
+      agentCwd: run.cwdSnapshot,
+      commit,
+    });
     switch (result.kind) {
+      case "bad_dir":
+        return {
+          ok: false,
+          status: 400,
+          error: `\`${result.attempted}\` is not a directory`,
+        };
       case "not_repo":
         writeLog(
           active,

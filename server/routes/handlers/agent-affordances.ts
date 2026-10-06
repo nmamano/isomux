@@ -70,7 +70,7 @@ export interface AgentAffordanceDeps {
     agentId: string,
     dir: string | undefined,
     commit: string | undefined,
-  ): AffordanceResult;
+  ): Promise<AffordanceResult>;
   emitAgentEditRequest(agentId: string, path: string): AffordanceResult;
   emitAgentTerminalCommand(agentId: string, command: string): AffordanceResult;
   emitAgentPreviewUrl(
@@ -126,12 +126,12 @@ export function agentAffordanceHandlers(
       );
     },
 
-    "agents.diff": (ctx) => {
+    "agents.diff": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<AffordanceDiffReq>;
       const dir = typeof body.dir === "string" ? body.dir : undefined;
       const commit = typeof body.commit === "string" ? body.commit : undefined;
       return mapResult(
-        deps.emitAgentDiff(ctx.params.id, dir, commit),
+        await deps.emitAgentDiff(ctx.params.id, dir, commit),
         "diff_failed",
       );
     },

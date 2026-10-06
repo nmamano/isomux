@@ -47,6 +47,30 @@ export function resolveDiffCwd(
   return { kind: "ok", cwd: abs };
 }
 
+export interface IsomuxDiffRequest {
+  // Optional directory argument; resolved like resolveDiffCwd.
+  dir?: string;
+  agentCwd: string;
+  commit?: string;
+}
+
+export type IsomuxDiffRunResult =
+  | ComputeDiffResult
+  | { kind: "bad_dir"; attempted: string };
+
+// The whole diff for one request: directory resolution plus computeIsomuxDiff.
+// In split mode the agent runner runs this as the agent user
+// (server/agent-runner/entries/diff.ts), because both halves read paths and
+// run git config that the agent controls.
+export function runIsomuxDiff(req: IsomuxDiffRequest): IsomuxDiffRunResult {
+  const resolved = resolveDiffCwd(req.dir, req.agentCwd);
+  if (resolved.kind === "bad_dir") return resolved;
+  return computeIsomuxDiff(
+    resolved.cwd,
+    req.commit === undefined ? undefined : { commit: req.commit },
+  );
+}
+
 // Allowlist for ref characters: alnum + the punctuation that legitimately
 // appears in branch names, tags, and commit SHAs. Forbids whitespace,
 // shell metas (`;`, backticks, `$`, `|`, `&`, quotes, redirects), parens,

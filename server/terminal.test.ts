@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { homedir, userInfo } from "os";
 import type { ManagedAgent } from "./internal-types.ts";
 import { openTerminal, type TerminalDeps } from "./terminal.ts";
+import type { AgentHost } from "./agent-host.ts";
 
 afterEach(() => mock.restore());
 
@@ -94,5 +95,57 @@ describe("terminal environment", () => {
       agentId: "agent-terminal",
       exitCode: 1,
     });
+  });
+});
+
+describe("terminal on an agent host", () => {
+  it("takes the shell's environment, node and process from the host", () => {
+    const write = mock((data: string) => data.length);
+    const spawnPipe = mock((argv: string[]) => ({
+      pid: 7,
+      stdin: { write, end: () => {} },
+      stdout: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      }),
+      exited: new Promise<number>(() => {}),
+      kill: () => {},
+      argv,
+    }));
+    const host: AgentHost = {
+      kind: "runner",
+      baseEnv: () => ({ PATH: "/agent/bin", SHELL: "/bin/zsh", USER: "agent" }),
+      home: () => "/agent/home",
+      username: () => "agent-name",
+      realNodePath: () => "/agent/node",
+      spawnPipe,
+      isomuxDiff: async () => ({ kind: "not_repo", cwd: "/" }),
+    };
+    const spawn = spyOn(Bun, "spawn");
+    spyOn(console, "log").mockImplementation(() => {});
+    const managed = {
+      info: { id: "agent-terminal", userId: null, cwd: "/work" },
+      ptySidecar: null,
+      ptyBuffer: "",
+    } as unknown as ManagedAgent;
+    expect(
+      openTerminal("agent-terminal", {
+        getAgent: () => managed,
+        emit: () => {},
+        buildEnvForUserId: () => undefined,
+        host,
+      }),
+    ).toBe(true);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(spawnPipe.mock.calls[0][0][0]).toBe("/agent/node");
+    const env = JSON.parse(write.mock.calls[0][0]).env;
+    expect(env).toMatchObject({
+      SHELL: "/bin/zsh",
+      HOME: "/agent/home",
+      USER: "agent",
+      PATH: "/agent/bin",
+    });
+    expect(env.HOME).not.toBe(homedir());
   });
 });

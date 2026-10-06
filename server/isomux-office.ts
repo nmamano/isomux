@@ -224,6 +224,8 @@ import {
 } from "./auth.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import { startAdminSocket } from "./admin-socket.ts";
+import { startSplitMode } from "./split/start.ts";
+import { setAgentHost } from "./agent-host.ts";
 import { matchRoute } from "./routes/match.ts";
 import { API_ROUTES, type RoutePrecondition } from "./routes/table.ts";
 import {
@@ -7638,6 +7640,15 @@ export async function runOfficeMain(): Promise<void> {
   // inherited by the in-process test harness - and it stamps whatever is
   // already running, so it can start before the server does.
   startAgentOomStamping();
+  // Split mode (task 01f5038c): agents run as a second OS user through the
+  // agent runner. A failed check stops the start; there is no fallback.
+  const split = await startSplitMode(process.env, STATE_ROOT);
+  if (split.mode === "refused") {
+    for (const reason of split.reasons)
+      console.error(`[split] refusing to start: ${reason}`);
+    process.exit(1);
+  }
+  if (split.mode === "split") setAgentHost(split.host);
   try {
     await prepareCodexSafetyHookArtifact();
   } catch (err) {
