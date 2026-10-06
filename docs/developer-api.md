@@ -205,7 +205,7 @@ nothing in that body is written. The lobby returns 422 `skin_not_supported`.
 `GET /api/rooms/<roomId>/settings` returns the room's `skin`, `pet` and `decor`
 beside the prompt. Its `version` covers the prompt only.
 
-API failures use JSON with an `error` object:
+API failures use JSON with an `error` object. An error from isomux.com looks like this:
 
 ```json
 {
@@ -217,7 +217,7 @@ API failures use JSON with an `error` object:
 }
 ```
 
-Use the stable `code` for program logic. Show `message` to a person, and follow `resolution` when an agent can recover.
+Use the stable `code` for program logic. Show `message` to a person. Only isomux.com errors carry `resolution`; follow it when an agent can recover.
 
 App hosting needs Linux with systemd. On any other host, such as a macOS local office, the app routes that register, change, start, stop, restart or read the logs of an app return `501 apps_not_supported`.
 
