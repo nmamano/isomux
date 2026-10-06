@@ -334,7 +334,11 @@ function scrubToken(body: Buffer, token: string): Buffer {
   if (needle.length === 0) return body;
   const parts: Buffer[] = [];
   let from = 0;
-  for (let at = body.indexOf(needle); at !== -1; at = body.indexOf(needle, from)) {
+  for (
+    let at = body.indexOf(needle);
+    at !== -1;
+    at = body.indexOf(needle, from)
+  ) {
     parts.push(body.subarray(from, at), REDACTED);
     from = at + needle.length;
   }
