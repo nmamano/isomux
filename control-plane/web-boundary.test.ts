@@ -130,6 +130,9 @@ describe("only one file reaches the store", () => {
       ...source.matchAll(/(?:import\(|from )"(\.\.\/\.\.[^"]*)"/g),
     ].map((m) => m[1]);
     const allowed = new Set([
+      // The database identity proof: a type-only import of the store, and
+      // nothing else.
+      "../../boot",
       "../../plans",
       "../../signup",
       "../../progress",

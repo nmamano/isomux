@@ -45,7 +45,7 @@ export const PROVISIONER_ORIGIN = "https://isomux-provisioner.fly.dev";
 export const HEALTH_KEYS = [
   "ok",
   "bounds_governed",
-  "branch_pinned",
+  "database_identity",
   "database_reachable",
   "tick_recent",
   "cadence_healthy",
@@ -76,7 +76,7 @@ export const RELEASE_KEYS = [
 export const GATING_KEYS = [
   "ok",
   "bounds_governed",
-  "branch_pinned",
+  "database_identity",
   "database_reachable",
   "tick_recent",
   "cadence_healthy",

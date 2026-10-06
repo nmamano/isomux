@@ -28,9 +28,10 @@ import { accessWindowDurationMs } from "./access-window-policy.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
-import { BRANCH_PIN_ENV, provePinnedBranch } from "./boot.ts";
+import { DATABASE_IDENTITY_ENV, proveDatabaseIdentity } from "./boot.ts";
 import {
   bootstrapDatabase,
+  writeDatabaseIdentity,
   migrateCustomerSshKeyColumns,
   migrateCertificateContactColumns,
   migrateHostedCancellationPolicy,
@@ -263,16 +264,32 @@ async function openStore(): Promise<Store> {
  * table already exists. So the tick loop opens a runtime store: same bounds
  * proof, same catalog check, no DDL and no writes. Bringing a database up stays
  * `bootstrap`, run by an operator's own role.
+ *
+ * The identity proof runs before the legacy intent import, which is the first
+ * write: a database that is not the one this deployment names gets no rows.
  */
-async function openStoreForRuntime(): Promise<Store> {
+async function openStoreForRuntime(): Promise<{
+  store: Store;
+  databaseIdentity: boolean;
+}> {
   fs.mkdirSync(STATE_ROOT, { recursive: true, mode: 0o700 });
   const store = await Store.openRuntime(
     databaseUrl(),
     undefined,
     PROVISIONER_POOL,
   );
+  let databaseIdentity: boolean;
+  try {
+    databaseIdentity = await proveDatabaseIdentity(
+      store,
+      process.env[DATABASE_IDENTITY_ENV],
+    );
+  } catch (err) {
+    await store.close().catch(() => {});
+    throw err;
+  }
   await migrateLegacyIntents(store, INTENTS_DIR);
-  return store;
+  return { store, databaseIdentity };
 }
 
 /** The instance row for a run. The rule that makes the ceiling mean something
@@ -469,7 +486,7 @@ function deploymentIdOf(args: Map<string, string>): string | undefined {
  */
 async function healthReport(deps: {
   store: Store;
-  branchPinned: boolean;
+  databaseIdentity: boolean;
   persisted: boolean;
   lastTickAt: () => number;
   cadenceHealthy: () => boolean;
@@ -499,12 +516,12 @@ async function healthReport(deps: {
   return {
     ok:
       boundsGoverned &&
-      deps.branchPinned &&
+      deps.databaseIdentity &&
       databaseReachable &&
       tickRecent &&
       cadenceHealthy,
     bounds_governed: boundsGoverned,
-    branch_pinned: deps.branchPinned,
+    database_identity: deps.databaseIdentity,
     database_reachable: databaseReachable,
     tick_recent: tickRecent,
     cadence_healthy: cadenceHealthy,
@@ -725,21 +742,16 @@ function scheduleCapabilities(
  * from here, which is exactly why it cannot become a second source of truth.
  */
 async function cmdRun(args: Map<string, string>): Promise<void> {
-  const store = await openStoreForRuntime();
-
   // The boot proof, before anything is served or ticked. `Store.open` returning
   // IS the bounds evidence - it read both back from the engine and would have
-  // refused otherwise - and the pin below refuses a database that is not the
-  // one this deployment was pointed at. Booleans only: neither branch id is
-  // printed here or anywhere else.
-  const branchPinned = await provePinnedBranch(
-    store,
-    process.env[BRANCH_PIN_ENV],
-  );
+  // refused otherwise - and the open refuses a database that is not the one
+  // this deployment names. Booleans only: neither identity value is printed
+  // here or anywhere else.
+  const { store, databaseIdentity } = await openStoreForRuntime();
   const marker = readAndRefreshMarker(STATE_ROOT, deploymentIdOf(args));
   const releaseIdentity = readReleaseIdentity(undefined, deploymentIdOf(args));
   reporter.line(
-    `boot: bounds-governed true, branch-pinned ${branchPinned}, ` +
+    `boot: bounds-governed true, database-identity ${databaseIdentity}, ` +
       `state-persisted ${marker.persisted}, ` +
       `marker-crossed-release ${marker.crossedRelease}, ` +
       `marker-supported ${marker.supported}`,
@@ -818,7 +830,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
       health: () =>
         healthReport({
           store,
-          branchPinned,
+          databaseIdentity,
           persisted: marker.persisted,
           lastTickAt: () => lastTickAt,
           cadenceHealthy: () =>
@@ -1026,6 +1038,18 @@ async function cmdBootstrap(): Promise<void> {
   const result = await bootstrapDatabase(databaseUrl());
   reportBootstrap(result);
   if (!result.schemaReady || !result.zeroUserData) process.exit(1);
+}
+
+/**
+ * Write this database's identity, as its owner: the row `run` and the web app
+ * prove at startup. The value comes from CONTROL_PLANE_DB_IDENTITY, the same
+ * variable the runtimes read, so the operator sets it once per deployment.
+ */
+async function cmdSetDatabaseIdentity(): Promise<void> {
+  const value = process.env[DATABASE_IDENTITY_ENV] ?? "";
+  if (!value) die(`${DATABASE_IDENTITY_ENV} is not set`);
+  const outcome = await writeDatabaseIdentity(databaseUrl(), value);
+  reporter.line(`database identity: ${outcome}`);
 }
 
 async function cmdMigrateCustomerSshKey(): Promise<void> {
@@ -1361,6 +1385,8 @@ async function main(): Promise<void> {
       return cmdOps(args);
     case "bootstrap":
       return cmdBootstrap();
+    case "set-database-identity":
+      return cmdSetDatabaseIdentity();
     case "migrate-customer-ssh-key":
       return cmdMigrateCustomerSshKey();
     case "migrate-certificate-contact":
@@ -1380,7 +1406,7 @@ async function main(): Promise<void> {
     default:
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key|migrate-certificate-contact|migrate-hosted-cancellation|migrate-multi-office|migrate-pending-checkouts> [--flags]",
+          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|set-database-identity|migrate-customer-ssh-key|migrate-certificate-contact|migrate-hosted-cancellation|migrate-multi-office|migrate-pending-checkouts> [--flags]",
       );
       process.exit(2);
   }

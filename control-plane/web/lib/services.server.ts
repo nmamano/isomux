@@ -84,8 +84,21 @@ function openedStore(): Promise<import("../../store").Store> {
     // the schema, and a schema statement from it is refused by the engine
     // rather than tolerated. What it gets instead is the same bounds proof and
     // a catalog check, and a database that was never bootstrapped fails here.
+    //
+    // A deployment that names its database identity gets the same proof as
+    // the provisioner, before any request reads or writes a row. Unset means
+    // no claim, as in local development.
     const { Store } = await import("../../store");
-    return Store.openRuntime(databaseUrl(), undefined, WEB_POOL);
+    const { DATABASE_IDENTITY_ENV, proveDatabaseIdentity } =
+      await import("../../boot");
+    const store = await Store.openRuntime(databaseUrl(), undefined, WEB_POOL);
+    try {
+      await proveDatabaseIdentity(store, process.env[DATABASE_IDENTITY_ENV]);
+    } catch (err) {
+      await store.close().catch(() => {});
+      throw err;
+    }
+    return store;
   })();
   held.opening = opening;
   // An open that fails is not a state to keep. Evicting on rejection is what

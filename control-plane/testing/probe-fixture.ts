@@ -24,7 +24,7 @@ export type HealthKey = (typeof HEALTH_KEYS)[number];
 export const GREEN_HEALTH: Record<HealthKey, boolean> = {
   ok: true,
   bounds_governed: true,
-  branch_pinned: true,
+  database_identity: true,
   database_reachable: true,
   tick_recent: true,
   cadence_healthy: true,

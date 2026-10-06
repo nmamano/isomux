@@ -395,7 +395,7 @@ export function isReadinessPending(f: ProbeFields): boolean {
     f.counts.health_unexpected_fields === 0 &&
     f.counts.health_non_boolean_fields === 0 &&
     f.health.bounds_governed &&
-    f.health.branch_pinned &&
+    f.health.database_identity &&
     f.health.database_reachable &&
     f.health.tick_recent === false &&
     f.health.ok === false &&

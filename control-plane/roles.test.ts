@@ -178,10 +178,11 @@ describe("the matrix is exactly what the deployed command reaches", () => {
     }
   });
 
-  test("the prior web matrix lacks only the reservation persist", () => {
+  test("the prior web matrix lacks only the reservation persist and the identity read", () => {
     const prior = new Set(grantKeys(PRIOR_WEB_GRANTS));
     expect(grantKeys(WEB_GRANTS).filter((key) => !prior.has(key))).toEqual([
       "name_reservations:update",
+      "schema_meta:select",
     ]);
     const current = new Set(grantKeys(WEB_GRANTS));
     expect(

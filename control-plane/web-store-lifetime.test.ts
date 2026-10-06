@@ -20,8 +20,15 @@
 // occupy, because "how many pools did we build" is exactly the question a
 // cached handle answers wrongly while looking correct from the inside.
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import pg from "pg";
+import { DATABASE_IDENTITY_ENV } from "./boot.ts";
+import { writeDatabaseIdentity } from "./bootstrap.ts";
+import { WEB_GRANTS } from "./roles.ts";
+import {
+  dropLeastPrivilegedRoles,
+  leastPrivilegedDsn,
+} from "./testing/least-privilege.ts";
 import {
   TEST_DATABASE_URL,
   PG_TEST_HOOK_TIMEOUT_MS,
@@ -124,7 +131,12 @@ async function resetSlot(): Promise<void> {
 afterEach(async () => {
   await resetSlot();
   delete process.env.CONTROL_PLANE_DB;
+  delete process.env[DATABASE_IDENTITY_ENV];
   await releaseTestStores();
+}, PG_TEST_HOOK_TIMEOUT_MS);
+
+afterAll(async () => {
+  await dropLeastPrivilegedRoles();
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("the web app's store outlives the request", () => {
@@ -183,6 +195,30 @@ describe("the web app's store outlives the request", () => {
     expect(cell().opening).toBeUndefined();
 
     process.env.CONTROL_PLANE_DB = await appDsn();
+    expect(await progressForAccount("acct-nobody", "inst-nobody")).toBeNull();
+  });
+
+  test("a wrong database identity refuses, closes its pool, and is retried", async () => {
+    // As the web role, because the owner's session can write the identity and
+    // is refused for that alone.
+    const ownerDsn = await testDsn();
+    await (await Store.open(ownerDsn)).close();
+    await writeDatabaseIdentity(ownerDsn, "web-identity-other");
+    process.env.CONTROL_PLANE_DB = await leastPrivilegedDsn({
+      dsn: `${ownerDsn}&application_name=${APP}`,
+      grants: WEB_GRANTS,
+    });
+    process.env[DATABASE_IDENTITY_ENV] = "web-identity-named";
+
+    const refused = await progressForAccount("acct-nobody", "inst-nobody").then(
+      () => "IT DID NOT REFUSE",
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    );
+    expect(refused).toContain("refusing to start");
+    expect(cell().opening).toBeUndefined();
+    expect(await backendsSettleTo(0)).toBe(0);
+
+    await writeDatabaseIdentity(ownerDsn, "web-identity-named");
     expect(await progressForAccount("acct-nobody", "inst-nobody")).toBeNull();
   });
 });

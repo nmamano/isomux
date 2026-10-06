@@ -1,4 +1,5 @@
-// What a deployed provisioner proves about itself before it starts working.
+// What a deployed control-plane process proves about its database before it
+// starts working.
 //
 // Two properties, and they are checked in opposite directions from the same
 // seam the store already uses:
@@ -8,69 +9,82 @@
 //   back from the engine, refusing to return a store if either is wrong. So a
 //   store handle IS the evidence, and this module does not re-derive it.
 //
-//   BRANCH. The engine says which branch is answering
-//   (`current_setting('neon.branch_id')`). A connection string can name any
-//   host, so that setting is the only thing that knows. The deployment pins the
-//   id it expects, and a mismatch REFUSES rather than warns: the failure this
-//   guards against is a customer's control plane writing into a scratch branch
-//   that gets deleted, which is the mirror image of what testing/target.ts
-//   refuses for the suites.
+//   IDENTITY. A connection string can name any database, and a restored copy
+//   or a rehearsal database answers exactly like the real one. So the database
+//   owner writes one row (`schema_meta`, key `database_identity`) and the
+//   deployment names the value it expects. A mismatch REFUSES rather than
+//   warns: the failure this guards against is a customer's control plane
+//   writing into a copy that gets thrown away. The runtime roles may read the
+//   row and may not write it, and the proof refuses a session that could: a
+//   process able to rewrite its own identity proves nothing with it.
 //
-// The pin is optional in code and mandatory in the deploy procedure. Unset
-// means "no claim was made": a local run and CI are unchanged, and
-// `branchPinned` is FALSE rather than true, because a check nobody configured
-// has not passed - it was not run. The health surface carries that boolean
-// straight through, so a deployment missing its pin is visibly not ok.
+// The expected value is optional in code and mandatory in deployment. Unset
+// means "no claim was made": a local run and CI are unchanged, and the answer
+// is FALSE rather than true, because a check nobody configured has not passed -
+// it was not run. The health surface carries that boolean straight through, so
+// a deployment missing its expected value is visibly not ok.
 //
-// NEITHER ID IS EVER PRINTED, here or by any caller. The output of this module
-// is a boolean.
+// NEITHER VALUE IS EVER PRINTED, here or by any caller. The output of this
+// module is a boolean.
 
 import type { Store } from "./store.ts";
 
-/** The expected branch id, from the environment. No default, no fallback. */
-export const BRANCH_PIN_ENV = "CONTROL_PLANE_DB_BRANCH";
+/** The identity the deployment expects, from the environment. No default. */
+export const DATABASE_IDENTITY_ENV = "CONTROL_PLANE_DB_IDENTITY";
 
-/**
- * What the session says about which branch answered, or null.
- *
- * Goes through the store's own scrubbed seam, so a driver failure arrives
- * already stripped of connection detail and there is no second handle to the
- * database. The third argument to `current_setting` makes an unknown setting
- * null instead of an error, which is what a non-Neon engine gives.
- */
-export async function liveBranchId(store: Store): Promise<string | null> {
-  const row = await store.sqlGet<{ v: string | null }>(
-    "select current_setting('neon.branch_id', true) as v",
-  );
-  const value = row?.v ?? null;
-  return value && value.length > 0 ? value : null;
+/** The `schema_meta` key the database owner writes the identity under. */
+export const DATABASE_IDENTITY_KEY = "database_identity";
+
+/** What an identity value may look like: a UUID or a readable name. */
+export const DATABASE_IDENTITY_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
+
+function refusal(reason: string): Error {
+  return new Error(`refusing to start: ${reason}`);
 }
 
 /**
- * Prove the store is talking to the pinned branch.
+ * Prove the store is talking to the database this deployment names.
  *
- * Returns whether a pin was configured AND proved. Throws when a pin was
- * configured and the answer is anything other than that branch - including the
- * case where the engine reports no branch at all, because "the setting is
- * missing" is not evidence that the target is right.
+ * Returns whether an expected identity was configured AND proved. Throws when
+ * one was configured and anything is wrong: a malformed expected value, a
+ * session role that can write the identity, a missing row or a different one.
  */
-export async function provePinnedBranch(
+export async function proveDatabaseIdentity(
   store: Store,
-  pin: string | undefined,
+  expected: string | undefined,
 ): Promise<boolean> {
-  if (!pin) return false;
-  const live = await liveBranchId(store);
-  if (live === null) {
-    throw new Error(
-      "refusing to start: this deployment pins the database branch it expects, " +
-        "and the session does not report a branch id, so nothing about which " +
-        "branch is answering can be established",
+  if (!expected) return false;
+  if (!DATABASE_IDENTITY_SHAPE.test(expected)) {
+    throw refusal("the expected database identity is not a valid identity");
+  }
+  // Asked first: a row this session could have written says nothing. INSERT
+  // and UPDATE can be granted per column, so they are asked of every column
+  // as well as the table; DELETE and TRUNCATE exist only per table. Each
+  // privilege list is ORed by the engine.
+  const writable = await store.sqlGet<{ w: boolean }>(
+    "select has_any_column_privilege(current_user, 'schema_meta', " +
+      "'INSERT, UPDATE') or has_table_privilege(current_user, 'schema_meta', " +
+      "'DELETE, TRUNCATE') as w",
+  );
+  if (writable?.w !== false) {
+    throw refusal(
+      "this session's role can write the database identity, so the identity " +
+        "proves nothing; a runtime connects as a role that can only read it",
     );
   }
-  if (live !== pin) {
-    throw new Error(
-      "refusing to start: the branch answering is not the one this deployment " +
-        "pins",
+  const row = await store.sqlGet<{ value: string }>(
+    "select value from schema_meta where key = $1",
+    [DATABASE_IDENTITY_KEY],
+  );
+  if (row === null) {
+    throw refusal(
+      "the database carries no identity row, so nothing establishes that it " +
+        "is the one this deployment names",
+    );
+  }
+  if (row.value !== expected) {
+    throw refusal(
+      "the database answering is not the one this deployment names",
     );
   }
   return true;

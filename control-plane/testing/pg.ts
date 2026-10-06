@@ -56,8 +56,7 @@ export const TEST_DATABASE_URL =
  *
  * Some properties can only be exercised on an engine we control the shape of -
  * a session that reports NO Neon branch id, for instance, which is what the
- * unmanaged half of the store's bounds contract is about and what `boot.ts`'s
- * null case describes. A managed branch reports one on every session, so those
+ * unmanaged half of the store's bounds contract is about. A managed branch reports one on every session, so those
  * cases cannot be staged there at all: they are skipped rather than rewritten
  * into something that passes, because a test that cannot fail is worse than one
  * that does not run.

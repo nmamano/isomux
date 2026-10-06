@@ -21,6 +21,7 @@
 // database has no business holding into the branch it is preparing.
 
 import pg from "pg";
+import { DATABASE_IDENTITY_KEY, DATABASE_IDENTITY_SHAPE } from "./boot.ts";
 import {
   GOVERNED_SETTINGS,
   PRODUCT_TABLES,
@@ -299,6 +300,83 @@ export async function migrateHostedCancellationPolicy(
     await client.query("commit");
   } catch (err) {
     await client.query("rollback").catch(() => {});
+    throw redactConnectionDetails(err, dsn);
+  } finally {
+    client.release();
+    await pool.end().catch(() => {});
+  }
+}
+
+/**
+ * Write the database identity that `boot.ts` proves at startup.
+ *
+ * OWNER ONLY, and checked here rather than left to the grants: a role that
+ * was granted a write on `schema_meta` is still not the owner, and its write
+ * would make the identity something a runtime could forge. The session must
+ * hold the privileges of the table's owner. Replacing an existing value is
+ * allowed on purpose - a restored copy carries its source's row, and the target must get
+ * its own before any runtime is pointed at it. The value is never printed;
+ * the answer says only what happened to the row.
+ */
+export class IdentityWriteRefused extends Error {}
+
+export async function writeDatabaseIdentity(
+  dsn: string,
+  value: string,
+): Promise<"written" | "replaced" | "unchanged"> {
+  if (!DATABASE_IDENTITY_SHAPE.test(value)) {
+    throw new IdentityWriteRefused(
+      "the database identity is not a valid identity value",
+    );
+  }
+  const pool = await openPool(dsn);
+  const client = await pool.connect().catch((err: unknown) => {
+    throw redactConnectionDetails(err, dsn);
+  });
+  try {
+    await client.query("begin");
+    const table = await client.query<{ owner: boolean | null }>(
+      "select (select pg_has_role(current_user, c.relowner, 'USAGE') " +
+        "from pg_class c where c.oid = to_regclass('schema_meta')) as owner",
+    );
+    const owner = table.rows[0]?.owner ?? null;
+    if (owner === null) {
+      throw new IdentityWriteRefused(
+        "this database has no schema yet; run bootstrap before writing its identity",
+      );
+    }
+    if (!owner) {
+      throw new IdentityWriteRefused(
+        "only the database owner writes the database identity, and this " +
+          "session's role is not the owner of schema_meta",
+      );
+    }
+    const prior = await client.query<{ value: string }>(
+      "select value from schema_meta where key = $1 for update",
+      [DATABASE_IDENTITY_KEY],
+    );
+    let outcome: "written" | "replaced" | "unchanged";
+    if (prior.rowCount === 0) {
+      await client.query(
+        "insert into schema_meta (key, value) values ($1, $2)",
+        [DATABASE_IDENTITY_KEY, value],
+      );
+      outcome = "written";
+    } else if (prior.rows[0].value === value) {
+      outcome = "unchanged";
+    } else {
+      await client.query("update schema_meta set value = $2 where key = $1", [
+        DATABASE_IDENTITY_KEY,
+        value,
+      ]);
+      outcome = "replaced";
+    }
+    await client.query("commit");
+    return outcome;
+  } catch (err) {
+    await client.query("rollback").catch(() => {});
+    // Our own refusals carry no connection detail and keep their sentence.
+    if (err instanceof IdentityWriteRefused) throw err;
     throw redactConnectionDetails(err, dsn);
   } finally {
     client.release();

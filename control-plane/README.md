@@ -94,6 +94,9 @@ bun control-plane/cli.ts attention [--ack <instanceId>] [--by <name>]
 bun control-plane/cli.ts status  --run <runId>
 bun control-plane/cli.ts expiry-test --run <runId> --variant boundary|powered-off [--seconds N]
 bun control-plane/cli.ts bootstrap                # an empty database -> schema-ready
+bun control-plane/cli.ts set-database-identity    # owner writes CONTROL_PLANE_DB_IDENTITY into the database
+bun control-plane/restore-check.ts fingerprint    # counts, hashes and definitions of CONTROL_PLANE_DB
+bun control-plane/restore-check.ts compare <source.json> <target.json>
 ```
 
 A rebuild always issues a fresh hosted TLS key and certificate. The TLS-key
@@ -851,6 +854,17 @@ a single statement is written - the API says the branch is the default with no
 parent, and then the engine's own `neon.branch_id` says that is the branch
 answering.
 
+### Checking a restored copy
+
+`restore-check.ts fingerprint` reads `CONTROL_PLANE_DB` (the owner's string) in
+a read-only transaction and prints, per table: the columns by name, type,
+nullability and default in order, the row count and a content hash; then
+sequence state, constraints and indexes. Run it on the source and on the
+restored target, and then `compare` the two files; it names each difference
+and exits non-zero. It never compares raw `attnum`: pg_restore drops the gaps
+that dropped columns leave. The `database_identity` row is left out of the
+hash, so a target that already has its own identity still compares equal.
+
 ### The store API is Promise-based, and the engine handle is private
 
 Every method that reaches the database returns a promise, readers included, and
@@ -1517,7 +1531,7 @@ stopped working.
 ### The secrets, which program sets which
 
 `CONTROL_PLANE_DB` (the direct-endpoint DSN), `CONTROL_PLANE_DB_BRANCH` (the
-branch id that DSN must turn out to be) and `CONTROL_PLANE_MINT_TOKEN` (the seam
+branch id that DSN must turn out to be; only the Fly release reads it) and `CONTROL_PLANE_MINT_TOKEN` (the seam
 bearer) are the FIRST-DEPLOY three, set by `deploy/secrets.ts`. The four
 provider credentials - `CONTABO_CLIENT_ID`, `CONTABO_CLIENT_SECRET`,
 `CONTABO_API_USER`, `CONTABO_API_PASSWORD` - are set by `deploy/provider-secrets.ts`
@@ -1627,21 +1641,27 @@ At boot, before it serves or ticks:
 - **The bounds.** `Store.open` returning IS the evidence - it built the
   `options` string and read both timeouts back from the engine, and refuses to
   return a store otherwise.
-- **The branch.** `boot.ts` asks the session which branch answered
-  (`neon.branch_id`, through the store's own scrubbed seam) and requires it to
-  equal `CONTROL_PLANE_DB_BRANCH`. A mismatch, or a session that reports no
-  branch at all, REFUSES to start. The pin is optional in code and mandatory in
-  the procedure: unset means no claim was made, so `branch_pinned` is false
-  rather than true, and a deployment that lost its pin is visibly not ok.
+- **The database identity.** The database owner writes one row, `schema_meta`
+  key `database_identity`, with `cli.ts set-database-identity`, which refuses
+  a role that does not own `schema_meta`. `boot.ts` requires it to equal
+  `CONTROL_PLANE_DB_IDENTITY` and REFUSES to start on a missing row, a
+  different value, or a session role that can write `schema_meta`, per table
+  or per column. `cp_web` and `cp_provisioner` can only read it. The web app
+  runs the same proof when the variable is set. Unset means no claim was made,
+  so `database_identity` is false rather than true, and a deployment that lost
+  its value is visibly not ok.
 
-Neither branch id is ever printed. The boot line is booleans.
+  A restored copy carries its source's row. Write the target's own value after
+  the restore check and before any runtime points at it.
+
+Neither identity value is ever printed. The boot line is booleans.
 
 `GET /internal/health` answers the same booleans and the running release's
 identity, behind the SAME bearer as the invite verb, and is the reason
 `deploy/probe.ts` exists:
 
 ```
-ok  bounds_governed  branch_pinned  database_reachable  tick_recent  state_persisted  provider_configured
+ok  bounds_governed  database_identity  database_reachable  tick_recent  state_persisted  provider_configured
 ```
 
 The release identity has three independent arms. `release_source` names the
@@ -1714,7 +1734,7 @@ and every check in the output would still pass; there is one deployed
 provisioner, so there is nothing an override could be for.
 
 **And a 200 is not acceptance.** The probe requires the EXACT key set above - a missing key, an extra one, or a value that is not a boolean
-all fail - and then requires `ok`, `bounds_governed`, `branch_pinned`,
+all fail - and then requires `ok`, `bounds_governed`, `database_identity`,
 `database_reachable` and `tick_recent` to be true. `state_persisted` is
 deliberately outside that set, because on a first deploy there is nothing for it
 to have survived, and `provider_configured` is outside it for the reason above. The keys are printed in a fixed order from that fixed list,

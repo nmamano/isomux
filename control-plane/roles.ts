@@ -152,8 +152,8 @@ export interface TableGrant {
  *   stripe_events   - the billing event journal. Its only writer is the
  *                     reconciler. It runs on the provisioner so Stripe can
  *                     update the cache without an operator-held listener.
- *   schema_meta     - the web does not classify first-seen subscriptions; the
- *                     provisioner's reconciler reads the policy cutover.
+ *   schema_meta writes - the web reads the database identity row and nothing
+ *                     else writes there from a runtime; the owner writes it.
  *   operations UPDATE - the web may ASK for work (insert) and read it back. It
  *                     cannot lease, complete, re-drive or flag an operation:
  *                     driving the machine is the provisioner's job, and this is
@@ -231,6 +231,12 @@ export const WEB_GRANTS: readonly TableGrant[] = [
     verbs: ["select", "insert", "update"],
     because:
       "the signed-in owner opens a retained-office Checkout and progress reads its fence",
+  },
+  {
+    table: "schema_meta",
+    verbs: ["select"],
+    because:
+      "the store open proves the database identity row before serving (boot.ts)",
   },
 ];
 
@@ -424,6 +430,11 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
     via: "stripe/reconcile.ts policyForFirstRow reads the cancellation-policy cutover for a first subscription event",
   },
   {
+    table: "schema_meta",
+    verb: "select",
+    via: "boot.ts proveDatabaseIdentity, from openStoreForRuntime, reads the database identity row",
+  },
+  {
     table: "reinstatement_attempts",
     verb: "select",
     via: "expire_checkout handler reads the attempt and its Stripe session identity",
@@ -610,8 +621,8 @@ export const AUDITED_STRIPE_HANDLER_KINDS = ["expire_checkout"] as const;
  * EVERYTHING `cmdRun` CALLS that is not a handler, as the names in its body.
  *
  * The handlers are the loop's work; these are the surfaces around it - the
- * open, the legacy intent migration inside it, the branch pin, the state
- * marker, the health reporter, the invite seam, the liveness watch and the
+ * open with the identity proof and the legacy intent migration inside it, the
+ * state marker, the health reporter, the invite seam, the liveness watch and the
  * post-tick exit code - and each one can reach the database as
  * surely as a handler can. `mint_invite`'s seam is the proof: the verb the
  * 2026-08-12 run was refused is reached from `startMintSeam`, not from a
@@ -623,7 +634,6 @@ export const AUDITED_STRIPE_HANDLER_KINDS = ["expire_checkout"] as const;
  */
 export const AUDITED_CMDRUN_SURFACES = [
   "openStoreForRuntime",
-  "provePinnedBranch",
   "readAndRefreshMarker",
   // Reads only the release identity baked into the image. It cannot reach the
   // database, but it is still part of cmdRun's audited non-handler surface.

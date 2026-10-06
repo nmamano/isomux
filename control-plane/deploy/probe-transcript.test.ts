@@ -259,8 +259,8 @@ describe("what a run amounts to", () => {
       { database_reachable: false, tick_recent: false, ok: false },
     ],
     [
-      "a branch it cannot prove",
-      { branch_pinned: false, tick_recent: false, ok: false },
+      "a database identity it cannot prove",
+      { database_identity: false, tick_recent: false, ok: false },
     ],
     [
       "bounds it does not carry",

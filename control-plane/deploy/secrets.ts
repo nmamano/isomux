@@ -36,7 +36,6 @@ import {
   project,
   targetFor,
 } from "../exercises/neon-api.ts";
-import { BRANCH_PIN_ENV } from "../boot.ts";
 import {
   APP,
   CONTABO_SECRET_NAMES,
@@ -57,6 +56,13 @@ export type { Pair };
 /** The database string's name, which is the one secret the credential move
  * rotates on its own. Named here so that program cannot spell it differently. */
 export const DB_SECRET_NAME = "CONTROL_PLANE_DB";
+
+/**
+ * The branch id the Fly release proves at boot. That release predates the
+ * database identity row (boot.ts), and this program serves only it: newer
+ * releases run off Fly and read CONTROL_PLANE_DB_IDENTITY instead.
+ */
+export const BRANCH_PIN_ENV = "CONTROL_PLANE_DB_BRANCH";
 
 /**
  * The only names this program may set. Anything else is a refusal.

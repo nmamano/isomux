@@ -1294,8 +1294,9 @@ export class Store {
    * build deploys on and absent everywhere else, so it answers "is this a
    * deployment" without any configuration being trusted. This is the ONLY place
    * the store knows anything about the provider, and it is deliberately a
-   * presence test rather than a value: what the branch IS remains `boot.ts`'s
-   * question, and the id is never read here, compared here or printed here.
+   * presence test rather than a value: which database this is remains
+   * `boot.ts`'s question, and the id is never read here, compared here or
+   * printed here.
    */
   private async onManagedBranch(): Promise<boolean> {
     const row = await this.sqlGet<{ v: string | null }>(

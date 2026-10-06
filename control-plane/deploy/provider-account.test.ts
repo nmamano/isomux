@@ -473,7 +473,7 @@ describe("the health gate before the listing", () => {
   const HEALTHY = {
     ok: true,
     bounds_governed: true,
-    branch_pinned: true,
+    database_identity: true,
     database_reachable: true,
     tick_recent: true,
     cadence_healthy: true,
