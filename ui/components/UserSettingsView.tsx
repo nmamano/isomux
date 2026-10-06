@@ -518,7 +518,7 @@ export function UserSettingsView({
             its own back control below, which goes to the sidebar list, so a
             bare arrow here would read as one more "back to Settings" - it
             says where it goes instead. Desktop shows no second control and
-            keeps the bare arrow the Tasks and Schedules pages use. */}
+            keeps the bare arrow the Tasks and Automations pages use. */}
         <button
           onClick={() => leaveEdit(() => onClose())}
           style={{
@@ -1017,6 +1017,20 @@ function sameRoomSet(a: string[], b: string[]): boolean {
   return true;
 }
 
+// The tab bar's order: the rooms in `order` first, then every other room in
+// the order it arrived (the office order).
+export function roomsInMemberOrder<T extends { id: string }>(
+  rooms: readonly T[],
+  order: readonly string[],
+): T[] {
+  const rank = new Map(order.map((id, i) => [id, i]));
+  const at = (room: T, i: number) => rank.get(room.id) ?? order.length + i;
+  return rooms
+    .map((room, i) => ({ room, key: at(room, i) }))
+    .sort((a, b) => a.key - b.key)
+    .map((x) => x.room);
+}
+
 // One-line roster summary under the user's name. Replaces the
 // old rooms/env/profile line, which truncated into invisibility and answered
 // nothing anyone asked; this one answers "are they here, and if not, when
@@ -1309,8 +1323,11 @@ function UserEditPanel({
   // never from these rows. Owner viewers: the unfiltered global list (they
   // manage access to every room). Member self-edit: the fetched accessible
   // list, falling back to the projected rooms until it lands.
-  const rowsForPrefs: { id: string; name: string }[] =
-    !isOwner && isMe ? (meRooms ?? editorRooms) : editorRooms;
+  const rowsForPrefs: { id: string; name: string }[] = roomsInMemberOrder(
+    !isOwner && isMe ? (meRooms ?? editorRooms) : editorRooms,
+    // The viewer's own tab order, also when an owner edits another member.
+    rooms.map((r) => r.id),
+  );
   const [memberPrompt, setMemberPrompt] = useState<string>(
     user.memberPrompt ?? "",
   );
