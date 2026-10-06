@@ -417,6 +417,8 @@ function isLegacyPersistedApp(
     createdByAgentId,
     messageTargetAgentId,
     createdAt,
+    thumbnailUpdatedAt,
+    archived,
   } = value;
   return (
     // The name is the key AND a path component, so it is re-checked against the
@@ -444,7 +446,11 @@ function isLegacyPersistedApp(
     typeof createdBy === "string" &&
     isOptionalString(createdByAgentId, 200) &&
     isOptionalString(messageTargetAgentId, 200) &&
-    isFiniteNumber(createdAt)
+    isFiniteNumber(createdAt) &&
+    (thumbnailUpdatedAt === undefined ||
+      (Number.isSafeInteger(thumbnailUpdatedAt) &&
+        (thumbnailUpdatedAt as number) >= 0)) &&
+    (archived === undefined || typeof archived === "boolean")
   );
 }
 
@@ -766,6 +772,10 @@ export interface UpdateAppInput {
   cwd?: string;
   description?: string | null;
   messageTargetAgentId?: string;
+  // Set by the thumbnail upload, never by PATCH.
+  thumbnailUpdatedAt?: number;
+  // true sets the flag; false removes the key.
+  archived?: boolean;
 }
 
 export interface AppRegistry {
@@ -1011,6 +1021,13 @@ export function createAppRegistry(
       if (patch.description !== undefined && patch.description !== null) {
         assertDescription(patch.description);
       }
+      if (
+        patch.thumbnailUpdatedAt !== undefined &&
+        (!Number.isSafeInteger(patch.thumbnailUpdatedAt) ||
+          patch.thumbnailUpdatedAt < 0)
+      ) {
+        throw new Error("thumbnailUpdatedAt must be a whole number of ms");
+      }
 
       const state = snapshot();
       const apps = state.apps;
@@ -1024,7 +1041,12 @@ export function createAppRegistry(
         ...(patch.messageTargetAgentId !== undefined
           ? { messageTargetAgentId: patch.messageTargetAgentId }
           : {}),
+        ...(patch.thumbnailUpdatedAt !== undefined
+          ? { thumbnailUpdatedAt: patch.thumbnailUpdatedAt }
+          : {}),
       };
+      if (patch.archived === true) updated.archived = true;
+      else if (patch.archived === false) delete updated.archived;
       withRegistrationGeneration(
         updated,
         appRegistrationGeneration(apps[index]),

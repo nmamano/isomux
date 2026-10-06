@@ -34,7 +34,6 @@ import { STATE_ROOT } from "../config.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { AppRegistryError } from "../app-registry.ts";
 import { APP_LOG_LINES_DEFAULT } from "../app-supervisor.ts";
-import { UNKNOWN_RUNTIME } from "../app-supervisor.ts";
 import type { AppWire } from "../../shared/contract-shapes.ts";
 import type { AgentInfo, AppListWire, AppRecord } from "../../shared/types.ts";
 import { appsHandlers, type AppsDeps } from "../routes/handlers/apps.ts";
@@ -2298,13 +2297,14 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     projectForList: (_identity, _record, wire) => wire,
     publicUrl: () => null,
     canAccess: () => true,
-    capturePreview: async () => ({
-      ok: true,
-      png: Buffer.from("png"),
-      caption: "hello",
-      filename: "hello.png",
-    }),
-    invalidatePreview: () => {},
+    registrationGeneration: (app) => app.hostGen,
+    thumbnails: {
+      write: () => {},
+      read: () => null,
+      remove: () => {},
+      removeRegistration: () => {},
+    },
+    now: () => 1,
     announce: boom,
     announceRemoved: boom,
     provisionToken: () => true,
@@ -2376,6 +2376,9 @@ describe("routes/apps: a host that cannot run apps", () => {
       ["apps.stop", {}],
       ["apps.restart", {}],
       ["apps.logs", {}],
+      ["apps.archive", {}],
+      ["apps.unarchive", {}],
+      ["apps.setThumbnail", {}],
     ] as const) {
       const { touched, deps } = unsupportedDeps();
       const result = await appsHandlers(deps)[opId](unitCtx(body));
@@ -2399,57 +2402,6 @@ describe("routes/apps: a host that cannot run apps", () => {
     expect(listed).toMatchObject({ kind: "json" });
     const removed = await handlers["apps.delete"](unitCtx());
     expect(removed.kind).not.toBe("error");
-  });
-});
-
-describe("routes/apps: screenshot preview", () => {
-  it("uses the app-host access predicate and returns PNG bytes", async () => {
-    const seen: string[] = [];
-    const handlers = appsHandlers(
-      throwingDeps({
-        canAccess: (_app, userId) => {
-          seen.push(userId);
-          return true;
-        },
-        states: () =>
-          new Map([["hello", { ...UNKNOWN_RUNTIME, state: "running" }]]),
-      }),
-    );
-    const result = await handlers["apps.preview"](unitCtx());
-    expect(result.kind).toBe("bytes");
-    expect(seen).toEqual(["u-alice"]);
-  });
-
-  it("rejects a stopped app before a cache hit can be served", async () => {
-    let captured = false;
-    let invalidated = false;
-    const handlers = appsHandlers(
-      throwingDeps({
-        canAccess: () => true,
-        capturePreview: async () => {
-          captured = true;
-          return {
-            ok: true,
-            png: Buffer.from("png"),
-            caption: "hello",
-            filename: "hello.png",
-          };
-        },
-        invalidatePreview: () => {
-          invalidated = true;
-        },
-        states: () =>
-          new Map([["hello", { ...UNKNOWN_RUNTIME, state: "stopped" }]]),
-      }),
-    );
-    const result = await handlers["apps.preview"](unitCtx());
-    expect(result).toMatchObject({
-      kind: "error",
-      status: 409,
-      code: "app_not_running",
-    });
-    expect(captured).toBe(false);
-    expect(invalidated).toBe(true);
   });
 });
 

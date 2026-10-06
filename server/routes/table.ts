@@ -241,6 +241,9 @@ export interface RouteDef<Req = unknown, Res = unknown> {
   // Live-state semantic preconditions the handler must enforce (NOT pure
   // authz; see RoutePrecondition). Absent ⇒ none. Pinned by a contract test.
   preconditions?: readonly RoutePrecondition[];
+  // "binary": the executor does not read or JSON-parse the body; the handler
+  // reads ctx.req itself. Absent means a JSON body.
+  body?: "binary";
   // Phantom type carriers (no runtime presence): bind the request/response types
   // for handler typing. defineRoute<Req,Res> attaches them.
   readonly __req?: Req;
@@ -1443,12 +1446,25 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("app:read", appOwnerOrOfficeOwner("name")),
     emits: [],
   }),
+  // The thumbnail is served to everyone who can see the app, as the list is:
+  // operationalAuthenticated here, and the handler checks visibility so that a
+  // caller who cannot see the app gets the same 404 as for an unknown name.
   defineRoute<void, Uint8Array>({
-    opId: "apps.preview",
-    method: "POST",
-    path: "/api/apps/:name/preview",
+    opId: "apps.getThumbnail",
+    method: "GET",
+    path: "/api/apps/:name/thumbnail",
     auth: cap("app:read", operationalAuthenticated),
     emits: [],
+  }),
+  // A raw PNG, JPEG or WebP body, so the executor leaves the body to the
+  // handler (body: "binary").
+  defineRoute<Uint8Array, AppWire>({
+    opId: "apps.setThumbnail",
+    method: "PUT",
+    path: "/api/apps/:name/thumbnail",
+    auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    emits: ["app_upserted"],
+    body: "binary",
   }),
   defineRoute<AppRegisterReq, AppWire>({
     opId: "apps.register",
@@ -1505,6 +1521,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "apps.restart",
     method: "POST",
     path: "/api/apps/:name/restart",
+    auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    emits: ["app_upserted"],
+  }),
+  // One shared flag per app; start and restart clear it.
+  defineRoute<void, AppWire>({
+    opId: "apps.archive",
+    method: "POST",
+    path: "/api/apps/:name/archive",
+    auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    emits: ["app_upserted"],
+  }),
+  defineRoute<void, AppWire>({
+    opId: "apps.unarchive",
+    method: "POST",
+    path: "/api/apps/:name/unarchive",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
     emits: ["app_upserted"],
   }),

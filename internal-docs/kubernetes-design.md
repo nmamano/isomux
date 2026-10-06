@@ -133,8 +133,8 @@ with `CAP_SYS_ADMIN`. `clone` without namespace flags stays allowed.
   works, but it needs cert-manager; we do not require it.
 - With `RuntimeDefault` (expected, to be measured in the cluster run): with
   `allowPrivilegeEscalation: false` the setuid `chrome-sandbox` helper cannot
-  work either, so Chromium exits with "No usable sandbox". Preview cards and
-  app screenshots fail. The office, agents, terminal and apps keep working.
+  work either, so Chromium exits with "No usable sandbox". Preview cards
+  fail. The office, agents, terminal and apps keep working.
   Codex's tool sandbox (bwrap) also uses user namespaces; its behaviour under
   `RuntimeDefault` is unchecked, and the run measures it. The docs do not offer
   `Unconfined` or `--no-sandbox`.

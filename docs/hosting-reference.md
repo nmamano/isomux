@@ -6,7 +6,7 @@ Choose a complete setup guide on the [hosting page](self-hosted.md). This page c
 
 Everything below is one script, [`deploy/install.sh`](https://github.com/nmamano/isomux/blob/main/deploy/install.sh).
 
-- Installs bun, Node.js, build-essential, python3, the Claude Code CLI, GitHub CLI, git, Caddy, and Chrome (headless, for page-preview cards and app screenshots); fetches isomux and builds it.
+- Installs bun, Node.js, build-essential, python3, the Claude Code CLI, GitHub CLI, git, Caddy, and Chrome (headless, for page-preview cards); fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Sets up the `isomux` account so apps agents build keep running without anyone logged in and start again after a reboot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy keeps a size-bounded request log for 14 days and redacts invite and app sign-in credentials from URLs. Its admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.

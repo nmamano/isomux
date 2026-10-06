@@ -229,18 +229,18 @@ describe("executor: result rendering", () => {
   it("renders byte results without changing the PNG body", async () => {
     const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
     const r = route(
-      "app.preview",
-      "POST",
-      "/api/apps/x/preview",
+      "app.thumbnail",
+      "GET",
+      "/api/apps/x/thumbnail",
       capAuth("app:read"),
     );
     const deps = makeDeps({
-      "app.preview": () =>
+      "app.thumbnail": () =>
         bytes(png, "image/png", { "Cache-Control": "no-store" }),
     });
     const res = await executeRoute(
       match(r),
-      req("POST", "/api/apps/x/preview"),
+      req("GET", "/api/apps/x/thumbnail"),
       userIdentity("member"),
       deps,
     );
@@ -248,6 +248,77 @@ describe("executor: result rendering", () => {
     expect(res.headers.get("content-type")).toBe("image/png");
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(png);
+  });
+
+  // A binary route (an image upload) leaves the body to the handler: the
+  // bytes arrive unchanged, and a refused caller's body is never read.
+  it("a binary route hands the handler the exact request bytes", async () => {
+    // Not UTF-8 and not JSON: a text read would replace 0xff and a JSON
+    // parse would answer 400.
+    const raw = Uint8Array.from([0x89, 0x50, 0xff, 0x00, 0xfe, 0x7b]);
+    const r: RouteDef = {
+      ...route("app.upload", "PUT", "/api/u", capAuth("app:write")),
+      body: "binary",
+    };
+    let seen: Uint8Array | null = null;
+    const deps = makeDeps({
+      "app.upload": async (ctx) => {
+        seen = new Uint8Array(await ctx.req.arrayBuffer());
+        return ok({ size: seen.length });
+      },
+    });
+    const res = await executeRoute(
+      match(r),
+      new Request("http://test/api/u", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: raw,
+      }),
+      userIdentity("member"),
+      deps,
+    );
+    expect(res.status).toBe(200);
+    expect(seen).not.toBeNull();
+    expect(Array.from(seen!)).toEqual(Array.from(raw));
+  });
+
+  it("a binary route refused by authorization never reads the body", async () => {
+    const r: RouteDef = {
+      ...route("app.upload", "PUT", "/api/u", capAuth("app:write", officeOwner)),
+      body: "binary",
+    };
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new Uint8Array(1024));
+        controller.close();
+      },
+      // highWaterMark 0: nothing is pulled until somebody reads.
+    }, { highWaterMark: 0 });
+    let ran = false;
+    const deps = makeDeps({
+      "app.upload": () => {
+        ran = true;
+        return ok({});
+      },
+    });
+    const request = new Request("http://test/api/u", {
+      method: "PUT",
+      body: stream,
+      // @ts-expect-error - Bun accepts duplex for a streamed request body.
+      duplex: "half",
+    });
+    const res = await executeRoute(
+      match(r),
+      request,
+      userIdentity("member"),
+      deps,
+    );
+    expect(res.status).toBe(403);
+    expect(ran).toBe(false);
+    expect(request.bodyUsed).toBe(false);
+    expect(pulled).toBe(0);
   });
 
   it("unparseable JSON body -> 400 before authorization", async () => {

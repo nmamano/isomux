@@ -41,6 +41,8 @@ export type HandlerErrorStatus =
   | 404
   | 405
   | 409
+  | 413
+  | 415
   | 422
   | 429
   | 500
@@ -269,10 +271,13 @@ export async function executeRoute(
   // body is a 400 before any auth, matching today's handlers.
   const contentType = req.headers.get("content-type") ?? "";
   const isMultipart = contentType.includes("multipart/form-data");
+  // A binary route (an image upload) reads `req` itself, after authorization,
+  // so an unauthorized caller never makes the server buffer its body.
+  const isBinary = route.body === "binary";
   const isGet = method === "GET" || method === "HEAD";
   let rawBody = "";
   let body: unknown = undefined;
-  if (!isGet && !isMultipart) {
+  if (!isGet && !isMultipart && !isBinary) {
     rawBody = await req.text();
     if (rawBody.length > 0) {
       try {
@@ -321,7 +326,9 @@ export async function executeRoute(
   if (!handler) return render(fail(404, "not_found"));
 
   const idempotencyKey =
-    !isGet && !isMultipart ? req.headers.get("Idempotency-Key") : null;
+    !isGet && !isMultipart && !isBinary
+      ? req.headers.get("Idempotency-Key")
+      : null;
 
   try {
     const outcome = await deps.idempotency.run<HandlerResult>(

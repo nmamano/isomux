@@ -893,7 +893,8 @@ const demoCronjobWire = (cronjob: Cronjob): CronjobListWire => ({
 // The creators are deliberately one of each: `standup-board` names an agent the
 // demo office still has, so its row links to that conversation, while
 // `cost-tracker` names one it does not and stays plain text.
-const demoApps: AppWire[] = [
+// The demo member manages both apps, as an owner does on a real office.
+const demoApps: (AppWire & { canManage: true })[] = [
   {
     name: "standup-board",
     hostLabel: "standup-board",
@@ -910,6 +911,7 @@ const demoApps: AppWire[] = [
     state: "running",
     restartCount: 0,
     url: "https://standup-board.office.example",
+    canManage: true,
   },
   {
     name: "cost-tracker",
@@ -927,6 +929,7 @@ const demoApps: AppWire[] = [
     state: "running",
     restartCount: 0,
     url: "https://cost-tracker.office.example",
+    canManage: true,
   },
 ];
 
@@ -2658,7 +2661,7 @@ export async function demoApi(
       ),
     };
   }
-  // apps.logs / apps.{start,stop,restart} / apps.delete - the name is a path
+  // apps.logs / apps.{start,stop,restart,archive,unarchive} / apps.delete - the name is a path
   // param, so these match by pattern like the cronjob run routes below.
   const appLogsMatch = pathname.match(/^\/api\/apps\/([^/]+)\/logs$/);
   if (appLogsMatch && method === "GET") {
@@ -2671,14 +2674,18 @@ export async function demoApi(
     };
   }
   const appVerbMatch = pathname.match(
-    /^\/api\/apps\/([^/]+)\/(start|stop|restart)$/,
+    /^\/api\/apps\/([^/]+)\/(start|stop|restart|archive|unarchive)$/,
   );
   if (appVerbMatch && method === "POST") {
     const name = decodeURIComponent(appVerbMatch[1]);
     const verb = appVerbMatch[2];
+    if (verb === "archive" || verb === "unarchive") {
+      return demoAppSet(name, { archived: verb === "archive" || undefined });
+    }
+    // Starting an app takes it out of the archive, as on the real server.
     return demoAppSet(name, {
       state: verb === "stop" ? "stopped" : "running",
-      ...(verb === "stop" ? {} : { restartCount: 0 }),
+      ...(verb === "stop" ? {} : { restartCount: 0, archived: undefined }),
     });
   }
   const appMatch = pathname.match(/^\/api\/apps\/([^/]+)$/);

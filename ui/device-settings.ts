@@ -47,7 +47,6 @@ export function setMembersChatWidth(width: number): void {
     localStorage.setItem(KEY_MEMBERS_CHAT_WIDTH, String(width));
   } catch {}
 }
-const KEY_APP_PREVIEWS = "isomux-app-previews";
 const KEY_APP_PREVIEW_OPENS = "isomux-app-preview-opens";
 // Keep aligned with APP_SESSION_TTL_MS in server/app-auth.ts. A preview cannot
 // renew that app-host session, so an older open fact must show the prompt again.
@@ -95,22 +94,9 @@ export function setMembersChatHidden(hidden: boolean): void {
   } catch {}
 }
 
-// App previews are on unless this device opts out. A cold, serialized fill
-// of a large Apps page can take tens of seconds; the toggle remains the out.
-export function getAppPreviews(): boolean {
-  if (typeof localStorage === "undefined") return false;
-  return localStorage.getItem(KEY_APP_PREVIEWS) !== "off";
-}
-
-export function setAppPreviews(enabled: boolean): void {
-  if (typeof localStorage === "undefined") return;
-  localStorage.setItem(KEY_APP_PREVIEWS, enabled ? "on" : "off");
-}
-
-// The Apps page filters, each remembered on this device. Both start off.
-export type AppFilter = "hideStopped" | "onlyMine";
+// The Apps page filter, remembered on this device. It starts off.
+export type AppFilter = "onlyMine";
 const APP_FILTER_KEYS: Record<AppFilter, string> = {
-  hideStopped: "isomux-apps-hide-stopped",
   onlyMine: "isomux-apps-only-mine",
 };
 

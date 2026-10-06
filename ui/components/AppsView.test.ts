@@ -1,110 +1,121 @@
-// The Apps tab's response-landing rule. Two shared panes - the log pane and its
-// error - are written by requests that can outlive what asked for them, and the
-// UI has no React render harness (see EditAgentDialog.test.ts), so the decision
-// is extracted and covered here.
-//
-// The bug it exists to prevent: click `log` on A, click `log` on B before A
-// answers, and A's journal appears under B's row.
+// The Apps tab's pure decisions: which section an app sits in, what its
+// thumbnail does, what its menu offers, and the response-landing rule for the
+// log dialog (click `log` on A, then on B before A answers, and A's journal
+// must not appear under B). The rendered wiring is pinned by the
+// AppsView.*.dom tests.
 //
 // Pure T0: no DOM, no server, no LLM.
 
 import { describe, it, expect } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
-import { createElement } from "react";
 import { DEMO_FEATURES, PRODUCTION_FEATURES } from "../../shared/features.ts";
 import {
-  appCanPreview,
-  appPreviewCacheKey,
-  AppPreviewImage,
-  evictDeletedAppPreviews,
   appLinkHref,
   appHref,
-  initialAppPreviews,
+  appMenuActions,
+  appSection,
+  appThumbnailSrc,
+  filterApps,
   nextPollDelay,
   resolveCreatorAgentId,
   shouldCommit,
+  thumbnailVerb,
 } from "./AppsView.tsx";
+import type { AppState } from "../../shared/types.ts";
 
-describe("appPreviewCacheKey", () => {
-  it("separates apps and later registrations that reuse a name", () => {
-    const first = { name: "alpha", createdAt: 100 };
-    const reused = { name: "alpha", createdAt: 200 };
-    expect(appPreviewCacheKey(first)).toBe("alpha:100");
-    expect(appPreviewCacheKey(reused)).toBe("alpha:200");
-    expect(appPreviewCacheKey(reused)).not.toBe(appPreviewCacheKey(first));
-  });
+const STATES: AppState[] = [
+  "running",
+  "starting",
+  "stopped",
+  "failed",
+  "unknown",
+];
 
-  it("disables persistent caching without a viewer-visible incarnation", () => {
-    expect(appPreviewCacheKey({ name: "alpha" })).toBeNull();
-  });
-});
-
-describe("evictDeletedAppPreviews", () => {
-  it("revokes deleted registrations and keeps every live incarnation", () => {
-    const cache = new Map([
-      ["alpha:100", "blob:alpha"],
-      ["beta:200", "blob:beta"],
-    ]);
-    const revoked: string[] = [];
-
-    evictDeletedAppPreviews([{ name: "beta", createdAt: 200 }], cache, (url) =>
-      revoked.push(url),
-    );
-
-    expect([...cache]).toEqual([["beta:200", "blob:beta"]]);
-    expect(revoked).toEqual(["blob:alpha"]);
-  });
-});
-
-describe("AppPreviewImage", () => {
-  it("opens the app when its screenshot is clicked", () => {
-    const html = renderToStaticMarkup(
-      createElement(AppPreviewImage, {
-        href: "https://habits.office.example/",
-        url: "blob:preview",
-      }),
-    );
-    expect(html).toContain('<a href="https://habits.office.example/"');
-    expect(html).toContain('<img src="blob:preview"');
-  });
-});
-
-describe("initialAppPreviews", () => {
-  it("starts off when the build does not support live previews", () => {
-    expect(initialAppPreviews(DEMO_FEATURES.liveAppPreviews, true)).toBe(false);
-  });
-
-  it("keeps the production default and per-device opt-out", () => {
-    expect(initialAppPreviews(PRODUCTION_FEATURES.liveAppPreviews, true)).toBe(
-      true,
-    );
-    expect(initialAppPreviews(PRODUCTION_FEATURES.liveAppPreviews, false)).toBe(
-      false,
-    );
-  });
-});
-
-describe("appCanPreview", () => {
-  it("previews a running app at an office-issued origin", () => {
-    expect(
-      appCanPreview({
-        state: "running",
-        url: "https://habits.office.example",
-      }),
-    ).toBe(true);
-  });
-
-  it("does not frame plain-port fallbacks from a potentially HTTPS office", () => {
-    expect(appCanPreview({ state: "running" })).toBe(false);
-    expect(appCanPreview({ state: "running", url: "" })).toBe(false);
-  });
-
-  it("does not wake or contact an app that is not running", () => {
-    for (const state of ["starting", "stopped", "failed", "unknown"] as const) {
-      expect(
-        appCanPreview({ state, url: "https://habits.office.example" }),
-      ).toBe(false);
+describe("appSection", () => {
+  it("puts a running or starting app in Running, archived or not", () => {
+    for (const state of ["running", "starting"] as const) {
+      expect(appSection({ state })).toBe("running");
+      expect(appSection({ state, archived: true })).toBe("running");
     }
+  });
+
+  it("puts every other state in Stopped, or Archived when a member archived it", () => {
+    for (const state of ["stopped", "failed", "unknown"] as const) {
+      expect(appSection({ state })).toBe("stopped");
+      expect(appSection({ state, archived: true })).toBe("archived");
+    }
+  });
+});
+
+describe("appThumbnailSrc", () => {
+  it("names the upload version in the URL, so a new upload is a new URL", () => {
+    expect(
+      appThumbnailSrc({ name: "standup board", thumbnailUpdatedAt: 42 }),
+    ).toBe("/api/apps/standup%20board/thumbnail?v=42");
+  });
+
+  it("has no URL for an app with no thumbnail", () => {
+    expect(appThumbnailSrc({ name: "alpha" })).toBeNull();
+  });
+});
+
+describe("thumbnailVerb", () => {
+  it("starts a stopped app and restarts a failed or unknown one", () => {
+    expect(thumbnailVerb({ state: "stopped", canManage: true })).toBe("start");
+    expect(thumbnailVerb({ state: "failed", canManage: true })).toBe("restart");
+    expect(thumbnailVerb({ state: "unknown", canManage: true })).toBe(
+      "restart",
+    );
+  });
+
+  it("gives a running app no verb, since its thumbnail opens it", () => {
+    for (const state of ["running", "starting"] as const) {
+      expect(thumbnailVerb({ state, canManage: true })).toBeNull();
+    }
+  });
+
+  it("gives a member who cannot manage the app no verb at all", () => {
+    for (const state of STATES) {
+      expect(thumbnailVerb({ state, canManage: false })).toBeNull();
+    }
+  });
+});
+
+describe("appMenuActions", () => {
+  it("offers Archive only in Stopped and Unarchive only in Archived", () => {
+    for (const state of STATES) {
+      for (const archived of [false, true]) {
+        const actions = appMenuActions({ state, archived });
+        const section = appSection({ state, archived });
+        expect(actions.includes("archive")).toBe(section === "stopped");
+        expect(actions.includes("unarchive")).toBe(section === "archived");
+        expect(actions).toContain("log");
+        expect(actions.at(-1)).toBe("delete");
+      }
+    }
+  });
+
+  it("leaves out a verb that cannot change the app's state", () => {
+    expect(appMenuActions({ state: "running" })).not.toContain("start");
+    expect(appMenuActions({ state: "stopped" })).toEqual([
+      "start",
+      "log",
+      "archive",
+      "delete",
+    ]);
+    expect(appMenuActions({ state: "failed" })).not.toContain("stop");
+  });
+});
+
+describe("filterApps", () => {
+  const apps = [{ userId: "u1" }, { userId: "u2" }, { userId: null }];
+
+  it("keeps only the member's own apps when Only mine is on", () => {
+    expect(filterApps(apps, true, "u1")).toEqual([{ userId: "u1" }]);
+    expect(filterApps(apps, false, "u1")).toEqual(apps);
+  });
+
+  it("lets everything through without a session", () => {
+    expect(filterApps(apps, true, null)).toEqual(apps);
   });
 });
 

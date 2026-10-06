@@ -677,6 +677,32 @@ describe("app-registry: hostname labels and the issuance ledger", () => {
   });
 });
 
+describe("app-registry: thumbnail version and archive flag", () => {
+  it("persists both, keeps the registration, and removes archived on false", () => {
+    const reg = make();
+    const app = reg.register(registerInput("hello"));
+    const gen = appRegistrationGeneration(app);
+    const set = reg.update("hello", { thumbnailUpdatedAt: 5, archived: true });
+    expect(set).toMatchObject({ thumbnailUpdatedAt: 5, archived: true });
+    expect(appRegistrationGeneration(set!)).toBe(gen);
+    const reloaded = make().get("hello")!;
+    expect(reloaded).toMatchObject({ thumbnailUpdatedAt: 5, archived: true });
+    expect(appRegistrationGeneration(reloaded)).toBe(gen);
+    make().update("hello", { archived: false });
+    const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf8"));
+    expect(raw.apps[0]).not.toHaveProperty("archived");
+    expect(raw.apps[0].thumbnailUpdatedAt).toBe(5);
+  });
+
+  it("loads a hand-written archived:false", () => {
+    make().register(registerInput("hello"));
+    const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf8"));
+    raw.apps[0].archived = false;
+    writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
+    expect(make().get("hello")?.archived).toBe(false);
+  });
+});
+
 describe("app-registry: a legacy app-history.json is ignored", () => {
   // Deletes used to write tombstones there. The file is never read, never
   // written and never deleted, so an office that upgrades into this ruling just
@@ -878,6 +904,17 @@ describe("app-registry: corruption fails LOUD, never empty", () => {
     ["apps.json", "a missing createdBy", good({ createdBy: undefined })],
     ["apps.json", "a NaN createdAt", good({ createdAt: null })],
     ["apps.json", "a non-string description", good({ description: 7 })],
+    [
+      "apps.json",
+      "a non-integer thumbnail version",
+      envelope({ thumbnailUpdatedAt: 1.5 }),
+    ],
+    [
+      "apps.json",
+      "a string thumbnail version",
+      envelope({ thumbnailUpdatedAt: "1" }),
+    ],
+    ["apps.json", "a non-boolean archived", envelope({ archived: "yes" })],
   ];
 
   for (const [file, why, contents] of cases) {

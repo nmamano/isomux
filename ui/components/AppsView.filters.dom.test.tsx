@@ -60,53 +60,49 @@ async function mount(signedIn = true) {
   return { view, box, listed };
 }
 
-it("hides stopped apps and other members' apps, and remembers both on this device", async () => {
+it("hides other members' apps, and remembers that on this device", async () => {
   const first = await mount();
   expect(first.listed()).toEqual(apps.map((a) => a.name));
-  expect(first.box("hideStopped")!.checked).toBe(false);
   expect(first.box("onlyMine")!.checked).toBe(false);
-
-  // Only the stopped state hides: a failed app is a fault the member must see.
-  await act(async () => first.box("hideStopped")!.click());
-  expect(first.listed()).toEqual([
-    "mine-running",
-    "other-running",
-    "other-failed",
-  ]);
   await act(async () => first.box("onlyMine")!.click());
-  expect(first.listed()).toEqual(["mine-running"]);
+  expect(first.listed()).toEqual(["mine-running", "mine-stopped"]);
   first.view.unmount();
 
   const reloaded = await mount();
-  expect(reloaded.box("hideStopped")!.checked).toBe(true);
   expect(reloaded.box("onlyMine")!.checked).toBe(true);
-  expect(reloaded.listed()).toEqual(["mine-running"]);
-  await act(async () => reloaded.box("hideStopped")!.click());
   expect(reloaded.listed()).toEqual(["mine-running", "mine-stopped"]);
+  await act(async () => reloaded.box("onlyMine")!.click());
   reloaded.view.unmount();
 
   const again = await mount();
-  expect(again.box("hideStopped")!.checked).toBe(false);
-  expect(again.box("onlyMine")!.checked).toBe(true);
+  expect(again.box("onlyMine")!.checked).toBe(false);
   again.view.unmount();
+});
+
+it("has no Hide-stopped filter: stopped and failed apps stay listed", async () => {
+  const { view, listed } = await mount();
+  const filters = view.container.querySelectorAll("input[data-app-filter]");
+  expect(Array.from(filters, (f) => f.getAttribute("data-app-filter"))).toEqual(
+    ["onlyMine"],
+  );
+  expect(listed()).toContain("mine-stopped");
+  expect(listed()).toContain("other-failed");
+  view.unmount();
 });
 
 it("keeps the filters reachable when they hide every app", async () => {
   const { view, box, listed } = await mount();
   await act(async () => box("onlyMine")!.click());
-  await act(async () => box("hideStopped")!.click());
-  expect(listed()).toEqual(["mine-running"]);
-  // Stop the one app left and nothing passes; the filters stay on screen.
+  expect(listed()).toEqual(["mine-running", "mine-stopped"]);
+  // Hand both of the member's apps to someone else and nothing passes; the
+  // filter stays on screen so it can be turned off again.
   view.rerender(
     onLanguage("en", <AppsView onClose={() => {}} />, {
-      apps: apps.map((a) =>
-        a.name === "mine-running" ? { ...a, state: "stopped" as const } : a,
-      ),
+      apps: apps.map((a) => ({ ...a, userId: "u2" })),
       appsLoaded: true,
     }),
   );
   expect(listed()).toEqual([]);
-  expect(box("hideStopped")).not.toBeNull();
   expect(box("onlyMine")).not.toBeNull();
   view.unmount();
 });
@@ -115,7 +111,9 @@ it("offers no owner filter without a session, and a stored one hides nothing", a
   localStorage.setItem("isomux-apps-only-mine", "true");
   const { view, box, listed } = await mount(false);
   expect(box("onlyMine")).toBeNull();
-  expect(box("hideStopped")).not.toBeNull();
+  expect(
+    view.container.querySelector("select[data-room-filter]"),
+  ).not.toBeNull();
   expect(listed()).toEqual(apps.map((a) => a.name));
   view.unmount();
 });

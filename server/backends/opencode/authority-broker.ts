@@ -82,7 +82,7 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   },
   { method: "POST", path: /^\/api\/agents$/ },
   { method: "GET", path: /^\/api\/apps(?:\/[^/]+(?:\/logs)?)?$/ },
-  { method: "POST", path: /^\/api\/apps(?:\/[^/]+\/(restart|start|stop))?$/ },
+  { method: "POST", path: /^\/api\/apps(?:\/[^/]+\/(restart|start|stop|archive|unarchive))?$/ },
   { method: "PATCH", path: /^\/api\/apps\/[^/]+$/ },
   { method: "DELETE", path: /^\/api\/apps\/[^/]+$/ },
   {

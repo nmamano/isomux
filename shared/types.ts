@@ -1002,6 +1002,13 @@ export interface AppRecord {
   // back to createdByAgentId, so the first deployment needs no migration.
   messageTargetAgentId?: string;
   createdAt: number;
+  // When the app's thumbnail was last uploaded. Absent means no thumbnail. The
+  // image itself lives beside the registry, and GET /api/apps/:name/thumbnail
+  // serves it; the time doubles as the cache key in that URL.
+  thumbnailUpdatedAt?: number;
+  // Set by a member to move a stopped app out of the way. Starting the app
+  // clears it.
+  archived?: boolean;
 }
 
 // What an app is doing. The registry persists NO state field: a stored
@@ -1070,6 +1077,8 @@ export interface AppViewerWire {
   state: AppState;
   restartCount: number;
   url?: string;
+  thumbnailUpdatedAt?: number;
+  archived?: boolean;
   canManage: false;
 }
 

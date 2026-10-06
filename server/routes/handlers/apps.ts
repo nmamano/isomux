@@ -1,5 +1,6 @@
 // Apps resource handlers - the agent-facing app registry (opIds
-// apps.{list,get,register,update,delete,logs,start,stop,restart}) plus the one
+// apps.{list,get,register,update,delete,logs,start,stop,restart,archive,
+// unarchive,setThumbnail,getThumbnail}) plus the one
 // route the APP itself calls (apps.sendMessage). See
 // internal-docs/agent-apps-design.md.
 //
@@ -61,7 +62,12 @@ import {
 } from "../../app-message-limits.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { AppRecord } from "../../../shared/types.ts";
-import type { AppPreviewResult } from "../../app-preview.ts";
+import {
+  MAX_APP_THUMBNAIL_BYTES,
+  readCappedBody,
+  sniffAppThumbnailType,
+  type AppThumbnailStore,
+} from "../../app-thumbnails.ts";
 import type {
   AppErrorCode,
   AppListWire,
@@ -110,8 +116,16 @@ export interface AppsDeps {
       cwd?: string;
       description?: string | null;
       messageTargetAgentId?: string;
+      thumbnailUpdatedAt?: number;
+      archived?: boolean;
     },
   ): AppRecord | null;
+  // The server-held identity of one registration of a name
+  // (appRegistrationGeneration). A name deleted and registered again gets a
+  // new one.
+  registrationGeneration(app: AppRecord): number;
+  thumbnails: AppThumbnailStore;
+  now(): number;
   // Resolve a proposed message target against the APP OWNER's access, not the
   // caller's. An office owner managing somebody else's app must not widen what
   // that app token can reach.
@@ -141,8 +155,6 @@ export interface AppsDeps {
   // the same value its unit injects as ISOMUX_APP_URL.
   publicUrl(app: AppRecord): string | null;
   canAccess(app: AppRecord, userId: string): boolean;
-  capturePreview(app: AppRecord): Promise<AppPreviewResult>;
-  invalidatePreview(name: string): void;
 
   // Tell every socket that may see this app about it. Called with the SAME wire
   // object the response carries, so what the caller is told and what the office
@@ -297,26 +309,110 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         return renderRegistryError(err);
       }
     },
-    "apps.preview": async (ctx) => {
-      const app = deps.get(ctx.params.name);
-      const userId = ctx.identity.userId;
-      if (!app || !userId || !deps.canAccess(app, userId)) {
-        return fail(404, "not_found", "not found");
+    // Served to anyone who can see the app, like the list. The file is
+    // read synchronously from the record just checked, and its path names the
+    // registration, so no await can let a re-registered name's picture answer
+    // for the app that was authorized.
+    "apps.getThumbnail": (ctx) => {
+      try {
+        const app = deps.get(ctx.params.name);
+        const userId = ctx.identity.userId;
+        if (!app || !userId || !deps.canAccess(app, userId)) {
+          return fail(404, "not_found");
+        }
+        const version = app.thumbnailUpdatedAt;
+        if (version === undefined) return fail(404, "not_found");
+        const image = deps.thumbnails.read(
+          app.name,
+          deps.registrationGeneration(app),
+          version,
+        );
+        const type = image ? sniffAppThumbnailType(image) : null;
+        if (!image || !type) return fail(404, "not_found");
+        // Only the current version may be cached for good: a stale ?v= (or
+        // none) must revalidate, or a browser keeps the old picture.
+        const current = ctx.query.get("v") === String(version);
+        return bytes(new Uint8Array(image), type, {
+          "Cache-Control": current
+            ? "private, max-age=31536000, immutable"
+            : "private, no-cache",
+          "X-Content-Type-Options": "nosniff",
+        });
+      } catch (err) {
+        return renderRegistryError(err);
       }
-      const before = deps.states([app.name]).get(app.name) ?? UNKNOWN_RUNTIME;
-      if (before.state !== "running") {
-        deps.invalidatePreview(app.name);
-        return fail(409, "app_not_running", "app is not running");
-      }
+    },
 
-      const result = await deps.capturePreview(app);
-      const after = deps.states([app.name]).get(app.name) ?? UNKNOWN_RUNTIME;
-      if (after.state !== "running") {
-        deps.invalidatePreview(app.name);
-        return fail(409, "app_not_running", "app is not running");
+    // The body is the image itself. Read here, after authorization, with a
+    // cap; the bytes decide the type and Content-Type is never consulted.
+    "apps.setThumbnail": async (ctx) => {
+      const refused = refuseUnsupportedHost(deps);
+      if (refused) return refused;
+      try {
+        const before = deps.get(ctx.params.name);
+        if (!before) return fail(404, "not_found");
+        const gen = deps.registrationGeneration(before);
+
+        const body = await readCappedBody(ctx.req, MAX_APP_THUMBNAIL_BYTES);
+        if (!body.ok) {
+          return fail(
+            413,
+            "payload_too_large",
+            `the image must be at most ${MAX_APP_THUMBNAIL_BYTES} bytes`,
+          );
+        }
+        if (body.bytes.length === 0) {
+          return fail(
+            400,
+            "invalid_request",
+            "send the image as the request body",
+          );
+        }
+        if (!sniffAppThumbnailType(body.bytes)) {
+          return fail(
+            415,
+            "unsupported_image",
+            "the image must be a PNG, JPEG or WebP file",
+          );
+        }
+
+        // NO AWAIT FROM HERE TO THE RESPONSE. The body read above let other
+        // requests run: the app may have been deleted, or deleted and
+        // registered again by someone else. The upload belongs to the
+        // registration that was authorized, so a different generation is the
+        // same answer as no app.
+        const current = deps.get(ctx.params.name);
+        if (!current || deps.registrationGeneration(current) !== gen) {
+          return fail(404, "not_found");
+        }
+        const previous = current.thumbnailUpdatedAt;
+        // Strictly newer than the version it replaces, even under a clock that
+        // stands still or steps back: a reused version would put new bytes
+        // behind a URL a browser has cached for good.
+        const version = Math.max(deps.now(), (previous ?? 0) + 1);
+        deps.thumbnails.write(current.name, gen, version, body.bytes);
+        let after: AppRecord | null;
+        try {
+          after = deps.update(current.name, { thumbnailUpdatedAt: version });
+        } catch (err) {
+          // The record still names the previous file, which was never
+          // touched, so the old URL keeps its bytes.
+          deps.thumbnails.remove(current.name, gen, version);
+          throw err;
+        }
+        if (!after) {
+          deps.thumbnails.remove(current.name, gen, version);
+          return fail(404, "not_found");
+        }
+        if (previous !== undefined) {
+          deps.thumbnails.remove(current.name, gen, previous);
+        }
+        const wire = wireOf(after, deps.states([after.name]).get(after.name));
+        announced(after.name, () => deps.announce(wire));
+        return ok(wire);
+      } catch (err) {
+        return renderRegistryError(err);
       }
-      if (!result.ok) return fail(result.status, result.code, result.error);
-      return bytes(result.png, "image/png", { "Cache-Control": "no-store" });
     },
 
     "apps.register": (ctx) => {
@@ -588,7 +684,13 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // removal committed and non-throwing, because forgetting a rate limit
         // is not worth failing a delete that already happened.
         deps.limiter.forget(record.name);
-        deps.invalidatePreview(record.name);
+        // Same moment and same reason: the name is free, and nothing of this
+        // registration may reach the next one. Bound to this registration's
+        // generation, so it cannot remove a later registration's upload.
+        deps.thumbnails.removeRegistration(
+          record.name,
+          deps.registrationGeneration(record),
+        );
         // AFTER the removal committed, and from the record read before teardown:
         // the registry no longer holds an owner to project the audience from.
         announced(record.name, () => deps.announceRemoved(record));
@@ -604,9 +706,18 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     // since been fixed.
     // (A mistyped start COMMAND is cured by apps.update instead, which
     // rewrites the unit and restarts what was running.)
-    "apps.start": actionHandler(deps, (name) => deps.start(name)),
-    "apps.stop": actionHandler(deps, (name) => deps.stop(name)),
-    "apps.restart": actionHandler(deps, (name) => deps.restart(name)),
+    // start and restart also take the app out of the archive: a member who
+    // runs an app again wants it back on the page.
+    "apps.start": actionHandler(deps, (name) => deps.start(name), true),
+    "apps.stop": actionHandler(deps, (name) => deps.stop(name), false),
+    "apps.restart": actionHandler(deps, (name) => deps.restart(name), true),
+
+    // A shared flag that moves a stopped app out of the way on the Apps page.
+    // A running app cannot be archived: it would be hidden while it serves.
+    // Asking for the state an app already has is a 200, as start is on a
+    // running app.
+    "apps.archive": archiveHandler(deps, true),
+    "apps.unarchive": archiveHandler(deps, false),
 
     // The loop closed: an app messaging its configured agent. The only route
     // an app token reaches, and the only handler here whose caller is the app
@@ -783,22 +894,62 @@ function announced(what: string, send: () => void): void {
 function actionHandler(
   deps: AppsDeps,
   act: (name: string) => void,
+  unarchives: boolean,
 ): RouteHandler {
   return (ctx) => {
     const refused = refuseUnsupportedHost(deps);
     if (refused) return refused;
     try {
-      const record = deps.get(ctx.params.name);
+      let record = deps.get(ctx.params.name);
       if (!record) return fail(404, "not_found");
       // A throw here escapes to renderRegistryError, so nothing is announced -
       // a verb that failed changed nothing to tell anyone about.
       act(record.name);
-      deps.invalidatePreview(record.name);
+      if (unarchives && record.archived === true) {
+        // AFTER the verb, which has happened: a failure to clear the flag must
+        // not turn a start that worked into an error. The app shows as running
+        // whatever the flag says, and the next start clears it.
+        try {
+          record =
+            deps.update(record.name, { archived: false }) ?? record;
+        } catch (err) {
+          console.error(
+            `[apps] "${record.name}" started but is still archived:`,
+            err,
+          );
+        }
+      }
       const wire = toWire(
         record,
         deps.states([record.name]).get(record.name),
         deps.publicUrl(record),
       );
+      announced(record.name, () => deps.announce(wire));
+      return ok(wire);
+    } catch (err) {
+      return renderRegistryError(err);
+    }
+  };
+}
+
+function archiveHandler(deps: AppsDeps, archived: boolean): RouteHandler {
+  return (ctx) => {
+    const refused = refuseUnsupportedHost(deps);
+    if (refused) return refused;
+    try {
+      let record = deps.get(ctx.params.name);
+      if (!record) return fail(404, "not_found");
+      const runtime = deps.states([record.name]).get(record.name);
+      const state = (runtime ?? UNKNOWN_RUNTIME).state;
+      if (archived && (state === "running" || state === "starting")) {
+        return fail(409, "app_running", "stop the app before you archive it");
+      }
+      if ((record.archived === true) !== archived) {
+        const after = deps.update(record.name, { archived });
+        if (!after) return fail(404, "not_found");
+        record = after;
+      }
+      const wire = toWire(record, runtime, deps.publicUrl(record));
       announced(record.name, () => deps.announce(wire));
       return ok(wire);
     } catch (err) {

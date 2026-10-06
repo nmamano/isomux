@@ -1073,7 +1073,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Apps tab exists.
   "apps.list": { caps: ["app:read"], emits: [] },
   "apps.get": { caps: ["app:read"], emits: [] },
-  "apps.preview": { caps: ["app:read"], emits: [] },
+  "apps.getThumbnail": { caps: ["app:read"], emits: [] },
+  "apps.setThumbnail": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.register": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.update": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.delete": { caps: ["app:write"], emits: ["app_deleted"] },
@@ -1083,6 +1084,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apps.start": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.stop": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.restart": { caps: ["app:write"], emits: ["app_upserted"] },
+  "apps.archive": { caps: ["app:write"], emits: ["app_upserted"] },
+  "apps.unarchive": { caps: ["app:write"], emits: ["app_upserted"] },
   // The app-SELF route. app:message is held by APP scope alone, so this is the
   // one line in this table whose capability no human and no agent carries.
   "apps.sendMessage": { caps: ["app:message"], emits: ["log_entry"] },
@@ -1472,7 +1475,8 @@ const API_REACHABLE_OPIDS = [
   "pager.resolve",
   "apps.list",
   "apps.get",
-  "apps.preview",
+  "apps.getThumbnail",
+  "apps.setThumbnail",
   "apps.register",
   "apps.update",
   "apps.delete",
@@ -1480,6 +1484,8 @@ const API_REACHABLE_OPIDS = [
   "apps.start",
   "apps.stop",
   "apps.restart",
+  "apps.archive",
+  "apps.unarchive",
   "webhooks.list",
   "webhooks.get",
   "webhooks.create",

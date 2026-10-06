@@ -3,8 +3,9 @@
 // agent" (internal-docs/agent-apps-design.md).
 //
 // A VIEWER PLUS VERBS: no register form and no edit form here. Agents register
-// apps through the API, and this tab is where a human watches them and takes
-// them in hand - start, stop, restart, read the log, delete one.
+// apps through the API, with a thumbnail, and this tab is where a human watches
+// them and takes them in hand - open, start, stop, restart, archive, read the
+// log, delete one.
 //
 // TWO SOURCES OF TRUTH, DELIBERATELY. The app_upserted / app_deleted deltas
 // carry anything isomux itself did, immediately. But systemd changing an app's
@@ -17,17 +18,10 @@ import { useEffect, useRef, useState } from "react";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import {
-  appPreviewQueue,
-  type PreviewQueueCancel,
-} from "../app-preview-queue.ts";
-import {
   getAppFilter,
-  getAppPreviews,
   getRoomFilter,
   setAppFilter,
-  setAppPreviews,
   setRoomFilter,
-  type AppFilter,
 } from "../device-settings.ts";
 import {
   appRoomId,
@@ -36,6 +30,8 @@ import {
   roomFilterOptions,
 } from "../room-filter.ts";
 import { RoomFilterSelect } from "./RoomFilterSelect.tsx";
+import { MenuItem } from "./ContextMenu.tsx";
+import { Portal } from "./Portal.tsx";
 import type { AppListWire, AppState, AppWire } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import type {
@@ -48,40 +44,12 @@ import type {
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
 // systemd read per cache window rather than one per tab per tick.
 const POLL_MS = 5000;
-export const APP_PREVIEW_CLIENT_TIMEOUT_MS = 25_000;
-const APP_PREVIEW_BUSY_RETRIES = 3;
-
-const appPreviewImageCache = new Map<string, string>();
-
-export function appPreviewCacheKey(app: {
-  name: string;
-  createdAt?: number;
-}): string | null {
-  if (app.createdAt === undefined) return null;
-  return `${app.name}:${app.createdAt}`;
-}
-
-export function evictDeletedAppPreviews(
-  apps: ReadonlyArray<{ name: string; createdAt?: number }>,
-  cache: Map<string, string> = appPreviewImageCache,
-  revoke: (url: string) => void = (url) => URL.revokeObjectURL(url),
-): void {
-  const liveKeys = new Set(
-    apps.map(appPreviewCacheKey).filter((key): key is string => key !== null),
-  );
-  for (const [key, url] of cache) {
-    if (liveKeys.has(key)) continue;
-    cache.delete(key);
-    revoke(url);
-  }
-}
 
 /**
  * Should a response that has just come back be allowed to write to the shared
- * state it was fetched for? Extracted and exported because the UI has no React
- * render harness (see CronjobRunView.test.ts) and this is the whole of the
- * race: a request is only allowed to land if nothing has moved on since it was
- * issued.
+ * state it was fetched for? Extracted and exported because this is the whole
+ * of the race, and a pure function pins every ordering of it: a request is
+ * only allowed to land if nothing has moved on since it was issued.
  *
  * `gen` rules out a superseded request (a second click, a close, an unmount);
  * `target` rules out a response arriving under a DIFFERENT row than the one it
@@ -100,9 +68,8 @@ export function shouldCommit(
 /**
  * How long to wait before the next poll, or null to stop entirely. Exported for
  * the same reason as shouldCommit: this is the decision that keeps a cancelled
- * polling loop from rescheduling itself, and it is worth pinning even though the
- * lifetime it belongs to (a local `let` per effect run, NOT a ref) can only be
- * shown structurally without a React render harness.
+ * polling loop from rescheduling itself. The lifetime it belongs to is a local
+ * `let` per effect run, NOT a ref (see the polling effect).
  */
 export function nextPollDelay(
   cancelled: boolean,
@@ -175,15 +142,6 @@ export function appLinkLabel(
     : t("apps.openOnNetwork");
 }
 
-export function appCanPreview(app: Pick<AppWire, "url" | "state">): boolean {
-  // A port fallback can be plain HTTP while the office is HTTPS. Browsers
-  // refuse that mixed-content frame, so only an origin issued by the office is
-  // safe to offer as an automatic preview.
-  return (
-    app.state === "running" && typeof app.url === "string" && app.url !== ""
-  );
-}
-
 const STATE_COLOR: Record<AppState, string> = {
   running: "var(--green)",
   starting: "var(--orange, #d29922)",
@@ -244,288 +202,6 @@ function OpenIcon() {
   );
 }
 
-export function AppPreview({
-  app,
-  href,
-  isMobile,
-}: {
-  app: { name: string; createdAt?: number };
-  href: string;
-  isMobile: boolean;
-}) {
-  const { t } = useI18n();
-  const hostRef = useRef<HTMLDivElement>(null);
-  const cacheKey = appPreviewCacheKey(app);
-  const cachedImageUrl = cacheKey
-    ? (appPreviewImageCache.get(cacheKey) ?? null)
-    : null;
-  const [phase, setPhase] = useState<
-    | { kind: "queued" }
-    | { kind: "loading" }
-    | { kind: "busy" }
-    | { kind: "success"; url: string }
-    | { kind: "error"; code: string }
-  >(
-    cachedImageUrl
-      ? { kind: "success", url: cachedImageUrl }
-      : { kind: "queued" },
-  );
-  const requestRef = useRef(0);
-  const imageUrlRef = useRef<string | null>(cachedImageUrl);
-  const abortRef = useRef<AbortController | null>(null);
-  const queueCancelRef = useRef<PreviewQueueCancel | null>(null);
-  const startedRef = useRef(false);
-
-  /* eslint-disable react-hooks/exhaustive-deps -- this effect owns one mount's
-     observer and queue ticket; rebuilding it would violate once-per-mount. */
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    let visible = !("IntersectionObserver" in window);
-
-    const startQueuedCapture = () => {
-      if (startedRef.current || queueCancelRef.current) return;
-      setPhase({ kind: "queued" });
-      queueCancelRef.current = appPreviewQueue.enqueue(async () => {
-        queueCancelRef.current = null;
-        if (!visible) return;
-        startedRef.current = true;
-        await capture();
-      });
-    };
-
-    const observer =
-      "IntersectionObserver" in window
-        ? new IntersectionObserver(
-            (entries) => {
-              visible = entries.some((entry) => entry.isIntersecting);
-              if (visible) startQueuedCapture();
-              else if (!startedRef.current) {
-                queueCancelRef.current?.();
-                queueCancelRef.current = null;
-              }
-            },
-            { rootMargin: "120px" },
-          )
-        : null;
-    if (observer) observer.observe(host);
-    else startQueuedCapture();
-
-    return () => {
-      requestRef.current++;
-      queueCancelRef.current?.();
-      abortRef.current?.abort();
-      const imageUrl = imageUrlRef.current;
-      if (
-        imageUrl &&
-        (!cacheKey || appPreviewImageCache.get(cacheKey) !== imageUrl)
-      ) {
-        URL.revokeObjectURL(imageUrl);
-      }
-      observer?.disconnect();
-    };
-  }, []);
-  /* eslint-enable react-hooks/exhaustive-deps */
-
-  async function capture() {
-    const request = ++requestRef.current;
-    abortRef.current?.abort();
-    if (!imageUrlRef.current) setPhase({ kind: "loading" });
-    let busyRetries = 0;
-    while (request === requestRef.current) {
-      const controller = new AbortController();
-      abortRef.current = controller;
-      const timer = setTimeout(
-        () => controller.abort(),
-        APP_PREVIEW_CLIENT_TIMEOUT_MS,
-      );
-      try {
-        const response = await fetch(
-          `/api/apps/${encodeURIComponent(app.name)}/preview`,
-          { method: "POST", signal: controller.signal },
-        );
-        if (request !== requestRef.current) return;
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: { code?: string };
-          } | null;
-          const code = body?.error?.code ?? "capture_failed";
-          if (code === "capture_busy") {
-            if (busyRetries >= APP_PREVIEW_BUSY_RETRIES) {
-              setPhase({ kind: "error", code });
-              return;
-            }
-            busyRetries++;
-            if (!imageUrlRef.current) setPhase({ kind: "busy" });
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            continue;
-          }
-          if (imageUrlRef.current) return;
-          setPhase({ kind: "error", code });
-          return;
-        }
-        const url = URL.createObjectURL(await response.blob());
-        if (request !== requestRef.current) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-        if (cacheKey) {
-          const previousUrl = appPreviewImageCache.get(cacheKey);
-          for (const [key, staleUrl] of appPreviewImageCache) {
-            if (key !== cacheKey && key.startsWith(`${app.name}:`)) {
-              appPreviewImageCache.delete(key);
-              URL.revokeObjectURL(staleUrl);
-            }
-          }
-          appPreviewImageCache.set(cacheKey, url);
-          if (previousUrl && previousUrl !== url)
-            URL.revokeObjectURL(previousUrl);
-        } else if (imageUrlRef.current) {
-          URL.revokeObjectURL(imageUrlRef.current);
-        }
-        imageUrlRef.current = url;
-        setPhase({ kind: "success", url });
-        return;
-      } catch (err) {
-        if (request !== requestRef.current) return;
-        if (imageUrlRef.current) return;
-        setPhase({
-          kind: "error",
-          code:
-            err instanceof DOMException && err.name === "AbortError"
-              ? "capture_timeout"
-              : "capture_failed",
-        });
-        return;
-      } finally {
-        clearTimeout(timer);
-        if (abortRef.current === controller) abortRef.current = null;
-      }
-    }
-  }
-
-  const message =
-    phase.kind !== "error"
-      ? null
-      : t(
-          phase.code === "app_not_running"
-            ? "apps.preview.notRunning"
-            : phase.code === "no_browser"
-              ? "apps.preview.noBrowser"
-              : phase.code === "unreachable"
-                ? "apps.preview.unreachable"
-                : phase.code === "capture_busy"
-                  ? "apps.preview.busy"
-                  : "apps.preview.failed",
-        );
-  const style: React.CSSProperties = {
-    position: "relative",
-    display: "grid",
-    placeItems: "center",
-    width: "100%",
-    height: isMobile ? 150 : 210,
-    marginTop: 10,
-    padding: 0,
-    overflow: "hidden",
-    border: "1px solid var(--border-subtle)",
-    borderRadius: 6,
-    background: "var(--bg-code, var(--bg-base))",
-    color: "var(--text-muted)",
-  };
-  const actionStyle: React.CSSProperties = {
-    padding: "4px 9px",
-    border: "1px solid var(--border)",
-    borderRadius: 5,
-    background: "var(--btn-surface)",
-    color: "var(--text-secondary)",
-    fontSize: 11,
-    cursor: "pointer",
-  };
-
-  return (
-    <div ref={hostRef} style={style}>
-      {phase.kind === "success" ? (
-        <AppPreviewImage href={href} url={phase.url} />
-      ) : (
-        <div
-          style={{
-            textAlign: "center",
-            fontSize: 12,
-            padding: 16,
-            color: "var(--text-secondary)",
-          }}
-        >
-          <div>
-            {phase.kind === "queued"
-              ? t("apps.preview.queued")
-              : phase.kind === "loading"
-                ? t("apps.preview.capturing")
-                : phase.kind === "busy"
-                  ? t("apps.preview.retrying")
-                  : message}
-          </div>
-          {phase.kind === "error" && (
-            <button
-              type="button"
-              onClick={() => {
-                setPhase({ kind: "queued" });
-                queueCancelRef.current = appPreviewQueue.enqueue(async () => {
-                  queueCancelRef.current = null;
-                  await capture();
-                });
-              }}
-              style={{ ...actionStyle, marginTop: 9 }}
-            >
-              {t("apps.preview.tryAgain")}
-            </button>
-          )}
-        </div>
-      )}
-      {phase.kind === "success" && (
-        <span
-          style={{
-            position: "absolute",
-            left: 6,
-            bottom: 6,
-            padding: "3px 7px",
-            borderRadius: 5,
-            background: "var(--bg-overlay)",
-            color: "var(--text-secondary)",
-            fontSize: 10,
-            boxShadow: "0 1px 4px var(--shadow-heavy)",
-          }}
-        >
-          {t("apps.preview.label")}
-        </span>
-      )}
-    </div>
-  );
-}
-
-export function AppPreviewImage({ href, url }: { href: string; url: string }) {
-  const { t } = useI18n();
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      title={t("apps.openApp")}
-      style={{ width: "100%", height: "100%" }}
-    >
-      <img
-        src={url}
-        alt={t("apps.preview.label")}
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          objectPosition: "top",
-        }}
-      />
-    </a>
-  );
-}
-
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <span style={{ whiteSpace: "nowrap" }}>
@@ -568,28 +244,510 @@ export function resolveCreatorAgentId(
 }
 
 /**
- * The apps the page's filters let through. "Stopped" is that one state: a
- * failed or unknown app is a fault the member still has to see. "Mine" is the
- * owner, the member an app belongs to, not the agent that registered it. With
- * no session there is no "me", so that filter lets everything through.
+ * Which section of the page an app sits in. A running or starting app is
+ * "running". Every other state is "stopped" - a failed or unknown app is a
+ * fault the member still has to see - unless a member archived it. An archived
+ * app that runs again (systemd brought it back) is shown as running.
  */
-export function filterApps<T extends Pick<AppListWire, "state" | "userId">>(
-  apps: readonly T[],
-  filters: Record<AppFilter, boolean>,
-  selfUserId: string | null,
-): T[] {
-  return apps.filter(
-    (app) =>
-      !(filters.hideStopped && app.state === "stopped") &&
-      !(filters.onlyMine && selfUserId !== null && app.userId !== selfUserId),
+export type AppSection = "running" | "stopped" | "archived";
+
+export function appSection(app: Pick<AppListWire, "state" | "archived">): AppSection {
+  if (app.state === "running" || app.state === "starting") return "running";
+  return app.archived === true ? "archived" : "stopped";
+}
+
+/**
+ * The URL of the app's thumbnail, or null when no thumbnail was uploaded. The
+ * upload time is in the query so a new upload is a new URL and the browser
+ * cache never shows the old image.
+ */
+export function appThumbnailSrc(
+  app: Pick<AppListWire, "name" | "thumbnailUpdatedAt">,
+): string | null {
+  if (app.thumbnailUpdatedAt === undefined) return null;
+  return `/api/apps/${encodeURIComponent(app.name)}/thumbnail?v=${app.thumbnailUpdatedAt}`;
+}
+
+/**
+ * The verb the thumbnail of a stopped app does, or null when the thumbnail does
+ * nothing. A running app's thumbnail opens the app instead. Only a member who
+ * can manage the app gets a verb.
+ */
+export function thumbnailVerb(
+  app: Pick<AppListWire, "state" | "canManage">,
+): "start" | "restart" | null {
+  if (app.canManage !== true) return null;
+  if (app.state === "stopped") return "start";
+  if (app.state === "failed" || app.state === "unknown") return "restart";
+  return null;
+}
+
+function PlayIcon({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width={size}
+      height={size}
+      fill="currentColor"
+      style={{ marginLeft: size / 8 }}
+    >
+      <path d="M5 3.2v9.6a.5.5 0 0 0 .77.42l7.4-4.8a.5.5 0 0 0 0-.84l-7.4-4.8A.5.5 0 0 0 5 3.2z" />
+    </svg>
   );
 }
 
-export function initialAppPreviews(
-  liveAppPreviews: boolean,
-  storedPreference: boolean,
-): boolean {
-  return liveAppPreviews && storedPreference;
+// The Archived section's open/closed mark. Drawn, not ▶/▼, for the same iOS
+// reason as StateDot.
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="10"
+      height="10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transform: open ? "rotate(90deg)" : undefined,
+        transition: "transform 0.12s",
+      }}
+    >
+      <path d="M6 3.5 10.5 8 6 12.5" />
+    </svg>
+  );
+}
+
+function RestartIcon({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M13 8a5 5 0 1 1-1.5-3.6" />
+      <path d="M13 2.5v3h-3" />
+    </svg>
+  );
+}
+
+const THUMB_RADIUS = 8;
+
+/**
+ * The app's picture, and the main way to act on the app: a running app's
+ * thumbnail opens it, a stopped one's starts it. The corner badge says so on
+ * every device; a hover adds a clearer label where there is a pointer.
+ */
+function AppThumbnail({
+  app,
+  href,
+  verb,
+  disabled,
+  isMobile,
+  onVerb,
+}: {
+  app: AppListWire;
+  href: string;
+  verb: "start" | "restart" | null;
+  disabled: boolean;
+  isMobile: boolean;
+  onVerb: () => void;
+}) {
+  const { t } = useI18n();
+  const [hover, setHover] = useState(false);
+  // The version whose image failed to load. A newer upload is a new URL, so it
+  // gets its own chance rather than inheriting the old failure.
+  const [failedVersion, setFailedVersion] = useState<number | null>(null);
+  const version = app.thumbnailUpdatedAt;
+  const src = version === failedVersion ? null : appThumbnailSrc(app);
+  const running = appSection(app) === "running";
+  const width = isMobile ? 112 : 160;
+  const frame: React.CSSProperties = {
+    position: "relative",
+    display: "block",
+    flexShrink: 0,
+    width,
+    aspectRatio: "16 / 10",
+    padding: 0,
+    // The thumbnail of a running app is a link; its letter fallback is not
+    // link text.
+    textDecoration: "none",
+    borderRadius: THUMB_RADIUS,
+    border: `1px solid ${hover && !disabled ? "var(--accent)" : "var(--border-light)"}`,
+    background: "var(--bg-code, var(--bg-base))",
+    overflow: "hidden",
+    cursor: running || (verb && !disabled) ? "pointer" : "default",
+    transition: "transform 0.12s, box-shadow 0.12s, border-color 0.12s",
+    transform: hover && !disabled ? "translateY(-1px)" : undefined,
+    boxShadow:
+      hover && !disabled ? "0 6px 18px var(--shadow-heavy)" : undefined,
+  };
+  const picture = src ? (
+    <img
+      src={src}
+      alt=""
+      onError={() => setFailedVersion(version ?? null)}
+      style={{
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        objectPosition: "top",
+        display: "block",
+        filter: running ? undefined : "grayscale(0.8) brightness(0.55)",
+      }}
+    />
+  ) : (
+    // No thumbnail yet: the name's first letter, so the row keeps its shape.
+    <span
+      aria-hidden="true"
+      style={{
+        display: "grid",
+        placeItems: "center",
+        width: "100%",
+        height: "100%",
+        fontSize: isMobile ? 26 : 34,
+        fontWeight: 700,
+        color: "var(--text-hint)",
+        opacity: running ? 1 : 0.6,
+        textTransform: "uppercase",
+      }}
+    >
+      {app.name.slice(0, 1)}
+    </span>
+  );
+  const hoverProps = {
+    onMouseEnter: () => setHover(true),
+    onMouseLeave: () => setHover(false),
+  };
+
+  if (running) {
+    const label = appLinkLabel(t, app);
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        title={label}
+        aria-label={`${label}: ${app.name}`}
+        data-app-thumbnail="open"
+        style={frame}
+        {...hoverProps}
+      >
+        {picture}
+        {/* The corner badge is always there; a hover adds the scrim and the
+            label on top of it. */}
+        {hover && !isMobile && (
+          <span
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "grid",
+              placeItems: "center",
+              background: "rgba(0,0,0,0.45)",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "4px 9px",
+                borderRadius: 6,
+                background: "var(--accent)",
+                color: "var(--bg-base)",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              {label}
+            </span>
+          </span>
+        )}
+        <span
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              right: 5,
+              bottom: 5,
+              display: "grid",
+              placeItems: "center",
+              width: 22,
+              height: 22,
+              borderRadius: 6,
+              background: "var(--bg-overlay)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-light)",
+            }}
+          >
+            <OpenIcon />
+          </span>
+      </a>
+    );
+  }
+
+  if (verb) {
+    const size = isMobile ? 34 : 40;
+    return (
+      <button
+        type="button"
+        title={t(VERB_TITLES[verb])}
+        aria-label={`${t(MENU_LABELS[verb])}: ${app.name}`}
+        data-app-thumbnail={verb}
+        disabled={disabled}
+        onClick={onVerb}
+        style={frame}
+        {...hoverProps}
+      >
+        {picture}
+        <span
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+          }}
+        >
+          <span
+            style={{
+              display: "grid",
+              placeItems: "center",
+              width: size,
+              height: size,
+              borderRadius: "50%",
+              background:
+                hover && !disabled ? "var(--accent)" : "var(--text-primary)",
+              color: "var(--bg-base)",
+              boxShadow: "0 3px 10px var(--shadow-heavy)",
+              opacity: disabled ? 0.5 : 1,
+            }}
+          >
+            {verb === "start" ? (
+              <PlayIcon size={size * 0.42} />
+            ) : (
+              <RestartIcon size={size * 0.42} />
+            )}
+          </span>
+        </span>
+      </button>
+    );
+  }
+
+  return <div style={frame}>{picture}</div>;
+}
+
+type MenuAction =
+  | "start"
+  | "stop"
+  | "restart"
+  | "log"
+  | "archive"
+  | "unarchive"
+  | "delete";
+
+/** The actions a manager's ⋯ menu offers for an app in this state. */
+export function appMenuActions(
+  app: Pick<AppListWire, "state" | "archived">,
+): MenuAction[] {
+  const actions: MenuAction[] = [];
+  for (const verb of ["start", "stop", "restart"] as const) {
+    if (!verbInert(verb, app.state)) actions.push(verb);
+  }
+  actions.push("log");
+  const section = appSection(app);
+  if (section === "stopped") actions.push("archive");
+  if (section === "archived") actions.push("unarchive");
+  actions.push("delete");
+  return actions;
+}
+
+/**
+ * The ⋯ menu, drawn like the agent context menu. It is placed with fixed
+ * coordinates under its button, because the app list scrolls and would clip
+ * an absolutely placed menu at its bottom edge.
+ */
+function AppActionsMenu({
+  actions,
+  disabled,
+  onAction,
+}: {
+  actions: MenuAction[];
+  disabled: boolean;
+  onAction: (action: MenuAction) => void;
+}) {
+  const { t } = useI18n();
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState<{ right: number; top?: number; bottom?: number } | null>(null);
+
+  useEffect(() => {
+    if (!at) return;
+    const close = (e: Event) => {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      setAt(null);
+    };
+    const closeOnScroll = () => setAt(null);
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setAt(null);
+      }
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("scroll", closeOnScroll, true);
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("scroll", closeOnScroll, true);
+      window.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [at]);
+
+  function toggle() {
+    if (at) {
+      setAt(null);
+      return;
+    }
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const right = window.innerWidth - rect.right;
+    // Open upward when the menu would not fit below the button.
+    const below = window.innerHeight - rect.bottom;
+    setAt(
+      below < 240
+        ? { right, bottom: window.innerHeight - rect.top + 4 }
+        : { right, top: rect.bottom + 4 },
+    );
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        title={t("common.moreActions")}
+        aria-label={t("common.moreActions")}
+        aria-haspopup="menu"
+        aria-expanded={at !== null}
+        data-app-menu-button=""
+        onClick={toggle}
+        style={{
+          flexShrink: 0,
+          width: 28,
+          height: 28,
+          display: "grid",
+          placeItems: "center",
+          padding: 0,
+          borderRadius: 6,
+          border: `1px solid ${at ? "var(--border-light)" : "transparent"}`,
+          background: at ? "var(--bg-hover)" : "transparent",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+        }}
+      >
+        <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+          <circle cx="3.5" cy="8" r="1.3" />
+          <circle cx="8" cy="8" r="1.3" />
+          <circle cx="12.5" cy="8" r="1.3" />
+        </svg>
+      </button>
+      {at && (
+        <Portal>
+          <div
+            ref={menuRef}
+            role="menu"
+            data-app-menu=""
+            style={{
+              position: "fixed",
+              right: at.right,
+              top: at.top,
+              bottom: at.bottom,
+              zIndex: 1000,
+              background: "var(--bg-overlay)",
+              backdropFilter: "blur(16px)",
+              border: "1px solid var(--border-light)",
+              borderRadius: 12,
+              padding: 5,
+              minWidth: 170,
+              boxShadow: "0 12px 40px var(--shadow-heavy)",
+              animation: "hudIn 0.12s ease-out",
+            }}
+          >
+            {actions.map((action) => (
+              <div key={action} data-app-menu-action={action}>
+                {action === "delete" && (
+                  <div
+                    style={{
+                      height: 1,
+                      background: "var(--border-strong)",
+                      margin: "3px 8px",
+                    }}
+                  />
+                )}
+                <MenuItem
+                  label={t(MENU_LABELS[action])}
+                  danger={action === "delete"}
+                  disabled={disabled && action !== "log"}
+                  onClick={() => {
+                    setAt(null);
+                    onAction(action);
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </Portal>
+      )}
+    </>
+  );
+}
+
+// Section labels share the look of the table headers on the Tasks and
+// Schedules pages.
+const sectionLabelStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  padding: 0,
+  border: "none",
+  background: "none",
+  fontSize: 11,
+  fontWeight: 700,
+  color: "var(--text-muted)",
+  fontFamily: "'JetBrains Mono',monospace",
+  letterSpacing: "0.05em",
+  textTransform: "uppercase",
+};
+
+const SECTION_LABELS: Record<AppSection, PlainMessageKey> = {
+  running: "apps.section.running",
+  stopped: "apps.section.stopped",
+  archived: "apps.section.archived",
+};
+
+/**
+ * The apps the page's filters let through. "Mine" is the owner, the member an
+ * app belongs to, not the agent that registered it. With no session there is
+ * no "me", so the filter lets everything through.
+ */
+export function filterApps<T extends Pick<AppListWire, "userId">>(
+  apps: readonly T[],
+  onlyMine: boolean,
+  selfUserId: string | null,
+): T[] {
+  return apps.filter(
+    (app) => !(onlyMine && selfUserId !== null && app.userId !== selfUserId),
+  );
 }
 
 // A link, not a button-shaped control: the same accent-and-underline affordance
@@ -624,15 +782,14 @@ function pageError(err: unknown, key: ErrorKey): PageError {
     : { kind: "key", key };
 }
 
-const FILTER_LABELS: Record<AppFilter, PlainMessageKey> = {
-  hideStopped: "apps.filter.hideStopped",
-  onlyMine: "apps.filter.onlyMine",
-};
+type AppVerb = "start" | "stop" | "restart" | "archive" | "unarchive";
 
-const ACTION_FAILED: Record<"start" | "stop" | "restart", ErrorKey> = {
+const ACTION_FAILED: Record<AppVerb, ErrorKey> = {
   start: "apps.actionFailed.start",
   stop: "apps.actionFailed.stop",
   restart: "apps.actionFailed.restart",
+  archive: "apps.actionFailed.archive",
+  unarchive: "apps.actionFailed.unarchive",
 };
 
 // Where a deleted app's data directory ends up: the registry moves it under
@@ -669,13 +826,8 @@ export function AppsView({
   const [error, setError] = useState<PageError | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppWire | null>(null);
-  const [previewsEnabled, setPreviewsEnabled] = useState(() =>
-    initialAppPreviews(features.liveAppPreviews, getAppPreviews()),
-  );
-  const [filters, setFilters] = useState<Record<AppFilter, boolean>>(() => ({
-    hideStopped: getAppFilter("hideStopped"),
-    onlyMine: getAppFilter("onlyMine"),
-  }));
+  const [onlyMine, setOnlyMine] = useState(() => getAppFilter("onlyMine"));
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const selfUserId = sessionContext?.userId ?? null;
   // An app's room is its creator agent's live room, the rule that decides who
   // sees it; an app with no visible creator has no room.
@@ -688,14 +840,10 @@ export function AppsView({
     setStoredRoomFilter(value);
     setRoomFilter("apps", value);
   };
-  const setFilter = (filter: AppFilter, on: boolean) => {
-    setFilters((prev) => ({ ...prev, [filter]: on }));
-    setAppFilter(filter, on);
-  };
-  const [openLogs, setOpenLogs] = useState<string | null>(null);
-  // Moves when the USER changes what the log pane is showing - opening a row,
-  // closing one, deleting the open one - so a request in flight can tell that it
-  // no longer speaks for what is on screen.
+  const [openLogs, setOpenLogs] = useState<AppWire | null>(null);
+  // Moves when the USER changes what the log dialog is showing - opening it,
+  // closing it, deleting its app - so a request in flight can tell that it no
+  // longer speaks for what is on screen.
   //
   // Deliberately NOT touched by any lifecycle event. Coupling it to the polling
   // effect's cleanup meant a rehydrate (which restarts that effect while the tab
@@ -714,18 +862,11 @@ export function AppsView({
   // value rather than the one captured when its closure was created.
   const revisionRef = useRef(appsRevision);
 
-  // Both refs sync in effects rather than during render (writing a ref while
-  // rendering is the anti-pattern the lint rule names). Neither has to be exact
-  // at every instant:
-  //   - openLogsRef is also set imperatively by toggleLogs, which is what the
-  //     in-flight request actually races against; this only backstops it.
-  //   - revisionRef lagging by a commit can only make the poll capture a value
-  //     that is too LOW, and the reducer then refuses a snapshot it might have
-  //     accepted. Refusing a good snapshot costs a re-fetch; accepting a stale
-  //     one is the bug.
-  useEffect(() => {
-    openLogsRef.current = openLogs;
-  }, [openLogs]);
+  // revisionRef syncs in an effect rather than during render (writing a ref
+  // while rendering is the anti-pattern the lint rule names). Lagging by a
+  // commit can only make the poll capture a value that is too LOW, and the
+  // reducer then refuses a snapshot it might have accepted. Refusing a good
+  // snapshot costs a re-fetch; accepting a stale one is the bug.
   useEffect(() => {
     revisionRef.current = appsRevision;
   }, [appsRevision]);
@@ -780,17 +921,18 @@ export function AppsView({
     };
   }, [dispatch, hydrationEpoch]);
 
-  async function act(name: string, verb: "start" | "stop" | "restart") {
+  // Lifecycle verbs and archive share one shape: POST, and the response is the
+  // app's fresh state. The same wire object reaches every other open tab as a
+  // delta, so nothing here has to re-fetch.
+  async function act(name: string, verb: AppVerb) {
     setBusy(`${name}:${verb}`);
     setError(null);
     try {
-      // The response is the app's fresh state, and the same wire object reaches
-      // every other open tab as a delta - so nothing here has to re-fetch.
       const app = await apiFetch<AppWire>(
         "POST",
         `/api/apps/${encodeURIComponent(name)}/${verb}`,
       );
-      // Lifecycle success is manager-only; its AppWire omits the list flag.
+      // Success is manager-only; its AppWire omits the list flag.
       dispatch({ type: "app_upserted", app: { ...app, canManage: true } });
     } catch (err) {
       setError(pageError(err, ACTION_FAILED[verb]));
@@ -806,11 +948,7 @@ export function AppsView({
       await apiFetch("DELETE", `/api/apps/${encodeURIComponent(app.name)}`);
       dispatch({ type: "app_deleted", name: app.name });
       setConfirmDelete(null);
-      if (openLogs === app.name) {
-        logGenRef.current++;
-        setOpenLogs(null);
-        openLogsRef.current = null;
-      }
+      if (openLogsRef.current === app.name) closeLogs();
     } catch (err) {
       setError(pageError(err, "apps.deleteFailed"));
     } finally {
@@ -818,16 +956,16 @@ export function AppsView({
     }
   }
 
-  async function toggleLogs(name: string) {
-    // Bumped BEFORE the close returns as well, so a request issued for the row
-    // being closed cannot populate the pane a later row opens.
+  function closeLogs() {
+    logGenRef.current++;
+    setOpenLogs(null);
+    openLogsRef.current = null;
+  }
+
+  async function showLogs(app: AppWire) {
     const gen = ++logGenRef.current;
-    if (openLogs === name) {
-      setOpenLogs(null);
-      openLogsRef.current = null;
-      return;
-    }
-    setOpenLogs(name);
+    const name = app.name;
+    setOpenLogs(app);
     openLogsRef.current = name;
     setLogLines(null);
     setLogError(null);
@@ -850,23 +988,249 @@ export function AppsView({
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && confirmDelete) {
+      if (e.key !== "Escape") return;
+      if (confirmDelete) {
         e.stopPropagation();
         setConfirmDelete(null);
+      } else if (openLogs) {
+        e.stopPropagation();
+        closeLogs();
       }
     }
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
-  }, [confirmDelete]);
+  }, [confirmDelete, openLogs]);
 
   const sorted = [...apps].sort((a, b) => a.name.localeCompare(b.name));
-  const shown = filterApps(sorted, filters, selfUserId).filter((app) =>
+  const shown = filterApps(sorted, onlyMine, selfUserId).filter((app) =>
     roomFilterMatches(roomFilter, appRoomId(app, agents, roomOptions)),
   );
+  const bySection: Record<AppSection, AppListWire[]> = {
+    running: [],
+    stopped: [],
+    archived: [],
+  };
+  for (const app of shown) bySection[appSection(app)].push(app);
 
-  useEffect(() => {
-    if (appsLoaded) evictDeletedAppPreviews(apps);
-  }, [apps, appsLoaded]);
+  function renderRow(app: AppListWire) {
+    const isBusy = busy?.startsWith(`${app.name}:`) ?? false;
+    const linkHref = appLinkHref(
+      app,
+      window.location.hostname,
+      features.liveAppPreviews,
+    );
+    const creatorAgentId = resolveCreatorAgentId(app, agents);
+    const creatorName = creatorAgentId
+      ? agents.find((agent) => agent.id === creatorAgentId)?.name
+      : "createdBy" in app
+        ? app.createdBy
+        : null;
+    const verb = thumbnailVerb(app);
+    const stateShown = app.state !== "running" && app.state !== "stopped";
+    return (
+      <div
+        key={app.name}
+        data-app-row={app.name}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: isMobile ? 12 : 14,
+          padding: "12px 0",
+          borderBottom: "1px solid var(--border-subtle)",
+          minWidth: 0,
+        }}
+      >
+        <AppThumbnail
+          app={app}
+          href={linkHref}
+          verb={verb}
+          disabled={isBusy}
+          isMobile={isMobile}
+          onVerb={() => verb && void act(app.name, verb)}
+        />
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              minWidth: 0,
+            }}
+          >
+            <a
+              href={linkHref}
+              target="_blank"
+              rel="noreferrer"
+              title={appLinkLabel(t, app)}
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: "var(--accent-text)",
+                textDecoration: "none",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {app.name}
+            </a>
+            {stateShown && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  fontSize: 11,
+                  color: STATE_TEXT_COLOR[app.state],
+                  textTransform: "lowercase",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <StateDot state={app.state} />
+                {t(STATE_LABELS[app.state])}
+              </span>
+            )}
+          </div>
+          {app.description && (
+            <div
+              title={app.description}
+              style={{
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {app.description}
+            </div>
+          )}
+          <div
+            style={{
+              display: "flex",
+              gap: "2px 14px",
+              flexWrap: "wrap",
+              fontSize: 11,
+            }}
+          >
+            {/* The creator opens its conversation when it is still an agent of
+                this office; otherwise it stays plain text. */}
+            <Meta
+              label={t("apps.meta.createdBy")}
+              value={
+                creatorAgentId !== null ? (
+                  <button
+                    type="button"
+                    title={t("apps.openAgent")}
+                    onClick={() => onFocusAgent?.(creatorAgentId)}
+                    style={agentLinkStyle}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.textDecoration = "underline")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.textDecoration = "none")
+                    }
+                  >
+                    {creatorName}
+                  </button>
+                ) : (
+                  creatorName
+                )
+              }
+            />
+            {app.username && (
+              <Meta label={t("apps.meta.owner")} value={app.username} />
+            )}
+          </div>
+          {/* Presence only. startError is in-memory on the server, so its
+              absence proves nothing and this never renders an all-clear -
+              `state` is the durable signal. */}
+          {app.canManage === true && app.startError && (
+            <div
+              title={app.startError}
+              style={{
+                fontSize: 11,
+                color: "var(--red-text)",
+                fontFamily: "var(--font-mono, monospace)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {app.startError}
+            </div>
+          )}
+        </div>
+        {app.canManage === true && (
+          <AppActionsMenu
+            actions={appMenuActions(app)}
+            disabled={isBusy}
+            onAction={(action) => {
+              if (action === "log") void showLogs(app);
+              else if (action === "delete") setConfirmDelete(app);
+              else void act(app.name, action);
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
+  function renderSection(section: AppSection) {
+    const list = bySection[section];
+    if (list.length === 0) return null;
+    const collapsible = section === "archived";
+    const open = !collapsible || archivedOpen;
+    const label = (
+      <>
+        {t(SECTION_LABELS[section])}
+        <span style={{ fontWeight: 400, color: "var(--text-hint)" }}>
+          {list.length}
+        </span>
+        {collapsible && <ChevronIcon open={open} />}
+      </>
+    );
+    return (
+      <section key={section} data-app-section={section}>
+        <div style={{ padding: "18px 0 2px" }}>
+          {collapsible ? (
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => setArchivedOpen(!open)}
+              style={{ ...sectionLabelStyle, cursor: "pointer" }}
+            >
+              {label}
+            </button>
+          ) : (
+            <h2 style={{ ...sectionLabelStyle, margin: 0 }}>{label}</h2>
+          )}
+        </div>
+        {open && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile
+                ? "minmax(0, 1fr)"
+                : "repeat(auto-fill, minmax(420px, 1fr))",
+              columnGap: 36,
+            }}
+          >
+            {list.map(renderRow)}
+          </div>
+        )}
+      </section>
+    );
+  }
 
   return (
     <div
@@ -912,34 +1276,9 @@ export function AppsView({
           ←
         </button>
         <div style={{ fontSize: 13, fontWeight: 600 }}>{t("common.apps")}</div>
-        {features.liveAppPreviews && (
-          <button
-            type="button"
-            onClick={() => {
-              const next = !previewsEnabled;
-              setPreviewsEnabled(next);
-              setAppPreviews(next);
-            }}
-            title={t(
-              previewsEnabled ? "apps.hidePreviews" : "apps.showPreviews",
-            )}
-            style={{
-              marginLeft: "auto",
-              padding: "3px 7px",
-              border: "1px solid var(--border)",
-              borderRadius: 5,
-              background: "var(--btn-surface)",
-              color: "var(--text-dim)",
-              fontSize: 10,
-              cursor: "pointer",
-            }}
-          >
-            {t(previewsEnabled ? "apps.previewsOn" : "apps.previewsOff")}
-          </button>
-        )}
         <div
           style={{
-            marginLeft: features.liveAppPreviews ? undefined : "auto",
+            marginLeft: "auto",
             fontSize: 11,
             color: "var(--text-muted)",
           }}
@@ -996,28 +1335,29 @@ export function AppsView({
             flexShrink: 0,
           }}
         >
-          {(["hideStopped", "onlyMine"] as const)
-            .filter((filter) => filter !== "onlyMine" || selfUserId !== null)
-            .map((filter) => (
-              <label
-                key={filter}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  cursor: "pointer",
+          {selfUserId !== null && (
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                data-app-filter="onlyMine"
+                checked={onlyMine}
+                onChange={(e) => {
+                  const on = e.currentTarget.checked;
+                  setOnlyMine(on);
+                  setAppFilter("onlyMine", on);
                 }}
-              >
-                <input
-                  type="checkbox"
-                  data-app-filter={filter}
-                  checked={filters[filter]}
-                  onChange={(e) => setFilter(filter, e.currentTarget.checked)}
-                  style={{ margin: 0, accentColor: "var(--accent)" }}
-                />
-                {t(FILTER_LABELS[filter])}
-              </label>
-            ))}
+                style={{ margin: 0, accentColor: "var(--accent)" }}
+              />
+              {t("apps.filter.onlyMine")}
+            </label>
+          )}
           <RoomFilterSelect
             value={roomFilter}
             rooms={roomOptions}
@@ -1026,7 +1366,13 @@ export function AppsView({
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? 12 : 20 }}>
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: isMobile ? "0 12px 12px" : "0 20px 20px",
+        }}
+      >
         {!appsLoaded ? null : sorted.length === 0 ? (
           <div
             style={{
@@ -1048,256 +1394,88 @@ export function AppsView({
             {t("apps.filter.noMatch")}
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {shown.map((app) => {
-              const isBusy = busy?.startsWith(`${app.name}:`) ?? false;
-              const linkHref = appLinkHref(
-                app,
-                window.location.hostname,
-                features.liveAppPreviews,
-              );
-              const creatorAgentId = resolveCreatorAgentId(app, agents);
-              const creatorName = creatorAgentId
-                ? agents.find((agent) => agent.id === creatorAgentId)?.name
-                : "createdBy" in app
-                  ? app.createdBy
-                  : null;
-              const appLink = (
-                label: React.ReactNode,
-                style: React.CSSProperties,
-              ) => (
-                <a
-                  href={linkHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={appLinkLabel(t, app)}
-                  style={style}
-                >
-                  {label}
-                </a>
-              );
-              return (
-                <div
-                  key={app.name}
-                  style={{
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    background: "var(--bg-subtle)",
-                    padding: isMobile ? 12 : 14,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <StateDot state={app.state} />
-                    {appLink(app.name, {
-                      fontSize: 14,
-                      fontWeight: 600,
-                      color: "var(--accent-text)",
-                      textDecoration: "none",
-                    })}
-                    <span
-                      style={{
-                        fontSize: 11,
-                        color: STATE_TEXT_COLOR[app.state],
-                        textTransform: "lowercase",
-                      }}
-                    >
-                      {t(STATE_LABELS[app.state])}
-                    </span>
-                    {appLink(
-                      <>
-                        <span>{appLinkLabel(t, app)}</span>
-                        <OpenIcon />
-                      </>,
-                      {
-                        marginLeft: "auto",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "var(--accent-text)",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                      },
-                    )}
-                  </div>
-
-                  {previewsEnabled && appCanPreview(app) && (
-                    <AppPreview app={app} href={linkHref} isMobile={isMobile} />
-                  )}
-
-                  {app.description && (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        fontSize: 12,
-                        color: "var(--text-secondary)",
-                      }}
-                    >
-                      {app.description}
-                    </div>
-                  )}
-
-                  <div
-                    style={{
-                      marginTop: 8,
-                      display: "flex",
-                      gap: 14,
-                      flexWrap: "wrap",
-                      fontSize: 11,
-                    }}
-                  >
-                    <Meta
-                      label={t("apps.meta.port")}
-                      value={String(app.port)}
-                    />
-                    {/* The creator opens its conversation when it is still an
-                        agent of this office; otherwise it stays plain text. */}
-                    <Meta
-                      label={t("apps.meta.createdBy")}
-                      value={
-                        creatorAgentId !== null ? (
-                          <button
-                            type="button"
-                            title={t("apps.openAgent")}
-                            onClick={() => onFocusAgent?.(creatorAgentId)}
-                            style={agentLinkStyle}
-                            onMouseEnter={(e) =>
-                              (e.currentTarget.style.textDecoration =
-                                "underline")
-                            }
-                            onMouseLeave={(e) =>
-                              (e.currentTarget.style.textDecoration = "none")
-                            }
-                          >
-                            {creatorName}
-                          </button>
-                        ) : (
-                          creatorName
-                        )
-                      }
-                    />
-                    {app.username && (
-                      <Meta label={t("apps.meta.owner")} value={app.username} />
-                    )}
-                  </div>
-
-                  {app.canManage === true && (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        fontSize: 11,
-                        color: "var(--text-muted)",
-                        fontFamily: "var(--font-mono, monospace)",
-                        overflowWrap: "anywhere",
-                      }}
-                    >
-                      {app.command}
-                      <span style={{ color: "var(--text-hint)" }}>
-                        {" "}
-                        {t("apps.commandIn", { cwd: app.cwd })}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Presence only. startError is in-memory on the server, so
-                      its absence proves nothing and this never renders an
-                      all-clear - `state` is the durable signal. */}
-                  {app.canManage === true && app.startError && (
-                    <div
-                      style={{
-                        marginTop: 8,
-                        padding: "6px 8px",
-                        borderRadius: 6,
-                        background: "var(--bg-code, var(--bg-base))",
-                        color: "var(--red-text)",
-                        fontSize: 11,
-                        fontFamily: "var(--font-mono, monospace)",
-                        overflowWrap: "anywhere",
-                      }}
-                    >
-                      {app.startError}
-                    </div>
-                  )}
-
-                  {app.canManage === true && (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        display: "flex",
-                        gap: 6,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      {(["start", "stop", "restart"] as const).map((verb) => {
-                        const inert = isBusy || verbInert(verb, app.state);
-                        return (
-                          <button
-                            key={verb}
-                            title={t(VERB_TITLES[verb])}
-                            disabled={inert}
-                            onClick={() => void act(app.name, verb)}
-                            style={btnStyle(false, inert)}
-                          >
-                            {t(VERB_LABELS[verb])}
-                          </button>
-                        );
-                      })}
-                      <button
-                        title={t("apps.showLog")}
-                        disabled={isBusy}
-                        onClick={() => void toggleLogs(app.name)}
-                        style={btnStyle(false, isBusy)}
-                      >
-                        {t(openLogs === app.name ? "apps.hideLog" : "apps.log")}
-                      </button>
-                      <button
-                        title={t("apps.removeTitle")}
-                        disabled={isBusy}
-                        onClick={() => setConfirmDelete(app)}
-                        style={btnStyle(true, isBusy)}
-                      >
-                        {t("apps.delete")}
-                      </button>
-                    </div>
-                  )}
-
-                  {app.canManage === true && openLogs === app.name && (
-                    <pre
-                      style={{
-                        marginTop: 10,
-                        marginBottom: 0,
-                        padding: 10,
-                        borderRadius: 6,
-                        background: "var(--bg-code, var(--bg-base))",
-                        border: "1px solid var(--border-subtle)",
-                        color: "var(--text-secondary)",
-                        fontSize: 11,
-                        maxHeight: 260,
-                        overflow: "auto",
-                        whiteSpace: "pre-wrap",
-                        overflowWrap: "anywhere",
-                      }}
-                    >
-                      {(logError && errorText(logError)) ??
-                        (logLines === null
-                          ? t("common.loading")
-                          : logLines.length === 0
-                            ? t("apps.logEmpty")
-                            : logLines.join("\n"))}
-                    </pre>
-                  )}
-                </div>
-              );
-            })}
+          <div style={{ maxWidth: 1240 }}>
+            {(["running", "stopped", "archived"] as const).map(renderSection)}
           </div>
         )}
       </div>
+
+      {openLogs && (
+        <div
+          onClick={closeLogs}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+            zIndex: 1000,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-label={openLogs.name}
+            data-app-log=""
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--bg-base)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              padding: 18,
+              maxWidth: 760,
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{openLogs.name}</div>
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--text-muted)",
+                fontFamily: "var(--font-mono, monospace)",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {openLogs.command}
+              <span style={{ color: "var(--text-hint)" }}>
+                {" "}
+                {t("apps.commandIn", { cwd: openLogs.cwd })}
+              </span>
+            </div>
+            <pre
+              style={{
+                margin: 0,
+                padding: 10,
+                borderRadius: 6,
+                background: "var(--bg-code, var(--bg-base))",
+                border: "1px solid var(--border-subtle)",
+                color: "var(--text-secondary)",
+                fontSize: 11,
+                height: "min(420px, 60vh)",
+                overflow: "auto",
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {(logError && errorText(logError)) ??
+                (logLines === null
+                  ? t("common.loading")
+                  : logLines.length === 0
+                    ? t("apps.logEmpty")
+                    : logLines.join("\n"))}
+            </pre>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={closeLogs} style={btnStyle(false, false)}>
+                {t("common.close")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmDelete && (
         <div
@@ -1369,13 +1547,17 @@ const VERB_TITLES: Record<
   restart: "apps.verbTitle.restart",
 };
 
-const VERB_LABELS: Record<
-  "start" | "stop" | "restart",
-  Extract<MessageKey, `apps.verb.${string}`>
+const MENU_LABELS: Record<
+  MenuAction,
+  Extract<MessageKey, `apps.menu.${string}`> & PlainMessageKey
 > = {
-  start: "apps.verb.start",
-  stop: "apps.verb.stop",
-  restart: "apps.verb.restart",
+  start: "apps.menu.start",
+  stop: "apps.menu.stop",
+  restart: "apps.menu.restart",
+  log: "apps.menu.log",
+  archive: "apps.menu.archive",
+  unarchive: "apps.menu.unarchive",
+  delete: "apps.menu.delete",
 };
 
 const STATE_LABELS: Record<

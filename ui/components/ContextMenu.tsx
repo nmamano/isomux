@@ -251,7 +251,7 @@ export function ContextMenu({
   );
 }
 
-function MenuItem({
+export function MenuItem({
   label,
   danger,
   small,

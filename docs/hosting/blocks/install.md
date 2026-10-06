@@ -44,4 +44,4 @@ its normal user account.
    [build recovery instructions](hosting-reference.md#native-build-recovery).
 
 A Chrome-family browser installed on this computer also enables page-preview
-cards and app screenshots. It is optional for office setup.
+cards. It is optional for office setup.

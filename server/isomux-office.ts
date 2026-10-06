@@ -252,7 +252,7 @@ import {
   webhooksHandlers,
   webhookTargetPrecondition,
 } from "./routes/handlers/webhooks.ts";
-import { appPreviewCapture } from "./app-preview.ts";
+import { appThumbnailStore } from "./app-thumbnails.ts";
 import { handleAppHostRequest } from "./app-hosts.ts";
 import {
   appHostDomain,
@@ -2434,6 +2434,10 @@ function viewerAppWire(app: AppWire): AppListWire | null {
     state: app.state,
     restartCount: app.restartCount,
     ...(app.url !== undefined ? { url: app.url } : {}),
+    ...(app.thumbnailUpdatedAt !== undefined
+      ? { thumbnailUpdatedAt: app.thumbnailUpdatedAt }
+      : {}),
+    ...(app.archived === true ? { archived: true } : {}),
     canManage: false,
   };
 }
@@ -2673,8 +2677,9 @@ function buildExecutorDeps(
       limiter: appMessageLimiter,
       publicUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
       canAccess: canUserAccessApp,
-      capturePreview: (app) => appPreviewCapture.capture(app),
-      invalidatePreview: (name) => appPreviewCapture.invalidate(name),
+      registrationGeneration: appRegistrationGeneration,
+      thumbnails: appThumbnailStore,
+      now: () => Date.now(),
       install: (record) => appSupervisor.install(record),
       reinstall: (record) => appSupervisor.reinstall(record),
       teardown: (name) => appSupervisor.teardown(name),

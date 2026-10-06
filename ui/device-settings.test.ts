@@ -31,8 +31,6 @@ const {
   getMembersChatHidden,
   getMembersChatWidth,
   setMembersChatWidth,
-  getAppPreviews,
-  setAppPreviews,
   APP_PREVIEW_OPEN_TTL_MS,
   getAppPreviewOpenedAt,
   markAppPreviewOpened,
@@ -45,14 +43,6 @@ const {
 
 describe("app previews", () => {
   beforeEach(() => store.clear());
-
-  it("defaults on and round-trips this device's choice", () => {
-    expect(getAppPreviews()).toBe(true);
-    setAppPreviews(false);
-    expect(getAppPreviews()).toBe(false);
-    setAppPreviews(true);
-    expect(getAppPreviews()).toBe(true);
-  });
 
   it("remembers an exact app URL only for the app-session lifetime", () => {
     markAppPreviewOpened("https://habits.office.example", 1000);

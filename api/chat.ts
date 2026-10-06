@@ -239,7 +239,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
-- The Apps tab lists every app available to you with its state, restart count, and screenshot preview. App owners and office owners can also read recent output and start, stop, restart, or delete an app.
+- The Apps tab lists every app available to you with its state, restart count, and thumbnail. App owners and office owners can also read recent output and start, stop, restart, archive, or delete an app.
 - On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/hosting).
 - Only people signed in to the office can open an app's address.
 - An app can message the agent that built it, so it can report an event and have an agent act on it.
