@@ -36,6 +36,9 @@ export async function withRoleSuiteLock<T>(
     await client.query("select pg_advisory_lock($1)", [key]);
     return await fn();
   } finally {
+    // Unlock before end(): the server frees a session lock only when its
+    // backend exits, which can land after end() resolves.
+    await client.query("select pg_advisory_unlock_all()").catch(() => {});
     await client.end().catch(() => {});
   }
 }
