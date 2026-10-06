@@ -2671,7 +2671,7 @@ fly secrets unset --stage -a <app> <every credential name from the list>
 fly machine status <machine> -a <app>     # still stopped, autostart off
 fly machine run . --dockerfile control-plane/deploy/forwarder/Dockerfile \
   -a <app> -r <region> --name certificate-forwarder \
-  --port 443:8080/tcp:tls:http --autostop off --restart always \
+  --port 443:8080/tcp:tls:http --autostop=off --restart always \
   --vm-memory 256 --env ISOMUX_FORWARD_TO=https://<new provisioner host>
 fly machine status <machine> -a <app>     # the old machine is still stopped
 ```
