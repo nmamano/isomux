@@ -26,6 +26,7 @@ import {
   SessionSwappedError,
   TurnSupersededError,
   type AgentEvent,
+  type SwapReason,
 } from "./internal-types.ts";
 import { errMessage } from "../shared/errors.ts";
 
@@ -538,7 +539,7 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     // Stamped onto the SessionSwappedError handed to the in-flight turn, so
     // catch sites can tell a deliberate settings-driven swap apart from other
     // swaps without racing any external state.
-    swapReason?: "settings",
+    swapReason?: SwapReason,
   ): Promise<void> {
     this.clearLiveTurn(host);
     this.turnCancelToken++;

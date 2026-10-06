@@ -2052,6 +2052,10 @@ App 的一些原则：
     "切换到其他会话时，已清除 {count} 条队列消息。",
   "systemEntries.queueCleared.switching.other":
     "切换到其他会话时，已清除 {count} 条队列消息。",
+  "systemEntries.queueCleared.newConversation.one":
+    "已清除 {count} 条队列消息。",
+  "systemEntries.queueCleared.newConversation.other":
+    "已清除 {count} 条队列消息。",
   "systemEntries.contextCompacted": "上下文已压缩：{summary}",
   "systemEntries.contextCompactedNoSummary": "上下文已压缩。",
   "systemEntries.toolCallDenied": "工具调用被拒绝：{tool}",

@@ -2265,6 +2265,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "Cleared {count} queued message when switching to another session.",
   "systemEntries.queueCleared.switching.other":
     "Cleared {count} queued messages when switching to another session.",
+  "systemEntries.queueCleared.newConversation.one":
+    "Cleared {count} queued message.",
+  "systemEntries.queueCleared.newConversation.other":
+    "Cleared {count} queued messages.",
   "systemEntries.contextCompacted": "Context compacted: {summary}",
   "systemEntries.contextCompactedNoSummary": "Context compacted.",
   "systemEntries.toolCallDenied": "Tool call denied: {tool}",

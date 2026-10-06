@@ -224,6 +224,8 @@ interface HandlerDeps {
   ) => Promise<void>;
   persistAll: () => void;
   persistCurrentSessionTopic: (agentId: string, managed: ManagedAgent) => void;
+  // Best-effort durable write of the agent's live queue (message-queues.json).
+  persistQueueState: (agentId: string, managed: ManagedAgent) => void;
   // Wake a DORMANT agent so a skill's turn has a live session to send on (lazy
   // restore). Returns true if a session is ready; false if starting one failed
   // (an error was already logged and the agent moved to "error"), in which case
@@ -266,7 +268,7 @@ interface HandlerDeps {
 export function createCommandHandling(deps: HandlerDeps) {
   const commandHandlers: Record<string, HandlerFn> = {
     async clear(agentId, managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
+      const { t, tn } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       // Build the new session BEFORE destroying pending control state and
@@ -277,13 +279,16 @@ export function createCommandHandling(deps: HandlerDeps) {
       // topic persists, replaceSession installs. Queue must clear BEFORE
       // replaceSession or the post-swap idle trigger flushes prior-context
       // messages into the fresh session.
+      let clearedCount = 0;
       try {
         const newSession = deps.createSession(managed);
         managed.pendingResumeSessions = [];
         deps.cancelChoiceInteraction(agentId);
-        if (managed.messageQueue.length > 0) {
+        clearedCount = managed.messageQueue.length;
+        if (clearedCount > 0) {
           managed.messageQueue.length = 0;
           deps.emit({ type: "agent_updated", agentId, changes: { queue: [] } });
+          deps.persistQueueState(agentId, managed);
         }
         deps.persistCurrentSessionTopic(agentId, managed);
         await deps.replaceSession(agentId, managed, newSession);
@@ -317,7 +322,15 @@ export function createCommandHandling(deps: HandlerDeps) {
       }))
         deps.emit(event);
       // No ephemeral "Conversation cleared." line either: the empty state's
-      // start-or-resume sentence is the confirmation (Nil, 2026-09-13).
+      // start-or-resume sentence is the confirmation (Nil, 2026-09-13). A
+      // cleared queue is not visible there, so it gets a line.
+      if (clearedCount > 0) {
+        deps.addLogEntry(
+          agentId,
+          "system",
+          tn("systemEntries.queueCleared.newConversation", clearedCount),
+        );
+      }
       deps.updateState(agentId, "idle");
       deps.persistAll();
       return true;

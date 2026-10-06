@@ -341,11 +341,14 @@ export type EventHandler = (event: AgentEvent) => void;
 // racing any external flag: "settings" marks a deliberate settings-driven
 // replace (model/effort/permission/sandbox/cwd edit) - flushQueue's handler
 // words its interrupt notice as expected behavior instead of a stall.
+// "handoff" marks a handoff's reset, which carries the queue to the fresh
+// session, so flushQueue's handler writes no notice at all.
 // Undefined for every other swap (abort slow path,
 // setPrivileged, watchdog forced recovery, /clear, /resume, ...).
+export type SwapReason = "settings" | "handoff";
 export class SessionSwappedError extends Error {
-  readonly reason?: "settings";
-  constructor(message = "Session replaced.", reason?: "settings") {
+  readonly reason?: SwapReason;
+  constructor(message = "Session replaced.", reason?: SwapReason) {
     super(message);
     this.name = "SessionSwappedError";
     this.reason = reason;

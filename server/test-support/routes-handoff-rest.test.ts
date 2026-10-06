@@ -6,9 +6,10 @@
 // reads the coalesced prompt off the FakeBackend to pin the self-handoff flush
 // prefix ("[Handoff from your previous session]", no reply-to-self preamble).
 //
-// The endpoint resets the session (reuses newConversation, which WIPES the queue)
-// and then enqueues the brief into the now-fresh session; because the enqueue
-// happens AFTER the reset, the queue-clear can't drop the brief. These tests pin:
+// The endpoint puts the brief at the head of the queue and then resets the
+// session (newConversation with keepQueue), so the fresh session gets the brief
+// and then whatever was queued (task 6f6e8ed7, handoff-queue-*.test.ts). These
+// tests pin:
 //   - delivery + the self-handoff prefix + auth split + body validation;
 //   - CONCURRENCY (review REQUEST-CHANGES follow-up): a concurrent second
 //     handoff is rejected with 409 (the running one keeps its honest guarantee),
@@ -152,9 +153,8 @@ describe("agents.handoff REST - delivery + self-handoff flush prefix", () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
 
-    // The reset + enqueue are one server-side op; wait for the fresh session to
-    // receive the brief. It arrives despite newConversation clearing the queue,
-    // because the enqueue runs AFTER the reset.
+    // The enqueue + reset are one server-side op; wait for the fresh session to
+    // receive the brief.
     await waitUntil(
       () => (srv.fakeBackend.sessionForAgent(a.id)?.sent.length ?? 0) >= 1,
       2000,
@@ -262,9 +262,9 @@ describe("agents.handoff REST - body validation", () => {
 describe("agents.handoff REST - concurrency and failure honesty", () => {
   it("rejects a concurrent handoff with 409 handoff_in_progress: the winner delivers, the loser is told (no false success)", async () => {
     // Hold the winner's reset open (wedged drain) so a second handoff genuinely
-    // overlaps it. Chaining the second would let its reset clear the winner's
-    // just-enqueued brief - a false 200 for a brief that then vanished; instead
-    // the second is rejected 409 and the winner keeps the honest guarantee.
+    // overlaps it. Chaining the second would put its brief ahead of the
+    // winner's and reset the session the winner just woke; instead the second
+    // is rejected 409 and the winner keeps the honest guarantee.
     const { srv, owner, a, b } = await setup(
       parkingBackend({ hangOnClose: true }),
     );
@@ -303,11 +303,9 @@ describe("agents.handoff REST - concurrency and failure honesty", () => {
       { agentId: a.id },
       { text: winnerBrief },
     );
-    await waitUntil(
-      () => agentOf(srv, a.id).dormant === true,
-      2000,
-      "winner reset draining",
-    );
+    // The old session closed: the reset is in its wedged drain. (Not dormant:
+    // the brief wakes a fresh session at once, so dormant is only a blip.)
+    await waitUntil(() => oldSession.closed, 2000, "winner reset draining");
     // A second handoff during that window is rejected, not chained.
     const loser = await call(
       srv,
@@ -373,13 +371,9 @@ describe("agents.handoff REST - concurrency and failure honesty", () => {
       { rawSessionId: owner.rawSessionId },
       { text: brief },
     );
-    // Once the reset has released the old session (dormant), an inbound message
+    // Once the reset has closed the old session, an inbound message
     // races in during the still-blocked drain.
-    await waitUntil(
-      () => agentOf(srv, a.id).dormant === true,
-      2000,
-      "reset drain started",
-    );
+    await waitUntil(() => oldSession.closed, 2000, "reset drain started");
     await call(
       srv,
       "POST",

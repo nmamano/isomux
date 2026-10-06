@@ -5752,6 +5752,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.sessionManager.replaceSession(managed, newSession),
     persistAll,
     persistCurrentSessionTopic,
+    persistQueueState,
     wakeDormantSession: (agentId, managed, rawText, username, device) =>
       wakeSessionForSend(agentId, managed, {
         // echoEarly:false - executeSkill echoes the user's command AFTER the
@@ -6616,11 +6617,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // When a send-now cut the turn to deliver them, the note names that
       // cause instead: the backend reports the cut tool call as rejected by
       // the user, and the receiver must not read it as a human decision.
-      const busyCount = items.reduce(
+      // A batch with a handoff brief gets neither note: it goes to a fresh
+      // session, which has no previous turn for them to refer to.
+      const noteItems = items.some((m) => m.handoff) ? [] : items;
+      const busyCount = noteItems.reduce(
         (n, m) => (m.queuedDuringBusyTurn ? n + 1 : n),
         0,
       );
-      const causes = new Set(items.map((m) => m.interruptCause));
+      const causes = new Set(noteItems.map((m) => m.interruptCause));
       if (causes.has("member_send_now")) {
         promptParts.push(MEMBER_INTERRUPT_NOTE);
       } else if (causes.has("agent_steer")) {
@@ -6672,7 +6676,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // will re-trigger flushQueue. Surface a system message only if the
           // queue still has items - when the swap path explicitly cleared the
           // queue (newConversation/resume/editMessage) there's nothing to
-          // retry and the message would be misleading noise.
+          // retry and the message would be misleading noise. A handoff's reset
+          // keeps the queue for the fresh session: nothing to report either.
           //
           // Also stay quiet when the cancellation was user-initiated (Stop /
           // Send-now): abort() already logged "Agent interrupted." and the
@@ -6696,7 +6701,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             managed.sessionManager.aborting ||
             managed.sessionManager.turnCancelToken ===
               managed.sessionManager.abortCancelToken;
-          if (managed.messageQueue.length > 0 && !userInitiated) {
+          if (
+            managed.messageQueue.length > 0 &&
+            !userInitiated &&
+            err.reason !== "handoff"
+          ) {
             addLogEntry(
               agentId,
               "system",
@@ -8662,111 +8671,153 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       permissionMode?: AgentInfo["permissionMode"];
       codexSandbox?: AgentInfo["codexSandbox"];
     },
+    // Handoff only: the queue (brief at its head) goes to the fresh session.
+    opts?: { keepQueue?: boolean },
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
     cancelChoiceInteraction(agentId);
     managed.pendingResumeSessions = [];
     // /clear is a fresh start; queued messages from the prior context shouldn't
-    // bleed into the new conversation.
-    if (managed.messageQueue.length > 0) {
-      managed.messageQueue.length = 0;
-      emitQueueUpdate(agentId, managed);
-      persistQueueState(agentId, managed);
-    }
-    persistCurrentSessionTopic(agentId, managed);
+    // bleed into the new conversation. A handoff instead holds its queue aside,
+    // in memory only (disk keeps it), until the old session is closed below:
+    // the idle transition in this reset must not flush it into that session.
+    const heldQueue = opts?.keepQueue ? managed.messageQueue.splice(0) : [];
+    let drained: Promise<void>;
+    try {
+      const clearedCount = managed.messageQueue.length;
+      if (clearedCount > 0) {
+        managed.messageQueue.length = 0;
+        emitQueueUpdate(agentId, managed);
+        persistQueueState(agentId, managed);
+      }
+      persistCurrentSessionTopic(agentId, managed);
 
-    // Switching engine always starts a fresh conversation. Cross-engine model/
-    // effort/permission values aren't interchangeable (a Claude model slug is
-    // meaningless to Codex and vice-versa), so reset to the target engine's
-    // defaults rather than coercing the current values, and recompute
-    // capabilities so UI affordances follow. The fresh session is stamped with
-    // this config at its system_init.
-    if (targetAgentType && targetAgentType !== managed.info.agentType) {
-      // A different engine means a different provider account, so the
-      // allowance reading goes now - synchronously with the identity change,
-      // which also orphans any read already in flight against the old one.
-      resetSubscriptionUsage(managed);
-      // Validate any provided override against the TARGET engine (undefined ->
-      // that engine's default). Never coerce a source-engine value: e.g.
-      // validateModelFamily(codex, "opus") would pass "opus" straight through.
-      const resolved = resolveAgentEngineSettings(
-        targetAgentType,
-        engineOverrides ?? {},
+      // Switching engine always starts a fresh conversation. Cross-engine model/
+      // effort/permission values aren't interchangeable (a Claude model slug is
+      // meaningless to Codex and vice-versa), so reset to the target engine's
+      // defaults rather than coercing the current values, and recompute
+      // capabilities so UI affordances follow. The fresh session is stamped with
+      // this config at its system_init.
+      if (targetAgentType && targetAgentType !== managed.info.agentType) {
+        // A different engine means a different provider account, so the
+        // allowance reading goes now - synchronously with the identity change,
+        // which also orphans any read already in flight against the old one.
+        resetSubscriptionUsage(managed);
+        // Validate any provided override against the TARGET engine (undefined ->
+        // that engine's default). Never coerce a source-engine value: e.g.
+        // validateModelFamily(codex, "opus") would pass "opus" straight through.
+        const resolved = resolveAgentEngineSettings(
+          targetAgentType,
+          engineOverrides ?? {},
+        );
+        for (const event of officeState.updateAgent(agentId, {
+          agentType: targetAgentType,
+          ...resolved,
+          capabilities: getBackend(targetAgentType).capabilities,
+        }))
+          emit(event);
+      }
+
+      // Release-on-clear: a blank conversation holds NO subprocess. Instead of
+      // creating a fresh LIVE session here (the old replaceSession path, ~165MB
+      // for a conversation that may sit untouched), close the current session and
+      // leave the agent dormant; the next message wakes a fresh blank one via
+      // flushQueue's !session branch.
+      //
+      // ORDER IS LOAD-BEARING. Everything user-visible and every state reset
+      // happens BEFORE the drain await, and NOTHING runs after it. A message that
+      // arrives during closeAndDrainSession's drain wakes a fresh session
+      // (flushQueue sees session===null) - so (1) sessionId must already be null
+      // and the topic/log state already blanked, or that wake would resume the
+      // just-cleared thread; and (2) no post-drain write may run, or it would
+      // clobber the concurrent wake (e.g. stomp its waiting_for_response back to
+      // idle). This inverts the old structure, which did updateState/addLogEntry
+      // AFTER the session swap.
+      managed.sessionManager.sessionId = null;
+      managed.dormantReason = "fresh";
+      managed.topicGenerating = false;
+      managed.topicMessageCount = 0;
+      managed.topicGenToken++;
+      // /clear and engine switches both land here: a blank conversation has no
+      // fullness measurement. Runs before the drain await per the order contract
+      // above, so a late sample from the old session self-discards on gen.
+      resetContextUsage(managed);
+      // Match /clear's behavior: wipe the chat. Without this, the timeline
+      // continues across session boundaries and editing an old entry hits the
+      // cross-session dead-end.
+      logCache.set(agentId, []);
+      emit({ type: "clear_logs", agentId });
+      // officeState.resetTopic mutates topic + topicStale, fires persistAll via
+      // onChange (capturing the null sessionId set above).
+      for (const event of officeState.resetTopic(agentId)) emit(event);
+      updateState(agentId, "idle");
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId)("systemEntries.newConversation"),
       );
-      for (const event of officeState.updateAgent(agentId, {
-        agentType: targetAgentType,
-        ...resolved,
-        capabilities: getBackend(targetAgentType).capabilities,
-      }))
-        emit(event);
+      if (clearedCount > 0) {
+        addLogEntry(
+          agentId,
+          "system",
+          logTranslator(managed).tn(
+            "systemEntries.queueCleared.newConversation",
+            clearedCount,
+          ),
+        );
+      }
+      // Last statement: close the live session and drain its consumer, leaving the
+      // agent dormant (info.dormant=true). Rejects any in-flight turn with
+      // SessionSwappedError; the consumer's catch returns early on the stale
+      // session so the rejected turn can't touch state after this resolves.
+      drained = managed.sessionManager.closeAndDrainSession(
+        managed,
+        opts?.keepQueue ? "handoff" : undefined,
+      );
+    } finally {
+      // Back at the head even if the reset threw, so that no later persist
+      // writes the queue without these items.
+      if (heldQueue.length > 0) managed.messageQueue.unshift(...heldQueue);
     }
-
-    // Release-on-clear: a blank conversation holds NO subprocess. Instead of
-    // creating a fresh LIVE session here (the old replaceSession path, ~165MB
-    // for a conversation that may sit untouched), close the current session and
-    // leave the agent dormant; the next message wakes a fresh blank one via
-    // flushQueue's !session branch.
-    //
-    // ORDER IS LOAD-BEARING. Everything user-visible and every state reset
-    // happens BEFORE the drain await, and NOTHING runs after it. A message that
-    // arrives during closeAndDrainSession's drain wakes a fresh session
-    // (flushQueue sees session===null) - so (1) sessionId must already be null
-    // and the topic/log state already blanked, or that wake would resume the
-    // just-cleared thread; and (2) no post-drain write may run, or it would
-    // clobber the concurrent wake (e.g. stomp its waiting_for_response back to
-    // idle). This inverts the old structure, which did updateState/addLogEntry
-    // AFTER the session swap.
-    managed.sessionManager.sessionId = null;
-    managed.dormantReason = "fresh";
-    managed.topicGenerating = false;
-    managed.topicMessageCount = 0;
-    managed.topicGenToken++;
-    // /clear and engine switches both land here: a blank conversation has no
-    // fullness measurement. Runs before the drain await per the order contract
-    // above, so a late sample from the old session self-discards on gen.
-    resetContextUsage(managed);
-    // Match /clear's behavior: wipe the chat. Without this, the timeline
-    // continues across session boundaries and editing an old entry hits the
-    // cross-session dead-end.
-    logCache.set(agentId, []);
-    emit({ type: "clear_logs", agentId });
-    // officeState.resetTopic mutates topic + topicStale, fires persistAll via
-    // onChange (capturing the null sessionId set above).
-    for (const event of officeState.resetTopic(agentId)) emit(event);
-    updateState(agentId, "idle");
-    addLogEntry(
-      agentId,
-      "system",
-      logWords(agentId)("systemEntries.newConversation"),
-    );
-    // Last statement: close the live session and drain its consumer, leaving the
-    // agent dormant (info.dormant=true). Rejects any in-flight turn with
-    // SessionSwappedError; the consumer's catch returns early on the stale
-    // session so the rejected turn can't touch state after this resolves.
-    await managed.sessionManager.closeAndDrainSession(managed);
+    // The session is now null, so a flush wakes a fresh one: the held queue
+    // is flushed during the drain, like any message that arrives in it. A
+    // boundary claim of the closed session is stale, so its items are sent
+    // again (at-least-once).
+    if (heldQueue.length > 0) {
+      if (
+        isQueueIdleState(managed.info.state) &&
+        !inMultiStepFlow(managed) &&
+        !managed.flushInProgress
+      ) {
+        flushQueue(agentId).catch((err: unknown) => {
+          console.error(
+            `flushQueue (handoff) failed for ${agentId}:`,
+            errMessage(err),
+          );
+        });
+      }
+    }
+    await drained;
   }
 
-  // In-flight handoff guard. A handoff resets the agent then
-  // enqueues the brief; a SECOND concurrent handoff for the same agent must not
-  // run, because its reset would clear the first's just-enqueued brief - leaving
-  // the first caller a false success (told ok, brief gone). We reject the second
-  // with 409 handoff_in_progress rather than chaining, so the ONE caller that
-  // runs keeps the honest "delivered, or told why not" guarantee. First wins;
-  // the loser is told to retry.
+  // In-flight handoff guard. A SECOND concurrent handoff for the same agent
+  // must not run: its brief would go ahead of the first's, and its reset would
+  // throw away the fresh session the first one just woke. We reject the second
+  // with 409 handoff_in_progress rather than chaining; first wins, the loser is
+  // told to retry.
   const handoffInProgress = new Set<string>();
 
-  // Self-handoff: reset the agent's session (reuse
-  // newConversation, which wipes the queue) THEN deliver `text` into the fresh
-  // session as a self-addressed brief. ORDER is load-bearing - the enqueue runs
-  // AFTER the reset, so the queue-clear can't drop the brief. The brief is
-  // DELIVERED unless the enqueue itself fails (persist/stopped/full, returned
-  // verbatim below so the caller is told) - it is the fresh session's first turn
-  // UNLESS an unrelated inbound message races in during the sub-second reset
-  // drain (the same swap-wake window every session swap has -
-  // closeAndDrainSession's contract; full serialization is 154e2c14), in which
-  // case the brief simply queues behind it (still delivered, never lost). The
-  // check-and-set below is synchronous (no await between), so it's atomic on the
+  // Self-handoff: put `text` at the head of the agent's queue as a
+  // self-addressed brief, THEN reset the session (newConversation with
+  // keepQueue). The fresh session gets the brief first and then every message
+  // that was queued for the old one (task 6f6e8ed7); the queue never leaves
+  // memory or disk, so a failed or interrupted handoff loses nothing. The brief
+  // is the fresh session's first turn UNLESS an unrelated inbound message races
+  // in during the sub-second reset drain (the same swap-wake window every
+  // session swap has - closeAndDrainSession's contract; full serialization is
+  // 154e2c14), in which case the brief directly follows it. The check-and-set
+  // below is synchronous (no await between), so it's atomic on the
   // single-threaded loop: only the first of N concurrent calls proceeds.
   async function handoff(
     agentId: string,
@@ -8781,29 +8832,53 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // A refused handoff must not wipe the session it would replace.
       await prepareEnqueue(agentId);
       const managed = agents.get(agentId);
-      if (!managed) return { ok: false, error: "agent not found", status: 404 };
-      const capRefusal = enqueueCapRefusal(managed, {
+      // getAgentDisplay gives the spoof-proof server-side sender.
+      const self = getAgentDisplay(agentId);
+      if (!managed || !self)
+        return { ok: false, error: "agent not found", status: 404 };
+      if (managed.info.state === "stopped")
+        return { ok: false, error: "agent_stopped", status: 409 };
+      const sender: QueuedMessage["sender"] = {
         kind: "agent",
         agentId,
-        agentName: managed.info.name,
-        roomName: "",
-      });
+        agentName: self.name,
+        roomName: self.roomName,
+      };
+      const capRefusal = enqueueCapRefusal(managed, sender);
       if (capRefusal) return capRefusal;
-      await newConversation(agentId);
-      // Re-resolve AFTER the reset: the agent may have been killed during the
-      // drain. getAgentDisplay also gives the spoof-proof server-side sender.
-      const self = getAgentDisplay(agentId);
-      if (!self) return { ok: false, error: "agent not found", status: 404 };
-      return enqueueMessage(agentId, {
-        sender: {
-          kind: "agent",
-          agentId,
-          agentName: self.name,
-          roomName: self.roomName,
-        },
+      managed.lastActiveAt = Date.now();
+      // No QUEUE_MAX check: the brief may exceed the cap by one, because a full
+      // queue must not block the handoff that delivers it.
+      const id = generateQueuedId(managed.messageQueue);
+      const brief: QueuedMessage = {
+        id,
+        sender,
         text,
         handoff: true,
+        queuedAt: Date.now(),
+      };
+      // Transactional, as in enqueueMessage: on a failed write the brief is
+      // taken out again and the session is left as it was.
+      managed.messageQueue.unshift(brief);
+      try {
+        persistQueueStateThrow(agentId, managed);
+      } catch (err) {
+        const at = managed.messageQueue.indexOf(brief);
+        if (at !== -1) managed.messageQueue.splice(at, 1);
+        console.error(
+          `Failed to persist handoff brief for ${agentId}; rejecting the handoff:`,
+          errMessage(err),
+        );
+        return { ok: false, error: "persist_failed", status: 500 };
+      }
+      emitQueueUpdate(agentId, managed);
+      await newConversation(agentId, undefined, undefined, {
+        keepQueue: true,
       });
+      // The agent may have been killed during the drain, and its queue with it.
+      if (!agents.has(agentId))
+        return { ok: false, error: "agent not found", status: 404 };
+      return { ok: true, queued: true, messageId: id };
     } finally {
       handoffInProgress.delete(agentId);
     }

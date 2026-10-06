@@ -2280,6 +2280,10 @@ Cosas que puedes hacer por él:
     "Se descartó {count} mensaje en cola al cambiar a otra sesión.",
   "systemEntries.queueCleared.switching.other":
     "Se descartaron {count} mensajes en cola al cambiar a otra sesión.",
+  "systemEntries.queueCleared.newConversation.one":
+    "Se descartó {count} mensaje en cola.",
+  "systemEntries.queueCleared.newConversation.other":
+    "Se descartaron {count} mensajes en cola.",
   "systemEntries.contextCompacted": "Contexto compactado: {summary}",
   "systemEntries.contextCompactedNoSummary": "Contexto compactado.",
   "systemEntries.toolCallDenied": "Llamada a herramienta denegada: {tool}",

@@ -2275,6 +2275,10 @@ Coses que pots fer per ell:
     "S'ha descartat {count} missatge en cua en canviar a una altra sessió.",
   "systemEntries.queueCleared.switching.other":
     "S'han descartat {count} missatges en cua en canviar a una altra sessió.",
+  "systemEntries.queueCleared.newConversation.one":
+    "S'ha descartat {count} missatge en cua.",
+  "systemEntries.queueCleared.newConversation.other":
+    "S'han descartat {count} missatges en cua.",
   "systemEntries.contextCompacted": "Context compactat: {summary}",
   "systemEntries.contextCompactedNoSummary": "Context compactat.",
   "systemEntries.toolCallDenied": "Crida a l'eina denegada: {tool}",
