@@ -342,8 +342,8 @@ is open: the installer logs `--- step: <name>` markers, re-running it is
 idempotent, and the admin socket can mint owner logins.
 
 (The installer's own `FAILURE_SENTINEL` is not that signal: it is a random
-`/tmp` file whose only job is to stop the failure callback firing twice. It
-carries no exit code and no step.)
+file in `$TMPDIR` (default `/tmp`) whose only job is to stop the failure
+callback firing twice. It carries no exit code and no step.)
 
 ### The driver protocol
 

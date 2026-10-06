@@ -108,7 +108,13 @@ install_caddyfile_transaction() { cp "$1" "$CADDYFILE"; }
   const harness = join(dir, "harness.sh");
   writeFileSync(harness, alternate + prefix + script);
   const result = Bun.spawnSync(["bash", harness], {
-    env: { PATH: `${dir}/bin:${process.env.PATH}`, FIXTURE: dir, HOME: dir },
+    // TMPDIR keeps the installer's failure sentinel in the fixture.
+    env: {
+      PATH: `${dir}/bin:${process.env.PATH}`,
+      FIXTURE: dir,
+      HOME: dir,
+      TMPDIR: dir,
+    },
     timeout: 10000,
   });
   return {

@@ -19,13 +19,19 @@
 // and one test compares the two. Deriving the rows from the helper would let a
 // wrong helper approve itself.
 
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { main as buildDocs } from "./build-docs.ts";
 import { SITE_LANGUAGE_PATH } from "../shared/i18n/site-url.ts";
 import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 
 const ROOT = join(import.meta.dir, "..");
+
+// Pages link into the generated docs (site/docs is gitignored build output),
+// so build them rather than depend on a stale build or on another test file
+// having run first.
+beforeAll(() => buildDocs());
 const SITE = join(ROOT, "site");
 const ORIGIN = "https://isomux.com";
 

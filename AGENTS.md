@@ -14,6 +14,8 @@ On a fresh checkout or worktree, run `bun run build:ui` before `bun test`. Tests
 
 Create a ready worktree from the main checkout with `scripts/worktree-setup.sh <name>`; it installs the control-plane/web dependencies too, which root tsc needs.
 
+`bun run ci` is the full CI gate, and the pre-push hook runs it. `bun run ci:remote [<rev>]` runs it for one commit on another machine when the clone's git config `isomux.ciRemote` names one; see `internal-docs/testing-guide.md`.
+
 If a run reports a test timeout, run the affected file alone before you
 attribute later failures in that file. As measured 2026-08-29, Bun 1.3.11,
 1.3.14, and 1.4.0 do not stop a timed-out test body. It can continue to change

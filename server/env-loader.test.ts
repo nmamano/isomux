@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { rmSync } from "fs";
+import { dirname } from "path";
 import {
   environmentSourceKeyForUserId,
   environmentSourceRevisionForUserId,
@@ -11,11 +13,20 @@ import {
   personalProviderHome,
 } from "./provider-homes.ts";
 import { claimUser } from "./users.ts";
-import { writeManagedOfficeEnv, writeManagedUserEnv } from "./user-env.ts";
+import {
+  managedOfficeEnvPath,
+  managedUserEnvPath,
+  writeManagedOfficeEnv,
+  writeManagedUserEnv,
+} from "./user-env.ts";
 
 afterEach(() => {
   setOfficeEnvFileProvider(() => null);
   setPersonalProviderActiveProvider(isPersonalProviderActive);
+  // The managed env files are process-wide state; a later test file must not
+  // inherit the values these tests wrote.
+  rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
+  rmSync(dirname(managedUserEnvPath("any")), { recursive: true, force: true });
 });
 
 describe("environment source identity", () => {

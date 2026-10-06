@@ -32,6 +32,9 @@ interface Step {
   // Defaults to a listing that starts with the fixture's state root.
   stdout?: string;
   writeArchive?: boolean;
+  // The archive's mtime, so a test can order archives without sleeping
+  // through the filesystem's timestamp granularity.
+  archiveMtimeMs?: number;
 }
 
 function deps(
@@ -56,6 +59,10 @@ function deps(
           const dest = argv[argv.indexOf("-czf") + 1];
           partialModesBeforeWrite.push(fs.statSync(dest).mode & 0o777);
           fs.writeFileSync(dest, "complete archive bytes");
+          if (step.archiveMtimeMs !== undefined) {
+            const at = new Date(step.archiveMtimeMs);
+            fs.utimesSync(dest, at, at);
+          }
         }
         return {
           exited: Promise.resolve(step.exitCode),
@@ -360,14 +367,20 @@ describe("verified backup publication", () => {
   test("retention orders suffixed finals by mtime, not ASCII name", async () => {
     const f = fixture();
     const cfg = { ...config(f), retention: 1 };
+    const older = Date.UTC(2026, 7, 13, 11);
     await runBackupOnceForTest(
       cfg,
-      deps([{ exitCode: 0, writeArchive: true }, { exitCode: 0 }]).impl,
+      deps([
+        { exitCode: 0, writeArchive: true, archiveMtimeMs: older },
+        { exitCode: 0 },
+      ]).impl,
     );
-    await new Promise((resolve) => setTimeout(resolve, 5));
     await runBackupOnceForTest(
       cfg,
-      deps([{ exitCode: 0, writeArchive: true }, { exitCode: 0 }]).impl,
+      deps([
+        { exitCode: 0, writeArchive: true, archiveMtimeMs: older + 60_000 },
+        { exitCode: 0 },
+      ]).impl,
     );
     expect(finals(f.backupDir)).toEqual(["isomux-2026-08-13-2.tar.gz"]);
   });

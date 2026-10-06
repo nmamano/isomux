@@ -136,6 +136,10 @@ describe("git variables inherited from a hook", () => {
         PATH: `${bin}:${process.env.PATH}`,
         TMPDIR: probe.base,
         CI_ENV_OUT: envOut,
+        // A CI machine named in the user's or system git config
+        // (isomux.ciRemote) would send the hook there instead of to the stub.
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
       },
       encoding: "utf8",
       timeout: 30_000,

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
@@ -15,7 +15,9 @@ import {
 
 const USER_ID = "migration-user";
 
-afterEach(() => {
+// Before as well as after: a managed office env another test file left
+// behind would read as already migrated.
+function clearManagedEnv(): void {
   rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
   rmSync(dirname(managedUserEnvPath(USER_ID)), {
     recursive: true,
@@ -25,7 +27,10 @@ afterEach(() => {
     recursive: true,
     force: true,
   });
-});
+}
+
+beforeEach(clearManagedEnv);
+afterEach(clearManagedEnv);
 
 describe("managed env boot migration", () => {
   it("imports office values once through the real parser and reader", () => {

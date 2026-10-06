@@ -187,7 +187,7 @@ step() {
 # reports, never to an unset-variable error. jq-free on purpose: this can
 # fire at preflight, before jq is installed (step names are fixed
 # identifiers, safe to interpolate into JSON).
-FAILURE_SENTINEL=$(mktemp /tmp/isomux-install-failure.XXXXXXXXXX) || FAILURE_SENTINEL=""
+FAILURE_SENTINEL=$(mktemp "${TMPDIR:-/tmp}/isomux-install-failure.XXXXXXXXXX") || FAILURE_SENTINEL=""
 
 # Caddy's active/enabled state as deps_only found it, and the restore that puts
 # it back. THE INVARIANT: a dependency sync leaves the proxy exactly as it found
