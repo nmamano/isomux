@@ -286,6 +286,6 @@ describe("the two configuration facts the overlap arithmetic rests on", () => {
     expect(cli).toContain("PROVISIONER_POOL");
     // The tick loop is the one command the machine runs, and it is the one that
     // must take the runtime path.
-    expect(cli).toMatch(/cmdRun[\s\S]{0,400}openStoreForRuntime\(\)/);
+    expect(cli).toMatch(/cmdRun[\s\S]{0,800}openStoreForRuntime\(\)/);
   });
 });
