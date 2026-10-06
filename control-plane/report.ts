@@ -48,6 +48,70 @@ export function redactForTranscript(text: string): string {
   );
 }
 
+export const SECRET_REDACTION = "<redacted>";
+
+/**
+ * Replace every credential-shaped value in text from a tool we do not control,
+ * before it reaches a log. Shapes, not known values: key material, an HTTP
+ * credential, URL credentials, a value labelled as a secret, and opaque
+ * strings (mixed-case runs and long hex). Hostnames, UUIDs and ACME URLs
+ * survive.
+ */
+export function redactCredentialShapes(text: string): string {
+  return redactKeyMaterial(text)
+    .replace(/:\/\/[^/\s@]+@/g, `://${SECRET_REDACTION}@`)
+    .replace(/\b(bearer|basic)\s+[^\s"',;]+/gi, `$1 ${SECRET_REDACTION}`)
+    .replace(
+      // A quoted value goes whole, through its closing quote, or to the end
+      // of the text when the quote never closes. A backslash escapes the next
+      // character, so an escaped quote does not close the value.
+      /\b([\w-]*(?:token|secret|passw(?:or)?d|key|authorization|credential)[\w-]*)(["']?\s*[:=]\s*)("(?:[^"\\]|\\[\s\S]?)*"?|'(?:[^'\\]|\\[\s\S]?)*'?|[^\s"',;&]+)/gi,
+      `$1$2${SECRET_REDACTION}`,
+    )
+    .replace(/[A-Za-z0-9_+=-]{20,}/g, (run) =>
+      /[a-z]/.test(run) && /[A-Z]/.test(run) && /[0-9]/.test(run)
+        ? SECRET_REDACTION
+        : run,
+    )
+    .replace(/\b[0-9a-fA-F]{32,}\b/g, SECRET_REDACTION);
+}
+
+/** Replace every occurrence of each known secret value in text, however
+ * short. Matches are found in the original text and overlapping or touching
+ * ones are merged first, so no part of a longer value survives a shorter one. */
+export function redactValues(text: string, values: readonly string[]): string {
+  const spans: [number, number][] = [];
+  for (const value of new Set(values)) {
+    if (value.length === 0) continue;
+    for (let at = text.indexOf(value); at !== -1; at = text.indexOf(value, at + 1))
+      spans.push([at, at + value.length]);
+  }
+  if (spans.length === 0) return text;
+  spans.sort((a, b) => a[0] - b[0]);
+  let out = "";
+  let done = 0;
+  let [start, end] = spans[0];
+  for (const [from, to] of spans.slice(1)) {
+    if (from <= end) {
+      end = Math.max(end, to);
+      continue;
+    }
+    out += text.slice(done, start) + SECRET_REDACTION;
+    done = end;
+    [start, end] = [from, to];
+  }
+  return out + text.slice(done, start) + SECRET_REDACTION + text.slice(end);
+}
+
+/** The values of environment variables whose names say they hold a credential. */
+export function credentialValues(env: NodeJS.ProcessEnv): string[] {
+  return Object.entries(env)
+    .filter(([name]) =>
+      /TOKEN|SECRET|PASSWORD|KEY|DSN|DATABASE|_DB(?:_|$)|CREDENTIAL/i.test(name),
+    )
+    .map(([, value]) => value ?? "");
+}
+
 export class Reporter {
   /** A redacted copy of the run, safe to paste anywhere. */
   readonly transcript: string[] = [];

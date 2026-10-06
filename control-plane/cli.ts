@@ -66,7 +66,7 @@ import {
   waitForAuthenticatedSsh,
 } from "./driver.ts";
 import { destroyPrivateKey, generateKeyPair } from "./keys.ts";
-import { Reporter } from "./report.ts";
+import { Reporter, credentialValues } from "./report.ts";
 import { SpawnExec, SshClient, type SshTarget } from "./ssh.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
 import { CreateLatch, migrateLegacyIntents } from "./create-latch.ts";
@@ -806,6 +806,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
               email: process.env.ISOMUX_ACME_EMAIL ?? "",
               dnsHookPath: path.join(import.meta.dir, "cloudflare-dns-hook.ts"),
               cloudflareToken: process.env.ISOMUX_CF_TOKEN ?? "",
+              secretValues: credentialValues(process.env),
               run: async (argv, environment) => {
                 const proc = Bun.spawn(argv, {
                   env: { ...process.env, ...environment },

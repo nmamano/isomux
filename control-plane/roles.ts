@@ -646,6 +646,8 @@ export const AUDITED_CMDRUN_SURFACES = [
   "certificateTargetFromEnv",
   "CertificateService",
   "obtainCertificateWithLego",
+  // Reads environment values for the lego error redaction. No table.
+  "credentialValues",
   "Bun.spawn",
   "Promise.all",
   "Response",

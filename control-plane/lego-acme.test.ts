@@ -7,8 +7,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { redactCredentialShapes } from "./report.ts";
 import { join } from "node:path";
-import { obtainCertificateWithLego, type CommandRunner } from "./lego-acme.ts";
+import {
+  legoFailureDetail,
+  obtainCertificateWithLego,
+  type CommandRunner,
+} from "./lego-acme.ts";
 
 let dir = "";
 afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
@@ -260,6 +265,7 @@ describe("the narrow lego adapter", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).not.toContain("--renew-force");
     expect(calls[1]).toContain("--renew-force");
+    expect(calls[1]).toContain("--dns.propagation.disable-rns");
     expect(result).toEqual({ certificatePem: newCert });
   });
 
@@ -339,7 +345,7 @@ describe("the narrow lego adapter", () => {
         email: "test@example.invalid",
         dnsHookPath: "/fake/dns-hook",
         run,
-        cloudflareToken: "fake",
+        cloudflareToken: "not-a-real-cloudflare-token",
       },
       {
         instanceId: "office-1",
@@ -356,6 +362,11 @@ describe("the narrow lego adapter", () => {
     expect(legoArgv).not.toContain("--ari-disable");
     expect(legoArgv).not.toContain("--renew-days");
     expect(legoArgv).toContain("--csr");
+    // Authoritative servers only: no wait on a caching recursive resolver,
+    // and the authoritative check stays on.
+    expect(legoArgv).toContain("--dns.propagation.disable-rns");
+    expect(legoArgv).not.toContain("--dns.propagation.disable-ans");
+    expect(legoArgv).not.toContain("--dns.propagation.wait");
     expect(legoEnv.ISOMUX_DNS_ALLOWED_FQDN).toBe(
       "_acme-challenge.office.example",
     );
@@ -493,5 +504,162 @@ describe("the narrow lego adapter", () => {
     ).catch((reason: unknown) => reason);
     expect((failed as Error).message).toContain("do not match");
     expect(legoCalls).toBe(0);
+  });
+});
+
+describe("a failed lego run in the operator log", () => {
+  // Synthetic, secret-SHAPED values only. No assertion echoes a matched value.
+  const CF_TOKEN = "cf-NOT-A-REAL-token-0123456789abcdef";
+  // All lowercase: no shape rule catches it, so only exact-value redaction can.
+  const ENV_SECRET = "plain-lowercase-env-secret-value";
+  const BEARER = "NotARealBearer0123456789abcdefGHIJ";
+  const DB_PASSWORD = "not-a-real-db-password";
+  const OPAQUE = "AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const HEX = "0123456789abcdef0123456789abcdef";
+  const PEM = [
+    "-----BEGIN EC PRIVATE KEY-----",
+    "MHcCAQEEINOTAREALKEYONLYASHAPE0123456789abcdefoAoGCCqGSM49",
+    "-----END EC PRIVATE KEY-----",
+  ].join("\n");
+  const SECRETS = [CF_TOKEN, ENV_SECRET, BEARER, DB_PASSWORD, OPAQUE, HEX];
+  const MARKERS = ["first", "second", "third", "fourth", "fifth", "sixth"];
+
+  // Progress first and the error last, as lego prints it. Each line carries a
+  // marker and one secret; the last line also carries what an operator needs.
+  const stderr = [
+    `level=INFO msg=${MARKERS[0]} api_token=${CF_TOKEN}`,
+    `level=INFO msg=${MARKERS[1]} ${PEM}`,
+    `\u001b[31mlevel=INFO\u001b[0m msg=${MARKERS[2]} header="Authorization: Bearer ${BEARER}"`,
+    `level=INFO msg=${MARKERS[3]} hook env ${ENV_SECRET}`,
+    "",
+    `level=WARN msg=${MARKERS[4]} postgres://cp:${DB_PASSWORD}@db/cp digest ${HEX}`,
+    `level=ERROR msg=${MARKERS[5]} office inst-b9d2782a-26ab-4125-bcc2-83ef9aa40b07 ` +
+      `https://acme-staging-v02.api.letsencrypt.org/acme/authz/123/456 ` +
+      `_acme-challenge.office.example. value ${OPAQUE}`,
+    "",
+  ].join("\n");
+
+  test("keeps the last lines on one line, and no secret", () => {
+    const detail = legoFailureDetail(stderr, [CF_TOKEN, ENV_SECRET]);
+    // eslint-disable-next-line no-control-regex
+    expect(detail).not.toMatch(/[\x00-\x1f]/);
+    for (const marker of MARKERS.slice(0, -5))
+      expect(detail).not.toContain(`msg=${marker} `);
+    for (const marker of MARKERS.slice(-5))
+      expect(detail).toContain(`msg=${marker} `);
+    expect(detail.indexOf(`msg=${MARKERS[5]}`)).toBeGreaterThan(
+      detail.indexOf(`msg=${MARKERS[4]}`),
+    );
+    for (const secret of SECRETS) expect(detail).not.toContain(secret);
+    expect(detail).not.toContain("PRIVATE KEY-----\n");
+    // What the operator needs survives the redaction.
+    expect(detail).toContain("inst-b9d2782a-26ab-4125-bcc2-83ef9aa40b07");
+    expect(detail).toContain(
+      "https://acme-staging-v02.api.letsencrypt.org/acme/authz/123/456",
+    );
+    expect(detail).toContain("_acme-challenge.office.example.");
+  });
+
+  test("removes a known value however short, and no part of an overlapping one", () => {
+    expect(legoFailureDetail("failure echo abc!xy", ["abc!xy"])).not.toContain(
+      "abc!xy",
+    );
+    for (const values of [
+      ["lowercasesecret", "lowercasesecret.suffix"],
+      ["lowercasesecret.suffix", "lowercasesecret"],
+    ]) {
+      const detail = legoFailureDetail(
+        "failure echo lowercasesecret.suffix end",
+        values,
+      );
+      expect(detail).not.toContain("lowercasesecret");
+      expect(detail).not.toContain(".suffix");
+      expect(detail).toContain(" end");
+    }
+    // Two values that share a middle: neither end survives.
+    const shared = legoFailureDetail("failure echo headmiddletail end", [
+      "headmiddle",
+      "middletail",
+    ]);
+    expect(shared).not.toContain("head");
+    expect(shared).not.toContain("tail");
+    expect(shared).toContain(" end");
+  });
+
+  test("removes a quoted secret whole, spaces included", () => {
+    const detail = legoFailureDetail(
+      `failure password="one two three" then token='four five' next`,
+      [],
+    );
+    for (const part of ["one", "two three", "four", "five"])
+      expect(detail).not.toContain(part);
+    expect(detail).toContain(" then ");
+    expect(detail).toContain(" next");
+    // An escaped quote does not close the value, in either quote style, and
+    // the log's second pass finds no tail either.
+    const escaped = 'one "two three';
+    for (const once of [
+      legoFailureDetail(
+        `failure password=${JSON.stringify(escaped)} then`,
+        [escaped],
+      ),
+      legoFailureDetail(`failure token='four \\'five six' then`, []),
+    ]) {
+      for (const text of [once, redactCredentialShapes(once)]) {
+        expect(text).not.toMatch(/one|two|three|four|five|six/);
+        expect(text).toContain(" then");
+      }
+    }
+    // A trailing backslash in an unterminated value goes too.
+    expect(legoFailureDetail(`failure secret="ten\\`, [])).not.toMatch(
+      /ten|\\/,
+    );
+    // A quote that never closes takes the rest of the text with it.
+    expect(
+      legoFailureDetail(`failure secret="six seven\neight nine`, []),
+    ).not.toMatch(/six|seven|eight|nine/);
+  });
+
+  test("shortens a very long line", () => {
+    const detail = legoFailureDetail(`x ${"y ".repeat(5000)}`, []);
+    expect(detail.length).toBeLessThan(400);
+  });
+
+  test("the adapter's error carries the sanitized end of stderr", async () => {
+    dir = mkdtempSync(join(tmpdir(), "isomux-lego-"));
+    const run: CommandRunner = async (argv, env) => {
+      if (argv[0] === "openssl") return realCommand(argv, env);
+      return { code: 1, stdout: "", stderr };
+    };
+    const failed = await obtainCertificateWithLego(
+      {
+        root: dir,
+        target: {
+          kind: "test",
+          caDirectory: "http://127.0.0.1:14000/directory",
+          cloudflareBaseUrl: "http://127.0.0.1:18080",
+          zoneId: "fake-zone",
+          productionZoneId: "production-zone",
+        },
+        email: "test@example.invalid",
+        dnsHookPath: "/fake/dns-hook",
+        run,
+        cloudflareToken: CF_TOKEN,
+        secretValues: [ENV_SECRET],
+      },
+      {
+        instanceId: "office-1",
+        names: ["office.example", "*.office.example"],
+        csrPem: makeCsr(
+          dir,
+          "office.example",
+          "DNS:office.example,DNS:*.office.example",
+        ),
+      },
+    ).catch((reason: unknown) => reason);
+    const message = (failed as Error).message;
+    expect(message).toContain(`msg=${MARKERS[5]} `);
+    expect(message).not.toContain(`msg=${MARKERS[0]} `);
+    for (const secret of SECRETS) expect(message).not.toContain(secret);
   });
 });

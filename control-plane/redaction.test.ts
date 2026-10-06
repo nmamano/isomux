@@ -10,7 +10,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
-import { Reporter, redactForTranscript, type Sink } from "./report.ts";
+import {
+  Reporter,
+  credentialValues,
+  redactForTranscript,
+  type Sink,
+} from "./report.ts";
 
 const FAKE_KEY = [
   "-----BEGIN OPENSSH PRIVATE KEY-----",
@@ -125,4 +130,20 @@ describe("no stream leaks", () => {
       expect(written.includes(marker)).toBe(false);
     }
   });
+});
+
+test("credentialValues takes the values of credential-named variables only", () => {
+  const values = credentialValues({
+    ISOMUX_CF_TOKEN: "v-token",
+    STRIPE_LIVE_SECRET_KEY: "v-stripe",
+    CONTABO_API_PASSWORD: "v-password",
+    CONTROL_PLANE_DB: "v-dsn",
+    CONTROL_PLANE_DB_APP: "v-dsn-app",
+    PATH: "v-path",
+    ISOMUX_ACME_EMAIL: "v-email",
+    ISOMUX_CF_ZONE_ID: "v-zone",
+  });
+  expect(values.sort()).toEqual(
+    ["v-dsn", "v-dsn-app", "v-password", "v-stripe", "v-token"].sort(),
+  );
 });

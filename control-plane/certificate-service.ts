@@ -1,6 +1,7 @@
 import type { Store } from "./store.ts";
 import { authenticateCertificateCredential } from "./certificate-credentials.ts";
 import { clearAttention, raiseAttention } from "./attention.ts";
+import { redactCredentialShapes } from "./report.ts";
 
 export const CERTIFICATE_RENEW_PATH = "/internal/certificates/renew";
 export const CERTIFICATE_STATUS_PATH = "/internal/certificates/status";
@@ -10,6 +11,20 @@ export const CERTIFICATE_FORWARDED_HEADER = "isomux-forwarded";
 const FAILURE_REASON = "the hosted office certificate could not be renewed";
 const LOCAL_FAILURE_REASON =
   "the hosted office could not install its renewed certificate";
+const MAX_CAUSE_CHARS = 2000;
+
+/** Why an issue failed, as one log-safe line. The issuer already sanitizes
+ * what it quotes; this pass covers an issuer that does not. */
+function failureCause(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  const line = redactCredentialShapes(text)
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1f\x7f]+/g, " ")
+    .trim();
+  return line.length > MAX_CAUSE_CHARS
+    ? `${line.slice(0, MAX_CAUSE_CHARS)}...`
+    : line;
+}
 
 /** Where a call came from, for the operator's log. The forwarder that serves
  * the old provisioner hostname marks its calls; the mark is not a credential. */
@@ -81,9 +96,11 @@ export class CertificateService {
     outcome: string,
     instanceId: string | null,
     via: CertificateCallRoute,
+    cause?: string,
   ) {
     const office = instanceId ? ` office=${instanceId}` : "";
-    this.report(`certificate ${call}: ${outcome}${office} via=${via}`);
+    const why = cause === undefined ? "" : ` cause=${JSON.stringify(cause)}`;
+    this.report(`certificate ${call}: ${outcome}${office} via=${via}${why}`);
   }
 
   async renew(
@@ -107,6 +124,12 @@ export class CertificateService {
       return { status: "unauthorized" };
     }
     const result = await this.renewFor(identity, csrPem);
+    if (result.status === "failed") {
+      // The cause stays in the operator's log; the office learns only that
+      // the renewal failed.
+      this.line("renewal", "failed", identity.row.instance_id, via, result.cause);
+      return { status: "failed" };
+    }
     this.line("renewal", result.status, identity.row.instance_id, via);
     return result;
   }
@@ -117,7 +140,9 @@ export class CertificateService {
     >,
     csrPem: string,
   ): Promise<
-    { status: "ok"; certificatePem: string } | { status: "busy" | "failed" }
+    | { status: "ok"; certificatePem: string }
+    | { status: "busy" }
+    | { status: "failed"; cause: string }
   > {
     // lego owns one central ACME account directory. One process may mutate it
     // at a time, even when two different offices ask together.
@@ -141,7 +166,7 @@ export class CertificateService {
         }
       }
       return { status: "ok", certificatePem: result.certificatePem };
-    } catch {
+    } catch (error) {
       await raiseAttention(this.store, {
         instanceId: identity.row.instance_id,
         reasonClass: "operation_condition",
@@ -149,7 +174,7 @@ export class CertificateService {
         severity: "critical",
         actor: "certificate-renewal",
       });
-      return { status: "failed" };
+      return { status: "failed", cause: failureCause(error) };
     } finally {
       this.active.delete(identity.row.instance_id);
     }

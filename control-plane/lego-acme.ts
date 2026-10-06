@@ -11,6 +11,7 @@ import {
   assertCertificateTarget,
   type CertificateTarget,
 } from "./certificate-target.ts";
+import { redactCredentialShapes, redactValues } from "./report.ts";
 
 export interface CommandResult {
   code: number;
@@ -36,6 +37,40 @@ export interface LegoAdapterOptions {
   dnsHookPath: string;
   run: CommandRunner;
   cloudflareToken: string;
+  /** Values that must never appear in an error: lego and its DNS hook inherit
+   * the caller's environment, so anything in it could be echoed back. */
+  secretValues?: readonly string[];
+}
+
+/** lego prints progress first and its error last. */
+const LEGO_FAILURE_LINES = 5;
+const LEGO_FAILURE_LINE_CHARS = 300;
+
+/**
+ * The end of a failed lego run's stderr, safe for the operator log: known
+ * secret values and credential shapes replaced, control characters dropped,
+ * and the last lines joined into one.
+ */
+export function legoFailureDetail(
+  stderr: string,
+  secretValues: readonly string[],
+): string {
+  return redactCredentialShapes(redactValues(stderr, secretValues))
+    .split("\n")
+    .map((line) =>
+      line
+        // eslint-disable-next-line no-control-regex
+        .replace(/\x1b\[[0-9;]*[A-Za-z]|[\x00-\x1f\x7f]/g, " ")
+        .trim(),
+    )
+    .filter((line) => line.length > 0)
+    .slice(-LEGO_FAILURE_LINES)
+    .map((line) =>
+      line.length > LEGO_FAILURE_LINE_CHARS
+        ? `${line.slice(0, LEGO_FAILURE_LINE_CHARS)}...`
+        : line,
+    )
+    .join(" | ");
 }
 
 function exactNames(
@@ -238,6 +273,11 @@ export async function obtainCertificateWithLego(
     "--accept-tos",
     "--dns",
     "exec",
+    // Wait for the TXT at Cloudflare's authoritative servers only. A caching
+    // recursive resolver can keep the first challenge's value past lego's wait
+    // before the second challenge on the same name, and then that check times
+    // out.
+    "--dns.propagation.disable-rns",
     "--csr",
     csrPath,
   ];
@@ -260,8 +300,13 @@ export async function obtainCertificateWithLego(
       ? [...legoArgv.slice(0, 2), "--renew-force", ...legoArgv.slice(2)]
       : legoArgv;
     const result = await opts.run(argv, legoEnv);
-    if (result.code !== 0)
-      throw new Error(`lego failed: ${result.stderr.split("\n", 1)[0]}`);
+    if (result.code !== 0) {
+      const detail = legoFailureDetail(result.stderr, [
+        opts.cloudflareToken,
+        ...(opts.secretValues ?? []),
+      ]);
+      throw new Error(`lego failed (exit ${result.code}): ${detail}`);
+    }
   };
   await runLego(false);
   const certificateDir = join(opts.root, "certificates");

@@ -108,6 +108,11 @@ returns the wiped box's stale chain. That costs one duplicate-certificate slot.
 A second mismatch fails with operator attention instead of returning stale
 material or looping.
 
+lego waits for the challenge TXT at the authoritative name servers only
+(`--dns.propagation.disable-rns`). A caching resolver can keep the first
+challenge's value past lego's 60-second pause before the second challenge on
+the same name, and then a recursive check times out.
+
 Credentials come from the environment (`CONTABO_CLIENT_ID`,
 `CONTABO_CLIENT_SECRET`, `CONTABO_API_USER`, `CONTABO_API_PASSWORD`); sourcing
 the file that holds them is the caller's job. Runtime state - generated keys,
@@ -2789,6 +2794,9 @@ with no office id when the bearer did not authenticate:
 ```
 docker compose ... logs provisioner | grep -E 'certificate (renewal|status):'
 ```
+
+A failed renewal line ends with `cause="..."`: the last lines of lego's
+stderr, with credentials replaced.
 
 Fly can go when every office with an active certificate credential has a
 `certificate status: ok office=<id> via=direct` line and no `via=forwarder`

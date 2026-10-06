@@ -19,6 +19,7 @@ import {
   CERTIFICATE_STATUS_PATH,
   CertificateService,
   parseCertificateEndpoint,
+  type CertificateIssuer,
 } from "./certificate-service.ts";
 import { InviteHold } from "./invite-hold.ts";
 import { startMintSeam } from "./mint-seam.ts";
@@ -194,13 +195,17 @@ describe("the office's renewal calls on the seam", () => {
   const CSR =
     "-----BEGIN CERTIFICATE REQUEST-----\nfake\n-----END CERTIFICATE REQUEST-----\n";
 
-  async function seamFor(endpoint: string | undefined) {
+  async function seamFor(
+    endpoint: string | undefined,
+    issuer: CertificateIssuer = {
+      issue: async () => ({ certificatePem: "public chain" }),
+    },
+  ) {
     const lines: string[] = [];
-    const service = new CertificateService(
-      store,
-      { issue: async () => ({ certificatePem: "public chain" }) },
-      { endpoint, report: (line) => lines.push(line) },
-    );
+    const service = new CertificateService(store, issuer, {
+      endpoint,
+      report: (line) => lines.push(line),
+    });
     const seam = startMintSeam({
       store,
       hold: new InviteHold(),
@@ -254,6 +259,52 @@ describe("the office's renewal calls on the seam", () => {
         "certificate renewal: unauthorized via=forwarder",
       ]);
       expect(lines.join("\n")).not.toContain(issued.token);
+    } finally {
+      await seam.stop();
+    }
+  });
+
+  test("logs why a renewal failed, without a secret, and tells the office only that it failed", async () => {
+    await office("inst-cause", "cause");
+    const issued = await issueCertificateCredential(store, "inst-cause");
+    // Synthetic and secret-SHAPED; the diagnosis is the challenge name.
+    const SECRET = "NotARealSecret0123456789abcdefGHIJ";
+    const QUOTED = 'not "a real password';
+    const DIAGNOSIS = "_acme-challenge.cause.test.isomux.app";
+    const { lines, seam, call } = await seamFor(ENDPOINT, {
+      issue: async () => {
+        throw new Error(
+          `lego failed: ${DIAGNOSIS}\nkey=${SECRET} password=${JSON.stringify(QUOTED)}`,
+        );
+      },
+    });
+    try {
+      const answer = await call(
+        CERTIFICATE_RENEW_PATH,
+        { csr: CSR },
+        {
+          authorization: `Bearer ${issued.token}`,
+          [CERTIFICATE_FORWARDED_HEADER]: "1",
+        },
+      );
+      expect(answer.status).toBe(503);
+      expect(await answer.text()).not.toContain(DIAGNOSIS);
+      expect(lines.length).toBe(1);
+      const match = lines[0].match(
+        /^certificate renewal: failed office=inst-cause via=forwarder cause=(".*")$/,
+      );
+      expect(match).not.toBeNull();
+      const cause = JSON.parse(match![1]) as string;
+      expect(cause).toContain(DIAGNOSIS);
+      // eslint-disable-next-line no-control-regex
+      expect(cause).not.toMatch(/[\x00-\x1f]/);
+      expect(lines[0]).not.toContain(SECRET);
+      // The tail after the escaped quote is what a too-short match leaves.
+      expect(lines[0]).not.toContain("real password");
+      expect(lines[0]).not.toContain(issued.token);
+      expect(
+        (await store.openReasons("inst-cause")).length,
+      ).toBeGreaterThan(0);
     } finally {
       await seam.stop();
     }
