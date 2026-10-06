@@ -175,7 +175,7 @@ describe("the theme toggle's own label", () => {
 
   // The dark side stores the app's default dark theme, so the embedded /demo
   // iframe shows the same palette; the light side stores "light".
-  it("stores nord for dark and light for light", () => {
+  it("stores dark for dark and light for light", () => {
     document.body.innerHTML = "";
     localStorage.clear();
     localStorage.setItem("isomux-theme", "light");
@@ -184,7 +184,7 @@ describe("the theme toggle's own label", () => {
       "button.theme-toggle",
     )!;
     btn.click();
-    expect(localStorage.getItem("isomux-theme")).toBe("nord");
+    expect(localStorage.getItem("isomux-theme")).toBe("dark");
     expect(document.documentElement.getAttribute("data-theme-mode")).toBe(
       "dark",
     );

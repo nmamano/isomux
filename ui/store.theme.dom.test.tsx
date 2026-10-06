@@ -36,8 +36,8 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("the office theme default", () => {
-  it("is Nord, a dark theme", () => {
-    expect(DEFAULT_THEME_ID).toBe("nord");
+  it("is Dark (Nil, 2026-10-06: back from Dracula and Nord)", () => {
+    expect(DEFAULT_THEME_ID).toBe("dark");
     expect(getThemeById(DEFAULT_THEME_ID).mode).toBe("dark");
   });
 
@@ -52,7 +52,7 @@ describe("the office theme default", () => {
     expect(mountedTheme()).toBe("light");
   });
 
-  it("keeps every stored pick, including the old dark default", () => {
+  it("keeps every stored pick", () => {
     stubOsPreference(false);
     for (const theme of THEMES) {
       cleanup();
