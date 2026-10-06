@@ -76,6 +76,28 @@ describe("bundled skills", () => {
     ).toContain(body);
   });
 
+  it("discovers and resolves figure-it-out", () => {
+    const found = discoverBundledSkills().find(
+      (entry) => entry.name === "figure-it-out",
+    );
+    expect(found?.origin).toBe("isomux");
+    expect(found?.description?.length).toBeGreaterThan(0);
+    const body = readFileSync(
+      join(import.meta.dir, "..", "skills", "figure-it-out", "SKILL.md"),
+      "utf8",
+    )
+      .split("---")
+      .slice(2)
+      .join("---")
+      .trim();
+    expect(body.length).toBeGreaterThan(0);
+    expect(
+      resolveSkillPrompt("figure-it-out", root("cwd"), [
+        { root: root("empty-user"), includeCommands: true },
+      ]),
+    ).toContain(body);
+  });
+
   it("keeps one picker entry when a user overrides wrap-session", () => {
     const userRoot = root("wrap-user");
     skill(userRoot, "wrap-session", "personal wrap prompt");

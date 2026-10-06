@@ -31,7 +31,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Hierarchical system prompts** - office-wide, per-room, and per-agent prompts compose into one assembled system prompt for every agent, all editable from the UI. The Spawn and Edit agent menus keep instructions and memory together; Show full system prompt previews unsaved settings without saving them.
 - **Custom instructions per agent**, editable at spawn and later.
 - **Agent-collaboration skills**: `/pair-programming`, `/peer-review`, `/soft-handoff`, `/second-opinion`, `/subagent-review`.
-- **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/wrap-session` (check for loose ends and close a session cleanly), `/isomux-report-bug`.
+- **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/wrap-session` (check for loose ends and close a session cleanly), `/figure-it-out` (the agent makes the decision it asked you about, or explains why you should make it), `/isomux-report-bug`.
 - **Inspection commands**: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-usage`, `/isomux-storage`.
 
 ## Multiple members
@@ -140,7 +140,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 - **Agents and apps page you** when a person must act: a blocked process, a failure they cannot fix, a decision only you can make.
 - **Pages reach your Discord**, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
-- **Pager view**: every page you can see, open pages first, with ack and resolve. A badge on the Pager button counts your open pages.
+- **Pager view**: every page you can see, open pages first, with ack and resolve. A badge on the Pager button counts your open pages. Resolved pages are deleted after 30 days.
 
 ### Lifecycle and safety
 

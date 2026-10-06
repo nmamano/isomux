@@ -501,6 +501,10 @@ let scheduledMessageManager: ScheduledMessageManager;
 let pagerStore: PagerStore;
 let pagerSettings: PagerSettingsStore;
 let pagerDelivery: PagerDeliveryService;
+let pagerPruneTimer: ReturnType<typeof setInterval> | null = null;
+// The store prunes resolved pages at load; this timer prunes them again on a
+// server that runs for weeks.
+const PAGER_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 let providerAccountManager: ProviderAccountManager;
 // The app supervisor is injectable for one specific reason: systemd is
 // MACHINE-GLOBAL. Every other collaborator a test injects is about determinism
@@ -7146,6 +7150,16 @@ function runBackgroundBoot(
 
   // Resume the repeat of open pages from their saved last attempt.
   if (!startOpts.skipSchedulers) pagerDelivery.start();
+  if (!startOpts.skipSchedulers) {
+    pagerPruneTimer = setInterval(() => {
+      try {
+        pagerStore.pruneResolved();
+      } catch (err) {
+        console.error(`[pager] prune failed: ${errMessage(err)}`);
+      }
+    }, PAGER_PRUNE_INTERVAL_MS);
+    pagerPruneTimer.unref?.();
+  }
 
   // Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
   if (!startOpts.skipBackups) startBackupScheduler();
@@ -7260,6 +7274,8 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   extensionService?.stop();
   extensionSessions?.stop();
   pagerDelivery?.stop();
+  if (pagerPruneTimer) clearInterval(pagerPruneTimer);
+  pagerPruneTimer = null;
   await server.stop(true);
   // Editor file-watches are keyed by connectionId in editorWatchers; the WS
   // close handlers that server.stop(true) triggers unregister them. There is no

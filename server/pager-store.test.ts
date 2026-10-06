@@ -23,6 +23,7 @@ import {
   PAGER_BODY_MAX,
   PAGER_KEY_MAX,
   PAGER_MAX_ACTIVE_PER_SOURCE,
+  PAGER_RESOLVED_RETENTION_MS,
   PAGER_TITLE_MAX,
   type PagerLoadResult,
   type PagerPersistence,
@@ -457,8 +458,120 @@ describe("pager store: load posture", () => {
       expect(() => raise(store, fields("x"))).toThrow(PagerUnavailableError);
       expect(() => store.ack("x", "b")).toThrow(PagerUnavailableError);
       expect(() => store.resolve("x", "b")).toThrow(PagerUnavailableError);
+      expect(() => store.pruneResolved()).toThrow(PagerUnavailableError);
       expect(p.saves).toBe(0);
     }
+  });
+});
+
+describe("pager store: retention", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const T0 = 100 * DAY;
+  const page = (
+    id: string,
+    state: PagerEntry["state"],
+    resolvedAt?: number,
+  ): PagerEntry => ({
+    id,
+    createdAt: 1,
+    lastRaisedAt: 1,
+    raiseCount: 1,
+    source: SRC,
+    targetUserId: "u1",
+    title: id,
+    state,
+    ...(resolvedAt !== undefined ? { resolved: { by: "Boss", at: resolvedAt } } : {}),
+    delivery: { state: "delivered", sends: 1 },
+  });
+
+  it("is 30 days", () => {
+    expect(PAGER_RESOLVED_RETENTION_MS).toBe(30 * DAY);
+  });
+
+  it("the load deletes resolved pages past retention and saves; open and acked pages stay", () => {
+    const old = page("00000001", "resolved", T0 - PAGER_RESOLVED_RETENTION_MS);
+    const recent = page(
+      "00000002",
+      "resolved",
+      T0 - PAGER_RESOLVED_RETENTION_MS + 1,
+    );
+    const open = page("00000003", "open");
+    const acked = page("00000004", "acked");
+    const p = memPersistence({
+      kind: "data",
+      value: [old, recent, open, acked],
+    });
+    const store = createPagerStore({ persistence: p, now: () => T0 });
+    expect(store.list()).toEqual([recent, open, acked]);
+    expect(p.saved).toEqual([recent, open, acked]);
+    expect(p.saves).toBe(1);
+  });
+
+  it("a load with nothing to prune does not save", () => {
+    const p = memPersistence({
+      kind: "data",
+      value: [page("00000001", "resolved", T0), page("00000002", "open")],
+    });
+    createPagerStore({ persistence: p, now: () => T0 });
+    expect(p.saves).toBe(0);
+  });
+
+  it("a later prune deletes a page once its retention ends, and returns the count", () => {
+    let t = T0;
+    const p = memPersistence();
+    const store = createPagerStore({ persistence: p, now: () => t });
+    const a = created(raise(store, fields("a")));
+    const b = created(raise(store, fields("b")));
+    store.resolve(a.id, "Boss");
+    t = T0 + DAY;
+    store.resolve(b.id, "Boss");
+    t = T0 + PAGER_RESOLVED_RETENTION_MS - 1;
+    expect(store.pruneResolved()).toBe(0);
+    t = T0 + PAGER_RESOLVED_RETENTION_MS;
+    expect(store.pruneResolved()).toBe(1);
+    expect(store.list().map((e) => e.id)).toEqual([b.id]);
+    expect(p.saved?.map((e) => e.id)).toEqual([b.id]);
+    expect(store.get(a.id)).toBeNull();
+  });
+
+  it("an acked or open page never expires, however old", () => {
+    const p = memPersistence({
+      kind: "data",
+      value: [page("00000001", "open"), page("00000002", "acked")],
+    });
+    const store = createPagerStore({
+      persistence: p,
+      now: () => T0 + 10 * PAGER_RESOLVED_RETENTION_MS,
+    });
+    expect(store.pruneResolved()).toBe(0);
+    expect(store.list()).toHaveLength(2);
+  });
+
+  it("a resolved page with no resolved time survives the load and a later prune", () => {
+    const untimed = page("00000001", "resolved");
+    const p = memPersistence({ kind: "data", value: [untimed] });
+    let t = T0;
+    const store = createPagerStore({ persistence: p, now: () => t });
+    expect(store.list()).toEqual([untimed]);
+    t = T0 + 10 * PAGER_RESOLVED_RETENTION_MS;
+    expect(store.pruneResolved()).toBe(0);
+    expect(store.list()).toEqual([untimed]);
+    expect(p.saves).toBe(0);
+  });
+
+  it("a failed save throws and keeps the pages; a failed save at load keeps them too", () => {
+    const old = page("00000001", "resolved", 0);
+    const p = memPersistence({ kind: "data", value: [old] });
+    p.failNextSave = true;
+    let t = T0;
+    const store = createPagerStore({ persistence: p, now: () => t });
+    expect(store.list()).toEqual([old]);
+    p.failNextSave = true;
+    t = T0 + 1;
+    expect(() => store.pruneResolved()).toThrow("disk full");
+    expect(store.list()).toEqual([old]);
+    expect(store.pruneResolved()).toBe(1);
+    expect(store.list()).toEqual([]);
   });
 });
 
