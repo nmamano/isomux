@@ -23,6 +23,8 @@ The server process runs as one OS user (the server user). Agents, terminals, app
    - The container switch is the env var `ISOMUX_SPLIT=1` on the same image.
    - Kubernetes, self-hosted-by-owner and macOS stay single-user by default in this loop.
    - Agent-reference pages stop pointing agents at state files in every mode, not only in split mode: discovery.md and cronjobs.md point at API routes. Reuse an existing route where one exists; add the smallest route where none does. `logDir` stays in the response.
+10. Isomux PM, 2026-10-06 (slice 2): the trusted checks walk the whole code tree at every split-mode start, not depth 2 (bun install leaves dependency files at mode 0666; the full walk took 2.8 s on the rig). Slice 6 normalizes modes (no group or other write) in the image, the installer and every update. This replaces design section 2.4 "Depth".
+11. Isomux PM, 2026-10-06 (slice 2): the image uid and gid for isomux-server are 10001 (gid 999 is systemd-journal in the image).
 9. The design's PARKED FOR NIL items (P1 docker/sudo on this box, P2 served code on this box, P3 split by default on fresh installs) wait for Nil. No slice depends on them before the last one.
 
 ## Decision protocol
@@ -40,7 +42,7 @@ The room prompt gates (build:ui, scoped tests, eslint on touched files, `bunx ts
 Loop slice N+1 is design slice N (section 8 of the design).
 
 - [x] Slice 1: design doc. Approved by Reviewer 2 at 6472be7b, merged as one commit. Rulings in item 8.
-- [ ] Slice 2 (design slice 1): runner, AgentHost, trusted checks, terminal, Node probe, whole diff, tier-1 rig
+- [x] Slice 2 (design slice 1): runner, AgentHost, trusted checks, terminal, Node probe, whole diff, tier-1 rig. Approved by Reviewer 3 at b8341b92, merged as one commit. Bun 1.3.11 cannot listen on an inherited fd, so slice 6 uses the RuntimeDirectory layout (design 2.3). Notes: Bun drops a close made inside Bun.listen open() (the runner defers it); Bun's net client reports an immediate peer close as ECONNREFUSED (the rig's raw client is Python); a rig build takes 4-7 min under load; in split mode the welcome agents' default cwd is the server HOME (fix in a later slice).
 - [ ] Slice 3 (design slice 2): agent backends, identity rule, tier-2 live tests
 - [ ] Slice 4 (design slice 3): fence, agent-space files, routes that replace state reads
 - [ ] Slice 5 (design slice 4): apps, preview, cron, backups, admin.sock
@@ -86,3 +88,21 @@ Acceptance: the tier-1 tests named above pass in the rig, the single-user scoped
 
 Decide with the reviewer: the frame format, the fixed-entry layout, the test split between unit tests and the rig.
 Locked: rulings 1-9 and the design.
+
+## SLICE-3 PICKUP: the agent backends (design slice 2)
+
+Read internal-docs/os-user-split-design.md in full first; rulings 8-11 settle its open items.
+
+Goal: design slice 2 (section 8, item 2). Claude (the `spawnClaudeCodeProcess` hook in `buildSdkOpts`, the one-shot and probe call sites, the session store load and append through the runner), Codex (`JsonRpcLiteClient.start`, the safety hook built into `SHARE_ROOT/bin`, the hooks.json and config.toml merge in agent space) and OpenCode (the start and stop helpers, profile files, `inspectOpenCodeDatabase` as a fixed entry, the authority socket in `SHARE_ROOT/authority/` with the agent uid as its expected peer) all go through `AgentHost`. Add the identity rule of design section 3.1.2.
+
+Mechanics and traps:
+- Single-user behavior must not change: the existing backend tests run unchanged with `ISOMUX_AGENT_RUNNER` unset.
+- Task d32356f2: Codex `forkSessionBeforeMessage` and `getSessionMessages` start the app-server with no cwd and no env (adapter.ts). Reproduce it in single-user mode first; if it is real, fix it here, since these spawns move onto AgentHost in this slice anyway, and name the result.
+- The rig proves each backend's spawn as the agent user with stub provider binaries (a fake `claude`, `codex` and `opencode` that report `id -u` and exercise the path) - no live provider credentials. The design's tier-2 live tests need a provider sign-in mounted into the rig: that is PARKED FOR NIL (it uses Nil's credentials); write the command, do not run it.
+- The OpenCode ancestry walk across two users is unchecked in the design (section 3.4): prove it in the rig with a real authority request from a stub child.
+- This slice is large. Write your state to a file in /tmp as you go, and hand off to a fresh session near 50% context at a natural break, with the hand-off brief naming that file.
+
+Acceptance: the stub-backend rig tests prove each spawn runs as the agent uid, the session store reads and writes through the runner (a forked transcript is owned by the agent user), the safety hook runs from the share as the agent user, and an OpenCode authority request crosses the two users. The single-user scoped backend tests pass. The reviewer re-runs the rig on the approved hash. Report the rig command and result, the d32356f2 finding, and the tier-2 command left for Nil.
+
+Decide with the reviewer: the adapter shapes for SpawnedProcess and the Codex client; how the stub binaries live in the rig.
+Locked: rulings 1-11 and the design.
