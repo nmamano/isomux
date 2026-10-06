@@ -208,6 +208,16 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
       `${root}/webhooks/secrets.json.tmp`,
     ],
   },
+  // The pager's Discord webhook URLs. After a restore, each member enters
+  // theirs again.
+  {
+    id: "pager-discord-webhooks",
+    archivePatterns: (root) => [
+      `${root}/pager-settings.json`,
+      `${root}/pager-settings.json.tmp`,
+      `${root}/pager-settings.json.corrupt-*`,
+    ],
+  },
   {
     id: "legacy-tls-key",
     archivePatterns: (root) => [`${root}/tls/cert.key`],

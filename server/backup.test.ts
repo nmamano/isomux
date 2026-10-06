@@ -195,8 +195,12 @@ describe("verified backup publication", () => {
       "tls/cert.key",
       "webhooks/secrets.json",
       "webhooks/secrets.json.tmp",
+      "pager-settings.json",
+      "pager-settings.json.tmp",
+      "pager-settings.json.corrupt-1789000000000",
     ];
     const kept = [
+      "pager.json",
       "apps/apps.json",
       "apps/app-tokens.json",
       "apps/data/hello/state.json",
