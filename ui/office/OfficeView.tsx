@@ -372,8 +372,8 @@ export function OfficeView({
     {
       id: "cronjobs",
       icon: ClockIcon,
-      label: t("common.schedules"),
-      title: t("common.schedules"),
+      label: t("common.automations"),
+      title: t("common.automations"),
       onClick: onOpenCronjobs,
     },
     {

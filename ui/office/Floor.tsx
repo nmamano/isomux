@@ -1464,7 +1464,7 @@ export function Walls({
       <g
         data-no-pan
         transform="translate(240,-85) skewY(27)"
-        aria-label={onOpenCronjobs ? t("common.schedules") : undefined}
+        aria-label={onOpenCronjobs ? t("common.automations") : undefined}
         onClick={onOpenCronjobs}
         style={
           onOpenCronjobs
@@ -1472,7 +1472,7 @@ export function Walls({
             : undefined
         }
       >
-        {onOpenCronjobs && <title>{t("common.schedules")}</title>}
+        {onOpenCronjobs && <title>{t("common.automations")}</title>}
         {/* Slightly larger transparent hit area for forgiving clicks */}
         {onOpenCronjobs && (
           <circle cx="0" cy="0" r={R + 4} fill="transparent" />

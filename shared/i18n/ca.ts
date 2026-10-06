@@ -342,7 +342,7 @@ Coses que pots fer per ell:
   "common.rooms": "Sales",
   "common.signOut": "Tanca la sessió",
   "common.user": "Membre",
-  "common.schedules": "Programacions",
+  "common.automations": "Automatitzacions",
   "common.apps": "Apps",
   "common.changeTheme": "Canvia el tema",
 
@@ -1849,6 +1849,7 @@ Coses que pots fer per ell:
   "roomFilter.all": "Totes les sales",
   "roomFilter.none": "Sense sala",
   "schedules.noMatch": "Cap programació no coincideix amb aquest filtre.",
+  "webhooks.noMatch": "Cap webhook no coincideix amb aquest filtre.",
   "dialogs.schedule.room": "Sala",
   "dialogs.schedule.roomHint":
     "Els membres de la sala veuen aquesta programació i les seves execucions.",
@@ -2063,7 +2064,7 @@ Coses que pots fer per ell:
     "Personalitzar les dreceres de teclat",
   "commands.loop.description": "Executar un prompt de manera periòdica",
   "commands.loop.message":
-    "no està disponible de manera nativa; mira si la pàgina de Programacions o els missatges programats et serveixen",
+    "no està disponible de manera nativa; mira si la pàgina d'Automatitzacions o els missatges programats et serveixen",
   "commands.loremIpsum.description": "Generar text de farciment",
   "commands.review.description":
     "Revisió de codi a la cerca d'errors, lògica i casos límit",
@@ -2559,6 +2560,9 @@ Coses que pots fer per ell:
   "pager.view.allRooms": "Totes les sales",
   "pager.view.noRoom": "Sense sala",
   "pager.view.empty": "No hi ha avisos",
+  "pager.view.discordUnset":
+    "Discord no està configurat, així que els teus avisos es queden a l'oficina.",
+  "pager.view.settingsLink": "Configuració dels avisos",
   "pager.view.loadFailed": "No s'han pogut carregar els avisos.",
   "pager.view.retry": "Torna-ho a provar",
   "pager.view.unavailable":

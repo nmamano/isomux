@@ -77,7 +77,7 @@ describe("the office's link to the public site", () => {
     for (const title of [
       t("common.changeTheme"),
       t("nav.tasksShortcut"),
-      t("common.schedules"),
+      t("common.automations"),
       t("nav.appsShortcut"),
       t("nav.settingsShortcut"),
     ])

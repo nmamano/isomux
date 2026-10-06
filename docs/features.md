@@ -115,14 +115,14 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Skills browser** - the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
 - **User skills** from `~/.claude/skills/` and project commands.
 
-### Schedules
+### Automations
 
 - **Schedule recurring agent runs**: daily at HH:MM, weekly on a weekday, or every N minutes. A schedule can also run on demand only, from "Run now" or a webhook.
 - Each run is a **fresh agent session** with the same configurability as a desk agent (model, effort, cwd, permission mode).
 - **Browsable run history**: every run is preserved as a transcript.
 - **Resume or fork** any past run, turning a daily summary into an interactive follow-up.
 - **Manual "Run now"** for any schedule, independent of its timing.
-- **Webhooks** - an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. The Webhooks tab of the Schedules page shows the GitHub settings, the delivery log and a rule test. GitHub must reach the office from the internet.
+- **Webhooks** - an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. The Webhooks tab of the Automations page shows the GitHub settings, the delivery log and a rule test. GitHub must reach the office from the internet.
 - **Agent alerts** - a schedule can message an agent that its creator can see. The message is labeled as coming from the scheduled job, not a person or peer agent.
 - Per schedule token usage rolled into `/isomux-usage` (for owners).
 - OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.

@@ -228,7 +228,7 @@ describe("webhooks REST: lifecycle", () => {
     expect(errCode(res)).toBe("invalid_target");
   });
 
-  it("a member sees only their own hooks; an office owner sees all and may manage them", async () => {
+  it("a member outside the hook's room sees nothing; an office owner sees all and may manage them", async () => {
     const { srv, owner, alice, roomA } = await office();
     const bot = await spawnAgent(srv, "HookBot", roomA);
     const made = await api(
@@ -241,7 +241,7 @@ describe("webhooks REST: lifecycle", () => {
     const bob = await srv.seedMember("Bob");
     const asBob = { rawSessionId: bob.rawSessionId };
     expect((await api(srv, "/api/webhooks", asBob)).body).toEqual([]);
-    // Another member's hook and an unknown id get the same 403.
+    // A hook outside Bob's rooms and an unknown id get the same 403.
     expect((await api(srv, `/api/webhooks/${id}`, asBob)).status).toBe(403);
     expect(
       (await api(srv, "/api/webhooks/wh_ffffffffffffffff", asBob)).status,

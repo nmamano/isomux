@@ -57,7 +57,7 @@ const PAGES: Array<{
 }> = [
   {
     page: "cronjobs",
-    button: "Schedules",
+    button: "Automations",
     showing: (v) => v.queryByText(/schedules/) !== null,
   },
   {

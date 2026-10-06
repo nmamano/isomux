@@ -10,11 +10,12 @@ const t = english.t;
 describe("unsupportedMessage", () => {
   it("returns the Nil-dictated copy for /loop", () => {
     // Exact copy decided in task c4717359, reworded for the Schedules rename
-    // by Nil's ruling of 2026-09-05 - /loop is deliberately not supported
+    // by Nil's ruling of 2026-09-05 and for the Automations rename (task
+    // fe0c21fd) - /loop is deliberately not supported
     // natively; the message redirects to isomux's own recurring-work
     // primitives. Do not reword without boss sign-off.
     expect(unsupportedMessage(t, "loop")).toBe(
-      "not supported natively; see if the Schedules page or scheduled messages satisfy your use case",
+      "not supported natively; see if the Automations page or scheduled messages satisfy your use case",
     );
   });
 

@@ -20,6 +20,12 @@ export const shim = {
   current: [] as PagerEntry[],
   // When set, each GET /api/apps waits here until the test settles it.
   heldApps: null as ((list: AppListWire[]) => void)[] | null,
+  // The member's own pager settings read: an answer, "fail", or "hold" (it
+  // never answers).
+  pagerSettings: { webhookUrlMasked: null } as
+    | { webhookUrlMasked: string | null }
+    | "fail"
+    | "hold",
 };
 
 // The reducer's latest state and dispatch, and the deep-link setter.
@@ -36,6 +42,15 @@ export function setupPagerViewTests() {
       const held = shim.heldApps;
       if (held) return new Promise((resolve) => held.push(resolve));
       return shim.apps;
+    }
+    if (/^\/api\/users\/[^/]+\/pager-settings$/.test(path)) {
+      if (shim.pagerSettings === "fail") throw new Error("unavailable");
+      if (shim.pagerSettings === "hold") return new Promise(() => {});
+      return {
+        discordUserId: null,
+        repeatMinutes: null,
+        ...shim.pagerSettings,
+      };
     }
     const m = /^\/api\/pager\/([^/]+)\/(ack|resolve)$/.exec(path);
     if (m && method === "POST") {
@@ -54,6 +69,7 @@ export function setupPagerViewTests() {
     shim.apps = [];
     shim.failActions = false;
     shim.heldApps = null;
+    shim.pagerSettings = { webhookUrlMasked: null };
   });
 }
 
@@ -89,6 +105,7 @@ export async function mount(
     ...patch,
   };
   const focused: string[] = [];
+  const settingsOpened: number[] = [];
   function Harness() {
     const [state, dispatch] = useReducer(reducer, seeded);
     const [request, setRequest] = useState<{ id: string } | null>(null);
@@ -106,6 +123,7 @@ export async function mount(
           onFocusAgent: (id: string) => focused.push(id),
           selectRequest: request,
           onSelectRequestHandled: () => setRequest(null),
+          onOpenPagerSettings: () => settingsOpened.push(1),
         }),
       ),
     );
@@ -113,7 +131,7 @@ export async function mount(
   const view = render(createElement(Harness));
   // Let the view's app read land inside act.
   await act(async () => {});
-  return { view, focused };
+  return { view, focused, settingsOpened };
 }
 
 export const rowIds = (view: ReturnType<typeof render>) =>

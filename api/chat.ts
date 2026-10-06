@@ -95,7 +95,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ## Full Feature List
 
 ### Office View
-- Lobby: a room always open to every member, where members without access to any room land. It has the receptionist, the members chat, an Employee of the Minute portrait, an Apps screen that opens Apps and a clock that opens Schedules.
+- Lobby: a room always open to every member, where members without access to any room land. It has the receptionist, the members chat, an Employee of the Minute portrait, an Apps screen that opens Apps and a clock that opens Automations.
 - Isometric office with 8 desks - see all your agents at a glance
 - Multiple rooms - click doors to switch rooms, each room has 8 desks, no hard limit on total agents
 - Tab/Shift+Tab cycles between agents within a room; rooms keep things organized (e.g., main project agents in room 1, side projects in room 2)
@@ -226,16 +226,16 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Kaomoji face in the browser tab for the agent you have open: (-_-)zz idle, ~(o_o)~ working, (^_^)ﾉ waiting for you
 - Activity badge on desk when attention needed
 
-### Schedules
+### Automations
 - Schedule recurring agent runs (daily at HH:MM, weekly on a weekday, or every N minutes). Use case: a 09:00 schedule that summarizes what every agent did yesterday. A schedule can also run on demand only, from "Run now" or a webhook.
-- Webhooks: an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. The Webhooks tab of the Schedules page shows the GitHub settings, the delivery log and a rule test. GitHub must reach the office from the internet, so an office that only the tailnet can see gets no deliveries.
+- Webhooks: an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. The Webhooks tab of the Automations page shows the GitHub settings, the delivery log and a rule test. GitHub must reach the office from the internet, so an office that only the tailnet can see gets no deliveries.
 - Schedules are not desk agents; they have no persistent identity. Each scheduled fire spawns a fresh SDK session that runs to completion, then the transcript is preserved.
 - Each run is browsable, resumable, and forkable from the UI: a daily report can become an interactive follow-up.
 - Same configurability as a desk agent: model, thinking effort, cwd, permission mode
 - Manual "Run now" for any schedule, independent of its timing
 - Per schedule token usage rolled into the /isomux-usage report alongside per-agent and per-room totals (for owners)
 - OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.
-- Accessed via the Schedules entry in the office nav bar, or by clicking the decorative wall clock
+- Accessed via the Automations entry in the office nav bar, or by clicking the decorative wall clock
 
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.

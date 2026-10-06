@@ -178,7 +178,7 @@ These entries are unchanged. The shared page components keep their existing copy
 | `common.saveFailed` | `Save failed` | `No se pudo guardar` | `No s'ha pogut desar` |
 | `common.saving` | `Saving…` | `Guardando…` | `Desant…` |
 | `common.schedule` | `Schedule` | `Programación` | `Programació` |
-| `common.schedules` | `Schedules` | `Programaciones` | `Programacions` |
+| `common.automations` | `Automations` | `Automatizaciones` | `Automatitzacions` |
 | `common.send` | `Send` | `Enviar` | `Envia` |
 | `common.sender.agent` | `{name} · agent` | `{name} · agente` | `{name} · agent` |
 | `common.sender.agentInRoom` | `{name} · agent · Room "{room}"` | `{name} · agente · Sala "{room}"` | `{name} · agent · Sala "{room}"` |

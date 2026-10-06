@@ -791,6 +791,10 @@ export function App({ routing = true }: { routing?: boolean }) {
             setPagerOpen(false);
             dispatch({ type: "focus", agentId });
           }}
+          onOpenPagerSettings={() => {
+            setPagerOpen(false);
+            openSettings({ kind: "section", section: "pager" });
+          }}
         />
       ) : focusedAgent ? (
         <LogView

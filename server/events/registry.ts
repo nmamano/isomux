@@ -213,7 +213,9 @@ export interface EventPayloads {
   app_upserted: { app: AppListWire };
   app_deleted: { name: string };
   pager_upserted: { entry: PagerEntry };
-  // Webhooks: the hook owner and office owners only. Never the secret.
+  // Webhooks: per-recipient, like cronjobs: the hook owner, office owners and
+  // members of the hook's room. Never the secret. See
+  // server/events/webhook-delta.ts.
   webhook_upserted: { webhook: WebhookWire };
   webhook_deleted: { id: string };
   // Cronjobs: per-recipient, like tasks. A socket sees the jobs it may see
@@ -432,8 +434,8 @@ export const EVENT_REGISTRY = {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },
-  // Sent by an explicit per-socket loop to the hook owner's sockets and every
-  // office owner's.
+  // Sent by an explicit per-socket loop to the sockets that can see the hook
+  // (server/webhook-visibility.ts).
   webhook_upserted: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },

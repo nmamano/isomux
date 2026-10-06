@@ -24,7 +24,7 @@ afterEach(() => setApiShim(OK));
 afterAll(() => setApiShim(null));
 
 const TASKS = translationsFor("common.tasks");
-const SCHEDULES = translationsFor("common.schedules");
+const AUTOMATIONS = translationsFor("common.automations");
 const SETTINGS = translationsFor("common.settings");
 const THEME = translationsFor("common.theme");
 const CHANGE_THEME = translationsFor("common.changeTheme");
@@ -54,7 +54,7 @@ describe("the office nav bar", () => {
     // matching wall controls are asserted in site-link.i18n.dom.test.tsx.
     for (const [title, count] of [
       [`${TASKS.ca} (t)`, 1],
-      [SCHEDULES.ca, 1],
+      [AUTOMATIONS.ca, 1],
       ["Apps (a)", 1],
       [`${SETTINGS.ca} (s)`, 1],
     ] as const)

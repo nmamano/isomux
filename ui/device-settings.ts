@@ -115,7 +115,7 @@ export function setAppFilter(filter: AppFilter, on: boolean): void {
   } catch {}
 }
 
-// The room filter on the Apps and Schedules pages, each remembered on this
+// The room filter on the Apps and Automations pages, each remembered on this
 // device. Absent = all rooms.
 export type RoomFilterPage = "apps" | "schedules";
 const ROOM_FILTER_KEYS: Record<RoomFilterPage, string> = {

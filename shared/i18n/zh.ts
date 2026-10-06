@@ -327,7 +327,7 @@ App 的一些原则：
   "common.rooms": "房间",
   "common.signOut": "退出登录",
   "common.user": "成员",
-  "common.schedules": "定时任务",
+  "common.automations": "自动化",
   "common.apps": "App",
   "common.changeTheme": "更改主题",
   "preferences.intro":
@@ -1670,6 +1670,7 @@ App 的一些原则：
   "roomFilter.all": "所有房间",
   "roomFilter.none": "无房间",
   "schedules.noMatch": "没有符合筛选条件的定时任务。",
+  "webhooks.noMatch": "没有符合筛选条件的 Webhook。",
   "dialogs.schedule.room": "房间",
   "dialogs.schedule.roomHint": "房间成员能看到这个定时任务及其运行记录。",
   "apps.unavailable.needsLinux":
@@ -1865,7 +1866,7 @@ App 的一些原则：
   "commands.keybindingsHelp.description": "自定义键盘快捷键",
   "commands.loop.description": "按周期计划运行提示词",
   "commands.loop.message":
-    "不提供原生支持；请查看「定时任务」页面或定时消息是否适合此用途",
+    "不提供原生支持；请查看「自动化」页面或定时消息是否适合此用途",
   "commands.loremIpsum.description": "生成占位文本",
   "commands.review.description": "审查代码中的缺陷、逻辑和边界情况",
   "commands.schedule.description": "创建按 cron 计划运行的远程智能体",
@@ -2295,6 +2296,9 @@ App 的一些原则：
   "pager.view.allRooms": "所有房间",
   "pager.view.noRoom": "无房间",
   "pager.view.empty": "没有呼叫",
+  "pager.view.discordUnset":
+    "未设置 Discord，你的呼叫只保留在办公室中。",
+  "pager.view.settingsLink": "呼叫设置",
   "pager.view.loadFailed": "无法加载呼叫。",
   "pager.view.retry": "重试",
   "pager.view.unavailable": "该呼叫不可用。它不存在，或位于你无权访问的房间。",

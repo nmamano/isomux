@@ -121,6 +121,9 @@ import type {
   LogEntry,
   TaskItem,
   PagerEntry,
+  WebhookRecord,
+  WebhookTarget,
+  WebhookWire,
 } from "../shared/types.ts";
 import {
   CODEX_MODELS,
@@ -249,6 +252,7 @@ import {
   type WebhookIngress,
 } from "./webhooks/ingress.ts";
 import {
+  webhookToWire,
   webhooksHandlers,
   webhookTargetPrecondition,
 } from "./routes/handlers/webhooks.ts";
@@ -371,6 +375,13 @@ import type { EventId, EventPayloads } from "./events/registry.ts";
 import { taskDeltaFor } from "./events/task-delta.ts";
 import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
 import { cronjobDeltaFor, type CronjobChange } from "./events/cronjob-delta.ts";
+import { webhookDeltaFor, type WebhookChange } from "./events/webhook-delta.ts";
+import {
+  webhookViewerForIdentity,
+  webhookVisibleTo,
+  type WebhookViewer,
+  type WebhookVisibilityFacts,
+} from "./webhook-visibility.ts";
 import {
   cronjobViewerForIdentity,
   cronjobVisibleTo,
@@ -2365,6 +2376,140 @@ function cronjobsFor(viewer: CronjobViewer): CronjobListWire[] {
   return out;
 }
 
+// Webhook visibility: server/webhook-visibility.ts holds the rule; these
+// helpers feed it live office state. A hook's room is its target's room, and
+// counts only while it is a live ordinary room: a killed target agent, a
+// deleted target cronjob or a closed room leaves the hook to its owner and
+// office owners.
+function webhookTargetRoomId(target: WebhookTarget): string | null {
+  if (target.kind === "cronjob") {
+    const job = cronjobManager
+      .listCronjobs()
+      .find((candidate) => candidate.id === target.cronjobId);
+    return job ? cronjobFacts(job).liveRoomId : null;
+  }
+  const roomId = agentManager.getAgent(target.agentId)?.roomId;
+  return roomId && agentManager.getOrdinaryRooms().some((r) => r.id === roomId)
+    ? roomId
+    : null;
+}
+
+function webhookFacts(
+  record: Pick<WebhookRecord, "userId" | "target">,
+): WebhookVisibilityFacts {
+  return {
+    ownerUserId: record.userId,
+    liveRoomId: webhookTargetRoomId(record.target),
+  };
+}
+
+function webhookViewerFor(identity: Identity): WebhookViewer {
+  const guardDeps = buildLiveGuardDeps();
+  return webhookViewerForIdentity(
+    identity,
+    (userId) => getUserById(userId)?.role === "owner",
+    (roomId) => guardDeps.hasRoomAccess(identity, roomId),
+  );
+}
+
+// A browser socket is a USER session; role and room access are read live from
+// the user record, as for cronjobs.
+function webhookViewerForSession(session: SessionLookup): WebhookViewer {
+  const user = getUserById(session.userId);
+  return {
+    userId: user ? user.id : null,
+    participates: user !== undefined,
+    officeWide: user?.role === "owner",
+    hasRoomAccess: (roomId) => (user ? canAccess(user, roomId) : false),
+  };
+}
+
+// The sockets that can see each hook a change may move, taken BEFORE the
+// change: closing a room also ends its members' access, so who saw a hook
+// cannot be judged afterwards. `factsBefore` overrides the live facts for a
+// change already applied whose viewers it cannot have moved (a cronjob
+// edit). Pair with announceWebhookAudienceChanges after the change commits.
+type WebhookAudience = Map<string, Set<ServerWebSocket<OfficeWsData>>>;
+
+function snapshotWebhookAudience(
+  include: (record: WebhookRecord) => boolean,
+  factsBefore?: (record: WebhookRecord) => WebhookVisibilityFacts,
+): WebhookAudience {
+  const audience: WebhookAudience = new Map();
+  try {
+    const records = webhookRegistry.list().filter(include);
+    if (records.length === 0) return audience;
+    const viewers = [...browsers].map(
+      (ws) => [ws, webhookViewerForSession(ws.data.session)] as const,
+    );
+    for (const record of records) {
+      const facts = factsBefore ? factsBefore(record) : webhookFacts(record);
+      const seenBy = new Set<ServerWebSocket<OfficeWsData>>();
+      for (const [ws, viewer] of viewers) {
+        if (webhookVisibleTo(facts, viewer)) seenBy.add(ws);
+      }
+      audience.set(record.id, seenBy);
+    }
+  } catch (err) {
+    console.error("[webhooks] could not snapshot an audience change:", err);
+  }
+  return audience;
+}
+
+function announceWebhookAudienceChanges(before: WebhookAudience): void {
+  if (before.size === 0) return;
+  try {
+    for (const record of webhookRegistry.list()) {
+      const seenBy = before.get(record.id);
+      if (!seenBy) continue;
+      const webhook = webhookWire(record);
+      const facts = webhookFacts(record);
+      for (const ws of browsers) {
+        const delta = webhookDeltaFor(
+          {
+            kind: "audience_changed",
+            webhook,
+            facts,
+            wasVisible: seenBy.has(ws),
+          },
+          webhookViewerForSession(ws.data.session),
+        );
+        if (delta) ws.send(JSON.stringify(delta));
+      }
+    }
+  } catch (err) {
+    console.error("[webhooks] could not announce an audience change:", err);
+  }
+}
+
+const webhookTargetsAgent = (agentId: string) => (record: WebhookRecord) =>
+  record.target.kind === "agent" && record.target.agentId === agentId;
+
+// A cronjob changed room or was deleted after the fact: its hooks were in
+// `roomBefore` and are now wherever the job's live state puts them.
+function announceCronjobHookAudience(
+  cronjobId: string,
+  roomBefore: string | null,
+): void {
+  const before = snapshotWebhookAudience(
+    (record) =>
+      record.target.kind === "cronjob" &&
+      record.target.cronjobId === cronjobId,
+    (record) => ({ ownerUserId: record.userId, liveRoomId: roomBefore }),
+  );
+  announceWebhookAudienceChanges(before);
+}
+
+const webhookWire = (record: WebhookRecord): WebhookWire =>
+  webhookToWire(
+    {
+      registry: webhookRegistry,
+      publicOrigin: () => buildPublicOrigin().origin,
+      counters: (id) => currentWebhookIngress().counters(id),
+    },
+    record,
+  );
+
 // Who may reach an agent's files on the legacy /api/upload, /api/files and
 // /api/images routes. A live agent's files follow its room, as on
 // agents.getFile. A killed agent's files follow the room it was in; once that
@@ -2733,23 +2878,23 @@ function buildExecutorDeps(
     webhooksHandlers({
       registry: webhookRegistry,
       attributionFor,
-      hasOfficeWideReach: (identity) =>
-        identity.scope === "app" || identity.scope === "cron-run"
-          ? false
-          : identity.userId !== null &&
-            getUserById(identity.userId)?.role === "owner",
+      visibleTo: (identity, record) =>
+        webhookVisibleTo(webhookFacts(record), webhookViewerFor(identity)),
       publicOrigin: () => buildPublicOrigin().origin,
       counters: (id) => currentWebhookIngress().counters(id),
       forget: (id) => currentWebhookIngress().forget(id),
-      announce: (wire) =>
-        pushWebhookEventToEachWs(wire.userId, {
-          type: "webhook_upserted",
+      announce: (wire, before) =>
+        pushWebhookDeltaToEachWs({
+          kind: "upserted",
           webhook: wire,
+          facts: webhookFacts(wire),
+          before: before === null ? null : webhookFacts(before),
         }),
       announceRemoved: (record) =>
-        pushWebhookEventToEachWs(record.userId, {
-          type: "webhook_deleted",
+        pushWebhookDeltaToEachWs({
+          kind: "deleted",
           id: record.id,
+          before: webhookFacts(record),
         }),
     }),
   );
@@ -3360,6 +3505,9 @@ function buildExecutorDeps(
         const appAudienceBefore = roleChanged
           ? snapshotAppVisibility(() => true)
           : null;
+        const webhookAudienceBefore = roleChanged
+          ? snapshotWebhookAudience(() => true)
+          : null;
         const accessible = accessibleRoomIdsFor({
           ...target,
           role: changes.role ?? target.role,
@@ -3447,6 +3595,9 @@ function buildExecutorDeps(
           pushTasksForUserId(result.user.id);
           pushCronjobsForUserId(result.user.id);
           if (appAudienceBefore) announceAppAudienceChanges(appAudienceBefore);
+          if (webhookAudienceBefore) {
+            announceWebhookAudienceChanges(webhookAudienceBefore);
+          }
         }
         if (presenceTouched || roleChanged) pushPresenceListToEachWs();
         return { ok: true, user: result.user };
@@ -3467,6 +3618,7 @@ function buildExecutorDeps(
         // fields (clampViewFields reads `current`).
         const accessible = accessibleRoomIdsFor(target, allowedRooms);
         const appAudienceBefore = snapshotAppVisibility(() => true);
+        const webhookAudienceBefore = snapshotWebhookAudience(() => true);
         const clamped = clampViewFields(accessible, target, {});
         const changes: {
           allowedRooms: string[];
@@ -3504,6 +3656,7 @@ function buildExecutorDeps(
         );
         if (presenceTouched) pushPresenceListToEachWs();
         announceAppAudienceChanges(appAudienceBefore);
+        announceWebhookAudienceChanges(webhookAudienceBefore);
         return { ok: true, user: result.user };
       },
       delete: async ({ username }) => {
@@ -3662,6 +3815,9 @@ function buildExecutorDeps(
         const appAudienceBefore = snapshotAppVisibility(
           (app) => appVisibilityFacts(app).creatorRoomId === roomId,
         );
+        const webhookAudienceBefore = snapshotWebhookAudience(
+          (record) => webhookFacts(record).liveRoomId === roomId,
+        );
         const closed = agentManager.closeRoom(roomId);
         if (!closed) return false;
         let touched = false;
@@ -3710,6 +3866,7 @@ function buildExecutorDeps(
         // owners; re-project so room members' lists drop it live.
         pushCronjobsToEachWs();
         announceAppAudienceChanges(appAudienceBefore);
+        announceWebhookAudienceChanges(webhookAudienceBefore);
         return true;
       },
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
@@ -3769,8 +3926,12 @@ function buildExecutorDeps(
         const before = snapshotAppVisibility(
           (app) => app.createdByAgentId === agentId,
         );
+        const hooksBefore = snapshotWebhookAudience(
+          webhookTargetsAgent(agentId),
+        );
         await agentManager.kill(agentId);
         announceAppAudienceChanges(before);
+        announceWebhookAudienceChanges(hooksBefore);
         return { ok: true };
       },
       abort: (agentId, { byAgent }) =>
@@ -3822,6 +3983,9 @@ function buildExecutorDeps(
         const before = snapshotAppVisibility(
           (app) => app.createdByAgentId === agentId,
         );
+        const hooksBefore = snapshotWebhookAudience(
+          webhookTargetsAgent(agentId),
+        );
         const current = agentManager.getAgent(agentId);
         // agentParam proved the agent existed; a miss here is a post-guard race.
         if (!current) return { ok: false, reason: "agent_not_found" };
@@ -3831,6 +3995,7 @@ function buildExecutorDeps(
           return { ok: true, agent: current };
         if (agentManager.moveAgent(agentId, targetRoomId)) {
           announceAppAudienceChanges(before);
+          announceWebhookAudienceChanges(hooksBefore);
           const moved = agentManager.getAgent(agentId);
           return moved
             ? { ok: true, agent: moved }
@@ -3951,8 +4116,14 @@ function buildExecutorDeps(
         const before = snapshotAppVisibility(
           (app) => app.createdByAgentId === agentId,
         );
+        const hooksBefore = snapshotWebhookAudience(
+          webhookTargetsAgent(agentId),
+        );
         const result = await agentManager.revive(agentId, roomId, desk);
-        if (result.ok) announceAppAudienceChanges(before);
+        if (result.ok) {
+          announceAppAudienceChanges(before);
+          announceWebhookAudienceChanges(hooksBefore);
+        }
         return result;
       },
       edit: async (agentId, changes) => {
@@ -5116,20 +5287,15 @@ function pushAppDeltaToEachWs(change: AppChange) {
   }
 }
 
-// Webhook deltas go to the hook owner's sockets and every office owner's.
-function pushWebhookEventToEachWs(
-  ownerUserId: string | null,
-  event: Extract<
-    ServerMessage,
-    { type: "webhook_upserted" } | { type: "webhook_deleted" }
-  >,
-) {
-  const frame = JSON.stringify(event);
+// Webhooks: per-recipient, like cronjobs. A socket hears a hook it can see
+// (server/webhook-visibility.ts), and a delete when it could see it before.
+function pushWebhookDeltaToEachWs(change: WebhookChange) {
   for (const ws of browsers) {
-    const { userId, role } = ws.data.session;
-    if (role === "owner" || (ownerUserId !== null && userId === ownerUserId)) {
-      ws.send(frame);
-    }
+    const delta = webhookDeltaFor(
+      change,
+      webhookViewerForSession(ws.data.session),
+    );
+    if (delta) ws.send(JSON.stringify(delta));
   }
 }
 
@@ -5755,6 +5921,10 @@ function wireEventSinks(): void {
           facts: cronjobFacts(event.cronjob),
           before: cronjobFacts(event.previous ?? event.cronjob),
         });
+        announceCronjobHookAudience(
+          event.cronjob.id,
+          cronjobFacts(event.previous ?? event.cronjob).liveRoomId,
+        );
         break;
       case "cronjob_deleted":
         pushCronjobDeltaToEachWs({
@@ -5762,6 +5932,10 @@ function wireEventSinks(): void {
           id: event.id,
           before: cronjobFacts(event.cronjob),
         });
+        announceCronjobHookAudience(
+          event.id,
+          cronjobFacts(event.cronjob).liveRoomId,
+        );
         break;
       case "cronjobs_prompt_updated":
         liveEmit("cronjobs_prompt_updated", { value: event.value });

@@ -35,13 +35,15 @@ import { scheduleText } from "../../shared/i18n/schedule.ts";
 import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 
-type Tab = "runs" | "cronjobs" | "webhooks";
+// The two ways to start work, then the history of both (Nil, 2026-10-06).
+type Tab = "cronjobs" | "webhooks" | "runs";
+const TABS: Tab[] = ["cronjobs", "webhooks", "runs"];
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
 const TAB_LABEL: Record<Tab, Extract<MessageKey, `schedules.tab.${string}`>> = {
-  runs: "schedules.tab.runs",
   cronjobs: "schedules.tab.cronjobs",
   webhooks: "schedules.tab.webhooks",
+  runs: "schedules.tab.runs",
 };
 
 const STATUS_ICON: Record<CronjobRunStatus, React.ReactNode> = {
@@ -140,7 +142,7 @@ export function CronjobsView({
   } = useAppState();
   const { t } = useI18n();
   const dispatch = useDispatch();
-  const [tab, setTab] = useState<Tab>("runs");
+  const [tab, setTab] = useState<Tab>("cronjobs");
   // The open hook on the Webhooks tab, and a delivery row to point at when a
   // webhook run's link opened it.
   const [openHook, setOpenHook] = useState<{
@@ -333,6 +335,7 @@ export function CronjobsView({
           padding extends the bar below the camera notch instead of being
           squashed into the 44px box (box-sizing: border-box is global). */}
       <div
+        data-automations-header=""
         style={{
           display: "flex",
           alignItems: "center",
@@ -370,7 +373,7 @@ export function CronjobsView({
               overflow: "hidden",
             }}
           >
-            {(["runs", "cronjobs", "webhooks"] as Tab[]).map((name) => (
+            {TABS.map((name) => (
               <button
                 key={name}
                 onClick={() => setTab(name)}
@@ -391,19 +394,32 @@ export function CronjobsView({
               </button>
             ))}
           </div>
-          {/* A hook has no room. */}
-          {tab !== "webhooks" && (
-            <RoomFilterSelect
-              value={roomFilter}
-              rooms={roomOptions}
-              onChange={changeRoomFilter}
-            />
-          )}
+          <RoomFilterSelect
+            value={roomFilter}
+            rooms={roomOptions}
+            onChange={changeRoomFilter}
+          />
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {tab !== "webhooks" && (
+      </div>
+
+      {/* The header above is the page's and never changes with the tab; a
+          tab's own controls sit here, at the top of its content. */}
+      {(tab === "cronjobs" || (tab === "webhooks" && !openHook)) && (
+        <div
+          data-schedules-toolbar={tab}
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 6,
+            padding: isMobile ? "8px 12px" : "8px 20px",
+            borderBottom: "1px solid var(--border-subtle)",
+            flexShrink: 0,
+          }}
+        >
+          {tab === "cronjobs" && (
             <button
               onClick={() => setEditingPrompt(true)}
+              data-schedules-settings=""
               style={{
                 padding: "4px 10px",
                 borderRadius: 6,
@@ -425,7 +441,8 @@ export function CronjobsView({
             style={{
               padding: "4px 10px",
               borderRadius: 6,
-              border: "none",
+              // As tall as Settings, so the row keeps its height across tabs.
+              border: "1px solid transparent",
               background: "var(--accent-text)",
               color: "var(--bg-base)",
               fontSize: 11,
@@ -438,7 +455,7 @@ export function CronjobsView({
               : t("schedules.newButton")}
           </button>
         </div>
-      </div>
+      )}
 
       {/* Filter chip */}
       {tab === "runs" && runFilter && (
@@ -488,6 +505,8 @@ export function CronjobsView({
             onEdit={(webhook) => setWebhookDialog({ webhook })}
             onOpenRun={(jobId, runId) => setOpenRun({ jobId, runId })}
             onFocusAgent={onFocusAgent}
+            roomFilter={roomFilter}
+            roomOptions={roomOptions}
           />
         ) : tab === "cronjobs" ? (
           <CronjobsTable

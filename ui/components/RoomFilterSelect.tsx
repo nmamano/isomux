@@ -2,7 +2,7 @@ import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { ROOM_FILTER_ALL, ROOM_FILTER_NONE } from "../room-filter.ts";
 
-// The room filter on the Apps and Schedules pages: all rooms, no room, or one
+// The room filter on the Apps and Automations pages: all rooms, no room, or one
 // room.
 export function RoomFilterSelect({
   value,

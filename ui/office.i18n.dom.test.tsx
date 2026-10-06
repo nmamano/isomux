@@ -181,7 +181,7 @@ const ANCHOR = {
   noApps: translationsFor("apps.empty"),
   // The schedules page, which opens on its runs tab. Its schedules tab holds
   // the other empty state; this is the one the page shows on mount.
-  noRuns: translationsFor("schedules.runsEmpty"),
+  noSchedules: translationsFor("schedules.empty"),
   // The schedules tab's own control, which is how the test reaches the table.
   schedulesTab: translationsFor("schedules.tab.cronjobs"),
   // A weekly schedule read through shared/i18n/schedule.ts: the sentence is a
@@ -310,11 +310,11 @@ describe("the pages", () => {
     apps.unmount();
 
     const schedules = render(cronjobsView("ca"));
-    shows(schedules, ANCHOR.noRuns.ca);
+    shows(schedules, ANCHOR.noSchedules.ca);
     schedules.rerender(cronjobsView("es"));
-    shows(schedules, ANCHOR.noRuns.es);
+    shows(schedules, ANCHOR.noSchedules.es);
     schedules.rerender(cronjobsView(null));
-    shows(schedules, ANCHOR.noRuns.en);
+    shows(schedules, ANCHOR.noSchedules.en);
     schedules.unmount();
   });
 });
@@ -331,7 +331,7 @@ describe("a number", () => {
   });
 });
 
-// The schedules TAB, which the page does not open on. Its two cells are the
+// The schedules TAB, which the page opens on. Its two cells are the
 // repairs the PM ruled into S6 on Reviewer 2's escalation (2026-09-06): the
 // schedule sentence, which used to come from a hand-written weekday table, and
 // the next-run reading under a minute, whose "<1m" now reaches a catalog

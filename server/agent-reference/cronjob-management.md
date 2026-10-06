@@ -1,6 +1,6 @@
 # Cronjob management
 
-A cronjob is a fresh scheduled session that runs a prompt daily, weekly, at an interval, or only on demand (schedule `{type:"none"}`: Run now and webhooks start it). A privileged agent can create cronjobs and change, delete, or run the ones it owns. These routes replace the Schedules-page rule for your own jobs.
+A cronjob is a fresh scheduled session that runs a prompt daily, weekly, at an interval, or only on demand (schedule `{type:"none"}`: Run now and webhooks start it). A privileged agent can create cronjobs and change, delete, or run the ones it owns. These routes replace the Automations-page rule for your own jobs.
 
 A cronjob belongs to a room, whose members see it with its runs and transcripts. A job with no room is the maker's and owners' only.
 

@@ -1,4 +1,6 @@
-// The room filter on the Apps and Schedules pages. "all" lets everything
+import type { WebhookTarget } from "../shared/types.ts";
+
+// The room filter on the Apps and Automations pages. "all" lets everything
 // through, "none" keeps the records with no room, and any other value is a
 // room id. Room ids are 8-hex, so the two words cannot collide with one.
 export type RoomFilter = string;
@@ -45,6 +47,23 @@ export function appRoomId(
   if (app.createdByAgentId === undefined) return null;
   const creator = agents.find((agent) => agent.id === app.createdByAgentId);
   return creator ? knownRoomId(creator.roomId, rooms) : null;
+}
+
+// The room of a webhook: its target's room (the server's visibility rule),
+// read from the agents and schedules this viewer already has. A target this
+// viewer cannot see reads as no room.
+export function webhookRoomId(
+  target: WebhookTarget,
+  agents: readonly { id: string; roomId: string }[],
+  cronjobs: readonly { id: string; roomId?: string }[],
+  rooms: readonly { id: string }[],
+): string | null {
+  if (target.kind === "agent") {
+    const agent = agents.find((candidate) => candidate.id === target.agentId);
+    return agent ? knownRoomId(agent.roomId, rooms) : null;
+  }
+  const job = cronjobs.find((candidate) => candidate.id === target.cronjobId);
+  return job ? knownRoomId(job.roomId, rooms) : null;
 }
 
 // The rooms a filter can name: the viewer's rooms, plus every room for an

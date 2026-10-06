@@ -342,7 +342,7 @@ Cosas que puedes hacer por él:
   "common.rooms": "Salas",
   "common.signOut": "Cerrar sesión",
   "common.user": "Miembro",
-  "common.schedules": "Programaciones",
+  "common.automations": "Automatizaciones",
   "common.apps": "Apps",
   "common.changeTheme": "Cambiar el tema",
 
@@ -1852,6 +1852,7 @@ Cosas que puedes hacer por él:
   "roomFilter.all": "Todas las salas",
   "roomFilter.none": "Sin sala",
   "schedules.noMatch": "Ninguna programación coincide con este filtro.",
+  "webhooks.noMatch": "Ningún webhook coincide con este filtro.",
   "dialogs.schedule.room": "Sala",
   "dialogs.schedule.roomHint":
     "Los miembros de la sala ven esta programación y sus ejecuciones.",
@@ -2069,7 +2070,7 @@ Cosas que puedes hacer por él:
   "commands.keybindingsHelp.description": "Personalizar los atajos de teclado",
   "commands.loop.description": "Ejecutar un prompt de forma periódica",
   "commands.loop.message":
-    "no está disponible de forma nativa; mira si la página de Programaciones o los mensajes programados te sirven",
+    "no está disponible de forma nativa; mira si la página de Automatizaciones o los mensajes programados te sirven",
   "commands.loremIpsum.description": "Generar texto de relleno",
   "commands.review.description":
     "Revisión de código en busca de errores, lógica y casos límite",
@@ -2564,6 +2565,9 @@ Cosas que puedes hacer por él:
   "pager.view.allRooms": "Todas las salas",
   "pager.view.noRoom": "Sin sala",
   "pager.view.empty": "No hay avisos",
+  "pager.view.discordUnset":
+    "Discord no está configurado, así que tus avisos se quedan en la oficina.",
+  "pager.view.settingsLink": "Ajustes de avisos",
   "pager.view.loadFailed": "No se pudieron cargar los avisos.",
   "pager.view.retry": "Reintentar",
   "pager.view.unavailable":

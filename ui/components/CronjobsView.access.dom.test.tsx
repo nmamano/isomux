@@ -142,9 +142,19 @@ const readable = stateFor({
   cronjobRunsByJob: new Map([["job00001", [run]]]),
 });
 
+// The page opens on the Schedules tab; the run rows are on Runs.
+async function showRuns(view: { container: HTMLElement }) {
+  await act(async () =>
+    view.container
+      .querySelector<HTMLElement>('[data-schedules-tab="runs"]')!
+      .click(),
+  );
+}
+
 async function openRun() {
   const view = render(tree(readable));
   await act(async () => {});
+  await showRuns(view);
   const row = view.container.querySelector<HTMLElement>(
     'tr[data-cronjob-run-row="run00001"]',
   )!;
@@ -195,6 +205,7 @@ it("a deleted job's open run view closes for a member and stays for an office ow
 
   const owner = render(tree({ ...readable, ...stateFor({}, "owner") }));
   await act(async () => {});
+  await showRuns(owner);
   await act(async () =>
     owner.container
       .querySelector<HTMLElement>('tr[data-cronjob-run-row="run00001"]')!
@@ -228,6 +239,7 @@ it("an owner's open run fetches its transcript again after the delete drops it, 
   );
   const view = render(tree(ownerState));
   await act(async () => {});
+  await showRuns(view);
   await act(async () =>
     view.container
       .querySelector<HTMLElement>('tr[data-cronjob-run-row="run00001"]')!
@@ -334,6 +346,7 @@ it("a room member reads a resumable run without a composer or message edit; mana
   const asManager = { ...asViewer, cronjobs: [managedJob] };
   const view = render(tree(asViewer));
   await act(async () => {});
+  await showRuns(view);
   await act(async () =>
     view.container
       .querySelector<HTMLElement>('tr[data-cronjob-run-row="run00001"]')!

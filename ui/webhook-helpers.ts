@@ -9,10 +9,11 @@ import type {
   WebhookWire,
 } from "../shared/types.ts";
 
-// Show and Rotate exist only for a viewer the secret routes accept: a human
-// session of the hook owner or of an office owner. Every viewer of the office
+// Edit, the enabled toggle, Show and Rotate exist only for a viewer the write
+// and secret routes accept: a human session of the hook owner or of an office
+// owner. A member of the hook's room only reads it. Every viewer of the office
 // UI is a human session, so a missing session context is the only other case.
-export function canHandleWebhookSecret(
+export function canManageWebhook(
   hook: Pick<WebhookWire, "userId">,
   session: SessionContext | null,
 ): boolean {

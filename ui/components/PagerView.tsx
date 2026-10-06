@@ -16,6 +16,7 @@ import {
   type PagerEntry,
   type PagerState,
 } from "../../shared/types.ts";
+import type { PagerSettingsRes } from "../../shared/contract-shapes.ts";
 import { comparePagerEntries } from "../pager-sync.ts";
 import { PAGER_FAILURE_KEYS } from "./PagerSettingsPane.tsx";
 import { StatusShape } from "./StatusShape.tsx";
@@ -102,11 +103,14 @@ export function PagerView({
   onFocusAgent,
   selectRequest,
   onSelectRequestHandled,
+  onOpenPagerSettings,
 }: {
   onClose: () => void;
   onFocusAgent?: (agentId: string) => void;
   selectRequest?: PagerSelectRequest | null;
   onSelectRequestHandled?: () => void;
+  // Settings > You > Pager, where the member sets where pages go.
+  onOpenPagerSettings?: () => void;
 }) {
   const {
     pager,
@@ -118,6 +122,7 @@ export function PagerView({
     hydrationEpoch,
     rooms: allRooms,
     isMobile,
+    sessionContext,
   } = useAppState();
   const features = useFeatures();
   const dispatch = useDispatch();
@@ -131,6 +136,25 @@ export function PagerView({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   const scrollToRef = useRef<string | null>(null);
+  // Whether this member's pages reach Discord: null until a settings read
+  // answers, so a load or a failed read never claims Discord is absent.
+  const [discordSet, setDiscordSet] = useState<boolean | null>(null);
+  const selfName = sessionContext?.username ?? null;
+  useEffect(() => {
+    if (selfName === null) return;
+    let live = true;
+    apiFetch<PagerSettingsRes>(
+      "GET",
+      `/api/users/${encodeURIComponent(selfName)}/pager-settings`,
+    )
+      .then((res) => {
+        if (live) setDiscordSet(res.webhookUrlMasked !== null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [selfName, hydrationEpoch]);
 
   // The store holds apps only after the Apps view has fetched them. This view
   // reads them on mount and on every hydration (a reconnect may have missed an
@@ -459,6 +483,33 @@ export function PagerView({
             {t("pager.view.unavailable")}
           </div>
         )}
+        {discordSet === false && onOpenPagerSettings && (
+          <div
+            role="status"
+            data-pager-discord-unset=""
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 12px",
+              marginBottom: 10,
+              borderRadius: 8,
+              background: "var(--orange-bg)",
+              color: "var(--orange-text)",
+              fontSize: 13,
+            }}
+          >
+            <span style={{ flex: 1 }}>{t("pager.view.discordUnset")}</span>
+            <button
+              type="button"
+              onClick={onOpenPagerSettings}
+              data-pager-settings-link=""
+              style={actionBtn(false)}
+            >
+              {t("pager.view.settingsLink")}
+            </button>
+          </div>
+        )}
         {!pagerLoaded ? (
           pagerLoadFailed ? null : (
             <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
@@ -475,6 +526,20 @@ export function PagerView({
             }}
           >
             {t("pager.view.empty")}
+            {/* The notice above already links there when Discord is not
+                set up. */}
+            {discordSet !== false && onOpenPagerSettings && (
+              <div style={{ marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={onOpenPagerSettings}
+                  data-pager-settings-link=""
+                  style={actionBtn(false)}
+                >
+                  {t("pager.view.settingsLink")}
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <ul

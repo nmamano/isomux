@@ -7,8 +7,14 @@
 // body, as for apps: the hook belongs to the caller's user, so it outlives the
 // agent that created it.
 //
-// [the secret] Only readSecret and rotateSecret put it in a response. toWire is
-// the one place a record becomes wire, and the record has no secret field.
+// [the secret] Only readSecret and rotateSecret put it in a response.
+// webhookToWire is the one place a record becomes wire, and the record has no
+// secret field.
+//
+// [reads] get, deliveries and dryRun reach every caller and check the hook's
+// visibility here (server/webhook-visibility.ts): the members of the hook's
+// room read it, as for cronjobs. A hook the caller cannot see answers the
+// same 403 as an unknown id. Writes and the secret keep the owner guard.
 //
 // LEAF over the executor, the registry and the S1 core. Live office state
 // arrives through the injected deps.
@@ -51,9 +57,8 @@ export interface WebhooksDeps {
     createdBy: string;
     username: string | undefined;
   };
-  // An office owner, or an agent or API token whose user is one: sees and
-  // manages every hook, as for apps.
-  hasOfficeWideReach(identity: Identity): boolean;
+  // May this caller see the hook, its rules and its delivery log?
+  visibleTo(identity: Identity, record: WebhookRecord): boolean;
   // The public origin; the hook URL is `${origin}/hooks/${id}`.
   publicOrigin(): string;
   // Pre-verify counters (design section 6). In memory, from ingress.
@@ -61,9 +66,10 @@ export interface WebhooksDeps {
   // Drop ingress's in-memory state (counters, limits, the log's index) of a
   // deleted hook. Called after the delete commits.
   forget(id: string): void;
-  // Tell the hook owner's and the office owners' sockets. Called only after a
-  // committed change, with the same wire object the response carries.
-  announce(wire: WebhookWire): void;
+  // Tell the sockets that can see the hook, and on an update the ones that
+  // could see it before. Called only after a committed change, with the same
+  // wire object the response carries. `before` is null for a new hook.
+  announce(wire: WebhookWire, before: WebhookRecord | null): void;
   announceRemoved(record: WebhookRecord): void;
 }
 
@@ -230,24 +236,29 @@ export function webhookTargetPrecondition(
   };
 }
 
+// The ONE place a record becomes wire. The record type has no secret field.
+export function webhookToWire(
+  deps: Pick<WebhooksDeps, "registry" | "publicOrigin" | "counters">,
+  record: WebhookRecord,
+): WebhookWire {
+  const latest = deps.registry.readDeliveries(record.id, 1)[0];
+  return {
+    ...record,
+    url: `${deps.publicOrigin()}/hooks/${record.id}`,
+    secretState: deps.registry.secretState(record.id),
+    ...deps.counters(record.id),
+    lastDelivery: latest
+      ? { outcome: latest.outcome, receivedAt: latest.receivedAt }
+      : null,
+  };
+}
+
 export function webhooksHandlers(
   deps: WebhooksDeps,
 ): Record<string, RouteHandler> {
   const { registry } = deps;
 
-  // The ONE place a record becomes wire. The record type has no secret field.
-  const toWire = (record: WebhookRecord): WebhookWire => {
-    const latest = registry.readDeliveries(record.id, 1)[0];
-    return {
-      ...record,
-      url: `${deps.publicOrigin()}/hooks/${record.id}`,
-      secretState: registry.secretState(record.id),
-      ...deps.counters(record.id),
-      lastDelivery: latest
-        ? { outcome: latest.outcome, receivedAt: latest.receivedAt }
-        : null,
-    };
-  };
+  const toWire = (record: WebhookRecord) => webhookToWire(deps, record);
 
   // Every handler wraps its registry access, so a corrupt registry answers
   // with its own code on a read as well as a write.
@@ -272,22 +283,26 @@ export function webhooksHandlers(
 
   // The owner guard has run on :id, so a miss here is a genuine unknown.
   const recordOr404 = (id: string) => registry.get(id);
+  // A read route has no guard on :id: an unknown hook and one the caller
+  // cannot see are the same null, answered with the guard's 403.
+  const readable = (ctx: RouteHandlerContext) => {
+    const record = registry.get(ctx.params.id);
+    return record && deps.visibleTo(ctx.identity, record) ? record : null;
+  };
 
   return {
     "webhooks.list": guarded((ctx) => {
-      const all = deps.hasOfficeWideReach(ctx.identity);
-      const userId = ctx.identity.userId;
       return ok(
         registry
           .list()
-          .filter((hook) => all || (userId !== null && hook.userId === userId))
+          .filter((hook) => deps.visibleTo(ctx.identity, hook))
           .map(toWire),
       );
     }),
 
     "webhooks.get": guarded((ctx) => {
-      const record = recordOr404(ctx.params.id);
-      return record ? ok(toWire(record)) : fail(404, "not_found");
+      const record = readable(ctx);
+      return record ? ok(toWire(record)) : fail(403, "forbidden");
     }),
 
     "webhooks.create": guarded((ctx) => {
@@ -306,7 +321,7 @@ export function webhooksHandlers(
           : {}),
       });
       const wire = toWire(record);
-      announced(() => deps.announce(wire));
+      announced(() => deps.announce(wire, null));
       return created(wire);
     }),
 
@@ -317,7 +332,7 @@ export function webhooksHandlers(
       const record = registry.update(before.id, fields);
       if (!record) return fail(404, "not_found");
       const wire = toWire(record);
-      announced(() => deps.announce(wire));
+      announced(() => deps.announce(wire, before));
       return ok(wire);
     }),
 
@@ -330,8 +345,8 @@ export function webhooksHandlers(
     }),
 
     "webhooks.deliveries": guarded((ctx) => {
-      const record = recordOr404(ctx.params.id);
-      if (!record) return fail(404, "not_found");
+      const record = readable(ctx);
+      if (!record) return fail(403, "forbidden");
       const raw = ctx.query.get("limit");
       const limit =
         raw === null ? WEBHOOK_DELIVERIES_DEFAULT_LIMIT : Number(raw);
@@ -354,8 +369,8 @@ export function webhooksHandlers(
     // the raw header value: rules match it exactly, and the block reduces it
     // for display. Ingress runs the same two functions on the same raw value.
     "webhooks.dryRun": guarded((ctx) => {
-      const record = recordOr404(ctx.params.id);
-      if (!record) return fail(404, "not_found");
+      const record = readable(ctx);
+      if (!record) return fail(403, "forbidden");
       const body = ctx.body;
       if (
         !isPlainObject(body) ||
@@ -407,7 +422,7 @@ export function webhooksHandlers(
       if (secret === null) return fail(404, "not_found");
       // The secret changed, so the caller must get it even if the announce
       // (which reads the registry again) fails.
-      announced(() => deps.announce(toWire(record)));
+      announced(() => deps.announce(toWire(record), record));
       return ok({ secret });
     }),
   };

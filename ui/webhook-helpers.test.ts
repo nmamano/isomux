@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
-  canHandleWebhookSecret,
+  canManageWebhook,
   isLoopbackUrl,
   lastRunAt,
   ruleEvents,
@@ -16,13 +16,13 @@ const session = (userId: string, role: "owner" | "member"): SessionContext => ({
   connectionId: "c1",
 });
 
-describe("canHandleWebhookSecret", () => {
+describe("canManageWebhook", () => {
   it("allows the hook owner and an office owner, and nobody else", () => {
     const hook = { userId: "u1" };
-    expect(canHandleWebhookSecret(hook, session("u1", "member"))).toBe(true);
-    expect(canHandleWebhookSecret(hook, session("u2", "owner"))).toBe(true);
-    expect(canHandleWebhookSecret(hook, session("u2", "member"))).toBe(false);
-    expect(canHandleWebhookSecret(hook, null)).toBe(false);
+    expect(canManageWebhook(hook, session("u1", "member"))).toBe(true);
+    expect(canManageWebhook(hook, session("u2", "owner"))).toBe(true);
+    expect(canManageWebhook(hook, session("u2", "member"))).toBe(false);
+    expect(canManageWebhook(hook, null)).toBe(false);
   });
 });
 

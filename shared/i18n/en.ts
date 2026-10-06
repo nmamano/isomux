@@ -355,7 +355,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "common.rooms": "Rooms",
   "common.signOut": "Sign out",
   "common.user": "Member",
-  "common.schedules": "Schedules",
+  "common.automations": "Automations",
   "common.apps": "Apps",
   "common.changeTheme": "Change theme",
 
@@ -1817,6 +1817,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "roomFilter.all": "All rooms",
   "roomFilter.none": "No room",
   "schedules.noMatch": "No schedules match this filter.",
+  "webhooks.noMatch": "No webhooks match this filter.",
   "dialogs.schedule.room": "Room",
   "dialogs.schedule.roomHint": "Room members see this schedule and its runs.",
   "apps.unavailable.needsLinux":
@@ -2024,7 +2025,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "commands.keybindingsHelp.description": "Customize keyboard shortcuts",
   "commands.loop.description": "Run a prompt on a recurring schedule",
   "commands.loop.message":
-    "not supported natively; see if the Schedules page or scheduled messages satisfy your use case",
+    "not supported natively; see if the Automations page or scheduled messages satisfy your use case",
   "commands.loremIpsum.description": "Generate placeholder text",
   "commands.review.description": "Code review for bugs, logic, and edge cases",
   "commands.schedule.description": "Create cron-scheduled remote agents",
@@ -2549,6 +2550,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "pager.view.allRooms": "All rooms",
   "pager.view.noRoom": "No room",
   "pager.view.empty": "No pages",
+  "pager.view.discordUnset":
+    "Discord is not set up, so your pages stay in the office.",
+  "pager.view.settingsLink": "Pager settings",
   "pager.view.loadFailed": "Could not load pages.",
   "pager.view.retry": "Try again",
   "pager.view.unavailable":

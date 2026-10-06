@@ -1,4 +1,4 @@
-// A webhook run on the Schedules page links to the delivery row that started
+// A webhook run on the Automations page links to the delivery row that started
 // it (design section 8).
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -111,10 +111,20 @@ function tree(over: Partial<AppState>) {
   );
 }
 
+// The page opens on the Schedules tab; the run rows are on Runs.
+async function showRuns(view: { container: HTMLElement }) {
+  await act(async () =>
+    view.container
+      .querySelector<HTMLElement>('[data-schedules-tab="runs"]')!
+      .click(),
+  );
+}
+
 it("a webhook run shows the hook glyph, and its link opens the hook at the delivery row", async () => {
   deliveries = [deliveryRow({ id: "d_00000003" }), deliveryRow({ id: ROW_ID })];
   const view = render(tree({}));
   await act(async () => {});
+  await showRuns(view);
   const row = view.container.querySelector<HTMLElement>(
     'tr[data-cronjob-run-row="run00001"]',
   )!;
@@ -135,9 +145,10 @@ it("a webhook run shows the hook glyph, and its link opens the hook at the deliv
   view.unmount();
 });
 
-it("a webhook run of a hook the viewer does not manage names it without a link", async () => {
+it("a webhook run of a hook the viewer cannot see names it without a link", async () => {
   const view = render(tree({ webhooks: [] }));
   await act(async () => {});
+  await showRuns(view);
   await act(async () =>
     view.container
       .querySelector<HTMLElement>('tr[data-cronjob-run-row="run00001"]')!

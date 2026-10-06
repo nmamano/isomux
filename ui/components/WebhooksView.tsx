@@ -1,5 +1,5 @@
-// The Webhooks tab of the Schedules page: the hook list, and one hook's detail
-// (setup, rules, counters, dry run, delivery log). See
+// The Webhooks tab of the Automations page: the hook list, and one hook's
+// detail (setup, rules, counters, dry run, delivery log). See
 // internal-docs/webhooks-design.md sections 8 and 9.
 //
 // [the secret] It never enters the store. WebhookDetail holds it in state while
@@ -13,6 +13,11 @@ import { useI18n } from "../i18n.tsx";
 import { StatusShape } from "./StatusShape.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 import { dialogInput } from "./dialog-styles.ts";
+import {
+  ROOM_FILTER_ALL,
+  roomFilterMatches,
+  webhookRoomId,
+} from "../room-filter.ts";
 import { formatDateTime, timeSince } from "../../shared/i18n/time.ts";
 import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
@@ -29,7 +34,7 @@ import type {
   WebhookWire,
 } from "../../shared/types.ts";
 import {
-  canHandleWebhookSecret,
+  canManageWebhook,
   isLoopbackUrl,
   ruleEvents,
   webhookNeedsAttention,
@@ -181,6 +186,8 @@ export function WebhooksView({
   onEdit,
   onOpenRun,
   onFocusAgent,
+  roomFilter = ROOM_FILTER_ALL,
+  roomOptions = [],
 }: {
   openHookId: string | null;
   // A delivery row to scroll to and mark, from a webhook run's link. focusSeq
@@ -192,6 +199,9 @@ export function WebhooksView({
   onEdit: (hook: WebhookWire) => void;
   onOpenRun: (cronjobId: string, runId: string) => void;
   onFocusAgent?: (agentId: string) => void;
+  // The page's room filter, and the rooms it can name.
+  roomFilter?: string;
+  roomOptions?: readonly { id: string }[];
 }) {
   const { webhooks, webhooksLoaded, isMobile } = useAppState();
   const { t } = useI18n();
@@ -249,7 +259,11 @@ export function WebhooksView({
           {error}
         </p>
       )}
-      <WebhooksTable onOpen={onOpenHook} />
+      <WebhooksTable
+        onOpen={onOpenHook}
+        roomFilter={roomFilter}
+        roomOptions={roomOptions}
+      />
       {webhooksLoaded && (
         <div style={{ padding: "12px 20px", textAlign: "center" }}>
           <button type="button" onClick={refresh} style={smallBtn}>
@@ -261,9 +275,30 @@ export function WebhooksView({
   );
 }
 
-function WebhooksTable({ onOpen }: { onOpen: (id: string) => void }) {
-  const { webhooks, webhooksLoaded, isMobile } = useAppState();
+function WebhooksTable({
+  onOpen,
+  roomFilter,
+  roomOptions,
+}: {
+  onOpen: (id: string) => void;
+  roomFilter: string;
+  roomOptions: readonly { id: string }[];
+}) {
+  const {
+    webhooks,
+    webhooksLoaded,
+    isMobile,
+    agents,
+    cronjobs,
+    sessionContext,
+  } = useAppState();
   const { t, language } = useI18n();
+  const shown = webhooks.filter((hook) =>
+    roomFilterMatches(
+      roomFilter,
+      webhookRoomId(hook.target, agents, cronjobs, roomOptions),
+    ),
+  );
   const targetLabel = useTargetLabel();
   const cellPad = isMobile ? "8px 6px" : "10px 12px";
   const thStyle: React.CSSProperties = {
@@ -278,12 +313,16 @@ function WebhooksTable({ onOpen }: { onOpen: (id: string) => void }) {
     borderBottom: "1px solid var(--border-subtle)",
   };
 
-  if (webhooks.length === 0) {
+  if (shown.length === 0) {
     return (
       <div
         style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}
       >
-        {webhooksLoaded ? t("webhooks.empty") : t("common.loadingDots")}
+        {!webhooksLoaded
+          ? t("common.loadingDots")
+          : webhooks.length > 0
+            ? t("webhooks.noMatch")
+            : t("webhooks.empty")}
       </div>
     );
   }
@@ -314,9 +353,10 @@ function WebhooksTable({ onOpen }: { onOpen: (id: string) => void }) {
         </tr>
       </thead>
       <tbody>
-        {webhooks.map((hook) => {
+        {shown.map((hook) => {
           const target = targetLabel(hook.target);
           const attention = webhookNeedsAttention(hook);
+          const manageable = canManageWebhook(hook, sessionContext);
           return (
             <tr
               key={hook.id}
@@ -335,11 +375,19 @@ function WebhooksTable({ onOpen }: { onOpen: (id: string) => void }) {
               }
             >
               <td
-                style={{ padding: cellPad }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggle(hook);
+                style={{
+                  padding: cellPad,
+                  cursor: manageable ? "pointer" : "default",
                 }}
+                data-webhook-toggle={manageable ? "" : undefined}
+                onClick={
+                  manageable
+                    ? (e) => {
+                        e.stopPropagation();
+                        toggle(hook);
+                      }
+                    : undefined
+                }
               >
                 <EnabledDot enabled={hook.enabled} />
               </td>
@@ -445,7 +493,7 @@ function WebhookDetail({
   onOpenRun: (cronjobId: string, runId: string) => void;
   onFocusAgent?: (agentId: string) => void;
 }) {
-  const { isMobile, hydrationEpoch } = useAppState();
+  const { isMobile, hydrationEpoch, sessionContext } = useAppState();
   const { t, language } = useI18n();
   const targetLabel = useTargetLabel();
   const target = targetLabel(hook.target);
@@ -556,14 +604,16 @@ function WebhookDetail({
         <button type="button" onClick={refresh} style={smallBtn}>
           {t("webhooks.refresh")}
         </button>
-        <button
-          type="button"
-          onClick={onEdit}
-          style={smallBtn}
-          data-webhook-edit=""
-        >
-          {t("common.edit")}
-        </button>
+        {canManageWebhook(hook, sessionContext) && (
+          <button
+            type="button"
+            onClick={onEdit}
+            style={smallBtn}
+            data-webhook-edit=""
+          >
+            {t("common.edit")}
+          </button>
+        )}
       </div>
 
       <Card
@@ -760,7 +810,7 @@ function WebhookDetail({
 function SecretField({ hook }: { hook: WebhookWire }) {
   const { sessionContext } = useAppState();
   const { t } = useI18n();
-  const allowed = canHandleWebhookSecret(hook, sessionContext);
+  const allowed = canManageWebhook(hook, sessionContext);
   const [secret, setSecret] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

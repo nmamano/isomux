@@ -1580,8 +1580,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // Webhooks (internal-docs/webhooks-design.md section 7). Ownership is the
-  // USER's, as for apps. webhooks.list has no :id and is filtered per caller in
-  // the handler. Create and update also check the target against live state
+  // USER's, as for apps. The reads (list, get, deliveries, dry-run) follow the
+  // hook's room, as for cronjobs, and are checked per caller in the handler
+  // (server/webhook-visibility.ts). Writes stay with the owner and office
+  // owners. Create and update also check the target against live state
   // (webhookTargetAllowed). The secret routes admit a human session only: an
   // agent, a privileged agent, a cron run, an app and an API token get 403.
   defineRoute<void, WebhookWire[]>({
@@ -1595,7 +1597,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "webhooks.get",
     method: "GET",
     path: "/api/webhooks/:id",
-    auth: cap("webhook:read", webhookOwnerOrOfficeOwner("id")),
+    auth: cap("webhook:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<WebhookCreateReq, WebhookWire>({
@@ -1625,14 +1627,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "webhooks.deliveries",
     method: "GET",
     path: "/api/webhooks/:id/deliveries",
-    auth: cap("webhook:read", webhookOwnerOrOfficeOwner("id")),
+    auth: cap("webhook:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<WebhookDryRunReq, WebhookDryRunRes>({
     opId: "webhooks.dryRun",
     method: "POST",
     path: "/api/webhooks/:id/dry-run",
-    auth: cap("webhook:read", webhookOwnerOrOfficeOwner("id")),
+    auth: cap("webhook:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, WebhookSecretRes>({

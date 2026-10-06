@@ -422,7 +422,7 @@ function LobbyWalls({
       <g
         transform="translate(240,-85) skewY(27)"
         data-no-pan
-        aria-label={onOpenCronjobs ? t("common.schedules") : undefined}
+        aria-label={onOpenCronjobs ? t("common.automations") : undefined}
         onClick={onOpenCronjobs}
         style={
           onOpenCronjobs
@@ -430,7 +430,7 @@ function LobbyWalls({
             : undefined
         }
       >
-        {onOpenCronjobs && <title>{t("common.schedules")}</title>}
+        {onOpenCronjobs && <title>{t("common.automations")}</title>}
         <circle
           cx="0"
           cy="0"

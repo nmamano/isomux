@@ -172,8 +172,8 @@ export interface AppState {
   pagerRevision: number;
   // Bumped to ask usePagerSync for a new snapshot: a refused one, or Retry.
   pagerFetchSeq: number;
-  // The webhooks this viewer may manage: its own, or every hook for an office
-  // owner. Fetched by the Webhooks tab (and by a webhook run's view, which
+  // The webhooks this viewer may see: its own, those in its rooms, or every
+  // hook for an office owner. Fetched by the Webhooks tab (and by a webhook run's view, which
   // links to its hook) and kept fresh by the webhook_upserted /
   // webhook_deleted deltas. Same revision rule as apps: a list GET that a
   // delta overtook is refused, so it cannot undo an edit or a delete. The
@@ -184,7 +184,7 @@ export interface AppState {
   // The jobs this viewer may see: its maker's, office owners', and those of
   // the viewer's rooms.
   cronjobs: CronjobListWire[];
-  // Bumped by every cronjobs_state, so the Schedules page refetches the run
+  // Bumped by every cronjobs_state, so the Automations page refetches the run
   // lists it just dropped.
   cronjobsStateSeq: number;
   cronjobsLoaded: boolean;
@@ -1292,7 +1292,7 @@ export function reducer(state: AppState, action: Action): AppState {
     // viewer may see (room close, access or role change). Cached runs and
     // their transcripts survive only for jobs this viewer still sees; the
     // rest (including runs of deleted jobs, which only office owners read)
-    // drop, and the Schedules page refetches what the server still gives.
+    // drop, and the Automations page refetches what the server still gives.
     // The seq bump also voids run-list fetches already in flight.
     case "cronjobs_state": {
       const visibleIds = new Set(action.cronjobs.map((c) => c.id));
@@ -1322,7 +1322,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     // A deleted job's runs are office owners' only, and the client does not
     // decide who that is: drop them with their transcripts and let the
-    // Schedules page refetch (seq bump), which returns them to owners alone.
+    // Automations page refetch (seq bump), which returns them to owners alone.
     case "cronjob_deleted":
       return {
         ...state,
