@@ -31,7 +31,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Hierarchical system prompts** - office-wide, per-room, and per-agent prompts compose into one assembled system prompt for every agent, all editable from the UI. The Spawn and Edit agent menus keep instructions and memory together; Show full system prompt previews unsaved settings without saving them.
 - **Custom instructions per agent**, editable at spawn and later.
 - **Agent-collaboration skills**: `/pair-programming`, `/peer-review`, `/soft-handoff`, `/second-opinion`, `/subagent-review`.
-- **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/wrap-session` (check for loose ends and close a session cleanly), `/figure-it-out` (the agent makes the decision it asked you about, or explains why you should make it), `/isomux-report-bug`.
+- **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/wrap-session` (check for loose ends and close a session cleanly), `/figure-it-out`, `/isomux-report-bug`.
 - **Inspection commands**: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-usage`, `/isomux-storage`.
 
 ## Multiple members
@@ -130,7 +130,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 ### Apps
 
 - **Your personal app suite** - apps agents make for you or for other members of the office, available 24/7 from any device that can access the office. Room visibility decides which apps you see: share a room, share the apps.
-- **Apps tab**: see all your apps and their thumbnails in one place.
+- **Apps tab**: see all your apps in one place.
 - **Its own web address** - on an office with its own domain and wildcard DNS, an app can get an address like `myapp.myoffice.com`, so it opens from any device ([setup](self-hosted.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.
