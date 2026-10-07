@@ -119,11 +119,11 @@ Agent, cron-run and app tokens work only from the machine itself. Isomux refuses
 
 The container setups also have a proxy and a real domain.
 
-| Shape | Reach the office | App addresses | Firewall | Request log | Isomux does not cover |
-| --- | --- | --- | --- | --- | --- |
-| AWS EC2 container | Its HTTPS domain | One hostname per app | The installer configures it. Container updates do not verify it. | Caddy keeps the same 14-day log as a VPS install. | AWS controls such as the security group, and traffic that bypasses Caddy. |
-| Render | Its HTTPS domain | One hostname per app | Isomux does not configure one. | No Isomux access log. Render's service logs show office output. | Render's platform controls, its service logs, and copies of the disk. |
-| Kubernetes (EKS) | Its HTTPS domain, through the load balancer | One hostname per app | The cluster operator owns it. The manifests add an egress policy that blocks the instance metadata address. | No Isomux access log. The manifests do not turn on load balancer access logs. | The cluster, node settings, the load balancer, and the log pipeline. |
+| Shape             | Reach the office                            | App addresses        | Firewall                                                                                                    | Request log                                                                   | Isomux does not cover                                                     |
+| ----------------- | ------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| AWS EC2 container | Its HTTPS domain                            | One hostname per app | The installer configures it. Container updates do not verify it.                                            | Caddy keeps the same 14-day log as a VPS install.                             | AWS controls such as the security group, and traffic that bypasses Caddy. |
+| Render            | Its HTTPS domain                            | One hostname per app | Isomux does not configure one.                                                                              | No Isomux access log. Render's service logs show office output.               | Render's platform controls, its service logs, and copies of the disk.     |
+| Kubernetes (EKS)  | Its HTTPS domain, through the load balancer | One hostname per app | The cluster operator owns it. The manifests add an egress policy that blocks the instance metadata address. | No Isomux access log. The manifests do not turn on load balancer access logs. | The cluster, node settings, the load balancer, and the log pipeline.      |
 
 ## Proxy and no real domain
 
