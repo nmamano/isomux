@@ -286,9 +286,16 @@ export const ACCESS_LEGACY_LINKS: Record<string, string> = {
 // site/legacy-links.js follows the map. The page shows no list of them (Nil,
 // 2026-10-07: it confused readers), so no-JS readers stay on the page; the
 // agent Markdown lists them.
+// Sections that moved off the hosting reference (task d6552c37).
+export const HOSTING_REFERENCE_LEGACY_LINKS: Record<string, string> = {
+  "desktop-chrome-extension": "/docs#desktop-chrome-extension",
+  "provider-api-keys": "/docs/llm-providers#use-your-own-provider-account",
+};
+
 export const LEGACY_LINKS: Record<string, Record<string, string>> = {
   hosting: HOSTING_LEGACY_LINKS,
   "access-and-invites": ACCESS_LEGACY_LINKS,
+  "hosting-reference": HOSTING_REFERENCE_LEGACY_LINKS,
 };
 
 function legacyLinksHtml(links: Record<string, string>): string {

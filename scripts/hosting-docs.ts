@@ -190,8 +190,7 @@ export const HOSTING_LEGACY_LINKS: Record<string, string> = {
   "app-hostnames": "/docs/hosting-reference#app-hostnames",
   "opening-an-agents-dev-server": `${hostingUrl("vps")}#opening-an-agents-dev-server`,
   notes: `${hostingUrl("vps")}#installer-notes`,
-  "desktop-chrome-extension":
-    "/docs/hosting-reference#desktop-chrome-extension",
+  "desktop-chrome-extension": "/docs#desktop-chrome-extension",
   "your-own-hardware": hostingUrl("private"),
   "native-build-recovery": "/docs/hosting-reference#native-build-recovery",
   "keep-the-server-running": `${hostingUrl("private")}#keep-the-office-running`,
@@ -201,7 +200,7 @@ export const HOSTING_LEGACY_LINKS: Record<string, string> = {
   "install-on-mobile-pwa": `${hostingUrl("private")}#add-people-and-devices`,
   "enable-https-for-voice-input-and-android-pwa-install": `${hostingUrl("private")}#give-the-office-a-private-https-address`,
   "authorize-members": `${hostingUrl("private")}#create-the-first-owner`,
-  "provider-api-keys": "/docs/hosting-reference#provider-api-keys",
+  "provider-api-keys": "/docs/llm-providers#use-your-own-provider-account",
   "deploy-a-container": hostingUrl("aws"),
   "deploy-on-render": hostingUrl("render"),
   backups: `${hostingUrl("vps")}#backups`,
