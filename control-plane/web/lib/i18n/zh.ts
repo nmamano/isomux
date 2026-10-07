@@ -218,4 +218,5 @@ export const zh: Catalog = {
   "errors.providerTransient": "暂时无法连接付款提供方。请稍后重试。",
   "errors.checkoutSessionUnavailable": "暂时无法检查付款页面，请稍后重试。",
   "errors.checkoutSessionUnsaved": "暂时无法保存付款页面，请稍后重试。",
+  "errors.rateLimited": "来自你所在网络的尝试次数过多。请几分钟后重试。",
 };

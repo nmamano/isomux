@@ -284,6 +284,10 @@ export const en = {
     "We could not check your payment page just now - try again in a moment.",
   "errors.checkoutSessionUnsaved":
     "We could not save your payment page just now - try again in a moment.",
+
+  // The refusal of lib/rate-limit.server.ts, past a per-address quota.
+  "errors.rateLimited":
+    "Too many attempts from your network. Try again in a few minutes.",
 } as const;
 
 export type Catalog = Readonly<Record<keyof typeof en, string>>;

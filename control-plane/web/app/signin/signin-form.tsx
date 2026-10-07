@@ -1,10 +1,11 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DocumentLanguage } from "../../lib/i18n/document-language";
 import { useLanguage } from "../../lib/i18n/use-language";
 import { translatorFor } from "../../lib/i18n/translate";
+import { RATE_LIMITED_MARKER } from "../../lib/rate-limit-marker";
 
 /**
  * The sign-in controls. Split out of `page.tsx` so that the page itself can be
@@ -34,11 +35,28 @@ export function SignInForm() {
   const devAuth = process.env.NEXT_PUBLIC_CONTROL_PLANE_DEV_AUTH === "1";
   const language = useLanguage();
   const { t } = translatorFor(language);
+  // A sign-in refused by the per-address quota lands here with a marker. The
+  // query is the external system: the page is prerendered and cannot see it.
+  const [rateLimited, setRateLimited] = useState(false);
+  useEffect(() => {
+    const error = new URLSearchParams(window.location.search).get("error");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRateLimited(error === RATE_LIMITED_MARKER);
+  }, []);
 
   return (
     <main>
       <DocumentLanguage language={language} />
       <h1>{t("signIn.heading")}</h1>
+      {rateLimited && (
+        <p
+          className="callout callout-danger"
+          data-testid="signin-error"
+          role="alert"
+        >
+          {t("errors.rateLimited")}
+        </p>
+      )}
       <div className="card card-narrow">
         <button
           className="btn-primary"

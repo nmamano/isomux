@@ -3,11 +3,27 @@
 # the ports if deploy.sh ran with other ones. Each product keeps its own blocks
 # and upstreams.
 
+# The storefront limits sign-in and checkout start per client address, keyed on
+# the X-Forwarded-For value it receives, so that header must be the one address
+# Caddy resolved: header_up replaces whatever the client or a CDN sent. With a
+# CDN proxy in front, Caddy resolves the visitor address only when the host's
+# global options trust the CDN's ranges, for example:
+#
+#	servers {
+#		trusted_proxies static <the CDN's published ranges>
+#		client_ip_headers CF-Connecting-IP
+#	}
+#
+# Without them, every visitor reads as a CDN address. Behind a proxy, ACME's
+# TLS-ALPN challenge cannot reach Caddy; HTTP-01 does, so add
+# `tls { issuer acme { disable_tlsalpn_challenge } }` to a proxied site.
 https://storefront.example.com {
 	request_body {
 		max_size 1MiB
 	}
-	reverse_proxy 127.0.0.1:3100
+	reverse_proxy 127.0.0.1:3100 {
+		header_up X-Forwarded-For {client_ip}
+	}
 }
 
 # Only the paths callers outside this host use: the Stripe webhook and the

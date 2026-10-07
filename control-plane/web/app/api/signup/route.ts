@@ -7,6 +7,7 @@ import {
 } from "../../../lib/services.server";
 
 import { languageForRequest } from "../../../lib/i18n/request.server";
+import { limitRequest, signupLimiter } from "../../../lib/rate-limit.server";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,10 @@ export async function POST(request: Request): Promise<Response> {
   // refusal here has read nothing, written nothing and called nobody.
   const trusted = await checkTrustedOrigin(request.headers.get("origin"));
   if (!trusted.ok) return new Response(trusted.reason, { status: 403 });
+  // Before the session, the form and anything that writes or calls Stripe:
+  // a caller past its checkout-start quota costs nothing further.
+  const limited = limitRequest(signupLimiter, request);
+  if (limited) return limited;
 
   const session = await auth();
   const accountId = session?.accountId;

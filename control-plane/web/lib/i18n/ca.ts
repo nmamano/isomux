@@ -282,4 +282,6 @@ export const ca: Catalog = {
     "No hem pogut comprovar la teva pàgina de pagament ara mateix - torna-ho a provar d'aquí a un moment.",
   "errors.checkoutSessionUnsaved":
     "No hem pogut desar la teva pàgina de pagament ara mateix - torna-ho a provar d'aquí a un moment.",
+  "errors.rateLimited":
+    "Massa intents des de la teva xarxa. Torna-ho a provar d'aquí a uns minuts.",
 };

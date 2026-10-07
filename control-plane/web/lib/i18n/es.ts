@@ -285,4 +285,6 @@ export const es: Catalog = {
     "No hemos podido comprobar tu página de pago ahora mismo - vuelve a intentarlo en un momento.",
   "errors.checkoutSessionUnsaved":
     "No hemos podido guardar tu página de pago ahora mismo - vuelve a intentarlo en un momento.",
+  "errors.rateLimited":
+    "Demasiados intentos desde tu red. Vuelve a intentarlo en unos minutos.",
 };

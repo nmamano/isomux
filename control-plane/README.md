@@ -2543,7 +2543,11 @@ runtimes: Vercel production, the `isomux-provisioner` Fly app, and
 `ISOMUX_PRODUCTION_RUNTIME=vps`, which only `deploy/vps/compose.yaml` sets.
 
 **Caddy.** `deploy/vps/hosted.caddy.example` holds the two site blocks with
-example hostnames, to drop beside the host's Caddyfile. The provisioner block
+example hostnames, to drop beside the host's Caddyfile. The storefront block
+sets X-Forwarded-For to the client address Caddy resolved; the storefront's
+per-address limits on sign-in and checkout start (`web/lib/rate-limit.server.ts`)
+key on it. Behind a CDN proxy, the host's global options must trust the CDN's
+ranges, or every visitor shares the CDN's addresses. The provisioner block
 passes only `/stripe/webhook` and the two `/internal/certificates/*` paths that
 customer offices call. Set `ISOMUX_CERTIFICATE_ENDPOINT` in `provisioner.env` to
 the public renew URL. New offices are enrolled with it, and every renew answer
