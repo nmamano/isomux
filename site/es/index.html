@@ -815,7 +815,15 @@
       </div>
       <h2>Los compañeros&hellip;</h2>
       <ul class="coworker-list">
-        <li>Pueden usar navegadores</li>
+        <li>
+          &hellip;pueden usar un navegador
+          <ul class="cw-detail">
+            <li>
+              abren páginas, hacen clic y rellenan formularios en un Chrome que
+              compartes con ellos
+            </li>
+          </ul>
+        </li>
         <li>
           &hellip;tienen una identidad persistente: nombre, aspecto,
           instrucciones propias y recuerdos que construyen con el tiempo
@@ -866,8 +874,8 @@
           </ul>
         </li>
         <li>
-          &hellip;siguen siendo ellos mismos cuando cambias su proveedor entre
-          Claude, Codex y OpenCode
+          &hellip;mantienen su identidad cuando los cambias entre Claude, Codex
+          y OpenCode
         </li>
         <li>&hellip;siguen el trabajo en un tablero compartido</li>
         <li>
@@ -900,23 +908,25 @@
           decide a qué salas entra y mira con qué agentes está hablando
         </li>
         <li>
-          <strong>Jerárquica</strong>: instrucciones y memoria para toda la
-          oficina y para cada sala, así no repites el contexto cada vez
+          <strong>Contexto por capas</strong>: instrucciones y memoria para toda
+          la oficina y para cada sala, así no te repites
         </li>
         <li>
           <strong>Cada escritorio viene equipado</strong>: terminal, editor,
           visor de diffs, visor de diagramas y capturador de URLs, todo
           integrado
         </li>
-        <li><strong>El trabajo recurrente</strong> se puede programar</li>
+        <li>
+          <strong>Programaciones</strong>: el trabajo recurrente se hace solo
+        </li>
         <li>
           <strong>Avisos</strong>: los agentes te avisan por Discord cuando algo
           te necesita, y siguen avisando hasta que confirmas
         </li>
         <li>
-          <strong>Bonita</strong>: seis temas, y todo se puede tocar (haz clic
-          en la luna para el modo oscuro, en la puerta para cambiar de sala, en
-          el reloj para ver las tareas programadas&hellip;)
+          <strong>Bonita</strong>: seis temas, y la sala se puede tocar (la luna
+          para el modo oscuro, la puerta para cambiar de sala, el reloj para las
+          tareas programadas&hellip;)
         </li>
         <li>
           <strong>Llena de detalles que se agradecen</strong>: edita un mensaje
@@ -997,12 +1007,8 @@ bun run dev</pre
         <p>Ve a <strong>http://localhost:4000</strong> en tu navegador.</p>
         <ul>
           <li>
-            Si Claude no está instalado, se te pedirá instalarlo e iniciar
-            sesión cuando hables con un agente Claude.
-          </li>
-          <li>
-            Codex viene con isomux. Se te pedirá iniciar sesión cuando hables
-            con un agente Codex.
+            Claude Code y Codex vienen con isomux. Se te pedirá iniciar sesión
+            cuando hables con un agente.
           </li>
           <li>
             OpenCode viene con isomux. Elige un modelo gratuito, de pago por uso
@@ -1011,10 +1017,9 @@ bun run dev</pre
         </ul>
 
         <p style="margin-top: 20px">
-          ¿Quieres tenerlo en una máquina siempre encendida, entrar desde
-          cualquier dispositivo e invitar a otras personas a tu oficina? Mira la
-          <a href="/docs/hosting">instalación autoalojada</a>: tu propio
-          hardware, o una instalación de VPS desatendida en un servidor nuevo.
+          ¿Lo quieres en un servidor siempre encendido, accesible desde
+          cualquier dispositivo y con otras personas en tu oficina? Mira la
+          <a href="/docs/hosting">instalación autoalojada</a>.
         </p>
         <p style="margin-top: 8px">
           ¿Prefieres no llevar ningún servidor?

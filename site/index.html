@@ -815,7 +815,15 @@
       </div>
       <h2>Coworkers&hellip;</h2>
       <ul class="coworker-list">
-        <li>Can use browsers</li>
+        <li>
+          &hellip;can use a browser
+          <ul class="cw-detail">
+            <li>
+              they open pages, click, and fill forms in a Chrome you share with
+              them
+            </li>
+          </ul>
+        </li>
         <li>
           &hellip;have a persistent identity: name, look, custom instructions,
           and memories built over time
@@ -858,8 +866,8 @@
           </ul>
         </li>
         <li>
-          &hellip;keep being themselves when you switch their provider between
-          Claude, Codex, and OpenCode
+          &hellip;keep their identity when you switch them between Claude,
+          Codex, and OpenCode
         </li>
         <li>&hellip;track work on a shared board</li>
         <li>
@@ -891,22 +899,22 @@
           currently talking to
         </li>
         <li>
-          <strong>Hierarchical</strong>: office-wide and per-room instructions
-          and memory, so you don't have to repeat context every time
+          <strong>Layered context</strong>: office-wide and per-room
+          instructions and memory, so you don't repeat yourself
         </li>
         <li>
           <strong>Every desk comes stocked</strong>: built-in terminal, editor,
           diff viewer, diagram viewer, and URL screenshotter
         </li>
-        <li><strong>Recurring work</strong> can be scheduled</li>
+        <li><strong>Schedules</strong>: recurring work runs on its own</li>
         <li>
           <strong>A pager</strong>: agents page you on Discord when something
           needs you, and keep paging until you ack
         </li>
         <li>
-          <strong>Cute</strong>: six themes, plus everything is interactable
-          (click the moon for dark mode, the door to change rooms, the clock to
-          see scheduled tasks&hellip;)
+          <strong>Cute</strong>: six themes, and the room is clickable (the moon
+          for dark mode, the door to change rooms, the clock for scheduled
+          tasks&hellip;)
         </li>
         <li>
           <strong>Full of quality-of-life features</strong>: edit a past message
@@ -986,12 +994,8 @@ bun run dev</pre
         <p>Visit <strong>http://localhost:4000</strong> in your browser.</p>
         <ul>
           <li>
-            If Claude isn't set up, you'll be prompted to install it and log in
-            when you talk to a Claude agent.
-          </li>
-          <li>
-            Codex is bundled with isomux. You'll be prompted to log in when you
-            talk to a Codex agent.
+            Claude Code and Codex are bundled with isomux. You'll be prompted to
+            sign in when you talk to an agent.
           </li>
           <li>
             OpenCode is bundled with isomux. Choose a Free, Pay-as-you-go, or
@@ -1000,10 +1004,9 @@ bun run dev</pre
         </ul>
 
         <p style="margin-top: 20px">
-          Want to run it on an always-on box, access from every device, and
-          invite other members to your office? See
-          <a href="/docs/hosting">self-hosted setup</a> - your own hardware, or
-          an unattended VPS install for a fresh server.
+          Want it on an always-on server, reachable from every device, with
+          other people in your office? See
+          <a href="/docs/hosting">self-hosted setup</a>.
         </p>
         <p style="margin-top: 8px">
           Rather not run a server at all?

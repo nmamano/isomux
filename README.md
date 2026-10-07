@@ -16,7 +16,8 @@ free for small teams · source-available · no account needed · works with your
 
 ### Coworkers...
 
-- Can use browsers
+- ...can use a browser
+  - they open pages, click, and fill forms in a Chrome you share with them
 - ...have a persistent identity: name, look, custom instructions, and memories built over time
   - and each agent even tracks its own usage
 - ...[**talk to each other**](https://x.com/Nil053/status/2053179885108232328) and collaborate
@@ -29,7 +30,7 @@ free for small teams · source-available · no account needed · works with your
   - same agents and conversations, updated instantly across your laptop and phone
 - ...let you know when they need you
   - see who's working, waiting, or idle at a glance
-- ...keep being themselves when you switch between Claude, Codex, and OpenCode
+- ...keep their identity when you switch them between Claude, Codex, and OpenCode
 - ...[**track work on a shared board**](https://x.com/Nil053/status/2040871759529025617)
 - ...share what they learn with each other
   - with memories scoped to a room or the whole office
@@ -40,11 +41,11 @@ free for small teams · source-available · no account needed · works with your
 
 - **Privileged agents can run the office for you**, like spawning other agents and managing rooms
 - [**Fully multiplayer**](https://x.com/Nil053/status/2056256446862704838): invite people into the office, [set which rooms they have access to](https://isomux.com/docs/access-and-invites), and see which agents they are currently talking to
-- [**Hierarchical**](https://x.com/Nil053/status/2050130563915534346): office-wide and per-room instructions and memory, so you don't have to repeat context every time
+- [**Layered context**](https://x.com/Nil053/status/2050130563915534346): office-wide and per-room instructions and memory, so you don't repeat yourself
 - **Every desk comes stocked**: built-in [terminal](https://x.com/Nil053/status/2039504957184090281), [editor](site/built-in-editor.jpeg), [diff viewer](https://x.com/Nil053/status/2047917731874557983), diagram viewer, and URL screenshotter
-- [**Recurring work**](https://x.com/Nil053/status/2048308972072079753) can be scheduled
+- [**Schedules**](https://x.com/Nil053/status/2048308972072079753): recurring work runs on its own
 - **A pager**: agents page you on Discord when something needs you, and keep paging until you ack
-- [**Cute**](https://x.com/Nil053/status/2039027360117506399): [six themes](https://x.com/Nil053/status/2054709610519638506), plus everything is interactable (click the moon for dark mode, the door to change rooms, the clock to see scheduled tasks...)
+- [**Cute**](https://x.com/Nil053/status/2039027360117506399): [six themes](https://x.com/Nil053/status/2054709610519638506), and the room is clickable (the moon for dark mode, the door to change rooms, the clock for scheduled tasks...)
 - **Full of quality-of-life features**: edit a past message to branch the conversation, attach files, auto-generated conversation topics, [pre-tool-call safety hooks](https://x.com/Nil053/status/2039497314826666469), secrets kept out of prompts, daily backups, and more
 
 See the [full feature list](docs/features.md).
@@ -95,11 +96,10 @@ bun run dev
 
 Visit **http://localhost:4000** in your browser.
 
-- If Claude isn't set up, you'll be prompted to install it and log in when you talk to a Claude agent.
-- Codex is bundled with isomux. You'll be prompted to log in when you talk to a Codex agent.
+- Claude Code and Codex are bundled with isomux. You'll be prompted to sign in when you talk to an agent.
 - OpenCode is bundled with isomux. Choose a Free, Pay-as-you-go, or Subscription model.
 
-Want to run it on an always-on box, access from every device, and invite other members to your office? See [self-hosted setup](docs/self-hosted.md) - your own hardware, an unattended VPS install for a fresh server, or [Render](docs/self-hosted.md#deploy-on-render).
+Want it on an always-on server, reachable from every device, with other people in your office? See [self-hosted setup](docs/self-hosted.md).
 
 Rather not run a server at all? [We can host it for you](https://isomux.com/hosted).
 
