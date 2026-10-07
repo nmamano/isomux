@@ -6,9 +6,9 @@
     </defs>
     <rect x="0" y="0" width="1000" height="420" fill="#161b22"/>
 
-    <rect x="220" y="14" width="760" height="390" rx="14" fill="#241d3a" stroke="#a78bfa" stroke-width="2"/>
-  <text x="244" y="48" font-size="21" font-weight="700" fill="#a78bfa" text-anchor="start">Isomux</text>
-  <text x="244" y="74" font-size="16" font-weight="500" fill="#a78bfa" text-anchor="start" opacity="0.78">Runs in your infra, with the harnesses you choose</text>
+    <rect x="220" y="14" width="760" height="390" rx="14" fill="#1b1c24" stroke="#a39cc4" stroke-width="2"/>
+  <text x="244" y="48" font-size="21" font-weight="700" fill="#a39cc4" text-anchor="start">Isomux</text>
+  <text x="244" y="74" font-size="16" font-weight="500" fill="#a39cc4" text-anchor="start" opacity="0.78">Runs in your infra, with the harnesses you choose</text>
   <rect x="20" y="110" width="160" height="84" rx="14" fill="#1c2128" stroke="#a0aec0" stroke-width="2"/>
   <text x="100" y="159" font-size="19" font-weight="700" fill="#a0aec0" text-anchor="middle">Engineers</text>
   <rect x="20" y="270" width="160" height="84" rx="14" fill="#1c2128" stroke="#a0aec0" stroke-width="2"/>
@@ -34,15 +34,15 @@
   <text x="790" y="277" font-size="15" font-weight="700" fill="#c6f0d5" text-anchor="start">weekly-report</text>
   <text x="790" y="297" font-size="11.5" font-weight="500" fill="#4fc27a" text-anchor="start" opacity="0.9">report.acme.isomux.app</text>
   <path d="M 180 134 L 436 134" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
-  <circle cx="250" cy="134" r="12" fill="#6b46c1"/>
+  <circle cx="250" cy="134" r="12" fill="#5a4f8a"/>
   <text x="250" y="139" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
   <text x="270" y="124" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">set up the agents</text>
   <path d="M 180 172 L 436 172" fill="none" stroke="#a0aec0" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow)"/>
-  <circle cx="250" cy="172" r="12" fill="#6b46c1"/>
+  <circle cx="250" cy="172" r="12" fill="#5a4f8a"/>
   <text x="250" y="177" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
   <text x="270" y="162" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">step in when stuck</text>
   <path d="M 180 300 L 436 300" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
-  <circle cx="250" cy="300" r="12" fill="#6b46c1"/>
+  <circle cx="250" cy="300" r="12" fill="#5a4f8a"/>
   <text x="250" y="305" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
   <text x="270" y="290" font-size="14" font-weight="500" fill="#a0aec0" text-anchor="start">chat with the agents</text>
   <path d="M 700 213 L 756 213" fill="none" stroke="#a0aec0" stroke-width="2" marker-end="url(#arrow)"/>
