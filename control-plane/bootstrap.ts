@@ -125,18 +125,35 @@ async function inTransaction(
   }
 }
 
-async function openPool(dsn: string): Promise<pg.Pool> {
+/** How an owner migration runs. Each one is a fresh session, so a setting here
+ * applies to that migration only. */
+export interface MigrationOptions {
+  /** Fail a statement that waits longer than this for a lock, instead of
+   * queueing it, and every query after it, behind an open transaction. */
+  lockTimeoutMs?: number;
+}
+
+async function openPool(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<pg.Pool> {
   const pool = new pg.Pool({
     connectionString: dsn,
     connectionTimeoutMillis: 30_000,
+    ...(options.lockTimeoutMs === undefined
+      ? {}
+      : { lock_timeout: options.lockTimeoutMs }),
   });
   pool.on("error", () => {});
   return pool;
 }
 
 /** Owner-role migration for the deployed database. Runtime roles cannot DDL. */
-export async function migrateCustomerSshKeyColumns(dsn: string): Promise<void> {
-  const pool = await openPool(dsn);
+export async function migrateCustomerSshKeyColumns(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<void> {
+  const pool = await openPool(dsn, options);
   try {
     await inTransaction(pool, dsn, [
       "alter table instances add column if not exists customer_ssh_key text",
@@ -151,8 +168,9 @@ export async function migrateCustomerSshKeyColumns(dsn: string): Promise<void> {
 /** Owner-role migration for per-office certificate-contact scheduling. */
 export async function migrateCertificateContactColumns(
   dsn: string,
+  options: MigrationOptions = {},
 ): Promise<void> {
-  const pool = await openPool(dsn);
+  const pool = await openPool(dsn, options);
   try {
     await inTransaction(pool, dsn, [
       "alter table if exists instances add column if not exists certificate_contact_next_check_at bigint",
@@ -168,8 +186,9 @@ export async function migrateCertificateContactColumns(
 /** Owner-role migration for durable ordinary-signup Checkout recovery. */
 export async function migratePendingCheckoutColumns(
   dsn: string,
+  options: MigrationOptions = {},
 ): Promise<void> {
-  const pool = await openPool(dsn);
+  const pool = await openPool(dsn, options);
   try {
     await inTransaction(pool, dsn, [
       "alter table if exists name_reservations add column if not exists checkout_session_id text",
@@ -187,8 +206,9 @@ export async function migratePendingCheckoutColumns(
 /** Lift the legacy one-office constraint without changing any reservation row. */
 export async function migrateMultiOfficeReservations(
   dsn: string,
+  options: MigrationOptions = {},
 ): Promise<void> {
-  const pool = await openPool(dsn);
+  const pool = await openPool(dsn, options);
   const client = await pool.connect().catch((err: unknown) => {
     throw redactConnectionDetails(err, dsn);
   });
@@ -246,9 +266,9 @@ export const CANCELLATION_POLICY_CUTOVER_KEY =
 /** Owner-role migration for cancellation policy and provider-ID ownership. */
 export async function migrateHostedCancellationPolicy(
   dsn: string,
-  cutover = Date.now(),
+  { cutover = Date.now(), ...options }: MigrationOptions & { cutover?: number } = {},
 ): Promise<void> {
-  const pool = await openPool(dsn);
+  const pool = await openPool(dsn, options);
   const client = await pool.connect().catch((err: unknown) => {
     throw redactConnectionDetails(err, dsn);
   });
@@ -316,7 +336,7 @@ export async function migrateHostedCancellationPolicy(
  */
 export const OWNER_MIGRATIONS: readonly {
   command: `migrate-${string}`;
-  run: (dsn: string) => Promise<void>;
+  run: (dsn: string, options?: MigrationOptions) => Promise<void>;
   /** What the command reports, before ": ready". */
   ready: string;
 }[] = [

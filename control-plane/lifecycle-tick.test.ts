@@ -1544,8 +1544,8 @@ describe("resolving a broken promise", () => {
     await store.close();
   });
 
-  // The CLI never closes its store, so the process exits only after the pool's
-  // idle timeout: about 11 s, measured 2026-10-07.
+  // Under the pool's 10 s idle timeout: a CLI that leaves its store open exits
+  // only after it, and fails here.
   test("the operator CLI resolves it and lists what stays open", async () => {
     const c = clock(ENDED);
     const dsn = await testDsn();
@@ -1595,7 +1595,7 @@ describe("resolving a broken promise", () => {
         (e) => e.action === "resolve_attention" && e.actor === "nil",
       ),
     ).toHaveLength(1);
-  }, 30_000);
+  }, 10_000);
 
   test("an office with no broken promise resolves nothing", async () => {
     const c = clock(ENDED - 1);

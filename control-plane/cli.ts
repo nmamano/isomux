@@ -34,6 +34,7 @@ import {
   writeDatabaseIdentity,
   OWNER_MIGRATIONS,
   reportBootstrap,
+  type MigrationOptions,
 } from "./bootstrap.ts";
 import {
   AUDIT_FILE,
@@ -121,6 +122,12 @@ const reporter = new Reporter();
 const audit = new AuditLog(AUDIT_FILE, "control-plane-cli");
 const exec = new SpawnExec();
 const CADENCE_FAILURE_LIMIT = 3;
+/** migrate-all runs while the previous release serves. A migration that waits
+ * this long for a table lock fails the deploy, which rolls back, instead of
+ * stalling every query that queues behind it. */
+const MIGRATE_ALL_LOCK_TIMEOUT_MS = 5_000;
+/** The SQLSTATE of a statement that gave up waiting for a lock. */
+const LOCK_NOT_AVAILABLE = "55P03";
 
 // ---------------------------------------------------------------- arguments
 
@@ -247,8 +254,23 @@ async function waitForSsh(
 async function openStore(): Promise<Store> {
   fs.mkdirSync(STATE_ROOT, { recursive: true, mode: 0o700 });
   const store = await Store.open(databaseUrl());
+  openStores.add(store);
   await migrateLegacyIntents(store, INTENTS_DIR);
   return store;
+}
+
+/**
+ * Every store this process opened, closed when the command ends. An open pool
+ * keeps its idle connection, and so the process, alive for the pool's idle
+ * timeout: about 10 s after the work, measured 2026-10-07.
+ */
+const openStores = new Set<Store>();
+
+async function closeOpenStores(): Promise<void> {
+  for (const store of openStores) {
+    // A close that fails changes nothing the command already reported.
+    await store.close().catch(() => {});
+  }
 }
 
 /**
@@ -284,6 +306,7 @@ async function openStoreForRuntime(): Promise<{
     await store.close().catch(() => {});
     throw err;
   }
+  openStores.add(store);
   await migrateLegacyIntents(store, INTENTS_DIR);
   return { store, databaseIdentity };
 }
@@ -1058,14 +1081,32 @@ async function cmdSetDatabaseIdentity(): Promise<void> {
 
 async function cmdMigrate(
   migration: (typeof OWNER_MIGRATIONS)[number],
+  options?: MigrationOptions,
 ): Promise<void> {
-  await migration.run(databaseUrl());
+  await migration.run(databaseUrl(), options);
   reporter.line(`${migration.ready}: ready`);
 }
 
 /** Every owner migration in order; the first failure stops the rest. */
 async function cmdMigrateAll(): Promise<void> {
-  for (const migration of OWNER_MIGRATIONS) await cmdMigrate(migration);
+  for (const migration of OWNER_MIGRATIONS) {
+    try {
+      await cmdMigrate(migration, {
+        lockTimeoutMs: MIGRATE_ALL_LOCK_TIMEOUT_MS,
+      });
+    } catch (err) {
+      if ((err as { code?: unknown } | null)?.code !== LOCK_NOT_AVAILABLE) {
+        throw err;
+      }
+      reporter.problem(
+        `${migration.command} stopped: a table stayed locked for more than ` +
+          `${MIGRATE_ALL_LOCK_TIMEOUT_MS / 1000} s. It changed nothing, and ` +
+          "the migrations after it did not run.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
 }
 
 async function cmdOps(args: Map<string, string>): Promise<void> {
@@ -1412,4 +1453,8 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+try {
+  await main();
+} finally {
+  await closeOpenStores();
+}

@@ -62,7 +62,10 @@ afterAll(async () => {
   await dropLeastPrivilegedRoles();
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
-function migrateAll(dsn: string): { code: number; out: string } {
+function migrateAll(
+  dsn: string,
+  timeoutMs?: number,
+): { code: number; out: string } {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "migrate-all-"));
   try {
     const run = Bun.spawnSync(
@@ -71,6 +74,7 @@ function migrateAll(dsn: string): { code: number; out: string } {
         env: { PATH: process.env.PATH, HOME: home, CONTROL_PLANE_DB: dsn },
         stdout: "pipe",
         stderr: "pipe",
+        timeout: timeoutMs,
       },
     );
     return {
@@ -202,6 +206,49 @@ suite("migrate-all", () => {
         );
         expect(await hasLegacyConstraint(owner)).toBe(true);
       } finally {
+        await owner.end().catch(() => {});
+      }
+    },
+    DB_CASE_MS,
+  );
+
+  test(
+    "fails fast, and changes nothing, while an open transaction holds a table",
+    async () => {
+      const { ownerDsn, owner } = await schemaAfter([CUSTOMER_SSH_KEY_UNDONE]);
+      // A live request's transaction: it read `instances` and has not ended,
+      // so the first migration's ALTER TABLE cannot take its lock. Its own
+      // connection, because `owner` has only one.
+      const holder = new pg.Client({ connectionString: ownerDsn });
+      holder.on("error", () => {});
+      await holder.connect();
+      try {
+        await holder.query("begin");
+        await holder.query("select count(*) from instances");
+        // Killed at the cap: without a lock timeout the run waits for as long
+        // as the transaction stays open.
+        const capMs = 30_000;
+        const startedAt = performance.now();
+        const blocked = migrateAll(ownerDsn, capMs);
+        const elapsedMs = performance.now() - startedAt;
+        expect(elapsedMs).toBeLessThan(capMs / 2);
+        expect(blocked.code).toBe(1);
+        const problem = blocked.out
+          .split("\n")
+          .filter((line) => line.startsWith(OWNER_MIGRATIONS[0].command));
+        expect(problem).toHaveLength(1);
+        expect(blocked.out).not.toContain(": ready");
+        await holder.query("commit");
+        expect(await hasColumn(owner, "instances", "customer_ssh_key")).toBe(
+          false,
+        );
+
+        expect(migrateAll(ownerDsn, capMs).code).toBe(0);
+        expect(await hasColumn(owner, "instances", "customer_ssh_key")).toBe(
+          true,
+        );
+      } finally {
+        await holder.end().catch(() => {});
         await owner.end().catch(() => {});
       }
     },

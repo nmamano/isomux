@@ -257,7 +257,7 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     expect(Store.openRuntime(roleDsn)).rejects.toThrow(
       /subscriptions has no cancellation_policy column/,
     );
-    await migrateHostedCancellationPolicy(ownerDsn, 1_786_579_200_000);
+    await migrateHostedCancellationPolicy(ownerDsn, { cutover: 1_786_579_200_000 });
     const store = await Store.openRuntime(roleDsn);
     await store.close();
   });
@@ -274,8 +274,8 @@ suite("the schema check reads the catalog, not the privilege view", () => {
 
   test("cancellation migration keeps its first cutover on a rerun", async () => {
     const { ownerDsn, schema } = await bootstrappedAndRole();
-    await migrateHostedCancellationPolicy(ownerDsn, 111);
-    await migrateHostedCancellationPolicy(ownerDsn, 222);
+    await migrateHostedCancellationPolicy(ownerDsn, { cutover: 111 });
+    await migrateHostedCancellationPolicy(ownerDsn, { cutover: 222 });
     const result = await admin.query<{ value: string }>(
       `select value from ${quoteIdentifier(schema)}.schema_meta ` +
         `where key = 'hosted_cancellation_policy_cutover_ms'`,

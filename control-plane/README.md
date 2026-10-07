@@ -2628,7 +2628,8 @@ lock, and on an install that `--prepare` left or that did not finish.
 release still serves. It runs every `migrate-*` command in the order of
 `OWNER_MIGRATIONS` in `bootstrap.ts`; a new migration is an entry there. A
 failed migration rolls back like any other failure, and the migrations before
-it stay applied.
+it stay applied. A migration that waits more than 5 s to acquire a table lock
+fails.
 
 **Compatibility.** A rollback restores the app images, not the data. The
 previous release runs on the migrated schema during the deploy and after a
