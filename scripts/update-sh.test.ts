@@ -543,14 +543,95 @@ exec /usr/bin/mktemp "$@"
   });
 
   it("no-op when already on the target tag", async () => {
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    rmSync(fx.stubLog);
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("already on");
+    expect(r.out).not.toContain("--- deps");
+    expect(stubCalls().filter((l) => / stop /.test(l))).toEqual([]);
+    // A terminal result, so no screen waits on a run that already ended.
+    expect(progress().result).toBe("ok");
+  });
+
+  it("a tagged box with no dependency record syncs once, then no-ops", async () => {
+    // An older updater moved this box to the target and recorded the tag,
+    // but never ran the target's dependency sync. The tag must not stand in
+    // for the sync.
     await sh(fx.repo, "git fetch -q --tags origin");
     await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).toBe(0);
-    expect(r.out).toContain("already on");
+    expect(r.out).toContain("--- deps");
+    expect(r.out).toContain("SERVICE_KIND=user: skipping");
+    // A missing record is the expected first state, not an error to print.
+    expect(r.out).not.toContain("deps-synced");
+    expect(stubCalls().filter((l) => / stop /.test(l)).length).toBe(1);
+    expect(stubCalls().filter((l) => / start /.test(l)).length).toBe(1);
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
+    expect(status().result).toBe("ok");
+
+    rmSync(fx.stubLog);
+    const again = await runUpdate(["v2026.7.20"]);
+    expect(again.code).toBe(0);
+    expect(again.out).not.toContain("--- deps");
     expect(stubCalls().filter((l) => / stop /.test(l))).toEqual([]);
-    // A terminal result, so no screen waits on a run that already ended.
-    expect(progress().result).toBe("ok");
+  });
+
+  it("a failed sync on a tagged box is not recorded, so the next run syncs", async () => {
+    await sh(fx.repo, "git fetch -q --tags origin");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    const failingUpdater = join(fx.base, "failing-updater");
+    const source = readFileSync(UPDATE_SH, "utf8");
+    const changed = source.replace(
+      "sync_system_deps() {\n",
+      "sync_system_deps() {\n  return 42\n",
+    );
+    expect(changed).not.toBe(source);
+    writeFileSync(failingUpdater, changed, { mode: 0o700 });
+
+    const first = await runUpdate(["v2026.7.20"], failingUpdater);
+    expect(first.code).not.toBe(0);
+    expect(first.out).toContain("--- deps");
+    expect(stubCalls().filter((l) => / stop /.test(l))).toEqual([]);
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
+
+    const retry = await runUpdate(["v2026.7.20"]);
+    expect(retry.code).toBe(0);
+    expect(retry.out).toContain("--- deps");
+    expect(status().result).toBe("ok");
+  });
+
+  it("a failed restart after the sync is not recorded, so the next run syncs", async () => {
+    fx.env.FAIL_STARTS = "1";
+    await sh(fx.repo, "git fetch -q --tags origin");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+
+    const first = await runUpdate(["v2026.7.20"]);
+    expect(first.code).not.toBe(0);
+    expect(first.out).toContain("--- deps");
+    expect(status().result).toBe("failed");
+    // The tag was already there, so the failure leaves it in place.
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
+
+    // The stub fails only the first start of the fixture.
+    const retry = await runUpdate(["v2026.7.20"]);
+    expect(retry.code).toBe(0);
+    expect(retry.out).toContain("--- deps");
+    expect(status().result).toBe("ok");
+  });
+
+  it("a recorded sync is not redone when only the tag is missing", async () => {
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    await sh(fx.repo, "git tag -d v2026.7.20");
+    rmSync(fx.stubLog);
+
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("--- deps");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
+    expect(stubCalls().filter((l) => / stop /.test(l)).length).toBe(1);
+    expect(stubCalls().filter((l) => / start /.test(l)).length).toBe(1);
   });
 
   it("re-running on the target repairs a checkout with no local tag", async () => {

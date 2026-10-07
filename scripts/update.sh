@@ -36,7 +36,10 @@
 # SEQUENCE and per-phase recovery (the design doc has the rationale):
 #   fetch/validate     -> nothing to undo
 #   deps               -> nothing of isomux's to undo; installed system
-#                         packages stay (see sync_system_deps)
+#                         packages stay (see sync_system_deps). Finalize
+#                         records the synced commit in $STATUS_DIR/deps-synced;
+#                         an already-on-target run without that record syncs
+#                         and restarts instead of exiting as a no-op.
 #   checkout+install+build     [fail: check out the old commit, reinstall its
 #                               deps, rebuild its UI - node_modules and the
 #                               live-served ui/dist are already dirty]
@@ -66,7 +69,7 @@
 #                  snapshot it and require it
 #   SNAPSHOT_DIR   (accepted, unused) where older updaters put pre-update
 #                  state tarballs; they require it
-#   STATUS_DIR     lock + status.json (outside STATE_ROOT)
+#   STATUS_DIR     lock, status.json, deps-synced (outside STATE_ROOT)
 #   BUN            bun binary the service uses
 #   BASE_URL       loopback base for the readiness poll
 #   UPDATER_PATH   (optional) installed copy to refresh on success
@@ -354,6 +357,24 @@ sync_system_deps() {
   return "$rc"
 }
 
+# $STATUS_DIR/deps-synced holds the commit of the last update that synced its
+# system dependencies and then completed. The already-on-target arm reads it:
+# a box can run the target code with the tag recorded and still never have had
+# that release's dependencies (an older updater moved its checkout). A box with
+# no record syncs once. Written only at finalize, so a failed run syncs again
+# on its retry.
+deps_synced_for() {
+  local recorded=""
+  read -r recorded 2>/dev/null <"$STATUS_DIR/deps-synced" || true
+  [[ $recorded == "$1" ]]
+}
+
+record_deps_synced() {
+  { printf '%s\n' "$1" >"$STATUS_DIR/deps-synced.tmp" &&
+    mv -f "$STATUS_DIR/deps-synced.tmp" "$STATUS_DIR/deps-synced"; } 2>/dev/null ||
+    log "warning: could not record the dependency sync for $TARGET_TAG; the next update to it syncs again"
+}
+
 ready_poll() {
   local timeout=$1 deadline=$((SECONDS + $1))
   until curl -fsS -o /dev/null --max-time 5 "$BASE_URL/readyz" 2>/dev/null; do
@@ -469,22 +490,36 @@ git_prepare() {
   as_repo_user git -C "$REPO_DIR" update-ref "refs/tags/$TARGET_TAG" "$target_commit"
 
   if [[ $target_commit == "$OLD_COMMIT" ]]; then
-    if [[ $had_tag == "$target_commit" ]]; then
+    local need_deps=""
+    deps_synced_for "$target_commit" || need_deps=1
+    if [[ $had_tag == "$target_commit" && -z $need_deps ]]; then
       log "already on $TARGET_TAG; nothing to do"
       write_status ok "already on $TARGET_TAG"
       exit 0
     fi
-    # The line above just repaired a checkout that was running this release
-    # without recording it. This is also the upgrade shape left by updaters
-    # from before target dependency sync existed: their first update refreshes
-    # the installed updater, but cannot deliver this release's system
-    # dependencies. Run the target's narrow deps-only installer now so the
-    # second invocation converges that box. A tagged no-op stays a true no-op.
+    # The box runs this release, but the checkout was not recording its tag,
+    # or no completed update recorded syncing its system dependencies (or
+    # both). Updaters from before target dependency sync leave that shape:
+    # their first update refreshes the installed updater, but cannot deliver
+    # this release's system dependencies. Run the target's narrow deps-only
+    # installer now so the next invocation converges that box. A tagged,
+    # synced no-op stays a true no-op.
     # update-ref ran before this branch so the running server can identify the
     # release after its restart. Until every repair step succeeds, however,
     # that ref is provisional: leaving it behind on one transient failure
     # would make the retry take the tagged no-op arm and skip the repair
-    # forever.
+    # forever. The dependency record is provisional the same way: it is
+    # written only at finalize.
+    local repaired="recorded the release tag for $TARGET_TAG"
+    local undone="the tag repair was rolled back and the code is unchanged from before this run"
+    local retry="the tag repair was rolled back so a retry can finish it"
+    local unrecorded=" but is still not recording the release"
+    if [[ $had_tag == "$target_commit" ]]; then
+      repaired="synced $TARGET_TAG's system dependencies"
+      undone="the code is unchanged from before this run"
+      retry="a retry can finish it"
+      unrecorded=""
+    fi
     restore_repair_tag() {
       if [[ -n $had_tag ]]; then
         as_repo_user git -C "$REPO_DIR" update-ref \
@@ -512,24 +547,30 @@ git_prepare() {
           log "the restart did not take; trying once to bring $SERVICE_NAME back up"
           svc stop "$SERVICE_NAME" || true
           if svc start "$SERVICE_NAME" && ready_poll "$READY_TIMEOUT_S"; then
-            die "recorded the release tag for $TARGET_TAG, but $SERVICE_NAME did not come back up on the first attempt; the tag repair was rolled back and the code is unchanged from before this run; a second start brought $SERVICE_NAME back up, so the office is serving but is still not recording the release - re-run the update to finish the repair"
+            die "$repaired, but $SERVICE_NAME did not come back up on the first attempt; $undone; a second start brought $SERVICE_NAME back up, so the office is serving$unrecorded - re-run the update to finish the repair"
           else
-            die "recorded the release tag for $TARGET_TAG, but $SERVICE_NAME could not be restarted; the tag repair was rolled back and the code is unchanged from before this run, but the office is still down and needs manual attention"
+            die "$repaired, but $SERVICE_NAME could not be restarted; $undone, but the office is still down and needs manual attention"
           fi
           ;;
-        readiness) die "recorded the release tag for $TARGET_TAG and restarted $SERVICE_NAME, but it did not answer within ${READY_TIMEOUT_S}s; the tag repair was rolled back and the code is unchanged from before this run, so look at the service log" ;;
-        finalize) die "repaired $TARGET_TAG, but could not record the successful result; the tag repair was rolled back so a retry can finish it" ;;
-        *) die "the $TARGET_TAG repair failed during $failed_phase; the tag repair was rolled back so a retry can finish it" ;;
+        readiness) die "$repaired and restarted $SERVICE_NAME, but it did not answer within ${READY_TIMEOUT_S}s; $undone, so look at the service log" ;;
+        finalize) die "repaired $TARGET_TAG, but could not record the successful result; $retry" ;;
+        *) die "the $TARGET_TAG repair failed during $failed_phase; $retry" ;;
       esac
     }
     trap repair_error ERR
-    phase deps
-    sync_system_deps "$target_commit"
+    if [[ -n $need_deps ]]; then
+      phase deps
+      sync_system_deps "$target_commit"
+    fi
     # Nothing was built and nothing can be rolled back, so the ordinary code
     # recovery ladder does not apply. server/version.ts reads the tag once per
     # process, and configure_user_manager's drop-in also takes effect on the
     # restart below.
-    log "already on $TARGET_TAG, which the checkout was not recording; restarting so the office reports it"
+    if [[ $had_tag == "$target_commit" ]]; then
+      log "already on $TARGET_TAG, but its system dependencies were never recorded as synced; restarting so the office runs with them"
+    else
+      log "already on $TARGET_TAG, which the checkout was not recording; restarting so the office reports it"
+    fi
     phase restart
     svc stop "$SERVICE_NAME"
     wait_inactive
@@ -538,13 +579,14 @@ git_prepare() {
     ready_poll "$READY_TIMEOUT_S"
     check_public_front_door
     phase finalize
+    record_deps_synced "$target_commit"
     if [[ -n $DEPS_WARNING ]]; then
-      write_status ok "recorded the release tag for $TARGET_TAG; warning: $DEPS_WARNING"
+      write_status ok "$repaired; warning: $DEPS_WARNING"
     else
-      write_status ok "recorded the release tag for $TARGET_TAG"
+      write_status ok "$repaired"
     fi
     trap - ERR
-    log "recorded the release tag for $TARGET_TAG"
+    log "$repaired"
     exit 0
   fi
   if as_repo_user git -C "$REPO_DIR" merge-base --is-ancestor "$target_commit" "$OLD_COMMIT"; then
@@ -575,6 +617,7 @@ git_ready() {
 }
 
 git_finalize() {
+  record_deps_synced "$target_commit"
   # Refresh the installed updater from the ROOT-OWNED trust objects. The
   # service checkout must never be the source: the service user (which
   # agents run as) could have replaced scripts/update.sh there while the

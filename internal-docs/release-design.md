@@ -185,6 +185,16 @@ updater copy the same way.
    that the office is down and needs manual attention. A readiness failure after
    a successful first start only restores the tag; a retry enters this repair
    arm again and makes the tag and process agree.
+
+   The tag does not show that step 2b ever ran: an older updater can move a
+   box to the target and record the tag without syncing the target's system
+   dependencies. So finalize writes the target commit to
+   `$STATUS_DIR/deps-synced`, and the already-on-target exit also needs that
+   record. Without it, the run does 2b, restarts and writes the record, also
+   when the tag is present. A box with no record syncs once. Like the tag, the
+   record is provisional in this arm: a failed restart or readiness poll leaves
+   it unwritten, so the retry syncs again. The record works in the installed
+   updater, so it has effect from the update after the one that installs it.
 2b. Then, still before the checkout, install the system dependencies the
    target needs by
    running THAT release's `deploy/install.sh` with `ISOMUX_DEPS_ONLY=1`
@@ -439,7 +449,9 @@ Remaining:
   checkout. Re-run the same target once. The current updater recognizes that
   untagged, already-on-target shape, runs the target release's narrow
   deps-only installer, records the tag, and restarts so the app user-manager
-  drop-in takes effect. A correctly tagged invocation remains a true no-op.
+  drop-in takes effect. A box that has the tag but no dependency record (step
+  2) takes the same path. A tagged invocation with the record remains a true
+  no-op.
   Existing app hostnames are separate: the updater deliberately never rewrites
   Caddy because the operator must add wildcard DNS and opt into that migration;
   follow `docs/self-hosted.md`.
