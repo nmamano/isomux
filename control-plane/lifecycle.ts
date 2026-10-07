@@ -243,6 +243,12 @@ export const PROMISE_BROKEN = "lifecycle-promise-broken";
 export const LIFECYCLE_STRAY = "lifecycle-stray-rows";
 export const LIFECYCLE_REPOWERED = "lifecycle-repowered";
 export const LIFECYCLE_ASSET_GONE = "lifecycle-asset-gone";
+/** The asset-gone row's sentence. Exported because the work schedule matches
+ * the full open identity (key and sentence) when it decides a raise is due. */
+export const ASSET_GONE_REASON =
+  `the provider asset for this office is gone while its ` +
+  `subscription cancellation is not complete; billing and provider ` +
+  `state need operator review`;
 
 /**
  * What to do about a condition.
@@ -251,7 +257,8 @@ export const LIFECYCLE_ASSET_GONE = "lifecycle-asset-gone";
  * not. A provider term that lapses too early can be renewed, and an incident
  * that stays open after the danger passed teaches an operator to ignore the
  * floor. A promise that was actually broken cannot be un-broken, so nothing
- * ever clears it.
+ * automatic clears it: an operator resolves it (`attention --resolve`), and it
+ * is never raised again for the same promised date.
  */
 export type AttentionAction =
   | {
@@ -494,6 +501,31 @@ export function cancellationStateFrom(
 /** Provider states that mean the asset is really gone, not merely scheduled. */
 export const GONE_STATES = new Set(["cancelled", "absent"]);
 
+/**
+ * The asset-gone condition for an office whose subscription is not terminal:
+ * raise while the asset is gone and the office is not deprovisioned, clear
+ * otherwise. Two callers share it so that both raise and clear ONE row:
+ * decideLifecycle's non-terminal arm, and lifecycle-tick's scan of the
+ * never-cancelled subscriptions decideLifecycle never sees.
+ */
+export function assetGoneAction(
+  instance: InstanceRow,
+  asset: AssetRow | null,
+): AttentionAction {
+  const gone =
+    instance.service_state !== "deprovisioned" &&
+    asset !== null &&
+    GONE_STATES.has(asset.asset_state);
+  return gone
+    ? {
+        kind: "raise",
+        key: LIFECYCLE_ASSET_GONE,
+        reason: ASSET_GONE_REASON,
+        severity: "critical",
+      }
+    : { kind: "clear", key: LIFECYCLE_ASSET_GONE };
+}
+
 export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
   const { instance, asset, operations, subscription, now } = inputs;
   const none = (note: string): LifecycleDecision => ({
@@ -512,23 +544,7 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
   // remove_dns from this arm. Its id is anchored on ended_at, and there is
   // none. lifecycle-tick still clears its stale liveness alert.
   if (!terminal) {
-    const assetGone =
-      instance.service_state !== "deprovisioned" &&
-      asset !== null &&
-      GONE_STATES.has(asset.asset_state);
-    const assetGoneAttention: AttentionAction[] = assetGone
-      ? [
-          {
-            kind: "raise",
-            key: LIFECYCLE_ASSET_GONE,
-            reason:
-              `the provider asset for this office is gone while its ` +
-              `subscription cancellation is not complete; billing and provider ` +
-              `state need operator review`,
-            severity: "critical",
-          },
-        ]
-      : [{ kind: "clear", key: LIFECYCLE_ASSET_GONE }];
+    const assetGoneAttention = [assetGoneAction(instance, asset)];
     // DEFENSIVE, not decorative. "Stripe does not un-delete a subscription" is
     // true and is still not a mechanism: if a lifecycle row exists while the
     // subscription is not terminal, something we do not model has happened, and

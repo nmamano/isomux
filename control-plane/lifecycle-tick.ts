@@ -9,10 +9,22 @@
 // It acts about twice in a customer's entire life: once at the end of the grace
 // week, and once at the retention deadline. Everything else is a read.
 
-import { clearAttentionIn, raiseAttentionIn } from "./attention.ts";
+import {
+  clearAttentionIn,
+  raiseAttentionIn,
+  resolveAttentionIn,
+} from "./attention.ts";
 import { LIVENESS_REASON } from "./liveness-watch.ts";
 import { deadlinesFor } from "./operations.ts";
-import { decideLifecycle, type LifecyclePhase } from "./lifecycle.ts";
+import {
+  assetGoneAction,
+  decideLifecycle,
+  GONE_STATES,
+  LIFECYCLE_ASSET_GONE,
+  PROMISE_BROKEN,
+  type AttentionAction,
+  type LifecyclePhase,
+} from "./lifecycle.ts";
 import type { Store } from "./store.ts";
 import type { SubscriptionRow } from "./stripe/billing-store.ts";
 import {
@@ -51,6 +63,91 @@ async function cancelledSubscriptions(
     "select * from subscriptions where instance_id is not null " +
       "and (ended_at is not null or cancellation_reason is not null) " +
       "order by ended_at",
+  );
+}
+
+/**
+ * Subscriptions that were never cancelled and whose office may have lost its
+ * asset. decideLifecycle never sees them, and they must not reach it: every arm
+ * there was argued against cancelled subscriptions only. A never-cancelled
+ * subscription keeps renewing, so a vanished box on one is billed for a machine
+ * that does not exist.
+ *
+ * A pre-filter only. Each row is re-decided inside its transaction from
+ * assetForInstance, the same asset the cancellation arm reads. The open-row
+ * half is what lets the condition CLEAR when the asset comes back or the office
+ * is deprovisioned.
+ */
+async function neverCancelledAssetGone(
+  store: Store,
+): Promise<SubscriptionRow[]> {
+  const gone = [...GONE_STATES];
+  const marks = gone.map((_, i) => `$${i + 2}`).join(", ");
+  return store.sqlAll<SubscriptionRow>(
+    "select * from subscriptions s where s.instance_id is not null " +
+      "and s.ended_at is null and s.cancellation_reason is null " +
+      "and (exists (select 1 from provider_assets a " +
+      `where a.instance_id = s.instance_id and a.asset_state in (${marks})) ` +
+      "or exists (select 1 from attention_reasons r " +
+      "where r.instance_id = s.instance_id and r.source_op_id = $1 " +
+      "and r.cleared_at is null)) " +
+      "order by s.id",
+    [LIFECYCLE_ASSET_GONE, ...gone],
+  );
+}
+
+/**
+ * Apply one attention action for the lifecycle. Returns whether a row was
+ * raised and how many were cleared.
+ *
+ * A raise uses the condition's key as sourceOpId, so a second tick observing
+ * the same thing is refused by the open-reason unique index instead of opening
+ * another critical row. The dated evidence rides in the audit detail, never in
+ * the identity.
+ */
+async function applyAttention(
+  store: Store,
+  instanceId: string,
+  action: AttentionAction,
+): Promise<{ raised: boolean; cleared: number }> {
+  if (action.kind === "raise") {
+    const raised = await raiseAttentionIn(store, {
+      instanceId,
+      reasonClass: "operation_condition",
+      sourceOpId: action.key,
+      reason: action.reason,
+      severity: action.severity,
+      actor: LIFECYCLE_TICK_ACTOR,
+      ...(action.detail ? { detail: action.detail } : {}),
+      // A broken promise stays broken, and the ended arm keeps seeing it on
+      // every tick. Once an operator has resolved it, it stays resolved.
+      once: action.key === PROMISE_BROKEN,
+    });
+    return { raised, cleared: 0 };
+  }
+  // ONLY the keyed condition, and only that one. A broken promise carries a
+  // different key, so nothing here can clear it: only an operator resolves it.
+  let cleared = 0;
+  for (const open of await store.openReasons(instanceId)) {
+    if (open.source_op_id !== action.key) continue;
+    await clearAttentionIn(store, instanceId, open.id, LIFECYCLE_TICK_ACTOR);
+    cleared++;
+  }
+  return { raised: false, cleared };
+}
+
+/**
+ * The operator's resolve for a broken promise, which nothing else clears. Only
+ * that condition: every other lifecycle row clears when its condition goes
+ * away. Each resolved row gets a `resolve_attention` audit row naming `by`.
+ */
+export async function resolveBrokenPromise(
+  store: Store,
+  instanceId: string,
+  by: string,
+): Promise<number> {
+  return store.tx(() =>
+    resolveAttentionIn(store, instanceId, PROMISE_BROKEN, by),
   );
 }
 
@@ -232,36 +329,9 @@ export async function lifecycleTick(
         // instruction on the ops floor beside the incident that replaced it.
         let raised = false;
         for (const action of decision.attention) {
-          if (action.kind === "raise") {
-            // sourceOpId is the condition's KEY, so a second tick observing the
-            // same thing is refused by the open-reason unique index instead of
-            // opening another critical row. The dated evidence rides in the
-            // audit detail, never in the identity.
-            raised =
-              (await raiseAttentionIn(store, {
-                instanceId: instance.id,
-                reasonClass: "operation_condition",
-                sourceOpId: action.key,
-                reason: action.reason,
-                severity: action.severity,
-                actor: LIFECYCLE_TICK_ACTOR,
-                ...(action.detail ? { detail: action.detail } : {}),
-              })) || raised;
-            continue;
-          }
-          // ONLY the keyed condition, and only that one. A broken promise is
-          // irreversible and carries a different key, so nothing here can
-          // clear it.
-          for (const open of await store.openReasons(instance.id)) {
-            if (open.source_op_id !== action.key) continue;
-            await clearAttentionIn(
-              store,
-              instance.id,
-              open.id,
-              LIFECYCLE_TICK_ACTOR,
-            );
-            cleared++;
-          }
+          const applied = await applyAttention(store, instance.id, action);
+          raised = applied.raised || raised;
+          cleared += applied.cleared;
         }
 
         return {
@@ -287,6 +357,46 @@ export async function lifecycleTick(
       (summary.phases[committed.phase] ?? 0) + 1;
     for (const id of committed.opened) report(`opened ${id}`);
     if (committed.finished) report(`${scanned.instance_id}: data end recorded`);
+  }
+
+  // After the cancellation pass, so an office whose data end that pass just
+  // recorded is read as deprovisioned here.
+  for (const scanned of await neverCancelledAssetGone(store)) {
+    let committed: { raised: boolean; cleared: number } | null = null;
+    try {
+      committed = await store.tx(async () => {
+        const sub = await store.sqlGet<SubscriptionRow>(
+          "select * from subscriptions where id = $1",
+          [scanned.id],
+        );
+        // A cancellation since the scan makes it the pass above's business.
+        if (
+          !sub ||
+          !sub.instance_id ||
+          sub.ended_at !== null ||
+          sub.cancellation_reason !== null
+        ) {
+          return null;
+        }
+        const instance = await store.getInstance(sub.instance_id);
+        if (!instance) return null;
+        return applyAttention(
+          store,
+          instance.id,
+          assetGoneAction(
+            instance,
+            await store.assetForInstance(instance.id),
+          ),
+        );
+      });
+    } catch (err) {
+      summary.failed++;
+      report(`lifecycle ${scanned.id} failed: ${messageOf(err)}`);
+      continue;
+    }
+    if (!committed) continue;
+    if (committed.raised) summary.raised++;
+    summary.cleared += committed.cleared;
   }
 
   return summary;

@@ -35,6 +35,13 @@ export interface RaiseArgs {
    * said when the incident was raised.
    */
   detail?: string;
+  /**
+   * Refuse the raise if this identity was EVER raised on the instance, cleared
+   * or not. For a condition that cannot go away by itself: its scan keeps
+   * seeing it, so without this an operator's resolve would reopen on the next
+   * tick.
+   */
+  once?: boolean;
 }
 
 /** Must run inside a transaction the caller owns. */
@@ -50,6 +57,16 @@ export async function raiseAttentionIn(
     (r) => r.source_op_id === sourceOpId && r.reason === args.reason,
   );
   if (already) return false;
+  if (
+    args.once &&
+    (await store.sqlGet(
+      "select 1 from attention_reasons where instance_id = $1 " +
+        "and source_op_id = $2 and reason = $3 limit 1",
+      [args.instanceId, sourceOpId, args.reason],
+    ))
+  ) {
+    return false;
+  }
 
   await store.insertReason({
     id: `att-${await store.nextSeq("audit")}-${sourceOpId || "none"}`,
@@ -100,6 +117,16 @@ export async function clearAttentionIn(
   if (!store.inTransaction()) {
     throw new Error("clearAttentionIn must run inside a transaction");
   }
+  await clearOne(store, instanceId, reasonId, actor, "clear_attention");
+}
+
+async function clearOne(
+  store: Store,
+  instanceId: string,
+  reasonId: string,
+  actor: string,
+  action: string,
+): Promise<void> {
   const row = (await store.openReasons(instanceId)).find(
     (r) => r.id === reasonId,
   );
@@ -114,11 +141,38 @@ export async function clearAttentionIn(
   await store.appendAudit({
     actor,
     instance_id: instanceId,
-    action: "clear_attention",
+    action,
     target: reasonId,
     outcome: "succeeded",
     detail: null,
   });
+}
+
+/**
+ * An operator's statement that one condition has been dealt with: clear every
+ * open row with this source id on the instance. Only for a condition nothing
+ * clears by itself. A row whose condition can go away is cleared by that
+ * condition, so resolving it by hand would only hide what is still true.
+ *
+ * Returns how many rows it resolved, so a caller can tell a resolve from a
+ * resolve of nothing.
+ */
+export async function resolveAttentionIn(
+  store: Store,
+  instanceId: string,
+  sourceOpId: string,
+  by: string,
+): Promise<number> {
+  if (!store.inTransaction()) {
+    throw new Error("resolveAttentionIn must run inside a transaction");
+  }
+  let n = 0;
+  for (const open of await store.openReasons(instanceId)) {
+    if (open.source_op_id !== sourceOpId) continue;
+    await clearOne(store, instanceId, open.id, by, "resolve_attention");
+    n++;
+  }
+  return n;
 }
 
 export async function clearAttention(

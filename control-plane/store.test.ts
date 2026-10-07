@@ -24,7 +24,11 @@ import {
   testDsn,
 } from "./testing/pg.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
-import { clearAttention, raiseAttention } from "./attention.ts";
+import {
+  clearAttention,
+  raiseAttention,
+  resolveAttentionIn,
+} from "./attention.ts";
 
 const temps: string[] = [];
 
@@ -735,6 +739,112 @@ describe("attention", () => {
     expect(await raiseAttention(store, args)).toBe(true);
     expect(await raiseAttention(store, args)).toBe(false);
     expect(await store.openReasons(inst)).toHaveLength(1);
+  });
+
+  test("a once raise is refused after its row was cleared; an ordinary one is not", async () => {
+    const store = await tempStore();
+    const inst = await seedInstance(store);
+    const args = {
+      instanceId: inst,
+      reasonClass: "operation_condition" as const,
+      sourceOpId: "cond",
+      reason: "promise for date A",
+      severity: "critical" as const,
+    };
+    expect(await raiseAttention(store, { ...args, once: true })).toBe(true);
+    await clearAttention(store, inst, (await store.openReasons(inst))[0].id);
+
+    expect(await raiseAttention(store, { ...args, once: true })).toBe(false);
+    expect(await store.openReasons(inst)).toHaveLength(0);
+    // The identity is the whole (source, reason) pair: another reason raises.
+    expect(
+      await raiseAttention(store, {
+        ...args,
+        reason: "promise for date B",
+        once: true,
+      }),
+    ).toBe(true);
+    // Without once, the cleared identity raises again as before.
+    expect(await raiseAttention(store, args)).toBe(true);
+    expect(
+      (await store.openReasons(inst)).map((r) => r.reason).sort(),
+    ).toEqual(["promise for date A", "promise for date B"]);
+  });
+
+  test("a resolve clears only the named condition, with one audit row each", async () => {
+    const store = await tempStore();
+    const inst = await seedInstance(store);
+    for (const [sourceOpId, reason] of [
+      ["cond", "first"],
+      ["cond", "second"],
+      ["other", "unrelated"],
+    ]) {
+      await raiseAttention(store, {
+        instanceId: inst,
+        reasonClass: "operation_condition",
+        sourceOpId,
+        reason,
+        severity: "critical",
+      });
+    }
+    const resolving = (await store.openReasons(inst))
+      .filter((r) => r.source_op_id === "cond")
+      .map((r) => r.id)
+      .sort();
+
+    expect(
+      await store.tx(() => resolveAttentionIn(store, inst, "cond", "nil")),
+    ).toBe(2);
+    expect((await store.openReasons(inst)).map((r) => r.reason)).toEqual([
+      "unrelated",
+    ]);
+    const resolved = (await store.auditEvents()).filter(
+      (e) => e.action === "resolve_attention",
+    );
+    expect(resolved.map((e) => e.target).sort()).toEqual(resolving);
+    expect(resolved.every((e) => e.actor === "nil")).toBe(true);
+    // The summary still names the open row, so the instance still needs one.
+    const row = (await store.getInstance(inst))!;
+    expect(row.attention_state).toBe("needs_operator");
+    expect(row.attention_reason).toBe("unrelated");
+
+    // Nothing left to resolve: zero, and no audit row.
+    expect(
+      await store.tx(() => resolveAttentionIn(store, inst, "cond", "nil")),
+    ).toBe(0);
+    expect(
+      (await store.auditEvents()).filter(
+        (e) => e.action === "resolve_attention",
+      ),
+    ).toHaveLength(2);
+  });
+
+  test("a resolve whose audit write fails leaves the row open", async () => {
+    const store = await tempStore();
+    const inst = await seedInstance(store);
+    await raiseAttention(store, {
+      instanceId: inst,
+      reasonClass: "operation_condition",
+      sourceOpId: "cond",
+      reason: "broken",
+      severity: "critical",
+    });
+    store.appendAudit = async () => {
+      throw new Error("audit denied");
+    };
+    // Awaited in full before the reads below, so they see the rolled-back state.
+    const failure = await store
+      .tx(() => resolveAttentionIn(store, inst, "cond", "nil"))
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe("audit denied");
+    expect(await store.openReasons(inst)).toHaveLength(1);
+    expect((await store.getInstance(inst))?.attention_state).toBe(
+      "needs_operator",
+    );
   });
 
   test("acknowledging is NOT clearing", async () => {

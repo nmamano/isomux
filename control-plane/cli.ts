@@ -119,7 +119,7 @@ import {
   driveTicks,
   type ScheduleCapabilities,
 } from "./drive-loop.ts";
-import { lifecycleTick } from "./lifecycle-tick.ts";
+import { lifecycleTick, resolveBrokenPromise } from "./lifecycle-tick.ts";
 
 const reporter = new Reporter();
 const audit = new AuditLog(AUDIT_FILE, "control-plane-cli");
@@ -1136,6 +1136,17 @@ async function cmdAttention(args: Map<string, string>): Promise<void> {
     // Acknowledging is not clearing: the reasons stay open and the instance
     // keeps reporting needs_operator until the condition itself goes away.
     reporter.line(`acknowledged ${n} open reason(s) on ${ack}`);
+  }
+  const resolve = args.get("resolve");
+  if (resolve && resolve !== "true") {
+    // Only a broken promise: nothing else ever clears it, and every other
+    // reason clears when its condition goes away.
+    const n = await resolveBrokenPromise(
+      store,
+      resolve,
+      args.get("by") ?? "operator",
+    );
+    reporter.line(`resolved ${n} broken-promise reason(s) on ${resolve}`);
   }
   for (const inst of await store.listInstances()) {
     for (const r of await store.openReasons(inst.id)) {

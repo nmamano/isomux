@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   addUtcMonth,
+  assetGoneAction,
   CUSTOMER_CANCELLATION_REASON,
   GONE_STATES,
   GRACE_MS,
@@ -18,15 +19,17 @@ import {
   PROMISE_BROKEN,
   RETENTION_MS,
 } from "./lifecycle.ts";
-import { lifecycleTick } from "./lifecycle-tick.ts";
+import { lifecycleTick, resolveBrokenPromise } from "./lifecycle-tick.ts";
 import { raiseAttentionIn } from "./attention.ts";
 import { CERTIFICATE_CONTACT_REASON } from "./certificate-credentials.ts";
 import { LIVENESS_REASON } from "./liveness-watch.ts";
 import { Store } from "./store.ts";
 import {
   openTestStore,
+  openTestStoreOn,
   PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
+  testDsn,
 } from "./testing/pg.ts";
 import { RemoteBudget, Ticker } from "./tick.ts";
 import { removeDnsHandler } from "./deprovision.ts";
@@ -1101,6 +1104,507 @@ describe("the walk, on seeded dates", () => {
     );
     expect(result.failed).toBe(1);
     expect(lines).toEqual(["lifecycle sub_1 failed: transaction denied"]);
+    await store.close();
+  });
+});
+
+describe("the never-cancelled scan", () => {
+  async function seedNeverCancelled(store: Store): Promise<void> {
+    await seed(store, { endedAt: null, reason: null });
+  }
+
+  async function assetGoneRows(store: Store) {
+    return (
+      await store.sqlAll<{ id: string; cleared_at: number | null }>(
+        "select id, cleared_at from attention_reasons " +
+          "where instance_id = 'inst-1' and source_op_id = $1 order by raised_at, id",
+        [LIFECYCLE_ASSET_GONE],
+      )
+    ).map((r) => ({ id: r.id, open: r.cleared_at === null }));
+  }
+
+  test("a gone asset raises the cancellation arm's row, once, for each gone state", async () => {
+    for (const assetState of GONE_STATES) {
+      const c = clock(ENDED - 1);
+      const store = await tempStore(c.now);
+      await seedNeverCancelled(store);
+      await setAssetState(store, assetState as "cancelled" | "absent");
+
+      expect(await lifecycleTick(store, c.now())).toMatchObject({
+        examined: 0,
+        raised: 1,
+        failed: 0,
+      });
+      expect(await lifecycleTick(store, c.now())).toMatchObject({
+        raised: 0,
+        cleared: 0,
+      });
+      const open = await store.openReasons("inst-1");
+      expect(open).toHaveLength(1);
+      // The same identity the cancellation arm raises, so the two paths share
+      // one row.
+      const instance = (await store.getInstance("inst-1"))!;
+      const arm = assetGoneAction(
+        instance,
+        await store.assetForInstance("inst-1"),
+      );
+      expect(arm.kind).toBe("raise");
+      expect(open[0].source_op_id).toBe(LIFECYCLE_ASSET_GONE);
+      expect(open[0].reason).toBe(arm.kind === "raise" ? arm.reason : "");
+      expect(open[0].severity).toBe("critical");
+      expect(instance.service_state).toBe("live");
+      expect(await store.operationsFor("inst-1")).toEqual([]);
+      await store.close();
+    }
+  });
+
+  test("a deprovisioned office raises nothing", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seedNeverCancelled(store);
+    await setAssetState(store, "absent");
+    const instance = (await store.getInstance("inst-1"))!;
+    await store.casInstance(instance.id, instance.version, {
+      service_state: "deprovisioned",
+    });
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 0 });
+    expect(await store.openReasons("inst-1")).toEqual([]);
+    await store.close();
+  });
+
+  test("an active asset raises nothing", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seedNeverCancelled(store);
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      raised: 0,
+      cleared: 0,
+    });
+    expect(await store.openReasons("inst-1")).toEqual([]);
+    await store.close();
+  });
+
+  test("the asset coming back clears only that row; a later loss raises a new one", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seedNeverCancelled(store);
+    await raiseLiveness(store);
+    await setAssetState(store, "absent");
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 1 });
+
+    await setAssetState(store, "active");
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      raised: 0,
+      cleared: 1,
+    });
+    expect(await openAttentionKeys(store)).toEqual([""]);
+    expect(await openLivenessCount(store)).toBe(1);
+    expect(
+      (await store.auditEvents()).filter(
+        (e) => e.action === "clear_attention",
+      ),
+    ).toHaveLength(1);
+
+    await setAssetState(store, "cancelled");
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 1 });
+    expect((await assetGoneRows(store)).map((r) => r.open)).toEqual([
+      false,
+      true,
+    ]);
+    await store.close();
+  });
+
+  test("deprovisioning clears the row", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seedNeverCancelled(store);
+    await setAssetState(store, "absent");
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 1 });
+
+    const instance = (await store.getInstance("inst-1"))!;
+    await store.casInstance(instance.id, instance.version, {
+      service_state: "deprovisioned",
+    });
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ cleared: 1 });
+    expect(await store.openReasons("inst-1")).toEqual([]);
+    // Nothing reopens it while the office stays deprovisioned.
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      raised: 0,
+      cleared: 0,
+    });
+    await store.close();
+  });
+
+  test("a cancellation marker hands the same row to the cancellation arm", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seedNeverCancelled(store);
+    await setAssetState(store, "absent");
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 1 });
+    const [before] = await assetGoneRows(store);
+
+    // Cancelled but not terminal: decideLifecycle now owns the subscription.
+    await store.sqlRun(
+      "update subscriptions set cancellation_reason = $1 where id = 'sub_1'",
+      [CUSTOMER_CANCELLATION_REASON],
+    );
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      examined: 1,
+      raised: 0,
+      cleared: 0,
+    });
+    expect(await assetGoneRows(store)).toEqual([before]);
+
+    // And the arm clears the row the scan raised.
+    await setAssetState(store, "active");
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      examined: 1,
+      cleared: 1,
+    });
+    expect(await assetGoneRows(store)).toEqual([
+      { id: before.id, open: false },
+    ]);
+    await store.close();
+  });
+
+  test("eligibility is re-read inside the transaction", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seedNeverCancelled(store);
+    await setAssetState(store, "absent");
+    // A webhook records a cancellation between the scan and the write.
+    const tx = store.tx.bind(store);
+    store.tx = (async (fn: () => Promise<unknown>) => {
+      await store.sqlRun(
+        "update subscriptions set cancellation_reason = $1 where id = 'sub_1'",
+        [CUSTOMER_CANCELLATION_REASON],
+      );
+      return tx(fn);
+    }) as Store["tx"];
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      raised: 0,
+      failed: 0,
+    });
+    expect(await store.openReasons("inst-1")).toEqual([]);
+    await store.close();
+  });
+
+  test("a failing transaction is counted and reported", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seedNeverCancelled(store);
+    await setAssetState(store, "absent");
+    const lines: string[] = [];
+    store.tx = async () => {
+      throw new Error("transaction denied");
+    };
+    expect(
+      await lifecycleTick(store, c.now(), (line) => lines.push(line)),
+    ).toMatchObject({ raised: 0, failed: 1 });
+    expect(lines).toEqual(["lifecycle sub_1 failed: transaction denied"]);
+    await store.close();
+  });
+});
+
+describe("the scheduler sees asset-gone work", () => {
+  async function schedule(store: Store, now: number) {
+    return store.workSchedule(now, GRACE_MS, RETENTION_MS, {
+      providerConfigured: true,
+      provisioningConfigured: true,
+      checkoutConfigured: true,
+      cadenceConfigured: true,
+      livenessConfigured: false,
+      staleProvisioningMs: 30 * 60_000,
+      staleProvisioningReason: "stalled",
+    });
+  }
+
+  /** What the drive loop does: run the cadence only when it is due. */
+  async function drivenPass(store: Store, now: number) {
+    const due = await schedule(store, now);
+    return due.cadenceDue ? lifecycleTick(store, now) : null;
+  }
+
+  /** An office past startup: its next provider reconcile is in the future, so
+   * nothing but the cadence can notice a change. */
+  async function settled(store: Store, now: number) {
+    const asset = (await store.getAsset("asset-1"))!;
+    await store.casAsset(asset.id, asset.version, {
+      next_reconcile_at: now + 3600_000,
+    });
+    expect(await schedule(store, now)).toMatchObject({
+      tickDue: false,
+      cadenceDue: false,
+    });
+  }
+
+  for (const [label, endedAt, reason] of [
+    ["a never-cancelled", null, null],
+    ["a cancelled but not ended", null, CUSTOMER_CANCELLATION_REASON],
+    // Ended, but not a customer cancellation: decideLifecycle's non-terminal
+    // arm owns it, and a NULL reason must not drop it from the schedule.
+    ["an ended, reasonless", ENDED, null],
+  ] as const) {
+    test(`${label} office: loss, recovery, and idle once handled`, async () => {
+      const c = clock(ENDED + 1);
+      const store = await tempStore(c.now);
+      await seed(store, { endedAt, reason });
+      const sub = (await store.sqlGet<{
+        ended_at: number | null;
+        cancellation_reason: string | null;
+      }>("select ended_at, cancellation_reason from subscriptions"))!;
+      expect([sub.ended_at, sub.cancellation_reason]).toEqual([
+        endedAt,
+        reason,
+      ]);
+      await settled(store, c.now());
+
+      await setAssetState(store, "absent");
+      expect(await schedule(store, c.now())).toMatchObject({
+        tickDue: false,
+        cadenceDue: true,
+      });
+      expect(await drivenPass(store, c.now())).toMatchObject({ raised: 1 });
+      expect(await openAttentionKeys(store)).toEqual([LIFECYCLE_ASSET_GONE]);
+      expect((await schedule(store, c.now())).cadenceDue).toBe(false);
+
+      await setAssetState(store, "active");
+      expect((await schedule(store, c.now())).cadenceDue).toBe(true);
+      expect(await drivenPass(store, c.now())).toMatchObject({ cleared: 1 });
+      expect(await openAttentionKeys(store)).toEqual([]);
+      expect((await schedule(store, c.now())).cadenceDue).toBe(false);
+      await store.close();
+    });
+  }
+
+  test("an open row with the key but another sentence leaves the raise due", async () => {
+    // raiseAttentionIn dedups on the whole identity, so the pass raises here,
+    // and the schedule has to agree.
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null, reason: null });
+    await settled(store, c.now());
+    await setAssetState(store, "absent");
+    await seedAssetGoneAttention(store);
+    const instance = (await store.getInstance("inst-1"))!;
+    const arm = assetGoneAction(
+      instance,
+      await store.assetForInstance("inst-1"),
+    );
+    const [other] = await store.openReasons("inst-1");
+    expect(arm.kind).toBe("raise");
+    expect(other.source_op_id).toBe(LIFECYCLE_ASSET_GONE);
+    expect(other.reason).not.toBe(arm.kind === "raise" ? arm.reason : "");
+
+    expect((await schedule(store, c.now())).cadenceDue).toBe(true);
+    expect(await drivenPass(store, c.now())).toMatchObject({ raised: 1 });
+    expect((await schedule(store, c.now())).cadenceDue).toBe(false);
+    await store.close();
+  });
+
+  test("deprovisioning makes the clear due, and then it goes idle", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null, reason: null });
+    await settled(store, c.now());
+    await setAssetState(store, "absent");
+    expect(await drivenPass(store, c.now())).toMatchObject({ raised: 1 });
+
+    const instance = (await store.getInstance("inst-1"))!;
+    await store.casInstance(instance.id, instance.version, {
+      service_state: "deprovisioned",
+    });
+    expect((await schedule(store, c.now())).cadenceDue).toBe(true);
+    expect(await drivenPass(store, c.now())).toMatchObject({ cleared: 1 });
+    expect((await schedule(store, c.now())).cadenceDue).toBe(false);
+    await store.close();
+  });
+
+  test("a newer gone asset behind an active oldest one is not due", async () => {
+    // assetForInstance reads the oldest asset, so the pass would do nothing:
+    // being due here would spin the cadence for nothing.
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null, reason: null });
+    await settled(store, c.now());
+    c.set(ENDED);
+    await store.createAsset({
+      id: "asset-2",
+      instance_id: "inst-1",
+      provider: "contabo",
+      provider_id: "203474836",
+      intent_id: null,
+      asset_state: "absent",
+      ipv4: null,
+      service_ends_at: null,
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now() + 3600_000,
+    });
+    expect((await schedule(store, c.now())).cadenceDue).toBe(false);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 0 });
+    await store.close();
+  });
+});
+
+describe("resolving a broken promise", () => {
+  /** A legacy cancellation whose asset ended before the promised date. */
+  async function breakPromise(store: Store, c: ReturnType<typeof clock>) {
+    await seed(store);
+    const asset = (await store.assetForInstance("inst-1"))!;
+    await store.casAsset(asset.id, asset.version, {
+      asset_state: "cancelled",
+      service_ends_at: "2027-02-01",
+    });
+    c.set(ENDED + 1000);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 1 });
+    expect(await openAttentionKeys(store)).toEqual([PROMISE_BROKEN]);
+  }
+
+  test("a resolved broken promise stays resolved across ticks", async () => {
+    const c = clock(ENDED);
+    const store = await tempStore(c.now);
+    await breakPromise(store, c);
+    const [broken] = await store.openReasons("inst-1");
+
+    expect(await resolveBrokenPromise(store, "inst-1", "nil")).toBe(1);
+    expect(await store.openReasons("inst-1")).toEqual([]);
+    expect((await store.getInstance("inst-1"))!.attention_state).toBe("clear");
+    const audit = (await store.auditEvents()).filter(
+      (e) => e.action === "resolve_attention",
+    );
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      actor: "nil",
+      instance_id: "inst-1",
+      target: broken.id,
+      outcome: "succeeded",
+    });
+
+    for (const t of [ENDED + 2000, ENDED + 3000]) {
+      c.set(t);
+      expect(await lifecycleTick(store, c.now())).toMatchObject({
+        raised: 0,
+        failed: 0,
+      });
+    }
+    expect(await store.openReasons("inst-1")).toEqual([]);
+    await store.close();
+  });
+
+  test("a different promised date raises a new row", async () => {
+    const c = clock(ENDED);
+    const store = await tempStore(c.now);
+    await breakPromise(store, c);
+    const [first] = await store.openReasons("inst-1");
+    await resolveBrokenPromise(store, "inst-1", "nil");
+
+    // Another anchor is another promise. The first one's DNS removal has
+    // finished, so the new anchor's own remove_dns can open.
+    await succeed(store, lifecycleOperationId("remove_dns", "sub_1", ENDED), {});
+    await store.sqlRun("update subscriptions set ended_at = $1", [
+      ENDED + 24 * 3600_000,
+    ]);
+    c.set(ENDED + 2000);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      raised: 1,
+      failed: 0,
+    });
+    const open = await store.openReasons("inst-1");
+    expect(open).toHaveLength(1);
+    expect(open[0].source_op_id).toBe(PROMISE_BROKEN);
+    expect(open[0].reason).not.toBe(first.reason);
+    await store.close();
+  });
+
+  test("a resolve leaves every other reason open", async () => {
+    const c = clock(ENDED);
+    const store = await tempStore(c.now);
+    await breakPromise(store, c);
+    await raiseLiveness(store);
+    await store.tx(() =>
+      raiseAttentionIn(store, {
+        instanceId: "inst-1",
+        reasonClass: "operation_condition",
+        sourceOpId: PROMISE_AT_RISK,
+        reason: "unrelated at-risk row",
+        severity: "warning",
+      }),
+    );
+
+    expect(await resolveBrokenPromise(store, "inst-1", "nil")).toBe(1);
+    expect(await openAttentionKeys(store)).toEqual(["", PROMISE_AT_RISK]);
+    expect((await store.getInstance("inst-1"))!.attention_state).toBe(
+      "needs_operator",
+    );
+    await store.close();
+  });
+
+  // The CLI never closes its store, so the process exits only after the pool's
+  // idle timeout: about 11 s, measured 2026-10-07.
+  test("the operator CLI resolves it and lists what stays open", async () => {
+    const c = clock(ENDED);
+    const dsn = await testDsn();
+    const store = await openTestStoreOn(dsn, c.now);
+    await breakPromise(store, c);
+    await raiseLiveness(store);
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "cp-resolve-cli-"));
+    temps.push(home);
+
+    const cli = Bun.spawn(
+      [
+        "bun",
+        path.join(import.meta.dir, "cli.ts"),
+        "attention",
+        "--resolve",
+        "inst-1",
+        "--by",
+        "nil",
+      ],
+      {
+        env: {
+          PATH: process.env.PATH,
+          HOME: home,
+          NODE_ENV: "test",
+          CONTROL_PLANE_DB: dsn,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const [out, err, code] = await Promise.all([
+      new Response(cli.stdout).text(),
+      new Response(cli.stderr).text(),
+      cli.exited,
+    ]);
+    expect(err).toBe("");
+    expect(code).toBe(0);
+    // One line for the resolve, then the listing: only the liveness row.
+    const lines = out.trim().split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("1");
+    expect(lines[0]).toContain("inst-1");
+    expect(lines[1]).toContain(LIVENESS_REASON);
+    expect(await openAttentionKeys(store)).toEqual([""]);
+    expect(
+      (await store.auditEvents()).filter(
+        (e) => e.action === "resolve_attention" && e.actor === "nil",
+      ),
+    ).toHaveLength(1);
+  }, 30_000);
+
+  test("an office with no broken promise resolves nothing", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store);
+    await raiseLiveness(store);
+    expect(await resolveBrokenPromise(store, "inst-1", "nil")).toBe(0);
+    expect(await openLivenessCount(store)).toBe(1);
+    expect(
+      (await store.auditEvents()).some((e) => e.action === "resolve_attention"),
+    ).toBe(false);
     await store.close();
   });
 });

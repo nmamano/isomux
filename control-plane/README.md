@@ -90,7 +90,7 @@ bun control-plane/cli.ts revoke  --run <runId>
 bun control-plane/cli.ts run [--bind ADDR] [--deployment ID]  # the tick loop, as its own process
 bun control-plane/cli.ts tick                    # one pass
 bun control-plane/cli.ts ops     [--run <runId>] # the operation rows
-bun control-plane/cli.ts attention [--ack <instanceId>] [--by <name>]
+bun control-plane/cli.ts attention [--ack <instanceId>] [--resolve <instanceId>] [--by <name>]
 bun control-plane/cli.ts status  --run <runId>
 bun control-plane/cli.ts expiry-test --run <runId> --variant boundary|powered-off [--seconds N]
 bun control-plane/cli.ts bootstrap                # an empty database -> schema-ready
@@ -306,7 +306,8 @@ columns are a written summary of the still-open reasons, recomputed in the same
 transaction - so an installer deadline cannot clear or overwrite an open
 revocation failure. Acknowledging is **not** clearing: `attention --ack` records
 that a human saw it, and the instance keeps reporting `needs_operator` until the
-condition itself goes away.
+condition itself goes away. `attention --resolve` clears only a broken promise,
+the one condition that never goes away by itself.
 
 ## Where the state lives
 
@@ -3994,7 +3995,12 @@ One of the two is REVERSIBLE and the other is not. A provider term that lapses
 too early can be renewed, so the at-risk condition is raised while unsafe and
 CLEARED with its audit when provider truth becomes safe again - an incident that
 survived the fix is indistinguishable from one nobody dealt with. A promise that
-was actually broken cannot be un-broken, so nothing clears it.
+was actually broken cannot be un-broken, so nothing automatic clears it. An
+operator resolves it with `attention --resolve <instanceId>`, which clears only
+that instance's open broken-promise rows and writes a `resolve_attention` audit
+row for each. The ended arm keeps seeing the broken promise on every tick, so
+the tick never raises it again for the same promised date; a different promised
+date raises a new row.
 
 The transition between them is a PROMOTION, and it is why the decision carries a
 LIST of attention actions rather than one: an at-risk incident whose term then
@@ -4017,6 +4023,23 @@ would have been compared against nothing and the whole week left unwatched.
 `promisedUntil` is `retentionEnd` once it exists and a projection from the grace
 end before that - the power-off cannot land earlier than the grace end, so the
 promise cannot expire earlier either.
+
+### A gone asset on a subscription that is not terminal
+
+If the asset is `cancelled` or `absent` while the office is not deprovisioned
+and its subscription is not terminal, the lifecycle raises one critical row,
+`lifecycle-asset-gone`, and clears it when the asset comes back or the office is
+deprovisioned. Two paths raise and clear this row with one predicate
+(`assetGoneAction`). For a subscription with a cancellation marker,
+decideLifecycle does it. A subscription that was never cancelled (no `ended_at`,
+no `cancellation_reason`) never reaches decideLifecycle, so the tick runs a
+separate scan for it. The scan reads only never-cancelled subscriptions whose
+asset is gone or whose office has the row open. Such a subscription keeps
+renewing, so this is the case where we bill for a machine that does not exist.
+When the subscription gets a cancellation marker, the scan drops it and
+decideLifecycle takes over the same row. The provisioner's work schedule makes
+the lifecycle pass due while either path has this row to raise or clear, so a
+box lost after startup is seen on the next loop, not only after a restart.
 
 ### Resume, and the box that must never be resumed
 

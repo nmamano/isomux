@@ -34,6 +34,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import pg from "pg";
 import type { Pool, PoolClient, PoolConfig } from "pg";
+import { ASSET_GONE_REASON, LIFECYCLE_ASSET_GONE } from "./lifecycle.ts";
 
 export type Clock = () => number;
 
@@ -2111,6 +2112,24 @@ export class Store {
         "and s.ended_at + $3 <= $1 and not exists (select 1 from operations o where o.id = " +
         "'op-cancel_asset-cancel-' || s.id || '-' || s.ended_at::text)) " +
         "or (a.asset_state in ('cancelled', 'absent') and i.service_state != 'deprovisioned'))) " +
+        // lifecycle-asset-gone work the next pass would do: assetGoneAction on
+        // every linked subscription that isCustomerCancellation rejects
+        // (decideLifecycle's non-terminal arm and the never-cancelled scan),
+        // against the oldest asset, as assetForInstance reads it. A raise is
+        // due until its open identity (key and sentence) exists, as
+        // raiseAttentionIn dedups; a clear until no row with the key is open.
+        // So a handled condition goes idle.
+        "or exists (select 1 from subscriptions s join instances i on i.id = s.instance_id " +
+        "left join lateral (select pa.asset_state from provider_assets pa " +
+        "where pa.instance_id = i.id order by pa.created_at limit 1) a on true " +
+        "where (s.ended_at is null or s.cancellation_reason is distinct from 'cancellation_requested') and (" +
+        "(i.service_state != 'deprovisioned' and a.asset_state in ('cancelled', 'absent') " +
+        "and not exists (select 1 from attention_reasons r where r.instance_id = i.id " +
+        "and r.cleared_at is null and r.source_op_id = $12 and r.reason = $13)) " +
+        "or ((i.service_state = 'deprovisioned' or a.asset_state is null " +
+        "or a.asset_state not in ('cancelled', 'absent')) " +
+        "and exists (select 1 from attention_reasons r where r.instance_id = i.id " +
+        "and r.cleared_at is null and r.source_op_id = $12)))) " +
         "or exists (select 1 from reinstatement_attempts r where r.state = 'opening' " +
         "and r.fence_expires_at <= $1 and not exists (select 1 from operations o where o.id = " +
         "'op-checkout_expire-' || r.id)) " +
@@ -2181,6 +2200,8 @@ export class Store {
         opts.staleProvisioningMs,
         opts.cadenceConfigured ? 1 : 0,
         opts.livenessConfigured ? 1 : 0,
+        LIFECYCLE_ASSET_GONE,
+        ASSET_GONE_REASON,
       ],
     );
     if (!row) throw new Error("the work schedule query returned no row");
