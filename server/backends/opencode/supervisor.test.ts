@@ -351,6 +351,9 @@ describe("OpenCode shared server supervisor", () => {
       second.acquire(),
     ]);
     expect(leaseA.pid).toBe(leaseB.pid);
+    expect(leaseA.serverKey, "an adoption keeps the server key").toBe(
+      leaseB.serverKey,
+    );
     // Both leases have completed health checks, so the launch record exists.
     // Count this test's launches; other suites can start or stop OpenCode.
     expect(await readFile(launchMarker, "utf8")).toBe(`${leaseA.pid}\n`);
@@ -481,6 +484,7 @@ describe("OpenCode shared server supervisor", () => {
     supervisors.push(supervisor);
     const retained = await supervisor.acquire();
     const priorPid = retained.pid;
+    const priorKey = retained.serverKey;
     await expectChildEnvironment(priorPid, { S4_ENV_CANARY: "before" });
     supervisor.updateLaunchEnvironment(
       { S4_ENV_CANARY: "after" },
@@ -489,6 +493,9 @@ describe("OpenCode shared server supervisor", () => {
     const replacement = await supervisor.acquire();
     expect(replacement.pid).not.toBe(priorPid);
     expect(retained.pid).toBe(replacement.pid);
+    expect(replacement.serverKey, "a replacement gets a new key").not.toBe(
+      priorKey,
+    );
     await expectChildEnvironment(replacement.pid, { S4_ENV_CANARY: "after" });
     const response = await fetch(`${retained.baseUrl}/global/health`, {
       headers: { authorization: retained.authHeader },

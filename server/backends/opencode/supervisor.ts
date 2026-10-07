@@ -82,6 +82,8 @@ export interface OpenCodeLease {
   authHeader: string;
   profileDir: string;
   pid: number;
+  // One server process: a replacement gets a new key, an adoption keeps it.
+  serverKey: string;
   release(): void;
   beginTurn(): Promise<void>;
   recoverBeforePrompt(): Promise<void>;
@@ -205,6 +207,10 @@ export class OpenCodeSupervisor {
       profileDir: this.profileDir,
       get pid() {
         return currentRecord().pid;
+      },
+      get serverKey() {
+        const record = currentRecord();
+        return `${record.pid}:${record.startTicks ?? ""}:${record.port}`;
       },
       release: () => {
         if (released) return;

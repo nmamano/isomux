@@ -8,6 +8,8 @@ import {
   allowMessages,
   OpenCodeTransport,
   OPENCODE_AUTH_FAILURE,
+  OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
+  openCodeEffortUnavailableNotice,
   OPENCODE_PERMISSION_ID_WARNING,
   openCodeModelUnavailableFailure,
   handleOpenCodePermission,
@@ -380,9 +382,11 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       return events;
     };
 
-    await send("low");
-    await send("medium");
+    const lowEvents = await send("low");
+    const mediumEvents = await send("medium");
     const failureEvents = await send("high", "/fail");
+    const notices = (events: NormalizedEvent[]) =>
+      events.filter((event) => event.kind === "system_text");
 
     expect(promptBodies[0]).toMatchObject({ variant: "low" });
     expect("variant" in promptBodies[0]).toBe(true);
@@ -392,6 +396,21 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       failureEvents.find((event) => event.kind === "turn_completed"),
     ).toMatchObject({ kind: "turn_completed", status: "completed" });
     expect(providerFailures).toBe(1);
+    expect(notices(lowEvents)).toEqual([]);
+    expect(notices(mediumEvents)).toEqual([
+      {
+        kind: "system_text",
+        text: openCodeEffortUnavailableNotice("provider/model", "medium"),
+        isomuxAuthored: true,
+      },
+    ]);
+    expect(notices(failureEvents)).toEqual([
+      {
+        kind: "system_text",
+        text: OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
+        isomuxAuthored: true,
+      },
+    ]);
     await server.stop(true);
   });
 
@@ -1688,6 +1707,276 @@ describe("OpenCode edit fork", () => {
     } finally {
       transport.close();
       await server.stop(true);
+    }
+  });
+});
+
+describe("OpenCode kept model catalog", () => {
+  const catalog = {
+    connected: ["provider"],
+    all: [
+      {
+        id: "provider",
+        models: {
+          model: { variants: { low: {}, high: {} }, limit: { context: 1000 } },
+          plain: {},
+        },
+      },
+    ],
+  };
+
+  function catalogHarness(
+    options: { failProvider?: () => boolean; holdProvider?: boolean } = {},
+  ) {
+    const providerDirectories: string[] = [];
+    const promptBodies: Record<string, unknown>[] = [];
+    const heldProviders: (() => void)[] = [];
+    let eventController: ReadableStreamDefaultController<Uint8Array> | null =
+      null;
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/provider") {
+          providerDirectories.push(url.searchParams.get("directory") ?? "");
+          if (options.failProvider?.())
+            return new Response("failed", { status: 500 });
+          if (options.holdProvider)
+            await new Promise<void>((resolve) => heldProviders.push(resolve));
+          return Response.json(catalog);
+        }
+        if (url.pathname === "/event") {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                eventController = controller;
+                controller.enqueue(new TextEncoder().encode(": connected\n\n"));
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        if (url.pathname.endsWith("/prompt_async")) {
+          promptBodies.push((await request.json()) as Record<string, unknown>);
+          const sessionID = decodeURIComponent(url.pathname.split("/")[2]);
+          const controller = eventController;
+          eventController = null;
+          const events = [
+            {
+              type: "message.part.updated",
+              properties: {
+                sessionID,
+                part: {
+                  type: "step-finish",
+                  id: `finish-${sessionID}`,
+                  messageID: `message-${sessionID}`,
+                  tokens: { input: 1, output: 0 },
+                },
+              },
+            },
+            { type: "session.idle", properties: { sessionID } },
+          ];
+          setTimeout(() => {
+            try {
+              for (const event of events)
+                controller?.enqueue(
+                  new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`),
+                );
+            } catch {
+              // The stream can close first.
+            }
+          }, 0);
+          return new Response(null, { status: 204 });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    let serverKey = "server-1";
+    let serverKeyReads = 0;
+    const supervisor = {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authHeader: "Basic test",
+        get serverKey() {
+          serverKeyReads++;
+          return serverKey;
+        },
+        beginTurn: async () => {},
+        endTurn: () => {},
+        serverStopped: () => false,
+        markUnresponsive: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor;
+    const transport = (cwd: string, effort: string, model = "provider/model") =>
+      new OpenCodeTransport({
+        cwd,
+        model,
+        effort,
+        systemPrompt: "system",
+        supervisor,
+        sessionId: `session-${cwd}-${effort}`,
+      });
+    const send = async (
+      cwd: string,
+      effort: string,
+      model = "provider/model",
+    ) => {
+      const events: NormalizedEvent[] = [];
+      const turn = transport(cwd, effort, model);
+      const completed = new Promise<void>((resolve) => {
+        void turn.send([{ type: "text", text: "go" }], (event) => {
+          events.push(event);
+          if (event.kind === "turn_completed") resolve();
+        });
+      });
+      try {
+        await Promise.race([
+          completed,
+          Bun.sleep(2_000).then(() => {
+            throw new Error("the turn did not complete");
+          }),
+        ]);
+      } finally {
+        turn.close();
+      }
+      return {
+        body: promptBodies.at(-1)!,
+        notices: events.filter((event) => event.kind === "system_text"),
+        completion: events.find((event) => event.kind === "turn_completed"),
+      };
+    };
+    return {
+      supervisor,
+      providerDirectories,
+      heldProviders,
+      transport,
+      send,
+      serverKeyReads: () => serverKeyReads,
+      replaceServer: () => {
+        serverKey = "server-2";
+      },
+      stop: () => server.stop(true),
+    };
+  }
+
+  it("loads one catalog per server and directory, and reloads after a replacement", async () => {
+    const harness = catalogHarness();
+    try {
+      expect((await harness.send("/a", "low")).body).toMatchObject({
+        variant: "low",
+      });
+      expect(
+        (await harness.send("/a", "high")).body,
+        "a new session on the same server",
+      ).toMatchObject({ variant: "high" });
+      await discoverOpenCodeModels(harness.supervisor, "/a");
+      expect(harness.providerDirectories).toEqual(["/a"]);
+
+      await harness.send("/b", "low");
+      expect(harness.providerDirectories, "another directory").toEqual([
+        "/a",
+        "/b",
+      ]);
+
+      harness.replaceServer();
+      expect((await harness.send("/a", "low")).body).toMatchObject({
+        variant: "low",
+      });
+      expect(harness.providerDirectories, "the replaced server").toEqual([
+        "/a",
+        "/b",
+        "/a",
+      ]);
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("shares one in-flight load among concurrent callers", async () => {
+    const harness = catalogHarness({ holdProvider: true });
+    try {
+      const first = discoverOpenCodeModels(harness.supervisor, "/a");
+      const second = discoverOpenCodeModels(harness.supervisor, "/a");
+      // Each caller reads the server key just before it joins or starts a
+      // load, and the first load is held, so both have chosen once this holds.
+      const deadline = Date.now() + 2_000;
+      while (
+        (harness.serverKeyReads() < 2 || harness.heldProviders.length === 0) &&
+        Date.now() < deadline
+      )
+        await Bun.sleep(1);
+      expect(harness.serverKeyReads()).toBe(2);
+      // Answer every held request, so a second load cannot hang the test.
+      let settled = false;
+      const both = Promise.all([first, second]).finally(() => {
+        settled = true;
+      });
+      while (!settled) {
+        harness.heldProviders.splice(0).forEach((answer) => answer());
+        await Bun.sleep(1);
+      }
+      const [left, right] = await both;
+      expect(harness.providerDirectories, "one shared load").toEqual(["/a"]);
+      expect(left.map((model) => model.id)).toEqual([
+        "provider/model",
+        "provider/plain",
+      ]);
+      expect(right).toBe(left);
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("keeps no failed load: the next turn loads again", async () => {
+    let failures = 1;
+    const harness = catalogHarness({ failProvider: () => failures-- > 0 });
+    try {
+      const failed = await harness.send("/a", "high");
+      expect(failed.body).not.toHaveProperty("variant");
+      expect(failed.completion).toMatchObject({ status: "completed" });
+      expect(failed.notices).toEqual([
+        {
+          kind: "system_text",
+          text: OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
+          isomuxAuthored: true,
+        },
+      ]);
+      const loaded = await harness.send("/a", "high");
+      expect(loaded.body).toMatchObject({ variant: "high" });
+      expect(loaded.notices).toEqual([]);
+      expect(harness.providerDirectories).toEqual(["/a", "/a"]);
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("sends a model without variants silently at its default effort", async () => {
+    const harness = catalogHarness();
+    try {
+      const plain = await harness.send("/a", "high", "provider/plain");
+      expect(plain.body).not.toHaveProperty("variant");
+      expect(plain.notices).toEqual([]);
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("reads the context limit from the kept catalog", async () => {
+    const harness = catalogHarness();
+    try {
+      await harness.send("/a", "low");
+      const transport = harness.transport("/a", "low");
+      try {
+        expect(await transport.getModelContextLimit()).toBe(1000);
+      } finally {
+        transport.close();
+      }
+      expect(harness.providerDirectories).toEqual(["/a"]);
+    } finally {
+      await harness.stop();
     }
   });
 });

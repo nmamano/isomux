@@ -1,8 +1,12 @@
 import { afterEach, expect, it, spyOn } from "bun:test";
 import { createOpenCodeBackend } from "./adapter.ts";
 import {
+  discoverOpenCodeModels,
+  OPENCODE_CATALOG_LOAD_LIMIT_MS,
+  OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
   OPENCODE_SERVER_STOPPED_FAILURE,
   OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
+  openCodeEffortUnavailableNotice,
   OpenCodeTransport,
   type SafeOpenCodeError,
 } from "./transport.ts";
@@ -624,8 +628,11 @@ function drivenServer(
     holdEvent?: "first" | "always";
     holdReply?: boolean;
     failStreamAtPrompt?: boolean;
+    variants?: () => Record<string, unknown>;
   } = {},
 ) {
+  const heldProviders: (() => void)[] = [];
+  let providerAborts = 0;
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
   let releaseReply: (() => void) | undefined;
   let providerRequests = 0;
@@ -654,17 +661,29 @@ function drivenServer(
     }
     if (url.pathname === "/provider") {
       providerRequests++;
+      const variants = options.variants?.() ?? { high: {} };
+      const catalog = () =>
+        Response.json({
+          all: [{ id: "provider", models: { model: { variants } } }],
+          connected: ["provider"],
+        });
       if (
         options.holdProvider === "always" ||
         (options.holdProvider === "first" && providerRequests === 1)
       )
-        return hold(init);
-      return Response.json({
-        all: [
-          { id: "provider", models: { model: { variants: { high: {} } } } },
-        ],
-        connected: ["provider"],
-      });
+        // Held until aborted, or answered late by releaseProvider.
+        return new Promise<Response>((resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              providerAborts++;
+              reject(new DOMException("aborted", "AbortError"));
+            },
+            { once: true },
+          );
+          heldProviders.push(() => resolve(catalog()));
+        });
+      return catalog();
     }
     if (url.pathname === "/event") {
       eventRequests++;
@@ -722,6 +741,9 @@ function drivenServer(
   return {
     requested: (path: string) => requested.has(path),
     eventRequests: () => eventRequests,
+    providerRequests: () => providerRequests,
+    providerAborts: () => providerAborts,
+    releaseProvider: () => heldProviders.splice(0).forEach((answer) => answer()),
     promptBodies,
     replyPending: () => releaseReply !== undefined,
     releaseReply: () => releaseReply?.(),
@@ -755,22 +777,30 @@ function drivenTransport(
     sessionId?: string;
     agent?: string;
     recoveryBlocked?: boolean;
+    serverKey?: () => string;
+    onBeginTurn?: () => void;
+    onRecover?: () => void;
   } = {},
 ) {
   const marked: { pid: number; afterPrompt: boolean }[] = [];
   const errors: SafeOpenCodeError[] = [];
   let recoveries = 0;
-  const transport = new OpenCodeTransport({
-    supervisor: {
-      acquire: async () => ({
+  const supervisor = {
+    acquire: async () => ({
         pid: 4242,
         baseUrl: "http://127.0.0.1:1",
         authHeader: "Basic synthetic",
-        beginTurn: async () => {},
+        get serverKey() {
+          return options.serverKey?.() ?? "server-1";
+        },
+        beginTurn: async () => {
+          options.onBeginTurn?.();
+        },
         recoverBeforePrompt: async () => {
           recoveries++;
           if (options.recoveryBlocked)
             throw new Error("guard: another turn is active");
+          options.onRecover?.();
         },
         endTurn: () => {},
         serverStopped: () => options.serverStopped ?? false,
@@ -778,7 +808,9 @@ function drivenTransport(
           marked.push({ pid, afterPrompt }),
         release: () => {},
       }),
-    } as unknown as OpenCodeSupervisor,
+  } as unknown as OpenCodeSupervisor;
+  const transport = new OpenCodeTransport({
+    supervisor,
     cwd: STATE_ROOT,
     model: "provider/model",
     effort: "high",
@@ -791,15 +823,19 @@ function drivenTransport(
   });
   const completions: Extract<NormalizedEvent, { kind: "turn_completed" }>[] =
     [];
+  const notices: string[] = [];
   return {
     transport,
+    supervisor,
     marked,
     recoveries: () => recoveries,
     completions,
+    notices,
     errors,
     send: () =>
       transport.send([{ type: "text", text: "go" }], (event) => {
         if (event.kind === "turn_completed") completions.push(event);
+        if (event.kind === "system_text") notices.push(event.text);
       }),
   };
 }
@@ -967,30 +1003,203 @@ it("fails a turn whose new session request never answers and marks its server", 
   }
 });
 
-it("drops the effort variant for one turn when the catalog is slow, without marking the server", async () => {
+// The catalog wait starts once the stream is open, so the stream deadline is
+// kept alive with a heartbeat while the clock passes the catalog wait bound.
+async function passCatalogWait(
+  clock: ReturnType<typeof drivenClock>,
+  server: ReturnType<typeof drivenServer>,
+): Promise<void> {
+  clock.advance(DEADLINE_MS / 2);
+  const arms = clock.arms();
+  server.send(heartbeat());
+  await settleUntil(() => clock.arms() > arms);
+  clock.advance(DEADLINE_MS / 2);
+}
+
+it("runs a turn at default effort with a notice when the catalog is slow, and keeps the late catalog", async () => {
   const clock = drivenClock();
   const server = drivenServer({ holdProvider: "first" });
   const turn = drivenTransport(clock, { sessionId: "driven" });
   try {
     void turn.send();
-    await settleUntil(() => server.requested("/provider"));
+    await settleUntil(() => server.eventRequests() > 0);
     expect(server.requested("/provider"), "the catalog is pending").toBe(true);
-    clock.advance(DEADLINE_MS);
+    await settleUntil(() => false);
+    await passCatalogWait(clock, server);
     await settleUntil(() => server.promptBodies.length > 0);
     expect(
       server.promptBodies[0],
       "first turn has no variant",
     ).not.toHaveProperty("variant");
+    expect(turn.notices, "the member learns of the default effort").toEqual([
+      OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
+    ]);
     server.complete();
     await settleUntil(() => turn.completions.length > 0);
     expect(turn.completions).toMatchObject([{ status: "completed" }]);
-    expect(turn.marked).toEqual([]);
+    expect(turn.marked, "a slow catalog does not mark the server").toEqual([]);
 
+    server.releaseProvider();
     await turn.send();
     expect(
       server.promptBodies[1],
-      "the slow catalog was not cached",
+      "the late catalog was kept",
     ).toMatchObject({ variant: "high" });
+    expect(server.providerRequests(), "no second catalog request").toBe(1);
+    expect(turn.notices, "no notice once the catalog loads").toHaveLength(1);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("aborts a catalog load that never answers at its bound, and the next turn loads again", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdProvider: "first" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    void turn.send();
+    await settleUntil(() => server.eventRequests() > 0);
+    await settleUntil(() => false);
+    await passCatalogWait(clock, server);
+    await settleUntil(() => server.promptBodies.length > 0);
+    server.complete();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.notices).toEqual([OPENCODE_EFFORT_CATALOG_UNAVAILABLE]);
+
+    // The load timer was armed when the transport acquired its lease, at 0.
+    clock.advance(OPENCODE_CATALOG_LOAD_LIMIT_MS - DEADLINE_MS - 1);
+    await settleUntil(() => false);
+    expect(server.providerAborts(), "still loading before the bound").toBe(0);
+    clock.advance(1);
+    await settleUntil(() => server.providerAborts() > 0);
+    expect(server.providerAborts(), "aborted at the bound").toBe(1);
+
+    await turn.send();
+    expect(server.providerRequests(), "the next turn loads again").toBe(2);
+    expect(server.promptBodies[1]).toMatchObject({ variant: "high" });
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("does not cancel another waiter when a turn stops waiting for the catalog", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdProvider: "first" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    void turn.send();
+    await settleUntil(() => server.eventRequests() > 0);
+    let listed: string[] | undefined;
+    let listFailed = false;
+    void discoverOpenCodeModels(turn.supervisor, STATE_ROOT).then(
+      (models) => {
+        listed = models.flatMap((model) =>
+          model.supportedEfforts.map(({ level }) => `${model.id}:${level}`),
+        );
+      },
+      () => {
+        listFailed = true;
+      },
+    );
+    await settleUntil(() => false);
+    await passCatalogWait(clock, server);
+    await settleUntil(() => server.promptBodies.length > 0);
+    expect(turn.notices).toEqual([OPENCODE_EFFORT_CATALOG_UNAVAILABLE]);
+    expect(listed, "the other waiter still waits").toBeUndefined();
+    expect(listFailed, "the other waiter was not cancelled").toBe(false);
+
+    server.releaseProvider();
+    await settleUntil(() => listed !== undefined);
+    expect(listed).toEqual(["provider/model:high"]);
+    expect(server.providerRequests(), "one shared load").toBe(1);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("resolves the effort on the server a turn entry replaced", async () => {
+  const clock = drivenClock();
+  let serverKey = "old";
+  const catalogReads: string[] = [];
+  const server = drivenServer({
+    variants: () => {
+      catalogReads.push(serverKey);
+      return serverKey === "old" ? { high: {} } : { low: {} };
+    },
+  });
+  const turn = drivenTransport(clock, {
+    sessionId: "driven",
+    serverKey: () => serverKey,
+    onBeginTurn: () => {
+      serverKey = "new";
+    },
+  });
+  try {
+    await turn.send();
+    expect(catalogReads.at(-1), "the prompt's server was read").toBe("new");
+    expect(server.promptBodies[0]).not.toHaveProperty("variant");
+    expect(turn.notices).toEqual([
+      openCodeEffortUnavailableNotice("provider/model", "high"),
+    ]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("resolves the effort on the server that pre-prompt recovery replaced", async () => {
+  const clock = drivenClock();
+  let serverKey = "old";
+  const catalogReads: string[] = [];
+  const server = drivenServer({
+    holdEvent: "first",
+    variants: () => {
+      catalogReads.push(serverKey);
+      return serverKey === "old" ? { high: {} } : { low: {} };
+    },
+  });
+  const turn = drivenTransport(clock, {
+    sessionId: "driven",
+    serverKey: () => serverKey,
+    onRecover: () => {
+      serverKey = "new";
+    },
+  });
+  try {
+    void turn.send();
+    await settleUntil(() => server.requested("/event"));
+    clock.advance(DEADLINE_MS);
+    await settleUntil(() => server.promptBodies.length > 0);
+    expect(turn.recoveries()).toBe(1);
+    expect(catalogReads.at(-1), "the prompt's server was read").toBe("new");
+    expect(server.promptBodies[0]).not.toHaveProperty("variant");
+    expect(turn.notices).toEqual([
+      openCodeEffortUnavailableNotice("provider/model", "high"),
+    ]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("sends no prompt when the member stops the turn during the catalog wait", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdProvider: "first" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    void turn.send();
+    await settleUntil(() => server.eventRequests() > 0);
+    await settleUntil(() => false);
+    await turn.transport.abort();
+    await passCatalogWait(clock, server);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([
+      { kind: "turn_completed", status: "interrupted" },
+    ]);
+    expect(server.promptBodies, "no prompt").toHaveLength(0);
   } finally {
     turn.transport.close();
     server.restore();

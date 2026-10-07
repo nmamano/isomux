@@ -50,6 +50,11 @@ export const OPENCODE_SERVER_UNRESPONSIVE_FAILURE =
 // 1.7 s and /provider 12.8 s (2026-10-07).
 export const OPENCODE_EVENT_STREAM_DEADLINE_MS = 30_000;
 
+// A turn stops waiting for the catalog at the deadline above, but the load
+// goes on so a late success is kept. This bound only frees the slot of a
+// load that never answers, so a later caller can try again.
+export const OPENCODE_CATALOG_LOAD_LIMIT_MS = 5 * 60_000;
+
 export interface OpenCodeDeadlineScheduler {
   setTimeout(callback: () => void, delayMs: number): unknown;
   clearTimeout(timer: unknown): void;
@@ -63,11 +68,18 @@ const realDeadlineScheduler: OpenCodeDeadlineScheduler = {
 // A failure whose message is already member-facing copy.
 class OpenCodeTurnFailure extends Error {}
 
-// A request that missed the deadline without marking its server.
-class OpenCodeDeadlineError extends Error {}
-
 export function openCodeModelUnavailableFailure(model: string): string {
   return `OpenCode cannot use model \`${model}\`: the provider refused this model. Pick another model with \`/model\`.`;
+}
+
+export const OPENCODE_EFFORT_CATALOG_UNAVAILABLE =
+  "OpenCode did not return its model list, so this turn runs at the model's default effort.";
+
+export function openCodeEffortUnavailableNotice(
+  model: string,
+  effort: string,
+): string {
+  return `\`${model}\` has no \`${effort}\` effort, so this turn runs at its default effort. Pick an effort in the agent settings.`;
 }
 
 export function openCodeModelNotFoundPrefix(model: string): string {
@@ -100,11 +112,52 @@ export function openCodeModelIsFree(rawCost: unknown): boolean {
   );
 }
 
-export async function discoverOpenCodeModels(
+// One catalog per OpenCode server process and directory (/provider takes the
+// directory, and a project opencode.json can add models). A running server
+// does not reload its model registry, and every change to the model list
+// replaces the server (internal-docs/opencode-oc1-scope.md), so the server
+// key is the invalidation. Callers share one load; only a success is kept.
+const keptCatalogs = new WeakMap<
+  OpenCodeSupervisor,
+  {
+    serverKey: string;
+    byCwd: Map<string, Promise<DiscoveredOpenCodeModel[]>>;
+  }
+>();
+
+function keptCatalog(
   supervisor: OpenCodeSupervisor,
+  lease: OpenCodeLease,
   cwd: string,
+  scheduler: OpenCodeDeadlineScheduler = realDeadlineScheduler,
 ): Promise<DiscoveredOpenCodeModel[]> {
-  const lease = await supervisor.acquire();
+  const serverKey = lease.serverKey;
+  let kept = keptCatalogs.get(supervisor);
+  if (!kept || kept.serverKey !== serverKey) {
+    kept = { serverKey, byCwd: new Map() };
+    keptCatalogs.set(supervisor, kept);
+  }
+  const byCwd = kept.byCwd;
+  const existing = byCwd.get(cwd);
+  if (existing) return existing;
+  const load = loadCatalog(lease, cwd, scheduler);
+  byCwd.set(cwd, load);
+  load.catch(() => {
+    if (byCwd.get(cwd) === load) byCwd.delete(cwd);
+  });
+  return load;
+}
+
+async function loadCatalog(
+  lease: OpenCodeLease,
+  cwd: string,
+  scheduler: OpenCodeDeadlineScheduler,
+): Promise<DiscoveredOpenCodeModel[]> {
+  const controller = new AbortController();
+  const timer = scheduler.setTimeout(
+    () => controller.abort(),
+    OPENCODE_CATALOG_LOAD_LIMIT_MS,
+  );
   try {
     // The /provider body echoes provider API keys in cleartext (measured
     // 2026-09-02 with OPENCODE_API_KEY set: the key appears twice). Reduce it
@@ -113,12 +166,25 @@ export async function discoverOpenCodeModels(
     url.searchParams.set("directory", cwd);
     const response = await fetch(url, {
       headers: { authorization: lease.authHeader },
+      signal: controller.signal,
     });
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
       throw new Error(`OpenCode HTTP ${response.status} at /provider.`);
     }
     return allowDiscoveredModels(await response.json());
+  } finally {
+    scheduler.clearTimeout(timer);
+  }
+}
+
+export async function discoverOpenCodeModels(
+  supervisor: OpenCodeSupervisor,
+  cwd: string,
+): Promise<DiscoveredOpenCodeModel[]> {
+  const lease = await supervisor.acquire();
+  try {
+    return await keptCatalog(supervisor, lease, cwd);
   } finally {
     lease.release();
   }
@@ -297,12 +363,11 @@ export class OpenCodeTransport {
   ) => void;
   private readonly eventStreamDeadlineMs: number;
   private readonly deadlineScheduler: OpenCodeDeadlineScheduler;
-  private modelContextLimit: number | null | undefined;
-  private modelSupportedEfforts: Set<EffortLevel> | undefined;
-  // Try once per session and cache a safe result. A failed catalog lookup
-  // means no advertised efforts, so later turns omit variant without retrying.
-  private discoveredModel: DiscoveredOpenCodeModel | null | undefined;
   private lease: OpenCodeLease | null = null;
+  private prefetchedCatalog: {
+    serverKey: string;
+    load: Promise<DiscoveredOpenCodeModel[]>;
+  } | null = null;
   private sessionId: string | null = null;
   private abortController: AbortController | null = null;
   private activeTurn = false;
@@ -350,59 +415,78 @@ export class OpenCodeTransport {
   }
 
   async getModelContextLimit(): Promise<number | null> {
-    if (this.modelContextLimit !== undefined) return this.modelContextLimit;
     await this.initialize(() => undefined);
-    const model = await this.loadDiscoveredModel();
-    this.modelContextLimit = model?.contextLimit ?? null;
-    return this.modelContextLimit;
+    const models = await this.catalog().catch(() => []);
+    return models.find((model) => model.id === this.model)?.contextLimit ?? null;
   }
 
   modelId(): string {
     return this.model;
   }
 
-  private async loadDiscoveredModel(
-    withinTurn = false,
-  ): Promise<DiscoveredOpenCodeModel | null> {
-    if (this.discoveredModel !== undefined) return this.discoveredModel;
-    try {
-      const body = withinTurn
-        ? await this.withinDeadline(
-            (signal) =>
-              this.request("/provider", { signal }).then((r) => r.json()),
-            { markServer: false },
-          )
-        : await this.request("/provider").then((r) => r.json());
-      this.discoveredModel =
-        allowDiscoveredModels(body).find(
-          (candidate) => candidate.id === this.model,
-        ) ?? null;
-    } catch (error) {
-      // A slow catalog is no sign of a frozen server (12.8 s measured), so a
-      // timeout only drops the variant for this turn and is not cached.
-      if (error instanceof OpenCodeDeadlineError) return null;
-      this.discoveredModel = null;
-    }
-    return this.discoveredModel;
+  private catalog(): Promise<DiscoveredOpenCodeModel[]> {
+    if (!this.lease)
+      return Promise.reject(new Error("OpenCode transport is not initialized."));
+    return keptCatalog(
+      this.supervisor,
+      this.lease,
+      this.cwd,
+      this.deadlineScheduler,
+    );
   }
 
-  private async selectedVariant(): Promise<EffortLevel | undefined> {
-    if (this.modelSupportedEfforts === undefined) {
-      const model = await this.loadDiscoveredModel(true);
-      if (model === null && this.discoveredModel === undefined)
-        return undefined;
-      this.modelSupportedEfforts = new Set(
-        model?.supportedEfforts.map((option) => option.level) ?? [],
+  // The variant for the chosen effort on the server that receives the
+  // prompt, or the notice that this turn runs at the model's default effort.
+  private async resolveEffort(): Promise<{
+    variant?: EffortLevel;
+    notice?: string;
+  }> {
+    const lease = this.lease!;
+    for (;;) {
+      const serverKey = lease.serverKey;
+      // A turn makes one catalog request at most: a failed prefetch for this
+      // server is the answer, not a reason to load again.
+      const prefetch = this.prefetchedCatalog;
+      this.prefetchedCatalog = null;
+      const resolved = await this.effortFrom(
+        prefetch && prefetch.serverKey === serverKey
+          ? prefetch.load
+          : this.catalog(),
       );
+      if (lease.serverKey === serverKey) return resolved;
     }
-    return this.modelSupportedEfforts.has(this.effort as EffortLevel)
-      ? (this.effort as EffortLevel)
-      : undefined;
+  }
+
+  private async effortFrom(
+    catalog: Promise<DiscoveredOpenCodeModel[]>,
+  ): Promise<{ variant?: EffortLevel; notice?: string }> {
+    let models: DiscoveredOpenCodeModel[];
+    try {
+      models = await this.withinCatalogWait(catalog);
+    } catch {
+      return { notice: OPENCODE_EFFORT_CATALOG_UNAVAILABLE };
+    }
+    const levels: string[] =
+      models
+        .find((model) => model.id === this.model)
+        ?.supportedEfforts.map((option) => option.level) ?? [];
+    if (levels.includes(this.effort))
+      return { variant: this.effort as EffortLevel };
+    // A model without variants has no effort to honor (the dialogs hide the
+    // field), and a model missing from the catalog fails at the prompt.
+    if (levels.length === 0) return {};
+    return { notice: openCodeEffortUnavailableNotice(this.model, this.effort) };
   }
 
   async initialize(sink: EventSink, withinTurn = false): Promise<string> {
     if (this.sessionId) return this.sessionId;
     this.lease = await this.supervisor.acquire();
+    // A turn-sending transport loads the catalog alongside POST /session.
+    if (this.systemPrompt !== undefined) {
+      const load = this.catalog();
+      load.catch(() => {});
+      this.prefetchedCatalog = { serverKey: this.lease.serverKey, load };
+    }
     if (this.resumedSessionId) {
       this.sessionId = this.resumedSessionId;
     } else {
@@ -486,7 +570,6 @@ export class OpenCodeTransport {
     }
     try {
       const sessionId = await this.initialize(emit, true);
-      const variant = await this.selectedVariant();
       await this.lease!.beginTurn();
       turnStarted = true;
       this.authorityBinding?.activate(this.lease!.pid);
@@ -511,6 +594,16 @@ export class OpenCodeTransport {
         await this.consumeEvents(sessionId, emit, controller.signal, fail);
       }
       if (settled) return;
+      // After beginTurn and recovery, which can each replace the server.
+      const { variant, notice } = await this.resolveEffort();
+      if (settled) return;
+      // A stop during the catalog wait: no prompt is out, so none goes.
+      if (this.abortRequested) {
+        emit({ kind: "turn_completed", status: "interrupted" });
+        return;
+      }
+      if (notice)
+        emit({ kind: "system_text", text: notice, isomuxAuthored: true });
       const [providerID, modelID] = splitModel(this.model);
       this.promptSent = true;
       await this.request(
@@ -936,12 +1029,29 @@ export class OpenCodeTransport {
     }
   }
 
+  // The turn stops waiting at the deadline; the shared load goes on. A slow
+  // catalog is no sign of a frozen server, so the server is not marked.
+  private async withinCatalogWait<T>(work: Promise<T>): Promise<T> {
+    let timer: unknown;
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = this.deadlineScheduler.setTimeout(
+        () => reject(new Error("OpenCode catalog wait expired.")),
+        this.eventStreamDeadlineMs,
+      );
+    });
+    try {
+      return await Promise.race([work, expired]);
+    } finally {
+      this.deadlineScheduler.clearTimeout(timer);
+    }
+  }
+
   // A request a turn makes before its stream reads. A frozen server accepts
   // the connection and never answers, so only this bound reaches the mark.
   // The bounded signal follows the turn's signal for the response lifetime.
   private async withinDeadline<T>(
     work: (signal: AbortSignal) => Promise<T>,
-    options: { signal?: AbortSignal; markServer?: boolean } = {},
+    options: { signal?: AbortSignal } = {},
   ): Promise<T> {
     const lease = this.lease!;
     const serverPid = lease.pid;
@@ -959,7 +1069,6 @@ export class OpenCodeTransport {
       return await work(bounded.signal);
     } catch (error) {
       if (!timedOut) throw error;
-      if (options.markServer === false) throw new OpenCodeDeadlineError();
       lease.markUnresponsive(serverPid, false);
       throw new OpenCodeTurnFailure(OPENCODE_SERVER_UNRESPONSIVE_FAILURE, {
         cause: error,
