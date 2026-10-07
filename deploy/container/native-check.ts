@@ -4,7 +4,7 @@ import { resolveCodexLauncherPath } from "../../server/backends/codex/native-bin
 import { resolveOpenCodeBinary } from "../../server/backends/opencode/runtime.ts";
 import { createServer } from "node:http";
 import { capturePreview } from "../../server/preview-capture.ts";
-import { resolveRealNode } from "../../server/terminal.ts";
+import { resolveRealNode } from "../../server/real-node.ts";
 import { createInterface } from "node:readline";
 import { readFileSync } from "node:fs";
 
