@@ -1,6 +1,6 @@
 import type { WebhookTarget } from "../shared/types.ts";
 
-// The room filter on the Apps and Automations pages. "all" lets everything
+// The room filter on the Apps, Automations and Pager pages. "all" lets everything
 // through, "none" keeps the records with no room, and any other value is a
 // room id. Room ids are 8-hex, so the two words cannot collide with one.
 export type RoomFilter = string;
@@ -16,14 +16,29 @@ export function roomFilterMatches(
   return roomId === filter;
 }
 
-// A stored filter that names a room this viewer no longer has falls back to
-// "all", so a closed or revoked room never leaves the page empty.
-export function effectiveRoomFilter(
-  stored: RoomFilter,
+// The filter a page opens with: the room the office shows, or "all" from the
+// lobby or with no known room. Pages take it at mount and do not store a
+// change, so each open starts from the room it is opened from.
+export function openingRoomFilter(
+  currentRoomId: string | null,
+  lobbyOpen: boolean,
   rooms: readonly { id: string }[],
 ): RoomFilter {
-  if (stored === ROOM_FILTER_ALL || stored === ROOM_FILTER_NONE) return stored;
-  return rooms.some((room) => room.id === stored) ? stored : ROOM_FILTER_ALL;
+  return !lobbyOpen &&
+    currentRoomId !== null &&
+    rooms.some((room) => room.id === currentRoomId)
+    ? currentRoomId
+    : ROOM_FILTER_ALL;
+}
+
+// A filter that names a room this viewer no longer has falls back to "all",
+// so a closed or revoked room never leaves the page empty.
+export function effectiveRoomFilter(
+  filter: RoomFilter,
+  rooms: readonly { id: string }[],
+): RoomFilter {
+  if (filter === ROOM_FILTER_ALL || filter === ROOM_FILTER_NONE) return filter;
+  return rooms.some((room) => room.id === filter) ? filter : ROOM_FILTER_ALL;
 }
 
 // The room of a record whose room is stored (a cronjob): it counts only while

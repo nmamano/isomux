@@ -17,15 +17,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
-import {
-  getAppFilter,
-  getRoomFilter,
-  setAppFilter,
-  setRoomFilter,
-} from "../device-settings.ts";
+import { getAppFilter, setAppFilter } from "../device-settings.ts";
 import {
   appRoomId,
   effectiveRoomFilter,
+  openingRoomFilter,
   roomFilterMatches,
   roomFilterOptions,
 } from "../room-filter.ts";
@@ -831,6 +827,8 @@ export function AppsView({
     sessionContext,
     rooms,
     allRooms,
+    currentRoomId,
+    lobbyOpen,
   } = useAppState();
   const { t } = useI18n();
   const dispatch = useDispatch();
@@ -844,14 +842,10 @@ export function AppsView({
   // An app's room is its creator agent's live room, the rule that decides who
   // sees it; an app with no visible creator has no room.
   const roomOptions = roomFilterOptions(rooms, allRooms);
-  const [storedRoomFilter, setStoredRoomFilter] = useState(() =>
-    getRoomFilter("apps"),
+  const [chosenRoomFilter, setChosenRoomFilter] = useState(() =>
+    openingRoomFilter(currentRoomId, lobbyOpen, rooms),
   );
-  const roomFilter = effectiveRoomFilter(storedRoomFilter, roomOptions);
-  const changeRoomFilter = (value: string) => {
-    setStoredRoomFilter(value);
-    setRoomFilter("apps", value);
-  };
+  const roomFilter = effectiveRoomFilter(chosenRoomFilter, roomOptions);
   const [openLogs, setOpenLogs] = useState<AppWire | null>(null);
   // Moves when the USER changes what the log dialog is showing - opening it,
   // closing it, deleting its app - so a request in flight can tell that it no
@@ -1374,7 +1368,7 @@ export function AppsView({
           <RoomFilterSelect
             value={roomFilter}
             rooms={roomOptions}
-            onChange={changeRoomFilter}
+            onChange={setChosenRoomFilter}
           />
         </div>
       )}

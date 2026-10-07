@@ -15,6 +15,7 @@ import { inDefaultTaskList } from "../../shared/task-board.ts";
 import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { openingRoomFilter } from "../room-filter.ts";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -811,9 +812,7 @@ export function TaskView({
   // tab. It filters the list and, whenever it names a filing target, also drives
   // creation. "All rooms" needs one explicit target because it cannot own a task.
   const [roomScope, setRoomScope] = useState<string>(() =>
-    !lobbyOpen && currentRoomId && rooms.some((r) => r.id === currentRoomId)
-      ? currentRoomId
-      : "all",
+    openingRoomFilter(currentRoomId, lobbyOpen, rooms),
   );
   const [allRoomsCreateRoomId, setAllRoomsCreateRoomId] = useState<string>(
     () =>

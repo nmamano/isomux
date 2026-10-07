@@ -33,8 +33,6 @@ const {
   setMembersChatWidth,
   getUsagePin,
   setUsagePin,
-  getRoomFilter,
-  setRoomFilter,
 } = await import("./device-settings.ts");
 
 // The usage pill's pinned limit (task df489513). Stored per device per agent
@@ -124,18 +122,4 @@ it("reads a missing or unknown desktop chat visibility value as no saved choice"
   expect(getMembersChatHidden()).toBe(true);
   store.set("isomux-members-chat-hidden", "false");
   expect(getMembersChatHidden()).toBe(false);
-});
-
-describe("room filters", () => {
-  beforeEach(() => store.clear());
-  it("default to all rooms and remember each page's choice apart", () => {
-    expect(getRoomFilter("apps")).toBe("all");
-    expect(getRoomFilter("schedules")).toBe("all");
-    setRoomFilter("schedules", "a1b2c3d4");
-    setRoomFilter("apps", "none");
-    expect(getRoomFilter("schedules")).toBe("a1b2c3d4");
-    expect(getRoomFilter("apps")).toBe("none");
-    setRoomFilter("schedules", "all");
-    expect(getRoomFilter("schedules")).toBe("all");
-  });
 });

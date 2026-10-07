@@ -118,7 +118,7 @@ it("offers no owner filter without a session, and a stored one hides nothing", a
   view.unmount();
 });
 
-it("filters by the creator agent's live room and remembers the room on this device", async () => {
+it("filters by the creator agent's live room, opens on the office's room, and keeps no choice", async () => {
   const roomed = [
     { ...app("in-alpha", SELF, "running"), createdByAgentId: "agent-a" },
     { ...app("in-beta", "u2", "running"), createdByAgentId: "agent-b" },
@@ -136,9 +136,16 @@ it("filters by the creator agent's live room and remembers the room on this devi
       { id: "agent-b", name: "B", roomId: "b2b2b2b2" },
     ],
   } as unknown as Parameters<typeof onLanguage>[2];
-  const mountRooms = async () => {
+  const mountRooms = async (
+    currentRoomId: string | null = null,
+    lobbyOpen = false,
+  ) => {
     const view = render(
-      onLanguage("en", <AppsView onClose={() => {}} />, state),
+      onLanguage("en", <AppsView onClose={() => {}} />, {
+        ...state,
+        currentRoomId,
+        lobbyOpen,
+      }),
     );
     await act(async () => {});
     const listed = () =>
@@ -164,6 +171,18 @@ it("filters by the creator agent's live room and remembers the room on this devi
   expect(first.listed()).toEqual(["creator-gone"]);
   first.view.unmount();
   const again = await mountRooms();
-  expect(again.select().value).toBe("none");
+  expect(again.select().value).toBe("all");
   again.view.unmount();
+
+  const fromAlpha = await mountRooms("a1a1a1a1");
+  expect(fromAlpha.select().value).toBe("a1a1a1a1");
+  expect(fromAlpha.listed()).toEqual(["in-alpha"]);
+  fromAlpha.view.unmount();
+  const fromBeta = await mountRooms("b2b2b2b2");
+  expect(fromBeta.listed()).toEqual(["in-beta"]);
+  fromBeta.view.unmount();
+  const fromLobby = await mountRooms("a1a1a1a1", true);
+  expect(fromLobby.select().value).toBe("all");
+  expect(fromLobby.listed()).toHaveLength(3);
+  fromLobby.view.unmount();
 });

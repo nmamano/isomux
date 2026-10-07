@@ -68,6 +68,25 @@ describe("the pager list", () => {
     expect(rowIds(view)).toEqual(["app"]);
   });
 
+  it("opens on the room the office shows, and on all rooms from the lobby", async () => {
+    const entries = () => [
+      page("r1-open"),
+      page("r2-open", {
+        source: { kind: "agent", agentId: "a2", name: "B", roomId: "r2" },
+      }),
+    ];
+    const fromR2 = await mount(entries(), { currentRoomId: "r2" });
+    expect(selects(fromR2.view)[1].value).toBe("r2");
+    expect(rowIds(fromR2.view)).toEqual(["r2-open"]);
+    fromR2.view.unmount();
+    const fromLobby = await mount(entries(), {
+      currentRoomId: "r2",
+      lobbyOpen: true,
+    });
+    expect(selects(fromLobby.view)[1].value).toBe("all");
+    expect(rowIds(fromLobby.view).sort()).toEqual(["r1-open", "r2-open"]);
+  });
+
   it("gives every row a state label, the raise count and the delivery status", async () => {
     const { view } = await mount([
       page("p1", {
@@ -151,14 +170,15 @@ describe("acting on a page", () => {
 
 describe("the deep link", () => {
   it("expands the named page, even a resolved one, and resets the filters", async () => {
-    const { view } = await mount([
-      page("p1"),
-      page("gone", { state: "resolved", lastRaisedAt: 500 }),
-    ]);
-    const [state] = selects(view);
+    const { view } = await mount(
+      [page("p1"), page("gone", { state: "resolved", lastRaisedAt: 500 })],
+      { currentRoomId: "r2" },
+    );
+    const [state, room] = selects(view);
     fireEvent.change(state, { target: { value: "open" } });
     await act(async () => h.requestSelect({ id: "gone" }));
     expect(state.value).toBe("all");
+    expect(room.value).toBe("all");
     expect(toggle(view, "gone").getAttribute("aria-expanded")).toBe("true");
     expect(view.container.querySelector(".pager-unavailable")).toBeNull();
   });

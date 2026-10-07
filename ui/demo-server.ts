@@ -891,8 +891,9 @@ const demoCronjobWire = (cronjob: Cronjob): CronjobListWire => ({
 // Both seeds start healthy so the customer-facing demo opens on working apps.
 //
 // The creators are deliberately one of each: `standup-board` names an agent the
-// demo office still has, so its row links to that conversation, while
-// `cost-tracker` names one it does not and stays plain text.
+// demo office still has, so its row links to that conversation and the app
+// belongs to that agent's room, while `cost-tracker` names one it does not and
+// stays plain text with no room.
 // The demo member manages both apps, as an owner does on a real office.
 const demoApps: (AppWire & { canManage: true })[] = [
   {
@@ -907,6 +908,7 @@ const demoApps: (AppWire & { canManage: true })[] = [
     userId: "demo-user",
     username: "Ricky",
     createdBy: "Pam",
+    createdByAgentId: "demo-pam",
     createdAt: Date.now() - 86_400_000,
     state: "running",
     restartCount: 0,

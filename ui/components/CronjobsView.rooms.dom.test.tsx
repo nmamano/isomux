@@ -74,13 +74,15 @@ beforeEach(() => {
   requests = [];
 });
 
-async function mount() {
+async function mount(currentRoomId: string | null = null, lobbyOpen = false) {
   const view = render(
     onLanguage("en", <CronjobsView onClose={() => {}} />, {
       cronjobs,
       cronjobsLoaded: true,
       cronjobRunsLoaded: true,
       rooms,
+      currentRoomId,
+      lobbyOpen,
     }),
   );
   await act(async () => {});
@@ -106,7 +108,7 @@ it("a room member's row has no run or edit controls and opens the job's runs", a
   view.unmount();
 });
 
-it("filters by room, no room, and remembers the choice on this device", async () => {
+it("filters by room and no room, and keeps no choice for the next open", async () => {
   const first = await mount();
   expect(first.listed()).toEqual(["mine0001", "view0001", "none0001"]);
   await act(async () => {
@@ -120,15 +122,21 @@ it("filters by room, no room, and remembers the choice on this device", async ()
   first.view.unmount();
 
   const again = await mount();
-  expect(again.filter().value).toBe("none");
-  expect(again.listed()).toEqual(["none0001"]);
+  expect(again.filter().value).toBe("all");
+  expect(again.listed()).toHaveLength(3);
   again.view.unmount();
 });
 
-it("a stored room the viewer no longer has falls back to all rooms", async () => {
-  localStorage.setItem("isomux-schedules-room-filter", "c3c3c3c3");
-  const { view, listed, filter } = await mount();
-  expect(filter().value).toBe("all");
-  expect(listed()).toHaveLength(3);
-  view.unmount();
+it("opens on the room the office shows, and on all rooms from the lobby", async () => {
+  const fromA = await mount(ROOM_A);
+  expect(fromA.filter().value).toBe(ROOM_A);
+  expect(fromA.listed()).toEqual(["mine0001"]);
+  fromA.view.unmount();
+  const fromB = await mount(ROOM_B);
+  expect(fromB.listed()).toEqual(["view0001"]);
+  fromB.view.unmount();
+  const fromLobby = await mount(ROOM_A, true);
+  expect(fromLobby.filter().value).toBe("all");
+  expect(fromLobby.listed()).toHaveLength(3);
+  fromLobby.view.unmount();
 });

@@ -8,6 +8,7 @@ import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { openingRoomFilter } from "../room-filter.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
@@ -130,6 +131,8 @@ export function PagerView({
     appsRevision,
     hydrationEpoch,
     rooms: allRooms,
+    currentRoomId,
+    lobbyOpen,
     isMobile,
     sessionContext,
   } = useAppState();
@@ -138,7 +141,9 @@ export function PagerView({
   const { t, tn, language } = useI18n();
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
   const [stateFilter, setStateFilter] = useState<StateFilter>("active");
-  const [roomFilter, setRoomFilter] = useState<RoomFilter>("all");
+  const [roomFilter, setRoomFilter] = useState<RoomFilter>(() =>
+    openingRoomFilter(currentRoomId, lobbyOpen, rooms),
+  );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // The deep link named a page this member cannot see, or one that is gone.
   const [unavailable, setUnavailable] = useState(false);

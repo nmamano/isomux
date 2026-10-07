@@ -15,10 +15,10 @@ import {
   type WebhookWire,
 } from "../../shared/types.ts";
 import { lastRunAt } from "../webhook-helpers.ts";
-import { getRoomFilter, setRoomFilter } from "../device-settings.ts";
 import {
   effectiveRoomFilter,
   knownRoomId,
+  openingRoomFilter,
   roomFilterMatches,
   roomFilterOptions,
   ROOM_FILTER_ALL,
@@ -163,14 +163,10 @@ export function CronjobsView({
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<CronjobListWire | null>(null);
   const roomOptions = roomFilterOptions(rooms, allRooms);
-  const [storedRoomFilter, setStoredRoomFilter] = useState(() =>
-    getRoomFilter("schedules"),
+  const [chosenRoomFilter, setChosenRoomFilter] = useState(() =>
+    openingRoomFilter(currentRoomId, lobbyOpen, rooms),
   );
-  const roomFilter = effectiveRoomFilter(storedRoomFilter, roomOptions);
-  const changeRoomFilter = (value: string) => {
-    setStoredRoomFilter(value);
-    setRoomFilter("schedules", value);
-  };
+  const roomFilter = effectiveRoomFilter(chosenRoomFilter, roomOptions);
   // A job's room, as this viewer can name it: a closed room reads as no room.
   const jobRoomId = (job: CronjobListWire) =>
     knownRoomId(job.roomId, roomOptions);
@@ -397,7 +393,7 @@ export function CronjobsView({
           <RoomFilterSelect
             value={roomFilter}
             rooms={roomOptions}
-            onChange={changeRoomFilter}
+            onChange={setChosenRoomFilter}
           />
         </div>
       </div>
