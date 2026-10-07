@@ -375,7 +375,8 @@ describe("pager REST: list filters", () => {
       return (r.body as PagerEntry[]).map((e) => e.id);
     };
     expect(await ids("")).toEqual([p2.id, p1.id]);
-    expect(await ids("?state=all")).toEqual([p3.id, p2.id, p1.id]);
+    // Open and acked pages first, then the slice of resolved ones.
+    expect(await ids("?state=all")).toEqual([p2.id, p1.id, p3.id]);
     expect(await ids("?state=resolved")).toEqual([p3.id]);
     expect(await ids(`?roomId=${roomA}`)).toEqual([p1.id]);
     const bad = await api(srv, "/api/pager?state=closed", {

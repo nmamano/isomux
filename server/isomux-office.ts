@@ -61,6 +61,7 @@ import type { CronjobManager } from "./cronjob-manager.ts";
 import { createScheduledMessageManager } from "./scheduled-messages.ts";
 import {
   createPagerFilePersistence,
+  createPagerArchiveFile,
   createPagerStore,
   pagerEntryVisible,
   type PagerStore,
@@ -393,6 +394,7 @@ import {
 } from "./cronjob-visibility.ts";
 import type { TaskChange } from "../shared/office-state.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
+import { OfficeOutbox } from "./office-ws-outbox.ts";
 import { identityHasCapability, type Identity } from "./identity/index.ts";
 import {
   appVisibleTo,
@@ -662,6 +664,7 @@ function createManagers(startOpts: StartServerOpts): void {
   );
   pagerStore = createPagerStore({
     persistence: createPagerFilePersistence(join(STATE_ROOT, "pager.json")),
+    archive: createPagerArchiveFile(join(STATE_ROOT, "pager-resolved.jsonl")),
     onChange: (entry) => pushPagerEntryToEachWs(entry),
     onRaised: (entry, kind) => pagerDelivery.onRaised(entry, kind),
     onTransitioned: (entry, to) => pagerDelivery.onTransitioned(entry, to),
@@ -1205,6 +1208,26 @@ function nextConnectionId(): string {
 }
 
 const browsers = new Set<ServerWebSocket<OfficeWsData>>();
+// Every frame to an office browser socket goes through its outbox
+// (server/office-ws-outbox.ts), so nothing is dropped past Bun's backpressure
+// limit and no live frame overtakes a replay still in the queue.
+const outboxes = new WeakMap<ServerWebSocket<OfficeWsData>, OfficeOutbox>();
+
+function outboxFor(ws: ServerWebSocket<OfficeWsData>): OfficeOutbox {
+  let outbox = outboxes.get(ws);
+  if (!outbox) {
+    outbox = new OfficeOutbox(ws, {
+      onFail: (reason) =>
+        console.warn(`[ws] closed an office socket: outbox ${reason}`),
+    });
+    outboxes.set(ws, outbox);
+  }
+  return outbox;
+}
+
+function officeSend(ws: ServerWebSocket<OfficeWsData>, data: string): void {
+  outboxFor(ws).send(data);
+}
 // The public webhook route's state (counters, limits, delivery logs). Built
 // per boot in startServer, before the listener.
 let webhookIngress: WebhookIngress | null = null;
@@ -1737,7 +1760,7 @@ async function listBackendModels(input: {
 function broadcast(msg: ServerMessage) {
   const data = JSON.stringify(msg);
   for (const ws of browsers) {
-    ws.send(data);
+    officeSend(ws, data);
   }
 }
 
@@ -1799,7 +1822,7 @@ function listOnlineUserIds(): string[] {
 
 function sendPresenceListTo(ws: ServerWebSocket<OfficeWsData>) {
   const onlineUserIds = listOnlineUserIds();
-  ws.send(
+  officeSend(ws, 
     JSON.stringify({
       type: "presence_list",
       entries: buildPresenceListFor(ws.data.session),
@@ -2069,7 +2092,7 @@ const liveEmitDeps: EmitDeps<EventSocket> = {
         const ws = socket as ServerWebSocket<OfficeWsData>;
         const projected = projectAgentForSession(ws.data.session, agent);
         if (projected) {
-          ws.send(JSON.stringify({ type: "agent_added", agent: projected }));
+          officeSend(ws, JSON.stringify({ type: "agent_added", agent: projected }));
         }
       }
       return;
@@ -2081,7 +2104,9 @@ const liveEmitDeps: EmitDeps<EventSocket> = {
         !liveTokenSocket(ws as ServerWebSocket<ApiTokenWsData>)
       )
         continue;
-      ws.send(data);
+      if (ws.data.kind === "office")
+        officeSend(ws as ServerWebSocket<OfficeWsData>, data);
+      else ws.send(data);
     }
   },
 };
@@ -2472,7 +2497,7 @@ function announceWebhookAudienceChanges(before: WebhookAudience): void {
           },
           webhookViewerForSession(ws.data.session),
         );
-        if (delta) ws.send(JSON.stringify(delta));
+        if (delta) officeSend(ws, JSON.stringify(delta));
       }
     }
   } catch (err) {
@@ -3537,7 +3562,7 @@ function buildExecutorDeps(
         if (roleChanged) {
           for (const ws of browsers) {
             if (ws.data.session.userId !== result.user.id) continue;
-            ws.send(
+            officeSend(ws, 
               JSON.stringify({
                 type: "session_context",
                 context: sessionContextFor(
@@ -3546,7 +3571,7 @@ function buildExecutorDeps(
                 ),
               }),
             );
-            ws.send(
+            officeSend(ws, 
               JSON.stringify({
                 type: "all_rooms_list",
                 rooms:
@@ -5125,6 +5150,15 @@ function sendProjectedFullState(
   ws: ServerWebSocket<OfficeWsData>,
   options?: { replayLogsForVisible?: boolean },
 ) {
+  // A refresh while frames from the previous projection still wait in the
+  // outbox: those frames may cover rooms this session just lost. Close the
+  // socket instead of sending them; the client reconnects to a fresh
+  // projection.
+  if (options?.replayLogsForVisible && outboxFor(ws).backlogged) {
+    outboxFor(ws).dispose();
+    ws.terminate();
+    return;
+  }
   const session = ws.data.session;
   const proj = visibleRoomProjection(session);
   const agents: AgentInfo[] = [];
@@ -5146,7 +5180,7 @@ function sendProjectedFullState(
     .getKilledAgentSummaries()
     .filter((k) => roomAllowedForSession(session, k.lastRoomId))
     .slice(0, KILLED_AGENT_CHIP_CAP);
-  ws.send(
+  officeSend(ws, 
     JSON.stringify({
       type: "full_state",
       agents,
@@ -5162,29 +5196,47 @@ function sendProjectedFullState(
         appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
     } satisfies ServerMessage),
   );
+  // Fence the replay so the client knows the replayed transcript is complete
+  // and can swap it in atomically. Only with replayLogsForVisible: without it
+  // there is no replay to terminate.
   if (options?.replayLogsForVisible) {
-    for (const a of agents) {
-      const logs = agentManager.getAgentLogs(a.id);
-      for (const entry of logs) {
-        ws.send(JSON.stringify({ type: "log_entry", entry }));
+    outboxFor(ws).sendLazy(replayFrames(agents.map((a) => a.id)));
+  }
+}
+
+// The connect replay as a lazy run of frames: each agent's cached log entries,
+// then its slash commands, then the log_replay_complete fence. The snapshot is
+// taken NOW: a cached log only ever grows by push or is replaced by a new
+// array, so the array and its current length pin exactly the entries this
+// call would have sent at once, and entries pushed later reach the client as
+// the live frames queued behind the replay. Serialization waits for the
+// socket (server/office-ws-outbox.ts).
+function replayFrames(agentIds: string[]): Iterator<string> {
+  const snapshot = agentIds.map((agentId) => {
+    const logs = agentManager.getAgentLogs(agentId);
+    return {
+      agentId,
+      logs,
+      length: logs.length,
+      cmds: agentManager.getAgentCommands(agentId),
+    };
+  });
+  return (function* () {
+    for (const { agentId, logs, length, cmds } of snapshot) {
+      for (let i = 0; i < length; i++) {
+        yield JSON.stringify({ type: "log_entry", entry: logs[i] });
       }
-      const cmds = agentManager.getAgentCommands(a.id);
       if (cmds.commands.length > 0 || cmds.skills.length > 0) {
-        ws.send(
-          JSON.stringify({
-            type: "slash_commands",
-            agentId: a.id,
-            commands: cmds.commands,
-            skills: cmds.skills,
-          }),
-        );
+        yield JSON.stringify({
+          type: "slash_commands",
+          agentId,
+          commands: cmds.commands,
+          skills: cmds.skills,
+        });
       }
     }
-    // Fence the burst so the client knows the replayed transcript is complete
-    // and can swap it in atomically. Inside the `if` deliberately: without
-    // replayLogsForVisible there is no replay to terminate.
-    ws.send(JSON.stringify({ type: "log_replay_complete" }));
-  }
+    yield JSON.stringify({ type: "log_replay_complete" });
+  })();
 }
 
 // Push a fresh projected full_state to every WS owned by a specific
@@ -5206,7 +5258,7 @@ function pushProjectedFullStateForUserId(userId: string) {
 function pushRoomOrderForUserId(userId: string) {
   for (const ws of browsers) {
     if (ws.data.session.userId === userId) {
-      ws.send(
+      officeSend(ws, 
         JSON.stringify({
           type: "room_order_updated",
           rooms: visibleRoomProjection(ws.data.session).rooms,
@@ -5241,7 +5293,7 @@ function projectTasksForSession(session: SessionLookup): TaskItem[] {
 }
 
 function sendTasksTo(ws: ServerWebSocket<OfficeWsData>) {
-  ws.send(
+  officeSend(ws, 
     JSON.stringify({
       type: "tasks",
       tasks: projectTasksForSession(ws.data.session),
@@ -5260,7 +5312,7 @@ function pushTaskDeltaToEachWs(change: TaskChange) {
     const user = getUserById(ws.data.session.userId);
     const accessible = user ? accessibleRoomIdsFor(user) : new Set<string>();
     const delta = taskDeltaFor(change, accessible);
-    if (delta) ws.send(JSON.stringify(delta));
+    if (delta) officeSend(ws, JSON.stringify(delta));
   }
 }
 
@@ -5278,7 +5330,7 @@ function pushPagerEntryToEachWs(entry: PagerEntry) {
         isOfficeOwner: user.role === "owner",
       })
     ) {
-      ws.send(JSON.stringify({ type: "pager_upserted", entry }));
+      officeSend(ws, JSON.stringify({ type: "pager_upserted", entry }));
     }
   }
 }
@@ -5298,7 +5350,7 @@ function pushAppDeltaToEachWs(change: AppChange) {
       isOfficeOwner: ws.data.session.role === "owner",
       hasRoomAccess: (roomId) => roomAllowedForSession(ws.data.session, roomId),
     });
-    if (delta) ws.send(JSON.stringify(delta));
+    if (delta) officeSend(ws, JSON.stringify(delta));
   }
 }
 
@@ -5310,7 +5362,7 @@ function pushWebhookDeltaToEachWs(change: WebhookChange) {
       change,
       webhookViewerForSession(ws.data.session),
     );
-    if (delta) ws.send(JSON.stringify(delta));
+    if (delta) officeSend(ws, JSON.stringify(delta));
   }
 }
 
@@ -5318,7 +5370,7 @@ function pushWebhookDeltaToEachWs(change: WebhookChange) {
 // and the re-projection after a change that shifts what a socket may see with
 // no single job to point at (room close, a user's access or role change).
 function sendCronjobsTo(ws: ServerWebSocket<OfficeWsData>) {
-  ws.send(
+  officeSend(ws, 
     JSON.stringify({
       type: "cronjobs_state",
       cronjobs: cronjobsFor(cronjobViewerForSession(ws.data.session)),
@@ -5343,7 +5395,7 @@ function pushCronjobDeltaToEachWs(change: CronjobChange) {
       change,
       cronjobViewerForSession(ws.data.session),
     );
-    if (delta) ws.send(JSON.stringify(delta));
+    if (delta) officeSend(ws, JSON.stringify(delta));
   }
 }
 
@@ -5352,7 +5404,7 @@ function pushCronjobRunToEachWs(run: CronjobRun) {
   const facts = cronjobFactsById(run.cronjobId);
   for (const ws of browsers) {
     if (cronjobVisibleTo(facts, cronjobViewerForSession(ws.data.session))) {
-      ws.send(JSON.stringify({ type: "cronjob_run_updated", run }));
+      officeSend(ws, JSON.stringify({ type: "cronjob_run_updated", run }));
     }
   }
 }
@@ -5361,7 +5413,7 @@ function pushCronjobRunEntryToEachWs(entry: LogEntry, jobId: string) {
   const facts = cronjobFactsById(jobId);
   for (const ws of browsers) {
     if (cronjobVisibleTo(facts, cronjobViewerForSession(ws.data.session))) {
-      ws.send(JSON.stringify({ type: "log_entry", entry }));
+      officeSend(ws, JSON.stringify({ type: "log_entry", entry }));
     }
   }
 }
@@ -5578,7 +5630,7 @@ function pushAllRoomsListToOwners() {
   });
   for (const ws of browsers) {
     if (ws.data.session.role === "owner") {
-      ws.send(data);
+      officeSend(ws, data);
     }
   }
 }
@@ -5757,7 +5809,7 @@ function routeAgentEventToWs(
   const session = ws.data.session;
 
   if (sessionHasFullRoomAccess(session)) {
-    ws.send(JSON.stringify(event));
+    officeSend(ws, JSON.stringify(event));
     return;
   }
 
@@ -5765,7 +5817,7 @@ function routeAgentEventToWs(
     case "agent_added": {
       const projected = projectAgentForSession(session, event.agent);
       if (projected) {
-        ws.send(JSON.stringify({ type: "agent_added", agent: projected }));
+        officeSend(ws, JSON.stringify({ type: "agent_added", agent: projected }));
       }
       break;
     }
@@ -5776,7 +5828,7 @@ function routeAgentEventToWs(
       // killed_agent_added right below - a session that couldn't see the
       // room must not learn the id existed.
       if (roomAllowedForSession(session, event.roomId)) {
-        ws.send(JSON.stringify(event));
+        officeSend(ws, JSON.stringify(event));
       }
       break;
     }
@@ -5784,7 +5836,7 @@ function routeAgentEventToWs(
       // ACL: only deliver if the session can see the lastRoomId. A
       // member shouldn't learn a private room's agent died.
       if (roomAllowedForSession(session, event.agent.lastRoomId)) {
-        ws.send(JSON.stringify(event));
+        officeSend(ws, JSON.stringify(event));
       }
       break;
     }
@@ -5792,7 +5844,7 @@ function routeAgentEventToWs(
       // Symmetric ACL with the added variant: a session that never
       // saw the chip shouldn't learn the id became alive again.
       if (roomAllowedForSession(session, event.lastRoomId)) {
-        ws.send(JSON.stringify(event));
+        officeSend(ws, JSON.stringify(event));
       }
       break;
     }
@@ -5807,7 +5859,7 @@ function routeAgentEventToWs(
         sendProjectedFullState(ws, { replayLogsForVisible: true });
       } else if (agentVisibleForSession(session, event.agentId)) {
         // No room change - non-room fields are safe to forward verbatim.
-        ws.send(JSON.stringify(event));
+        officeSend(ws, JSON.stringify(event));
       }
       break;
     }
@@ -5815,7 +5867,7 @@ function routeAgentEventToWs(
       if (roomAllowedForSession(session, event.room.id)) {
         // New room is at the end of the global rooms array → also at
         // the end of this session's visible array. No index shift.
-        ws.send(JSON.stringify(event));
+        officeSend(ws, JSON.stringify(event));
       }
       // If the room is not allowed, the member's visible list is
       // unchanged.
@@ -5830,13 +5882,13 @@ function routeAgentEventToWs(
       // stable), so a visible recipient takes the verbatim delta and a
       // non-visible one drops it.
       if (roomAllowedForSession(session, event.roomId)) {
-        ws.send(JSON.stringify(event));
+        officeSend(ws, JSON.stringify(event));
       }
       break;
     }
     case "log_entry": {
       if (agentVisibleForSession(session, event.entry.agentId)) {
-        ws.send(JSON.stringify(event));
+        officeSend(ws, JSON.stringify(event));
       }
       break;
     }
@@ -5846,14 +5898,14 @@ function routeAgentEventToWs(
     case "terminal_status":
     case "terminal_exit": {
       if (agentVisibleForSession(session, event.agentId)) {
-        ws.send(JSON.stringify(event));
+        officeSend(ws, JSON.stringify(event));
       }
       break;
     }
     case "office_settings_updated":
     case "tasks_changed": {
       // No room scope - everyone sees these.
-      ws.send(JSON.stringify(event));
+      officeSend(ws, JSON.stringify(event));
       break;
     }
   }
@@ -5998,7 +6050,9 @@ async function handleInboundMessage(
   try {
     switch (cmd.type) {
       case "ping":
-        ws.send(JSON.stringify({ type: "pong" }));
+        // Past the outbox: the pong carries no state, and behind a long
+        // replay it would miss the client's heartbeat grace.
+        if (ws.send(JSON.stringify({ type: "pong" })) === 0) ws.terminate();
         break;
       case "lobby_move": {
         if (
@@ -6106,7 +6160,7 @@ async function handleInboundMessage(
           // the same agent.
           const buffer = agentManager.getTerminalBuffer(cmd.agentId);
           if (buffer) {
-            ws.send(
+            officeSend(ws, 
               JSON.stringify({
                 type: "terminal_output",
                 agentId: cmd.agentId,
@@ -6989,7 +7043,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // is per-WS (live-avatars) so the client can identify its OWN
         // ghost in presence_list - same auth session can be running in
         // multiple tabs and each tab has a distinct connectionId.
-        ws.send(
+        officeSend(ws, 
           JSON.stringify({
             type: "session_context",
             context: sessionContextFor(ws.data.session, ws.data.connectionId),
@@ -7000,14 +7054,14 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // full record (user_self_updated) - the now-public users_list can no
         // longer carry the caller's grants/notif/default/view, which the UI
         // needs for the current user.
-        ws.send(
+        officeSend(ws, 
           JSON.stringify({
             type: "users_list",
             users: listUsers().map(toPublicWire),
           }),
         );
         if (ws.data.session.role === "owner") {
-          ws.send(
+          officeSend(ws, 
             JSON.stringify({
               type: "users_admin_list",
               users: listUsers(),
@@ -7016,7 +7070,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
         const selfUserForHydration = getUserById(ws.data.session.userId);
         if (selfUserForHydration) {
-          ws.send(
+          officeSend(ws, 
             JSON.stringify({
               type: "user_self_updated",
               user: selfUserForHydration,
@@ -7026,7 +7080,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             .list(selfUserForHydration.id)
             .then((accounts) => {
               if (browsers.has(ws))
-                ws.send(
+                officeSend(ws, 
                   JSON.stringify({
                     type: "provider_accounts_updated",
                     accounts,
@@ -7035,7 +7089,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             })
             .catch(() => {
               if (browsers.has(ws))
-                ws.send(
+                officeSend(ws, 
                   JSON.stringify({
                     type: "provider_accounts_updated",
                     accounts: [
@@ -7088,7 +7142,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // admin surface (UserSettingsView's Allowed Rooms editor) can
         // grant access to rooms the owner has hidden from their own view.
         if (ws.data.session.role === "owner") {
-          ws.send(
+          officeSend(ws, 
             JSON.stringify({
               type: "all_rooms_list",
               rooms: agentManager.getOrdinaryRooms(),
@@ -7103,36 +7157,25 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // Send update status - always, not only when available: the client
         // needs the mode (and current-version info) even while quiet, and a
         // reconnect after a cleared banner must hydrate the false state.
-        ws.send(
+        officeSend(ws, 
           JSON.stringify({ type: "update_status", ...getUpdateStatus() }),
         );
         // Send cached log history and slash commands for each agent the
         // session can see. agentVisibleForSession short-circuits to true
         // for full-access sessions so the gate is free on the fast path.
+        // The replay ends with its fence, so the client can swap the whole
+        // transcript in at once instead of guessing when the frames stopped.
+        // The fence goes out even when nothing was replayed - "the replay is
+        // empty" is exactly the case a client cannot infer.
         const session = ws.data.session;
-        for (const agent of agentManager.getAllAgents()) {
-          if (!agentVisibleForSession(session, agent.id)) continue;
-          const logs = agentManager.getAgentLogs(agent.id);
-          for (const entry of logs) {
-            ws.send(JSON.stringify({ type: "log_entry", entry }));
-          }
-          const cmds = agentManager.getAgentCommands(agent.id);
-          if (cmds.commands.length > 0 || cmds.skills.length > 0) {
-            ws.send(
-              JSON.stringify({
-                type: "slash_commands",
-                agentId: agent.id,
-                commands: cmds.commands,
-                skills: cmds.skills,
-              }),
-            );
-          }
-        }
-        // Fence the burst: everything cached has now been replayed, so the
-        // client can swap the whole transcript in at once instead of guessing
-        // when the frames stopped. Sent even when nothing was replayed - "the
-        // replay is empty" is exactly the case a client cannot infer.
-        ws.send(JSON.stringify({ type: "log_replay_complete" }));
+        outboxFor(ws).sendLazy(
+          replayFrames(
+            agentManager
+              .getAllAgents()
+              .filter((agent) => agentVisibleForSession(session, agent.id))
+              .map((agent) => agent.id),
+          ),
+        );
         // Live-avatars: send the current presence snapshot (filtered to
         // rooms this session can see) so the new client renders existing
         // ghosts immediately rather than waiting for the next
@@ -7176,6 +7219,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           console.error("Invalid command:", e);
         }
       },
+      // Bun has room again for this socket. Only office sockets queue frames
+      // of their own; the other kinds check their buffer on each send.
+      drain(socket) {
+        if (socket.data.kind !== "office") return;
+        outboxes.get(socket as ServerWebSocket<OfficeWsData>)?.drain();
+      },
       close(socket, code, reason) {
         if (socket.data.kind === "extension") {
           extensionService!.close(socket as ServerWebSocket<ExtensionWsData>);
@@ -7191,6 +7240,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
         const ws = socket as ServerWebSocket<OfficeWsData>;
         browsers.delete(ws);
+        // Disposed, not deleted: a late send to this socket stays a no-op.
+        outboxes.get(ws)?.dispose();
         unregisterSocket(ws.data.session.sessionIdHash, ws);
         // Drop this connection's editor watchers on disconnect (keyed by
         // connectionId now that the editor is REST - a leaked watch leaks a

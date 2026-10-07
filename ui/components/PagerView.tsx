@@ -1,6 +1,7 @@
-// The pager view (internal-docs/pager-design.md, "Pager view"): every page the
-// member can see, open pages first, with ack and resolve. The list is the
-// store's pager slice, which usePagerSync (ui/pager-sync.ts) keeps filled.
+// The pager view (internal-docs/pager-design.md, "Pager view"): every open and
+// acked page the member can see, open pages first, with ack and resolve, and
+// resolved pages one slice at a time ("Load more"). The list is the store's
+// pager slice, which usePagerSync (ui/pager-sync.ts) keeps filled.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
@@ -12,12 +13,17 @@ import type { Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
   ordinaryRooms,
+  PAGER_RESOLVED_SLICE,
   type AppListWire,
   type PagerEntry,
   type PagerState,
 } from "../../shared/types.ts";
 import type { PagerSettingsRes } from "../../shared/contract-shapes.ts";
-import { comparePagerEntries } from "../pager-sync.ts";
+import {
+  comparePagerEntries,
+  resolvedCursor,
+  sliceFull,
+} from "../pager-sync.ts";
 import { PAGER_FAILURE_KEYS } from "./PagerSettingsPane.tsx";
 import { StatusShape } from "./StatusShape.tsx";
 import { appLinkHref } from "./AppsView.tsx";
@@ -116,6 +122,9 @@ export function PagerView({
     pager,
     pagerLoaded,
     pagerLoadFailed,
+    pagerPinnedId,
+    pagerResolvedMore,
+    pagerTrimSeq,
     agents,
     apps,
     appsRevision,
@@ -182,9 +191,20 @@ export function PagerView({
     };
   }, [dispatch, hydrationEpoch, appsReadSeq]);
 
+  // The hydration a read belongs to: a reply from an earlier one is dropped.
+  const epochRef = useRef(hydrationEpoch);
+  useEffect(() => {
+    epochRef.current = hydrationEpoch;
+  }, [hydrationEpoch]);
+
   // The deep link: wait for the first snapshot, then show the page whatever
-  // its state, or say it is not available. A failed load keeps the request
-  // until Retry lands a snapshot.
+  // its state, or say it is not available. A page outside the loaded slices
+  // (an older resolved one) is read by id first. A failed load keeps the
+  // request until Retry lands a snapshot.
+  // `n` tells a repeat read of the same id from the first one.
+  const [lookup, setLookup] = useState<{ id: string; n: number } | null>(
+    null,
+  );
   useEffect(() => {
     if (!selectRequest || !pagerLoaded) return;
     onSelectRequestHandled?.();
@@ -192,7 +212,7 @@ export function PagerView({
     // An external navigation request reconfigures this view.
     /* eslint-disable react-hooks/set-state-in-effect */
     if (!entry) {
-      setUnavailable(true);
+      setLookup({ id: selectRequest.id, n: 0 });
       return;
     }
     setUnavailable(false);
@@ -201,7 +221,85 @@ export function PagerView({
     setExpandedId(entry.id);
     /* eslint-enable react-hooks/set-state-in-effect */
     scrollToRef.current = entry.id;
-  }, [selectRequest, pagerLoaded, pager, onSelectRequestHandled]);
+    // Kept while the view shows it, like a page read by id.
+    dispatch({ type: "pager_pin", id: entry.id });
+  }, [selectRequest, pagerLoaded, pager, onSelectRequestHandled, dispatch]);
+  useEffect(() => {
+    if (lookup === null) return;
+    const lookupId = lookup.id;
+    let live = true;
+    // A reply read before a reconnect is dropped and the page read again, as
+    // a "Load more" reply is dropped: the new snapshot may have removed the
+    // page (an access change).
+    const epoch = epochRef.current;
+    const settle = (entry: PagerEntry | null) => {
+      if (!live) return;
+      if (epoch !== epochRef.current) {
+        setLookup({ id: lookupId, n: lookup.n + 1 });
+        return;
+      }
+      setLookup(null);
+      if (!entry || entry.id !== lookupId) {
+        setUnavailable(true);
+        return;
+      }
+      dispatch({ type: "pager_entry_loaded", entry });
+      setUnavailable(false);
+      setStateFilter("all");
+      setRoomFilter("all");
+      setExpandedId(entry.id);
+      scrollToRef.current = entry.id;
+    };
+    apiFetch<PagerEntry>(
+      "GET",
+      `/api/pager/${encodeURIComponent(lookupId)}`,
+    ).then(settle, () => settle(null));
+    return () => {
+      live = false;
+    };
+  }, [lookup, dispatch]);
+
+  // "Load more": the next older slice of resolved pages. A slice read before
+  // a reconnect is dropped; the new snapshot starts from the newest again.
+  const [loadingMore, setLoadingMore] = useState(false);
+  // The list as of the last render, for a read that outlives the render
+  // that started it.
+  const listRef = useRef({ pager, pagerPinnedId, pagerTrimSeq });
+  useEffect(() => {
+    listRef.current = { pager, pagerPinnedId, pagerTrimSeq };
+  }, [pager, pagerPinnedId, pagerTrimSeq]);
+  async function loadMore() {
+    const epoch = epochRef.current;
+    setLoadingMore(true);
+    try {
+      // A live resolve that drops pages while the read is out makes its
+      // cursor stale: read again from the oldest page still held. A few
+      // tries; past them the button stays for the member.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const { pager: held, pagerPinnedId: pinned, pagerTrimSeq: seq } =
+          listRef.current;
+        const cursor = resolvedCursor(held, pinned);
+        if (cursor === null) return;
+        const entries = await apiFetch<PagerEntry[]>(
+          "GET",
+          `/api/pager?state=resolved&limit=${PAGER_RESOLVED_SLICE}&before=${encodeURIComponent(cursor)}`,
+        );
+        if (epoch !== epochRef.current || !Array.isArray(entries)) return;
+        if (seq !== listRef.current.pagerTrimSeq) continue;
+        dispatch({
+          type: "pager_more_loaded",
+          entries,
+          more: sliceFull(entries),
+          trimSeq: seq,
+        });
+        return;
+      }
+    } catch {
+      // The button stays, so the member can try again.
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   useEffect(() => {
     const id = scrollToRef.current;
@@ -746,6 +844,21 @@ export function PagerView({
             })}
           </ul>
         )}
+        {pagerLoaded &&
+          pagerResolvedMore &&
+          (stateFilter === "resolved" || stateFilter === "all") && (
+            <div style={{ textAlign: "center", marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                data-pager-load-more=""
+                style={actionBtn(loadingMore)}
+              >
+                {t("pager.view.loadMore")}
+              </button>
+            </div>
+          )}
       </div>
     </div>
   );

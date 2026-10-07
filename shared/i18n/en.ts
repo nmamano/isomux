@@ -2560,6 +2560,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "pager.view.settingsLink": "Pager settings",
   "pager.view.loadFailed": "Could not load pages.",
   "pager.view.retry": "Try again",
+  "pager.view.loadMore": "Load more",
   "pager.view.unavailable":
     "That page is not available. It does not exist, or it is in a room you cannot access.",
   "pager.view.appSource": "{name} (app)",

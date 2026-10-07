@@ -903,7 +903,7 @@ export interface PagerTransition {
 }
 
 export interface PagerEntry {
-  id: string; // 8-char hex
+  id: string; // 16-char hex (8-char on pages raised before 2026-10)
   createdAt: number;
   lastRaisedAt: number;
   raiseCount: number;
@@ -921,10 +921,10 @@ export interface PagerEntry {
 }
 
 // Generate a unique 8-char hex ID, avoiding collisions with `existing`.
-function generateHexId(existing?: string[]): string {
+function generateHexId(existing?: string[], byteLength = 4): string {
   const ids = existing ? new Set(existing) : undefined;
   for (;;) {
-    const bytes = new Uint8Array(4);
+    const bytes = new Uint8Array(byteLength);
     crypto.getRandomValues(bytes);
     const id = Array.from(bytes)
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -937,8 +937,26 @@ export function generateTaskId(existing?: string[]): string {
   return generateHexId(existing);
 }
 
+// Resolve order, oldest first: when the page was resolved, then its id. The
+// server archives resolved pages in this order and lists them newest first,
+// and the client's "Load more" cursor is its oldest held page in it, so both
+// sides must use this one comparison.
+export function comparePagerResolve(a: PagerEntry, b: PagerEntry): number {
+  return (
+    (a.resolved?.at ?? 0) - (b.resolved?.at ?? 0) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
+}
+
+// Resolved pages per list read: the server's default, and the view's slice.
+export const PAGER_RESOLVED_SLICE = 50;
+
+// 16 hex characters: a new id is checked only against the pages in memory,
+// and resolved pages leave memory for the archive, so the id itself has to
+// make a collision with an archived page negligible. Older pages keep their
+// 8-character ids.
 export function generatePagerId(existing?: string[]): string {
-  return generateHexId(existing);
+  return generateHexId(existing, 8);
 }
 
 export function generateCronjobId(existing?: string[]): string {

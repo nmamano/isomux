@@ -173,6 +173,7 @@ describe("the deep link", () => {
         type: "pager_loaded",
         entries: [page("p1")],
         revision: h.latest.pagerRevision,
+        more: false,
       }),
     );
     expect(view.container.querySelector(".pager-unavailable")).not.toBeNull();

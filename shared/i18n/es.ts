@@ -2575,6 +2575,7 @@ Cosas que puedes hacer por él:
   "pager.view.settingsLink": "Ajustes de avisos",
   "pager.view.loadFailed": "No se pudieron cargar los avisos.",
   "pager.view.retry": "Reintentar",
+  "pager.view.loadMore": "Cargar más",
   "pager.view.unavailable":
     "Ese aviso no está disponible. No existe o está en una sala a la que no tienes acceso.",
   "pager.view.appSource": "{name} (app)",

@@ -114,6 +114,7 @@ A new view, modeled on the task board (`ui/components/TaskView.tsx`, routed as
 `page === "tasks"` in `ui/App.tsx`):
 
 - Lists all pages the member can see, newest first, with open pages on top.
+  Resolved pages load one slice at a time (see "Storage of resolved pages").
 - Filters: state (default: open and acked) and room.
 - A row shows the title, source and room, age, raise count, state, and delivery
   status.
@@ -122,6 +123,32 @@ A new view, modeled on the task board (`ui/components/TaskView.tsx`, routed as
 - A badge on the view's entry point counts open pages for the member.
 
 Visibility follows room access, the same as tasks.
+
+## Storage of resolved pages
+
+Added 2026-10-07 (task af346c0c). Pages are never deleted (Nil, 2026-10-06),
+but nothing held in memory or sent to clients regularly may grow without
+limit. `pager.json` and the store's memory hold open and acked pages, and
+resolved pages still owed their "resolved" Discord message. A resolved page
+with nothing owed moves to `pager-resolved.jsonl`, one page per line, in
+resolve order: a page whose message is done waits behind an older page whose
+message is still owed, so a move never changes a page's place in a list and
+"Load more" neither skips nor repeats one. A move writes an intent record
+(`pager-resolved.jsonl.move`: the archive's size and the ids), appends with
+fsync, saves `pager.json` without the pages, and clears the record. A crash
+or failed write leaves the record; the next write cuts the archive back to
+the recorded size and moves the pages again, so no page is lost or archived
+twice. A bad archive line is skipped and counted. The previous
+release reads `pager.json` unchanged and does not show archived pages while
+rolled back; they show again after the next update.
+
+`GET /api/pager?state=resolved|all` returns resolved pages in slices
+(`limit`, default 50, max 200; `before=<id>` for the next older slice),
+newest-archived first, after the open and acked pages. The view loads the
+first slice on every hydration and the next on "Load more", and holds at most
+the resolved pages it loaded: a live resolve past that drops the oldest, and
+"Load more" continues from the oldest page it still holds. New page ids are
+16 hex characters, so a new id cannot meet an archived one in practice.
 
 ## Docs to update
 

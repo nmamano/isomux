@@ -101,7 +101,7 @@ describe("pager store: raise and dedupe", () => {
     expect(e.lastRaisedAt).toBe(1000);
     expect(e.raiseCount).toBe(1);
     expect(e.delivery).toEqual({ state: "not_delivered", sends: 0 });
-    expect(e.id).toMatch(/^[0-9a-f]{8}$/);
+    expect(e.id).toMatch(/^[0-9a-f]{16}$/);
     expect(p.saved).toEqual([e]);
     t = 2000;
     expect(store.get(e.id)).toEqual(e);

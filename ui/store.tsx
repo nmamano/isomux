@@ -47,7 +47,11 @@ import type {
   UnavailableEngines,
   UnavailableFeatures,
 } from "../shared/types.ts";
-import { cronjobRunStreamId } from "../shared/types.ts";
+import {
+  comparePagerResolve,
+  cronjobRunStreamId,
+  PAGER_RESOLVED_SLICE,
+} from "../shared/types.ts";
 import {
   type UserView,
   upsertUserView,
@@ -172,6 +176,20 @@ export interface AppState {
   pagerRevision: number;
   // Bumped to ask usePagerSync for a new snapshot: a refused one, or Retry.
   pagerFetchSeq: number;
+  // Resolved pages come in slices (task af346c0c). The list holds at most
+  // this many resolved pages: one slice per read (the snapshot and each "Load
+  // more"). A live resolve past it drops the oldest, and "Load more" brings
+  // them back (PM ruling, 2026-10-07).
+  pagerResolvedAllowance: number;
+  // The page a Discord link opened outside the loaded slices: never dropped,
+  // and not the cursor. Cleared by the next snapshot.
+  pagerPinnedId: string | null;
+  // An older slice may exist: the last one was full, or pages were dropped.
+  pagerResolvedMore: boolean;
+  // Bumped by every drop. A "Load more" read that started before a drop
+  // continued from a page the list may no longer hold, so its slice is
+  // refused and read again from the oldest page still held.
+  pagerTrimSeq: number;
   // The webhooks this viewer may see: its own, those in its rooms, or every
   // hook for an office owner. Fetched by the Webhooks tab (and by a webhook run's view, which
   // links to its hook) and kept fresh by the webhook_upserted /
@@ -371,7 +389,23 @@ type Action =
   | { type: "app_deleted"; name: string }
   // CLIENT-LOCAL (not ServerMessages): usePagerSync dispatches the first three
   // around its GET /api/pager; the view's Retry dispatches pager_refetch.
-  | { type: "pager_loaded"; entries: PagerEntry[]; revision: number }
+  | {
+      type: "pager_loaded";
+      entries: PagerEntry[];
+      revision: number;
+      more: boolean;
+    }
+  // The view's "Load more" (an older slice of resolved pages) and its deep
+  // link to a page outside the loaded slices.
+  | {
+      type: "pager_more_loaded";
+      entries: PagerEntry[];
+      more: boolean;
+      trimSeq: number;
+    }
+  // The page a Discord link opened, wherever it came from.
+  | { type: "pager_pin"; id: string }
+  | { type: "pager_entry_loaded"; entry: PagerEntry }
   | { type: "pager_load_failed" }
   | { type: "pager_refetch" }
   | { type: "pager_upserted"; entry: PagerEntry }
@@ -437,6 +471,25 @@ type Action =
   | { type: "cronjob_run_updated"; run: CronjobRun };
 
 const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
+
+// Keep at most pagerResolvedAllowance resolved pages: drop the oldest in
+// resolve order. Open and acked pages and the pinned link page stay. A drop
+// means "Load more" has pages to bring back.
+function trimResolved(state: AppState): AppState {
+  const resolved = state.pager
+    .filter((e) => e.state === "resolved" && e.id !== state.pagerPinnedId)
+    .sort((a, b) => comparePagerResolve(b, a));
+  if (resolved.length <= state.pagerResolvedAllowance) return state;
+  const dropped = new Set(
+    resolved.slice(state.pagerResolvedAllowance).map((e) => e.id),
+  );
+  return {
+    ...state,
+    pager: state.pager.filter((e) => !dropped.has(e.id)),
+    pagerResolvedMore: true,
+    pagerTrimSeq: state.pagerTrimSeq + 1,
+  };
+}
 
 // Silent fallback for a `log_replay_complete` that never arrives. The one case
 // that actually happens: a UI build goes live on main as soon as it is built,
@@ -1084,7 +1137,33 @@ export function reducer(state: AppState, action: Action): AppState {
         pager: action.entries,
         pagerLoaded: true,
         pagerLoadFailed: false,
+        pagerResolvedAllowance: PAGER_RESOLVED_SLICE,
+        pagerPinnedId: null,
+        pagerResolvedMore: action.more,
       };
+    // Pages already held stay as they are: a delta may have updated them
+    // after the slice was read.
+    case "pager_more_loaded": {
+      if (action.trimSeq !== state.pagerTrimSeq) return state;
+      const held = new Set(state.pager.map((e) => e.id));
+      return {
+        ...state,
+        pager: [...state.pager, ...action.entries.filter((e) => !held.has(e.id))],
+        pagerResolvedAllowance:
+          state.pagerResolvedAllowance + PAGER_RESOLVED_SLICE,
+        pagerResolvedMore: action.more,
+      };
+    }
+    case "pager_pin":
+      return { ...state, pagerPinnedId: action.id };
+    case "pager_entry_loaded":
+      return state.pager.some((e) => e.id === action.entry.id)
+        ? state
+        : {
+            ...state,
+            pager: [...state.pager, action.entry],
+            pagerPinnedId: action.entry.id,
+          };
     case "pager_load_failed":
       return { ...state, pagerLoadFailed: true };
     case "pager_refetch":
@@ -1102,7 +1181,11 @@ export function reducer(state: AppState, action: Action): AppState {
           : state.pager.map((e) =>
               e.id === action.entry.id ? action.entry : e,
             );
-      return { ...state, pager, pagerRevision: state.pagerRevision + 1 };
+      return trimResolved({
+        ...state,
+        pager,
+        pagerRevision: state.pagerRevision + 1,
+      });
     }
     case "webhooks_loaded":
       if (action.revision !== state.webhooksRevision) {
@@ -1425,6 +1508,10 @@ export const initialState: AppState = {
   pagerLoadFailed: false,
   pagerRevision: 0,
   pagerFetchSeq: 0,
+  pagerResolvedAllowance: PAGER_RESOLVED_SLICE,
+  pagerPinnedId: null,
+  pagerResolvedMore: false,
+  pagerTrimSeq: 0,
   webhooks: [],
   webhooksLoaded: false,
   webhooksRevision: 0,

@@ -155,6 +155,10 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
     // but the board takes per-task deltas now - a stale delta would simply stay
     // wrong. Cheap and correct for every message type, so it guards them all.
     if (myGen !== socketGen) return;
+    // Any frame proves the link carries data, which is all the heartbeat
+    // asks. On a slow link the pong can wait behind megabytes of replay in
+    // the socket buffers, longer than PONG_GRACE_MS.
+    clearPongTimer();
     if (e.data instanceof ArrayBuffer) {
       for (const listener of binaryListeners) listener(e.data);
       return;
@@ -165,10 +169,7 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
     try {
       msg = JSON.parse(data) as ServerMessage;
     } catch {}
-    if (msg?.type === "pong") {
-      clearPongTimer();
-      return;
-    }
+    if (msg?.type === "pong") return;
     for (const listener of rawListeners) {
       listener(data);
     }

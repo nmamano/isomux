@@ -17,7 +17,10 @@
 
 import { ok, created, fail, type RouteHandler } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import type { PagerEntry, PagerState } from "../../../shared/types.ts";
+import {
+  PAGER_RESOLVED_SLICE,
+  type PagerEntry,
+} from "../../../shared/types.ts";
 import {
   parseRaiseFields,
   PagerUnavailableError,
@@ -83,6 +86,22 @@ function guarded(handler: RouteHandler): RouteHandler {
   };
 }
 
+// The most resolved pages a caller may ask for in one read (the default is
+// PAGER_RESOLVED_SLICE). Open and acked pages are never limited.
+export const PAGER_RESOLVED_LIMIT_MAX = 200;
+
+// An ack or a resolve of an archived page answers as it did while the page
+// was in memory: it is resolved, so a resolve changes nothing and an ack is
+// refused.
+function archivedAct(
+  entry: PagerEntry,
+  to: "acked" | "resolved",
+): PagerActResult {
+  return to === "resolved"
+    ? { outcome: "unchanged", entry }
+    : { outcome: "already_resolved", entry };
+}
+
 function actResult(result: PagerActResult) {
   switch (result.outcome) {
     case "changed":
@@ -125,6 +144,33 @@ export function pagerHandlers(deps: PagerDeps): Record<string, RouteHandler> {
     if (identity.scope !== "app" || !appName) return null;
     const app = deps.appSource(appName);
     return app ? { appName, ...app } : null;
+  };
+
+  // A page in memory, or else from the archive.
+  const find = async (id: string) => {
+    const entry = deps.store.get(id);
+    if (entry) return { entry, archived: false };
+    const old = await deps.store.findArchived(id);
+    return old ? { entry: old, archived: true } : null;
+  };
+
+  // Ack or resolve the page `found` names, as `identity`.
+  const act = async (
+    found: { entry: PagerEntry; archived: boolean },
+    to: "acked" | "resolved",
+    identity: Identity,
+  ) => {
+    if (found.archived) return actResult(archivedAct(found.entry, to));
+    const id = found.entry.id;
+    const by = deps.actorName(identity);
+    const result =
+      to === "acked" ? deps.store.ack(id, by) : deps.store.resolve(id, by);
+    // The page moved to the archive after it was found.
+    if (result.outcome === "not_found") {
+      const old = await deps.store.findArchived(id);
+      if (old) return actResult(archivedAct(old, to));
+    }
+    return actResult(result);
   };
 
   const handlers: Record<string, RouteHandler> = {
@@ -186,7 +232,7 @@ export function pagerHandlers(deps: PagerDeps): Record<string, RouteHandler> {
     // By id, or by key: an app that restarted may have lost the id, and it
     // has no route to list its pages. A key names the open or acked page
     // from this app with that key; dedupe keeps it to at most one.
-    "pager.appResolve": (ctx) => {
+    "pager.appResolve": async (ctx) => {
       const body = (ctx.body ?? {}) as Record<string, unknown>;
       if (typeof body !== "object" || Array.isArray(body)) {
         return fail(400, "invalid_request", "body must be a JSON object");
@@ -206,12 +252,12 @@ export function pagerHandlers(deps: PagerDeps): Record<string, RouteHandler> {
         e.source.kind === "app" &&
         e.source.appName === app.appName &&
         e.source.registrationGen === app.registrationGen;
-      let entry: PagerEntry | null | undefined;
+      let found: { entry: PagerEntry; archived: boolean } | null | undefined;
       if (hasId) {
         if (typeof body.id !== "string" || body.id.length === 0) {
           return fail(400, "invalid_request", "id must be a non-empty string");
         }
-        entry = deps.store.get(body.id);
+        found = await find(body.id);
       } else {
         if (
           typeof body.key !== "string" ||
@@ -225,19 +271,18 @@ export function pagerHandlers(deps: PagerDeps): Record<string, RouteHandler> {
           );
         }
         const key = body.key;
-        entry = deps.store
+        const entry = deps.store
           .list()
           .find((e) => e.state !== "resolved" && e.key === key && own(e));
+        found = entry ? { entry, archived: false } : null;
       }
-      if (!entry || !own(entry)) {
+      if (!found || !own(found.entry)) {
         return fail(404, "not_found");
       }
-      return actResult(
-        deps.store.resolve(entry.id, deps.actorName(ctx.identity)),
-      );
+      return act(found, "resolved", ctx.identity);
     },
 
-    "pager.list": (ctx) => {
+    "pager.list": async (ctx) => {
       const state = ctx.query.get("state");
       if (state !== null && !LIST_STATES.has(state)) {
         return fail(
@@ -245,6 +290,25 @@ export function pagerHandlers(deps: PagerDeps): Record<string, RouteHandler> {
           "invalid_request",
           "state must be open, acked, resolved or all",
         );
+      }
+      const limitParam = ctx.query.get("limit");
+      const limit =
+        limitParam === null ? PAGER_RESOLVED_SLICE : Number(limitParam);
+      if (
+        limitParam !== null &&
+        (!/^[0-9]+$/.test(limitParam) ||
+          limit < 1 ||
+          limit > PAGER_RESOLVED_LIMIT_MAX)
+      ) {
+        return fail(
+          400,
+          "invalid_request",
+          `limit must be a whole number from 1 to ${PAGER_RESOLVED_LIMIT_MAX}`,
+        );
+      }
+      const before = ctx.query.get("before");
+      if (before !== null && before.length === 0) {
+        return fail(400, "invalid_request", "before must name a page");
       }
       const viewer = deps.viewer(ctx.identity);
       const roomFilter = ctx.query.get("roomId");
@@ -259,50 +323,67 @@ export function pagerHandlers(deps: PagerDeps): Record<string, RouteHandler> {
           return fail(404, "not_found");
         }
       }
-      const wanted = (s: PagerState): boolean =>
-        state === "all"
-          ? true
-          : state === null
-            ? s !== "resolved"
-            : s === state;
-      const entries = deps.store
-        .list()
-        .filter(
-          (e) =>
-            pagerEntryVisible(e, viewer) &&
-            (roomFilter === null || e.source.roomId === roomFilter) &&
-            wanted(e.state),
-        )
-        .sort((a, b) => b.lastRaisedAt - a.lastRaisedAt);
-      return ok(entries);
+      const accept = (e: PagerEntry): boolean =>
+        pagerEntryVisible(e, viewer) &&
+        (roomFilter === null || e.source.roomId === roomFilter);
+      // Open and acked pages: all of them, newest raise first. Resolved
+      // pages: one slice, newest-archived first, after them.
+      const active =
+        state === "resolved"
+          ? []
+          : deps.store
+              .list()
+              .filter(
+                (e) =>
+                  e.state !== "resolved" &&
+                  (state === null || state === "all" || e.state === state) &&
+                  accept(e),
+              )
+              .sort((a, b) => b.lastRaisedAt - a.lastRaisedAt);
+      if (state !== "resolved" && state !== "all") return ok(active);
+      const slice = await deps.store.listResolved({
+        accept,
+        limit,
+        ...(before !== null ? { before } : {}),
+      });
+      // An unknown id and a page the caller cannot see answer alike.
+      if (!slice.ok) {
+        return fail(
+          400,
+          "invalid_request",
+          "before must name a resolved page in this list",
+        );
+      }
+      return ok([...active, ...slice.entries]);
     },
 
-    "pager.get": (ctx) => {
-      const entry = deps.store.get(ctx.params.id);
-      return entry && visible(entry, ctx.identity)
-        ? ok(entry)
+    "pager.get": async (ctx) => {
+      const found = await find(ctx.params.id);
+      return found && visible(found.entry, ctx.identity)
+        ? ok(found.entry)
         : fail(404, "not_found");
     },
 
-    "pager.ack": (ctx) => {
-      const entry = deps.store.get(ctx.params.id);
-      if (!entry || !visible(entry, ctx.identity)) {
+    "pager.ack": async (ctx) => {
+      const found = await find(ctx.params.id);
+      if (!found || !visible(found.entry, ctx.identity)) {
         return fail(404, "not_found");
       }
-      return actResult(deps.store.ack(entry.id, deps.actorName(ctx.identity)));
+      return act(found, "acked", ctx.identity);
     },
 
-    "pager.resolve": (ctx) => {
-      const entry = deps.store.get(ctx.params.id);
+    "pager.resolve": async (ctx) => {
+      const found = await find(ctx.params.id);
       if (
-        !entry ||
-        !(visible(entry, ctx.identity) || isAgentSource(entry, ctx.identity))
+        !found ||
+        !(
+          visible(found.entry, ctx.identity) ||
+          isAgentSource(found.entry, ctx.identity)
+        )
       ) {
         return fail(404, "not_found");
       }
-      return actResult(
-        deps.store.resolve(entry.id, deps.actorName(ctx.identity)),
-      );
+      return act(found, "resolved", ctx.identity);
     },
   };
   return Object.fromEntries(

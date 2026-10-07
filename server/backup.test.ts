@@ -210,6 +210,7 @@ describe("verified backup publication", () => {
     ];
     const kept = [
       "pager.json",
+      "pager-resolved.jsonl",
       "apps/apps.json",
       "apps/app-tokens.json",
       "container-runtime/hello.exit.json",

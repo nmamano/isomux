@@ -2570,6 +2570,7 @@ Coses que pots fer per ell:
   "pager.view.settingsLink": "Configuració dels avisos",
   "pager.view.loadFailed": "No s'han pogut carregar els avisos.",
   "pager.view.retry": "Torna-ho a provar",
+  "pager.view.loadMore": "Carrega’n més",
   "pager.view.unavailable":
     "Aquest avís no està disponible. No existeix o és en una sala a la qual no tens accés.",
   "pager.view.appSource": "{name} (app)",

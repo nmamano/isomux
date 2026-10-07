@@ -41,8 +41,8 @@ export function pageForPath(pathname: string): Page | null {
   }
 }
 
-// The longest id the deep link accepts. Ids are 8 hex characters today; the
-// bound only keeps a pasted URL from carrying junk into the view.
+// The longest id the deep link accepts. Ids are 16 hex characters (8 on older
+// pages); the bound only keeps a pasted URL from carrying junk into the view.
 const PAGER_LINK_ID_MAX = 64;
 
 /**

@@ -255,6 +255,10 @@ function setup(
     state,
     persistence,
     raise,
+    // A page wherever it is now: a resolved page with nothing owed has moved
+    // from memory to the archive.
+    anyPage: async (id: string) =>
+      store.get(id) ?? (await store.findArchived(id)),
     // A restart: the old service stops, a new one boots over the same store.
     restart() {
       svc.stop();
@@ -419,7 +423,10 @@ describe("pager delivery: resolve", () => {
     );
     expect(resolved.allowed_mentions).toEqual({ parse: [] });
     expect(resolved.embeds![0].url).toBe(pagerLink(ORIGIN, page.id));
-    expect(s.store.get(page.id)!.delivery.resolvedNotice).toBe("done");
+    expect((await s.anyPage(page.id))!.delivery.resolvedNotice).toBe("done");
+    // Nothing more is owed, so the page left memory for the archive.
+    expect(s.store.get(page.id)).toBeNull();
+    expect((await s.store.findArchived(page.id))?.state).toBe("resolved");
     await s.time.advance(60 * MIN);
     expect(s.net.calls).toHaveLength(2);
     expect(s.time.pending()).toBe(0);
@@ -454,10 +461,13 @@ describe("pager delivery: resolve", () => {
     s.store.resolve(page.id, "Bot");
     await settle();
     expect(s.net.calls).toHaveLength(0);
-    expect(s.store.get(page.id)!.delivery).toMatchObject({
+    expect((await s.anyPage(page.id))!.delivery).toMatchObject({
       lastFailure: "no_webhook",
       resolvedNotice: "done",
     });
+    // Nothing more is owed, so the page left memory for the archive.
+    expect(s.store.get(page.id)).toBeNull();
+    expect((await s.store.findArchived(page.id))?.state).toBe("resolved");
   });
 
   it("a resolved message refused by Discord is not retried", async () => {
@@ -468,11 +478,14 @@ describe("pager delivery: resolve", () => {
     s.store.resolve(page.id, "Bot");
     await s.time.advance(60 * MIN);
     expect(s.net.calls).toHaveLength(2);
-    expect(s.store.get(page.id)!.delivery).toMatchObject({
+    expect((await s.anyPage(page.id))!.delivery).toMatchObject({
       state: "failed",
       lastFailure: "http_4xx",
       resolvedNotice: "done",
     });
+    // A failed message is done too: the page left memory for the archive.
+    expect(s.store.get(page.id)).toBeNull();
+    expect((await s.store.findArchived(page.id))?.state).toBe("resolved");
   });
 });
 
@@ -495,7 +508,7 @@ describe("pager delivery: races with a send in flight", () => {
     await s.time.advance(GAP);
     expect(s.net.calls).toHaveLength(2);
     expect(s.net.calls[1].body.allowed_mentions).toEqual({ parse: [] });
-    expect(s.store.get(page.id)!.delivery.resolvedNotice).toBe("done");
+    expect((await s.anyPage(page.id))!.delivery.resolvedNotice).toBe("done");
     await s.time.advance(60 * MIN);
     expect(s.net.calls).toHaveLength(2);
   });
@@ -918,7 +931,7 @@ describe("pager delivery: restart", () => {
     expect(s.net.calls[0].body.content).toBe(
       en("pager.discord.resolved", { title: "Saved" }),
     );
-    expect(s.store.get("p1")!.delivery.resolvedNotice).toBe("done");
+    expect((await s.anyPage("p1"))!.delivery.resolvedNotice).toBe("done");
     s.restart();
     await s.time.advance(60 * MIN);
     expect(s.net.calls).toHaveLength(1);

@@ -2305,6 +2305,7 @@ App 的一些原则：
   "pager.view.settingsLink": "呼叫设置",
   "pager.view.loadFailed": "无法加载呼叫。",
   "pager.view.retry": "重试",
+  "pager.view.loadMore": "加载更多",
   "pager.view.unavailable": "该呼叫不可用。它不存在，或位于你无权访问的房间。",
   "pager.view.appSource": "{name}（App）",
   "pager.view.openChat": "打开与 {name} 的对话",

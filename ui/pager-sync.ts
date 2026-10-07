@@ -1,10 +1,40 @@
 // The pager's client half (internal-docs/pager-design.md): the snapshot fetch
-// behind the store's pager slice, and the badge count.
+// behind the store's pager slice, the resolved-page slices, and the badge
+// count.
 
 import { useEffect } from "react";
 import { useAppState, useDispatch } from "./store.tsx";
 import { apiFetch } from "./api.ts";
-import type { PagerEntry } from "../shared/types.ts";
+import {
+  comparePagerResolve,
+  PAGER_RESOLVED_SLICE,
+  type PagerEntry,
+} from "../shared/types.ts";
+
+/** A full slice of resolved pages: an older one may follow. */
+export function sliceFull(entries: readonly PagerEntry[]): boolean {
+  return (
+    entries.filter((e) => e.state === "resolved").length >= PAGER_RESOLVED_SLICE
+  );
+}
+
+/**
+ * Where "Load more" continues: the oldest resolved page the view holds, in
+ * resolve order (the server's order), leaving out a page opened from a
+ * Discord link, which may be far older. The one place the cursor comes from,
+ * so a page the view dropped comes back and none is skipped or repeated.
+ */
+export function resolvedCursor(
+  entries: readonly PagerEntry[],
+  pinnedId: string | null,
+): string | null {
+  let oldest: PagerEntry | null = null;
+  for (const e of entries) {
+    if (e.state !== "resolved" || e.id === pinnedId) continue;
+    if (oldest === null || comparePagerResolve(e, oldest) < 0) oldest = e;
+  }
+  return oldest?.id ?? null;
+}
 
 /**
  * Keep the store's pager slice filled. Mounted once, by App.
@@ -25,14 +55,22 @@ export function usePagerSync(): void {
   useEffect(() => {
     if (hydrationEpoch === 0) return;
     let cancelled = false;
-    apiFetch<PagerEntry[]>("GET", "/api/pager?state=all").then(
+    apiFetch<PagerEntry[]>(
+      "GET",
+      `/api/pager?state=all&limit=${PAGER_RESOLVED_SLICE}`,
+    ).then(
       (entries) => {
         if (cancelled) return;
         // Anything but a list is a failed read: the office bar renders from
         // this slice, so a malformed answer must not reach it.
         dispatch(
           Array.isArray(entries)
-            ? { type: "pager_loaded", entries, revision }
+            ? {
+                type: "pager_loaded",
+                entries,
+                revision,
+                more: sliceFull(entries),
+              }
             : { type: "pager_load_failed" },
         );
       },
