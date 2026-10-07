@@ -28,9 +28,10 @@ when complete. It uses synthetic state and makes no provider login or model turn
 
 With Docker Compose installed, `python3 deploy/container/compose-check.py IMAGE`
 checks the reference command with isolated storage, stop/start persistence,
-resource limits, and missing-directory refusal. `bash deploy/container/check.sh
+resource limits, and missing-directory refusal (skipped on Docker Desktop, which
+creates a missing bind source). `bash deploy/container/check.sh
 COMMIT` builds a throwaway image, runs both checks and removes the image, pass
-or fail. An image built with `build.sh` stays until you remove it. Repeat host mount ordering and
+or fail; `bun run ci` runs it on HEAD. An image built with `build.sh` stays until you remove it. Repeat host mount ordering and
 reboot checks on the target deployment.
 
 Before production use, verify the real AWS deployment: owner claim and invites; required

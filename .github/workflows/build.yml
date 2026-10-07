@@ -102,3 +102,18 @@ jobs:
 
       - name: Build, typecheck and lint the web app
         run: bun run ci:web
+
+  # The `container` stage of `bun run ci`: the release workflow's image build,
+  # smoke and Compose checks, on its amd64 runner.
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build and check the release image
+        run: bash deploy/container/check.sh HEAD

@@ -16,7 +16,8 @@ type StageName =
   | "tsc"
   | "build:ui"
   | "bun test"
-  | "ci:web";
+  | "ci:web"
+  | "container";
 
 type StageResult = {
   name: StageName;
@@ -44,6 +45,10 @@ const stages: Array<{ name: StageName; command: string[] }> = [
   { name: "build:ui", command: ["bun", "run", "build:ui"] },
   { name: "bun test", command: ["bun", "scripts/test-shards.ts"] },
   { name: "ci:web", command: ["bun", "run", "ci:web"] },
+  // The release image check (build, smoke, Compose) on the committed HEAD.
+  // The release workflow runs the same scripts; without this stage they
+  // drifted and two release tags published no image.
+  { name: "container", command: ["bash", "deploy/container/check.sh", "HEAD"] },
 ];
 
 // Twice the latest completed bun test STEP (not the whole battery):
@@ -199,50 +204,55 @@ function printSummary(results: StageResult[], seconds: number): void {
   console.log(`${"total".padEnd(14)} ${seconds.toFixed(2)}s`);
 }
 
+// A usable Docker is a CLI that reaches its daemon.
+export function hasDocker(PATH = process.env.PATH ?? ""): boolean {
+  const docker = Bun.which("docker", { PATH });
+  if (docker === null) return false;
+  return (
+    Bun.spawnSync([docker, "version"], { stdout: "ignore", stderr: "ignore" })
+      .exitCode === 0
+  );
+}
+
 export async function runPipeline(
   stage: (name: StageName) => Promise<StageResult>,
-  skippedTestLog: string,
+  logFor: (name: StageName) => string,
+  docker: boolean,
 ): Promise<StageResult[]> {
+  const skipped = (name: StageName, reason: string): StageResult => {
+    console.log(`↷ ${name} skipped (${reason})`);
+    return { name, log: logFor(name), seconds: 0, status: "skipped", reason };
+  };
   const format = stage("format:check");
   const lint = stage("lint");
   const types = stage("tsc");
   // Only this stage builds the UI/extension archive; tests wait for its result.
   const build = stage("build:ui");
   const web = stage("ci:web");
-  const tests = build.then((result): Promise<StageResult> | StageResult => {
-    if (result.status === "passed") return stage("bun test");
-    console.log("↷ bun test skipped (build:ui failed)");
-    return {
-      name: "bun test",
-      log: skippedTestLog,
-      seconds: 0,
-      status: "skipped",
-      reason: "build:ui failed",
-    };
-  });
-  return Promise.all([format, lint, types, build, tests, web]);
+  // ci:remote and GitHub always have Docker; only a local run can lack it.
+  const container = docker
+    ? stage("container")
+    : skipped("container", "no Docker");
+  const tests = build.then((result): Promise<StageResult> | StageResult =>
+    result.status === "passed"
+      ? stage("bun test")
+      : skipped("bun test", "build:ui failed"),
+  );
+  return Promise.all([format, lint, types, build, tests, web, container]);
 }
 
 async function main(): Promise<void> {
   const logDir = mkdtempSync(join(tmpdir(), "isomux-ci-"));
   process.once("SIGINT", () => stopChildren("SIGINT"));
   process.once("SIGTERM", () => stopChildren("SIGTERM"));
+  const logFor = (name: StageName) =>
+    join(logDir, `${stages.findIndex((entry) => entry.name === name)}.log`);
   const stage = (name: StageName) =>
-    runStage(
-      name,
-      definition(name).command,
-      join(logDir, `${stages.findIndex((entry) => entry.name === name)}.log`),
-    );
+    runStage(name, definition(name).command, logFor(name));
   const started = performance.now();
 
   try {
-    const results = await runPipeline(
-      stage,
-      join(
-        logDir,
-        `${stages.findIndex((entry) => entry.name === "bun test")}.log`,
-      ),
-    );
+    const results = await runPipeline(stage, logFor, hasDocker());
     const seconds = (performance.now() - started) / 1_000;
     const failed = results.filter((result) => result.status === "failed");
 

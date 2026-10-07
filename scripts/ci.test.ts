@@ -1,8 +1,21 @@
 import { afterEach, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BUN_TEST_CEILING_MS, ceilingFor, killStage, runPipeline } from "./ci";
+import {
+  BUN_TEST_CEILING_MS,
+  ceilingFor,
+  hasDocker,
+  killStage,
+  runPipeline,
+} from "./ci";
 
 const roots: string[] = [];
 const descendants: string[] = [];
@@ -200,7 +213,7 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
       status: name === "lint" ? "failed" : "passed",
       exitCode: name === "lint" ? 1 : 0,
     };
-  }, "unused.log");
+  }, () => "unused.log", true);
 
   expect(calls).toEqual([
     "format:check",
@@ -208,6 +221,7 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
     "tsc",
     "build:ui",
     "ci:web",
+    "container",
     "bun test",
   ]);
   expect(concurrent).toBe(true);
@@ -227,14 +241,86 @@ it("skips tests only when the UI build fails", async () => {
       status: name === "build:ui" ? "failed" : "passed",
       exitCode: name === "build:ui" ? 1 : 0,
     };
-  }, "skipped.log");
+  }, (name) => `${name}.skipped.log`, false);
 
   expect(calls).toEqual(["format:check", "lint", "tsc", "build:ui", "ci:web"]);
   expect(results.find((result) => result.name === "bun test")).toEqual({
     name: "bun test",
-    log: "skipped.log",
+    log: "bun test.skipped.log",
     seconds: 0,
     status: "skipped",
     reason: "build:ui failed",
   });
+});
+
+it("waits for a running container stage and reports its failure", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const others = new Set<string>();
+  const pipeline = runPipeline(
+    async (name) => {
+      if (name === "container") await held;
+      else others.add(name);
+      return {
+        name,
+        log: `${name}.log`,
+        seconds: 0,
+        status: name === "container" ? "failed" : "passed",
+        exitCode: name === "container" ? 1 : 0,
+      };
+    },
+    () => "unused.log",
+    true,
+  );
+  let settled = false;
+  void pipeline.then(() => (settled = true));
+  while (others.size < 6) await Bun.sleep(1);
+  await Bun.sleep(5);
+  expect(settled).toBe(false);
+
+  release();
+  const results = await pipeline;
+  expect(results.find((result) => result.name === "container")?.status).toBe(
+    "failed",
+  );
+});
+
+it("skips the container stage, without failing, when Docker is absent", async () => {
+  const calls: string[] = [];
+  const results = await runPipeline(
+    async (name) => {
+      calls.push(name);
+      return { name, log: `${name}.log`, seconds: 0, status: "passed" };
+    },
+    (name) => `${name}.skipped.log`,
+    false,
+  );
+
+  expect(calls).not.toContain("container");
+  expect(calls).toContain("bun test");
+  const container = results.find((result) => result.name === "container");
+  expect(container?.status).toBe("skipped");
+  expect(container?.log).toBe("container.skipped.log");
+  expect(results.filter((result) => result.status === "failed")).toEqual([]);
+});
+
+it("counts Docker as present only when its CLI reaches the daemon", () => {
+  // A docker stand-in whose `docker version` exits with STATUS.
+  const stub = (status: number) => {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-ci-docker-"));
+    roots.push(dir);
+    const docker = join(dir, "docker");
+    writeFileSync(
+      docker,
+      `#!/bin/sh\n[ "$1" = version ] && exit ${status}\nexit 9\n`,
+    );
+    chmodSync(docker, 0o755);
+    return dir;
+  };
+  const empty = mkdtempSync(join(tmpdir(), "isomux-ci-docker-"));
+  roots.push(empty);
+
+  expect(hasDocker(empty)).toBe(false);
+  expect(hasDocker(stub(1))).toBe(false);
+  expect(hasDocker(stub(0))).toBe(true);
 });

@@ -17,10 +17,12 @@
 # instead. A red from the remote never falls back.
 #
 # The remote needs git, curl, unzip, flock, jq, a working `docker compose`
-# and a user systemd manager; it needs no sudo. Everything it keeps lives in
+# and a user systemd manager; it needs no sudo. It keeps
 # ~/.cache/isomux-ci-remote: a bare repo, the pinned node, bun and Postgres,
 # and the bun package cache. A run's checkout, HOME, TMPDIR and database live
-# in runs/<id> there and are deleted when the run ends.
+# in runs/<id> there and are deleted when the run ends. The container stage
+# removes its image but leaves Docker build cache in the daemon, which
+# BuildKit's garbage collection bounds.
 set -uo pipefail
 
 NODE_VERSION=v24.19.0

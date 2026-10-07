@@ -88,8 +88,16 @@ volumes:
             foreground = None
         print(f"PASS Compose foreground startup, stop, replay, limits, and retained data ({architecture})", flush=True)
         run("down", "--volumes")
-        missing = Path(temporary) / "absent-data"
-        override.write_text(f"""services:
+        engine = subprocess.run(["docker", "info", "--format", "{{.OperatingSystem}}"],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        if engine.startswith("Docker Desktop"):
+            # Docker Desktop creates a missing bind source despite
+            # create_host_path: false. Compose is supported on Docker Engine,
+            # where GitHub and the release workflow run this check.
+            print("SKIP Compose missing data source refusal: Docker Desktop creates bind sources", flush=True)
+        else:
+            missing = Path(temporary) / "absent-data"
+            override.write_text(f"""services:
   office:
 {platform}    network_mode: none
     ports: !reset []
@@ -100,9 +108,9 @@ volumes:
         bind:
           create_host_path: false
 """)
-        failed = run("up", "-d", "--no-build", "--pull", "never", check=False)
-        assert failed.returncode != 0 and not missing.exists()
-        print("PASS Compose refuses a missing data source", flush=True)
+            failed = run("up", "-d", "--no-build", "--pull", "never", check=False)
+            assert failed.returncode != 0 and not missing.exists()
+            print("PASS Compose refuses a missing data source", flush=True)
     finally:
         run("down", "--volumes", "--timeout", "30", check=False)
         if foreground is not None:
