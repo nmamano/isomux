@@ -13,7 +13,7 @@ import {
   DEFAULT_EFFORT,
   MODEL_FAMILIES,
   OPENCODE_DEFAULT_MODEL,
-  claudeFamilySupportsAutoPermission,
+  claudePermissionModeFor,
   effortLevelsFor,
 } from "./types.ts";
 import { preferredFreeOpenCodeModel } from "./opencode-model.ts";
@@ -417,14 +417,10 @@ export function resolveTemplatePermission(
   engine: AgentBackendType,
   modelFamily: string,
   current: AgentPermissionMode,
+  limited: readonly string[] = [],
 ): AgentPermissionMode {
-  if (
-    engine === "claude" &&
-    current === "auto" &&
-    !claudeFamilySupportsAutoPermission(modelFamily)
-  )
-    return "bypassPermissions";
-  return current;
+  if (engine !== "claude") return current;
+  return claudePermissionModeFor(modelFamily, current, limited);
 }
 
 function clampEffort(
@@ -449,6 +445,7 @@ export function resolveTemplateModel(
   current: TemplateModelResolution,
   backendModels: BackendModelWire[] | null,
   modelsFailed: boolean,
+  limited: readonly string[] = [],
 ): TemplateModelResolution {
   if (engine === "claude") {
     const available = new Set<string>(MODEL_FAMILIES.map((m) => m.family));
@@ -459,7 +456,7 @@ export function resolveTemplateModel(
       (available.has(current.modelFamily)
         ? current.modelFamily
         : MODEL_FAMILIES[0].family);
-    const supported = effortLevelsFor("claude", modelFamily).map(
+    const supported = effortLevelsFor("claude", modelFamily, limited).map(
       (option) => option.level,
     );
     return {
@@ -519,6 +516,7 @@ export function templateFormValues(
   current: TemplateFormBaseline,
   backendModels: BackendModelWire[] | null,
   modelsFailed: boolean,
+  limited: readonly string[] = [],
 ): TemplateFormValues {
   return {
     // Resolve at pick time; stored instructions are not retranslated.
@@ -531,6 +529,7 @@ export function templateFormValues(
       current,
       backendModels,
       modelsFailed,
+      limited,
     ),
   };
 }
@@ -541,6 +540,7 @@ export function templateEngineValues(
   current: TemplateFormBaseline,
   backendModels: BackendModelWire[] | null,
   modelsFailed: boolean,
+  limited: readonly string[] = [],
 ): Pick<TemplateFormValues, "modelFamily" | "effort" | "permissionMode"> {
   const model = resolveTemplateModel(
     template,
@@ -548,6 +548,7 @@ export function templateEngineValues(
     current,
     backendModels,
     modelsFailed,
+    limited,
   );
   return {
     ...model,
@@ -558,6 +559,7 @@ export function templateEngineValues(
             engine,
             model.modelFamily,
             current.permissionMode,
+            limited,
           ),
   };
 }

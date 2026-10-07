@@ -79,6 +79,27 @@ export function isClaudeCloudSelected(env: {
   );
 }
 
+// Claude families that run an older model without effort and Auto in this
+// environment. Claude Code 2.1.293 (bundled SDK 0.3.293), checked 2026-10-07:
+// on Bedrock and Vertex the sonnet and haiku aliases resolve to Sonnet 4.5 and
+// Haiku 4.5. Only ANTHROPIC_DEFAULT_<FAMILY>_MODEL moves an alias, and the CLI
+// gives a pinned id effort and Auto when it names a model below in any case.
+// Any other pin stays limited here.
+const CLOUD_PIN_TAKES_EFFORT_AND_AUTO = [
+  ["sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-5"],
+  ["haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-5-5"],
+] as const;
+
+export function limitedClaudeFamilies(env: {
+  [key: string]: string | undefined;
+}): string[] {
+  if (!isClaudeCloudSelected(env)) return [];
+  return CLOUD_PIN_TAKES_EFFORT_AND_AUTO.filter(
+    ([, variable, model]) =>
+      !(env[variable]?.toLowerCase() ?? "").includes(model),
+  ).map(([family]) => family);
+}
+
 export type ClaudeSignInState = "signed_in" | "signed_out" | "unknown";
 
 type Env = { [key: string]: string | undefined };

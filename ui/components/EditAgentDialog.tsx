@@ -16,6 +16,7 @@ import {
   CODEX_MODELS,
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
+  claudePermissionModeFor,
   familyDisplayLabel,
 } from "../../shared/types.ts";
 import { roomSlotCount } from "../../shared/desks.ts";
@@ -98,31 +99,34 @@ export function agentEngineSwitchChanges(
   };
 }
 
+const NO_LIMITED_FAMILIES: readonly string[] = [];
+
+// The mode the dialog shows: the one the agent runs with, so a stored Auto on
+// a limited family shows as Ask.
 export function initialPermissionModeFor(
   agent: AgentInfo | undefined,
   engine: AgentBackendType,
+  limited: readonly string[] = [],
 ): AgentInfo["permissionMode"] {
   if (engine === "codex") {
     return agent?.permissionMode ?? codexNewEngineDefaults().permissionMode;
   }
   if (engine === "opencode")
     return agent?.permissionMode ?? "bypassPermissions";
-  if (
-    agent?.permissionMode === "auto" &&
-    !claudeFamilySupportsAutoPermission(
-      agent.modelFamily ?? MODEL_FAMILIES[0].family,
-    )
-  ) {
-    return "bypassPermissions";
-  }
-  return agent?.permissionMode ?? "auto";
+  return claudePermissionModeFor(
+    agent?.modelFamily ?? MODEL_FAMILIES[0].family,
+    agent?.permissionMode ?? "auto",
+    limited,
+  );
 }
 
+// Measured against the mode the dialog opened with, so an unrelated save
+// never rewrites a stored mode the dialog showed differently.
 export function permissionModeChangeForEdit(
-  persisted: AgentInfo["permissionMode"],
+  shown: AgentInfo["permissionMode"],
   current: AgentInfo["permissionMode"],
 ): Pick<EditAgentReq, "permissionMode"> {
-  return persisted === current ? {} : { permissionMode: current };
+  return shown === current ? {} : { permissionMode: current };
 }
 
 export function templateValuesAfterEngineSwitch(
@@ -130,6 +134,7 @@ export function templateValuesAfterEngineSwitch(
   targetEngine: AgentBackendType,
   backendModels: BackendModelWire[] | null,
   modelsFailed: boolean,
+  limited: readonly string[] = [],
 ): Pick<
   ReturnType<typeof templateEngineValues>,
   "modelFamily" | "effort" | "permissionMode"
@@ -158,6 +163,7 @@ export function templateValuesAfterEngineSwitch(
     targetDefaults,
     backendModels,
     modelsFailed,
+    limited,
   );
 }
 
@@ -307,7 +313,19 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
     agent?.codexSandbox ?? codexNewEngineDefault.codexSandbox,
   );
-  const initialPermissionMode = initialPermissionModeFor(agent, targetEngine);
+  // Claude families without effort and Auto (Bedrock or Vertex) in the env
+  // the agent runs with: the member's own at spawn (session_context), the
+  // agent manager's at edit (the agent record). The server re-sends both when
+  // office or personal variables are saved.
+  const limited =
+    (agent
+      ? agent.limitedClaudeFamilies
+      : sessionContext?.limitedClaudeFamilies) ?? NO_LIMITED_FAMILIES;
+  const initialPermissionMode = initialPermissionModeFor(
+    agent,
+    targetEngine,
+    limited,
+  );
   const [permissionMode, setPermissionMode] = useState<
     AgentInfo["permissionMode"]
   >(initialPermissionMode);
@@ -370,6 +388,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     targetEngine,
     modelFamily,
     backendModels,
+    limited,
   );
 
   // What "unsaved" is measured against. Seeded from the same
@@ -396,6 +415,28 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // those writes invisible to the very comparison they exist for.
   const baselineRef = useRef<AgentFormSnapshot | null>(null);
   if (baselineRef.current === null) baselineRef.current = { ...formSnapshot };
+  // The limited families can change while the dialog is open. An untouched
+  // mode follows the new shown mode; a picked Auto the family lost becomes Ask.
+  const limitedRef = useRef(limited);
+  const limitedKey = limited.join(",");
+  useEffect(() => {
+    const before = limitedRef.current;
+    limitedRef.current = limited;
+    if (before.join(",") === limitedKey || targetEngine !== "claude") return;
+    const shownBefore = initialPermissionModeFor(agent, targetEngine, before);
+    const follow = (mode: AgentInfo["permissionMode"]) =>
+      claudePermissionModeFor(
+        modelFamily,
+        mode === shownBefore ? initialPermissionMode : mode,
+        limited,
+      );
+    setPermissionMode(follow);
+    if (baselineRef.current)
+      baselineRef.current.permissionMode = follow(
+        baselineRef.current.permissionMode,
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limitedKey]);
   // The blank text/outfit values are mount-time values. Model, effort, and
   // permission are deliberately excluded because Codex refines those defaults
   // asynchronously and records the valid result in baselineRef.
@@ -423,6 +464,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       { modelFamily, effort, permissionMode },
       backendModels,
       modelsError !== null,
+      limited,
     );
     if (template.key === RECEPTIONIST_PROFILE_KEY) {
       setCwd("~");
@@ -634,6 +676,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             targetEngine,
             r.models,
             false,
+            limited,
           );
           setModelFamily(values.modelFamily);
           setEffort(values.effort);
@@ -751,7 +794,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       seed = {
         modelFamily: claudeDefault,
         effort: DEFAULT_EFFORT,
-        permissionMode: claudeFamilySupportsAutoPermission(claudeDefault)
+        permissionMode: claudeFamilySupportsAutoPermission(
+          claudeDefault,
+          limited,
+        )
           ? "auto"
           : "default",
       };
@@ -767,6 +813,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         targetEngine,
         null,
         false,
+        limited,
       );
       seed.modelFamily = values.modelFamily;
       seed.effort = values.effort;
@@ -887,9 +934,19 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         if (modelFamily !== agent!.modelFamily)
           changes.modelFamily = modelFamily;
         if (effort !== agent!.effort) changes.effort = effort;
+        // Measured against what the stored mode shows as on the SELECTED
+        // family: a stored Auto shown as Ask on a limited family must be sent
+        // when the member keeps Ask and moves to a family with Auto.
         Object.assign(
           changes,
-          permissionModeChangeForEdit(agent!.permissionMode, permissionMode),
+          permissionModeChangeForEdit(
+            initialPermissionModeFor(
+              { ...agent!, modelFamily },
+              targetEngine,
+              limited,
+            ),
+            permissionMode,
+          ),
         );
         if (
           isCodex &&
@@ -1008,15 +1065,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   cancelPendingTemplateModelResolution();
                   const next = e.target.value;
                   setModelFamily(next);
+                  if (!isCodex)
+                    setPermissionMode(
+                      claudePermissionModeFor(next, permissionMode, limited),
+                    );
                   if (
                     !isCodex &&
-                    !claudeFamilySupportsAutoPermission(next) &&
-                    permissionMode === "auto"
-                  )
-                    setPermissionMode("bypassPermissions");
-                  if (
-                    !isCodex &&
-                    !claudeFamilySupportsMaxEffort(next) &&
+                    !claudeFamilySupportsMaxEffort(next, limited) &&
                     effort === "max"
                   )
                     // Same coercion target the server's validateEffort uses
@@ -1263,7 +1318,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             </>
           ) : (
             <>
-              {claudeFamilySupportsAutoPermission(modelFamily) && (
+              {claudeFamilySupportsAutoPermission(modelFamily, limited) && (
                 <option value="auto">
                   {t("dialogs.agent.permission.claudeAuto")}
                 </option>

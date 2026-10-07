@@ -26,9 +26,13 @@ import {
   type EffortLevel,
 } from "../shared/types.ts";
 
+// A Claude family limited in the agent's environment (limitedClaudeFamilies)
+// has no Auto: auto, and the auto fallback, become default, the stricter mode.
 export function validatePermissionMode(
   agentType: AgentBackendType,
   raw: AgentPermissionMode | undefined,
+  modelFamily = "",
+  limited: readonly string[] = [],
 ): AgentPermissionMode {
   if (agentType === "codex") {
     // "on-failure" is deprecated in codex 0.130 (warns on use); migrate
@@ -42,14 +46,10 @@ export function validatePermissionMode(
     if (raw === "default" || raw === "bypassPermissions") return raw;
     return "bypassPermissions";
   }
-  if (
-    raw === "default" ||
-    raw === "acceptEdits" ||
-    raw === "bypassPermissions" ||
-    raw === "auto"
-  )
+  const auto = limited.includes(modelFamily) ? "default" : "auto";
+  if (raw === "default" || raw === "acceptEdits" || raw === "bypassPermissions")
     return raw;
-  return "auto";
+  return auto;
 }
 
 export function validateModelFamily(
@@ -249,12 +249,18 @@ export function resolveAgentEngineSettings(
     permissionMode?: AgentPermissionMode;
     codexSandbox?: CodexSandboxMode;
   },
+  limited: readonly string[] = [],
 ) {
   const modelFamily = validateModelFamily(agentType, raw.modelFamily);
   return {
     modelFamily,
-    effort: validateEffort(agentType, modelFamily, raw.effort),
-    permissionMode: validatePermissionMode(agentType, raw.permissionMode),
+    effort: validateEffort(agentType, modelFamily, raw.effort, limited),
+    permissionMode: validatePermissionMode(
+      agentType,
+      raw.permissionMode,
+      modelFamily,
+      limited,
+    ),
     codexSandbox:
       agentType === "codex"
         ? (validateCodexSandbox(raw.codexSandbox) ?? "danger-full-access")
@@ -266,6 +272,7 @@ export function validateEffort(
   agentType: AgentBackendType,
   modelFamily: string,
   raw: EffortLevel | undefined,
+  limited: readonly string[] = [],
 ): EffortLevel {
   if (agentType === "codex") {
     // Pass-through for Codex: the per-model supportedReasoningEfforts from
@@ -285,7 +292,7 @@ export function validateEffort(
   // the CLI ignores effort on such a family, so rewriting it would change
   // nothing but the record.
   if (raw === "minimal" || raw === "ultra") return DEFAULT_EFFORT;
-  if (raw === "max" && !claudeFamilySupportsMaxEffort(modelFamily))
+  if (raw === "max" && !claudeFamilySupportsMaxEffort(modelFamily, limited))
     return DEFAULT_EFFORT;
   return raw;
 }

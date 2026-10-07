@@ -210,6 +210,7 @@ import { OfficeState } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import {
   buildEnvForUserId,
+  limitedClaudeFamiliesForUserId,
   environmentSourceKeyForUserId,
   environmentSourceRevisionForUserId,
   setOfficeEnvFileProvider,
@@ -1336,16 +1337,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (changes.outfit) validated.outfit = changes.outfit;
     if (changes.customInstructions !== undefined)
       validated.customInstructions = changes.customInstructions;
-    if (changes.permissionMode) {
-      validated.permissionMode = validatePermissionMode(
-        managed.info.agentType,
-        changes.permissionMode,
-      );
-    }
     if (changes.modelFamily) {
       validated.modelFamily = validateModelFamily(
         managed.info.agentType,
         changes.modelFamily,
+      );
+    }
+    // Families limited in the agent owner's env; mode and effort are checked
+    // against the post-update modelFamily.
+    const limited = limitedClaudeFamiliesForUserId(managed.info.userId);
+    if (changes.permissionMode) {
+      validated.permissionMode = validatePermissionMode(
+        managed.info.agentType,
+        changes.permissionMode,
+        validated.modelFamily ?? managed.info.modelFamily,
+        limited,
       );
     }
     if (changes.codexSandbox && managed.info.agentType === "codex") {
@@ -1361,6 +1367,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.info.agentType,
         targetModelFamily,
         changes.effort,
+        limited,
       );
     }
     // Cross-update sanitization: if modelFamily changed but effort wasn't part
@@ -1372,6 +1379,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.info.agentType,
         validated.modelFamily,
         managed.info.effort,
+        limited,
       );
     }
 
@@ -2163,6 +2171,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       agentType,
       ...(codexSandbox ? { codexSandbox } : {}),
       capabilities: getBackend(agentType).capabilities,
+      limitedClaudeFamilies: limitedClaudeFamiliesForUserId(userId),
       userId,
       username: p.username ?? null,
       privileged: p.privileged ?? false,
@@ -5206,6 +5215,25 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ...(base ?? getAgentHost().baseEnv()), ISOMUX_AGENT_TOKEN: token };
   }
 
+  // Re-derive each agent's limitedClaudeFamilies after office variables
+  // (userId undefined: every agent) or one member's personal variables were
+  // saved, and send the agents whose list changed.
+  function refreshLimitedClaudeFamilies(userId?: string): void {
+    for (const [agentId, managed] of agents) {
+      if (userId !== undefined && managed.info.userId !== userId) continue;
+      const limited = limitedClaudeFamiliesForUserId(managed.info.userId);
+      if (
+        (managed.info.limitedClaudeFamilies ?? []).join(",") ===
+        limited.join(",")
+      )
+        continue;
+      for (const event of officeState.updateAgent(agentId, {
+        limitedClaudeFamilies: limited,
+      }))
+        emit(event);
+    }
+  }
+
   function claudeConfigDirFor(managed: ManagedAgent): string {
     return (
       buildSessionEnv(managed)?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude")
@@ -5532,17 +5560,22 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // mismatched modelFamily with 422 invalid_model_family BEFORE this runs -
     // the coercion here is a last-resort default for internal callers (welcome
     // seed, tests), not input laundering for the API surface.
+    // Prefer the supplied userId. For legacy callers that only pass username,
+    // resolve via getUserByName so the spawned agent gets a stable userId even
+    // if the caller hasn't been migrated.
+    const ownerId =
+      userId ?? (username ? (getUserByName(username)?.id ?? null) : null);
+    const limited = limitedClaudeFamiliesForUserId(ownerId);
     const {
       permissionMode: validatedPermissionMode,
       modelFamily: validatedModelFamily,
       effort: validatedEffort,
       codexSandbox: validatedCodexSandbox,
-    } = resolveAgentEngineSettings(agentType, {
-      permissionMode,
-      modelFamily,
-      effort,
-      codexSandbox,
-    });
+    } = resolveAgentEngineSettings(
+      agentType,
+      { permissionMode, modelFamily, effort, codexSandbox },
+      limited,
+    );
 
     // Funnel AgentInfo construction through OfficeState so the literal lives in
     // one place. Suppress persistAll during the inner emitEvents - at that point
@@ -5566,13 +5599,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         effort: validatedEffort,
         agentType,
         codexSandbox: validatedCodexSandbox,
-        // Prefer the supplied userId. For legacy callers that only pass
-        // username, resolve via getUserByName so the spawned agent gets a
-        // stable userId even if the caller hasn't been migrated.
-        userId:
-          userId ?? (username ? (getUserByName(username)?.id ?? null) : null),
+        userId: ownerId,
         username,
         capabilities: getBackend(agentType).capabilities,
+        limitedClaudeFamilies: limited,
       });
     } finally {
       officeStatePersistenceEnabled = true;
@@ -5775,6 +5805,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getStorageUsage: () => measureStorageCached(productionStorageRoots()),
     userSkillRootsFor,
     claudeConfigDirFor,
+    limitedClaudeFamiliesFor: (managed) =>
+      limitedClaudeFamiliesForUserId(managed.info.userId),
   });
 
   // === Message queue ===
@@ -7679,6 +7711,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const effortLevels = effortLevelsFor(
         managed.info.agentType,
         managed.info.modelFamily,
+        limitedClaudeFamiliesForUserId(managed.info.userId),
       );
       const selectedEffort = effortLevels.find(
         (effort) => effort.level === claimedChoice.value,
@@ -8717,6 +8750,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const resolved = resolveAgentEngineSettings(
           targetAgentType,
           engineOverrides ?? {},
+          limitedClaudeFamiliesForUserId(managed.info.userId),
         );
         for (const event of officeState.updateAgent(agentId, {
           agentType: targetAgentType,
@@ -9941,6 +9975,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     resolveEditorPathForAgent,
     validateCwd,
     buildEnvForUserId,
+    refreshLimitedClaudeFamilies,
     buildOpenCodeLaunchEnvironmentForUserId,
     environmentSourceKeyForUserId,
     environmentSourceRevisionForUserId,

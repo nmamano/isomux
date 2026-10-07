@@ -987,10 +987,11 @@ describe("createClaudeBackend.oneShotPrompt", () => {
   });
 });
 
-describe("createClaudeBackend - haiku on Bedrock and Vertex", () => {
-  // The cloud haiku alias still resolves to Haiku 4.5, so haiku keeps its
-  // behavior from before Haiku 5.5 there: no effort, and auto runs as
-  // bypassPermissions. First-party haiku and other cloud families keep both.
+describe("createClaudeBackend - limited families on Bedrock and Vertex", () => {
+  // The cloud sonnet and haiku aliases resolve to Sonnet 4.5 and Haiku 4.5,
+  // which take no effort and no auto mode: no effort goes out, and auto runs
+  // as default, never bypassPermissions. A 5.x pin, first-party, and the
+  // other families keep both.
   function launch(
     modelFamily: string,
     permissionMode: string,
@@ -999,7 +1000,7 @@ describe("createClaudeBackend - haiku on Bedrock and Vertex", () => {
     const fake = new FakeSdkClient();
     const backend = createClaudeBackend(fake);
     const opts = {
-      agentId: "cloud-haiku",
+      agentId: "cloud-agent",
       modelFamily,
       env,
       cwd: "/tmp",
@@ -1012,44 +1013,64 @@ describe("createClaudeBackend - haiku on Bedrock and Vertex", () => {
     return [fake.createCalls[0].opts, fake.resumeCalls[0].opts];
   }
 
+  function expectLimited(opts: ReturnType<typeof launch>[number]) {
+    expect(opts.effort).toBeUndefined();
+    expect(opts.permissionMode).toBe("default");
+    expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
+  }
+
+  function expectFull(opts: ReturnType<typeof launch>[number]) {
+    expect(opts.effort).toBe("high");
+    expect(opts.permissionMode).toBe("auto");
+    expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
+  }
+
   for (const selector of [
     "CLAUDE_CODE_USE_BEDROCK",
     "CLAUDE_CODE_USE_VERTEX",
   ]) {
     const cloud = { [selector]: "1" };
 
-    it(`sends no effort and runs auto as bypassPermissions for ${selector}`, () => {
-      for (const opts of launch("haiku", "auto", cloud)) {
-        expect(opts.effort).toBeUndefined();
-        expect(opts.permissionMode).toBe("bypassPermissions");
-        expect(opts.allowDangerouslySkipPermissions).toBe(true);
-      }
+    for (const family of ["haiku", "sonnet"]) {
+      it(`sends no effort and runs auto as default for ${family} on ${selector}`, () => {
+        for (const opts of launch(family, "auto", cloud)) expectLimited(opts);
+      });
+
+      it(`keeps a non-auto ${family} mode on ${selector}`, () => {
+        for (const opts of launch(family, "bypassPermissions", cloud)) {
+          expect(opts.effort).toBeUndefined();
+          expect(opts.permissionMode).toBe("bypassPermissions");
+          expect(opts.allowDangerouslySkipPermissions).toBe(true);
+        }
+      });
+    }
+
+    it(`keeps effort and auto for a pinned Haiku 5.5 on ${selector}`, () => {
+      const env = {
+        ...cloud,
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "us.anthropic.claude-haiku-5-5",
+      };
+      for (const opts of launch("haiku", "auto", env)) expectFull(opts);
     });
 
-    it(`keeps a non-auto haiku mode for ${selector}`, () => {
-      for (const opts of launch("haiku", "default", cloud)) {
-        expect(opts.effort).toBeUndefined();
-        expect(opts.permissionMode).toBe("default");
-        expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
-      }
+    it(`keeps effort and auto for a pinned Sonnet 5.x on ${selector}`, () => {
+      const env = { ...cloud, ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5" };
+      for (const opts of launch("sonnet", "auto", env)) expectFull(opts);
     });
 
-    it(`keeps effort and auto for sonnet for ${selector}`, () => {
-      for (const opts of launch("sonnet", "auto", cloud)) {
-        expect(opts.effort).toBe("high");
-        expect(opts.permissionMode).toBe("auto");
-        expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
-      }
-    });
+    for (const family of ["opus", "fable"]) {
+      it(`keeps effort and auto for ${family} on ${selector}`, () => {
+        for (const opts of launch(family, "auto", cloud)) expectFull(opts);
+      });
+    }
   }
 
-  it("keeps effort and auto for first-party haiku", () => {
-    for (const opts of launch("haiku", "auto", { FOO: "bar" })) {
-      expect(opts.effort).toBe("high");
-      expect(opts.permissionMode).toBe("auto");
-      expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
-    }
-  });
+  for (const family of ["haiku", "sonnet"]) {
+    it(`keeps effort and auto for first-party ${family}`, () => {
+      for (const opts of launch(family, "auto", { FOO: "bar" }))
+        expectFull(opts);
+    });
+  }
 });
 
 describe("createClaudeBackend.createSession/resumeSession - SDK option shape", () => {

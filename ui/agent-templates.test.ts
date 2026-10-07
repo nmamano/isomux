@@ -12,6 +12,7 @@ import {
 } from "../shared/outfit-options.ts";
 import {
   CODEX_MODELS,
+  DEFAULT_EFFORT,
   MODEL_FAMILIES,
   effortLevelsFor,
 } from "../shared/types.ts";
@@ -317,6 +318,30 @@ describe("resolveTemplateModel", () => {
     );
     expect(result).toEqual({ modelFamily: "haiku", effort: "low" });
   });
+
+  it("picks the default effort for a haiku template where haiku is limited", () => {
+    const changed = {
+      ...template,
+      recommendations: {
+        ...template.recommendations,
+        claude: {
+          preferredFamilies: ["haiku"],
+          desiredEffort: "low" as const,
+        },
+      },
+    };
+    const result = resolveTemplateModel(
+      changed,
+      "claude",
+      { modelFamily: "opus", effort: "medium" },
+      null,
+      false,
+      ["haiku"],
+    );
+    // No level applies, so the effort is the default a family without effort
+    // levels gets.
+    expect(result).toEqual({ modelFamily: "haiku", effort: DEFAULT_EFFORT });
+  });
 });
 
 describe("resolveTemplatePermission", () => {
@@ -336,6 +361,18 @@ describe("resolveTemplatePermission", () => {
         "gate/gate-model",
         "bypassPermissions",
       ),
+    ).toBe("bypassPermissions");
+  });
+
+  it("turns auto into default, not bypass, for a limited family", () => {
+    expect(resolveTemplatePermission("claude", "haiku", "auto", ["haiku"])).toBe(
+      "default",
+    );
+    expect(resolveTemplatePermission("claude", "opus", "auto", ["haiku"])).toBe(
+      "auto",
+    );
+    expect(
+      resolveTemplatePermission("claude", "unknown", "auto", ["haiku"]),
     ).toBe("bypassPermissions");
   });
 });

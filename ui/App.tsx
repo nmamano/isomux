@@ -860,7 +860,12 @@ export function App({ routing = true }: { routing?: boolean }) {
         />
       )}
       {editAgent && (
-        <EditAgentDialog agent={editAgent} onClose={() => setEditAgent(null)} />
+        <EditAgentDialog
+          // The live record, so a change the server sends while the dialog
+          // is open (limitedClaudeFamilies after a variables save) reaches it.
+          agent={agents.find((a) => a.id === editAgent.id) ?? editAgent}
+          onClose={() => setEditAgent(null)}
+        />
       )}
     </>
   );

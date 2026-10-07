@@ -9,9 +9,15 @@ import {
   claudeFamilySupportsEffort,
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
+  claudePermissionModeFor,
+  DEFAULT_EFFORT,
   effortLevelsFor,
 } from "../shared/types.ts";
-import { validateEffort } from "./agent-validators.ts";
+import {
+  resolveAgentEngineSettings,
+  validateEffort,
+  validatePermissionMode,
+} from "./agent-validators.ts";
 
 describe("fable model family", () => {
   it("maps to the claude-fable-5-1 model id", () => {
@@ -90,5 +96,82 @@ describe("top-tier capability gates", () => {
     expect(validateEffort("claude", "fable", "max")).toBe("max");
     expect(validateEffort("claude", "sonnet", "max")).toBe("max");
     expect(validateEffort("claude", "haiku", "max")).toBe("max");
+  });
+});
+
+describe("capability gates for families limited on Bedrock and Vertex", () => {
+  const limited = ["sonnet", "haiku"];
+
+  it("withdraws effort, max and auto from a limited family only", () => {
+    for (const family of limited) {
+      expect(claudeFamilySupportsEffort(family, limited)).toBe(false);
+      expect(claudeFamilySupportsMaxEffort(family, limited)).toBe(false);
+      expect(claudeFamilySupportsAutoPermission(family, limited)).toBe(false);
+      expect(effortLevelsFor("claude", family, limited)).toEqual([]);
+    }
+    for (const family of ["opus", "fable"]) {
+      expect(claudeFamilySupportsAutoPermission(family, limited)).toBe(true);
+      expect(effortLevelsFor("claude", family, limited)).toEqual(
+        effortLevelsFor("claude", family),
+      );
+    }
+  });
+
+  it("leaves Codex effort levels alone", () => {
+    expect(effortLevelsFor("codex", "haiku", limited)).toEqual(
+      effortLevelsFor("codex", "haiku"),
+    );
+  });
+
+  it("runs a stored auto as default on a limited family", () => {
+    expect(claudePermissionModeFor("haiku", "auto", limited)).toBe("default");
+    expect(claudePermissionModeFor("sonnet", "auto", limited)).toBe("default");
+    expect(claudePermissionModeFor("haiku", "auto")).toBe("auto");
+    expect(claudePermissionModeFor("opus", "auto", limited)).toBe("auto");
+    expect(claudePermissionModeFor("haiku", "acceptEdits", limited)).toBe(
+      "acceptEdits",
+    );
+  });
+
+  it("validateEffort keeps a stored level and drops max, as for any family without max", () => {
+    expect(validateEffort("claude", "haiku", "low", limited)).toBe("low");
+    expect(validateEffort("claude", "haiku", "max", limited)).toBe(
+      DEFAULT_EFFORT,
+    );
+    expect(validateEffort("claude", "opus", "max", limited)).toBe("max");
+  });
+
+  it("validatePermissionMode corrects auto to default on a limited family", () => {
+    expect(validatePermissionMode("claude", "auto", "haiku", limited)).toBe(
+      "default",
+    );
+    expect(validatePermissionMode("claude", undefined, "sonnet", limited)).toBe(
+      "default",
+    );
+    expect(
+      validatePermissionMode("claude", "bypassPermissions", "haiku", limited),
+    ).toBe("bypassPermissions");
+    expect(validatePermissionMode("claude", "auto", "opus", limited)).toBe(
+      "auto",
+    );
+    expect(validatePermissionMode("claude", "auto", "haiku")).toBe("auto");
+    expect(validatePermissionMode("claude", "auto")).toBe("auto");
+  });
+
+  it("resolveAgentEngineSettings applies the limits for the target family", () => {
+    expect(
+      resolveAgentEngineSettings(
+        "claude",
+        { modelFamily: "haiku", effort: "max", permissionMode: "auto" },
+        limited,
+      ),
+    ).toMatchObject({ effort: DEFAULT_EFFORT, permissionMode: "default" });
+    expect(
+      resolveAgentEngineSettings(
+        "claude",
+        { modelFamily: "opus", effort: "max", permissionMode: "auto" },
+        limited,
+      ),
+    ).toMatchObject({ effort: "max", permissionMode: "auto" });
   });
 });

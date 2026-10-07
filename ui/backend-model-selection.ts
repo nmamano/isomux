@@ -108,6 +108,7 @@ export function effortPickerOptions(
   engine: AgentBackendType,
   modelFamily: string,
   backendModels: BackendModelWire[] | null,
+  limited: readonly string[] = [],
 ): { level: string }[] {
   const picked = backendModels?.find((model) => model.id === modelFamily);
   if (engine === "opencode") return picked?.supportedEfforts ?? [];
@@ -121,7 +122,7 @@ export function effortPickerOptions(
       (opt) => opt.level !== "max" && opt.level !== "ultra",
     ).map((o) => ({ level: o.level }));
   }
-  return effortLevelsFor("claude", modelFamily);
+  return effortLevelsFor("claude", modelFamily, limited);
 }
 
 export function modelSelectCursor(

@@ -8,6 +8,7 @@ import {
   claudeSignInState,
   isClaudeCodeAuthenticated,
   isClaudeCodeInstalled,
+  limitedClaudeFamilies,
   resetClaudeSignInProbesForTest,
   runClaudeAuthStatus,
   type ClaudeSignInState,
@@ -66,6 +67,78 @@ describe("Claude Code effective-environment probes", () => {
     expect(isClaudeCodeInstalled({ PATH: installed })).toBe(true);
     expect(isClaudeCodeInstalled({ PATH: absent })).toBe(false);
   });
+});
+
+describe("limitedClaudeFamilies", () => {
+  it("limits no family first-party, whatever the pins", () => {
+    expect(limitedClaudeFamilies({})).toEqual([]);
+    expect(
+      limitedClaudeFamilies({
+        CLAUDE_CODE_USE_BEDROCK: "0",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5",
+      }),
+    ).toEqual([]);
+  });
+
+  for (const selector of [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+  ]) {
+    it(`limits sonnet and haiku on ${selector}, and no other family`, () => {
+      expect(limitedClaudeFamilies({ [selector]: " TRUE " })).toEqual([
+        "sonnet",
+        "haiku",
+      ]);
+    });
+
+    it(`lifts a family pinned to the 5.x model the CLI matches on ${selector}`, () => {
+      expect(
+        limitedClaudeFamilies({
+          [selector]: "1",
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "us.anthropic.claude-haiku-5-5",
+        }),
+      ).toEqual(["sonnet"]);
+      expect(
+        limitedClaudeFamilies({
+          [selector]: "1",
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "CLAUDE-HAIKU-5-5@20261001",
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
+        }),
+      ).toEqual([]);
+      expect(
+        limitedClaudeFamilies({
+          [selector]: "1",
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-5-5-v1:0",
+        }),
+      ).toEqual(["haiku"]);
+    });
+
+    it(`keeps a family limited for an older or opaque pin on ${selector}`, () => {
+      expect(
+        limitedClaudeFamilies({
+          [selector]: "1",
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5@20251001",
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4-6",
+        }),
+      ).toEqual(["sonnet", "haiku"]);
+      expect(
+        limitedClaudeFamilies({
+          [selector]: "1",
+          ANTHROPIC_DEFAULT_HAIKU_MODEL:
+            "arn:aws:bedrock:us-east-1:1:application-inference-profile/x",
+        }),
+      ).toEqual(["sonnet", "haiku"]);
+    });
+
+    it(`ignores ANTHROPIC_SMALL_FAST_MODEL on ${selector}`, () => {
+      expect(
+        limitedClaudeFamilies({
+          [selector]: "1",
+          ANTHROPIC_SMALL_FAST_MODEL: "claude-haiku-5-5",
+        }),
+      ).toEqual(["sonnet", "haiku"]);
+    });
+  }
 });
 
 describe("Claude sign-in state", () => {

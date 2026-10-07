@@ -310,6 +310,7 @@ import {
 } from "./routes/handlers/members-chat.ts";
 import { createMembersChatStore } from "./members-chat.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
+import { limitedClaudeFamiliesForUserId } from "./env-loader.ts";
 import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
@@ -1227,6 +1228,28 @@ function outboxFor(ws: ServerWebSocket<OfficeWsData>): OfficeOutbox {
 
 function officeSend(ws: ServerWebSocket<OfficeWsData>, data: string): void {
   outboxFor(ws).send(data);
+}
+// The session context carries the Claude families limited in the member's own
+// env, so it goes out again when office or personal variables are saved.
+function sendSessionContext(ws: ServerWebSocket<OfficeWsData>): void {
+  officeSend(
+    ws,
+    JSON.stringify({
+      type: "session_context",
+      context: {
+        ...sessionContextFor(ws.data.session, ws.data.connectionId),
+        limitedClaudeFamilies: limitedClaudeFamiliesForUserId(
+          ws.data.session.userId,
+        ),
+      },
+    }),
+  );
+}
+function resendSessionContexts(userId?: string): void {
+  for (const ws of browsers) {
+    if (userId === undefined || ws.data.session.userId === userId)
+      sendSessionContext(ws);
+  }
 }
 // The public webhook route's state (counters, limits, delivery logs). Built
 // per boot in startServer, before the listener.
@@ -3428,6 +3451,10 @@ function buildExecutorDeps(
         const user = getUserById(userId);
         if (!user) return { ok: false, status: 404, code: "not_found" };
         writeManagedUserEnv(userId, values);
+        // Agents first: a client that sees the new session_context has the
+        // agent records that go with it.
+        agentManager.refreshLimitedClaudeFamilies(userId);
+        resendSessionContexts(userId);
         return { ok: true };
       },
       getOffice: () => ({
@@ -3440,6 +3467,8 @@ function buildExecutorDeps(
         // office sign-in is: drop the usage cap's readings for both.
         memberUsageCap().invalidate("claude");
         memberUsageCap().invalidate("codex");
+        agentManager.refreshLimitedClaudeFamilies();
+        resendSessionContexts();
         return { ok: true };
       },
     }),
@@ -3566,16 +3595,7 @@ function buildExecutorDeps(
         if (roleChanged) {
           for (const ws of browsers) {
             if (ws.data.session.userId !== result.user.id) continue;
-            officeSend(
-              ws,
-              JSON.stringify({
-                type: "session_context",
-                context: sessionContextFor(
-                  ws.data.session,
-                  ws.data.connectionId,
-                ),
-              }),
-            );
+            sendSessionContext(ws);
             officeSend(
               ws,
               JSON.stringify({
@@ -7057,13 +7077,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // is per-WS (live-avatars) so the client can identify its OWN
         // ghost in presence_list - same auth session can be running in
         // multiple tabs and each tab has a distinct connectionId.
-        officeSend(
-          ws,
-          JSON.stringify({
-            type: "session_context",
-            context: sessionContextFor(ws.data.session, ws.data.connectionId),
-          }),
-        );
+        sendSessionContext(ws);
         // Roster hydration: every socket gets the PUBLIC roster; owners
         // additionally get the full admin roster; and the caller gets their OWN
         // full record (user_self_updated) - the now-public users_list can no

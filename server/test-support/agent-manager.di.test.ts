@@ -21,7 +21,8 @@ import { describe, it, expect } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
-import { effortLevelsFor } from "../../shared/types.ts";
+import { DEFAULT_EFFORT, effortLevelsFor } from "../../shared/types.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 import {
   loadAgents,
   ensureSessionClaudeConfigDir,
@@ -445,6 +446,96 @@ describe("AgentManager DI (temp-state isolated)", () => {
     );
     // A stored Haiku effort is kept, not migrated.
     expect(mgr.getAgent(info!.id)?.effort).toBe("low");
+  });
+
+  describe("haiku on Vertex", () => {
+    // The agent owner's env selects Vertex with no 5.x pin, so haiku is
+    // limited: no effort, and Auto is corrected to default.
+    async function withVertex(run: () => Promise<void>) {
+      const saved = process.env.CLAUDE_CODE_USE_VERTEX;
+      process.env.CLAUDE_CODE_USE_VERTEX = "1";
+      try {
+        await run();
+      } finally {
+        if (saved === undefined) delete process.env.CLAUDE_CODE_USE_VERTEX;
+        else process.env.CLAUDE_CODE_USE_VERTEX = saved;
+      }
+    }
+
+    function manager(room: string) {
+      const fake = new FakeBackend();
+      const { sink } = capture();
+      const mgr = createAgentManager({
+        resolveBackend: () => fake,
+        officeState: new OfficeState({ rooms: rooms(room) }),
+        initialRooms: [],
+        eventSink: sink,
+      });
+      const spawn = (
+        modelFamily: string,
+        permissionMode: "auto" | "default",
+        effort: "low" | "max",
+      ) =>
+        mgr.spawn(
+          `${modelFamily} on Vertex`,
+          STATE_ROOT,
+          permissionMode,
+          undefined,
+          undefined,
+          room,
+          undefined,
+          modelFamily,
+          effort,
+          undefined,
+          "claude",
+        );
+      return { mgr, spawn };
+    }
+
+    it("corrects a spawn with Auto and max to default and the default effort", async () => {
+      await withVertex(async () => {
+        const { mgr, spawn } = manager("room-vertex-spawn");
+        const haiku = await spawn("haiku", "auto", "max");
+        expect(mgr.getAgent(haiku!.id)?.permissionMode).toBe("default");
+        expect(mgr.getAgent(haiku!.id)?.effort).toBe(DEFAULT_EFFORT);
+        const opus = await spawn("opus", "auto", "max");
+        expect(mgr.getAgent(opus!.id)?.permissionMode).toBe("auto");
+        expect(mgr.getAgent(opus!.id)?.effort).toBe("max");
+      });
+    });
+
+    it("corrects an edit to Auto against the post-edit family", async () => {
+      await withVertex(async () => {
+        const { mgr, spawn } = manager("room-vertex-edit");
+        const info = await spawn("opus", "default", "low");
+        await mgr.editAgent(info!.id, {
+          modelFamily: "haiku",
+          permissionMode: "auto",
+        });
+        expect(mgr.getAgent(info!.id)?.permissionMode).toBe("default");
+        await mgr.editAgent(info!.id, {
+          modelFamily: "opus",
+          permissionMode: "auto",
+        });
+        expect(mgr.getAgent(info!.id)?.permissionMode).toBe("auto");
+      });
+    });
+
+    it("answers /effort as unsupported and keeps the stored effort", async () => {
+      await withVertex(async () => {
+        const { mgr, spawn } = manager("room-vertex-effort");
+        const info = await spawn("haiku", "default", "low");
+        await mgr.sendMessage(info!.id, "/effort", "tester");
+        expect(mgr.getPendingInteractions()).toEqual([]);
+        const notice = translatorFor("en").t("commands.effort.unsupported", {
+          model: "Haiku",
+        });
+        expect(
+          mgr.getAgentLogs(info!.id).some((entry) => entry.content === notice),
+        ).toBe(true);
+        expect(mgr.getAgent(info!.id)?.effort).toBe("low");
+      });
+    });
   });
 
   it("redacts new entries before the agent cache and event stream", async () => {

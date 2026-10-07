@@ -99,6 +99,7 @@ import {
   claudeSignInState,
   isClaudeCloudSelected,
   isClaudeCodeInstalled,
+  limitedClaudeFamilies,
 } from "./claude-install-check.ts";
 
 import type {
@@ -1464,17 +1465,14 @@ export function toolBoundaryHooks(
 
 function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   const model = claudeModelForEnvironment(opts.modelFamily, opts.env);
-  // On Bedrock and Vertex the haiku alias still resolves to Haiku 4.5 (Claude
-  // Code 2.1.293), which takes no effort and no auto mode. Keep haiku's
-  // behavior from before Haiku 5.5 there: no effort, and auto runs as
-  // bypassPermissions, the target the dialogs used for haiku.
-  const cloudHaiku =
-    opts.modelFamily === "haiku" &&
-    isClaudeCloudSelected(opts.env ?? process.env);
+  // A limited family (Sonnet 4.5 and Haiku 4.5 on Bedrock and Vertex) takes no
+  // effort and no auto mode. Auto runs as default, the stricter mode, never as
+  // bypassPermissions.
+  const limited = limitedClaudeFamilies(opts.env ?? process.env).includes(
+    opts.modelFamily,
+  );
   const permissionMode =
-    cloudHaiku && opts.permissionMode === "auto"
-      ? "bypassPermissions"
-      : opts.permissionMode;
+    limited && opts.permissionMode === "auto" ? "default" : opts.permissionMode;
   const sdkOpts: SdkSessionOptions = {
     model,
     // permissionMode is `string` at the Backend boundary; narrow at the call site.
@@ -1495,7 +1493,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // guarantees a Claude-legal level (narrower than shared EffortLevel,
     // which includes Codex-only values). Narrow at the call site, same
     // pattern as permissionMode.
-    effort: cloudHaiku ? undefined : (opts.effort as SdkEffortLevel),
+    effort: limited ? undefined : (opts.effort as SdkEffortLevel),
     settings: CLAUDE_LAUNCH_SETTINGS,
     cwd: opts.cwd,
     hooks: opts.takeToolBoundaryMessage

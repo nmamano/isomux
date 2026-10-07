@@ -129,8 +129,16 @@ export function CronjobDialog({
   const isEdit = !!cronjob;
   const i18n = useI18n();
   const { t } = i18n;
-  const { recentCwds, isMobile, unavailableEngines, rooms, allRooms } =
-    useAppState();
+  const {
+    recentCwds,
+    isMobile,
+    unavailableEngines,
+    rooms,
+    allRooms,
+    sessionContext,
+  } = useAppState();
+  // Claude families without effort in the member's env (Bedrock or Vertex).
+  const limited = sessionContext?.limitedClaudeFamilies;
   const roomOptions = roomFilterOptions(rooms, allRooms);
   // A stored room this viewer cannot name (closed, or no longer theirs) shows
   // as no room. Only a changed room is sent, so an unrelated edit never
@@ -260,6 +268,7 @@ export function CronjobDialog({
     agentType,
     modelFamily,
     backendModels,
+    limited,
   );
 
   const [saving, setSaving] = useState(false);
@@ -849,7 +858,7 @@ export function CronjobDialog({
                     // bypassPermissions.)
                     if (
                       !isCodex &&
-                      !claudeFamilySupportsMaxEffort(next) &&
+                      !claudeFamilySupportsMaxEffort(next, limited) &&
                       effort === "max"
                     )
                       // Same coercion target the server's validateEffort uses

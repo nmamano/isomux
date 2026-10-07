@@ -389,7 +389,7 @@ Events whose mutation removes or relocates their projection source (`agent_remov
 
 | Event | Payload | Audience | projectionKey | Notes |
 |---|---|---|---|---|
-| `session_context` | `{ context }` | recipient-scoped | `connectionId` | connect handshake; the socket itself |
+| `session_context` | `{ context }` | recipient-scoped | `connectionId` | connect handshake; the socket itself. Sent again when office or personal variables are saved: `context.limitedClaudeFamilies` follows the member's env, after an `agent_updated` carrying each affected agent's `limitedClaudeFamilies` (its manager's env) |
 | `full_state` | `{ agents, rooms, office, recentCwds, killedAgents }` | recipient-scoped | `userId` (ACL projection) | rooms filtered to the recipient's visible set; agents filtered by visibility and carry a stable `roomId` (no dense index post-3c.4); killed filtered by `lastRoomId` |
 | `all_rooms_list` | `{ rooms: RoomWire[] }` | owners | owner-flag | unfiltered global rooms; owners only |
 | `presence_list` | `{ entries, totalOnlineUsers }` | recipient-scoped | `connectionId` + per-session projection | entries carry the stable `currentRoomId`, filtered per recipient to their visible rooms (no dense remap post-3c.4); off-scene entries omitted |

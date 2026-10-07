@@ -22,6 +22,7 @@ import {
   selectSupportedEffort,
 } from "../backend-model-selection.ts";
 import { AGENT_TEMPLATES } from "../agent-templates.ts";
+import { RECEPTIONIST_PROFILE_KEY } from "../../shared/receptionist-profile.ts";
 import { CODEX_MODELS } from "../../shared/types.ts";
 import type { AgentInfo, BackendModelWire } from "../../shared/types.ts";
 
@@ -175,6 +176,64 @@ describe("initial permission mode", () => {
     };
     expect(changes).toEqual({ name: "Renamed agent" });
     expect(changes).not.toHaveProperty("permissionMode");
+  });
+});
+
+describe("initial Claude permission mode on a limited family", () => {
+  const claudeAgent = (
+    modelFamily: string,
+    permissionMode: AgentInfo["permissionMode"],
+  ): AgentInfo =>
+    ({ agentType: "claude", modelFamily, permissionMode }) as AgentInfo;
+
+  it("shows a stored Auto as Ask, the mode the agent runs with", () => {
+    expect(
+      initialPermissionModeFor(claudeAgent("haiku", "auto"), "claude", [
+        "haiku",
+      ]),
+    ).toBe("default");
+    expect(
+      initialPermissionModeFor(claudeAgent("haiku", "auto"), "claude"),
+    ).toBe("auto");
+    expect(
+      initialPermissionModeFor(claudeAgent("opus", "auto"), "claude", [
+        "haiku",
+      ]),
+    ).toBe("auto");
+  });
+
+  it("does not rewrite the stored Auto during an unrelated save", () => {
+    const shown = initialPermissionModeFor(
+      claudeAgent("haiku", "auto"),
+      "claude",
+      ["haiku"],
+    );
+    expect(permissionModeChangeForEdit(shown, shown)).toEqual({});
+    expect(permissionModeChangeForEdit(shown, "bypassPermissions")).toEqual({
+      permissionMode: "bypassPermissions",
+    });
+  });
+
+  it("gives a template on a limited family Ask instead of Auto", () => {
+    const base = AGENT_TEMPLATES.find(
+      (candidate) => candidate.key !== RECEPTIONIST_PROFILE_KEY,
+    )!;
+    const template = {
+      ...base,
+      recommendations: {
+        ...base.recommendations,
+        claude: { ...base.recommendations.claude, preferredFamilies: ["haiku"] },
+      },
+    };
+    expect(
+      templateValuesAfterEngineSwitch(template, "claude", null, false)
+        .permissionMode,
+    ).toBe("auto");
+    expect(
+      templateValuesAfterEngineSwitch(template, "claude", null, false, [
+        "haiku",
+      ]).permissionMode,
+    ).toBe("default");
   });
 });
 

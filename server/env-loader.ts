@@ -14,6 +14,7 @@
 // caller is responsible for surfacing the error to the agent/run log.
 
 import { getAgentHost } from "./agent-host.ts";
+import { limitedClaudeFamilies } from "./backends/claude-install-check.ts";
 import { readEnvFile } from "./persistence.ts";
 import { logicalAgentPath } from "./split/roots.ts";
 import { getUserByName } from "./users.ts";
@@ -115,6 +116,21 @@ export function buildEnvForUserId(
     merged.CODEX_HOME = personalProviderHome(userId, "codex");
   }
   return merged;
+}
+
+// The Claude families limited in a member's effective env (office plus
+// personal variables). An env file that fails to parse leaves the host env;
+// the launch reports that failure.
+export function limitedClaudeFamiliesForUserId(
+  userId: string | null | undefined,
+): string[] {
+  let env: { [key: string]: string | undefined } | undefined;
+  try {
+    env = buildEnvForUserId(userId);
+  } catch {
+    env = undefined;
+  }
+  return limitedClaudeFamilies(env ?? getAgentHost().baseEnv());
 }
 
 // Build the environment used by office-scoped provider operations. This is

@@ -355,20 +355,31 @@ export function familyFromLegacyModel(model: string | undefined): ModelFamily {
   return "opus";
 }
 
+// Claude families that run an older model without effort and Auto in the
+// caller's environment (server/backends/claude-install-check.ts
+// limitedClaudeFamilies; the browser gets the member's list in
+// SessionContext). Every gate below takes it; the default [] is first-party.
+
 // Claude families that support the "max" effort level: the families whose
 // supportedModels() row lists "max" in supportedEffortLevels. Every family
 // does (SDK 0.3.293, 2026-10-07). Single source so the UI effort filters, the
 // backend's listModels metadata, and server-side validateEffort stay aligned.
-export function claudeFamilySupportsMaxEffort(family: string): boolean {
-  return isClaudeFamily(family);
+export function claudeFamilySupportsMaxEffort(
+  family: string,
+  limited: readonly string[] = [],
+): boolean {
+  return isClaudeFamily(family) && !limited.includes(family);
 }
 
 // Claude families that support effort levels: the families whose
 // supportedModels() row sets supportsEffort. Every family does (SDK 0.3.293,
 // 2026-10-07). For a family without it, the CLI drops the effort option and
 // sends no effort parameter.
-export function claudeFamilySupportsEffort(family: string): boolean {
-  return isClaudeFamily(family);
+export function claudeFamilySupportsEffort(
+  family: string,
+  limited: readonly string[] = [],
+): boolean {
+  return isClaudeFamily(family) && !limited.includes(family);
 }
 
 // Static effort options for slash commands, filtered by backend + model
@@ -379,13 +390,15 @@ export function claudeFamilySupportsEffort(family: string): boolean {
 export function effortLevelsFor(
   agentType: AgentBackendType,
   modelFamily: string,
+  limited: readonly string[] = [],
 ): { level: EffortLevel }[] {
   if (agentType === "codex") return EFFORT_LEVELS;
   if (agentType === "opencode") return [];
-  if (!claudeFamilySupportsEffort(modelFamily)) return [];
+  if (!claudeFamilySupportsEffort(modelFamily, limited)) return [];
   return EFFORT_LEVELS.filter((e) => {
     if (e.level === "minimal" || e.level === "ultra") return false;
-    if (e.level === "max") return claudeFamilySupportsMaxEffort(modelFamily);
+    if (e.level === "max")
+      return claudeFamilySupportsMaxEffort(modelFamily, limited);
     return true;
   });
 }
@@ -394,8 +407,24 @@ export function effortLevelsFor(
 // auto-classifier). Gated for classifier reliability to the families whose
 // SDK model row reports supportsAutoMode: every family (SDK 0.3.293,
 // 2026-10-07).
-export function claudeFamilySupportsAutoPermission(family: string): boolean {
-  return isClaudeFamily(family);
+export function claudeFamilySupportsAutoPermission(
+  family: string,
+  limited: readonly string[] = [],
+): boolean {
+  return isClaudeFamily(family) && !limited.includes(family);
+}
+
+// A Claude permission mode on a family without Auto. Auto on a limited family
+// runs as default, the stricter mode (the server's buildSdkOpts does the same).
+// Auto on a family this client does not know stays bypassPermissions.
+export function claudePermissionModeFor(
+  family: string,
+  mode: AgentPermissionMode,
+  limited: readonly string[] = [],
+): AgentPermissionMode {
+  if (mode !== "auto") return mode;
+  if (limited.includes(family)) return "default";
+  return claudeFamilySupportsAutoPermission(family) ? mode : "bypassPermissions";
 }
 
 // A pending message waiting for the agent to flush it. Senders can be human
@@ -576,6 +605,12 @@ export interface AgentInfo {
   // Static capabilities of this agent's backend. Populated server-side from
   // the Backend implementation; UI uses these to gate affordances.
   capabilities: AgentCapabilities;
+  // The Claude families limited in the env of this agent's manager (see
+  // SessionContext.limitedClaudeFamilies). The edit dialog gates on it, so an
+  // owner editing another member's agent sees that agent's options. Derived,
+  // never persisted; sent again when office or the manager's personal
+  // variables are saved.
+  limitedClaudeFamilies?: string[];
   // Codex-only: sandbox mode (CodexSandboxMode). Stored separately from
   // permissionMode because Codex's permission model has two orthogonal axes
   // (sandbox + approval-policy) while Claude has one. Undefined for Claude
@@ -1576,6 +1611,11 @@ export interface SessionContext {
   // every PresenceInfo so clients can filter their OWN connection's
   // ghost from the scene when in LogView.
   connectionId: string;
+  // The Claude families that run an older model without effort and Auto in
+  // this member's env (Bedrock or Vertex without a 5.x pin). The spawn and
+  // edit dialogs pass it to the claudeFamilySupports* gates. Sent again when
+  // office or personal variables are saved.
+  limitedClaudeFamilies?: string[];
 }
 
 // Wire shape for an outstanding invite (owner UI). Raw token never crosses

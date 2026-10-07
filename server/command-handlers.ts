@@ -21,6 +21,7 @@ import type { OfficeEvent } from "../shared/office-state.ts";
 import {
   effortLevelsFor,
   familyDisplayLabel,
+  MODEL_FAMILIES,
   effortDisplayLabel,
   knownModelFamiliesFor,
 } from "../shared/types.ts";
@@ -252,6 +253,9 @@ interface HandlerDeps {
   getStorageUsage: () => StorageUsage;
   userSkillRootsFor: (managed: ManagedAgent) => UserSkillRoot[];
   claudeConfigDirFor: (managed: ManagedAgent) => string;
+  // The Claude families limited in the agent owner's env (env-loader
+  // limitedClaudeFamiliesForUserId).
+  limitedClaudeFamiliesFor: (managed: ManagedAgent) => string[];
   // Defer-to-queue path for slash commands that arrive while the agent is busy.
   enqueueMessage: (
     agentId: string,
@@ -691,17 +695,24 @@ export function createCommandHandling(deps: HandlerDeps) {
       }
       // Backend/model-filtered list. The structured interaction carries each
       // level id, so a typed number and a card click resolve to the same value.
+      const limited = deps.limitedClaudeFamiliesFor(managed);
       const levels = effortLevelsFor(
         managed.info.agentType,
         managed.info.modelFamily,
+        limited,
       );
       if (levels.length === 0) {
+        // A limited family runs an older model than its label's version, so
+        // the message names the family alone.
+        const model = limited.includes(managed.info.modelFamily)
+          ? (MODEL_FAMILIES.find(
+              (family) => family.family === managed.info.modelFamily,
+            )?.label ?? managed.info.modelFamily)
+          : familyDisplayLabel(managed.info.modelFamily);
         deps.emitEphemeralLog(
           agentId,
           "system",
-          t("commands.effort.unsupported", {
-            model: familyDisplayLabel(managed.info.modelFamily),
-          }),
+          t("commands.effort.unsupported", { model }),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;

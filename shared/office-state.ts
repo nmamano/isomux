@@ -215,6 +215,7 @@ export class OfficeState {
     // stale across renames; behavior reads should go through userId.
     username?: string | null;
     capabilities?: AgentInfo["capabilities"];
+    limitedClaudeFamilies?: string[];
   }): { agent: AgentInfo; events: OfficeEvent[] } | null {
     const nameLower = opts.name.trim().toLowerCase();
     for (const a of this.agents.values()) {
@@ -287,6 +288,9 @@ export class OfficeState {
       customInstructionsVersion: versionOf(opts.customInstructions || ""),
       agentType: opts.agentType ?? "claude",
       capabilities: opts.capabilities ?? DEFAULT_AGENT_CAPABILITIES,
+      ...(opts.limitedClaudeFamilies
+        ? { limitedClaudeFamilies: opts.limitedClaudeFamilies }
+        : {}),
       ...(opts.codexSandbox ? { codexSandbox: opts.codexSandbox } : {}),
       userId: opts.userId ?? null,
       username: opts.username ?? null,
