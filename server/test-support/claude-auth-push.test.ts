@@ -4,11 +4,18 @@ import { FakeBackend } from "./fake-backend.ts";
 import { getUserByName } from "../users.ts";
 import type { ServerMessage } from "../../shared/types.ts";
 import { STATE_ROOT } from "../config.ts";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
   await server?.stop();
   server = null;
+  clearTestManagedOfficeEnv();
 });
 
 it("pushes a full fresh snapshot before auth guidance without rereading Codex", async () => {
@@ -47,6 +54,12 @@ it("pushes a full fresh snapshot before auth guidance without rereading Codex", 
         }) as never,
     },
   });
+  // Credentials that exist on disk and get rejected; without any, the agent
+  // gets the plain sign-in notice and no account recheck.
+  const claudeDir = join(STATE_ROOT, `stored-claude-${crypto.randomUUID()}`);
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(join(claudeDir, ".credentials.json"), "{}");
+  setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeDir });
   const owner = await server.seedOwner("Owner");
   const uid = getUserByName("Owner")!.id;
   const info = await server.agentManager.spawn(
