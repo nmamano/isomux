@@ -5,6 +5,7 @@
 ## Company
 
 - [About Isomux](https://isomux.com/about): Who builds Isomux, licensing, enterprise use, and key facts
+- [Isomux for Enterprise](https://isomux.com/enterprise): Why a company uses Isomux, where it can run, the commercial license, and how to start
 - [AI instructions](https://isomux.com/ai-instructions): How AI assistants should describe Isomux
 
 ## Documentation

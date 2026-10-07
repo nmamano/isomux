@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="canonical" href="https://isomux.com/hosted-refund" />
-    <title>Refund Policy - Hosted Isomux</title>
+    <link rel="canonical" href="https://isomux.com/enterprise" />
+    <title>Isomux for Enterprise</title>
     <meta
       name="description"
-      content="When Hosted Isomux customers qualify for a refund and how to request one."
+      content="Why a company uses Isomux, where it can run, the commercial license for organizations of more than 10 people, and how to start."
     />
 
     <link rel="icon" href="/favicon.png" sizes="192x192" type="image/png" />
@@ -150,7 +150,8 @@
       }
 
       h1,
-      h2 {
+      h2,
+      h3 {
         font-family:
           "Space Grotesk",
           -apple-system,
@@ -180,20 +181,55 @@
         margin-bottom: 20px;
       }
 
-      h2 {
-        font-size: 1.25rem;
-        font-weight: 700;
-        margin-top: 30px;
-        margin-bottom: 10px;
-      }
-
-      p,
-      ul {
+      .lead {
+        font-size: 1.1rem;
         margin-bottom: 12px;
       }
 
-      ul {
+      h2 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin-top: 40px;
+        margin-bottom: 12px;
+      }
+
+      h3 {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-top: 20px;
+        margin-bottom: 6px;
+      }
+
+      p,
+      ul,
+      ol {
+        margin-bottom: 12px;
+      }
+
+      section p,
+      section li {
+        color: var(--text-dim);
+      }
+      section strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      ul,
+      ol {
         padding-left: 20px;
+      }
+
+      .diagram {
+        display: block;
+        width: 100%;
+        height: auto;
+        margin: 12px 0 8px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+      .diagram-narrow {
+        width: 70%;
       }
       li {
         margin-bottom: 6px;
@@ -209,61 +245,127 @@
         .topbar {
           padding: 20px 16px 0;
         }
+        .diagram-narrow {
+          width: 100%;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="topbar"><a href="/hosted">&larr; Hosted Isomux</a></div>
+    <div class="topbar"><a href="/">&larr; isomux.com</a></div>
 
     <main>
-      <h1>Refund Policy</h1>
+      <h1>Isomux for Enterprise</h1>
 
-      <p>
-        This policy applies to subscriptions for Hosted Isomux, sold by Isomux
-        LLC.
+      <p class="lead">
+        Isomux comes as two products.
+        <a href="/hosted">Hosted Isomux</a> is for individuals and small teams,
+        on a private server we set up for them. Isomux for Enterprise is for
+        whole companies: the company runs Isomux on its own infrastructure,
+        under a commercial license.
       </p>
 
-      <h2>Your first 7 days</h2>
-      <p>
-        If you cancel within 7 days of first signing up for Hosted Isomux, we
-        will refund your first subscription payment in full.
-      </p>
+      <section id="why">
+        <h2>Why</h2>
+        <p>
+          Isomux shines in an enterprise setting because of the multiplayer
+          features.
+        </p>
+        <ul>
+          <li>
+            It helps
+            <a
+              href="https://nilmamano.com/blog/isomux-enterprise"
+              target="_blank"
+              rel="noopener"
+              >onboard non-technical employees with multiplayer agents</a
+            >.
+            <img
+              class="diagram"
+              src="/enterprise-normies.svg"
+              width="1000"
+              height="420"
+              alt="Engineers and normies sit outside a box labelled Isomux, which runs in your infra with the harnesses you choose. Inside are two panels: Agents with shared conversations, such as Report Maker on Claude Code and Data Visualizer on Codex, and Apps reached by links instead of ports, such as churn-dashboard at churn.acme.isomux.app. Numbered arrows follow the 3-step dance: 1, engineers set up the agents; 2, normies chat with the agents; 3, engineers step in when normies get stuck. The agents register the apps they build, and normies open the app link with the same login."
+            />
+          </li>
+          <li>
+            It helps
+            <a
+              href="https://nilmamano.com/blog/isomux-crews"
+              target="_blank"
+              rel="noopener"
+              >turn your company AI native</a
+            >.
+            <img
+              class="diagram diagram-narrow"
+              src="/enterprise-crew-loop.svg"
+              width="954"
+              height="598"
+              alt="A four-node loop. Humans chat with the crew and get replies and pages back; humans click in the just-in-time app and see its dashboard. The crew writes the app's implementation and the app sends the crew alerts. Both the crew and the app take actions on the business systems, which send data back to both, and webhooks to the crew."
+            />
+          </li>
+        </ul>
+      </section>
 
-      <h2>If we do not deliver your office</h2>
-      <p>
-        If we take payment and cannot provide the Hosted Isomux office you
-        ordered, we will refund that payment in full.
-      </p>
+      <section id="options">
+        <h2>Options</h2>
+        <p>
+          <strong>Deployment.</strong> Run it on your own cloud or hardware.
+          The office and its data stay on your servers, and Isomux LLC has no
+          access to them. There are setup guides for <a href="/docs/hosting-aws">AWS EC2</a>,
+          <a href="/docs/hosting-kubernetes">Kubernetes (EKS)</a>,
+          <a href="/docs/hosting-render">Render</a>,
+          <a href="/docs/hosting-vps">a VPS</a>, and
+          <a href="/docs/hosting">your own machines</a>.
+        </p>
+        <p>
+          <strong>License.</strong> Isomux is source-available under the
+          <a
+            href="https://github.com/nmamano/isomux/blob/main/LICENSE"
+            target="_blank"
+            rel="noopener"
+            >Business Source License 1.1</a
+          >. It is free for organizations of up to 10 people, and free for
+          evaluation, development, and testing at any size. An organization of
+          more than 10 people that runs Isomux in production needs a
+          <a
+            href="https://github.com/nmamano/isomux/blob/main/COMMERCIAL-LICENSE.md"
+            target="_blank"
+            rel="noopener"
+            >commercial license</a
+          >
+          from Isomux LLC. It includes support, handling of the bugs you find,
+          and priority for your feature requests.
+        </p>
+      </section>
 
-      <h2>After the first 7 days</h2>
-      <p>
-        Cancelling stops the next renewal. Your office continues through the
-        period you already paid for, so we do not refund the unused part of that
-        period. This does not limit the failure-to-deliver refund above or any
-        rights that applicable law gives you.
-      </p>
-
-      <h2>How to request a refund</h2>
-      <p>
-        For a first-7-days refund, cancel from your account dashboard. Then
-        write to <a href="mailto:llc@isomux.com">llc@isomux.com</a> from the
-        email address on your account. If we did not deliver your office, write
-        to us even if you cannot use the dashboard. Tell us the office name and
-        which payment you want refunded. We review the signup, cancellation, and
-        delivery records and issue eligible refunds to the original payment
-        method.
-      </p>
-
-      <h2>What this policy does not cover</h2>
-      <p>
-        Hosted Isomux does not sell Claude or ChatGPT usage. Charges from model
-        providers are separate and are not covered by this policy.
-      </p>
-
-      <p>
-        See also the <a href="/hosted-terms">terms of service</a> and
-        <a href="/hosted-privacy">privacy policy</a>.
-      </p>
+      <section id="start">
+        <h2>How to start</h2>
+        <ol>
+          <li>
+            <strong>Try it.</strong> Evaluation is free at any company size. Run
+            an office on your laptop (ask an agent to set it up) or follow a
+            <a href="/docs/hosting">setup guide</a>.
+          </li>
+          <li>
+            <strong>Reach out.</strong> Write to
+            <a href="mailto:llc@isomux.com">llc@isomux.com</a>, or to Nil on
+            <a href="https://x.com/Nil053" target="_blank" rel="noopener">X</a>
+            and
+            <a
+              href="https://linkedin.com/in/nilmamano"
+              target="_blank"
+              rel="noopener"
+              >LinkedIn</a
+            >, or ask in
+            <a href="https://discord.gg/FrjEYyNvYs" target="_blank" rel="noopener"
+              >Discord</a
+            >. We are open to design partnerships and free pilots. As of
+            September 2026, we are running a pilot with a YC-backed healthcare
+            company.
+          </li>
+        </ol>
+      </section>
     </main>
 
     <footer class="site-footer">

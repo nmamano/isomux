@@ -1,7 +1,8 @@
-/* Site footer, shared by the landing, hosted, about and legal pages. Colors
-   come from the theme variables each page defines (--text, --text-dim,
-   --accent, --border, --bg-surface, --bg-card, --max-width). Selectors are
-   classed so they win over each page's own element rules (h2, ul, li, a). */
+/* Site footer, shared by the landing, hosted, about, enterprise, AI
+   instructions and legal pages. Colors come from the theme variables each
+   page defines (--text, --text-dim, --accent, --border, --bg-surface,
+   --bg-card, --max-width). Selectors are classed so they win over each page's
+   own element rules (h2, ul, li, a). */
 
 .site-footer {
   max-width: var(--max-width);

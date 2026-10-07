@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="38 51 954 598" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <rect x="38" y="51" width="954" height="598" fill="#ffffff"/>
+
+  <!-- ===== Edges ===== -->
+  <line x1="171.6" y1="315.2" x2="420.2" y2="146" stroke="#2b6cb0" stroke-width="2"/>
+  <polygon points="429.3,139.8 417.6,142.2 422.8,149.8" fill="#2b6cb0"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#2b6cb0" transform="rotate(-34.2 285.8 206)"><tspan x="285.8" y="210.5">Chat</tspan></text>
+
+  <line x1="468.4" y1="139.8" x2="219.8" y2="309" stroke="#6b46c1" stroke-width="2"/>
+  <polygon points="210.7,315.2 217.2,305.2 222.4,312.8" fill="#6b46c1"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#6b46c1" transform="rotate(-34.2 354.2 249)"><tspan x="354.2" y="253.5">Replies and pages</tspan></text>
+
+  <line x1="171.6" y1="384.8" x2="420.2" y2="554" stroke="#2b6cb0" stroke-width="2"/>
+  <polygon points="429.3,560.2 417.6,557.8 422.8,550.2" fill="#2b6cb0"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#2b6cb0" transform="rotate(34.2 285.8 494)"><tspan x="285.8" y="498.5">Clicks</tspan></text>
+
+  <line x1="468.4" y1="560.2" x2="219.8" y2="391" stroke="#1f9550" stroke-width="2"/>
+  <polygon points="210.7,384.8 217.2,394.8 222.4,387.2" fill="#1f9550"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#1f9550" transform="rotate(34.2 354.2 451)"><tspan x="354.2" y="455.5">Dashboard</tspan></text>
+
+  <line x1="489" y1="142" x2="489" y2="547" stroke="#6b46c1" stroke-width="2"/>
+  <polygon points="489,558 484.4,547 493.6,547" fill="#6b46c1"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#6b46c1"><tspan x="417" y="354.5">Implementation</tspan></text>
+
+  <line x1="511" y1="558" x2="511" y2="153" stroke="#1f9550" stroke-width="2"/>
+  <polygon points="511,142 515.6,153 506.4,153" fill="#1f9550"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#1f9550"><tspan x="563" y="354.5">Alerts</tspan></text>
+
+  <line x1="570.7" y1="139.8" x2="819.3" y2="309" stroke="#6b46c1" stroke-width="2"/>
+  <polygon points="828.4,315.2 821.9,305.2 816.7,312.8" fill="#6b46c1"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#6b46c1" transform="rotate(34.2 714.2 206)"><tspan x="714.2" y="210.5">Actions</tspan></text>
+
+  <line x1="789.3" y1="315.2" x2="540.7" y2="146" stroke="#b45309" stroke-width="2"/>
+  <polygon points="531.6,139.8 543.3,142.2 538.1,149.8" fill="#b45309"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#b45309" transform="rotate(34.2 645.8 249)"><tspan x="645.8" y="253.5">Data and webhooks</tspan></text>
+
+  <line x1="570.7" y1="560.2" x2="819.3" y2="391" stroke="#1f9550" stroke-width="2"/>
+  <polygon points="828.4,384.8 821.9,394.8 816.7,387.2" fill="#1f9550"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#1f9550" transform="rotate(-34.2 714.2 494)"><tspan x="714.2" y="498.5">Actions</tspan></text>
+
+  <line x1="789.3" y1="384.8" x2="540.7" y2="554" stroke="#b45309" stroke-width="2"/>
+  <polygon points="531.6,560.2 543.3,557.8 538.1,550.2" fill="#b45309"/>
+  <text text-anchor="middle" font-size="17" font-weight="600" fill="#b45309" transform="rotate(-34.2 645.8 451)"><tspan x="645.8" y="455.5">Data</tspan></text>
+
+  <!-- ===== Nodes ===== -->
+  <rect x="60" y="318" width="160" height="64" rx="10" fill="#e7f2ff" stroke="#2b6cb0" stroke-width="2"/>
+  <g transform="translate(102.5 350) scale(1.25)"><circle cx="0" cy="-4.5" r="3.4" fill="none" stroke="#2b6cb0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M -6.5 7.5 C -6.5 1, 6.5 1, 6.5 7.5" fill="none" stroke="#2b6cb0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <text x="126" y="356" font-size="17" font-weight="700" fill="#2b6cb0">Humans</text>
+  <rect x="425" y="73" width="150" height="64" rx="10" fill="#f0e9ff" stroke="#6b46c1" stroke-width="2"/>
+  <g transform="translate(474.5 105) scale(1.25)"><path d="M 0 -10.2 V -7.6" fill="none" stroke="#6b46c1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="0" cy="-11.2" r="1.3" fill="#6b46c1"/><rect x="-7.5" y="-7.5" width="15" height="13" rx="3.5" fill="none" stroke="#6b46c1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="-3.2" cy="-2.8" r="1.5" fill="#6b46c1"/><circle cx="3.2" cy="-2.8" r="1.5" fill="#6b46c1"/><path d="M -3 2.2 H 3" fill="none" stroke="#6b46c1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <text x="498" y="111" font-size="17" font-weight="700" fill="#6b46c1">Crew</text>
+  <rect x="379" y="563" width="242" height="64" rx="10" fill="#e6f6ec" stroke="#1f9550" stroke-width="2"/>
+  <g transform="translate(427.5 595) scale(1.25)"><rect x="-9.5" y="-8" width="19" height="16" rx="2.5" fill="none" stroke="#1f9550" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M -9.5 -3.2 H 9.5" fill="none" stroke="#1f9550" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="-6.6" cy="-5.6" r="1" fill="#1f9550"/><circle cx="-3.4" cy="-5.6" r="1" fill="#1f9550"/></g>
+  <text x="451" y="601" font-size="17" font-weight="700" fill="#1f9550">Just-in-time App</text>
+  <rect x="750" y="318" width="220" height="64" rx="10" fill="#fdf0e0" stroke="#b45309" stroke-width="2"/>
+  <g transform="translate(783.5 350) scale(1.25)"><ellipse cx="0" cy="-6" rx="7.5" ry="3" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M -7.5 -6 V 6" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M 7.5 -6 V 6" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M -7.5 0 A 7.5 3 0 0 0 7.5 0" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M -7.5 6 A 7.5 3 0 0 0 7.5 6" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <text x="807" y="356" font-size="17" font-weight="700" fill="#b45309">Business systems</text>
+</svg>

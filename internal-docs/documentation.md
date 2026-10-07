@@ -35,7 +35,7 @@ Keep these consistent across all surfaces below.
   - `<section id="how-it-works">` - one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.
 - **Update when:** headline features change. Always update this file, the README and the two translated copies in the same commit so they don't drift.
 - **Languages:** the English file is the source. Every edit to it is repeated in the Spanish, Catalan and Simplified Chinese copies in the same commit; a copy that keeps an English sentence is a bug, not a fallback. All four carry the same five `rel=alternate hreflang` links and the same language menu in the footer (a `<details>` that names the page's language and links the others). `scripts/site-i18n-check.test.ts` holds the eight pages to that.
-- **Footer:** one layout on the landing, hosted, about, AI instructions and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in all thirteen. The about, AI instructions and legal pages are English only and carry no language menu.
+- **Footer:** one layout on the landing, hosted, about, enterprise, AI instructions and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in all fourteen. The about, enterprise, AI instructions and legal pages are English only and carry no language menu.
 - **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`). `cleanUrls` serves the copies at `/es` and `/ca`; both appear in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`).
 
 ## 2b. Hosted landing page (isomux.com/hosted)
@@ -63,7 +63,7 @@ Keep these consistent across all surfaces below.
 
 - **File:** `site/about.html`.
 - **Audience:** Visitors and AI search engines that want to know what Isomux is and who builds it.
-- **Structure:** a one-sentence definition, then The team behind Isomux, Enterprise, Support, a Key facts table, FAQ, and Related projects. Features stay on the landing page and hosting options in the hosting guide; this page does not repeat them. It carries `AboutPage` / `Organization` JSON-LD. Styled like the legal pages (section 2c).
+- **Structure:** a one-sentence definition, then The team behind Isomux, Enterprise (a short paragraph that links the enterprise page, section 2f), Support, a Key facts table, FAQ, and Related projects. Features stay on the landing page and hosting options in the hosting guide; this page does not repeat them. It carries `AboutPage` / `Organization` JSON-LD. Styled like the legal pages (section 2c).
 - **Update when:** a fact on it changes - license, prices, support channels, status, or a named competitor. Every claim traces to a public surface (this repo, the site, nilmamano.com, or a competitor's own site or repo); a claim about a competitor is a verifiable fact with a source, never a subjective comparison.
 - **Language:** English only for now. The landing and hosted footers link it in all four languages.
 - **Deploy note:** static, `cleanUrls`, served at `/about`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
@@ -76,6 +76,15 @@ Keep these consistent across all surfaces below.
 - **Update when:** the category pitch, license, free tier, supported agents, hosting options or beta status changes. Every line traces to the README, the landing or the about page; the landing wins where they differ.
 - **Language:** English only. All footers link it; the Spanish, Catalan and Chinese footers translate the link label (Instrucciones para IA, Instruccions per a IA, AI 说明).
 - **Deploy note:** static, `cleanUrls`, served at `/ai-instructions`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
+
+## 2f. Enterprise page (isomux.com/enterprise)
+
+- **File:** `site/enterprise.html`.
+- **Audience:** a company that wants to know why and how to bring Isomux in.
+- **Structure:** an opening that separates the two products (Hosted Isomux for individuals and small teams, Isomux for Enterprise for whole companies under a commercial license), then Why (two bullets that link the Isomux for Enterprise posts, each with its diagram from the post: `site/enterprise-normies.svg`, `site/enterprise-crew-loop.svg`), Options (self-hosted deployment, license), and How to start (try it, then reach out by email, X, LinkedIn or Discord). After the opening the page covers the enterprise product only and does not mention Hosted. Styled like the about page.
+- **Update when:** the license or what it includes, the setup guides, the contact path, the pilot status, or Isomux LLC's access to a self-hosted office changes. Every claim traces to the about page, `LICENSE`, `COMMERCIAL-LICENSE.md`, the docs, the source, the Isomux for Enterprise posts on nilmamano.com, or a statement from Nil.
+- **Language:** English only. All footers link it under Product; the Spanish, Catalan and Chinese footers translate the link label (Empresas, Empreses, 企业).
+- **Deploy note:** static, `cleanUrls`, served at `/enterprise`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
 
 ## 3. Site chatbot system prompt
 

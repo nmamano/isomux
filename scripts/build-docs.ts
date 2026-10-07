@@ -49,6 +49,7 @@ export const STATIC_PATHS = [
   "/zh",
   "/demo",
   "/about",
+  "/enterprise",
   "/ai-instructions",
   "/hosted",
   "/es/hosted",
