@@ -35,10 +35,18 @@ the release report, with what is unverified.
   customers - a box named like a test can be someone's office. Touching a
   customer box destroys a customer office; if the record is ambiguous, stop
   and ask Nil.
-  Creating, rebuilding, or cancelling any box is a billing action and needs
-  Nil's word.
-- **The published tag.** The installer resolves `releases/latest`, so the
-  release must be published, not drafted, before stage A means anything.
+  The permanent self-hosted release test box is not in the control-plane
+  database: its system of record is `internal-docs/private/test-box.md`
+  (instance id, IP, SSH key, rebuild call). Before any rebuild, match the
+  instance id and display name in a provider read against that file.
+  Rebuilding that box is a free reinstall and needs no new word (Nil,
+  2026-10-07). Creating or cancelling any box, or rebuilding any other box,
+  is a billing action and needs Nil's word.
+- **The published tag.** The release stays a prerelease during verification,
+  so the installer's default (`releases/latest`) still installs the old tag:
+  stages A and C pin the new tag with `ISOMUX_REF`, and the in-app update
+  notice, which skips prereleases, cannot be exercised. After promotion, run
+  the installer once with no `ISOMUX_REF` and confirm it resolves the new tag.
 - **A previous-release office** for stage B. If the test box is being used
   for stage A, stage B needs either a second box or a stage-A run kept at
   the old tag first (install old, update to new, then rebuild and install
