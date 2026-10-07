@@ -77,13 +77,26 @@ export function workerCount(threads = availableParallelism()): number {
 // process of its own, so a slow file never waits behind others.
 const DOM_FILE = /\.dom\.test\.[a-z]+$/;
 
+// These files rebuild site/docs in beforeAll (build-docs deletes the
+// directory first), so in two processes at once one reads pages the other
+// has just removed (red in CI on 2026-10-07). They share one process.
+export const DOCS_BUILD_FILES = [
+  "scripts/hosting-docs.test.ts",
+  "scripts/site-i18n-check.test.ts",
+];
+
 /** The files of each process, the DOM process first: it is the longest. */
 export function plan(files: string[]): string[][] {
   const dom = files.filter((file) => DOM_FILE.test(file));
+  const docs = files.filter((file) => DOCS_BUILD_FILES.includes(file));
   const rest = files
-    .filter((file) => !DOM_FILE.test(file))
+    .filter((file) => !DOM_FILE.test(file) && !docs.includes(file))
     .map((file) => [file]);
-  return dom.length > 0 ? [dom, ...rest] : rest;
+  return [
+    ...(dom.length > 0 ? [dom] : []),
+    ...(docs.length > 0 ? [docs] : []),
+    ...rest,
+  ];
 }
 
 export type Counts = {

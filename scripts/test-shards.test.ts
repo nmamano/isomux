@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
+  DOCS_BUILD_FILES,
   MAX_WORKERS,
   failed,
   parseCounts,
@@ -214,4 +215,21 @@ it("runs the DOM files in one process first and every other file alone", () => {
   ]);
   expect(plan(rest)).toEqual(rest.map((file) => [file]));
   expect(plan([])).toEqual([]);
+});
+
+it("runs the files that rebuild site/docs in one process", () => {
+  const rest = ["server/a.test.ts"];
+  expect(plan([...DOCS_BUILD_FILES, ...rest].sort())).toEqual([
+    DOCS_BUILD_FILES,
+    ...rest.map((file) => [file]),
+  ]);
+});
+
+it("lists every test file that rebuilds site/docs", () => {
+  // Built from parts so this file does not match itself.
+  const needle = ["main", "as", "buildDocs"].join(" ");
+  const builders = testFiles(".").filter((file) =>
+    readFileSync(file, "utf8").includes(needle),
+  );
+  expect(builders.sort()).toEqual([...DOCS_BUILD_FILES].sort());
 });
