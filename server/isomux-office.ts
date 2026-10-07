@@ -48,6 +48,7 @@ import type {
 } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { setProcessName } from "./process-name.ts";
+import { normalizeBunRunPath } from "./bun-run-path.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
@@ -7720,6 +7721,9 @@ export async function runOfficeMain(): Promise<void> {
   // harness calls startServer() directly and must not rename itself. After the
   // CLI fast-path above, which is a different program and keeps its own name.
   setProcessName();
+  // Before anything reads PATH: agents and terminals inherit it.
+  if (process.env.PATH)
+    process.env.PATH = normalizeBunRunPath(process.env.PATH, process.cwd());
   // The other half of the same protection: mark every process this office
   // starts as a better candidate for the kill than the office itself, since
   // they all inherit the server's own score otherwise (server/oom-stamp.ts).

@@ -2136,6 +2136,7 @@ App 的一些原则：
     "Claude 连接检查未能完成。请重试请求，或在设置中登录 Claude。",
   "systemEntries.signInRequired":
     "{provider} 未登录，无法处理此消息。请在下方登录以继续。",
+  "systemEntries.signInPrompt": "在下方登录 {provider}。",
   "systemEntries.manageSignIn": "在下方管理 {provider} 登录。",
   "systemEntries.alreadySignedIn": "已经登录。在下方管理 {provider} 登录。",
   "systemEntries.signOutOpenCode": "OpenCode 智能体不提供退出登录功能。",

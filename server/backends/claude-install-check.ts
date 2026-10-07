@@ -2,11 +2,9 @@
 //
 // The Claude Agent SDK ships its own native binary (see CLAUDE_NATIVE_BIN in
 // server/cwd-utils.ts), so agent runtime does NOT require the user-facing
-// `claude` CLI to be installed. That CLI is only needed for the human auth
-// flow: `claude` then `/login` writes credentials the SDK then reads. So
-// `isClaudeCodeInstalled() === false` only matters when we're surfacing
-// login instructions - it lets us swap "open terminal, run claude, /login"
-// (no-op if the binary isn't there) for an install hint first.
+// `claude` CLI to be installed. The terminal sign-in prefers that CLI when it
+// is on PATH and otherwise runs the bundled binary, so
+// `isClaudeCodeInstalled()` only picks which command the login card shows.
 //
 // Codex doesn't have an equivalent presence check: codex now ships bundled as
 // an isomux runtime dep (see server/backends/codex/native-bin.ts), so its
@@ -43,7 +41,8 @@ export function isClaudeCodeInstalled(env?: {
 // Presence signals, not a credential validity check. Cloud selection counts
 // even when its external credentials have expired, just like an API key.
 // Any of these is enough:
-//   1. ANTHROPIC_API_KEY in the agent's effective env - env-var auth
+//   1. ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_AUTH_TOKEN in
+//      the agent's effective env - the SDK documents all three as auth that
 //      bypasses the credentials file entirely. Caller passes the agent's
 //      resolved env (process.env + office variables + managed personal variables, in
 //      override order); defaults to process.env if no env supplied.
@@ -60,7 +59,12 @@ export function isClaudeCodeAuthenticated(env?: {
 }): boolean {
   const effective = env ?? getAgentHost().baseEnv();
   if (isClaudeCloudSelected(effective)) return true;
-  if (effective.ANTHROPIC_API_KEY) return true;
+  if (
+    effective.ANTHROPIC_API_KEY ||
+    effective.CLAUDE_CODE_OAUTH_TOKEN ||
+    effective.ANTHROPIC_AUTH_TOKEN
+  )
+    return true;
   const configured = effective.CLAUDE_CONFIG_DIR;
   const configDir = configured?.trim()
     ? configured

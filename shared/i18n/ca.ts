@@ -2380,6 +2380,7 @@ Coses que pots fer per ell:
     "No s’ha pogut completar la comprovació de la connexió de Claude. Torna a provar la sol·licitud o inicia sessió a Claude a Configuració.",
   "systemEntries.signInRequired":
     "{provider} no ha pogut executar aquest missatge perquè no ha iniciat sessió. Inicia sessió a sota per continuar.",
+  "systemEntries.signInPrompt": "Inicia sessió a {provider} a sota.",
   "systemEntries.manageSignIn": "Gestiona la teva sessió de {provider} a sota.",
   "systemEntries.alreadySignedIn":
     "Ja has iniciat sessió. Gestiona la teva sessió de {provider} a sota.",

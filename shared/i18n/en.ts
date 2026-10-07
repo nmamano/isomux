@@ -2367,6 +2367,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "The Claude connection check could not finish. Retry the request or sign in to Claude in Settings.",
   "systemEntries.signInRequired":
     "{provider} could not run this message because it is not signed in. Sign in below to continue.",
+  "systemEntries.signInPrompt": "Sign in to {provider} below.",
   "systemEntries.manageSignIn": "Manage your {provider} sign-in below.",
   "systemEntries.alreadySignedIn":
     "You are already signed in. Manage your {provider} sign-in below.",

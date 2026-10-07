@@ -2385,6 +2385,7 @@ Cosas que puedes hacer por él:
     "No se pudo completar la comprobación de la conexión de Claude. Vuelve a intentar la solicitud o inicia sesión en Claude en Ajustes.",
   "systemEntries.signInRequired":
     "{provider} no pudo ejecutar este mensaje porque no ha iniciado sesión. Inicia sesión abajo para continuar.",
+  "systemEntries.signInPrompt": "Inicia sesión en {provider} abajo.",
   "systemEntries.manageSignIn": "Gestiona tu sesión de {provider} abajo.",
   "systemEntries.alreadySignedIn":
     "Ya has iniciado sesión. Gestiona tu sesión de {provider} abajo.",

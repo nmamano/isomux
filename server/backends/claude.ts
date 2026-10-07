@@ -125,39 +125,32 @@ import type {
   TokenUsage,
 } from "./types.ts";
 
-const LOGIN_INSTRUCTIONS = `To authenticate Claude Code:
+function loginInstructions(command: string): string {
+  return `To authenticate Claude Code:
 1. Open the built-in terminal
-2. Run \`claude\`
+2. Run \`${command}\`
 3. Type \`/login\`
 4. Follow the auth flow
 
 Once complete, it takes effect immediately for all Isomux agents.
 
 Alternative: add \`ANTHROPIC_API_KEY\` under Settings → You → Individual connections, then \`/clear\`.`;
+}
 
 // Surfaced when an auth-error fires (or the user types /login) but the
 // office already has a valid Claude auth (credentials.json or a macOS Keychain
 // login present, or ANTHROPIC_API_KEY in env). Symmetric with the Codex auto-clear hint.
 const ALREADY_AUTHED_INSTRUCTIONS = `Claude Code is signed in. Type \`/clear\` to refresh this agent's session and pick up the new auth.`;
 
-const LOGIN_COMMAND = `claude`;
-
-// Native installer is Anthropic's recommended Claude Code install path
-// (see https://github.com/anthropics/claude-code and
-// https://code.claude.com/docs/en/setup): user-owned location, auto-update
-// in the background, no sudo. npm install -g is now an Advanced /
-// deprecated fallback in their docs.
-const CLAUDE_CODE_NOT_INSTALLED_MESSAGE = `To install Claude Code, click [Copy to terminal] on the card below:
-
-\`curl -fsSL https://claude.ai/install.sh | bash\`
-
-macOS users with Homebrew can alternatively run \`brew install --cask claude-code\`.
-
-After install, open a new shell and run \`claude\` to sign in. If \`claude\` is not found, add \`~/.local/bin\` to PATH in your shell config and open another shell.
-
-Alternative: add \`ANTHROPIC_API_KEY\` under Settings → You → Individual connections, then \`/clear\`.`;
-
-const INSTALL_COMMAND = `curl -fsSL https://claude.ai/install.sh | bash`;
+// The terminal sign-in runs `claude` when the member has it on PATH, and
+// otherwise the binary bundled with the Agent SDK, so it never needs an
+// install.
+function loginCommand(env?: { [key: string]: string | undefined }): string {
+  if (isClaudeCodeInstalled(env)) return "claude";
+  return /^[\w@%+=:,./-]+$/.test(CLAUDE_NATIVE_BIN)
+    ? CLAUDE_NATIVE_BIN
+    : `'${CLAUDE_NATIVE_BIN.replaceAll("'", `'"'"'`)}'`;
+}
 
 const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|403|401/i;
@@ -1718,24 +1711,13 @@ export function createClaudeBackend(
           text: ALREADY_AUTHED_INSTRUCTIONS,
         };
       }
-      // If the user can't actually run `claude` and `/login` (binary missing
-      // from PATH), surface the install command first instead of the terminal
-      // walkthrough that would just produce a "command not found". The card
-      // rides along so the catch site can emit a [Copy to terminal] next to
-      // the text.
-      return isClaudeCodeInstalled(opts?.env)
-        ? {
-            kind: "login",
-            cardEligible: true,
-            text: LOGIN_INSTRUCTIONS,
-            commands: [LOGIN_COMMAND],
-          }
-        : {
-            kind: "not_installed",
-            cardEligible: false,
-            text: CLAUDE_CODE_NOT_INSTALLED_MESSAGE,
-            commands: [INSTALL_COMMAND],
-          };
+      const command = loginCommand(opts?.env);
+      return {
+        kind: "login",
+        cardEligible: true,
+        text: loginInstructions(command),
+        commands: [command],
+      };
     },
   };
 }

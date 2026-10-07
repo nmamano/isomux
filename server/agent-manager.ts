@@ -616,6 +616,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Present when a person typed /login; absent on the auth-error path, where
     // logWords falls back to the agent's owner.
     username?: string,
+    // A typed /login is not a message the engine failed to run.
+    trigger: "turn" | "login_command" = "turn",
   ): Promise<void> {
     const managed = agents.get(agentId);
     if (
@@ -642,9 +644,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.signInRequired", {
-              provider: providerDisplayName(provider),
-            }),
+            logWords(agentId, username)(
+              trigger === "login_command"
+                ? "systemEntries.signInPrompt"
+                : "systemEntries.signInRequired",
+              { provider: providerDisplayName(provider) },
+            ),
             { providerLogin: provider },
           );
           return;
@@ -663,13 +668,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): void {
     if (managed?.authNoticeEmittedThisWake) return;
     if (managed) managed.authNoticeEmittedThisWake = true;
-    if (managed?.info.agentType === "claude") {
-      void emitClaudeAuthInstructions(agentId, managed);
-      return;
-    }
-    void agentLoginInstructions(managed).then((instructions) =>
-      emitLoginInstructions(agentId, instructions),
-    );
+    void (async () => {
+      // Credentials that exist were rejected and get the connection check.
+      // With none at all, Claude gets the same single notice as Codex.
+      if (
+        managed?.info.agentType === "claude" &&
+        !(await agentIsKnownUnauthenticated(managed))
+      ) {
+        await emitClaudeAuthInstructions(agentId, managed);
+        return;
+      }
+      await emitLoginInstructions(
+        agentId,
+        await agentLoginInstructions(managed),
+      );
+    })();
   }
 
   async function emitClaudeAuthInstructions(
@@ -892,7 +905,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         } catch {}
       }
     }
-    void emitLoginInstructions(agentId, fallback, username);
+    void emitLoginInstructions(agentId, fallback, username, "login_command");
   }
 
   function flushPendingFreshRecoveryNotice(
@@ -3543,14 +3556,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     )
       return;
     managed.topicGenerating = true;
+    // Capture before the await; if /clear, /resume, fork, etc. ran during the
+    // LLM call, the token will have changed and we drop the stale result.
+    const startToken = managed.topicGenToken;
+    // A signed-out engine cannot label: skip it instead of failing the call.
+    if (await agentIsKnownUnauthenticated(managed)) {
+      if (agents.has(agentId) && managed.topicGenToken === startToken)
+        managed.topicGenerating = false;
+      return;
+    }
+    if (!agents.has(agentId) || managed.topicGenToken !== startToken) return;
     for (const event of officeState.updateAgent(agentId, {
       topic: "...",
       topicStale: false,
     }))
       emit(event);
-    // Capture before the await; if /clear, /resume, fork, etc. ran during the
-    // LLM call, the token will have changed and we drop the stale result.
-    const startToken = managed.topicGenToken;
 
     // Build context: first user message + last 5 user messages.
     // textEntries (user + text) is still the drift-counting source - it
@@ -5773,7 +5793,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           );
           return;
         }
-        void emitLoginInstructions(agentId, instructions, username);
+        void emitLoginInstructions(
+          agentId,
+          instructions,
+          username,
+          "login_command",
+        );
       });
     },
     emitLogoutAffordanceFor: emitLogoutAffordance,

@@ -366,6 +366,17 @@ write_update_outcome() {
   fi
 }
 
+# Runs "$@" with the lines that match the ERE $1 removed from its stdout and
+# its stderr, each kept on its own stream, and returns the command's status.
+drop_output_lines() {
+  local pattern=$1 rc=0
+  shift
+  {
+    "$@" 2>&1 1>&3 3>&- | { grep --line-buffered -Ev -- "$pattern" || true; } >&2
+  } 3>&1 | { grep --line-buffered -Ev -- "$pattern" || true; } || rc=$?
+  return "$rc"
+}
+
 # apt-get install, with any package config file the operator has edited by hand
 # left exactly as they left it.
 #
@@ -665,7 +676,16 @@ install_packages() {
     echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
       >/etc/apt/sources.list.d/nodesource.list
     apt_get update -y
-    apt_install caddy nodejs
+    if [[ -n $CADDY_MASKED ]]; then
+      # On a host without caddy, the mask above exists before the unit does,
+      # so the package's postinst cannot preset the masked unit. It ignores
+      # that failure, and this function stops and disables caddy right after,
+      # but the two lines it prints read as a broken install. Drop only those.
+      drop_output_lines 'Failed to preset unit, unit .*caddy\.service is masked|deb-systemd-helper: error: systemctl preset failed on caddy\.service' \
+        apt_install caddy nodejs
+    else
+      apt_install caddy nodejs
+    fi
   fi
   if [[ -z $caddy_safe ]]; then
     run systemctl unmask caddy

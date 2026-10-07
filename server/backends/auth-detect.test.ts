@@ -10,13 +10,14 @@
 // login-command generation (wrapper script + paths) is already covered by
 // server/backends/codex/native-bin.test.ts and not repeated.
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import { claudeBackend } from "./claude.ts";
 import { codexBackend } from "./codex/adapter.ts";
 import { isCodexAuthenticated } from "./codex/native-bin.ts";
+import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
 
 const tempDirs: string[] = [];
 afterAll(() => {
@@ -87,6 +88,35 @@ describe("getLoginInstructions - already-authed short-circuit", () => {
     });
     expect(r.commands).toBeUndefined();
     expect(r.text).toMatch(/\/clear/i);
+  });
+});
+
+describe("claudeBackend terminal sign-in", () => {
+  function tempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-claude-login-"));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  it("runs the bundled binary when claude is not on PATH", async () => {
+    const r = await claudeBackend.getLoginInstructions({
+      env: { PATH: tempDir(), CLAUDE_CONFIG_DIR: tempDir() },
+    });
+    expect(r.kind).toBe("login");
+    expect(r.commands).toHaveLength(1);
+    expect(r.commands![0].replaceAll("'", "")).toBe(CLAUDE_NATIVE_BIN);
+    expect(r.text).toContain(r.commands![0]);
+  });
+
+  it("runs claude when it is on PATH", async () => {
+    const bin = tempDir();
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\n");
+    chmodSync(join(bin, "claude"), 0o755);
+    const r = await claudeBackend.getLoginInstructions({
+      env: { PATH: bin, CLAUDE_CONFIG_DIR: tempDir() },
+    });
+    expect(r.kind).toBe("login");
+    expect(r.commands).toEqual(["claude"]);
   });
 });
 

@@ -35,6 +35,10 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 import { BackendNotConfiguredError } from "../internal-types.ts";
 import { _testRunOwnerCreatedHook } from "../auth-middleware.ts";
 import { STATE_ROOT } from "../config.ts";
@@ -48,6 +52,7 @@ let server: TestServer | null = null;
 afterEach(async () => {
   await server?.stop();
   server = null;
+  clearTestManagedOfficeEnv();
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -427,6 +432,11 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
           }) as never,
       },
     });
+    // A fresh office: no Claude credentials anywhere.
+    setTestManagedOfficeEnv({
+      CLAUDE_CONFIG_DIR: join(STATE_ROOT, "onboarding-no-claude-credentials"),
+      ANTHROPIC_API_KEY: "",
+    });
     const rawSessionId = await claimOwner(server, "Boss");
 
     const claude = requireAgentByName(server, CLAUDE_WELCOME);
@@ -439,21 +449,20 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       rawSessionId,
     });
 
-    // The auth rejection gets an immediate check notice and the scoped sign-in card.
+    // With no credentials to reject, the failed turn gets one notice, and it
+    // carries the sign-in card.
     await waitForLog(sock, claude.id, (e) => e.kind === "error");
-    await waitForLog(
-      sock,
-      claude.id,
-      (e) =>
-        e.kind === "system" &&
-        e.content ===
-          "Claude rejected the credentials. Checking the connection…",
-    );
     await waitForLog(
       sock,
       claude.id,
       (e) => e.kind === "system" && e.metadata?.providerLogin === "claude",
     );
+    const entries = logEntriesFor(sock, claude.id);
+    const sent = entries.findIndex((e) => e.kind === "user_message");
+    expect(sent).toBeGreaterThan(-1);
+    const notices = entries.slice(sent).filter((e) => e.kind === "system");
+    expect(notices).toHaveLength(1);
+    expect(notices[0].metadata?.providerLogin).toBe("claude");
     // Auth failure parks at waiting_for_response ("user needs to sign in"), not
     // "error" ("agent crashed").
     await waitForState(server, claude.id, "waiting_for_response");

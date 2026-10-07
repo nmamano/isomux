@@ -44,6 +44,16 @@ describe("Claude Code effective-environment probes", () => {
     });
   }
 
+  for (const token of ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"]) {
+    it(`counts ${token} as a login without a credentials file`, () => {
+      const env = { CLAUDE_CONFIG_DIR: tempDir(), ANTHROPIC_API_KEY: "" };
+      expect(isClaudeCodeAuthenticated({ ...env, [token]: "token" })).toBe(
+        true,
+      );
+      expect(isClaudeCodeAuthenticated({ ...env, [token]: "" })).toBe(false);
+    });
+  }
+
   it("resolves credentials from the effective CLAUDE_CONFIG_DIR", () => {
     const signedIn = tempDir();
     const signedOut = tempDir();

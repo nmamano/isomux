@@ -1,6 +1,6 @@
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { getSessionClaudeConfigDir } from "../persistence.ts";
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OfficeState } from "../../shared/office-state.ts";
@@ -24,6 +24,7 @@ import {
   personalProviderHome,
 } from "../provider-homes.ts";
 import { STATE_ROOT } from "../config.ts";
+import { english } from "../i18n.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { loadAgents } from "../persistence.ts";
 import { claudeBackend } from "../backends/claude.ts";
@@ -38,6 +39,15 @@ import type { AgentEvent } from "../internal-types.ts";
 
 afterEach(() => clearTestManagedOfficeEnv());
 
+// Claude credentials that exist on disk, for the paths where Claude rejected
+// them. Without any, the agent gets the plain sign-in notice instead.
+function storeClaudeCredentials(): void {
+  const dir = join(STATE_ROOT, `stored-claude-${crypto.randomUUID()}`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, ".credentials.json"), "{}");
+  setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: dir });
+}
+
 function room(id: string): RoomWire {
   return { id, name: id, prompt: null, canCloseWhenEmpty: false };
 }
@@ -50,6 +60,13 @@ async function waitFor(check: () => boolean): Promise<void> {
   const deadline = Date.now() + 15_000;
   while (!check() && Date.now() < deadline) await Bun.sleep(5);
   expect(check()).toBe(true);
+}
+
+// Polls for at most 2 s, inside Bun's 5 s per-test cap, and asserts nothing:
+// the caller's expects after it name what failed.
+async function settle(check: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!check() && Date.now() < deadline) await Bun.sleep(5);
 }
 
 // This fixture must not inherit a personal Claude sign-in from the test runner.
@@ -412,12 +429,18 @@ describe("provider auth affordances", () => {
         .getAgentLogs(agentId)
         .some((entry) => entry.metadata?.providerLogin === "claude"),
     );
-    await waitFor(() => fake.oneShotCount === 1);
     const logs = mgr.getAgentLogs(agentId);
-    expect(fake.oneShotCount).toBe(1);
-    expect<string | null>(successfulTopicResult).toBe(
-      "Not logged in · Please run /login",
-    );
+    // No credentials at all: one notice, and it carries the sign-in card.
+    const sent = logs.findIndex((entry) => entry.kind === "user_message");
+    expect(sent).toBeGreaterThan(-1);
+    const notices = logs
+      .slice(sent)
+      .filter((entry) => entry.kind === "system");
+    expect(notices).toHaveLength(1);
+    expect(notices[0].metadata?.providerLogin).toBe("claude");
+    // Topic generation skips a signed-out engine instead of calling it.
+    expect(fake.oneShotCount).toBe(0);
+    expect<string | null>(successfulTopicResult).toBeNull();
     expect(logs.some((entry) => entry.kind === "user_message")).toBe(true);
     expect(
       logs.filter((entry) => entry.metadata?.providerLogin === "claude"),
@@ -493,6 +516,154 @@ describe("provider auth affordances", () => {
     expect(mgr.getAgent(agentId)?.topic).toBe(label);
   });
 
+  it("skips topic generation while Codex is signed out", async () => {
+    const codexHome = join(STATE_ROOT, `signed-out-codex-${crypto.randomUUID()}`);
+    mkdirSync(codexHome, { recursive: true });
+    setTestManagedOfficeEnv({ CODEX_HOME: codexHome, OPENAI_API_KEY: "" });
+    const fake = new FakeBackend({
+      oneShot: () => {
+        throw new Error("Codex one-shot error: Reconnecting... 2/5");
+      },
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.completeTurn({ text: "ok" }),
+      },
+    });
+    const { mgr, agentId } = await harness({ backendType: "codex", fake });
+    expect(isCodexAuthenticated(mgr.buildEnvForUserId("user-a"))).toBe(false);
+    const errors: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    try {
+      await mgr.sendMessage(agentId, "first request", "tester");
+      await Bun.sleep(50);
+    } finally {
+      console.error = original;
+    }
+    expect(fake.oneShotCount).toBe(0);
+    expect(errors).toEqual([]);
+    expect(mgr.getAgent(agentId)?.topic).toBeNull();
+  });
+
+  for (const token of ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"]) {
+    it(`generates topics for a Claude agent that signs in with ${token}`, async () => {
+      const dir = join(STATE_ROOT, `token-claude-${crypto.randomUUID()}`);
+      mkdirSync(dir, { recursive: true });
+      setTestManagedOfficeEnv({
+        CLAUDE_CONFIG_DIR: dir,
+        ANTHROPIC_API_KEY: "",
+        [token]: "test-token",
+      });
+      const label = "Project planning";
+      const fake = new FakeBackend({
+        oneShot: label,
+        session: {
+          onSend: (_text, _attachments, session) =>
+            session.completeTurn({ text: "ok" }),
+        },
+      });
+      const { mgr, agentId } = await harness({ backendType: "claude", fake });
+      const env = mgr.buildEnvForUserId("user-a");
+      expect(env?.[token]).toBe("test-token");
+      expect(existsSync(join(dir, ".credentials.json"))).toBe(false);
+      await mgr.sendMessage(agentId, "Plan the project", "tester");
+      await settle(() => mgr.getAgent(agentId)?.topic === label);
+      expect(fake.oneShotCount).toBe(1);
+      expect(mgr.getAgent(agentId)?.topic).toBe(label);
+    });
+
+    it(`keeps the rejected-credential check for a rejected ${token}`, async () => {
+      const dir = join(STATE_ROOT, `token-claude-${crypto.randomUUID()}`);
+      mkdirSync(dir, { recursive: true });
+      setTestManagedOfficeEnv({
+        CLAUDE_CONFIG_DIR: dir,
+        ANTHROPIC_API_KEY: "",
+        [token]: "rejected-token",
+      });
+      const fake = new FakeBackend({
+        isAuthError: (text) => claudeBackend.detectAuthError(text),
+        // The plain sign-in path's card, so a wrong route still ends in a
+        // providerLogin entry and reaches the assertion below.
+        loginInstructions: {
+          kind: "login",
+          text: "terminal fallback",
+          commands: ["claude"],
+        },
+        session: {
+          onSend: (_text, _attachments, session) =>
+            session.completeTurn({
+              status: "failed",
+              error: "401 Unauthorized",
+            }),
+        },
+      });
+      const { mgr, agentId } = await harness({
+        backendType: "claude",
+        fake,
+        accounts: async () => [claudeWire("office")],
+        target: () => ({
+          provider: "claude",
+          scope: "office",
+          dir: "/accounts/office-claude",
+        }),
+      });
+      expect(mgr.buildEnvForUserId("user-a")?.[token]).toBe("rejected-token");
+      expect(existsSync(join(dir, ".credentials.json"))).toBe(false);
+      mgr.enqueueMessage(agentId, {
+        sender: { kind: "user", username: "tester" },
+        text: "hello",
+      });
+      await settle(() =>
+        mgr
+          .getAgentLogs(agentId)
+          .some((entry) => entry.metadata?.providerLogin === "claude"),
+      );
+      expect(
+        mgr
+          .getAgentLogs(agentId)
+          .some(
+            (entry) =>
+              entry.content === english.t("systemEntries.claudeAuth.checking"),
+          ),
+      ).toBe(true);
+    });
+  }
+
+  it("gives /login on a signed-out Codex agent its own notice", async () => {
+    const fake = new FakeBackend({
+      loginInstructions: {
+        kind: "login",
+        text: "terminal fallback",
+        commands: ["~/.isomux/bin/codex login"],
+      },
+    });
+    const { mgr, agentId } = await harness({
+      backendType: "codex",
+      fake,
+      accounts: async () => [
+        { ...claudeWire("office"), provider: "codex" as const },
+      ],
+      target: () => ({
+        provider: "codex",
+        scope: "office",
+        dir: "/accounts/office-codex",
+      }),
+    });
+    await mgr.sendMessage(agentId, "/login", "tester");
+    await waitFor(() =>
+      mgr
+        .getAgentLogs(agentId)
+        .some((entry) => entry.metadata?.providerLogin === "codex"),
+    );
+    const notices = mgr
+      .getAgentLogs(agentId)
+      .filter((entry) => entry.metadata?.providerLogin === "codex");
+    expect(notices).toHaveLength(1);
+    expect(notices[0].content).toBe(
+      english.t("systemEntries.signInPrompt", { provider: "Codex" }),
+    );
+  });
+
   it("coalesces Claude system_text and an auth-looking stream exit", async () => {
     const fake = new FakeBackend({
       isAuthError: (text) => /not logged in|401/i.test(text),
@@ -539,6 +710,7 @@ describe("provider auth affordances", () => {
   });
 
   it("uses only the failing Claude scope for the sign-in card", async () => {
+    storeClaudeCredentials();
     const fake = new FakeBackend({
       isAuthError: (text) => text.includes("Not logged in"),
       loginInstructions: {
@@ -580,6 +752,7 @@ describe("provider auth affordances", () => {
   });
 
   it("uses the fresh account status instead of the standalone CLI installation hint", async () => {
+    storeClaudeCredentials();
     const fake = new FakeBackend({
       isAuthError: (text) => text.includes("Not logged in"),
       loginInstructions: {
@@ -749,6 +922,8 @@ describe("provider auth affordances", () => {
 });
 
 describe("Claude auth-error status checks", () => {
+  beforeEach(() => storeClaudeCredentials());
+
   function rejected(resumeOnly = false) {
     let initialTurn = resumeOnly;
     return new FakeBackend({
@@ -1083,6 +1258,9 @@ describe("Claude auth-error status checks", () => {
         join(STATE_ROOT, "old-office-claude"),
       );
       activatePersonalProvider(userId, "claude");
+      // A real sign-in leaves credentials in the personal home.
+      mkdirSync(personalDir, { recursive: true });
+      writeFileSync(join(personalDir, ".credentials.json"), "{}");
       const guidanceEvent = events.waitFor(
         (event) => event.entry.content.includes("new account"),
         "Claude new-account guidance after sign-in",
