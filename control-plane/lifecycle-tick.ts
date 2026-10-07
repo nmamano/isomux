@@ -383,10 +383,7 @@ export async function lifecycleTick(
         return applyAttention(
           store,
           instance.id,
-          assetGoneAction(
-            instance,
-            await store.assetForInstance(instance.id),
-          ),
+          assetGoneAction(instance, await store.assetForInstance(instance.id)),
         );
       });
     } catch (err) {

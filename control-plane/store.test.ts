@@ -766,9 +766,9 @@ describe("attention", () => {
     ).toBe(true);
     // Without once, the cleared identity raises again as before.
     expect(await raiseAttention(store, args)).toBe(true);
-    expect(
-      (await store.openReasons(inst)).map((r) => r.reason).sort(),
-    ).toEqual(["promise for date A", "promise for date B"]);
+    expect((await store.openReasons(inst)).map((r) => r.reason).sort()).toEqual(
+      ["promise for date A", "promise for date B"],
+    );
   });
 
   test("a resolve clears only the named condition, with one audit row each", async () => {

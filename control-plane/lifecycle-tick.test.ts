@@ -1202,9 +1202,7 @@ describe("the never-cancelled scan", () => {
     expect(await openAttentionKeys(store)).toEqual([""]);
     expect(await openLivenessCount(store)).toBe(1);
     expect(
-      (await store.auditEvents()).filter(
-        (e) => e.action === "clear_attention",
-      ),
+      (await store.auditEvents()).filter((e) => e.action === "clear_attention"),
     ).toHaveLength(1);
 
     await setAssetState(store, "cancelled");
@@ -1503,7 +1501,11 @@ describe("resolving a broken promise", () => {
 
     // Another anchor is another promise. The first one's DNS removal has
     // finished, so the new anchor's own remove_dns can open.
-    await succeed(store, lifecycleOperationId("remove_dns", "sub_1", ENDED), {});
+    await succeed(
+      store,
+      lifecycleOperationId("remove_dns", "sub_1", ENDED),
+      {},
+    );
     await store.sqlRun("update subscriptions set ended_at = $1", [
       ENDED + 24 * 3600_000,
     ]);
