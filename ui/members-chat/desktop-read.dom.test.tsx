@@ -70,6 +70,7 @@ const settleRead = () =>
     await new Promise((resolve) => setTimeout(resolve, 550));
   });
 it("keeps incoming unread visible while hidden and marks the same message read only after show", async () => {
+  localStorage.setItem("isomux-members-chat-hidden", "false");
   const view = render(lobby());
   fireEvent.click(view.getByRole("button", { name: "Hide chat" }));
   view.rerender(lobby("02"));

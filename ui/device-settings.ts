@@ -72,14 +72,14 @@ export function setDevice(label: string | null): void {
   else localStorage.removeItem(KEY_DEVICE);
 }
 
-export function getMembersChatHidden(): boolean {
+// null when this browser has no saved choice.
+export function getMembersChatHidden(): boolean | null {
   try {
-    return (
-      typeof localStorage !== "undefined" &&
-      localStorage.getItem(KEY_MEMBERS_CHAT_HIDDEN) === "true"
-    );
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(KEY_MEMBERS_CHAT_HIDDEN);
+    return raw === "true" ? true : raw === "false" ? false : null;
   } catch {
-    return false;
+    return null;
   }
 }
 

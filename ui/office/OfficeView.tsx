@@ -196,6 +196,7 @@ export function OfficeView({
     sessionContext,
     lobbyOpen,
     pager,
+    membersChat,
   } = useAppState();
   const openPages = useMemo(
     () => openPagesFor(pager, sessionContext?.userId ?? null),
@@ -245,7 +246,12 @@ export function OfficeView({
   const decorateScene = useContext(SceneDecorationContext);
   const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
     useMembersChatHydration(!embed);
-  const [chatHidden, setChatHidden] = useState(getMembersChatHidden);
+  const [savedChatHidden, setChatHidden] = useState(getMembersChatHidden);
+  // With no saved choice, an empty chat starts minimized so a new office
+  // shows its doors. Decided once, when the history first loads.
+  if (savedChatHidden === null && membersChat.loaded)
+    setChatHidden(membersChat.messages.length === 0);
+  const chatHidden = savedChatHidden ?? true;
   const [chatViewportWidth, setChatViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1440 : window.innerWidth,
   );

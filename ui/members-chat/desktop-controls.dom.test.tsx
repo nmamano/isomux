@@ -86,6 +86,7 @@ for (const [language, hide, show] of [
   ["ca", "Amaga el xat", "Xat de membres"],
 ] as const) {
   it(`translates the desktop controls in ${language}`, () => {
+    localStorage.setItem(key, "false");
     const view = render(lobby(null, false, language));
     fireEvent.click(view.getByRole("button", { name: hide }));
     fireEvent.click(view.getByRole("button", { name: show }));

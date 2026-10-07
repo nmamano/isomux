@@ -24,6 +24,7 @@ function lobby(
   id: string | null = null,
   mobile = false,
   language: "en" | "es" | "ca" = "en",
+  loaded = true,
 ) {
   return onLanguage(
     language,
@@ -44,7 +45,7 @@ function lobby(
       hasReceivedInitialState: true,
       connected: true,
       membersChat: {
-        loaded: true,
+        loaded,
         messages: id
           ? [
               {
@@ -86,4 +87,32 @@ it("loads the saved choice and persists both showing and hiding the desktop chat
   );
   expect(localStorage.getItem(key)).toBe("true");
   expect(zoom().style.right).toBe("12px");
+});
+it("with no saved choice, starts minimized for an empty chat and stays so when a message arrives", () => {
+  const view = render(lobby());
+  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
+    true,
+  );
+  view.rerender(lobby("01"));
+  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
+    true,
+  );
+  expect(localStorage.getItem(key)).toBe(null);
+});
+it("with no saved choice, stays minimized until the history loads, then opens for a chat with messages", () => {
+  const view = render(lobby("01", false, "en", false));
+  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
+    true,
+  );
+  view.rerender(lobby("01"));
+  expect(view.queryByPlaceholderText("Message the members…") !== null).toBe(
+    true,
+  );
+});
+it("with no saved choice, starts open when the chat has messages", () => {
+  const view = render(lobby("01"));
+  expect(view.queryByPlaceholderText("Message the members…") !== null).toBe(
+    true,
+  );
+  expect(localStorage.getItem(key)).toBe(null);
 });

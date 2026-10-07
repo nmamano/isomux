@@ -115,10 +115,14 @@ describe("members chat width", () => {
   });
 });
 
-it("defaults a missing or unknown desktop chat visibility value to visible", () => {
+it("reads a missing or unknown desktop chat visibility value as no saved choice", () => {
   store.delete("isomux-members-chat-hidden");
-  expect(getMembersChatHidden()).toBe(false);
+  expect(getMembersChatHidden()).toBe(null);
   store.set("isomux-members-chat-hidden", "broken");
+  expect(getMembersChatHidden()).toBe(null);
+  store.set("isomux-members-chat-hidden", "true");
+  expect(getMembersChatHidden()).toBe(true);
+  store.set("isomux-members-chat-hidden", "false");
   expect(getMembersChatHidden()).toBe(false);
 });
 

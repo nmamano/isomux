@@ -35,6 +35,7 @@ function office(mobile = false, language: "en" | "es" | "ca" = "en") {
 }
 beforeEach(() => localStorage.clear());
 it("keeps the panel and zoom inset together, remembers keyboard resizing, and clamps after a viewport resize", () => {
+  localStorage.setItem("isomux-members-chat-hidden", "false");
   const view = render(office());
   const handle = view.getByRole("separator", { name: "Resize chat" });
   expect(handle.getAttribute("aria-valuenow")).toBe("520");
