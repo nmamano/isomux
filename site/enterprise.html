@@ -224,12 +224,31 @@
         display: block;
         width: 100%;
         height: auto;
-        margin: 12px 0 8px;
+        margin: 12px auto 8px;
         border: 1px solid var(--border);
         border-radius: 8px;
       }
       .diagram-narrow {
         width: 70%;
+      }
+      .diagram-light {
+        display: none;
+      }
+      @media (prefers-color-scheme: light) {
+        .diagram-light {
+          display: block;
+        }
+        .diagram-dark {
+          display: none;
+        }
+      }
+      :root[data-theme-mode="dark"] .diagram-light,
+      :root[data-theme-mode="light"] .diagram-dark {
+        display: none;
+      }
+      :root[data-theme-mode="dark"] .diagram-dark,
+      :root[data-theme-mode="light"] .diagram-light {
+        display: block;
       }
       li {
         margin-bottom: 6px;
@@ -281,8 +300,15 @@
               >onboard non-technical employees with multiplayer agents</a
             >.
             <img
-              class="diagram"
+              class="diagram diagram-light"
               src="/enterprise-normies.svg"
+              width="1000"
+              height="420"
+              alt="Engineers and normies sit outside a box labelled Isomux, which runs in your infra with the harnesses you choose. Inside are two panels: Agents with shared conversations, such as Report Maker on Claude Code and Data Visualizer on Codex, and Apps reached by links instead of ports, such as churn-dashboard at churn.acme.isomux.app. Numbered arrows follow the 3-step dance: 1, engineers set up the agents; 2, normies chat with the agents; 3, engineers step in when normies get stuck. The agents register the apps they build, and normies open the app link with the same login."
+            />
+            <img
+              class="diagram diagram-dark"
+              src="/enterprise-normies-dark.svg"
               width="1000"
               height="420"
               alt="Engineers and normies sit outside a box labelled Isomux, which runs in your infra with the harnesses you choose. Inside are two panels: Agents with shared conversations, such as Report Maker on Claude Code and Data Visualizer on Codex, and Apps reached by links instead of ports, such as churn-dashboard at churn.acme.isomux.app. Numbered arrows follow the 3-step dance: 1, engineers set up the agents; 2, normies chat with the agents; 3, engineers step in when normies get stuck. The agents register the apps they build, and normies open the app link with the same login."
@@ -297,8 +323,15 @@
               >turn your company AI native</a
             >.
             <img
-              class="diagram diagram-narrow"
+              class="diagram diagram-light diagram-narrow"
               src="/enterprise-crew-loop.svg"
+              width="954"
+              height="598"
+              alt="A four-node loop. Humans chat with the crew and get replies and pages back; humans click in the just-in-time app and see its dashboard. The crew writes the app's implementation and the app sends the crew alerts. Both the crew and the app take actions on the business systems, which send data back to both, and webhooks to the crew."
+            />
+            <img
+              class="diagram diagram-dark diagram-narrow"
+              src="/enterprise-crew-loop-dark.svg"
               width="954"
               height="598"
               alt="A four-node loop. Humans chat with the crew and get replies and pages back; humans click in the just-in-time app and see its dashboard. The crew writes the app's implementation and the app sends the crew alerts. Both the crew and the app take actions on the business systems, which send data back to both, and webhooks to the crew."
