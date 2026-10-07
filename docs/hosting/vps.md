@@ -41,19 +41,15 @@ curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.
 DOMAIN=office.example.com bash "$installer"
 ```
 
-After a few minutes the installer prints a single-use owner invite link, also saved on the server at `/var/lib/isomux-install/invite-url`. Open it on any device within 24 hours to sign in as the owner at `https://office.example.com`.
-
-When the output isn't going to a terminal - cloud-init, a piped log, an agent running the command for you - the installer names that file instead of printing the link, so a live credential doesn't end up sitting in a log.
-
-Open the owner invite link to enter the office. If the installer reports that it
-saved the link instead of printing it, read the file as root on the server:
+After a few minutes the installer prints a one-use owner invite link. Open it within 24 hours to sign in at `https://office.example.com`. When the output is not a terminal (cloud-init, a log, an agent), the installer saves the link instead of printing it. Read it as root:
 
 ```sh
 cat /var/lib/isomux-install/invite-url
 ```
 
-Do not share this owner link. If the office does not open, check DNS, ports 80
-and 443, and `systemctl status isomux --no-pager` on the server.
+Do not share this link. If the office does not open, check DNS, ports 80 and 443, and `systemctl status isomux --no-pager`.
+
+See the [hosting reference](hosting-reference.md) for installer parameters and root-access checks.
 
 <!-- include: provider -->
 
@@ -84,18 +80,13 @@ Then open `http://localhost:5173`.
 
 ## Installer notes
 
-- The invite link is a credential until it's used or expires. It appears in the install output only when that output goes to a terminal; otherwise the output names `/var/lib/isomux-install/invite-url` and you read the link from there as root. That keeps it out of logs that capture stdout, like cloud-init's `/var/log/cloud-init-output.log`.
 - If you've hand-edited a package's config file - `/etc/caddy/Caddyfile` is the likely one - the installer and `isomux-update` keep your version when the package ships a new one, and name the files they kept. The package's version is parked beside each as `<file>.dpkg-dist`; reconciling the two is up to you.
-- The service is system-level: restart with `systemctl restart isomux` as root. An office on [your own hardware](hosting-private.md) runs a user-level service instead, where the commands are `systemctl --user`.
+- The service is system-level: restart with `systemctl restart isomux` as root. Offices set up by the other Linux guides run a user-level service: use `systemctl --user`.
 - SSH hardening is skipped, loudly, if the box has no SSH key on it yet: turning off password logins there would lock you out. Add your key, then run `sudo isomux-harden-ssh`.
 - Chrome on the server backs page-preview cards. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
-- Authenticated members effectively have shell access to the server (agents run commands as the `isomux` user). Only invite people you trust; see [access and invites](access-and-invites.md).
 
 ## Logs
 
-As root on the server, run `journalctl -u isomux -n 50 --no-pager` for office
-logs. The installer configures the service, firewall, Caddy, and memory
-protection. See the [hosting reference](hosting-reference.md) for its parameters,
-root-access checks, and optional changes.
+As root: `journalctl -u isomux -n 50 --no-pager`.
 
 <!-- include: backup -->

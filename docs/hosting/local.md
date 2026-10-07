@@ -2,8 +2,8 @@
 
 Use this guide for a local office on Linux or macOS. You need an internet
 connection and access to an AI provider. The office runs while its terminal is
-open and the computer is awake. The Linux app supervisor requires systemd;
-this guide does not set up background app services on macOS.
+open and the computer is awake. Apps need Linux with systemd. On macOS the
+office runs without them.
 
 <!-- include: install -->
 
@@ -27,7 +27,7 @@ bun install
 bun run dev
 ```
 
-The server terminal shows office logs. For an office that starts at boot and is
-reachable from other devices, choose another setup above.
+The server terminal shows office logs. For an office that starts at boot and
+works from other devices, pick another [setup](self-hosted.md).
 
 <!-- include: backup -->

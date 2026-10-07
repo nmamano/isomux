@@ -2,12 +2,11 @@
 
 In the office, open **Settings → You → Individual connections**.
 
-- For Claude or Codex, select the provider's sign-in control and complete the
-  instructions shown. If Isomux asks to install the Claude CLI, complete that
-  step first. Codex is bundled with Isomux.
+- For Claude or Codex, select the provider's sign-in control and follow the
+  steps. Both ship bundled with Isomux.
 - For OpenCode, open or create an OpenCode agent and choose a model. Its model
-  picker offers Free, Pay-as-you-go, and Subscription options. A Free model
-  provides a starting path without a paid provider connection.
+  picker offers Free, Pay-as-you-go, and Subscription options. Free models need
+  no paid account.
 - For a provider API key, add its environment variable in Individual connections:
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENCODE_API_KEY`, as applicable.
 

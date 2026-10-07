@@ -1,8 +1,7 @@
 # Run a private office with Tailscale
 
-Use an existing Linux computer or Linux server with systemd, a normal user
-account with sudo access, and an internet connection. You also need an AI
-provider account. Keep the computer powered on. This guide gives the office a
+Use a Linux computer with systemd, a normal user account with sudo, and an AI
+provider account. Keep it powered on. This guide gives the office a
 private HTTPS address; every person who connects must have Tailscale access.
 
 <!-- include: install -->
@@ -24,8 +23,7 @@ tailscale funnel status
 
 If port 443 already serves another application, stop and resolve that mapping
 before replacing it. A port cannot be both private Serve and public Funnel.
-Run the following yourself in the server terminal. Claude agents refuse
-recognized tunnel commands.
+Run this yourself in the server terminal. Agents refuse tunnel commands.
 
 ```sh
 tailscale serve --bg http://localhost:4000

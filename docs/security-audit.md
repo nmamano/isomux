@@ -18,7 +18,7 @@ navTitle: Security audit
 
 Each office API request and each office WebSocket connection needs a valid credential. Each credential that Isomux mints is a 256-bit random value. The credential files keep SHA-256 hashes, not raw values. Section 4.1 tells where raw values exist. The browser surface rejects cross-site requests and cross-site WebSocket connections. Webhook deliveries (`POST /hooks/:id`) need no credential, only a valid signature (section 4.7).
 
-Inside the office, the boundary is the operating-system user. On every hosting setup, the server, its agents, the terminal panels, the apps and the scheduled runs all run as the same OS user. Thus a member or an agent that runs a shell command can read and change everything that the server can: the office state and the credentials of other members. On the installer and on a self-hosted office, it can also change the server code. Room access and the safety hooks do not change this. This is a design choice: one shared OS user lets members and agents work on the same files and with each other. Separate OS users would make that collaboration harder, and agents that talk to each other could still pass data across.
+Inside the office, the boundary is the operating-system user. On every hosting setup, the server, its agents, the terminal panels, the apps and the scheduled runs all run as the same OS user. Thus a member or an agent that runs a shell command can read and change everything that the server can: the office state and the credentials of other members. On an installer-managed box and on a self-hosted office, it can also change the server code. Room access and the safety hooks do not change this. This is a design choice: one shared OS user lets members and agents work on the same files and with each other. Separate OS users would make that collaboration harder, and agents that talk to each other could still pass data across.
 
 Thus, give office access only to persons you trust with a shell on the server. A personal API token gives the same access as its owner, from any network.
 
@@ -44,11 +44,11 @@ Isomux reads the role and the room access of a member from the live state on eac
 
 ### 3.1 One OS user per office
 
-| Hosting setup                               | OS user of the server and of everything it starts |
-| ------------------------------------------- | ------------------------------------------------- |
-| Installer (VPS or dedicated box)            | The `isomux` service user                         |
-| Self-hosted office that its owner runs      | The owner's own login user                        |
-| Container (Docker, Render, AWS, Kubernetes) | The pod user `node` (uid 1000)                    |
+| Hosting setup                                                     | OS user of the server and of everything it starts |
+| ----------------------------------------------------------------- | ------------------------------------------------- |
+| Installer (Hosted Isomux, or a VPS set up with deploy/install.sh) | The `isomux` service user                         |
+| Self-hosted office that its owner runs                            | The owner's own login user                        |
+| Container (Docker, Render, AWS, Kubernetes)                       | The container user `node` (uid 1000)              |
 
 No code in Isomux starts an agent, a terminal, an app or a scheduled run as a different user.
 
@@ -56,7 +56,7 @@ No code in Isomux starts an agent, a terminal, an app or a scheduled run as a di
 
 - **Members have shell access.** A member can open a terminal panel on each agent in their rooms. The terminal runs as the server's OS user. An agent can also run shell commands for the member.
 - **Shell access is access to all office state.** The state directory (`~/.isomux`) holds the user records, the session and invite hashes, the API token hashes, the managed environment files of all members (`user-env/`, `office-env/`), the webhook secrets, the Discord webhook URLs of the pager, and the provider sign-ins of all members (`provider-homes/`). File modes such as 0600 do not stop a process that runs as the owner of the file.
-- **A process with that user can change what the server does.** It can write state that the server reads at start. After the next restart, it can have a sign-in that it made itself. On the installer and on a self-hosted office, that user also owns the server code and can change it. In the container image, root owns the code.
+- **A process with that user can change what the server does.** It can write state that the server reads at start. After the next restart, it can have a sign-in that it made itself. On an installer-managed box and on a self-hosted office, that user also owns the server code and can change it. In the container image, root owns the code.
 - **Room access is not a boundary against a member.** Room access controls what the office UI and API show. A shell in one room can read the files of all rooms.
 - **The safety hooks are a guardrail, not a boundary.** See section 6.3.
 - **If the OS user can become root, nothing in this document is a boundary.** The installer stops when its service user can log in as root or use `sudo` (see [Root access](hosting-reference.md#root-access)). On a self-hosted office, the owner's login user often has `sudo`. If it needs no password, an agent can use it.
@@ -245,7 +245,7 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 - **Rooms.** A member sees only the agents, files and tasks of their rooms, plus the lobby and office-wide tasks. Any member can create a room. A member with access to a room can rename it or close it.
 - **Files.** Upload and file routes check room access. A denial gets the same 404 as a missing file. The files of a stopped agent follow its last room. When that room is gone, only owners can read them.
 - **Schedules.** A schedule belongs to a room, or to no room. The members of its room see the schedule, its runs and their transcripts. A run uses the environment of the maker, so a transcript can show their secrets. Only the maker and owners can change, delete or run it. A schedule with no room, or whose room was closed, is visible only to the maker and owners.
-- **Shared devices.** A session cookie lasts up to one year. A member who does not sign out on a shared computer leaves access open. Revoke the session in the Sessions pane: an open tab closes in about one second.
+- **Shared devices.** A session cookie lasts up to one year. A member who does not sign out on a shared computer leaves access open. Revoke it in Settings → You → Sign-in links, or an owner revokes it in Settings → Office → Sessions: an open tab closes in about one second.
 
 ---
 

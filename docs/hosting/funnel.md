@@ -1,8 +1,7 @@
 # Run a public office with Tailscale Funnel
 
-Use an existing Linux computer or Linux server with systemd, a normal user
-account with sudo access, and an internet connection. You also need an AI
-provider account. Keep the computer powered on. Funnel gives the office a public
+Use a Linux computer with systemd, a normal user account with sudo, and an AI
+provider account. Keep it powered on. Funnel gives the office a public
 HTTPS address without a domain or router forwarding. Visitors do not need
 Tailscale, but they still need an Isomux sign-in link.
 
@@ -31,8 +30,7 @@ besides Isomux at `localhost:4000`, stop. Decide whether to remove each mapping
 or move it to another port before you continue. Do not expose another service
 by accident.
 
-Run this command yourself in the server terminal. Claude agents refuse
-recognized tunnel commands:
+Run this yourself in the server terminal. Agents refuse tunnel commands:
 
 ```sh
 tailscale funnel --bg http://localhost:4000

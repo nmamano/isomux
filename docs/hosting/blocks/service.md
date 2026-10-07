@@ -1,7 +1,6 @@
 ## Keep the office running
 
-These steps use Linux with systemd. Keep the computer powered on and disable
-sleep in its power settings.
+These steps use Linux with systemd. Turn off sleep in the power settings.
 
 After you have created the owner, press **Ctrl+C** in the terminal running
 `bun run dev`. In that terminal, from the Isomux directory, run:

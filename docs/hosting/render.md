@@ -5,8 +5,8 @@
 You need a Render account, a payment method for the compute plan and disk, an AI provider account, and a domain you control. Apps that agents build get their own subdomains under the office address, and Render's `onrender.com` addresses cannot provide those. Pick the office address before you start, for example `office.example.com`. Use a workspace with no other isomux service in it: a Blueprint that names a service already in the workspace takes that service over instead of creating a new one.
 
 1. Create the service. In the Render dashboard, open [New > Blueprint](https://dashboard.render.com/blueprints), paste `https://github.com/nmamano/isomux` into the **Public Git Repository** field, and keep the `main` branch on the next screen. Name the Blueprint after the office, for example `isomux-office`. Render lists one web service with a 20 GB disk and asks for one value, `ISOMUX_PUBLIC_URL`: enter `https://` followed by your office address. Apply, and wait until the new web service shows Live. [Render's Blueprint docs](https://render.com/docs/infrastructure-as-code).
-2. Point your domain at it. From the Dashboard, open the web service the Blueprint created (named `isomux`), then Settings > Custom Domains, and add both `office.example.com` and `*.office.example.com` (the wildcard serves the apps from the [personal software suite](https://nilmamano.com/blog/personal-software-suites) on subdomains to avoid using ports). Render shows the DNS records to create at your registrar; copy them exactly (note that the wildcard domain will require 3 CNAME entries; Render will walk you through adding them). Wait until `office.example.com` shows Certificate Issued; the wildcard's certificate takes longer and is only needed once you open an app. [Render's custom domain docs](https://render.com/docs/custom-domains).
-3. Claim the office. Open the service's Environment tab and copy the value of `ISOMUX_SETUP_KEY`, which Render generated for you. Open your office address in a browser and enter the key and your name. You are the first owner; the key stops working after that, and you add other people through Settings → Members and Settings → Invites in the office.
+2. Point your domain at it. From the Dashboard, open the web service the Blueprint created (named `isomux`), then Settings > Custom Domains, and add both `office.example.com` and `*.office.example.com`. The wildcard gives each app its own address. Render shows the DNS records to create at your registrar; the wildcard needs three CNAME records. Wait until `office.example.com` shows Certificate Issued. The wildcard certificate takes longer and is needed only when you open an app. [Render's custom domain docs](https://render.com/docs/custom-domains).
+3. Claim the office. Open the service's Environment tab and copy the value of `ISOMUX_SETUP_KEY`, which Render generated for you. Open your office address in a browser and enter the key and your name. You are the first owner, and the key stops working after that.
 
 Only the disk, mounted at `/var/data`, survives a deploy; the rest of the container is rebuilt from the image. Agents' home directory is on the disk, so their default working directory is safe. A project created anywhere else is gone after the next deploy.
 
@@ -23,8 +23,7 @@ Render's service logs show the build, container startup and office output.
 Office output can contain parts of agent errors, so any log stream that
 collects it must meet the same data rules as the persistent disk.
 The office and app logs are also on the persistent disk under
-`/var/data/home/.isomux/container-runtime`. Keep projects under `/var/data` so
-that replacement does not remove them.
+`/var/data/home/.isomux/container-runtime`.
 
 ## Update the office
 
