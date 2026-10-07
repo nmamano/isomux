@@ -77,6 +77,8 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         authHeader: "Basic test",
         beginTurn: async () => {},
         endTurn: () => {},
+        serverStopped: () => false,
+        markUnresponsive: () => {},
         release: () => {},
       }),
     } as unknown as OpenCodeSupervisor;
@@ -188,6 +190,8 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
             turnsStarted++;
           },
           endTurn: () => turnsEnded++,
+          serverStopped: () => false,
+          markUnresponsive: () => {},
           release: () => {},
         };
       },
@@ -340,6 +344,8 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         authHeader: "Basic test",
         beginTurn: async () => {},
         endTurn: () => {},
+        serverStopped: () => false,
+        markUnresponsive: () => {},
         release: () => {},
       }),
     } as unknown as OpenCodeSupervisor;
@@ -1274,6 +1280,8 @@ describe("OpenCode permission event integration", () => {
         authHeader: "Basic test",
         beginTurn: async () => {},
         endTurn: () => {},
+        serverStopped: () => false,
+        markUnresponsive: () => {},
         release: () => {},
       }),
     } as unknown as OpenCodeSupervisor;
@@ -1512,6 +1520,8 @@ describe("OpenCode permission event integration", () => {
         authHeader: "Basic test",
         beginTurn: async () => {},
         endTurn: () => {},
+        serverStopped: () => false,
+        markUnresponsive: () => {},
         release: () => {},
       }),
     } as unknown as OpenCodeSupervisor;
@@ -1657,6 +1667,8 @@ describe("OpenCode edit fork", () => {
         authHeader: "Basic test",
         beginTurn: async () => {},
         endTurn: () => {},
+        serverStopped: () => false,
+        markUnresponsive: () => {},
         release: () => {},
       }),
     } as unknown as OpenCodeSupervisor;

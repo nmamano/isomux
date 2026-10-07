@@ -7,9 +7,14 @@ export interface OpenCodeServerEndpoint {
   password: string;
 }
 
-export async function openCodeServerIsHealthy(
+// "busy" is a health request that timed out. A busy server is alive: with 8
+// sessions on one server, health took up to 3.7 s (measured 2026-10-07), and
+// stopping it fails every turn in flight on it.
+export type OpenCodeServerHealth = "healthy" | "busy" | "unreachable";
+
+export async function openCodeServerHealth(
   record: OpenCodeServerEndpoint,
-): Promise<boolean> {
+): Promise<OpenCodeServerHealth> {
   try {
     const response = await fetch(
       `http://127.0.0.1:${record.port}/global/health`,
@@ -24,12 +29,14 @@ export async function openCodeServerIsHealthy(
       healthy?: boolean;
       version?: string;
     };
-    return (
-      response.ok &&
+    return response.ok &&
       body.healthy === true &&
       body.version === OPENCODE_CLI_VERSION
-    );
-  } catch {
-    return false;
+      ? "healthy"
+      : "unreachable";
+  } catch (error) {
+    return (error as { name?: unknown } | null)?.name === "TimeoutError"
+      ? "busy"
+      : "unreachable";
   }
 }

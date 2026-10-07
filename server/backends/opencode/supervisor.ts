@@ -4,10 +4,11 @@ import { getAgentHost } from "../../agent-host.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
-import { processIdentityMatches } from "./process-identity.ts";
+import { processIdentityMatches, processIsRunning } from "./process-identity.ts";
 import {
-  openCodeServerIsHealthy,
+  openCodeServerHealth,
   type OpenCodeServerEndpoint,
+  type OpenCodeServerHealth,
 } from "./server-health.ts";
 
 export const OPENCODE_IDLE_SHUTDOWN_MS = 10 * 60 * 1000;
@@ -82,6 +83,12 @@ export interface OpenCodeLease {
   beginTurn(): Promise<void>;
   recoverBeforePrompt(): Promise<void>;
   endTurn(): void;
+  // True when the server process with this pid is gone or was replaced.
+  serverStopped(pid: number): boolean;
+  // A turn on this pid missed its deadline. After the prompt was submitted,
+  // the next turn entry or acquisition replaces that server. Before it, the
+  // server is replaced only while no other turn is active on it.
+  markUnresponsive(pid: number, afterPrompt: boolean): void;
 }
 
 export interface OpenCodeSupervisorOptions {
@@ -105,7 +112,9 @@ export interface OpenCodeSupervisorOptions {
     pid: number,
     startTicks: string | undefined,
   ) => boolean;
-  turnHealthCheck?: (record: OpenCodeServerEndpoint) => Promise<boolean>;
+  turnHealthCheck?: (
+    record: OpenCodeServerEndpoint,
+  ) => Promise<OpenCodeServerHealth>;
   ensureServerSink?: () => void;
 }
 
@@ -115,6 +124,7 @@ export class OpenCodeSupervisor {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private record: ServerRecord | null = null;
+  private unresponsive: { pid: number; afterPrompt: boolean } | null = null;
   readonly profileDir: string;
   readonly recordPath: string;
   private resolvedBinary: string | undefined;
@@ -167,7 +177,7 @@ export class OpenCodeSupervisor {
     };
     this.processIdentityMatches =
       options.processIdentityMatches ?? processIdentityMatches;
-    this.turnHealthCheck = options.turnHealthCheck ?? openCodeServerIsHealthy;
+    this.turnHealthCheck = options.turnHealthCheck ?? openCodeServerHealth;
     this.ensureServerSink = options.ensureServerSink ?? (() => undefined);
   }
 
@@ -176,7 +186,7 @@ export class OpenCodeSupervisor {
     this.idleTimer = null;
     if (this.shutdownPromise) await this.shutdownPromise;
     await this.replaceServerIfRequested();
-    await this.ensureServer();
+    await this.ensureServer(this.markReplaceable(this.activeTurns > 0));
     this.leases++;
     let released = false;
     let turnActive = false;
@@ -211,13 +221,30 @@ export class OpenCodeSupervisor {
       },
       recoverBeforePrompt: async () => {
         if (released || !turnActive) return;
-        await this.validateServerForTurn(this.activeTurns > 1);
+        await this.validateServerForTurn(this.activeTurns > 1, true);
       },
       endTurn: () => {
         if (!turnActive) return;
         turnActive = false;
         this.activeTurns--;
         this.armIdleReap();
+      },
+      serverStopped: (pid) => {
+        const record = this.record;
+        return (
+          record?.pid !== pid ||
+          !this.processIdentityMatches(pid, record.startTicks) ||
+          !processIsRunning(pid)
+        );
+      },
+      markUnresponsive: (pid, afterPrompt) => {
+        if (this.record?.pid !== pid) return;
+        this.unresponsive = {
+          pid,
+          afterPrompt:
+            afterPrompt ||
+            (this.unresponsive?.pid === pid && this.unresponsive.afterPrompt),
+        };
       },
     };
   }
@@ -296,7 +323,16 @@ export class OpenCodeSupervisor {
     return this.resolvedBinary;
   }
 
-  private async ensureServer(): Promise<void> {
+  private markReplaceable(otherTurnActive: boolean): boolean {
+    const mark = this.unresponsive;
+    return (
+      mark !== null &&
+      mark.pid === this.record?.pid &&
+      (mark.afterPrompt || !otherTurnActive)
+    );
+  }
+
+  private async ensureServer(replaceMarked = false): Promise<void> {
     this.ensureServerSink();
     const binary = this.binary;
     const host = getAgentHost();
@@ -325,6 +361,10 @@ export class OpenCodeSupervisor {
         OPENCODE_CONFIG: configPath,
         OPENCODE_ENVIRONMENT_REVISION: this.environmentRevision,
         OPENCODE_CONFIG_REVISION: this.configRevision,
+        OPENCODE_SERVER_UNRESPONSIVE_PID:
+          replaceMarked && this.unresponsive
+            ? String(this.unresponsive.pid)
+            : undefined,
       },
     });
     if (exitCode !== 0)
@@ -333,9 +373,13 @@ export class OpenCodeSupervisor {
     this.record = await this.readRecord();
     if (!this.record)
       throw new Error("OpenCode startup did not write its server record.");
+    if (this.record.pid !== this.unresponsive?.pid) this.unresponsive = null;
   }
 
-  private async validateServerForTurn(otherTurnActive: boolean): Promise<void> {
+  private async validateServerForTurn(
+    otherTurnActive: boolean,
+    beforePrompt = false,
+  ): Promise<void> {
     const record = this.record;
     if (
       !record ||
@@ -344,7 +388,22 @@ export class OpenCodeSupervisor {
       await this.ensureServer();
       return;
     }
-    if (await this.turnHealthCheck(record)) return;
+    // A missed mid-turn stream deadline replaces the server at the next
+    // entry even while other turns run on it. A missed pre-prompt deadline
+    // keeps the guard: a live server another turn is on is never stopped.
+    if (this.unresponsive?.pid === record.pid) {
+      if (this.markReplaceable(otherTurnActive)) {
+        await this.ensureServer(true);
+        return;
+      }
+      if (beforePrompt)
+        throw new Error(
+          "OpenCode server missed a deadline during another active turn.",
+        );
+    }
+    // A busy server answers late but is alive; only an unreachable one is
+    // replaced.
+    if ((await this.turnHealthCheck(record)) !== "unreachable") return;
     if (otherTurnActive)
       throw new Error(
         "OpenCode server health check failed during an active turn.",

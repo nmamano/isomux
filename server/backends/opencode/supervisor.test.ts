@@ -16,6 +16,16 @@ import {
   openCodeSupervisorForEnvironment,
 } from "./supervisor.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
+import {
+  OPENCODE_SERVER_STOPPED_FAILURE,
+  OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
+  OpenCodeTransport,
+} from "./transport.ts";
+import type { NormalizedEvent } from "../types.ts";
+import {
+  openCodeServerHealth,
+  type OpenCodeServerHealth,
+} from "./server-health.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import { readLinuxProcessStartTicks } from "./process-identity.ts";
 
@@ -707,7 +717,7 @@ describe("OpenCode shared server supervisor", () => {
       serverCwd: path,
       config: gateConfig(mockProvider()),
       ensureServerSink: () => ensures++,
-      turnHealthCheck: async () => true,
+      turnHealthCheck: async () => "healthy",
     });
     supervisors.push(supervisor);
     const lease = await supervisor.acquire();
@@ -722,7 +732,7 @@ describe("OpenCode shared server supervisor", () => {
 
   it("does not replace an identity-matching server after a false health result while another turn is active", async () => {
     const path = await root();
-    let healthy = true;
+    let health: OpenCodeServerHealth = "healthy";
     let ensures = 0;
     const idle = manualIdleScheduler();
     const supervisor = new OpenCodeSupervisor({
@@ -730,7 +740,7 @@ describe("OpenCode shared server supervisor", () => {
       serverCwd: path,
       config: gateConfig(mockProvider()),
       ensureServerSink: () => ensures++,
-      turnHealthCheck: async () => healthy,
+      turnHealthCheck: async () => health,
       idleScheduler: idle.scheduler,
     });
     supervisors.push(supervisor);
@@ -738,7 +748,7 @@ describe("OpenCode shared server supervisor", () => {
     const entering = await supervisor.acquire();
     await active.beginTurn();
     const retainedPid = active.pid;
-    healthy = false;
+    health = "unreachable";
 
     await expectRejection(entering.beginTurn(), /health check failed/);
 
@@ -754,19 +764,19 @@ describe("OpenCode shared server supervisor", () => {
 
   it("recovers a lone active turn before its prompt when health fails", async () => {
     const path = await root();
-    let healthy = true;
+    let health: OpenCodeServerHealth = "healthy";
     let ensures = 0;
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(path, "profile"),
       serverCwd: path,
       config: gateConfig(mockProvider()),
       ensureServerSink: () => ensures++,
-      turnHealthCheck: async () => healthy,
+      turnHealthCheck: async () => health,
     });
     supervisors.push(supervisor);
     const lease = await supervisor.acquire();
     await lease.beginTurn();
-    healthy = false;
+    health = "unreachable";
 
     await lease.recoverBeforePrompt();
 
@@ -777,21 +787,21 @@ describe("OpenCode shared server supervisor", () => {
 
   it("does not recover before a prompt when another lease has an active turn", async () => {
     const path = await root();
-    let healthy = true;
+    let health: OpenCodeServerHealth = "healthy";
     let ensures = 0;
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(path, "profile"),
       serverCwd: path,
       config: gateConfig(mockProvider()),
       ensureServerSink: () => ensures++,
-      turnHealthCheck: async () => healthy,
+      turnHealthCheck: async () => health,
     });
     supervisors.push(supervisor);
     const recovering = await supervisor.acquire();
     const active = await supervisor.acquire();
     await recovering.beginTurn();
     await active.beginTurn();
-    healthy = false;
+    health = "unreachable";
 
     await expectRejection(
       recovering.recoverBeforePrompt(),
@@ -1074,4 +1084,414 @@ await new Promise(() => {});
       /input\.agentType === "opencode"\s*\? agentManager\.buildOpenCodeLaunchEnvironmentForUserId\(input\.userId\)/,
     );
   });
+});
+
+// A provider that answers when released, or calls bash once with a command.
+function heldProvider(toolCommand?: string) {
+  const release = Promise.withResolvers<void>();
+  const requested = Promise.withResolvers<void>();
+  const chunk = (delta: object, finish: string | null) =>
+    `data: ${JSON.stringify({
+      id: "held",
+      object: "chat.completion.chunk",
+      created: 1,
+      model: "gate-model",
+      choices: [{ index: 0, delta, finish_reason: finish }],
+    })}\n\n`;
+  const sse = (body: string) =>
+    new Response(body, { headers: { "content-type": "text/event-stream" } });
+  const mock = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    idleTimeout: 0,
+    async fetch(request) {
+      if (!new URL(request.url).pathname.endsWith("/chat/completions"))
+        return Response.json({ object: "list", data: [] });
+      const body = (await request.json()) as { messages: { role: string }[] };
+      if (toolCommand && !body.messages.some((m) => m.role === "tool"))
+        return sse(
+          chunk(
+            {
+              role: "assistant",
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_silent",
+                  type: "function",
+                  function: {
+                    name: "bash",
+                    arguments: JSON.stringify({
+                      command: toolCommand,
+                      description: "Wait",
+                    }),
+                  },
+                },
+              ],
+            },
+            null,
+          ) +
+            chunk({}, "tool_calls") +
+            "data: [DONE]\n\n",
+        );
+      requested.resolve();
+      if (!toolCommand) await release.promise;
+      return sse(
+        chunk({ role: "assistant", content: "held reply" }, null) +
+          chunk({}, "stop") +
+          "data: [DONE]\n\n",
+      );
+    },
+  });
+  mocks.push(mock);
+  return {
+    mock,
+    requested: () => requested.promise,
+    release: () => release.resolve(),
+  };
+}
+
+async function sendTurn(
+  transport: OpenCodeTransport,
+): Promise<Extract<NormalizedEvent, { kind: "turn_completed" }>> {
+  const done =
+    Promise.withResolvers<Extract<NormalizedEvent, { kind: "turn_completed" }>>();
+  await transport.send([{ type: "text", text: "go" }], (event) => {
+    if (event.kind === "turn_completed") done.resolve(event);
+  });
+  return done.promise;
+}
+
+async function serverRecord(
+  supervisor: OpenCodeSupervisor,
+): Promise<{ pid: number; port: number; password: string }> {
+  return JSON.parse(await readFile(supervisor.recordPath, "utf8"));
+}
+
+async function recordedPid(supervisor: OpenCodeSupervisor): Promise<number> {
+  return (await serverRecord(supervisor)).pid;
+}
+
+// A stopped process models a server that cannot answer: the socket accepts,
+// nothing replies. The caller asserts the health probe really timed out.
+async function freezeBusy(supervisor: OpenCodeSupervisor): Promise<{
+  pid: number;
+  health: OpenCodeServerHealth;
+  thaw: () => void;
+}> {
+  const record = await serverRecord(supervisor);
+  process.kill(record.pid, "SIGSTOP");
+  return {
+    pid: record.pid,
+    health: await openCodeServerHealth(record),
+    thaw: () => {
+      try {
+        process.kill(record.pid, "SIGCONT");
+      } catch {
+        /* Already gone. */
+      }
+    },
+  };
+}
+
+function within<T>(promise: Promise<T>, ms: number): Promise<T | string> {
+  return Promise.race([
+    promise,
+    Bun.sleep(ms).then(() => `still pending at ${ms / 1000} s`),
+  ]);
+}
+
+describe("OpenCode shared server under load and loss", () => {
+  it("adopts a busy server instead of stopping it when another session acquires", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      5000,
+      binary,
+    );
+    const first = await supervisor.acquire();
+    const busy = await freezeBusy(supervisor);
+    try {
+      expect(busy.health, "the health probe timed out").toBe("busy");
+      const second = await supervisor.acquire();
+      expect(second.pid).toBe(busy.pid);
+      expect(alive(busy.pid)).toBe(true);
+      second.release();
+    } finally {
+      busy.thaw();
+    }
+    first.release();
+  }, 20_000);
+
+  it("begins a turn on a busy server without starting the helper", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    let ensures = 0;
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      binary,
+      ensureServerSink: () => ensures++,
+    });
+    supervisors.push(supervisor);
+    const lease = await supervisor.acquire();
+    const busy = await freezeBusy(supervisor);
+    try {
+      expect(busy.health, "the health probe timed out").toBe("busy");
+      await lease.beginTurn();
+      expect(ensures).toBe(1);
+      expect(lease.pid).toBe(busy.pid);
+      expect(alive(busy.pid)).toBe(true);
+    } finally {
+      busy.thaw();
+    }
+    lease.endTurn();
+    lease.release();
+  }, 20_000);
+
+  it("replaces a server marked after a prompt at the next turn entry, even with another turn active", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      5000,
+      binary,
+    );
+    const active = await supervisor.acquire();
+    const entering = await supervisor.acquire();
+    await active.beginTurn();
+    const markedPid = active.pid;
+    entering.markUnresponsive(markedPid, true);
+
+    await entering.beginTurn();
+
+    expect(entering.pid).not.toBe(markedPid);
+    expect(active.pid).toBe(entering.pid);
+    expect(alive(markedPid)).toBe(false);
+    expect(active.serverStopped(markedPid)).toBe(true);
+    expect(active.serverStopped(entering.pid)).toBe(false);
+    active.endTurn();
+    entering.endTurn();
+    active.release();
+    entering.release();
+  }, 20_000);
+
+  it("keeps a marked live server another turn is on at pre-prompt recovery, and replaces it once that turn ends", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      5000,
+      binary,
+    );
+    const active = await supervisor.acquire();
+    const recovering = await supervisor.acquire();
+    await active.beginTurn();
+    await recovering.beginTurn();
+    const markedPid = recovering.pid;
+    recovering.markUnresponsive(markedPid, false);
+
+    await expectRejection(
+      recovering.recoverBeforePrompt(),
+      /another active turn/,
+    );
+    expect(recovering.pid, "the guard kept the server").toBe(markedPid);
+    expect(alive(markedPid)).toBe(true);
+
+    active.endTurn();
+    await recovering.recoverBeforePrompt();
+    expect(recovering.pid).not.toBe(markedPid);
+    expect(alive(markedPid)).toBe(false);
+    recovering.endTurn();
+    active.release();
+    recovering.release();
+  }, 20_000);
+
+  it("keeps a server marked before a prompt at every later entry while another turn is on it", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      5000,
+      binary,
+    );
+    const a = await supervisor.acquire();
+    const b = await supervisor.acquire();
+    const c = await supervisor.acquire();
+    await a.beginTurn();
+    await b.beginTurn();
+    const markedPid = b.pid;
+    b.markUnresponsive(markedPid, false);
+    await expectRejection(b.recoverBeforePrompt(), /another active turn/);
+    b.endTurn();
+
+    await c.beginTurn();
+    expect(c.pid, "a later turn entry keeps it").toBe(markedPid);
+    const d = await supervisor.acquire();
+    expect(d.pid, "a later acquisition keeps it").toBe(markedPid);
+    expect(alive(markedPid)).toBe(true);
+    c.endTurn();
+    expect(alive(markedPid), "still kept while A is active").toBe(true);
+
+    a.endTurn();
+    await c.beginTurn();
+    expect(c.pid, "replaced once no other turn is on it").not.toBe(markedPid);
+    expect(alive(markedPid)).toBe(false);
+    c.endTurn();
+    for (const lease of [a, b, c, d]) lease.release();
+  }, 20_000);
+
+  it("fails an in-flight turn in member words when its server dies, and the next turn completes", async () => {
+    const path = await root();
+    const provider = heldProvider();
+    const supervisor = makeSupervisor(path, gateConfig(provider.mock));
+    const transport = new OpenCodeTransport({
+      cwd: path,
+      model: "gate/gate-model",
+      supervisor,
+      systemPrompt: "Test.",
+    });
+    try {
+      const inFlight = sendTurn(transport);
+      // The provider sees the prompt only after the stream is open.
+      await provider.requested();
+      const deadPid = await recordedPid(supervisor);
+      process.kill(deadPid, "SIGKILL");
+
+      expect(await inFlight).toMatchObject({
+        status: "failed",
+        error: OPENCODE_SERVER_STOPPED_FAILURE,
+      });
+      provider.release();
+      expect((await sendTurn(transport)).status).toBe("completed");
+      expect(await recordedPid(supervisor)).not.toBe(deadPid);
+    } finally {
+      provider.release();
+      transport.close();
+    }
+  }, 60_000);
+
+  // Wall-clock deadline proofs against the real server run in the live tier;
+  // default runs cover the deadline with a driven clock (transport-failure).
+  // A healthy turn can be silent up to one heartbeat (10 s), so a shorter
+  // test deadline would fail the turn on the replacement server.
+  const TEST_DEADLINE_MS = 15_000;
+  it.skipIf(!LIVE)(
+    "fails a turn on a server frozen mid-turn at the deadline, and the next turn replaces the server",
+    async () => {
+      const path = await root();
+      const provider = heldProvider();
+      const supervisor = makeSupervisor(path, gateConfig(provider.mock));
+      const transport = new OpenCodeTransport({
+        cwd: path,
+        model: "gate/gate-model",
+        supervisor,
+        systemPrompt: "Test.",
+        eventStreamDeadlineMs: TEST_DEADLINE_MS,
+      });
+      let frozenPid: number | undefined;
+      try {
+        const inFlight = sendTurn(transport);
+        // The provider sees the prompt only after the stream is open.
+        await provider.requested();
+        const busy = await freezeBusy(supervisor);
+        frozenPid = busy.pid;
+        expect(busy.health, "the frozen server does not answer").toBe("busy");
+
+        expect(await within(inFlight, 40_000)).toMatchObject({
+          status: "failed",
+          error: OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
+        });
+        provider.release();
+        expect(await within(sendTurn(transport), 40_000)).toMatchObject({
+          status: "completed",
+        });
+        expect(await recordedPid(supervisor)).not.toBe(frozenPid);
+        expect(alive(frozenPid)).toBe(false);
+      } finally {
+        provider.release();
+        transport.close();
+        if (frozenPid !== undefined && alive(frozenPid))
+          process.kill(frozenPid, "SIGKILL");
+      }
+    },
+    150_000,
+  );
+
+  it.skipIf(!LIVE)(
+    "recovers a retained turn on a server frozen before the turn onto a replacement, before its prompt",
+    async () => {
+      const path = await root();
+      const provider = heldProvider();
+      provider.release();
+      const supervisor = makeSupervisor(path, gateConfig(provider.mock));
+      const transport = new OpenCodeTransport({
+        cwd: path,
+        model: "gate/gate-model",
+        supervisor,
+        systemPrompt: "Test.",
+        eventStreamDeadlineMs: TEST_DEADLINE_MS,
+      });
+      let frozenPid: number | undefined;
+      try {
+        expect((await sendTurn(transport)).status).toBe("completed");
+        const busy = await freezeBusy(supervisor);
+        frozenPid = busy.pid;
+        expect(busy.health, "the frozen server does not answer").toBe("busy");
+
+        expect(await within(sendTurn(transport), 60_000)).toMatchObject({
+          status: "completed",
+        });
+        expect(await recordedPid(supervisor)).not.toBe(frozenPid);
+        expect(alive(frozenPid)).toBe(false);
+      } finally {
+        transport.close();
+        if (frozenPid !== undefined && alive(frozenPid))
+          process.kill(frozenPid, "SIGKILL");
+      }
+    },
+    150_000,
+  );
+
+  // The deadline must never fail a healthy turn that shows no output: OpenCode
+  // keeps sending heartbeats while a tool runs silently.
+  it.skipIf(!LIVE)(
+    "keeps a turn alive through a silent 90 s tool call under the default deadline",
+    async () => {
+      const path = await root();
+      const provider = heldProvider("sleep 90");
+      const supervisor = makeSupervisor(path, {
+        ...gateConfig(provider.mock),
+        permission: { bash: "allow" },
+      });
+      const transport = new OpenCodeTransport({
+        cwd: path,
+        model: "gate/gate-model",
+        supervisor,
+        systemPrompt: "Test.",
+      });
+      try {
+        const started = performance.now();
+        const completion = await sendTurn(transport);
+        expect(completion.status).toBe("completed");
+        expect(performance.now() - started).toBeGreaterThan(90_000);
+      } finally {
+        transport.close();
+      }
+    },
+    150_000,
+  );
 });

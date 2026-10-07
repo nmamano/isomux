@@ -16,7 +16,7 @@ import {
   readProcessStartTicks,
 } from "./process-identity.ts";
 import { lockDarwinFileUntilExit } from "./darwin-libsystem.ts";
-import { openCodeServerIsHealthy } from "./server-health.ts";
+import { openCodeServerHealth } from "./server-health.ts";
 
 interface ServerRecord {
   pid: number;
@@ -55,6 +55,9 @@ const environmentRevision = required("OPENCODE_ENVIRONMENT_REVISION");
 const configRevision = required("OPENCODE_CONFIG_REVISION");
 const username = "isomux";
 const keepDebugOutput = process.env.ISOMUX_OPENCODE_DEBUG === "1";
+// A server whose turn saw no event-stream frame within the deadline. It may
+// still answer health late, but it is never adopted again.
+const unresponsivePid = Number(process.env.OPENCODE_SERVER_UNRESPONSIVE_PID);
 
 function required(name: string): string {
   const value = process.env[name];
@@ -71,15 +74,22 @@ function authHeader(secret: string): string {
   return `Basic ${btoa(`${username}:${secret}`)}`;
 }
 
-async function healthy(record: ServerRecord): Promise<boolean> {
+async function adoptable(record: ServerRecord): Promise<boolean> {
   if (
     record.binary !== binary ||
     record.profileDir !== profileDir ||
     record.environmentRevision !== environmentRevision ||
-    record.configRevision !== configRevision
+    record.configRevision !== configRevision ||
+    record.pid === unresponsivePid
   )
     return false;
-  return openCodeServerIsHealthy(record);
+  const health = await openCodeServerHealth(record);
+  if (health === "healthy") return true;
+  // A slow answer is not a dead server: stopping a busy one fails every turn
+  // in flight on it.
+  return (
+    health === "busy" && processIdentityMatches(record.pid, record.startTicks)
+  );
 }
 
 async function readRecord(): Promise<ServerRecord | null> {
@@ -154,7 +164,7 @@ function bindFailure(stderr: string): boolean {
 }
 
 await mkdir(profileDir, { recursive: true });
-if (prior && (await healthy(prior))) {
+if (prior && (await adoptable(prior))) {
   const startTicks = readProcessStartTicks(prior.pid);
   if (startTicks) {
     if (prior.startTicks !== startTicks) {

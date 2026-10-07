@@ -109,6 +109,17 @@ OpenCode uses shared servers, not one process per agent:
   health at turn entry. A dead process is replaced before the prompt is sent;
 - a failed health probe can replace an identity-matching process only when no
   other turn is active. It cannot stop a server that another session is using.
+  A probe that times out means busy, not dead: a busy identity-matching server
+  is adopted, never replaced (task dc2796a3);
+- a turn whose `/event` stream sends no frame for 30 s fails, and marks its
+  server for replacement at the next turn entry or acquisition (task 7e474e35).
+  The same bound covers the turn's `/event` headers and new-session POST. A
+  missed `/event` header deadline comes before any prompt, so the turn
+  recovers once onto a replacement, unless another turn is on that live
+  server; then it fails. A server marked before a prompt is replaced only
+  while no other turn is on it, at any later entry or acquisition; a mark
+  after a prompt replaces it at the next one regardless. A slow `/provider` catalog only drops the effort
+  variant for that turn.
 
 The server record also carries a revision of the generated OpenCode config.
 The first S6-era acquire treats a pre-S6 record without that revision as stale,
@@ -589,10 +600,11 @@ The profile's `server.lock` is both the cross-process `flock` target and its
 0600 pid/port/auth record. On Linux the supervisor runs the start helper under
 flock(1); macOS has no flock CLI, so there the helper takes flock(2) on the
 record itself before it reads it. Every start and stop takes that file lock, probes the record,
-adopts a healthy pinned server, and replaces a stale or unhealthy process.
+adopts a healthy or busy (health timed out, identity matches) pinned server,
+and replaces a stale or unreachable process.
 Turn entry probes the cached record in-process. It starts the locked replacement
-path only for a dead process, or for an unhealthy process with no other active
-turn. Two sessions that find the same dead record converge on one replacement.
+path only for a dead process, a process marked unresponsive by an event-stream
+deadline, or an unreachable process with no other active turn. Two sessions that find the same dead record converge on one replacement.
 This applies after an Isomux SIGKILL and across test processes, not only inside
 one supervisor object. An ordinary Isomux SIGINT or SIGTERM reaps the shared
 server before the signal is re-raised. The reserved retry range is

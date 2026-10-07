@@ -36,6 +36,37 @@ export const OPENCODE_PERMISSION_ID_WARNING =
 export const OPENCODE_AUTH_FAILURE =
   "OpenCode authentication is not configured.";
 
+export const OPENCODE_SERVER_STOPPED_FAILURE =
+  "The OpenCode server stopped during this turn. Send your message again.";
+
+export const OPENCODE_SERVER_UNRESPONSIVE_FAILURE =
+  "The OpenCode server stopped responding during this turn. Send your message again.";
+
+// OpenCode 1.18.23 sends server.heartbeat on /event every 10 s, also during a
+// silent 90 s tool call and a 90 s wait for the first model token (largest
+// gap 10.3 s, measured 2026-10-07). 30 s is three missed heartbeats. The same
+// bound covers the requests a turn makes before its stream reads: with 8
+// sessions on one server, /event headers took at most 0.5 s, POST /session
+// 1.7 s and /provider 12.8 s (2026-10-07).
+export const OPENCODE_EVENT_STREAM_DEADLINE_MS = 30_000;
+
+export interface OpenCodeDeadlineScheduler {
+  setTimeout(callback: () => void, delayMs: number): unknown;
+  clearTimeout(timer: unknown): void;
+}
+
+const realDeadlineScheduler: OpenCodeDeadlineScheduler = {
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (timer) =>
+    clearTimeout(timer as ReturnType<typeof setTimeout>),
+};
+
+// A failure whose message is already member-facing copy.
+class OpenCodeTurnFailure extends Error {}
+
+// A request that missed the deadline without marking its server.
+class OpenCodeDeadlineError extends Error {}
+
 export function openCodeModelUnavailableFailure(model: string): string {
   return `OpenCode cannot use model \`${model}\`: the provider refused this model. Pick another model with \`/model\`.`;
 }
@@ -110,6 +141,8 @@ export interface OpenCodeTransportOptions {
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
   completedStepSink?: (breakdown: OpenCodeContextBreakdown) => void;
+  eventStreamDeadlineMs?: number;
+  deadlineScheduler?: OpenCodeDeadlineScheduler;
 }
 
 export interface OpenCodeContextBreakdown {
@@ -263,6 +296,8 @@ export class OpenCodeTransport {
   private readonly completedStepSink?: (
     breakdown: OpenCodeContextBreakdown,
   ) => void;
+  private readonly eventStreamDeadlineMs: number;
+  private readonly deadlineScheduler: OpenCodeDeadlineScheduler;
   private modelContextLimit: number | null | undefined;
   private modelSupportedEfforts: Set<EffortLevel> | undefined;
   // Try once per session and cache a safe result. A failed catalog lookup
@@ -273,6 +308,9 @@ export class OpenCodeTransport {
   private abortController: AbortController | null = null;
   private activeTurn = false;
   private abortRequested = false;
+  // Set when this turn's prompt request starts; a later missed stream
+  // deadline then replaces the server even while other turns run on it.
+  private promptSent = false;
   // Open permission requests: request id -> OpenCode session id. OpenCode
   // runs the tool calls of one step in parallel, and each can ask at once.
   private pendingPermissions = new Map<string, string>();
@@ -307,6 +345,9 @@ export class OpenCodeTransport {
     this.contractShapeSink = options.contractShapeSink;
     this.safeErrorSink = options.safeErrorSink;
     this.completedStepSink = options.completedStepSink;
+    this.eventStreamDeadlineMs =
+      options.eventStreamDeadlineMs ?? OPENCODE_EVENT_STREAM_DEADLINE_MS;
+    this.deadlineScheduler = options.deadlineScheduler ?? realDeadlineScheduler;
   }
 
   async getModelContextLimit(): Promise<number | null> {
@@ -321,15 +362,26 @@ export class OpenCodeTransport {
     return this.model;
   }
 
-  private async loadDiscoveredModel(): Promise<DiscoveredOpenCodeModel | null> {
+  private async loadDiscoveredModel(
+    withinTurn = false,
+  ): Promise<DiscoveredOpenCodeModel | null> {
     if (this.discoveredModel !== undefined) return this.discoveredModel;
     try {
-      const response = await this.request("/provider");
+      const body = withinTurn
+        ? await this.withinDeadline(
+            (signal) =>
+              this.request("/provider", { signal }).then((r) => r.json()),
+            { markServer: false },
+          )
+        : await this.request("/provider").then((r) => r.json());
       this.discoveredModel =
-        allowDiscoveredModels(await response.json()).find(
+        allowDiscoveredModels(body).find(
           (candidate) => candidate.id === this.model,
         ) ?? null;
-    } catch {
+    } catch (error) {
+      // A slow catalog is no sign of a frozen server (12.8 s measured), so a
+      // timeout only drops the variant for this turn and is not cached.
+      if (error instanceof OpenCodeDeadlineError) return null;
       this.discoveredModel = null;
     }
     return this.discoveredModel;
@@ -337,7 +389,9 @@ export class OpenCodeTransport {
 
   private async selectedVariant(): Promise<EffortLevel | undefined> {
     if (this.modelSupportedEfforts === undefined) {
-      const model = await this.loadDiscoveredModel();
+      const model = await this.loadDiscoveredModel(true);
+      if (model === null && this.discoveredModel === undefined)
+        return undefined;
       this.modelSupportedEfforts = new Set(
         model?.supportedEfforts.map((option) => option.level) ?? [],
       );
@@ -347,17 +401,25 @@ export class OpenCodeTransport {
       : undefined;
   }
 
-  async initialize(sink: EventSink): Promise<string> {
+  async initialize(sink: EventSink, withinTurn = false): Promise<string> {
     if (this.sessionId) return this.sessionId;
     this.lease = await this.supervisor.acquire();
     if (this.resumedSessionId) {
       this.sessionId = this.resumedSessionId;
     } else {
-      const response = await this.request("/session", {
+      const init = {
         method: "POST",
         body: JSON.stringify({ title: "Isomux OpenCode session" }),
-      });
-      const body = allowSession(await response.json());
+      };
+      const body = allowSession(
+        withinTurn
+          ? await this.withinDeadline((signal) =>
+              this.request("/session", { ...init, signal }).then((r) =>
+                r.json(),
+              ),
+            )
+          : await this.request("/session", init).then((r) => r.json()),
+      );
       this.contractShapeSink?.("http:session:{id:string}");
       this.sessionId = body.id;
     }
@@ -389,7 +451,9 @@ export class OpenCodeTransport {
     const fail = (error: unknown, context: string): void => {
       // Late failures after settlement or intentional close are deliberately silent.
       if (settled || this.closed) return;
-      const safeError = allowTransportError(error);
+      const safeError = allowTransportError(
+        error instanceof OpenCodeTurnFailure ? error.cause : error,
+      );
       // Observability must not stop delivery of the failed completion.
       try {
         this.safeErrorSink?.(safeError);
@@ -400,7 +464,8 @@ export class OpenCodeTransport {
           kind: "turn_completed",
           status: "failed",
           error:
-            error instanceof OpenCodeUnsupportedHostError
+            error instanceof OpenCodeUnsupportedHostError ||
+            error instanceof OpenCodeTurnFailure
               ? error.message
               : `${context} (${safeError.name}${safeError.code ? `/${safeError.code}` : ""}; HTTP status: ${safeError.statusCode ?? "unavailable"}).`,
         });
@@ -421,25 +486,34 @@ export class OpenCodeTransport {
       return;
     }
     try {
-      const sessionId = await this.initialize(emit);
+      const sessionId = await this.initialize(emit, true);
       const variant = await this.selectedVariant();
       await this.lease!.beginTurn();
       turnStarted = true;
       this.authorityBinding?.activate(this.lease!.pid);
       this.activeTurn = true;
       this.abortRequested = false;
+      this.promptSent = false;
       controller = new AbortController();
       this.abortController = controller;
       try {
         await this.consumeEvents(sessionId, emit, controller.signal, fail);
       } catch (error) {
         if (controller.signal.aborted) throw error;
-        await this.lease!.recoverBeforePrompt();
+        // No prompt is out yet, so recovery replays nothing. When the guard
+        // keeps a live server another turn uses, a missed deadline fails the
+        // turn in member words.
+        try {
+          await this.lease!.recoverBeforePrompt();
+        } catch (recoveryError) {
+          throw error instanceof OpenCodeTurnFailure ? error : recoveryError;
+        }
         this.authorityBinding?.activate(this.lease!.pid);
         await this.consumeEvents(sessionId, emit, controller.signal, fail);
       }
       if (settled) return;
       const [providerID, modelID] = splitModel(this.model);
+      this.promptSent = true;
       await this.request(
         `/session/${encodeURIComponent(sessionId)}/prompt_async`,
         {
@@ -555,7 +629,12 @@ export class OpenCodeTransport {
     signal: AbortSignal,
     onFailure: (error: unknown, context: string) => void,
   ): Promise<void> {
-    const response = await this.request("/event", { signal });
+    const lease = this.lease!;
+    const serverPid = lease.pid;
+    const response = await this.withinDeadline(
+      (bounded) => this.request("/event", { signal: bounded }),
+      { signal },
+    );
     if (!response.body) throw new Error("OpenCode event stream has no body.");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -578,11 +657,66 @@ export class OpenCodeTransport {
       onFailure(error, context);
     };
     let buffer = "";
+    let deadline: unknown;
+    const armDeadline = (): void => {
+      this.deadlineScheduler.clearTimeout(deadline);
+      if (signal.aborted || settled) return;
+      deadline = this.deadlineScheduler.setTimeout(() => {
+        if (signal.aborted || settled) return;
+        lease.markUnresponsive(serverPid, this.promptSent);
+        fail(
+          new OpenCodeTurnFailure(OPENCODE_SERVER_UNRESPONSIVE_FAILURE, {
+            cause: new Error(),
+          }),
+          "",
+        );
+        void reader.cancel().catch(() => undefined);
+      }, this.eventStreamDeadlineMs);
+    };
+    const streamFailure = (error: unknown): unknown =>
+      lease.serverStopped(serverPid)
+        ? new OpenCodeTurnFailure(OPENCODE_SERVER_STOPPED_FAILURE, {
+            cause: error,
+          })
+        : error;
+    // The pump reads the body on its own, so any frame resets the deadline,
+    // also while the loop below awaits a permission reply.
+    type Read = { value: Uint8Array | null } | { error: unknown };
+    const pending: Read[] = [];
+    let waiter: PromiseWithResolvers<Uint8Array | null> | null = null;
+    const deliver = (read: Read): void => {
+      const current = waiter;
+      waiter = null;
+      if (!current) pending.push(read);
+      else if ("error" in read) current.reject(read.error);
+      else current.resolve(read.value);
+    };
+    armDeadline();
+    void (async () => {
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          armDeadline();
+          deliver({ value });
+        }
+        deliver({ value: null });
+      } catch (error) {
+        deliver({ error });
+      }
+    })();
+    const nextChunk = (): Promise<Uint8Array | null> => {
+      waiter = Promise.withResolvers<Uint8Array | null>();
+      const { promise } = waiter;
+      const read = pending.shift();
+      if (read) deliver(read);
+      return promise;
+    };
     void (async () => {
       try {
         while (!signal.aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
+          const value = await nextChunk();
+          if (value === null) break;
           buffer =
             `${buffer}${decoder.decode(value, { stream: true })}`.replaceAll(
               "\r\n",
@@ -753,16 +887,22 @@ export class OpenCodeTransport {
         }
         if (!signal.aborted) {
           fail(
-            new Error(),
+            streamFailure(new Error()),
             "OpenCode event stream ended before turn completion",
           );
         }
       } catch (error) {
         if (!signal.aborted) {
-          fail(error, "OpenCode event stream failed");
+          fail(streamFailure(error), "OpenCode event stream failed");
         }
+      } finally {
+        this.deadlineScheduler.clearTimeout(deadline);
       }
     })();
+    // The pump adds hops between a read and its handling. One event-loop turn
+    // lets the loop settle what the stream already holds (an early failure)
+    // before the caller submits the prompt.
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 
   private async replyPermission(
@@ -794,6 +934,39 @@ export class OpenCodeTransport {
       if (owner !== sessionId) continue;
       this.pendingPermissions.delete(id);
       this.turnSink?.({ kind: "approval_withdrawn", approvalId: id });
+    }
+  }
+
+  // A request a turn makes before its stream reads. A frozen server accepts
+  // the connection and never answers, so only this bound reaches the mark.
+  // The bounded signal follows the turn's signal for the response lifetime.
+  private async withinDeadline<T>(
+    work: (signal: AbortSignal) => Promise<T>,
+    options: { signal?: AbortSignal; markServer?: boolean } = {},
+  ): Promise<T> {
+    const lease = this.lease!;
+    const serverPid = lease.pid;
+    const bounded = new AbortController();
+    if (options.signal?.aborted) bounded.abort();
+    options.signal?.addEventListener("abort", () => bounded.abort(), {
+      once: true,
+    });
+    let timedOut = false;
+    const timer = this.deadlineScheduler.setTimeout(() => {
+      timedOut = true;
+      bounded.abort();
+    }, this.eventStreamDeadlineMs);
+    try {
+      return await work(bounded.signal);
+    } catch (error) {
+      if (!timedOut) throw error;
+      if (options.markServer === false) throw new OpenCodeDeadlineError();
+      lease.markUnresponsive(serverPid, false);
+      throw new OpenCodeTurnFailure(OPENCODE_SERVER_UNRESPONSIVE_FAILURE, {
+        cause: error,
+      });
+    } finally {
+      this.deadlineScheduler.clearTimeout(timer);
     }
   }
 

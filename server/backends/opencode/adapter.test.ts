@@ -428,6 +428,8 @@ describe("OpenCode pinned transport", () => {
         authHeader: "Basic test",
         beginTurn: async () => {},
         endTurn: () => {},
+        serverStopped: () => false,
+        markUnresponsive: () => {},
         release: () => {},
       }),
     } as unknown as OpenCodeSupervisor;
@@ -917,6 +919,8 @@ describe("OpenCode pinned transport", () => {
       },
       beginTurn: async () => {},
       endTurn: () => {},
+      serverStopped: () => false,
+      markUnresponsive: () => {},
       release: () => {},
     };
     const supervisor = {
