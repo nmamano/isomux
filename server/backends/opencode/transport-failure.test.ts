@@ -977,9 +977,10 @@ it("drops the effort variant for one turn when the catalog is slow, without mark
     expect(server.requested("/provider"), "the catalog is pending").toBe(true);
     clock.advance(DEADLINE_MS);
     await settleUntil(() => server.promptBodies.length > 0);
-    expect(server.promptBodies[0], "first turn has no variant").not.toHaveProperty(
-      "variant",
-    );
+    expect(
+      server.promptBodies[0],
+      "first turn has no variant",
+    ).not.toHaveProperty("variant");
     server.complete();
     await settleUntil(() => turn.completions.length > 0);
     expect(turn.completions).toMatchObject([{ status: "completed" }]);

@@ -1154,7 +1154,9 @@ async function sendTurn(
   transport: OpenCodeTransport,
 ): Promise<Extract<NormalizedEvent, { kind: "turn_completed" }>> {
   const done =
-    Promise.withResolvers<Extract<NormalizedEvent, { kind: "turn_completed" }>>();
+    Promise.withResolvers<
+      Extract<NormalizedEvent, { kind: "turn_completed" }>
+    >();
   await transport.send([{ type: "text", text: "go" }], (event) => {
     if (event.kind === "turn_completed") done.resolve(event);
   });

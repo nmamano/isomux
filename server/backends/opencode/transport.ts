@@ -57,8 +57,7 @@ export interface OpenCodeDeadlineScheduler {
 
 const realDeadlineScheduler: OpenCodeDeadlineScheduler = {
   setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
-  clearTimeout: (timer) =>
-    clearTimeout(timer as ReturnType<typeof setTimeout>),
+  clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
 };
 
 // A failure whose message is already member-facing copy.

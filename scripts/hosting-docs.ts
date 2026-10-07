@@ -214,4 +214,3 @@ export const HOSTING_LEGACY_LINKS: Record<string, string> = {
   "no-proxy-and-no-real-domain":
     "/docs/hosting-reference#no-proxy-and-no-real-domain",
 };
-

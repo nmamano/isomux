@@ -4,7 +4,10 @@ import { getAgentHost } from "../../agent-host.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
-import { processIdentityMatches, processIsRunning } from "./process-identity.ts";
+import {
+  processIdentityMatches,
+  processIsRunning,
+} from "./process-identity.ts";
 import {
   openCodeServerHealth,
   type OpenCodeServerEndpoint,

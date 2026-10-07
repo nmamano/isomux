@@ -257,8 +257,13 @@ describe("legacy fragment maps", () => {
       expect(
         JSON.parse(doc.getElementById("legacy-fragment-map")!.textContent!),
       ).toEqual(links);
-      expect(doc.querySelector('script[src="/legacy-links.js"]')).not.toBeNull();
-      const markdown = readFileSync(`site/_agent/docs/${slug}/index.md`, "utf8");
+      expect(
+        doc.querySelector('script[src="/legacy-links.js"]'),
+      ).not.toBeNull();
+      const markdown = readFileSync(
+        `site/_agent/docs/${slug}/index.md`,
+        "utf8",
+      );
       for (const [id, href] of Object.entries(links)) {
         // No visible list: the old fragment names no element on the page.
         expect(doc.getElementById(id), id).toBeNull();
