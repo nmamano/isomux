@@ -138,8 +138,8 @@ const EXTERNAL = /^(?:https?:)?\/\/|^(?:data|mailto|tel|javascript):/i;
 // ---- small, layout-insensitive HTML reading ----
 
 // One open tag: the name, then attributes whose values may be double-quoted,
-// single-quoted or bare. Quoted values may contain ">", which the favicon's
-// inline SVG data URL does, so a naive `[^>]*` would cut that tag in half.
+// single-quoted or bare. Quoted values may contain ">" (an inline SVG data
+// URL does), so a naive `[^>]*` would cut that tag in half.
 const OPEN_TAG =
   /<([a-zA-Z][\w-]*)((?:\s+[\w:.-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*)\s*\/?>/g;
 const ATTRIBUTE = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
@@ -472,8 +472,8 @@ describe("how the checker resolves a reference", () => {
   });
 
   it("keeps a tag whose quoted value contains a closing bracket", () => {
-    const favicon = `<link rel="icon" href="data:image/svg+xml,<svg><g/></svg>" />`;
-    expect(tags(favicon, "link")[0].rel).toBe("icon");
+    const dataUrl = `<link rel="icon" href="data:image/svg+xml,<svg><g/></svg>" />`;
+    expect(tags(dataUrl, "link")[0].rel).toBe("icon");
   });
 
   it("resolves a relative reference against the served URL, not the disk", () => {
