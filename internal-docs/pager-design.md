@@ -115,7 +115,8 @@ A new view, modeled on the task board (`ui/components/TaskView.tsx`, routed as
 
 - Lists all pages the member can see, newest first, with open pages on top.
   Resolved pages load one slice at a time (see "Storage of resolved pages").
-- Filters: state (default: open and acked) and room.
+- Filters: state (default: open and acked) and room (default: the room the
+  office shows; all rooms from the lobby).
 - A row shows the title, source and room, age, raise count, state, and delivery
   status.
 - Actions: ack and resolve. The row links to the source agent's chat.
