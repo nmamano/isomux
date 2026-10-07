@@ -134,8 +134,12 @@ websocket:{message(ws,msg){ws.send(msg)}}});`);
     for app in ("counter", "stopped"):
         check(request("/api/apps", "POST", {"name": app, "command": "bun counter.ts", "cwd": "/var/data/workspaces"}, cookie), 201)
     check(request("/api/apps/stopped/stop", "POST", {}, cookie), 200)
-    check(request(host="unknown.office.example.com"), 404)
-    check(request(host="counter.office.example.com"), 302)
+    # An unknown label gets the live label's no-session bounce, so app names
+    # cannot be enumerated; the signed-in mint endpoint refuses it.
+    unknown = check(request(host="unknown.office.example.com"), 302)
+    live = check(request(host="counter.office.example.com"), 302)
+    assert unknown["headers"]["location"] == live["headers"]["location"].replace("app=counter", "app=unknown")
+    check(request("/auth/app?app=unknown&r=%2F", cookie=cookie), 404)
     app_session = app_cookie(cookie)
     deadline = time.monotonic() + 10
     while True:
@@ -146,7 +150,7 @@ websocket:{message(ws,msg){ws.send(msg)}}});`);
         time.sleep(.2)
     before = json.loads(response["body"])
     assert before["uid"] == 1000
-    print("PASS app API, child-host access, unknown-host refusal, non-root app", flush=True)
+    print("PASS app API, child-host access, unknown-host answer and mint refusal, non-root app", flush=True)
     execute("python3", "-c", """
 import json,socket,sys
 cookie=json.load(sys.stdin)
