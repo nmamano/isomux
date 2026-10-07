@@ -157,6 +157,15 @@ harness can take it back off. `ui/components/NavActions.dom.test.tsx` registers
 an `afterAll` after the harness's own that asserts the stub is gone, which is
 what keeps that true.
 
+The harness also keeps the window's timers reachable from modules loaded in an
+earlier file. bun evaluates a module once per process, so react-dom keeps the
+`queueMicrotask` and `setTimeout` of the window the first DOM file registered,
+and a closed happy-dom window drops every call to them. Each registration puts
+forwarders on `globalThis` that call the open window's own functions, and
+happy-dom's unregister restores Bun's. Without them, a React update outside
+`act()` never committed in any DOM file after the first in its process
+(measured 2026-10-07).
+
 Anything a page fetches on mount needs `setApiShim` from `ui/api.ts`, reset to
 null when the file ends because it is a module singleton that outlives the DOM.
 The cronjobs, apps and settings pages all fetch, and without the shim happy-dom

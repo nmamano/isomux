@@ -138,13 +138,7 @@ it("puts the text back in the composer with an inline error when the edit reques
     (t) => t.value === "original",
   )!;
   fireEvent.change(editor, { target: { value: "rejected edit" } });
-  // Settle the rejected PATCH inside one act scope so React commits the
-  // restore here: after another DOM file, a render left to the scheduler is
-  // lost (task 76d20063).
-  await act(async () => {
-    fireEvent.keyDown(editor, { key: "Enter" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  fireEvent.keyDown(editor, { key: "Enter" });
   await waitFor(() =>
     expect(composer(view.container).value).toBe("draft\n\nrejected edit"),
   );

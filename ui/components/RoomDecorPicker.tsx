@@ -5,7 +5,7 @@
 // name. The pane owns the staged look and the Save; this only shows it and
 // reports picks.
 
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import {
   ROOM_DECOR_OPTIONS,
   ROOM_DECOR_SLOTS,
@@ -332,7 +332,9 @@ function TileRow({
   );
 }
 
-export function RoomDecorPicker({
+// Memoized: the tiles are a few thousand SVG nodes, and the pane re-renders on
+// every keystroke and checkbox elsewhere in it.
+export const RoomDecorPicker = memo(function RoomDecorPicker({
   room,
   rooms,
   look,
@@ -454,4 +456,4 @@ export function RoomDecorPicker({
       )}
     </div>
   );
-}
+});

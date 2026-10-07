@@ -71,19 +71,11 @@ describe("Settings report panes", () => {
     );
 
     fireEvent.click(view.getByRole("button", { name: "Storage" }));
-    // The preview response lands in a promise continuation. Resolve it inside
-    // one act scope so React commits it here: run after ui/i18n.nav-languages
-    // in the same bun process, a render scheduled outside act never commits
-    // and findByRole times out (full ci 2026-09-16; task 76d20063 holds the
-    // reproduction). Alone, either form passes.
-    await act(async () => {
-      fireEvent.click(
-        view.getByRole("button", { name: "Preview what would be deleted" }),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
     fireEvent.click(
-      view.getByRole("button", {
+      view.getByRole("button", { name: "Preview what would be deleted" }),
+    );
+    fireEvent.click(
+      await view.findByRole("button", {
         name: /Delete 1 conversation transcripts permanently/,
       }),
     );

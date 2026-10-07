@@ -14,50 +14,14 @@ h.installApiShim();
 afterAll(() => setApiShim(null));
 beforeEach(() => h.resetCalls());
 
-// Quarantined (task 79d6d664): the file went over the 5 s DOM cap on a loaded box.
-it.skip("a hide writes tucked first and shown last, keeps other rooms' entries, and moves the selection once the room is gone", async () => {
+// One mount for the whole story: the pane's render is most of this file's
+// cost (task 79d6d664), so the failed hide and its retry share it.
+it("a failed write during a hide keeps the room; the retry writes tucked first and shown last, keeps other rooms' entries, and moves the selection once the room is gone", async () => {
   const { view, deletedCount } = await mount({
     tucked: ["other"],
     hidden: ["granted"],
     notifRooms: ["ward", "other"],
   });
-  // The server's answer to the shown write: the self record, then the
-  // projected full_state without the room.
-  setOnCall((c) => {
-    if (c.method === "PUT" && c.path === "/api/me/view/shown") {
-      setRecord({ hidden: ["granted", "ward"], notifRooms: ["other"] });
-      h.dispatchToStore({
-        type: "full_state",
-        agents: [],
-        recentCwds: [],
-        office: { prompt: null, name: "Office" },
-        rooms: [h.OTHER],
-        killedAgents: [],
-      });
-    }
-    return undefined;
-  });
-  await click(view, "tucked");
-  await click(view, "shown");
-  await save(view);
-
-  expect(viewWrites()).toEqual([
-    "PUT /api/me/view/tucked",
-    "GET /api/me/rooms",
-    "PUT /api/me/view/shown",
-  ]);
-  expect(bodyOf("/api/me/view/tucked")).toEqual({ tucked: ["other", "ward"] });
-  // Complement over the fresh accessible list: still-hidden "granted" stays
-  // out, "other" stays in.
-  expect(bodyOf("/api/me/view/shown")).toEqual({ shown: ["other"] });
-  expect(deletedCount()).toBe(1);
-  expect(box(view, "shown")).toBeNull();
-  view.unmount();
-});
-
-// Quarantined (task 79d6d664).
-it.skip("a failed write during a hide keeps the room, shows the error, and sends no shown write", async () => {
-  const { view, deletedCount } = await mount({});
   setOnCall((c) => {
     if (c.path === "/api/me/view/tucked")
       throw new ApiError(500, "boom", "tucked write failed");
@@ -73,14 +37,35 @@ it.skip("a failed write during a hide keeps the room, shows the error, and sends
   // The form keeps the member's choices for a retry.
   expect(box(view, "shown")!.checked).toBe(false);
 
-  // Retry: the same writes go out, and only now does the room go.
+  // Retry. The server's answer to the shown write: the self record, then the
+  // projected full_state without the room.
   h.resetCalls();
+  setOnCall((c) => {
+    if (c.method === "PUT" && c.path === "/api/me/view/shown") {
+      setRecord({ hidden: ["granted", "ward"], notifRooms: ["other"] });
+      h.dispatchToStore({
+        type: "full_state",
+        agents: [],
+        recentCwds: [],
+        office: { prompt: null, name: "Office" },
+        rooms: [h.OTHER],
+        killedAgents: [],
+      });
+    }
+    return undefined;
+  });
   await save(view);
+
   expect(viewWrites()).toEqual([
     "PUT /api/me/view/tucked",
     "GET /api/me/rooms",
     "PUT /api/me/view/shown",
   ]);
+  expect(bodyOf("/api/me/view/tucked")).toEqual({ tucked: ["other", "ward"] });
+  // Complement over the fresh accessible list: still-hidden "granted" stays
+  // out, "other" stays in.
+  expect(bodyOf("/api/me/view/shown")).toEqual({ shown: ["other"] });
   expect(deletedCount()).toBe(1);
+  expect(box(view, "shown")).toBeNull();
   view.unmount();
 });

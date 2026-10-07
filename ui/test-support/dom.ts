@@ -129,7 +129,62 @@ registerCompactDomMatchers();
 function register(): void {
   if (!GlobalRegistrator.isRegistered)
     GlobalRegistrator.register({ url: "http://localhost/" });
+  forwardSchedulers();
   stubMissingBrowserApis();
+}
+
+// The window's timer and microtask entry points, which a closed happy-dom
+// window turns into no-ops. A module is evaluated once per bun process, so
+// react-dom keeps the queueMicrotask and setTimeout of the window that was
+// registered when the first DOM file loaded it. In every later file in the
+// process, React's root-scheduling microtask went to a closed window and was
+// dropped: an update outside act() never committed (task 76d20063, measured
+// 2026-10-07). So each registration puts a forwarder on globalThis that calls
+// the current window's own function. What a module captures is the forwarder,
+// and it reaches whichever window is open now.
+const WINDOW_SCHEDULERS = [
+  "queueMicrotask",
+  "setTimeout",
+  "clearTimeout",
+  "setInterval",
+  "clearInterval",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+] as const;
+type Scheduler = (...args: unknown[]) => unknown;
+const bunSchedulers = new Map<string, unknown>(
+  WINDOW_SCHEDULERS.map((name) => [
+    name,
+    (globalThis as Record<string, unknown>)[name],
+  ]),
+);
+const windowSchedulers = new Map<string, Scheduler>();
+const forwarders = new Map<string, Scheduler>(
+  WINDOW_SCHEDULERS.map((name) => [
+    name,
+    (...args: unknown[]) => windowSchedulers.get(name)!(...args),
+  ]),
+);
+
+function forwardSchedulers(): void {
+  const globals = globalThis as Record<string, unknown>;
+  for (const name of WINDOW_SCHEDULERS) {
+    const current = globals[name];
+    // Only what happy-dom put there: its unregister then restores Bun's own,
+    // so no forwarder outlives the file.
+    if (
+      typeof current !== "function" ||
+      current === forwarders.get(name) ||
+      current === bunSchedulers.get(name)
+    )
+      continue;
+    windowSchedulers.set(name, current as Scheduler);
+    Object.defineProperty(globals, name, {
+      value: forwarders.get(name),
+      writable: true,
+      configurable: true,
+    });
+  }
 }
 
 // What we put on globalThis ourselves, and therefore have to take back off.
