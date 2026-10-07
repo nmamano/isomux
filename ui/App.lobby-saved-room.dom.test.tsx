@@ -15,6 +15,7 @@ it("restores the saved room instead of opening Lobby", async () => {
   });
   const view = await boot(rooms, { decorations: false, stageHydration: true });
   expect(view.queryByText("Members chat", { exact: false })).toBeNull();
+  expect(view.queryByRole("button", { name: /Members chat/ })).toBeNull();
   expect(document.title).toBe("Saved room | Isomux");
   expect(loadSavedView("member")?.roomId).toBe("r2");
   expect(loadSavedView("member")?.lobby).toBe(false);
