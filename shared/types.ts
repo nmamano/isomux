@@ -150,7 +150,7 @@ export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   opus: "claude-opus-5-5",
   fable: "claude-fable-5-1",
   sonnet: "claude-sonnet-5-5",
-  haiku: "claude-haiku-4-5-20251001",
+  haiku: "claude-haiku-5-5",
 };
 
 // Default first (MODEL_FAMILIES[0]): opus. New-agent defaults, the welcome
@@ -356,19 +356,19 @@ export function familyFromLegacyModel(model: string | undefined): ModelFamily {
 }
 
 // Claude families that support the "max" effort level: the families whose
-// supportedModels() row lists "max" in supportedEffortLevels (SDK 0.3.287,
-// 2026-10-02). Single source so the UI effort filters, the backend's
-// listModels metadata, and server-side validateEffort stay aligned.
+// supportedModels() row lists "max" in supportedEffortLevels. Every family
+// does (SDK 0.3.293, 2026-10-07). Single source so the UI effort filters, the
+// backend's listModels metadata, and server-side validateEffort stay aligned.
 export function claudeFamilySupportsMaxEffort(family: string): boolean {
-  return family === "opus" || family === "fable" || family === "sonnet";
+  return isClaudeFamily(family);
 }
 
 // Claude families that support effort levels: the families whose
-// supportedModels() row sets supportsEffort (SDK 0.3.287, 2026-10-02). The
-// haiku row does not, and the CLI drops an effort option on haiku: it sends
-// no effort parameter.
+// supportedModels() row sets supportsEffort. Every family does (SDK 0.3.293,
+// 2026-10-07). For a family without it, the CLI drops the effort option and
+// sends no effort parameter.
 export function claudeFamilySupportsEffort(family: string): boolean {
-  return family === "opus" || family === "fable" || family === "sonnet";
+  return isClaudeFamily(family);
 }
 
 // Static effort options for slash commands, filtered by backend + model
@@ -392,9 +392,10 @@ export function effortLevelsFor(
 
 // Claude families allowed to use Isomux's "auto" permission mode (the /resolve
 // auto-classifier). Gated for classifier reliability to the families whose
-// SDK model row reports supportsAutoMode: opus, fable and sonnet (0.3.287).
+// SDK model row reports supportsAutoMode: every family (SDK 0.3.293,
+// 2026-10-07).
 export function claudeFamilySupportsAutoPermission(family: string): boolean {
-  return family === "opus" || family === "fable" || family === "sonnet";
+  return isClaudeFamily(family);
 }
 
 // A pending message waiting for the agent to flush it. Senders can be human

@@ -11,6 +11,7 @@
 
 import { realV1SdkClient } from "../server/backends/claude";
 import { CLAUDE_NATIVE_BIN } from "../server/cwd-utils";
+import { FAMILY_TO_MODEL } from "../shared/types";
 import type {
   SDKMessage,
   SDKUserMessage,
@@ -31,7 +32,7 @@ function fail(name: string, detail: string) {
 
 function baseOpts() {
   return {
-    model: "claude-haiku-4-5-20251001",
+    model: FAMILY_TO_MODEL.haiku,
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
     // Typed options, mirroring buildSdkOpts: the prompt travels over stdin
     // (initialize control request), never argv (task e6a0387a).
@@ -198,7 +199,7 @@ async function test3_oneShotPrompt() {
   try {
     const text = await realV1SdkClient.oneShotPrompt({
       prompt: "Summarize 'fix login bug' in exactly 3 words.",
-      model: "claude-haiku-4-5-20251001",
+      model: FAMILY_TO_MODEL.haiku,
       pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
     });
     if (!text || text.length === 0) {

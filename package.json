@@ -27,7 +27,7 @@
     "ci:remote": "bash scripts/ci-remote.sh"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.287",
+    "@anthropic-ai/claude-agent-sdk": "0.3.293",
     "@anthropic-ai/sdk": "^0.100.1",
     "@codemirror/autocomplete": "^6.20.2",
     "@codemirror/commands": "^6.10.3",

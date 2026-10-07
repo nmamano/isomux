@@ -10,7 +10,6 @@ import {
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
   effortLevelsFor,
-  DEFAULT_EFFORT,
 } from "../shared/types.ts";
 import { validateEffort } from "./agent-validators.ts";
 
@@ -32,6 +31,14 @@ describe("fable model family", () => {
     expect(FAMILY_TO_MODEL.sonnet).toBe("claude-sonnet-5-5");
   });
 
+  it("maps haiku to claude-haiku-5-5", () => {
+    expect(FAMILY_TO_MODEL.haiku).toBe("claude-haiku-5-5");
+  });
+
+  it("resolves a stored Haiku 4.5 id to the haiku family", () => {
+    expect(familyFromLegacyModel("claude-haiku-4-5-20251001")).toBe("haiku");
+  });
+
   it("resolves from a legacy claude-fable-5 model id", () => {
     expect(familyFromLegacyModel("claude-fable-5")).toBe("fable");
   });
@@ -43,31 +50,35 @@ describe("fable model family", () => {
     expect(familyDisplayLabel("opus")).toBe("Opus 5.5");
     expect(modelVersionLabel("sonnet")).toBe("5.5");
     expect(familyDisplayLabel("sonnet")).toBe("Sonnet 5.5");
+    expect(modelVersionLabel("haiku")).toBe("5.5");
+    expect(familyDisplayLabel("haiku")).toBe("Haiku 5.5");
   });
 });
 
 describe("top-tier capability gates", () => {
-  it("grants max effort to opus, fable and sonnet, not haiku", () => {
-    expect(claudeFamilySupportsMaxEffort("opus")).toBe(true);
-    expect(claudeFamilySupportsMaxEffort("fable")).toBe(true);
-    expect(claudeFamilySupportsMaxEffort("sonnet")).toBe(true);
-    expect(claudeFamilySupportsMaxEffort("haiku")).toBe(false);
+  const families = ["opus", "fable", "sonnet", "haiku"];
+
+  it("grants max effort to every Claude family", () => {
+    for (const family of families)
+      expect(claudeFamilySupportsMaxEffort(family)).toBe(true);
+    expect(claudeFamilySupportsMaxEffort("gpt-5.5")).toBe(false);
   });
 
-  it("grants auto permission to opus, fable and sonnet, not haiku", () => {
-    expect(claudeFamilySupportsAutoPermission("opus")).toBe(true);
-    expect(claudeFamilySupportsAutoPermission("fable")).toBe(true);
-    expect(claudeFamilySupportsAutoPermission("sonnet")).toBe(true);
-    expect(claudeFamilySupportsAutoPermission("haiku")).toBe(false);
+  it("grants auto permission to every Claude family", () => {
+    for (const family of families)
+      expect(claudeFamilySupportsAutoPermission(family)).toBe(true);
+    expect(claudeFamilySupportsAutoPermission("gpt-5.5")).toBe(false);
   });
 
-  it("grants effort levels to opus, fable and sonnet, none to haiku", () => {
-    expect(claudeFamilySupportsEffort("opus")).toBe(true);
-    expect(claudeFamilySupportsEffort("fable")).toBe(true);
-    expect(claudeFamilySupportsEffort("sonnet")).toBe(true);
-    expect(claudeFamilySupportsEffort("haiku")).toBe(false);
-    expect(effortLevelsFor("claude", "haiku")).toEqual([]);
-    expect(effortLevelsFor("claude", "sonnet").length).toBeGreaterThan(0);
+  it("grants every Claude family the same effort levels", () => {
+    for (const family of families) {
+      expect(claudeFamilySupportsEffort(family)).toBe(true);
+      expect(effortLevelsFor("claude", family)).toEqual(
+        effortLevelsFor("claude", "opus"),
+      );
+    }
+    expect(effortLevelsFor("claude", "haiku").length).toBeGreaterThan(0);
+    expect(claudeFamilySupportsEffort("gpt-5.5")).toBe(false);
   });
 
   it("validateEffort keeps a stored haiku effort", () => {
@@ -75,9 +86,9 @@ describe("top-tier capability gates", () => {
     expect(validateEffort("claude", "haiku", "xhigh")).toBe("xhigh");
   });
 
-  it("validateEffort allows max for fable and sonnet, rejects it for haiku", () => {
+  it("validateEffort allows max for fable, sonnet and haiku", () => {
     expect(validateEffort("claude", "fable", "max")).toBe("max");
     expect(validateEffort("claude", "sonnet", "max")).toBe("max");
-    expect(validateEffort("claude", "haiku", "max")).toBe(DEFAULT_EFFORT);
+    expect(validateEffort("claude", "haiku", "max")).toBe("max");
   });
 });

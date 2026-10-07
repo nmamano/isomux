@@ -12,7 +12,6 @@ import {
 } from "../shared/outfit-options.ts";
 import {
   CODEX_MODELS,
-  DEFAULT_EFFORT,
   MODEL_FAMILIES,
   effortLevelsFor,
 } from "../shared/types.ts";
@@ -298,7 +297,7 @@ describe("resolveTemplateModel", () => {
     ).toBe(paid.id);
   });
 
-  it("falls back to the default effort for a Claude family with no levels", () => {
+  it("gives a haiku template its desired effort", () => {
     const changed = {
       ...template,
       recommendations: {
@@ -316,13 +315,14 @@ describe("resolveTemplateModel", () => {
       null,
       false,
     );
-    expect(result).toEqual({ modelFamily: "haiku", effort: DEFAULT_EFFORT });
+    expect(result).toEqual({ modelFamily: "haiku", effort: "low" });
   });
 });
 
 describe("resolveTemplatePermission", () => {
   it("mirrors the Claude model select's auto-permission coercion", () => {
-    expect(resolveTemplatePermission("claude", "haiku", "auto")).toBe(
+    expect(resolveTemplatePermission("claude", "haiku", "auto")).toBe("auto");
+    expect(resolveTemplatePermission("claude", "unknown", "auto")).toBe(
       "bypassPermissions",
     );
     expect(resolveTemplatePermission("claude", "sonnet", "auto")).toBe("auto");

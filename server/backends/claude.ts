@@ -1464,12 +1464,23 @@ export function toolBoundaryHooks(
 
 function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   const model = claudeModelForEnvironment(opts.modelFamily, opts.env);
+  // On Bedrock and Vertex the haiku alias still resolves to Haiku 4.5 (Claude
+  // Code 2.1.293), which takes no effort and no auto mode. Keep haiku's
+  // behavior from before Haiku 5.5 there: no effort, and auto runs as
+  // bypassPermissions, the target the dialogs used for haiku.
+  const cloudHaiku =
+    opts.modelFamily === "haiku" &&
+    isClaudeCloudSelected(opts.env ?? process.env);
+  const permissionMode =
+    cloudHaiku && opts.permissionMode === "auto"
+      ? "bypassPermissions"
+      : opts.permissionMode;
   const sdkOpts: SdkSessionOptions = {
     model,
     // permissionMode is `string` at the Backend boundary; narrow at the call site.
-    permissionMode: opts.permissionMode as PermissionMode,
+    permissionMode: permissionMode as PermissionMode,
     allowDangerouslySkipPermissions:
-      opts.permissionMode === "bypassPermissions" ? true : undefined,
+      permissionMode === "bypassPermissions" ? true : undefined,
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
     // "Default with additions": keep the claude_code base prompt and append
     // isomux's assembled prompt. The typed option travels over stdin (the
@@ -1484,7 +1495,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // guarantees a Claude-legal level (narrower than shared EffortLevel,
     // which includes Codex-only values). Narrow at the call site, same
     // pattern as permissionMode.
-    effort: opts.effort as SdkEffortLevel,
+    effort: cloudHaiku ? undefined : (opts.effort as SdkEffortLevel),
     settings: CLAUDE_LAUNCH_SETTINGS,
     cwd: opts.cwd,
     hooks: opts.takeToolBoundaryMessage
@@ -1524,7 +1535,7 @@ export function createClaudeBackend(
       // and identical across auth tiers. Promote MODEL_FAMILIES to the
       // BackendModel shape so the UI can render Claude through the same
       // fetched-list path it uses for Codex. Effort filtering is a
-      // family-level rule from effortLevelsFor: haiku lists no levels.
+      // family-level rule from effortLevelsFor.
       return MODEL_FAMILIES.map((m, i) => ({
         id: m.family,
         label: m.label,

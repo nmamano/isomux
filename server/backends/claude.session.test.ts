@@ -765,14 +765,13 @@ describe("ClaudeSession getContextUsage", () => {
 // ---------------------------------------------------------------------------
 
 describe("createClaudeBackend.listModels", () => {
-  it("lists no effort levels for haiku and the family levels for the rest", async () => {
+  it("lists the same effort levels for every family, haiku included", async () => {
     const backend = createClaudeBackend(new FakeSdkClient());
     const models = await backend.listModels({ cwd: "/tmp" });
     const efforts = (id: string) =>
       models
         .find((model) => model.id === id)
         ?.supportedEfforts.map((option) => option.level);
-    expect(efforts("haiku")).toEqual([]);
     expect(efforts("sonnet")).toEqual([
       "low",
       "medium",
@@ -780,6 +779,8 @@ describe("createClaudeBackend.listModels", () => {
       "xhigh",
       "max",
     ]);
+    for (const family of ["opus", "fable", "haiku"])
+      expect(efforts(family)).toEqual(efforts("sonnet"));
   });
 });
 
@@ -983,6 +984,71 @@ describe("createClaudeBackend.oneShotPrompt", () => {
       backend.oneShotPrompt("x", { modelFamily: "opus" }),
       /oneShot failed/,
     );
+  });
+});
+
+describe("createClaudeBackend - haiku on Bedrock and Vertex", () => {
+  // The cloud haiku alias still resolves to Haiku 4.5, so haiku keeps its
+  // behavior from before Haiku 5.5 there: no effort, and auto runs as
+  // bypassPermissions. First-party haiku and other cloud families keep both.
+  function launch(
+    modelFamily: string,
+    permissionMode: string,
+    env: Record<string, string>,
+  ) {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    const opts = {
+      agentId: "cloud-haiku",
+      modelFamily,
+      env,
+      cwd: "/tmp",
+      systemPrompt: "test",
+      permissionMode,
+      effort: "high",
+    };
+    backend.createSession(opts).close();
+    backend.resumeSession("cloud-session", opts).close();
+    return [fake.createCalls[0].opts, fake.resumeCalls[0].opts];
+  }
+
+  for (const selector of [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+  ]) {
+    const cloud = { [selector]: "1" };
+
+    it(`sends no effort and runs auto as bypassPermissions for ${selector}`, () => {
+      for (const opts of launch("haiku", "auto", cloud)) {
+        expect(opts.effort).toBeUndefined();
+        expect(opts.permissionMode).toBe("bypassPermissions");
+        expect(opts.allowDangerouslySkipPermissions).toBe(true);
+      }
+    });
+
+    it(`keeps a non-auto haiku mode for ${selector}`, () => {
+      for (const opts of launch("haiku", "default", cloud)) {
+        expect(opts.effort).toBeUndefined();
+        expect(opts.permissionMode).toBe("default");
+        expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
+      }
+    });
+
+    it(`keeps effort and auto for sonnet for ${selector}`, () => {
+      for (const opts of launch("sonnet", "auto", cloud)) {
+        expect(opts.effort).toBe("high");
+        expect(opts.permissionMode).toBe("auto");
+        expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
+      }
+    });
+  }
+
+  it("keeps effort and auto for first-party haiku", () => {
+    for (const opts of launch("haiku", "auto", { FOO: "bar" })) {
+      expect(opts.effort).toBe("high");
+      expect(opts.permissionMode).toBe("auto");
+      expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
+    }
   });
 });
 

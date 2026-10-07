@@ -6,6 +6,7 @@ import {
   deskModelLabel,
   styleForModel,
 } from "./model-styles.ts";
+import { modelVersionLabel } from "../shared/types.ts";
 
 describe("styleForModel", () => {
   test("known models return their exact seeded entry", () => {
@@ -75,8 +76,10 @@ describe("deskModelLabel", () => {
   });
 
   test("Claude families keep their name and version", () => {
-    expect(deskModelLabel("opus")).toBe("OPUS 5.5");
-    expect(deskModelLabel("haiku")).toBe("HAIKU 4.5");
+    for (const family of ["opus", "haiku"] as const)
+      expect(deskModelLabel(family)).toBe(
+        `${family.toUpperCase()} ${modelVersionLabel(family)}`,
+      );
   });
 
   test("a trailing tier word is dropped, but never the whole label", () => {

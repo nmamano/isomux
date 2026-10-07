@@ -154,12 +154,8 @@ describe("effortPickerOptions", () => {
     supportedEfforts: efforts.map((level) => ({ level })),
   });
 
-  it("offers no levels for Claude haiku, so the dialogs hide the field", () => {
-    expect(effortPickerOptions("claude", "haiku", null)).toEqual([]);
-  });
-
   it("offers the Claude family levels from effortLevelsFor", () => {
-    for (const family of ["opus", "fable", "sonnet"]) {
+    for (const family of ["opus", "fable", "sonnet", "haiku"]) {
       expect(levels(effortPickerOptions("claude", family, null))).toEqual(
         levels(effortLevelsFor("claude", family)),
       );
