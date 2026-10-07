@@ -12,12 +12,12 @@ Safe example: `GET /api/pager`.
 
 ## Route contract
 
-| Method and route              | Request              | Success                                          |
-| ----------------------------- | -------------------- | ------------------------------------------------ |
-| `POST /api/pager`             | `{title,body?,key?}` | `201 PagerEntry`, or `PagerEntry` on a key match |
+| Method and route              | Request                              | Success                                                                       |
+| ----------------------------- | ------------------------------------ | ----------------------------------------------------------------------------- |
+| `POST /api/pager`             | `{title,body?,key?}`                 | `201 PagerEntry`, or `PagerEntry` on a key match                              |
 | `GET /api/pager`              | `state`, `roomId`, `limit`, `before` | `PagerEntry[]`: open and acked by newest raise, then resolved by newest first |
-| `GET /api/pager/:id`          | Path id              | `PagerEntry`                                     |
-| `POST /api/pager/:id/ack`     | Empty body           | `PagerEntry`                                     |
-| `POST /api/pager/:id/resolve` | Empty body           | `PagerEntry`                                     |
+| `GET /api/pager/:id`          | Path id                              | `PagerEntry`                                                                  |
+| `POST /api/pager/:id/ack`     | Empty body                           | `PagerEntry`                                                                  |
+| `POST /api/pager/:id/resolve` | Empty body                           | `PagerEntry`                                                                  |
 
 A page is visible to callers with access to the room it was raised in; an app page is also visible to the app's owner and office owners, and with no room only to them. The source can always resolve its own page. Hidden or missing pages and inaccessible rooms return 404. Invalid fields, and a `before` that names no resolved page you can see, return 400; an agent with no manager returns 409; an ack of a resolved page returns 409; too many open pages return 429. An app raise returns 409 when the app has no owner.

@@ -1822,7 +1822,8 @@ function listOnlineUserIds(): string[] {
 
 function sendPresenceListTo(ws: ServerWebSocket<OfficeWsData>) {
   const onlineUserIds = listOnlineUserIds();
-  officeSend(ws, 
+  officeSend(
+    ws,
     JSON.stringify({
       type: "presence_list",
       entries: buildPresenceListFor(ws.data.session),
@@ -2092,7 +2093,10 @@ const liveEmitDeps: EmitDeps<EventSocket> = {
         const ws = socket as ServerWebSocket<OfficeWsData>;
         const projected = projectAgentForSession(ws.data.session, agent);
         if (projected) {
-          officeSend(ws, JSON.stringify({ type: "agent_added", agent: projected }));
+          officeSend(
+            ws,
+            JSON.stringify({ type: "agent_added", agent: projected }),
+          );
         }
       }
       return;
@@ -3562,7 +3566,8 @@ function buildExecutorDeps(
         if (roleChanged) {
           for (const ws of browsers) {
             if (ws.data.session.userId !== result.user.id) continue;
-            officeSend(ws, 
+            officeSend(
+              ws,
               JSON.stringify({
                 type: "session_context",
                 context: sessionContextFor(
@@ -3571,7 +3576,8 @@ function buildExecutorDeps(
                 ),
               }),
             );
-            officeSend(ws, 
+            officeSend(
+              ws,
               JSON.stringify({
                 type: "all_rooms_list",
                 rooms:
@@ -5180,7 +5186,8 @@ function sendProjectedFullState(
     .getKilledAgentSummaries()
     .filter((k) => roomAllowedForSession(session, k.lastRoomId))
     .slice(0, KILLED_AGENT_CHIP_CAP);
-  officeSend(ws, 
+  officeSend(
+    ws,
     JSON.stringify({
       type: "full_state",
       agents,
@@ -5258,7 +5265,8 @@ function pushProjectedFullStateForUserId(userId: string) {
 function pushRoomOrderForUserId(userId: string) {
   for (const ws of browsers) {
     if (ws.data.session.userId === userId) {
-      officeSend(ws, 
+      officeSend(
+        ws,
         JSON.stringify({
           type: "room_order_updated",
           rooms: visibleRoomProjection(ws.data.session).rooms,
@@ -5293,7 +5301,8 @@ function projectTasksForSession(session: SessionLookup): TaskItem[] {
 }
 
 function sendTasksTo(ws: ServerWebSocket<OfficeWsData>) {
-  officeSend(ws, 
+  officeSend(
+    ws,
     JSON.stringify({
       type: "tasks",
       tasks: projectTasksForSession(ws.data.session),
@@ -5370,7 +5379,8 @@ function pushWebhookDeltaToEachWs(change: WebhookChange) {
 // and the re-projection after a change that shifts what a socket may see with
 // no single job to point at (room close, a user's access or role change).
 function sendCronjobsTo(ws: ServerWebSocket<OfficeWsData>) {
-  officeSend(ws, 
+  officeSend(
+    ws,
     JSON.stringify({
       type: "cronjobs_state",
       cronjobs: cronjobsFor(cronjobViewerForSession(ws.data.session)),
@@ -5817,7 +5827,10 @@ function routeAgentEventToWs(
     case "agent_added": {
       const projected = projectAgentForSession(session, event.agent);
       if (projected) {
-        officeSend(ws, JSON.stringify({ type: "agent_added", agent: projected }));
+        officeSend(
+          ws,
+          JSON.stringify({ type: "agent_added", agent: projected }),
+        );
       }
       break;
     }
@@ -6160,7 +6173,8 @@ async function handleInboundMessage(
           // the same agent.
           const buffer = agentManager.getTerminalBuffer(cmd.agentId);
           if (buffer) {
-            officeSend(ws, 
+            officeSend(
+              ws,
               JSON.stringify({
                 type: "terminal_output",
                 agentId: cmd.agentId,
@@ -7043,7 +7057,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // is per-WS (live-avatars) so the client can identify its OWN
         // ghost in presence_list - same auth session can be running in
         // multiple tabs and each tab has a distinct connectionId.
-        officeSend(ws, 
+        officeSend(
+          ws,
           JSON.stringify({
             type: "session_context",
             context: sessionContextFor(ws.data.session, ws.data.connectionId),
@@ -7054,14 +7069,16 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // full record (user_self_updated) - the now-public users_list can no
         // longer carry the caller's grants/notif/default/view, which the UI
         // needs for the current user.
-        officeSend(ws, 
+        officeSend(
+          ws,
           JSON.stringify({
             type: "users_list",
             users: listUsers().map(toPublicWire),
           }),
         );
         if (ws.data.session.role === "owner") {
-          officeSend(ws, 
+          officeSend(
+            ws,
             JSON.stringify({
               type: "users_admin_list",
               users: listUsers(),
@@ -7070,7 +7087,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
         const selfUserForHydration = getUserById(ws.data.session.userId);
         if (selfUserForHydration) {
-          officeSend(ws, 
+          officeSend(
+            ws,
             JSON.stringify({
               type: "user_self_updated",
               user: selfUserForHydration,
@@ -7080,7 +7098,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             .list(selfUserForHydration.id)
             .then((accounts) => {
               if (browsers.has(ws))
-                officeSend(ws, 
+                officeSend(
+                  ws,
                   JSON.stringify({
                     type: "provider_accounts_updated",
                     accounts,
@@ -7089,7 +7108,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             })
             .catch(() => {
               if (browsers.has(ws))
-                officeSend(ws, 
+                officeSend(
+                  ws,
                   JSON.stringify({
                     type: "provider_accounts_updated",
                     accounts: [
@@ -7142,7 +7162,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // admin surface (UserSettingsView's Allowed Rooms editor) can
         // grant access to rooms the owner has hidden from their own view.
         if (ws.data.session.role === "owner") {
-          officeSend(ws, 
+          officeSend(
+            ws,
             JSON.stringify({
               type: "all_rooms_list",
               rooms: agentManager.getOrdinaryRooms(),
@@ -7157,7 +7178,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // Send update status - always, not only when available: the client
         // needs the mode (and current-version info) even while quiet, and a
         // reconnect after a cleared banner must hydrate the false state.
-        officeSend(ws, 
+        officeSend(
+          ws,
           JSON.stringify({ type: "update_status", ...getUpdateStatus() }),
         );
         // Send cached log history and slash commands for each agent the

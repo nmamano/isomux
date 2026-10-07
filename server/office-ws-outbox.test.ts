@@ -43,7 +43,8 @@ function producer(frames: string[]) {
   const pulled = { count: 0, returned: false };
   const it: Iterator<string> = {
     next() {
-      if (pulled.count >= frames.length) return { done: true, value: undefined };
+      if (pulled.count >= frames.length)
+        return { done: true, value: undefined };
       return { done: false, value: frames[pulled.count++] };
     },
     return() {

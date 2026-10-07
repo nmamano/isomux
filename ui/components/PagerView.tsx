@@ -202,9 +202,7 @@ export function PagerView({
   // (an older resolved one) is read by id first. A failed load keeps the
   // request until Retry lands a snapshot.
   // `n` tells a repeat read of the same id from the first one.
-  const [lookup, setLookup] = useState<{ id: string; n: number } | null>(
-    null,
-  );
+  const [lookup, setLookup] = useState<{ id: string; n: number } | null>(null);
   useEffect(() => {
     if (!selectRequest || !pagerLoaded) return;
     onSelectRequestHandled?.();
@@ -276,8 +274,11 @@ export function PagerView({
       // cursor stale: read again from the oldest page still held. A few
       // tries; past them the button stays for the member.
       for (let attempt = 0; attempt < 3; attempt++) {
-        const { pager: held, pagerPinnedId: pinned, pagerTrimSeq: seq } =
-          listRef.current;
+        const {
+          pager: held,
+          pagerPinnedId: pinned,
+          pagerTrimSeq: seq,
+        } = listRef.current;
         const cursor = resolvedCursor(held, pinned);
         if (cursor === null) return;
         const entries = await apiFetch<PagerEntry[]>(

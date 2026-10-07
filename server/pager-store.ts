@@ -218,7 +218,12 @@ class BackwardLines {
 // The file system calls the archive writes through. Tests replace them to
 // model a short write or a failed fsync.
 export interface PagerArchiveIo {
-  writeSync: (fd: number, buf: Buffer, offset: number, length: number) => number;
+  writeSync: (
+    fd: number,
+    buf: Buffer,
+    offset: number,
+    length: number,
+  ) => number;
   fsyncSync: (fd: number) => void;
 }
 
@@ -712,7 +717,9 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
     try {
       const intent = archive.readIntent();
       if (intent === "corrupt") {
-        console.error("[pager] the archive move record is unreadable; moves are paused");
+        console.error(
+          "[pager] the archive move record is unreadable; moves are paused",
+        );
         return false;
       }
       if (intent !== null) {
@@ -875,8 +882,7 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
     if (current.state === "resolved") {
       return { outcome: "already_resolved", entry: copy(current) };
     }
-    const at =
-      to === "resolved" ? Math.max(now(), lastResolvedAt + 1) : now();
+    const at = to === "resolved" ? Math.max(now(), lastResolvedAt + 1) : now();
     const updated: PagerEntry = {
       ...copy(current),
       state: to,

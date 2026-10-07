@@ -1148,7 +1148,10 @@ export function reducer(state: AppState, action: Action): AppState {
       const held = new Set(state.pager.map((e) => e.id));
       return {
         ...state,
-        pager: [...state.pager, ...action.entries.filter((e) => !held.has(e.id))],
+        pager: [
+          ...state.pager,
+          ...action.entries.filter((e) => !held.has(e.id)),
+        ],
         pagerResolvedAllowance:
           state.pagerResolvedAllowance + PAGER_RESOLVED_SLICE,
         pagerResolvedMore: action.more,

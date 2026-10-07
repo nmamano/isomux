@@ -69,7 +69,10 @@ it("Load more raises the bound by one slice, and a snapshot resets it", () => {
   });
   state = reducer(state, {
     type: "pager_upserted",
-    entry: page("n1", { state: "resolved", resolved: { by: "Boss", at: 5_000 } }),
+    entry: page("n1", {
+      state: "resolved",
+      resolved: { by: "Boss", at: 5_000 },
+    }),
   });
   expect(state.pager).toHaveLength(100);
   expect(state.pager.map((e) => e.id)).not.toContain("r99");
@@ -81,7 +84,10 @@ it("Load more raises the bound by one slice, and a snapshot resets it", () => {
   });
   state = reducer(state, {
     type: "pager_upserted",
-    entry: page("n2", { state: "resolved", resolved: { by: "Boss", at: 6_000 } }),
+    entry: page("n2", {
+      state: "resolved",
+      resolved: { by: "Boss", at: 6_000 },
+    }),
   });
   expect(state.pager).toHaveLength(50);
 });
@@ -104,7 +110,10 @@ it("a slice read before a drop is refused, so the dropped page is not skipped", 
   // The read asked for the slice after r49; a live resolve then drops r49.
   state = reducer(state, {
     type: "pager_upserted",
-    entry: page("n1", { state: "resolved", resolved: { by: "Boss", at: 5_000 } }),
+    entry: page("n1", {
+      state: "resolved",
+      resolved: { by: "Boss", at: 5_000 },
+    }),
   });
   expect(state.pager.map((e) => e.id)).not.toContain("r49");
   const refused = reducer(state, {

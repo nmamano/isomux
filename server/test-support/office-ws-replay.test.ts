@@ -96,7 +96,9 @@ async function startReader(
   return {
     done: new Response(child.stdout)
       .text()
-      .then((out) => JSON.parse(out) as { closed: boolean; frames: ReaderFrame[] }),
+      .then(
+        (out) => JSON.parse(out) as { closed: boolean; frames: ReaderFrame[] },
+      ),
   };
 }
 
@@ -119,93 +121,85 @@ async function spawnIn(srv: TestServer, name: string, roomId: string) {
 }
 
 describe("office connect replay to a client that stops reading", () => {
-  it(
-    "arrives whole and in order, fence after the last entry, and a live entry from the stall after the fence, once",
-    async () => {
-      server = await startTestServer();
-      const owner = await server.seedOwner("Boss");
-      const roomId = server.agentManager.getRooms()[0].id;
-      const agent = await spawnIn(server, "Big", roomId);
-      server = await seedTranscripts(server, [agent.id]);
+  it("arrives whole and in order, fence after the last entry, and a live entry from the stall after the fence, once", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const roomId = server.agentManager.getRooms()[0].id;
+    const agent = await spawnIn(server, "Big", roomId);
+    server = await seedTranscripts(server, [agent.id]);
 
-      // What the cache holds at connect: the seeded entries, plus whatever
-      // the restore itself logged.
-      const cached = server.agentManager.getAgentLogs(agent.id).map((e) => e.id);
-      expect(cached.slice(0, ENTRIES)).toEqual(
-        Array.from({ length: ENTRIES }, (_, k) => `${agent.id}-e${k}`),
+    // What the cache holds at connect: the seeded entries, plus whatever
+    // the restore itself logged.
+    const cached = server.agentManager.getAgentLogs(agent.id).map((e) => e.id);
+    expect(cached.slice(0, ENTRIES)).toEqual(
+      Array.from({ length: ENTRIES }, (_, k) => `${agent.id}-e${k}`),
+    );
+    const reader = await startReader(server, owner.rawSessionId, 3000);
+    // A live entry while the replay waits in the outbox.
+    const res = await server.http(`/api/agents/${agent.id}/messages`, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "live-during-replay" }),
+    });
+    expect(res.status).toBeLessThan(300);
+    const live = server.agentManager
+      .getAgentLogs(agent.id)
+      .slice(cached.length)
+      .map((e) => e.id);
+    // Enabling condition: the live entry exists, so the order below covers it.
+    expect(live.length).toBeGreaterThan(0);
+
+    const { closed, frames } = await reader.done;
+    expect(closed).toBe(false);
+    const fenceAt = frames.findIndex((f) => f.type === "log_replay_complete");
+    expect(fenceAt).toBeGreaterThan(-1);
+    const replayed = frames
+      .slice(0, fenceAt)
+      .filter((f) => f.type === "log_entry" && f.agentId === agent.id)
+      .map((f) => f.id);
+    expect(replayed).toEqual(cached);
+    const afterFence = frames
+      .slice(fenceAt + 1)
+      .filter((f) => f.type === "log_entry" && f.agentId === agent.id)
+      .map((f) => f.id);
+    expect(afterFence).toEqual(live);
+  }, 60_000);
+
+  it("an access change while the socket is backed up closes it instead of sending the old projection", async () => {
+    server = await startTestServer();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const r2 = server.agentManager.createRoom("R2");
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const hidden = await spawnIn(server, "Hidden", r2);
+    const setAccess = async (rooms: string[]) => {
+      const res = await server!.http(
+        `/api/users/${encodeURIComponent(member.username)}/access`,
+        {
+          method: "PUT",
+          rawSessionId: owner.rawSessionId,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ allowedRooms: rooms }),
+        },
       );
-      const reader = await startReader(server, owner.rawSessionId, 3000);
-      // A live entry while the replay waits in the outbox.
-      const res = await server.http(`/api/agents/${agent.id}/messages`, {
-        method: "POST",
-        rawSessionId: owner.rawSessionId,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "live-during-replay" }),
-      });
       expect(res.status).toBeLessThan(300);
-      const live = server.agentManager
-        .getAgentLogs(agent.id)
-        .slice(cached.length)
-        .map((e) => e.id);
-      // Enabling condition: the live entry exists, so the order below covers it.
-      expect(live.length).toBeGreaterThan(0);
+    };
+    await setAccess([r1, r2]);
+    server = await seedTranscripts(server, [hidden.id]);
 
-      const { closed, frames } = await reader.done;
-      expect(closed).toBe(false);
-      const fenceAt = frames.findIndex((f) => f.type === "log_replay_complete");
-      expect(fenceAt).toBeGreaterThan(-1);
-      const replayed = frames
-        .slice(0, fenceAt)
-        .filter((f) => f.type === "log_entry" && f.agentId === agent.id)
-        .map((f) => f.id);
-      expect(replayed).toEqual(cached);
-      const afterFence = frames
-        .slice(fenceAt + 1)
-        .filter((f) => f.type === "log_entry" && f.agentId === agent.id)
-        .map((f) => f.id);
-      expect(afterFence).toEqual(live);
-    },
-    60_000,
-  );
+    const reader = await startReader(server, member.rawSessionId, 3000);
+    await setAccess([r1]);
 
-  it(
-    "an access change while the socket is backed up closes it instead of sending the old projection",
-    async () => {
-      server = await startTestServer();
-      const r1 = server.agentManager.getRooms()[0].id;
-      const r2 = server.agentManager.createRoom("R2");
-      const owner = await server.seedOwner("Boss");
-      const member = await server.seedMember("Mia");
-      const hidden = await spawnIn(server, "Hidden", r2);
-      const setAccess = async (rooms: string[]) => {
-        const res = await server!.http(
-          `/api/users/${encodeURIComponent(member.username)}/access`,
-          {
-            method: "PUT",
-            rawSessionId: owner.rawSessionId,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ allowedRooms: rooms }),
-          },
-        );
-        expect(res.status).toBeLessThan(300);
-      };
-      await setAccess([r1, r2]);
-      server = await seedTranscripts(server, [hidden.id]);
-
-      const reader = await startReader(server, member.rawSessionId, 3000);
-      await setAccess([r1]);
-
-      const { closed, frames } = await reader.done;
-      expect(closed).toBe(true);
-      // The first full_state showed the agent; nothing after the change went out.
-      const fullStates = frames.filter((f) => f.type === "full_state");
-      expect(fullStates).toHaveLength(1);
-      expect(fullStates[0].agentIds).toContain(hidden.id);
-      expect(frames.some((f) => f.type === "log_replay_complete")).toBe(false);
-      expect(
-        frames.filter((f) => f.type === "log_entry").length,
-      ).toBeLessThan(ENTRIES);
-    },
-    60_000,
-  );
+    const { closed, frames } = await reader.done;
+    expect(closed).toBe(true);
+    // The first full_state showed the agent; nothing after the change went out.
+    const fullStates = frames.filter((f) => f.type === "full_state");
+    expect(fullStates).toHaveLength(1);
+    expect(fullStates[0].agentIds).toContain(hidden.id);
+    expect(frames.some((f) => f.type === "log_replay_complete")).toBe(false);
+    expect(frames.filter((f) => f.type === "log_entry").length).toBeLessThan(
+      ENTRIES,
+    );
+  }, 60_000);
 });

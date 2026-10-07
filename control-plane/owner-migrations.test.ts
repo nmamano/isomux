@@ -125,7 +125,8 @@ async function hasLegacyConstraint(owner: pg.Pool): Promise<boolean> {
 // before that migration shipped.
 const CUSTOMER_SSH_KEY_UNDONE =
   "alter table instances drop column customer_ssh_key";
-const CANCELLATION_INDEX_UNDONE = "drop index provider_assets_provider_id_unique";
+const CANCELLATION_INDEX_UNDONE =
+  "drop index provider_assets_provider_id_unique";
 const MULTI_OFFICE_UNDONE =
   "alter table name_reservations add constraint legacy_one_office unique (account_id)";
 const PRE_MIGRATION = [

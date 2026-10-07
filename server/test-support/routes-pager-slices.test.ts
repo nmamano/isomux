@@ -28,7 +28,12 @@ interface Res {
 async function api(
   srv: TestServer,
   path: string,
-  init: { method?: string; rawSessionId?: string; bearer?: string; body?: unknown } = {},
+  init: {
+    method?: string;
+    rawSessionId?: string;
+    bearer?: string;
+    body?: unknown;
+  } = {},
 ): Promise<Res> {
   const headers: Record<string, string> = {};
   if (init.body !== undefined) headers["Content-Type"] = "application/json";
@@ -154,20 +159,29 @@ describe("pager REST: resolved slices", () => {
 
     const s = boss.rawSessionId;
     expect(await listIds(srv, s, "?state=resolved&limit=2")).toEqual([p5, p4]);
-    expect(await listIds(srv, s, `?state=resolved&limit=2&before=${p4}`)).toEqual(
-      [p3, p2],
-    );
-    expect(await listIds(srv, s, `?state=resolved&limit=2&before=${p2}`)).toEqual(
-      [p1],
-    );
-    expect(await listIds(srv, s, "?state=all&limit=2")).toEqual([open.id, p5, p4]);
+    expect(
+      await listIds(srv, s, `?state=resolved&limit=2&before=${p4}`),
+    ).toEqual([p3, p2]);
+    expect(
+      await listIds(srv, s, `?state=resolved&limit=2&before=${p2}`),
+    ).toEqual([p1]);
+    expect(await listIds(srv, s, "?state=all&limit=2")).toEqual([
+      open.id,
+      p5,
+      p4,
+    ]);
     expect(await listIds(srv, s, "")).toEqual([open.id]);
   });
 
   it("the default slice is 50", async () => {
     const { srv, boss, bot } = await office();
     const titles = Array.from({ length: 51 }, (_, i) => `t${i}`);
-    const resolved = await raiseAndResolve(srv, bot.token, boss.rawSessionId, titles);
+    const resolved = await raiseAndResolve(
+      srv,
+      bot.token,
+      boss.rawSessionId,
+      titles,
+    );
     const got = await listIds(srv, boss.rawSessionId, "?state=resolved");
     expect(got).toEqual(resolved.slice(1).reverse());
     const all = await listIds(srv, boss.rawSessionId, "?state=all");
@@ -176,8 +190,12 @@ describe("pager REST: resolved slices", () => {
 
   it("a bad limit or before is 400, and an unknown and an invisible cursor answer alike", async () => {
     const { srv, boss, mia, bot, bBot } = await office();
-    const [hidden] = await raiseAndResolve(srv, bot.token, boss.rawSessionId, ["a"]);
-    const [seen] = await raiseAndResolve(srv, bBot.token, boss.rawSessionId, ["b"]);
+    const [hidden] = await raiseAndResolve(srv, bot.token, boss.rawSessionId, [
+      "a",
+    ]);
+    const [seen] = await raiseAndResolve(srv, bBot.token, boss.rawSessionId, [
+      "b",
+    ]);
     const open = (
       await api(srv, "/api/pager", {
         method: "POST",
@@ -192,27 +210,35 @@ describe("pager REST: resolved slices", () => {
       "?state=resolved&limit=1.5",
       "?state=resolved&before=",
     ]) {
-      const r = await api(srv, `/api/pager${q}`, { rawSessionId: boss.rawSessionId });
+      const r = await api(srv, `/api/pager${q}`, {
+        rawSessionId: boss.rawSessionId,
+      });
       expect(r.status).toBe(400);
     }
     expect(
-      (await api(srv, "/api/pager?state=resolved&limit=200", {
-        rawSessionId: boss.rawSessionId,
-      })).status,
+      (
+        await api(srv, "/api/pager?state=resolved&limit=200", {
+          rawSessionId: boss.rawSessionId,
+        })
+      ).status,
     ).toBe(200);
     // Mia sees room B only: the room A page is not in her list, and as a
     // cursor it is the same 400 as an id that does not exist.
-    expect(await listIds(srv, mia.rawSessionId, "?state=resolved&limit=1")).toEqual([
-      seen,
-    ]);
+    expect(
+      await listIds(srv, mia.rawSessionId, "?state=resolved&limit=1"),
+    ).toEqual([seen]);
     const invisible = await api(
       srv,
       `/api/pager?state=resolved&before=${hidden}`,
       { rawSessionId: mia.rawSessionId },
     );
-    const unknown = await api(srv, "/api/pager?state=resolved&before=ffffffff", {
-      rawSessionId: mia.rawSessionId,
-    });
+    const unknown = await api(
+      srv,
+      "/api/pager?state=resolved&before=ffffffff",
+      {
+        rawSessionId: mia.rawSessionId,
+      },
+    );
     const notResolved = await api(
       srv,
       `/api/pager?state=resolved&before=${open.id}`,
@@ -225,19 +251,27 @@ describe("pager REST: resolved slices", () => {
 
   it("visibility comes before the limit", async () => {
     const { srv, boss, mia, bot, bBot } = await office();
-    const [q1] = await raiseAndResolve(srv, bBot.token, boss.rawSessionId, ["q1"]);
-    // Newer pages Mia cannot see.
-    await raiseAndResolve(srv, bot.token, boss.rawSessionId, ["x1", "x2", "x3"]);
-    expect(await listIds(srv, mia.rawSessionId, "?state=resolved&limit=2")).toEqual([
-      q1,
+    const [q1] = await raiseAndResolve(srv, bBot.token, boss.rawSessionId, [
+      "q1",
     ]);
+    // Newer pages Mia cannot see.
+    await raiseAndResolve(srv, bot.token, boss.rawSessionId, [
+      "x1",
+      "x2",
+      "x3",
+    ]);
+    expect(
+      await listIds(srv, mia.rawSessionId, "?state=resolved&limit=2"),
+    ).toEqual([q1]);
   });
 });
 
 describe("pager REST: archived pages", () => {
   it("keep their GET, ack and resolve answers", async () => {
     const { srv, boss, mia, bot } = await office();
-    const [id] = await raiseAndResolve(srv, bot.token, boss.rawSessionId, ["x"]);
+    const [id] = await raiseAndResolve(srv, bot.token, boss.rawSessionId, [
+      "x",
+    ]);
     const s = boss.rawSessionId;
     const got = await api(srv, `/api/pager/${id}`, { rawSessionId: s });
     expect(got.status).toBe(200);
@@ -263,7 +297,11 @@ describe("pager REST: archived pages", () => {
     });
     expect(bySource.status).toBe(200);
     // A member who cannot see the page gets the unknown-page answer.
-    for (const path of [`/api/pager/${id}`, `/api/pager/${id}/resolve`, `/api/pager/${id}/ack`]) {
+    for (const path of [
+      `/api/pager/${id}`,
+      `/api/pager/${id}/resolve`,
+      `/api/pager/${id}/ack`,
+    ]) {
       const r = await api(srv, path, {
         method: path === `/api/pager/${id}` ? "GET" : "POST",
         rawSessionId: mia.rawSessionId,
@@ -276,7 +314,9 @@ describe("pager REST: archived pages", () => {
 
   it("survive a cold restart", async () => {
     const { srv, boss, bot } = await office();
-    const [id] = await raiseAndResolve(srv, bot.token, boss.rawSessionId, ["x"]);
+    const [id] = await raiseAndResolve(srv, bot.token, boss.rawSessionId, [
+      "x",
+    ]);
     const restarted = await srv.restart();
     server = restarted;
     expect(

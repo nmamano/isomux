@@ -10,8 +10,16 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
-const { boot, en, fullState, page, pending, rowIds, settle, setupPagerAppTests } =
-  await import("./test-support/pager-app-fixture.tsx");
+const {
+  boot,
+  en,
+  fullState,
+  page,
+  pending,
+  rowIds,
+  settle,
+  setupPagerAppTests,
+} = await import("./test-support/pager-app-fixture.tsx");
 setupPagerAppTests();
 
 type View = Awaited<ReturnType<typeof boot>>;
