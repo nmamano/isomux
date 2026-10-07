@@ -722,231 +722,240 @@ export function OfficeView({
 
       {/* An ended office has no box: nothing to get into, watch or restart. */}
       {!view.ended && (
-      <>
-      <h2>{i18n.t("office.gettingInHeading")}</h2>
-      <section className="card" data-testid="handoff">
-        {view.sshCommand && (
-          <p data-testid="ssh-command">
-            {i18n.rich("office.sshAccess", {
-              command: view.sshCommand,
-              cmd: (chunk) => <code>{chunk}</code>,
-            })}
-          </p>
-        )}
-        {view.access.state !== "not_started" &&
-          (view.access.state !== "gone" ||
-            view.handoff.revocation.state === "none") && (
-            <p className="note" data-testid="access-window">
-              {accessSentence(i18n, view.access)}
-            </p>
-          )}
-
-        <ol className="handoff-steps">
-          <li>
-            <h3>{i18n.t("office.invite.heading")}</h3>
-            {view.handoff.invite.state === "none" && !view.ready && (
-              <p className="note" data-testid="invite-not-yet">
-                {i18n.t("office.invite.notYet")}
+        <>
+          <h2>{i18n.t("office.gettingInHeading")}</h2>
+          <section className="card" data-testid="handoff">
+            {view.sshCommand && (
+              <p data-testid="ssh-command">
+                {i18n.rich("office.sshAccess", {
+                  command: view.sshCommand,
+                  cmd: (chunk) => <code>{chunk}</code>,
+                })}
               </p>
             )}
-
-            {view.handoff.canMint && view.ready && (
-              <p className="action">
-                <button
-                  className={
-                    view.handoff.invite.mintedAt ? undefined : "btn-primary"
-                  }
-                  data-testid="invite-button"
-                  onClick={() => void askForInvite()}
-                  disabled={
-                    invite.phase === "asking" || invite.phase === "waiting"
-                  }
-                >
-                  {view.handoff.invite.mintedAt
-                    ? i18n.t("office.invite.resend")
-                    : i18n.t("office.invite.get")}
-                </button>
-                {view.handoff.invite.mintedAt ? (
-                  <span data-testid="resend-caveat">
-                    {i18n.t("office.invite.resendCaveat")}
-                  </span>
-                ) : null}
-              </p>
-            )}
-
-            {!view.handoff.canMint && view.handoff.invite.mintedAt !== null && (
-              <p className="note" data-testid="invite-closed">
-                {i18n.t("office.invite.closed")}
-              </p>
-            )}
-
-            {invite.phase === "asking" && (
-              <p className="note">{i18n.t("office.invite.asking")}</p>
-            )}
-            {invite.phase === "waiting" &&
-              (view.handoff.invite.state === "failed" ? (
-                <p
-                  className="callout callout-danger"
-                  data-testid="invite-problem"
-                >
-                  {i18n.t("office.invite.failed")}
+            {view.access.state !== "not_started" &&
+              (view.access.state !== "gone" ||
+                view.handoff.revocation.state === "none") && (
+                <p className="note" data-testid="access-window">
+                  {accessSentence(i18n, view.access)}
                 </p>
-              ) : (
-                <p className="note" data-testid="invite-waiting">
-                  {i18n.t("office.invite.waiting")}
-                </p>
-              ))}
-            {invite.phase === "problem" && (
-              <p
-                className="callout callout-danger"
-                data-testid="invite-problem"
-              >
-                {invite.message}
-              </p>
-            )}
-          </li>
+              )}
 
-          <li>
-            <h3>{i18n.t("common.openOfficeAndSignIn")}</h3>
-            {invite.phase === "shown" ? (
-              <div className="callout" data-testid="invite-shown">
-                <p>
-                  <a
-                    className="btn btn-primary"
-                    data-testid="invite-link"
-                    href={invite.url}
-                    target="_blank"
-                    rel="noopener"
+            <ol className="handoff-steps">
+              <li>
+                <h3>{i18n.t("office.invite.heading")}</h3>
+                {view.handoff.invite.state === "none" && !view.ready && (
+                  <p className="note" data-testid="invite-not-yet">
+                    {i18n.t("office.invite.notYet")}
+                  </p>
+                )}
+
+                {view.handoff.canMint && view.ready && (
+                  <p className="action">
+                    <button
+                      className={
+                        view.handoff.invite.mintedAt ? undefined : "btn-primary"
+                      }
+                      data-testid="invite-button"
+                      onClick={() => void askForInvite()}
+                      disabled={
+                        invite.phase === "asking" || invite.phase === "waiting"
+                      }
+                    >
+                      {view.handoff.invite.mintedAt
+                        ? i18n.t("office.invite.resend")
+                        : i18n.t("office.invite.get")}
+                    </button>
+                    {view.handoff.invite.mintedAt ? (
+                      <span data-testid="resend-caveat">
+                        {i18n.t("office.invite.resendCaveat")}
+                      </span>
+                    ) : null}
+                  </p>
+                )}
+
+                {!view.handoff.canMint &&
+                  view.handoff.invite.mintedAt !== null && (
+                    <p className="note" data-testid="invite-closed">
+                      {i18n.t("office.invite.closed")}
+                    </p>
+                  )}
+
+                {invite.phase === "asking" && (
+                  <p className="note">{i18n.t("office.invite.asking")}</p>
+                )}
+                {invite.phase === "waiting" &&
+                  (view.handoff.invite.state === "failed" ? (
+                    <p
+                      className="callout callout-danger"
+                      data-testid="invite-problem"
+                    >
+                      {i18n.t("office.invite.failed")}
+                    </p>
+                  ) : (
+                    <p className="note" data-testid="invite-waiting">
+                      {i18n.t("office.invite.waiting")}
+                    </p>
+                  ))}
+                {invite.phase === "problem" && (
+                  <p
+                    className="callout callout-danger"
+                    data-testid="invite-problem"
                   >
-                    {i18n.t("common.openOfficeAndSignIn")}
-                  </a>
-                </p>
-                <p className="note">{i18n.t("office.invite.linkNote")}</p>
-              </div>
-            ) : view.handoff.canMint ? (
-              <p className="note" data-testid="sign-in-guidance">
-                {view.handoff.invite.mintedAt
-                  ? i18n.t("office.signIn.shownOnce")
-                  : view.origin === "adopted" && view.ready
-                    ? i18n.t("office.signIn.adopted")
-                    : i18n.t("office.signIn.pending")}
-              </p>
-            ) : null}
-          </li>
+                    {invite.message}
+                  </p>
+                )}
+              </li>
 
-          {/* THE NAG. Shown while we still hold a key and the customer has not
+              <li>
+                <h3>{i18n.t("common.openOfficeAndSignIn")}</h3>
+                {invite.phase === "shown" ? (
+                  <div className="callout" data-testid="invite-shown">
+                    <p>
+                      <a
+                        className="btn btn-primary"
+                        data-testid="invite-link"
+                        href={invite.url}
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        {i18n.t("common.openOfficeAndSignIn")}
+                      </a>
+                    </p>
+                    <p className="note">{i18n.t("office.invite.linkNote")}</p>
+                  </div>
+                ) : view.handoff.canMint ? (
+                  <p className="note" data-testid="sign-in-guidance">
+                    {view.handoff.invite.mintedAt
+                      ? i18n.t("office.signIn.shownOnce")
+                      : view.origin === "adopted" && view.ready
+                        ? i18n.t("office.signIn.adopted")
+                        : i18n.t("office.signIn.pending")}
+                  </p>
+                ) : null}
+              </li>
+
+              {/* THE NAG. Shown while we still hold a key and the customer has not
             confirmed. It is the design's answer to a handoff that never ends:
             the ceiling is a backstop, not the normal path. It stops the moment
             they HAVE confirmed - a revocation in flight is not a reason to keep
             asking for one - while minting stays available until the removal is
             proven, because a failed revocation must not also lock them out. */}
-          {view.handoff.canMint &&
-            view.ready &&
-            view.handoff.revocation.state === "none" && (
-              <li data-testid="handoff-nag">
-                <h3>{i18n.t("office.handoff.heading")}</h3>
-                <div className="callout">
-                  <p>{i18n.t("office.handoff.warning")}</p>
-                  <label className="handoff-confirm">
-                    <input
-                      type="checkbox"
-                      data-testid="signed-in-confirmation"
-                      checked={signedInConfirmed}
-                      onChange={(event) =>
-                        setSignedInConfirmed(event.target.checked)
-                      }
-                      disabled={!invitePathOffered || handoffPending}
-                    />{" "}
-                    {i18n.t("office.handoff.confirm")}
-                  </label>
-                  {!invitePathOffered && (
-                    <p className="note" data-testid="invite-required">
-                      {i18n.t("office.handoff.inviteRequired")}
-                    </p>
-                  )}
-                  <button
-                    className="btn-primary"
-                    data-testid="revoke-button"
-                    disabled={
-                      !invitePathOffered || !signedInConfirmed || handoffPending
-                    }
-                    onClick={() => void requestHandoff()}
-                  >
-                    {handoffPending
-                      ? i18n.t("office.handoff.removing")
-                      : i18n.t("office.handoff.remove")}
-                  </button>
-                  <p
-                    className="note handoff-status"
-                    role="status"
-                    data-testid="revocation-pending"
-                  >
-                    {handoffPending ? i18n.t("office.handoff.pending") : ""}
+              {view.handoff.canMint &&
+                view.ready &&
+                view.handoff.revocation.state === "none" && (
+                  <li data-testid="handoff-nag">
+                    <h3>{i18n.t("office.handoff.heading")}</h3>
+                    <div className="callout">
+                      <p>{i18n.t("office.handoff.warning")}</p>
+                      <label className="handoff-confirm">
+                        <input
+                          type="checkbox"
+                          data-testid="signed-in-confirmation"
+                          checked={signedInConfirmed}
+                          onChange={(event) =>
+                            setSignedInConfirmed(event.target.checked)
+                          }
+                          disabled={!invitePathOffered || handoffPending}
+                        />{" "}
+                        {i18n.t("office.handoff.confirm")}
+                      </label>
+                      {!invitePathOffered && (
+                        <p className="note" data-testid="invite-required">
+                          {i18n.t("office.handoff.inviteRequired")}
+                        </p>
+                      )}
+                      <button
+                        className="btn-primary"
+                        data-testid="revoke-button"
+                        disabled={
+                          !invitePathOffered ||
+                          !signedInConfirmed ||
+                          handoffPending
+                        }
+                        onClick={() => void requestHandoff()}
+                      >
+                        {handoffPending
+                          ? i18n.t("office.handoff.removing")
+                          : i18n.t("office.handoff.remove")}
+                      </button>
+                      <p
+                        className="note handoff-status"
+                        role="status"
+                        data-testid="revocation-pending"
+                      >
+                        {handoffPending ? i18n.t("office.handoff.pending") : ""}
+                      </p>
+                      {handoffProblem && (
+                        <p
+                          className="callout callout-danger"
+                          data-testid="handoff-problem"
+                        >
+                          {handoffProblem}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                )}
+
+              {view.handoff.revocation.state !== "none" && (
+                <li>
+                  <h3>{i18n.t("office.revocation.heading")}</h3>
+                  <p>
+                    <span className="note" data-testid="revocation-state">
+                      {revocationSentence(i18n, view.handoff.revocation)}
+                    </span>
                   </p>
-                  {handoffProblem && (
-                    <p
-                      className="callout callout-danger"
-                      data-testid="handoff-problem"
-                    >
-                      {handoffProblem}
-                    </p>
-                  )}
-                </div>
-              </li>
-            )}
+                </li>
+              )}
+            </ol>
+          </section>
 
-          {view.handoff.revocation.state !== "none" && (
-            <li>
-              <h3>{i18n.t("office.revocation.heading")}</h3>
-              <p>
-                <span className="note" data-testid="revocation-state">
-                  {revocationSentence(i18n, view.handoff.revocation)}
-                </span>
+          {view.liveness && (
+            <>
+              <h2>{i18n.t("office.livenessHeading")}</h2>
+              <p className="card" data-testid="liveness">
+                {livenessSentence(i18n, view.liveness)}
               </p>
-            </li>
+            </>
           )}
-        </ol>
-      </section>
 
-      {view.liveness && (
-        <>
-          <h2>{i18n.t("office.livenessHeading")}</h2>
-          <p className="card" data-testid="liveness">
-            {livenessSentence(i18n, view.liveness)}
-          </p>
+          <h2>{i18n.t("office.restartHeading")}</h2>
+          <div className="card">
+            <p className="note" data-testid="restart-caveat">
+              {i18n.t("office.restartCaveat")}
+            </p>
+            <p className="action">
+              <button
+                data-testid="restart-button"
+                onClick={() =>
+                  void act(
+                    "/api/restart",
+                    i18n.t("office.action.restartServer"),
+                  )
+                }
+                disabled={
+                  !view.subscription ||
+                  !view.ready ||
+                  view.restart.active ||
+                  !!(view.lifecycle && view.lifecycle.phase !== "grace")
+                }
+              >
+                {view.restart.active
+                  ? i18n.t("office.restarting")
+                  : i18n.t("office.restart")}
+              </button>
+            </p>
+            {action && (
+              <p
+                className="callout callout-danger"
+                data-testid="action-problem"
+              >
+                {action}
+              </p>
+            )}
+          </div>
         </>
-      )}
-
-      <h2>{i18n.t("office.restartHeading")}</h2>
-      <div className="card">
-        <p className="note" data-testid="restart-caveat">
-          {i18n.t("office.restartCaveat")}
-        </p>
-        <p className="action">
-          <button
-            data-testid="restart-button"
-            onClick={() =>
-              void act("/api/restart", i18n.t("office.action.restartServer"))
-            }
-            disabled={
-              !view.subscription ||
-              !view.ready ||
-              view.restart.active ||
-              !!(view.lifecycle && view.lifecycle.phase !== "grace")
-            }
-          >
-            {view.restart.active
-              ? i18n.t("office.restarting")
-              : i18n.t("office.restart")}
-          </button>
-        </p>
-        {action && (
-          <p className="callout callout-danger" data-testid="action-problem">
-            {action}
-          </p>
-        )}
-      </div>
-      </>
       )}
 
       <h2>{i18n.t("office.planHeading")}</h2>

@@ -83,7 +83,11 @@ export function redactValues(text: string, values: readonly string[]): string {
   const spans: [number, number][] = [];
   for (const value of new Set(values)) {
     if (value.length === 0) continue;
-    for (let at = text.indexOf(value); at !== -1; at = text.indexOf(value, at + 1))
+    for (
+      let at = text.indexOf(value);
+      at !== -1;
+      at = text.indexOf(value, at + 1)
+    )
       spans.push([at, at + value.length]);
   }
   if (spans.length === 0) return text;
@@ -107,7 +111,9 @@ export function redactValues(text: string, values: readonly string[]): string {
 export function credentialValues(env: NodeJS.ProcessEnv): string[] {
   return Object.entries(env)
     .filter(([name]) =>
-      /TOKEN|SECRET|PASSWORD|KEY|DSN|DATABASE|_DB(?:_|$)|CREDENTIAL/i.test(name),
+      /TOKEN|SECRET|PASSWORD|KEY|DSN|DATABASE|_DB(?:_|$)|CREDENTIAL/i.test(
+        name,
+      ),
     )
     .map(([, value]) => value ?? "");
 }

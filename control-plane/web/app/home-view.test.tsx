@@ -33,15 +33,17 @@ test("a deleted office is listed as ended, apart from ready and not ready", () =
     ended: false,
   };
   const chip = (office: typeof card) =>
-    /<span data-state="([^"]+)">([^<]*)<\/span>/.exec(
-      renderToStaticMarkup(
-        <Dashboard
-          i18n={webTranslatorFor("en")}
-          email={null}
-          offices={[office]}
-        />,
-      ),
-    )?.slice(1);
+    /<span data-state="([^"]+)">([^<]*)<\/span>/
+      .exec(
+        renderToStaticMarkup(
+          <Dashboard
+            i18n={webTranslatorFor("en")}
+            email={null}
+            offices={[office]}
+          />,
+        ),
+      )
+      ?.slice(1);
   const ended = chip({ ...card, ended: true });
   const ready = chip({ ...card, ready: true });
   const notReady = chip(card);

@@ -150,7 +150,15 @@ beforeAll(() => {
   git(work, "commit", "-q", "-m", "deployed");
   git(work, "remote", "add", "origin", origin);
   git(work, "push", "-q", "origin", "HEAD:main");
-  git(template, "clone", "-q", "-b", "main", origin, path.join(template, "src"));
+  git(
+    template,
+    "clone",
+    "-q",
+    "-b",
+    "main",
+    origin,
+    path.join(template, "src"),
+  );
   deployed = git(work, "rev-parse", "HEAD");
 });
 

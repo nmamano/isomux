@@ -127,7 +127,13 @@ export class CertificateService {
     if (result.status === "failed") {
       // The cause stays in the operator's log; the office learns only that
       // the renewal failed.
-      this.line("renewal", "failed", identity.row.instance_id, via, result.cause);
+      this.line(
+        "renewal",
+        "failed",
+        identity.row.instance_id,
+        via,
+        result.cause,
+      );
       return { status: "failed" };
     }
     this.line("renewal", result.status, identity.row.instance_id, via);

@@ -302,9 +302,7 @@ describe("the office's renewal calls on the seam", () => {
       // The tail after the escaped quote is what a too-short match leaves.
       expect(lines[0]).not.toContain("real password");
       expect(lines[0]).not.toContain(issued.token);
-      expect(
-        (await store.openReasons("inst-cause")).length,
-      ).toBeGreaterThan(0);
+      expect((await store.openReasons("inst-cause")).length).toBeGreaterThan(0);
     } finally {
       await seam.stop();
     }

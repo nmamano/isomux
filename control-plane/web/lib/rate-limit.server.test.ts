@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { translatorFor } from "./i18n/translate";
-import { RATE_LIMITED_MARKER, RATE_LIMITED_SIGNIN_URL } from "./rate-limit-marker";
+import {
+  RATE_LIMITED_MARKER,
+  RATE_LIMITED_SIGNIN_URL,
+} from "./rate-limit-marker";
 import {
   authLimiter,
   clientKey,
@@ -24,11 +27,18 @@ function freshAddress(): string {
 
 function request(
   path: string,
-  init: { method?: string; address?: string; headers?: Record<string, string> } = {},
+  init: {
+    method?: string;
+    address?: string;
+    headers?: Record<string, string>;
+  } = {},
 ): Request {
   const headers = new Headers(init.headers);
   if (init.address !== undefined) headers.set("x-forwarded-for", init.address);
-  return new Request(`${ORIGIN}${path}`, { method: init.method ?? "GET", headers });
+  return new Request(`${ORIGIN}${path}`, {
+    method: init.method ?? "GET",
+    headers,
+  });
 }
 
 describe("the fixed-window limiter", () => {
@@ -184,9 +194,9 @@ describe("the 429", () => {
     expect(refusal?.status).toBe(429);
     expect(Number(refusal?.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(await refusal?.json()).toEqual({ url: RATE_LIMITED_SIGNIN_URL });
-    expect(new URL(RATE_LIMITED_SIGNIN_URL, ORIGIN).searchParams.get("error")).toBe(
-      RATE_LIMITED_MARKER,
-    );
+    expect(
+      new URL(RATE_LIMITED_SIGNIN_URL, ORIGIN).searchParams.get("error"),
+    ).toBe(RATE_LIMITED_MARKER);
   });
 });
 
@@ -210,12 +220,18 @@ describe("the sign-in quota in front of Auth.js", () => {
     const statuses: number[] = [];
     for (let i = 0; i < 20; i++) {
       statuses.push(
-        (await auth.POST(request("/api/auth/signin/google", { method: "POST", address })))
-          .status,
+        (
+          await auth.POST(
+            request("/api/auth/signin/google", { method: "POST", address }),
+          )
+        ).status,
       );
       statuses.push(
-        (await auth.GET(request("/api/auth/callback/google?code=c", { address })))
-          .status,
+        (
+          await auth.GET(
+            request("/api/auth/callback/google?code=c", { address }),
+          )
+        ).status,
       );
     }
     expect(statuses.every((s) => s === 200)).toBe(true);
@@ -236,9 +252,14 @@ describe("the sign-in quota in front of Auth.js", () => {
     const address = freshAddress();
     for (let i = 0; i < 40; i++) authLimiter.take(address);
     expect(
-      (await auth.GET(request("/api/auth/callback/google", { address }))).status,
+      (await auth.GET(request("/api/auth/callback/google", { address })))
+        .status,
     ).toBe(429);
-    for (const path of ["/api/auth/csrf", "/api/auth/session", "/api/auth/providers"]) {
+    for (const path of [
+      "/api/auth/csrf",
+      "/api/auth/session",
+      "/api/auth/providers",
+    ]) {
       expect((await auth.GET(request(path, { address }))).status).toBe(200);
     }
   });
@@ -259,7 +280,10 @@ describe("the sign-in quota in front of Auth.js", () => {
       ).status,
     ).toBe(200);
     expect(
-      limitRequest(signupLimiter, request("/api/signup", { method: "POST", address: spent })),
+      limitRequest(
+        signupLimiter,
+        request("/api/signup", { method: "POST", address: spent }),
+      ),
     ).toBeNull();
   });
 });

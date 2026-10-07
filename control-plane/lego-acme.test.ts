@@ -599,10 +599,9 @@ describe("a failed lego run in the operator log", () => {
     // the log's second pass finds no tail either.
     const escaped = 'one "two three';
     for (const once of [
-      legoFailureDetail(
-        `failure password=${JSON.stringify(escaped)} then`,
-        [escaped],
-      ),
+      legoFailureDetail(`failure password=${JSON.stringify(escaped)} then`, [
+        escaped,
+      ]),
       legoFailureDetail(`failure token='four \\'five six' then`, []),
     ]) {
       for (const text of [once, redactCredentialShapes(once)]) {
