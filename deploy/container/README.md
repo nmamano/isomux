@@ -62,6 +62,7 @@ Do not run them on your laptop or in AWS CloudShell.
 **Server terminal**
 
 ```sh
+sudo cloud-init status --wait
 sudo apt-get update
 sudo apt-get install -y curl jq
 ```
