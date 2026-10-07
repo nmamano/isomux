@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Update an installed isomux to a pinned release tag.
-# Git installs retain rollback; containers replace the image on the existing mount.
+# Git installs roll the code back on failure; containers replace the image on
+# the existing mount.
 # (Release-channel slice C1, internal-docs/release-design.md.)
 #
 # Usage:  isomux-update vYYYY.M.D[.N] [--allow-downgrade]
@@ -40,15 +41,18 @@
 #                               deps, rebuild its UI - node_modules and the
 #                               live-served ui/dist are already dirty]
 #   stop service, wait inactive
-#   snapshot state root, verify tarball
-#                              [fail: old code (reinstall+rebuild) + start]
-#   start, poll /readyz        [fail: stop; move the broken state root
-#                               aside; restore the snapshot; old code
-#                               (reinstall+rebuild); start]
+#   start, poll /readyz        [fail: stop; old code (reinstall+rebuild);
+#                               start]
 #
-# Progress and the final result are written to $STATUS_DIR/status.json,
-# which lives OUTSIDE the state root because rollback replaces the state
-# root wholesale.
+# The office is down only between the stop and the readiness poll. There is
+# no state snapshot: a rollback restores the code and leaves the state root
+# as the new version left it. Releases keep state readable by older versions,
+# migrations copy the files they touch, and the daily backup covers the rest.
+#
+# Progress and the final result are written to $STATUS_DIR/status.json. The
+# lock holder also publishes a safe-fields-only copy (attempt, phase, result,
+# and the updater's process identity) for the office server to read: see
+# publish_progress.
 #
 # update.conf keys (Git deployment keys below; container keys follow):
 #   DEPLOYMENT_KIND (optional, default git): git | container
@@ -58,8 +62,10 @@
 #   SERVICE_NAME   systemd unit name (isomux)
 #   SERVICE_KIND   system | user - which systemctl manages the unit
 #   SERVICE_USER   system kind only: run git/bun as this user
-#   STATE_ROOT     the office state dir the service reads (~/.isomux shape)
-#   SNAPSHOT_DIR   where pre-update state tarballs go (outside STATE_ROOT)
+#   STATE_ROOT     (accepted, unused) the office state dir; older updaters
+#                  snapshot it and require it
+#   SNAPSHOT_DIR   (accepted, unused) where older updaters put pre-update
+#                  state tarballs; they require it
 #   STATUS_DIR     lock + status.json (outside STATE_ROOT)
 #   BUN            bun binary the service uses
 #   BASE_URL       loopback base for the readiness poll
@@ -79,11 +85,15 @@ TARGET_TAG=""
 ALLOW_DOWNGRADE=""
 OLD_COMMIT=""
 OLD_DESC=""
-SNAPSHOT=""
 CALVER_RE='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
-SNAPSHOT_KEEP=3
-BROKEN_KEEP=1
 DEPS_WARNING=""
+# System kind: the office service user can read this directory but not write
+# it. install.sh publishes outcome.json in the same directory.
+PROGRESS_PUBLIC_DIR=/var/lib/isomux-update-public
+PROGRESS_FILE=""
+ATTEMPT=""
+PROC_START=""
+BOOT_ID=""
 
 add_deps_warning() {
   local warning=$1
@@ -103,12 +113,67 @@ json_sanitize() { printf '%s' "$1" | tr -d '"\\' | tr '\n\t' '  '; }
 
 write_status() {
   local result=$1 message=$2
+  publish_progress "$result"
   [[ -d ${STATUS_DIR:-} ]] || return 0
   printf '{"phase":"%s","result":"%s","target":"%s","from":"%s","message":"%s","at":"%s"}\n' \
     "$PHASE" "$result" "$(json_sanitize "$TARGET_TAG")" \
     "$(json_sanitize "$OLD_DESC")" "$(json_sanitize "$message")" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$STATUS_DIR/status.json.tmp" &&
     mv -f "$STATUS_DIR/status.json.tmp" "$STATUS_DIR/status.json"
+}
+
+# The progress file the office server reads (server/update-progress.ts) to
+# show every open tab what the update is doing. Only the lock holder writes
+# it, so a second invocation that loses the flock cannot overwrite the live
+# attempt. Every field is generated here: the attempt id, a phase name from
+# this script, the result, and pid + start ticks + boot id so the server can
+# tell a dead updater from a running one. Publication is best effort: it runs
+# in a subshell with no ERR trap, so no failure in it changes the update.
+progress_path() {
+  if [[ $SERVICE_KIND == system ]]; then
+    printf '%s/progress.json' "$PROGRESS_PUBLIC_DIR"
+  else
+    printf '%s/progress.json' "$STATUS_DIR"
+  fi
+}
+
+init_progress() {
+  local line uuid
+  read -r uuid </proc/sys/kernel/random/uuid || return 0
+  read -r BOOT_ID </proc/sys/kernel/random/boot_id || return 0
+  # Field 22 (start time in clock ticks). The command name in field 2 can
+  # hold spaces, so split after its closing parenthesis.
+  read -r line </proc/$$/stat || return 0
+  line=${line##*) }
+  local -a fields
+  read -r -a fields <<<"$line"
+  PROC_START=${fields[19]:-}
+  ATTEMPT=${uuid//-/}
+  [[ $ATTEMPT =~ ^[a-f0-9]{32}$ && $PROC_START =~ ^[0-9]+$ && $BOOT_ID =~ ^[a-f0-9-]{36}$ ]] || return 0
+  PROGRESS_FILE=$(progress_path)
+}
+
+publish_progress() {
+  local result=$1
+  [[ -n $PROGRESS_FILE ]] || return 0
+  (
+    trap - ERR
+    set +e
+    dir=${PROGRESS_FILE%/*}
+    if [[ $SERVICE_KIND == system ]]; then
+      install -d -m 755 "$dir" || exit 0
+      # Publish only into a root-owned directory nobody else can write.
+      [[ -d $dir && ! -L $dir && $(stat -c %u "$dir") == 0 ]] || exit 0
+      (((8#$(stat -c %a "$dir") & 8#022) == 0)) || exit 0
+    fi
+    tmp=$(mktemp "$dir/.progress.XXXXXXXXXX") || exit 0
+    if printf '{"attempt":"%s","phase":"%s","result":"%s","pid":%s,"pidStart":"%s","boot":"%s"}\n' \
+      "$ATTEMPT" "$PHASE" "$result" "$$" "$PROC_START" "$BOOT_ID" >"$tmp" &&
+      chmod 644 "$tmp" && mv -f "$tmp" "$PROGRESS_FILE"; then
+      exit 0
+    fi
+    rm -f "$tmp"
+  ) 2>/dev/null || true
 }
 
 phase() {
@@ -150,7 +215,7 @@ load_config() {
   DEPLOYMENT_KIND=${DEPLOYMENT_KIND:-git}
   local required="REPO_URL SERVICE_NAME SERVICE_KIND STATUS_DIR BASE_URL"
   case $DEPLOYMENT_KIND in
-    git) required+=" REPO_DIR STATE_ROOT SNAPSHOT_DIR BUN" ;;
+    git) required+=" REPO_DIR BUN" ;;
     container) [[ $EUID -eq 0 && ${SERVICE_KIND:-} == system && ${SERVICE_NAME:-} == isomux-container ]] || die "container updates need the root container service" ;;
     *) die "unknown DEPLOYMENT_KIND" ;;
   esac
@@ -329,65 +394,26 @@ fail_build() {
   fi
 }
 
-fail_snapshot() {
-  trap - ERR
-  log "state snapshot failed; restoring $OLD_DESC and starting it (state untouched)"
-  if restore_old_code && svc start "$SERVICE_NAME" && ready_poll "$READY_TIMEOUT_S"; then
-    die "update to $TARGET_TAG failed at the state snapshot; old version restored and running"
-  else
-    PHASE=recovery-failed
-    die "update to $TARGET_TAG failed at the state snapshot AND restoring the old version failed; the service needs manual attention"
-  fi
-}
-
 fail_ready() {
   trap - ERR
-  log "$TARGET_TAG did not become ready; rolling back code AND state"
+  log "$TARGET_TAG did not become ready; rolling back the code"
   svc stop "$SERVICE_NAME" || true
-  local state deadline=$((SECONDS + 60))
-  while :; do
-    state=$(svc is-active "$SERVICE_NAME" 2>/dev/null) || true
-    [[ $state != active && $state != deactivating ]] && break
-    if ((SECONDS >= deadline)); then
-      PHASE=recovery-failed
-      die "rollback: service would not stop; NOT touching the state root under a live process. Manual attention required."
-    fi
-    sleep 1
-  done
-  local parent broken
-  parent=$(dirname "$STATE_ROOT")
-  if [[ -d $STATE_ROOT ]]; then
-    broken="$SNAPSHOT_DIR/broken-$(date +%Y%m%d-%H%M%S)"
-    mv "$STATE_ROOT" "$broken" || {
-      PHASE=recovery-failed
-      die "rollback: could not move the broken state root aside; manual attention required"
-    }
-    prune_glob "$SNAPSHOT_DIR" 'broken-*' "$BROKEN_KEEP"
-  fi
-  if [[ -n $SNAPSHOT ]]; then
-    tar -xzf "$SNAPSHOT" -C "$parent" || {
-      PHASE=recovery-failed
-      die "rollback: restoring the state snapshot failed: $SNAPSHOT; manual attention required"
-    }
+  if ! wait_inactive; then
+    PHASE=recovery-failed
+    die "rollback: service would not stop; NOT rebuilding the old version under a live process. Manual attention required."
   fi
   if restore_old_code && svc start "$SERVICE_NAME" && ready_poll "$READY_TIMEOUT_S"; then
-    die "update to $TARGET_TAG failed readiness; rolled back to $OLD_DESC (code and state) and it is running"
+    die "update to $TARGET_TAG failed readiness; rolled the code back to $OLD_DESC and it is running"
   else
     PHASE=recovery-failed
     die "update to $TARGET_TAG failed readiness AND the rollback did not come up; manual attention required"
   fi
 }
 
-# Keep the newest $3 entries matching $2 (a glob) in dir $1, delete the rest.
-prune_glob() {
-  local dir=$1 pattern=$2 keep=$3
-  (
-    cd "$dir" 2>/dev/null || exit 0
-    # shellcheck disable=SC2012
-    ls -1dt -- $pattern 2>/dev/null | tail -n +$((keep + 1)) | while IFS= read -r f; do
-      rm -rf -- "$f"
-    done
-  )
+# A stopped updater says so instead of leaving a running attempt behind.
+on_signal() {
+  trap - ERR TERM INT HUP
+  die "the updater was stopped during $PHASE"
 }
 
 on_error() {
@@ -399,7 +425,6 @@ on_error() {
   case $failed_phase in
     deps) die "could not install $TARGET_TAG's system dependencies; the checkout, its dependencies, the built UI and the office state are unchanged and the service is still running $OLD_DESC, but system package changes may be partial" ;;
     checkout | install | build) fail_build ;;
-    snapshot) fail_snapshot ;;
     start | readiness) fail_ready ;;
     *) die "unexpected failure during $failed_phase" ;;
   esac
@@ -542,23 +567,8 @@ git_prepare() {
 
  }
 
-git_state() {
-  phase snapshot
-  if [[ -d $STATE_ROOT ]]; then
-    SNAPSHOT="$SNAPSHOT_DIR/pre-update-$(json_sanitize "$OLD_DESC")-to-$TARGET_TAG-$(date +%Y%m%d-%H%M%S).tar.gz"
-    # Reserve the archive under the same private posture as its 0700 directory.
-    # tar truncates this existing file without widening its mode.
-    (umask 077; : > "$SNAPSHOT")
-    tar -C "$(dirname "$STATE_ROOT")" -czf "$SNAPSHOT" "$(basename "$STATE_ROOT")"
-    chmod 600 "$SNAPSHOT"
-    tar -tzf "$SNAPSHOT" >/dev/null
-    prune_glob "$SNAPSHOT_DIR" 'pre-update-*.tar.gz' "$SNAPSHOT_KEEP"
-    log "state snapshot: $SNAPSHOT"
-  else
-    log "no state root at $STATE_ROOT yet; skipping the snapshot (a rollback removes whatever the new version creates)"
-  fi
-
- }
+# Git installs keep the state root in place: nothing to do while stopped.
+git_state() { :; }
 
 git_ready() {
   ready_poll "$READY_TIMEOUT_S" || fail_ready
@@ -714,9 +724,10 @@ main() {
   [[ -n ${ISOMUX_UPDATE_REEXEC:-} && $self == /tmp/* ]] && trap 'rm -f "$self"' EXIT
 
   install -d -m 700 "$STATUS_DIR"
-  if [[ $DEPLOYMENT_KIND == git ]]; then install -d -m 700 "$SNAPSHOT_DIR"; fi
   exec 9>"$STATUS_DIR/lock"
   flock -n 9 || die "another update is already running (lock: $STATUS_DIR/lock)"
+  init_progress || true
+  trap 'on_signal' TERM INT HUP
 
   trap on_error ERR
 

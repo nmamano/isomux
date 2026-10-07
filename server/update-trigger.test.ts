@@ -113,6 +113,43 @@ describe("triggerUpdate (conf via ISOMUX_UPDATE_CONF, runner injected)", () => {
     delete process.env.ISOMUX_UPDATE_CONF;
   });
 
+  it("notes the attempt on file before the launch, and marks only an accepted launch", async () => {
+    const conf = join(dir, "update.conf");
+    writeFileSync(conf, "SERVICE_KIND=user\nUPDATER_PATH=/x/isomux-update\n");
+    process.env.ISOMUX_UPDATE_CONF = conf;
+    const order: string[] = [];
+    const hooks = {
+      before: () => {
+        order.push("before");
+        return "token";
+      },
+      accepted: (t: string) => order.push(`accepted:${t}`),
+    };
+    await triggerUpdate(
+      TAG,
+      async () => {
+        order.push("launch");
+        return { ok: true };
+      },
+      hooks,
+    );
+    expect(order).toEqual(["before", "launch", "accepted:token"]);
+    order.length = 0;
+    await triggerUpdate(
+      TAG,
+      async () => {
+        order.push("launch");
+        return { ok: false, message: "denied" };
+      },
+      hooks,
+    );
+    expect(order).toEqual(["before", "launch"]);
+    order.length = 0;
+    // A refused plan never reaches the hooks.
+    await triggerUpdate("main", async () => ({ ok: true }), hooks);
+    expect(order).toEqual([]);
+  });
+
   it("managed user box: plans, runs the injected runner, reports via", async () => {
     const conf = join(dir, "update.conf");
     writeFileSync(conf, "SERVICE_KIND=user\nUPDATER_PATH=/x/isomux-update\n");

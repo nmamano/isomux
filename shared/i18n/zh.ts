@@ -491,13 +491,6 @@ App 的一些原则：
     "重启 isomux 使更新生效。开发环境：<code>bun run dev</code>。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",
   "settings.update.tip":
     "提示：点击复制按钮将此通知复制到剪贴板，再请任意智能体处理。",
-  "settings.update.requested":
-    "如果几分钟后仍无变化，请检查服务器上更新程序的状态文件。",
-  "settings.update.waiting": "请保持此窗格打开，直到服务器重启。",
-  "settings.update.done": "更新已完成。请刷新浏览器以加载更新后的页面。",
-  "settings.update.refreshBrowser": "刷新浏览器",
-  "settings.update.unchanged": "页面已重新连接，但当前运行的版本没有变化。",
-  "settings.update.unverified": "页面已重新连接，但无法检查当前运行的版本。",
   "settings.update.stepRefresh": "服务器重启后，请刷新浏览器。",
   "settings.update.runningOn": "当前使用的版本是 <code>{version}</code>",
   "settings.update.unknownVersion": "未知版本",
@@ -517,6 +510,18 @@ App 的一些原则：
   "settings.update.updateNowBusy": "立即更新（{count} 个忙碌）",
   "settings.update.updating": "正在更新…",
   "settings.update.gotIt": "知道了",
+  "settings.update.lastUpdate": "上次更新，{date}",
+
+  "update.screen.title": "正在更新 isomux",
+  "update.screen.prepare": "正在准备",
+  "update.screen.install": "正在安装",
+  "update.screen.restart": "正在重启",
+  "update.screen.requested": "正在等待更新程序。",
+  "update.screen.done": "此办公室现在运行 {version}。",
+  "update.screen.failed": "更新未完成。此办公室运行 {version}。",
+  "update.screen.reload": "重新加载",
+  "update.screen.hide": "隐藏",
+  "update.outcome.title": "更新说明",
   "settings.usage.title": "办公室用量",
   "settings.usage.intro":
     "此处不显示订阅套餐的限额。此页面报告 Isomux 记录的 token 用量和估算费用。",

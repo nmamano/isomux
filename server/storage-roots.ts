@@ -17,7 +17,7 @@ import { getBackupStatus } from "./backup.ts";
 import { readUpdateConf } from "./update-conf.ts";
 import type { StorageRoots } from "./storage-usage.ts";
 
-// scripts/update.sh's SNAPSHOT_DIR. null when the box is not updater-managed
+// update.conf's SNAPSHOT_DIR (older updaters' snapshots). null when the box is not updater-managed
 // or the conf did not parse - in both cases there are no snapshots to point at.
 function updateSnapshotDir(): string | null {
   const conf = readUpdateConf();

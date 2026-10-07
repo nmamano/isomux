@@ -525,17 +525,6 @@ Cosas que puedes hacer por él:
     "Reinicia isomux para que la actualización se aplique. Desarrollo: <code>bun run dev</code>. Servicio de usuario: <code>systemctl --user restart isomux</code>. Servicio de sistema: <code>sudo systemctl restart isomux</code>.",
   "settings.update.tip":
     "Consejo: pulsa el botón de copiar para copiar este aviso al portapapeles y luego pide a cualquier agente que se encargue.",
-  "settings.update.requested":
-    "Si no pasa nada tras unos minutos, revisa el archivo de estado del actualizador en el servidor.",
-  "settings.update.waiting":
-    "Mantén este panel abierto hasta que se reinicie el servidor.",
-  "settings.update.done":
-    "La actualización ha terminado. Recarga el navegador para cargar la página actualizada.",
-  "settings.update.refreshBrowser": "Recargar el navegador",
-  "settings.update.unchanged":
-    "La página se ha vuelto a conectar, pero la versión en ejecución no ha cambiado.",
-  "settings.update.unverified":
-    "La página se ha vuelto a conectar, pero no se ha podido comprobar la versión en ejecución.",
   "settings.update.stepRefresh":
     "Recarga el navegador después de que se reinicie el servidor.",
   "settings.update.runningOn": "Estás en <code>{version}</code>",
@@ -564,6 +553,18 @@ Cosas que puedes hacer por él:
   "settings.update.updateNowBusy": "Actualizar ahora ({count} ocupados)",
   "settings.update.updating": "Actualizando…",
   "settings.update.gotIt": "Entendido",
+  "settings.update.lastUpdate": "Última actualización, {date}",
+
+  "update.screen.title": "Actualizando isomux",
+  "update.screen.prepare": "Preparando",
+  "update.screen.install": "Instalando",
+  "update.screen.restart": "Reiniciando",
+  "update.screen.requested": "Esperando al actualizador.",
+  "update.screen.done": "Esta oficina ahora ejecuta {version}.",
+  "update.screen.failed": "La actualización no terminó. Esta oficina ejecuta {version}.",
+  "update.screen.reload": "Recargar",
+  "update.screen.hide": "Ocultar",
+  "update.outcome.title": "Notas de la actualización",
 
   "settings.usage.title": "Uso de la oficina",
   "settings.usage.intro":

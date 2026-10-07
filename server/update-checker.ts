@@ -43,7 +43,12 @@
 // A non-github REPO_URL disables release checks entirely (we can only enumerate
 // releases through the GitHub API).
 
-import type { UpdateApply, UpdateStatusWire } from "../shared/types.ts";
+import type {
+  UpdateApply,
+  UpdateOutcomeWire,
+  UpdateProgressWire,
+  UpdateStatusWire,
+} from "../shared/types.ts";
 import {
   getVersionInfo,
   getVersionSource,
@@ -52,6 +57,13 @@ import {
   type VersionSource,
 } from "./version.ts";
 import { readUpdateConf, type UpdateConfRead } from "./update-conf.ts";
+import {
+  progressPathFor,
+  PUBLIC_PROGRESS_DIR,
+  readText,
+  UpdateProgressWatcher,
+  type ReadText,
+} from "./update-progress.ts";
 
 // Commit-mode drift target and the image-mode release channel. Host release
 // mode derives owner/repo from the conf's REPO_URL instead, so forks keep a
@@ -72,6 +84,15 @@ let status: UpdateStatusWire = {
 };
 
 let onChange: ((s: UpdateStatusWire) => void) | null = null;
+
+// The updater's progress (server/update-progress.ts), kept apart from the
+// release check: a check result replaces `status` and must not erase it.
+let progress: UpdateProgressWire | null = null;
+let progressWatcher: UpdateProgressWatcher | null = null;
+
+// The installer's note on the update that brought this version up, read once
+// at boot (readUpdateOutcome).
+let outcome: UpdateOutcomeWire | null = null;
 
 // What the compare API said about base...main. "unknown" is a 404: the base
 // ref doesn't exist on GitHub - for a HEAD-sha base that means local-only
@@ -578,15 +599,94 @@ export function statusChanged(
 }
 
 function publish(next: UpdateStatusWire) {
-  const changed = statusChanged(status, next);
+  const before = getUpdateStatus();
   status = next;
-  if (changed && onChange) {
-    onChange(status);
+  const after = getUpdateStatus();
+  if (statusChanged(before, after) && onChange) {
+    onChange(after);
   }
 }
 
+function setUpdateProgress(next: UpdateProgressWire | null) {
+  const before = getUpdateStatus();
+  progress = next;
+  const after = getUpdateStatus();
+  if (statusChanged(before, after) && onChange) {
+    onChange(after);
+  }
+}
+
+// The wire status: the latest release check plus the latest progress and the
+// outcome note. Pure for tests; a release check carries neither of its own.
+export function withProgress(
+  s: UpdateStatusWire,
+  p: UpdateProgressWire | null,
+  o: UpdateOutcomeWire | null = null,
+): UpdateStatusWire {
+  if (s.mode !== "release") return s;
+  return o ? { ...s, progress: p, outcome: o } : { ...s, progress: p };
+}
+
 export function getUpdateStatus(): UpdateStatusWire {
-  return status;
+  return withProgress(status, progress, outcome);
+}
+
+// deploy/install.sh write_update_outcome: {target, at, messages}, written in
+// the deps phase of a system-kind update, before the restart that brings the
+// target up. So the boot read sees it, and the next update replaces it.
+export const UPDATE_OUTCOME_PATH = `${PUBLIC_PROGRESS_DIR}/outcome.json`;
+
+// Strict, like the progress reader: anything but the exact shape is no note.
+// A note for another version is stale (a later update that wrote none, or a
+// failed one) and is no note either.
+export function parseUpdateOutcome(
+  raw: string,
+  running: string | null,
+): UpdateOutcomeWire | null {
+  let d: unknown;
+  try {
+    d = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof d !== "object" || d === null || Array.isArray(d)) return null;
+  const r = d as Record<string, unknown>;
+  if (typeof r.target !== "string" || !CALVER_RELEASE_RE.test(r.target)) {
+    return null;
+  }
+  if (running === null || r.target !== running) return null;
+  if (typeof r.at !== "string" || Number.isNaN(Date.parse(r.at))) return null;
+  if (
+    !Array.isArray(r.messages) ||
+    r.messages.length === 0 ||
+    !r.messages.every((m) => typeof m === "string" && m.trim() !== "")
+  ) {
+    return null;
+  }
+  return { target: r.target, at: r.at, messages: r.messages as string[] };
+}
+
+export function readUpdateOutcome(
+  running: string | null,
+  path: string = UPDATE_OUTCOME_PATH,
+  read: ReadText = readText,
+): UpdateOutcomeWire | null {
+  const raw = read(path);
+  return typeof raw === "string" ? parseUpdateOutcome(raw, running) : null;
+}
+
+// The update route wraps its launch in these two: the attempt on file is
+// noted before the launch, and an accepted launch shows as requested.
+export function beforeUpdateTrigger(): ReturnType<
+  UpdateProgressWatcher["beforeTrigger"]
+> | null {
+  return progressWatcher?.beforeTrigger() ?? null;
+}
+
+export function updateTriggerAccepted(
+  before: ReturnType<UpdateProgressWatcher["beforeTrigger"]> | null,
+) {
+  if (before) progressWatcher?.triggerAccepted(before);
 }
 
 export function onUpdateChange(cb: (s: UpdateStatusWire) => void) {
@@ -615,6 +715,13 @@ export function startUpdateChecker() {
       { release: v.release, version: v.version },
       null,
     );
+    outcome = readUpdateOutcome(v.release);
+    // Progress does not depend on the release check: start it first.
+    progressWatcher = new UpdateProgressWatcher(
+      progressPathFor(conf),
+      setUpdateProgress,
+    );
+    progressWatcher.start();
     const ownerRepo =
       conf.state === "parsed"
         ? githubOwnerRepo(conf.values.REPO_URL ?? "")

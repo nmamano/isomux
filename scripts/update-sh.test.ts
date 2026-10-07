@@ -10,7 +10,9 @@
 //
 // The failure-path coverage here is the point of the design's explicit
 // recovery ladders (internal-docs/release-design.md): failed install, failed
-// build, failed readiness with a state migration to roll back.
+// build, failed readiness rolled back to the old code. The stubs also record
+// the published progress file at each call, which is how the phase events
+// are observed.
 
 import {
   describe,
@@ -46,6 +48,7 @@ interface Fixture {
   snapshotDir: string;
   statusDir: string;
   stubLog: string;
+  progressLog: string;
   readyFlag: string;
   conf: string;
   port: number;
@@ -146,6 +149,7 @@ async function buildFixture(opts: {
   const snapshotDir = join(base, "snapshots");
   const statusDir = join(base, "status");
   const stubLog = join(base, "stub-calls.log");
+  const progressLog = join(base, "progress-calls.log");
   const stubState = join(base, "service-state");
   const readyFlag = join(base, "ready-ok");
   writeFileSync(stubState, "active\n");
@@ -156,6 +160,7 @@ async function buildFixture(opts: {
     join(bin, "systemctl"),
     `#!/usr/bin/env bash
 echo "systemctl $*" >> "$STUB_LOG"
+if [[ -f $PROGRESS_FILE ]]; then echo "systemctl $* $(cat "$PROGRESS_FILE")" >> "$PROGRESS_LOG"; fi
 [[ $1 == --user ]] && shift
 case $1 in
   cat)
@@ -203,10 +208,14 @@ exit 0
     join(bin, "bun"),
     `#!/usr/bin/env bash
 echo "bun $* (cwd=$PWD)" >> "$STUB_LOG"
+if [[ -f $PROGRESS_FILE ]]; then echo "bun $* $(cat "$PROGRESS_FILE")" >> "$PROGRESS_LOG"; fi
 case $1 in
   --version) echo 1.3.11 ;;
   install) [[ -e BREAK_INSTALL ]] && { echo "install broken" >&2; exit 1; } ;;
-  run) [[ $2 == build:ui && -e BREAK_BUILD ]] && { echo "build broken" >&2; exit 1; } ;;
+  run)
+    [[ $2 == build:ui && -e BREAK_BUILD ]] && { echo "build broken" >&2; exit 1; }
+    [[ $2 == build:ui && -n \${SLOW_BUILD:-} ]] && sleep "$SLOW_BUILD"
+    ;;
 esac
 exit 0
 `,
@@ -246,6 +255,8 @@ READY_TIMEOUT_S=3
     PATH: `${bin}:${process.env.PATH}`,
     ISOMUX_UPDATE_CONF: conf,
     STUB_LOG: stubLog,
+    PROGRESS_LOG: progressLog,
+    PROGRESS_FILE: join(statusDir, "progress.json"),
     STUB_STATE: stubState,
     READY_FLAG: readyFlag,
     TEST_STATE_ROOT: stateRoot,
@@ -264,6 +275,7 @@ READY_TIMEOUT_S=3
     snapshotDir,
     statusDir,
     stubLog,
+    progressLog,
     readyFlag,
     conf,
     port,
@@ -311,6 +323,38 @@ function status(): Record<string, string> {
   return JSON.parse(readFileSync(join(fx.statusDir, "status.json"), "utf8"));
 }
 
+interface Progress {
+  attempt: string;
+  phase: string;
+  result: string;
+  pid: number;
+  pidStart: string;
+  boot: string;
+}
+
+function progressPath(): string {
+  return join(fx.statusDir, "progress.json");
+}
+
+function progress(): Progress {
+  return JSON.parse(readFileSync(progressPath(), "utf8"));
+}
+
+// [call, published progress] pairs recorded by the stubs, in call order.
+function progressAtCalls(): { call: string; progress: Progress }[] {
+  if (!existsSync(fx.progressLog)) return [];
+  return readFileSync(fx.progressLog, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const at = line.indexOf("{");
+      return {
+        call: line.slice(0, at).trim(),
+        progress: JSON.parse(line.slice(at)) as Progress,
+      };
+    });
+}
+
 afterEach(() => {
   readyServer?.stop(true);
   readyServer = null;
@@ -322,7 +366,7 @@ describe("update.sh happy path", () => {
     fx = await buildFixture({});
   });
 
-  it("fetches the tag, builds, stops before snapshotting, starts, reports ok", async () => {
+  it("fetches the tag, builds, restarts without a state snapshot, reports ok", async () => {
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.out).toContain("updated");
     expect(r.code).toBe(0);
@@ -335,19 +379,12 @@ describe("update.sh happy path", () => {
       "systemctl --user start isomux",
     ]);
 
-    // The snapshot exists, is a valid tarball, and holds the state file.
-    const snaps = readdirSync(fx.snapshotDir).filter((f) =>
-      f.startsWith("pre-update-"),
-    );
-    expect(snaps.length).toBe(1);
-    expect(statMode(join(fx.snapshotDir, snaps[0]))).toBe(0o600);
-    const listing = await sh(
-      fx.snapshotDir,
-      `tar -tzf ${join(fx.snapshotDir, snaps[0])}`,
-    );
-    expect(listing).toContain(".isomux/users.json");
-    expect(listing).toContain(
-      ".isomux/opencode/profiles/shared/data/opencode/auth.json",
+    // No state snapshot: nothing is written to the snapshot directory, and
+    // the state root stays in place untouched.
+    expect(existsSync(fx.snapshotDir)).toBe(false);
+    expect(r.out).not.toContain("--- snapshot");
+    expect(readFileSync(join(fx.stateRoot, "users.json"), "utf8")).toBe(
+      '{"u1":{"name":"Boss"}}\n',
     );
     expect(
       readFileSync(
@@ -379,6 +416,132 @@ describe("update.sh happy path", () => {
     );
   });
 
+  it("publishes each phase of one attempt to the progress file, ending ok", async () => {
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    const seen = progressAtCalls();
+    const at = (call: string) => seen.find((s) => s.call.startsWith(call));
+    expect(at("bun install")?.progress.phase).toBe("install");
+    expect(at("bun run build:ui")?.progress.phase).toBe("build");
+    expect(at("systemctl --user stop")?.progress.phase).toBe("stop");
+    expect(at("systemctl --user start")?.progress.phase).toBe("start");
+    for (const s of seen) expect(s.progress.result).toBe("running");
+    const attempts = new Set(seen.map((s) => s.progress.attempt));
+    expect(attempts.size).toBe(1);
+
+    const last = progress();
+    expect([...attempts]).toEqual([last.attempt]);
+    expect(last.attempt).toMatch(/^[a-f0-9]{32}$/);
+    expect(last.phase).toBe("finalize");
+    expect(last.result).toBe("ok");
+    expect(statMode(progressPath())).toBe(0o644);
+    // The process identity the server checks names this run's shell.
+    expect(Number.isInteger(last.pid)).toBe(true);
+    expect(last.pidStart).toMatch(/^[0-9]+$/);
+    expect(last.boot).toBe(
+      readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim(),
+    );
+    // Only the safe fields: no message, target, path or version text.
+    expect(Object.keys(last).sort()).toEqual(
+      ["attempt", "boot", "phase", "pid", "pidStart", "result"].sort(),
+    );
+    // A no-dot temp file is all that may remain.
+    expect(
+      readdirSync(fx.statusDir).filter((f) => f.startsWith(".progress.")),
+    ).toEqual([]);
+  });
+
+  it("a second run is a new attempt", async () => {
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    const first = progress().attempt;
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    expect(progress().attempt).not.toBe(first);
+  });
+
+  it("runs on a conf with no snapshot or state keys", async () => {
+    writeFileSync(
+      fx.conf,
+      readFileSync(fx.conf, "utf8")
+        .replace(/^STATE_ROOT=.*\n/m, "")
+        .replace(/^SNAPSHOT_DIR=.*\n/m, ""),
+    );
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(status().result).toBe("ok");
+  });
+
+  it("a progress publication failure never changes the update", async () => {
+    // mktemp fails for the progress file only.
+    const bin = join(fx.base, "bin");
+    writeFileSync(
+      join(bin, "mktemp"),
+      `#!/usr/bin/env bash
+[[ $* == *.progress.* ]] && exit 1
+exec /usr/bin/mktemp "$@"
+`,
+      { mode: 0o755 },
+    );
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(await head()).toBe(fx.newCommit);
+    expect(status().result).toBe("ok");
+    expect(existsSync(progressPath())).toBe(false);
+  });
+
+  it("an updater that loses the lock never overwrites the live attempt", async () => {
+    mkdirSync(fx.statusDir, { recursive: true });
+    const live =
+      '{"attempt":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","phase":"build","result":"running","pid":1,"pidStart":"1","boot":"x"}\n';
+    writeFileSync(progressPath(), live);
+    const holder = Bun.spawn(
+      ["flock", join(fx.statusDir, "lock"), "sleep", "30"],
+      { stdout: "ignore", stderr: "ignore" },
+    );
+    try {
+      // Wait until the holder has the lock.
+      for (let i = 0; i < 50; i++) {
+        const probe = Bun.spawnSync([
+          "flock",
+          "-n",
+          join(fx.statusDir, "lock"),
+          "true",
+        ]);
+        if (probe.exitCode !== 0) break;
+        await Bun.sleep(20);
+      }
+      const r = await runUpdate(["v2026.7.20"]);
+      expect(r.code).not.toBe(0);
+      expect(r.out).toContain("another update is already running");
+      expect(readFileSync(progressPath(), "utf8")).toBe(live);
+    } finally {
+      holder.kill();
+      await holder.exited;
+    }
+  });
+
+  it("a stopped updater reports a failed attempt", async () => {
+    fx.env.SLOW_BUILD = "2";
+    const proc = Bun.spawn(["bash", UPDATE_SH, "v2026.7.20"], {
+      env: fx.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    // Signal while the build runs, the long step a stop lands in. (Bash can
+    // fail to run a trap that lands inside a command substitution; the
+    // server's process-identity check covers that case.)
+    for (let i = 0; i < 200; i++) {
+      if (stubCalls().some((l) => l.startsWith("bun run build:ui"))) break;
+      await Bun.sleep(25);
+    }
+    expect(progress().phase).toBe("build");
+    proc.kill("SIGTERM");
+    const code = await proc.exited;
+    expect(code).not.toBe(0);
+    expect(progress().result).toBe("failed");
+    expect(status().result).toBe("failed");
+    expect(status().message).toContain("stopped during build");
+  });
+
   it("no-op when already on the target tag", async () => {
     await sh(fx.repo, "git fetch -q --tags origin");
     await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
@@ -386,6 +549,8 @@ describe("update.sh happy path", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("already on");
     expect(stubCalls().filter((l) => / stop /.test(l))).toEqual([]);
+    // A terminal result, so no screen waits on a run that already ended.
+    expect(progress().result).toBe("ok");
   });
 
   it("re-running on the target repairs a checkout with no local tag", async () => {
@@ -680,48 +845,48 @@ describe("update.sh failure ladders", () => {
     expect(status().result).toBe("failed");
   });
 
-  it("failed readiness: full rollback restores code AND pre-update state", async () => {
-    // New version "migrates" state on start (the stub writes a marker into
-    // the state root) and never becomes ready; readiness succeeds only from
-    // the second start (the rolled-back old version).
+  it("failed readiness: rolls back the code only and starts it", async () => {
+    // The new version "migrates" state on start (the stub writes a marker
+    // into the state root) and never becomes ready; readiness succeeds only
+    // from the second start (the rolled-back old version).
     fx = await buildFixture({ readyAfterStarts: 2, mutateStateOnStart: true });
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain("rolled back");
+    expect(r.out).toContain("rolled the code back");
     expect(await head()).toBe(fx.oldCommit);
+    // The old code was reinstalled and rebuilt before its start.
+    const ops = stubCalls().filter(
+      (l) => / (stop|start) /.test(l) || l.startsWith("bun"),
+    );
+    const lastStart = ops.findLastIndex((l) => / start /.test(l));
+    const lastBuild = ops.findLastIndex((l) => l.includes("build:ui"));
+    expect(lastBuild).toBeGreaterThan(-1);
+    expect(lastBuild).toBeLessThan(lastStart);
 
-    // State root restored from the snapshot: original file back, migration
-    // marker gone.
+    // No snapshot to restore: the state root stays as the new version left
+    // it, and nothing is moved aside.
     expect(existsSync(join(fx.stateRoot, "users.json"))).toBe(true);
-    expect(existsSync(join(fx.stateRoot, "migrated-marker"))).toBe(false);
-    expect(
-      readFileSync(
-        join(fx.stateRoot, "opencode/profiles/shared/data/opencode/auth.json"),
-        "utf8",
-      ),
-    ).toBe("PROFILE_AUTH_CANARY_BEFORE\n");
-    // The broken state was preserved for forensics, marker included.
-    const broken = readdirSync(fx.snapshotDir).filter((f) =>
-      f.startsWith("broken-"),
-    );
-    expect(broken.length).toBe(1);
-    expect(existsSync(join(fx.snapshotDir, broken[0], "migrated-marker"))).toBe(
-      true,
-    );
-    expect(
-      readFileSync(
-        join(
-          fx.snapshotDir,
-          broken[0],
-          "opencode/profiles/shared/data/opencode/auth.json",
-        ),
-        "utf8",
-      ),
-    ).toBe("PROFILE_AUTH_CANARY_MIGRATED\n");
+    expect(existsSync(join(fx.stateRoot, "migrated-marker"))).toBe(true);
+    expect(existsSync(fx.snapshotDir)).toBe(false);
     expect(status().result).toBe("failed");
+    expect(progress().result).toBe("failed");
     // Rolled-back service is up: stop, start (fails ready), stop, start.
     const svcOps = stubCalls().filter((l) => / (stop|start) /.test(l));
-    expect(svcOps.at(-1)).toContain("start");
+    expect(svcOps).toEqual([
+      "systemctl --user stop isomux",
+      "systemctl --user start isomux",
+      "systemctl --user stop isomux",
+      "systemctl --user start isomux",
+    ]);
+  });
+
+  it("failed readiness with a rollback that never answers needs manual attention", async () => {
+    fx = await buildFixture({ readyAfterStarts: 99 });
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("rollback did not come up");
+    expect(status().phase).toBe("recovery-failed");
+    expect(progress().result).toBe("failed");
   });
 });
 

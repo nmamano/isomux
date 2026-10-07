@@ -1,11 +1,5 @@
-import {
-  useEffect,
-  useCallback,
-  useState,
-  useRef,
-  type ReactNode,
-} from "react";
-import { useAppState } from "../store.tsx";
+import { useEffect, useCallback, useState, type ReactNode } from "react";
+import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import {
@@ -13,9 +7,9 @@ import {
   type SupportedLanguageCode,
 } from "../../shared/languages.ts";
 import { CopyButton } from "./CopyButton.tsx";
+import { UpdateOutcomeNotes } from "./UpdateOverlay.tsx";
 import { disabledLook } from "./dialog-styles.ts";
 import { apiFetch } from "../api.ts";
-import { reloadBrowser } from "../reload-browser.ts";
 import type { UpdateStatusWire } from "../../shared/types.ts";
 import {
   buildCommitNotice,
@@ -209,19 +203,17 @@ function CommitBody({
 
 // Release-mode body: what's running vs. the latest release, and (for owners)
 // the update trigger with its confirm step. `phase` walks
-// info -> confirm -> starting -> started, with `error` rendered inline.
+// info -> confirm -> starting -> started, with `error` rendered inline. Once
+// the launch is accepted, the update screen (UpdateOverlay) takes over.
 function ReleaseBody({
   status,
   onClose,
-  onStart,
-  onStartError,
 }: {
   status: ReleaseStatus;
   onClose: () => void;
-  onStart: () => void;
-  onStartError: () => void;
 }) {
   const { sessionContext } = useAppState();
+  const dispatch = useDispatch();
   const { t, tn, rich, language } = useI18n();
   // Image deployments have no host updater: no busy count, no trigger.
   const image = status.apply.kind === "image" ? status.apply : null;
@@ -262,18 +254,18 @@ function ReleaseBody({
 
   const trigger = useCallback(async () => {
     if (!latest || !canTrigger) return;
-    onStart();
     setPhase("starting");
     setError(null);
+    dispatch({ type: "update_launching" });
     try {
       await apiFetch("POST", "/api/office/update", { tag: latest.tag });
+      dispatch({ type: "update_clicked" });
       setPhase("started");
     } catch (err) {
-      onStartError();
       setError(err instanceof Error ? err.message : String(err));
       setPhase("confirm");
     }
-  }, [latest, canTrigger, onStart, onStartError]);
+  }, [latest, canTrigger, dispatch]);
 
   return (
     <>
@@ -313,6 +305,15 @@ function ReleaseBody({
         )}
       </ul>
 
+      {isOwner && status.outcome && (
+        <UpdateOutcomeNotes
+          title={t("settings.update.lastUpdate", {
+            date: formatDate(language, status.outcome.at),
+          })}
+          messages={status.outcome.messages}
+        />
+      )}
+
       {image && latest && (
         <p style={{ ...textStyle, margin: "16px 0 0" }}>
           {image.guide === "render"
@@ -327,13 +328,6 @@ function ReleaseBody({
             {t("settings.update.updateGuide")}
           </a>
         </p>
-      )}
-
-      {(phase === "starting" || phase === "started") && (
-        <div role="status" style={{ ...textStyle, marginTop: 16 }}>
-          <p>{t("settings.update.waiting")}</p>
-          <p>{t("settings.update.requested")}</p>
-        </div>
       )}
 
       {(phase === "confirm" || phase === "starting") && (
@@ -434,75 +428,17 @@ function ReleaseBody({
 // the old dialog's Close and "Got it" buttons did, and there is nothing
 // smaller to dismiss now that this is a pane rather than an overlay.
 export function UpdatePane({ onClose }: { onClose: () => void }) {
-  const { updateInfo, hydrationEpoch } = useAppState();
-  // Keep completion independent of ReleaseBody so a server mode change cannot
-  // discard it. Retain the requested release context while the check is pending.
-  const [attempt, setAttempt] = useState<{
-    baseline: string | null;
-    epoch: number;
-    status: ReleaseStatus;
-  } | null>(null);
-  const [result, setResult] = useState<
-    "done" | "unchanged" | "unverified" | null
-  >(null);
-
-  const latestEpoch = useRef(hydrationEpoch);
-  useEffect(() => {
-    latestEpoch.current = hydrationEpoch;
-  }, [hydrationEpoch]);
-
-  const onStart = useCallback(() => {
-    if (updateInfo?.mode !== "release") return;
-    setResult(null);
-    setAttempt({
-      baseline: updateInfo.current.release ?? updateInfo.current.version,
-      epoch: hydrationEpoch,
-      status: updateInfo,
-    });
-  }, [updateInfo, hydrationEpoch]);
-  const onStartError = useCallback(() => {
-    // A failed launch before any reconnect returns to the confirmation step.
-    setAttempt((current) =>
-      current?.epoch === latestEpoch.current ? null : current,
-    );
-  }, []);
-
-  useEffect(() => {
-    if (!attempt || hydrationEpoch <= attempt.epoch) return;
-    let cancelled = false;
-    apiFetch<{ status: UpdateStatusWire }>("GET", "/api/office/update")
-      .then(({ status }) => {
-        if (cancelled) return;
-        const current =
-          status.mode === "release"
-            ? (status.current.release ?? status.current.version)
-            : (status.current.release ?? status.current.sha);
-        setResult(
-          !attempt.baseline || !current
-            ? "unverified"
-            : current !== attempt.baseline
-              ? "done"
-              : "unchanged",
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setResult("unverified");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [attempt, hydrationEpoch]);
+  const { updateInfo } = useAppState();
   const i18n = useI18n();
   const { t } = i18n;
 
   // A quiet image status has nothing to deploy: it takes the up-to-date
   // branch below. The host path keeps its release body in every state.
   const release =
-    attempt?.status ??
-    (updateInfo?.mode === "release" &&
+    updateInfo?.mode === "release" &&
     (updateInfo.apply.kind === "host" || updateInfo.updateAvailable)
       ? updateInfo
-      : null);
+      : null;
   const commit = updateInfo?.mode === "commit" ? updateInfo : null;
   // Null while quiet - the pill is hidden then, so this pane normally opens
   // with something to say; the guard below covers the status going quiet
@@ -537,45 +473,17 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
               color: "var(--text-primary)",
             }}
           >
-            {result
-              ? t("settings.sidebar.updates")
-              : release
-                ? t("settings.update.newRelease")
-                : (notice?.title ?? t("settings.update.upToDateTitle"))}
+            {release
+              ? t("settings.update.newRelease")
+              : (notice?.title ?? t("settings.update.upToDateTitle"))}
           </h3>
-          {!result && <CopyButton getText={getText} size={28} />}
+          <CopyButton getText={getText} size={28} />
         </div>
 
-        {result ? (
-          <div role="status" style={{ ...textStyle, marginTop: 16 }}>
-            <p>
-              {t(
-                result === "done"
-                  ? "settings.update.done"
-                  : result === "unchanged"
-                    ? "settings.update.unchanged"
-                    : "settings.update.unverified",
-              )}
-            </p>
-            {result === "unchanged" && <p>{t("settings.update.requested")}</p>}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                marginTop: 20,
-              }}
-            >
-              <button onClick={() => reloadBrowser()} style={buttonStyle}>
-                {t("settings.update.refreshBrowser")}
-              </button>
-            </div>
-          </div>
-        ) : release ? (
+        {release ? (
           <ReleaseBody
             status={release}
             onClose={onClose}
-            onStart={onStart}
-            onStartError={onStartError}
           />
         ) : commit && notice ? (
           <>

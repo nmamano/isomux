@@ -24,6 +24,7 @@ import { AppsView } from "./components/AppsView.tsx";
 import { PagerView, type PagerSelectRequest } from "./components/PagerView.tsx";
 import { usePagerSync } from "./pager-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
+import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
 import { CSS } from "./styles.ts";
 import { getUsername, getDevice } from "./device-settings.ts";
 import { languageSeed } from "./preference-form.ts";
@@ -749,6 +750,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     <>
       <style>{CSS}</style>
       <ConnectionBanner />
+      <UpdateOverlay />
       {page === "settings" ? (
         <UserSettingsView
           initialUserId={editingUserId}

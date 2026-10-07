@@ -2,11 +2,11 @@
 //
 // Office state grows without bound: conversation transcripts and attachments
 // under <stateRoot>/logs are never pruned, and codex-home is written by the
-// codex CLI at whatever rate it likes. Backups (server/backup.ts, 7 newest) and
-// pre-update snapshots (scripts/update.sh, SNAPSHOT_KEEP=3) already cap
-// themselves, but they live OUTSIDE the state root, so an operator asking "what
-// is filling this disk?" has to know three separate locations. This module is
-// the one answer.
+// codex CLI at whatever rate it likes. Backups (server/backup.ts, 7 newest) cap
+// themselves; pre-update snapshots (older scripts/update.sh runs; the current
+// updater takes none) stay until an operator deletes them. Both live OUTSIDE
+// the state root, so an operator asking "what is filling this disk?" has to
+// know three separate locations. This module is the one answer.
 //
 // READ-ONLY. Nothing here deletes; pruning lives in storage-prune.ts.
 //
@@ -58,9 +58,9 @@ export interface StorageRoots {
   stateRoot: string;
   // server/backup.ts's destination - outside the state root by design.
   backupDir: string | null;
-  // scripts/update.sh's SNAPSHOT_DIR - outside the state root because a
-  // rollback replaces the state root wholesale. null when the box is not
-  // updater-managed or the conf did not parse.
+  // update.conf's SNAPSHOT_DIR, where older updaters put pre-update
+  // snapshots. null when the box is not updater-managed or the conf did not
+  // parse.
   snapshotDir: string | null;
 }
 

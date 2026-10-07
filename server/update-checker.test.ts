@@ -18,12 +18,16 @@ import {
   imageLineageStatusAfterScan,
   parseCompare,
   parseLineage,
+  parseUpdateOutcome,
   pickCheckerMode,
   pickCompareBase,
   pickRelease,
   pickReleasePage,
+  readUpdateOutcome,
   releaseStatusAfterScan,
   statusChanged,
+  UPDATE_OUTCOME_PATH,
+  withProgress,
 } from "./update-checker.ts";
 
 describe("compareCalver", () => {
@@ -795,5 +799,75 @@ describe("apply on release statuses", () => {
     );
     expect(next?.updateAvailable).toBe(true);
     expect(next?.mode === "release" && next.apply).toEqual(image);
+  });
+});
+
+// deploy/install.sh write_update_outcome is the producer
+// (deploy/install-update-outcome.test.ts pins its shape).
+describe("update outcome", () => {
+  const note = {
+    target: "v2026.10.7",
+    at: "2026-10-07T12:00:00Z",
+    messages: ["Restored installer-managed firewall rule: 443/tcp."],
+  };
+  const raw = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({ ...note, ...over });
+
+  it("reads the producer's file for the running release", () => {
+    expect(UPDATE_OUTCOME_PATH).toBe(
+      "/var/lib/isomux-update-public/outcome.json",
+    );
+    expect(parseUpdateOutcome(raw(), "v2026.10.7")).toEqual(note);
+  });
+
+  it("a note for another version, or with no running release, is no note", () => {
+    expect(parseUpdateOutcome(raw(), "v2026.10.8")).toBeNull();
+    expect(parseUpdateOutcome(raw(), null)).toBeNull();
+  });
+
+  it("an empty or malformed note is no note", () => {
+    for (const bad of [
+      raw({ messages: [] }),
+      raw({ messages: [""] }),
+      raw({ messages: ["ok", 3] }),
+      raw({ messages: "ok" }),
+      raw({ target: "main" }),
+      raw({ at: "yesterday" }),
+      raw({ at: 5 }),
+      "[]",
+      "null",
+      "{",
+    ]) {
+      expect(parseUpdateOutcome(bad, "v2026.10.7")).toBeNull();
+    }
+  });
+
+  it("an absent or unreadable file is no note", () => {
+    expect(
+      readUpdateOutcome("v2026.10.7", "/x/outcome.json", () => ({
+        code: "ENOENT",
+      })),
+    ).toBeNull();
+    expect(
+      readUpdateOutcome("v2026.10.7", "/x/outcome.json", () => ({
+        code: "EACCES",
+      })),
+    ).toBeNull();
+    expect(
+      readUpdateOutcome("v2026.10.7", "/x/outcome.json", (path) =>
+        path === "/x/outcome.json" ? raw() : { code: "ENOENT" },
+      ),
+    ).toEqual(note);
+  });
+
+  it("rides the release status only when present", () => {
+    const release = computeReleaseStatus(
+      { release: "v2026.10.7", version: "v2026.10.7" },
+      null,
+    );
+    expect(withProgress(release, null, note)).toMatchObject({
+      outcome: note,
+    });
+    expect(withProgress(release, null, null)).not.toHaveProperty("outcome");
   });
 });

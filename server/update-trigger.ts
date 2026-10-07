@@ -32,6 +32,7 @@
 // systemctl/systemd-run.
 
 import { CALVER_RELEASE_RE } from "./version.ts";
+import { beforeUpdateTrigger, updateTriggerAccepted } from "./update-checker.ts";
 import {
   readUpdateConf,
   updateConfPath,
@@ -164,18 +165,33 @@ export async function runContainerTrigger(
   ]);
 }
 
+// Progress bookkeeping around the launch (server/update-progress.ts). The
+// attempt on file is noted BEFORE the launch, so a fast updater's own attempt
+// is never taken for the one before it.
+export interface TriggerProgressHooks<T> {
+  before(): T;
+  accepted(before: T): void;
+}
+
+const progressHooks: TriggerProgressHooks<
+  ReturnType<typeof beforeUpdateTrigger>
+> = { before: beforeUpdateTrigger, accepted: updateTriggerAccepted };
+
 // The production trigger: read the conf fresh (it can appear or change without
 // a server restart), plan, launch.
-export async function triggerUpdate(
+export async function triggerUpdate<T = ReturnType<typeof beforeUpdateTrigger>>(
   tag: string,
   run: typeof runTrigger = runTrigger,
+  progress: TriggerProgressHooks<T> = progressHooks as TriggerProgressHooks<T>,
 ): Promise<
   | { ok: true; via: "system" | "user"; tag: string }
   | { ok: false; status: 400 | 409 | 500; code: string; message: string }
 > {
   const plan = buildTriggerPlan(readUpdateConf(), tag);
   if (!plan.ok) return plan;
+  const before = progress.before();
   const r = plan.socket ? await runContainerTrigger(tag) : await run(plan.argv);
+  if (r.ok) progress.accepted(before);
   if (!r.ok) {
     return {
       ok: false,

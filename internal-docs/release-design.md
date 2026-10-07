@@ -206,8 +206,10 @@ updater copy the same way.
    reads that root-owned file. The target installer also writes
    `/var/lib/isomux-update-public/outcome.json` atomically with mode 0644. It
    contains only the target tag, a UTC timestamp, and fixed outcome messages,
-   and survives the service restart. No office reader consumes it yet (task
-   25868b9f). A checkout-only updater
+   and survives the service restart. The restarted office reads it at boot
+   (`server/update-checker.ts`) and, when it names the running release and
+   has messages, shows them to owners on the update screen and in the Update
+   pane. A checkout-only updater
    cannot deliver a dependency a release
    starts requiring: boxes installed before the Node.js step kept a dead
    terminal panel through every update. The release's own installer is the
@@ -282,38 +284,42 @@ updater copy the same way.
    live-served `ui/dist` may already be dirty: recover by checking out the
    old tag, reinstalling its lockfile, and rebuilding its UI (and report if
    recovery itself fails).
-4. Stop the service, wait until inactive. The update interrupts agents
-   anyway; quiescing *before* the snapshot is what makes it a coherent
-   rollback image (a live tar can catch related state files on opposite
-   sides of a mutation - fine for disaster recovery, not for a rollback
-   promise).
-5. Snapshot the stopped state: tar `$ISOMUX_HOME` to a uniquely-named file
-   outside it and verify the tarball. If this fails, check out the old tag,
-   reinstall, rebuild the old UI, and start it - state is untouched, but
-   the target's UI was already built in step 3.
+4. Stop the service, wait until inactive. The office is down from here
+   until the readiness poll passes, so nothing slow runs in this window.
+5. (Removed.) Updaters before 2026-10 tarred the whole state root here,
+   with the service stopped. On a large office that took over ten minutes of
+   down time per update, and the state root now stays in place.
 6. Start the service; poll `GET /readyz` (unauth; answered only once the
    boot migrations have run, since the listener binds after them;
    rate-limited with loopback exempt so the poll cannot manufacture a
    rollback). On a system deployment with a Caddy unit, an inactive Caddy
    qualifies the successful result with a public-front-door warning in both
-   output and the durable status file. It does not trigger code/state rollback:
-   Caddy is outside the snapshot, so that rollback cannot repair it.
-7. On failed readiness, roll back fully: stop and wait inactive (never
-   restore under a live or crash-looping process), move the broken state
-   root aside for forensics, restore the entire state root from the step-5
-   snapshot, check out the previous tag, reinstall, build, start, report in
-   the status file.
+   output and the durable status file. It does not trigger a rollback:
+   the code rollback cannot repair Caddy.
+7. On failed readiness, roll back the code: stop and wait inactive (never
+   rebuild under a live or crash-looping process), check out the previous
+   tag, reinstall, build, start, report in the status file. The state root
+   stays as the new version left it.
 
-Rollback always restores the full snapshot - no "did a migration run?"
-detection. The codebase has no schema version or migration ledger to make
-that call reliably (migrations are ad-hoc and lazy), and the snapshot is
-taken with the server stopped, so unconditional restore loses nothing and
-removes the hardest-to-test branch. A durable schema version can refine
-this later.
+The code-only rollback rests on three things: releases keep state readable
+by the previous release, a migration copies the files it touches before it
+changes them (`server/migrations.ts`), and the daily backup covers the rest.
 
-**Role of the daily backups** (`~/isomux-backups`, 7-day retention):
-disaster recovery only. They are up to 24h stale and date-only-named; the
-updater takes its own fresh snapshot.
+**Role of the daily backups** (`~/isomux-backups`, 7-day retention): the
+only full copy of the state. They are up to 24h stale and date-only-named.
+
+**Progress.** The lock holder writes `progress.json` at every phase: a
+random attempt id, the phase name, the result, and its own pid, start ticks
+and boot id. A system-kind updater writes it to
+`/var/lib/isomux-update-public` (root-owned, readable by the office
+service), a user-kind one to `STATUS_DIR`. The office server polls it
+(`server/update-progress.ts`), turns a running record whose process is gone
+into a failure, and puts attempt, phase and result on `update_status`.
+After an accepted launch the server reports "requested" until the file names
+a new attempt. Every open tab follows that to a full-screen update screen
+(`ui/update-watch.ts`). A container office never sees the host's file: its
+tabs show "requested" until the restart, and the version they come back to
+decides done or failed.
 
 ## Update trigger: three options
 
@@ -353,7 +359,7 @@ Shipped (the shell-drivable slice):
   loopback exempt.
 - `scripts/release.sh` (CI-green gate via check-runs, tag pushed with --no-verify since that gate already covers the tagged commit, tag-reuse refusal,
   annotated CalVer tag, push, GitHub Release) and `scripts/update.sh`
-  (everything above, snapshot via tar directly - no `backup.ts` coupling).
+  (everything above; no state snapshot since 2026-10).
   Failure paths are exercised in `scripts/update-sh.test.ts` /
   `scripts/release-sh.test.ts` against sandboxed fixtures.
 - Installer integration: `deploy/install.sh` writes
@@ -413,9 +419,9 @@ Remaining:
 
 - ~~`internal-docs/backup-restore.md` (referenced by `backup.ts`) still does
   not exist; the daily-backup restore procedure is undocumented.~~ Written
-  2026-07-31, exercised 2026-08-01. The updater does not depend on it (it
-  snapshots and restores on its own), but operators do; the runbook also
-  covers restoring a `pre-update-*` snapshot by hand. Both restore shapes
+  2026-07-31, exercised 2026-08-01. The updater does not depend on it, but
+  operators do; the runbook also covers deleting the `pre-update-*`
+  snapshots older updaters left. Both restore shapes
   were run end to end on the test box against v2026.7.23 - in place, and
   onto a provider-rebuilt blank Ubuntu 24.04 (fresh `deploy/install.sh`,
   then the backup over it): users, rooms, agents, tasks, memory, chat

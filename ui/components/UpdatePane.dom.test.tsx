@@ -1,14 +1,14 @@
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { StateCtx, initialState } = await import("../store.tsx");
+const { StateCtx, DispatchCtx, initialState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
-const browser = await import("../reload-browser.ts");
 const { UpdatePane } = await import("./UpdatePane.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { formatDateTime } = await import("../../shared/i18n/time.ts");
 
 type Status = NonNullable<typeof initialState.updateInfo>;
 const oldStatus: Extract<Status, { mode: "release" }> = {
@@ -19,180 +19,107 @@ const oldStatus: Extract<Status, { mode: "release" }> = {
   latest: { tag: "v2026.9.8", publishedAt: null, url: null },
   apply: { kind: "host" },
 };
-const newStatus: Status = {
-  ...oldStatus,
-  updateAvailable: false,
-  current: { release: "v2026.9.8", version: "v2026.9.8" },
-};
-const copy = {
-  waiting: "Keep this pane open until the server restarts.",
-  done: "The update is done. Refresh the browser to load the updated page.",
-  unchanged: "The page reconnected, but the running version has not changed.",
-  unverified:
-    "The page reconnected, but the running version could not be checked.",
-};
+const t = translatorFor("en").t;
 
 afterEach(() => setApiShim(null));
 
-function fixture(initial: Status = oldStatus) {
-  let response = initial;
-  let failGet = false;
+function fixture(
+  initial: Status = oldStatus,
+  role: "owner" | "member" = "owner",
+) {
   let gets = 0;
-  let post: Promise<unknown> = Promise.resolve({ ok: true });
+  let post: () => Promise<unknown> = async () => ({ ok: true });
+  const actions: { type: string }[] = [];
   setApiShim(async (method, path) => {
     if (path !== "/api/office/update")
       throw new Error(`Unexpected path ${path}`);
-    if (method === "POST") return post;
+    if (method === "POST") return post();
     gets++;
-    if (failGet) throw new Error("Unavailable");
-    return { busyAgents: 0, status: response };
+    return { busyAgents: 0, status: initial };
   });
-  const tree = (epoch: number, updateInfo = initial) => (
+  const tree = (updateInfo = initial) => (
     <StateCtx.Provider
       value={{
         ...initialState,
-        hydrationEpoch: epoch,
+        hydrationEpoch: 1,
         updateInfo,
         sessionContext: {
-          userId: "owner",
-          username: "owner",
-          role: "owner",
+          userId: role,
+          username: role,
+          role,
           currentSessionPrefix: "session",
           connectionId: "connection",
         },
       }}
     >
-      <UpdatePane onClose={() => {}} />
+      <DispatchCtx.Provider value={(a) => void actions.push(a)}>
+        <UpdatePane onClose={() => {}} />
+      </DispatchCtx.Provider>
     </StateCtx.Provider>
   );
-  const view = render(tree(1));
+  const view = render(tree());
   return {
     view,
+    actions,
     gets: () => gets,
-    failGet: () => {
-      failGet = true;
-    },
-    deferPost: (promise: Promise<unknown>) => {
-      post = promise;
+    failPost: () => {
+      post = async () => {
+        throw new Error("polkit denied");
+      };
     },
     async start() {
       await act(async () => {});
       await act(async () => {
-        fireEvent.click(view.getByRole("button", { name: "Update now" }));
+        fireEvent.click(
+          view.getByRole("button", { name: t("settings.update.updateNow") }),
+        );
       });
       await act(async () => {
         fireEvent.click(
-          view.getByRole("button", { name: "Update now (0 busy)" }),
+          view.getByRole("button", {
+            name: t("settings.update.updateNowBusy", { count: 0 }),
+          }),
         );
       });
     },
-    async reconnect(status: Status, storeStatus = initial) {
-      response = status;
+    async rerender(status: Status) {
       await act(async () => {
-        view.rerender(tree(2, storeStatus));
+        view.rerender(tree(status));
       });
     },
   };
 }
 
-function resultIs(
-  view: ReturnType<typeof render>,
-  expected: "done" | "unchanged" | "unverified",
-) {
-  expect(view.queryByText(copy[expected]) !== null).toBe(true);
-  for (const other of ["done", "unchanged", "unverified"] as const) {
-    if (other !== expected)
-      expect(view.queryByText(copy[other]) === null).toBe(true);
-  }
-  expect(view.queryByText(copy.waiting) === null).toBe(true);
-  const reload = spyOn(browser, "reloadBrowser").mockImplementation(() => {});
-  try {
-    fireEvent.click(view.getByRole("button", { name: "Refresh browser" }));
-    expect(reload).toHaveBeenCalledTimes(1);
-  } finally {
-    reload.mockRestore();
-  }
-}
-
-describe("update guidance", () => {
-  it("keeps the pane and version context visible until a reconnect", async () => {
+describe("update trigger", () => {
+  it("an accepted launch hands over to the update screen", async () => {
     const f = fixture();
     await f.start();
-    expect(f.view.queryByText(copy.waiting) !== null).toBe(true);
-    expect(f.view.queryByText("v2026.9.1") !== null).toBe(true);
-    expect(f.view.queryByText("v2026.9.8") !== null).toBe(true);
-    expect(
-      f.view.queryByRole("button", { name: "Refresh browser" }) === null,
-    ).toBe(true);
-  });
-
-  it("uses the refetched version while the store still holds the old version", async () => {
-    const f = fixture();
-    await f.start();
-    const before = f.gets();
-    await f.reconnect(newStatus);
-    expect(f.gets()).toBe(before + 1);
-    resultIs(f.view, "done");
-  });
-
-  it("reports an unchanged version separately from an unverified version", async () => {
-    const f = fixture();
-    await f.start();
-    await f.reconnect(oldStatus);
-    resultIs(f.view, "unchanged");
-    expect(
-      f.view.queryByText(
-        "If nothing happens after a few minutes, check the updater's status file on the server.",
-      ) !== null,
-    ).toBe(true);
-  });
-
-  it("reports a failed status check without claiming success", async () => {
-    const f = fixture();
-    await f.start();
-    f.failGet();
-    await f.reconnect(newStatus);
-    resultIs(f.view, "unverified");
-  });
-
-  it("cannot verify an unknown running version", async () => {
-    const f = fixture();
-    await f.start();
-    await f.reconnect({
+    expect(f.actions).toEqual([
+      { type: "update_launching" },
+      { type: "update_clicked" },
+    ]);
+    // The pane keeps no reconnect check of its own: the busy count is its
+    // only read, and a status change does not trigger another.
+    const reads = f.gets();
+    await f.rerender({
       ...oldStatus,
-      current: { release: null, version: null },
-    });
-    resultIs(f.view, "unverified");
-  });
-
-  it("keeps the result when the server returns in commit mode", async () => {
-    const f = fixture();
-    await f.start();
-    const commit: Status = {
-      mode: "commit",
       updateAvailable: false,
-      current: { release: null, sha: "new-sha" },
-      latest: null,
-      releaseStanding: "unknown",
-      mainAhead: 0,
-    };
-    await f.reconnect(commit, commit);
-    resultIs(f.view, "done");
+      current: { release: "v2026.9.8", version: "v2026.9.8" },
+    });
+    expect(f.gets()).toBe(reads);
   });
 
-  it("shows guidance while the update request is still pending", async () => {
+  it("a refused launch stays in the pane with the error", async () => {
     const f = fixture();
-    let resolve!: (value: unknown) => void;
-    f.deferPost(
-      new Promise((r) => {
-        resolve = r;
-      }),
-    );
+    f.failPost();
     await f.start();
-    expect(f.view.queryByText(copy.waiting) !== null).toBe(true);
-    await act(async () => {
-      resolve({ ok: true });
-    });
+    expect(f.actions).toEqual([{ type: "update_launching" }]);
+    expect(f.view.queryByText("polkit denied")).not.toBeNull();
+    expect(
+      f.view.queryByRole("button", {
+        name: t("settings.update.updateNowBusy", { count: 0 }),
+      }),
+    ).not.toBeNull();
   });
 
   it("adds the refresh reminder to commit mode without a reconnect check", async () => {
@@ -206,11 +133,48 @@ describe("update guidance", () => {
     };
     const f = fixture(status);
     expect(
-      f.view.queryByText("Refresh the browser after the server restarts.") !==
-        null,
+      f.view.queryByText(t("settings.update.stepRefresh")) !== null,
     ).toBe(true);
-    await f.reconnect(status);
+    await f.rerender(status);
     expect(f.gets()).toBe(0);
+  });
+});
+
+describe("last update note", () => {
+  const NOTE = "Restored installer-managed firewall rule: 443/tcp.";
+  const withNote: Status = {
+    ...oldStatus,
+    outcome: {
+      target: "v2026.9.1",
+      at: "2026-10-07T12:00:00Z",
+      messages: [NOTE],
+    },
+  };
+
+  it("an owner sees the installer's messages under a dated heading", () => {
+    const { view } = fixture(withNote);
+    // The installer's sentence, as the box wrote it.
+    expect(view.queryByText(NOTE)).not.toBeNull();
+    const date = formatDateTime(
+      "en",
+      Date.parse("2026-10-07T12:00:00Z"),
+      "fullDate",
+    );
+    expect(
+      view.queryByRole("heading", {
+        name: t("settings.update.lastUpdate", { date }),
+      }),
+    ).not.toBeNull();
+  });
+
+  it("a member does not", () => {
+    const { view } = fixture(withNote, "member");
+    expect(view.queryByText(NOTE)).toBeNull();
+  });
+
+  it("no note, no heading", () => {
+    const { view } = fixture();
+    expect(view.queryByRole("heading", { name: /2026/ })).toBeNull();
   });
 });
 

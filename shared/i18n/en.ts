@@ -535,16 +535,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "Restart isomux for the update to take effect. Dev: <code>bun run dev</code>. User service: <code>systemctl --user restart isomux</code>. System service: <code>sudo systemctl restart isomux</code>.",
   "settings.update.tip":
     "Tip: click the copy button to copy this notice to clipboard, then ask any agent to take care of it.",
-  "settings.update.requested":
-    "If nothing happens after a few minutes, check the updater's status file on the server.",
-  "settings.update.waiting": "Keep this pane open until the server restarts.",
-  "settings.update.done":
-    "The update is done. Refresh the browser to load the updated page.",
-  "settings.update.refreshBrowser": "Refresh browser",
-  "settings.update.unchanged":
-    "The page reconnected, but the running version has not changed.",
-  "settings.update.unverified":
-    "The page reconnected, but the running version could not be checked.",
   "settings.update.stepRefresh":
     "Refresh the browser after the server restarts.",
   "settings.update.runningOn": "You are on <code>{version}</code>",
@@ -568,6 +558,18 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.update.updateNowBusy": "Update now ({count} busy)",
   "settings.update.updating": "Updating…",
   "settings.update.gotIt": "Got it",
+  "settings.update.lastUpdate": "Last update, {date}",
+
+  "update.screen.title": "Updating isomux",
+  "update.screen.prepare": "Preparing",
+  "update.screen.install": "Installing",
+  "update.screen.restart": "Restarting",
+  "update.screen.requested": "Waiting for the updater.",
+  "update.screen.done": "This office now runs {version}.",
+  "update.screen.failed": "The update did not finish. This office runs {version}.",
+  "update.screen.reload": "Reload",
+  "update.screen.hide": "Hide",
+  "update.outcome.title": "Notes from the update",
 
   "settings.usage.title": "Office Usage",
   "settings.usage.intro":

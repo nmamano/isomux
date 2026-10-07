@@ -525,17 +525,6 @@ Coses que pots fer per ell:
     "Reinicia isomux perquè l'actualització s'apliqui. Desenvolupament: <code>bun run dev</code>. Servei d'usuari: <code>systemctl --user restart isomux</code>. Servei de sistema: <code>sudo systemctl restart isomux</code>.",
   "settings.update.tip":
     "Consell: prem el botó de copiar per copiar aquest avís al porta-retalls i després demana a qualsevol agent que se n'encarregui.",
-  "settings.update.requested":
-    "Si no passa res al cap d'uns minuts, revisa el fitxer d'estat de l'actualitzador al servidor.",
-  "settings.update.waiting":
-    "Mantén aquest panell obert fins que es reiniciï el servidor.",
-  "settings.update.done":
-    "L'actualització ha acabat. Recarrega el navegador per carregar la pàgina actualitzada.",
-  "settings.update.refreshBrowser": "Recarrega el navegador",
-  "settings.update.unchanged":
-    "La pàgina s'ha tornat a connectar, però la versió en execució no ha canviat.",
-  "settings.update.unverified":
-    "La pàgina s'ha tornat a connectar, però no s'ha pogut comprovar la versió en execució.",
   "settings.update.stepRefresh":
     "Recarrega el navegador després que es reiniciï el servidor.",
   "settings.update.runningOn": "Ets a <code>{version}</code>",
@@ -561,6 +550,18 @@ Coses que pots fer per ell:
   "settings.update.updateNowBusy": "Actualitza ara ({count} ocupats)",
   "settings.update.updating": "Actualitzant…",
   "settings.update.gotIt": "Entesos",
+  "settings.update.lastUpdate": "Darrera actualització, {date}",
+
+  "update.screen.title": "Actualitzant isomux",
+  "update.screen.prepare": "Preparant",
+  "update.screen.install": "Instal·lant",
+  "update.screen.restart": "Reiniciant",
+  "update.screen.requested": "Esperant l'actualitzador.",
+  "update.screen.done": "Aquesta oficina ara executa {version}.",
+  "update.screen.failed": "L'actualització no ha acabat. Aquesta oficina executa {version}.",
+  "update.screen.reload": "Recarrega",
+  "update.screen.hide": "Amaga",
+  "update.outcome.title": "Notes de l'actualització",
 
   "settings.usage.title": "Ús de l'oficina",
   "settings.usage.intro":

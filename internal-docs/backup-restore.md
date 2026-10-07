@@ -181,7 +181,7 @@ something". You are waiting for a state that is neither `active` nor
 the process is still shutting down and may still be writing. If it will
 not leave `deactivating` after a minute or so, stop and investigate rather
 than forcing it - the updater's rollback path treats exactly this as a
-hard stop ("service would not stop; NOT touching the state root under a
+hard stop ("service would not stop; NOT rebuilding the old version under a
 live process"). Untarring over a state root a live process is still
 writing to is how you get a half-restored office.
 
@@ -384,9 +384,21 @@ Three different things write archives; only the first is the daily backup.
 | Location                                            | Written by                    | What it is                                                                  |
 | --------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
 | `~/isomux-backups/isomux-YYYY-MM-DD.tar.gz`         | `server/backup.ts`            | The daily backup. This runbook.                                              |
-| `/var/lib/isomux-update/snapshots/pre-update-*.tar.gz` | `scripts/update.sh`         | Full state snapshot taken with the service stopped immediately before a release is applied. It is not filtered like the daily backup and has no `RESTORE.txt`. The updater restores it itself if the new version fails its readiness poll. |
+| `/var/lib/isomux-update/snapshots/pre-update-*.tar.gz` | older `scripts/update.sh`   | Full state snapshot an older updater took with the service stopped, before it applied a release. It is not filtered like the daily backup and has no `RESTORE.txt`. The current updater takes none. |
 | `~/.isomux/backups/`                                 | `server/migrations.ts` etc.  | One-off safety copies taken before a schema migration (e.g. `pre-userid-migration-*`). Individual files and directories, not full-office archives. |
 
 `/var/lib/isomux-update/snapshots/broken-*` is the third kind: a state root
-the updater moved aside after a failed release. It is a directory, not a
-tarball, and only the newest one is kept.
+an older updater moved aside after a failed release. It is a directory, not
+a tarball.
+
+The current updater leaves the state root in place and, when a release
+fails its readiness poll, rolls back the code only. It writes nothing to
+`/var/lib/isomux-update/snapshots`, and it deletes nothing there either. The
+update to the first release with this updater still runs the old one and
+takes one last snapshot. The daily backup above is the copy to restore from.
+Delete the leftovers by hand when you no longer need them:
+
+```
+sudo rm -f /var/lib/isomux-update/snapshots/pre-update-*.tar.gz
+sudo rm -rf /var/lib/isomux-update/snapshots/broken-*
+```

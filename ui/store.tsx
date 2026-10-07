@@ -1,4 +1,13 @@
 import { recentMembersChatPins } from "../shared/members-chat.ts";
+import {
+  initialUpdateWatch,
+  watchOnClicked,
+  watchOnLaunching,
+  watchOnHide,
+  watchOnStatus,
+  type UpdateScreen,
+  type UpdateWatch,
+} from "./update-watch.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
 import type { RoomDecor } from "../shared/room-decor.ts";
@@ -215,6 +224,8 @@ export interface AppState {
   // update_status arrives). "commit" = source-checkout notice (release +
   // main-drift context), "release" = a new release on an updater-managed box.
   updateInfo: UpdateStatusWire | null;
+  // Which update this tab follows on the update screen (ui/update-watch.ts).
+  updateWatch: UpdateWatch;
   // Server-stored member profiles. `users` is keyed by lowercase(name). The
   // current device's user is identified by `sessionContext.username`, which
   // the server sends right after WS open from the session cookie. Pre-auth
@@ -308,6 +319,11 @@ type Action =
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
   | { type: "disconnected" }
+  // CLIENT-LOCAL: this tab starts an update launch, the launch was
+  // accepted, and Hide on the update screen.
+  | { type: "update_launching" }
+  | { type: "update_clicked" }
+  | { type: "update_hide"; screen: UpdateScreen }
   // CLIENT-LOCAL (no longer a ServerMessage): ContextMenu dispatches this after
   // the REST agents.listSessions fetch (GET /api/agents/:id/sessions) to seed the
   // per-agent sessions map. The WS sessions_list push it replaced was retired.
@@ -1253,13 +1269,31 @@ export function reducer(state: AppState, action: Action): AppState {
               latest: action.latest,
               securityUpdate: action.securityUpdate,
               apply: action.apply,
+              progress: action.progress ?? null,
+              ...(action.outcome ? { outcome: action.outcome } : {}),
             };
       return {
         ...state,
         updateAvailable: action.updateAvailable,
         updateInfo,
+        updateWatch: watchOnStatus(state.updateWatch, updateInfo),
       };
     }
+    case "update_clicked":
+      return {
+        ...state,
+        updateWatch: watchOnClicked(state.updateWatch),
+      };
+    case "update_launching":
+      return {
+        ...state,
+        updateWatch: watchOnLaunching(state.updateWatch),
+      };
+    case "update_hide":
+      return {
+        ...state,
+        updateWatch: watchOnHide(state.updateWatch, action.screen),
+      };
     case "room_closed": {
       const result = applyRoomClose(
         state.rooms,
@@ -1527,6 +1561,7 @@ export const initialState: AppState = {
   currentRoomId: null,
   updateAvailable: false,
   updateInfo: null,
+  updateWatch: initialUpdateWatch,
   users: new Map(),
   usersLoaded: false,
   sessionContext: null,

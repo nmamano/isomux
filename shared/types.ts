@@ -1835,7 +1835,31 @@ export type UpdateStatusWire =
       // deploys the new release with the platform, and `guide` picks the
       // platform guide the pane links.
       apply: UpdateApply;
+      // The running or last update on an updater-managed box, from the
+      // updater's progress file (server/update-progress.ts). Absent or null:
+      // no record. "requested": the launch was accepted and the updater has
+      // not published its first phase yet.
+      progress?: UpdateProgressWire | null;
+      // What the installer reported about the update that brought this
+      // version up (server/update-checker.ts readUpdateOutcome). Present only
+      // with messages and only for the running release.
+      outcome?: UpdateOutcomeWire;
     };
+
+export interface UpdateOutcomeWire {
+  target: string;
+  // UTC timestamp the installer wrote.
+  at: string;
+  // English sentences from the installer, shown as written.
+  messages: string[];
+}
+
+export interface UpdateProgressWire {
+  attempt: string | null;
+  // A phase name from scripts/update.sh; null while requested.
+  phase: string | null;
+  result: "requested" | "running" | "ok" | "failed";
+}
 
 export type UpdateApply =
   | { kind: "host" }
