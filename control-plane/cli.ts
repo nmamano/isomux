@@ -32,11 +32,7 @@ import { DATABASE_IDENTITY_ENV, proveDatabaseIdentity } from "./boot.ts";
 import {
   bootstrapDatabase,
   writeDatabaseIdentity,
-  migrateCustomerSshKeyColumns,
-  migrateCertificateContactColumns,
-  migrateHostedCancellationPolicy,
-  migrateMultiOfficeReservations,
-  migratePendingCheckoutColumns,
+  OWNER_MIGRATIONS,
   reportBootstrap,
 } from "./bootstrap.ts";
 import {
@@ -1060,29 +1056,16 @@ async function cmdSetDatabaseIdentity(): Promise<void> {
   reporter.line(`database identity: ${outcome}`);
 }
 
-async function cmdMigrateCustomerSshKey(): Promise<void> {
-  await migrateCustomerSshKeyColumns(databaseUrl());
-  reporter.line("customer SSH key columns: ready");
+async function cmdMigrate(
+  migration: (typeof OWNER_MIGRATIONS)[number],
+): Promise<void> {
+  await migration.run(databaseUrl());
+  reporter.line(`${migration.ready}: ready`);
 }
 
-async function cmdMigrateCertificateContact(): Promise<void> {
-  await migrateCertificateContactColumns(databaseUrl());
-  reporter.line("certificate-contact schedule columns: ready");
-}
-
-async function cmdMigrateHostedCancellation(): Promise<void> {
-  await migrateHostedCancellationPolicy(databaseUrl());
-  reporter.line("hosted cancellation policy schema: ready");
-}
-
-async function cmdMigrateMultiOffice(): Promise<void> {
-  await migrateMultiOfficeReservations(databaseUrl());
-  reporter.line("multi-office reservation schema: ready");
-}
-
-async function cmdMigratePendingCheckouts(): Promise<void> {
-  await migratePendingCheckoutColumns(databaseUrl());
-  reporter.line("pending Checkout recovery schema: ready");
+/** Every owner migration in order; the first failure stops the rest. */
+async function cmdMigrateAll(): Promise<void> {
+  for (const migration of OWNER_MIGRATIONS) await cmdMigrate(migration);
 }
 
 async function cmdOps(args: Map<string, string>): Promise<void> {
@@ -1406,28 +1389,26 @@ async function main(): Promise<void> {
       return cmdBootstrap();
     case "set-database-identity":
       return cmdSetDatabaseIdentity();
-    case "migrate-customer-ssh-key":
-      return cmdMigrateCustomerSshKey();
-    case "migrate-certificate-contact":
-      return cmdMigrateCertificateContact();
-    case "migrate-hosted-cancellation":
-      return cmdMigrateHostedCancellation();
-    case "migrate-multi-office":
-      return cmdMigrateMultiOffice();
-    case "migrate-pending-checkouts":
-      return cmdMigratePendingCheckouts();
+    case "migrate-all":
+      return cmdMigrateAll();
     case "operator":
       return cmdOperator(args);
     case "attention":
       return cmdAttention(args);
     case "expiry-test":
       return cmdExpiryTest(args);
-    default:
+    default: {
+      // Every leaf migrate-* command is a roster entry, so migrate-all runs
+      // each one.
+      const migration = OWNER_MIGRATIONS.find((m) => m.command === cmd);
+      if (migration) return cmdMigrate(migration);
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|set-database-identity|migrate-customer-ssh-key|migrate-certificate-contact|migrate-hosted-cancellation|migrate-multi-office|migrate-pending-checkouts> [--flags]",
+          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|set-database-identity|migrate-all|" +
+          `${OWNER_MIGRATIONS.map((m) => m.command).join("|")}> [--flags]`,
       );
       process.exit(2);
+    }
   }
 }
 

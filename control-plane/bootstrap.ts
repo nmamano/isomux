@@ -308,6 +308,46 @@ export async function migrateHostedCancellationPolicy(
 }
 
 /**
+ * Every owner-role migration, as its CLI command, in the order it shipped and
+ * the order `migrate-all` runs them. deploy.sh runs `migrate-all` with the new
+ * image on every redeploy, while the previous release still serves, so each
+ * migration must be idempotent and must leave a schema the previous release
+ * still reads and writes (control-plane README, "Deploying from main").
+ */
+export const OWNER_MIGRATIONS: readonly {
+  command: `migrate-${string}`;
+  run: (dsn: string) => Promise<void>;
+  /** What the command reports, before ": ready". */
+  ready: string;
+}[] = [
+  {
+    command: "migrate-customer-ssh-key",
+    run: migrateCustomerSshKeyColumns,
+    ready: "customer SSH key columns",
+  },
+  {
+    command: "migrate-hosted-cancellation",
+    run: migrateHostedCancellationPolicy,
+    ready: "hosted cancellation policy schema",
+  },
+  {
+    command: "migrate-multi-office",
+    run: migrateMultiOfficeReservations,
+    ready: "multi-office reservation schema",
+  },
+  {
+    command: "migrate-pending-checkouts",
+    run: migratePendingCheckoutColumns,
+    ready: "pending Checkout recovery schema",
+  },
+  {
+    command: "migrate-certificate-contact",
+    run: migrateCertificateContactColumns,
+    ready: "certificate-contact schedule columns",
+  },
+];
+
+/**
  * Write the database identity that `boot.ts` proves at startup.
  *
  * OWNER ONLY, and checked here rather than left to the grants: a role that

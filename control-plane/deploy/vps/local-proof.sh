@@ -14,10 +14,14 @@
 # provisioner state, and must build the commit's bytes even when the cached
 # release tree was changed. Around them it checks each container's resource
 # ceiling, and that deploy.sh refuses an unfinished or incomplete install (exit
-# 3 and 4) before it builds or creates anything. Last, one auto-deploy.sh tick
-# from a local origin deploys a commit whose provisioner cannot start, under
-# the lock that a manual deploy.sh meanwhile cannot take, and deploy.sh puts
-# the previous release back.
+# 3 and 4) before it builds or creates anything. Last, auto-deploy.sh ticks
+# from a local origin, under the lock that a manual deploy.sh meanwhile cannot
+# take: a commit whose provisioner cannot start, which deploy.sh rolls back; a
+# commit with a migration its provisioner needs, which deploys; a commit whose
+# second migration fails, which leaves the running containers alone; and a
+# commit with a migration and a provisioner that cannot start, which rolls
+# back. After each rollback the previous release reads and writes the migrated
+# schema.
 set -euo pipefail
 umask 077
 
@@ -58,7 +62,7 @@ teardown() {
   if [[ $status -ne 0 && -d $work/root ]]; then
     local kept
     kept=$(mktemp -d /tmp/isomux-hosted-proof-logs.XXXXXX)
-    cp "$work"/root/deploy-*.log "$kept"/ 2>/dev/null || true
+    cp "$work"/root/deploy-*.log "$work"/auto-deploy.log "$kept"/ 2>/dev/null || true
     [[ -f $work/root/release.env ]] && docker compose --env-file "$work/root/release.env" \
       -f "$work/root/current/control-plane/deploy/vps/compose.yaml" \
       logs --no-color >"$kept/compose.log" 2>&1 || true
@@ -280,12 +284,19 @@ mv "$work/cli.ts" "$work/src/control-plane/cli.ts"
 git -C "$work/src" -c user.name=proof -c user.email=proof@example.com commit -qam "a provisioner that cannot start"
 git -C "$work/src" push -q --no-verify origin HEAD:main
 broken=$(git -C "$work/src" rev-parse HEAD)
+# Every commit in the green file has a green Build.
 cat >"$work/api.ts" <<'API'
-const runs = [{ head_sha: process.env.BROKEN, run_number: 1, status: "completed", conclusion: "success" }];
-const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ workflow_runs: runs }) });
+const handler = async () => {
+  const shas = (await Bun.file(process.env.GREEN_FILE!).text()).split("\n").filter(Boolean);
+  return Response.json({
+    workflow_runs: shas.map((head_sha, i) => ({ head_sha, run_number: i + 1, status: "completed", conclusion: "success" })),
+  });
+};
+const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: handler });
 await Bun.write(process.env.PORT_FILE!, String(server.port));
 API
-BROKEN=$broken PORT_FILE=$work/api.port bun "$work/api.ts" &
+echo "$broken" >"$work/green"
+GREEN_FILE=$work/green PORT_FILE=$work/api.port bun "$work/api.ts" &
 api_pid=$!
 for _ in {1..50}; do
   [[ -s $work/api.port ]] && break
@@ -295,10 +306,13 @@ done
 printf 'ISOMUX_HOSTED_SRC=%s\nISOMUX_HOSTED_GITHUB_REPO=owner/repo\n' "$work/src" >"$work/env/auto-deploy.env"
 chmod 600 "$work/env/auto-deploy.env"
 mkdir "$work/units"
-ISOMUX_HOSTED_GITHUB_API=http://127.0.0.1:$(cat "$work/api.port") ISOMUX_HOSTED_UNIT_DIR=$work/units \
-  "$work/root/current/control-plane/deploy/vps/auto-deploy.sh" >"$work/auto-deploy.log" 2>&1 ||
-  die "auto-deploy.sh exited non-zero"
-status=$(cat "$work/root/auto-deploy/status.json")
+tick() {
+  ISOMUX_HOSTED_GITHUB_API=http://127.0.0.1:$(cat "$work/api.port") ISOMUX_HOSTED_UNIT_DIR=$work/units \
+    "$work/root/current/control-plane/deploy/vps/auto-deploy.sh" >>"$work/auto-deploy.log" 2>&1 ||
+    die "auto-deploy.sh exited non-zero"
+  status=$(cat "$work/root/auto-deploy/status.json")
+}
+tick
 [[ $status == *'"result":"rolled_back"'* && $status == *"\"deployed\":\"$commit\""* &&
   $status == *"\"target\":\"$broken\""* && $status == *'"stopped":false'* ]] ||
   die "the tick did not end rolled back to $commit: $status"
@@ -310,6 +324,112 @@ reason=$(source "$here/running.sh" && release_healthy "$commit" "$ISOMUX_HOSTED_
 [[ $(echo "select count(*) from accounts where id = 'proof-account';" | sql) == 1 ]] || die "the rollback lost data"
 [[ $(dc exec -T provisioner cat /data/proof-sentinel) == proof ]] || die "the rollback lost the provisioner state"
 say "auto-deploy: a green commit whose provisioner cannot start rolls back to $commit, which serves; the commit is marked failed"
+
+# Migrations. Each commit below adds owner migrations to the roster that
+# migrate-all runs; each one adds a column to audit_events, a table the
+# provisioner writes.
+patch_src() { # file under the clone, the text it holds once, its replacement
+  bun -e '
+const [file, before, after] = process.argv.slice(1);
+const text = await Bun.file(file).text();
+if (text.split(before).length !== 2) process.exit(1);
+await Bun.write(file, text.replace(before, () => after));
+' "$work/src/$1" "$2" "$3" || die "$1 does not hold the text to patch exactly once"
+}
+roster_end='];
+
+/**
+ * Write the database identity'
+add_migration() { # command, SQL statement
+  patch_src control-plane/bootstrap.ts "$roster_end" "  { command: \"$1\", run: (dsn) => proofMigration(dsn, \"$2\"), ready: \"$1\" },
+$roster_end"
+}
+commit_to_main() { # message; prints the new commit and marks it green
+  git -C "$work/src" -c user.name=proof -c user.email=proof@example.com commit -qam "$1"
+  git -C "$work/src" push -q --no-verify origin HEAD:main
+  git -C "$work/src" rev-parse HEAD | tee -a "$work/green"
+}
+has_column() {
+  [[ $(echo "select count(*) from pg_attribute where attrelid = 'audit_events'::regclass and attname = '$1' and not attisdropped;" | sql) == 1 ]]
+}
+# The running provisioner's own Store opens the database (its schema check
+# reads the catalog) and appends an audit event, which the superuser reads back.
+release_reads_and_writes() {
+  local mark=proof-$RANDOM$RANDOM
+  dc exec -T -e PROOF_MARK="$mark" provisioner bun -e '
+import { Store } from "/app/control-plane/store.ts";
+const store = await Store.openRuntime(process.env.CONTROL_PLANE_DB ?? "");
+await store.tx(() => store.appendAudit({ actor: "proof", instance_id: null, action: "proof-write", target: process.env.PROOF_MARK ?? "", outcome: "succeeded" }));
+await store.close();
+' >>"$work/auto-deploy.log" 2>&1 || return 1
+  [[ $(echo "select count(*) from audit_events where target = '$mark';" | sql) == 1 ]]
+}
+serves() { # commit
+  [[ $(readlink "$work/root/current") == "$work/root/releases/$1" ]] || die "current does not point at $1"
+  # shellcheck source=running.sh
+  reason=$(source "$here/running.sh" && release_healthy "$1" "$ISOMUX_HOSTED_WEB_PORT" dc) ||
+    die "$1 does not serve: $reason"
+}
+cat >>"$work/src/control-plane/bootstrap.ts" <<'TS'
+
+async function proofMigration(dsn: string, statement: string): Promise<void> {
+  const pool = await openPool(dsn);
+  try {
+    await inTransaction(pool, dsn, [statement]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+TS
+
+# M1: the provisioner can start again, and its schema check requires the
+# column that its new migration adds.
+git -C "$work/src" checkout -q "$commit" -- control-plane/cli.ts
+add_migration migrate-proof-one "alter table audit_events add column if not exists proof_one text"
+patch_src control-plane/store.ts '      ["accounts", "is_operator"],' '      ["accounts", "is_operator"],
+      ["audit_events", "proof_one"],'
+migrated=$(commit_to_main "a migration the provisioner needs")
+tick
+[[ $status == *'"result":"deployed"'* && $status == *"\"deployed\":\"$migrated\""* ]] ||
+  die "the commit with a new migration did not deploy: $status"
+has_column proof_one || die "the new migration did not run"
+serves "$migrated"
+say "migration: a commit whose provisioner needs its new migration deploys with no operator step"
+
+# M2: one migration that applies, then one that fails.
+add_migration migrate-proof-two "alter table audit_events add column if not exists proof_two text"
+add_migration migrate-proof-fail "select 1 / 0"
+running_ids=$(dc ps -q provisioner web | sort)
+partial=$(commit_to_main "a migration that applies, then one that fails")
+tick
+[[ $status == *'"result":"rolled_back"'* && $status == *"\"deployed\":\"$migrated\""* &&
+  $status == *"\"target\":\"$partial\""* ]] || die "the failed migration did not roll back: $status"
+grep -qx "$partial" "$work/root/auto-deploy/failed" || die "the commit with the failed migration is not marked failed"
+[[ $(dc ps -q provisioner web | sort) == "$running_ids" ]] || die "a failed migration replaced the running containers"
+has_column proof_two || die "the migration before the failed one did not stay applied"
+serves "$migrated"
+release_reads_and_writes || die "$migrated does not read and write the partly migrated schema"
+say "migration: a failed migration marks the commit failed; the running containers stay, and read and write what the earlier migration applied"
+
+# M3: without the failing migration, one more that applies, and a provisioner
+# that cannot start.
+git -C "$work/src" checkout -q "$migrated" -- control-plane/bootstrap.ts
+add_migration migrate-proof-two "alter table audit_events add column if not exists proof_two text"
+add_migration migrate-proof-three "alter table audit_events add column if not exists proof_three text"
+# After the shebang, so that every other command still runs.
+patch_src control-plane/cli.ts '#!/usr/bin/env bun
+' '#!/usr/bin/env bun
+if (process.argv[2] === "run") process.exit(1);
+'
+unstartable=$(commit_to_main "a migration, and a provisioner that cannot start")
+tick
+[[ $status == *'"result":"rolled_back"'* && $status == *"\"deployed\":\"$migrated\""* &&
+  $status == *"\"target\":\"$unstartable\""* ]] || die "the unstartable commit did not roll back: $status"
+grep -qx "$unstartable" "$work/root/auto-deploy/failed" || die "the unstartable commit is not marked failed"
+has_column proof_three || die "the migration did not run before the provisioner failed"
+serves "$migrated"
+release_reads_and_writes || die "$migrated does not read and write the migrated schema after the rollback"
+say "migration: after its migration, a provisioner that cannot start rolls back; the previous release reads and writes the migrated schema"
 
 # A lost state volume refuses: no empty volume is created in its place.
 dc rm -sf provisioner >/dev/null 2>&1

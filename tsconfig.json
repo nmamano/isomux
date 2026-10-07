@@ -20,6 +20,8 @@
     "ui",
     "api",
     "control-plane",
+    "deploy",
+    "scripts",
     "middleware.ts"
   ],
   // The hosted control plane's web app is its own package with its own

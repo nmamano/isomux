@@ -11,8 +11,9 @@
 # The first run on a host (no generated/ directory and neither named volume)
 # generates every database password, the seam token and the database identity,
 # creates the roles, bootstraps the schema and stamps the identity. Every later
-# run only builds, replaces the two app containers and checks them: it never
-# bootstraps, regrants, resets a password or stamps the identity.
+# run builds, runs every owner migration with the new image, replaces the two
+# app containers and checks them: it never bootstraps, regrants, resets a
+# password or stamps the identity.
 #
 # --prepare does the first install and stops before any app starts: no
 # provisioner, no web. It is for a move, where the database is restored and the
@@ -291,6 +292,14 @@ if $first_install; then
   : >"$generated/installed"
   chmod 600 "$generated/installed"
   say "db: owner and runtime roles, schema and identity in place"
+else
+  # Every owner migration, with the new image, while the previous release still
+  # serves. Each one is idempotent and keeps the previous release working
+  # (README, "Deploying from main"), so a failure rolls back to a release that
+  # runs on whatever the earlier migrations applied.
+  dc run --rm -T owner bun control-plane/cli.ts migrate-all >>"$log" 2>&1 ||
+    die "the migrations of $commit failed; see $log"
+  say "db: migrations applied"
 fi
 if $prepare; then
   say "PASS $project prepared at $commit: no app started"

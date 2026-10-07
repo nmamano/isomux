@@ -687,7 +687,11 @@ describe("harden-ssh.sh --apply", () => {
   });
 
   it("fails when sshd will not report its resolved configuration", async () => {
-    for (const env of [{ STUB_SSHD_T_RC: "1" }, { STUB_SSHD_T_EMPTY: "1" }]) {
+    const envs: Record<string, string>[] = [
+      { STUB_SSHD_T_RC: "1" },
+      { STUB_SSHD_T_EMPTY: "1" },
+    ];
+    for (const env of envs) {
       const { code, output } = await apply(env);
       expect(code).toBe(3);
       expect(existsSync(dropin())).toBe(false);

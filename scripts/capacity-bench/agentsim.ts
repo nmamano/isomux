@@ -17,6 +17,8 @@
 // Emits one JSON line per turn on stdout, which is the per-turn latency series
 // the benchmark reports.
 
+export {}; // a module, so the top-level awaits below typecheck
+
 const AGENT_ID = process.env.BENCH_AGENT_ID ?? "0";
 const CONTEXT_MB = Number(process.env.BENCH_CONTEXT_MB ?? 280);
 const TOUCH_FRACTION = Number(process.env.BENCH_TOUCH_FRACTION ?? 0.15);

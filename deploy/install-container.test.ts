@@ -243,6 +243,7 @@ describe("container installer", () => {
           notifRooms: [],
           allowedRooms: [],
           hidden: [],
+          tucked: [],
           order: [],
           avatarColor: "#112233",
           avatarVariant: "classic",

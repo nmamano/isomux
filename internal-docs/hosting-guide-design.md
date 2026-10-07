@@ -83,6 +83,5 @@ verbatim rendered English-copy artifact under the ignored
 `internal-docs/private/hosting-guide-0921/` directory. The artifact is not a
 second maintained source.
 
-Normal lane gates also include build:ui, scoped ESLint, and root tsc. The scripts
-receive an extra explicit strict typecheck because the root tsconfig does not
-include test files under scripts. Gate logs must start with the committed hash.
+Normal lane gates also include build:ui, scoped ESLint, and root tsc, which
+covers scripts/. Gate logs must start with the committed hash.

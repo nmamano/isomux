@@ -100,11 +100,11 @@ function summarize(dir: string): Summary {
           lastT = Math.max(lastT, e.t);
         }
         if (seen === 1) continue;
-        totals.push(e.totalMs);
-        touches.push(e.touchMs);
+        if (typeof e.totalMs === "number") totals.push(e.totalMs);
+        if (typeof e.touchMs === "number") touches.push(e.touchMs);
         if (typeof e.periodMs === "number") periods.push(e.periodMs);
-        if (e.rssKb > 0) rss.push(e.rssKb);
-        if (e.anonKb > 0) anon.push(e.anonKb);
+        if (e.rssKb && e.rssKb > 0) rss.push(e.rssKb);
+        if (e.anonKb && e.anonKb > 0) anon.push(e.anonKb);
       }
     }
   }

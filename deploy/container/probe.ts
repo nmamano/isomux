@@ -1,4 +1,6 @@
 // Setup returns 200; the office's unauthenticated gate returns 401.
+
+export {}; // a module, so the top-level await below typechecks
 try {
   const response = await fetch(
     `http://127.0.0.1:${process.env.PORT || 10000}/`,

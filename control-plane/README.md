@@ -64,6 +64,9 @@ migration while the current build is still serving:
 bun control-plane/cli.ts migrate-pending-checkouts
 ```
 
+On the Docker host, `deploy.sh` runs all of them before it starts a release
+("Deploying from main").
+
 Operator invocation for any of these: load the owner DSN in-process, never
 by shell-sourcing a secrets file -
 `bun --env-file=<operator secrets file> control-plane/cli.ts <migrate-command>`.
@@ -2457,7 +2460,8 @@ a BuildKit builder capped at 3 GiB and 2 CPUs (a scope around `docker build`
 does not cap it: the daemon does the build). Both images carry the commit as
 their `org.opencontainers.image.revision` label, and the provisioner also bakes
 it into `release-identity.json`, so `/internal/health` reports it as on Fly. The
-script then starts the services and proves: each running container's image is
+script then runs every owner migration with the new image, starts the services
+and proves: each running container's image is
 the one it built, with the commit's label; health is `ok` with
 `database_identity` true at that commit; the storefront home page answers 200;
 the database publishes no port. It keeps the release before this one, for a
@@ -2571,10 +2575,14 @@ tree and redeploys. After the redeploy it checks that
 the identity, the generated credentials, a row and a state-volume file written
 between the runs are unchanged, that both images hold the commit's bytes and
 not the changed tree's, that the previous release is kept and an older one is
-pruned, and that a missing state volume refuses without a build or a new
-volume. Then it checks that teardown leaves no container, volume, network,
-image, builder or file. Measured 2026-10-06 on the office box: about
-17 minutes, most of it the three builds.
+pruned. Auto-deploy ticks from a local origin then deploy a commit whose
+provisioner needs its new migration, and roll back three: a provisioner that
+cannot start, a second migration that fails (the running containers stay), and
+a migration followed by a provisioner that cannot start. After each rollback
+the previous release reads and writes the migrated schema. Last, a missing
+state volume must refuse without a build or a new volume, and teardown must
+leave no container, volume, network, image, builder or file. Measured 2026-10-07 on the office box: about
+27 minutes, most of it the image builds.
 
 ### Deploying from main
 
@@ -2615,15 +2623,20 @@ no commit is marked), when D is not on `main`, when T changes
 `/etc/isomux-hosted/auto-deploy.hold` exists, while another deploy holds the
 lock, and on an install that `--prepare` left or that did not finish.
 
-**Compatibility.** A rollback restores the app images, not the data. Every
-release must work on the schema and data that the next release writes: change
-them additively, and remove the old shape only in a later release (expand,
-then contract). `Store.open` refuses a schema that is behind, so a commit that
-needs a `migrate-*` command fails its health check and rolls back. Open gap:
-the `owner` service runs the deployed provisioner image, so a `migrate-*`
-command that is new in that commit is not in it, and `deploy.sh` has no step
-that runs a migration with the image it builds. No procedure for such a commit
-exists yet; set the hold before it reaches `main`.
+**Migrations.** Before it replaces the running release, `deploy.sh` runs
+`bun control-plane/cli.ts migrate-all` with the new image, while the previous
+release still serves. It runs every `migrate-*` command in the order of
+`OWNER_MIGRATIONS` in `bootstrap.ts`; a new migration is an entry there. A
+failed migration rolls back like any other failure, and the migrations before
+it stay applied.
+
+**Compatibility.** A rollback restores the app images, not the data. The
+previous release runs on the migrated schema during the deploy and after a
+rollback, so every migration must keep the previous release reading and
+writing correctly: change the schema additively, and remove the old shape only
+in a later release (expand, then contract). Every deploy runs every migration
+again, so each one must be idempotent. For a migration that cannot meet this
+rule, set the hold before the commit reaches `main` and deploy it by hand.
 
 **Rolling back.** Revert the commit on `main`; the next run deploys the revert.
 When that is too slow: create the hold file, run `deploy.sh <good commit>` by
