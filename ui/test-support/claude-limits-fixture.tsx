@@ -91,7 +91,10 @@ export async function settle(): Promise<void> {
   });
 }
 
-export function selectWith(container: HTMLElement, value: string): HTMLSelectElement {
+export function selectWith(
+  container: HTMLElement,
+  value: string,
+): HTMLSelectElement {
   const select = [...container.querySelectorAll("select")].find((candidate) =>
     [...candidate.options].some((option) => option.value === value),
   );
@@ -132,4 +135,3 @@ export async function renameAndSave(container: HTMLElement): Promise<void> {
   await settle();
   await settle();
 }
-

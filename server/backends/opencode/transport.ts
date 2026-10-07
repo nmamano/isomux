@@ -417,7 +417,9 @@ export class OpenCodeTransport {
   async getModelContextLimit(): Promise<number | null> {
     await this.initialize(() => undefined);
     const models = await this.catalog().catch(() => []);
-    return models.find((model) => model.id === this.model)?.contextLimit ?? null;
+    return (
+      models.find((model) => model.id === this.model)?.contextLimit ?? null
+    );
   }
 
   modelId(): string {
@@ -426,7 +428,9 @@ export class OpenCodeTransport {
 
   private catalog(): Promise<DiscoveredOpenCodeModel[]> {
     if (!this.lease)
-      return Promise.reject(new Error("OpenCode transport is not initialized."));
+      return Promise.reject(
+        new Error("OpenCode transport is not initialized."),
+      );
     return keptCatalog(
       this.supervisor,
       this.lease,

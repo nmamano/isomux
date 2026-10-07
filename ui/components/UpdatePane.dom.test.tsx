@@ -132,9 +132,9 @@ describe("update trigger", () => {
       mainAhead: 1,
     };
     const f = fixture(status);
-    expect(
-      f.view.queryByText(t("settings.update.stepRefresh")) !== null,
-    ).toBe(true);
+    expect(f.view.queryByText(t("settings.update.stepRefresh")) !== null).toBe(
+      true,
+    );
     await f.rerender(status);
     expect(f.gets()).toBe(0);
   });

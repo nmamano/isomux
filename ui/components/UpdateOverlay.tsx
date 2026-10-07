@@ -87,8 +87,7 @@ export function UpdateOutcomeNotes({
 }
 
 export function UpdateOverlay() {
-  const { updateWatch, updateInfo, connected, sessionContext } =
-    useAppState();
+  const { updateWatch, updateInfo, connected, sessionContext } = useAppState();
   const dispatch = useDispatch();
   const { t } = useI18n();
   const screen = updateScreen(updateWatch, updateInfo, connected);

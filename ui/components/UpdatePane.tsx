@@ -481,10 +481,7 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
         </div>
 
         {release ? (
-          <ReleaseBody
-            status={release}
-            onClose={onClose}
-          />
+          <ReleaseBody status={release} onClose={onClose} />
         ) : commit && notice ? (
           <>
             <CommitBody status={commit} notice={notice} />

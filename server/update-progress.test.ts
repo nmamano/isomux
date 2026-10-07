@@ -120,9 +120,9 @@ describe("updaterLiveness", () => {
   const withTicks = (ticks: string) => procStat(4242, ticks);
 
   it("alive when pid, start ticks and boot all match", () => {
-    expect(
-      updaterLiveness(rec(), fakeFs(liveFs(null, withTicks("777")))),
-    ).toBe("alive");
+    expect(updaterLiveness(rec(), fakeFs(liveFs(null, withTicks("777"))))).toBe(
+      "alive",
+    );
   });
 
   it("dead when the box rebooted, the pid is gone, or the pid was reused", () => {
@@ -130,9 +130,9 @@ describe("updaterLiveness", () => {
     rebooted["/proc/sys/kernel/random/boot_id"] = "f".repeat(8) + BOOT.slice(8);
     expect(updaterLiveness(rec(), fakeFs(rebooted))).toBe("dead");
     expect(updaterLiveness(rec(), fakeFs(liveFs(null, null)))).toBe("dead");
-    expect(
-      updaterLiveness(rec(), fakeFs(liveFs(null, withTicks("778")))),
-    ).toBe("dead");
+    expect(updaterLiveness(rec(), fakeFs(liveFs(null, withTicks("778"))))).toBe(
+      "dead",
+    );
   });
 
   it("a read it may not make proves nothing", () => {
@@ -188,7 +188,11 @@ describe("progressWire", () => {
 describe("UpdateProgressWatcher", () => {
   function watcher(files: Record<string, string | { code: string }>) {
     const seen: (UpdateProgressWire | null)[] = [];
-    const w = new UpdateProgressWatcher(PATH, (p) => seen.push(p), fakeFs(files));
+    const w = new UpdateProgressWatcher(
+      PATH,
+      (p) => seen.push(p),
+      fakeFs(files),
+    );
     return { w, seen };
   }
   const withTicks = (ticks: string) => procStat(4242, ticks);
@@ -218,7 +222,9 @@ describe("UpdateProgressWatcher", () => {
   });
 
   it("an accepted launch shows requested until a new attempt appears", () => {
-    const files = liveFs(JSON.stringify(rec({ result: "ok", phase: "finalize" })));
+    const files = liveFs(
+      JSON.stringify(rec({ result: "ok", phase: "finalize" })),
+    );
     const { w, seen } = watcher(files);
     w.poll();
     const before = w.beforeTrigger();
@@ -271,7 +277,9 @@ describe("UpdateProgressWatcher", () => {
   });
 
   it("a file that goes missing or unreadable during a request keeps it requested", () => {
-    const files = liveFs(JSON.stringify(rec({ result: "ok", phase: "finalize" })));
+    const files = liveFs(
+      JSON.stringify(rec({ result: "ok", phase: "finalize" })),
+    );
     const { w } = watcher(files);
     w.poll();
     w.triggerAccepted(w.beforeTrigger());

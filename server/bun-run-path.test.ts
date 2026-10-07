@@ -74,8 +74,9 @@ describe("normalizeBunRunPath", () => {
       expect(raw.endsWith(SYSTEM)).toBe(true);
       const own = join(dir, "node_modules", ".bin");
       const cleaned = normalizeBunRunPath(raw, dir).split(":");
-      expect(cleaned.filter((entry) => entry.endsWith("node_modules/.bin")))
-        .toEqual(raw.includes(own) ? [own] : []);
+      expect(
+        cleaned.filter((entry) => entry.endsWith("node_modules/.bin")),
+      ).toEqual(raw.includes(own) ? [own] : []);
       expect(cleaned.join(":").endsWith(SYSTEM)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });

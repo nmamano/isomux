@@ -32,7 +32,10 @@
 // systemctl/systemd-run.
 
 import { CALVER_RELEASE_RE } from "./version.ts";
-import { beforeUpdateTrigger, updateTriggerAccepted } from "./update-checker.ts";
+import {
+  beforeUpdateTrigger,
+  updateTriggerAccepted,
+} from "./update-checker.ts";
 import {
   readUpdateConf,
   updateConfPath,

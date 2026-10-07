@@ -4,15 +4,13 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { StateCtx, DispatchCtx, initialState, reducer } = await import(
-  "../store.tsx"
-);
+const { StateCtx, DispatchCtx, initialState, reducer } =
+  await import("../store.tsx");
 const browser = await import("../reload-browser.ts");
 const { UpdateOverlay } = await import("./UpdateOverlay.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-const { initialUpdateWatch, watchOnClicked, watchOnStatus } = await import(
-  "../update-watch.ts"
-);
+const { initialUpdateWatch, watchOnClicked, watchOnStatus } =
+  await import("../update-watch.ts");
 
 type Status = NonNullable<typeof initialState.updateInfo>;
 type Progress = NonNullable<Extract<Status, { mode: "release" }>["progress"]>;

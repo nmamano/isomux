@@ -558,7 +558,8 @@ Coses que pots fer per ell:
   "update.screen.restart": "Reiniciant",
   "update.screen.requested": "Esperant l'actualitzador.",
   "update.screen.done": "Aquesta oficina ara executa {version}.",
-  "update.screen.failed": "L'actualització no ha acabat. Aquesta oficina executa {version}.",
+  "update.screen.failed":
+    "L'actualització no ha acabat. Aquesta oficina executa {version}.",
   "update.screen.reload": "Recarrega",
   "update.screen.hide": "Amaga",
   "update.outcome.title": "Notes de l'actualització",

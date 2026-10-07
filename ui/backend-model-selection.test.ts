@@ -164,9 +164,9 @@ describe("effortPickerOptions", () => {
 
   it("offers no level for a limited Claude family", () => {
     expect(effortPickerOptions("claude", "haiku", null, ["haiku"])).toEqual([]);
-    expect(levels(effortPickerOptions("claude", "opus", null, ["haiku"]))).toEqual(
-      levels(effortLevelsFor("claude", "opus")),
-    );
+    expect(
+      levels(effortPickerOptions("claude", "opus", null, ["haiku"])),
+    ).toEqual(levels(effortLevelsFor("claude", "opus")));
   });
 
   it("offers the selected OpenCode model's levels, or none", () => {

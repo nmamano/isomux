@@ -1054,7 +1054,10 @@ describe("createClaudeBackend - limited families on Bedrock and Vertex", () => {
     });
 
     it(`keeps effort and auto for a pinned Sonnet 5.x on ${selector}`, () => {
-      const env = { ...cloud, ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5" };
+      const env = {
+        ...cloud,
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
+      };
       for (const opts of launch("sonnet", "auto", env)) expectFull(opts);
     });
 

@@ -743,7 +743,8 @@ function drivenServer(
     eventRequests: () => eventRequests,
     providerRequests: () => providerRequests,
     providerAborts: () => providerAborts,
-    releaseProvider: () => heldProviders.splice(0).forEach((answer) => answer()),
+    releaseProvider: () =>
+      heldProviders.splice(0).forEach((answer) => answer()),
     promptBodies,
     replyPending: () => releaseReply !== undefined,
     releaseReply: () => releaseReply?.(),
@@ -787,27 +788,27 @@ function drivenTransport(
   let recoveries = 0;
   const supervisor = {
     acquire: async () => ({
-        pid: 4242,
-        baseUrl: "http://127.0.0.1:1",
-        authHeader: "Basic synthetic",
-        get serverKey() {
-          return options.serverKey?.() ?? "server-1";
-        },
-        beginTurn: async () => {
-          options.onBeginTurn?.();
-        },
-        recoverBeforePrompt: async () => {
-          recoveries++;
-          if (options.recoveryBlocked)
-            throw new Error("guard: another turn is active");
-          options.onRecover?.();
-        },
-        endTurn: () => {},
-        serverStopped: () => options.serverStopped ?? false,
-        markUnresponsive: (pid: number, afterPrompt: boolean) =>
-          marked.push({ pid, afterPrompt }),
-        release: () => {},
-      }),
+      pid: 4242,
+      baseUrl: "http://127.0.0.1:1",
+      authHeader: "Basic synthetic",
+      get serverKey() {
+        return options.serverKey?.() ?? "server-1";
+      },
+      beginTurn: async () => {
+        options.onBeginTurn?.();
+      },
+      recoverBeforePrompt: async () => {
+        recoveries++;
+        if (options.recoveryBlocked)
+          throw new Error("guard: another turn is active");
+        options.onRecover?.();
+      },
+      endTurn: () => {},
+      serverStopped: () => options.serverStopped ?? false,
+      markUnresponsive: (pid: number, afterPrompt: boolean) =>
+        marked.push({ pid, afterPrompt }),
+      release: () => {},
+    }),
   } as unknown as OpenCodeSupervisor;
   const transport = new OpenCodeTransport({
     supervisor,
@@ -1041,10 +1042,9 @@ it("runs a turn at default effort with a notice when the catalog is slow, and ke
 
     server.releaseProvider();
     await turn.send();
-    expect(
-      server.promptBodies[1],
-      "the late catalog was kept",
-    ).toMatchObject({ variant: "high" });
+    expect(server.promptBodies[1], "the late catalog was kept").toMatchObject({
+      variant: "high",
+    });
     expect(server.providerRequests(), "no second catalog request").toBe(1);
     expect(turn.notices, "no notice once the catalog loads").toHaveLength(1);
   } finally {

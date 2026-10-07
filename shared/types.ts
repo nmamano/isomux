@@ -424,7 +424,9 @@ export function claudePermissionModeFor(
 ): AgentPermissionMode {
   if (mode !== "auto") return mode;
   if (limited.includes(family)) return "default";
-  return claudeFamilySupportsAutoPermission(family) ? mode : "bypassPermissions";
+  return claudeFamilySupportsAutoPermission(family)
+    ? mode
+    : "bypassPermissions";
 }
 
 // A pending message waiting for the agent to flush it. Senders can be human

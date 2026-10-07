@@ -365,9 +365,9 @@ describe("resolveTemplatePermission", () => {
   });
 
   it("turns auto into default, not bypass, for a limited family", () => {
-    expect(resolveTemplatePermission("claude", "haiku", "auto", ["haiku"])).toBe(
-      "default",
-    );
+    expect(
+      resolveTemplatePermission("claude", "haiku", "auto", ["haiku"]),
+    ).toBe("default");
     expect(resolveTemplatePermission("claude", "opus", "auto", ["haiku"])).toBe(
       "auto",
     );

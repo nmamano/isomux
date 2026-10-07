@@ -433,9 +433,7 @@ describe("provider auth affordances", () => {
     // No credentials at all: one notice, and it carries the sign-in card.
     const sent = logs.findIndex((entry) => entry.kind === "user_message");
     expect(sent).toBeGreaterThan(-1);
-    const notices = logs
-      .slice(sent)
-      .filter((entry) => entry.kind === "system");
+    const notices = logs.slice(sent).filter((entry) => entry.kind === "system");
     expect(notices).toHaveLength(1);
     expect(notices[0].metadata?.providerLogin).toBe("claude");
     // Topic generation skips a signed-out engine instead of calling it.
@@ -517,7 +515,10 @@ describe("provider auth affordances", () => {
   });
 
   it("skips topic generation while Codex is signed out", async () => {
-    const codexHome = join(STATE_ROOT, `signed-out-codex-${crypto.randomUUID()}`);
+    const codexHome = join(
+      STATE_ROOT,
+      `signed-out-codex-${crypto.randomUUID()}`,
+    );
     mkdirSync(codexHome, { recursive: true });
     setTestManagedOfficeEnv({ CODEX_HOME: codexHome, OPENAI_API_KEY: "" });
     const fake = new FakeBackend({

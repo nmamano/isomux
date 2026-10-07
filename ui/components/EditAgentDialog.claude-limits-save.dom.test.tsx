@@ -68,5 +68,4 @@ describe("edit dialog save after a model change", () => {
       view.unmount();
     }
   });
-
 });

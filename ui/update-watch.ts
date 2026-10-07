@@ -114,7 +114,9 @@ export function watchOnStatus(
   s: UpdateStatusWire,
 ): UpdateWatch {
   let next =
-    w.loadedVersion === undefined ? { ...w, loadedVersion: statusVersion(s) } : w;
+    w.loadedVersion === undefined
+      ? { ...w, loadedVersion: statusVersion(s) }
+      : w;
   const p = progressOf(s);
   // The first status names what was on record before this page.
   const first = next.seen === undefined;
@@ -187,9 +189,7 @@ export function updateScreen(
     // known new version is done, the same version is a failed update, and an
     // unknown one proves nothing.
     if (p === null && connected && versionsKnown) {
-      return version !== w.loadedVersion
-        ? done()
-        : { kind: "failed", version };
+      return version !== w.loadedVersion ? done() : { kind: "failed", version };
     }
     return { kind: "requested" };
   }

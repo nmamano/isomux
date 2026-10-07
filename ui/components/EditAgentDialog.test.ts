@@ -222,7 +222,10 @@ describe("initial Claude permission mode on a limited family", () => {
       ...base,
       recommendations: {
         ...base.recommendations,
-        claude: { ...base.recommendations.claude, preferredFamilies: ["haiku"] },
+        claude: {
+          ...base.recommendations.claude,
+          preferredFamilies: ["haiku"],
+        },
       },
     };
     expect(

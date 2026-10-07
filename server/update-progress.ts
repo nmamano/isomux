@@ -200,7 +200,9 @@ export class UpdateProgressWatcher {
     }
     this.rec = rec;
     this.liveness =
-      rec && rec.result === "running" ? updaterLiveness(rec, this.read) : "unknown";
+      rec && rec.result === "running"
+        ? updaterLiveness(rec, this.read)
+        : "unknown";
     // Only a new attempt ends the request. A missing, unreadable or
     // malformed file is no attempt at all.
     if (this.requested && rec && rec.attempt !== this.requested.priorAttempt) {

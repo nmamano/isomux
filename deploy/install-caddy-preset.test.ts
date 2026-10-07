@@ -33,7 +33,8 @@ function installPackagesBody(): string {
 
 function presetPattern(): string {
   const match = installPackagesBody().match(/drop_output_lines '([^']+)'/);
-  if (!match) throw new Error("install_packages does not call drop_output_lines");
+  if (!match)
+    throw new Error("install_packages does not call drop_output_lines");
   return match[1]!;
 }
 
@@ -74,7 +75,12 @@ describe("install.sh: caddy's preset error on a masked unit", () => {
       const lines =
         stream === "stdout"
           ? [PRESET_LINES[0]!, KEPT_LINES[0]!, PRESET_LINES[1]!, KEPT_LINES[1]!]
-          : [KEPT_LINES[0]!, PRESET_LINES[0]!, KEPT_LINES[1]!, PRESET_LINES[1]!];
+          : [
+              KEPT_LINES[0]!,
+              PRESET_LINES[0]!,
+              KEPT_LINES[1]!,
+              PRESET_LINES[1]!,
+            ];
       lines.push(KEPT_LINES[2]!);
       const out = runFilter(presetPattern(), lines, 0);
       for (const line of PRESET_LINES) {

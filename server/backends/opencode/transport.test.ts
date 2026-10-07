@@ -1781,7 +1781,9 @@ describe("OpenCode kept model catalog", () => {
             try {
               for (const event of events)
                 controller?.enqueue(
-                  new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`),
+                  new TextEncoder().encode(
+                    `data: ${JSON.stringify(event)}\n\n`,
+                  ),
                 );
             } catch {
               // The stream can close first.
