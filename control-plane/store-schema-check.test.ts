@@ -257,7 +257,9 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     expect(Store.openRuntime(roleDsn)).rejects.toThrow(
       /subscriptions has no cancellation_policy column/,
     );
-    await migrateHostedCancellationPolicy(ownerDsn, { cutover: 1_786_579_200_000 });
+    await migrateHostedCancellationPolicy(ownerDsn, {
+      cutover: 1_786_579_200_000,
+    });
     const store = await Store.openRuntime(roleDsn);
     await store.close();
   });

@@ -89,7 +89,8 @@ async function openedAt(
   const timers: { at: number; run: () => void }[] = [];
   const polls: string[] = [];
   runInNewContext(script, {
-    setTimeout: (run: () => void, ms: number) => timers.push({ at: now + ms, run }),
+    setTimeout: (run: () => void, ms: number) =>
+      timers.push({ at: now + ms, run }),
     fetch: async (url: string) => {
       polls.push(url);
       const answer = answers.shift() ?? 502;

@@ -45,7 +45,10 @@ test.skipIf(process.env.ISOMUX_TEST_LIVE !== "1")(
       const documents: number[] = [];
       page.on("response", (response) => {
         const request = response.request();
-        if (request.isNavigationRequest() && request.frame() === page.mainFrame())
+        if (
+          request.isNavigationRequest() &&
+          request.frame() === page.mainFrame()
+        )
           documents.push(response.status());
       });
       await page.goto(`http://127.0.0.1:${front.port}/`);

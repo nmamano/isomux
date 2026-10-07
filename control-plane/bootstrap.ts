@@ -266,7 +266,10 @@ export const CANCELLATION_POLICY_CUTOVER_KEY =
 /** Owner-role migration for cancellation policy and provider-ID ownership. */
 export async function migrateHostedCancellationPolicy(
   dsn: string,
-  { cutover = Date.now(), ...options }: MigrationOptions & { cutover?: number } = {},
+  {
+    cutover = Date.now(),
+    ...options
+  }: MigrationOptions & { cutover?: number } = {},
 ): Promise<void> {
   const pool = await openPool(dsn, options);
   const client = await pool.connect().catch((err: unknown) => {
