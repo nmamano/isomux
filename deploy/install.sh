@@ -4545,7 +4545,11 @@ container_main() (
   chmod 644 "$rendered"
   systemctl enable caddy
   install_caddyfile_transaction "$rendered"
-  log "Office ready at https://$DOMAIN. Create the first owner with the setup key in $CONTAINER_DIR/office.env."
+  if container_has_owner; then
+    log "Office ready at https://$DOMAIN."
+  else
+    log "Office ready at https://$DOMAIN. Create the first owner with the setup key in $CONTAINER_DIR/office.env."
+  fi
   log "Owners can apply releases from the office Updates pane."
 )
 

@@ -129,6 +129,31 @@ function events(dir: string) {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
 
+// The container office's data disk records a claimed owner.
+function writeOwner(dir: string) {
+  mkdirSync(join(dir, "data/home/.isomux"), { recursive: true });
+  writeFileSync(
+    join(dir, "data/home/.isomux/users.json"),
+    JSON.stringify({
+      a1b2c3d4: {
+        id: "a1b2c3d4",
+        name: "Owner",
+        role: "owner",
+        createdAt: 1,
+        notifRooms: [],
+        allowedRooms: [],
+        hidden: [],
+        tucked: [],
+        order: [],
+        avatarColor: "#112233",
+        avatarVariant: "classic",
+        memberPrompt: null,
+        language: null,
+      },
+    } satisfies Record<string, UserRecord>),
+  );
+}
+
 afterEach(() => {
   for (const dir of fixtures.splice(0))
     rmSync(dir, { recursive: true, force: true });
@@ -231,29 +256,25 @@ describe("container installer", () => {
     );
     writeFileSync(path, env);
     expect(run(dir, "container_main").code).not.toBe(0);
-    mkdirSync(join(dir, "data/home/.isomux"), { recursive: true });
-    writeFileSync(
-      join(dir, "data/home/.isomux/users.json"),
-      JSON.stringify({
-        a1b2c3d4: {
-          id: "a1b2c3d4",
-          name: "Owner",
-          role: "owner",
-          createdAt: 1,
-          notifRooms: [],
-          allowedRooms: [],
-          hidden: [],
-          tucked: [],
-          order: [],
-          avatarColor: "#112233",
-          avatarVariant: "classic",
-          memberPrompt: null,
-          language: null,
-        },
-      } satisfies Record<string, UserRecord>),
-    );
+    writeOwner(dir);
     expect(run(dir, "container_main").code).toBe(0);
     expect(readFileSync(path, "utf8")).toBe(env);
+  });
+
+  it("points to the setup key only while the office has no owner", () => {
+    const dir = fixture();
+    const keyFile = join(dir, "config/office.env");
+    const first = run(dir, "container_main");
+    expect(first.code).toBe(0);
+    expect(first.out).toContain(keyFile);
+    const unclaimed = run(dir, "container_main");
+    expect(unclaimed.code).toBe(0);
+    expect(unclaimed.out).toContain(keyFile);
+    writeOwner(dir);
+    const claimed = run(dir, "container_main");
+    expect(claimed.code).toBe(0);
+    expect(claimed.out).toContain("https://office.example.com");
+    expect(claimed.out).not.toContain(keyFile);
   });
 
   it("rejects a changed tag digest before restarting the office", () => {

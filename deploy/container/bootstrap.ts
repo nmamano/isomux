@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 const headers = {
   "Content-Type": "text/html; charset=utf-8",
@@ -22,6 +22,17 @@ input{margin-top:8px;background:#1f2937;color:white}button{margin-top:28px;backg
 </style><main><h1>Set up your office</h1><p>Become this office's first owner. Use the value of <code>ISOMUX_SETUP_KEY</code> from your deployment's environment settings. It is a secret of at least 32 characters, created during deployment. ${setupHelp} See the <a href="https://isomux.com/docs/self-hosted#${setupGuide}" target="_blank" rel="noopener noreferrer">setup guide</a>.</p>
 <form method="post" action="/setup"><label>Your name (can be changed later)<input name="name" required maxlength="64" autocomplete="name"></label>
 <label>Setup key<input name="key" type="password" required autocomplete="off"></label><button>Create office</button></form></main></html>`;
+
+// The office takes the port only some seconds after this listener closes, and
+// a proxy answers 502 in that gap. The starting page therefore polls and opens
+// the office only once it answers: 200 with the new session, 401 without one
+// (as probe.ts reads it). After the claim, this listener answers 409.
+const startingScript = `const poll=async()=>{try{const r=await fetch("/",{cache:"no-store"});if(r.status===200||r.status===401)return location.replace("/")}catch{}setTimeout(poll,1000)};setTimeout(poll,1000)`;
+const startingHeaders = {
+  ...headers,
+  "Content-Security-Policy": `default-src 'none'; script-src 'sha256-${createHash("sha256").update(startingScript).digest("base64")}'; connect-src 'self'; frame-ancestors 'none'`,
+};
+const startingPage = `<!doctype html><title>Office ready</title><p>Your office is starting.</p><script>${startingScript}</script>`;
 
 // Setup attempts per client per minute. A counter per client, so one caller
 // cannot keep the first-owner claim blocked for everyone. The table is
@@ -98,12 +109,9 @@ export function createSetupHandler(options: {
       claimed = true;
       // Give the browser its cookie before replacing this listener with the office.
       setTimeout(options.complete, 500);
-      return new Response(
-        '<!doctype html><meta http-equiv="refresh" content="3;url=/"><title>Office ready</title><p>Your office is starting.</p>',
-        {
-          headers: { ...headers, "Set-Cookie": cookie },
-        },
-      );
+      return new Response(startingPage, {
+        headers: { ...startingHeaders, "Set-Cookie": cookie },
+      });
     } finally {
       inFlight = false;
     }
