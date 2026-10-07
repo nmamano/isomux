@@ -196,24 +196,28 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
   let concurrent = false;
   let buildComplete = false;
   let completed = 0;
-  const results = await runPipeline(async (name) => {
-    if (name === "bun test") expect(buildComplete).toBe(true);
-    else expect(completed).toBe(0);
-    active += 1;
-    if (active > 1) concurrent = true;
-    calls.push(name);
-    await Bun.sleep(1);
-    active -= 1;
-    completed += 1;
-    if (name === "build:ui") buildComplete = true;
-    return {
-      name,
-      log: `${name}.log`,
-      seconds: 0,
-      status: name === "lint" ? "failed" : "passed",
-      exitCode: name === "lint" ? 1 : 0,
-    };
-  }, () => "unused.log", true);
+  const results = await runPipeline(
+    async (name) => {
+      if (name === "bun test") expect(buildComplete).toBe(true);
+      else expect(completed).toBe(0);
+      active += 1;
+      if (active > 1) concurrent = true;
+      calls.push(name);
+      await Bun.sleep(1);
+      active -= 1;
+      completed += 1;
+      if (name === "build:ui") buildComplete = true;
+      return {
+        name,
+        log: `${name}.log`,
+        seconds: 0,
+        status: name === "lint" ? "failed" : "passed",
+        exitCode: name === "lint" ? 1 : 0,
+      };
+    },
+    () => "unused.log",
+    true,
+  );
 
   expect(calls).toEqual([
     "format:check",
@@ -232,16 +236,20 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
 
 it("skips tests only when the UI build fails", async () => {
   const calls: string[] = [];
-  const results = await runPipeline(async (name) => {
-    calls.push(name);
-    return {
-      name,
-      log: `${name}.log`,
-      seconds: 0,
-      status: name === "build:ui" ? "failed" : "passed",
-      exitCode: name === "build:ui" ? 1 : 0,
-    };
-  }, (name) => `${name}.skipped.log`, false);
+  const results = await runPipeline(
+    async (name) => {
+      calls.push(name);
+      return {
+        name,
+        log: `${name}.log`,
+        seconds: 0,
+        status: name === "build:ui" ? "failed" : "passed",
+        exitCode: name === "build:ui" ? 1 : 0,
+      };
+    },
+    (name) => `${name}.skipped.log`,
+    false,
+  );
 
   expect(calls).toEqual(["format:check", "lint", "tsc", "build:ui", "ci:web"]);
   expect(results.find((result) => result.name === "bun test")).toEqual({
