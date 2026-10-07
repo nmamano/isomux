@@ -42,7 +42,7 @@ const stages: Array<{ name: StageName; command: string[] }> = [
     ],
   },
   { name: "build:ui", command: ["bun", "run", "build:ui"] },
-  { name: "bun test", command: ["bun", "test"] },
+  { name: "bun test", command: ["bun", "scripts/test-shards.ts"] },
   { name: "ci:web", command: ["bun", "run", "ci:web"] },
 ];
 

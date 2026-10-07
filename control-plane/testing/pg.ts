@@ -203,7 +203,8 @@ async function sweepAbandoned(): Promise<void> {
     } catch {
       // gone
     }
-    if (NAME.test(nspname)) await ask(`drop schema ${quote(nspname)} cascade`);
+    if (NAME.test(nspname))
+      await ask(`drop schema if exists ${quote(nspname)} cascade`);
   }
 }
 

@@ -77,7 +77,7 @@ jobs:
         run: bun run build:ui
 
       - name: Run tests
-        run: bun test
+        run: bun scripts/test-shards.ts
 
   # The control-plane web app (`bun run ci:web`) is part of the local pre-push
   # gate (`bun run ci`), so it must be enforced here too - otherwise the hook

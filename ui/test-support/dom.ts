@@ -211,6 +211,11 @@ export function setUpDomTestFile({
       // unregister itself does. They are ours, not happy-dom's, and nothing
       // else will clean them up.
       try {
+        // React's scheduler can still hold a task after cleanup, and it reads
+        // window when it runs. Run it while the DOM exists: in a process with
+        // no file after this one it ran after unregister and failed the file
+        // (ui/App.boot.dom.test.tsx, 2026-10-07).
+        await new Promise((resolve) => setImmediate(resolve));
         if (GlobalRegistrator.isRegistered)
           await GlobalRegistrator.unregister();
       } finally {
