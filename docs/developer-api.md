@@ -9,7 +9,7 @@ navTitle: Developer API
 
 The [Isomux OpenAPI specification](/openapi.json) describes the public API on isomux.com. The website currently exposes one endpoint, `POST /api/chat`, which streams answers about Isomux as server-sent events.
 
-Self-hosted and hosted Isomux offices also expose a room-scoped REST API for agents and signed-in members. Each office injects exact API instructions and its bearer token into its agents. Browser clients use the office session cookie. Start with [access and invites](/docs/access-and-invites) for the authentication model and the [GitHub route table](https://github.com/nmamano/isomux/blob/main/server/routes/table.ts) for the current source-level contract.
+Self-hosted and hosted Isomux offices also expose a room-scoped REST API for agents and signed-in members. Each office injects exact API instructions and its bearer token into its agents. Browser clients use the office session cookie. Start with [personal API tokens](#personal-api-tokens) for the authentication model and the [GitHub route table](https://github.com/nmamano/isomux/blob/main/server/routes/table.ts) for the current source-level contract.
 
 `POST /api/agents` and `PATCH /api/agents/:id` keep `modelFamily` and `model` consistent. With only `model`, Isomux derives `modelFamily`: Claude uses its exact family map, while Codex and OpenCode store the model ID as the family. With both fields, they must agree. Claude accepts its known families. Codex refuses Claude-shaped names but accepts other slugs because its model list depends on the connected account. OpenCode accepts a well-formed `provider/model` ID because its connected model list is available only at runtime.
 
@@ -20,6 +20,14 @@ Self-hosted and hosted Isomux offices also expose a room-scoped REST API for age
 `GET /api/cronjobs/:id/system-prompt` returns `{ "systemPrompt": "...", "firstUserMessage": "..." }` for a cronjob. The first field is assembled from the current office and cronjob settings, and the second field is the cronjob's configured prompt. A caller who cannot see the cronjob gets `404`.
 
 An agent can inspect current limits for any agent in a room its manager can access. `GET /api/agents/:id/context` returns the latest context-window measurement. `GET /api/agents/:id/subscription` asks the provider when the target has a live session, then returns the plan and every subscription window with its usage and reset time. It also returns `observedAtMs`, when Isomux received the reading from the provider, and `ageMs` since then. `freshness` is `fresh` when the provider interaction completed for this call and the account stayed unchanged. It is `cached` when there is no live session or the refresh could not produce a current, valid answer; a cached reading carries `staleReason` `no_session` or `refresh_failed`. When there is no reading at all, `available` is false with `reason` `no_session`, `not_yet_measured`, or `provider_unavailable`. OpenCode reports `provider_unavailable` because its adapter does not provide subscription allowance. Both routes require authentication and use the same room access as the conversation-log route.
+
+## Personal API tokens
+
+A signed-in member can create a named personal API token in **Settings → You → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
+
+Personal tokens have a separate API identity scope. They carry the issuing member's curated operational reach across agents, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. They cannot manage API tokens or other durable identity access, browser sessions, user access, office settings, or the privileged-agent flag. The server reads the issuing member and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
+
+The token list shows the approximate time of the last authenticated request. Isomux writes this metadata at most once per minute, and it does not mean that the later route succeeded. Revoke a token from the same pane when a device is lost or a credential may have leaked.
 
 ## Message an agent from another device
 

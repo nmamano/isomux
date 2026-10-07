@@ -1,205 +1,64 @@
 # Access and invites
 
-How Isomux gates who can use an office, and how the invite-link flow works end-to-end.
+How to claim an office, invite people, add your own devices, and get back in.
 
-## TL;DR
+## Who can do what
 
-- Isomux agents can run shell commands, so authenticated members effectively have shell access to the host. Only invite people you trust.
-- The server gates every browser request (HTTP + WebSocket) by a session cookie.
-- Two roles: `owner` (can toggle external access, create members and mint sign-in links for them) and `member`. Both have full operational access, and every member can mint device links for their own extra devices.
-- Sessions are created when someone opens a sign-in link (issued by an owner, or by a member for one of their own devices). A link always signs in as a member that already exists.
-- The first owner claims the office at `http://localhost:4000` on the host machine. Until that claim happens the server is only reachable from the host (or via an SSH tunnel).
+An office has two roles. An owner creates members, sends them sign-in links, sets which rooms each member can open, revokes sessions, and changes office settings. A member works in the rooms an owner gives them and adds their own devices.
 
-## End-to-end flow
+Agents run shell commands as the server's user, so every member effectively has shell access to the server. Only invite people you trust.
 
-### 1. First boot - owner claim
+## Claim the office
 
-On startup, the server checks `~/.isomux/users.json`. When no member has `role: "owner"`, the server listens on the loopback interface only (so the office isn't reachable from your LAN or VPN yet), serves a name-picker form at `/`, and prints a banner with the two ways to reach it:
+On first boot the office has no owner, and the server answers only on its own machine. Open the office in one of two ways:
 
-```
-================================================================
-  Isomux: no owner has been set up for this office yet.
+- On the machine itself, open `http://localhost:4000`.
+- From another machine, open a tunnel with `ssh -L 4000:localhost:4000 <user>@<host>`, and then open `http://localhost:4000` in that machine's browser.
 
-  TO CLAIM OWNERSHIP from THIS machine:
-    Open http://localhost:4000 in your browser.
+Enter a display name and submit. You are the owner. Until someone claims the office, the server serves the same form on every boot.
 
-  TO CLAIM OWNERSHIP from another machine:
-    1. On that machine, open a tunnel to this box:
-         ssh -L 4000:localhost:4000 <user>@<host>
-    2. Open http://localhost:4000 in that browser.
+Container, [Render](hosting-render.md) and [Kubernetes](hosting-kubernetes.md) offices claim with a setup key instead. Their setup guides show where to find it.
 
-  After you claim, the Access pane lets you enable external
-  access so everyday use doesn't need the SSH tunnel.
-================================================================
-```
+## Invite a member
 
-Pick a display name on the form. Submit → cookie set → redirect to `/` → you're in.
+1. **Create the member.** In `Settings`, select `New member` at the end of the `Members` list. Fill in the name, owner role, room access, profile prompt and avatar, and click `Create member`. The list shows "never signed in" until they accept a link.
+2. **Send a sign-in link.** Open `Settings` → `Office` → `Invites`, select the member and click `Create sign-in link`. The URL shows once. Send it privately (Signal, text, email).
 
-If you don't get to it on the first boot, the same form is served on every subsequent boot until someone claims the office. The submit handler accepts only loopback peers and same-origin requests as defense-in-depth; the listener interface is the primary boundary.
+A sign-in link works once and expires 24 hours after you create it. A new link replaces the member's previous one. If a link expires, the member stays as they are: send a new one. The link still works after you rename the member; deleting the member revokes it.
 
-### 2. Inviting members
+The invitee opens the link and is signed in. No installs, no accounts, no passwords. On first sign-in, the page asks for their language. A browser that is already signed in as a different member cannot accept the link.
 
-Inviting is two steps: create the member, then send them a sign-in link.
+`Outstanding invites`, in the same pane, lists every unused link with its token prefix. Revoke any of them there.
 
-1. **Create the member**: in `Settings`, select `New member` at the end of the `Members` list. The form is the member editor: name, office owner, room access, profile prompt and avatar. Click `Create member`. The member exists from now on, and the list shows "never signed in" until they accept a link. Their language is theirs to pick when they first sign in.
-2. **Send a sign-in link**: open `Settings` → `Office` → `Invites`, select the member and click `Create sign-in link`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused. A new link replaces the member's previous one.
+## Add your own devices
 
-- **Outstanding invites**: every unclaimed link is listed with its token prefix; revoke any from this table.
-- **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section with the local date and time when inactivity or the session's lifetime will expire it; revoke any to immediately disconnect them.
+Open `Settings` → `You` → `Sign-in links` and click `Generate device link`. The URL shows once. Open it on the other device, and you are signed in there as yourself.
 
-Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device → cookie set → they're in. No installs, no accounts, no passwords. On a member's first sign-in, the page asks for their language.
+A device link works once and expires after 1 hour. You can have one at a time: a new link replaces the previous one. The pane also lists your unused device links and your active sessions.
 
-If a link expires, nothing is lost: the member and everything entered for them stay, and you send a new link.
+If you are signed out of every device, you cannot make a device link. An owner sends you a sign-in link, the same as for a new member.
 
-A browser that is already signed in as a member cannot accept an invite for a different member (the invite is not consumed).
+## Sign out and revoke sessions
 
-Owner-issued invite links expire 24h after issuing if unused; self-device links (generated from the My devices pane) expire after 1h. Neither TTL is configurable: invite URLs are bearer tokens, and the shorter their acceptance window, the smaller the exposure if the URL ends up in the recipient's browser history, sync, or messaging archive. The self-invite path uses the tighter 1h window because the legitimate flow is "both my devices are right here, click it now"; the 24h window on owner-issued invites covers a realistic send-and-wait delivery. If a link expires before the recipient can act, mint a fresh one. The session that's created on acceptance is governed by a separate, much longer lifetime (see Cookie semantics below).
+`Sign out`, at the bottom of `Settings`, ends the session on this device. Your other devices stay signed in.
 
-### 3. Multi-device members
+To end a session on another device, revoke it. Owners see every session in `Settings` → `Office` → `Sessions`. Every member sees their own in `Settings` → `You` → `Sign-in links`. An open tab on that device disconnects within about a second.
 
-Members add their own devices with a device link from `Sign-in links` in their own settings. Someone signed out of every device can't self-serve: an office owner sends them a sign-in link from the Invites section, the same way as for a new member. One member can have many simultaneous sessions (laptop + phone + tablet).
+Isomux refuses to sign out or revoke the last owner session in the office. Sign in on a second device first.
 
-### 4. Device links
+A session ends after 30 days without use, and after 1 year in any case. Server restarts keep sessions.
 
-Every member adds more of their own devices without involving anyone else. In `Settings` → `You`, the `Sign-in links` pane (owners also have `Access` / `Invites` / `Sessions` under `Office`) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
+## External access on a self-hosted office
 
-Self-device links are tighter than owner-issued invites by design: **1h TTL** and **at most one outstanding at a time** (generating a new one replaces the previous). The 1h window matches the legitimate flow ("both my devices are right here, click it now"). The role, target member, and TTL are all fixed server-side from the caller's session, so a tampered client can't extend the window, change the role, or mint for a different identity. The wire-level check rejects any such attempt.
+Until you turn on external access, the office answers only on its own machine or through an SSH tunnel. To open it to other devices, first make the machine reachable: see the [private Tailscale](hosting-private.md), [Tailscale Funnel](hosting-funnel.md) and [own domain](hosting-domain.md) guides. Then:
 
-The `My devices` pane also lists your own outstanding device links and active sessions - same tables as the owner's `Invites` and `Sessions` sections, filtered to one identity.
+1. Open `Settings` → `Office` → `Access`.
+2. Turn on `Enable external access` and enter the `Public URL`, the address other devices open (for example `https://my-mac-mini.<your-tailnet>.ts.net`).
+3. Save. Copy the sign-in link that the pane shows. It expires after 1 hour.
+4. Restart Isomux: `systemctl --user restart isomux` for a user service, `sudo systemctl restart isomux` for a system one.
+5. Open the sign-in link at the new address.
 
-### 5. Sign out
-
-`Settings` → `Sign out` revokes the current device's session and reloads. Other devices for the same member stay signed in.
-
-## Reachability
-
-Auth gates who can use the office once they reach it. Getting the box itself reachable from outside your home network is a separate problem, covered in [self-hosted setup](self-hosted.md#make-the-office-reachable): Tailscale for your own devices, Tailscale Funnel or Caddy for a public URL.
-
-## External access and public origin
-
-Hosted offices show their address read-only in the **Access pane**. Isomux manages the address; the access settings endpoint refuses URL changes and disabling external access. Self-hosted owners keep both controls.
-
-Post-claim, on a self-hosted office, the **Access pane** under `Settings` → `Office` has an _External access_ section with:
-
-- **Enable external access** toggle. Off by default; the server keeps binding `127.0.0.1` only and the office is reachable from the host machine (or via an SSH tunnel) but not from your LAN/VPN.
-- **Public URL** text field. Where browsers on other machines will reach this office (e.g. `https://my-mac-mini.<your-tailnet>.ts.net`).
-
-Saving persists both fields to `~/.isomux/office-config.json` and mints an owner self-invite bound to the new URL so you can sign in on the new origin immediately. The toggle takes effect on the next isomux restart (the pane spells out the restart command: `systemctl --user restart isomux` for a user service, `sudo systemctl restart isomux` for a system one). Restart is intentional: changing the reachability and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
-
-The same file can set `networkBind` to `"loopback"`, `"all"`, or `"auto"`. `"auto"` keeps today's rule: loopback before claim or while external access is off, and all interfaces otherwise. Remove the field to use the same runtime default while allowing the installer or updater to select `"loopback"` when it verifies a local proxy. An explicit `"auto"` opts out of that automatic installer change. The loopback listener uses IPv4 `127.0.0.1`; callers that use `localhost` fall back to it on dual-stack hosts.
-
-The tunnel-setup agent prompt ([self-hosted setup](self-hosted.md#other-members-public-url)) ends at "report the public URL." The final step - telling the running office about that URL - is a paste into the Access pane, so the office's auth-state mutation goes through the same in-process mutex as every other settings change.
-
-The resolved value drives:
-
-- The Origin allowlist for WebSocket upgrades.
-- The Origin allowlist for state-changing HTTP requests.
-- Whether the session cookie's `Secure` attribute is set (set on `https://`, omitted on `http://localhost`).
-- The base URL for invite URLs.
-
-The Public URL is **operator-authored configuration**. The server never infers the origin from `Host` or `X-Forwarded-Host` headers, since that's how WebSocket-hijacking bugs happen. An invalid value in `office-config.json` is logged and ignored at boot; the server degrades to the localhost fallback.
-
-## State files
-
-Stored in `~/.isomux/`:
-
-- `users.json` - member profiles. Each record carries `role: "owner" | "member"`.
-- `invites.json` - outstanding invites, keyed by sha256(token). Raw tokens never persist; only the hash and an 8-char display prefix.
-- `sessions.json` - active sessions, keyed by sha256(session-id). Raw IDs never persist.
-
-All three files are written atomically (temp + rename) and serialized under a single in-process mutex so invite acceptance (which touches all three) can't race.
-
-## Cookie semantics
-
-- Name: `__Host-isomux_session`, or `isomux_session` on `http://localhost*`, which cannot carry the `Secure` the prefix requires. The prefix is browser-enforced to be host-only, so a page on a subdomain of the office cannot write the cookie the office reads. Both names are accepted; an existing session moves onto the prefixed name on its next page load, WebSocket connection, or read-only API request.
-- Attributes: `HttpOnly; Path=/; SameSite=Lax`
-- `Secure` set when the configured Public URL is `https://`, omitted when the server is on `http://localhost*` (pre-claim, or post-claim with external access off).
-- Rolling expiry: 30 days, refreshed on activity.
-- Absolute cap: 1 year from creation.
-
-The 1-year cap is a deliberate usability/security trade-off. The
-cookie carries `HttpOnly`, `SameSite=Lax`, `Secure`-on-HTTPS,
-host-only scope, and a per-message server-side recheck so a revoke
-from the Sessions pane disconnects an active session within ~1s - the
-residual risk is the shared-device case where the member forgot to
-sign out (the security audit calls this out under "Shared devices"). Devices used in untrusted
-environments should be revoked from the Sessions pane (or signed out
-explicitly) rather than relying on session expiry.
-
-## Lobby and members chat
-
-Every member can open the lobby. The members chat is office-wide. The first owner manages the default receptionist, which is an ordinary agent with that owner’s access.
-
-## Trust model boundaries
-
-- **Inside the office, authenticated members have shell-equivalent access.** Members can use the terminal panel to read any file the isomux process can read, including other members' env files. The owner/member split controls who **expands the trust boundary** (mints invites for new identities, revokes sessions), not what they can do once inside. Isomux does not isolate members from each other at the OS level.
-- **Agents run as the server's OS user.** The cookie auth doesn't constrain what an agent does once it's spawned in the office.
-- **Session revocation stops future use of a session but doesn't undo past actions.** Anything the leaked session already wrote stays written.
-
-## Use your own provider account
-
-In Settings → Office → Office-wide connections (for every agent) or Settings → You → Individual connections (for your own), choose whether the account is for every agent
-in the office or only agents you spawn. Claude and Codex support browser sign-in
-in either scope. Isomux creates a separate personal provider home when needed.
-
-For CLI sign-in, the personal provider directory takes precedence. Provider
-selection variables still apply; a personal login does not disable office-wide
-Bedrock or Vertex settings.
-
-Add provider API keys under Settings → You → Individual connections:
-
-```text
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-OPENCODE_API_KEY=sk-...
-```
-
-Isomux stores personal and office-wide variables in managed files under
-`~/.isomux/`. Personal variables override office-wide variables when an agent
-starts or resumes a conversation. Other per-user variables work the same way,
-for example, each member can set `GH_TOKEN` so their agents use their own
-GitHub credentials.
-
-### Claude on Amazon Bedrock
-
-Settings → Office-wide connections → Environment variables
-
-Add:
-
-```text
-CLAUDE_CODE_USE_BEDROCK=1
-AWS_REGION=us-west-2 (or your region)
-AWS_BEARER_TOKEN_BEDROCK=ABSK...
-```
-
-The bearer token is a Bedrock API key from the AWS console (Bedrock → API keys). If you use an IAM access key instead, replace that line with `AWS_ACCESS_KEY_ID=AKIA...` and `AWS_SECRET_ACCESS_KEY=...`, plus `AWS_SESSION_TOKEN=...` if the credentials are temporary.
-
-Then `/clear` Claude agents to pick up the variables.
-
-Model pins are optional: with none, the picker's `opus` is Opus 5.5 and `sonnet` is Sonnet 4.5 on Bedrock. To change a default, set the family's pin to a Bedrock model or inference-profile ID, for example `ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.claude-sonnet-4-6`; the others are `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `ANTHROPIC_DEFAULT_FABLE_MODEL`. Conversation titles use the Sonnet default. `ANTHROPIC_MODEL` does not override the picker. Agents pick the variables up on their next new or resumed conversation.
-
-Connections shows Bedrock as connected when the variables are set; it does not check AWS model access. A member who wants their own Claude login in a Bedrock office sets `CLAUDE_CODE_USE_BEDROCK=0` in Individual connections. Vertex works the same way with `CLAUDE_CODE_USE_VERTEX`.
-
-### Connection variables and directories
-
-An office owner opens a member in Settings → Members and sees which variables
-that member has set. The values stay with the member.
-
-An explicit absolute provider directory in the managed variables still overrides the
-Isomux-managed personal directory. Isomux does not expand `~` or `$VAR` there.
-
-```text
-CLAUDE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/.claude
-CODEX_HOME=/home/<linux-user>/.isomux-users/<user>/.codex
-```
-
-## Bootstrap-window exposure
-
-Before an owner exists, the first-owner form is served only on `127.0.0.1`, so the OS bind rules out off-box clients regardless of LAN/VPN topology - Isomux is not reachable to an outside attacker.
-
-A same-host reverse proxy configured **before** an owner claims forwards external traffic to `localhost:4000`. Isomux refuses the claim on a request with an `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header, and Caddy always sends `X-Forwarded-For`. The residual gap: a proxy or tunnel that sends none of these headers looks like loopback, and anyone who can reach it from outside could claim ownership through it.
-
-The mitigation is operator discipline: **claim first, expose later**. The Access pane's _External access_ toggle is the supported sequence - boot the server, open it locally (or via `ssh -L`), claim, then flip the toggle to enable external listening and configure the proxy.
+Hosted offices show their address in the `Access` pane, read-only. Isomux manages it.
 
 ## Locked out as owner
 
@@ -225,21 +84,4 @@ On Kubernetes, run it in the `recovery` container:
 kubectl -n isomux exec deployment/isomux -c recovery -- curl -s --unix-socket /run/isomux-admin/admin.sock -X POST http://localhost/admin/owner-login -H 'Content-Type: application/json' --data '{"name":"<your-display-name>"}'
 ```
 
-## Operating notes
-
-- **Members lose access at server restart? No.** Sessions persist to disk; restarts pick up the in-memory map from `sessions.json`.
-- **Revoking a live session?** The Sessions pane revoke button: the corresponding WebSocket force-closes within ~1s (per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
-- **Member tries to create a member or mint a link for someone else?** Rejected at the wire level. Members can mint device links for their own additional devices (1h TTL, max 1 active) but can't create identities. The account panes are scoped per role; the server-side check is the actual gate.
-- **Scripts and the API.** `POST /api/users` creates a member (owner only); `POST /api/invites` with `{"userId": "..."}` mints their sign-in link. A privileged agent can create new office members, but not mint invite links for them. That always requires a human. The old one-step body (`username`, `label`, `role`, ...) returns 400. `POST /api/invites/recovery` is a permanent alias of `POST /api/invites`.
-- **Member renamed or deleted before they accept?** A link is bound to the member's id, so it still works after a rename. Deleting a member revokes their outstanding links.
-- **CSRF / CSWSH?** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't. Everything an agent calls is bearer-authenticated (each agent's injected `ISOMUX_AGENT_TOKEN`); there is no loopback bypass left.
-
-## Personal API tokens
-
-A signed-in member can create a named personal API token in **Settings → You → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
-
-Personal tokens have a separate API identity scope. They carry the issuing member's curated operational reach across agents, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. They cannot manage API tokens or other durable identity access, browser sessions, user access, office settings, or the privileged-agent flag. The server reads the issuing member and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
-
-The token list shows the approximate time of the last authenticated request. Isomux writes this metadata at most once per minute, and it does not mean that the later route succeeded. Revoke a token from the same pane when a device is lost or a credential may have leaked.
-
-Sending messages and reading replies is described in the [developer API guide](/docs/developer-api).
+How access works inside the server (cookies, state files, origin checks) is in the [security audit](security-audit.md#appendix-access-internals).

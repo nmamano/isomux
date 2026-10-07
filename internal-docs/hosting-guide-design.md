@@ -38,10 +38,10 @@ the decision diagram links to them; each guide links back. Optional configuratio
 `docs/hosting-reference.md`; AWS operations stay with the AWS guide, and source
 hashes, measurements, smoke commands, and acceptance limits live internally.
 
-`/docs/self-hosted` remains the entry point. Every retained fragment has a real
-HTML link and a Markdown destination. `site/hosting-links.js` replaces a known
-legacy fragment URL with that destination; unknown fragments stay on the entry
-page. The old Vercel redirect routes remain unchanged.
+`/docs/self-hosted` remains the entry point. Every retained fragment has a
+Markdown destination. `site/legacy-links.js` replaces a known legacy fragment
+URL with that destination; unknown fragments, and every fragment for a no-JS
+reader, stay on the entry page. The old Vercel redirect routes remain unchanged.
 
 ## Assertions removed or replaced
 

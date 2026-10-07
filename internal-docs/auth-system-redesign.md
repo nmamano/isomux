@@ -56,4 +56,4 @@ A successful claim mid-process changes neither policy. This eliminates a class o
 
 ## Residual gap (inherent topology limit)
 
-If the operator runs an external proxy that forwards to `localhost:4000` *before* claiming, anyone who can reach the proxy can reach the form. Isomux can't see that the proxy is on the same host. Documented as operator responsibility in `docs/access-and-invites.md` "Bootstrap-window exposure."
+If the operator runs an external proxy that forwards to `localhost:4000` *before* claiming, anyone who can reach the proxy can reach the form. Isomux can't see that the proxy is on the same host. Documented as operator responsibility in `docs/security-audit.md` "Bootstrap-window exposure."

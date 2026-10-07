@@ -234,7 +234,7 @@ that the server allows inbound ports 80 and 443. DNS changes can take time to ap
   connections: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENCODE_API_KEY`.
   Provider charges and subscription limits are separate from AWS hosting.
 - For Claude through Amazon Bedrock, use the
-  [Bedrock setup instructions](https://isomux.com/docs/access-and-invites#claude-on-amazon-bedrock).
+  [Bedrock setup instructions](https://isomux.com/docs/llm-providers#claude-on-amazon-bedrock).
 - Open an agent that uses that provider and send a short message. A reply confirms
   that the office can use your provider account.
 - To invite someone else, open **Settings → Office → Invites**.

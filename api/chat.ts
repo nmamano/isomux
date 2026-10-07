@@ -68,7 +68,7 @@ Licensing: Business Source License 1.1 (see LICENSE and COMMERCIAL-LICENSE.md in
 The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we're more used to coordinating humans than terminals.
 
 - **Multi-provider**: spawn Claude Code, Codex, and OpenCode agents in the same office, side-by-side.
-- Claude can use your existing Claude Code login or Amazon Bedrock through connection variables (isomux.com/docs/access-and-invites#claude-on-amazon-bedrock). Codex ships bundled and connects to ChatGPT from Settings → You → Individual connections or through the terminal fallback. OpenCode also ships bundled with Free, Pay-as-you-go, and Subscription models.
+- Claude can use your existing Claude Code login or Amazon Bedrock through connection variables (isomux.com/docs/llm-providers#claude-on-amazon-bedrock). Codex ships bundled and connects to ChatGPT from Settings → You → Individual connections or through the terminal fallback. OpenCode also ships bundled with Free, Pay-as-you-go, and Subscription models.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. Bun bundles the UI. No database.
 - GitHub: github.com/nmamano/isomux
 - Docs: isomux.com/docs (full feature list, self-hosted setup including the unattended VPS install and Render Blueprint, access and invites, backup/restore, security audit)

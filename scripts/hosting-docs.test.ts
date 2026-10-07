@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { Window } from "happy-dom";
-import { main as buildDocs } from "./build-docs.ts";
+import { LEGACY_LINKS, main as buildDocs } from "./build-docs.ts";
 import {
   HOSTING_GUIDES,
   HOSTING_LEGACY_LINKS,
@@ -239,17 +239,41 @@ describe("complete hosting guides", () => {
           ).not.toBeNull();
         }
       }
-      const index = cache.get("/docs/hosting")!.document;
-      for (const [id, target] of Object.entries(HOSTING_LEGACY_LINKS)) {
-        expect(
-          index.getElementById(id)?.querySelector("a")?.getAttribute("href"),
-          id,
-        ).toBe(target);
-      }
     } finally {
       await Promise.all(
         Array.from(cache.values(), (window) => window.happyDOM.close()),
       );
+    }
+  });
+});
+
+describe("legacy fragment maps", () => {
+  it("send every old fragment to an existing section, and list them only in the agent Markdown", async () => {
+    for (const [slug, links] of Object.entries(LEGACY_LINKS)) {
+      const page = parse(htmlAt(`/docs/${slug}`));
+      const doc = page.document;
+      const ids = Array.from(doc.querySelectorAll("[id]"), (e) => e.id);
+      expect(new Set(ids).size, slug).toBe(ids.length);
+      expect(
+        JSON.parse(doc.getElementById("legacy-fragment-map")!.textContent!),
+      ).toEqual(links);
+      expect(doc.querySelector('script[src="/legacy-links.js"]')).not.toBeNull();
+      const markdown = readFileSync(`site/_agent/docs/${slug}/index.md`, "utf8");
+      for (const [id, href] of Object.entries(links)) {
+        // No visible list: the old fragment names no element on the page.
+        expect(doc.getElementById(id), id).toBeNull();
+        expect(markdown).toContain(`- [${id}](${href})`);
+        const url = new URL(href, "https://isomux.com");
+        expect(existsSync(`site${url.pathname}/index.html`), href).toBe(true);
+        if (!url.hash) continue;
+        const target = parse(htmlAt(url.pathname.replace(/\/$/, "")));
+        expect(
+          target.document.getElementById(url.hash.slice(1)),
+          `${slug}#${id} -> ${href}`,
+        ).not.toBeNull();
+        await target.happyDOM.close();
+      }
+      await page.happyDOM.close();
     }
   });
 });

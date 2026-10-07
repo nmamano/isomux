@@ -1,7 +1,9 @@
-// Old fragment links keep working. Ordinary guide selection uses native page
-// navigation, including keyboard activation, history, and no-JS readers.
+// Old fragment links keep working. A page that moved or renamed sections
+// embeds a #legacy-fragment-map of old fragment -> new URL, and this script
+// follows it. The page shows no list of them, so a no-JS reader stays on the
+// page. Ordinary navigation stays native, including history.
 (function () {
-  const element = document.getElementById("hosting-legacy-map");
+  const element = document.getElementById("legacy-fragment-map");
   if (!element) return;
   const destinations = JSON.parse(element.textContent);
   function followLegacyLink() {

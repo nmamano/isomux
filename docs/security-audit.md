@@ -305,6 +305,68 @@ An agent can page its manager, and an app can page its owner. Isomux takes the s
 
 ---
 
+## Appendix: access internals
+
+Operating detail of the access system that [Access and invites](access-and-invites.md) leaves out. The audit review does not cover this appendix.
+
+### State files
+
+In `~/.isomux/`:
+
+- `users.json` - member profiles. Each record carries `role: "owner" | "member"`.
+- `invites.json` - outstanding invites, keyed by sha256(token). Raw tokens never persist; only the hash and an 8-char display prefix.
+- `sessions.json` - active sessions, keyed by sha256(session-id). Raw IDs never persist.
+
+All three files are written atomically (temp + rename) and serialized under a single in-process mutex, so invite acceptance (which touches all three) can't race. Access pane saves go through the same mutex. Sessions persist to disk, so a restart keeps them.
+
+### Cookie semantics
+
+- Name: `__Host-isomux_session`, or `isomux_session` on `http://localhost*`, which cannot carry the `Secure` the prefix requires. The prefix is browser-enforced to be host-only, so a page on a subdomain of the office cannot write the cookie the office reads. Both names are accepted; an existing session moves onto the prefixed name on its next page load, WebSocket connection, or read-only API request.
+- Attributes: `HttpOnly; Path=/; SameSite=Lax`. `Secure` is set when the configured Public URL is `https://`, and omitted when the server is on `http://localhost*` (pre-claim, or post-claim with external access off).
+- Rolling expiry: 30 days, refreshed on activity. Absolute cap: 1 year from creation.
+
+The 1-year cap is a deliberate usability/security trade-off. The cookie attributes and a per-message server-side recheck cover the rest: a revoke from the Sessions pane disconnects an active session within about 1 second. The residual risk is the shared device where the member forgot to sign out (section 7). Revoke the sessions of devices used in untrusted environments, or sign out, rather than rely on session expiry.
+
+### Link lifetimes
+
+Neither link lifetime is configurable. Sign-in and device links are bearer tokens, and the shorter their acceptance window, the smaller the exposure if the URL ends up in the recipient's browser history, sync, or messaging archive. Device links use 1 hour because the legitimate flow is "both my devices are right here, click it now". The 24 hours on owner-issued links covers a realistic send-and-wait delivery. The session created on acceptance has its own, much longer lifetime.
+
+For a device link, the server fixes the role, the target member and the lifetime from the caller's session. A tampered client cannot extend the window, change the role, or mint for a different identity; the wire-level check rejects any such attempt.
+
+### Public origin
+
+The Access pane saves the Public URL and the external access toggle to `~/.isomux/office-config.json`, and mints an owner sign-in link bound to the new URL. The resolved value drives:
+
+- The Origin allowlist for WebSocket upgrades.
+- The Origin allowlist for state-changing HTTP requests.
+- Whether the session cookie's `Secure` attribute is set.
+- The base URL for invite URLs.
+
+The Public URL is **operator-authored configuration**. The server never infers the origin from `Host` or `X-Forwarded-Host` headers, since that's how WebSocket-hijacking bugs happen. An invalid value in `office-config.json` is logged and ignored at boot; the server degrades to the localhost fallback.
+
+The toggle takes effect only on restart, by design: changing the reachability and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
+
+### Bootstrap-window exposure
+
+Before an owner exists, the first-owner form is served only on `127.0.0.1`, so the OS bind rules out off-box clients regardless of LAN/VPN topology - Isomux is not reachable to an outside attacker. The submit handler also accepts only loopback peers and same-origin requests, as defense in depth.
+
+A same-host reverse proxy configured **before** an owner claims forwards external traffic to `localhost:4000`. Isomux refuses the claim on a request with an `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header, and Caddy always sends `X-Forwarded-For`. The residual gap: a proxy or tunnel that sends none of these headers looks like loopback, and anyone who can reach it from outside could claim ownership through it.
+
+The mitigation is operator discipline: **claim first, expose later**. The Access pane's _External access_ toggle is the supported sequence - boot the server, open it locally (or via `ssh -L`), claim, then flip the toggle to enable external listening and configure the proxy.
+
+### Trust model boundaries
+
+- **The owner/member split controls who expands the trust boundary**, not what members can do once inside. Owners mint invites for new identities and revoke sessions. Inside the office, every member has shell-equivalent access (section 3.2), and Isomux does not isolate members from each other at the OS level.
+- **Agents run as the server's OS user.** The cookie auth doesn't constrain what an agent does once it's spawned in the office.
+- **Session revocation stops future use of a session but doesn't undo past actions.** Anything the leaked session already wrote stays written.
+
+### Wire-level notes
+
+- **Revoking a live session.** The corresponding WebSocket force-closes within about 1 second (the per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
+- **A member tries to create a member or mint a link for someone else.** Rejected at the wire level. The account panes are scoped per role; the server-side check is the actual gate.
+- **Scripts and the API.** `POST /api/users` creates a member (owner only); `POST /api/invites` with `{"userId": "..."}` mints their sign-in link. A privileged agent can create new office members, but not mint invite links for them. That always requires a human. The old one-step body (`username`, `label`, `role`, ...) returns 400. `POST /api/invites/recovery` is a permanent alias of `POST /api/invites`.
+- **CSRF / CSWSH.** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't. Everything an agent calls is bearer-authenticated (each agent's injected `ISOMUX_AGENT_TOKEN`); there is no loopback bypass left.
+
 ## Appendix: files reviewed
 
 - Authentication: `server/auth.ts`, `server/auth-middleware.ts`, `server/users.ts`, `server/identity/`

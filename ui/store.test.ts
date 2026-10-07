@@ -1199,7 +1199,6 @@ describe("settings page: panes and initialTarget routing", () => {
     expect(html).toContain("Conference Room");
     // The renamed rows, which the old labels would silently survive.
     expect(html).toContain(en.t("settings.sidebar.signInLinks"));
-    expect(html).not.toContain(en.t("settings.devices.title"));
   });
 });
 

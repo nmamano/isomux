@@ -149,12 +149,6 @@ try {
     "no-JS return to diagram",
   );
   await page.screenshot({ path: `${output}/no-js-390.png`, fullPage: true });
-  await page.goto(`${origin}/docs/hosting#deploy-on-render`);
-  await page.locator(".hosting-legacy").evaluate((element) => {
-    (element as HTMLDetailsElement).open = true;
-  });
-  await page.locator("#deploy-on-render a").click();
-  await page.waitForURL(`${origin}/docs/hosting-render`);
   // Review artifact: all rendered article copy and all accessible labels, read
   // from generated pages. It is an output, never another maintained guide.
   let copy =

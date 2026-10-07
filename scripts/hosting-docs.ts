@@ -215,24 +215,3 @@ export const HOSTING_LEGACY_LINKS: Record<string, string> = {
     "/docs/hosting-reference#no-proxy-and-no-real-domain",
 };
 
-export function legacyHostingHtml(): string {
-  return `<details class="hosting-legacy"><summary>Links from the previous hosting guide</summary><ul>${Object.entries(
-    HOSTING_LEGACY_LINKS,
-  )
-    .map(
-      ([id, href]) =>
-        `<li id="${id}"><a href="${href}">${escape(id.replaceAll("-", " "))}</a></li>`,
-    )
-    .join("")}</ul></details>
-<script id="hosting-legacy-map" type="application/json">${JSON.stringify(HOSTING_LEGACY_LINKS)}</script>
-<script src="/hosting-links.js" defer></script>`;
-}
-export function legacyHostingMarkdown(): string {
-  return (
-    "\n## Previous section links\n\n" +
-    Object.entries(HOSTING_LEGACY_LINKS)
-      .map(([id, href]) => `- [${id}](${href})`)
-      .join("\n") +
-    "\n"
-  );
-}

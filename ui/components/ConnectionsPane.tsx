@@ -243,7 +243,7 @@ function CrossLink({
 }
 
 const BEDROCK_GUIDE =
-  "https://isomux.com/docs/access-and-invites#claude-on-amazon-bedrock";
+  "https://isomux.com/docs/llm-providers#claude-on-amazon-bedrock";
 
 // One sentence at the bottom of both halves (Nil, 2026-09-10): the Bedrock
 // setup lives in the docs, not in the pane.

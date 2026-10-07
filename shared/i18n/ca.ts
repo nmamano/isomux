@@ -347,7 +347,7 @@ Coses que pots fer per ell:
   "common.changeTheme": "Canvia el tema",
 
   "preferences.intro":
-    "Et segueixen a tots els dispositius des dels quals inicies la sessió. La configuració específica d'aquest navegador és a Els meus dispositius.",
+    "Et segueixen a tots els dispositius des dels quals inicies la sessió. La configuració específica d'aquest navegador és a Dispositiu.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
     "L'idioma en què escriuen els teus agents, i el que fan servir l'entrada de veu i la lectura en veu alta. Els agents l'apliquen a la conversa següent. La resta de la interfície continua en anglès de moment.",
@@ -501,7 +501,7 @@ Coses que pots fer per ell:
   "settings.device.optional": "(opcional)",
   "settings.device.placeholder": "Mòbil, Portàtil, …",
 
-  "settings.devices.title": "Els meus dispositius",
+  "settings.devices.title": "Enllaços d'inici de sessió",
   "settings.devices.outstandingLinks": "Enllaços de dispositiu pendents",
   "settings.devices.activeSessions": "Les meves sessions actives",
   "settings.devices.generateHint":
@@ -710,7 +710,7 @@ Coses que pots fer per ell:
   "settings.invites.bootstrap": "(inicial)",
 
   "settings.sessions.intro":
-    "Dispositius que han entrat en aquesta oficina, de tothom. Revocar una sessió en treu aquell dispositiu. Qui és nou rep una invitació des de la secció Invitacions; qui ja té compte afegeix dispositius des d'<i>Els meus dispositius</i>.",
+    "Dispositius que han entrat en aquesta oficina, de tothom. Revocar una sessió en treu aquell dispositiu. Qui és nou rep una invitació des de la secció Invitacions; qui ja té compte afegeix dispositius des d'<i>Enllaços d'inici de sessió</i>.",
   "settings.sessions.columnLastSeen": "Vist per última vegada",
   "settings.sessions.columnCreated": "Creada",
   "settings.sessions.currentSession": "Sessió actual",

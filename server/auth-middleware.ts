@@ -755,7 +755,7 @@ function handleClaimForm(
 // `ssh -R`) is still indistinguishable from a real local browser, and curl
 // can forge the loopback Origin through it. The documented mitigation for
 // that setup is operator discipline (claim first, expose later - see
-// docs/access-and-invites.md "Bootstrap-window exposure").
+// docs/security-audit.md "Bootstrap-window exposure").
 async function handleClaim(
   req: Request,
   onBox: boolean,

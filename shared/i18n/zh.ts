@@ -331,7 +331,7 @@ App 的一些原则：
   "common.apps": "App",
   "common.changeTheme": "更改主题",
   "preferences.intro":
-    "这些设置会同步到登录的所有设备。仅适用于此浏览器的设置位于「我的设备」。",
+    "这些设置会同步到登录的所有设备。仅适用于此浏览器的设置位于「设备」。",
   "preferences.language": "语言",
   "preferences.languageHint":
     "智能体回复以及语音输入和播放使用的语言。智能体会在下一次对话中采用此设置。界面的其余部分目前仍使用英语。",
@@ -469,7 +469,7 @@ App 的一些原则：
   "settings.device.label": "设备标签",
   "settings.device.optional": "（可选）",
   "settings.device.placeholder": "手机、笔记本电脑…",
-  "settings.devices.title": "我的设备",
+  "settings.devices.title": "登录链接",
   "settings.devices.outstandingLinks": "尚未使用的设备链接",
   "settings.devices.activeSessions": "我的活动会话",
   "settings.devices.generateHint":
@@ -640,7 +640,7 @@ App 的一些原则：
   "settings.invites.columnExpires": "过期时间",
   "settings.invites.bootstrap": "（初始设置）",
   "settings.sessions.intro":
-    "所有成员已登录此办公室的设备。撤销会话会使该设备退出登录。新成员通过「邀请」部分获得邀请；已有成员可在<i>我的设备</i>中自行添加设备。",
+    "所有成员已登录此办公室的设备。撤销会话会使该设备退出登录。新成员通过「邀请」部分获得邀请；已有成员可在<i>登录链接</i>中自行添加设备。",
   "settings.sessions.columnLastSeen": "上次在线",
   "settings.sessions.columnCreated": "创建时间",
   "settings.sessions.currentSession": "当前会话",

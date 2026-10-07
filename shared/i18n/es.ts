@@ -347,7 +347,7 @@ Cosas que puedes hacer por él:
   "common.changeTheme": "Cambiar el tema",
 
   "preferences.intro":
-    "Te siguen a todos los dispositivos desde los que inicias sesión. Los ajustes propios de este navegador están en Mis dispositivos.",
+    "Te siguen a todos los dispositivos desde los que inicias sesión. Los ajustes propios de este navegador están en Dispositivo.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
     "El idioma en que escriben tus agentes, y el que usan tu entrada de voz y la lectura en voz alta. Los agentes lo aplican en su siguiente conversación. El resto de la interfaz sigue en inglés por ahora.",
@@ -501,7 +501,7 @@ Cosas que puedes hacer por él:
   "settings.device.optional": "(opcional)",
   "settings.device.placeholder": "Móvil, Portátil, …",
 
-  "settings.devices.title": "Mis dispositivos",
+  "settings.devices.title": "Enlaces de inicio de sesión",
   "settings.devices.outstandingLinks": "Enlaces de dispositivo pendientes",
   "settings.devices.activeSessions": "Mis sesiones activas",
   "settings.devices.generateHint":
@@ -714,7 +714,7 @@ Cosas que puedes hacer por él:
   "settings.invites.bootstrap": "(inicial)",
 
   "settings.sessions.intro":
-    "Dispositivos que han entrado en esta oficina, de todas las personas. Revocar una sesión saca a ese dispositivo. Quien es nuevo recibe una invitación desde la sección Invitaciones; quien ya tiene cuenta añade dispositivos desde <i>Mis dispositivos</i>.",
+    "Dispositivos que han entrado en esta oficina, de todas las personas. Revocar una sesión saca a ese dispositivo. Quien es nuevo recibe una invitación desde la sección Invitaciones; quien ya tiene cuenta añade dispositivos desde <i>Enlaces de inicio de sesión</i>.",
   "settings.sessions.columnLastSeen": "Visto por última vez",
   "settings.sessions.columnCreated": "Creada",
   "settings.sessions.currentSession": "Sesión actual",

@@ -118,11 +118,15 @@ On your own hardware, the same script runs from your checkout as `sudo bash depl
 
 macOS and Windows get neither half - both mechanisms are Linux-specific.
 
+## Network bind
+
+`~/.isomux/office-config.json` can set `networkBind` to `"loopback"`, `"all"`, or `"auto"`. `"auto"` binds loopback before the office has an owner or while external access is off, and all interfaces otherwise. Remove the field to use the same runtime default while allowing the installer or updater to select `"loopback"` when it verifies a local proxy. An explicit `"auto"` opts out of that automatic installer change. The loopback listener uses IPv4 `127.0.0.1`; callers that use `localhost` fall back to it on dual-stack hosts.
+
 ## What each deployment covers
 
 Two facts set the boundary: whether a proxy sits in front of Isomux, and whether the office has a real domain. Only a real domain gives apps their own web addresses.
 
-Every shape supports [Claude on Amazon Bedrock](access-and-invites.md#claude-on-amazon-bedrock).
+Every shape supports [Claude on Amazon Bedrock](llm-providers.md#claude-on-amazon-bedrock).
 The operator supplies AWS credentials, region, and model access; the installer does not configure AWS.
 
 **Hosted Isomux** in the first two rows is [the paid managed service](https://isomux.com/hosted), where we run the server for you.

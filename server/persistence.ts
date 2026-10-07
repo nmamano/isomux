@@ -1018,7 +1018,7 @@ export function saveRecentCwd(cwd: string) {
 //
 // The same file also carries deployment-level keys not edited via the UI
 // (currently `publicOrigin`, used as a fallback for `ISOMUX_PUBLIC_ORIGIN`
-// when the env var is unset - see docs/access-and-invites.md). Those keys
+// when the env var is unset - see docs/security-audit.md "Public origin"). Those keys
 // are NOT part of OfficeSettings; `loadOfficeConfig`/`saveOfficeConfig`
 // only surface prompt + envFile + name + experimental settings to the
 // UI-mutated office state. Save uses

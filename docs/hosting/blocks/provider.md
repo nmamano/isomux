@@ -16,4 +16,4 @@ confirms that the office can use your provider account. Provider charges and
 subscription limits are separate from hosting.
 
 For Claude through Amazon Bedrock or another connection method, use the
-[provider reference](access-and-invites.md#use-your-own-provider-account).
+[provider reference](llm-providers.md#use-your-own-provider-account).

@@ -183,10 +183,10 @@ describe("isomux.com agent readiness", () => {
   it("rewrites cross-document Markdown links to canonical docs URLs", () => {
     expect(
       rewriteMarkdownLinks(
-        "Read [setup](vps-install.md), [access](./access-and-invites.md#invites), and [features](features.md).",
+        "Read [setup](vps-install.md), [access](./access-and-invites.md#invite-a-member), and [features](features.md).",
       ),
     ).toBe(
-      "Read [setup](/docs/vps-install), [access](/docs/access-and-invites#invites), and [features](/docs).",
+      "Read [setup](/docs/vps-install), [access](/docs/access-and-invites#invite-a-member), and [features](/docs).",
     );
   });
 

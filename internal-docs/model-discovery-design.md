@@ -42,7 +42,7 @@ So for Claude the rule is: show a model only when the bundled SDK's `supportedMo
 | `MODEL_STYLES` (ui/model-styles.ts) | badge tint, desk prop (tier) | none: providers do not report a tier | hash fallback colour, no desk prop, as today. Optional: inherit the style of the nearest known slug prefix (`gpt-6.1-sol` → `gpt-5.6-sol`'s tier) |
 | `shared/agent-templates.ts` preference lists | template → preferred models | none | first listed model the live list contains, then `CODEX_MODELS[0]`, as today |
 | Context window | not stored by Isomux | Claude `getContextUsage()`, Codex token-usage notification, OpenCode `contextLimit` | as today |
-| Docs and site copy (api/chat.ts, docs/access-and-invites.md) | model names in prose | none | name families, not versions, where the prose allows |
+| Docs and site copy (api/chat.ts, docs/llm-providers.md) | model names in prose | none | name families, not versions, where the prose allows |
 
 ## When discovery runs and how it is cached
 

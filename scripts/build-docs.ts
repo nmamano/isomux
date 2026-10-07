@@ -19,8 +19,7 @@ import {
   hostingNavigation,
   hostingNavigationMarkdown,
   hostingUrl,
-  legacyHostingHtml,
-  legacyHostingMarkdown,
+  HOSTING_LEGACY_LINKS,
   type HostingId,
 } from "./hosting-docs.ts";
 
@@ -88,6 +87,7 @@ const NAV_ORDER = [
   "hosting",
   "how-it-works",
   "access-and-invites",
+  "llm-providers",
   "security-audit",
 ];
 
@@ -241,17 +241,69 @@ function loadPage(filename: string): DocPage {
       toc: [],
       html:
         html.replace("<!-- hosting-navigation -->", hostingNavigation()) +
-        legacyHostingHtml(),
+        legacyLinksHtml(LEGACY_LINKS.hosting),
       raw:
         body.replace(
           "<!-- hosting-navigation -->",
           hostingNavigationMarkdown(),
-        ) + legacyHostingMarkdown(),
+        ) + legacyLinksMarkdown(LEGACY_LINKS.hosting),
     };
   }
   const navIdx = NAV_ORDER.indexOf(slug);
   const order = fm.order ?? (navIdx >= 0 ? navIdx : NAV_ORDER.length + 100);
-  return { slug, title, navTitle, description, order, html, toc, raw: body };
+  const legacy = LEGACY_LINKS[slug];
+  return {
+    slug,
+    title,
+    navTitle,
+    description,
+    order,
+    html: legacy ? html + legacyLinksHtml(legacy) : html,
+    toc,
+    raw: legacy ? body + legacyLinksMarkdown(legacy) : body,
+  };
+}
+
+// Sections that moved off Access and invites (task 2c9ea8d8). Released offices
+// link to some of these fragments from their settings panes.
+export const ACCESS_LEGACY_LINKS: Record<string, string> = {
+  "use-your-own-provider-account":
+    "/docs/llm-providers#use-your-own-provider-account",
+  "claude-on-amazon-bedrock": "/docs/llm-providers#claude-on-amazon-bedrock",
+  "connection-variables-and-directories":
+    "/docs/llm-providers#connection-variables-and-directories",
+  "personal-api-tokens": "/docs/developer-api#personal-api-tokens",
+  "state-files": "/docs/security-audit#state-files",
+  "cookie-semantics": "/docs/security-audit#cookie-semantics",
+  "bootstrap-window-exposure": "/docs/security-audit#bootstrap-window-exposure",
+  "trust-model-boundaries": "/docs/security-audit#trust-model-boundaries",
+  "operating-notes": "/docs/security-audit#wire-level-notes",
+  "lobby-and-members-chat": "/docs#multiple-members",
+};
+
+// Old fragments of pages whose sections moved, mapped to their new homes, so
+// bookmarks and links from older releases still land on the right section.
+// site/legacy-links.js follows the map. The page shows no list of them (Nil,
+// 2026-10-07: it confused readers), so no-JS readers stay on the page; the
+// agent Markdown lists them.
+export const LEGACY_LINKS: Record<string, Record<string, string>> = {
+  hosting: HOSTING_LEGACY_LINKS,
+  "access-and-invites": ACCESS_LEGACY_LINKS,
+};
+
+function legacyLinksHtml(links: Record<string, string>): string {
+  return `<script id="legacy-fragment-map" type="application/json">${JSON.stringify(links)}</script>
+<script src="/legacy-links.js" defer></script>`;
+}
+
+function legacyLinksMarkdown(links: Record<string, string>): string {
+  return (
+    "\n## Previous section links\n\n" +
+    Object.entries(links)
+      .map(([id, href]) => `- [${id}](${href})`)
+      .join("\n") +
+    "\n"
+  );
 }
 
 // Safely embed an arbitrary string as a JS literal inside a <script> block.
@@ -711,8 +763,6 @@ footer.site-footer .footer-links { display: flex; gap: 18px; }
 .flow-answer { display: block; padding: 0 0 8px 6px; }
 .flow-leaf:has(> .flow-answer)::before { top: 12px; }
 .flow-leaf:has(> .flow-answer)::after { top: 8px; }
-.hosting-legacy { margin: 28px 0; }
-.hosting-legacy summary { cursor: pointer; padding: 14px 16px; font-weight: 600; }
 @media (max-width: 650px) {
   .content .hosting-flow { padding-left: 12px; }
   .content .flow-question { padding: 14px 12px; border-radius: 24px; }

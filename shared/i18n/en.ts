@@ -360,7 +360,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "common.changeTheme": "Change theme",
 
   "preferences.intro":
-    "These follow you to every device you sign in from. Settings that are about this browser in particular live under My devices.",
+    "These follow you to every device you sign in from. Settings that are about this browser in particular live under Device.",
   "preferences.language": "Language",
   "preferences.languageHint":
     "The language your agents write in, and the language your voice input and playback use. Agents pick it up on their next conversation. The rest of the interface stays in English for now.",
@@ -512,7 +512,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.device.optional": "(optional)",
   "settings.device.placeholder": "Phone, Laptop, …",
 
-  "settings.devices.title": "My devices",
+  "settings.devices.title": "Sign-in links",
   "settings.devices.outstandingLinks": "Outstanding device links",
   "settings.devices.activeSessions": "My active sessions",
   "settings.devices.generateHint":
@@ -712,7 +712,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.invites.bootstrap": "(bootstrap)",
 
   "settings.sessions.intro":
-    "Devices signed into this office, across all members. Revoking a session signs that device out. New people get an invite from the Invites section; existing members add devices themselves from <i>My devices</i>.",
+    "Devices signed into this office, across all members. Revoking a session signs that device out. New people get an invite from the Invites section; existing members add devices themselves from <i>Sign-in links</i>.",
   "settings.sessions.columnLastSeen": "Last seen",
   "settings.sessions.columnCreated": "Created",
   "settings.sessions.currentSession": "Current session",
