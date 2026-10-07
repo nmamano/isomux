@@ -6,4 +6,4 @@ When a new release is out, the office header shows a "new release" notice. The o
 isomux-update v2026.7.19
 ```
 
-Either way, the update installs system dependencies, rebuilds, snapshots office state and restarts the service, which interrupts running agents. If the new version fails to start, the updater restores the old code and state. To downgrade, add `--allow-downgrade`.
+Either way, the update installs system dependencies, rebuilds and restarts the service, which interrupts running agents. If the new version fails to start, the updater restores the old code. To downgrade, add `--allow-downgrade`.
