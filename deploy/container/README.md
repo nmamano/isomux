@@ -67,6 +67,8 @@ sudo apt-get update
 sudo apt-get install -y curl jq
 ```
 
+- `cloud-init status --wait` can print `status: error`. Continue when both `apt-get` commands succeed.
+
 The Isomux installer will install Docker, Compose, and Caddy.
 
 ## 4. Prepare the data disk
