@@ -2,7 +2,7 @@
   "name": "isomux",
   "license": "BUSL-1.1",
   "type": "module",
-  "packageManager": "bun@1.3.11",
+  "packageManager": "bun@1.3.14",
   "scripts": {
     "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true",
     "dev": "bun run build:ui && bun run server/isomux-office.ts",
