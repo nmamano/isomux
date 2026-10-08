@@ -1817,7 +1817,7 @@ export function TaskView({
                                 ? `0 0 6px ${STATUS_COLORS[task.status]}`
                                 : "none",
                           }}
-                          title={STATUS_LABELS[task.status]}
+                          title={t(STATUS_LABELS[task.status])}
                         />
                       </td>
                       <td style={{ padding: cellPad }}>
