@@ -567,6 +567,11 @@ export interface Backend {
   // Inspect a thrown / surfaced error string for known auth-failure signals.
   detectAuthError(text: string): boolean;
 
+  // True when local credential state shows that a send cannot authenticate.
+  // The orchestrator then keeps the message from the backend and shows the
+  // sign-in notice. Absent: the backend reports its own auth failures.
+  isKnownSignedOut?(env?: { [key: string]: string | undefined }): boolean;
+
   // User-facing instructions for re-authenticating. `text` is surfaced as a
   // system log entry after an auth-error is detected; each entry in
   // `commands`, when present, is emitted as an adjacent terminal-command card

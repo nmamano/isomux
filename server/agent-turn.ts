@@ -21,7 +21,11 @@
  */
 
 import type { Attachment } from "../shared/types.ts";
-import { SessionSwappedError, type ManagedAgent } from "./internal-types.ts";
+import {
+  BackendSignedOutError,
+  SessionSwappedError,
+  type ManagedAgent,
+} from "./internal-types.ts";
 import { memberUsageCap, UsageCapError } from "./member-usage-cap.ts";
 
 export interface RunAgentTurnOpts {
@@ -47,6 +51,9 @@ export interface RunAgentTurnOpts {
 type AgentTurnDeps = {
   beginTurn: (agentId: string, opts: { humanInput: boolean }) => void;
   createTurnDeferred: (managed: ManagedAgent) => Promise<void>;
+  /** The display name of the agent's engine when it is known to be signed
+   *  out, else null. See BackendSignedOutError. */
+  signedOutProvider: (managed: ManagedAgent) => string | null;
   contextNoticeSampleWaitMs: number;
 };
 
@@ -80,6 +87,13 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   // remains harmless when runAgentTurn re-enters from the bottom of the
   // same call.
   deps.beginTurn(agentId, { humanInput });
+
+  // A signed-out engine can only fail at its provider: Codex retries five
+  // times per attempt and then reports a raw 401. Stop before the send.
+  const signedOut = deps.signedOutProvider(managed);
+  if (signedOut) {
+    throw new BackendSignedOutError(`${signedOut} is not signed in.`);
+  }
 
   // Snapshot the cancel token immediately after beginTurn. Built-in notice
   // assembly can await a context sample before pendingTurn is installed.

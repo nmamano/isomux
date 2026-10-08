@@ -665,6 +665,172 @@ describe("provider auth affordances", () => {
     );
   });
 
+  describe("a signed-out Codex agent", () => {
+    async function signedOutCodex(
+      signedOut: () => boolean = () => true,
+      backendType: AgentBackendType = "codex",
+    ) {
+      const fake = new FakeBackend({
+        signedOut,
+        loginInstructions: {
+          kind: "login",
+          text: "terminal fallback",
+          commands: ["~/.isomux/bin/codex login"],
+        },
+        session: {
+          onSend: (_text, _attachments, session) =>
+            session.completeTurn({ text: "ok" }),
+        },
+      });
+      const h = await harness({
+        backendType,
+        fake,
+        accounts: async () => [
+          { ...claudeWire("office"), provider: "codex" as const },
+        ],
+        target: () => ({
+          provider: "codex",
+          scope: "office",
+          dir: "/accounts/office-codex",
+        }),
+      });
+      const notices = () =>
+        h.mgr
+          .getAgentLogs(h.agentId)
+          .filter((entry) => entry.metadata?.providerLogin === "codex");
+      const errors = () =>
+        h.mgr.getAgentLogs(h.agentId).filter((entry) => entry.kind === "error");
+      const sent = () => fake.sessions.flatMap((session) => session.sent);
+      // Bounded well inside the per-test cap, and asserts nothing: each case
+      // then checks the sends and the notice on their own.
+      const observe = () => settle(() => notices().length > 0);
+      return { ...h, fake, notices, errors, sent, observe };
+    }
+
+    function expectOneSignInNotice(notices: { content: string }[]) {
+      expect(notices).toHaveLength(1);
+      expect(notices[0].content).toBe(
+        english.t("systemEntries.signInRequired", { provider: "Codex" }),
+      );
+    }
+
+    // A new agent is dormant until its first message. It stays dormant: a
+    // Codex process started for nothing races the account check on a fresh
+    // CODEX_HOME.
+    for (const path of ["member", "queue"] as const) {
+      it(`keeps a ${path} message from Codex and shows one sign-in notice`, async () => {
+        const h = await signedOutCodex();
+        expect(h.mgr.getAgent(h.agentId)?.dormant).toBe(true);
+        if (path === "member") {
+          await h.mgr.sendMessage(h.agentId, "hi", "tester");
+        } else {
+          h.mgr.enqueueMessage(h.agentId, {
+            sender: { kind: "user", username: "tester" },
+            text: "queued hi",
+          });
+        }
+        await h.observe();
+        expect(h.fake.createSessionCount + h.fake.resumeSessionCount).toBe(0);
+        expect(h.sent()).toEqual([]);
+        expectOneSignInNotice(h.notices());
+        expect(h.errors()).toEqual([]);
+        expect(h.mgr.getAgent(h.agentId)?.dormant).toBe(true);
+        expect(h.mgr.getAgent(h.agentId)?.state).toBe("waiting_for_response");
+      });
+    }
+
+    it("keeps a message from a live Codex session after sign-out", async () => {
+      let signedOut = false;
+      const h = await signedOutCodex(() => signedOut);
+      await h.mgr.sendMessage(h.agentId, "first", "tester");
+      expect(h.sent()).toHaveLength(1);
+      signedOut = true;
+      await h.mgr.sendMessage(h.agentId, "second", "tester");
+      await h.observe();
+      expect(h.sent()).toHaveLength(1);
+      expectOneSignInNotice(h.notices());
+      expect(h.errors()).toEqual([]);
+      expect(h.mgr.getAgent(h.agentId)?.state).toBe("waiting_for_response");
+    });
+
+    it("keeps an edit from Codex without branching the conversation", async () => {
+      let signedOut = false;
+      const h = await signedOutCodex(() => signedOut);
+      await h.mgr.sendMessage(h.agentId, "first", "tester");
+      const entry = h.mgr
+        .getAgentLogs(h.agentId)
+        .find((e) => e.kind === "user_message");
+      expect(entry).toBeDefined();
+      signedOut = true;
+      await h.mgr.editMessage(h.agentId, entry!.id, "edited", "tester");
+      await h.observe();
+      expect(h.fake.forkCount).toBe(0);
+      expect(h.sent()).toHaveLength(1);
+      expectOneSignInNotice(h.notices());
+      expect(h.errors()).toEqual([]);
+      expect(h.mgr.getAgent(h.agentId)?.state).toBe("waiting_for_response");
+    });
+
+    it("keeps a skill from Codex", async () => {
+      const skillDir = join(STATE_ROOT, "skills", "gateskill");
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(join(skillDir, "SKILL.md"), "gate skill body");
+      let signedOut = false;
+      const h = await signedOutCodex(() => signedOut);
+      await h.mgr.sendMessage(h.agentId, "first", "tester");
+      expect(h.sent()).toHaveLength(1);
+      signedOut = true;
+      await h.mgr.sendMessage(h.agentId, "/gateskill", "tester");
+      await h.observe();
+      expect(h.sent()).toHaveLength(1);
+      expectOneSignInNotice(h.notices());
+      expect(h.errors()).toEqual([]);
+      expect(h.mgr.getAgent(h.agentId)?.state).toBe("waiting_for_response");
+    });
+
+    it("sends once Codex is signed in", async () => {
+      let signedOut = true;
+      const h = await signedOutCodex(() => signedOut);
+      await h.mgr.sendMessage(h.agentId, "first", "tester");
+      signedOut = false;
+      await h.mgr.sendMessage(h.agentId, "second", "tester");
+      expect(h.sent()).toHaveLength(1);
+      expect(h.sent()[0].text.endsWith("second")).toBe(true);
+    });
+
+    it("leaves a backend without the capability alone", async () => {
+      // Claude declares no signed-out state: it stops on its own and reports
+      // that through its auth notice.
+      expect("isKnownSignedOut" in claudeBackend).toBe(false);
+      const fake = new FakeBackend({
+        session: {
+          onSend: (_text, _attachments, session) =>
+            session.completeTurn({ text: "ok" }),
+        },
+      });
+      const { mgr, agentId } = await withClaudeConfigDirUnset(() =>
+        harness({ backendType: "claude", fake }),
+      );
+      await mgr.sendMessage(agentId, "hi", "tester");
+      expect(fake.sessions.flatMap((session) => session.sent)).toHaveLength(1);
+    });
+
+    it("is what the Codex backend reports with no credentials", () => {
+      const codexHome = join(
+        STATE_ROOT,
+        `gate-codex-${crypto.randomUUID()}`,
+      );
+      mkdirSync(codexHome, { recursive: true });
+      const env = { CODEX_HOME: codexHome, OPENAI_API_KEY: "" };
+      expect(codexBackend.isKnownSignedOut?.(env)).toBe(true);
+      expect(
+        codexBackend.isKnownSignedOut?.({ ...env, OPENAI_API_KEY: "sk-test" }),
+      ).toBe(false);
+      writeFileSync(join(codexHome, "auth.json"), "{}");
+      expect(codexBackend.isKnownSignedOut?.(env)).toBe(false);
+    });
+  });
+
   it("coalesces Claude system_text and an auth-looking stream exit", async () => {
     const fake = new FakeBackend({
       isAuthError: (text) => /not logged in|401/i.test(text),

@@ -387,6 +387,16 @@ export class BackendNotConfiguredError extends Error {
   }
 }
 
+// Thrown before a send when the agent's engine is known to be signed out, so
+// the message never reaches the provider. The catch sites show the sign-in
+// notice and card instead of `message`.
+export class BackendSignedOutError extends BackendNotConfiguredError {
+  constructor(message: string) {
+    super(message);
+    this.name = "BackendSignedOutError";
+  }
+}
+
 /** A Codex turn stopped after bounded provider-capacity retries. */
 export class ProviderCapacityError extends Error {
   constructor(message: string) {

@@ -164,6 +164,7 @@ import { productionStorageRoots } from "./storage-roots.ts";
 import { pushStopArm, settleStopArm } from "./stop-notice-arms.ts";
 import {
   BackendNotConfiguredError,
+  BackendSignedOutError,
   ProviderCapacityError,
   SessionSwappedError,
   TurnSupersededError,
@@ -491,6 +492,7 @@ export function createAgentManager(deps: ManagerDeps) {
       beginTurn,
       createTurnDeferred: (managed) =>
         managed.sessionManager.createTurnDeferred(),
+      signedOutProvider: (managed) => signedOutProvider(managed),
       contextNoticeSampleWaitMs,
     });
   }
@@ -550,6 +552,22 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       env,
       (value) => backend.detectAuthError(value),
     );
+  }
+  // A signed-out engine is not woken either: runAgentTurn stops the send, and
+  // an engine process started for nothing can break the sign-in check (two
+  // Codex processes on a fresh CODEX_HOME race to create its state database).
+  function signedOutProvider(managed: ManagedAgent): string | null {
+    const backend = getBackend(managed.info.agentType);
+    if (!backend.isKnownSignedOut) return null;
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildEnvForUserId(managed.info.userId);
+    } catch {
+      return null;
+    }
+    return backend.isKnownSignedOut(env)
+      ? providerDisplayName(managed.info.agentType)
+      : null;
   }
   async function agentIsKnownUnauthenticated(
     managed: ManagedAgent,
@@ -942,12 +960,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed: ManagedAgent,
     err: BackendNotConfiguredError,
   ): void {
-    void emitLoginInstructions(agentId, {
-      kind: "not_installed",
-      cardEligible: false,
-      text: err.message,
-      commands: err.command ? [err.command] : undefined,
-    });
+    if (err instanceof BackendSignedOutError)
+      emitDetectedAuthInstructions(agentId, managed);
+    else
+      void emitLoginInstructions(agentId, {
+        kind: "not_installed",
+        cardEligible: false,
+        text: err.message,
+        commands: err.command ? [err.command] : undefined,
+      });
     const queuedCount = managed.messageQueue.length;
     if (queuedCount > 0) {
       managed.messageQueue.length = 0;
@@ -5822,6 +5843,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         username,
         device,
       }),
+    surfaceSignedOut: surfaceBackendNotConfigured,
     enqueueMessage,
     resetContextUsage,
     // Same measurement, same roots, same 30s memo as GET /api/storage/usage -
@@ -6544,7 +6566,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (inMultiStepFlow(managed)) return;
         if (managed.messageQueue.length === 0) return;
       }
-      if (!managed.sessionManager.session) {
+      if (!managed.sessionManager.session && !signedOutProvider(managed)) {
         // A session swap is mid-drain (replaceSession's closeAndDrainSession
         // nulls the session before awaiting the old consumer). Don't race it
         // by installing a wake session the swap would then have to yield to -
@@ -6937,9 +6959,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Wake a session-less agent so a pending send has somewhere to go. Shared by
   // two call sites in sendMessage: the normal-message path (any session-less
   // agent) and the skill path (dormant agents only - see the call sites for why
-  // the gating differs). Returns true if a session is ready to send on; false
-  // if starting one failed (an error was already logged and state set to
-  // "error"), in which case the caller must return.
+  // the gating differs). Returns true if the caller may go on to runAgentTurn;
+  // false if starting a session failed (an error was already logged and state
+  // set to "error"), in which case the caller must return.
   function wakeSessionForSend(
     agentId: string,
     managed: ManagedAgent,
@@ -6952,6 +6974,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     },
   ): boolean {
     const { echoEarly, text, username, device, attachments } = opts;
+    if (signedOutProvider(managed)) return true;
     // Try to create a fresh session so the user's next message doesn't silently
     // vanish. pickAutoResumeSessionId returns managed.sessionManager.sessionId when it's safely
     // resumable - the previous session is genuinely dead, but the on-disk
@@ -9255,6 +9278,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       });
     if (managed.info.state !== "waiting_for_response") {
       failEdit(logWords(agentId, username)("systemEntries.editBusy"));
+      return;
+    }
+    // Before any history read or fork: the edit could only fail at the
+    // engine. Each attempt gets its own notice, as each send does.
+    const signedOut = signedOutProvider(managed);
+    if (signedOut) {
+      managed.authNoticeEmittedThisWake = false;
+      surfaceBackendNotConfigured(
+        agentId,
+        managed,
+        new BackendSignedOutError(`${signedOut} is not signed in.`),
+      );
       return;
     }
 

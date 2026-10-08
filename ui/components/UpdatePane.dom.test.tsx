@@ -347,17 +347,13 @@ describe("image deployments (no host updater)", () => {
     await expectQuiet(view);
   });
 
-  it("the host path keeps its version display and body when quiet", () => {
-    const hostQuiet = {
+  it("the host path shows an unpinned box as its full version", () => {
+    const hostUnpinned = {
       ...oldStatus,
-      updateAvailable: false,
       current: { release: null, version: sha },
     } as Status;
-    const { view } = renderImage(hostQuiet, "member");
+    const { view } = renderImage(hostUnpinned, "member");
     expect(view.queryByText(sha)).not.toBeNull();
-    expect(
-      view.queryByRole("heading", { name: en.t("settings.update.newRelease") }),
-    ).not.toBeNull();
   });
 
   it("copies the platform action, not the host updater instructions", async () => {
@@ -386,5 +382,69 @@ describe("image deployments (no host updater)", () => {
         "https://isomux.com/docs/hosting-render#update-the-office",
       ),
     ).toBe(true);
+  });
+});
+
+describe("host office on or past the latest release", () => {
+  const en = translatorFor("en");
+  const onLatest: Status = {
+    ...oldStatus,
+    updateAvailable: false,
+    current: { release: "v2026.9.8", version: "v2026.9.8" },
+  };
+  // A pre-release box: Latest is older than what runs.
+  const pastLatest: Status = {
+    ...oldStatus,
+    updateAvailable: false,
+    current: { release: "v2026.9.9", version: "v2026.9.9" },
+  };
+
+  it("reads as up to date and offers no update, for owners and members", async () => {
+    for (const status of [onLatest, pastLatest]) {
+      for (const role of ["owner", "member"] as const) {
+        const f = fixture(status, role);
+        await act(async () => {});
+        const { view } = f;
+        expect(
+          view.queryByRole("heading", {
+            name: en.t("settings.update.upToDateTitle"),
+          }),
+        ).not.toBeNull();
+        expect(
+          view.queryByText(en.t("settings.update.upToDate")),
+        ).not.toBeNull();
+        expect(
+          view.queryByRole("heading", {
+            name: en.t("settings.update.newRelease"),
+          }),
+        ).toBeNull();
+        expect(
+          view.queryByRole("button", {
+            name: en.t("settings.update.updateNow"),
+          }),
+        ).toBeNull();
+        // No release body: neither version line nor the latest tag.
+        expect(view.container.textContent?.includes("v2026.9.8")).toBe(false);
+        expect(f.gets()).toBe(0);
+        view.unmount();
+      }
+    }
+  });
+
+  it("keeps the owner's last update note", () => {
+    const NOTE = "Restored installer-managed firewall rule: 443/tcp.";
+    const status: Status = {
+      ...onLatest,
+      outcome: {
+        target: "v2026.9.8",
+        at: "2026-10-07T12:00:00Z",
+        messages: [NOTE],
+      },
+    };
+    const owner = fixture(status);
+    expect(owner.view.queryByText(NOTE)).not.toBeNull();
+    owner.view.unmount();
+    const member = fixture(status, "member");
+    expect(member.view.queryByText(NOTE)).toBeNull();
   });
 });

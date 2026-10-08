@@ -3185,6 +3185,12 @@ export const codexBackend: Backend = {
     return AUTH_ERROR_PATTERNS.test(text);
   },
 
+  // Without credentials Codex still takes the turn and retries the provider
+  // until it reports a raw 401.
+  isKnownSignedOut(env?: { [key: string]: string | undefined }): boolean {
+    return !isCodexAuthenticated(env);
+  },
+
   async getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
   }): Promise<LoginInstructions> {

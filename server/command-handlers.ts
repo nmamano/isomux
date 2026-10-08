@@ -51,6 +51,7 @@ import {
   openFile as openEditorFile,
 } from "./file-editor.ts";
 import {
+  BackendSignedOutError,
   SessionSwappedError,
   inMultiStepFlow,
   type ManagedAgent,
@@ -239,6 +240,12 @@ interface HandlerDeps {
     username?: string,
     device?: string,
   ) => boolean;
+  // A send the engine's sign-in state stopped: the sign-in notice and card.
+  surfaceSignedOut: (
+    agentId: string,
+    managed: ManagedAgent,
+    err: BackendSignedOutError,
+  ) => void;
   // Context-fullness reset (see resetContextUsage in agent-manager): the typed
   // /clear (also /reset, /new) is a semantic conversation boundary, so it must
   // clear the fullness snapshot + fired context-notice thresholds and
@@ -1297,6 +1304,10 @@ export function createCommandHandling(deps: HandlerDeps) {
       // already cleaned up the pendingTurn deferred if session.send fell
       // before await turn. Per-site error semantics remain here.
       if (err instanceof SessionSwappedError) return true;
+      if (err instanceof BackendSignedOutError) {
+        deps.surfaceSignedOut(agentId, managed, err);
+        return true;
+      }
       if (err instanceof UsageCapError) {
         deps.addLogEntry(
           agentId,

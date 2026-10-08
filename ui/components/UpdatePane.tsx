@@ -428,17 +428,24 @@ function ReleaseBody({
 // the old dialog's Close and "Got it" buttons did, and there is nothing
 // smaller to dismiss now that this is a pane rather than an overlay.
 export function UpdatePane({ onClose }: { onClose: () => void }) {
-  const { updateInfo } = useAppState();
+  const { updateInfo, sessionContext } = useAppState();
   const i18n = useI18n();
-  const { t } = i18n;
+  const { t, language } = i18n;
 
-  // A quiet image status has nothing to deploy: it takes the up-to-date
-  // branch below. The host path keeps its release body in every state.
+  // Only a newer release gets the release body: an office on Latest, or past
+  // it, takes the up-to-date branch below and is never offered a downgrade.
   const release =
-    updateInfo?.mode === "release" &&
-    (updateInfo.apply.kind === "host" || updateInfo.updateAvailable)
+    updateInfo?.mode === "release" && updateInfo.updateAvailable
       ? updateInfo
       : null;
+  // The installer's notes describe the release that runs, so they stay
+  // visible once the office is up to date.
+  const quietOutcome =
+    updateInfo?.mode === "release" &&
+    !release &&
+    sessionContext?.role === "owner"
+      ? updateInfo.outcome
+      : undefined;
   const commit = updateInfo?.mode === "commit" ? updateInfo : null;
   // Null while quiet - the pill is hidden then, so this pane normally opens
   // with something to say; the guard below covers the status going quiet
@@ -501,9 +508,19 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
           // Nothing to report: no release behind, no new commits. Reachable
           // now that the sidebar has a permanent Updates row, where the old
           // dialog could only be opened from the pill.
-          <p style={{ ...textStyle, margin: "16px 0 0" }}>
-            {t("settings.update.upToDate")}
-          </p>
+          <>
+            <p style={{ ...textStyle, margin: "16px 0 0" }}>
+              {t("settings.update.upToDate")}
+            </p>
+            {quietOutcome && (
+              <UpdateOutcomeNotes
+                title={t("settings.update.lastUpdate", {
+                  date: formatDate(language, quietOutcome.at),
+                })}
+                messages={quietOutcome.messages}
+              />
+            )}
+          </>
         )}
       </div>
     </div>

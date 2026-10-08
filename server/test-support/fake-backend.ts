@@ -301,6 +301,8 @@ export interface FakeBackendConfig {
   models?: BackendModel[];
   // detectAuthError predicate (default: never an auth error).
   isAuthError?: (text: string) => boolean;
+  // Declares Backend.isKnownSignedOut with this answer (default: absent).
+  signedOut?: () => boolean;
   loginInstructions?: Omit<LoginInstructions, "kind" | "cardEligible"> & {
     kind?: LoginInstructions["kind"];
     cardEligible?: boolean;
@@ -349,11 +351,13 @@ export class FakeBackend implements Backend {
     string | null
   >();
   private sessionCounter = 0;
+  readonly isKnownSignedOut?: () => boolean;
 
   constructor(cfg: FakeBackendConfig = {}) {
     this.cfg = cfg;
     this.capabilities = cfg.capabilities ?? { ...DEFAULT_AGENT_CAPABILITIES };
     this.toolBoundaryDelivery = cfg.toolBoundaryDelivery ?? false;
+    if (cfg.signedOut) this.isKnownSignedOut = cfg.signedOut;
   }
 
   get lastSession(): FakeSession | undefined {
