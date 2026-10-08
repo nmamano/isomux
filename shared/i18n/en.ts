@@ -1887,6 +1887,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "tasks.filterActive": "Open + In Progress",
   "tasks.filterAll": "All",
   "tasks.filterAssignee": "Filter assignee...",
+  "tasks.filterPriorityAny": "Any priority",
+  "tasks.filterPriorityNone": "No priority",
   "tasks.searchPlaceholder": "Search tasks...",
   "tasks.col.status": "S",
   "tasks.col.priority": "P",

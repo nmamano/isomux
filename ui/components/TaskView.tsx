@@ -837,6 +837,10 @@ export function TaskView({
       : t("tasks.globalShort");
   const [creating, setCreating] = useState(false);
   const [filterAssignee, setFilterAssignee] = useState("");
+  // "" is any priority, "none" a task with no priority.
+  const [filterPriority, setFilterPriority] = useState<TaskPriority | "" | "none">(
+    "",
+  );
   const [sortField, setSortField] = useState<SortField>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -874,6 +878,7 @@ export function TaskView({
     setFilterStatus("all");
     setSearch("");
     setFilterAssignee("");
+    setFilterPriority("");
     if (requestedTask.id === selectedId && !creating) return;
     if (panelOpen) {
       pendingNavRef.current = { kind: "select", id: requestedTask.id };
@@ -999,12 +1004,18 @@ export function TaskView({
     } else if (roomScope !== "all") {
       list = list.filter((t) => t.roomId === roomScope);
     }
-    if (filterStatus === "active") {
+    // The Active view hides open P4 tasks, so P4 there means the P4 view.
+    if (filterStatus === "active" && filterPriority !== "P4") {
       list = list.filter(inDefaultTaskList);
-    } else if (filterStatus === "P4") {
+    } else if (filterStatus === "P4" || filterStatus === "active") {
       list = list.filter((t) => t.priority === "P4" && t.status !== "done");
     } else if (filterStatus !== "all") {
       list = list.filter((t) => t.status === filterStatus);
+    }
+    if (filterPriority === "none") {
+      list = list.filter((t) => !t.priority);
+    } else if (filterPriority) {
+      list = list.filter((t) => t.priority === filterPriority);
     }
     if (search) {
       const q = search.toLowerCase();
@@ -1051,6 +1062,7 @@ export function TaskView({
     tasks,
     roomScope,
     filterStatus,
+    filterPriority,
     search,
     filterAssignee,
     sortField,
@@ -1118,6 +1130,12 @@ export function TaskView({
     color: "var(--text-primary)",
     fontSize: 12,
     outline: "none",
+  };
+  // On a phone the filter selects grow to fill their line and wrap when their
+  // labels do not fit on one line.
+  const mobileFilterSelectStyle: React.CSSProperties = {
+    ...selectStyle,
+    flex: "1 1 auto",
   };
 
   return (
@@ -1302,7 +1320,7 @@ export function TaskView({
             {t(isMobile ? "tasks.hintMobile" : "tasks.hintDesktop")}
           </div>
 
-          {/* Filter row - view/status/assignee + search. These narrow the table
+          {/* Filter row - view/status/priority/assignee + search. These narrow the table
               below, so they sit UNDER the quick-add create affordance. */}
           <div
             style={{
@@ -1313,12 +1331,18 @@ export function TaskView({
               borderBottom: "1px solid var(--border-subtle)",
             }}
           >
-            <div style={{ display: "flex", gap: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: isMobile ? "wrap" : undefined,
+              }}
+            >
               <select
                 value={roomScope}
                 onChange={(e) => setRoomScope(e.target.value)}
                 title={t("tasks.scopeTitle")}
-                style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
+                style={isMobile ? mobileFilterSelectStyle : selectStyle}
               >
                 <option value="all">{t("tasks.allRooms")}</option>
                 <option value="global">{t("tasks.globalShort")}</option>
@@ -1335,7 +1359,7 @@ export function TaskView({
                     e.target.value as TaskStatus | "all" | "active" | "P4",
                   )
                 }
-                style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
+                style={isMobile ? mobileFilterSelectStyle : selectStyle}
               >
                 <option value="active">{t("tasks.filterActive")}</option>
                 <option value="open">{t("tasks.status.open")}</option>
@@ -1345,6 +1369,21 @@ export function TaskView({
                 <option value="P4">P4</option>
                 <option value="done">{t("tasks.status.done")}</option>
                 <option value="all">{t("tasks.filterAll")}</option>
+              </select>
+              <select
+                value={filterPriority}
+                onChange={(e) =>
+                  setFilterPriority(e.target.value as TaskPriority | "" | "none")
+                }
+                style={isMobile ? mobileFilterSelectStyle : selectStyle}
+              >
+                <option value="">{t("tasks.filterPriorityAny")}</option>
+                <option value="P0">P0</option>
+                <option value="P1">P1</option>
+                <option value="P2">P2</option>
+                <option value="P3">P3</option>
+                <option value="P4">P4</option>
+                <option value="none">{t("tasks.filterPriorityNone")}</option>
               </select>
               {!isMobile && (
                 <input

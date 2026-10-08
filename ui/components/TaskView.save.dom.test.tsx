@@ -125,7 +125,7 @@ it("P4 replaces backlog: a priority option, no status option, and a board filter
   await open(shelved.id);
   await view.findByDisplayValue(shelved.title);
   const priority = view.container.querySelector(
-    'select:has(option[value="P0"])',
+    'select:has(option[value="P0"]):not(:has(option[value="none"]))',
   ) as HTMLSelectElement;
   expect(priority.value).toBe("P4");
   const status = view.container.querySelector(

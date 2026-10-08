@@ -1923,6 +1923,8 @@ Cosas que puedes hacer por él:
   "tasks.filterActive": "Abiertas + en curso",
   "tasks.filterAll": "Todas",
   "tasks.filterAssignee": "Filtrar por responsable...",
+  "tasks.filterPriorityAny": "Cualquier prioridad",
+  "tasks.filterPriorityNone": "Sin prioridad",
   "tasks.searchPlaceholder": "Buscar tareas...",
   "tasks.col.status": "E",
   "tasks.col.priority": "P",

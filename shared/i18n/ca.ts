@@ -1919,6 +1919,8 @@ Coses que pots fer per ell:
   "tasks.filterActive": "Obertes + en curs",
   "tasks.filterAll": "Totes",
   "tasks.filterAssignee": "Filtra per responsable...",
+  "tasks.filterPriorityAny": "Qualsevol prioritat",
+  "tasks.filterPriorityNone": "Sense prioritat",
   "tasks.searchPlaceholder": "Cerca tasques...",
   "tasks.col.status": "E",
   "tasks.col.priority": "P",

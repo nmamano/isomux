@@ -1741,6 +1741,8 @@ App 的一些原则：
   "tasks.filterActive": "未开始 + 进行中",
   "tasks.filterAll": "全部",
   "tasks.filterAssignee": "筛选受派者…",
+  "tasks.filterPriorityAny": "任意优先级",
+  "tasks.filterPriorityNone": "无优先级",
   "tasks.searchPlaceholder": "搜索任务…",
   "tasks.col.status": "状态",
   "tasks.col.priority": "优先级",
