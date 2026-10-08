@@ -4,8 +4,19 @@ import {
   readBrowserUpload,
   type UploadedFile,
 } from "./browser-upload";
-import { chromium, type Browser, type Page } from "playwright-core";
+import {
+  chromium,
+  type Browser,
+  type Dialog,
+  type Page,
+} from "playwright-core";
 import { readBrowserFrames, resolveBrowserFrame } from "./browser-frames";
+import {
+  SELECT_REASON,
+  clickNotPerformedReason,
+  firstMatchingOption,
+  watchNavigation,
+} from "./browser-input";
 import { browserExtensionTransport } from "./browser-extension-transport";
 import type { ExtensionConnection } from "./browser-extension-bridge";
 import type { BrowserExtensionService } from "./browser-extension-service";
@@ -15,18 +26,30 @@ import {
   describeShot,
   MAX_TEXT_CHARS,
   MAX_SNAPSHOT_CHARS,
+  type BrowserDialog,
   type BrowserResult,
 } from "./browser-actions";
+
+// The dialog policy of the action that runs now. A dialog that opens while no
+// action runs is dismissed and reported nowhere.
+type ActionDialogs = {
+  accept: boolean;
+  acceptUsed: boolean;
+  records: BrowserDialog[];
+  answers: Promise<void>[];
+};
 
 type Session = {
   actor: string;
   member: string;
   signal: AbortSignal;
   browser: Browser;
+  transport: ReturnType<typeof browserExtensionTransport>;
   page: Page;
   pages: Page[];
   parents: Map<Page, Page>;
   opened: boolean;
+  dialogs?: ActionDialogs;
 };
 const failure = (
   code:
@@ -53,6 +76,41 @@ const timeoutResult = (recovering = false) =>
 const offline = () =>
   failure("browser_offline", "No paired Chrome browser is online");
 const SETTLEMENT_GRACE_MS = 1000;
+// Time an input's checks leave for the response, and the time a settle leaves
+// for reading the title.
+const INPUT_RESERVE_MS = 1500;
+const TITLE_RESERVE_MS = 500;
+const MAX_DIALOG_MESSAGE = 2000;
+const notPerformed = (action: "click" | "select", reason: string) =>
+  failure(
+    "action_failed",
+    action === "click"
+      ? `The click was not performed: ${reason}.`
+      : `The option was not selected: ${reason}.`,
+  );
+// Every dialog is answered at once. Without a page listener Playwright closes
+// it itself without catching a failed answer, which ends the server process.
+function answerDialog(owner: Session, dialog: Dialog): void {
+  const action = owner.dialogs;
+  const type = dialog.type();
+  const accept =
+    type === "beforeunload" || (!!action?.accept && !action.acceptUsed);
+  if (action?.accept && type !== "beforeunload") action.acceptUsed = true;
+  const record: BrowserDialog = {
+    type,
+    message: dialog.message().slice(0, MAX_DIALOG_MESSAGE),
+    accepted: false,
+  };
+  const answered = (accept ? dialog.accept() : dialog.dismiss()).then(
+    () => {
+      record.accepted = accept;
+    },
+    () => {},
+  );
+  if (!action) return;
+  action.records.push(record);
+  action.answers.push(answered);
+}
 type Resolved = {
   connection: ExtensionConnection;
   grant: string;
@@ -194,7 +252,10 @@ export class ExtensionBrowserSessions {
       if (connection.pendingCount(grant)) return timeoutResult(true);
     }
     const started = performance.now();
+    const deadline = started + actionMs;
     let operationSettled = false;
+    let phase = "start";
+    let inputsAtClick: number | undefined;
     const diagnostic = (reason: string) =>
       console.info(
         "[browser-extension] " +
@@ -206,9 +267,15 @@ export class ExtensionBrowserSessions {
             assignment: grant,
             pending: connection.pendingCount(grant),
             operationSettled,
+            phase,
+            dispatched:
+              session && inputsAtClick !== undefined
+                ? session.transport.inputs > inputsAtClick
+                : undefined,
           }),
       );
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let policy: { session: Session; dialogs: ActionDialogs } | undefined;
     let transport: ReturnType<typeof browserExtensionTransport> | undefined;
     let timedOut = false;
     let timeoutWinner = "client_closed";
@@ -258,6 +325,7 @@ export class ExtensionBrowserSessions {
           member,
           signal: transport.signal,
           browser,
+          transport,
           page,
           pages: [page],
           parents: new Map(),
@@ -265,9 +333,11 @@ export class ExtensionBrowserSessions {
         };
         const owned = session;
         this.sessions.set(key, session);
+        page.on("dialog", (dialog) => answerDialog(owned, dialog));
         const adoptPopup = (popup: Page) => {
           // The bridge has already bound the popup to this assignment.
           owned.pages.push(popup);
+          popup.on("dialog", (dialog) => answerDialog(owned, dialog));
           owned.page = popup;
           void popup.opener().then((opener) => {
             if (opener && owned.pages.includes(opener))
@@ -296,17 +366,45 @@ export class ExtensionBrowserSessions {
         return ended();
       }
       if (timedOut) return timeoutResult(true);
+      const dialogs: ActionDialogs = {
+        accept: params.dialog === "accept",
+        acceptUsed: false,
+        records: [],
+        answers: [],
+      };
+      session.dialogs = dialogs;
+      policy = { session, dialogs };
       const timeout = actionMs;
       const page = session.page;
-      const element =
+      const frame =
         params.framePath &&
         params.action !== "snapshot" &&
         params.action !== "text"
-          ? resolveBrowserFrame(page.mainFrame(), params.framePath).locator(
-              params.selector!,
-            )
+          ? resolveBrowserFrame(page.mainFrame(), params.framePath)
           : undefined;
+      const element = frame?.locator(params.selector!);
       let uploaded: UploadedFile | undefined;
+      let selected: string[] | undefined;
+      let loading = false;
+      // The input outcome stays separate from the settle: a settle that runs
+      // out sets loading, it never turns a dispatched input into a failure.
+      const inputThenSettle = async (input: () => Promise<unknown>) => {
+        const main = page.mainFrame();
+        const watch = watchNavigation(
+          page,
+          frame && frame !== main ? [main, frame] : [main],
+        );
+        try {
+          phase = "input";
+          await input();
+          phase = "settle";
+          if (!timedOut)
+            loading = !(await watch.settle(deadline - TITLE_RESERVE_MS));
+        } finally {
+          watch.dispose();
+        }
+      };
+      const inputBudget = () => Math.max(1, deadline - performance.now());
       switch (params.action) {
         case "goto":
           await page.goto(params.url!.toString(), {
@@ -315,10 +413,87 @@ export class ExtensionBrowserSessions {
           });
           session.opened = true;
           break;
-        case "click":
-          if (element) await element.click({ timeout });
-          else await page.click(params.selector!, { timeout });
+        case "click": {
+          const options = {
+            noWaitAfter: true,
+            timeout: Math.max(1, deadline - INPUT_RESERVE_MS - performance.now()),
+          };
+          const inputs = session.transport.inputs;
+          inputsAtClick = inputs;
+          try {
+            // One Playwright click: actionability, then one dispatch. With
+            // noWaitAfter Playwright neither retries after the dispatch nor
+            // waits for a navigation. An ok result means that the click was
+            // dispatched at the target's position after it passed
+            // actionability, not that the page applied it.
+            await inputThenSettle(() =>
+              element
+                ? element.click(options)
+                : page.click(params.selector!, options),
+            );
+          } catch (error) {
+            // No Input command left the transport: nothing was dispatched.
+            if (
+              error instanceof Error &&
+              error.name === "TimeoutError" &&
+              session.transport.inputs === inputs
+            ) {
+              diagnostic("click_not_performed");
+              return notPerformed(
+                "click",
+                clickNotPerformedReason(error.message),
+              );
+            }
+            throw error;
+          }
           break;
+        }
+        case "select": {
+          const select = element ?? page.locator(params.selector!).first();
+          phase = "check";
+          let enabled: boolean;
+          try {
+            enabled = await select.isEnabled({
+              timeout: Math.max(1, deadline - INPUT_RESERVE_MS - performance.now()),
+            });
+          } catch (error) {
+            if (error instanceof Error && error.name === "TimeoutError")
+              return notPerformed("select", SELECT_REASON.missing);
+            throw error;
+          }
+          if (!enabled) return notPerformed("select", SELECT_REASON.disabled);
+          const checkBudget = () =>
+            Math.max(1, deadline - INPUT_RESERVE_MS - performance.now());
+          const option = await firstMatchingOption(
+            select,
+            params.value !== undefined
+              ? { value: params.value }
+              : { label: params.label! },
+            checkBudget,
+          );
+          if (!option) return notPerformed("select", SELECT_REASON.noOption);
+          // selectOption would wait on this option until the deadline. An
+          // inconclusive check leaves the choice to selectOption, whose
+          // timeout keeps the unknown outcome.
+          if (
+            option !== "inconclusive" &&
+            !(await option.isEnabled({ timeout: checkBudget() }))
+          )
+            return notPerformed("select", SELECT_REASON.optionDisabled);
+          if (timedOut) return timeoutResult(true);
+          // Forced past the visibility check, so that a native select hidden
+          // under a styled control works. The disabled check above is a
+          // separate round trip.
+          await inputThenSettle(async () => {
+            selected = await select.selectOption(
+              params.value !== undefined
+                ? { value: params.value }
+                : { label: params.label! },
+              { force: true, timeout: inputBudget() },
+            );
+          });
+          break;
+        }
         case "fill":
           if (element) await element.fill(params.text!, { timeout });
           else await page.fill(params.selector!, params.text!, { timeout });
@@ -353,6 +528,8 @@ export class ExtensionBrowserSessions {
         url: current.url(),
         title: await current.title(),
         ...(uploaded ? { uploaded } : {}),
+        ...(selected ? { selected } : {}),
+        ...(loading ? { loading: true } : {}),
       };
       if (params.action === "text")
         result.text = await readBrowserFrames(
@@ -377,6 +554,18 @@ export class ExtensionBrowserSessions {
         });
         Object.assign(result, describeShot(current.url()));
       }
+      if (dialogs.answers.length) {
+        let wait: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          Promise.all(dialogs.answers),
+          new Promise<void>((resolve) => {
+            wait = setTimeout(resolve, Math.max(0, deadline - performance.now()));
+          }),
+        ]);
+        clearTimeout(wait);
+      }
+      if (dialogs.records.length)
+        result.dialogs = dialogs.records.map((record) => ({ ...record }));
       if (!valid()) {
         this.end(key);
         return ended();
@@ -419,7 +608,8 @@ export class ExtensionBrowserSessions {
       if (busy) diagnostic("drain_exceeded");
       return timeoutResult(busy);
     };
-    try {
+    const respond = async (): Promise<BrowserResult> => {
+     try {
       const result = await Promise.race([
         operation,
         interrupted,
@@ -453,9 +643,24 @@ export class ExtensionBrowserSessions {
       const syntax = params.selector ? selectorSyntaxFailure(error) : undefined;
       if (syntax) return syntax;
       return failure("action_failed", "The Chrome browser action failed");
+     }
+    };
+    // A failure keeps the dialogs that its action opened.
+    const withDialogs = (result: BrowserResult): BrowserResult =>
+      !result.ok && policy?.dialogs.records.length
+        ? {
+            ...result,
+            dialogs: policy.dialogs.records.map((record) => ({ ...record })),
+          }
+        : result;
+    try {
+      return withDialogs(await respond());
     } finally {
       watched?.removeEventListener("abort", onEnd);
       clearTimeout(timer);
+      // A dialog that opens after the response gets no accept and no record.
+      if (policy && policy.session.dialogs === policy.dialogs)
+        policy.session.dialogs = undefined;
     }
   }
 }

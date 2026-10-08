@@ -139,3 +139,21 @@ test("direct transport loss rejects Playwright initialization", async () => {
   expect(error).toBeInstanceOf(Error);
   expect((error as Error).name).not.toBe("TimeoutError");
 }, 3000);
+
+test("the transport counts every Input command that it sends", async () => {
+  const h = await offered();
+  const transport = browserExtensionTransport(h.connection, "agent");
+  const browser = await chromium.connectOverCDP(transport, {
+    noDefaults: true,
+    timeout: 1000,
+  });
+  const page = browser.contexts()[0].pages()[0];
+  expect(page.url()).toBe("https://example.com/");
+  expect(transport.inputs).toBe(0);
+  await page.mouse.click(5, 5);
+  expect(transport.inputs).toBe(3);
+  await page.keyboard.press("A");
+  expect(transport.inputs).toBe(5);
+  await browser.close();
+  h.connection.close();
+}, 3000);

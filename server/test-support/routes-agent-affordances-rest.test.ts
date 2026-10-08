@@ -17,7 +17,8 @@
 //
 // Seam: startTestServer(). Zero LLM.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, spyOn } from "bun:test";
+import { ExtensionBrowserSessions } from "../browser-extension-session.ts";
 import { writeFileSync, chmodSync } from "fs";
 import { join } from "path";
 import {
@@ -72,7 +73,7 @@ async function spawnAgent(
 
 interface Res {
   status: number;
-  body: { ok?: boolean; error?: { code?: string }; [k: string]: unknown };
+  body: { ok?: boolean; error?: { code?: string; dialogs?: unknown }; [k: string]: unknown };
 }
 async function affordance(
   srv: TestServer,
@@ -560,6 +561,40 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
     } finally {
       if (prevEnv === undefined) delete process.env.ISOMUX_PREVIEW_BROWSER;
       else process.env.ISOMUX_PREVIEW_BROWSER = prevEnv;
+    }
+  });
+
+  it("a failed action keeps the dialogs it opened in the error body", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const dialogs = [{ type: "confirm", message: "Proceed?", accepted: true }];
+    const run = spyOn(ExtensionBrowserSessions.prototype, "run").mockResolvedValue(
+      {
+        ok: false,
+        status: 500,
+        code: "action_timeout",
+        error: "fixture timeout",
+        dialogs,
+      },
+    );
+    try {
+      const r = await affordance(
+        srv,
+        agent.id,
+        "browser",
+        { action: "click", selector: "#b", dialog: "accept" },
+        { bearer: token },
+      );
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(r.status).toBe(500);
+      expect(r.body.error?.code).toBe("action_timeout");
+      expect(r.body.error?.dialogs).toEqual(dialogs);
+    } finally {
+      run.mockRestore();
     }
   });
 

@@ -2802,7 +2802,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         text?: string;
         closed?: boolean;
       }
-    | { ok: false; status: number; code: string; error: string }
+    | {
+        ok: false;
+        status: number;
+        code: string;
+        error: string;
+        dialogs?: { type: string; message: string; accepted: boolean }[];
+      }
   > {
     const managed = agents.get(agentId);
     if (!managed)

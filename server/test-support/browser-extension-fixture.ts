@@ -12,6 +12,7 @@ import {
 type SocketData = {
   connection?: ExtensionConnection;
   timer?: ReturnType<typeof setTimeout>;
+  heartbeat?: ReturnType<typeof setInterval>;
 };
 export function browserExtensionFixture() {
   const credential = crypto.randomUUID() + crypto.randomUUID();
@@ -67,13 +68,27 @@ export function browserExtensionFixture() {
               close: () => ws.close(),
             });
             clearTimeout(ws.data.timer);
-          } else ws.data.connection.receive(msg);
+            // The extension closes a connection that sends no ping for 45 s,
+            // as the office service does every 15 s.
+            const connection = ws.data.connection;
+            ws.data.heartbeat = setInterval(
+              () =>
+                ws.send(
+                  JSON.stringify({
+                    kind: "ping",
+                    generation: connection.generation,
+                  }),
+                ),
+              15_000,
+            );
+          } else if (msg.kind !== "pong") ws.data.connection.receive(msg);
         } catch {
           ws.close();
         }
       },
       close(ws) {
         clearTimeout(ws.data.timer);
+        clearInterval(ws.data.heartbeat);
         ws.data.connection?.close();
       },
     },

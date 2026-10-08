@@ -400,6 +400,7 @@ test("Never has no desktop idle timer and stays offered across four hours and ac
           {
             pages: () => [
               {
+                on() {},
                 url: () => "https://example.com/",
                 title: async () => "Fixture",
                 mainFrame: () => ({
@@ -686,6 +687,8 @@ async function timeoutSessionFixture(
         }),
       };
       const page = {
+        on() {},
+        off() {},
         close: async () => {
           pageClosed = true;
         },

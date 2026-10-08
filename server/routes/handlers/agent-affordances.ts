@@ -62,7 +62,13 @@ type PreviewAffordanceResult =
 // card in the chat, and the manager owns that emit.
 type BrowserAffordanceResult =
   | ({ ok: true } & AffordanceBrowserResp)
-  | { ok: false; status: number; code: string; error: string };
+  | {
+      ok: false;
+      status: number;
+      code: string;
+      error: string;
+      dialogs?: AffordanceBrowserResp["dialogs"];
+    };
 
 export interface AgentAffordanceDeps {
   emitAgentReadFile(agentId: string, path: string): AffordanceResult;
@@ -179,7 +185,13 @@ export function agentAffordanceHandlers(
       // shallow, like previewUrl above.
       try {
         const r = await deps.runAgentBrowserAction(ctx.params.id, ctx.body);
-        if (!r.ok) return fail(r.status as HandlerErrorStatus, r.code, r.error);
+        if (!r.ok)
+          return fail(
+            r.status as HandlerErrorStatus,
+            r.code,
+            r.error,
+            r.dialogs ? { dialogs: r.dialogs } : undefined,
+          );
         const { ok: _ok, ...payload } = r;
         return ok({ ok: true, ...payload });
       } catch (err) {

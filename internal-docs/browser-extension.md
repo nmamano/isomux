@@ -396,3 +396,88 @@ All offer is used."
 
 **Not included.** Re-pairing in place, rename, a per-member browser cap, showing the browser name in
 the extension popup.
+
+## Clicks, select and dialogs (task 19b61d94, 2026-10-08)
+
+Seen 2026-10-05 on the Namecheap Advanced DNS page: clicks on
+`javascript:void(0)` links and on custom dropdown options returned
+`action_timeout` after they took effect, there was no select action, and the
+first click on Remove "did nothing". The opt-in regression is
+`server/browser-extension-interactions.live.test.ts` (raw Chrome, packaged
+extension, fixture bridge, the real session code; fake page that copies the
+Namecheap patterns):
+
+```
+systemd-run --user --scope -p MemoryMax=2G timeout 120s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test server/browser-extension-interactions.live.test.ts
+```
+
+**Findings.** A listbox that picks its option in a window-capture pointerdown
+listener reproduces the dropdown timeout: the page applies the value before
+Playwright's hit-target listener runs, that listener then sees the page change
+under the pointer, blocks the rest of the click and retries until the deadline.
+The production journal for 2026-10-05 has the same shape: Playwright-internal
+30 s waits with at most two of our commands pending. A plain
+`javascript:void(0)` link and twelve navigation variants (hash, pushState, 204,
+cancelled, download, hidden-frame form, and others) did not reproduce; an open
+custom listbox already showed in snapshots. A native `confirm()` was
+auto-dismissed without a trace. If that auto-dismiss failed (another CDP
+client answered first), Playwright's server-side `dialog._close()` rejection
+was unhandled and Bun ended the office process.
+
+Playwright 1.62's `click({trial: true})` is not input-free: it dispatches the
+mouse events and only blocks them in its own window listener, so earlier page
+listeners still see them. The design does not use trial runs.
+
+**Click.** One Playwright click with `noWaitAfter: true`: actionability, the
+pre-dispatch hit-target check, then one dispatch, with no retry after the
+dispatch and no navigation barrier. Ok means that Chrome dispatched the click
+at the target's position after the target passed actionability; it does not
+prove that the page applied it. The transport counts every `Input.*` command
+it sends. A click that times out with no `Input` command sent during that
+action dispatched no input: it returns `action_failed` with a fixed reason
+(`browser-input.ts` picks it from the call log, which never leaves the module)
+and no settling fence. Scrolling or page scripts can still have changed the
+page. A timeout after an `Input` command keeps the unknown outcome and the
+fence. Playwright colors its call log when the process allows color, so the
+reason parser strips ANSI escapes first.
+
+**Settle.** Listeners on the main frame and the action's frame start before
+the dispatch. After a 300 ms window, the settle waits until each navigation
+request ended or its frame committed after that request started, and for each
+committed frame's load. It then waits one more 300 ms window and repeats if a
+load handler started another navigation. All of this ends 500 ms before the
+action deadline. A settle that runs out adds `loading: true` to an
+ok result; it never turns a dispatched input into a failure.
+
+**Select.** `{action:"select", selector, value}` or `label`. Read-only checks
+run first: the element (first match on the main frame, strict in a frame),
+`isEnabled` (includes disabled fieldsets), then the option that `selectOption`
+picks, which is the first match in document order. Public utility-world reads
+find it: a candidate locator that holds every match in document order, then
+`getAttribute` and `textContent` per candidate, matched as Playwright 1.62
+matches (value equal to `option.value`; label equal to `option.label` or equal
+after `normalizeWhiteSpace`; Chrome's `option.text` strips and collapses ASCII
+whitespace, and a `label=""` attribute gives an empty label). `isEnabled` on
+that option decides; `selectOption` would wait on a disabled first match.
+Chrome's `option.text` leaves out script descendants, which `textContent`
+keeps. When the first candidate that needs its text has a script descendant,
+the check is inconclusive and `selectOption` decides; a timeout there keeps the
+unknown outcome and the fence (Isomux PM ruling, 2026-10-08). No
+main-world evaluation: its context may not be announced after an All grant
+changes clients. A failed check returns `action_failed` and changes nothing. The disabled check is one round trip
+before the change, not atomic. `selectOption` then runs with `force: true`, so
+a native select hidden under a styled control works, and the result adds
+`selected`.
+
+**Dialogs.** Each session page and popup has a `dialog` listener, so
+Playwright's uncaught auto-close never runs. The listener answers at once:
+dismiss, or accept for the first non-`beforeunload` dialog of an action that
+sent `dialog: "accept"`; `beforeunload` is always accepted. A failed answer is
+caught. The action's result lists `dialogs: [{type, message, accepted}]`, and a
+failure carries the same list as `error.dialogs` (the route passes it as error
+detail);
+`accepted` is true only after Chrome confirmed the accept. The policy is
+cleared on every exit, so a later dialog is dismissed and reported nowhere.
+
+**Out of scope.** A click on a custom-protocol link (`x-proto://`) ends control
+(the grant is released); reported to Isomux PM separately.

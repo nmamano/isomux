@@ -800,6 +800,7 @@ describe("desktop browser projection", () => {
     await extension.wait("offered");
     let navigated = false;
     const page = {
+      on: () => {},
       goto: async () => {
         navigated = true;
       },

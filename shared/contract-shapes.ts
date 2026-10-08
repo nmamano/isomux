@@ -312,13 +312,14 @@ export interface AffordanceBrowserReq {
     | "text"
     | "click"
     | "fill"
+    | "select"
     | "upload"
     | "press"
     | "screenshot"
     | "close";
   /** `goto`: the http(s) URL to open. */
   url?: string;
-  /** `click`, `fill`, and optionally `press`: a Playwright selector. */
+  /** `click`, `fill`, `select`, and optionally `press`: a Playwright selector. */
   selector?: string;
   /** `upload`: one absolute office-server file path, up to 4 MiB. */
   path?: string;
@@ -326,6 +327,12 @@ export interface AffordanceBrowserReq {
   text?: string;
   /** `press`: the key name, e.g. "Enter". */
   key?: string;
+  /** `select`: the option value; exactly one of value and label. */
+  value?: string;
+  /** `select`: the option label; exactly one of value and label. */
+  label?: string;
+  /** `click`, `press`, `select`: accept the first dialog the action opens. */
+  dialog?: "accept";
   /** `screenshot`: capture the whole page instead of the viewport. */
   fullPage?: boolean;
   /** Accepted for old callers; Chrome keeps its desktop viewport. */
@@ -347,6 +354,12 @@ export interface AffordanceBrowserResp {
   text?: string;
   uploaded?: { name: string; mimeType: string; size: number };
   closed?: boolean;
+  /** `select`: the selected option values. */
+  selected?: string[];
+  /** The input completed, but a navigation it started had not loaded. */
+  loading?: boolean;
+  /** JavaScript dialogs that the action opened, and their answers. A failure carries them as `error.dialogs`. */
+  dialogs?: { type: string; message: string; accepted: boolean }[];
 }
 
 /**

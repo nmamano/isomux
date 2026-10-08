@@ -20,6 +20,7 @@ export const BROWSER_ACTIONS = [
   "text",
   "click",
   "fill",
+  "select",
   "upload",
   "press",
   "screenshot",
@@ -41,6 +42,8 @@ export interface BrowserFailure {
   status: 400 | 500;
   code: BrowserErrorCode;
   error: string;
+  /** Dialogs that the failed action opened, in order. */
+  dialogs?: BrowserDialog[];
 }
 
 export interface BrowserSuccess {
@@ -70,9 +73,23 @@ export interface BrowserSuccess {
   caption?: string;
   /** True when the action ended control. */
   closed?: boolean;
+  /** `select` only: the selected option values after the change. */
+  selected?: string[];
+  /** True when the input completed but a navigation it started had not loaded by the deadline. */
+  loading?: boolean;
+  /** Dialogs that the action opened, in order. */
+  dialogs?: BrowserDialog[];
 }
 
 export type BrowserResult = BrowserSuccess | BrowserFailure;
+
+/** A JavaScript dialog that a page action opened, and the answer it got. */
+export interface BrowserDialog {
+  type: string;
+  message: string;
+  /** True only when an accept was sent and Chrome confirmed it. */
+  accepted: boolean;
+}
 
 function fail(
   status: 400 | 500,
@@ -119,6 +136,9 @@ interface ParsedParams {
   text?: string;
   path?: string;
   key?: string;
+  value?: string;
+  label?: string;
+  dialog?: "accept";
   fullPage?: boolean;
   viewport: { width: number; height: number };
 }
@@ -161,7 +181,7 @@ export function parseBrowserParams(
 
   if (body.framePath !== undefined) {
     if (
-      !["click", "fill", "press", "upload", "snapshot", "text"].includes(
+      !["click", "fill", "select", "press", "upload", "snapshot", "text"].includes(
         action,
       ) ||
       !Array.isArray(body.framePath) ||
@@ -208,13 +228,43 @@ export function parseBrowserParams(
     params.url = url;
   }
 
-  if (action === "click" || action === "fill" || action === "upload") {
+  if (
+    action === "click" ||
+    action === "fill" ||
+    action === "select" ||
+    action === "upload"
+  ) {
     const selector = body.selector;
     if (typeof selector !== "string" || selector.length === 0)
       return invalid(`selector is required for the ${action} action`);
     if (selector.length > MAX_SELECTOR_LEN)
       return invalid(`selector too long (max ${MAX_SELECTOR_LEN} chars)`);
     params.selector = selector;
+  }
+
+  if (action === "select") {
+    const fields = (["value", "label"] as const).filter(
+      (field) => body[field] !== undefined,
+    );
+    if (fields.length !== 1 || typeof body[fields[0]] !== "string")
+      return invalid(
+        "select needs exactly one of value or label, as a string",
+      );
+    const option = body[fields[0]] as string;
+    if (option.length > MAX_FILL_LEN)
+      return invalid(`${fields[0]} too long (max ${MAX_FILL_LEN} chars)`);
+    params[fields[0]] = option;
+  }
+
+  if (body.dialog !== undefined) {
+    if (
+      body.dialog !== "accept" ||
+      !["click", "press", "select"].includes(action)
+    )
+      return invalid(
+        'dialog must be "accept" on a click, press or select action',
+      );
+    params.dialog = "accept";
   }
 
   if (action === "upload") {

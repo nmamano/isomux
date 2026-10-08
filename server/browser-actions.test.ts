@@ -22,6 +22,11 @@ describe("parseBrowserParams", () => {
       { action: "text" },
       { action: "click", selector: "#go" },
       { action: "fill", selector: "#name", text: "nil" },
+      { action: "select", selector: "#ttl", value: "300" },
+      { action: "select", selector: "#ttl", value: "" },
+      { action: "select", selector: "#ttl", label: "5 min" },
+      { action: "click", selector: "#remove", dialog: "accept" },
+      { action: "press", key: "Enter", dialog: "accept" },
       {
         action: "upload",
         selector: "input[type=file]",
@@ -195,4 +200,41 @@ it("read scopes accept an optional strict selector and frame independently", () 
         code: "invalid_request",
       });
   }
+});
+
+it("select takes exactly one string value or label, and dialog accepts only on inputs", () => {
+  const select = (extra: Record<string, unknown>) =>
+    parseBrowserParams({ action: "select", selector: "#ttl", ...extra });
+  expect(select({ value: "300" })).toMatchObject({ ok: true, value: "300" });
+  expect(select({ label: "5 min" })).toMatchObject({
+    ok: true,
+    label: "5 min",
+  });
+  for (const extra of [
+    {},
+    { value: "300", label: "5 min" },
+    { value: 300 },
+    { label: null },
+    { value: "x".repeat(10_001) },
+  ])
+    expect(select(extra).ok).toBe(false);
+  expect(parseBrowserParams({ action: "select", value: "300" }).ok).toBe(
+    false,
+  );
+  expect(select({ value: "300", framePath: [0] })).toMatchObject({
+    ok: true,
+    framePath: [0],
+  });
+  expect(select({ value: "300", dialog: "accept" })).toMatchObject({
+    ok: true,
+    dialog: "accept",
+  });
+  for (const body of [
+    { action: "click", selector: "#a", dialog: "dismiss" },
+    { action: "click", selector: "#a", dialog: true },
+    { action: "fill", selector: "#a", text: "x", dialog: "accept" },
+    { action: "goto", url: "https://example.test/", dialog: "accept" },
+    { action: "snapshot", dialog: "accept" },
+  ])
+    expect(parseBrowserParams(body).ok).toBe(false);
 });

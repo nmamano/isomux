@@ -7,14 +7,22 @@ export function browserExtensionTransport(
   agentId: string,
   retainGrant = false,
   target?: string,
-): ConnectOverCDPTransport & { signal: AbortSignal } {
+): ConnectOverCDPTransport & { signal: AbortSignal; inputs: number } {
   let closed = false;
   const controller = new AbortController();
-  const transport: ConnectOverCDPTransport & { signal: AbortSignal } = {
+  const transport: ConnectOverCDPTransport & {
+    signal: AbortSignal;
+    inputs: number;
+  } = {
     signal: controller.signal,
+    // Input commands sent so far. An action that sent none dispatched no input.
+    inputs: 0,
     send(message) {
       if (closed || !assignment)
         throw new Error("Browser transport is not available");
+      const { method } = message as { method?: unknown };
+      if (typeof method === "string" && method.startsWith("Input."))
+        transport.inputs++;
       void assignment.receive(message);
     },
     close() {
