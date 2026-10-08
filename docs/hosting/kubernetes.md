@@ -98,12 +98,13 @@ create:
   required protection. To also keep agents out of your VPC, add its private
   ranges to that policy.
 - A DaemonSet that writes the office's seccomp profile to each labeled node.
-  The browser in the office needs this profile for its sandbox. If your
+  The browser and Codex agents need this profile for their sandboxes. If your
   cluster does not allow `hostPath` volumes, write the file for the node's
   architecture (`deploy/kubernetes/seccomp/amd64/` or `arm64/`) from node
   user data instead, to
   `/var/lib/kubelet/seccomp/isomux/isomux-chromium-v1.json`, and remove the
-  DaemonSet with a patch.
+  DaemonSet with a patch. Copy the file again on each update; it now also
+  covers the Codex agents' sandbox.
 
 ## 3. Start the office
 

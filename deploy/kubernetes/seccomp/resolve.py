@@ -17,6 +17,11 @@ ARCHES = {"amd64": "SCMP_ARCH_X86_64", "arm64": "SCMP_ARCH_AARCH64"}
 # chroot inside its own user namespace. Docker allows chroot through its
 # default CAP_SYS_CHROOT; resolve as if that one capability were present.
 CAPABILITIES = ("CAP_SYS_CHROOT",)
+# Codex's bubblewrap sandbox mounts its filesystem view and calls pivot_root
+# inside its own user namespace. Docker allows these only with CAP_SYS_ADMIN,
+# which the pod does not have; the kernel still refuses them outside a user
+# namespace the process created.
+BWRAP_CALLS = ["mount", "umount2", "pivot_root"]
 KERNEL = (4, 8)  # Lowest kernel we resolve minKernel conditions for.
 SOURCE = pathlib.Path(__file__).resolve().parents[2] / "container/seccomp/chromium.json"
 
@@ -70,6 +75,7 @@ def resolve(profile, arch):
         if rule.get("args"):
             resolved["args"] = rule["args"]
         result["syscalls"].append(resolved)
+    result["syscalls"].append({"names": BWRAP_CALLS, "action": "SCMP_ACT_ALLOW"})
     return result
 
 

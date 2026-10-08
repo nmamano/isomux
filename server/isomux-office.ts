@@ -52,6 +52,7 @@ import { setProcessName } from "./process-name.ts";
 import { normalizeBunRunPath } from "./bun-run-path.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
+import { codexSandboxProbe } from "./backends/codex/sandbox-probe.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
 import type { AgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
@@ -584,6 +585,8 @@ function createManagers(startOpts: StartServerOpts): void {
       : appHostingUnsupported() !== null
         ? createUnavailableAppSupervisor()
         : productionAppSupervisor);
+  // Containers only: learn at boot whether Codex's sandbox can run here.
+  void codexSandboxProbe();
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
   welcomeModelTiming = startOpts.welcomeModelTiming ?? WELCOME_MODEL_TIMING;
   providerAccountManager = new ProviderAccountManager(

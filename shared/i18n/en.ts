@@ -2245,6 +2245,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "systemEntries.interruptedPermissionRestarted":
     "Agent interrupted; the pending permission request could not be denied, so the agent's backend was restarted; the conversation is preserved.",
   "systemEntries.interruptHandlerFailed": "Interrupt handler failed: {error}",
+  "systemEntries.codexSandboxUnavailable":
+    "This container cannot run Codex's sandbox, so commands run with full access inside the container.",
   "systemEntries.codexInterruptFallback":
     "Codex didn't honor the interrupt in time; falling back to a fresh session.",
   "systemEntries.deliveryStalled": "Message delivery stalled; recovering.",

@@ -66,6 +66,8 @@ export interface CreateSessionOptions {
   // the model as context inside the running turn; null delivers nothing.
   // Synchronous and cheap: the backend awaits it before the model continues.
   takeToolBoundaryMessage?: () => string | null;
+  // Translates notices the backend writes into the chat; English when absent.
+  words?: Translator["t"];
 }
 
 export interface SessionEnvironmentOptions {

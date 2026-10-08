@@ -27,11 +27,14 @@ containerd reads a Localhost profile as OCI `LinuxSeccomp`, which has no
 `archMap` and no per-rule `includes`/`excludes`. The script resolves those
 conditions for one architecture and kernel 4.8 or later, with `CAP_SYS_CHROOT`
 as the only capability: Chromium's sandbox calls `chroot` inside its user
-namespace, which Docker allows through its default capabilities. The installer
+namespace, which Docker allows through its default capabilities. The script
+also allows `mount`, `umount2` and `pivot_root`, which Codex's bubblewrap
+sandbox calls inside its own user namespace. With no capabilities, the kernel
+refuses them anywhere else. The installer
 DaemonSet writes the profile for its node's architecture (ConfigMap keys are
 `uname -m` names) to the same node path, so the Deployment names one profile.
-A profile change gets a new versioned filename; do not change a published file
-in place.
+The bubblewrap calls were added in place, keeping the published name, so an
+update needs no new file on nodes whose profile comes from user data.
 
 ## Tests
 

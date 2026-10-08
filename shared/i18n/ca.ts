@@ -2252,6 +2252,8 @@ Coses que pots fer per ell:
     "Agent interromput; la petició de permís pendent no es va poder denegar, així que es va reiniciar el backend de l'agent; la conversa es conserva.",
   "systemEntries.interruptHandlerFailed":
     "El gestor d'interrupcions ha fallat: {error}",
+  "systemEntries.codexSandboxUnavailable":
+    "Aquest contenidor no pot executar el sandbox de Codex, així que les ordres s'executen amb accés complet dins del contenidor.",
   "systemEntries.codexInterruptFallback":
     "Codex no va atendre la interrupció a temps; es passa a una sessió nova.",
   "systemEntries.deliveryStalled":

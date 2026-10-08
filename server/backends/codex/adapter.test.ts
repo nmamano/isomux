@@ -14,7 +14,7 @@
 // the private handlers directly, so these exercise the same callback wiring
 // production uses (transport.onNotification / onServerRequest / onStderr /
 // onExit -> handle* -> enqueue -> stream).
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import {
   mkdirSync,
   mkdtempSync,
@@ -54,6 +54,11 @@ import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 import type { NormalizedEvent } from "../types.ts";
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 import type { CodexSafetyPreflightResult } from "./safety-hook-install.ts";
+import {
+  codexSandboxProbe,
+  resetCodexSandboxProbeForTests,
+} from "./sandbox-probe.ts";
+import type { Translator } from "../../../shared/i18n/translate.ts";
 import { SAFETY_WARNING } from "./safety-hook.ts";
 
 const FIXTURE_THREAD_ID = "thread-fixture-1";
@@ -420,7 +425,7 @@ describe("CodexSession bootstrap", () => {
     const src = readFileSync(join(import.meta.dir, "adapter.ts"), "utf8");
     // buildThreadStartParams is the indirect carrier: one call site passes
     // its return value rather than an inline object.
-    const builder = src.slice(src.indexOf("buildThreadStartParams()"));
+    const builder = src.slice(src.indexOf("private buildThreadStartParams("));
     expect(builder).toContain("CODEX_THREAD_CONFIG_OVERRIDES");
     const sites = [...src.matchAll(/"thread\/(?:start|resume)"/g)];
     expect(sites.length).toBeGreaterThanOrEqual(3);
@@ -457,6 +462,113 @@ describe("CodexSession bootstrap", () => {
     expect(init.sessionId).toBe("");
     // The actionable error surfaces on the first send, not at spawn.
     await expectRejection(session.send("hi"), /401 Unauthorized/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sandbox fallback in a container where bwrap is denied (task 012aa739)
+// ---------------------------------------------------------------------------
+describe("CodexSession sandbox in a container", () => {
+  const savedSupervisor = process.env.ISOMUX_APP_SUPERVISOR;
+  async function probeSays(result: "available" | "denied" | "unknown") {
+    resetCodexSandboxProbeForTests();
+    process.env.ISOMUX_APP_SUPERVISOR = "container";
+    await codexSandboxProbe(async () => ({ result, detail: "" }));
+  }
+  afterEach(() => {
+    resetCodexSandboxProbeForTests();
+    if (savedSupervisor === undefined) delete process.env.ISOMUX_APP_SUPERVISOR;
+    else process.env.ISOMUX_APP_SUPERVISOR = savedSupervisor;
+  });
+  const words = ((key: string) => `t:${key}`) as Translator["t"];
+  const NOTICE = "t:systemEntries.codexSandboxUnavailable";
+
+  // After system_init, the next event is either the notice or this marker.
+  async function eventAfterInit(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+  ): Promise<NormalizedEvent> {
+    await nextEvent(it, "system_init");
+    fake.fireStderr("marker");
+    return nextEvent(it, "event after system_init");
+  }
+
+  for (const method of ["thread/start", "thread/resume"] as const) {
+    const resume = method === "thread/resume" ? { resumeThreadId: "t-1" } : {};
+
+    it(`${method}: a denied probe runs a sandboxed agent with full access and says so`, async () => {
+      await probeSays("denied");
+      const { fake, it } = start(undefined, {
+        ...resume,
+        sandbox: "read-only",
+        permissionMode: "untrusted",
+        words,
+      });
+      const ev = await eventAfterInit(fake, it);
+      expect(fake.requests[0].method).toBe(method);
+      expect(fake.requests[0].params).toMatchObject({
+        sandbox: "danger-full-access",
+        approvalPolicy: "untrusted",
+      });
+      expect(ev).toEqual({ kind: "system_text", text: NOTICE });
+    });
+
+    it(`${method}: an agent already on full access gets no notice`, async () => {
+      await probeSays("denied");
+      const { fake, it } = start(undefined, {
+        ...resume,
+        sandbox: "danger-full-access",
+        words,
+      });
+      const ev = await eventAfterInit(fake, it);
+      expect(fake.requests[0].params).toMatchObject({
+        sandbox: "danger-full-access",
+      });
+      expect(ev).toEqual({ kind: "system_text", text: "[codex stderr] marker" });
+    });
+
+    it(`${method}: a working or unknown probe keeps the agent's mode`, async () => {
+      for (const result of ["available", "unknown"] as const) {
+        await probeSays(result);
+        const { fake, it } = start(undefined, {
+          ...resume,
+          sandbox: "workspace-write",
+          words,
+        });
+        const ev = await eventAfterInit(fake, it);
+        expect(fake.requests[0].params).toMatchObject({
+          sandbox: "workspace-write",
+        });
+        expect(ev).toEqual({
+          kind: "system_text",
+          text: "[codex stderr] marker",
+        });
+      }
+    });
+  }
+
+  // The topic labeller opens its own JsonRpcLiteClient (no transport seam),
+  // so this is source-level, like the memories pin above. It runs no
+  // commands, so it never consults the probe (Isomux PM, 2026-10-08).
+  it("the topic labeller stays read-only with approval never, whatever the probe says", () => {
+    const src = readFileSync(join(import.meta.dir, "adapter.ts"), "utf8");
+    const start = src.indexOf("async oneShotPrompt(");
+    expect(start).toBeGreaterThan(-1);
+    const body = src.slice(start, src.indexOf("\n  },\n", start));
+    expect(body).toContain('sandbox: "read-only",');
+    expect(body).toContain('approvalPolicy: "never",');
+    expect(body).not.toContain("effectiveCodexSandbox");
+    expect(body).not.toContain("codexSandboxProbe");
+  });
+
+  it("an agent with no sandbox setting starts on full access and gets no notice", async () => {
+    await probeSays("denied");
+    const { fake, it } = start(undefined, { words });
+    const ev = await eventAfterInit(fake, it);
+    expect(fake.requests[0].params).toMatchObject({
+      sandbox: "danger-full-access",
+    });
+    expect(ev).toEqual({ kind: "system_text", text: "[codex stderr] marker" });
   });
 });
 

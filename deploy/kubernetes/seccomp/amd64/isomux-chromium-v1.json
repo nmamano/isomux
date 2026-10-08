@@ -582,6 +582,14 @@
         "unshare"
       ],
       "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "names": [
+        "mount",
+        "umount2",
+        "pivot_root"
+      ],
+      "action": "SCMP_ACT_ALLOW"
     }
   ]
 }

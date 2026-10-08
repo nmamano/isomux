@@ -88,6 +88,8 @@ interface Run {
   /** Contents of the profile the step put in place, or null. */
   profile: string | null;
   reachedEnd: boolean;
+  /** Update-outcome entries the step recorded for the owner. */
+  outcomes: string[];
 }
 
 interface Opts {
@@ -95,6 +97,10 @@ interface Opts {
   bwrapWorks?: boolean;
   /** bwrap binary is absent until apt installs it. */
   bwrapMissing?: boolean;
+  /** The service's PATH leaves out the directory bwrap is in. */
+  bwrapOffServicePath?: boolean;
+  /** The service's PATH finds a different bwrap first, one that always fails. */
+  serviceBwrapBroken?: boolean;
   /** /proc knob: 1 restricted, 0 not, "absent" for a kernel without it. */
   userns?: "1" | "0" | "absent";
   /** apparmor-profiles ships the profile to copy. */
@@ -154,6 +160,14 @@ function runStep(opts: Opts): Run {
   if (opts.preexistingProfile) writeFileSync(profile, opts.preexistingProfile);
 
   if (!opts.bwrapMissing) stub(bin, "bwrap", BWRAP_STUB);
+  const serviceBin = join(dir, "service-bin");
+  mkdirSync(serviceBin);
+  if (opts.serviceBwrapBroken)
+    stub(
+      serviceBin,
+      "bwrap",
+      'echo "bwrap: setting up uid map: Permission denied" >&2\nexit 1\n',
+    );
   stub(bin, "runuser", RUNUSER_STUB);
   if (opts.installFails) {
     stub(
@@ -204,7 +218,7 @@ set -Eeuo pipefail
 # embedded copy over the installer's own and test the wrong function.
 extract() { awk -v fn="$1() {" 'index($0, fn) == 1 {f = 1} f {print} f && /^}$/ {exit}' "$INSTALL_SH"; }
 for fn in run as_service_user write_file configure_codex_sandbox \
-  bwrap_smoke_test userns_restricted install_bwrap_profile; do
+  bwrap_on_service_path bwrap_smoke_test userns_restricted install_bwrap_profile; do
   eval "$(extract "$fn")"
 done
 # The heredoc body has its own column-0 braces, so this range ends at the
@@ -218,7 +232,9 @@ BWRAP_PROFILE="${profile}"
 BWRAP_PROFILE_DISABLED="${disabled}"
 BWRAP_PROFILE_PACKAGED="${packaged}"
 USERNS_RESTRICT_SYSCTL="${sysctl}"
+BWRAP_SERVICE_PATH="${opts.bwrapOffServicePath ? shadow : opts.serviceBwrapBroken ? `${serviceBin}:${shadow}` : `${bin}:${shadow}`}"
 log() { echo "LOG: $*"; }
+outcome_add() { echo "OUTCOME: $*"; }
 step() { echo "STEP: $1"; }
 die() { echo "DIE: $*"; exit 1; }
 apt_install() { apt-get install -y "$@"; }
@@ -245,6 +261,7 @@ echo "REACHED-END"
     code: res.status ?? -1,
     profile: existsSync(profile) ? readFileSync(profile, "utf8") : null,
     reachedEnd: out.includes("REACHED-END"),
+    outcomes: out.split("\n").filter((line) => line.startsWith("OUTCOME: ")),
   };
 }
 
@@ -486,6 +503,63 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
     expect(r.reachedEnd).toBe(true);
     expect(r.code).toBe(0);
   });
+
+  it("checks bwrap on the service's PATH, not apt's exit status", () => {
+    // apt reports success, but the service would not find the binary: Codex
+    // would fall back to its bundled copy and show its install advice.
+    const r = runStep({
+      bwrapMissing: true,
+      bwrapWorks: true,
+      bwrapOffServicePath: true,
+    });
+    expect(r.calls.some((c) => /apt-get install .*bubblewrap/.test(c))).toBe(
+      true,
+    );
+    expect(r.out).not.toContain("codex sandbox ready");
+    // It stops there: no smoke test and no AppArmor change.
+    expect(r.calls.filter((c) => c.startsWith("bwrap "))).toEqual([]);
+    expect(r.calls.filter((c) => c.startsWith("apparmor_parser"))).toEqual([]);
+    expect(r.profile).toBeNull();
+    expect(r.outcomes).toHaveLength(1);
+    expect(r.reachedEnd).toBe(true);
+    expect(r.code).toBe(0);
+  });
+
+  it("smoke-tests the bwrap the service's PATH finds", () => {
+    // The installer's own PATH finds a working bwrap; the service's finds a
+    // broken one first. The service's answer is the one that counts.
+    const r = runStep({ bwrapWorks: true, serviceBwrapBroken: true, userns: "0" });
+    expect(r.out).not.toContain("codex sandbox ready");
+    expect(r.out).toContain("setting up uid map: Permission denied");
+    expect(r.outcomes).toHaveLength(1);
+  });
+
+  it("records every failure in the update outcome, and nothing when ready", () => {
+    const failures: Opts[] = [
+      { bwrapMissing: true, aptFails: true },
+      { userns: "0" },
+      { userns: "1", disabled: true },
+      { userns: "1", packagedProfile: true, installFails: true },
+      { userns: "1", packagedProfile: false, installFails: true },
+      { userns: "1", packagedProfile: true, parserFails: true },
+      { userns: "1", packagedProfile: true, neverWorks: true },
+    ];
+    for (const opts of failures) {
+      const r = runStep(opts);
+      expect(r.out).not.toContain("codex sandbox ready");
+      expect(r.outcomes).toHaveLength(1);
+      expect(r.reachedEnd).toBe(true);
+    }
+    for (const opts of [
+      { bwrapWorks: true },
+      { bwrapMissing: true, bwrapWorks: true },
+      { userns: "1", packagedProfile: true },
+    ] as Opts[]) {
+      const r = runStep(opts);
+      expect(r.out).toContain("codex sandbox ready");
+      expect(r.outcomes).toEqual([]);
+    }
+  }, 30_000);
 
   it("has no die anywhere in the step", () => {
     const src = readFileSync(INSTALL_SH, "utf8");

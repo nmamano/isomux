@@ -32,6 +32,8 @@ const basis = JSON.parse(
   ),
 ) as { syscalls: Rule[] };
 const namespaceCalls = ["clone", "setns", "unshare"];
+// Codex's bubblewrap sandbox mounts inside its own user namespace.
+const bwrapCalls = ["mount", "umount2", "pivot_root"];
 
 function runResolver(args: string[]) {
   return spawnSync("python3", [resolver, ...args], { encoding: "utf8" });
@@ -97,7 +99,7 @@ describe.each(targets)("$arch profile", (target) => {
         expect(["names", "action", "errnoRet", "args"]).toContain(key);
   });
 
-  test("the Kubernetes profile allows the basis's set for its architecture with only CAP_SYS_CHROOT plus the namespace calls", () => {
+  test("the Kubernetes profile allows the basis's set for its architecture with only CAP_SYS_CHROOT plus the namespace and bubblewrap calls", () => {
     // Rules that hold for this architecture, only CAP_SYS_CHROOT, and kernel
     // 4.8 or later.
     const holds = (rule: Rule) =>
@@ -107,12 +109,27 @@ describe.each(targets)("$arch profile", (target) => {
       (!rule.includes?.minKernel || rule.includes.minKernel === "4.8");
     const expected = allowed(basis.syscalls.filter(holds));
     for (const name of namespaceCalls) expected.add(name);
+    // The bubblewrap calls are the only names beyond the earlier profile's set.
+    for (const name of bwrapCalls) expect(expected.has(name)).toBe(false);
+    for (const name of bwrapCalls) expected.add(name);
     expect([...allowed(profile.syscalls)].sort()).toEqual([...expected].sort());
 
     // Names that only capability-gated rules allow stay denied.
     // Chromium's sandbox calls chroot inside its user namespace.
     expect(allowed(profile.syscalls).has("chroot")).toBe(true);
-    for (const name of ["bpf", "perf_event_open", "mount", "reboot", "kcmp"])
+    for (const name of ["bpf", "perf_event_open", "reboot", "kcmp"])
+      expect(allowed(profile.syscalls).has(name)).toBe(false);
+    // The new mount API stays denied: bubblewrap needs only mount(2).
+    for (const name of [
+      "fsopen",
+      "fsconfig",
+      "fsmount",
+      "fspick",
+      "move_mount",
+      "open_tree",
+      "mount_setattr",
+      "umount",
+    ])
       expect(allowed(profile.syscalls).has(name)).toBe(false);
     // Rules for this architecture stay; rules for other architectures are gone.
     for (const name of target.own)

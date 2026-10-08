@@ -44,6 +44,8 @@ spec:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
         # Written to each office node by the isomux-seccomp-installer DaemonSet.
+        # It also covers Codex's sandbox now; the name stays for update
+        # compatibility.
         seccompProfile:
           type: Localhost
           localhostProfile: isomux/isomux-chromium-v1.json

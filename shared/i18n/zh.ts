@@ -2037,6 +2037,8 @@ App 的一些原则：
   "systemEntries.interruptedPermissionRestarted":
     "智能体已被打断；无法拒绝待处理的权限请求，因此已重启智能体后端；对话已保留。",
   "systemEntries.interruptHandlerFailed": "中断处理失败：{error}",
+  "systemEntries.codexSandboxUnavailable":
+    "此容器无法运行 Codex 的 sandbox，因此命令在容器内以完全访问权限运行。",
   "systemEntries.codexInterruptFallback":
     "Codex 未及时响应中断，改为使用新会话。",
   "systemEntries.deliveryStalled": "消息传送停滞，正在恢复。",

@@ -267,8 +267,9 @@ describe("install.sh escalation: template unit + placement", () => {
     expect(code).toContain("audit deny capability");
     // The smoke test runs as the service user: root is exempt from the
     // restriction, so as root it would pass on a box where codex cannot start.
+    // It uses the service's PATH, so it tests the bwrap Codex will find.
     expect(SRC).toContain(
-      "as_service_user bwrap --unshare-net --dev-bind / / /bin/true",
+      'as_service_user env "PATH=$BWRAP_SERVICE_PATH" bwrap --unshare-net --dev-bind / / /bin/true',
     );
     // After create_service_user (the probe needs that account) and before the
     // build, like the browser step. Scoped to main's body: deps_only calls it

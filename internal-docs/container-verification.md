@@ -199,10 +199,8 @@ sandbox mode other than the default `danger-full-access`. Not observed: no
 Codex agent turn ran in this run (no Codex login in the test office). Running
 `codex sandbox` directly in the office pod failed before the command started,
 with `bwrap: Failed to make / slave: Operation not permitted`. bwrap needs
-`mount`, which the profile allows only with `CAP_SYS_ADMIN`, as Docker's
-default does; the profile keeps that restriction (Isomux PM ruling,
-2026-09-26). The Compose deployment has the same profile rule (unchecked
-there).
+`mount`, which the profile allowed only with `CAP_SYS_ADMIN`, as Docker's
+default does. Changed 2026-10-08: see "Codex sandbox in containers" below.
 
 Not checked on EKS: update by digest (no second published image; the local run
 covers it), node-group replacement, and snapshot restore.
@@ -221,3 +219,73 @@ support (standard support ended 2026-07-29), so the control plane costs
 $0.10 + $0.50 = $0.60 per hour; about 1.25 hours gives about $0.75. The node
 (`m7i-flex.large`, $0.0958/h, about 0.6 h), the ALB, public IPv4 addresses and
 EBS add roughly $0.10, so about $0.85 in total.
+
+## Codex sandbox in containers
+
+On 2026-10-08, on this office box (Ubuntu 24.04, kernel 6.8, Docker 29.1.3,
+`kernel.apparmor_restrict_unprivileged_userns=1`), Codex 0.160.0. Every run:
+`docker run --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges`
+with a seccomp profile and an AppArmor label, which matches the Kubernetes
+pod's identity and capabilities. No Codex login: a test script ran the real
+Codex adapter against a local mock model that asks for one shell command, and
+printed the events the chat renders.
+
+Before the change (v2026.10.8 image, `isomux-chromium-v1.json`):
+- `codex sandbox -- sh -c ...` failed with `bwrap: Failed to make / slave:
+  Operation not permitted`, the EKS result.
+- Every Codex session, in every sandbox mode, showed "Codex could not find
+  bubblewrap on PATH. Install bubblewrap with your OS package manager ..."
+  twice (stderr and `configWarning`), because the image had no `bwrap`.
+- With `workspace-write` (approval `never` or `on-request`), the command did
+  not run and the chat showed no tool card; only the model saw the bwrap
+  error. No approval prompt appeared.
+
+Two layers block bwrap. Seccomp: with `mount` and `umount2` allowed, bwrap
+next failed at `pivot_root`; with all three allowed, it passed seccomp.
+AppArmor: Docker's `docker-default` profile denies `mount` ("Failed to make /
+slave: Permission denied") whatever the seccomp profile allows. Kubernetes
+nodes that apply an AppArmor profile to containers are expected to behave the
+same (not run).
+
+The change: `bubblewrap` (Debian 0.8.0) in the image; the Kubernetes profile
+`isomux-chromium-v1.json` (name kept) adds `mount`, `umount2` and
+`pivot_root`; in a
+container, the office probes `codex sandbox` once at startup and, when bwrap
+reports a denial, starts Codex threads with `danger-full-access` and tells
+members whose agents use another mode. The Compose profile is unchanged.
+
+Results with the image built from the change:
+- New profile, AppArmor label `buildah` (an Ubuntu profile in unconfined mode
+  that only adds `userns`; it stands in for a node without AppArmor, such as
+  EKS AL2023): probe `available`; `codex sandbox` with `workspace-write` wrote
+  in its working directory and was refused outside it. Through the adapter, a
+  `workspace-write` turn ran its command; a `read-only` turn got "Read-only
+  file system" for the same write. No bubblewrap line.
+- New profile, `apparmor=unconfined`: probe `available`, same sandbox result.
+  Earlier, Codex's bundled bwrap failed there with "loopback: Failed
+  RTM_NEWADDR", which the userns restriction causes for unconfined processes.
+  That `/usr/bin/bwrap` passes is probably this host's
+  `bwrap-userns-restrict` AppArmor profile attaching by path (unchecked).
+- Old profile, `buildah` label: probe `denied` (Operation not permitted).
+- New profile and Compose profile, `docker-default`: probe `denied`. Through the
+  adapter, `workspace-write` and `read-only` turns showed "This container
+  cannot run Codex's sandbox, so commands run with full access inside the
+  container." and ran the command; a `danger-full-access` turn showed no
+  notice.
+- `python3 deploy/container/smoke.py` passed, with `bwrap --version` in the
+  native checks.
+
+Cost of the new rule: every process in the pod may call `mount`, `umount2` and
+`pivot_root`. Without capabilities, the kernel refuses them except inside a
+user namespace the process created (the old profile already allowed creating one); mounts
+there do not propagate out, and mounts inherited from the pod stay locked.
+What it adds is kernel attack surface: the mount and filesystem code for
+filesystems that a user namespace may mount (tmpfs, proc, sysfs, overlayfs and
+others) becomes reachable from the pod, and local privilege-escalation bugs
+have been found there before (for example CVE-2023-0386 in overlayfs). The new
+mount API (`fsopen`, `fsconfig`, `fsmount`, `fspick`, `move_mount`,
+`open_tree`, `mount_setattr`) stays denied.
+
+Not verified: a real EKS node with the new profile, a real Codex login, and
+nodes with SELinux enforcing (for example Bottlerocket). The startup probe
+covers any of these where bwrap is denied.

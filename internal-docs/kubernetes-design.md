@@ -73,11 +73,14 @@ CSI driver whose sidecars support RWOP (csi-provisioner 3.0+, csi-attacher
   `kubectl exec` and `kubectl logs` on the office.
 - Fargate is out: Fargate has no EBS volumes and no Localhost seccomp profiles.
 
-## 3. Chromium seccomp profile
+## 3. Office seccomp profile
 
-The sandbox creates namespaces with `unshare`, `setns` and `clone` with
+Chromium's sandbox creates namespaces with `unshare`, `setns` and `clone` with
 namespace flags. Docker's and containerd's default profiles allow those only
-with `CAP_SYS_ADMIN`. `clone` without namespace flags stays allowed.
+with `CAP_SYS_ADMIN`. `clone` without namespace flags stays allowed. Codex's
+bubblewrap sandbox also needs `mount`, `umount2` and `pivot_root` inside its
+user namespace (found 2026-10-08, task 012aa739); the defaults gate them on
+`CAP_SYS_ADMIN` too.
 
 - Format. `deploy/container/seccomp/chromium.json` is Docker input: it has
   `archMap` and per-rule `includes`/`excludes` conditions on architecture,
@@ -95,21 +98,28 @@ with `CAP_SYS_ADMIN`. `clone` without namespace flags stays allowed.
   holds and no exclude holds, and drop the conditions. It sets
   `architectures` from `archMap` (`SCMP_ARCH_X86_64, SCMP_ARCH_X86,
   SCMP_ARCH_X32` for amd64, `SCMP_ARCH_AARCH64, SCMP_ARCH_ARM` for arm64), and
-  adds the one Chromium rule (`clone`, `setns`, `unshare` allow). Output:
+  adds the one Chromium rule (`clone`, `setns`, `unshare` allow) and one
+  bubblewrap rule (`mount`, `umount2`, `pivot_root` allow). Output:
   `deploy/kubernetes/seccomp/{amd64,arm64}/isomux-chromium-v1.json`,
   committed. One file per architecture, not a union, so the published amd64
-  bytes stay as they were. Version in the filename: a change is a new file,
-  never an edit in place on nodes.
+  bytes stay as they were. The bubblewrap rule (2026-10-08) changed the file
+  in place and kept its name, although it now covers Codex too: a renamed file
+  would stop an office on a node whose profile comes from user data until its
+  owner placed the new file (Isomux PM ruling, 2026-10-08). The DaemonSet
+  rewrites the content; a node that keeps the old content makes Codex's
+  sandbox probe fail, and Codex falls back to full access with a notice.
 - Test (bun, no cluster): the committed file equals the script output; it
   has only OCI fields; no `includes`, `excludes`, `archMap` or `comment`;
   rules gated on capabilities other than `CAP_SYS_CHROOT` add no allowed
-  names (outside the three Chromium calls); no rule from another
+  names (outside the three Chromium and three bubblewrap calls); no rule from another
   architecture; `clone3` keeps its ENOSYS rule; the allowed names equal the
   basis's unconditional rules plus its rules for that architecture plus its
   `minKernel: 4.8`
   rule (`ptrace`, `process_vm_readv`, `process_vm_writev`, which Docker also
   allows on these kernels) plus its `CAP_SYS_CHROOT` rule (`chroot`) plus the
-  three calls. The pod still has no capabilities; only the seccomp resolution
+  three namespace calls plus the three bubblewrap calls; the new mount API
+  (`fsopen`, `fsconfig`, `fsmount`, `fspick`, `move_mount`, `open_tree`,
+  `mount_setattr`) stays denied. The pod still has no capabilities; only the seccomp resolution
   counts `CAP_SYS_CHROOT`.
 - Localhost path: kubelet reads `/var/lib/kubelet/seccomp/<localhostProfile>`.
   The container sets `seccompProfile: {type: Localhost, localhostProfile:

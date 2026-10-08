@@ -2258,6 +2258,8 @@ Cosas que puedes hacer por él:
     "Agente interrumpido; la petición de permiso pendiente no se pudo denegar, así que se reinició el backend del agente; la conversación se conserva.",
   "systemEntries.interruptHandlerFailed":
     "Falló el gestor de interrupciones: {error}",
+  "systemEntries.codexSandboxUnavailable":
+    "Este contenedor no puede ejecutar el sandbox de Codex, así que los comandos se ejecutan con acceso completo dentro del contenedor.",
   "systemEntries.codexInterruptFallback":
     "Codex no atendió la interrupción a tiempo; se pasa a una sesión nueva.",
   "systemEntries.deliveryStalled":

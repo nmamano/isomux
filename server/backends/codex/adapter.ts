@@ -37,6 +37,11 @@ import {
 import { mimeTypeForFilename } from "../../mime-types.ts";
 import { markdownInlineCode } from "../../../shared/format-human.ts";
 import { errMessage } from "../../../shared/errors.ts";
+import {
+  translatorFor,
+  type Translator,
+} from "../../../shared/i18n/translate.ts";
+import { effectiveCodexSandbox } from "./sandbox-probe.ts";
 import type { SubagentOrigin } from "../../../shared/types.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
 import {
@@ -732,6 +737,8 @@ export interface CodexSessionInitOpts {
   permissionMode: string;
   sandbox?: string; // SandboxMode enum string; falls back to DEFAULT_SANDBOX_MODE
   env?: { [key: string]: string | undefined };
+  // Translates the session's own chat notices; English when absent.
+  words?: Translator["t"];
   resumeThreadId?: string;
   ephemeral?: boolean;
   // Test seam (T2 adapter contract): inject a fake transport to drive the real
@@ -917,6 +924,9 @@ export class CodexSession implements BackendSession {
       };
       await this.client.initialize(initParams);
 
+      const sandboxChoice = await effectiveCodexSandbox(
+        this.opts.sandbox ?? DEFAULT_SANDBOX_MODE,
+      );
       if (this.opts.resumeThreadId) {
         // Resume an existing thread. Pass current settings as overrides so
         // a UI-side change to permissionMode/sandbox/model/systemPrompt
@@ -930,7 +940,7 @@ export class CodexSession implements BackendSession {
           threadId: this.opts.resumeThreadId,
           excludeTurns: true,
           approvalPolicy: this.opts.permissionMode,
-          sandbox: this.opts.sandbox ?? DEFAULT_SANDBOX_MODE,
+          sandbox: sandboxChoice.sandbox,
           model: this.opts.modelFamily,
           developerInstructions: this.opts.systemPrompt,
           persistExtendedHistory: false,
@@ -938,7 +948,7 @@ export class CodexSession implements BackendSession {
         });
         this.threadId = resumeResp.thread.id;
       } else {
-        const startParams = this.buildThreadStartParams();
+        const startParams = this.buildThreadStartParams(sandboxChoice.sandbox);
         const startResp = await this.client.request<{ thread: { id: string } }>(
           "thread/start",
           startParams,
@@ -954,6 +964,14 @@ export class CodexSession implements BackendSession {
       });
       if (safety.warning) {
         this.enqueue({ kind: "system_text", text: safety.warning });
+      }
+      if (sandboxChoice.fellBack) {
+        this.enqueue({
+          kind: "system_text",
+          text: (this.opts.words ?? translatorFor("en").t)(
+            "systemEntries.codexSandboxUnavailable",
+          ),
+        });
       }
     } catch (err) {
       // Defer the error to send(): we want this agent to look idle from
@@ -977,7 +995,7 @@ export class CodexSession implements BackendSession {
     }
   }
 
-  private buildThreadStartParams(): Record<string, unknown> {
+  private buildThreadStartParams(sandbox: string): Record<string, unknown> {
     // sandbox is a SandboxMode enum string; approvalPolicy is the
     // AskForApproval enum string. We deliberately keep this as a plain
     // Record so the codegen union strictness doesn't fight us - the wire
@@ -986,7 +1004,7 @@ export class CodexSession implements BackendSession {
       cwd: this.opts.cwd,
       developerInstructions: this.opts.systemPrompt,
       model: this.opts.modelFamily,
-      sandbox: this.opts.sandbox ?? DEFAULT_SANDBOX_MODE,
+      sandbox,
       approvalPolicy: this.opts.permissionMode,
       experimentalRawEvents: false,
       // persistExtendedHistory is deprecated in 0.130 and ignored by the
@@ -2926,6 +2944,7 @@ export const codexBackend: Backend = {
       permissionMode: opts.permissionMode,
       sandbox: opts.sandbox,
       env: opts.env,
+      words: opts.words,
     });
   },
 
@@ -2939,6 +2958,7 @@ export const codexBackend: Backend = {
       permissionMode: opts.permissionMode,
       sandbox: opts.sandbox,
       env: opts.env,
+      words: opts.words,
       resumeThreadId: sessionId,
     });
   },

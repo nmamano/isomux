@@ -5625,6 +5625,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Codex-only sandbox; Claude backend ignores. Undefined falls back to
       // the Codex adapter's "workspace-write" default.
       sandbox: managed.info.codexSandbox,
+      words: logWords(managed.info.id),
       env,
       environmentKey: environmentSourceKeyForUserId(managed.info.userId),
       environmentRevision: environmentSourceRevisionForUserId(

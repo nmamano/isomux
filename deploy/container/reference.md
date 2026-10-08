@@ -45,7 +45,11 @@ The Compose reference uses the included `seccomp/chromium.json` profile so
 non-root Chromium can create its sandbox namespaces. The profile adds `clone`,
 `setns`, and `unshare` to a pinned Docker default basis for all container
 processes. It adds no capabilities. See the [profile notes](seccomp/README.md)
-for the exact basis and host requirements. Host-specific verification results are in the
+for the exact basis and host requirements. The profile keeps `mount` behind
+`CAP_SYS_ADMIN`, and Docker's default AppArmor profile denies it, so Codex's own
+sandbox cannot run in this container. The office
+detects this at startup and runs Codex agents with full access inside the
+container; an agent set to a sandbox mode says so in its chat. Host-specific verification results are in the
 [internal verification record](../../internal-docs/container-verification.md).
 
 After owner creation, the setup endpoint no longer accepts the setup key.

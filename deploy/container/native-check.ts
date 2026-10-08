@@ -54,6 +54,8 @@ for (const args of [
   ],
   ["node", resolveCodexLauncherPath(), "--version"],
   [resolveOpenCodeBinary(), "--version"],
+  // Codex looks bwrap up on PATH; without it, Codex shows install advice.
+  ["bwrap", "--version"],
 ]) {
   const result = spawnSync(args[0], args.slice(1), {
     encoding: "utf8",

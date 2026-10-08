@@ -124,6 +124,9 @@ BWRAP_PROFILE=/etc/apparmor.d/$BWRAP_PROFILE_NAME
 BWRAP_PROFILE_DISABLED=/etc/apparmor.d/disable/$BWRAP_PROFILE_NAME
 BWRAP_PROFILE_PACKAGED=/usr/share/apparmor/extra-profiles/$BWRAP_PROFILE_NAME
 USERNS_RESTRICT_SYSCTL=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+# systemd's default PATH, which the isomux service runs with (its unit sets
+# none), so Codex looks up bwrap here.
+BWRAP_SERVICE_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 BASE_URL=http://127.0.0.1:4000
 ADMIN_SOCK=$SERVICE_HOME/.isomux/admin.sock
 HEALTH_TIMEOUT_S=180
@@ -2966,8 +2969,15 @@ configure_codex_sandbox() {
     log "DRY-RUN: would install bubblewrap, smoke-test it as $SERVICE_USER, and load the $BWRAP_PROFILE_NAME AppArmor profile if unprivileged user namespaces are restricted"
     return 0
   fi
-  if ! command -v bwrap >/dev/null 2>&1 && ! apt_install bubblewrap; then
+  if ! bwrap_on_service_path && ! apt_install bubblewrap; then
     log "warning: could not install the bubblewrap package, so codex agents have no sandbox to run their tools in (their read-only and workspace-write settings need it). Re-run this installer to retry; nothing else is affected."
+    outcome_add "Codex's sandbox is not ready: the bubblewrap package could not be installed."
+    return 0
+  fi
+  # apt's exit status is not proof: the service must find bwrap itself.
+  if ! bwrap_on_service_path; then
+    log "warning: bwrap is not on the isomux service's PATH ($BWRAP_SERVICE_PATH), so codex agents use the copy bundled with Codex and show a bubblewrap warning. Nothing else is affected."
+    outcome_add "Codex's sandbox is not ready: bwrap is not on the isomux service's PATH."
     return 0
   fi
   local diag
@@ -2977,14 +2987,24 @@ configure_codex_sandbox() {
   fi
   if ! userns_restricted; then
     log "warning: bwrap does not work for $SERVICE_USER, and this box does not restrict unprivileged user namespaces, so AppArmor policy is not the cause and there is nothing safe to change. Codex agents cannot use their sandbox until this is fixed; nothing else is affected. bwrap said: $diag"
+    outcome_add "Codex's sandbox is not ready: bwrap does not work for the isomux service user."
     return 0
   fi
-  install_bwrap_profile || return 0
+  if ! install_bwrap_profile; then
+    outcome_add "Codex's sandbox is not ready: the $BWRAP_PROFILE_NAME AppArmor profile could not be loaded."
+    return 0
+  fi
   if diag=$(bwrap_smoke_test); then
     log "codex sandbox ready: loaded the $BWRAP_PROFILE_NAME AppArmor profile, bwrap now works for $SERVICE_USER"
   else
     log "warning: the $BWRAP_PROFILE_NAME AppArmor profile is loaded and bwrap still does not work for $SERVICE_USER, so codex agents cannot use their sandbox. Nothing else is affected. bwrap said: $diag"
+    outcome_add "Codex's sandbox is not ready: bwrap does not work for the isomux service user."
   fi
+}
+
+# True when the service account finds bwrap on the service's PATH.
+bwrap_on_service_path() {
+  as_service_user env "PATH=$BWRAP_SERVICE_PATH" sh -c 'command -v bwrap' >/dev/null 2>&1
 }
 
 # The narrowest thing a codex sandbox does that the user-namespace restriction
@@ -2993,7 +3013,7 @@ configure_codex_sandbox() {
 # users - as root this would pass on a box where codex cannot start at all.
 # Prints whatever bwrap said, so a caller can show the real diagnostic.
 bwrap_smoke_test() {
-  as_service_user bwrap --unshare-net --dev-bind / / /bin/true 2>&1
+  as_service_user env "PATH=$BWRAP_SERVICE_PATH" bwrap --unshare-net --dev-bind / / /bin/true 2>&1
 }
 
 # True when the kernel is refusing unprivileged user namespaces to unconfined

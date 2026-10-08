@@ -1299,6 +1299,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       effort: job.effort,
       permissionMode: job.permissionMode,
       sandbox: job.codexSandbox,
+      words: translatorForUserId(job.userId ?? null).t,
       ...environment,
     };
     let session: BackendSession;
@@ -1707,6 +1708,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       effort: run.effortSnapshot,
       permissionMode: run.permissionModeSnapshot,
       sandbox: run.codexSandboxSnapshot,
+      words: translatorForUserId(job?.userId ?? null).t,
       ...environment,
     };
   }
