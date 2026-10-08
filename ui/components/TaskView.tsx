@@ -1220,7 +1220,8 @@ export function TaskView({
   }, [agents]);
 
   // Room, search and assignee narrow the list first. Each checkbox count is the
-  // number of those tasks it would show, given the other checkbox filter.
+  // number of those tasks with that status or priority; the other checkbox
+  // list does not change it.
   const base = useMemo(() => {
     let list = tasks;
     // Room view filter (client-side, on top of the server's access scoping):
@@ -1249,21 +1250,18 @@ export function TaskView({
 
   const statusCounts = useMemo(() => {
     const counts = new Map<TaskStatus, number>();
-    for (const t of base)
-      if (filterPriorities.includes(t.priority ?? "none"))
-        counts.set(t.status, (counts.get(t.status) ?? 0) + 1);
+    for (const t of base) counts.set(t.status, (counts.get(t.status) ?? 0) + 1);
     return counts;
-  }, [base, filterPriorities]);
+  }, [base]);
 
   const priorityCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const t of base)
-      if (filterStatuses.includes(t.status)) {
-        const p = t.priority ?? "none";
-        counts.set(p, (counts.get(p) ?? 0) + 1);
-      }
+    for (const t of base) {
+      const p = t.priority ?? "none";
+      counts.set(p, (counts.get(p) ?? 0) + 1);
+    }
     return counts;
-  }, [base, filterStatuses]);
+  }, [base]);
 
   const filtered = useMemo(() => {
     const list = base.filter(
