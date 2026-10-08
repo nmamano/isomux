@@ -251,7 +251,9 @@ afterAll(async () => {
   expect(leftovers.rows[0]?.n).toBe("0");
   expect(await productionRoleSnapshot()).toEqual(productionRolesBefore);
   await admin.end().catch(() => {});
-}, PG_TEST_HOOK_TIMEOUT_MS);
+  // This hook drops one database per case. Under the full suite it ran past
+  // the 30 s budget on 2026-10-08 (task e7851de6), so it gets four budgets.
+}, 4 * PG_TEST_HOOK_TIMEOUT_MS);
 
 suite("a fresh, empty database", () => {
   // THE ONE THAT WAS BROKEN. Nothing in this repo had ever run the posture
