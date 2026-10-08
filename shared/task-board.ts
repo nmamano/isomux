@@ -3,11 +3,16 @@
 import type { TaskItem } from "./types.ts";
 import { versionOf } from "./blob-version.ts";
 
+// A closed task is done or obsolete.
+export function isClosedTask(t: Pick<TaskItem, "status">) {
+  return t.status === "done" || t.status === "obsolete";
+}
+
 // The default list (GET /api/tasks with no status, and the office's task
-// count) leaves out done tasks and open P4 tasks, the old backlog. An
+// count) leaves out closed tasks and open P4 tasks, the old backlog. An
 // in-progress P4 task stays in, as a claimed backlog task left the backlog.
 export function inDefaultTaskList(t: Pick<TaskItem, "status" | "priority">) {
-  return t.status !== "done" && !(t.status === "open" && t.priority === "P4");
+  return !isClosedTask(t) && !(t.status === "open" && t.priority === "P4");
 }
 
 // A task's optimistic-concurrency token (task 4243ecc0): versionOf() over the

@@ -52,7 +52,10 @@ const tasks = [
   task("p4-done", "done", "P4"),
   task("none-open", "open"),
   task("none-done", "done"),
+  task("p4-obsolete", "obsolete", "P4"),
+  task("none-obsolete", "obsolete"),
 ];
+const notObsolete = (t: TaskItem) => t.status !== "obsolete";
 
 function renderView() {
   const state = {
@@ -74,7 +77,14 @@ function renderView() {
       .map((t) => t.title)
       .filter((title) => view.queryByText(title) !== null)
       .sort();
-  return { view, shown, closed: () => closed, c: view.container };
+  // A closed row is dimmed and its title struck through.
+  const looksClosed = (title: string) => {
+    const cell = view.getByText(title).closest("td")!;
+    const struck = cell.style.textDecoration === "line-through";
+    expect(cell.closest("tr")!.style.color !== "").toBe(struck);
+    return struck;
+  };
+  return { view, shown, looksClosed, closed: () => closed, c: view.container };
 }
 
 it("defaults to Open and In progress, and every priority but P4", async () => {
@@ -99,7 +109,12 @@ it("defaults to Open and In progress, and every priority but P4", async () => {
 it("lists only statuses in the status filter", async () => {
   const { c } = renderView();
   await openTaskFilter(c, "status");
-  expect(filterOptions(c, "status")).toEqual(["open", "in_progress", "done"]);
+  expect(filterOptions(c, "status")).toEqual([
+    "open",
+    "in_progress",
+    "done",
+    "obsolete",
+  ]);
   await openTaskFilter(c, "priority");
   expect(filterOptions(c, "priority")).toEqual([
     "P0",
@@ -112,7 +127,7 @@ it("lists only statuses in the status filter", async () => {
 });
 
 it("shows a task when its status AND its priority are checked", async () => {
-  const { c, shown } = renderView();
+  const { c, shown, looksClosed } = renderView();
   await toggleTaskFilter(c, "status", "done");
   expect(shown()).toEqual(
     [
@@ -126,12 +141,17 @@ it("shows a task when its status AND its priority are checked", async () => {
     ].sort(),
   );
   await toggleTaskFilter(c, "priority", "P4");
-  expect(shown()).toEqual(tasks.map((t) => t.title).sort());
+  expect(shown()).toEqual(
+    tasks
+      .filter(notObsolete)
+      .map((t) => t.title)
+      .sort(),
+  );
 
   for (const p of ["P0", "P1", "P2", "P3", "P4"]) {
     await setTaskFilter(c, "priority", [p]);
     const expected = tasks
-      .filter((t) => t.priority === p)
+      .filter((t) => t.priority === p && notObsolete(t))
       .map((t) => t.title)
       .sort();
     expect(expected.length > 0).toBe(true);
@@ -144,8 +164,13 @@ it("shows a task when its status AND its priority are checked", async () => {
   expect(shown()).toEqual(["none-done"]);
   await setTaskFilter(c, "priority", ["P3", "P4"]);
   expect(shown()).toEqual(["p3-done", "p4-done"]);
+  expect(looksClosed("p4-done")).toBe(true);
   await setTaskFilter(c, "status", ["in_progress"]);
   expect(shown()).toEqual(["p4-progress"]);
+  await toggleTaskFilter(c, "status", "obsolete");
+  expect(shown()).toEqual(["p4-obsolete", "p4-progress"]);
+  expect(looksClosed("p4-obsolete")).toBe(true);
+  expect(looksClosed("p4-progress")).toBe(false);
 });
 
 it("shows nothing when a filter has nothing checked", async () => {
@@ -220,6 +245,7 @@ it("counts each checkbox's tasks under the other filter", async () => {
     open: 4,
     in_progress: 1,
     done: 2,
+    obsolete: 1,
   });
   expect(await filterCounts(c, "priority")).toEqual({
     P0: 1,
@@ -243,5 +269,6 @@ it("counts each checkbox's tasks under the other filter", async () => {
     open: 5,
     in_progress: 2,
     done: 3,
+    obsolete: 2,
   });
 });

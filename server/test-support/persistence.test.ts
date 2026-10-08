@@ -232,6 +232,14 @@ describe("tasks persistence round-trip (Phase 1.3)", () => {
         createdBy: "Nil",
         createdAt: 1700000001000,
       },
+      {
+        id: "task0003",
+        title: "Dropped",
+        description: "superseded by task0001",
+        status: "obsolete",
+        createdBy: "Nil",
+        createdAt: 1700000002000,
+      },
     ];
     saveTasks(tasks);
     const loaded = loadTasks();

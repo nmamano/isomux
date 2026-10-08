@@ -1884,6 +1884,7 @@ Cosas que puedes hacer por él:
   "tasks.status.open": "Abierta",
   "tasks.status.inProgress": "En curso",
   "tasks.status.done": "Hecha",
+  "tasks.status.obsolete": "Obsoleta",
   "tasks.unknownRoom": "Sala desconocida",
   "tasks.newTask": "Tarea nueva",
   "tasks.idCopied": "¡Copiado!",

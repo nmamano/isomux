@@ -1455,3 +1455,89 @@ describe("routes/tasks REST: P4 replaces the backlog status", () => {
     expect(srv.agentManager.getTasks()).toHaveLength(1);
   });
 });
+
+// --- Obsolete: closed without doing it (task 76511cf9) ----------------------
+
+describe("routes/tasks REST: obsolete status", () => {
+  const idsOf = (r: Res) => new Set((r.body as TaskItem[]).map((t) => t.id));
+
+  it("a PATCH closes a task as obsolete; lists treat it as closed, like done", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sid = owner.rawSessionId;
+    const make = async (title: string, priority?: string) =>
+      (
+        await api(srv, "/api/tasks", {
+          method: "POST",
+          rawSessionId: sid,
+          body: { title, ...(priority ? { priority } : {}) },
+        })
+      ).body as TaskItem;
+    const live = await make("live", "P1");
+    const dropped = await make("dropped", "P1");
+    const droppedP4 = await make("dropped P4", "P4");
+    const finished = await make("finished", "P1");
+    for (const t of [dropped, droppedP4]) {
+      const r = await api(srv, `/api/tasks/${t.id}`, {
+        method: "PATCH",
+        rawSessionId: sid,
+        body: {
+          version: t.version,
+          status: "obsolete",
+          description: "superseded",
+        },
+      });
+      expect(r.status).toBe(200);
+      expect((r.body as TaskItem).status).toBe("obsolete");
+      expect((r.body as TaskItem).description).toBe("superseded");
+    }
+    await api(srv, `/api/tasks/${finished.id}/done`, {
+      method: "POST",
+      rawSessionId: sid,
+      body: {},
+    });
+
+    const list = async (q: string) => {
+      const r = await api(srv, `/api/tasks${q}`, { rawSessionId: sid });
+      expect(r.status).toBe(200);
+      return idsOf(r);
+    };
+    expect(await list("")).toEqual(new Set([live.id]));
+    // A named priority lifts the P4 exclusion, not the closed one.
+    expect(await list("?priority=P4")).toEqual(new Set());
+    expect(await list("?status=obsolete")).toEqual(
+      new Set([dropped.id, droppedP4.id]),
+    );
+    expect(await list("?status=done")).toEqual(new Set([finished.id]));
+    expect(await list("?status=all")).toEqual(
+      new Set([live.id, dropped.id, droppedP4.id, finished.id]),
+    );
+  });
+
+  it("an unknown status is still a 400 that leaves the task as it was", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sid = owner.rawSessionId;
+    const t = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: sid,
+        body: { title: "T" },
+      })
+    ).body as TaskItem;
+    const r = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: sid,
+      body: { version: t.version, status: "closed" },
+    });
+    expect(r.status).toBe(400);
+    expect((r.body as { error: { code: string } }).error.code).toBe(
+      "invalid_request",
+    );
+    expect(srv.agentManager.getTasks().find((x) => x.id === t.id)?.status).toBe(
+      "open",
+    );
+  });
+});

@@ -97,7 +97,7 @@ Isomux gives you features beyond your own tools. Each line below names a situati
 - The member should see a web page you are working on: show a screenshot of it. Page: \`chat-affordances\`.
 - You need to know who else is in the office, what another agent works on, or whether it is busy or stuck: look it up. Page: \`discovery\`.
 - A member other than your manager speaks to you and their preferences matter: read their profile. Page: \`discovery\`.
-- You start or finish work that is tracked on the task board: claim it or mark it done. Page: \`tasks\`.
+- You start or finish work that is tracked on the task board: claim it or mark it done. Close a dropped task as obsolete, with the reason in its description. Page: \`tasks\`.
 - The member asks you to file, find, or update a task: use the task board. Page: \`tasks\`.
 - Another agent should know something, or you need its answer: message it. Page: \`messaging\`.
 - Another agent's turn should stop: stop it. Page: \`messaging\`.

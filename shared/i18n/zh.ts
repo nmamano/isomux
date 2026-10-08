@@ -1704,6 +1704,7 @@ App 的一些原则：
   "tasks.status.open": "未开始",
   "tasks.status.inProgress": "进行中",
   "tasks.status.done": "已完成",
+  "tasks.status.obsolete": "已废弃",
   "tasks.unknownRoom": "未知房间",
   "tasks.newTask": "新任务",
   "tasks.idCopied": "已复制！",

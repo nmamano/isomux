@@ -15,6 +15,7 @@ import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { openingRoomFilter } from "../room-filter.ts";
+import { isClosedTask } from "../../shared/task-board.ts";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -49,6 +50,7 @@ const STATUS_ORDER: Record<TaskStatus, number> = {
   in_progress: 0,
   open: 1,
   done: 2,
+  obsolete: 3,
 };
 const PRIORITY_ORDER: Record<string, number> = {
   P0: 0,
@@ -75,6 +77,7 @@ const STATUS_COLORS: Record<TaskStatus, string> = {
   open: "var(--blue, #58a6ff)",
   in_progress: "var(--green)",
   done: "var(--text-muted)",
+  obsolete: "var(--text-muted)",
 };
 
 // Keys, not words: a table of finished text would freeze the language it was
@@ -86,6 +89,7 @@ const STATUS_LABELS: Record<
   open: "tasks.status.open",
   in_progress: "tasks.status.inProgress",
   done: "tasks.status.done",
+  obsolete: "tasks.status.obsolete",
 };
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
@@ -112,7 +116,12 @@ function timeAgo(
 // The board's status and priority filters: a task shows when its status and
 // its priority ("none" for no priority) are both checked.
 type PriorityFilterValue = TaskPriority | "none";
-const FILTER_STATUSES: TaskStatus[] = ["open", "in_progress", "done"];
+const FILTER_STATUSES: TaskStatus[] = [
+  "open",
+  "in_progress",
+  "done",
+  "obsolete",
+];
 const DEFAULT_FILTER_STATUSES: TaskStatus[] = ["open", "in_progress"];
 const FILTER_PRIORITIES: PriorityFilterValue[] = [
   "P0",
@@ -772,6 +781,7 @@ function TaskDetailPanel({
                 {t("tasks.status.inProgress")}
               </option>
               <option value="done">{t("tasks.status.done")}</option>
+              <option value="obsolete">{t("tasks.status.obsolete")}</option>
             </select>
           </div>
         </div>
@@ -1780,10 +1790,9 @@ export function TaskView({
                             ? "var(--bg-hover)"
                             : "transparent",
                         borderBottom: "1px solid var(--border-subtle)",
-                        color:
-                          task.status === "done"
-                            ? "var(--text-hint)"
-                            : undefined,
+                        color: isClosedTask(task)
+                          ? "var(--text-hint)"
+                          : undefined,
                       }}
                       onMouseEnter={(e) => {
                         if (task.id !== selectedId)
@@ -1830,8 +1839,9 @@ export function TaskView({
                         style={{
                           padding: cellPad,
                           fontSize: 13,
-                          textDecoration:
-                            task.status === "done" ? "line-through" : "none",
+                          textDecoration: isClosedTask(task)
+                            ? "line-through"
+                            : "none",
                           maxWidth: isMobile ? 0 : 300,
                           overflow: "hidden",
                           textOverflow: "ellipsis",

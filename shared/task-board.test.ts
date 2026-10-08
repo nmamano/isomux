@@ -30,7 +30,7 @@ describe("taskVersion", () => {
 });
 
 describe("inDefaultTaskList", () => {
-  it("leaves out done tasks and open P4 tasks only", () => {
+  it("leaves out closed (done or obsolete) tasks and open P4 tasks only", () => {
     expect(inDefaultTaskList({ status: "open" })).toBe(true);
     expect(inDefaultTaskList({ status: "open", priority: "P3" })).toBe(true);
     expect(inDefaultTaskList({ status: "in_progress", priority: "P4" })).toBe(
@@ -38,6 +38,10 @@ describe("inDefaultTaskList", () => {
     );
     expect(inDefaultTaskList({ status: "open", priority: "P4" })).toBe(false);
     expect(inDefaultTaskList({ status: "done" })).toBe(false);
+    expect(inDefaultTaskList({ status: "obsolete" })).toBe(false);
+    expect(inDefaultTaskList({ status: "obsolete", priority: "P1" })).toBe(
+      false,
+    );
   });
 });
 

@@ -94,6 +94,24 @@ it("an edit sends the version of the task it shows, and closes once saved", asyn
   expect(view.queryByRole("alert") === null).toBe(true);
 });
 
+it("the status select closes a task as obsolete", async () => {
+  const sent: unknown[] = [];
+  setApiShim(async (method, _path, body) => {
+    if (method === "PATCH") sent.push(body);
+    return {};
+  });
+  const { view, open } = mount();
+  await open(editable.id);
+  const title = await view.findByDisplayValue(editable.title);
+  const status = view.container.querySelector(
+    'select:has(option[value="in_progress"])',
+  ) as HTMLSelectElement;
+  fireEvent.change(status, { target: { value: "obsolete" } });
+  await act(async () => fireEvent.keyDown(title, { key: "Enter" }));
+  expect(sent).toHaveLength(1);
+  expect((sent[0] as { status?: string }).status).toBe("obsolete");
+});
+
 it("a 409 keeps the panel open with the edit and says the save did not land", async () => {
   setApiShim(async (method) => {
     if (method === "PATCH") {

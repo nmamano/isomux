@@ -1849,6 +1849,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "tasks.status.open": "Open",
   "tasks.status.inProgress": "In Progress",
   "tasks.status.done": "Done",
+  "tasks.status.obsolete": "Obsolete",
   "tasks.unknownRoom": "Unknown room",
   "tasks.newTask": "New Task",
   "tasks.idCopied": "Copied!",

@@ -29,7 +29,10 @@ import {
 import type { Identity } from "../../identity/index.ts";
 import type { TaskItem } from "../../../shared/types.ts";
 import { isValidStatus, isValidPriority } from "../../../shared/types.ts";
-import { inDefaultTaskList } from "../../../shared/task-board.ts";
+import {
+  inDefaultTaskList,
+  isClosedTask,
+} from "../../../shared/task-board.ts";
 import type {
   TaskCreateReq,
   TaskUpdateReq,
@@ -133,10 +136,10 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
         }
       }
       // A named priority lifts the P4 exclusion: ?priority=P4 lists the
-      // not-done P4 tasks. Explicit status filters are literal.
+      // open and in-progress P4 tasks. Explicit status filters are literal.
       if (!status) {
         filtered = filtered.filter((t) =>
-          priorityFilter ? t.status !== "done" : inDefaultTaskList(t),
+          priorityFilter ? !isClosedTask(t) : inDefaultTaskList(t),
         );
       } else if (status !== "all") {
         filtered = filtered.filter((t) => t.status === status);
@@ -220,7 +223,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
         return fail(
           400,
           "invalid_request",
-          "invalid status, must be open|in_progress|done",
+          "invalid status, must be open|in_progress|done|obsolete",
         );
       }
       // `priority: null` CLEARS the priority; anything else

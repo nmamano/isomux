@@ -1881,6 +1881,7 @@ Coses que pots fer per ell:
   "tasks.status.open": "Oberta",
   "tasks.status.inProgress": "En curs",
   "tasks.status.done": "Feta",
+  "tasks.status.obsolete": "Obsoleta",
   "tasks.unknownRoom": "Sala desconeguda",
   "tasks.newTask": "Tasca nova",
   "tasks.idCopied": "Copiat!",
