@@ -36,6 +36,7 @@ import {
 import {
   ALL_VERBS,
   type EffectiveRow,
+  type MatrixRow,
   PROVISIONER_BUDGET,
   PROVISIONER_GRANTS,
   PROVISIONER_ROLE,
@@ -286,12 +287,31 @@ suite("a fresh, empty database", () => {
           expect(row.limit).toBeGreaterThan(0);
         }
 
-        const matrix = await ask<{ role: string; table: string; verb: string }>(
-          dsn,
-          matrixSql(),
-          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
-        );
+        const matrix = await ask<MatrixRow>(dsn, matrixSql(), [
+          [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE],
+        ]);
         expect(judgeMatrix(matrix, TEST_WEB_ROLE, WEB_GRANTS).exact).toBe(true);
+        // The provisioner's reservation UPDATE is per column (2026-10-08), so
+        // both reads have to see column grants for this to hold.
+        expect(
+          judgeMatrix(matrix, TEST_PROVISIONER_ROLE, PROVISIONER_GRANTS),
+        ).toEqual({ missing: 0, excess: 0, exact: true });
+        const effective = await ask<EffectiveRow>(
+          dsn,
+          effectivePrivilegeSql(),
+          [
+            [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE],
+            [...EXPECTED_TABLES],
+            [...ALL_VERBS],
+          ],
+        );
+        for (const { role, grants } of TEST_ROSTER) {
+          expect(judgeEffective(effective, role, grants)).toEqual({
+            missing: 0,
+            excess: 0,
+            exact: true,
+          });
+        }
         await dropRoles(dsn);
       }),
     30_000,
@@ -494,6 +514,48 @@ suite("a privilege PUBLIC holds is a privilege every role holds", () => {
   );
 
   test(
+    "the effective sweep sees a PUBLIC column grant the direct matrix cannot",
+    () =>
+      serial(async () => {
+        const dsn = await scratchDatabase();
+        await bootstrapDatabase(dsn, TEST_ROSTER);
+        await ask(dsn, "grant update (name) on name_reservations to public");
+        try {
+          const direct = await ask<MatrixRow>(dsn, matrixSql(), [
+            [TEST_PROVISIONER_ROLE],
+          ]);
+          const effective = await ask<EffectiveRow>(
+            dsn,
+            effectivePrivilegeSql(),
+            [[TEST_PROVISIONER_ROLE], [...EXPECTED_TABLES], [...ALL_VERBS]],
+          );
+          expect(
+            judgeMatrix(direct, TEST_PROVISIONER_ROLE, PROVISIONER_GRANTS)
+              .exact,
+          ).toBe(true);
+          expect(
+            judgeEffective(
+              effective,
+              TEST_PROVISIONER_ROLE,
+              PROVISIONER_GRANTS,
+            ),
+          ).toEqual({ missing: 0, excess: 1, exact: false });
+          // And PUBLIC's own column grant refuses a governance run.
+          expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).toMatch(
+            /PUBLIC holds privileges/,
+          );
+        } finally {
+          await ask(
+            dsn,
+            "revoke update (name) on name_reservations from public",
+          ).catch(() => []);
+          await dropRoles(dsn);
+        }
+      }),
+    30_000,
+  );
+
+  test(
     "the effective sweep sees a PUBLIC verb the direct matrix cannot",
     () =>
       serial(async () => {
@@ -652,6 +714,48 @@ suite("the posture converges rather than accumulating", () => {
         const verdict = judgeMatrix(matrix, TEST_WEB_ROLE, WEB_GRANTS);
         expect(verdict.excess).toBe(0);
         expect(verdict.exact).toBe(true);
+        await dropRoles(dsn);
+      }),
+    30_000,
+  );
+
+  test(
+    "a column privilege off the matrix is seen by both reads and converged",
+    () =>
+      serial(async () => {
+        const dsn = await scratchDatabase();
+        await bootstrapDatabase(dsn, TEST_ROSTER);
+        await ask(
+          dsn,
+          `revoke update (version) on name_reservations from ${TEST_PROVISIONER_ROLE}`,
+        );
+        await ask(
+          dsn,
+          `grant update (name) on name_reservations to ${TEST_PROVISIONER_ROLE}`,
+        );
+        const read = async () => ({
+          direct: judgeMatrix(
+            await ask<MatrixRow>(dsn, matrixSql(), [[TEST_PROVISIONER_ROLE]]),
+            TEST_PROVISIONER_ROLE,
+            PROVISIONER_GRANTS,
+          ),
+          effective: judgeEffective(
+            await ask<EffectiveRow>(dsn, effectivePrivilegeSql(), [
+              [TEST_PROVISIONER_ROLE],
+              [...EXPECTED_TABLES],
+              [...ALL_VERBS],
+            ]),
+            TEST_PROVISIONER_ROLE,
+            PROVISIONER_GRANTS,
+          ),
+        });
+        const drifted = { missing: 1, excess: 1, exact: false };
+        expect(await read()).toEqual({ direct: drifted, effective: drifted });
+
+        await applyGovernance(dsn, TEST_ROSTER);
+
+        const exact = { missing: 0, excess: 0, exact: true };
+        expect(await read()).toEqual({ direct: exact, effective: exact });
         await dropRoles(dsn);
       }),
     30_000,

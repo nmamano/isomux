@@ -623,9 +623,15 @@ grants are per table and per verb, and the absences are the point:
   reconciler is its only writer and writes from fetched Stripe truth, never from
   a delivery payload. The provisioner also claims delivery ids in
   `stripe_events` and reads the cancellation-policy cutover in `schema_meta`.
-- **The provisioner is not granted `instances` INSERT or any write to
-  `name_reservations`**, because instance rows and reservations are created at
-  signup.
+- **The provisioner is not granted `instances` INSERT or `name_reservations`
+  INSERT**, because instance rows and reservations are created at signup.
+- **The provisioner may UPDATE four `name_reservations` columns and no
+  others**: `checkout_state`, `checkout_next_check_at`, `updated_at` and
+  `version`, the columns the Checkout poll writes. A column grant is enough for
+  the poll's `select ... for update`, which needs UPDATE on at least one
+  column. `TableGrant.updateColumns` carries it, and the matrix read-backs
+  (`matrixSql`, `effectivePrivilegeSql`) read column privileges as well as
+  table ones.
 - **The provisioner MAY READ `name_reservations`**, and that grant is a
   correction the live run forced (see below).
 
@@ -647,6 +653,11 @@ wrong in both directions at once:
 | `provider_assets` INSERT   | removed - signup always creates the placeholder asset   |
 | `create_intents` UPDATE    | restored 2026-08-21 - automatic create records outcomes |
 
+**Added 2026-10-08:** UPDATE on four `name_reservations` columns. The Checkout
+poll (2026-08-23) writes them, and the matrix did not grant them: production
+answered 42501 on every poll pass, and the poll retried every 5 s instead of
+every 60 s. The pin below missed it because it read only `cmdRun`'s own body.
+
 **Reversed 2026-08-16:** `subscriptions` SELECT is required again because the
 deployed command now runs the lifecycle cadence.
 
@@ -665,7 +676,9 @@ out of an array literal inside `cli.ts` into `run-roster.ts` - the function
 `makeTicker` actually calls - and `cmdrun-reachability.test.ts` builds the REAL
 roster and requires every kind in it to be audited. The non-handler surfaces are
 read from `cli.ts` as text (importing it runs `main()`), and the set of names
-`cmdRun` calls must equal `AUDITED_CMDRUN_SURFACES`. A handler or a surface
+`cmdRun` calls must equal `AUDITED_CMDRUN_SURFACES`. Since 2026-10-08 the test
+also follows every `cli.ts` function `cmdRun` reaches, and each one's calls must
+equal its entry in `AUDITED_CMDRUN_HELPER_SURFACES`. A handler or a surface
 added without an audit entry fails a test; `startMintSeam` is why the second
 half matters, because the verb the 2026-08-12 run was refused is reached from a
 surface rather than from a handler.

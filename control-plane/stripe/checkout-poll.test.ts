@@ -1,22 +1,33 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store } from "../store.ts";
+import { PROVISIONER_GRANTS, type TableGrant } from "../roles.ts";
 import {
+  freshDsn,
   openTestStore,
+  openTestStoreOn,
   PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
+  TARGET_IS_LOCAL,
 } from "../testing/pg.ts";
 import {
+  dropLeastPrivilegedRoles,
+  leastPrivilegedDsn,
+} from "../testing/least-privilege.ts";
+import {
   advanceExpiredOrdinaryCheckout,
+  CHECKOUT_POLL_INTERVAL_MS,
+  deferOrdinaryCheckoutPoll,
   recordOrdinaryCheckoutSession,
+  recordTerminalOrdinarySession,
   reserveOffice,
   reservationByName,
 } from "../signup.ts";
 import { ensureAccount, getSubscription, listEvents } from "./billing-store.ts";
 import { pollPendingCheckouts } from "./checkout-poll.ts";
-import { applyEvent } from "./reconcile.ts";
+import { applyEvent, applyPolledCheckout } from "./reconcile.ts";
 import type { ReadResult, StripeObjectReader } from "./reader.ts";
 import { continueSignup } from "../web/lib/services.server.ts";
 import type {
@@ -600,5 +611,121 @@ describe("pending ordinary Checkout polling", () => {
       ),
     ).toHaveLength(1);
     expect(await listEvents(store)).toHaveLength(1);
+  });
+});
+
+// THE ROLE THE DEPLOYED POLL RUNS AS. Every case above runs as the owner, which
+// can write anything, and that is how the poll shipped on 2026-08-23 writing a
+// table cp_provisioner could only read: 42501 on every pass in production,
+// found 2026-10-08. These cases run the same poll on a store opened by a role
+// holding exactly the provisioner's matrix. LOCAL ENGINE ONLY: they create a
+// login role.
+const privileged = TARGET_IS_LOCAL ? describe : describe.skip;
+
+privileged("the poll as the provisioner's role", () => {
+  const roleStores: Store[] = [];
+
+  afterEach(async () => {
+    for (const store of roleStores.splice(0)) await store.close();
+  }, PG_TEST_HOOK_TIMEOUT_MS);
+
+  afterAll(async () => {
+    await dropLeastPrivilegedRoles();
+  }, PG_TEST_HOOK_TIMEOUT_MS);
+
+  /** An owner store for the signup rows, and a store on the same schema opened
+   * by a role holding exactly `grants`. */
+  async function bed(grants: readonly TableGrant[]) {
+    const dsn = await freshDsn();
+    const owner = await openTestStoreOn(dsn, () => NOW);
+    const open = await pending(owner, "lima", "cs_lp_open");
+    const gone = await pending(owner, "mike", "cs_lp_gone");
+    const paid = await pending(owner, "november", "cs_lp_paid");
+    const role = await Store.openRuntime(
+      await leastPrivilegedDsn({ dsn, grants }),
+      () => NOW,
+    );
+    roleStores.push(role);
+    const reader = new FakeReader();
+    reader.sessions.set("cs_lp_open", session("cs_lp_open", "open"));
+    reader.sessions.set(
+      "cs_lp_paid",
+      session("cs_lp_paid", "complete", "sub_lp_paid", "paid"),
+    );
+    reader.subscriptions.set(
+      "sub_lp_paid",
+      subscription("sub_lp_paid", paid.instance_id),
+    );
+    return { owner, role, reader, open, gone, paid };
+  }
+
+  test("defers, expires and reconciles with the deployed matrix", async () => {
+    const { owner, role, reader, paid } = await bed(PROVISIONER_GRANTS);
+    const lines: string[] = [];
+    expect(
+      await pollPendingCheckouts(role, reader, NOW, (l) => lines.push(l)),
+    ).toEqual({ examined: 3, open: 1, expired: 1, reconciled: 1, failed: 0 });
+    expect(lines).toEqual([]);
+    expect(await reservationByName(owner, "lima")).toMatchObject({
+      checkout_state: "pending",
+      checkout_next_check_at: NOW + CHECKOUT_POLL_INTERVAL_MS,
+    });
+    expect(await reservationByName(owner, "mike")).toMatchObject({
+      checkout_state: "expired",
+      checkout_next_check_at: null,
+    });
+    expect(await reservationByName(owner, "november")).toMatchObject({
+      checkout_state: "reconciled",
+    });
+    expect(
+      (await owner.operationsFor(paid.instance_id)).filter(
+        (op) => op.kind === "create_instance",
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("each poll write is refused 42501 without the reservation columns", async () => {
+    const withheld = PROVISIONER_GRANTS.map((grant) =>
+      grant.table === "name_reservations"
+        ? { ...grant, updateColumns: [] }
+        : grant,
+    );
+    const { owner, role, reader, open, gone, paid } = await bed(withheld);
+    const code = (work: Promise<unknown>) =>
+      work.then(
+        () => "no refusal",
+        (err: { code?: string }) => err.code,
+      );
+    expect(
+      await code(deferOrdinaryCheckoutPoll(role, open.id, "cs_lp_open", NOW)),
+    ).toBe("42501");
+    expect(
+      await code(recordTerminalOrdinarySession(role, gone.id, "cs_lp_gone")),
+    ).toBe("42501");
+    const fetched = await reader.getCheckoutSession("cs_lp_paid");
+    const sub = await reader.getSubscription("sub_lp_paid");
+    if (fetched.kind !== "ok" || sub.kind !== "ok") throw new Error("fixture");
+    expect(
+      await code(
+        role.tx(() =>
+          applyPolledCheckout(role, {
+            reservationId: paid.id,
+            subscription: sub.object,
+            session: fetched.object,
+            now: NOW,
+          }),
+        ),
+      ),
+    ).toBe("42501");
+    expect(await pollPendingCheckouts(role, reader, NOW)).toMatchObject({
+      examined: 3,
+      failed: 3,
+    });
+    for (const name of ["lima", "mike", "november"]) {
+      expect(await reservationByName(owner, name)).toMatchObject({
+        checkout_state: "pending",
+        checkout_next_check_at: NOW,
+      });
+    }
   });
 });

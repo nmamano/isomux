@@ -45,9 +45,10 @@ export function schemaOf(dsn: string): string {
 /**
  * A DSN for a login role that holds exactly `grants` on `dsn`'s schema.
  *
- * USAGE on the schema and the per-table verbs, and nothing else: no CREATE, no
- * privilege on any table the matrix does not name, and no membership. The
- * password is generated here and travels only in the string returned.
+ * USAGE on the schema, the per-table verbs and the per-column UPDATEs, and
+ * nothing else: no CREATE, no privilege on any table the matrix does not name,
+ * and no membership. The password is generated here and travels only in the
+ * string returned.
  */
 export async function leastPrivilegedDsn(args: {
   dsn: string;
@@ -65,10 +66,16 @@ export async function leastPrivilegedDsn(args: {
     // The verbs are a closed union in `roles.ts` and the table names are
     // literals there; the identifier is quoted anyway, because a test helper
     // that builds SQL loosely is a bad example wherever it is copied to.
-    const verbs = grant.verbs.join(", ");
-    await admin.query(
-      `grant ${verbs} on ${quoteIdentifier(schema)}.${quoteIdentifier(grant.table)} to ${role}`,
-    );
+    const table = `${quoteIdentifier(schema)}.${quoteIdentifier(grant.table)}`;
+    if (grant.verbs.length > 0) {
+      await admin.query(
+        `grant ${grant.verbs.join(", ")} on ${table} to ${role}`,
+      );
+    }
+    if (grant.updateColumns?.length) {
+      const columns = grant.updateColumns.map(quoteIdentifier).join(", ");
+      await admin.query(`grant update (${columns}) on ${table} to ${role}`);
+    }
   }
   const url = new URL(args.dsn);
   url.username = role;

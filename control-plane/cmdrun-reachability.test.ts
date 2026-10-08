@@ -24,6 +24,7 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  AUDITED_CMDRUN_HELPER_SURFACES,
   AUDITED_CMDRUN_SURFACES,
   AUDITED_HANDLER_KINDS,
   AUDITED_PROVIDER_HANDLER_KINDS,
@@ -150,26 +151,38 @@ describe("the audited roster is the roster the loop is built from", () => {
   });
 });
 
+const CLI_SOURCE = fs.readFileSync(
+  path.join(import.meta.dir, "cli.ts"),
+  "utf8",
+);
+
+/** Where a top-level function of `cli.ts` is declared, or -1. */
+function declarationOf(name: string): number {
+  const literal = name.replace(/[.$]/g, "\\$&");
+  return CLI_SOURCE.search(
+    new RegExp(`^(?:async )?function ${literal}\\(`, "m"),
+  );
+}
+
 /**
- * `cmdRun`'s body, as the set of names it calls.
+ * A top-level `cli.ts` function's body, as the set of names it calls.
  *
  * Read as text on purpose: importing `cli.ts` runs its `main()`. The extraction
  * takes the function from its declaration to the first line that closes it at
  * column zero, which is how every top-level function in that file ends.
  */
-function cmdRunCallees(): string[] {
-  const source = fs.readFileSync(path.join(import.meta.dir, "cli.ts"), "utf8");
-  const start = source.indexOf("async function cmdRun(");
+function calleesOf(name: string): string[] {
+  const start = declarationOf(name);
   expect(start).toBeGreaterThan(0);
-  const end = source.indexOf("\n}\n", start);
+  const end = CLI_SOURCE.indexOf("\n}\n", start);
   expect(end).toBeGreaterThan(start);
-  const body = source.slice(start, end);
+  const body = CLI_SOURCE.slice(start, end);
 
   // Language constructs and locals are not surfaces. Anything a reader would
   // call a CALL INTO THIS BUILD survives the filter, which is the point: the
   // list has to fail on a new one rather than absorb it.
   const ignore = new Set([
-    "cmdRun",
+    name,
     "if",
     "for",
     "while",
@@ -199,10 +212,27 @@ function cmdRunCallees(): string[] {
   for (const match of body.matchAll(
     /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/g,
   )) {
-    const name = match[1];
-    if (!ignore.has(name)) found.add(name);
+    const callee = match[1];
+    if (!ignore.has(callee)) found.add(callee);
   }
   return [...found].sort();
+}
+
+const cmdRunCallees = (): string[] => calleesOf("cmdRun");
+
+/** Every top-level `cli.ts` function `cmdRun` reaches, through any depth of
+ * other `cli.ts` functions. */
+function helpersReached(): string[] {
+  const reached = new Set<string>();
+  const queue = ["cmdRun"];
+  while (queue.length > 0) {
+    for (const callee of calleesOf(queue.shift()!)) {
+      if (reached.has(callee) || declarationOf(callee) < 0) continue;
+      reached.add(callee);
+      queue.push(callee);
+    }
+  }
+  return [...reached].sort();
 }
 
 describe("the audited surface is the surface cmdRun drives", () => {
@@ -215,6 +245,28 @@ describe("the audited surface is the surface cmdRun drives", () => {
   test("the extraction found a body worth checking", () => {
     // A regex that matched nothing would make the case above pass forever.
     expect(cmdRunCallees().length).toBeGreaterThan(8);
+  });
+
+  // THE HOLE THE CHECKOUT POLL WENT THROUGH: the case above read cmdRun's body
+  // and stopped at runLifecycleCadence, so the poll added inside it on
+  // 2026-08-23 reached name_reservations UPDATE without a test noticing.
+  test("cmdRun reaches exactly the audited cli.ts functions", () => {
+    expect(helpersReached()).toEqual(
+      Object.keys(AUDITED_CMDRUN_HELPER_SURFACES).sort(),
+    );
+  });
+
+  for (const [helper, audited] of Object.entries(
+    AUDITED_CMDRUN_HELPER_SURFACES,
+  )) {
+    test(`${helper} calls exactly its audited surfaces`, () => {
+      expect(calleesOf(helper)).toEqual([...audited].sort());
+    });
+  }
+
+  test("the walk follows cmdRun past its own body", () => {
+    expect(helpersReached()).toContain("runLifecycleCadence");
+    expect(calleesOf("runLifecycleCadence")).toContain("pollPendingCheckouts");
   });
 
   test("liveness runs first and each monitoring pass has its own guard", () => {

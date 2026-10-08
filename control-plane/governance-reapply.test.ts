@@ -31,6 +31,7 @@ import {
   WEB_GRANTS,
   WEB_ROLE,
   grantMatrixStatements,
+  grantKeys,
   judgeMatrix,
   matrixSql,
   priorRuntimeRoles,
@@ -38,6 +39,7 @@ import {
   roleIdentitySql,
   runtimeRoles,
   type RoleIdentity,
+  type MatrixRow,
   type RolePosture,
 } from "./roles.ts";
 import { Store } from "./store.ts";
@@ -295,20 +297,24 @@ async function webUpdatesReservation(
 /** Every direct grant both runtime roles hold, as a sorted set of strings, so
  * two catalogs can be compared rather than described. */
 async function matrixOf(dsn: string): Promise<string[]> {
-  const rows = await ask<{ role: string; table: string; verb: string }>(
-    dsn,
-    matrixSql(),
-    [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
-  );
-  return rows.map((r) => `${r.role}:${r.table}:${r.verb}`).sort();
+  const rows = await ask<MatrixRow>(dsn, matrixSql(), [
+    [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE],
+  ]);
+  return rows
+    .map(
+      (r) => `${r.role}:${r.table}${r.column ? `(${r.column})` : ""}:${r.verb}`,
+    )
+    .sort();
 }
 
 function matrixFor(roster: readonly RolePosture[]): string[] {
   return roster
     .flatMap(({ role, grants }) =>
-      grants.flatMap(({ table, verbs }) =>
-        verbs.map((verb) => `${role}:${table}:${verb.toUpperCase()}`),
-      ),
+      grants
+        .flatMap(grantKeys)
+        .map(
+          (key) => `${role}:${key.replace(/:(\w+)$/, (v) => v.toUpperCase())}`,
+        ),
     )
     .sort();
 }
@@ -366,6 +372,12 @@ suite("the incremental matrix change", () => {
         const after = await matrixOf(dsn);
         expect(after).toEqual(matrixFor(TEST_CURRENT));
         expect(after).toContain(`${TEST_WEB_ROLE}:name_reservations:UPDATE`);
+        expect(before).not.toContain(
+          `${TEST_PROVISIONER_ROLE}:name_reservations(version):UPDATE`,
+        );
+        expect(after).toContain(
+          `${TEST_PROVISIONER_ROLE}:name_reservations(version):UPDATE`,
+        );
         await webUpdatesReservation(dsn, true);
         await closeRuntimes(dsn);
       }),
@@ -400,11 +412,11 @@ suite("the incremental matrix change", () => {
         expect(judgeMatrix(rows, TEST_WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(
           true,
         );
-        // The provisioner's prior equals its current matrix (measured
-        // 2026-08-24), so only the web role reads as moved-away-from.
+        // The provisioner's prior (measured 2026-08-24) lacks the Checkout
+        // poll's reservation columns, so both roles read as moved-away-from.
         expect(
           judgeMatrix(rows, TEST_PROVISIONER_ROLE, PROVISIONER_GRANTS).exact,
-        ).toBe(true);
+        ).toBe(false);
         expect(judgeMatrix(rows, TEST_WEB_ROLE, WEB_GRANTS).exact).toBe(false);
         expect(await matrixOf(dsn)).toEqual(matrixFor(TEST_PRIOR));
         await closeRuntimes(dsn);

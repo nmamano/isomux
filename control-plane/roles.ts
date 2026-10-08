@@ -132,8 +132,23 @@ export type Bound = readonly [name: string, value: string];
 export interface TableGrant {
   table: string;
   verbs: readonly ("select" | "insert" | "update" | "delete")[];
+  /** UPDATE on these columns only, for a role that must not hold it on the
+   * table. A separate field rather than "update" in `verbs`, so a reader that
+   * does not know it grants less, never the whole table. */
+  updateColumns?: readonly string[];
   /** Why, in one line. A grant nobody can justify is a grant to remove. */
   because: string;
+}
+
+/** Every privilege a grant names: `table:verb` for a table grant and
+ * `table(column):update` for a column grant. */
+export function grantKeys(grant: TableGrant): string[] {
+  return [
+    ...grant.verbs.map((verb) => `${grant.table}:${verb}`),
+    ...(grant.updateColumns ?? []).map(
+      (column) => `${grant.table}(${column}):update`,
+    ),
+  ];
 }
 
 /**
@@ -263,9 +278,11 @@ export const WEB_GRANTS: readonly TableGrant[] = [
  * actually lives.
  *
  * Still not granted, and each is a property rather than an oversight:
- * `instances` INSERT and `name_reservations` writes (rows created at signup, by
+ * `instances` INSERT and `name_reservations` INSERT (rows created at signup, by
  * the web), accounts UPDATE (reconciliation can establish an account but never
- * edit one), and DELETE anywhere. The provisioner may write `stripe_events` and
+ * edit one), and DELETE anywhere. `name_reservations` UPDATE is held on the four
+ * columns the Checkout poll writes and no others: the poll may move a
+ * reservation's Checkout state, not its name, owner or instance. The provisioner may write `stripe_events` and
  * the subscription cache because it now serves the deployed Stripe listener;
  * it reads `schema_meta` to classify a first-seen subscription's cancellation
  * policy at the recorded cutover.
@@ -349,8 +366,16 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
   {
     table: "name_reservations",
     verbs: ["select"],
+    updateColumns: [
+      "checkout_state",
+      "checkout_next_check_at",
+      "updated_at",
+      "version",
+    ],
     because:
-      "the invite seam proves the caller owns the office from the reservation row",
+      "the invite seam proves the caller owns the office from the reservation row; " +
+      "the Checkout poll defers, expires and reconciles a pending Checkout. " +
+      "The missing UPDATE was measured live 2026-10-08: 42501 on every poll pass",
   },
   {
     table: "sequences",
@@ -365,6 +390,9 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
 export interface ReachableVerb {
   table: string;
   verb: "select" | "insert" | "update" | "delete";
+  /** The columns an UPDATE writes, when the grant is per column. A
+   * `select ... for update` needs UPDATE on one of them. */
+  columns?: readonly string[];
   via: string;
 }
 
@@ -562,6 +590,28 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
       "signup.ts:111 reservationForInstance; the same read the 2026-08-12 " +
       "probe (deploy/probe.ts:146) was refused",
   },
+  {
+    table: "name_reservations",
+    verb: "update",
+    columns: ["checkout_next_check_at", "updated_at", "version"],
+    via:
+      "cli.ts runLifecycleCadence -> stripe/checkout-poll.ts pollPendingCheckouts " +
+      "-> signup.ts deferOrdinaryCheckoutPoll, while the session is open",
+  },
+  {
+    table: "name_reservations",
+    verb: "update",
+    columns: [
+      "checkout_state",
+      "checkout_next_check_at",
+      "updated_at",
+      "version",
+    ],
+    via:
+      "stripe/checkout-poll.ts pollPendingCheckouts -> signup.ts " +
+      "recordTerminalOrdinarySession, and stripe/reconcile.ts " +
+      "applyPolledCheckout (select ... for update, then the reconciled mark)",
+  },
 ];
 
 /**
@@ -681,6 +731,91 @@ export const AUDITED_CMDRUN_SURFACES = [
   "reporter.problem",
   "exitCodeFor",
 ] as const;
+
+/**
+ * WHAT EACH `cli.ts` FUNCTION THAT `cmdRun` REACHES CALLS, by function.
+ *
+ * The list above pins `cmdRun`'s own body and stops at the names it calls. The
+ * Checkout poll was added inside `runLifecycleCadence`, a name on that list,
+ * and it wrote `name_reservations`, which the matrix did not grant: 42501 on
+ * every poll pass in production, 2026-10-08. So the test follows every function
+ * in `cli.ts` that `cmdRun` reaches, and a new call in any of them fails with
+ * that function's name. A call into another module is the audit's job from
+ * there.
+ *
+ * Audited 2026-10-08 against `PROVISIONER_REACHABLE`: the sweeps and the
+ * lifecycle tick read and write instances, operations, attention_reasons,
+ * audit_events, sequences, subscriptions and reinstatement_attempts (both
+ * `for update`), and read provider_assets and name_reservations; the poll is
+ * cited in the matrix; `healthReport` runs `select 1`; `exitCodeFor` reads
+ * instances. `makeTicker`'s handlers are pinned by the roster test.
+ */
+export const AUDITED_CMDRUN_HELPER_SURFACES: Readonly<
+  Record<string, readonly string[]>
+> = {
+  bindAddressOf: [],
+  deploymentIdOf: [],
+  exitCodeFor: ["some", "store.listInstances"],
+  healthReport: [
+    "deps.cadenceHealthy",
+    "deps.lastTickAt",
+    "deps.providerConfigured",
+    "deps.store.sqlGet",
+  ],
+  makeAdapter: [
+    "ContaboAdapter",
+    "ContaboHttp",
+    "TokenProvider",
+    "credentialsFromEnv",
+  ],
+  makeTicker: [
+    "CloudflareDns",
+    "CreateCoordinator",
+    "CreateLatch",
+    "IntentJournal",
+    "LiveStripeReader",
+    "StripeClient",
+    "Ticker",
+    "adapter.cancel",
+    "adapter.get",
+    "adapter.powerOff",
+    "adapter.powerOn",
+    "adapter.reboot",
+    "certificateTargetFromEnv",
+    "makeAdapter",
+    "path.join",
+    "prepareCreateRun",
+    "reconcileFn",
+    "resolveStripeMode",
+    "silently",
+    "stripeKeyFromEnv",
+    "tickerHandlerRoster",
+  ],
+  openStoreForRuntime: [
+    "Store.openRuntime",
+    "databaseUrl",
+    "fs.mkdirSync",
+    "migrateLegacyIntents",
+    "openStores.add",
+    "proveDatabaseIdentity",
+    "store.close",
+  ],
+  reconcileFn: ["adapter.get", "makeAdapter"],
+  runLifecycleCadence: [
+    // "candidate(s)" and "subscription(s)" in the two problem lines.
+    "candidate",
+    "subscription",
+    "lifecycleTick",
+    "pollPendingCheckouts",
+    "reporter.problem",
+    "running.handles",
+    "store.now",
+    "sweepCustomerKeyRetention",
+    "sweepProvisioningStalls",
+    "sweepProvisioningStarts",
+  ],
+  scheduleCapabilities: ["PROVIDER_DEPENDENT_KINDS.every", "ticker.handles"],
+};
 
 /**
  * THE MATRIX THE PREVIOUS POSTURE APPLIED, kept because a re-apply has to prove
@@ -1001,9 +1136,19 @@ export function grantMatrixStatements(
     out.push(`revoke all privileges on schema public from ${named}`);
     out.push(`grant usage on schema public to ${named}`);
     for (const grant of grants) {
-      out.push(
-        `grant ${grant.verbs.join(", ")} on ${assertIdentifier(grant.table)} to ${named}`,
-      );
+      const table = assertIdentifier(grant.table);
+      if (grant.verbs.length > 0) {
+        out.push(`grant ${grant.verbs.join(", ")} on ${table} to ${named}`);
+      }
+      if (grant.updateColumns) {
+        if (grant.updateColumns.length === 0) {
+          throw new Error(
+            "a column grant names no column; leave updateColumns out instead",
+          );
+        }
+        const columns = grant.updateColumns.map(assertIdentifier).join(", ");
+        out.push(`grant update (${columns}) on ${table} to ${named}`);
+      }
     }
   }
   return out;
@@ -1182,11 +1327,42 @@ export async function readRolePosture(
  * narrowed leaves the wider privilege behind unless something revokes it.
  */
 export function matrixSql(): string {
+  // A column grant is not in table_privileges. column_privileges lists a table
+  // grant once per column too, so only the column rows no table grant covers
+  // are added.
   return (
-    "select grantee as role, table_name as table, privilege_type as verb " +
+    "select grantee as role, table_name as table, privilege_type as verb, " +
+    "null::text as column " +
     "from information_schema.table_privileges " +
-    "where grantee = any($1) and table_schema = 'public'"
+    "where grantee = any($1) and table_schema = 'public' " +
+    "union all " +
+    "select c.grantee, c.table_name, c.privilege_type, c.column_name " +
+    "from information_schema.column_privileges c " +
+    "where c.grantee = any($1) and c.table_schema = 'public' " +
+    "and not exists (select 1 from information_schema.table_privileges t " +
+    " where t.grantee = c.grantee and t.table_schema = c.table_schema " +
+    " and t.table_name = c.table_name and t.privilege_type = c.privilege_type)"
   );
+}
+
+/** One row of `matrixSql`. `column` is null for a table grant. */
+export interface MatrixRow {
+  role: string;
+  table: string;
+  verb: string;
+  column?: string | null;
+}
+
+/** The key `grantKeys` gives the same privilege. */
+function rowKey(row: {
+  table: string;
+  verb: string;
+  column?: string | null;
+}): string {
+  const verb = row.verb.toLowerCase();
+  return row.column
+    ? `${row.table}(${row.column}):${verb}`
+    : `${row.table}:${verb}`;
 }
 
 export interface MatrixVerdict {
@@ -1214,11 +1390,14 @@ export function provisionerMatrixAgainstReachable(
   grants: readonly TableGrant[] = PROVISIONER_GRANTS,
   reachable: readonly ReachableVerb[] = PROVISIONER_REACHABLE,
 ): { missing: string[]; excess: string[]; exact: boolean } {
-  const granted = new Set<string>();
-  for (const grant of grants) {
-    for (const verb of grant.verbs) granted.add(`${grant.table}:${verb}`);
-  }
-  const needed = new Set(reachable.map((r) => `${r.table}:${r.verb}`));
+  const granted = new Set(grants.flatMap(grantKeys));
+  const needed = new Set(
+    reachable.flatMap((r) =>
+      r.columns
+        ? r.columns.map((column) => `${r.table}(${column}):${r.verb}`)
+        : [`${r.table}:${r.verb}`],
+    ),
+  );
   const missing = [...needed].filter((e) => !granted.has(e)).sort();
   const excess = [...granted].filter((e) => !needed.has(e)).sort();
   return {
@@ -1229,19 +1408,15 @@ export function provisionerMatrixAgainstReachable(
 }
 
 export function judgeMatrix(
-  rows: readonly { role: string; table: string; verb: string }[],
+  rows: readonly MatrixRow[],
   role: string,
   grants: readonly TableGrant[],
 ): MatrixVerdict {
-  const want = new Set<string>();
-  for (const grant of grants) {
-    for (const verb of grant.verbs)
-      want.add(`${grant.table}:${verb.toUpperCase()}`);
-  }
+  const want = new Set(grants.flatMap(grantKeys));
   const have = new Set<string>();
   for (const row of rows) {
     if (row.role !== role) continue;
-    have.add(`${row.table}:${row.verb.toUpperCase()}`);
+    have.add(rowKey(row));
   }
   let missing = 0;
   for (const entry of want) if (!have.has(entry)) missing++;
@@ -1312,11 +1487,24 @@ export function sequencePrivilegeSql(): string {
  * every verb rather than over the matrix's own entries.
  */
 export function effectivePrivilegeSql(): string {
+  // has_table_privilege is false for a privilege held on columns only. So each
+  // column is asked too, for the verbs Postgres grants per column, wherever the
+  // table-level privilege is absent.
   return (
     "select r.role as role, t.name as table, v.verb as verb, " +
+    "null::text as column, " +
     "has_table_privilege(r.role, t.name, v.verb) as allowed " +
     "from unnest($1::text[]) as r(role), unnest($2::text[]) as t(name), " +
-    "unnest($3::text[]) as v(verb)"
+    "unnest($3::text[]) as v(verb) " +
+    "union all " +
+    "select r.role, t.name, v.verb, a.attname::text, " +
+    "has_column_privilege(r.role, t.name, a.attname::text, v.verb) " +
+    "from unnest($1::text[]) as r(role), unnest($2::text[]) as t(name), " +
+    "unnest($3::text[]) as v(verb), pg_attribute a " +
+    "where a.attrelid = to_regclass(t.name) and a.attnum > 0 " +
+    "and not a.attisdropped " +
+    "and lower(v.verb) in ('select', 'insert', 'update', 'references') " +
+    "and not has_table_privilege(r.role, t.name, v.verb)"
   );
 }
 
@@ -1324,6 +1512,8 @@ export interface EffectiveRow {
   role: string;
   table: string;
   verb: string;
+  /** Null for the table-level answer. */
+  column?: string | null;
   allowed: boolean;
 }
 
@@ -1339,15 +1529,12 @@ export function judgeEffective(
   role: string,
   grants: readonly TableGrant[],
 ): MatrixVerdict {
-  const want = new Set<string>();
-  for (const grant of grants) {
-    for (const verb of grant.verbs) want.add(`${grant.table}:${verb}`);
-  }
+  const want = new Set(grants.flatMap(grantKeys));
   let missing = 0;
   let excess = 0;
   for (const row of rows) {
     if (row.role !== role) continue;
-    const key = `${row.table}:${row.verb.toLowerCase()}`;
+    const key = rowKey(row);
     if (row.allowed && !want.has(key)) excess++;
     if (!row.allowed && want.has(key)) missing++;
   }

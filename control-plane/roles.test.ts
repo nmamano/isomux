@@ -29,20 +29,27 @@ import {
   boundsAreExact,
   failedClaims,
   governanceStatements,
+  grantKeys,
+  grantMatrixStatements,
   governedRoleCount,
   judgeEffective,
   residueIsInert,
+  type TableGrant,
 } from "./roles.ts";
 import { GOVERNED_SETTINGS } from "./store.ts";
 
 const BOUNDS = GOVERNED_SETTINGS;
 
-const grantKeys = (
-  grants: readonly { table: string; verbs: readonly string[] }[],
-): string[] =>
-  grants
-    .flatMap(({ table, verbs }) => verbs.map((verb) => `${table}:${verb}`))
-    .sort();
+const keysOf = (grants: readonly TableGrant[]): string[] =>
+  grants.flatMap(grantKeys).sort();
+
+/** The columns the Checkout poll writes, as the matrix keys them. */
+const POLL_COLUMN_KEYS = [
+  "name_reservations(checkout_next_check_at):update",
+  "name_reservations(checkout_state):update",
+  "name_reservations(updated_at):update",
+  "name_reservations(version):update",
+];
 
 describe("the aggregate is a number, and it fits", () => {
   test("the worst case is the sum of the two DEPLOYED budgets and nothing else", () => {
@@ -107,11 +114,14 @@ describe("the grants are bounded by what the call graph needs", () => {
     ]);
   });
 
-  test("the provisioner does not create instances or write reservations", () => {
+  test("the provisioner does not create instances, and writes only a reservation's Checkout state", () => {
     expect(verbsFor(PROVISIONER_GRANTS, "instances")).not.toContain("insert");
     const reservations = verbsFor(PROVISIONER_GRANTS, "name_reservations");
     expect(reservations).not.toContain("insert");
     expect(reservations).not.toContain("update");
+    expect(
+      keysOf(PROVISIONER_GRANTS).filter((key) => key.includes("(")),
+    ).toEqual(POLL_COLUMN_KEYS);
   });
 
   // THE 2026-08-12 DEFECT, as a test. The G3 forward probe refused because the
@@ -156,9 +166,37 @@ describe("the matrix is exactly what the deployed command reaches", () => {
       (g) => g.table !== "name_reservations",
     );
     const verdict = provisionerMatrixAgainstReachable(narrowed);
-    expect(verdict.missing).toEqual(["name_reservations:select"]);
+    expect(verdict.missing).toEqual([
+      ...POLL_COLUMN_KEYS,
+      "name_reservations:select",
+    ]);
     expect(verdict.excess).toEqual([]);
     expect(verdict.exact).toBe(false);
+  });
+
+  // 2026-10-08: the poll reached these columns and the matrix withheld them.
+  test("a withheld column of a reachable write is reported as MISSING", () => {
+    const narrowed = PROVISIONER_GRANTS.map((g) =>
+      g.table === "name_reservations"
+        ? { ...g, updateColumns: g.updateColumns!.slice(1) }
+        : g,
+    );
+    const verdict = provisionerMatrixAgainstReachable(narrowed);
+    expect(verdict.missing).toEqual([
+      "name_reservations(checkout_state):update",
+    ]);
+    expect(verdict.excess).toEqual([]);
+  });
+
+  test("UPDATE on the whole table is EXCESS where columns suffice", () => {
+    const widened = PROVISIONER_GRANTS.map((g) =>
+      g.table === "name_reservations"
+        ? { ...g, verbs: ["select", "update"] as const }
+        : g,
+    );
+    const verdict = provisionerMatrixAgainstReachable(widened);
+    expect(verdict.excess).toEqual(["name_reservations:update"]);
+    expect(verdict.missing).toEqual([]);
   });
 
   test("a verb nothing reaches is reported as EXCESS", () => {
@@ -179,23 +217,24 @@ describe("the matrix is exactly what the deployed command reaches", () => {
   });
 
   test("the prior web matrix lacks only the reservation persist and the identity read", () => {
-    const prior = new Set(grantKeys(PRIOR_WEB_GRANTS));
-    expect(grantKeys(WEB_GRANTS).filter((key) => !prior.has(key))).toEqual([
+    const prior = new Set(keysOf(PRIOR_WEB_GRANTS));
+    expect(keysOf(WEB_GRANTS).filter((key) => !prior.has(key))).toEqual([
       "name_reservations:update",
       "schema_meta:select",
     ]);
-    const current = new Set(grantKeys(WEB_GRANTS));
-    expect(
-      grantKeys(PRIOR_WEB_GRANTS).filter((key) => !current.has(key)),
-    ).toEqual([]);
+    const current = new Set(keysOf(WEB_GRANTS));
+    expect(keysOf(PRIOR_WEB_GRANTS).filter((key) => !current.has(key))).toEqual(
+      [],
+    );
   });
 
-  test("the prior provisioner matrix equals the current one", () => {
-    // Measured 2026-08-24: production's provisioner already carries the
-    // current matrix, so the pending reapply moves the web role only.
-    const prior = new Set(grantKeys(PRIOR_PROVISIONER_GRANTS));
-    const current = new Set(grantKeys(PROVISIONER_GRANTS));
-    expect([...current].filter((key) => !prior.has(key)).sort()).toEqual([]);
+  test("the prior provisioner matrix lacks only the Checkout poll's columns", () => {
+    // Measured 2026-08-24, before the poll's grant existed.
+    const prior = new Set(keysOf(PRIOR_PROVISIONER_GRANTS));
+    const current = new Set(keysOf(PROVISIONER_GRANTS));
+    expect([...current].filter((key) => !prior.has(key)).sort()).toEqual(
+      POLL_COLUMN_KEYS,
+    );
     expect([...prior].filter((key) => !current.has(key)).sort()).toEqual([]);
   });
 
@@ -204,9 +243,9 @@ describe("the matrix is exactly what the deployed command reaches", () => {
   // literal guard above and the production preflight protect that transcription.
   test("the prior provisioner matrix lacks exactly the destination additions", () => {
     const prior = provisionerMatrixAgainstReachable(PRIOR_PROVISIONER_GRANTS);
-    const measured = new Set(grantKeys(PRIOR_PROVISIONER_GRANTS));
+    const measured = new Set(keysOf(PRIOR_PROVISIONER_GRANTS));
     expect(prior.missing).toEqual(
-      grantKeys(PROVISIONER_GRANTS).filter((key) => !measured.has(key)),
+      keysOf(PROVISIONER_GRANTS).filter((key) => !measured.has(key)),
     );
     expect(prior.excess).toEqual([]);
   });
@@ -271,6 +310,16 @@ describe("the statements that put it in place", () => {
     }
   });
 
+  test("the reservation UPDATE is granted on the poll's columns, not the table", () => {
+    expect(statements).toContain(
+      `grant update (checkout_state, checkout_next_check_at, updated_at, version) ` +
+        `on name_reservations to ${PROVISIONER_ROLE}`,
+    );
+    expect(statements).toContain(
+      `grant select on name_reservations to ${PROVISIONER_ROLE}`,
+    );
+  });
+
   test("no statement grants a verb the matrix does not carry", () => {
     for (const statement of statements) {
       if (!statement.startsWith("grant ")) continue;
@@ -296,6 +345,35 @@ describe("the statements that put it in place", () => {
         ownerRole: "owner",
         bounds: [["statement_timeout", "30s'; drop role x --"]],
       }),
+    ).toThrow();
+  });
+
+  test("it refuses a column grant with a bad or empty column list", () => {
+    const withColumns = (updateColumns: string[]) => [
+      {
+        role: WEB_ROLE,
+        budget: 1,
+        grants: [{ table: "accounts", verbs: [], because: "test" }],
+      },
+      {
+        role: PROVISIONER_ROLE,
+        budget: 1,
+        grants: [
+          {
+            table: "name_reservations",
+            verbs: ["select"] as const,
+            updateColumns,
+            because: "test",
+          },
+        ],
+      },
+    ];
+    expect(grantMatrixStatements(withColumns(["version"]))).toContain(
+      `grant update (version) on name_reservations to ${PROVISIONER_ROLE}`,
+    );
+    expect(() => grantMatrixStatements(withColumns([]))).toThrow();
+    expect(() =>
+      grantMatrixStatements(withColumns(["version) on accounts to x --"])),
     ).toThrow();
   });
 });
@@ -364,6 +442,39 @@ describe("effective privilege, which is what the boundary is about", () => {
       WEB_GRANTS,
     );
     expect(verdict.missing).toBe(1);
+  });
+
+  test("a column grant counts only on the columns the matrix names", () => {
+    const column = (name: string, allowed: boolean) => ({
+      role: PROVISIONER_ROLE,
+      table: "name_reservations",
+      verb: "update",
+      column: name,
+      allowed,
+    });
+    const exact = judgeEffective(
+      [
+        {
+          role: PROVISIONER_ROLE,
+          table: "name_reservations",
+          verb: "update",
+          column: null,
+          allowed: false,
+        },
+        column("version", true),
+        column("checkout_state", true),
+        column("name", false),
+      ],
+      PROVISIONER_ROLE,
+      PROVISIONER_GRANTS,
+    );
+    expect(exact.exact).toBe(true);
+    const verdict = judgeEffective(
+      [column("name", true), column("version", false)],
+      PROVISIONER_ROLE,
+      PROVISIONER_GRANTS,
+    );
+    expect(verdict).toEqual({ missing: 1, excess: 1, exact: false });
   });
 
   test("another role's rows are not this role's verdict", () => {
