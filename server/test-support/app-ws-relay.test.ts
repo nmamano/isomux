@@ -107,7 +107,6 @@ function startWsApp(
           ws.close(4321, "app said so");
         }
         if (ws.data.path === "/bye") ws.close(4001, "app done");
-        if (ws.data.path === "/drop") ws.terminate();
         if (ws.data.path === "/nostatus") {
           // A close frame with NO status code. Bun's server API cannot send one,
           // so this app is the one place a raw frame is written by hand - which
@@ -136,6 +135,10 @@ function startRawApp(
     // A close frame with NO status code: two bytes, 0x88 0x00. Unbuildable with
     // Bun's server API, which is why this listener writes frames by hand.
     closeWithNoStatus?: boolean;
+    // Accept the upgrade and then drop the TCP connection with no close frame.
+    // Since Bun 1.3.12 a Bun app cannot do this from `open`: terminate() there
+    // discards the 101 before it is written (measured).
+    dropAfterHandshake?: boolean;
   },
 ): { stop(): void } {
   const record = appRegistry.get(name);
@@ -167,6 +170,7 @@ function startRawApp(
           ].join("\r\n"),
         );
         if (opts.closeWithNoStatus) socket.write(Buffer.from([0x88, 0x00]));
+        if (opts.dropAfterHandshake) socket.end();
       },
     },
   });
@@ -320,11 +324,10 @@ describe("app-host websockets: frames both ways", () => {
     // No close frame was exchanged, so none is invented: the client sees its
     // socket end, which is what 1006 means.
     const { srv, label, rawSessionId } = await office();
-    const seen: SeenUpgrade[] = [];
-    app = startWsApp("hello", seen);
+    app = startRawApp("hello", { dropAfterHandshake: true });
     const cookie = await signIn(srv, label, rawSessionId);
 
-    const client = await connected(srv, label, cookie, "/drop");
+    const client = await connected(srv, label, cookie, "/echo");
     expect(await client.next()).toEqual({ kind: "eof" });
   });
 
