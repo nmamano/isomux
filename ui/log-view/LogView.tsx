@@ -2110,7 +2110,10 @@ export function LogView({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {familyDisplayLabel(agent.modelFamily)}
+                  {familyDisplayLabel(
+                    agent.modelFamily,
+                    agent.claudeFamilyModels,
+                  )}
                 </span>
                 {/* Only when the formatted model name doesn't already give the
                     engine away - "GPT-5.6 Sol · codex" says codex twice (task

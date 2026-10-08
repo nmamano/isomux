@@ -1,4 +1,8 @@
-import type { AgentBackendType, AgentState } from "../../shared/types.ts";
+import type {
+  AgentBackendType,
+  AgentState,
+  ClaudeFamilyModels,
+} from "../../shared/types.ts";
 import { deskModelLabel, hashIndex, type DeskProp } from "../model-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
 import { Pot } from "./plants.tsx";
@@ -187,8 +191,9 @@ const MONO_ADVANCE = 0.62;
 
 function fitModelLabel(
   modelFamily: string | undefined,
+  models: ClaudeFamilyModels | undefined,
 ): { text: string; size: number; width: number } | null {
-  const short = deskModelLabel(modelFamily);
+  const short = deskModelLabel(modelFamily, models);
   if (!short) return null;
   const text =
     short.length > MODEL_LABEL_MAX_CHARS
@@ -229,6 +234,7 @@ export function DeskSprite({
   agentId,
   agentType,
   modelFamily,
+  claudeFamilyModels,
 }: {
   state: AgentState;
   deskIndex?: number;
@@ -237,6 +243,7 @@ export function DeskSprite({
   agentId?: string;
   agentType?: AgentBackendType;
   modelFamily?: string;
+  claudeFamilyModels?: ClaudeFamilyModels;
 }) {
   const vs = visualState(state);
   const glow = {
@@ -271,7 +278,7 @@ export function DeskSprite({
   const deskTopClipId = `desk-top-clip-${deskIndex}`;
   const bulbId = `lamp-bulb-${deskIndex}`;
   const shortCwd = cwd ? shortenCwd(cwd) : "";
-  const modelLabel = fitModelLabel(modelFamily);
+  const modelLabel = fitModelLabel(modelFamily, claudeFamilyModels);
 
   return (
     <svg width="180" height="140" viewBox="0 0 180 140" overflow="visible">

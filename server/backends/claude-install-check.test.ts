@@ -9,6 +9,7 @@ import {
   isClaudeCodeAuthenticated,
   isClaudeCodeInstalled,
   limitedClaudeFamilies,
+  claudeFamilyModels,
   resetClaudeSignInProbesForTest,
   runClaudeAuthStatus,
   type ClaudeSignInState,
@@ -147,6 +148,54 @@ describe("limitedClaudeFamilies", () => {
           ANTHROPIC_SMALL_FAST_MODEL: "claude-haiku-5-5",
         }),
       ).toEqual(["sonnet", "haiku"]);
+    });
+  }
+});
+
+describe("claudeFamilyModels", () => {
+  it("overrides no family first-party, whatever the pins", () => {
+    expect(claudeFamilyModels({})).toEqual({});
+    expect(
+      claudeFamilyModels({
+        CLAUDE_CODE_USE_VERTEX: "0",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4-8",
+      }),
+    ).toEqual({});
+  });
+
+  for (const selector of [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+  ]) {
+    it(`gives sonnet and haiku the 4.5 alias default on ${selector}, and no other family`, () => {
+      expect(claudeFamilyModels({ [selector]: "1" })).toEqual({
+        sonnet: "claude-sonnet-4-5",
+        haiku: "claude-haiku-4-5",
+      });
+    });
+
+    it(`reports each family's pin on ${selector}, and omits a pin to FAMILY_TO_MODEL`, () => {
+      expect(
+        claudeFamilyModels({
+          [selector]: "1",
+          ANTHROPIC_DEFAULT_OPUS_MODEL: " us.anthropic.claude-opus-4-8 ",
+          ANTHROPIC_DEFAULT_FABLE_MODEL: "claude-fable-5-1",
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-4-6",
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-5-5",
+        }),
+      ).toEqual({
+        opus: "us.anthropic.claude-opus-4-8",
+        sonnet: "us.anthropic.claude-sonnet-4-6",
+      });
+      expect(
+        claudeFamilyModels({
+          [selector]: "1",
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "  ",
+        }),
+      ).toEqual({
+        sonnet: "claude-sonnet-4-5",
+        haiku: "claude-haiku-4-5",
+      });
     });
   }
 });

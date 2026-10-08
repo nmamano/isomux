@@ -29,7 +29,8 @@ import type {
   TaskItem,
 } from "../shared/types.ts";
 import {
-  FAMILY_TO_MODEL,
+  claudeModelFor,
+  claudePermissionModeFor,
   effortLevelsFor,
   familyDisplayLabel,
   effortDisplayLabel,
@@ -212,6 +213,7 @@ import { versionOf } from "../shared/blob-version.ts";
 import {
   buildEnvForUserId,
   limitedClaudeFamiliesForUserId,
+  claudeFamilyModelsForUserId,
   environmentSourceKeyForUserId,
   environmentSourceRevisionForUserId,
   setOfficeEnvFileProvider,
@@ -1790,13 +1792,24 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         topic: a.info.topic,
         cwd: a.info.cwd,
         modelFamily: a.info.modelFamily,
-        // Concrete model id: Claude families resolve via FAMILY_TO_MODEL;
-        // Codex and OpenCode already store their concrete model ids.
+        // The model the agent runs, as a canonical Anthropic id (claudeModelFor:
+        // a Bedrock or Vertex pin verbatim, else the canonical id of the model
+        // the alias runs), never the provider's regional or dated form. Codex
+        // and OpenCode already store their model ids.
         model: isClaudeFamily(a.info.modelFamily)
-          ? FAMILY_TO_MODEL[a.info.modelFamily]
+          ? claudeModelFor(a.info.modelFamily, a.info.claudeFamilyModels)
           : a.info.modelFamily,
         effort: a.info.effort,
-        permissionMode: a.info.permissionMode,
+        // The mode the agent runs with: a stored Auto on a limited family
+        // reads as default. The stored value stays in agents.json.
+        permissionMode:
+          a.info.agentType === "claude"
+            ? claudePermissionModeFor(
+                a.info.modelFamily,
+                a.info.permissionMode,
+                a.info.limitedClaudeFamilies,
+              )
+            : a.info.permissionMode,
         // Keep agentType out of the established compact discovery contract.
         // The adjacent sandbox field remains Codex-only state.
         sandbox: a.info.codexSandbox ?? null,
@@ -2206,6 +2219,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       ...(codexSandbox ? { codexSandbox } : {}),
       capabilities: getBackend(agentType).capabilities,
       limitedClaudeFamilies: limitedClaudeFamiliesForUserId(userId),
+      claudeFamilyModels: claudeFamilyModelsForUserId(userId),
       userId,
       username: p.username ?? null,
       privileged: p.privileged ?? false,
@@ -5256,20 +5270,24 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ...(base ?? getAgentHost().baseEnv()), ISOMUX_AGENT_TOKEN: token };
   }
 
-  // Re-derive each agent's limitedClaudeFamilies after office variables
-  // (userId undefined: every agent) or one member's personal variables were
-  // saved, and send the agents whose list changed.
+  // Re-derive each agent's limitedClaudeFamilies and claudeFamilyModels after
+  // office variables (userId undefined: every agent) or one member's personal
+  // variables were saved, and send the agents where either changed.
   function refreshLimitedClaudeFamilies(userId?: string): void {
     for (const [agentId, managed] of agents) {
       if (userId !== undefined && managed.info.userId !== userId) continue;
       const limited = limitedClaudeFamiliesForUserId(managed.info.userId);
+      const models = claudeFamilyModelsForUserId(managed.info.userId);
       if (
         (managed.info.limitedClaudeFamilies ?? []).join(",") ===
-        limited.join(",")
+          limited.join(",") &&
+        JSON.stringify(managed.info.claudeFamilyModels ?? {}) ===
+          JSON.stringify(models)
       )
         continue;
       for (const event of officeState.updateAgent(agentId, {
         limitedClaudeFamilies: limited,
+        claudeFamilyModels: models,
       }))
         emit(event);
     }
@@ -5644,6 +5662,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         username,
         capabilities: getBackend(agentType).capabilities,
         limitedClaudeFamilies: limited,
+        claudeFamilyModels: claudeFamilyModelsForUserId(ownerId),
       });
     } finally {
       officeStatePersistenceEnabled = true;
@@ -7694,7 +7713,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
         accept();
-        const label = familyDisplayLabel(picked);
+        const label = familyDisplayLabel(
+          picked,
+          managed.info.claudeFamilyModels,
+        );
         if (picked === managed.info.modelFamily) {
           emitEphemeralLog(
             agentId,

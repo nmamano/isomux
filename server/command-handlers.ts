@@ -21,7 +21,6 @@ import type { OfficeEvent } from "../shared/office-state.ts";
 import {
   effortLevelsFor,
   familyDisplayLabel,
-  MODEL_FAMILIES,
   effortDisplayLabel,
   knownModelFamiliesFor,
 } from "../shared/types.ts";
@@ -655,14 +654,18 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const currentLabel = familyDisplayLabel(managed.info.modelFamily);
+      const models = managed.info.claudeFamilyModels;
+      const currentLabel = familyDisplayLabel(
+        managed.info.modelFamily,
+        models,
+      );
       const lines: string[] = [
         `${t("commands.model.header", { current: currentLabel })}\n`,
       ];
-      const models = knownModelFamiliesFor(managed.info.agentType) ?? [];
-      const choices = models.map((modelFamily) => ({
+      const families = knownModelFamiliesFor(managed.info.agentType) ?? [];
+      const choices = families.map((modelFamily) => ({
         value: modelFamily,
-        label: familyDisplayLabel(modelFamily),
+        label: familyDisplayLabel(modelFamily, models),
         current: modelFamily === managed.info.modelFamily,
       }));
       lines.push(
@@ -709,13 +712,10 @@ export function createCommandHandling(deps: HandlerDeps) {
         limited,
       );
       if (levels.length === 0) {
-        // A limited family runs an older model than its label's version, so
-        // the message names the family alone.
-        const model = limited.includes(managed.info.modelFamily)
-          ? (MODEL_FAMILIES.find(
-              (family) => family.family === managed.info.modelFamily,
-            )?.label ?? managed.info.modelFamily)
-          : familyDisplayLabel(managed.info.modelFamily);
+        const model = familyDisplayLabel(
+          managed.info.modelFamily,
+          managed.info.claudeFamilyModels,
+        );
         deps.emitEphemeralLog(
           agentId,
           "system",
@@ -786,6 +786,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           const modelLabel = modelListingLabel(
             a.info.agentType,
             a.info.modelFamily,
+            a.info.claudeFamilyModels,
           );
           const topic = a.info.topic;
           const hasTopic = topic && topic !== "...";

@@ -12,7 +12,7 @@ import type {
 import {
   MODEL_FAMILIES,
   DEFAULT_EFFORT,
-  modelVersionLabel,
+  familyPickerLabel,
   CODEX_MODELS,
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
@@ -321,6 +321,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     (agent
       ? agent.limitedClaudeFamilies
       : sessionContext?.limitedClaudeFamilies) ?? NO_LIMITED_FAMILIES;
+  // The models Claude families run in that same env, for the picker labels.
+  const claudeModels = agent
+    ? agent.claudeFamilyModels
+    : sessionContext?.claudeFamilyModels;
   const initialPermissionMode = initialPermissionModeFor(
     agent,
     targetEngine,
@@ -1167,7 +1171,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 ) : (
                   MODEL_FAMILIES.map((m) => (
                     <option key={m.family} value={m.family}>
-                      {m.label} ({modelVersionLabel(m.family)})
+                      {familyPickerLabel(m.family, claudeModels)}
                     </option>
                   ))
                 )}

@@ -14,7 +14,11 @@
 // caller is responsible for surfacing the error to the agent/run log.
 
 import { getAgentHost } from "./agent-host.ts";
-import { limitedClaudeFamilies } from "./backends/claude-install-check.ts";
+import {
+  claudeFamilyModels,
+  limitedClaudeFamilies,
+} from "./backends/claude-install-check.ts";
+import type { ClaudeFamilyModels } from "../shared/types.ts";
 import { readEnvFile } from "./persistence.ts";
 import { logicalAgentPath } from "./split/roots.ts";
 import { getUserByName } from "./users.ts";
@@ -118,19 +122,32 @@ export function buildEnvForUserId(
   return merged;
 }
 
-// The Claude families limited in a member's effective env (office plus
-// personal variables). An env file that fails to parse leaves the host env;
-// the launch reports that failure.
+// A member's effective env (office plus personal variables) for the Claude
+// model checks below. An env file that fails to parse leaves the host env; the
+// launch reports that failure.
+function claudeEnvForUserId(userId: string | null | undefined): {
+  [key: string]: string | undefined;
+} {
+  try {
+    return buildEnvForUserId(userId) ?? getAgentHost().baseEnv();
+  } catch {
+    return getAgentHost().baseEnv();
+  }
+}
+
+// The Claude families limited in a member's effective env.
 export function limitedClaudeFamiliesForUserId(
   userId: string | null | undefined,
 ): string[] {
-  let env: { [key: string]: string | undefined } | undefined;
-  try {
-    env = buildEnvForUserId(userId);
-  } catch {
-    env = undefined;
-  }
-  return limitedClaudeFamilies(env ?? getAgentHost().baseEnv());
+  return limitedClaudeFamilies(claudeEnvForUserId(userId));
+}
+
+// The models Claude families run in a member's effective env, where they
+// differ from FAMILY_TO_MODEL.
+export function claudeFamilyModelsForUserId(
+  userId: string | null | undefined,
+): ClaudeFamilyModels {
+  return claudeFamilyModels(claudeEnvForUserId(userId));
 }
 
 // Build the environment used by office-scoped provider operations. This is

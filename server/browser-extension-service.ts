@@ -29,6 +29,11 @@ export const EXTENSION_SOCKET_PATH = "/browser-extension/ws";
 export const EXTENSION_MAX_BYTES = 8 * 1024 * 1024;
 
 // The host classifier runs first. This separate socket never uses office auth.
+// The Origin check only keeps web pages out: a page cannot send a
+// chrome-extension Origin, but any non-browser client can. The control is the
+// first frame's pairing code or credential (both 256 bits, see
+// browser-extension-store.ts). A wrong one closes the socket and leaves the
+// member's live code and connections alone.
 export function extensionUpgradeAllowed(
   req: Request,
   canonicalOrigin: string,

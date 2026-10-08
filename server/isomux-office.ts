@@ -312,7 +312,10 @@ import {
 } from "./routes/handlers/members-chat.ts";
 import { createMembersChatStore } from "./members-chat.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
-import { limitedClaudeFamiliesForUserId } from "./env-loader.ts";
+import {
+  claudeFamilyModelsForUserId,
+  limitedClaudeFamiliesForUserId,
+} from "./env-loader.ts";
 import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
@@ -1232,7 +1235,8 @@ function officeSend(ws: ServerWebSocket<OfficeWsData>, data: string): void {
   outboxFor(ws).send(data);
 }
 // The session context carries the Claude families limited in the member's own
-// env, so it goes out again when office or personal variables are saved.
+// env and the models they run, so it goes out again when office or personal
+// variables are saved.
 function sendSessionContext(ws: ServerWebSocket<OfficeWsData>): void {
   officeSend(
     ws,
@@ -1243,6 +1247,7 @@ function sendSessionContext(ws: ServerWebSocket<OfficeWsData>): void {
         limitedClaudeFamilies: limitedClaudeFamiliesForUserId(
           ws.data.session.userId,
         ),
+        claudeFamilyModels: claudeFamilyModelsForUserId(ws.data.session.userId),
       },
     }),
   );

@@ -113,6 +113,67 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
   }
 });
 
+// A non-browser client can forge the Origin, so the code or credential is the
+// control: a wrong one costs the socket, and the member's code and live
+// connection stay usable.
+test("a wrong code or credential closes its socket and leaves the member's pairing alone", () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-guess-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, {
+    memberExists: () => true,
+    mayUse: () => true,
+  });
+  const socket = () => {
+    const messages: Fields[] = [];
+    let closed = false;
+    const ws = {
+      data: {
+        kind: "extension",
+        origin: "chrome-extension://" + "a".repeat(32),
+      } as ExtensionWsData,
+      send: (value: string) => {
+        messages.push(JSON.parse(value));
+      },
+      close: () => {
+        closed = true;
+        service.close(ws as unknown as ServerWebSocket<ExtensionWsData>);
+      },
+    };
+    const typed = ws as unknown as ServerWebSocket<ExtensionWsData>;
+    service.open(typed);
+    return { ws: typed, messages, closed: () => closed };
+  };
+  const hello = (fields: Fields) =>
+    JSON.stringify({ kind: "hello", version: 4, ...fields });
+  const wrong = "A".repeat(43);
+  try {
+    const first = store.pair("member");
+    const pairing = socket();
+    service.message(pairing.ws, hello({ code: first.code }));
+    const live = pairing.ws.data.connection;
+    expect(live).toBeDefined();
+    const pending = store.pair("member");
+    for (const guess of [{ code: wrong }, { credential: wrong }]) {
+      const guesser = socket();
+      service.message(guesser.ws, hello(guess));
+      expect(guesser.closed()).toBe(true);
+      expect(guesser.ws.data.connection).toBeUndefined();
+      expect(guesser.messages.map((m) => m.kind)).toEqual(["refused"]);
+    }
+    expect(pairing.closed()).toBe(false);
+    expect(service.bridge.forCredentialHash(pairing.ws.data.credentialHash!)).toBe(
+      live,
+    );
+    const second = socket();
+    service.message(second.ws, hello({ code: pending.code }));
+    expect(second.ws.data.connection).toBeDefined();
+    expect(store.browsers("member")).toHaveLength(2);
+  } finally {
+    service.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("metadata uses current records; unpair is bound to authenticated generation and origin", async () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-metadata-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));

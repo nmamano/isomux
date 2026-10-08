@@ -153,6 +153,20 @@ export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   haiku: "claude-haiku-5-5",
 };
 
+// The model a Claude family runs where it differs from FAMILY_TO_MODEL, keyed
+// by family (server/backends/claude-install-check.ts claudeFamilyModels): on
+// Bedrock and Vertex, a family pin verbatim or the canonical Anthropic id of
+// the alias's older default. Empty first-party.
+export type ClaudeFamilyModels = Partial<Record<ModelFamily, ClaudeModel>>;
+
+// The model id a Claude family runs in an env with these overrides.
+export function claudeModelFor(
+  family: ModelFamily,
+  models: ClaudeFamilyModels = {},
+): ClaudeModel {
+  return models[family] ?? FAMILY_TO_MODEL[family];
+}
+
 // Default first (MODEL_FAMILIES[0]): opus. New-agent defaults, the welcome
 // agent, and the validator fallback all key off MODEL_FAMILIES[0], mirroring
 // CODEX_MODELS below.
@@ -284,15 +298,32 @@ export const CODEX_MODELS: { value: string; label: string }[] = [
 // a connected provider/model ID from pinned-runtime discovery.
 export const OPENCODE_TRACER_MODEL = "opencode/fake";
 
-// Extract a display version from the exact model id: "claude-opus-4-8" -> "4.8",
-// "claude-fable-5-1" -> "5.1". Matches one or two numeric components after the
-// family prefix and stops before trailing date stamps
-// ("claude-haiku-4-5-20251001" -> "4.5").
-export function modelVersionLabel(family: ModelFamily): string {
-  const exact = FAMILY_TO_MODEL[family];
-  const match = exact.match(/-(\d+)(?:-(\d+))?/);
-  if (!match) return exact;
+// Extract a display version from the model id the family runs:
+// "claude-opus-4-8" -> "4.8", "claude-fable-5-1" -> "5.1". Reads the numbers
+// after "claude-<family>-" and stops before date stamps and suffixes
+// ("us.anthropic.claude-haiku-4-5-20251001-v1:0" -> "4.5",
+// "claude-sonnet-4-20250514" -> "4"). Null for an id without that shape, such
+// as an inference-profile ARN.
+export function modelVersionLabel(
+  family: ModelFamily,
+  models: ClaudeFamilyModels = {},
+): string | null {
+  const match = claudeModelFor(family, models).match(
+    /claude-[a-z]+-(\d+)(?:-(\d{1,2}))?(?!\d)/i,
+  );
+  if (!match) return null;
   return match[2] ? `${match[1]}.${match[2]}` : match[1];
+}
+
+// "Sonnet (4.5)" for the Claude model pickers, or the family name alone when
+// the model id hides its version.
+export function familyPickerLabel(
+  family: ModelFamily,
+  models: ClaudeFamilyModels = {},
+): string {
+  const base = MODEL_FAMILIES.find((m) => m.family === family)?.label ?? family;
+  const version = modelVersionLabel(family, models);
+  return version ? `${base} (${version})` : base;
 }
 
 // Type guard for Claude's model families.
@@ -301,12 +332,17 @@ export function isClaudeFamily(s: string): s is ModelFamily {
 }
 
 // "Opus 4.8" for Claude families and readable labels for model IDs from every
-// backend. This is shared by the model picker and the log header.
-export function familyDisplayLabel(family: string): string {
+// backend. This is shared by the model picker and the log header. `models` is
+// the env's ClaudeFamilyModels; a version it hides leaves the family name.
+export function familyDisplayLabel(
+  family: string,
+  models: ClaudeFamilyModels = {},
+): string {
   if (isClaudeFamily(family)) {
     const base =
       MODEL_FAMILIES.find((m) => m.family === family)?.label ?? family;
-    return `${base} ${modelVersionLabel(family)}`;
+    const version = modelVersionLabel(family, models);
+    return version ? `${base} ${version}` : base;
   }
   const codex = CODEX_MODELS.find((m) => m.value === family);
   if (codex) return codex.label;
@@ -613,6 +649,9 @@ export interface AgentInfo {
   // never persisted; sent again when office or the manager's personal
   // variables are saved.
   limitedClaudeFamilies?: string[];
+  // The models Claude families run in the same env (ClaudeFamilyModels), for
+  // the model labels. Derived and refreshed like limitedClaudeFamilies.
+  claudeFamilyModels?: ClaudeFamilyModels;
   // Codex-only: sandbox mode (CodexSandboxMode). Stored separately from
   // permissionMode because Codex's permission model has two orthogonal axes
   // (sandbox + approval-policy) while Claude has one. Undefined for Claude
@@ -1618,6 +1657,9 @@ export interface SessionContext {
   // edit dialogs pass it to the claudeFamilySupports* gates. Sent again when
   // office or personal variables are saved.
   limitedClaudeFamilies?: string[];
+  // The models Claude families run in this member's env (ClaudeFamilyModels),
+  // for the model labels in the spawn and cronjob dialogs.
+  claudeFamilyModels?: ClaudeFamilyModels;
 }
 
 // Wire shape for an outstanding invite (owner UI). Raw token never crosses

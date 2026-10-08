@@ -8,6 +8,7 @@ setUpDomTestFile();
 const { fireEvent, render } = await import("@testing-library/react");
 const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
+const { familyPickerLabel } = await import("../../shared/types.ts");
 const {
   CLOUD,
   claudeAgent,
@@ -92,6 +93,72 @@ describe("edit dialog on another member's agent", () => {
       rerender({ ...agent, limitedClaudeFamilies: [] });
       await settle();
       expect(modeSelect(view.container).value).toBe("auto");
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+// The model picker names the version each family runs: the edited agent's
+// claudeFamilyModels at edit, the viewer's at spawn.
+describe("model picker labels", () => {
+  const optionText = (container: HTMLElement, family: string) =>
+    [...selectWith(container, "haiku").options].find((o) => o.value === family)!
+      .text;
+  const cloudModels = {
+    sonnet: "us.anthropic.claude-sonnet-4-6",
+    haiku: "claude-haiku-4-5",
+  };
+
+  it("reads the edited agent's models, not the viewer's", async () => {
+    shimRequests();
+    const { view } = renderEdit(
+      { ...claudeAgent("opus", "auto", CLOUD), claudeFamilyModels: cloudModels },
+      [],
+    );
+    try {
+      await settle();
+      for (const family of ["sonnet", "haiku"] as const) {
+        expect(optionText(view.container, family)).toBe(
+          familyPickerLabel(family, cloudModels),
+        );
+        expect(optionText(view.container, family)).not.toBe(
+          familyPickerLabel(family),
+        );
+      }
+      expect(optionText(view.container, "opus")).toBe(
+        familyPickerLabel("opus"),
+      );
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it("reads the viewer's models at spawn", async () => {
+    shimRequests();
+    const view = render(
+      onLanguage(
+        "en",
+        <EditAgentDialog
+          onClose={() => {}}
+          deskIndex={0}
+          roomId={room.id}
+          defaultCwd="~"
+          spawnAgentType="claude"
+        />,
+        {
+          rooms: [room],
+          agents: [],
+          hasReceivedInitialState: true,
+          sessionContext: { ...viewer(CLOUD), claudeFamilyModels: cloudModels },
+        },
+      ),
+    );
+    try {
+      await settle();
+      expect(optionText(view.container, "haiku")).toBe(
+        familyPickerLabel("haiku", cloudModels),
+      );
     } finally {
       view.unmount();
     }

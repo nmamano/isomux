@@ -228,6 +228,7 @@ export function DeskUnit({
             agentId={agent.id}
             agentType={agent.agentType}
             modelFamily={agent.modelFamily}
+            claudeFamilyModels={agent.claudeFamilyModels}
           />
         </div>
       </div>

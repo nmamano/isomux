@@ -216,6 +216,7 @@ export class OfficeState {
     username?: string | null;
     capabilities?: AgentInfo["capabilities"];
     limitedClaudeFamilies?: string[];
+    claudeFamilyModels?: AgentInfo["claudeFamilyModels"];
   }): { agent: AgentInfo; events: OfficeEvent[] } | null {
     const nameLower = opts.name.trim().toLowerCase();
     for (const a of this.agents.values()) {
@@ -290,6 +291,9 @@ export class OfficeState {
       capabilities: opts.capabilities ?? DEFAULT_AGENT_CAPABILITIES,
       ...(opts.limitedClaudeFamilies
         ? { limitedClaudeFamilies: opts.limitedClaudeFamilies }
+        : {}),
+      ...(opts.claudeFamilyModels
+        ? { claudeFamilyModels: opts.claudeFamilyModels }
         : {}),
       ...(opts.codexSandbox ? { codexSandbox: opts.codexSandbox } : {}),
       userId: opts.userId ?? null,

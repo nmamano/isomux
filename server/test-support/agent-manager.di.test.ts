@@ -527,8 +527,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
         const info = await spawn("haiku", "default", "low");
         await mgr.sendMessage(info!.id, "/effort", "tester");
         expect(mgr.getPendingInteractions()).toEqual([]);
+        // Named with the version the agent runs, not FAMILY_TO_MODEL's.
         const notice = translatorFor("en").t("commands.effort.unsupported", {
-          model: "Haiku",
+          model: "Haiku 4.5",
         });
         expect(
           mgr.getAgentLogs(info!.id).some((entry) => entry.content === notice),

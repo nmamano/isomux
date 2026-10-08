@@ -15,6 +15,11 @@ import { homedir } from "os";
 import { delimiter, join } from "path";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
 import { getAgentHost } from "../agent-host.ts";
+import {
+  FAMILY_TO_MODEL,
+  MODEL_FAMILIES,
+  type ClaudeFamilyModels,
+} from "../../shared/types.ts";
 
 export function isClaudeCodeInstalled(env?: {
   [key: string]: string | undefined;
@@ -102,6 +107,31 @@ export function limitedClaudeFamilies(env: {
     ([, variable, model]) =>
       !(env[variable]?.toLowerCase() ?? "").includes(model),
   ).map(([family]) => family);
+}
+
+// The model each Claude family runs in this environment, where it differs from
+// FAMILY_TO_MODEL. On Bedrock and Vertex Isomux passes the alias, so
+// ANTHROPIC_DEFAULT_<FAMILY>_MODEL picks the model. Claude Code 2.1.293,
+// checked 2026-10-08: with no pin, opus and fable run FAMILY_TO_MODEL and
+// sonnet and haiku run 4.5. Values are canonical Anthropic ids, like
+// FAMILY_TO_MODEL; the CLI sends a regional, dated provider id for them.
+const CLOUD_ALIAS_MODELS: ClaudeFamilyModels = {
+  sonnet: "claude-sonnet-4-5",
+  haiku: "claude-haiku-4-5",
+};
+
+export function claudeFamilyModels(env: {
+  [key: string]: string | undefined;
+}): ClaudeFamilyModels {
+  const models: ClaudeFamilyModels = {};
+  if (!isClaudeCloudSelected(env)) return models;
+  for (const { family } of MODEL_FAMILIES) {
+    const model =
+      env[`ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`]?.trim() ||
+      CLOUD_ALIAS_MODELS[family];
+    if (model && model !== FAMILY_TO_MODEL[family]) models[family] = model;
+  }
+  return models;
 }
 
 export type ClaudeSignInState = "signed_in" | "signed_out" | "unknown";

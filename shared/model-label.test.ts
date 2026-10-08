@@ -6,8 +6,44 @@ import {
   CODEX_MODELS,
   MODEL_FAMILIES,
   familyDisplayLabel,
+  familyPickerLabel,
   modelLabelImpliesEngine,
 } from "./types.ts";
+
+// On Bedrock and Vertex a family can run another model than FAMILY_TO_MODEL
+// (ClaudeFamilyModels); its labels read the version from that model id.
+describe("Claude labels with ClaudeFamilyModels", () => {
+  it("names the version of the model the family runs", () => {
+    const cases: [string, string][] = [
+      ["claude-haiku-4-5", "Haiku 4.5"],
+      ["us.anthropic.claude-haiku-4-5-20251001-v1:0", "Haiku 4.5"],
+      ["claude-haiku-4-5@20251001", "Haiku 4.5"],
+      ["CLAUDE-HAIKU-5-5@20261001", "Haiku 5.5"],
+      ["claude-haiku-5", "Haiku 5"],
+      ["claude-haiku-4-20250514", "Haiku 4"],
+      ["arn:aws:bedrock:us-east-1:1:application-inference-profile/x", "Haiku"],
+    ];
+    for (const [model, label] of cases) {
+      expect(familyDisplayLabel("haiku", { haiku: model })).toBe(label);
+    }
+  });
+
+  it("keeps FAMILY_TO_MODEL for a family the map leaves out", () => {
+    const models = { sonnet: "claude-sonnet-4-5" };
+    expect(familyDisplayLabel("opus", models)).toBe(familyDisplayLabel("opus"));
+    expect(familyDisplayLabel("sonnet", models)).toBe("Sonnet 4.5");
+    expect(familyDisplayLabel("gpt-5.6-sol", models)).toBe("GPT-5.6 Sol");
+  });
+
+  it("gives the pickers the version in parentheses, or the family alone", () => {
+    expect(familyPickerLabel("sonnet", { sonnet: "claude-sonnet-4-6" })).toBe(
+      "Sonnet (4.6)",
+    );
+    expect(familyPickerLabel("sonnet", { sonnet: "arn:aws:bedrock:x" })).toBe(
+      "Sonnet",
+    );
+  });
+});
 
 describe("modelLabelImpliesEngine", () => {
   it("covers every known Codex model, so none renders the redundant badge", () => {

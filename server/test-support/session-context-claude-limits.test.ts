@@ -1,6 +1,8 @@
 // session_context carries the Claude families limited in the member's own env
 // (office plus personal variables), and goes out again when either is saved.
 import { afterEach, beforeEach, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 
 const HOST_VARIABLES = [
@@ -8,6 +10,8 @@ const HOST_VARIABLES = [
   "CLAUDE_CODE_USE_VERTEX",
   "ANTHROPIC_DEFAULT_SONNET_MODEL",
   "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL",
+  "ANTHROPIC_DEFAULT_FABLE_MODEL",
 ];
 const saved: Record<string, string | undefined> = {};
 let server: TestServer | null = null;
@@ -77,15 +81,49 @@ it("sends each member and each agent the families limited in its own env, again 
   const limitedIn = (message: Record<string, unknown>) =>
     (message.context as { limitedClaudeFamilies?: string[] })
       .limitedClaudeFamilies;
+  // GET /agents and agents-summary.json report the mode and the model id the
+  // agent runs with.
+  const reported = async (
+    agentId: string,
+    field: "permissionMode" | "model",
+  ) => {
+    const response = await srv.http("/agents", {
+      rawSessionId: boss.rawSessionId,
+    });
+    const find = (entries: Record<string, string>[]) =>
+      entries.find((entry) => entry.id === agentId)?.[field];
+    return [
+      find(await response.json()),
+      find(
+        JSON.parse(
+          readFileSync(join(srv.stateRoot, "agents-summary.json"), "utf8"),
+        ),
+      ),
+    ];
+  };
+  const reportedModes = (agentId: string) =>
+    reported(agentId, "permissionMode");
+  const agentModels = (agentId: string) =>
+    srv.agentManager.getAgent(agentId)?.claudeFamilyModels;
+  const modelsIn = (message: Record<string, unknown>) =>
+    (message.context as { claudeFamilyModels?: object }).claudeFamilyModels;
   const bossSocket = await srv.connectWs(boss.rawSessionId);
   const memberSocket = await srv.connectWs(member.rawSessionId);
   try {
-    expect(limitedIn(await bossSocket.waitFor("session_context"))).toEqual([]);
+    const firstContext = await bossSocket.waitFor("session_context");
+    expect(limitedIn(firstContext)).toEqual([]);
+    expect(modelsIn(firstContext)).toEqual({});
     expect(limitedIn(await memberSocket.waitFor("session_context"))).toEqual(
       [],
     );
+    expect(agentModels(memberAgent)).toEqual({});
+    expect(await reported(memberAgent, "model")).toEqual([
+      "claude-haiku-5-5",
+      "claude-haiku-5-5",
+    ]);
     expect(agentLimits(bossAgent)).toEqual([]);
     expect(agentLimits(memberAgent)).toEqual([]);
+    expect(await reportedModes(memberAgent)).toEqual(["auto", "auto"]);
 
     bossSocket.messages.length = 0;
     memberSocket.messages.length = 0;
@@ -96,10 +134,12 @@ it("sends each member and each agent the families limited in its own env, again 
         })
       ).status,
     ).toBe(204);
-    expect(limitedIn(await bossSocket.waitFor("session_context"))).toEqual([
-      "sonnet",
-      "haiku",
-    ]);
+    const vertexContext = await bossSocket.waitFor("session_context");
+    expect(limitedIn(vertexContext)).toEqual(["sonnet", "haiku"]);
+    expect(modelsIn(vertexContext)).toEqual({
+      sonnet: "claude-sonnet-4-5",
+      haiku: "claude-haiku-4-5",
+    });
     expect(limitedIn(await memberSocket.waitFor("session_context"))).toEqual([
       "sonnet",
       "haiku",
@@ -109,6 +149,15 @@ it("sends each member and each agent the families limited in its own env, again 
     expect(agentUpdates(bossSocket.messages, memberAgent)).toHaveLength(1);
     // The stored Auto stays; the agent runs it as default.
     expect(srv.agentManager.getAgent(memberAgent)?.permissionMode).toBe("auto");
+    expect(await reportedModes(memberAgent)).toEqual(["default", "default"]);
+    expect(agentModels(memberAgent)).toEqual({
+      sonnet: "claude-sonnet-4-5",
+      haiku: "claude-haiku-4-5",
+    });
+    expect(await reported(memberAgent, "model")).toEqual([
+      "claude-haiku-4-5",
+      "claude-haiku-4-5",
+    ]);
 
     // A personal 5.5 pin lifts haiku for that member only.
     bossSocket.messages.length = 0;
@@ -132,6 +181,16 @@ it("sends each member and each agent the families limited in its own env, again 
     expect(agentLimits(bossAgent)).toEqual(["sonnet", "haiku"]);
     expect(agentUpdates(bossSocket.messages, memberAgent)).toHaveLength(1);
     expect(agentUpdates(bossSocket.messages, bossAgent)).toEqual([]);
+    expect(await reportedModes(memberAgent)).toEqual(["auto", "auto"]);
+    expect(await reportedModes(bossAgent)).toEqual(["default", "default"]);
+    expect(await reported(memberAgent, "model")).toEqual([
+      "claude-haiku-5-5",
+      "claude-haiku-5-5",
+    ]);
+    expect(await reported(bossAgent, "model")).toEqual([
+      "claude-haiku-4-5",
+      "claude-haiku-4-5",
+    ]);
   } finally {
     bossSocket.close();
     memberSocket.close();

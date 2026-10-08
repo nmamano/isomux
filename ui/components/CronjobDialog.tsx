@@ -9,7 +9,7 @@ import {
   MODEL_FAMILIES,
   DEFAULT_EFFORT,
   CODEX_MODELS,
-  modelVersionLabel,
+  familyPickerLabel,
   claudeFamilySupportsMaxEffort,
   familyDisplayLabel,
   type AgentBackendType,
@@ -139,6 +139,8 @@ export function CronjobDialog({
   } = useAppState();
   // Claude families without effort in the member's env (Bedrock or Vertex).
   const limited = sessionContext?.limitedClaudeFamilies;
+  // The models Claude families run in that env, for the picker labels.
+  const claudeModels = sessionContext?.claudeFamilyModels;
   const roomOptions = roomFilterOptions(rooms, allRooms);
   // A stored room this viewer cannot name (closed, or no longer theirs) shows
   // as no room. Only a changed room is sent, so an unrelated edit never
@@ -917,7 +919,7 @@ export function CronjobDialog({
                   ) : (
                     MODEL_FAMILIES.map((m) => (
                       <option key={m.family} value={m.family}>
-                        {m.label} ({modelVersionLabel(m.family)})
+                        {familyPickerLabel(m.family, claudeModels)}
                       </option>
                     ))
                   )}

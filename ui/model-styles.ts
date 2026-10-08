@@ -11,7 +11,10 @@
 // Lives in ui/ (not shared/) on purpose: this is pure presentation data (CSS
 // colors, sprite prop names) with no server consumer.
 
-import { familyDisplayLabel } from "../shared/types.ts";
+import {
+  familyDisplayLabel,
+  type ClaudeFamilyModels,
+} from "../shared/types.ts";
 
 // Desk decorations a model can carry. "book" is the whole current opus
 // rendering, including the per-desk cover-color and clock variation - that
@@ -137,9 +140,12 @@ export function styleForModel(modelFamily: string | undefined): ModelStyle {
 //     "Muse Spark 1.2 Free" becomes "MUSE SPARK 1.2".
 // Everything else is the display label, upper-cased. An agent with no model
 // identity gets no label at all - absence should not look like a model.
-export function deskModelLabel(modelFamily: string | undefined): string | null {
+export function deskModelLabel(
+  modelFamily: string | undefined,
+  models?: ClaudeFamilyModels,
+): string | null {
   if (!modelFamily) return null;
-  const full = familyDisplayLabel(modelFamily);
+  const full = familyDisplayLabel(modelFamily, models);
   // Guarded so a model literally called "Free" does not strip to nothing.
   const base = full.replace(/ Free$/, "") || full;
   const codename = base.match(/^GPT-([\d.]+ .+)$/);
