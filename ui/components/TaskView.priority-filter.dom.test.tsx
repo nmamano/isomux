@@ -92,9 +92,7 @@ it("lists only the chosen priority, ANDed with the status filter", async () => {
   const { status, priority, shown } = renderView();
   await act(async () => fireEvent.change(status, { target: { value: "all" } }));
   for (const p of ["P0", "P1", "P2", "P3", "P4"]) {
-    await act(async () =>
-      fireEvent.change(priority, { target: { value: p } }),
-    );
+    await act(async () => fireEvent.change(priority, { target: { value: p } }));
     const expected = tasks
       .filter((t) => t.priority === p)
       .map((t) => t.title)

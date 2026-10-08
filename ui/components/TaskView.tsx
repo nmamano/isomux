@@ -838,9 +838,9 @@ export function TaskView({
   const [creating, setCreating] = useState(false);
   const [filterAssignee, setFilterAssignee] = useState("");
   // "" is any priority, "none" a task with no priority.
-  const [filterPriority, setFilterPriority] = useState<TaskPriority | "" | "none">(
-    "",
-  );
+  const [filterPriority, setFilterPriority] = useState<
+    TaskPriority | "" | "none"
+  >("");
   const [sortField, setSortField] = useState<SortField>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1373,7 +1373,9 @@ export function TaskView({
               <select
                 value={filterPriority}
                 onChange={(e) =>
-                  setFilterPriority(e.target.value as TaskPriority | "" | "none")
+                  setFilterPriority(
+                    e.target.value as TaskPriority | "" | "none",
+                  )
                 }
                 style={isMobile ? mobileFilterSelectStyle : selectStyle}
               >
