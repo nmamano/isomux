@@ -6,7 +6,13 @@
 // Agent chats and settings sections are deliberately NOT routes (ruling 3), so
 // a chat, a settings section and the office all share one path, "/".
 
-export type Page = "tasks" | "cronjobs" | "apps" | "settings" | "pager";
+export type Page =
+  | "tasks"
+  | "cronjobs"
+  | "apps"
+  | "skills"
+  | "settings"
+  | "pager";
 
 /**
  * The page a pathname names, or null for the office.
@@ -27,6 +33,8 @@ export function pageForPath(pathname: string): Page | null {
       return "cronjobs";
     case "/apps":
       return "apps";
+    case "/skills":
+      return "skills";
     case "/settings":
       return "settings";
     case "/pager":
@@ -70,6 +78,7 @@ export interface PageFlags {
   tasksOpen: boolean;
   cronjobsOpen: boolean;
   appsOpen: boolean;
+  skillsOpen: boolean;
   pagerOpen: boolean;
 }
 
@@ -83,9 +92,11 @@ export function pageForFlags(flags: PageFlags): Page | null {
         ? "cronjobs"
         : flags.appsOpen
           ? "apps"
-          : flags.pagerOpen
-            ? "pager"
-            : null;
+          : flags.skillsOpen
+            ? "skills"
+            : flags.pagerOpen
+              ? "pager"
+              : null;
 }
 
 export interface PageShortcutInput {
@@ -100,6 +111,7 @@ export interface PageShortcutUpdate {
   tasksOpen?: boolean | ((open: boolean) => boolean);
   cronjobsOpen?: boolean;
   appsOpen?: boolean;
+  skillsOpen?: boolean;
   pagerOpen?: boolean;
   usersOpen?: true;
 }
@@ -129,6 +141,7 @@ export function pageShortcut(
       tasksOpen: false,
       cronjobsOpen: false,
       appsOpen: true,
+      skillsOpen: false,
       pagerOpen: false,
     };
   }

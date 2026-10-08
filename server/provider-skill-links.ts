@@ -13,6 +13,22 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import type { ProviderAccountProvider } from "../shared/types.ts";
 import type { UserSkillRoot } from "./skills.ts";
 import { personalProviderHome } from "./provider-homes.ts";
+import { buildOfficeEnv } from "./env-loader.ts";
+
+// The office's Claude root: CLAUDE_CONFIG_DIR from the office env, else the
+// box ~/.claude. Skill discovery reads it as the Claude source root, personal
+// Claude homes link its skills, and the skills page creates new skills in it,
+// so a skill there reaches every engine with or without a personal account.
+// Read on each call, so an office env edit takes effect without a restart.
+export function officeClaudeSourceRoot(): string {
+  let root: string | undefined;
+  try {
+    root = buildOfficeEnv().CLAUDE_CONFIG_DIR || undefined;
+  } catch {
+    root = undefined;
+  }
+  return root ?? join(homedir(), ".claude");
+}
 
 function pathExists(path: string): boolean {
   try {

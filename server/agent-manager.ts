@@ -142,7 +142,9 @@ import {
 import {
   agentUserSkillRoots,
   exposePersonalProviderSkills,
+  officeClaudeSourceRoot,
 } from "./provider-skill-links.ts";
+import { SKILL_ENGINES, type SkillEngineContext } from "./skill-catalog.ts";
 import {
   buildUsageReportData,
   findUsageAtFork,
@@ -4414,15 +4416,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // Autocomplete: config entries with autocomplete:true + all discovered skills.
         // SDK-reported commands are NOT added to autocomplete (per design).
         // Skills are listed in priority order; deduplicate by name (highest priority wins).
-        const discoveredSkills = managed
-          ? [
-              ...discoverUserSkills(userSkillRootsFor(managed)),
-              ...discoverProjectSkills(managed.info.cwd),
-              ...discoverPluginSkills(claudeConfigDirFor(managed)),
-              ...discoverBundledSkills(),
-            ]
-          : [];
-        const uniqueSkills = deduplicateSkills(discoveredSkills);
+        const uniqueSkills = managed ? discoverSkillsFor(managed) : [];
         const configCommands = autocompleteCommands();
         if (managed) {
           managed.slashCommands = configCommands;
@@ -5322,6 +5316,74 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   function userSkillRootsFor(managed: ManagedAgent): UserSkillRoot[] {
     return userSkillRootsForInfo(managed.info, buildSessionEnv(managed));
+  }
+
+  // The agent's skills in priority order, deduplicated by name (highest
+  // priority wins). The Sk menu lists these.
+  function discoverSkillsFor(managed: ManagedAgent): SkillInfo[] {
+    return deduplicateSkills([
+      ...discoverUserSkills(userSkillRootsFor(managed)),
+      ...discoverProjectSkills(managed.info.cwd),
+      ...discoverPluginSkills(claudeConfigDirFor(managed)),
+      ...discoverBundledSkills(),
+    ]);
+  }
+
+  // A skill created or saved on the skills page reaches every agent's Sk menu
+  // now instead of at the agent's next session start.
+  function refreshSkillMenus(): void {
+    for (const [agentId, managed] of agents) {
+      let skills: SkillInfo[];
+      try {
+        skills = discoverSkillsFor(managed);
+      } catch {
+        continue;
+      }
+      managed.skills = skills;
+      emit({
+        type: "slash_commands",
+        agentId,
+        commands: managed.slashCommands,
+        skills,
+      });
+    }
+  }
+
+  // What the skills page needs to list what agents run, per engine: the user
+  // roots and plugin root an agent of this user gets on that engine (the same
+  // environment discovery uses at spawn), and the working folders of the
+  // agents on that engine that `visible` admits.
+  function skillEngineContexts(
+    userId: string | null,
+    visible: (info: AgentInfo) => boolean,
+  ): SkillEngineContext[] {
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildEnvForUserId(userId);
+    } catch {
+      env = undefined;
+    }
+    const infos = [...agents.values()]
+      .map((managed) => managed.info)
+      .filter(visible);
+    return SKILL_ENGINES.map((engine) => ({
+      engine,
+      userRoots: userSkillRootsForInfo({ agentType: engine, userId }, env),
+      pluginRoot: env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+      cwds: infos
+        .filter((info) => info.agentType === engine)
+        .map((info) => info.cwd),
+    }));
+  }
+
+  // The folder the skills page creates new skills in: the Claude source root
+  // discovery and personal-home linking use (officeClaudeSourceRoot in
+  // production), so a new skill shows for every engine.
+  function newSkillDir(): string {
+    return join(
+      deps.providerSkillSourceRoots?.claude ?? officeClaudeSourceRoot(),
+      "skills",
+    );
   }
 
   // The only author of the environment used to launch a shared OpenCode
@@ -10061,6 +10123,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     openEditorFile,
     saveEditorFile,
     resolveEditorPathForAgent,
+    refreshSkillMenus,
+    skillEngineContexts,
+    newSkillDir,
     validateCwd,
     buildEnvForUserId,
     refreshLimitedClaudeFamilies,
@@ -10116,7 +10181,11 @@ export function createProductionAgentManager(overrides?: {
     listProviderAccounts: overrides?.listProviderAccounts,
     effectiveProviderAccountTarget: overrides?.effectiveProviderAccountTarget,
     providerSkillSourceRoots: {
-      claude: join(homedir(), ".claude"),
+      // A getter, so an office env edit reaches discovery, linking and new
+      // skills without a restart.
+      get claude() {
+        return officeClaudeSourceRoot();
+      },
       codex: join(homedir(), ".codex"),
     },
   });

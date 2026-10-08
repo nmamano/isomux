@@ -21,6 +21,7 @@ import {
 import { TaskView, type TaskOpenRequest } from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
 import { AppsView } from "./components/AppsView.tsx";
+import { SkillsView } from "./components/SkillsView.tsx";
 import { PagerView, type PagerSelectRequest } from "./components/PagerView.tsx";
 import { usePagerSync } from "./pager-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
@@ -90,6 +91,7 @@ function pageFromEntry(state: unknown): Page | null | undefined {
   return entry.page === "tasks" ||
     entry.page === "cronjobs" ||
     entry.page === "apps" ||
+    entry.page === "skills" ||
     entry.page === "settings" ||
     entry.page === "pager"
     ? entry.page
@@ -163,6 +165,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     useState<TaskOpenRequest | null>(null);
   const [cronjobsOpen, setCronjobsOpen] = useState(bootPage === "cronjobs");
   const [appsOpen, setAppsOpen] = useState(bootPage === "apps");
+  const [skillsOpen, setSkillsOpen] = useState(bootPage === "skills");
   const [pagerOpen, setPagerOpen] = useState(bootPage === "pager");
   // Read once, like bootPage. The sync effect below rewrites the URL to
   // /pager, so the id lives here until the view has shown it.
@@ -244,6 +247,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     if (saved.panel === "tasks") setTasksOpen(true);
     else if (saved.panel === "cronjobs") setCronjobsOpen(true);
     else if (saved.panel === "apps") setAppsOpen(true);
+    else if (saved.panel === "skills") setSkillsOpen(true);
     else if (saved.panel === "pager") setPagerOpen(true);
     // "users" is the old name for the same page; a spot saved by an earlier
     // build still reopens it.
@@ -275,9 +279,11 @@ export function App({ routing = true }: { routing?: boolean }) {
             ? "cronjobs"
             : appsOpen
               ? "apps"
-              : pagerOpen
-                ? "pager"
-                : null,
+              : skillsOpen
+                ? "skills"
+                : pagerOpen
+                  ? "pager"
+                  : null,
     });
   }, [
     persistEnabled,
@@ -288,6 +294,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     tasksOpen,
     cronjobsOpen,
     appsOpen,
+    skillsOpen,
     pagerOpen,
     usersOpen,
     lobbyOpen,
@@ -410,7 +417,12 @@ export function App({ routing = true }: { routing?: boolean }) {
   // dedupes on its end so identical updates don't cascade into a
   // broadcast.
   const viewMode: "office" | "log" | "away" =
-    tasksOpen || cronjobsOpen || appsOpen || pagerOpen || usersOpen
+    tasksOpen ||
+    cronjobsOpen ||
+    appsOpen ||
+    skillsOpen ||
+    pagerOpen ||
+    usersOpen
       ? "away"
       : focusedAgentId
         ? "log"
@@ -468,6 +480,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     setTasksOpen(page === "tasks");
     setCronjobsOpen(page === "cronjobs");
     setAppsOpen(page === "apps");
+    setSkillsOpen(page === "skills");
     setPagerOpen(page === "pager");
     setUsersOpen(page === "settings");
     setEditingUserId(null);
@@ -548,7 +561,14 @@ export function App({ routing = true }: { routing?: boolean }) {
           ctrlKey: e.ctrlKey,
           altKey: e.altKey,
         },
-        { usersOpen, tasksOpen, cronjobsOpen, appsOpen, pagerOpen },
+        {
+          usersOpen,
+          tasksOpen,
+          cronjobsOpen,
+          appsOpen,
+          skillsOpen,
+          pagerOpen,
+        },
       );
       if (pageUpdate !== null) {
         e.preventDefault();
@@ -560,6 +580,8 @@ export function App({ routing = true }: { routing?: boolean }) {
             setCronjobsOpen(pageUpdate.cronjobsOpen);
           if (pageUpdate.appsOpen !== undefined)
             setAppsOpen(pageUpdate.appsOpen);
+          if (pageUpdate.skillsOpen !== undefined)
+            setSkillsOpen(pageUpdate.skillsOpen);
           if (pageUpdate.pagerOpen !== undefined)
             setPagerOpen(pageUpdate.pagerOpen);
           // "s" opens the settings of the room you are standing in; the lobby
@@ -663,6 +685,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     swipeRoom,
     usersOpen,
     appsOpen,
+    skillsOpen,
     tasksOpen,
     cronjobsOpen,
     pagerOpen,
@@ -678,6 +701,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     tasksOpen,
     cronjobsOpen,
     appsOpen,
+    skillsOpen,
     pagerOpen,
   });
   const isDeep = page !== null || focusedAgentId !== null;
@@ -784,6 +808,8 @@ export function App({ routing = true }: { routing?: boolean }) {
             dispatch({ type: "focus", agentId });
           }}
         />
+      ) : page === "skills" ? (
+        <SkillsView onClose={goHome} />
       ) : page === "pager" ? (
         <PagerView
           onClose={goHome}
@@ -831,6 +857,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           onOpenTasks={openTasks}
           onOpenCronjobs={() => setCronjobsOpen(true)}
           onOpenApps={() => setAppsOpen(true)}
+          onOpenSkills={() => setSkillsOpen(true)}
           onOpenPager={() => setPagerOpen(true)}
           onOpenUpdate={() =>
             openSettings({ kind: "section", section: "updates" })

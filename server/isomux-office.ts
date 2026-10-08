@@ -163,7 +163,7 @@ import {
   wouldDeleteLeaveNoOwner,
   setOnUserRoleChanged,
 } from "./users.ts";
-import { hostname as osHostname, userInfo } from "os";
+import { homedir, hostname as osHostname, userInfo } from "os";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
 import {
   mimeTypeForFilename,
@@ -301,6 +301,13 @@ import { fileLogSource } from "./log-source.ts";
 import { runSearchInChild } from "./log-search-runner.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
 import { skillUsageHandlers } from "./routes/handlers/skill-usage.ts";
+import { skillsHandlers } from "./routes/handlers/skills.ts";
+import {
+  buildSkillCatalog,
+  createSkill,
+  readSkillFile,
+  saveSkillFile,
+} from "./skill-catalog.ts";
 import { getSkillUseCounts } from "./skill-usage.ts";
 import { invitesHandlers } from "./routes/handlers/invites.ts";
 import { sessionsHandlers } from "./routes/handlers/sessions.ts";
@@ -3159,6 +3166,30 @@ function buildExecutorDeps(
   register(
     skillUsageHandlers({
       countsFor: (userId) => getSkillUseCounts(userId),
+    }),
+  );
+
+  // The skills page: the caller's catalog (their user roots, project skills of
+  // agents in rooms they can access) and the listed SKILL.md files.
+  const skillCatalogFor = (identity: Identity) => {
+    const rooms = accessibleRoomIdsForIdentity(identity);
+    const userId = identity.userId ?? null;
+    return buildSkillCatalog(
+      agentManager.skillEngineContexts(userId, (info) =>
+        rooms.has(info.roomId),
+      ),
+      userId ? getSkillUseCounts(userId) : {},
+      agentManager.newSkillDir(),
+      homedir(),
+    );
+  };
+  register(
+    skillsHandlers({
+      catalogFor: skillCatalogFor,
+      readFile: readSkillFile,
+      saveFile: saveSkillFile,
+      createSkill,
+      refreshMenus: () => agentManager.refreshSkillMenus(),
     }),
   );
 

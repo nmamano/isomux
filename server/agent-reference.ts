@@ -24,6 +24,7 @@ export const AGENT_REFERENCE_TOPICS = {
   "members-chat": "Privileged members-chat use",
   members: "Privileged member creation",
   pager: "Pages to your manager",
+  skills: "Skills: list, read, edit and create",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -128,6 +129,10 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "memory.read": "memory",
   "memory.append": "memory",
   "memory.replace": "memory",
+  "skills.catalog": "skills",
+  "skills.readFile": "skills",
+  "skills.saveFile": "skills",
+  "skills.create": "skills",
   "cron.list": "cronjob-management",
   "cron.get": "cronjob-management",
   "cron.readSystemPrompt": "cronjob-management",

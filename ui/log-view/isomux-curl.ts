@@ -870,6 +870,11 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/webhooks/*/dry-run", "apiCall.webhooks.dryRun"],
   // Per-user Sk-menu counters (reachable by privileged agent tokens).
   ["GET", "/api/skill-usage", "apiCall.skillUsage.read"],
+  // The Skills page routes (server/agent-reference/skills.md).
+  ["GET", "/api/skills", "apiCall.skills.list"],
+  ["POST", "/api/skills", "apiCall.skills.create"],
+  ["GET", "/api/skills/file", "apiCall.skills.read"],
+  ["PUT", "/api/skills/file", "apiCall.skills.save"],
   // Deployment version identity (reachable by privileged agent tokens).
   ["GET", "/api/version", "apiCall.version.check"],
   // Storage breakdown (reachable by privileged agent tokens); the prune is

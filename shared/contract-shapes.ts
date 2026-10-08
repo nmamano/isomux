@@ -968,6 +968,69 @@ export interface SkillUsageCountsRes {
   counts: Record<string, number>;
 }
 
+// The skills page (opIds skills.catalog / readFile / saveFile / create). One
+// list per engine: the skills an agent of that engine can run, in the order
+// that engine resolves a name.
+export type SkillEngine = "claude" | "codex" | "opencode";
+// isomux: built into isomux (read-only). user: a skills or commands folder in
+// the server user's home. project: a skills or commands folder in an agent's
+// working folder. plugin: an installed Claude Code plugin (read-only, the
+// plugin manager owns the files).
+export type SkillSource = "isomux" | "user" | "project" | "plugin";
+export interface SkillCatalogEntry {
+  // The name a member types after the slash.
+  name: string;
+  // For a built-in alias, the folder name it also answers to.
+  aliasFor?: string;
+  description?: string;
+  source: SkillSource;
+  // A SKILL.md folder, or a single-file command.
+  kind: "skill" | "command";
+  // Absolute path of the SKILL.md or command file.
+  path: string;
+  // The folder that was scanned to find it.
+  dir: string;
+  // A project skill: the agent working folder it comes from.
+  project?: string;
+  plugin?: string;
+  editable: boolean;
+  // Set when another skill with the same name comes first wherever this one
+  // could run, so this one never runs: the path of the one that does.
+  shadowedBy?: string;
+  // The caller's own slash-command uses of this name.
+  uses: number;
+}
+export interface SkillCatalogRes {
+  engines: { engine: SkillEngine; skills: SkillCatalogEntry[] }[];
+  // The folder a new skill goes into.
+  newSkillDir: string;
+  // The server user's home folder, so a page can show paths as ~/...
+  home: string;
+}
+export interface SkillFileRes {
+  path: string;
+  content: string;
+  // Server-issued revision; send it back as expectedRev on save.
+  rev: number;
+  mtime: number;
+  editable: boolean;
+}
+export interface SkillSaveReq {
+  path: string;
+  content: string;
+  expectedRev: number;
+}
+export interface SkillSaveRes {
+  path: string;
+  rev: number;
+  mtime: number;
+}
+export interface SkillCreateReq {
+  name: string;
+  description: string;
+  instructions?: string;
+}
+
 export interface CronCreateReq {
   name: string;
   schedule: Cronjob["schedule"];

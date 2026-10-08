@@ -48,6 +48,7 @@ import {
   TasksIcon,
   ClockIcon,
   AppsIcon,
+  SkillsIcon,
   PagerIcon,
   SettingsIcon,
 } from "../components/NavIcons.tsx";
@@ -156,6 +157,8 @@ interface OfficeViewProps {
   onOpenTasks: () => void;
   onOpenCronjobs: () => void;
   onOpenApps: () => void;
+  // Absent where there is no Skills page to open (test fixtures).
+  onOpenSkills?: () => void;
   // Absent in fixtures that render the office without the pager.
   onOpenPager?: () => void;
   onOpenUpdate: () => void;
@@ -175,6 +178,7 @@ export function OfficeView({
   onOpenTasks,
   onOpenCronjobs,
   onOpenApps,
+  onOpenSkills,
   onOpenPager,
   onOpenUpdate,
   onSwipeLeft,
@@ -389,6 +393,16 @@ export function OfficeView({
       title: t("nav.appsShortcut"),
       onClick: onOpenApps,
     },
+    ...(onOpenSkills
+      ? [
+          {
+            id: "skills",
+            icon: SkillsIcon,
+            label: t("common.skills"),
+            onClick: onOpenSkills,
+          },
+        ]
+      : []),
     ...(onOpenPager
       ? [
           {

@@ -1149,6 +1149,12 @@ const SPEC_ROUTE_CONTRACT: Record<
   // keeps plain agent tokens out; counts are identity-keyed, so no resource
   // guard beyond authenticated.
   "skills.usageCounts": { caps: ["office:read"], emits: [] },
+  // Skills page: read needs only an operational identity; save and create
+  // take editor:use, the editor panel's save capability.
+  "skills.catalog": { caps: [], emits: [] },
+  "skills.readFile": { caps: [], emits: [] },
+  "skills.saveFile": { caps: ["editor:use"], emits: ["slash_commands"] },
+  "skills.create": { caps: ["editor:use"], emits: ["slash_commands"] },
 };
 
 describe("route table: per-route capability + emits match the spec exactly", () => {
@@ -1497,6 +1503,10 @@ const API_REACHABLE_OPIDS = [
   "memory.append",
   "memory.replace",
   "skills.usageCounts",
+  "skills.catalog",
+  "skills.readFile",
+  "skills.saveFile",
+  "skills.create",
   "cron.list",
   "cron.get",
   "cron.readSystemPrompt",

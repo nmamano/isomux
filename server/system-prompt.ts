@@ -113,6 +113,7 @@ ${appHostingSection(appsUnsupported)}
 - The member wants an outside service such as GitHub to wake you or start a cronjob: register a webhook. Page: \`webhooks\`.
 - The member needs you to read or act on a page in their own Chrome, for example behind their login: control their browser. Page: \`browser\`.
 - The member asks about cronjobs or their runs: inspect them. Page: \`cronjobs\`.
+- The member asks which skills exist, or wants one changed or added: use the skills routes. Page: \`skills\`.
 - A relationship or flow is easier to see than to read: draw it in chat. Page: \`visuals\`.
 - The session goal is complete: close the session with the built-in \`/wrap-session\` skill, without waiting to be asked.
 

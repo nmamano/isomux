@@ -167,6 +167,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Isomux-bundled skills like /peer-review (one agent reviews another's ongoing work and messages feedback directly to them), /pair-programming (drive a feature end-to-end with another agent reviewing design and code), /soft-handoff (hand your current task off to another agent and stay around to answer their questions), /second-opinion (ask another agent for a take on one specific question without handing off the work), /grill-me (stress-tests a feature design; based on the original by Matt Pocock), /subagent-review (spawn a subagent to review uncommitted diff before commit), /handoff (an agent nearing its context limit continues its unfinished task on a fresh session: it writes a brief of what's left, the member approves, and it restarts clean on just that brief), /wrap-session (check for loose ends and close a session cleanly), /figure-it-out, /isomux-report-bug
 - Autocomplete dropdown with keyboard navigation
 - Skills browser: the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input
+- Skills page: every skill the agents can run, per engine, with where it comes from and its full SKILL.md. Members edit user and project skills or create new ones there; built-in and plugin skills are read-only
 
 ### Inter-agent Communication
 - Agents discover each other via a shared office manifest, scoped to the rooms each agent's manager can see

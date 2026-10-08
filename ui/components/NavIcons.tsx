@@ -273,6 +273,24 @@ export const AppsIcon = (
   </svg>
 );
 
+// A sparkle: the Skills page.
+export const SkillsIcon = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ display: "block" }}
+  >
+    <path d="M6.5 2.5 7.7 6 11 7.2 7.7 8.4 6.5 12 5.3 8.4 2 7.2 5.3 6z" />
+    <path d="M12 9.5l.6 1.6 1.6.6-1.6.6-.6 1.7-.6-1.7-1.6-.6 1.6-.6z" />
+  </svg>
+);
+
 // The single settings entry point. Sliders, not a gear: Nil kept the Theme
 // button in the bar, and a gear's ring-and-spokes reads as the sun/moon theme
 // icon at 15px - the two sat side by side and looked like the same control.

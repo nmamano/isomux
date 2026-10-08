@@ -38,6 +38,11 @@ import type {
   MemoryReadRes,
   MemoryReplaceReq,
   MemoryWriteRes,
+  SkillCatalogEntry,
+  SkillCatalogRes,
+  SkillCreateReq,
+  SkillFileRes,
+  SkillSaveReq,
   WebhookCreateReq,
   WebhookDryRunReq,
   WebhookUpdateReq,
@@ -2043,6 +2048,128 @@ function demoBackupStatus(): BackupStatusWire {
   };
 }
 
+// The Skills page in the demo: a fixed catalog over in-memory files. Every
+// engine lists the same skills, as on a real box.
+const DEMO_HOME = "/home/ricky";
+const DEMO_SKILL_DIR = `${DEMO_HOME}/.claude/skills`;
+const demoSkillFiles = new Map<string, { content: string; rev: number }>();
+
+function demoSkillFile(
+  name: string,
+  description: string,
+  body: string,
+): string {
+  return `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
+}
+
+const DEMO_SKILLS: Array<
+  Omit<SkillCatalogEntry, "kind" | "dir" | "uses" | "editable"> & {
+    body: string;
+    uses?: number;
+  }
+> = [
+  {
+    name: "release-notes",
+    source: "user",
+    description:
+      "Draft release notes from the commits since the last tag, grouped by area.",
+    path: `${DEMO_SKILL_DIR}/release-notes/SKILL.md`,
+    uses: 12,
+    body: "# Release notes\n\n1. Run `git log --oneline <last-tag>..HEAD`.\n2. Group the commits by area: UI, server, docs.\n3. Write one plain line per change, for users, not developers.\n4. Show the draft in chat. Do not publish it.",
+  },
+  {
+    name: "standup",
+    source: "user",
+    description: "Summarize what each agent in the room did since yesterday.",
+    path: `${DEMO_SKILL_DIR}/standup/SKILL.md`,
+    uses: 4,
+    body: "# Standup\n\nRead the room's task board and the last day of each agent's log. Write three short lines per agent: done, next, blocked.",
+  },
+  {
+    name: "deploy-check",
+    source: "project",
+    description: "Check that the site builds and the preview loads before a deploy.",
+    path: `${DEMO_HOME}/site/.claude/skills/deploy-check/SKILL.md`,
+    project: `${DEMO_HOME}/site`,
+    body: "# Deploy check\n\n- `bun run build` passes.\n- The preview URL answers 200.\n- No console errors on the home page.",
+  },
+  {
+    name: "grill-me",
+    source: "isomux",
+    description:
+      "Interview the member about a plan until every branch of the decision tree is resolved.",
+    path: "/opt/isomux/skills/grill-me/SKILL.md",
+    uses: 2,
+    body: "# Grill me\n\nAsk one question at a time about the plan. For each question, give your recommended answer.",
+  },
+  {
+    name: "handoff",
+    aliasFor: "isomux-handoff",
+    source: "isomux",
+    description:
+      "Continue an unfinished task on a fresh session from a short brief.",
+    path: "/opt/isomux/skills/isomux-handoff/SKILL.md",
+    body: "# Handoff\n\nWrite a short brief of what is left. When the member approves it, start a fresh session on that brief.",
+  },
+  {
+    name: "wrap-session",
+    source: "isomux",
+    description: "Check for loose ends and close the session cleanly.",
+    path: "/opt/isomux/skills/wrap-session/SKILL.md",
+    body: "# Wrap session\n\nList open threads, uncommitted work and promised follow-ups before you close.",
+  },
+];
+
+function demoSkillCatalog(): SkillCatalogRes {
+  const skills: SkillCatalogEntry[] = DEMO_SKILLS.map(
+    ({ body: _body, uses, ...s }) => ({
+      ...s,
+      kind: "skill",
+      dir: s.path.replace(/\/[^/]+\/SKILL\.md$/, ""),
+      editable: s.source === "user" || s.source === "project",
+      uses: uses ?? 0,
+    }),
+  );
+  for (const path of demoSkillFiles.keys()) {
+    if (skills.some((s) => s.path === path)) continue;
+    const name = path.split("/").slice(-2)[0];
+    const content = demoSkillFiles.get(path)?.content ?? "";
+    skills.push({
+      name,
+      source: "user",
+      kind: "skill",
+      path,
+      dir: DEMO_SKILL_DIR,
+      editable: true,
+      uses: 0,
+      description: /description: (.+)/.exec(content)?.[1],
+    });
+  }
+  return {
+    engines: (["claude", "codex", "opencode"] as const).map((engine) => ({
+      engine,
+      skills,
+    })),
+    newSkillDir: DEMO_SKILL_DIR,
+    home: DEMO_HOME,
+  };
+}
+
+function demoSkillRead(path: string): SkillFileRes {
+  const stored = demoSkillFiles.get(path);
+  if (stored)
+    return { path, content: stored.content, rev: stored.rev, mtime: 0, editable: true };
+  const s = DEMO_SKILLS.find((x) => x.path === path);
+  if (!s) throw new ApiError(404, "skill_not_found", "No skill has that path.");
+  return {
+    path,
+    content: demoSkillFile(s.aliasFor ?? s.name, s.description ?? "", s.body),
+    rev: 1,
+    mtime: 0,
+    editable: s.source === "user" || s.source === "project",
+  };
+}
+
 // Demo counterpart to the server's REST executor. As each command migrates off
 // the WS shim (handleCommand) to apiFetch, its demo handling moves here so the
 // landing demo keeps working - the demo's own WS-case -> REST-route strangle,
@@ -2058,6 +2185,31 @@ export async function demoApi(
   // backends.listModels carries ?cwd=) can't be matched by exact full-path.
   const pathname = path.split("?")[0];
   const route = `${method} ${pathname}`;
+  if (route === "GET /api/skills") return demoSkillCatalog();
+  if (route === "GET /api/skills/file")
+    return demoSkillRead(
+      new URLSearchParams(path.split("?")[1] ?? "").get("path") ?? "",
+    );
+  if (route === "PUT /api/skills/file") {
+    const b = body as SkillSaveReq;
+    const current = demoSkillRead(b.path);
+    if (!current.editable)
+      throw new ApiError(403, "read_only", "This skill is read-only.");
+    if (current.rev !== b.expectedRev)
+      throw new ApiError(409, "stale", "The skill file changed on disk.");
+    const rev = current.rev + 1;
+    demoSkillFiles.set(b.path, { content: b.content, rev });
+    return { path: b.path, rev, mtime: 0 };
+  }
+  if (route === "POST /api/skills") {
+    const b = body as SkillCreateReq;
+    const path = `${DEMO_SKILL_DIR}/${b.name}/SKILL.md`;
+    if (demoSkillCatalog().engines[0].skills.some((s) => s.path === path))
+      throw new ApiError(409, "skill_exists", "A skill with that name exists.");
+    const content = demoSkillFile(b.name, b.description, b.instructions ?? "");
+    demoSkillFiles.set(path, { content, rev: 1 });
+    return { path, content, rev: 1, mtime: 0, editable: true };
+  }
   if (route === "GET /api/memory") {
     const query = new URLSearchParams(path.split("?")[1] ?? "");
     const scope = query.get("scope");

@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { StoreProvider, ThemeProvider, FeaturesProvider } from "./store.tsx";
 import { LanguageProvider, useI18n } from "./i18n.tsx";
@@ -30,10 +31,23 @@ const isMobile =
   /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
   window.innerWidth < 600;
 
-function DemoBanner() {
+// The banner wraps to two lines on a phone and in longer languages, so its
+// height is measured, not assumed: the app sits below whatever it takes.
+function DemoBanner({ onHeight }: { onHeight: (px: number) => void }) {
   const { t } = useI18n();
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const report = () => onHeight(Math.ceil(el.getBoundingClientRect().height));
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onHeight]);
   return (
     <div
+      ref={ref}
       style={{
         position: "fixed",
         top: 0,
@@ -66,11 +80,13 @@ function DemoBanner() {
   );
 }
 
+// The one-line height, used until the first measurement.
 const DEMO_BANNER_HEIGHT = 33;
 
 const features = isEmbed ? { ...DEMO_FEATURES, embed: true } : DEMO_FEATURES;
 
 function DemoApp() {
+  const [bannerHeight, setBannerHeight] = useState(DEMO_BANNER_HEIGHT);
   if (isEmbed) {
     return (
       <div style={{ position: "fixed", inset: 0, transform: "translateZ(0)" }}>
@@ -80,12 +96,12 @@ function DemoApp() {
   }
   return (
     <>
-      <style>{`:root { --banner-h: ${DEMO_BANNER_HEIGHT}px; }`}</style>
-      <DemoBanner />
+      <style>{`:root { --banner-h: ${bannerHeight}px; }`}</style>
+      <DemoBanner onHeight={setBannerHeight} />
       <div
         style={{
           position: "fixed",
-          top: DEMO_BANNER_HEIGHT,
+          top: bannerHeight,
           left: 0,
           right: 0,
           bottom: 0,

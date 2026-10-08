@@ -157,6 +157,11 @@ import type {
   MemoryAppendRes,
   MemoryWriteRes,
   SkillUsageCountsRes,
+  SkillCatalogRes,
+  SkillFileRes,
+  SkillSaveReq,
+  SkillSaveRes,
+  SkillCreateReq,
   CronCreateReq,
   CronUpdateReq,
   CronRunMessageReq,
@@ -1689,6 +1694,42 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/skill-usage",
     auth: cap("office:read", operationalAuthenticated),
     emits: [],
+  }),
+
+  // The skills page. Skills are files under the server user's home that every
+  // agent on the box runs, so reading the catalog and a listed SKILL.md needs
+  // only an operational identity (an agent can read them with its own tools
+  // anyway). Saving and creating write those files, so they take editor:use,
+  // the capability behind the editor panel's save. The handlers limit read and
+  // save to paths the caller's own catalog lists. Save and create re-read the
+  // agents' skills; the slash_commands refresh reaches each agent's viewers.
+  defineRoute<void, SkillCatalogRes>({
+    opId: "skills.catalog",
+    method: "GET",
+    path: "/api/skills",
+    auth: authn(operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<void, SkillFileRes>({
+    opId: "skills.readFile",
+    method: "GET",
+    path: "/api/skills/file",
+    auth: authn(operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<SkillSaveReq, SkillSaveRes>({
+    opId: "skills.saveFile",
+    method: "PUT",
+    path: "/api/skills/file",
+    auth: cap("editor:use", operationalAuthenticated),
+    emits: ["slash_commands"],
+  }),
+  defineRoute<SkillCreateReq, SkillFileRes>({
+    opId: "skills.create",
+    method: "POST",
+    path: "/api/skills",
+    auth: cap("editor:use", operationalAuthenticated),
+    emits: ["slash_commands"],
   }),
 
   defineRoute<void, CronjobListWire[]>({

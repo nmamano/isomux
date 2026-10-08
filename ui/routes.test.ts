@@ -11,7 +11,14 @@ import {
   type PageShortcutInput,
 } from "./routes.ts";
 
-const PAGES: Page[] = ["tasks", "cronjobs", "apps", "settings", "pager"];
+const PAGES: Page[] = [
+  "tasks",
+  "cronjobs",
+  "apps",
+  "skills",
+  "settings",
+  "pager",
+];
 
 describe("pageForPath", () => {
   it("names each page from its canonical path", () => {
@@ -94,6 +101,7 @@ const office: PageFlags = {
   tasksOpen: false,
   cronjobsOpen: false,
   appsOpen: false,
+  skillsOpen: false,
   pagerOpen: false,
 };
 
@@ -157,6 +165,21 @@ describe("page shortcuts and rendered-page precedence", () => {
     expect(shown.pagerOpen).toBe(false);
   });
 
+  it("leaves the Skills page for Apps on a", () => {
+    const shown = pressPageKey({ ...office, skillsOpen: true }, "a");
+    expect(pageForFlags(shown)).toBe("apps");
+    expect(shown.skillsOpen).toBe(false);
+  });
+
+  it("shows Skills over the pager and under Apps", () => {
+    expect(pageForFlags({ ...office, skillsOpen: true, pagerOpen: true })).toBe(
+      "skills",
+    );
+    expect(pageForFlags({ ...office, skillsOpen: true, appsOpen: true })).toBe(
+      "apps",
+    );
+  });
+
   it("only closes Apps when Apps is the visible page", () => {
     expect(pageShortcut({ key: "a" }, { ...office, appsOpen: true })).toBe(
       "home",
@@ -191,6 +214,7 @@ describe("page shortcuts and rendered-page precedence", () => {
         tasksOpen: true,
         cronjobsOpen: true,
         appsOpen: true,
+        skillsOpen: true,
         pagerOpen: true,
       }),
     ).toBe("settings");
