@@ -1,0 +1,80 @@
+name: Install smoke
+# The run's name says which set of checks ran.
+run-name: >-
+  Install smoke (${{ (github.event_name == 'schedule' || inputs.free_agent) && 'weekly set' || 'release set' }})
+
+# Installs the commit the way each hosting guide tells a new owner to, in a
+# fresh container, and checks the office it produces: it answers /readyz, the
+# first owner can claim it, a terminal runs a command, and a signed-out agent
+# of each engine shows the sign-in notice and nothing else
+# (scripts/install-smoke). Slower than the Build workflow and kept apart from
+# it. scripts/release.sh requires a green run of the release set for the
+# commit it tags and starts one when there is none. The weekly set adds an
+# answer from the Free Welcome Agent, which depends on OpenCode's service.
+on:
+  schedule:
+    # Mondays, 09:17 UTC.
+    - cron: "17 9 * * 1"
+  push:
+    branches:
+      - main
+    paths:
+      - deploy/install.sh
+      - deploy/container/**
+      - docs/hosting/blocks/install.md
+      - package.json
+      - bun.lock
+      - server/pty-sidecar.cjs
+      - scripts/install-smoke/**
+      - .github/workflows/install-smoke.yml
+  workflow_dispatch:
+    inputs:
+      free_agent:
+        description: Also require an answer from the Free Welcome Agent (the weekly set)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        path:
+          - manual
+          - installer
+          - container
+          - kubernetes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The same k3d release that deploy/kubernetes-verify/run.sh is checked
+      # with; kubectl comes with the runner image.
+      - name: Install k3d
+        if: matrix.path == 'kubernetes'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/k3d" https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64
+          sudo install -m 0755 "$RUNNER_TEMP/k3d" /usr/local/bin/k3d
+          k3d version
+
+      - name: Install and check the office
+        env:
+          SMOKE_LOG_DIR: ${{ runner.temp }}/install-smoke
+          SMOKE_FREE_AGENT: ${{ (github.event_name == 'schedule' || inputs.free_agent) && '1' || '' }}
+        run: bash scripts/install-smoke/run.sh ${{ matrix.path }}
+
+      - name: Keep the step logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-smoke-${{ matrix.path }}
+          path: ${{ runner.temp }}/install-smoke
+          retention-days: 14

@@ -101,7 +101,8 @@ adds two manual conditions:
    no scripted check would).
 2. Nil or a delegated agent runs a small `scripts/release.sh` that verifies
    the Build workflow itself is green for the commit (not merely "some
-   check"), refuses to reuse an existing tag, refuses a bun-pin change
+   check"), that the Install smoke workflow is green for it too (and starts
+   that run when the commit has none), refuses to reuse an existing tag, refuses a bun-pin change
    since the previous release (see the invariant below), tags (annotated),
    and pushes the tag. The script prints the path of a timestamped log and
    tees its complete release and pre-push output there.
@@ -367,7 +368,7 @@ Shipped (the shell-drivable slice):
   `GET /api/version`.
 - Unauth `GET /readyz` with the per-IP limiter (`server/ready-limiter.ts`),
   loopback exempt.
-- `scripts/release.sh` (CI-green gate via check-runs, tag pushed with --no-verify since that gate already covers the tagged commit, tag-reuse refusal,
+- `scripts/release.sh` (CI-green gate via check-runs, the install-smoke gate, tag pushed with --no-verify since that gate already covers the tagged commit, tag-reuse refusal,
   annotated CalVer tag, push, GitHub Release) and `scripts/update.sh`
   (everything above; no state snapshot since 2026-10).
   Failure paths are exercised in `scripts/update-sh.test.ts` /

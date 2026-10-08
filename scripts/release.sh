@@ -16,12 +16,13 @@
 # Gates, in order: clean checkout; HEAD published on origin's main; the
 # Build workflow (.github/workflows/build.yml) completed green for HEAD - 
 # specifically that workflow, so an unrelated green check can never stand in
-# for CI; the bun pin unchanged since the previous release (customer
+# for CI; the Install smoke workflow (.github/workflows/install-smoke.yml)
+# completed green for HEAD, started here when it has no run yet; the bun pin unchanged since the previous release (customer
 # updaters only WARN on a bun mismatch and roll back on the installed bun,
 # so a pin change needs a fleet plan - override with
 # RELEASE_ALLOW_BUN_CHANGE=1); tag free both locally and on origin.
 #
-# RELEASE_SKIP_CI=1 skips the CI gate AND the GitHub Release step so the
+# RELEASE_SKIP_CI=1 skips both workflow gates AND the GitHub Release step so the
 # script can run against a local bare origin (sandbox testing). Never set it
 # for a real release. RELEASE_GH_REPO=owner/repo overrides the origin-URL
 # GitHub detection (SSH-alias remotes, testing with a stubbed gh).
@@ -111,16 +112,36 @@ else
   [[ -n $OWNER_REPO ]] || die "origin is not a github.com repo; cannot verify CI (set RELEASE_GH_REPO=owner/repo, or RELEASE_SKIP_CI=1 only for sandbox testing)"
   command -v gh >/dev/null || die "gh is required to verify CI"
   command -v jq >/dev/null || die "jq is required to verify CI"
-  # Gate on OUR Build workflow by path, not on "some green check": with
+  # Gate on OUR workflows by path, not on "some green check": with
   # check-runs alone, any unrelated green check would pass a commit whose
   # Build workflow never ran.
-  runs=$(gh api "repos/$OWNER_REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" \
-    --jq '[.workflow_runs[] | select(.path == ".github/workflows/build.yml")]')
-  total=$(jq 'length' <<<"$runs")
-  ((total > 0)) || die "no Build workflow run (.github/workflows/build.yml) found for $HEAD_SHA; has CI started?"
-  latest=$(jq -r 'sort_by(.run_number) | last | .status + "/" + (.conclusion // "pending")' <<<"$runs")
+  runs=$(gh api "repos/$OWNER_REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" --jq '.workflow_runs')
+  # latest_run PATH [TITLE_SUFFIX]: the newest run of that workflow for
+  # HEAD, optionally only runs whose title ends in TITLE_SUFFIX.
+  latest_run() {
+    jq -r --arg path "$1" --arg suffix "${2:-}" '[.[] | select(.path == $path and ((.display_title // "") | endswith($suffix)))] |
+      sort_by(.run_number) | last | if . == null then "none" else .status + "/" + (.conclusion // "pending") end' <<<"$runs"
+  }
+  latest=$(latest_run .github/workflows/build.yml)
+  [[ $latest != none ]] || die "no Build workflow run (.github/workflows/build.yml) found for $HEAD_SHA; has CI started?"
   [[ $latest == "completed/success" ]] || die "the Build workflow for $HEAD_SHA is not green: $latest"
   log "CI green for $HEAD_SHA (Build workflow completed/success)"
+  # The clean-install smoke run installs this commit along each hosting path.
+  # It is not part of regular CI, so the first release attempt on a commit
+  # starts it. A dispatch runs the tip of main, so only the tip can be started
+  # from here. Only release-set runs count (the workflow's run-name says the
+  # set): the weekly set, scheduled or started by hand, adds a check on an
+  # outside service, and a red there must not hold a release.
+  latest=$(latest_run .github/workflows/install-smoke.yml "(release set)")
+  if [[ $latest == none ]]; then
+    [[ $HEAD_SHA == $(git rev-parse origin/main) ]] ||
+      die "no Install smoke run (.github/workflows/install-smoke.yml) for $HEAD_SHA, and only the tip of main can be dispatched"
+    gh workflow run install-smoke.yml --repo "$OWNER_REPO" --ref main ||
+      die "no Install smoke run for $HEAD_SHA, and starting one failed"
+    die "no Install smoke run for $HEAD_SHA; started one. Re-run this script when it is green: https://github.com/$OWNER_REPO/actions/workflows/install-smoke.yml"
+  fi
+  [[ $latest == "completed/success" ]] || die "the Install smoke workflow for $HEAD_SHA is not green: $latest"
+  log "install smoke green for $HEAD_SHA (Install smoke workflow completed/success)"
 fi
 
 # Bun-pin invariant: customer updaters only warn when a release pins a

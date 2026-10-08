@@ -89,9 +89,13 @@ if [[ $1 == api ]]; then
   jqexpr=""
   while (($#)); do [[ $1 == --jq ]] && jqexpr=$2; shift; done
   case \${GH_STUB_MODE:-green} in
-    green|release-fail) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/build.yml"}]}' ;;
+    green|release-fail) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/build.yml"},{"run_number":1,"status":"completed","conclusion":"success","display_title":"Install smoke (release set)","path":".github/workflows/install-smoke.yml"}]}' ;;
     unrelated) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/other.yml"}]}' ;;
     failed) body='{"workflow_runs":[{"run_number":2,"status":"completed","conclusion":"failure","path":".github/workflows/build.yml"}]}' ;;
+    smoke-missing) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/build.yml"}]}' ;;
+    smoke-scheduled) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/build.yml"},{"run_number":4,"status":"completed","conclusion":"success","event":"schedule","display_title":"Install smoke (weekly set)","path":".github/workflows/install-smoke.yml"}]}' ;;
+    smoke-weekly-dispatched) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/build.yml"},{"run_number":5,"status":"completed","conclusion":"failure","event":"workflow_dispatch","display_title":"Install smoke (weekly set)","path":".github/workflows/install-smoke.yml"}]}' ;;
+    smoke-failed) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/build.yml"},{"run_number":3,"status":"completed","conclusion":"failure","display_title":"Install smoke (release set)","path":".github/workflows/install-smoke.yml"},{"run_number":2,"status":"completed","conclusion":"success","display_title":"Install smoke (release set)","path":".github/workflows/install-smoke.yml"}]}' ;;
   esac
   if [[ -n $jqexpr ]]; then jq -c "$jqexpr" <<<"$body"; else printf '%s' "$body"; fi
   exit 0
@@ -105,13 +109,17 @@ exit 0
 function runWithCiStub(
   mode: string,
   args: string[] = [],
+  ghLog?: string,
 ): { code: number; out: string } {
   return runRelease(args, {
     RELEASE_GH_REPO: "fake/fake",
     GH_STUB_MODE: mode,
     PATH: `${join(base, "bin")}:${process.env.PATH}`,
+    ...(ghLog ? { GH_STUB_LOG: ghLog } : {}),
   });
 }
+
+const SMOKE_DISPATCH = "workflow run install-smoke.yml --repo fake/fake --ref main";
 
 afterEach(() => {
   rmSync(base, { recursive: true, force: true });
@@ -198,6 +206,62 @@ describe("release.sh", () => {
     const r = runWithCiStub("failed");
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("not green");
+  });
+
+  it("smoke gate: a commit with no Install smoke run starts one and is not tagged", () => {
+    const log = join(base, "gh.log");
+    const r = runWithCiStub("smoke-missing", [], log);
+    expect(r.code).not.toBe(0);
+    expect(readFileSync(log, "utf8")).toContain(SMOKE_DISPATCH);
+    expect(sh(base, "git -C origin.git tag -l")).toBe("");
+  });
+
+  it("smoke gate: a green scheduled weekly set does not count, so a release-set run is started", () => {
+    const log = join(base, "gh.log");
+    const r = runWithCiStub("smoke-scheduled", [], log);
+    expect(r.code).not.toBe(0);
+    expect(readFileSync(log, "utf8")).toContain(SMOKE_DISPATCH);
+    expect(sh(base, "git -C origin.git tag -l")).toBe("");
+  });
+
+  it("smoke gate: the title suffix it counts is the one the workflow gives a release-set run", () => {
+    const workflow = readFileSync(
+      join(import.meta.dir, "../.github/workflows/install-smoke.yml"),
+      "utf8",
+    );
+    const runName = workflow.match(/^run-name: >-\n {2}(.+)$/m)?.[1];
+    expect(runName).toContain("Install smoke (${{");
+    expect(runName).toContain("'release set' }})");
+    expect(readFileSync(RELEASE_SH, "utf8")).toContain(
+      'latest_run .github/workflows/install-smoke.yml "(release set)"',
+    );
+  });
+
+  it("smoke gate: a red weekly set started by hand does not count either", () => {
+    const log = join(base, "gh.log");
+    const r = runWithCiStub("smoke-weekly-dispatched", [], log);
+    expect(r.code).not.toBe(0);
+    expect(readFileSync(log, "utf8")).toContain(SMOKE_DISPATCH);
+    expect(sh(base, "git -C origin.git tag -l")).toBe("");
+  });
+
+  it("smoke gate: the latest Install smoke run decides, and a red one refuses", () => {
+    const log = join(base, "gh.log");
+    const r = runWithCiStub("smoke-failed", [], log);
+    expect(r.code).not.toBe(0);
+    expect(readFileSync(log, "utf8")).not.toContain("workflow run");
+    expect(sh(base, "git -C origin.git tag -l")).toBe("");
+  });
+
+  it("smoke gate: a commit behind the tip of main is not dispatched", () => {
+    writeFileSync(join(repo, "f.txt"), "two\n");
+    sh(repo, "git add . && git commit -qm two && git push -q origin main");
+    sh(repo, "git checkout -q --detach HEAD~1");
+    const log = join(base, "gh.log");
+    const r = runWithCiStub("smoke-missing", [], log);
+    expect(r.code).not.toBe(0);
+    expect(readFileSync(log, "utf8")).not.toContain("workflow run");
+    expect(sh(base, "git -C origin.git tag -l")).toBe("");
   });
 
   it("--security creates the release with the exact machine-readable marker", () => {
