@@ -816,10 +816,7 @@ describe("provider auth affordances", () => {
     });
 
     it("is what the Codex backend reports with no credentials", () => {
-      const codexHome = join(
-        STATE_ROOT,
-        `gate-codex-${crypto.randomUUID()}`,
-      );
+      const codexHome = join(STATE_ROOT, `gate-codex-${crypto.randomUUID()}`);
       mkdirSync(codexHome, { recursive: true });
       const env = { CODEX_HOME: codexHome, OPENAI_API_KEY: "" };
       expect(codexBackend.isKnownSignedOut?.(env)).toBe(true);
