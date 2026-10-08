@@ -16,6 +16,7 @@ import { english, translatorForUserId } from "./i18n.ts";
 import {
   INSTALL_KIND,
   isHostedAccess,
+  isHostedOfficeOrigin,
   type InstallKind,
 } from "./install-kind.ts";
 import type { Server, ServerWebSocket } from "bun";
@@ -1505,8 +1506,9 @@ type ApplyAccessResult =
       envOrigin?: string;
     };
 
-// A hosted box never saves access settings or mints an invite here: it accepts
-// only an unchanged, already-enabled address. Self-hosted changes persist and
+// A hosted box accepts only an unchanged, already-enabled address, except the
+// installer's first enable to the office's isomux.app address, which takes the
+// self-hosted path. Self-hosted changes persist and
 // require a restart; enabling also mints an owner invite. A failed mint leaves
 // the saved settings in place and returns no sign-in URL.
 async function applyAccessSettings(
@@ -1518,7 +1520,14 @@ async function applyAccessSettings(
   const rawOrigin = publicOrigin.trim();
   const origin = rawOrigin ? normalizePublicOrigin(rawOrigin) : null;
   const current = computeAccessSettings(installKind);
-  if (current.hosted) {
+  const hostedFirstEnable =
+    current.hosted &&
+    !current.externalAccess &&
+    current.publicOrigin === null &&
+    current.envOrigin === null &&
+    externalAccess &&
+    isHostedOfficeOrigin(origin);
+  if (current.hosted && !hostedFirstEnable) {
     if (
       !current.externalAccess ||
       !externalAccess ||

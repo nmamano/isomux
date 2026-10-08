@@ -19,20 +19,29 @@ export function readInstallKind(path = INSTALL_KIND_FILE): InstallKind {
 
 export const INSTALL_KIND = readInstallKind();
 
+function hostedUrl(configuredOrigin: string | null): URL | null {
+  const origin = configuredOrigin
+    ? normalizePublicOrigin(configuredOrigin)
+    : null;
+  if (!origin) return null;
+  const url = new URL(origin);
+  return url.protocol === "https:" &&
+    (url.hostname === "isomux.app" || url.hostname.endsWith(".isomux.app"))
+    ? url
+    : null;
+}
+
 // Access policy also recognizes hosted addresses on offices installed before
 // the marker existed. Inspect configured origins, never a request Host header.
 export function isHostedAccess(
   markerKind: InstallKind = INSTALL_KIND,
   configuredOrigin: string | null = null,
 ): boolean {
-  if (markerKind === "hosted") return true;
-  const origin = configuredOrigin
-    ? normalizePublicOrigin(configuredOrigin)
-    : null;
-  if (!origin) return false;
-  const url = new URL(origin);
-  return (
-    url.protocol === "https:" &&
-    (url.hostname === "isomux.app" || url.hostname.endsWith(".isomux.app"))
-  );
+  return markerKind === "hosted" || hostedUrl(configuredOrigin) !== null;
+}
+
+// A hosted office is enrolled under exactly one label on isomux.app, no port.
+export function isHostedOfficeOrigin(origin: string | null): boolean {
+  const url = hostedUrl(origin);
+  return url !== null && /^[^.]+\.isomux\.app$/.test(url.host);
 }

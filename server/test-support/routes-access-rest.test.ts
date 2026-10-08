@@ -512,3 +512,84 @@ it("refuses enabling an already-disabled hosted office without writes or invites
     (await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId })).body,
   ).toEqual(invitesBefore);
 });
+
+describe("hosted first enable", () => {
+  async function freshHostedOffice() {
+    const srv = await startTestServer({
+      startServer: { installKind: "hosted" },
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const put = (body: unknown) =>
+      api(srv, "/api/office/access", {
+        method: "PUT",
+        rawSessionId: owner.rawSessionId,
+        body,
+      });
+    return { srv, owner, put };
+  }
+
+  it("saves the first enable to the office's isomux.app address", async () => {
+    const { put } = await freshHostedOffice();
+    const r = await put({
+      externalAccess: true,
+      publicOrigin: "https://acme.isomux.app",
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ restartRequired: true });
+    expect(loadServerConfig().externalAccess).toBe(true);
+    expect(loadServerConfig().publicOrigin).toBe("https://acme.isomux.app");
+  });
+
+  it.each([
+    { externalAccess: true, publicOrigin: "https://custom.example" },
+    { externalAccess: true, publicOrigin: "https://isomux.app" },
+    { externalAccess: true, publicOrigin: "https://a.b.isomux.app" },
+    { externalAccess: true, publicOrigin: "https://acme.isomux.app:8443" },
+    { externalAccess: true, publicOrigin: "https://acme.isomux.app.evil.com" },
+    { externalAccess: true, publicOrigin: "http://localhost:4000" },
+    { externalAccess: true, publicOrigin: "" },
+    { externalAccess: true, publicOrigin: "invalid" },
+    { externalAccess: false, publicOrigin: "https://acme.isomux.app" },
+  ])("refuses a first change to %o without writes", async (body) => {
+    const { srv, owner, put } = await freshHostedOffice();
+    const configPath = join(STATE_ROOT, "office-config.json");
+    const before = readFileSync(configPath, "utf8");
+    const invitesBefore = (
+      await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId })
+    ).body;
+    const r = await put(body);
+    expect(r.status).toBe(403);
+    expect(r.body).toMatchObject({ error: { code: "hosted_access_managed" } });
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+    expect(
+      (await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId }))
+        .body,
+    ).toEqual(invitesBefore);
+  });
+
+  it("refuses every change after the first enable", async () => {
+    const { put } = await freshHostedOffice();
+    expect(
+      (
+        await put({
+          externalAccess: true,
+          publicOrigin: "https://acme.isomux.app",
+        })
+      ).status,
+    ).toBe(200);
+    const configPath = join(STATE_ROOT, "office-config.json");
+    const before = readFileSync(configPath, "utf8");
+    for (const body of [
+      { externalAccess: true, publicOrigin: "https://other.isomux.app" },
+      { externalAccess: false, publicOrigin: "" },
+    ]) {
+      const r = await put(body);
+      expect(r.status).toBe(403);
+      expect(r.body).toMatchObject({
+        error: { code: "hosted_access_managed" },
+      });
+      expect(readFileSync(configPath, "utf8")).toBe(before);
+    }
+  });
+});
