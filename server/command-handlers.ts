@@ -655,10 +655,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         return true;
       }
       const models = managed.info.claudeFamilyModels;
-      const currentLabel = familyDisplayLabel(
-        managed.info.modelFamily,
-        models,
-      );
+      const currentLabel = familyDisplayLabel(managed.info.modelFamily, models);
       const lines: string[] = [
         `${t("commands.model.header", { current: currentLabel })}\n`,
       ];

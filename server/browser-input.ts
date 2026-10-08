@@ -96,7 +96,9 @@ export async function firstMatchingOption(
     });
     if (own === null) {
       if (await option.locator("script").count()) return "inconclusive";
-      own = optionText((await option.textContent({ timeout: timeout() })) ?? "");
+      own = optionText(
+        (await option.textContent({ timeout: timeout() })) ?? "",
+      );
     }
     const matches = byValue
       ? own === wanted.value

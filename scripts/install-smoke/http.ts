@@ -10,10 +10,15 @@ export async function request(
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
   try {
-    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    return await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError")
-      throw new Error(`${what} did not answer within ${timeoutMs / 1000}s`, { cause: error });
+      throw new Error(`${what} did not answer within ${timeoutMs / 1000}s`, {
+        cause: error,
+      });
     throw error;
   }
 }

@@ -156,7 +156,11 @@ describe("the setup link", () => {
 
 describe("the claim form body", () => {
   // A form streamed with no Content-Length, 1 KiB per pull, up to 1 MiB.
-  function stream(): { body: ReadableStream<Uint8Array>; sent: () => number; cancelled: () => boolean } {
+  function stream(): {
+    body: ReadableStream<Uint8Array>;
+    sent: () => number;
+    cancelled: () => boolean;
+  } {
     let sent = 0;
     let cancelled = false;
     const body = new ReadableStream<Uint8Array>(
@@ -200,9 +204,13 @@ describe("the claim form body", () => {
     expect(res instanceof Response && res.status).toBe(413);
     expect(big.cancelled()).toBe(true);
     expect(big.sent()).toBeLessThanOrEqual(8 * 1024);
-    for (let i = 1; i < 20; i++) await claimFrom("oversized-client", stream().body);
+    for (let i = 1; i < 20; i++)
+      await claimFrom("oversized-client", stream().body);
     // The client is out of attempts, even with a key that matches.
-    const next = await claimFrom("oversized-client", new Response("key=k").body!);
+    const next = await claimFrom(
+      "oversized-client",
+      new Response("key=k").body!,
+    );
     expect(next instanceof Response && next.status).toBe(429);
   });
 });

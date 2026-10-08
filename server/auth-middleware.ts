@@ -755,7 +755,12 @@ export function renderSetupPage(
   error: { status: number; message: string } | null = null,
 ): Response {
   return new Response(
-    renderClaimPage(i18n, error?.message ?? null, opts.officeName, opts.keyHelp),
+    renderClaimPage(
+      i18n,
+      error?.message ?? null,
+      opts.officeName,
+      opts.keyHelp,
+    ),
     {
       status: error?.status ?? 200,
       headers: {

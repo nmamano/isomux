@@ -29,8 +29,10 @@ import { useTheme } from "../store.tsx";
 const lightHighlight = syntaxHighlighting(
   HighlightStyle.define([
     { tag: tags.heading, fontWeight: "700", color: "var(--accent-text)" },
-    { tag: [tags.processingInstruction, tags.contentSeparator, tags.meta],
-      color: "var(--text-muted)" },
+    {
+      tag: [tags.processingInstruction, tags.contentSeparator, tags.meta],
+      color: "var(--text-muted)",
+    },
     { tag: tags.emphasis, fontStyle: "italic" },
     { tag: tags.strong, fontWeight: "700" },
     { tag: [tags.monospace, tags.literal], color: "var(--hljs-string)" },
@@ -105,9 +107,7 @@ export function SkillSourceEditor({
             autocapitalize: "off",
             spellcheck: "false",
           }),
-          themeRef.current.of(
-            mode === "dark" ? oneDark : lightHighlight,
-          ),
+          themeRef.current.of(mode === "dark" ? oneDark : lightHighlight),
           editRef.current.of([
             EditorState.readOnly.of(!editable),
             EditorView.editable.of(editable),

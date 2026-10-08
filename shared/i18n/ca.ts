@@ -2489,12 +2489,17 @@ Coses que pots fer per ell:
   "preAuth.claim.errorName":
     "Tria un nom per mostrar (lletres, xifres, espais, punts, guions, apòstrofs o guions baixos).",
   "preAuth.claim.keyLabel": "Clau de configuració",
-  "preAuth.claim.keyFromFile": "El servidor va mostrar un enllaç amb aquesta clau en arrencar. La clau també és a {path} al servidor.",
-  "preAuth.claim.keyFromEnv": "Fes servir el valor de {name} de la configuració de desplegament d'aquesta oficina.",
-  "preAuth.claim.keyFromRender": "Render la va crear en desplegar. Cerca {name} a la configuració Environment del servei.",
-  "preAuth.claim.keyFromContainer": "Fes servir el valor de {name} configurat per a aquest contenidor. Amb la configuració AWS Compose, és a {file}.",
+  "preAuth.claim.keyFromFile":
+    "El servidor va mostrar un enllaç amb aquesta clau en arrencar. La clau també és a {path} al servidor.",
+  "preAuth.claim.keyFromEnv":
+    "Fes servir el valor de {name} de la configuració de desplegament d'aquesta oficina.",
+  "preAuth.claim.keyFromRender":
+    "Render la va crear en desplegar. Cerca {name} a la configuració Environment del servei.",
+  "preAuth.claim.keyFromContainer":
+    "Fes servir el valor de {name} configurat per a aquest contenidor. Amb la configuració AWS Compose, és a {file}.",
   "preAuth.claim.errorKey": "Falta la clau de configuració o no és correcta.",
-  "preAuth.claim.errorTooManyTries": "Massa claus de configuració incorrectes. Torna-ho a provar d'aquí a un minut.",
+  "preAuth.claim.errorTooManyTries":
+    "Massa claus de configuració incorrectes. Torna-ho a provar d'aquí a un minut.",
   "preAuth.invite.titleAccept": "acceptar la invitació",
   "preAuth.invite.bootstrapIntro":
     "Ets la primera persona que reclama aquesta oficina. Tria un nom per mostrar - apareixerà al costat de tot el que diguis.",
@@ -2628,7 +2633,8 @@ Coses que pots fer per ell:
   "skills.uses.other": "{count} usos",
   "skills.noDescription": "Sense descripció.",
   "skills.notUsed": "No s'executa",
-  "skills.shadowed": "No s'executa a {engine}. Primer va una habilitat amb el mateix nom:",
+  "skills.shadowed":
+    "No s'executa a {engine}. Primer va una habilitat amb el mateix nom:",
   "skills.field.file": "Fitxer",
   "skills.field.project": "Projecte",
   "skills.field.alias": "També s'executa com a",
@@ -2640,17 +2646,22 @@ Coses que pots fer per ell:
   "skills.backToList": "Totes les habilitats",
   "skills.loadFailed": "No s'han pogut carregar les habilitats.",
   "skills.readFailed": "No s'ha pogut llegir aquesta habilitat.",
-  "skills.saveStale": "No s'ha desat: el fitxer ha canviat al disc després que l'obrissis. Copia la teva edició i torna'l a carregar.",
+  "skills.saveStale":
+    "No s'ha desat: el fitxer ha canviat al disc després que l'obrissis. Copia la teva edició i torna'l a carregar.",
   "skills.saveDeleted": "No s'ha desat: el fitxer s'ha esborrat del disc.",
   "skills.reload": "Torna a carregar",
   "skills.create.title": "Nova habilitat",
   "skills.create.nameHint": "Minúscules, dígits i guions.",
-  "skills.create.invalidName": "Fes servir minúscules, dígits i guions solts, fins a 64 caràcters.",
+  "skills.create.invalidName":
+    "Fes servir minúscules, dígits i guions solts, fins a 64 caràcters.",
   "skills.create.description": "Descripció",
-  "skills.create.descriptionHint": "Una línia. Els agents la llegeixen per decidir quan fer servir l'habilitat.",
-  "skills.create.invalidDescription": "Escriu la descripció en una línia, fins a 1024 caràcters.",
+  "skills.create.descriptionHint":
+    "Una línia. Els agents la llegeixen per decidir quan fer servir l'habilitat.",
+  "skills.create.invalidDescription":
+    "Escriu la descripció en una línia, fins a 1024 caràcters.",
   "skills.create.instructions": "Instruccions",
-  "skills.create.instructionsPlaceholder": "El que fa l'agent quan algú executa aquesta habilitat.",
+  "skills.create.instructionsPlaceholder":
+    "El que fa l'agent quan algú executa aquesta habilitat.",
   "skills.create.where": "Es desa com a {path}",
   "skills.create.exists": "Ja existeix una habilitat amb aquest nom.",
   "skills.create.failed": "No s'ha pogut crear l'habilitat.",

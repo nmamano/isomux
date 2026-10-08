@@ -73,7 +73,11 @@ async function spawnAgent(
 
 interface Res {
   status: number;
-  body: { ok?: boolean; error?: { code?: string; dialogs?: unknown }; [k: string]: unknown };
+  body: {
+    ok?: boolean;
+    error?: { code?: string; dialogs?: unknown };
+    [k: string]: unknown;
+  };
 }
 async function affordance(
   srv: TestServer,
@@ -572,15 +576,16 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
     const dialogs = [{ type: "confirm", message: "Proceed?", accepted: true }];
-    const run = spyOn(ExtensionBrowserSessions.prototype, "run").mockResolvedValue(
-      {
-        ok: false,
-        status: 500,
-        code: "action_timeout",
-        error: "fixture timeout",
-        dialogs,
-      },
-    );
+    const run = spyOn(
+      ExtensionBrowserSessions.prototype,
+      "run",
+    ).mockResolvedValue({
+      ok: false,
+      status: 500,
+      code: "action_timeout",
+      error: "fixture timeout",
+      dialogs,
+    });
     try {
       const r = await affordance(
         srv,

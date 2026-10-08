@@ -2232,10 +2232,13 @@ App 的一些原则：
   "preAuth.claim.errorName":
     "请选择显示名称（字母、数字、空格、句点、连字符、撇号或下划线）。",
   "preAuth.claim.keyLabel": "设置密钥",
-  "preAuth.claim.keyFromFile": "服务器启动时打印了包含此密钥的链接。密钥也保存在服务器上的 {path} 中。",
+  "preAuth.claim.keyFromFile":
+    "服务器启动时打印了包含此密钥的链接。密钥也保存在服务器上的 {path} 中。",
   "preAuth.claim.keyFromEnv": "使用此办公室部署设置中 {name} 的值。",
-  "preAuth.claim.keyFromRender": "Render 在部署时生成了它。请在服务的 Environment 设置中找到 {name}。",
-  "preAuth.claim.keyFromContainer": "使用为此容器设置的 {name} 的值。如果使用 AWS Compose 设置，它在 {file} 中。",
+  "preAuth.claim.keyFromRender":
+    "Render 在部署时生成了它。请在服务的 Environment 设置中找到 {name}。",
+  "preAuth.claim.keyFromContainer":
+    "使用为此容器设置的 {name} 的值。如果使用 AWS Compose 设置，它在 {file} 中。",
   "preAuth.claim.errorKey": "设置密钥缺失或不正确。",
   "preAuth.claim.errorTooManyTries": "错误的设置密钥过多。请一分钟后再试。",
   "preAuth.invite.titleAccept": "接受邀请",
@@ -2377,12 +2380,14 @@ App 的一些原则：
   "skills.backToList": "全部技能",
   "skills.loadFailed": "无法加载技能。",
   "skills.readFailed": "无法读取此技能。",
-  "skills.saveStale": "未保存：你打开文件后，磁盘上的文件已更改。请先复制你的修改，然后重新加载。",
+  "skills.saveStale":
+    "未保存：你打开文件后，磁盘上的文件已更改。请先复制你的修改，然后重新加载。",
   "skills.saveDeleted": "未保存：磁盘上的文件已被删除。",
   "skills.reload": "重新加载",
   "skills.create.title": "新建技能",
   "skills.create.nameHint": "小写字母、数字和连字符。",
-  "skills.create.invalidName": "请使用小写字母、数字和单个连字符，最多 64 个字符。",
+  "skills.create.invalidName":
+    "请使用小写字母、数字和单个连字符，最多 64 个字符。",
   "skills.create.description": "描述",
   "skills.create.descriptionHint": "一行。代理据此决定何时使用该技能。",
   "skills.create.invalidDescription": "请用一行写描述，最多 1024 个字符。",

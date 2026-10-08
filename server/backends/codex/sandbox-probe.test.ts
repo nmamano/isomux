@@ -26,7 +26,8 @@ afterEach(() => {
 });
 
 // The messages bwrap printed when the platform refused it (2026-10-08).
-const SECCOMP_DENIAL = "bwrap: Failed to make / slave: Operation not permitted\n";
+const SECCOMP_DENIAL =
+  "bwrap: Failed to make / slave: Operation not permitted\n";
 const APPARMOR_DENIAL = "bwrap: Failed to make / slave: Permission denied\n";
 const PIVOT_ROOT_DENIAL = "bwrap: pivot_root: Operation not permitted\n";
 const USERNS_DENIAL =
@@ -161,7 +162,9 @@ describe("runCodexSandboxProbe", () => {
       );
       const { result } = await runCodexSandboxProbe({ argv: [probe] });
       expect(result).toBe("denied");
-      const [home, listing, size] = readFileSync(out, "utf8").trim().split("\n");
+      const [home, listing, size] = readFileSync(out, "utf8")
+        .trim()
+        .split("\n");
       expect(home.startsWith(`${probeRoot}/`)).toBe(true);
       expect(listing).toBe("config.toml");
       expect(size.trim()).toBe("0");

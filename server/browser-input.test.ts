@@ -82,7 +82,9 @@ test("a colored call log gives the same reasons as a plain one", () => {
     clickNotPerformedReason(colored("  - waiting for locator('#x')")),
   ).toBe(CLICK_REASON.missing);
   expect(
-    clickNotPerformedReason(colored(...resolved, "      - element is not enabled")),
+    clickNotPerformedReason(
+      colored(...resolved, "      - element is not enabled"),
+    ),
   ).toBe(CLICK_REASON.disabled);
   expect(clickNotPerformedReason(colored(...resolved))).toBe(
     CLICK_REASON.unknown,

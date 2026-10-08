@@ -2494,12 +2494,17 @@ Cosas que puedes hacer por él:
   "preAuth.claim.errorName":
     "Elige un nombre para mostrar (letras, números, espacios, puntos, guiones, apóstrofos o guiones bajos).",
   "preAuth.claim.keyLabel": "Clave de configuración",
-  "preAuth.claim.keyFromFile": "El servidor mostró un enlace con esta clave al arrancar. La clave también está en {path} en el servidor.",
-  "preAuth.claim.keyFromEnv": "Usa el valor de {name} de la configuración de despliegue de esta oficina.",
-  "preAuth.claim.keyFromRender": "Render la creó al desplegar. Busca {name} en la configuración Environment del servicio.",
-  "preAuth.claim.keyFromContainer": "Usa el valor de {name} configurado para este contenedor. Con la configuración AWS Compose, está en {file}.",
+  "preAuth.claim.keyFromFile":
+    "El servidor mostró un enlace con esta clave al arrancar. La clave también está en {path} en el servidor.",
+  "preAuth.claim.keyFromEnv":
+    "Usa el valor de {name} de la configuración de despliegue de esta oficina.",
+  "preAuth.claim.keyFromRender":
+    "Render la creó al desplegar. Busca {name} en la configuración Environment del servicio.",
+  "preAuth.claim.keyFromContainer":
+    "Usa el valor de {name} configurado para este contenedor. Con la configuración AWS Compose, está en {file}.",
   "preAuth.claim.errorKey": "Falta la clave de configuración o no es correcta.",
-  "preAuth.claim.errorTooManyTries": "Demasiadas claves de configuración incorrectas. Inténtalo de nuevo en un minuto.",
+  "preAuth.claim.errorTooManyTries":
+    "Demasiadas claves de configuración incorrectas. Inténtalo de nuevo en un minuto.",
   "preAuth.invite.titleAccept": "aceptar invitación",
   "preAuth.invite.bootstrapIntro":
     "Eres la primera persona que reclama esta oficina. Elige un nombre para mostrar - aparecerá junto a todo lo que digas.",
@@ -2633,7 +2638,8 @@ Cosas que puedes hacer por él:
   "skills.uses.other": "{count} usos",
   "skills.noDescription": "Sin descripción.",
   "skills.notUsed": "No se ejecuta",
-  "skills.shadowed": "No se ejecuta en {engine}. Primero va una habilidad con el mismo nombre:",
+  "skills.shadowed":
+    "No se ejecuta en {engine}. Primero va una habilidad con el mismo nombre:",
   "skills.field.file": "Archivo",
   "skills.field.project": "Proyecto",
   "skills.field.alias": "También se ejecuta como",
@@ -2645,17 +2651,22 @@ Cosas que puedes hacer por él:
   "skills.backToList": "Todas las habilidades",
   "skills.loadFailed": "No se pudieron cargar las habilidades.",
   "skills.readFailed": "No se pudo leer esta habilidad.",
-  "skills.saveStale": "No se guardó: el archivo cambió en el disco después de que lo abrieras. Copia tu edición y recarga.",
+  "skills.saveStale":
+    "No se guardó: el archivo cambió en el disco después de que lo abrieras. Copia tu edición y recarga.",
   "skills.saveDeleted": "No se guardó: el archivo se borró del disco.",
   "skills.reload": "Recargar",
   "skills.create.title": "Nueva habilidad",
   "skills.create.nameHint": "Minúsculas, dígitos y guiones.",
-  "skills.create.invalidName": "Usa minúsculas, dígitos y guiones sueltos, hasta 64 caracteres.",
+  "skills.create.invalidName":
+    "Usa minúsculas, dígitos y guiones sueltos, hasta 64 caracteres.",
   "skills.create.description": "Descripción",
-  "skills.create.descriptionHint": "Una línea. Los agentes la leen para decidir cuándo usar la habilidad.",
-  "skills.create.invalidDescription": "Escribe la descripción en una línea, hasta 1024 caracteres.",
+  "skills.create.descriptionHint":
+    "Una línea. Los agentes la leen para decidir cuándo usar la habilidad.",
+  "skills.create.invalidDescription":
+    "Escribe la descripción en una línea, hasta 1024 caracteres.",
   "skills.create.instructions": "Instrucciones",
-  "skills.create.instructionsPlaceholder": "Lo que hace el agente cuando alguien ejecuta esta habilidad.",
+  "skills.create.instructionsPlaceholder":
+    "Lo que hace el agente cuando alguien ejecuta esta habilidad.",
   "skills.create.where": "Se guarda como {path}",
   "skills.create.exists": "Ya existe una habilidad con este nombre.",
   "skills.create.failed": "No se pudo crear la habilidad.",

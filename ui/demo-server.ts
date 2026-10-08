@@ -2088,7 +2088,8 @@ const DEMO_SKILLS: Array<
   {
     name: "deploy-check",
     source: "project",
-    description: "Check that the site builds and the preview loads before a deploy.",
+    description:
+      "Check that the site builds and the preview loads before a deploy.",
     path: `${DEMO_HOME}/site/.claude/skills/deploy-check/SKILL.md`,
     project: `${DEMO_HOME}/site`,
     body: "# Deploy check\n\n- `bun run build` passes.\n- The preview URL answers 200.\n- No console errors on the home page.",
@@ -2158,7 +2159,13 @@ function demoSkillCatalog(): SkillCatalogRes {
 function demoSkillRead(path: string): SkillFileRes {
   const stored = demoSkillFiles.get(path);
   if (stored)
-    return { path, content: stored.content, rev: stored.rev, mtime: 0, editable: true };
+    return {
+      path,
+      content: stored.content,
+      rev: stored.rev,
+      mtime: 0,
+      editable: true,
+    };
   const s = DEMO_SKILLS.find((x) => x.path === path);
   if (!s) throw new ApiError(404, "skill_not_found", "No skill has that path.");
   return {

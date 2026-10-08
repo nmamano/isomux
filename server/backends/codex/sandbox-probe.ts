@@ -105,7 +105,9 @@ async function probeIn(
     child.once("error", () => resolve(null));
     child.once("close", (code: number | null) => resolve(code));
   }).finally(() => clearTimeout(timer));
-  const result = timedOut ? "unknown" : classifyCodexSandboxProbe(exitCode, stderr);
+  const result = timedOut
+    ? "unknown"
+    : classifyCodexSandboxProbe(exitCode, stderr);
   const detail = timedOut
     ? `timed out after ${timeoutMs} ms`
     : `exit ${exitCode}: ${stderr.trim()}`;

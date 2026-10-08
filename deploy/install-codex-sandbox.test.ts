@@ -528,7 +528,11 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
   it("smoke-tests the bwrap the service's PATH finds", () => {
     // The installer's own PATH finds a working bwrap; the service's finds a
     // broken one first. The service's answer is the one that counts.
-    const r = runStep({ bwrapWorks: true, serviceBwrapBroken: true, userns: "0" });
+    const r = runStep({
+      bwrapWorks: true,
+      serviceBwrapBroken: true,
+      userns: "0",
+    });
     expect(r.out).not.toContain("codex sandbox ready");
     expect(r.out).toContain("setting up uid map: Permission denied");
     expect(r.outcomes).toHaveLength(1);

@@ -77,10 +77,7 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
         return fail(400, "invalid_path", "path is required");
       if (typeof b.content !== "string")
         return fail(422, "invalid_request", "content must be a string");
-      if (
-        typeof b.expectedRev !== "number" ||
-        !Number.isFinite(b.expectedRev)
-      )
+      if (typeof b.expectedRev !== "number" || !Number.isFinite(b.expectedRev))
         return fail(
           422,
           "invalid_request",

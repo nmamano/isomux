@@ -119,7 +119,8 @@ function runWithCiStub(
   });
 }
 
-const SMOKE_DISPATCH = "workflow run install-smoke.yml --repo fake/fake --ref main";
+const SMOKE_DISPATCH =
+  "workflow run install-smoke.yml --repo fake/fake --ref main";
 
 afterEach(() => {
   rmSync(base, { recursive: true, force: true });

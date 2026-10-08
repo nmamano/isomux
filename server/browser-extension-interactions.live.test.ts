@@ -129,7 +129,6 @@ async function withOfferedTab(
   }
 }
 
-
 const html = (body: string) =>
   new Response(body, { headers: { "Content-Type": "text/html" } });
 
@@ -244,24 +243,30 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         // fails. The bridge holds the agent's answer back to make that order
         // certain. Before the fix Playwright left that rejection unhandled
         // and Bun ended the process (and this test).
-        setupPage.on("dialog", (dialog) => void dialog.dismiss().catch(() => {}));
+        setupPage.on(
+          "dialog",
+          (dialog) => void dialog.dismiss().catch(() => {}),
+        );
         type Dispatch = (...args: unknown[]) => Promise<void>;
         const bridge = ExtensionConnection.prototype as unknown as {
           dispatch: Dispatch;
         };
         const dispatch = bridge.dispatch;
-        const held = spyOn(bridge, "dispatch").mockImplementation(async function (
-          this: unknown,
-          ...args: unknown[]
-        ) {
-          if (JSON.stringify(args[1]).includes("Page.handleJavaScriptDialog"))
-            await Bun.sleep(500);
-          return dispatch.apply(this, args);
-        });
+        const held = spyOn(bridge, "dispatch").mockImplementation(
+          async function (this: unknown, ...args: unknown[]) {
+            if (JSON.stringify(args[1]).includes("Page.handleJavaScriptDialog"))
+              await Bun.sleep(500);
+            return dispatch.apply(this, args);
+          },
+        );
         let raced: Extract<BrowserResult, { ok: true }>;
         try {
           raced = ok(
-            await act({ action: "click", selector: "#remove", dialog: "accept" }),
+            await act({
+              action: "click",
+              selector: "#remove",
+              dialog: "accept",
+            }),
           );
         } finally {
           held.mockRestore();
@@ -300,7 +305,9 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         );
 
         // Dialogs: dismissed by default, and an accept covers the first only.
-        const dismissed = ok(await act({ action: "click", selector: "#remove" }));
+        const dismissed = ok(
+          await act({ action: "click", selector: "#remove" }),
+        );
         expect(dismissed.dialogs).toEqual([
           { type: "confirm", message: "Remove this record?", accepted: false },
         ]);
@@ -325,7 +332,9 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         ok(next);
         expect(next.elapsed).toBeLessThan(DEADLINE_MS / 2);
         expect(await read("#clicks")).toBe("");
-        const absent = failed(await act({ action: "click", selector: "#absent" }));
+        const absent = failed(
+          await act({ action: "click", selector: "#absent" }),
+        );
         expect(absent.code).toBe("action_failed");
         expect(absent.error).toContain(CLICK_REASON.missing);
 
@@ -422,8 +431,9 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         expect(await direct({ label: "A B" })).toEqual(["a"]);
         expect(await direct({ label: nbsp })).toEqual([nbsp]);
         expect(await direct({ value: nbsp })).toEqual([nbsp]);
-        const scripted = async (option: { value: string } | { label: string }) =>
-          setupPage.selectOption("#scripted", option, { timeout: 1500 });
+        const scripted = async (
+          option: { value: string } | { label: string },
+        ) => setupPage.selectOption("#scripted", option, { timeout: 1500 });
         expect(await scripted({ label: "AB" })).toEqual(["AB"]);
         expect(await scripted({ value: "AB" })).toEqual(["AB"]);
         expect(await scripted({ label: "CsD" })).toEqual(["CsD"]);
@@ -454,8 +464,14 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         const notSelected = [
           [{ selector: "#ttl", label: "2 min" }, SELECT_REASON.noOption],
           [{ selector: "#empty", value: "z" }, SELECT_REASON.optionDisabled],
-          [{ selector: "#options", value: "dup" }, SELECT_REASON.optionDisabled],
-          [{ selector: "#options", label: "Empty label" }, SELECT_REASON.noOption],
+          [
+            { selector: "#options", value: "dup" },
+            SELECT_REASON.optionDisabled,
+          ],
+          [
+            { selector: "#options", label: "Empty label" },
+            SELECT_REASON.noOption,
+          ],
           [{ selector: "#locked", value: "b" }, SELECT_REASON.disabled],
           [{ selector: "#fenced", value: "b" }, SELECT_REASON.disabled],
           [{ selector: "#absent", value: "b" }, SELECT_REASON.missing],
@@ -466,7 +482,9 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           )?.[1];
         const options = async (option: Record<string, string>) =>
           act({ action: "select", selector: "#options", ...option });
-        expect(ok(await options({ label: "  A  B  " })).selected).toEqual(["a"]);
+        expect(ok(await options({ label: "  A  B  " })).selected).toEqual([
+          "a",
+        ]);
         expect(ok(await options({ label: "A B" })).selected).toEqual(["a"]);
         expect(ok(await options({ label: nbsp })).selected).toEqual([nbsp]);
         expect(ok(await options({ value: nbsp })).selected).toEqual([nbsp]);

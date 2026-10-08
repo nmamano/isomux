@@ -13,7 +13,8 @@ const { ApiError, setApiShim } = await import("../api.ts");
 const { connect, setShim } = await import("../ws.ts");
 const { EditorView } = await import("@codemirror/view");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-type SkillCatalogRes = import("../../shared/contract-shapes.ts").SkillCatalogRes;
+type SkillCatalogRes =
+  import("../../shared/contract-shapes.ts").SkillCatalogRes;
 
 setShim(() => {});
 afterAll(() => {
@@ -146,7 +147,9 @@ it("keeps the member's text and explains a stale save", async () => {
   });
   const cm = editor(view);
   await act(async () => {
-    cm.dispatch({ changes: { from: cm.state.doc.length, insert: "my edit\n" } });
+    cm.dispatch({
+      changes: { from: cm.state.doc.length, insert: "my edit\n" },
+    });
   });
   await act(async () => {
     (
@@ -290,9 +293,7 @@ it("drops a save answer that lands after the member opened another skill", async
     release();
     await new Promise((r) => setTimeout(r, 20));
   });
-  const detail = view.container.querySelector(
-    '[data-skill-detail="grill-me"]',
-  );
+  const detail = view.container.querySelector('[data-skill-detail="grill-me"]');
   expect(detail).not.toBe(null);
   expect(detail?.querySelector("[data-skill-path]")?.textContent).toBe(
     BUILTIN_PATH,

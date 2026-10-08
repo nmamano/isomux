@@ -12,11 +12,11 @@ Safe example: `GET /api/skills`.
 
 ## Route contract
 
-| Method and route        | Request                                           | Success                                  |
-| ----------------------- | ------------------------------------------------- | ---------------------------------------- |
-| `GET /api/skills`       | None                                              | `{engines:[{engine,skills}],newSkillDir}` |
-| `GET /api/skills/file`  | Query `path`                                      | `{path,content,rev,mtime,editable}`      |
-| `PUT /api/skills/file`  | `{path,content,expectedRev}`                      | `{path,rev,mtime}`                       |
-| `POST /api/skills`      | `{name,description,instructions?}`                | `201 {path,content,rev,mtime,editable}`  |
+| Method and route       | Request                            | Success                                   |
+| ---------------------- | ---------------------------------- | ----------------------------------------- |
+| `GET /api/skills`      | None                               | `{engines:[{engine,skills}],newSkillDir}` |
+| `GET /api/skills/file` | Query `path`                       | `{path,content,rev,mtime,editable}`       |
+| `PUT /api/skills/file` | `{path,content,expectedRev}`       | `{path,rev,mtime}`                        |
+| `POST /api/skills`     | `{name,description,instructions?}` | `201 {path,content,rev,mtime,editable}`   |
 
 A path the catalog does not list returns 404 `skill_not_found`; a save to a read-only skill returns 403 `read_only`. A save whose `expectedRev` is older than the file on disk returns 409 `stale` with `currentRev`: read the file again, merge, and save. A file deleted on disk drops out of the catalog, so its save returns 404 `skill_not_found`; 409 `deleted` comes only when it goes during the save. A name that is not 1-64 lowercase letters, digits and single hyphens returns 422 `invalid_name`; a description that is empty, longer than 1024 characters or more than one line returns 422 `invalid_description`. An existing skill folder returns 409 `skill_exists`. A file over 1 MB returns 413.

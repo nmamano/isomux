@@ -2478,12 +2478,17 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "preAuth.claim.errorName":
     "Please pick a display name (letters, numbers, spaces, periods, hyphens, apostrophes, or underscores).",
   "preAuth.claim.keyLabel": "Setup key",
-  "preAuth.claim.keyFromFile": "The server printed a link with this key when it started. The key is also in {path} on the server.",
-  "preAuth.claim.keyFromEnv": "Use the value of {name} from this office's deployment settings.",
-  "preAuth.claim.keyFromRender": "Render made it at deploy time. Find {name} in the service's Environment settings.",
-  "preAuth.claim.keyFromContainer": "Use the value of {name} set for this container. With the AWS Compose setup, it is in {file}.",
+  "preAuth.claim.keyFromFile":
+    "The server printed a link with this key when it started. The key is also in {path} on the server.",
+  "preAuth.claim.keyFromEnv":
+    "Use the value of {name} from this office's deployment settings.",
+  "preAuth.claim.keyFromRender":
+    "Render made it at deploy time. Find {name} in the service's Environment settings.",
+  "preAuth.claim.keyFromContainer":
+    "Use the value of {name} set for this container. With the AWS Compose setup, it is in {file}.",
   "preAuth.claim.errorKey": "The setup key is missing or wrong.",
-  "preAuth.claim.errorTooManyTries": "Too many wrong setup keys. Try again in a minute.",
+  "preAuth.claim.errorTooManyTries":
+    "Too many wrong setup keys. Try again in a minute.",
   "preAuth.invite.titleAccept": "accept invite",
   "preAuth.invite.bootstrapIntro":
     "You're the first person to claim this office. Pick a display name - it'll appear next to anything you say.",
@@ -2619,7 +2624,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "skills.uses.other": "{count} uses",
   "skills.noDescription": "No description.",
   "skills.notUsed": "Does not run",
-  "skills.shadowed": "Does not run on {engine}. A skill with the same name comes first:",
+  "skills.shadowed":
+    "Does not run on {engine}. A skill with the same name comes first:",
   "skills.field.file": "File",
   "skills.field.project": "Project",
   "skills.field.alias": "Also runs as",
@@ -2631,17 +2637,22 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "skills.backToList": "All skills",
   "skills.loadFailed": "Could not load the skills.",
   "skills.readFailed": "Could not read this skill.",
-  "skills.saveStale": "Not saved: the file changed on disk after you opened it. Copy your edit, then reload.",
+  "skills.saveStale":
+    "Not saved: the file changed on disk after you opened it. Copy your edit, then reload.",
   "skills.saveDeleted": "Not saved: the file was deleted on disk.",
   "skills.reload": "Reload",
   "skills.create.title": "New skill",
   "skills.create.nameHint": "Lowercase letters, digits and hyphens.",
-  "skills.create.invalidName": "Use lowercase letters, digits and single hyphens, up to 64 characters.",
+  "skills.create.invalidName":
+    "Use lowercase letters, digits and single hyphens, up to 64 characters.",
   "skills.create.description": "Description",
-  "skills.create.descriptionHint": "One line. Agents read it to decide when to use the skill.",
-  "skills.create.invalidDescription": "Write the description on one line, up to 1024 characters.",
+  "skills.create.descriptionHint":
+    "One line. Agents read it to decide when to use the skill.",
+  "skills.create.invalidDescription":
+    "Write the description on one line, up to 1024 characters.",
   "skills.create.instructions": "Instructions",
-  "skills.create.instructionsPlaceholder": "What the agent does when someone runs this skill.",
+  "skills.create.instructionsPlaceholder":
+    "What the agent does when someone runs this skill.",
   "skills.create.where": "Saved as {path}",
   "skills.create.exists": "A skill with this name exists.",
   "skills.create.failed": "Could not create the skill.",

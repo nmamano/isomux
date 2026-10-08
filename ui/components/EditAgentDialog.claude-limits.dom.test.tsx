@@ -113,7 +113,10 @@ describe("model picker labels", () => {
   it("reads the edited agent's models, not the viewer's", async () => {
     shimRequests();
     const { view } = renderEdit(
-      { ...claudeAgent("opus", "auto", CLOUD), claudeFamilyModels: cloudModels },
+      {
+        ...claudeAgent("opus", "auto", CLOUD),
+        claudeFamilyModels: cloudModels,
+      },
       [],
     );
     try {

@@ -218,9 +218,7 @@ it("select takes exactly one string value or label, and dialog accepts only on i
     { value: "x".repeat(10_001) },
   ])
     expect(select(extra).ok).toBe(false);
-  expect(parseBrowserParams({ action: "select", value: "300" }).ok).toBe(
-    false,
-  );
+  expect(parseBrowserParams({ action: "select", value: "300" }).ok).toBe(false);
   expect(select({ value: "300", framePath: [0] })).toMatchObject({
     ok: true,
     framePath: [0],

@@ -181,9 +181,15 @@ export function parseBrowserParams(
 
   if (body.framePath !== undefined) {
     if (
-      !["click", "fill", "select", "press", "upload", "snapshot", "text"].includes(
-        action,
-      ) ||
+      ![
+        "click",
+        "fill",
+        "select",
+        "press",
+        "upload",
+        "snapshot",
+        "text",
+      ].includes(action) ||
       !Array.isArray(body.framePath) ||
       body.framePath.length > MAX_FRAME_DEPTH ||
       body.framePath.some(
@@ -247,9 +253,7 @@ export function parseBrowserParams(
       (field) => body[field] !== undefined,
     );
     if (fields.length !== 1 || typeof body[fields[0]] !== "string")
-      return invalid(
-        "select needs exactly one of value or label, as a string",
-      );
+      return invalid("select needs exactly one of value or label, as a string");
     const option = body[fields[0]] as string;
     if (option.length > MAX_FILL_LEN)
       return invalid(`${fields[0]} too long (max ${MAX_FILL_LEN} chars)`);

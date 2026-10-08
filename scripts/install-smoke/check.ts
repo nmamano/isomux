@@ -60,10 +60,15 @@ export class StepFailure extends Error {
 // nothing else from the agent. A retry line, a raw provider error or any
 // other system line is the failure task 737e8c0f describes. Returns the
 // reason for a failure, or null.
-export function judgeSignedOut(engine: Engine, entries: Entry[]): string | null {
+export function judgeSignedOut(
+  engine: Engine,
+  entries: Entry[],
+): string | null {
   const isNotice = (e: Entry) =>
     e.kind === "system" && e.metadata?.providerLogin === engine;
-  const extra = entries.filter((e) => e.kind !== "user_message" && !isNotice(e));
+  const extra = entries.filter(
+    (e) => e.kind !== "user_message" && !isNotice(e),
+  );
   const lines = extra.map((e) => `${e.kind}: ${e.content.slice(0, 200)}`);
   if (!entries.some(isNotice))
     return `no sign-in notice; the chat showed ${lines.length ? lines.join(" | ") : "nothing"}`;
@@ -113,7 +118,10 @@ export class OfficeSocket {
     try {
       await new Promise<void>((resolve, reject) => {
         timer = setTimeout(
-          () => reject(new Error(`${url} did not open within ${timeoutMs / 1000}s`)),
+          () =>
+            reject(
+              new Error(`${url} did not open within ${timeoutMs / 1000}s`),
+            ),
           timeoutMs,
         );
         socket.addEventListener("open", () => resolve(), { once: true });
@@ -166,7 +174,12 @@ export class OfficeSocket {
         else if (this.closed) finish(new Error(this.closed));
       };
       const timer = setTimeout(
-        () => finish(new Error(`timed out after ${timeoutMs / 1000}s waiting for ${what}`)),
+        () =>
+          finish(
+            new Error(
+              `timed out after ${timeoutMs / 1000}s waiting for ${what}`,
+            ),
+          ),
         timeoutMs,
       );
       const finish = (error?: Error) => {
@@ -226,7 +239,9 @@ async function poll(
       last = error instanceof Error ? error.message : String(error);
     }
     if (Date.now() > deadline)
-      throw new Error(`${url} did not answer within ${timeoutMs / 1000}s (last: ${last})`);
+      throw new Error(
+        `${url} did not answer within ${timeoutMs / 1000}s (last: ${last})`,
+      );
     await Bun.sleep(250);
   }
 }
@@ -239,15 +254,21 @@ async function checkTerminal(office: OfficeSocket, agent: Agent) {
   const mark = office.frameCount;
   const own = (m: ServerMessage) => m.agentId === agent.id;
   office.send({ type: "terminal_open", agentId: agent.id });
-  const exit = () => office.framesSince(mark).find((m) => own(m) && m.type === "terminal_exit");
+  const exit = () =>
+    office.framesSince(mark).find((m) => own(m) && m.type === "terminal_exit");
   await office.until(
     () =>
       !!exit() ||
-      office.framesSince(mark).some((m) => own(m) && m.type === "terminal_status" && m.shell === true),
+      office
+        .framesSince(mark)
+        .some(
+          (m) => own(m) && m.type === "terminal_status" && m.shell === true,
+        ),
     30_000,
     "the terminal shell",
   );
-  if (exit()) throw new Error(`the terminal exited with code ${exit()!.exitCode}`);
+  if (exit())
+    throw new Error(`the terminal exited with code ${exit()!.exitCode}`);
   // The joined marker appears only in the command's output, not its echo.
   office.send({
     type: "terminal_input",
@@ -263,9 +284,15 @@ async function checkTerminal(office: OfficeSocket, agent: Agent) {
         .join(""),
     );
   await office
-    .until(() => output().includes("isomux-smoke-terminal-ok"), 30_000, "the terminal command output")
+    .until(
+      () => output().includes("isomux-smoke-terminal-ok"),
+      30_000,
+      "the terminal command output",
+    )
     .catch((error: Error) => {
-      throw new Error(`${error.message}; the terminal showed: ${JSON.stringify(output().slice(-500))}`);
+      throw new Error(
+        `${error.message}; the terminal showed: ${JSON.stringify(output().slice(-500))}`,
+      );
     });
   office.send({ type: "terminal_close", agentId: agent.id });
 }
@@ -283,21 +310,39 @@ export async function sendMessage(
     `${base}/api/agents/${agentId}/messages`,
     {
       method: "POST",
-      headers: { Cookie: cookie, Origin: origin, "Content-Type": "application/json" },
+      headers: {
+        Cookie: cookie,
+        Origin: origin,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ text }),
     },
     "the send",
     timeoutMs,
   );
   if (!response.ok)
-    throw new Error(`the send answered HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
+    throw new Error(
+      `the send answered HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`,
+    );
 }
 
 // The office's own record of a running turn (GET /agents, inFlightTurn).
-async function turnLive(base: string, cookie: string, agentId: string): Promise<boolean> {
-  const response = await request(`${base}/agents`, { headers: { Cookie: cookie } }, "GET /agents");
-  if (!response.ok) throw new Error(`GET /agents answered HTTP ${response.status}`);
-  const agents = (await response.json()) as { id: string; inFlightTurn?: unknown }[];
+async function turnLive(
+  base: string,
+  cookie: string,
+  agentId: string,
+): Promise<boolean> {
+  const response = await request(
+    `${base}/agents`,
+    { headers: { Cookie: cookie } },
+    "GET /agents",
+  );
+  if (!response.ok)
+    throw new Error(`GET /agents answered HTTP ${response.status}`);
+  const agents = (await response.json()) as {
+    id: string;
+    inFlightTurn?: unknown;
+  }[];
   const agent = agents.find((a) => a.id === agentId);
   if (!agent) throw new Error(`GET /agents does not list ${agentId}`);
   return agent.inFlightTurn != null;
@@ -322,7 +367,9 @@ async function settleTurn(
   await office.until(seen, timeoutMs, what);
   while (await turnLive(base, cookie, agent.id)) {
     if (Date.now() > deadline)
-      throw new Error(`timed out after ${timeoutMs / 1000}s waiting for the ${agent.name} turn to end`);
+      throw new Error(
+        `timed out after ${timeoutMs / 1000}s waiting for the ${agent.name} turn to end`,
+      );
     await Bun.sleep(250);
   }
   await office.flush();
@@ -337,7 +384,8 @@ async function checkSignedOut(
 ) {
   const agent = agentOf(office, engine)!;
   const mark = office.entries.length;
-  const own = () => office.entries.slice(mark).filter((e) => e.agentId === agent.id);
+  const own = () =>
+    office.entries.slice(mark).filter((e) => e.agentId === agent.id);
   await sendMessage(base, origin, cookie, agent.id, "Hello");
   await settleTurn(
     office,
@@ -346,11 +394,15 @@ async function checkSignedOut(
     agent,
     () =>
       own().some((e) => e.kind === "user_message") &&
-      own().some((e) => e.kind === "system" && e.metadata?.providerLogin === engine),
+      own().some(
+        (e) => e.kind === "system" && e.metadata?.providerLogin === engine,
+      ),
     120_000,
     `the ${agent.name} sign-in notice`,
   ).catch((error: Error) => {
-    throw new Error(`${error.message}; ${judgeSignedOut(engine, own()) ?? "the notice arrived"}`);
+    throw new Error(
+      `${error.message}; ${judgeSignedOut(engine, own()) ?? "the notice arrived"}`,
+    );
   });
   const failure = judgeSignedOut(engine, own());
   if (failure) throw new Error(failure);
@@ -377,11 +429,23 @@ function freeAgentOf(office: OfficeSocket): Agent | undefined {
   );
 }
 
-async function checkFreeAgent(office: OfficeSocket, base: string, origin: string, cookie: string) {
+async function checkFreeAgent(
+  office: OfficeSocket,
+  base: string,
+  origin: string,
+  cookie: string,
+) {
   const agent = freeAgentOf(office)!;
   const mark = office.entries.length;
-  const own = () => office.entries.slice(mark).filter((e) => e.agentId === agent.id);
-  await sendMessage(base, origin, cookie, agent.id, "Reply with one word: ready");
+  const own = () =>
+    office.entries.slice(mark).filter((e) => e.agentId === agent.id);
+  await sendMessage(
+    base,
+    origin,
+    cookie,
+    agent.id,
+    "Reply with one word: ready",
+  );
   await settleTurn(
     office,
     base,
@@ -393,7 +457,9 @@ async function checkFreeAgent(office: OfficeSocket, base: string, origin: string
     240_000,
     `an answer from ${agent.name}`,
   ).catch((error: Error) => {
-    throw new Error(`${error.message}; ${judgeAnswer(own()) ?? "an answer arrived"}`);
+    throw new Error(
+      `${error.message}; ${judgeAnswer(own()) ?? "an answer arrived"}`,
+    );
   });
   const failure = judgeAnswer(own());
   if (failure) throw new Error(failure);
@@ -436,32 +502,51 @@ async function main() {
   // installer its invite link while the client waits for the start.
   const claimMethod = async (): Promise<ClaimMethod> => {
     if (kind === "setup-key")
-      return { kind, name, key: readFileSync(values["setup-key-file"]!, "utf8").trim() };
+      return {
+        kind,
+        name,
+        key: readFileSync(values["setup-key-file"]!, "utf8").trim(),
+      };
     if (kind === "invite")
       return { kind, url: readFileSync(values["invite-file"]!, "utf8").trim() };
     return { kind, name, url: await printedSetupLink(values["office-log"]!) };
   };
   const weekly = values["free-agent"] === true;
-  const set = weekly ? "weekly set (with the Free Welcome Agent answer)" : "release set";
+  const set = weekly
+    ? "weekly set (with the Free Welcome Agent answer)"
+    : "release set";
   console.log(`[smoke:${path}] checks: ${set}`);
   const started = Date.now();
   const step = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
     const at = Date.now();
     try {
       const result = await run();
-      console.log(`[smoke:${path}] PASS ${label} (${((Date.now() - at) / 1000).toFixed(1)}s)`);
+      console.log(
+        `[smoke:${path}] PASS ${label} (${((Date.now() - at) / 1000).toFixed(1)}s)`,
+      );
       return result;
     } catch (error) {
-      throw new StepFailure(label, error instanceof Error ? error.message : String(error));
+      throw new StepFailure(
+        label,
+        error instanceof Error ? error.message : String(error),
+      );
     }
   };
 
   let office: OfficeSocket | undefined;
   try {
-    await step("start", () => poll(`${base}${preClaimProbe(kind)}`, (s) => s === 200, 180_000));
-    const cookie = await step("claim", async () => claimOwner(base, origin, await claimMethod()));
-    await step("readyz", () => poll(`${base}/readyz`, (s) => s === 200, 60_000));
-    office = await step("websocket", () => OfficeSocket.open(base, origin, cookie));
+    await step("start", () =>
+      poll(`${base}${preClaimProbe(kind)}`, (s) => s === 200, 180_000),
+    );
+    const cookie = await step("claim", async () =>
+      claimOwner(base, origin, await claimMethod()),
+    );
+    await step("readyz", () =>
+      poll(`${base}/readyz`, (s) => s === 200, 60_000),
+    );
+    office = await step("websocket", () =>
+      OfficeSocket.open(base, origin, cookie),
+    );
     const socket = office;
     await step("agents", () =>
       socket.until(
@@ -469,22 +554,37 @@ async function main() {
           SIGNED_OUT_ENGINES.every((engine) => agentOf(socket, engine)) &&
           (!weekly || !!freeAgentOf(socket)),
         120_000,
-        weekly ? "the Claude, Codex and Free Welcome Agents" : "the Claude and Codex welcome agents",
+        weekly
+          ? "the Claude, Codex and Free Welcome Agents"
+          : "the Claude and Codex welcome agents",
       ),
     );
-    await step("terminal", () => checkTerminal(socket, agentOf(socket, "claude")!));
+    await step("terminal", () =>
+      checkTerminal(socket, agentOf(socket, "claude")!),
+    );
     for (const engine of SIGNED_OUT_ENGINES)
-      await step(`signed-out-${engine}`, () => checkSignedOut(socket, base, origin, cookie, engine));
-    if (weekly) await step("free-agent", () => checkFreeAgent(socket, base, origin, cookie));
+      await step(`signed-out-${engine}`, () =>
+        checkSignedOut(socket, base, origin, cookie, engine),
+      );
+    if (weekly)
+      await step("free-agent", () =>
+        checkFreeAgent(socket, base, origin, cookie),
+      );
   } catch (error) {
     const failure =
-      error instanceof StepFailure ? error : new StepFailure("unknown", String(error));
-    console.error(`[smoke:${path}] FAIL at step ${failure.step}: ${failure.message}`);
+      error instanceof StepFailure
+        ? error
+        : new StepFailure("unknown", String(error));
+    console.error(
+      `[smoke:${path}] FAIL at step ${failure.step}: ${failure.message}`,
+    );
     process.exit(1);
   } finally {
     office?.close();
   }
-  console.log(`[smoke:${path}] all checks of the ${set} passed in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  console.log(
+    `[smoke:${path}] all checks of the ${set} passed in ${((Date.now() - started) / 1000).toFixed(1)}s`,
+  );
   process.exit(0);
 }
 

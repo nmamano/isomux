@@ -366,7 +366,8 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
         setSaveProblem("deleted");
       else
         setSaveProblem({
-          message: err instanceof ApiError ? err.message : t("common.saveFailed"),
+          message:
+            err instanceof ApiError ? err.message : t("common.saveFailed"),
         });
     } finally {
       setSaving(false);
@@ -1412,7 +1413,10 @@ function NewSkillDialog({
             )}
           </div>
           {error && (
-            <div role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
+            <div
+              role="alert"
+              style={{ color: "var(--red-text)", fontSize: 12 }}
+            >
               {t(error)}
             </div>
           )}

@@ -161,9 +161,9 @@ test("a wrong code or credential closes its socket and leaves the member's pairi
       expect(guesser.messages.map((m) => m.kind)).toEqual(["refused"]);
     }
     expect(pairing.closed()).toBe(false);
-    expect(service.bridge.forCredentialHash(pairing.ws.data.credentialHash!)).toBe(
-      live,
-    );
+    expect(
+      service.bridge.forCredentialHash(pairing.ws.data.credentialHash!),
+    ).toBe(live);
     const second = socket();
     service.message(second.ws, hello({ code: pending.code }));
     expect(second.ws.data.connection).toBeDefined();

@@ -7,7 +7,13 @@
 // three catalogs (Reviewer 4's office-root probe).
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createProductionAgentManager } from "../agent-manager.ts";
@@ -51,12 +57,10 @@ describe("skills page and the office Claude root", () => {
         {},
         mgr.newSkillDir(),
         "/home",
-      ).engines.map(
-        (e): [string, boolean] => [
-          e.engine,
-          e.skills.some((s) => s.name === name),
-        ],
-      );
+      ).engines.map((e): [string, boolean] => [
+        e.engine,
+        e.skills.some((s) => s.name === name),
+      ]);
     const everywhere: [string, boolean][] = [
       ["claude", true],
       ["codex", true],
@@ -65,7 +69,8 @@ describe("skills page and the office Claude root", () => {
     expect(seen()).toEqual(everywhere);
 
     const previous = setPersonalProviderActiveProvider(
-      (userId, provider) => userId === "fixture-member" && provider === "claude",
+      (userId, provider) =>
+        userId === "fixture-member" && provider === "claude",
     );
     cleanup.push(() => setPersonalProviderActiveProvider(previous));
     expect(seen()).toEqual(everywhere);

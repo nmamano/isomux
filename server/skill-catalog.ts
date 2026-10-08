@@ -246,8 +246,7 @@ export type CreateSkillResult =
 // valid YAML double-quoted syntax.
 function frontmatterScalar(value: string): string {
   const unsafe =
-    /^[\s\-?:,[\]{}#&*!|>'"%@`]/.test(value) ||
-    /:\s|\s#|:$|\s$/.test(value);
+    /^[\s\-?:,[\]{}#&*!|>'"%@`]/.test(value) || /:\s|\s#|:$|\s$/.test(value);
   return unsafe ? JSON.stringify(value) : value;
 }
 

@@ -416,7 +416,10 @@ export class ExtensionBrowserSessions {
         case "click": {
           const options = {
             noWaitAfter: true,
-            timeout: Math.max(1, deadline - INPUT_RESERVE_MS - performance.now()),
+            timeout: Math.max(
+              1,
+              deadline - INPUT_RESERVE_MS - performance.now(),
+            ),
           };
           const inputs = session.transport.inputs;
           inputsAtClick = inputs;
@@ -454,7 +457,10 @@ export class ExtensionBrowserSessions {
           let enabled: boolean;
           try {
             enabled = await select.isEnabled({
-              timeout: Math.max(1, deadline - INPUT_RESERVE_MS - performance.now()),
+              timeout: Math.max(
+                1,
+                deadline - INPUT_RESERVE_MS - performance.now(),
+              ),
             });
           } catch (error) {
             if (error instanceof Error && error.name === "TimeoutError")
@@ -559,7 +565,10 @@ export class ExtensionBrowserSessions {
         await Promise.race([
           Promise.all(dialogs.answers),
           new Promise<void>((resolve) => {
-            wait = setTimeout(resolve, Math.max(0, deadline - performance.now()));
+            wait = setTimeout(
+              resolve,
+              Math.max(0, deadline - performance.now()),
+            );
           }),
         ]);
         clearTimeout(wait);
@@ -609,41 +618,43 @@ export class ExtensionBrowserSessions {
       return timeoutResult(busy);
     };
     const respond = async (): Promise<BrowserResult> => {
-     try {
-      const result = await Promise.race([
-        operation,
-        interrupted,
-        new Promise<BrowserResult>((resolve) => {
-          timer = setTimeout(() => {
-            timeoutWinner = "watchdog_timeout";
-            timedOut = true;
-            resolve(timeoutResult(true));
-          }, actionMs + SETTLEMENT_GRACE_MS);
-        }),
-      ]);
-      if (!result.ok && result.code === "action_timeout")
-        return await settleTimeout(timeoutWinner);
-      return result;
-    } catch (error) {
-      if (!valid()) return ended();
-      if (
-        (error instanceof Error && error.name === "TimeoutError") ||
-        connection.pendingTimedOut(grant)
-      )
-        return await settleTimeout("operation_timeout");
-      if (!session) transport?.close();
-      if (session && !session.browser.isConnected()) return ended();
-      if (error instanceof BrowserUploadError)
-        return {
-          ok: false,
-          status: 400,
-          code: "invalid_request",
-          error: error.message,
-        };
-      const syntax = params.selector ? selectorSyntaxFailure(error) : undefined;
-      if (syntax) return syntax;
-      return failure("action_failed", "The Chrome browser action failed");
-     }
+      try {
+        const result = await Promise.race([
+          operation,
+          interrupted,
+          new Promise<BrowserResult>((resolve) => {
+            timer = setTimeout(() => {
+              timeoutWinner = "watchdog_timeout";
+              timedOut = true;
+              resolve(timeoutResult(true));
+            }, actionMs + SETTLEMENT_GRACE_MS);
+          }),
+        ]);
+        if (!result.ok && result.code === "action_timeout")
+          return await settleTimeout(timeoutWinner);
+        return result;
+      } catch (error) {
+        if (!valid()) return ended();
+        if (
+          (error instanceof Error && error.name === "TimeoutError") ||
+          connection.pendingTimedOut(grant)
+        )
+          return await settleTimeout("operation_timeout");
+        if (!session) transport?.close();
+        if (session && !session.browser.isConnected()) return ended();
+        if (error instanceof BrowserUploadError)
+          return {
+            ok: false,
+            status: 400,
+            code: "invalid_request",
+            error: error.message,
+          };
+        const syntax = params.selector
+          ? selectorSyntaxFailure(error)
+          : undefined;
+        if (syntax) return syntax;
+        return failure("action_failed", "The Chrome browser action failed");
+      }
     };
     // A failure keeps the dialogs that its action opened.
     const withDialogs = (result: BrowserResult): BrowserResult =>

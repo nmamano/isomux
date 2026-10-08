@@ -524,7 +524,10 @@ describe("CodexSession sandbox in a container", () => {
       expect(fake.requests[0].params).toMatchObject({
         sandbox: "danger-full-access",
       });
-      expect(ev).toEqual({ kind: "system_text", text: "[codex stderr] marker" });
+      expect(ev).toEqual({
+        kind: "system_text",
+        text: "[codex stderr] marker",
+      });
     });
 
     it(`${method}: a working or unknown probe keeps the agent's mode`, async () => {

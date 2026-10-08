@@ -2,7 +2,13 @@
 // this run created it. Driven with PATH stubs for docker, k3d and kubectl, so
 // no image is built and no cluster is touched.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,7 +18,10 @@ let base: string;
 beforeEach(() => {
   base = mkdtempSync(join(tmpdir(), "isomux-smoke-run-"));
   const stub = (name: string, body: string) => {
-    writeFileSync(join(base, name), `#!/usr/bin/env bash\necho "${name} $*" >> "${base}/calls.log"\n${body}\n`);
+    writeFileSync(
+      join(base, name),
+      `#!/usr/bin/env bash\necho "${name} $*" >> "${base}/calls.log"\n${body}\n`,
+    );
     chmodSync(join(base, name), 0o755);
   };
   stub(
@@ -50,10 +59,18 @@ async function run(mode: string) {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const out = (await new Response(child.stdout).text()) + (await new Response(child.stderr).text());
+  const out =
+    (await new Response(child.stdout).text()) +
+    (await new Response(child.stderr).text());
   const code = await child.exited;
   const calls = readFileSync(join(base, "calls.log"), "utf8");
-  return { code, out, deletes: calls.split("\n").filter((l) => l.startsWith("k3d cluster delete")) };
+  return {
+    code,
+    out,
+    deletes: calls
+      .split("\n")
+      .filter((l) => l.startsWith("k3d cluster delete")),
+  };
 }
 
 describe("run.sh kubernetes cleanup", () => {

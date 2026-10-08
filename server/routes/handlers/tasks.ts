@@ -29,10 +29,7 @@ import {
 import type { Identity } from "../../identity/index.ts";
 import type { TaskItem } from "../../../shared/types.ts";
 import { isValidStatus, isValidPriority } from "../../../shared/types.ts";
-import {
-  inDefaultTaskList,
-  isClosedTask,
-} from "../../../shared/task-board.ts";
+import { inDefaultTaskList, isClosedTask } from "../../../shared/task-board.ts";
 import type {
   TaskCreateReq,
   TaskUpdateReq,

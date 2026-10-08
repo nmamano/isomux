@@ -119,7 +119,10 @@ describe("skills handlers", () => {
       kind: "json",
       body: { content: "body", rev: 7, editable: false },
     });
-    const other = await run(handlers["skills.readFile"], ctx("path=/etc/passwd"));
+    const other = await run(
+      handlers["skills.readFile"],
+      ctx("path=/etc/passwd"),
+    );
     expect(other).toMatchObject({ kind: "error", status: 404 });
   });
 
