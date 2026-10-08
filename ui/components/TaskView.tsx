@@ -188,7 +188,7 @@ function CheckboxFilter<T extends string>({
 }: {
   label: string;
   summary: string;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; count: number }[];
   checked: T[];
   onToggle: (value: T) => void;
   open: boolean;
@@ -295,7 +295,16 @@ function CheckboxFilter<T extends string>({
                 onChange={() => onToggle(o.value)}
                 style={{ margin: 0 }}
               />
-              {o.label}
+              <span style={{ flex: 1 }}>{o.label}</span>
+              <span
+                style={{
+                  marginLeft: 12,
+                  color: "var(--text-muted)",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {o.count}
+              </span>
             </label>
           ))}
         </div>
@@ -1210,7 +1219,9 @@ export function TaskView({
     return map;
   }, [agents]);
 
-  const filtered = useMemo(() => {
+  // Room, search and assignee narrow the list first. Each checkbox count is the
+  // number of those tasks it would show, given the other checkbox filter.
+  const base = useMemo(() => {
     let list = tasks;
     // Room view filter (client-side, on top of the server's access scoping):
     // "all" shows everything visible, "global" only office-global tasks, a room
@@ -1220,11 +1231,6 @@ export function TaskView({
     } else if (roomScope !== "all") {
       list = list.filter((t) => t.roomId === roomScope);
     }
-    list = list.filter(
-      (t) =>
-        filterStatuses.includes(t.status) &&
-        filterPriorities.includes(t.priority ?? "none"),
-    );
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -1238,6 +1244,33 @@ export function TaskView({
       const q = filterAssignee.toLowerCase();
       list = list.filter((t) => t.assignee?.toLowerCase().includes(q));
     }
+    return list;
+  }, [tasks, roomScope, search, filterAssignee]);
+
+  const statusCounts = useMemo(() => {
+    const counts = new Map<TaskStatus, number>();
+    for (const t of base)
+      if (filterPriorities.includes(t.priority ?? "none"))
+        counts.set(t.status, (counts.get(t.status) ?? 0) + 1);
+    return counts;
+  }, [base, filterPriorities]);
+
+  const priorityCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of base)
+      if (filterStatuses.includes(t.status)) {
+        const p = t.priority ?? "none";
+        counts.set(p, (counts.get(p) ?? 0) + 1);
+      }
+    return counts;
+  }, [base, filterStatuses]);
+
+  const filtered = useMemo(() => {
+    const list = base.filter(
+      (t) =>
+        filterStatuses.includes(t.status) &&
+        filterPriorities.includes(t.priority ?? "none"),
+    );
     const sorted = [...list].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
@@ -1266,16 +1299,7 @@ export function TaskView({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return sorted;
-  }, [
-    tasks,
-    roomScope,
-    filterStatuses,
-    filterPriorities,
-    search,
-    filterAssignee,
-    sortField,
-    sortDir,
-  ]);
+  }, [base, filterStatuses, filterPriorities, sortField, sortDir]);
 
   function renderName(name: string | undefined) {
     if (!name) return "";
@@ -1572,6 +1596,7 @@ export function TaskView({
                 options={FILTER_STATUSES.map((s) => ({
                   value: s,
                   label: t(STATUS_LABELS[s]),
+                  count: statusCounts.get(s) ?? 0,
                 }))}
                 checked={filterStatuses}
                 onToggle={(s) => setFilterStatuses((prev) => toggled(prev, s))}
@@ -1585,6 +1610,7 @@ export function TaskView({
                 options={FILTER_PRIORITIES.map((p) => ({
                   value: p,
                   label: p === "none" ? t("tasks.filterPriorityNone") : p,
+                  count: priorityCounts.get(p) ?? 0,
                 }))}
                 checked={filterPriorities}
                 onToggle={(p) =>

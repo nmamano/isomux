@@ -196,3 +196,52 @@ it("closes the list on Escape or an outside tap, and keeps the board open", asyn
   await openTaskFilter(c, "priority");
   expect(button.getAttribute("aria-expanded")).toBe("false");
 });
+
+// Each checkbox's count, read from its row: the tasks it would show, given the
+// other checkbox filter.
+async function filterCounts(
+  c: HTMLElement,
+  which: "status" | "priority",
+): Promise<Record<string, number>> {
+  await openTaskFilter(c, which);
+  const counts: Record<string, number> = {};
+  for (const box of c.querySelectorAll<HTMLInputElement>(
+    '[data-task-filter] input[type="checkbox"]',
+  ))
+    counts[box.value] = Number(
+      box.closest("label")!.lastElementChild!.textContent,
+    );
+  return counts;
+}
+
+it("counts each checkbox's tasks under the other filter", async () => {
+  const { c } = renderView();
+  expect(await filterCounts(c, "status")).toEqual({
+    open: 4,
+    in_progress: 1,
+    done: 2,
+  });
+  expect(await filterCounts(c, "priority")).toEqual({
+    P0: 1,
+    P1: 1,
+    P2: 1,
+    P3: 1,
+    P4: 2,
+    none: 1,
+  });
+  await toggleTaskFilter(c, "status", "done");
+  expect(await filterCounts(c, "priority")).toEqual({
+    P0: 1,
+    P1: 1,
+    P2: 1,
+    P3: 2,
+    P4: 3,
+    none: 2,
+  });
+  await toggleTaskFilter(c, "priority", "P4");
+  expect(await filterCounts(c, "status")).toEqual({
+    open: 5,
+    in_progress: 2,
+    done: 3,
+  });
+});
