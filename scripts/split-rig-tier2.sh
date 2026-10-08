@@ -31,7 +31,7 @@ docker cp ~/.isomux/codex-home/auth.json "$N:/var/data/home/.isomux/codex-home/a
 docker exec "$N" sh -c 'cd /var/data/home && chown node:node .claude/.credentials.json .isomux/codex-home/auth.json && chmod 600 .claude/.credentials.json .isomux/codex-home/auth.json'
 
 COOKIE=$(docker exec "$N" curl -s -i -X POST "$OFFICE/auth/claim" -H "Origin: http://localhost:10000" \
-  --data-urlencode "name=Tier2 Owner" | sed -n 's/^[Ss]et-[Cc]ookie: \(isomux_session=[^;]*\).*/\1/p')
+  --data-urlencode "name=Tier2 Owner" --data-urlencode key@/var/data/server/.isomux/setup-key | sed -n 's/^[Ss]et-[Cc]ookie: \(isomux_session=[^;]*\).*/\1/p')
 [[ -n "$COOKIE" ]] || { echo "claim failed" >&2; exit 1; }
 api() { # METHOD PATH JSON
   docker exec -i "$N" curl -s -X "$1" "$OFFICE$2" -H "Cookie: $COOKIE" \

@@ -7,7 +7,6 @@ import {
   acceptInvite,
   browserSessionDiagnostic,
   buildPublicOrigin,
-  isLoopbackOrigin,
   claimOwnership,
   clearCookieHeaders,
   emitBrowserSessionDiagnostic,
@@ -21,6 +20,15 @@ import {
   type InvitePeek,
   type SessionLookup,
 } from "./auth.ts";
+import type { ClaimErr } from "./auth.ts";
+import { readCappedBody } from "./app-thumbnails.ts";
+import {
+  activeSetupKeyMatches,
+  activeSetupKeySource,
+  recordSetupKeyFailure,
+  setupClaimBlocked,
+  setupKeyFile,
+} from "./setup-key.ts";
 import { getUserById, getUserByName, hasOwner } from "./users.ts";
 import { translatorForLanguage, translatorForRequest } from "./i18n.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
@@ -41,8 +49,8 @@ import { deriveAppHostDomain } from "./app-domain.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-// Fires after the office gets its first owner - either through the tokenless
-// claim form (handleClaim → claimOwnership) or the legacy bootstrap-invite
+// Fires after the office gets its first owner - either through the setup
+// form (handleClaim → claimOwnership) or the legacy bootstrap-invite
 // accept path (handleAccept where isBootstrap is true). Awaited best-effort
 // after the session has persisted but before the redirect response is
 // returned; the hook MUST NOT roll auth state back on its own failure, and
@@ -677,17 +685,27 @@ export async function tryHandleAuthRoute(
   req: Request,
   url: URL,
   officeName: string | null,
-  onBox: boolean,
+  where: { onBox: boolean; client: string },
 ): Promise<Response | null> {
-  // Pre-claim tokenless flow. The server binds 127.0.0.1 pre-claim, so this
-  // surface is unreachable from off-box; we still layer a strict same-origin
-  // + on-box check on the POST as defense-in-depth in case the bind is
-  // widened by operator override or a proxy forwards to it.
-  if (req.method === "GET" && url.pathname === "/" && !hasOwner()) {
-    return handleClaimForm(translatorForVisitor(req, onBox), officeName);
+  const { onBox } = where;
+  // Pre-claim setup flow: the form at GET / and at the printed setup link
+  // (GET /setup#key=...), and the claim, which needs the setup key.
+  if (
+    req.method === "GET" &&
+    (url.pathname === "/" || url.pathname === "/setup") &&
+    !hasOwner()
+  ) {
+    return renderSetupPage(translatorForVisitor(req, onBox), {
+      officeName,
+      keyHelp: officeSetupKeyHelp(),
+    });
+  }
+  // A setup link opened after the claim lands on the office.
+  if (req.method === "GET" && url.pathname === "/setup") {
+    return new Response(null, { status: 302, headers: { Location: "/" } });
   }
   if (req.method === "POST" && url.pathname === "/auth/claim") {
-    return handleClaim(req, onBox, officeName);
+    return handleClaim(req, where, officeName);
   }
   // GET /i/<token> - peek + render accept page (NEVER consumes).
   if (req.method === "GET" && url.pathname.startsWith("/i/")) {
@@ -717,76 +735,122 @@ export async function tryHandleAuthRoute(
   return null;
 }
 
-// GET / when !hasOwner(): render the tokenless name-picker form. Routes
-// here BEFORE the cookie gate, since pre-claim there's no cookie surface
-// yet. After claim, hasOwner() flips and this branch goes dead; the SPA
-// shell + login page resume normal dispatch.
-//
-// The claim page uses `tokenInUrl: false` so `Referrer-Policy: no-referrer`
-// is omitted: there's no token in the URL to leak, and Chrome's coupling
-// between that header and `Origin: null` on top-level form POSTs would
-// otherwise make the form's strict same-origin check reject the real
-// browser submit with 403.
-function handleClaimForm(
-  i18n: Translator,
-  officeName: string | null,
-): Response {
-  return new Response(renderClaimPage(i18n, null, officeName), {
-    status: 200,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      ...securityHeaders({ tokenInUrl: false }),
-    },
-  });
+// Where the setup page tells the visitor to find the setup key.
+//   file: the key this office made (server/setup-key.ts);
+//   configured: ISOMUX_SETUP_KEY from the deployment's settings;
+//   render, container: the container setup page (deploy/container/bootstrap.ts).
+export type SetupKeyHelp = "file" | "configured" | "render" | "container";
+
+function officeSetupKeyHelp(): SetupKeyHelp {
+  return activeSetupKeySource() === "configured" ? "configured" : "file";
 }
 
-// POST /auth/claim - consume the tokenless form, create the owner record,
-// set the cookie. Locality is enforced at multiple layers:
-//   1. The server bind (127.0.0.1 pre-claim) keeps off-box clients off the
-//      TCP socket entirely;
-//   2. onBox (server/proxy-trust.ts) rejects non-loopback peers if the bind
-//      has been widened by operator override, and rejects requests that
-//      carry a forwarding header, which a same-host proxy such as Caddy
-//      always adds;
-//   3. A strict same-origin check rejects ordinary browser POSTs from
-//      pages on other origins (CSRF defense).
-//
-// A same-host proxy or tunnel that adds no forwarding header (socat,
-// `ssh -R`) is still indistinguishable from a real local browser, and curl
-// can forge the loopback Origin through it. The documented mitigation for
-// that setup is operator discipline (claim first, expose later - see
-// docs/security-audit.md "Bootstrap-window exposure").
-async function handleClaim(
-  req: Request,
-  onBox: boolean,
-  officeName: string | null,
-): Promise<Response> {
-  if (!onBox) {
-    return new Response("forbidden", { status: 403 });
-  }
-  const origin = req.headers.get("origin");
-  if (!origin || !isLoopbackOrigin(origin)) {
-    return new Response("bad origin", { status: 403 });
-  }
-  const form = await req.formData().catch(() => null);
-  const nameField = form?.get("name");
-  const name = typeof nameField === "string" ? nameField : "";
-  const ua = req.headers.get("user-agent");
-  const result = await claimOwnership(name, { userAgent: ua });
-  if (!result.ok) {
-    const i18n = translatorForVisitor(req, onBox);
-    const errorMsg =
-      result.error === "owner_exists"
-        ? i18n.t("preAuth.claim.errorOwnerExists")
-        : i18n.t("preAuth.claim.errorName");
-    return new Response(renderClaimPage(i18n, errorMsg, officeName), {
-      status: 400,
+// The setup form: name and setup key. Served at GET / and GET /setup before
+// the claim, here and on the container setup page. The page has no token in
+// its URL (`tokenInUrl: false`): the key rides in the URL fragment, which no
+// request line or referrer carries.
+export function renderSetupPage(
+  i18n: Translator,
+  opts: { officeName: string | null; keyHelp: SetupKeyHelp },
+  error: { status: number; message: string } | null = null,
+): Response {
+  return new Response(
+    renderClaimPage(i18n, error?.message ?? null, opts.officeName, opts.keyHelp),
+    {
+      status: error?.status ?? 200,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         ...securityHeaders({ tokenInUrl: false }),
       },
-    });
+    },
+  );
+}
+
+const MAX_SETUP_FORM_BYTES = 4096;
+
+// The one setup-key claim. The office's POST /auth/claim and the container
+// setup page both run it. Returns the claim result, or the response to send.
+// Wrong keys and oversized forms count against the client's attempts
+// (server/setup-key.ts).
+//
+// There is no Origin or locality check. The key is the authorization: 256
+// bits from the server, or at least 32 characters configured, compared in
+// constant time. A cross-site page cannot forge a claim without the key, so an
+// Origin check adds no protection, and a loopback check would only block the
+// printed link through a tunnel or a proxy.
+export async function claimWithSetupKey<T extends { ok: true }>(
+  req: Request,
+  opts: {
+    client: string;
+    i18n: Translator;
+    officeName: string | null;
+    keyHelp: SetupKeyHelp;
+    keyMatches: (key: string) => boolean;
+    claim: (name: string, userAgent: string | null) => Promise<T | ClaimErr>;
+  },
+): Promise<T | Response> {
+  const { t } = opts.i18n;
+  const page = (status: number, message: string) =>
+    renderSetupPage(opts.i18n, opts, { status, message });
+  const now = Date.now();
+  if (setupClaimBlocked(opts.client, now))
+    return page(429, t("preAuth.claim.errorTooManyTries"));
+  if (
+    !req.headers
+      .get("content-type")
+      ?.startsWith("application/x-www-form-urlencoded")
+  )
+    return new Response("Unsupported form", { status: 415 });
+  // The office listener accepts large uploads, so stop reading at the cap.
+  const body = await readCappedBody(req, MAX_SETUP_FORM_BYTES);
+  if (!body.ok) {
+    recordSetupKeyFailure(opts.client, now);
+    return new Response("Form too large", { status: 413 });
   }
+  const form = new URLSearchParams(new TextDecoder().decode(body.bytes));
+  if (!opts.keyMatches(form.get("key") ?? "")) {
+    recordSetupKeyFailure(opts.client, now);
+    return page(403, t("preAuth.claim.errorKey"));
+  }
+  const result = await opts.claim(
+    form.get("name") ?? "",
+    req.headers.get("user-agent"),
+  );
+  if (!result.ok)
+    return page(
+      400,
+      result.error === "owner_exists"
+        ? t("preAuth.claim.errorOwnerExists")
+        : t("preAuth.claim.errorName"),
+    );
+  return result;
+}
+
+// POST /auth/claim - create the owner record and set the cookie. The setup
+// key is the gate (claimWithSetupKey), so the printed link also works through
+// a tunnel or a proxy.
+async function handleClaim(
+  req: Request,
+  where: { onBox: boolean; client: string },
+  officeName: string | null,
+): Promise<Response> {
+  const i18n = translatorForVisitor(req, where.onBox);
+  const keyHelp = officeSetupKeyHelp();
+  if (hasOwner())
+    return renderSetupPage(
+      i18n,
+      { officeName, keyHelp },
+      { status: 400, message: i18n.t("preAuth.claim.errorOwnerExists") },
+    );
+  const result = await claimWithSetupKey(req, {
+    client: where.client,
+    i18n,
+    officeName,
+    keyHelp,
+    keyMatches: activeSetupKeyMatches,
+    claim: (name, userAgent) => claimOwnership(name, { userAgent }),
+  });
+  if (result instanceof Response) return result;
   if (onOwnerCreated) {
     // Best-effort, same contract as the bootstrap-invite path: hook
     // failure must not roll the claim back. Runs after the session has
@@ -879,14 +943,37 @@ function renderLoginPage(i18n: Translator, officeName: string | null): string {
   );
 }
 
-// Tokenless first-time-setup form for the pre-claim flow. Shape mirrors
-// renderAcceptPage's bootstrap branch (same display-name constraints, same
-// "form must be submitted to take effect" anti-preview property) but without
-// a token field since locality is the gate.
+// First-time-setup form. Shape mirrors renderAcceptPage's bootstrap branch
+// (same display-name constraints, same "form must be submitted to take
+// effect" anti-preview property), plus the setup key, which a script fills
+// from the URL fragment of the printed setup link and then drops from the
+// address bar.
+const SETUP_KEY_SCRIPT = `const m=/^#key=(.+)$/.exec(location.hash);if(m){document.querySelector('input[name="key"]').value=decodeURIComponent(m[1]);history.replaceState(null,"",location.pathname)}`;
+
+function setupKeyHelpHtml(t: Translator["t"], help: SetupKeyHelp): string {
+  const name = "<code>ISOMUX_SETUP_KEY</code>";
+  switch (help) {
+    case "file":
+      return t("preAuth.claim.keyFromFile", {
+        path: `<code>${escapeHtml(setupKeyFile())}</code>`,
+      });
+    case "configured":
+      return t("preAuth.claim.keyFromEnv", { name });
+    case "render":
+      return t("preAuth.claim.keyFromRender", { name });
+    case "container":
+      return t("preAuth.claim.keyFromContainer", {
+        name,
+        file: "<code>office.env</code>",
+      });
+  }
+}
+
 function renderClaimPage(
   i18n: Translator,
   errorMsg: string | null,
   officeName: string | null,
+  keyHelp: SetupKeyHelp,
 ): string {
   const { t } = i18n;
   const err = errorMsg ? `<p class="err">${escapeHtml(errorMsg)}</p>` : "";
@@ -906,10 +993,13 @@ function renderClaimPage(
       <p>${t("preAuth.claim.intro")}</p>
       <form method="POST" action="/auth/claim">
         <label>${t("common.displayName")} <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
+        <label>${t("preAuth.claim.keyLabel")} <input name="key" type="password" required autocomplete="off" /></label>
+        <p class="muted">${setupKeyHelpHtml(t, keyHelp)}</p>
         ${err}
         <button type="submit">${t("common.continue")}</button>
       </form>
     </main>
+    <script>${SETUP_KEY_SCRIPT}</script>
     `,
     og,
     PREAUTH_EXTRA_CSS,
@@ -1159,7 +1249,7 @@ function baseHtml(
   p { margin: 0.5em 0; }
   form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
   label { display: flex; flex-direction: column; gap: 6px; }
-  input[type=text], select { padding: 8px; font-size: 1rem; border: 1px solid #888; border-radius: 4px; }
+  input[type=text], input[type=password], select { padding: 8px; font-size: 1rem; border: 1px solid #888; border-radius: 4px; }
   button { padding: 8px 16px; font-size: 1rem; border-radius: 4px; cursor: pointer; }
   .err { color: #c33; }
 ${extraCss}

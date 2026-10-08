@@ -57,14 +57,14 @@ afterEach(async () => {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Real tokenless owner claim over HTTP. Returns the minted session cookie. The
-// claim AWAITS onOwnerCreated, so by the time this resolves both welcome agents
-// are already spawned into officeState.
+// Real owner claim with the setup key over HTTP. Returns the minted session
+// cookie. The claim AWAITS onOwnerCreated, so by the time this resolves both
+// welcome agents are already spawned into officeState.
 async function claimOwner(srv: TestServer, name: string): Promise<string> {
   const res = await srv.http("/auth/claim", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `name=${encodeURIComponent(name)}`,
+    body: `name=${encodeURIComponent(name)}&key=${encodeURIComponent(srv.setupKey())}`,
     redirect: "manual",
   });
   if (res.status !== 302) throw new Error(`claim failed: HTTP ${res.status}`);

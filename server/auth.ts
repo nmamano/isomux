@@ -19,6 +19,7 @@ import type {
 } from "../shared/types.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
+import { discardSetupKey } from "./setup-key.ts";
 import {
   SUPPORTED_LANGUAGES,
   type SupportedLanguageCode,
@@ -640,7 +641,7 @@ function markAllUnconsumedBootstrapInvitesConsumed(): void {
   }
 }
 
-// Owner-creation core used by both the tokenless claim form (claimOwnership)
+// Owner-creation core used by both the setup form (claimOwnership)
 // and the legacy bootstrap-invite acceptance path (acceptInvite bootstrap
 // branch). Mutates user state so the named user becomes an owner with full
 // allowedRooms, then returns the resulting user record alongside a
@@ -1006,11 +1007,9 @@ export interface ClaimErr {
   error: "owner_exists" | "needs_name" | "invalid_name";
 }
 
-// Tokenless owner-claim used by the pre-claim form at GET /. The caller is
-// responsible for the locality guarantee (the server binds 127.0.0.1
-// pre-claim, plus a peer-IP loopback check and a strict same-origin check
-// on the POST); this function is only the auth-state mutation under the
-// mutex. hasOwner() is rechecked inside the mutex so concurrent claim
+// Owner claim used by the setup form (POST /auth/claim and the container
+// setup page). The caller checks the setup key (server/setup-key.ts); this
+// function is only the auth-state mutation under the mutex. hasOwner() is rechecked inside the mutex so concurrent claim
 // attempts serialize and the second one fails closed with owner_exists.
 export async function claimOwnership(
   rawChosenName: string,
@@ -1064,6 +1063,13 @@ export async function claimOwnership(
     // now that this office has an owner. Best-effort.
     markAllUnconsumedBootstrapInvitesConsumed();
     ownerClaimedInThisProcess = true;
+    // The setup key has no use once an owner exists. A failed delete leaves a
+    // dead key file that the next boot removes.
+    try {
+      discardSetupKey();
+    } catch (err) {
+      console.error("[auth] could not delete the setup key file:", err);
+    }
 
     return {
       ok: true,
@@ -1637,25 +1643,12 @@ export function setLoopbackOriginPort(port: number | null): void {
   boundLoopbackPort = port;
 }
 // The effective loopback port: the actual bound port when startServer set it
-// (tests use an ephemeral port), else process.env.PORT, else 4000. Single
-// source so the /auth/claim Origin check and buildPublicOrigin agree on the
-// port instead of one of them hardcoding 4000.
+// (tests use an ephemeral port), else process.env.PORT, else 4000.
 function loopbackPort(): string {
   return String(boundLoopbackPort ?? process.env.PORT ?? "4000");
 }
 function loopbackOrigin(): string {
   return `http://localhost:${loopbackPort()}`;
-}
-// Accept either http://localhost:<port> or http://127.0.0.1:<port> at the bound
-// loopback port (the browser sends whichever the operator typed). The tokenless
-// /auth/claim form (auth-middleware) uses this so its Origin check tracks the
-// actual port on an ephemeral bind instead of a hardcoded 4000.
-export function isLoopbackOrigin(origin: string): boolean {
-  const port = loopbackPort();
-  return (
-    origin === `http://localhost:${port}` ||
-    origin === `http://127.0.0.1:${port}`
-  );
 }
 
 function evaluateEnvOrigin(): string | null {
@@ -1681,8 +1674,8 @@ function evaluateEnvOrigin(): string | null {
 // Captured once at boot via freezeBootState(). Three predicates derive from
 // the captured values:
 //   isProcessPreClaim()     - true if this process started before any owner
-//                             existed. Drives the SSH -L banner and the
-//                             tokenless name-picker form.
+//                             existed. Drives the setup banner and the
+//                             setup key.
 //   isOutsideReachabilityBlocked() - true before claim or while external
 //                             access is disabled. Drives public-origin,
 //                             cookie, invite-URL, and Access-pane policy.

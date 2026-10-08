@@ -2477,6 +2477,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "An office owner already exists. Refresh and sign in with an invite link instead.",
   "preAuth.claim.errorName":
     "Please pick a display name (letters, numbers, spaces, periods, hyphens, apostrophes, or underscores).",
+  "preAuth.claim.keyLabel": "Setup key",
+  "preAuth.claim.keyFromFile": "The server printed a link with this key when it started. The key is also in {path} on the server.",
+  "preAuth.claim.keyFromEnv": "Use the value of {name} from this office's deployment settings.",
+  "preAuth.claim.keyFromRender": "Render made it at deploy time. Find {name} in the service's Environment settings.",
+  "preAuth.claim.keyFromContainer": "Use the value of {name} set for this container. With the AWS Compose setup, it is in {file}.",
+  "preAuth.claim.errorKey": "The setup key is missing or wrong.",
+  "preAuth.claim.errorTooManyTries": "Too many wrong setup keys. Try again in a minute.",
   "preAuth.invite.titleAccept": "accept invite",
   "preAuth.invite.bootstrapIntro":
     "You're the first person to claim this office. Pick a display name - it'll appear next to anything you say.",

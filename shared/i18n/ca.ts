@@ -2488,6 +2488,13 @@ Coses que pots fer per ell:
     "Ja existeix un propietari de l'oficina. Actualitza la pàgina i inicia la sessió amb un enllaç d'invitació.",
   "preAuth.claim.errorName":
     "Tria un nom per mostrar (lletres, xifres, espais, punts, guions, apòstrofs o guions baixos).",
+  "preAuth.claim.keyLabel": "Clau de configuració",
+  "preAuth.claim.keyFromFile": "El servidor va mostrar un enllaç amb aquesta clau en arrencar. La clau també és a {path} al servidor.",
+  "preAuth.claim.keyFromEnv": "Fes servir el valor de {name} de la configuració de desplegament d'aquesta oficina.",
+  "preAuth.claim.keyFromRender": "Render la va crear en desplegar. Cerca {name} a la configuració Environment del servei.",
+  "preAuth.claim.keyFromContainer": "Fes servir el valor de {name} configurat per a aquest contenidor. Amb la configuració AWS Compose, és a {file}.",
+  "preAuth.claim.errorKey": "Falta la clau de configuració o no és correcta.",
+  "preAuth.claim.errorTooManyTries": "Massa claus de configuració incorrectes. Torna-ho a provar d'aquí a un minut.",
   "preAuth.invite.titleAccept": "acceptar la invitació",
   "preAuth.invite.bootstrapIntro":
     "Ets la primera persona que reclama aquesta oficina. Tria un nom per mostrar - apareixerà al costat de tot el que diguis.",

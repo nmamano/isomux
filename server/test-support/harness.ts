@@ -10,7 +10,7 @@
 // active; stop() releases the lock. Fine for the T1 tier, which runs serially.
 //
 // Not imported by any production path.
-import { mkdirSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
 import {
   startServer,
   type ServerHandle,
@@ -39,6 +39,7 @@ import { _testResetSkillUsage } from "../skill-usage.ts";
 import { _testResetAppMessageLimits } from "../app-message-limits.ts";
 import { _testResetAppHostDomain } from "../app-domain.ts";
 import { _testResetAppAuth } from "../app-auth.ts";
+import { _resetSetupKeyForTests, setupKeyFile } from "../setup-key.ts";
 import { _testResetApiTokens } from "../api-tokens.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
 import type { UserRole } from "../../shared/types.ts";
@@ -72,6 +73,9 @@ export interface TestServer extends ServerHandle {
   seedOwner(displayName?: string): Promise<SeededIdentity>;
   // Seed a member user (requires an existing owner). Real mint+accept.
   seedMember(displayName: string): Promise<SeededIdentity>;
+  // The setup key an unclaimed office keeps in its state dir, read from the
+  // file the way the VPS installer reads it.
+  setupKey(): string;
   // fetch() against the server with the right Origin and an optional cookie.
   http(
     path: string,
@@ -183,6 +187,8 @@ async function bootTestServer(
     // a test prove a cookie survives a restart when the product says it does
     // not.
     _testResetAppAuth();
+    // The setup key and its wrong-key counts live in the office process too.
+    _resetSetupKeyForTests();
     registerProductionCronjobManagerForModuleReads(null);
 
     const fakeBackend =
@@ -420,6 +426,7 @@ async function bootTestServer(
       baseUrl,
       seedOwner,
       seedMember,
+      setupKey: () => readFileSync(setupKeyFile(), "utf8").trim(),
       http,
       connectWs,
       restart,

@@ -39,13 +39,13 @@ async function waitUntil(
   }
 }
 
-// The real first-owner claim (the tokenless form), so the owner-created hook
+// The real first-owner claim (the setup form), so the owner-created hook
 // runs exactly as it does in production. seedOwner() bypasses that hook.
 async function claimOwner(srv: TestServer, name: string): Promise<string> {
   const res = await srv.http("/auth/claim", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `name=${encodeURIComponent(name)}`,
+    body: `name=${encodeURIComponent(name)}&key=${encodeURIComponent(srv.setupKey())}`,
     redirect: "manual",
   });
   if (res.status !== 302) throw new Error(`claim failed: HTTP ${res.status}`);

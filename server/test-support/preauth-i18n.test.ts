@@ -120,7 +120,7 @@ describe("the first-time claim page", () => {
         Accept: "text/html",
         "Accept-Language": "ca",
       },
-      body: "name=",
+      body: `name=&key=${encodeURIComponent(server.setupKey())}`,
     });
     expect(res.status).toBe(400);
     const html = await res.text();

@@ -142,8 +142,8 @@ kubectl -n isomux get secret isomux-setup \
   -o jsonpath='{.data.ISOMUX_SETUP_KEY}' | base64 -d; echo
 ```
 
-Open your office address in a browser. On **Set up your office**, paste the key
-into **Setup key**, enter your name, and select **Create office**.
+Open your office address in a browser. Paste the key into **Setup key**, enter
+your name, and select **Continue**.
 
 The key cannot claim the office again after an owner exists. To remove it:
 

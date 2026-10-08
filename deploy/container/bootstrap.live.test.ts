@@ -6,7 +6,7 @@ import { createSetupHandler } from "./bootstrap.ts";
 // in which the proxy answers 502 for longer than the measured boot (4.6-6.8 s
 // on 2 CPUs, 2026-10-07), then the office.
 test.skipIf(process.env.ISOMUX_TEST_LIVE !== "1")(
-  "after Create office, the owner lands in the office without a reload through a slow boot",
+  "after the claim, the owner lands in the office without a reload through a slow boot",
   async () => {
     const key = "synthetic-setup-key-32-characters-long";
     const gapMs = 8000;
@@ -27,10 +27,12 @@ test.skipIf(process.env.ISOMUX_TEST_LIVE !== "1")(
     });
     // The listener calls it only after this line runs.
     const handler = createSetupHandler({
-      origin: `http://127.0.0.1:${front.port}`,
       key,
       hasOwner: () => false,
-      claim: async () => "isomux_fixture=owner; Path=/; HttpOnly",
+      claim: async () => ({
+        ok: true,
+        cookie: "isomux_fixture=owner; Path=/; HttpOnly",
+      }),
       complete: () => {
         phase = "gap";
         setTimeout(() => (phase = "office"), gapMs);

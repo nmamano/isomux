@@ -10,14 +10,14 @@ Agents run shell commands as the server's user, so every member effectively has 
 
 ## Claim the office
 
-On first boot the office has no owner, and the server answers only on its own machine. Open the office in one of two ways:
+On first boot the office has no owner, and the server answers only on its own machine. The server prints a setup link in its terminal and log, such as `http://localhost:4000/setup#key=...`. Open the link in one of two ways:
 
-- On the machine itself, open `http://localhost:4000`.
-- From another machine, open a tunnel with `ssh -L 4000:localhost:4000 <user>@<host>`, and then open `http://localhost:4000` in that machine's browser.
+- On the machine itself, open the link.
+- From another machine, open a tunnel with `ssh -L 4000:localhost:4000 <user>@<host>`, and then open the link in that machine's browser.
 
-Enter a display name and submit. You are the owner. Until someone claims the office, the server serves the same form on every boot.
+Enter a display name and submit. You are the owner. Until someone claims the office, the server prints the same link on every boot.
 
-Container, [Render](hosting-render.md) and [Kubernetes](hosting-kubernetes.md) offices claim with a setup key instead. Their setup guides show where to find it.
+The link carries the setup key. The key is also in `~/.isomux/setup-key` on the server, and the claim deletes it. If `ISOMUX_SETUP_KEY` is set, the office uses that value as its key: container, [Render](hosting-render.md) and [Kubernetes](hosting-kubernetes.md) offices do this, and their setup guides show where to find it.
 
 ## Invite a member
 

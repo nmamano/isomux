@@ -42,15 +42,11 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
 
   it("claims the owner through POST /auth/claim on the ephemeral port", async () => {
     server = await startTestServer();
-    // Real tokenless claim over HTTP. http() sends Origin =
-    // buildPublicOrigin().origin (the actual bound port); the claim Origin
-    // check must accept it. This 403s ("bad origin") if that check still
-    // derived its allowed origin from a hardcoded 4000 instead of the
-    // bound-port seam.
+    // Real claim over HTTP with the setup key the boot wrote to the state dir.
     const res = await server.http("/auth/claim", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "name=ClaimedOwner",
+      body: `name=ClaimedOwner&key=${encodeURIComponent(server.setupKey())}`,
       redirect: "manual",
     });
     expect(res.status).toBe(302);

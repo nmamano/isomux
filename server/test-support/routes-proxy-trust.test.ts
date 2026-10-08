@@ -9,8 +9,8 @@
 //     X-Forwarded-For, Forwarded or X-Real-IP, with one log line that names
 //     the holder and not the token. A personal API token is not affected, and
 //     a valid cookie still passes alongside a refused token.
-//   - The tokenless first-owner claim refuses a request with a forwarding
-//     header.
+//   - The first-owner claim needs the setup key, with or without a
+//     forwarding header.
 //   - F8: /readyz exempts on-box callers only and, with trustedProxy
 //     "same-host", limits each forwarded client on its own budget.
 // Zero LLM.
@@ -157,23 +157,31 @@ describe("F7: agent, cron-run and app tokens work only on-box", () => {
   });
 });
 
-describe("the tokenless first-owner claim", () => {
-  it("refuses a request that came through a proxy", async () => {
+describe("the first-owner claim", () => {
+  it("needs the setup key, from a proxy as from loopback", async () => {
     const srv = await startTestServer();
     server = srv;
-    for (const [name, value] of FORWARDING) {
-      const res = await srv.http("/auth/claim", {
+    const claim = (header: [string, string] | null, body: string) =>
+      srv.http("/auth/claim", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          [name]: value,
+          ...(header ? { [header[0]]: header[1] } : {}),
         },
-        body: "name=Mallory",
+        body,
         redirect: "manual",
       });
-      expect(res.status).toBe(403);
+    // No loopback exception: a direct caller without the key is refused.
+    for (const header of [null, ...FORWARDING]) {
+      expect((await claim(header, "name=Mallory")).status).toBe(403);
     }
     expect(hasOwner()).toBe(false);
+    // With the key, a claim through a proxy succeeds.
+    const key = encodeURIComponent(srv.setupKey());
+    expect((await claim(FORWARDING[0], `name=Owner&key=${key}`)).status).toBe(
+      302,
+    );
+    expect(hasOwner()).toBe(true);
   });
 });
 

@@ -3509,25 +3509,32 @@ resolve_owner_name() {
 }
 
 # Establish an owner session cookie in $COOKIE_JAR. Three cases:
-#   1. office unclaimed -> claim it via the tokenless loopback claim form;
+#   1. office unclaimed -> claim it with the setup key the server keeps in
+#      its state dir;
 #   2. claimed + saved cookie still valid -> reuse it;
 #   3. claimed + no valid cookie (re-run after partial failure) -> mint an
 #      owner-login invite over the admin unix socket and accept it.
 claim_owner() {
   step claim-owner
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would claim office ownership as \"$OWNER_NAME\" via loopback"
+    log "DRY-RUN: would claim office ownership as \"$OWNER_NAME\" with the setup key"
     return 0
   fi
   local probe
   probe=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE_URL/")
   if [[ $probe == 200 ]]; then
-    # Pre-claim the server serves the claim form at GET /.
+    # Pre-claim the server serves the setup form at GET /. The server made
+    # its setup key before it started to listen; a release from before setup
+    # keys has no key file and claims without one. The key stays off the argv
+    # (visible in ps): curl reads it from stdin via the @- form.
+    local key_file=$SERVICE_HOME/.isomux/setup-key key=""
+    [[ -s $key_file ]] && key=$(<"$key_file")
     touch "$COOKIE_JAR" && chmod 600 "$COOKIE_JAR"
     local code
-    code=$(curl -s -o /dev/null -w '%{http_code}' -c "$COOKIE_JAR" \
+    code=$(printf '%s' "$key" | curl -s -o /dev/null -w '%{http_code}' -c "$COOKIE_JAR" \
       -H "Origin: http://localhost:4000" \
       --data-urlencode "name=$OWNER_NAME" \
+      --data-urlencode "key@-" \
       "$BASE_URL/auth/claim")
     [[ $code == 302 ]] || die "owner claim was refused (HTTP $code)"
     printf '%s\n' "$OWNER_NAME" | write_file "$STATE_DIR/owner-name" 600

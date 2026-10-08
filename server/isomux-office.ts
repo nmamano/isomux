@@ -181,6 +181,7 @@ import {
   setOnOwnerCreated,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
+import { activeSetupKey, setupKeyAtBoot, setupKeyFile } from "./setup-key.ts";
 import {
   browserSessionDiagnostic,
   buildPublicOrigin,
@@ -518,6 +519,9 @@ function bootPrelude(): void {
   // derived from buildPublicOrigin, which only answers for this boot once the
   // boot state is locked.
   freezeAppHostDomain();
+
+  // The setup key that claims an unclaimed office (server/setup-key.ts).
+  setupKeyAtBoot(isProcessPreClaim());
 } // end bootPrelude
 
 // AgentManager / CronjobManager instances. Module-level `let` (not top-level
@@ -1123,7 +1127,7 @@ function registerBootHooks(): void {
   }
 
   // Seed welcome agents on the first owner of a fresh office. Fires for
-  // both the tokenless claim form (handleClaim) and the legacy bootstrap-
+  // both the setup form (handleClaim) and the legacy bootstrap-
   // invite accept (handleAccept where isBootstrap is true). The hook only
   // fires on first-claim flows by design; the agent-count guard below is
   // defensive in case a future call path fires it against an already-
@@ -6580,7 +6584,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           req,
           url,
           officeName,
-          source().onBox,
+          source(),
         );
         if (authResponse) return authResponse;
 
@@ -7380,10 +7384,10 @@ function logBootBanners(): void {
   }
 
   // First-time-setup banner. When no owner exists, the SPA shell is replaced
-  // by a tokenless name-picker form at http://localhost:PORT/. The form is
-  // served only over the loopback bind, so it's reachable only from the same
-  // machine (or via SSH port-forward from another). Print a banner that spells
-  // out both paths so an operator who's never used `ssh -L` can copy-paste.
+  // by the setup form (name + setup key) at http://localhost:PORT/setup. The
+  // listener binds loopback before the claim, so the form is reachable from
+  // the same machine or through an SSH port-forward from another. The link
+  // carries the key in its fragment, so a click fills the form.
   //
   // The SSH target is printed as a template (<user>@<host>) rather than auto-
   // detecting via os.userInfo()/os.hostname(): the local username on the
@@ -7392,7 +7396,8 @@ function logBootBanners(): void {
   // internal hostname rather than a network-routable address. We do show the
   // detected values as a hint, but the operator is supposed to replace them
   // with whatever SSH target they normally use for this machine.
-  if (isProcessPreClaim()) {
+  const setupKey = activeSetupKey();
+  if (isProcessPreClaim() && setupKey) {
     let detectedUser = "";
     try {
       detectedUser = userInfo().username;
@@ -7405,21 +7410,30 @@ function logBootBanners(): void {
       detectedUser && detectedHost
         ? ` (this machine reports ${detectedUser}@${detectedHost}; use whatever you actually SSH as)`
         : "";
+    const link =
+      setupKey.source === "file"
+        ? `http://localhost:${PORT}/setup#key=${setupKey.key}`
+        : `http://localhost:${PORT}/setup`;
     console.log("");
     console.log(
       "================================================================",
     );
     console.log("  Isomux: no owner has been set up for this office yet.");
     console.log("");
-    console.log("  TO CLAIM OWNERSHIP from THIS machine:");
-    console.log(`    Open http://localhost:${PORT} in your browser.`);
+    console.log("  TO CLAIM OWNERSHIP from THIS machine, open:");
+    console.log(`    ${link}`);
+    if (setupKey.source === "file") {
+      console.log(`  The setup key is also in ${setupKeyFile()}.`);
+    } else {
+      console.log("  The setup key is the value of ISOMUX_SETUP_KEY.");
+    }
     console.log("");
     console.log("  TO CLAIM OWNERSHIP from another machine:");
     console.log(
       `    1. On that machine, open a tunnel to this box${detectedHint}:`,
     );
     console.log(`         ssh -L ${PORT}:localhost:${PORT} <user>@<host>`);
-    console.log(`    2. Open http://localhost:${PORT} in that browser.`);
+    console.log("    2. Open the link above in that browser.");
     console.log("");
     console.log(
       "  After you claim, Settings → Office → Access lets you enable",

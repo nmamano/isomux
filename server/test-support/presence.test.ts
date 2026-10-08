@@ -422,7 +422,7 @@ describe("lobby presence", () => {
     const claim = await server.http("/auth/claim", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "name=Boss",
+      body: `name=Boss&key=${encodeURIComponent(server.setupKey())}`,
       redirect: "manual",
     });
     expect(claim.status).toBe(302);

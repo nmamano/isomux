@@ -92,13 +92,13 @@ Isomux compares hashes in constant time. Isomux does not write the credentials t
 - **Origin.** The operator sets the public origin in the office configuration. The server never takes it from the `Host` or `X-Forwarded-Host` header. This stops DNS rebinding and Host-header attacks.
 - **WebSocket.** A browser connection needs a valid cookie and an exact Origin match. A WebSocket request with an `Authorization` header never falls back to the cookie. It opens only with an API token, and that socket only receives (section 5.4).
 - **Cross-site requests.** The server rejects a POST, PUT, PATCH or DELETE with a wrong Origin. `SameSite=Lax` also keeps the cookie off cross-site subrequests.
-- **Sign-in forms.** The accept and sign-out forms need the office Origin. When the browser sends no Origin or `null`, they need `Sec-Fetch-Site: same-origin`, which page script cannot set. The first-owner form needs the exact Origin.
+- **Sign-in forms.** The accept and sign-out forms need the office Origin. When the browser sends no Origin or `null`, they need `Sec-Fetch-Site: same-origin`, which page script cannot set. The first-owner form needs the setup key instead (section 4.3).
 - **Headers.** Each office page has a Content Security Policy with `frame-ancestors 'none'`, and `X-Content-Type-Options: nosniff`. Pages that can have a token in the URL send `Referrer-Policy: no-referrer`. On HTTPS, the server sends HSTS for one year, without `includeSubDomains`.
 - **Files that agents and members show.** Each file route sends a `sandbox` Content Security Policy. A file opened in the browser, such as HTML or SVG, runs in an opaque origin. It gets no session cookie, and the office WebSocket refuses it. The file routes check room access, and they send `Cache-Control: private, no-cache`.
 
 ### 4.3 First owner
 
-Before the first owner exists, the server listens only on `127.0.0.1`. The first-owner form is only available on the server or through an SSH tunnel. When an owner exists, the form closes and does not open again.
+Before the first owner exists, the server listens only on `127.0.0.1`. The first-owner form is only available on the server, through an SSH tunnel, or through a proxy on the server, and the claim needs the setup key. A key set in `ISOMUX_SETUP_KEY` is used; without one, the server makes a 256-bit key at its first boot without an owner and keeps it in `~/.isomux/setup-key`, mode 0600. At each boot without an owner, the server prints a setup link with the key in the URL fragment, which browsers do not send, so no request line or proxy log has it. The server compares keys in constant time, and it refuses a client after 20 wrong keys in one minute. When an owner exists, the server deletes the key file, and the form closes and does not open again.
 
 ### 4.4 Proxies
 
@@ -348,11 +348,9 @@ The toggle takes effect only on restart, by design: changing the reachability an
 
 ### Bootstrap-window exposure
 
-Before an owner exists, the first-owner form is served only on `127.0.0.1`, so the OS bind rules out off-box clients regardless of LAN/VPN topology - Isomux is not reachable to an outside attacker. The submit handler also accepts only loopback peers and same-origin requests, as defense in depth.
+Before an owner exists, the first-owner form is served only on `127.0.0.1`, so the OS bind rules out off-box clients regardless of LAN/VPN topology.
 
-A same-host reverse proxy configured **before** an owner claims forwards external traffic to `localhost:4000`. Isomux refuses the claim on a request with an `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header, and Caddy always sends `X-Forwarded-For`. The residual gap: a proxy or tunnel that sends none of these headers looks like loopback, and anyone who can reach it from outside could claim ownership through it.
-
-The mitigation is operator discipline: **claim first, expose later**. The Access pane's _External access_ toggle is the supported sequence - boot the server, open it locally (or via `ssh -L`), claim, then flip the toggle to enable external listening and configure the proxy.
+A same-host reverse proxy or tunnel configured **before** an owner claims forwards external traffic to `localhost:4000`. The claim needs the setup key (section 4.3) whatever the request's peer or headers, so a visitor through such a proxy cannot claim the office without the key. The claim does not check the Origin either: a page on another site cannot forge a claim without the key, so an Origin check would add no protection. Anyone who can read the server's log or its state directory before the claim can claim the office.
 
 ### Trust model boundaries
 

@@ -17,6 +17,7 @@ import { chmodSync, existsSync, statSync, unlinkSync } from "fs";
 import { ADMIN_SOCKET_PATH } from "./config.ts";
 import { buildPublicOrigin, mintInvite } from "./auth.ts";
 import { getUserByName, hasOwner } from "./users.ts";
+import { activeSetupKeySource, setupKeyFile } from "./setup-key.ts";
 import {
   httpResponse,
   parseHttpRequest,
@@ -248,14 +249,14 @@ async function handleAdmin(req: Request): Promise<Response> {
       error: "--name is required",
     });
   }
-  // Refuse pre-claim. The tokenless form is the right path before an
+  // Refuse pre-claim. The setup form is the right path before an
   // owner exists; pretending to "recover" an account that doesn't exist
   // would be confusing.
   if (!hasOwner()) {
     const port = process.env.PORT || "4000";
     return jsonResponse(400, {
       ok: false,
-      error: `No owner exists yet. Claim the office first by opening http://localhost:${port}/ on this machine (or via ssh -L from another). Once an owner is set, this command can mint a login URL.`,
+      error: `No owner exists yet. Claim the office first: open http://localhost:${port}/setup on this machine (or via ssh -L from another) and enter the setup key, ${activeSetupKeySource() === "configured" ? "the value of ISOMUX_SETUP_KEY" : `which is in ${setupKeyFile()}`}. Once an owner is set, this command can mint a login URL.`,
     });
   }
   const user = getUserByName(name);

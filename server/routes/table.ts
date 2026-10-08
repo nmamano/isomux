@@ -1913,6 +1913,13 @@ export const PUBLIC_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
   defineRoute({
+    opId: "auth.setupPage",
+    method: "GET",
+    path: "/setup",
+    auth: pub,
+    emits: [],
+  }),
+  defineRoute({
     opId: "auth.claim",
     method: "POST",
     path: "/auth/claim",

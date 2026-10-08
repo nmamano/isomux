@@ -51,15 +51,17 @@ if (!hasOwner()) {
     finish = resolve;
   });
   const handler = createSetupHandler({
-    origin,
     key,
     hasOwner,
     claim: async (name, userAgent) => {
       const result = await claimOwnership(name, { userAgent });
-      if (!result.ok) return null;
+      if (!result.ok) return result;
       setPublicOriginFallback(origin);
       freezeBootState({ externalAccess: true, networkBind: "all" });
-      return setCookieHeader(result.rawSessionId, result.absoluteExpiresAt);
+      return {
+        ok: true,
+        cookie: setCookieHeader(result.rawSessionId, result.absoluteExpiresAt),
+      };
     },
     complete: finish,
   });

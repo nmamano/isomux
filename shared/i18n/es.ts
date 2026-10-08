@@ -2493,6 +2493,13 @@ Cosas que puedes hacer por él:
     "Ya existe un propietario de la oficina. Actualiza la página e inicia sesión con un enlace de invitación.",
   "preAuth.claim.errorName":
     "Elige un nombre para mostrar (letras, números, espacios, puntos, guiones, apóstrofos o guiones bajos).",
+  "preAuth.claim.keyLabel": "Clave de configuración",
+  "preAuth.claim.keyFromFile": "El servidor mostró un enlace con esta clave al arrancar. La clave también está en {path} en el servidor.",
+  "preAuth.claim.keyFromEnv": "Usa el valor de {name} de la configuración de despliegue de esta oficina.",
+  "preAuth.claim.keyFromRender": "Render la creó al desplegar. Busca {name} en la configuración Environment del servicio.",
+  "preAuth.claim.keyFromContainer": "Usa el valor de {name} configurado para este contenedor. Con la configuración AWS Compose, está en {file}.",
+  "preAuth.claim.errorKey": "Falta la clave de configuración o no es correcta.",
+  "preAuth.claim.errorTooManyTries": "Demasiadas claves de configuración incorrectas. Inténtalo de nuevo en un minuto.",
   "preAuth.invite.titleAccept": "aceptar invitación",
   "preAuth.invite.bootstrapIntro":
     "Eres la primera persona que reclama esta oficina. Elige un nombre para mostrar - aparecerá junto a todo lo que digas.",

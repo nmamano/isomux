@@ -208,7 +208,7 @@ that the server allows inbound ports 80 and 443. DNS changes can take time to ap
 
 - Paste that key into **Setup key**.
 - Enter your name. You can change it later.
-- Select **Create office**. The office should open and the receptionist should greet you.
+- Select **Continue**. The office should open and the receptionist should greet you.
 
 **Optional: remove the unused setup key**
 

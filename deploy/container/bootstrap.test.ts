@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { runInNewContext } from "node:vm";
 import { createSetupHandler } from "./bootstrap.ts";
@@ -8,6 +8,7 @@ import {
   type TestServer,
 } from "../../server/test-support/harness.ts";
 import { LOBBY_ROOM_ID } from "../../shared/types.ts";
+import { _resetSetupKeyForTests } from "../../server/setup-key.ts";
 
 let server: TestServer | null = null;
 
@@ -16,27 +17,30 @@ afterEach(async () => {
   server = null;
 });
 
-test("public setup requires its secret and origin and closes after owner creation", async () => {
+const COOKIE = "__Host-isomux_session=synthetic; Secure; HttpOnly; Path=/";
+
+beforeEach(() => _resetSetupKeyForTests());
+
+test("public setup requires its secret and closes after owner creation", async () => {
   let owner = false;
   let claims = 0;
   const key = "synthetic-setup-key-32-characters-long";
   const handler = createSetupHandler({
-    origin: "https://office.example.com",
     key,
     hasOwner: () => owner,
     complete: () => {},
     claim: async () => {
       owner = true;
       claims++;
-      return "__Host-isomux_session=synthetic; Secure; HttpOnly; Path=/";
+      return { ok: true, cookie: COOKIE };
     },
   });
-  const post = (secret: string, origin = "https://office.example.com") =>
+  const post = (secret: string) =>
     handler(
-      new Request("https://office.example.com/setup", {
+      new Request("https://office.example.com/auth/claim", {
         method: "POST",
         headers: {
-          origin,
+          origin: "https://office.example.com",
           "content-type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({ key: secret, name: "Owner" }),
@@ -44,7 +48,7 @@ test("public setup requires its secret and origin and closes after owner creatio
       "203.0.113.10",
     );
   expect((await post("wrong")).status).toBe(403);
-  expect((await post(key, "https://other.example.com")).status).toBe(403);
+  expect((await post("")).status).toBe(403);
   expect(claims).toBe(0);
   const accepted = await post(key);
   expect(accepted.status).toBe(200);
@@ -57,12 +61,10 @@ test("public setup requires its secret and origin and closes after owner creatio
 async function startingPage(): Promise<Response> {
   const key = "synthetic-setup-key-32-characters-long";
   const handler = createSetupHandler({
-    origin: "https://office.example.com",
     key,
     hasOwner: () => false,
     complete: () => {},
-    claim: async () =>
-      "__Host-isomux_session=synthetic; Secure; HttpOnly; Path=/",
+    claim: async () => ({ ok: true, cookie: COOKIE }),
   });
   return handler(
     new Request("https://office.example.com/setup", {
@@ -146,13 +148,12 @@ test("setup attempts are limited per client, so one caller cannot block the clai
   let owner = false;
   const key = "synthetic-setup-key-32-characters-long";
   const handler = createSetupHandler({
-    origin: "https://office.example.com",
     key,
     hasOwner: () => owner,
     complete: () => {},
     claim: async () => {
       owner = true;
-      return "__Host-isomux_session=synthetic; Secure; HttpOnly; Path=/";
+      return { ok: true, cookie: COOKIE };
     },
   });
   const post = (secret: string, client: string) =>
@@ -186,15 +187,17 @@ test("a container setup claim seeds the three welcome agents after office boot",
   let claimedUsername: string | undefined;
   const key = "synthetic-setup-key-32-characters-long";
   const handler = createSetupHandler({
-    origin: "https://office.example.com",
     key,
     hasOwner: () => false,
     complete: () => {},
     claim: async (name, userAgent) => {
       const result = await claimOwnership(name, { userAgent });
-      if (!result.ok) return null;
+      if (!result.ok) return result;
       claimedUsername = result.username;
-      return setCookieHeader(result.rawSessionId, result.absoluteExpiresAt);
+      return {
+        ok: true,
+        cookie: setCookieHeader(result.rawSessionId, result.absoluteExpiresAt),
+      };
     },
   });
 
@@ -234,4 +237,40 @@ test("a container setup claim seeds the three welcome agents after office boot",
       .map((agent) => agent.id)
       .sort(),
   ).toEqual(ids);
+});
+
+test("the setup page is the office's setup form, at / and at the setup link", async () => {
+  let owner = false;
+  const key = "synthetic-setup-key-32-characters-long";
+  const handler = createSetupHandler({
+    key,
+    hasOwner: () => owner,
+    complete: () => {},
+    claim: async () => {
+      owner = true;
+      return { ok: true, cookie: COOKIE };
+    },
+  });
+  for (const path of ["/", "/setup"]) {
+    const page = await handler(
+      new Request(`https://office.example.com${path}`),
+      "203.0.113.10",
+    );
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain('action="/auth/claim"');
+    expect(html).toContain('name="name"');
+    expect(html).toContain('name="key"');
+  }
+  // The older page posted to /setup; that path still claims.
+  const res = await handler(
+    new Request("https://office.example.com/setup", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ key, name: "Owner" }),
+    }),
+    "203.0.113.10",
+  );
+  expect(res.status).toBe(200);
+  expect(owner).toBe(true);
 });

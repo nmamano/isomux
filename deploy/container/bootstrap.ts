@@ -1,27 +1,22 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
+import type { ClaimErr } from "../../server/auth.ts";
+import {
+  claimWithSetupKey,
+  renderSetupPage,
+  type SetupKeyHelp,
+} from "../../server/auth-middleware.ts";
+import { translatorForRequest } from "../../server/i18n.ts";
+import {
+  SETUP_KEY_MIN_LENGTH,
+  setupKeyMatches,
+} from "../../server/setup-key.ts";
 
 const headers = {
   "Content-Type": "text/html; charset=utf-8",
   "Cache-Control": "no-store",
-  "Content-Security-Policy":
-    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
   "Referrer-Policy": "same-origin",
   "X-Content-Type-Options": "nosniff",
 };
-const isRender = process.env.RENDER === "true";
-const setupHelp = isRender
-  ? "Render generates it automatically. Find it in your service’s Environment settings."
-  : "Use the secret created when you configured the container. With the AWS Compose setup, find it in <code>office.env</code>.";
-const setupGuide = isRender ? "deploy-on-render" : "deploy-a-container";
-const page = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Set up Isomux</title><style>
-body{font:17px system-ui;background:#111827;color:#f3f4f6;margin:0;display:grid;min-height:100vh;place-items:center}
-main{max-width:420px;padding:40px}h1{font-size:30px}p{line-height:1.5;color:#cbd5e1}a{color:#a5b4fc}
-label{display:block;margin-top:24px}input,button{box-sizing:border-box;width:100%;padding:12px;font:inherit;border-radius:8px;border:1px solid #64748b}
-input{margin-top:8px;background:#1f2937;color:white}button{margin-top:28px;background:#a5b4fc;color:#111827;cursor:pointer}
-</style><main><h1>Set up your office</h1><p>Become this office's first owner. Use the value of <code>ISOMUX_SETUP_KEY</code> from your deployment's environment settings. It is a secret of at least 32 characters, created during deployment. ${setupHelp} See the <a href="https://isomux.com/docs/self-hosted#${setupGuide}" target="_blank" rel="noopener noreferrer">setup guide</a>.</p>
-<form method="post" action="/setup"><label>Your name (can be changed later)<input name="name" required maxlength="64" autocomplete="name"></label>
-<label>Setup key<input name="key" type="password" required autocomplete="off"></label><button>Create office</button></form></main></html>`;
 
 // The office takes the port only some seconds after this listener closes, and
 // a proxy answers 502 in that gap. The starting page therefore polls and opens
@@ -34,86 +29,58 @@ const startingHeaders = {
 };
 const startingPage = `<!doctype html><title>Office ready</title><p>Your office is starting.</p><script>${startingScript}</script>`;
 
-// Setup attempts per client per minute. A counter per client, so one caller
-// cannot keep the first-owner claim blocked for everyone. The table is
-// bounded like server/ready-limiter.ts and fails open when it is full of live
-// windows: the setup key has at least 32 characters, so the limit is a
-// nuisance control, not what stops guessing.
-const SETUP_WINDOW_MS = 60_000;
-const SETUP_MAX_PER_WINDOW = 20;
-const SETUP_MAX_TRACKED_CLIENTS = 1024;
-
+// The container's setup listener, which serves before the office boots. It
+// serves the office's own setup form and claim (server/auth-middleware.ts):
+// GET / and GET /setup show the form, POST /auth/claim claims. POST /setup
+// stays as an alias for scripts written against the older setup page.
 // `client` is the caller's address as server/proxy-trust.ts resolves it.
 export function createSetupHandler(options: {
-  origin: string;
   key: string;
   hasOwner: () => boolean;
-  claim: (name: string, userAgent: string | null) => Promise<string | null>;
+  claim: (
+    name: string,
+    userAgent: string | null,
+  ) => Promise<{ ok: true; cookie: string } | ClaimErr>;
   complete: () => void;
 }) {
-  if (options.key.length < 32)
-    throw new Error("Setup key must contain at least 32 characters");
+  if (options.key.length < SETUP_KEY_MIN_LENGTH)
+    throw new Error(
+      `Setup key must contain at least ${SETUP_KEY_MIN_LENGTH} characters`,
+    );
+  const keyHelp: SetupKeyHelp =
+    process.env.RENDER === "true" ? "render" : "container";
   let claimed = false;
-  let inFlight = false;
-  const windows = new Map<string, { start: number; count: number }>();
-  const allowAttempt = (client: string, now: number): boolean => {
-    const w = windows.get(client);
-    if (w && now - w.start < SETUP_WINDOW_MS)
-      return ++w.count <= SETUP_MAX_PER_WINDOW;
-    if (!w && windows.size >= SETUP_MAX_TRACKED_CLIENTS) {
-      for (const [key, win] of windows)
-        if (now - win.start >= SETUP_WINDOW_MS) windows.delete(key);
-      if (windows.size >= SETUP_MAX_TRACKED_CLIENTS) return true;
-    }
-    windows.set(client, { start: now, count: 1 });
-    return true;
-  };
   return async (request: Request, client: string): Promise<Response> => {
     const path = new URL(request.url).pathname;
     if (path === "/health" && request.method === "GET")
       return new Response("ok");
     if (options.hasOwner() || claimed)
       return new Response("Office setup is complete", { status: 409 });
-    if (path === "/" && request.method === "GET")
-      return new Response(page, { headers });
-    if (path !== "/setup" || request.method !== "POST")
-      return new Response("Not found", { status: 404 });
-    if (request.headers.get("origin") !== options.origin)
-      return new Response("Bad origin", { status: 403 });
-    if (!allowAttempt(client, Date.now()))
-      return new Response("Try again later", { status: 429 });
+    const i18n = translatorForRequest(
+      null,
+      request.headers.get("accept-language"),
+    );
+    if ((path === "/" || path === "/setup") && request.method === "GET")
+      return renderSetupPage(i18n, { officeName: null, keyHelp });
     if (
-      !request.headers
-        .get("content-type")
-        ?.startsWith("application/x-www-form-urlencoded")
+      (path !== "/auth/claim" && path !== "/setup") ||
+      request.method !== "POST"
     )
-      return new Response("Unsupported form", { status: 415 });
-    // The actual Bun listener also bounds the body before buffering it.
-    const body = await request.text();
-    if (body.length > 4096)
-      return new Response("Form too large", { status: 413 });
-    const form = new URLSearchParams(body);
-    const key = Buffer.from(form.get("key") || "");
-    const expected = Buffer.from(options.key);
-    if (key.length !== expected.length || !timingSafeEqual(key, expected))
-      return new Response("Incorrect setup key", { status: 403 });
-    if (inFlight) return new Response("Setup is in progress", { status: 409 });
-    inFlight = true;
-    try {
-      const cookie = await options.claim(
-        form.get("name") || "",
-        request.headers.get("user-agent"),
-      );
-      if (cookie === null)
-        return new Response("Check the owner name", { status: 400 });
-      claimed = true;
-      // Give the browser its cookie before replacing this listener with the office.
-      setTimeout(options.complete, 500);
-      return new Response(startingPage, {
-        headers: { ...startingHeaders, "Set-Cookie": cookie },
-      });
-    } finally {
-      inFlight = false;
-    }
+      return new Response("Not found", { status: 404 });
+    const result = await claimWithSetupKey(request, {
+      client,
+      i18n,
+      officeName: null,
+      keyHelp,
+      keyMatches: (key) => setupKeyMatches(key, options.key),
+      claim: options.claim,
+    });
+    if (result instanceof Response) return result;
+    claimed = true;
+    // Give the browser its cookie before replacing this listener with the office.
+    setTimeout(options.complete, 500);
+    return new Response(startingPage, {
+      headers: { ...startingHeaders, "Set-Cookie": result.cookie },
+    });
   };
 }

@@ -2231,6 +2231,13 @@ App 的一些原则：
     "办公室所有者已存在。请刷新页面并使用邀请链接登录。",
   "preAuth.claim.errorName":
     "请选择显示名称（字母、数字、空格、句点、连字符、撇号或下划线）。",
+  "preAuth.claim.keyLabel": "设置密钥",
+  "preAuth.claim.keyFromFile": "服务器启动时打印了包含此密钥的链接。密钥也保存在服务器上的 {path} 中。",
+  "preAuth.claim.keyFromEnv": "使用此办公室部署设置中 {name} 的值。",
+  "preAuth.claim.keyFromRender": "Render 在部署时生成了它。请在服务的 Environment 设置中找到 {name}。",
+  "preAuth.claim.keyFromContainer": "使用为此容器设置的 {name} 的值。如果使用 AWS Compose 设置，它在 {file} 中。",
+  "preAuth.claim.errorKey": "设置密钥缺失或不正确。",
+  "preAuth.claim.errorTooManyTries": "错误的设置密钥过多。请一分钟后再试。",
   "preAuth.invite.titleAccept": "接受邀请",
   "preAuth.invite.bootstrapIntro":
     "你是第一个认领此办公室的人。请选择显示名称，它会出现在你发送的所有内容旁边。",

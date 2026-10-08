@@ -14,7 +14,7 @@ Everything below is one script, [`deploy/install.sh`](https://github.com/nmamano
 - Checks that the `isomux` account cannot log in as root, and stops the install if the account can. See [root access](#root-access).
 - Sets up out-of-memory protection and caps the office's memory below the box's RAM, leaving room for SSH. Boxes under 4 GB are not capped. See [running out of memory](#running-out-of-memory).
 - Makes the sandbox that Codex agents run their tools in actually work. On Ubuntu 24.04 that takes one small AppArmor policy file which the sandbox's own package doesn't ship. The installer tries the sandbox first and only acts if it is broken, so a box where it already works is left alone. If the installer still can't get the sandbox working, the install carries on and says so in the output.
-- Claims the office owner over loopback before the box is exposed, then mints your invite link.
+- Claims the office owner with the server's setup key before the box is exposed, then mints your invite link.
 
 ## Root access
 
