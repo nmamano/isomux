@@ -3,8 +3,8 @@
 import type { TaskItem } from "./types.ts";
 import { versionOf } from "./blob-version.ts";
 
-// The default list (GET /api/tasks with no status, and the board's Active
-// filter) leaves out done tasks and open P4 tasks, the old backlog. An
+// The default list (GET /api/tasks with no status, and the office's task
+// count) leaves out done tasks and open P4 tasks, the old backlog. An
 // in-progress P4 task stays in, as a claimed backlog task left the backlog.
 export function inDefaultTaskList(t: Pick<TaskItem, "status" | "priority">) {
   return t.status !== "done" && !(t.status === "open" && t.priority === "P4");

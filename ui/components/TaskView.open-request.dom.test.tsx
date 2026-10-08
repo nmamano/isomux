@@ -8,6 +8,7 @@ const { useState } = await import("react");
 const { TaskView } = await import("./TaskView.tsx");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
+const { checkedFilterValues } = await import("../test-support/task-filters.ts");
 type TaskItem = import("../../shared/types.ts").TaskItem;
 
 setApiShim(async () => ({}));
@@ -70,11 +71,14 @@ it("routes a new chip request through the open panel's discard flow", async () =
   const scope = view.container.querySelector(
     'select:has(option[value="global"])',
   ) as HTMLSelectElement;
-  const status = view.container.querySelector(
-    'select:has(option[value="active"])',
-  ) as HTMLSelectElement;
   expect(scope.value).toBe("r2");
-  expect(status.value).toBe("all");
+  // The default statuses, plus the linked done task's status.
+  expect(await checkedFilterValues(view.container, "status")).toEqual([
+    "open",
+    "in_progress",
+    "done",
+  ]);
+  expect(view.getByText(second.title)).toBeDefined();
 
   await act(async () => fireEvent.click(view.getByText("×")));
   expect(view.queryByDisplayValue(second.title) === null).toBe(true);

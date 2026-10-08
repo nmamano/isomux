@@ -10,6 +10,7 @@ const { useState } = await import("react");
 const { TaskView } = await import("./TaskView.tsx");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
+const { toggleTaskFilter } = await import("../test-support/task-filters.ts");
 type TaskItem = import("../../shared/types.ts").TaskItem;
 
 afterEach(() => setApiShim(null));
@@ -110,26 +111,22 @@ it("a 409 keeps the panel open with the edit and says the save did not land", as
 it("P4 replaces backlog: a priority option, no status option, and a board filter", async () => {
   setApiShim(async () => ({}));
   const { view, open } = mount();
-  const filter = view.container.querySelector(
-    'select:has(option[value="active"])',
-  ) as HTMLSelectElement;
-  expect(filter.querySelector('option[value="backlog"]')).toBeNull();
-  // The default (active) view hides the open P4 task but not the started one.
+  // The default view leaves P4 unchecked, so it hides open and started P4 tasks.
   expect(view.queryByText(shelved.title) === null).toBe(true);
-  expect(view.getByText(startedP4.title)).toBeDefined();
-  await act(async () => fireEvent.change(filter, { target: { value: "P4" } }));
+  expect(view.queryByText(startedP4.title) === null).toBe(true);
+  expect(view.getByText(editable.title)).toBeDefined();
+  await toggleTaskFilter(view.container, "priority", "P4");
   expect(view.getByText(shelved.title)).toBeDefined();
   expect(view.getByText(startedP4.title)).toBeDefined();
-  expect(view.queryByText(editable.title) === null).toBe(true);
 
   await open(shelved.id);
   await view.findByDisplayValue(shelved.title);
   const priority = view.container.querySelector(
-    'select:has(option[value="P0"]):not(:has(option[value="none"]))',
+    'select:has(option[value="P0"])',
   ) as HTMLSelectElement;
   expect(priority.value).toBe("P4");
   const status = view.container.querySelector(
-    'select:has(option[value="in_progress"]):not(:has(option[value="active"]))',
+    'select:has(option[value="in_progress"])',
   ) as HTMLSelectElement;
   expect(status.querySelector('option[value="backlog"]')).toBeNull();
 });

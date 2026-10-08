@@ -8,6 +8,7 @@ const { createElement } = await import("react");
 const { App } = await import("./App.tsx");
 const { StateCtx, initialState } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
+const { checkedFilterValues } = await import("./test-support/task-filters.ts");
 type AgentInfo = import("../shared/types.ts").AgentInfo;
 type TaskItem = import("../shared/types.ts").TaskItem;
 
@@ -48,7 +49,7 @@ const task = {
   roomId: "r2",
 } as TaskItem;
 
-it("opens a visible task chip in an unfiltered board detail", async () => {
+it("opens a task chip in a board detail whose filters show the task", async () => {
   const state = {
     ...initialState,
     agents: [agent],
@@ -95,11 +96,12 @@ it("opens a visible task chip in an unfiltered board detail", async () => {
   const scope = view.container.querySelector(
     'select:has(option[value="global"])',
   ) as HTMLSelectElement;
-  const status = view.container.querySelector(
-    'select:has(option[value="active"])',
-  ) as HTMLSelectElement;
   expect(scope.value).toBe("r2");
-  expect(status.value).toBe("all");
+  expect(await checkedFilterValues(view.container, "status")).toEqual([
+    "open",
+    "in_progress",
+    "done",
+  ]);
   expect(
     view.container.querySelector<HTMLInputElement>(
       `input[value="${task.title}"]`,
@@ -117,8 +119,8 @@ it("opens a visible task chip in an unfiltered board detail", async () => {
       `input[value="${task.title}"]`,
     ) === null,
   ).toBe(true);
-  const reopenedStatus = view.container.querySelector(
-    'select:has(option[value="active"])',
-  ) as HTMLSelectElement;
-  expect(reopenedStatus.value).toBe("active");
+  expect(await checkedFilterValues(view.container, "status")).toEqual([
+    "open",
+    "in_progress",
+  ]);
 });
