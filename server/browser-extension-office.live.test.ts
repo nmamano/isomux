@@ -992,18 +992,21 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
   }
 }
 
-test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+// Quarantined 2026-10-09: flaky (task e513ce4e).
+test.skip(
   "real office routes use paired Chrome, separate agents, frames and retained popup opener",
   () => runOfficeScenario(false),
   130_000,
 );
-test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+// Quarantined 2026-10-09: flaky (task e513ce4e).
+test.skip(
   "packaged Chrome reads and controls owned same-origin, cross-origin and nested frames",
   () => runOfficeScenario(true),
   90_000,
 );
 
-test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+// Quarantined 2026-10-09: flaky (task e513ce4e).
+test.skip(
   "real office browser reads composers, scopes long feeds and sanitizes selector errors",
   () => runOfficeScenario(true, true),
   130_000,

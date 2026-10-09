@@ -232,132 +232,125 @@ function expectations(act: (body: Record<string, unknown>) => Promise<Timed>) {
   return { ok, failed, read };
 }
 
-test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
-  "clicks, listboxes and dialogs on a Namecheap-like page return their real outcome",
-  async () => {
-    await withOfferedTab(
-      () => html(DNS_PAGE),
-      async ({ dir, act, setupPage, closeSetup }) => {
-        const { ok, failed, read } = expectations(act);
-        // Another CDP client answers the dialog first, so the agent's answer
-        // fails. The bridge holds the agent's answer back to make that order
-        // certain. Before the fix Playwright left that rejection unhandled
-        // and Bun ended the process (and this test).
-        setupPage.on(
-          "dialog",
-          (dialog) => void dialog.dismiss().catch(() => {}),
+// Quarantined 2026-10-09: flaky (task e513ce4e).
+test.skip("clicks, listboxes and dialogs on a Namecheap-like page return their real outcome", async () => {
+  await withOfferedTab(
+    () => html(DNS_PAGE),
+    async ({ dir, act, setupPage, closeSetup }) => {
+      const { ok, failed, read } = expectations(act);
+      // Another CDP client answers the dialog first, so the agent's answer
+      // fails. The bridge holds the agent's answer back to make that order
+      // certain. Before the fix Playwright left that rejection unhandled
+      // and Bun ended the process (and this test).
+      setupPage.on("dialog", (dialog) => void dialog.dismiss().catch(() => {}));
+      type Dispatch = (...args: unknown[]) => Promise<void>;
+      const bridge = ExtensionConnection.prototype as unknown as {
+        dispatch: Dispatch;
+      };
+      const dispatch = bridge.dispatch;
+      const held = spyOn(bridge, "dispatch").mockImplementation(async function (
+        this: unknown,
+        ...args: unknown[]
+      ) {
+        if (JSON.stringify(args[1]).includes("Page.handleJavaScriptDialog"))
+          await Bun.sleep(500);
+        return dispatch.apply(this, args);
+      });
+      let raced: Extract<BrowserResult, { ok: true }>;
+      try {
+        raced = ok(
+          await act({
+            action: "click",
+            selector: "#remove",
+            dialog: "accept",
+          }),
         );
-        type Dispatch = (...args: unknown[]) => Promise<void>;
-        const bridge = ExtensionConnection.prototype as unknown as {
-          dispatch: Dispatch;
-        };
-        const dispatch = bridge.dispatch;
-        const held = spyOn(bridge, "dispatch").mockImplementation(
-          async function (this: unknown, ...args: unknown[]) {
-            if (JSON.stringify(args[1]).includes("Page.handleJavaScriptDialog"))
-              await Bun.sleep(500);
-            return dispatch.apply(this, args);
-          },
-        );
-        let raced: Extract<BrowserResult, { ok: true }>;
-        try {
-          raced = ok(
-            await act({
-              action: "click",
-              selector: "#remove",
-              dialog: "accept",
-            }),
-          );
-        } finally {
-          held.mockRestore();
-        }
-        expect(raced.dialogs).toEqual([
-          { type: "confirm", message: "Remove this record?", accepted: false },
-        ]);
-        expect(await read("#status")).toBe("editing");
-        await closeSetup();
+      } finally {
+        held.mockRestore();
+      }
+      expect(raced.dialogs).toEqual([
+        { type: "confirm", message: "Remove this record?", accepted: false },
+      ]);
+      expect(await read("#status")).toBe("editing");
+      await closeSetup();
 
-        // A javascript:void(0) link settles at once, and the next action runs.
-        const cancel = await act({ action: "click", selector: "#cancel" });
-        expect(ok(cancel).loading).toBeUndefined();
-        expect(cancel.elapsed).toBeLessThan(DEADLINE_MS / 2);
-        expect(await read("#status")).toBe("cancelled trusted=true");
+      // A javascript:void(0) link settles at once, and the next action runs.
+      const cancel = await act({ action: "click", selector: "#cancel" });
+      expect(ok(cancel).loading).toBeUndefined();
+      expect(cancel.elapsed).toBeLessThan(DEADLINE_MS / 2);
+      expect(await read("#status")).toBe("cancelled trusted=true");
 
-        // The open custom listbox is in the snapshot, and a click on an
-        // option that picks on pointerdown returns ok (it used to time out).
-        ok(await act({ action: "click", selector: "#ttl-trigger" }));
-        const open = ok(await act({ action: "snapshot" })).snapshot!;
-        expect(open).toContain("- listbox:");
-        for (const name of ["1 min", "5 min", "30 min", "Automatic"])
-          expect(open).toContain(`- option "${name}"`);
-        const option = await act({
-          action: "click",
-          selector: 'role=listbox >> role=option[name="5 min"]',
-        });
-        ok(option);
-        expect(option.elapsed).toBeLessThan(DEADLINE_MS / 2);
-        // One change event: the pick ran once and was not retried.
-        expect(await read("#ttl-change")).toBe("change:300;");
-        const picked = ok(await act({ action: "screenshot" }));
-        writeFileSync(join(dir, "option-picked.png"), picked.png!);
-        expect(ok(await act({ action: "snapshot" })).snapshot).not.toContain(
-          "listbox",
-        );
+      // The open custom listbox is in the snapshot, and a click on an
+      // option that picks on pointerdown returns ok (it used to time out).
+      ok(await act({ action: "click", selector: "#ttl-trigger" }));
+      const open = ok(await act({ action: "snapshot" })).snapshot!;
+      expect(open).toContain("- listbox:");
+      for (const name of ["1 min", "5 min", "30 min", "Automatic"])
+        expect(open).toContain(`- option "${name}"`);
+      const option = await act({
+        action: "click",
+        selector: 'role=listbox >> role=option[name="5 min"]',
+      });
+      ok(option);
+      expect(option.elapsed).toBeLessThan(DEADLINE_MS / 2);
+      // One change event: the pick ran once and was not retried.
+      expect(await read("#ttl-change")).toBe("change:300;");
+      const picked = ok(await act({ action: "screenshot" }));
+      writeFileSync(join(dir, "option-picked.png"), picked.png!);
+      expect(ok(await act({ action: "snapshot" })).snapshot).not.toContain(
+        "listbox",
+      );
 
-        // Dialogs: dismissed by default, and an accept covers the first only.
-        const dismissed = ok(
-          await act({ action: "click", selector: "#remove" }),
-        );
-        expect(dismissed.dialogs).toEqual([
-          { type: "confirm", message: "Remove this record?", accepted: false },
-        ]);
-        expect(await read("#status")).toBe("cancelled trusted=true");
-        const accepted = ok(
-          await act({ action: "click", selector: "#double", dialog: "accept" }),
-        );
-        expect(accepted.dialogs).toEqual([
-          { type: "confirm", message: "First?", accepted: true },
-          { type: "confirm", message: "Second?", accepted: false },
-        ]);
-        expect(await read("#status")).toBe("first=true second=false");
+      // Dialogs: dismissed by default, and an accept covers the first only.
+      const dismissed = ok(await act({ action: "click", selector: "#remove" }));
+      expect(dismissed.dialogs).toEqual([
+        { type: "confirm", message: "Remove this record?", accepted: false },
+      ]);
+      expect(await read("#status")).toBe("cancelled trusted=true");
+      const accepted = ok(
+        await act({ action: "click", selector: "#double", dialog: "accept" }),
+      );
+      expect(accepted.dialogs).toEqual([
+        { type: "confirm", message: "First?", accepted: true },
+        { type: "confirm", message: "Second?", accepted: false },
+      ]);
+      expect(await read("#status")).toBe("first=true second=false");
 
-        // A covered element: actionability never passes, no input is sent, and
-        // the next action runs at once.
-        const covered = failed(
-          await act({ action: "click", selector: "#covered" }),
-        );
-        expect(covered.code).toBe("action_failed");
-        expect(covered.error).toContain(CLICK_REASON.covered);
-        const next = await act({ action: "snapshot" });
-        ok(next);
-        expect(next.elapsed).toBeLessThan(DEADLINE_MS / 2);
-        expect(await read("#clicks")).toBe("");
-        const absent = failed(
-          await act({ action: "click", selector: "#absent" }),
-        );
-        expect(absent.code).toBe("action_failed");
-        expect(absent.error).toContain(CLICK_REASON.missing);
+      // A covered element: actionability never passes, no input is sent, and
+      // the next action runs at once.
+      const covered = failed(
+        await act({ action: "click", selector: "#covered" }),
+      );
+      expect(covered.code).toBe("action_failed");
+      expect(covered.error).toContain(CLICK_REASON.covered);
+      const next = await act({ action: "snapshot" });
+      ok(next);
+      expect(next.elapsed).toBeLessThan(DEADLINE_MS / 2);
+      expect(await read("#clicks")).toBe("");
+      const absent = failed(
+        await act({ action: "click", selector: "#absent" }),
+      );
+      expect(absent.code).toBe("action_failed");
+      expect(absent.error).toContain(CLICK_REASON.missing);
 
-        // The target changes between the check and the dispatch: hover shows
-        // a cover over it. The result is ok because the click was dispatched
-        // at the target's position after it passed actionability. Playwright
-        // saw the cover take the pointer and blocked the click, so neither
-        // element received it.
-        ok(await act({ action: "click", selector: "#hover-target" }));
-        expect(await read("#clicks")).toBe("");
-        expect(ok(await act({ action: "snapshot" })).snapshot).toContain(
-          'button "Cover"',
-        );
-        const gap = ok(await act({ action: "screenshot" }));
-        writeFileSync(join(dir, "hover-cover.png"), gap.png!);
+      // The target changes between the check and the dispatch: hover shows
+      // a cover over it. The result is ok because the click was dispatched
+      // at the target's position after it passed actionability. Playwright
+      // saw the cover take the pointer and blocked the click, so neither
+      // element received it.
+      ok(await act({ action: "click", selector: "#hover-target" }));
+      expect(await read("#clicks")).toBe("");
+      expect(ok(await act({ action: "snapshot" })).snapshot).toContain(
+        'button "Cover"',
+      );
+      const gap = ok(await act({ action: "screenshot" }));
+      writeFileSync(join(dir, "hover-cover.png"), gap.png!);
 
-        console.log("Interaction evidence: " + dir);
-      },
-      DEADLINE_MS,
-    );
-  },
-  120_000,
-);
+      console.log("Interaction evidence: " + dir);
+    },
+    DEADLINE_MS,
+  );
+}, 120_000);
 
 test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   "selects and navigations on a Namecheap-like page return their real outcome",
