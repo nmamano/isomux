@@ -2640,7 +2640,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.skills.delete": "Delete a skill",
   "skills.commands": "Commands",
   "skills.commands.note":
-    "The office handles these commands, not skills. They work the same for every agent. Claude Code's own commands, such as /compact, are not supported here. Context compacts automatically.",
+    "The office handles these commands, not skills. They work the same for every agent.",
   "skills.commands.search": "Search commands",
   "skills.allAgents": "All agents",
   "skills.invalid.frontmatter":

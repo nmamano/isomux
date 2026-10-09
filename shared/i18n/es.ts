@@ -2655,7 +2655,7 @@ Cosas que puedes hacer por él:
   "apiCall.skills.delete": "Eliminar una habilidad",
   "skills.commands": "Comandos",
   "skills.commands.note":
-    "La oficina gestiona estos comandos; no son habilidades. Funcionan igual para todos los agentes. Los comandos propios de Claude Code, como /compact, no se admiten aquí. El contexto se compacta automáticamente.",
+    "La oficina gestiona estos comandos; no son habilidades. Funcionan igual para todos los agentes.",
   "skills.commands.search": "Buscar comandos",
   "skills.allAgents": "Todos los agentes",
   "skills.invalid.frontmatter":

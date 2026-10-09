@@ -2382,7 +2382,7 @@ App 的一些原则：
   "apiCall.skills.delete": "删除技能",
   "skills.commands": "命令",
   "skills.commands.note":
-    "这些命令由办公室处理，并非技能。它们对所有代理的作用相同。 此处不支持 Claude Code 自带的命令（如 /compact）。上下文会自动压缩。",
+    "这些命令由办公室处理，并非技能。它们对所有代理的作用相同。",
   "skills.commands.search": "搜索命令",
   "skills.allAgents": "所有代理",
   "skills.invalid.frontmatter": "请在文件开头添加用 --- 行包围的 YAML 元数据。",

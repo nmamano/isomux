@@ -2650,7 +2650,7 @@ Coses que pots fer per ell:
   "apiCall.skills.delete": "Elimina una habilitat",
   "skills.commands": "Ordres",
   "skills.commands.note":
-    "L’oficina gestiona aquestes ordres; no són habilitats. Funcionen igual per a tots els agents. Les ordres pròpies de Claude Code, com /compact, no s'admeten aquí. El context es compacta automàticament.",
+    "L’oficina gestiona aquestes ordres; no són habilitats. Funcionen igual per a tots els agents.",
   "skills.commands.search": "Cerca ordres",
   "skills.allAgents": "Tots els agents",
   "skills.invalid.frontmatter":
