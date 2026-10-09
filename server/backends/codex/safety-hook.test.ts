@@ -108,8 +108,12 @@ async function mutantHook(
       'from "./backend-credential-paths.ts"',
       `from ${JSON.stringify(credentialPathsUrl)}`,
     );
-  const policyPath = join(root, `${name}-policy.ts`);
-  const hookPath = join(root, `${name}-hook.ts`);
+  // Bun 1.3.14 on macOS caches a directory after its first module load.
+  // Write each mutant pair in a fresh directory before importing either file.
+  // https://github.com/oven-sh/bun/issues/40105
+  const mutantRoot = mkdtempSync(join(root, `${name}-`));
+  const policyPath = join(mutantRoot, `${name}-policy.ts`);
+  const hookPath = join(mutantRoot, `${name}-hook.ts`);
   const importableHook = hookSource.replace(
     'from "../../safety-policy.ts"',
     `from "./${name}-policy.ts"`,
