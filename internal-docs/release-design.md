@@ -254,6 +254,16 @@ updater copy the same way.
    degradation (a dead terminal panel answers `/readyz` perfectly well). The
    alternative is failing closed there and requiring an explicit override.
 
+   Caddy comes from the pinned GitHub release Debian package, for amd64 or
+   arm64, checked against that release's SHA512 checksums before apt installs it.
+   Bump `CADDY_VERSION` in `deploy/install.sh` with Isomux releases and keep the
+   manual domain guide's version in sync. The updater's deps-only pass applies
+   the pin; an installed equal or newer version is left alone. Caddy no longer
+   receives upgrades from Cloudsmith through apt. Both installer package paths
+   remove the old `caddy-stable.list` and its keyring before apt update, because
+   a failed repository blocks unrelated package updates. This removal does not
+   change Caddy's package, configuration, or service.
+
    Deps mode restores Caddy's exact active AND enabled state on both the
    success and failure paths, and fails the sync if it cannot: on an
    unverifiable office `install_packages` stops and masks the proxy with no

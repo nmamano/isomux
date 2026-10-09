@@ -462,8 +462,8 @@ describe("container installer", () => {
     const script =
       packages +
       `
-CONTAINER_KEYRING="$FIXTURE/keyring"
-CONTAINER_APT_SOURCE="$FIXTURE/source.list"
+remove_caddy_apt_source() { rm -f "$FIXTURE/keyring" "$FIXTURE/source.list"; }
+install_caddy_release() { apt_install caddy; }
 snapshot_caddy_state() { echo snapshot >> "$FIXTURE/events"; CADDY_SNAPSHOT_ARMED=1; }
 restore_caddy_state() { [[ -z $CADDY_SNAPSHOT_ARMED ]] || echo restore >> "$FIXTURE/events"; CADDY_SNAPSHOT_ARMED=""; }
 apt_get() { echo "apt $*" >> "$FIXTURE/events"; }
@@ -500,7 +500,7 @@ container_install_packages
     expect(events(dir)).toContain("restore");
   });
 
-  it("makes public apt metadata readable under the private umask, including repair", () => {
+  it("removes retired Caddy metadata before apt, including repair", () => {
     const dir = fixture();
     const packages = source.slice(
       source.indexOf("container_install_packages() {"),
@@ -509,28 +509,23 @@ container_install_packages
     const script =
       packages +
       `
-CONTAINER_KEYRING="$FIXTURE/keyring"
-CONTAINER_APT_SOURCE="$FIXTURE/source.list"
+remove_caddy_apt_source() { rm -f "$FIXTURE/keyring" "$FIXTURE/source.list"; }
+install_caddy_release() { apt_install caddy; }
 snapshot_caddy_state() { :; }
 restore_caddy_state() { :; }
 apt_install() { :; }
 curl() { echo repository; }
 gpg() { cat >"\${@: -1}"; }
 apt_get() {
-  for metadata in "$CONTAINER_KEYRING" "$CONTAINER_APT_SOURCE"; do
-    if [[ -e $metadata ]]; then
-      mode=$(command stat -c %a "$metadata")
-      (( (8#$mode & 4) != 0 )) || return 91
-    fi
-  done
+  [[ ! -e "$FIXTURE/keyring" && ! -e "$FIXTURE/source.list" ]]
 }
 umask 077
 container_install_packages
 `;
     expect(run(dir, script).code).toBe(0);
     for (const name of ["keyring", "source.list"]) {
-      expect(statSync(join(dir, name)).mode & 0o004).toBe(0o004);
-      chmodSync(join(dir, name), 0o600);
+      expect(existsSync(join(dir, name))).toBe(false);
+      writeFileSync(join(dir, name), "retired", { mode: 0o600 });
     }
     expect(run(dir, script).code).toBe(0);
   });

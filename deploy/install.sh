@@ -630,6 +630,49 @@ install_github_cli() {
   log "installed GitHub CLI"
 }
 
+# Caddy releases carry Debian packages and SHA512 checksums for both supported
+# architectures. Bump this pin with Isomux releases; deps-only applies it too.
+CADDY_VERSION=2.11.7
+
+remove_caddy_apt_source() {
+  # Retire only the files this installer wrote. Removing repository metadata
+  # does not change the installed package, configuration, or running service.
+  run rm -f /etc/apt/sources.list.d/caddy-stable.list \
+    /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+}
+
+install_caddy_release() (
+  set -Eeuo pipefail
+  local installed arch asset base stage
+  installed=$(dpkg-query -W -f='${Status} ${Version}' caddy 2>/dev/null || true)
+  if [[ $installed == "install ok installed "* ]] &&
+    dpkg --compare-versions "${installed#install ok installed }" ge "$CADDY_VERSION"; then
+    return 0
+  fi
+  arch=$(dpkg --print-architecture) || exit $?
+  case $arch in amd64 | arm64) ;; *) die "Unsupported Caddy architecture: $arch" ;; esac
+  asset="caddy_${CADDY_VERSION}_linux_${arch}.deb"
+  base="https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}"
+  stage=$(mktemp -d) || exit $?
+  trap 'rm -rf "$stage"' EXIT
+  chmod 755 "$stage" || exit $?
+  curl -fsSL "$base/$asset" -o "$stage/$asset" || exit $?
+  curl -fsSL "$base/caddy_${CADDY_VERSION}_checksums.txt" -o "$stage/checksums.txt" || exit $?
+  # Explicit exits also fail closed inside drop_output_lines, whose status
+  # capture disables errexit. Reject missing, duplicate, or malformed entries.
+  awk -v asset="$asset" '
+    $2 == asset {
+      if (length($1) != 128 || $1 ~ /[^0-9a-fA-F]/ || NF != 2) exit 1
+      print $1 "  " asset
+      found++
+    }
+    END { if (found != 1) exit 1 }
+  ' "$stage/checksums.txt" > "$stage/selected.sha512" || exit $?
+  (cd "$stage" && sha512sum --check selected.sha512) || exit $?
+  chmod 644 "$stage/$asset" || exit $?
+  apt_install "$stage/$asset"
+)
+
 install_packages() {
   step install-packages
   export DEBIAN_FRONTEND=noninteractive
@@ -651,6 +694,7 @@ install_packages() {
     run systemctl mask caddy
     CADDY_MASKED=1
   fi
+  remove_caddy_apt_source
   apt_get update -y
   # polkitd: authorizes the in-UI update trigger (see install_updater); present
   # on most Ubuntu images but not guaranteed on minimal ones.
@@ -662,12 +706,8 @@ install_packages() {
   # isomux runtime dependencies.
   apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd build-essential python3 openssh-client ffmpeg ripgrep tmux
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would add the Caddy and NodeSource apt repositories and install caddy + nodejs"
+    log "DRY-RUN: would install the pinned Caddy release and add the NodeSource apt repository for nodejs"
   else
-    curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' |
-      gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-      >/etc/apt/sources.list.d/caddy-stable.list
     # Node.js from NodeSource: the terminal panel's PTY sidecar needs real
     # Node (node-pty's bindings don't run under bun's node-compat), at
     # /usr/bin/node where the server probes for it. A current version, not
@@ -679,15 +719,16 @@ install_packages() {
     echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
       >/etc/apt/sources.list.d/nodesource.list
     apt_get update -y
+    apt_install nodejs
     if [[ -n $CADDY_MASKED ]]; then
       # On a host without caddy, the mask above exists before the unit does,
       # so the package's postinst cannot preset the masked unit. It ignores
       # that failure, and this function stops and disables caddy right after,
       # but the two lines it prints read as a broken install. Drop only those.
       drop_output_lines 'Failed to preset unit, unit .*caddy\.service is masked|deb-systemd-helper: error: systemctl preset failed on caddy\.service' \
-        apt_install caddy nodejs
+        install_caddy_release
     else
-      apt_install caddy nodejs
+      install_caddy_release
     fi
   fi
   if [[ -z $caddy_safe ]]; then
@@ -4265,8 +4306,6 @@ CONTAINER_DATA=/srv/isomux-data
 CONTAINER_UNIT=/etc/systemd/system/isomux-container.service
 CONTAINER_LOCK=/run/isomux-install.lock
 CONTAINER_STAGE_PARENT=/opt
-CONTAINER_KEYRING=/usr/share/keyrings/caddy-stable-archive-keyring.gpg
-CONTAINER_APT_SOURCE=/etc/apt/sources.list.d/caddy-stable.list
 CONTAINER_IMAGE=ghcr.io/nmamano/isomux
 CONTAINER_REPAIR=""
 CONTAINER_UUID=""
@@ -4411,24 +4450,13 @@ container_install_packages() {
   # Snapshot both directions. Package scripts must not leave an existing front
   # door stopped, or start a proxy which the operator had stopped.
   snapshot_caddy_state
-  # apt reads public repository metadata as _apt. Repair files left at 0600
-  # by an interrupted older container install before the first apt update.
-  local public_file
-  for public_file in "$CONTAINER_KEYRING" "$CONTAINER_APT_SOURCE"; do
-    if [[ -f $public_file ]]; then chmod 644 "$public_file"; fi
-  done
+  remove_caddy_apt_source
   apt_get update -y
   apt_install ca-certificates curl gnupg git python3 jq openssl ufw unattended-upgrades
   if ! command -v docker >/dev/null; then
     apt_install docker.io docker-compose-v2
   fi
-  curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' |
-    gpg --batch --yes --dearmor -o "$CONTAINER_KEYRING"
-  curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-    >"$CONTAINER_APT_SOURCE"
-  chmod 644 "$CONTAINER_KEYRING" "$CONTAINER_APT_SOURCE"
-  apt_get update -y
-  apt_install caddy
+  install_caddy_release
   restore_caddy_state || die "Could not restore Caddy's prior service state"
   systemctl enable --now docker
   container_check_docker_version

@@ -33,19 +33,36 @@ IPv6 firewall.
 
 ## Install and configure Caddy
 
-On the server, install Caddy using its official Debian/Ubuntu package repository:
+On the server, install the pinned Caddy Debian package from its GitHub release.
+The commands verify its SHA512 checksum before installation.
 
 ```sh
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-sudo chmod o+r /etc/apt/sources.list.d/caddy-stable.list
+(
+set -eu
+sudo rm -f /etc/apt/sources.list.d/caddy-stable.list /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 sudo apt update
-sudo apt install -y caddy
+sudo apt install -y curl ca-certificates
+version=2.11.7
+arch=$(dpkg --print-architecture)
+case "$arch" in amd64|arm64) ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac
+asset="caddy_${version}_linux_${arch}.deb"
+base="https://github.com/caddyserver/caddy/releases/download/v${version}"
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+chmod 755 "$stage"
+cd "$stage"
+curl -fsSL "$base/$asset" -o "$asset"
+curl -fsSL "$base/caddy_${version}_checksums.txt" -o checksums.txt
+awk -v asset="$asset" '$2 == asset { if (length($1) != 128 || $1 ~ /[^0-9a-fA-F]/ || NF != 2) exit 1; print $1 "  " asset; found++ } END { if (found != 1) exit 1 }' checksums.txt > selected.sha512
+sha512sum --check selected.sha512
+chmod 644 "$asset"
+sudo apt install -y "./$asset"
+)
 ```
 
-[Official Caddy installation instructions](https://caddyserver.com/docs/install#debian-ubuntu-raspbian).
+These commands remove the old Caddy repository files without removing Caddy.
+For later Caddy upgrades, repeat them with the version from the
+[Caddy releases](https://github.com/caddyserver/caddy/releases) page.
 
 If Caddy already serves another site, preserve its configuration and combine
 these entries with it. For a new Caddy installation, open

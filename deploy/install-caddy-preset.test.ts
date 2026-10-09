@@ -107,7 +107,7 @@ describe("install.sh: caddy's preset error on a masked unit", () => {
     const body = installPackagesBody();
     const masked = body.indexOf("if [[ -n $CADDY_MASKED ]]; then");
     const call = body.indexOf("drop_output_lines '");
-    const target = body.indexOf("apt_install caddy nodejs", call);
+    const target = body.indexOf("install_caddy_release", call);
     expect(masked).toBeGreaterThan(-1);
     expect(call).toBeGreaterThan(masked);
     expect(target).toBeGreaterThan(call);
