@@ -94,7 +94,7 @@ bun run dev
 
 ### 3. Open
 
-Visit **http://localhost:4000** in your browser.
+Open the setup link that `bun run dev` prints.
 
 - Claude Code and Codex are bundled with isomux. You'll be prompted to sign in when you talk to an agent.
 - OpenCode is bundled with isomux. Choose a Free, Pay-as-you-go, or Subscription model.

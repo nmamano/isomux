@@ -104,7 +104,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Autocomplete dropdown** with keyboard navigation for slash commands.
 - **Skills browser** - the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
 - **User skills** from `~/.claude/skills/` and project commands.
-- **Skills page** - every skill your agents can run, per engine, with where it comes from and its full SKILL.md. Edit user and project skills or create new ones there; built-in and plugin skills are read-only.
+- **Skills page** - every skill your agents can run, per engine, with where it comes from and its full SKILL.md. Edit user and project skills or create new ones there.
 
 ## Developer tools
 

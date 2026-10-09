@@ -15,7 +15,7 @@ On first boot the office has no owner, and the server answers only on its own ma
 - On the machine itself, open the link.
 - From another machine, open a tunnel with `ssh -L 4000:localhost:4000 <user>@<host>`, and then open the link in that machine's browser.
 
-Enter a display name and submit. You are the owner. Until someone claims the office, the server prints the same link on every boot.
+Enter a display name and submit to become the office owner. Until someone claims the office, the server prints the same link on every boot.
 
 The link carries the setup key. The key is also in `~/.isomux/setup-key` on the server, and the claim deletes it. If `ISOMUX_SETUP_KEY` is set, the office uses that value as its key: container, [Render](hosting-render.md) and [Kubernetes](hosting-kubernetes.md) offices do this, and their setup guides show where to find it.
 
