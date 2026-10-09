@@ -11,6 +11,8 @@ import type {
   SkillCatalogRes,
 } from "../../../shared/contract-shapes.ts";
 
+const VALID_CONTENT = "---\nname: mine\ndescription: fixture\n---\nBody\n";
+
 const identity: Identity = {
   scope: "user",
   userId: "u1",
@@ -51,7 +53,12 @@ const catalog: SkillCatalogRes = {
 };
 
 function harness(over: Partial<SkillsDeps> = {}) {
-  const calls = { saves: 0, refresh: 0, catalogFor: [] as Identity[] };
+  const calls = {
+    saves: 0,
+    deletes: 0,
+    refresh: 0,
+    catalogFor: [] as Identity[],
+  };
   const deps: SkillsDeps = {
     catalogFor: (id) => {
       calls.catalogFor.push(id);
@@ -70,6 +77,10 @@ function harness(over: Partial<SkillsDeps> = {}) {
     saveFile: (path) => {
       calls.saves++;
       return { kind: "ok", path, mtime: 2, rev: 8 };
+    },
+    deleteFile: async () => {
+      calls.deletes++;
+      return { kind: "ok" };
     },
     createSkill: (dir, input) => ({
       kind: "ok",
@@ -132,14 +143,14 @@ describe("skills handlers", () => {
       handlers["skills.saveFile"],
       ctx("", {
         path: "/opt/isomux/skills/grill-me/SKILL.md",
-        content: "x",
+        content: VALID_CONTENT,
         expectedRev: 7,
       }),
     );
     expect(builtIn).toMatchObject({ kind: "error", status: 403 });
     const unlisted = await run(
       handlers["skills.saveFile"],
-      ctx("", { path: "/h/.bashrc", content: "x", expectedRev: 7 }),
+      ctx("", { path: "/h/.bashrc", content: VALID_CONTENT, expectedRev: 7 }),
     );
     expect(unlisted).toMatchObject({ kind: "error", status: 404 });
     expect(calls.saves).toBe(0);
@@ -149,7 +160,10 @@ describe("skills handlers", () => {
     const { handlers, calls } = harness();
     const r = await run(
       handlers["skills.saveFile"],
-      ctx("", { path: catalog.engines[0].skills[0].path, content: "x" }),
+      ctx("", {
+        path: catalog.engines[0].skills[0].path,
+        content: VALID_CONTENT,
+      }),
     );
     expect(r).toMatchObject({ kind: "error", status: 422 });
     expect(calls.saves).toBe(0);
@@ -168,7 +182,7 @@ describe("skills handlers", () => {
       handlers["skills.saveFile"],
       ctx("", {
         path: catalog.engines[0].skills[0].path,
-        content: "x",
+        content: VALID_CONTENT,
         expectedRev: 7,
       }),
     );
@@ -187,7 +201,7 @@ describe("skills handlers", () => {
       handlers["skills.saveFile"],
       ctx("", {
         path: catalog.engines[0].skills[0].path,
-        content: "x",
+        content: VALID_CONTENT,
         expectedRev: 7,
       }),
     );
@@ -226,4 +240,65 @@ describe("skills handlers", () => {
       expect(r).toMatchObject({ kind: "error", status, code });
     }
   });
+});
+
+it("leaves legacy command saves unvalidated", async () => {
+  const command = entry({
+    kind: "command",
+    path: "/h/.claude/commands/mine.md",
+  });
+  const { handlers, calls } = harness({
+    catalogFor: () => ({
+      ...catalog,
+      engines: [{ engine: "claude", skills: [command] }],
+    }),
+  });
+  const r = await run(
+    handlers["skills.saveFile"],
+    ctx("", {
+      path: command.path,
+      content: "---\nname: [broken\n---\nLegacy body",
+      expectedRev: 7,
+    }),
+  );
+  expect(r).toMatchObject({ kind: "json" });
+  expect(calls.saves).toBe(1);
+});
+
+it("checks the current catalog and revision before delete, and refreshes only on success", async () => {
+  const path = catalog.engines[0].skills[0].path;
+  const { handlers, calls } = harness();
+  for (const [body, status] of [
+    [{ expectedRev: 7 }, 400],
+    [{ path }, 422],
+    [{ path: "/other/SKILL.md", expectedRev: 7 }, 404],
+    [{ path: catalog.engines[0].skills[1].path, expectedRev: 7 }, 403],
+  ] as const) {
+    expect(
+      await run(handlers["skills.deleteFile"], ctx("", body)),
+    ).toMatchObject({ kind: "error", status });
+  }
+  expect(calls.deletes).toBe(0);
+  expect(calls.refresh).toBe(0);
+  expect(
+    await run(handlers["skills.deleteFile"], ctx("", { path, expectedRev: 7 })),
+  ).toMatchObject({ kind: "noContent" });
+  expect(calls.deletes).toBe(1);
+  expect(calls.refresh).toBe(1);
+  expect(calls.catalogFor.every((id) => id === identity)).toBe(true);
+  for (const [result, status, code] of [
+    [{ kind: "stale", currentRev: 9, currentMtime: 3 }, 409, "stale"],
+    [{ kind: "deleted" }, 409, "deleted"],
+    [{ kind: "read_only" }, 403, "read_only"],
+    [{ kind: "io_error", message: "fixture" }, 500, "io_error"],
+  ] as const) {
+    const h = harness({ deleteFile: async () => result });
+    expect(
+      await run(
+        h.handlers["skills.deleteFile"],
+        ctx("", { path, expectedRev: 7 }),
+      ),
+    ).toMatchObject({ kind: "error", status, code });
+    expect(h.calls.refresh).toBe(0);
+  }
 });

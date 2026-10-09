@@ -77,6 +77,11 @@ describe("autocompleteCommands() wire shape", () => {
   });
 
   it("only surfaces autocomplete commands", () => {
+    for (const alias of ["reset", "new"]) {
+      expect(commands[alias]?.aliasFor).toBe("clear");
+      expect(commands[alias]?.handler).toBe("clear");
+      expect(wire.some((command) => command.name === alias)).toBe(false);
+    }
     for (const c of wire) {
       expect(commands[c.name]?.autocomplete).toBe(true);
     }

@@ -151,6 +151,10 @@ describe("a slash command answers in the typing user's language", () => {
     expect(skillHeadings.length).toBeGreaterThan(0);
     for (const at of skillHeadings) expect(at).toBeGreaterThan(commandsAt);
     expect(helpEntry?.content).toBe(t("commands.help.header"));
+    const diffLine = help!
+      .split("\n")
+      .find((line) => line.includes("`/isomux-diff`"));
+    expect(diffLine).toContain("`/diff`");
     // The registry carries no English description any more, so this text can
     // only have come from the catalog.
     expect(help).toContain("Borrar el historial de la conversación");

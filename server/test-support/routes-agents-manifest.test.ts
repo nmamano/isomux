@@ -27,7 +27,7 @@
 // Seam: startTestServer().http() + direct fetch for Origin control. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -645,4 +645,68 @@ describe("GET /agents?killed=1 (killed roster)", () => {
     ).json()) as Array<{ id: string }>;
     expect(asOwner.some((k) => k.id === unowned.id)).toBe(true);
   });
+});
+
+it("exposes skill deletion to agents with editor authority and refreshes the catalog", async () => {
+  const srv = await startTestServer();
+  server = srv;
+  const owner = await srv.seedOwner("Boss");
+  const room = srv.agentManager.getRooms()[0].id;
+  const agent = await spawnOwnedBy(
+    srv,
+    "Skill editor",
+    room,
+    0,
+    owner.username,
+  );
+  const folder = join(srv.stateRoot, ".claude", "skills", "delete-fixture");
+  mkdirSync(folder, { recursive: true });
+  const path = join(folder, "SKILL.md");
+  writeFileSync(
+    path,
+    "---\nname: delete-fixture\ndescription: fixture\n---\nBody\n",
+  );
+  writeFileSync(join(folder, "resource.txt"), "resource");
+  const headers = {
+    Authorization: `Bearer ${bearerFor(agent.id)}`,
+    "Content-Type": "application/json",
+  };
+  const read = await fetch(
+    `${srv.baseUrl}/api/skills/file?path=${encodeURIComponent(path)}`,
+    { headers },
+  );
+  expect(read.status).toBe(200);
+  const file = (await read.json()) as { rev: number };
+  const remove = (expectedRev: number, target = path) =>
+    fetch(`${srv.baseUrl}/api/skills/file`, {
+      method: "DELETE",
+      headers,
+      body: JSON.stringify({ path: target, expectedRev }),
+    });
+  expect((await remove(file.rev)).status).toBe(403);
+  expect(existsSync(path)).toBe(true);
+  await srv.agentManager.setPrivileged(agent.id, true);
+  headers.Authorization = `Bearer ${bearerFor(agent.id)}`;
+  expect(
+    (await remove(file.rev, join(srv.stateRoot, "not-a-skill.md"))).status,
+  ).toBe(404);
+  expect((await remove(file.rev - 1)).status).toBe(409);
+  const socket = await srv.connectWs(owner.rawSessionId);
+  expect((await remove(file.rev)).status).toBe(204);
+  const refresh = await socket.waitFor("slash_commands");
+  expect(refresh.agentId).toBe(agent.id);
+  expect(
+    (refresh.skills as { name: string }[]).some(
+      (skill) => skill.name === "delete-fixture",
+    ),
+  ).toBe(false);
+  expect(existsSync(folder)).toBe(false);
+  const catalog = (await fetch(`${srv.baseUrl}/api/skills`, { headers }).then(
+    (r) => r.json(),
+  )) as { engines: { skills: { path: string }[] }[] };
+  expect(
+    catalog.engines
+      .flatMap((engine) => engine.skills)
+      .some((skill) => skill.path === path),
+  ).toBe(false);
 });

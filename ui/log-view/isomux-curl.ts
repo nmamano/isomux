@@ -875,6 +875,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/skills", "apiCall.skills.create"],
   ["GET", "/api/skills/file", "apiCall.skills.read"],
   ["PUT", "/api/skills/file", "apiCall.skills.save"],
+  ["DELETE", "/api/skills/file", "apiCall.skills.delete"],
   // Deployment version identity (reachable by privileged agent tokens).
   ["GET", "/api/version", "apiCall.version.check"],
   // Storage breakdown (reachable by privileged agent tokens); the prune is

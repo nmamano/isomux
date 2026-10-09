@@ -309,6 +309,7 @@ import {
   createSkill,
   readSkillFile,
   saveSkillFile,
+  deleteSkillFile,
 } from "./skill-catalog.ts";
 import { getSkillUseCounts } from "./skill-usage.ts";
 import { invitesHandlers } from "./routes/handlers/invites.ts";
@@ -3178,13 +3179,16 @@ function buildExecutorDeps(
 
   // The skills page: the caller's catalog (their user roots, project skills of
   // agents in rooms they can access) and the listed SKILL.md files.
-  const skillCatalogFor = (identity: Identity) => {
+  const skillContextsFor = (identity: Identity) => {
     const rooms = accessibleRoomIdsForIdentity(identity);
+    return agentManager.skillEngineContexts(identity.userId ?? null, (info) =>
+      rooms.has(info.roomId),
+    );
+  };
+  const skillCatalogFor = (identity: Identity) => {
     const userId = identity.userId ?? null;
     return buildSkillCatalog(
-      agentManager.skillEngineContexts(userId, (info) =>
-        rooms.has(info.roomId),
-      ),
+      skillContextsFor(identity),
       userId ? getSkillUseCounts(userId) : {},
       agentManager.newSkillDir(),
       homedir(),
@@ -3195,6 +3199,8 @@ function buildExecutorDeps(
       catalogFor: skillCatalogFor,
       readFile: readSkillFile,
       saveFile: saveSkillFile,
+      deleteFile: (entry, rev, identity) =>
+        deleteSkillFile(entry, rev, skillContextsFor(identity)),
       createSkill,
       refreshMenus: () => agentManager.refreshSkillMenus(),
     }),

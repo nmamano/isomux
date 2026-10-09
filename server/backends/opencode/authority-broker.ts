@@ -106,6 +106,7 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "PUT", path: /^\/api\/memory$/ },
   { method: "GET", path: /^\/api\/skills(?:\/file)?$/ },
   { method: "PUT", path: /^\/api\/skills\/file$/ },
+  { method: "DELETE", path: /^\/api\/skills\/file$/ },
   { method: "POST", path: /^\/api\/skills$/ },
   { method: "POST", path: /^\/api\/rooms$/ },
   { method: "PATCH", path: /^\/api\/rooms\/[^/]+$/ },

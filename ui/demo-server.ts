@@ -1,3 +1,4 @@
+import { skillFileProblem } from "../shared/skill-validation.ts";
 import {
   membersChatExcerpt,
   recentMembersChatPins,
@@ -2049,9 +2050,10 @@ function demoBackupStatus(): BackupStatusWire {
 }
 
 // The Skills page in the demo: a fixed catalog over in-memory files. Every
-// engine lists the same skills, as on a real box.
+// engine shares user and built-in files; the project skill is Claude-only.
 const DEMO_HOME = "/home/ricky";
 const DEMO_SKILL_DIR = `${DEMO_HOME}/.claude/skills`;
+const demoDeletedSkills = new Set<string>();
 const demoSkillFiles = new Map<string, { content: string; rev: number }>();
 
 function demoSkillFile(
@@ -2122,15 +2124,15 @@ const DEMO_SKILLS: Array<
 ];
 
 function demoSkillCatalog(): SkillCatalogRes {
-  const skills: SkillCatalogEntry[] = DEMO_SKILLS.map(
-    ({ body: _body, uses, ...s }) => ({
-      ...s,
-      kind: "skill",
-      dir: s.path.replace(/\/[^/]+\/SKILL\.md$/, ""),
-      editable: s.source === "user" || s.source === "project",
-      uses: uses ?? 0,
-    }),
-  );
+  const skills: SkillCatalogEntry[] = DEMO_SKILLS.filter(
+    (s) => !demoDeletedSkills.has(s.path),
+  ).map(({ body: _body, uses, ...s }) => ({
+    ...s,
+    kind: "skill",
+    dir: s.path.replace(/\/[^/]+\/SKILL\.md$/, ""),
+    editable: s.source === "user" || s.source === "project",
+    uses: uses ?? 0,
+  }));
   for (const path of demoSkillFiles.keys()) {
     if (skills.some((s) => s.path === path)) continue;
     const name = path.split("/").slice(-2)[0];
@@ -2149,7 +2151,10 @@ function demoSkillCatalog(): SkillCatalogRes {
   return {
     engines: (["claude", "codex", "opencode"] as const).map((engine) => ({
       engine,
-      skills,
+      skills:
+        engine === "claude"
+          ? skills
+          : skills.filter((s) => s.source !== "project"),
     })),
     newSkillDir: DEMO_SKILL_DIR,
     home: DEMO_HOME,
@@ -2157,6 +2162,8 @@ function demoSkillCatalog(): SkillCatalogRes {
 }
 
 function demoSkillRead(path: string): SkillFileRes {
+  if (demoDeletedSkills.has(path))
+    throw new ApiError(404, "skill_not_found", "No skill has that path.");
   const stored = demoSkillFiles.get(path);
   if (stored)
     return {
@@ -2204,15 +2211,32 @@ export async function demoApi(
       throw new ApiError(403, "read_only", "This skill is read-only.");
     if (current.rev !== b.expectedRev)
       throw new ApiError(409, "stale", "The skill file changed on disk.");
+    const problem = b.path.endsWith("/SKILL.md")
+      ? skillFileProblem(b.content)
+      : null;
+    if (problem)
+      throw new ApiError(422, "invalid_skill", translatorFor("en").t(problem));
     const rev = current.rev + 1;
     demoSkillFiles.set(b.path, { content: b.content, rev });
     return { path: b.path, rev, mtime: 0 };
+  }
+  if (route === "DELETE /api/skills/file") {
+    const b = body as { path: string; expectedRev: number };
+    const current = demoSkillRead(b.path);
+    if (!current.editable)
+      throw new ApiError(403, "read_only", "This skill is read-only.");
+    if (current.rev !== b.expectedRev)
+      throw new ApiError(409, "stale", "The skill file changed on disk.");
+    demoDeletedSkills.add(b.path);
+    demoSkillFiles.delete(b.path);
+    return;
   }
   if (route === "POST /api/skills") {
     const b = body as SkillCreateReq;
     const path = `${DEMO_SKILL_DIR}/${b.name}/SKILL.md`;
     if (demoSkillCatalog().engines[0].skills.some((s) => s.path === path))
       throw new ApiError(409, "skill_exists", "A skill with that name exists.");
+    demoDeletedSkills.delete(path);
     const content = demoSkillFile(b.name, b.description, b.instructions ?? "");
     demoSkillFiles.set(path, { content, rev: 1 });
     return { path, content, rev: 1, mtime: 0, editable: true };

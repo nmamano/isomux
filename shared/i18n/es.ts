@@ -2644,6 +2644,28 @@ Cosas que puedes hacer por él:
   "skills.field.project": "Proyecto",
   "skills.field.alias": "También se ejecuta como",
   "skills.field.uses": "Tus usos",
+  "skills.delete.title": "¿Eliminar /{name}?",
+  "skills.delete.folder":
+    "Se eliminará la carpeta de la habilidad, incluidos sus scripts y recursos. Se eliminan los enlaces, pero se conservan sus destinos.",
+  "skills.delete.command":
+    "Se eliminará el archivo del comando. Si es un enlace, se conservará su destino.",
+  "skills.delete.stale":
+    "El archivo ha cambiado. Vuelve a abrirlo antes de eliminarlo.",
+  "skills.delete.failed": "No se pudo eliminar la habilidad.",
+  "apiCall.skills.delete": "Eliminar una habilidad",
+  "skills.commands": "Comandos",
+  "skills.commands.note":
+    "La oficina gestiona estos comandos; no son habilidades. Funcionan igual para todos los agentes. Los comandos propios de Claude Code, como /compact, no se admiten aquí. El contexto se compacta automáticamente.",
+  "skills.commands.search": "Buscar comandos",
+  "skills.allAgents": "Todos los agentes",
+  "skills.invalid.frontmatter":
+    "Empieza el archivo con metadatos YAML entre líneas ---.",
+  "skills.invalid.unclosed": "Cierra los metadatos YAML con una línea ---.",
+  "skills.invalid.yaml": "Los metadatos contienen YAML no válido.",
+  "skills.invalid.mapping": "Los metadatos deben contener campos YAML.",
+  "skills.invalid.name": "Añade un campo name con un valor de texto no vacío.",
+  "skills.invalid.description":
+    "Añade un campo description con un valor de texto no vacío.",
   "skills.view.source": "SKILL.md",
   "skills.view.preview": "Vista previa",
   "skills.select": "Elige una habilidad para leer su SKILL.md.",
@@ -2667,6 +2689,9 @@ Cosas que puedes hacer por él:
   "skills.create.instructions": "Instrucciones",
   "skills.create.instructionsPlaceholder":
     "Lo que hace el agente cuando alguien ejecuta esta habilidad.",
+  "skills.create.agentHint":
+    "Puedes pedir a tus agentes que creen habilidades para ti.",
+  "skills.create.allAgents": "Todos los agentes pueden usar esta habilidad.",
   "skills.create.where": "Se guarda como {path}",
   "skills.create.exists": "Ya existe una habilidad con este nombre.",
   "skills.create.failed": "No se pudo crear la habilidad.",

@@ -245,6 +245,9 @@ describe("built-in protection through a link", () => {
       saveFile: (path, content, rev) => {
         throw new Error(`save reached the file: ${path} ${content} ${rev}`);
       },
+      deleteFile: async () => {
+        throw new Error("unexpected delete");
+      },
       createSkill,
       refreshMenus: () => {},
     });
@@ -365,5 +368,72 @@ describe("skill create", () => {
     expect(createSkill(dir, { name: "ok", description: "d" }).kind).toBe(
       "exists",
     );
+  });
+});
+
+describe("skills page validation on disk", () => {
+  it("refuses malformed saves without changing bytes or revision, and permits repair with a different name", async () => {
+    const user = tmp("validation");
+    const path = skill(user, "mine"); // Existing description-only file remains discoverable.
+    const original = readFileSync(path, "utf8");
+    const opened = readSkillFile(path);
+    if (opened.kind !== "ok") throw new Error("open failed");
+    let refreshes = 0;
+    const handlers = skillsHandlers({
+      catalogFor: () =>
+        buildSkillCatalog(
+          [context({ userRoots: [user] })],
+          {},
+          "/new",
+          "/home",
+        ),
+      readFile: readSkillFile,
+      saveFile: saveSkillFile,
+      deleteFile: async () => {
+        throw new Error("unexpected delete");
+      },
+      createSkill,
+      refreshMenus: () => {
+        refreshes++;
+      },
+    });
+    const save = (content: string) =>
+      handlers["skills.saveFile"]({
+        identity: {
+          scope: "user",
+          userId: "u",
+          role: "member",
+          capabilities: USER_CAPABILITIES,
+        },
+        params: {},
+        query: new URLSearchParams(),
+        req: new Request("http://localhost/"),
+        rawBody: "",
+        body: { path, content, expectedRev: opened.rev },
+      });
+    for (const content of [
+      "body without frontmatter",
+      "---\nname: mine\ndescription: test",
+      "---\nnme: mine\ndescription: test\n---\nBody",
+      "---\nname: mine\n---\nBody",
+      "---\nname: [broken\ndescription: test\n---\nBody",
+    ]) {
+      expect(await save(content)).toMatchObject({
+        kind: "error",
+        status: 422,
+        code: "invalid_skill",
+      });
+      expect(readFileSync(path, "utf8")).toBe(original);
+      expect(readSkillFile(path)).toMatchObject({
+        kind: "ok",
+        rev: opened.rev,
+      });
+    }
+    expect(refreshes).toBe(0);
+    const repaired =
+      "---\nname: different-name\ndescription: test\n---\nRepaired body\n";
+    expect(await save(repaired)).toMatchObject({ kind: "json" });
+    expect(readFileSync(path, "utf8")).toBe(repaired);
+    expect(refreshes).toBe(1);
   });
 });

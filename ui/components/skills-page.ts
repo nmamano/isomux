@@ -3,6 +3,7 @@
 
 import type {
   SkillCatalogEntry,
+  SkillCatalogRes,
   SkillSource,
 } from "../../shared/contract-shapes.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
@@ -88,4 +89,27 @@ export function skillBody(content: string): string {
 // a round trip.
 export function validSkillName(name: string): boolean {
   return name.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name);
+}
+
+// Shared means the exact name and path run in all three existing catalogs.
+// Each catalog retains its current "runs in any agent context" meaning.
+// Different paths (including symlinks) remain in the engine-specific lists.
+export function partitionSkills(engines: SkillCatalogRes["engines"]) {
+  const lists = ["claude", "codex", "opencode"].map(
+    (engine) => engines.find((e) => e.engine === engine)?.skills ?? [],
+  );
+  const runnable = lists.map(
+    (skills) => new Set(skills.filter((s) => !s.shadowedBy).map(entryKey)),
+  );
+  const shared = lists[0].filter((s) =>
+    runnable.every((keys) => keys.has(entryKey(s))),
+  );
+  const sharedKeys = new Set(shared.map(entryKey));
+  return {
+    shared,
+    engines: engines.map((e) => ({
+      ...e,
+      skills: e.skills.filter((s) => !sharedKeys.has(entryKey(s))),
+    })),
+  };
 }

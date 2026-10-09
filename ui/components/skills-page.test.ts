@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { SkillCatalogEntry } from "../../shared/contract-shapes.ts";
 import {
   groupSkills,
+  partitionSkills,
   skillBody,
   tildePath,
   validSkillName,
@@ -90,5 +91,50 @@ describe("validSkillName", () => {
       expect(validSkillName(ok)).toBe(true);
     for (const bad of ["", "A", "a--b", "-a", "a-", "a b", "x".repeat(65)])
       expect(validSkillName(bad)).toBe(false);
+  });
+});
+
+describe("partitionSkills", () => {
+  it("shows an exact runnable file once and leaves shadowed or engine-only files in their engines", () => {
+    const shared = entry({ name: "shared" });
+    const shadowed = entry({ name: "shadowed", path: "/shadowed/SKILL.md" });
+    const only = entry({ name: "only", path: "/only/SKILL.md" });
+    const engines = (["claude", "codex", "opencode"] as const).map(
+      (engine) => ({
+        engine,
+        skills: [
+          shared,
+          engine === "codex"
+            ? { ...shadowed, shadowedBy: "/winner" }
+            : shadowed,
+          ...(engine === "claude" ? [only] : []),
+        ],
+      }),
+    );
+    const result = partitionSkills(engines);
+    expect(result.shared).toEqual([shared]);
+    expect(result.engines.map((e) => e.skills.map((s) => s.name))).toEqual([
+      ["shadowed", "only"],
+      ["shadowed"],
+      ["shadowed"],
+    ]);
+    expect(result.engines[1].skills[0].shadowedBy).toBe("/winner");
+  });
+
+  it("keeps equal names at different paths, aliases, and incomplete engine catalogs separate", () => {
+    const engines = (["claude", "codex", "opencode"] as const).map(
+      (engine) => ({
+        engine,
+        skills: [
+          entry({ name: "same-name", path: `/${engine}/SKILL.md` }),
+          entry({ name: engine, path: "/same-file/SKILL.md" }),
+        ],
+      }),
+    );
+    expect(partitionSkills(engines).shared).toEqual([]);
+    expect(partitionSkills(engines).engines).toEqual(engines);
+    expect(
+      partitionSkills([{ engine: "claude", skills: [entry({})] }]).shared,
+    ).toEqual([]);
   });
 });

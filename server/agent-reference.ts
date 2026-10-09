@@ -132,6 +132,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "skills.catalog": "skills",
   "skills.readFile": "skills",
   "skills.saveFile": "skills",
+  "skills.deleteFile": "skills",
   "skills.create": "skills",
   "cron.list": "cronjob-management",
   "cron.get": "cronjob-management",

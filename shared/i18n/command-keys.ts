@@ -8,7 +8,7 @@
 // camel-casing it at call time, but then a renamed command would silently miss
 // the catalog and fall back to printing its own key. Written out, a command
 // with no key is a compile error here and a test failure in catalog.test.ts,
-// which holds this table and the registry in server/commands.ts to exactly the
+// which holds this table and the registry in shared/commands.ts to exactly the
 // same name set in both directions.
 //
 // Command NAMES are not in the catalog: they are what the user types
@@ -121,7 +121,7 @@ export type CatalogCommandName = keyof typeof COMMAND_DESCRIPTION_KEYS;
 
 // The six unsupported commands whose refusal is written for them rather than
 // taken from the type-aware default in unsupportedMessage(). Which commands
-// have one is registry metadata (server/commands.ts keeps the flag); the prose
+// have one is registry metadata (shared/commands.ts keeps the flag); the prose
 // itself is only ever in the catalog.
 export const COMMAND_MESSAGE_KEYS = {
   compact: "commands.compact.message",

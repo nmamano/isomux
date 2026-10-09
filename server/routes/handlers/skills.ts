@@ -1,17 +1,27 @@
-// Skills page handlers (opIds skills.catalog / readFile / saveFile / create).
+// Skills page handlers (opIds skills.catalog / readFile / saveFile / deleteFile / create).
 // The catalog is per caller: user skills follow the caller's user (an agent or
 // API token resolves to its owning user), and project skills come only from
-// agents in rooms the caller can access. Read and save accept only a path that
-// the caller's catalog lists, so these routes never reach other files. Save and
+// agents in rooms the caller can access. Read, save and delete accept only a path that
+// the caller's catalog lists, so these routes never reach other files. Save, delete and
 // create are gated in the route table by editor:use, the capability behind the
 // editor panel's save.
 //
 // LEAF over the executor + injected SkillsDeps. No manager/store imports.
 
-import { created, fail, ok, type RouteHandler } from "../executor.ts";
+import { skillFileProblem } from "../../../shared/skill-validation.ts";
+import { translatorFor } from "../../../shared/i18n/translate.ts";
+import {
+  created,
+  fail,
+  ok,
+  noContent,
+  type RouteHandler,
+} from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type {
   SkillCatalogRes,
+  SkillCatalogEntry,
+  SkillDeleteReq,
   SkillCreateReq,
   SkillFileRes,
   SkillSaveReq,
@@ -20,6 +30,7 @@ import {
   findCatalogEntry,
   MAX_SKILL_BYTES,
   type CreateSkillResult,
+  type DeleteSkillResult,
 } from "../../skill-catalog.ts";
 import type { OpenFileResult, SaveFileResult } from "../../file-editor.ts";
 
@@ -27,6 +38,11 @@ export interface SkillsDeps {
   catalogFor(identity: Identity): SkillCatalogRes;
   readFile(path: string): OpenFileResult;
   saveFile(path: string, content: string, expectedRev: number): SaveFileResult;
+  deleteFile(
+    entry: SkillCatalogEntry,
+    expectedRev: number,
+    identity: Identity,
+  ): Promise<DeleteSkillResult>;
   createSkill(
     newSkillDir: string,
     input: { name: unknown; description: unknown; instructions?: unknown },
@@ -90,6 +106,10 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
         return fail(404, "skill_not_found", "No skill has that path.");
       if (!entry.editable)
         return fail(403, "read_only", "This skill is read-only.");
+      const problem =
+        entry.kind === "skill" ? skillFileProblem(b.content) : null;
+      if (problem)
+        return fail(422, "invalid_skill", translatorFor("en").t(problem));
       const r = deps.saveFile(b.path, b.content, b.expectedRev);
       if (r.kind === "ok") {
         deps.refreshMenus();
@@ -105,6 +125,40 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
           { currentRev: r.currentRev, currentMtime: r.currentMtime },
         );
       return fail(500, "io_error", r.message);
+    },
+
+    "skills.deleteFile": async (ctx) => {
+      const b = (ctx.body ?? {}) as Partial<SkillDeleteReq>;
+      if (typeof b.path !== "string" || b.path.length === 0)
+        return fail(400, "invalid_path", "path is required");
+      if (typeof b.expectedRev !== "number" || !Number.isFinite(b.expectedRev))
+        return fail(
+          422,
+          "invalid_request",
+          "expectedRev must be a finite number",
+        );
+      const entry = findCatalogEntry(deps.catalogFor(ctx.identity), b.path);
+      if (!entry)
+        return fail(404, "skill_not_found", "No skill has that path.");
+      if (!entry.editable)
+        return fail(403, "read_only", "This skill is read-only.");
+      const result = await deps.deleteFile(entry, b.expectedRev, ctx.identity);
+      if (result.kind === "ok") {
+        deps.refreshMenus();
+        return noContent();
+      }
+      if (result.kind === "read_only")
+        return fail(403, "read_only", "This skill is read-only.");
+      if (result.kind === "deleted")
+        return fail(409, "deleted", "The skill file was deleted on disk.");
+      if (result.kind === "stale")
+        return fail(
+          409,
+          "stale",
+          "The skill file changed on disk since you opened it.",
+          { currentRev: result.currentRev, currentMtime: result.currentMtime },
+        );
+      return fail(500, "io_error", result.message);
     },
 
     "skills.create": (ctx) => {

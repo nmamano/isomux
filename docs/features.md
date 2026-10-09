@@ -104,7 +104,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Autocomplete dropdown** with keyboard navigation for slash commands.
 - **Skills browser** - the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
 - **User skills** from `~/.claude/skills/` and project commands.
-- **Skills page** - every skill your agents can run, per engine, with where it comes from and its full SKILL.md. Edit user and project skills or create new ones there.
+- **Skills page** - shared skills appear once in All agents; engine tabs show the differences. The read-only Commands tab lists office commands and their aliases with the same descriptions as /help. Open a preview or the full SKILL.md, edit user and project skills, or create new ones for all agents. Saves require valid YAML front matter with a name and description. Broken files stay listed for repair; legacy command files keep their existing format. Delete user or project skills after confirmation: the whole skill folder is removed. Legacy commands delete one file. Linked targets remain.
 
 ## Developer tools
 

@@ -2639,6 +2639,28 @@ Coses que pots fer per ell:
   "skills.field.project": "Projecte",
   "skills.field.alias": "També s'executa com a",
   "skills.field.uses": "Els teus usos",
+  "skills.delete.title": "Vols eliminar /{name}?",
+  "skills.delete.folder":
+    "S’eliminarà la carpeta de l’habilitat, inclosos els scripts i els recursos. S’eliminen els enllaços, però es conserven les destinacions.",
+  "skills.delete.command":
+    "S’eliminarà el fitxer de l’ordre. Si és un enllaç, es conservarà la destinació.",
+  "skills.delete.stale":
+    "El fitxer ha canviat. Torna’l a obrir abans d’eliminar-lo.",
+  "skills.delete.failed": "No s’ha pogut eliminar l’habilitat.",
+  "apiCall.skills.delete": "Elimina una habilitat",
+  "skills.commands": "Ordres",
+  "skills.commands.note":
+    "L’oficina gestiona aquestes ordres; no són habilitats. Funcionen igual per a tots els agents. Les ordres pròpies de Claude Code, com /compact, no s'admeten aquí. El context es compacta automàticament.",
+  "skills.commands.search": "Cerca ordres",
+  "skills.allAgents": "Tots els agents",
+  "skills.invalid.frontmatter":
+    "Comença el fitxer amb metadades YAML entre línies ---.",
+  "skills.invalid.unclosed": "Tanca les metadades YAML amb una línia ---.",
+  "skills.invalid.yaml": "Les metadades contenen YAML no vàlid.",
+  "skills.invalid.mapping": "Les metadades han de contenir camps YAML.",
+  "skills.invalid.name": "Afegeix un camp name amb un valor de text no buit.",
+  "skills.invalid.description":
+    "Afegeix un camp description amb un valor de text no buit.",
   "skills.view.source": "SKILL.md",
   "skills.view.preview": "Previsualització",
   "skills.select": "Tria una habilitat per llegir-ne el SKILL.md.",
@@ -2662,6 +2684,10 @@ Coses que pots fer per ell:
   "skills.create.instructions": "Instruccions",
   "skills.create.instructionsPlaceholder":
     "El que fa l'agent quan algú executa aquesta habilitat.",
+  "skills.create.agentHint":
+    "Pots demanar als teus agents que creïn habilitats per a tu.",
+  "skills.create.allAgents":
+    "Tots els agents poden fer servir aquesta habilitat.",
   "skills.create.where": "Es desa com a {path}",
   "skills.create.exists": "Ja existeix una habilitat amb aquest nom.",
   "skills.create.failed": "No s'ha pogut crear l'habilitat.",

@@ -2630,6 +2630,27 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "skills.field.project": "Project",
   "skills.field.alias": "Also runs as",
   "skills.field.uses": "Your uses",
+  "skills.delete.title": "Delete /{name}?",
+  "skills.delete.folder":
+    "This deletes the skill folder, including scripts and resources. Links are removed; their targets remain.",
+  "skills.delete.command":
+    "This deletes the command file. If it is a link, its target remains.",
+  "skills.delete.stale": "The file changed. Reopen it before deleting.",
+  "skills.delete.failed": "Could not delete the skill.",
+  "apiCall.skills.delete": "Delete a skill",
+  "skills.commands": "Commands",
+  "skills.commands.note":
+    "The office handles these commands, not skills. They work the same for every agent. Claude Code's own commands, such as /compact, are not supported here. Context compacts automatically.",
+  "skills.commands.search": "Search commands",
+  "skills.allAgents": "All agents",
+  "skills.invalid.frontmatter":
+    "Start the file with YAML front matter between --- lines.",
+  "skills.invalid.unclosed": "Close the YAML front matter with a --- line.",
+  "skills.invalid.yaml": "The front matter contains invalid YAML.",
+  "skills.invalid.mapping": "The front matter must contain YAML fields.",
+  "skills.invalid.name": "Add a nonempty name field with a text value.",
+  "skills.invalid.description":
+    "Add a nonempty description field with a text value.",
   "skills.view.source": "SKILL.md",
   "skills.view.preview": "Preview",
   "skills.select": "Select a skill to read its SKILL.md.",
@@ -2653,6 +2674,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "skills.create.instructions": "Instructions",
   "skills.create.instructionsPlaceholder":
     "What the agent does when someone runs this skill.",
+  "skills.create.agentHint":
+    "You can ask your agents to create skills for you.",
+  "skills.create.allAgents": "All agents can use this skill.",
   "skills.create.where": "Saved as {path}",
   "skills.create.exists": "A skill with this name exists.",
   "skills.create.failed": "Could not create the skill.",

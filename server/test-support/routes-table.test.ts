@@ -1154,6 +1154,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "skills.catalog": { caps: [], emits: [] },
   "skills.readFile": { caps: [], emits: [] },
   "skills.saveFile": { caps: ["editor:use"], emits: ["slash_commands"] },
+  "skills.deleteFile": { caps: ["editor:use"], emits: ["slash_commands"] },
   "skills.create": { caps: ["editor:use"], emits: ["slash_commands"] },
 };
 
@@ -1506,6 +1507,7 @@ const API_REACHABLE_OPIDS = [
   "skills.catalog",
   "skills.readFile",
   "skills.saveFile",
+  "skills.deleteFile",
   "skills.create",
   "cron.list",
   "cron.get",

@@ -5329,7 +5329,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     ]);
   }
 
-  // A skill created or saved on the skills page reaches every agent's Sk menu
+  // A skill created, saved or deleted on the skills page reaches every agent's Sk menu
   // now instead of at the agent's next session start.
   function refreshSkillMenus(): void {
     for (const [agentId, managed] of agents) {

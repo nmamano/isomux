@@ -241,6 +241,12 @@ function noteMissing(absPath: string): void {
   }
 }
 
+// Call after an external delete so recreating even the same linked file cannot
+// reuse an open revision that belonged to the removed catalog entry.
+export function markFileDeleted(absPath: string): void {
+  noteMissing(absPath);
+}
+
 // Resolve a user-supplied editor path against the agent's cwd. Mirrors
 // resolveDiffCwd in isomux-diff.ts but yields a file path (not a directory).
 // Existence/type checks happen later in openFile.

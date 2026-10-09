@@ -14,8 +14,15 @@
 // server-issued revision guard as the editor panel: a save based on an older
 // revision fails with "stale" instead of overwriting the newer copy.
 
-import { mkdirSync, realpathSync, writeFileSync } from "fs";
-import { basename, join, resolve } from "path";
+import {
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
+import { rm } from "fs/promises";
+import { basename, dirname, join, resolve } from "path";
 import type {
   SkillCatalogEntry,
   SkillCatalogRes,
@@ -35,6 +42,7 @@ import {
 import {
   openFile,
   saveFile,
+  markFileDeleted,
   type OpenFileResult,
   type SaveFileResult,
 } from "./file-editor.ts";
@@ -233,6 +241,73 @@ export function saveSkillFile(
   // expectedMtime is unused when a revision is sent; force stays off, so a
   // deleted or changed file is reported, never overwritten.
   return saveFile(path, content, 0, expectedRev, false);
+}
+
+export type DeleteSkillResult =
+  | { kind: "ok" }
+  | { kind: "read_only" }
+  | { kind: "deleted" }
+  | { kind: "stale"; currentRev: number; currentMtime: number }
+  | { kind: "io_error"; message: string };
+
+// The catalog path is authoritative. Never realpath the removal target:
+// unlink a linked entry, and let rm remove child links without following them.
+export async function deleteSkillFile(
+  entry: SkillCatalogEntry,
+  expectedRev: number,
+  contexts: SkillEngineContext[],
+): Promise<DeleteSkillResult> {
+  if (!entry.editable) return { kind: "read_only" };
+  const target = entry.kind === "skill" ? dirname(entry.path) : entry.path;
+  const protectedRoots = [
+    realKey(BUNDLED_SKILLS_DIR),
+    ...contexts.flatMap((context) =>
+      pluginInstallPaths(context.pluginRoot).map(realKey),
+    ),
+  ];
+  const realFile = realKey(entry.path);
+  const realTarget = realKey(target);
+  if (
+    protectedRoots.some(
+      (root) =>
+        isInside(realFile, root) ||
+        isInside(realTarget, root) ||
+        (entry.kind === "skill" && isInside(root, realTarget)),
+    )
+  )
+    return { kind: "read_only" };
+  const current = readSkillFile(entry.path);
+  if (current.kind === "not_found") return { kind: "deleted" };
+  if (current.kind !== "ok")
+    return {
+      kind: "io_error",
+      message:
+        current.kind === "io_error"
+          ? current.message
+          : "Could not read the skill file before deleting it.",
+    };
+  if (current.rev !== expectedRev)
+    return {
+      kind: "stale",
+      currentRev: current.rev,
+      currentMtime: current.mtime,
+    };
+  try {
+    if (entry.kind === "command" || lstatSync(target).isSymbolicLink())
+      unlinkSync(target);
+    else await rm(target, { recursive: true });
+    markFileDeleted(entry.path);
+    return { kind: "ok" };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      markFileDeleted(entry.path);
+      return { kind: "deleted" };
+    }
+    return {
+      kind: "io_error",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export type CreateSkillResult =

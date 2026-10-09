@@ -63,6 +63,7 @@ let puts: unknown[] = [];
 let putAnswer: () => unknown = () => ({ path: USER_PATH, rev: 2, mtime: 2 });
 beforeEach(() => {
   puts = [];
+  localStorage.removeItem("isomux:skills:engine");
   setApiShim(async (method, path, body) => {
     if (method === "GET" && path === "/api/skills") return catalog;
     if (method === "GET" && path.startsWith("/api/skills/file?")) {
@@ -110,7 +111,9 @@ async function open(view: ReturnType<typeof render>, name: string) {
   });
   await waitFor(() =>
     expect(
-      view.container.querySelector(`[data-skill-detail="${name}"] .cm-editor`),
+      view.container.querySelector(
+        `[data-skill-detail="${name}"] [data-skill-preview]`,
+      ),
     ).not.toBe(null),
   );
 }
@@ -126,6 +129,13 @@ it("shows a built-in skill read-only, without an Edit control", async () => {
   const view = await mount();
   await open(view, "grill-me");
   expect(view.container.querySelector("[data-skill-edit]")).toBe(null);
+  expect(view.container.querySelector("[data-skill-delete]")).toBe(null);
+  expect(view.container.querySelector("[data-skill-preview]")).not.toBe(null);
+  await act(async () => {
+    view
+      .getByRole("tab", { name: translatorFor("en").t("skills.view.source") })
+      .click();
+  });
   expect(
     view.container
       .querySelector("[data-skill-source]")
@@ -286,7 +296,9 @@ it("drops a save answer that lands after the member opened another skill", async
   });
   await waitFor(() =>
     expect(
-      view.container.querySelector('[data-skill-detail="grill-me"] .cm-editor'),
+      view.container.querySelector(
+        '[data-skill-detail="grill-me"] [data-skill-preview]',
+      ),
     ).not.toBe(null),
   );
   await act(async () => {
@@ -298,7 +310,99 @@ it("drops a save answer that lands after the member opened another skill", async
   expect(detail?.querySelector("[data-skill-path]")?.textContent).toBe(
     BUILTIN_PATH,
   );
-  expect(editor(view).state.doc.toString()).toContain("grill body");
-  expect(editor(view).state.doc.toString()).not.toContain("first");
+  expect(detail?.querySelector("[data-skill-preview]")?.textContent).toContain(
+    "grill body",
+  );
+  expect(
+    detail?.querySelector("[data-skill-preview]")?.textContent,
+  ).not.toContain("first");
+  view.unmount();
+});
+
+it("keeps a broken disk file editable and keeps the draft when validation refuses a save", async () => {
+  putAnswer = () => {
+    throw new ApiError(422, "invalid_skill", "invalid metadata");
+  };
+  const view = await mount();
+  await open(view, "mine");
+  expect(view.container.querySelector("[data-skill-file-problem]")).not.toBe(
+    null,
+  );
+  await act(async () => {
+    (
+      view.container.querySelector("[data-skill-edit]") as HTMLButtonElement
+    ).click();
+  });
+  const cm = editor(view);
+  await act(async () => {
+    cm.dispatch({
+      changes: { from: 0, to: cm.state.doc.length, insert: "broken draft" },
+    });
+  });
+  await clickSave(view);
+  await waitFor(() =>
+    expect(view.container.querySelector("[data-skill-save-problem]")).not.toBe(
+      null,
+    ),
+  );
+  expect(editor(view).state.doc.toString()).toBe("broken draft");
+  expect(view.container.querySelector("[data-skill-edit]")).toBe(null);
+  expect(view.container.querySelector("[data-skill-delete]")).not.toBe(null);
+  expect(puts).toHaveLength(1);
+  view.unmount();
+});
+
+it("keeps shared skills out of the engine tabs and returns to the shared list", async () => {
+  const view = await mount();
+  await act(async () => {
+    (
+      view.container.querySelector(
+        '[data-skill-engine="codex"]',
+      ) as HTMLButtonElement
+    ).click();
+  });
+  expect(view.container.querySelector("[data-skill-row]")).toBe(null);
+  expect(view.container.querySelector("[data-skill-detail]")).toBe(null);
+  await act(async () => {
+    (
+      view.container.querySelector(
+        '[data-skill-engine="commands"]',
+      ) as HTMLButtonElement
+    ).click();
+  });
+  const commandList = view.container.querySelector("[data-office-commands]");
+  const clear = commandList?.querySelector('[data-office-command="clear"]');
+  expect(clear?.textContent).toContain(
+    translatorFor("en").t("commands.clear.description"),
+  );
+  expect(clear?.querySelector("[data-command-aliases]")?.textContent).toContain(
+    "/reset",
+  );
+  expect(clear?.querySelector("[data-command-aliases]")?.textContent).toContain(
+    "/new",
+  );
+  expect(commandList?.querySelector('[data-office-command="reset"]')).toBe(
+    null,
+  );
+  expect(commandList?.querySelector('[data-office-command="compact"]')).toBe(
+    null,
+  );
+  expect(
+    commandList?.querySelector("button, input, textarea, [contenteditable]"),
+  ).toBe(null);
+  expect(view.container.querySelector("[data-skill-edit]")).toBe(null);
+  expect(view.container.querySelector("[data-skill-delete]")).toBe(null);
+  await act(async () => {
+    (
+      view.container.querySelector(
+        '[data-skill-engine="all"]',
+      ) as HTMLButtonElement
+    ).click();
+  });
+  await waitFor(() =>
+    expect(view.container.querySelector('[data-skill-row="mine"]')).not.toBe(
+      null,
+    ),
+  );
   view.unmount();
 });

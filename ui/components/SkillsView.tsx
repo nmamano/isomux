@@ -1,12 +1,17 @@
 // The Skills page: every skill an agent in the office can run, per engine,
 // with where each one comes from and its full SKILL.md. User and project
 // skills are editable; built-in and plugin skills are read-only. Everything
-// here goes through the /api/skills routes, which agents can call too.
+// skills here go through the /api/skills routes. Office commands use the
+// shared registry and are read-only.
 //
 // A save carries the revision the page read. When the file changed on disk in
 // between, the server refuses the save (409 stale) and the page says so and
 // keeps the member's text, instead of overwriting the other edit.
 
+import { commands } from "../../shared/commands.ts";
+import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
+import { keyFrom } from "../../shared/i18n/translate.ts";
+import { skillFileProblem } from "../../shared/skill-validation.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -15,6 +20,7 @@ import type {
   SkillCatalogEntry,
   SkillCatalogRes,
   SkillCreateReq,
+  SkillDeleteReq,
   SkillEngine,
   SkillFileRes,
   SkillSaveReq,
@@ -40,12 +46,25 @@ import {
 import {
   entryKey,
   groupSkills,
+  partitionSkills,
   skillBody,
   SOURCE_BADGE_KEYS,
   SOURCE_GROUP_KEYS,
   tildePath,
   validSkillName,
 } from "./skills-page.ts";
+
+const OFFICE_COMMANDS = Object.entries(commands)
+  .filter(
+    ([, config]) =>
+      config.type === "hardcoded" && config.supported && !config.aliasFor,
+  )
+  .map(([name]) => ({
+    name,
+    aliases: Object.entries(commands)
+      .filter(([, config]) => config.supported && config.aliasFor === name)
+      .map(([alias]) => alias),
+  }));
 
 const ENGINE_KEY = "isomux:skills:engine";
 
@@ -64,12 +83,21 @@ function breakAfterSlashes(path: string) {
   ));
 }
 
-function readEngine(): SkillEngine {
+type SkillTab = SkillEngine | "all" | "commands";
+
+function readEngine(): SkillTab {
   try {
     const v = localStorage.getItem(ENGINE_KEY);
-    if (v === "claude" || v === "codex" || v === "opencode") return v;
+    if (
+      v === "commands" ||
+      v === "all" ||
+      v === "claude" ||
+      v === "codex" ||
+      v === "opencode"
+    )
+      return v;
   } catch {}
-  return "claude";
+  return "all";
 }
 
 type PageError = { key: PlainMessageKey } | { message: string };
@@ -206,18 +234,27 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
   const { t, tn } = useI18n();
   const [catalog, setCatalog] = useState<SkillCatalogRes | null>(null);
   const [loadError, setLoadError] = useState<PageError | null>(null);
-  const [engine, setEngineState] = useState<SkillEngine>(readEngine);
+  const [engine, setEngineState] = useState<SkillTab>(readEngine);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [file, setFile] = useState<SkillFileRes | null>(null);
   const [fileError, setFileError] = useState<PageError | null>(null);
-  const [view, setView] = useState<"source" | "preview">("source");
+  const [view, setView] = useState<"source" | "preview">("preview");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveProblem, setSaveProblem] = useState<SaveProblem>(null);
   const [justSaved, setJustSaved] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    entry: SkillCatalogEntry;
+    file: SkillFileRes;
+    gen: number;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteProblem, setDeleteProblem] = useState<PlainMessageKey | null>(
+    null,
+  );
   // Moves on every selection, so a slow read cannot land under another skill.
   const readGenRef = useRef(0);
   // The selection as of now, for the desktop auto-open: its effect can run
@@ -258,13 +295,28 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
     void load();
   }, [load, hydrationEpoch]);
 
+  const partition = useMemo(
+    () => partitionSkills(catalog?.engines ?? []),
+    [catalog],
+  );
   const engineSkills = useMemo(
-    () => catalog?.engines.find((e) => e.engine === engine)?.skills ?? [],
-    [catalog, engine],
+    () =>
+      engine === "all"
+        ? partition.shared
+        : (partition.engines.find((e) => e.engine === engine)?.skills ?? []),
+    [partition, engine],
   );
   const groups = useMemo(
     () => groupSkills(engineSkills, query),
     [engineSkills, query],
+  );
+  const commandRows = OFFICE_COMMANDS.map((command) => {
+    const key = keyFrom(COMMAND_DESCRIPTION_KEYS, command.name);
+    return { ...command, description: key ? t(key) : "" };
+  }).filter((command) =>
+    [command.name, ...command.aliases, command.description].some((text) =>
+      text.toLowerCase().includes(query.trim().toLowerCase()),
+    ),
   );
   const shownCount = groups.reduce((n, g) => n + g.skills.length, 0);
   const entry = useMemo(
@@ -272,6 +324,11 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
     [engineSkills, selected],
   );
   const home = catalog?.home ?? "";
+  const fileProblem = useMemo(
+    () =>
+      file && entry?.kind === "skill" ? skillFileProblem(file.content) : null,
+    [file, entry?.kind],
+  );
 
   const openEntry = useCallback(async (next: SkillCatalogEntry) => {
     const gen = ++readGenRef.current;
@@ -280,6 +337,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
     setFile(null);
     setFileError(null);
     setEditing(false);
+    setView("preview");
     setSaveProblem(null);
     setJustSaved(false);
     try {
@@ -320,16 +378,18 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
     if (first) void openEntry(first);
   }, [isMobile, selected, groups, openEntry]);
 
-  function setEngine(next: SkillEngine) {
+  function setEngine(next: SkillTab) {
     guarded(() => {
       setEngineState(next);
       try {
         localStorage.setItem(ENGINE_KEY, next);
       } catch {}
       // Keep the open skill when the new engine lists the same file.
-      const same = catalog?.engines
-        .find((e) => e.engine === next)
-        ?.skills.find((s) => entryKey(s) === selected);
+      const nextSkills =
+        next === "all"
+          ? partition.shared
+          : partition.engines.find((e) => e.engine === next)?.skills;
+      const same = nextSkills?.find((s) => entryKey(s) === selected);
       if (!same) closeEntry();
     });
   }
@@ -364,6 +424,10 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
       // answers skill_not_found before it can answer deleted.
       else if (code === "deleted" || code === "skill_not_found")
         setSaveProblem("deleted");
+      else if (code === "invalid_skill")
+        setSaveProblem({
+          message: t(skillFileProblem(sent) ?? "common.saveFailed"),
+        });
       else
         setSaveProblem({
           message:
@@ -374,11 +438,54 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function removeSkill() {
+    if (!deleteTarget || deleting) return;
+    const target = deleteTarget;
+    setDeleting(true);
+    setDeleteProblem(null);
+    try {
+      const body: SkillDeleteReq = {
+        path: target.file.path,
+        expectedRev: target.file.rev,
+      };
+      await apiFetch<void>("DELETE", "/api/skills/file", body);
+      setCatalog((previous) =>
+        previous
+          ? {
+              ...previous,
+              engines: previous.engines.map((engine) => ({
+                ...engine,
+                skills: engine.skills.filter(
+                  (skill) => skill.path !== target.file.path,
+                ),
+              })),
+            }
+          : previous,
+      );
+      if (target.gen === readGenRef.current) closeEntry();
+      setDeleteTarget(null);
+      void load();
+    } catch (error) {
+      setDeleteProblem(
+        error instanceof ApiError && error.code === "stale"
+          ? "skills.delete.stale"
+          : "skills.delete.failed",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   // Escape leaves the page through App's handler; with unsaved text, ask
   // first. The capture listener runs before App's.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      if (deleteTarget) {
+        e.stopPropagation();
+        if (!deleting) setDeleteTarget(null);
+        return;
+      }
       if (creating) {
         e.stopPropagation();
         setCreating(false);
@@ -394,7 +501,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
     }
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [creating, dirty, editing, guarded, onClose]);
+  }, [creating, deleteTarget, deleting, dirty, editing, guarded, onClose]);
 
   const showList = !isMobile || selected === null;
   const showDetail = !isMobile || selected !== null;
@@ -663,6 +770,11 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
               >
                 /{entry.name}
               </h2>
+              {entry.uses > 0 && (
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                  ×{entry.uses}
+                </span>
+              )}
               <SourceBadge entry={entry} />
               {!entry.editable && (
                 <span
@@ -692,135 +804,76 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
               {entry.description || t("skills.noDescription")}
             </p>
           </div>
-          {entry.editable && file && (
-            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-              {editing ? (
-                <>
-                  <button
-                    onClick={() =>
-                      guarded(() => {
-                        setEditing(false);
-                        setDraft(file.content);
-                        setSaveProblem(null);
-                      })
-                    }
-                    style={dialogCancelBtn}
-                  >
-                    {t("common.cancel")}
-                  </button>
-                  <button
-                    data-skill-save=""
-                    onClick={() => void save()}
-                    disabled={!dirty || saving}
-                    style={{
-                      ...dialogSaveBtn,
-                      ...(!dirty || saving ? disabledLook : {}),
-                    }}
-                  >
-                    {t("common.save")}
-                  </button>
-                </>
-              ) : (
-                <button
-                  data-skill-edit=""
-                  onClick={() => {
-                    setDraft(file.content);
-                    setEditing(true);
-                    setView("source");
-                    setJustSaved(false);
-                  }}
-                  style={{
-                    ...dialogCancelBtn,
-                    color: "var(--text-primary)",
-                    border: "1px solid var(--border-medium)",
-                  }}
-                >
-                  {t("common.edit")}
-                </button>
-              )}
-            </div>
-          )}
         </div>
 
-        <dl
+        <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "auto minmax(0, 1fr)",
-            columnGap: 14,
-            rowGap: 6,
             margin: 0,
-            padding: "10px 12px",
-            borderRadius: 8,
-            background: "var(--bg-subtle)",
-            border: "1px solid var(--border-subtle)",
-            fontSize: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            minWidth: 0,
           }}
         >
-          <dt style={{ color: "var(--text-muted)" }}>
-            {t("skills.field.file")}
-          </dt>
-          <dd
+          <code
+            data-skill-path=""
             style={{
-              margin: 0,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              minWidth: 0,
+              fontFamily: "'JetBrains Mono',monospace",
+              fontSize: 11.5,
+              color: "var(--text-primary)",
+              overflowWrap: "anywhere",
             }}
           >
-            <code
-              data-skill-path=""
-              style={{
-                fontFamily: "'JetBrains Mono',monospace",
-                fontSize: 11.5,
-                color: "var(--text-primary)",
-                overflowWrap: "anywhere",
-              }}
-            >
-              {breakAfterSlashes(tildePath(entry.path, home))}
-            </code>
-            <CopyButton getText={() => entry.path} size={22} />
-          </dd>
-          {entry.project && (
-            <>
-              <dt style={{ color: "var(--text-muted)" }}>
-                {t("skills.field.project")}
-              </dt>
-              <dd
-                style={{
-                  margin: 0,
-                  fontFamily: "'JetBrains Mono',monospace",
-                  fontSize: 11.5,
-                  overflowWrap: "anywhere",
-                }}
-              >
-                {breakAfterSlashes(tildePath(entry.project, home))}
-              </dd>
-            </>
-          )}
-          {entry.aliasFor && (
-            <>
-              <dt style={{ color: "var(--text-muted)" }}>
-                {t("skills.field.alias")}
-              </dt>
-              <dd
-                style={{
-                  margin: 0,
-                  fontFamily: "'JetBrains Mono',monospace",
-                  fontSize: 11.5,
-                }}
-              >
-                /{entry.aliasFor}
-              </dd>
-            </>
-          )}
-          <dt style={{ color: "var(--text-muted)" }}>
-            {t("skills.field.uses")}
-          </dt>
-          <dd style={{ margin: 0, color: "var(--text-secondary)" }}>
-            {tn("skills.uses", entry.uses)}
-          </dd>
-        </dl>
+            {breakAfterSlashes(tildePath(entry.path, home))}
+          </code>
+          <CopyButton getText={() => entry.path} size={22} />
+        </div>
+        {(entry.project || entry.aliasFor) && (
+          <dl
+            style={{
+              display: "grid",
+              gridTemplateColumns: "auto minmax(0, 1fr)",
+              columnGap: 14,
+              rowGap: 6,
+              margin: 0,
+              fontSize: 12,
+            }}
+          >
+            {entry.project && (
+              <>
+                <dt style={{ color: "var(--text-muted)" }}>
+                  {t("skills.field.project")}
+                </dt>
+                <dd
+                  style={{
+                    margin: 0,
+                    fontFamily: "'JetBrains Mono',monospace",
+                    fontSize: 11.5,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {breakAfterSlashes(tildePath(entry.project, home))}
+                </dd>
+              </>
+            )}
+            {entry.aliasFor && (
+              <>
+                <dt style={{ color: "var(--text-muted)" }}>
+                  {t("skills.field.alias")}
+                </dt>
+                <dd
+                  style={{
+                    margin: 0,
+                    fontFamily: "'JetBrains Mono',monospace",
+                    fontSize: 11.5,
+                  }}
+                >
+                  /{entry.aliasFor}
+                </dd>
+              </>
+            )}
+          </dl>
+        )}
 
         {entry.shadowedBy && (
           <div
@@ -862,6 +915,15 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        {fileProblem && !saveProblem && (
+          <div
+            data-skill-file-problem=""
+            role="note"
+            style={{ fontSize: 12, color: "var(--orange-text)" }}
+          >
+            {t(fileProblem)}
+          </div>
+        )}
         {saveProblem && (
           <div
             role="alert"
@@ -925,33 +987,106 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
         )}
         {file && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {!editing && (
-              <div
-                role="tablist"
-                style={{
-                  display: "inline-flex",
-                  alignSelf: "flex-start",
-                  padding: 3,
-                  borderRadius: 9,
-                  background: "var(--bg-subtle)",
-                  border: "1px solid var(--border-subtle)",
-                }}
-              >
-                {(["source", "preview"] as const).map((v) => (
+            <div
+              data-skill-controls=""
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              {!editing && (
+                <div
+                  role="tablist"
+                  style={{
+                    display: "inline-flex",
+                    alignSelf: "flex-start",
+                    padding: 3,
+                    borderRadius: 9,
+                    background: "var(--bg-subtle)",
+                    border: "1px solid var(--border-subtle)",
+                  }}
+                >
+                  {(["preview", "source"] as const).map((v) => (
+                    <button
+                      key={v}
+                      role="tab"
+                      aria-selected={view === v}
+                      onClick={() => setView(v)}
+                      style={pillBtn(view === v)}
+                    >
+                      {v === "source"
+                        ? t("skills.view.source")
+                        : t("skills.view.preview")}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {entry.editable && file && (
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  {editing ? (
+                    <>
+                      <button
+                        onClick={() =>
+                          guarded(() => {
+                            setEditing(false);
+                            setDraft(file.content);
+                            setSaveProblem(null);
+                          })
+                        }
+                        style={dialogCancelBtn}
+                      >
+                        {t("common.cancel")}
+                      </button>
+                      <button
+                        data-skill-save=""
+                        onClick={() => void save()}
+                        disabled={!dirty || saving}
+                        style={{
+                          ...dialogSaveBtn,
+                          ...(!dirty || saving ? disabledLook : {}),
+                        }}
+                      >
+                        {t("common.save")}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      data-skill-edit=""
+                      onClick={() => {
+                        setDraft(file.content);
+                        setEditing(true);
+                        setView("source");
+                        setJustSaved(false);
+                      }}
+                      style={{
+                        ...dialogCancelBtn,
+                        color: "var(--text-primary)",
+                        border: "1px solid var(--border-medium)",
+                      }}
+                    >
+                      {t("common.edit")}
+                    </button>
+                  )}
                   <button
-                    key={v}
-                    role="tab"
-                    aria-selected={view === v}
-                    onClick={() => setView(v)}
-                    style={pillBtn(view === v)}
+                    data-skill-delete=""
+                    disabled={saving || deleting}
+                    onClick={() => {
+                      setDeleteProblem(null);
+                      setDeleteTarget({ entry, file, gen: readGenRef.current });
+                    }}
+                    style={{
+                      ...dialogCancelBtn,
+                      color: "var(--red-text)",
+                      ...(saving || deleting ? disabledLook : {}),
+                    }}
                   >
-                    {v === "source"
-                      ? t("skills.view.source")
-                      : t("skills.view.preview")}
+                    {t("common.delete")}
                   </button>
-                ))}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
             {view === "preview" && !editing ? (
               <div
                 data-skill-preview=""
@@ -1010,21 +1145,19 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
       >
         <button
           onClick={() => guarded(onClose)}
-          aria-label={t("common.back")}
+          aria-label={t("settings.backToOffice")}
           style={{
             background: "none",
             border: "none",
             color: "var(--text-muted)",
-            fontSize: 18,
+            fontSize: 13,
             cursor: "pointer",
             padding: "2px 8px",
+            whiteSpace: "nowrap",
           }}
         >
-          ←
+          ← {t("settings.backToOffice")}
         </button>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>
-          {t("common.skills")}
-        </div>
         <div style={{ marginLeft: "auto", display: "flex" }}>
           <button
             data-skill-new=""
@@ -1088,12 +1221,55 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
               background: "var(--bg-subtle)",
               border: "1px solid var(--border-subtle)",
               maxWidth: "100%",
+              flexWrap: isMobile ? "wrap" : undefined,
               overflowX: "auto",
             }}
           >
+            <button
+              role="tab"
+              aria-selected={engine === "all"}
+              data-skill-engine="all"
+              onClick={() => setEngine("all")}
+              style={{
+                ...pillBtn(engine === "all"),
+                ...(isMobile
+                  ? { padding: "6px 7px", fontSize: 11, gap: 4 }
+                  : {}),
+              }}
+            >
+              {t("skills.allAgents")}
+              {catalog && (
+                <span style={{ fontSize: 10.5, color: "var(--text-hint)" }}>
+                  {partition.shared.length}
+                </span>
+              )}
+            </button>
+            <button
+              role="tab"
+              aria-selected={engine === "commands"}
+              data-skill-engine="commands"
+              onClick={() => setEngine("commands")}
+              style={{
+                ...pillBtn(engine === "commands"),
+                ...(isMobile
+                  ? { padding: "6px 7px", fontSize: 11, gap: 4 }
+                  : {}),
+              }}
+            >
+              {t("skills.commands")}
+              <span style={{ fontSize: 10.5, color: "var(--text-hint)" }}>
+                {OFFICE_COMMANDS.length}
+              </span>
+            </button>
+            {isMobile && (
+              <span
+                aria-hidden="true"
+                style={{ flexBasis: "100%", height: 0 }}
+              />
+            )}
             {ENGINE_OPTIONS.map((o) => {
               const n =
-                catalog?.engines.find((e) => e.engine === o.agentType)?.skills
+                partition.engines.find((e) => e.engine === o.agentType)?.skills
                   .length ?? 0;
               const active = engine === o.agentType;
               return (
@@ -1103,7 +1279,12 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                   aria-selected={active}
                   data-skill-engine={o.agentType}
                   onClick={() => setEngine(o.agentType)}
-                  style={pillBtn(active)}
+                  style={{
+                    ...pillBtn(active),
+                    ...(isMobile
+                      ? { padding: "6px 7px", fontSize: 11, gap: 4 }
+                      : {}),
+                  }}
                 >
                   <span
                     aria-hidden="true"
@@ -1150,8 +1331,16 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.currentTarget.value)}
-              placeholder={t("skills.search")}
-              aria-label={t("skills.search")}
+              placeholder={t(
+                engine === "commands"
+                  ? "skills.commands.search"
+                  : "skills.search",
+              )}
+              aria-label={t(
+                engine === "commands"
+                  ? "skills.commands.search"
+                  : "skills.search",
+              )}
               style={{
                 flex: 1,
                 minWidth: 0,
@@ -1167,8 +1356,76 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
       )}
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {showList && list}
-        {showDetail && (
+        {engine === "commands" ? (
+          <section
+            data-office-commands=""
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflowY: "auto",
+              padding: isMobile ? "16px 14px" : "20px 28px",
+            }}
+          >
+            <p
+              style={{
+                margin: "0 0 20px",
+                color: "var(--text-muted)",
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              {t("skills.commands.note")}
+            </p>
+            <dl style={{ margin: 0, maxWidth: 850 }}>
+              {commandRows.map((command) => (
+                <div
+                  key={command.name}
+                  data-office-command={command.name}
+                  style={{
+                    padding: "12px 0",
+                    borderBottom: "1px solid var(--border-subtle)",
+                  }}
+                >
+                  <dt
+                    style={{
+                      fontFamily: "'JetBrains Mono',monospace",
+                      fontSize: 14,
+                      fontWeight: 600,
+                    }}
+                  >
+                    /{command.name}
+                  </dt>
+                  {command.aliases.length > 0 && (
+                    <dd
+                      data-command-aliases=""
+                      style={{
+                        margin: "5px 0 0",
+                        fontSize: 12,
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      {t("skills.field.alias")}:{" "}
+                      {command.aliases.map((name) => `/${name}`).join(", ")}
+                    </dd>
+                  )}
+                  <dd
+                    style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.5 }}
+                  >
+                    {command.description}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {commandRows.length === 0 && (
+              <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                {t("logView.skills.noMatch")}
+              </p>
+            )}
+          </section>
+        ) : (
+          showList && list
+        )}
+        {engine !== "commands" && showDetail && (
           <div
             style={{
               flex: 1,
@@ -1183,12 +1440,113 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
+      {deleteTarget && (
+        <Portal>
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 3000,
+              background: "var(--bg-overlay)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 16,
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="skill-delete-title"
+              data-skill-delete-confirm=""
+              style={{
+                width: "100%",
+                maxWidth: 420,
+                padding: 20,
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--bg-base)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <h2
+                id="skill-delete-title"
+                style={{
+                  margin: "0 0 12px",
+                  fontSize: 16,
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {t("skills.delete.title", { name: deleteTarget.entry.name })}
+              </h2>
+              <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+                {t(
+                  deleteTarget.entry.kind === "skill"
+                    ? "skills.delete.folder"
+                    : "skills.delete.command",
+                )}
+              </p>
+              <p
+                style={{
+                  fontFamily: "'JetBrains Mono',monospace",
+                  fontSize: 11,
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {tildePath(deleteTarget.file.path, home)}
+              </p>
+              {deleteProblem && (
+                <p
+                  role="alert"
+                  data-skill-delete-problem=""
+                  style={{ color: "var(--red-text)", fontSize: 13 }}
+                >
+                  {t(deleteProblem)}
+                </p>
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 8,
+                  marginTop: 16,
+                }}
+              >
+                <button
+                  data-skill-delete-cancel=""
+                  disabled={deleting}
+                  onClick={() => setDeleteTarget(null)}
+                  style={dialogCancelBtn}
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  data-skill-delete-submit=""
+                  disabled={deleting}
+                  onClick={() => void removeSkill()}
+                  style={{
+                    ...dialogSaveBtn,
+                    background: "var(--red-text)",
+                    color: "var(--bg-base)",
+                    borderColor: "var(--red)",
+                    ...(deleting ? disabledLook : {}),
+                  }}
+                >
+                  {t("common.delete")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+
       {creating && catalog && (
         <NewSkillDialog
           dir={tildePath(catalog.newSkillDir, home)}
           onClose={() => setCreating(false)}
           onCreated={(created) => {
             setCreating(false);
+            setEngine("all");
             void load().then(() => {
               const fresh: SkillCatalogEntry = {
                 name: created.name,
@@ -1298,6 +1656,16 @@ function NewSkillDialog({
           <div style={{ fontSize: 16, fontWeight: 700 }}>
             {t("skills.create.title")}
           </div>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 12,
+              color: "var(--text-muted)",
+              lineHeight: 1.5,
+            }}
+          >
+            {t("skills.create.agentHint")}
+          </p>
           <div>
             <label style={dialogLabel} htmlFor="new-skill-name">
               {t("common.name")}
@@ -1411,6 +1779,9 @@ function NewSkillDialog({
                 path: `${dir}/${name || "…"}/SKILL.md`,
               }),
             )}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            {t("skills.create.allAgents")}
           </div>
           {error && (
             <div

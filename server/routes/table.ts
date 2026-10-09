@@ -160,6 +160,7 @@ import type {
   SkillCatalogRes,
   SkillFileRes,
   SkillSaveReq,
+  SkillDeleteReq,
   SkillSaveRes,
   SkillCreateReq,
   CronCreateReq,
@@ -1699,9 +1700,9 @@ export const API_ROUTES: readonly RouteDef[] = [
   // The skills page. Skills are files under the server user's home that every
   // agent on the box runs, so reading the catalog and a listed SKILL.md needs
   // only an operational identity (an agent can read them with its own tools
-  // anyway). Saving and creating write those files, so they take editor:use,
+  // anyway). Saving, deleting and creating change those files, so they take editor:use,
   // the capability behind the editor panel's save. The handlers limit read and
-  // save to paths the caller's own catalog lists. Save and create re-read the
+  // mutations to paths the caller's own catalog lists. Mutations re-read the
   // agents' skills; the slash_commands refresh reaches each agent's viewers.
   defineRoute<void, SkillCatalogRes>({
     opId: "skills.catalog",
@@ -1720,6 +1721,13 @@ export const API_ROUTES: readonly RouteDef[] = [
   defineRoute<SkillSaveReq, SkillSaveRes>({
     opId: "skills.saveFile",
     method: "PUT",
+    path: "/api/skills/file",
+    auth: cap("editor:use", operationalAuthenticated),
+    emits: ["slash_commands"],
+  }),
+  defineRoute<SkillDeleteReq, void>({
+    opId: "skills.deleteFile",
+    method: "DELETE",
     path: "/api/skills/file",
     auth: cap("editor:use", operationalAuthenticated),
     emits: ["slash_commands"],

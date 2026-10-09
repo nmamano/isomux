@@ -1010,7 +1010,7 @@ export interface SkillCatalogRes {
 export interface SkillFileRes {
   path: string;
   content: string;
-  // Server-issued revision; send it back as expectedRev on save.
+  // Server-issued revision; send it back as expectedRev on save or delete.
   rev: number;
   mtime: number;
   editable: boolean;
@@ -1018,6 +1018,10 @@ export interface SkillFileRes {
 export interface SkillSaveReq {
   path: string;
   content: string;
+  expectedRev: number;
+}
+export interface SkillDeleteReq {
+  path: string;
   expectedRev: number;
 }
 export interface SkillSaveRes {
