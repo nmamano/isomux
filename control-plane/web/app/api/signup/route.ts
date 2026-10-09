@@ -34,7 +34,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const session = await auth();
   const accountId = session?.accountId;
-  const here = new URL(request.url).origin;
+  const here = trusted.origin;
   if (!accountId) return Response.redirect(`${here}/signin`, 303);
 
   // The customer's language, by the same resolver the pages use, so a refusal

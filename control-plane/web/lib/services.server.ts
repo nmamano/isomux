@@ -153,7 +153,12 @@ function deploymentOrigin(): string | null {
   }
 }
 
-export type OriginVerdict = { ok: true } | { ok: false; reason: string };
+/** A trusted verdict carries the deployment origin, so a route that redirects
+ * builds its Location from configuration and not from the request URL, which
+ * behind a proxy is the container's own origin. */
+export type OriginVerdict =
+  | { ok: true; origin: string }
+  | { ok: false; reason: string };
 
 /**
  * Refuse a POST that did not come from this deployment's own page.
@@ -175,7 +180,7 @@ export async function checkTrustedOrigin(
   if (!originIsTrusted(origin, trusted)) {
     return { ok: false, reason: "that request did not come from this site" };
   }
-  return { ok: true };
+  return { ok: true, origin: trusted };
 }
 
 export interface PlanOption {
