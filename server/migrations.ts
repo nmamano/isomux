@@ -27,6 +27,8 @@ const BACKUPS_DIR = join(ISOMUX_DIR, "backups");
 // Files we copy into the backup bundle before the first rewrite. Any file
 // that the userid migration may touch belongs here. Missing files are
 // skipped (a fresh install has none of these yet).
+// JSON-only safety copies. Never add office.sqlite or its live WAL/SHM here;
+// consistent SQLite snapshots belong to the backup child.
 const BACKUP_FILES = [
   "users.json",
   "sessions.json",

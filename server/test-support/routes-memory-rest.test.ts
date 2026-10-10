@@ -1,3 +1,4 @@
+import { officeAuditStore } from "../audit-store.ts";
 // isomux-memory on the unified REST surface - three verbs: READ (GET), APPEND
 // (POST), REPLACE (PUT) /api/memory.
 //
@@ -96,11 +97,8 @@ function readMem(srv: TestServer, ...parts: string[]): string | null {
     return null;
   }
 }
-function opLog(srv: TestServer): { actor: string; op: string; text: string }[] {
-  return readFileSync(join(srv.stateRoot, "memory", ".oplog.jsonl"), "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => JSON.parse(l));
+function opLog(_srv: TestServer) {
+  return officeAuditStore().list().items.filter(row => row.operation.startsWith("memory.")).reverse();
 }
 function asRead(body: unknown): {
   text: string;
@@ -190,7 +188,7 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     expect(onDisk).not.toContain("EVIL");
     // The op-log actor is unaffected - it must always name someone, and it is
     // the authoritative who-did-what.
-    expect(opLog(srv).at(-1)!.actor).toBe("MemBot");
+    expect(opLog(srv).at(-1)!.actor.name).toBe("MemBot");
   });
 
   it("ANOTHER agent writing to this agent's scope stays named", async () => {
@@ -732,20 +730,11 @@ describe("routes/memory REST: op-log", () => {
       body: { scope: "agent", text: "- two\n", version },
     });
 
-    const log = readFileSync(
-      join(srv.stateRoot, "memory", ".oplog.jsonl"),
-      "utf8",
-    )
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l));
+    const log = opLog(srv);
     expect(log).toHaveLength(2);
-    expect(log[0]).toMatchObject({
-      actor: "MemBot",
-      op: "append",
-      text: "one",
-    });
-    expect(log[1]).toMatchObject({ actor: "MemBot", op: "replace" });
-    expect(log[1].previousVersion).toBeDefined();
+    expect(log[0]).toMatchObject({ actor: {kind:"agent",id:bot.id,name:"MemBot"}, operation: "memory.append" });
+    expect(log[0].memoryContent).toContain("one");
+    expect(log[1]).toMatchObject({ actor: {kind:"agent",id:bot.id,name:"MemBot"}, operation: "memory.replace", memoryContent: "- two\n" });
+
   });
 });

@@ -42,7 +42,7 @@ Run ESLint during development. A good time to do it is right before human review
 
 ## Key decisions (do not revisit)
 
-- Single Bun process. No Node, no separate API server, no database - flat-file state only.
+- Single Bun process. No Node or separate API server. Tasks and the office audit log use one SQLite file through bun:sqlite; all other state stays in plain files.
 - Agent = persistent identity. Conversation = resumable session.
 - 8 desks per room.
 - Subscription auth via the provider's own CLI - Isomux never handles API keys.

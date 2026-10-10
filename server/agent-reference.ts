@@ -6,6 +6,7 @@ import type { Identity } from "./identity/index.ts";
 export const AGENT_REFERENCE_TOPICS = {
   discovery: "Agent and member discovery",
   tasks: "Task board",
+  audit: "Office audit log",
   "chat-affordances": "Files, diffs, editor, terminal, and page preview",
   browser: "Desktop browser control",
   apps: "Agent-built apps",
@@ -32,6 +33,7 @@ export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
 // Pages only a privileged agent sees.
 export const PRIVILEGED_REFERENCE_TOPICS: ReadonlySet<AgentReferenceTopic> =
   new Set([
+    "audit",
     "agent-management",
     "rooms",
     "cronjob-management",
@@ -96,6 +98,9 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "users.update": "members",
   "rooms.setSettings": "rooms",
   "apiTokenInbox.send": "messaging",
+  "audit.list": "audit",
+  "tasks.history": "tasks",
+  "tasks.restore": "audit",
   "tasks.list": "tasks",
   "tasks.get": "tasks",
   "tasks.create": "tasks",

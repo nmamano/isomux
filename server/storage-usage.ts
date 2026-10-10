@@ -213,7 +213,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
   const hooks = measureTree(webhooks);
 
   // Everything in the state root the named categories did not claim:
-  // agents.json, tasks.json, users.json, state/, slide/, tls/, ...
+  // agents.json, office.sqlite (tasks and audit), users.json, state/, slide/, tls/, ...
   // Derived by subtraction so the categories always sum to stateRootBytes.
   const claimedBytes =
     tokenLogs.bytes +

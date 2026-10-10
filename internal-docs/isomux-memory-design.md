@@ -68,7 +68,7 @@ Memory is **plain markdown files on disk**. The directory tree _is_ the schema.
   rooms/<roomId>.md          # a room/project, visible to anyone in that room
   agents/<agentId>.md        # an agent's standing facts, visible with that agent
   bosses/<userId>.md         # one member's scoped facts
-  .oplog.jsonl               # append-only audit/recovery log of every mutation
+  .oplog.jsonl               # legacy file, retained untouched; new rows use office.sqlite
 ```
 
 Each scope file is a **flat list** of facts, one per line, raw and unstructured:
@@ -320,12 +320,10 @@ The slow leaks are duplicate restatements
 wrong and nobody retracts it) - staleness is the known, consciously-deferred cost;
 a periodic cron agent that dedups and asks "still true?" can come later.
 
-**Recovery is the op-log.** `memory/.oplog.jsonl` records every successful APPEND
-and REPLACE as `{ ts, actor, scope, scopeId, op, text, content, version,
-previousVersion? }`, where `content` is the **full file after the op**. Restoring a
-botched write is therefore just re-REPLACEing an earlier `content` snapshot. v1
-recovery is manual (read the log, re-PUT a snapshot); a restore endpoint/UI can
-come later.
+**Recovery uses the office audit log.** Each successful APPEND or REPLACE
+stores the full post-write content in `office.sqlite`. An owner can read the
+snapshot through the audit reader and restore it with a memory REPLACE. The
+server leaves an old `memory/.oplog.jsonl` untouched and does not import it.
 
 ## 7b. Backend-native memory is switched off per launch
 

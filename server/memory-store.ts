@@ -1,3 +1,5 @@
+import { requireAuditContext } from "./audit-context.ts";
+import { recordAudit, type AuditWrite } from "./audit-store.ts";
 // isomux-memory storage - the leaf module. Raw, unstructured, one-fact-per-line
 // markdown under STATE_ROOT/memory/. See internal-docs/isomux-memory-design.md.
 //
@@ -6,7 +8,7 @@
 //   <STATE_ROOT>/memory/rooms/<roomId>.md
 //   <STATE_ROOT>/memory/agents/<agentId>.md
 //   <STATE_ROOT>/memory/members/<userId>.md
-//   <STATE_ROOT>/memory/.oplog.jsonl   (append-only audit/recovery log)
+// Full post-write content is retained in office.sqlite; an old .oplog.jsonl is left untouched.
 //
 // Each fact is one bullet line:
 //   - {Creator}, {YYYY-MM-DD}: {the self-contained fact}
@@ -19,13 +21,13 @@
 //   READ    - return the whole raw file plus an optimistic-concurrency version.
 //   REPLACE - overwrite the whole file, guarded by the version you READ (409 on
 //             mismatch). This is how edits and retractions happen.
-// Every mutating op is recorded to the op-log so a bad write can be restored by
+// Every mutating op is recorded to the audit log so a bad write can be restored by
 // re-REPLACEing an earlier `content` snapshot.
 //
 // Provenance: APPEND stamps the date from the authenticated caller, and the
 // Creator too unless the caller IS the agent whose scope it is. A REPLACE writes
 // the file bytes verbatim (free-form), so in-file creators are DISPLAY ONLY
-// after a rewrite - the op-log `actor` is the authoritative record of who
+// after a rewrite - the audit log `actor` is the authoritative record of who
 // changed what, and it names the caller on every op including a self-note.
 //
 // Pure helpers (format/parse/version) + an INJECTABLE store so unit tests can pin
@@ -222,7 +224,7 @@ export interface MemoryStore {
   // Append one server-stamped line. Returns the new item + post-write version.
   // `authorAgentId` is the caller's OWN agentId when the caller is an agent (null
   // otherwise); it is what lets an agent's notes to itself skip the redundant
-  // author stamp. It never affects the op-log actor, which is always `author`.
+  // author stamp. It never affects the audit log actor, which comes from the authenticated actor.
   append(input: {
     scope: MemoryScope;
     scopeId: string | null;
@@ -233,7 +235,7 @@ export interface MemoryStore {
   // Overwrite the whole file. If expectedVersion is given and no longer matches
   // the current file, returns a conflict (with the current version) and writes
   // nothing. Omit expectedVersion to force (human/owner curation save). `author`
-  // is the op-log actor only - the file bytes are written verbatim.
+  // is display attribution only - the file bytes are written verbatim.
   replace(input: {
     scope: MemoryScope;
     scopeId: string | null;
@@ -272,9 +274,10 @@ export interface MemoryScopeMeasurement {
 }
 
 export interface MemoryStoreDeps {
+  audit?: (entry: AuditWrite) => void;
   stateRoot?: string;
   today?: () => string; // YYYY-MM-DD, for the in-file date
-  now?: () => string; // ISO timestamp, for the op-log ts
+  now?: () => string; // ISO timestamp, for the audit log ts
   // Per-scope injected-size caps; defaults to MEMORY_CAPS. Tests inject tiny caps.
   caps?: Record<MemoryScope, number>;
 }
@@ -313,9 +316,12 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
   }
 
   function logOp(entry: OpLogEntry): void {
-    const path = join(stateRoot, "memory", ".oplog.jsonl");
-    mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(entry) + "\n");
+    const context = requireAuditContext();
+    try {
+      (deps.audit ?? recordAudit)({ actor: context.actor, operation: context.operation,
+        targets: [`memory:${entry.scope}:${entry.scopeId ?? "office"}`], fields: ["content"],
+        memoryContent: entry.content, time: Date.parse(entry.ts) });
+    } catch (error) { console.error("[audit] could not record completed memory write", error); }
   }
 
   function append(input: {
@@ -325,6 +331,7 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     authorAgentId?: string | null;
     text: string;
   }): MemoryAppendResult {
+    requireAuditContext();
     if (input.text.length > MEMORY_LINE_MAX) {
       throw new MemoryLineTooLongError(input.text.length);
     }
@@ -332,7 +339,7 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     // Self-authored agent memory drops the author from the stored line - see
     // formatMemoryLine. The decision lives HERE, not in the handler, because the
     // store is the only place that owns the line grammar. `author` stays the real
-    // caller either way: it is the op-log actor, which must always name someone.
+    // caller either way: it is the audit log actor, which must always name someone.
     const selfAuthored =
       input.scope === "agent" &&
       !!input.authorAgentId &&
@@ -387,6 +394,7 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     author: string;
     expectedVersion?: string | null;
   }): MemoryReplaceResult {
+    requireAuditContext();
     // Read current state + version check + write are ONE synchronous task, so the
     // single-threaded event loop serializes concurrent replaces (no lost update).
     const current = readText(input.scope, input.scopeId);

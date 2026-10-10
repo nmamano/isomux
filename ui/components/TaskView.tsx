@@ -1,3 +1,4 @@
+import { TaskHistoryList } from "./AuditList.tsx";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
@@ -878,6 +879,7 @@ function TaskDetailPanel({
             {timeAgo(language, t, task.createdAt)}
           </div>
         )}
+        {mode === "edit" && task && <TaskHistoryList id={task.id} version={task.version} />}
       </div>
 
       {/* Footer */}

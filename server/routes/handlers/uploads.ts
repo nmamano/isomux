@@ -1,3 +1,4 @@
+import { savedFileAudit } from "../audit.ts";
 // Upload + file-serving handlers. The two browser-facing
 // file routes on the unified REST surface (opIds agents.upload / agents.getFile).
 //
@@ -93,7 +94,7 @@ export function uploadsHandlers(
           value.type || "application/octet-stream",
           value.name,
         );
-        if (att) attachments.push(att);
+        if (att) { savedFileAudit(`${ctx.params.id}/${att.filename}`); attachments.push(att); }
       }
       return ok({ attachments });
     },

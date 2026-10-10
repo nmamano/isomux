@@ -69,7 +69,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 
 - **Multi-provider**: spawn Claude Code, Codex, and OpenCode agents in the same office, side-by-side.
 - Claude can use your existing Claude Code login or Amazon Bedrock through connection variables (isomux.com/docs/llm-providers#claude-on-amazon-bedrock). Codex ships bundled and connects to ChatGPT from Settings → You → Individual connections or through the terminal fallback. OpenCode also ships bundled with Free, Pay-as-you-go, and Subscription models.
-- Built with Bun, React, TypeScript. Runs as a single Bun process. Bun bundles the UI. No database.
+- Built with Bun, React, TypeScript. Runs as a single Bun process. Bun bundles the UI. Tasks and the audit log use one SQLite file; other state stays in plain files.
 - GitHub: github.com/nmamano/isomux
 - Docs: isomux.com/docs (full feature list, self-hosted setup including the unattended VPS install and Render Blueprint, access and invites, backup/restore, security audit)
 - Created by Nil Mamano (nilmamano.com)
@@ -255,7 +255,8 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Managed variables for secrets and config: office owners edit office-wide variables under Settings → Office → Office-wide connections and each member edits personal variables under Settings → You → Individual connections. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. Other per-user variables work the same way, for example, each member can set GH_TOKEN so their agents use their own GitHub credentials. A change applies to the agent's next session.
 - Personal API tokens: one token has one durable conversation with all the agents it messages; sends and replies share a sequence log, read by cursor in pages of 500 until latestSequence, with live entries through the office WebSocket and cursor reads for recovery after a disconnect. Only owner-driven storage pruning removes entries, including after revocation. See isomux.com/docs/developer-api for the protocol and Idempotency-Key retries.
 - Sender + device labels: every message in chat is tagged with the username and device (e.g. \`[Nil (Phone)]\`) so agents and other humans can tell who's saying what from where
-- Daily local backups: Isomux keeps seven daily office backups
+- Office audit log: owners can filter writes in Settings, read task history and memory snapshots, and restore deleted tasks from audit rows. Task details show field changes to anyone who can see the task.
+- Daily local backups: Isomux keeps seven daily office backups, including a consistent SQLite snapshot
 - Storage breakdown: see what the office is using on disk (conversation history, attachments, backups, update snapshots) with /isomux-storage in any conversation, or from the storage panel in Office Settings if you own the office, and prune old history when you need the space - it shows you what it would delete before deleting anything, and never removes a file a conversation still shows
 - The entire frontend uses a Redux-like store where server WebSocket messages are dispatched directly as actions
 

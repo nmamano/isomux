@@ -136,6 +136,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
     // ...plus exactly the curated operator delta (drive other agents' sessions
     // + full cron over own jobs). Nil-locked set (task 98d63ef7).
     for (const c of [
+      "audit:read",
       "agent:converse",
       "office:read",
       "agent:manage",
@@ -218,6 +219,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
 
   it("API scope holds the explicit remote-boss operational capabilities", () => {
     expect([...API_CAPABILITIES]).toEqual([
+      "audit:read",
       "user:env",
       "api:discover-agents",
       "api:send-message",

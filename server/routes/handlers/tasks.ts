@@ -1,3 +1,4 @@
+import type { AuditPage } from "../../../shared/audit.ts";
 // Tasks resource handlers. The global shared board on the
 // unified REST surface (opIds tasks.{list,get,create,update,claim,done,delete}).
 //
@@ -44,6 +45,9 @@ type TaskChanges = Partial<
 >;
 
 export interface TasksDeps {
+  history?(id: string, before?: number): AuditPage;
+  deletedTask?(id: string): Omit<TaskItem, "version"> | null;
+  restoreTask?(task: Omit<TaskItem, "version">): TaskItem;
   listTasks(): TaskItem[];
   createTask(input: {
     title: string;
@@ -99,6 +103,21 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
     return taskVisible(t, deps.accessibleRoomIds(identity)) ? t : null;
   };
   return {
+    "tasks.history": ctx => {
+      const task = visibleTask(ctx.params.id, ctx.identity);
+      if (!task) return fail(404, "not_found");
+      const raw = ctx.query.get("before");
+      if (raw !== null && (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)))) return fail(400, "invalid_request");
+      const page = deps.history!(task.id, raw === null ? undefined : Number(raw));
+      return ok({ createdAt: task.createdAt, createdBy: task.createdBy, ...page });
+    },
+    "tasks.restore": ctx => {
+      if (deps.listTasks().some(task => task.id === ctx.params.id)) return fail(409, "task_exists");
+      const task = deps.deletedTask!(ctx.params.id);
+      if (!task) return fail(409, "no_stored_deletion");
+      if (task.roomId && !deps.accessibleRoomIds(ctx.identity).has(task.roomId)) return fail(409, "room_unavailable");
+      return created(deps.restoreTask!(task));
+    },
     "tasks.list": (ctx) => {
       const status = ctx.query.get("status");
       const assignee = ctx.query.get("assignee");

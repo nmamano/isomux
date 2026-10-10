@@ -26,6 +26,7 @@ export type TokenScope = "user" | "agent" | "cron-run" | "app" | "api";
 // handler runs. The set grows additively (capability-lattice expansion is a
 // follow-up); do not repurpose an existing capability's meaning.
 export type Capability =
+  | "audit:read"
   // USER (browser) capabilities - held by any human identity (owner or member),
   // narrowed further by resource guards (officeOwner, selfOrOwner, …).
   | "office:read"
@@ -155,6 +156,7 @@ export interface Identity {
 // owner-only routes are blocked for members by the officeOwner guard, not by a
 // missing capability.
 export const USER_CAPABILITIES: readonly Capability[] = [
+  "audit:read",
   "office:read",
   "chat:members",
   "agent:manage",
@@ -240,6 +242,7 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // to a live CRON-RUN identity, never to an agent with operator privileges.
 export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
   ...AGENT_CAPABILITIES,
+  "audit:read",
   "agent:converse",
   "office:read",
   "chat:members",
@@ -323,6 +326,7 @@ export const APP_CAPABILITIES: readonly Capability[] = [
 // defense in depth, not a shell boundary - agent:manage can spawn an agent that
 // runs commands. Decide every future capability here; never spread another set.
 export const API_CAPABILITIES: readonly Capability[] = [
+  "audit:read",
   "user:env",
   "api:discover-agents",
   "api:send-message",

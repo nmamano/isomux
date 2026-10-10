@@ -757,6 +757,9 @@ function matchIsomuxUrl(
 // path segment. Kept to the routes agents actually hit from transcripts; an
 // unknown isomux path still gets a card, just without the label.
 const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
+  ["GET", "/api/audit-log", "apiCall.audit.list"],
+  ["GET", "/api/tasks/*/history", "apiCall.tasks.history"],
+  ["POST", "/api/tasks/*/restore", "apiCall.tasks.restore"],
   ["GET", "/api/members-chat", "apiCall.membersChat.read"],
   ["POST", "/api/members-chat", "apiCall.membersChat.post"],
   ["PUT", "/api/members-chat/*/pin", "apiCall.membersChat.pin"],

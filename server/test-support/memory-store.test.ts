@@ -1,3 +1,5 @@
+import { withAuditContextSync } from "../audit-context.ts";
+import type { AuditWrite } from "../audit-store.ts";
 // isomux-memory storage - T0 unit tests. Raw one-fact-per-line markdown + the
 // injectable store against a temp dir with deterministic date/timestamp. No
 // server, no LLM, no network. See server/memory-store.ts.
@@ -25,11 +27,11 @@ import {
   MemoryCapError,
   MemoryLineTooLongError,
   injectedSize,
-  type OpLogEntry,
 } from "../memory-store.ts";
 import { MEMORY_CAPS } from "../../shared/memory-caps.ts";
 
 const dirs: string[] = [];
+const auditRows = new Map<string, AuditWrite[]>();
 function tempRoot(): string {
   const d = mkdtempSync(join(tmpdir(), "isomux-mem-"));
   dirs.push(d);
@@ -43,7 +45,8 @@ const DATE = "2026-06-28";
 const TS = "2026-06-28T12:00:00.000Z";
 function freshStore(opts?: { caps?: Record<string, number> }) {
   const root = tempRoot();
-  const store = createMemoryStore({
+  const rawStore = createMemoryStore({
+    audit: entry => auditRows.set(root, [...(auditRows.get(root) ?? []), entry]),
     stateRoot: root,
     today: () => DATE,
     now: () => TS,
@@ -51,16 +54,13 @@ function freshStore(opts?: { caps?: Record<string, number> }) {
       | Record<"office" | "room" | "agent" | "boss", number>
       | undefined,
   });
+  const store = { ...rawStore,
+    append: (input: Parameters<typeof rawStore.append>[0]) => withAuditContextSync({ kind: input.authorAgentId ? "agent" : "member", id: input.authorAgentId ?? "member", name: input.author }, "memory.append", () => rawStore.append(input)),
+    replace: (input: Parameters<typeof rawStore.replace>[0]) => withAuditContextSync({ kind: "member", id: "member", name: input.author }, "memory.replace", () => rawStore.replace(input)),
+  };
   return { root, store };
 }
-function opLog(root: string): OpLogEntry[] {
-  const path = join(root, "memory", ".oplog.jsonl");
-  if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => JSON.parse(l) as OpLogEntry);
-}
+function opLog(root: string): AuditWrite[] { return auditRows.get(root) ?? []; }
 
 describe("memory-store: format/parse", () => {
   it("formatMemoryLine renders the raw bullet shape", () => {
@@ -412,9 +412,9 @@ describe("memory-store: append", () => {
       text: "x",
     });
     expect(opLog(root)[0]).toMatchObject({
-      actor: "Bot",
-      op: "append",
-      content: "- 2026-06-28: x\n",
+      actor: { name: "Bot", kind: "agent", id: "a1" },
+      operation: "memory.append",
+      memoryContent: "- 2026-06-28: x\n",
     });
   });
 
@@ -424,15 +424,13 @@ describe("memory-store: append", () => {
     const log = opLog(root);
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({
-      ts: TS,
-      actor: "Nil",
-      scope: "office",
-      scopeId: null,
-      op: "append",
-      text: "x",
-      content: "- Nil, 2026-06-28: x\n",
+      time: Date.parse(TS),
+      actor: { name: "Nil" },
+      targets: ["memory:office:office"],
+      operation: "memory.append",
+      memoryContent: "- Nil, 2026-06-28: x\n",
     });
-    expect(log[0].version).toBe(store.read("office", null).version);
+    expect(existsSync(join(root, "memory", ".oplog.jsonl"))).toBe(false);
   });
 
   it("findDuplicate matches an exact active restatement, not a reword", () => {
@@ -482,10 +480,9 @@ describe("memory-store: replace", () => {
     );
     const log = opLog(root);
     expect(log[log.length - 1]).toMatchObject({
-      op: "replace",
-      actor: "Nil",
-      text: "(full rewrite)",
-      previousVersion: version,
+      operation: "memory.replace",
+      actor: { name: "Nil" },
+      memoryContent: "- hand-edited line\n- another\n",
     });
   });
 
@@ -687,4 +684,21 @@ describe("memory-store: render for prompt", () => {
     expect(store.renderForPrompt("office", null)).toContain("one");
     expect(store.renderForPrompt("office", null)).toContain("three");
   });
+});
+it("refuses a memory write without an active actor before creating a file", () => {
+  const root = tempRoot();
+  const store = createMemoryStore({stateRoot:root});
+  expect(() => store.append({scope:"office",scopeId:null,author:"Untrusted display",text:"fact"})).toThrow();
+  expect(existsSync(join(root,"memory","office.md"))).toBe(false);
+});
+it("preserves a legacy oplog and returns success if the new audit insert fails", () => {
+  const root = tempRoot();
+  mkdirSync(join(root,"memory"));
+  const old = join(root,"memory",".oplog.jsonl");
+  writeFileSync(old,"legacy bytes\n");
+  const store = createMemoryStore({stateRoot:root,audit:() => {throw new Error("audit insert failed");}});
+  // The injected writer follows the same best-effort boundary as production.
+  withAuditContextSync({kind:"member",id:"u",name:"Member"},"memory.append",() => store.append({scope:"office",scopeId:null,author:"Member",text:"fact"}));
+  expect(store.read("office",null).text).toContain("fact");
+  expect(readFileSync(old,"utf8")).toBe("legacy bytes\n");
 });

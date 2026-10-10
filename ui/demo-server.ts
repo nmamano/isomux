@@ -1,3 +1,4 @@
+import type { AuditEntry } from "../shared/audit.ts";
 import { skillFileProblem } from "../shared/skill-validation.ts";
 import {
   membersChatExcerpt,
@@ -93,6 +94,24 @@ import { shimEmit } from "./ws.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
 
 const state = new OfficeState();
+const demoAudit: AuditEntry[] = [];
+let restoringDemoTask = false;
+state.beforeTaskChange = change => {
+  const old = state.tasks.find(task => task.id === change.task.id);
+  const next = change.kind === "deleted" ? undefined : change.task;
+  const taskChanges: NonNullable<AuditEntry["taskChanges"]> = {};
+  for (const key of new Set([...Object.keys(old ?? {}), ...Object.keys(next ?? {})])) {
+    if (key === "version") continue;
+    const before = (old as unknown as Record<string,unknown> | undefined)?.[key] ?? null;
+    const after = (next as unknown as Record<string,unknown> | undefined)?.[key] ?? null;
+    if (JSON.stringify(before) !== JSON.stringify(after)) taskChanges[key] = {old:before,new:after};
+  }
+  demoAudit.unshift({ sequence: demoAudit.length + 1, time: Date.now(), actor:{kind:"member",id:"ricky",name:"Ricky"},
+    operation: restoringDemoTask ? "tasks.restore" : `tasks.${change.kind === "created" ? "create" : change.kind === "updated" ? "update" : "delete"}`,
+    targets:[change.task.id], fields:Object.keys(taskChanges), taskChanges,
+    ...(change.kind === "deleted" ? {deletedTask:{...change.task}} : {}),
+  });
+};
 let embedMode = false;
 let demoSeededAt = 0;
 let demoApiTokens: ApiTokenWire[] = [];
@@ -2199,6 +2218,40 @@ export async function demoApi(
   // backends.listModels carries ?cwd=) can't be matched by exact full-path.
   const pathname = path.split("?")[0];
   const route = `${method} ${pathname}`;
+  if (route === "GET /api/audit-log") {
+    const query = new URLSearchParams(path.split("?")[1]);
+    const items = demoAudit.filter(row =>
+      (!query.get("targetId") || row.targets.includes(query.get("targetId")!)) &&
+      (!query.get("operation") || row.operation === query.get("operation")) &&
+      (!query.get("actorKind") || row.actor.kind === query.get("actorKind")) &&
+      (!query.get("actorId") || row.actor.id === query.get("actorId")) &&
+      (!query.get("ownerId") || row.actor.ownerId === query.get("ownerId")) &&
+      (!query.get("from") || row.time >= Number(query.get("from"))) &&
+      (!query.get("to") || row.time <= Number(query.get("to"))) &&
+      (!query.get("before") || row.sequence < Number(query.get("before"))));
+    const limit = Math.min(1000, Number(query.get("limit") ?? 100));
+    return {items:items.slice(0,limit),nextBefore:items.length > limit ? items[limit-1].sequence : null};
+  }
+  const taskAuditMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/(history|restore)$/);
+  if (taskAuditMatch) {
+    const id = decodeURIComponent(taskAuditMatch[1]);
+    const task = state.tasks.find(task => task.id === id);
+    if (method === "GET" && taskAuditMatch[2] === "history") {
+      if (!task) throw new ApiError(404,"not_found","");
+      const before = new URLSearchParams(path.split("?")[1]).get("before");
+      const items = demoAudit.filter(row => row.targets.includes(id) && (!before || row.sequence < Number(before)));
+      return {createdAt:task.createdAt,createdBy:task.createdBy,items:items.slice(0,100),nextBefore:items.length > 100 ? items[99].sequence : null};
+    }
+    if (method === "POST" && taskAuditMatch[2] === "restore") {
+      const deleted = demoAudit.find(row => row.deletedTask?.id === id)?.deletedTask;
+      if (task || !deleted) throw new ApiError(409,task ? "task_exists" : "no_stored_deletion","");
+      if (deleted.roomId && !state.getState().rooms.some(room => room.id === deleted.roomId)) throw new ApiError(409,"room_unavailable","");
+      restoringDemoTask = true;
+      try { emitEvents(state.restoreTask(deleted)); } finally { restoringDemoTask = false; }
+      return state.tasks.find(task => task.id === id);
+    }
+  }
+
   if (route === "GET /api/skills") return demoSkillCatalog();
   if (route === "GET /api/skills/file")
     return demoSkillRead(

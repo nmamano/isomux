@@ -1,3 +1,5 @@
+import { snapshotOfficeDatabase } from "./sqlite-snapshot.ts";
+import { OFFICE_DATABASE } from "./audit-store.ts";
 // Daily backup of ~/.isomux to a verified local tarball.
 //
 // A backup is published in three steps: write a uniquely named partial file,
@@ -18,6 +20,8 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
+  rmSync,
   openSync,
   readFileSync,
   readdirSync,
@@ -367,6 +371,10 @@ function prepareBackupDirectory(dir: string): void {
   // survive only when the previous server process died during tar, so every
   // matching file here is an orphan that the new process must reclaim.
   for (const file of readdirSync(dir)) {
+    if (file.startsWith(".sqlite-snapshot-")) {
+      rmSync(join(dir, file), { recursive: true, force: true });
+      continue;
+    }
     if (!PARTIAL_PATTERN.test(file)) continue;
     unlinkSync(join(dir, file));
   }
@@ -559,7 +567,15 @@ async function runBackup(
   const now = deps.now();
   const partial = partialPath(config.backupDir, now);
   const final = allocateFinalPath(config.backupDir, now);
+  const staging = mkdtempSync(join(config.backupDir, ".sqlite-snapshot-"));
+  const stagedRoot = join(staging, config.stateRootName);
+  const database = join(config.stateRootParent, config.stateRootName, OFFICE_DATABASE);
+  const hasDatabase = existsSync(database);
   try {
+    if (hasDatabase) {
+      mkdirSync(stagedRoot, { mode: 0o700 });
+      await snapshotOfficeDatabase(database, join(stagedRoot, ".office-snapshot"));
+    }
     // Reserve the target at its final privacy mode before tar writes. GNU tar
     // truncates an existing file without changing its mode, so the archive is
     // never group/world-readable during a long write. Rename preserves it.
@@ -573,9 +589,14 @@ async function runBackup(
         // Unanchored at the start, its patterns can only exclude more.
         ...(flavor === "gnu" ? ["--anchored", "--wildcards"] : []),
         ...archiveExclusionArgs(config.stateRootName),
+        ...[OFFICE_DATABASE, OFFICE_DATABASE + "-wal", OFFICE_DATABASE + "-shm"].map(name => `--exclude=${escapeGlob(config.stateRootName)}/${name}`),
+        ...(hasDatabase ? (flavor === "gnu"
+          ? ["--transform=s|/\\.office-snapshot$|/office.sqlite|"]
+          : ["-s", "|/\\.office-snapshot$|/office.sqlite|"]) : []),
         "-C",
         config.stateRootParent,
         config.stateRootName,
+        ...(hasDatabase ? ["-C", staging, `${config.stateRootName}/.office-snapshot`] : []),
       ],
       deps,
     );
@@ -598,6 +619,7 @@ async function runBackup(
     pruneVerified(config);
     return basename(final);
   } finally {
+    rmSync(staging, { recursive: true, force: true });
     try {
       unlinkSync(partial);
     } catch {}

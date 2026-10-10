@@ -2,6 +2,25 @@
 import type { Catalog } from "./en.ts";
 
 export const zh: Catalog = {
+  "apiCall.audit.list": "读取审计日志",
+  "apiCall.tasks.history": "读取任务历史记录",
+  "apiCall.tasks.restore": "恢复任务",
+
+  "audit.title": "审计日志",
+  "audit.restore": "恢复",
+  "audit.restored": "已恢复",
+  "audit.actorKind": "操作者类型",
+  "audit.actorId": "操作者 ID",
+  "audit.ownerId": "所有者 ID",
+  "audit.targetId": "目标 ID",
+  "audit.operation": "操作",
+  "audit.from": "起始（纪元毫秒）",
+  "audit.to": "结束（纪元毫秒）",
+  "audit.filter": "筛选",
+  "audit.loading": "加载中…",
+  "audit.older": "更早",
+  "audit.history": "历史记录",
+
   "browser.offerHelp":
     "打开要提供的标签页，在扩展弹窗中选择全部或一个代理，然后开启代理控制。",
   "browser.allAgents": "全部",

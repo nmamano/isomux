@@ -388,3 +388,15 @@ it("guards demo member prompt writes with the version from the read", async () =
   expect(stale).toMatchObject({ status: 409, code: "version_conflict" });
   expect(await demoApi("GET", `${path}/member-prompt`)).toMatchObject({ memberPrompt: "second" });
 });
+
+it("shows demo task history and restores a deleted task once", async () => {
+  const task=await demoApi("POST","/api/tasks",{title:"Demo audit task"}) as import("../shared/types.ts").TaskItem;
+  await demoApi("DELETE",`/api/tasks/${task.id}`,undefined);
+  const page=await demoApi("GET",`/api/audit-log?targetId=${task.id}`,undefined) as import("../shared/audit.ts").AuditPage;
+  expect(page.items[0].deletedTask?.id).toBe(task.id);
+  const restored=await demoApi("POST",`/api/tasks/${task.id}/restore`,undefined) as import("../shared/types.ts").TaskItem;
+  expect(restored.id).toBe(task.id);
+  const history=await demoApi("GET",`/api/tasks/${task.id}/history`,undefined) as import("../shared/audit.ts").TaskHistory;
+  expect(history.items[0].operation).toBe("tasks.restore");
+  expect(demoApi("POST",`/api/tasks/${task.id}/restore`,undefined)).rejects.toMatchObject({status:409});
+});

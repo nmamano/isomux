@@ -1,3 +1,5 @@
+import { withAuditContext } from "../audit-context.ts";
+import type { ExecutorAudit } from "./audit.ts";
 // HTTP executor. The single pipeline that consumes the typed route
 // table for the migrated /api surface. Given a matched route + a resolved
 // identity, it runs:
@@ -137,6 +139,7 @@ export type PreconditionFn = (
 ) => HandlerResult | null | Promise<HandlerResult | null>;
 
 export interface ExecutorDeps {
+  audit?: ExecutorAudit;
   guardDeps: GuardDeps;
   idempotency: IdempotencyCache;
   handlers: ReadonlyMap<string, RouteHandler>;
@@ -334,9 +337,26 @@ export async function executeRoute(
     const outcome = await deps.idempotency.run<HandlerResult>(
       { identity, method, opId: route.opId, idempotencyKey, rawBody },
       async () => {
-        const result = await handler(ctx);
-        if (result.kind === "error") throw new HandlerErrorSignal(result);
-        return result;
+        const actor = !isGet && route.audit?.owner !== "none" ? deps.audit?.actor(ctx) : undefined;
+        const run = async () => {
+          const result = await handler(ctx);
+          if (result.kind === "error") throw new HandlerErrorSignal(result);
+          // Non-GET/HEAD routes declare write ownership or a read/bookkeeping exclusion.
+          // Keep the row INSIDE the
+          // idempotency callback: replay, conflict and errors must add no row.
+          // Values never enter the row. Multipart/binary have no field names.
+          if (!isGet && deps.audit && route.audit?.owner === "executor") {
+            try {
+              deps.audit.write({ actor: actor!, operation: route.opId,
+                targets: route.audit.targets(ctx, result),
+                fields: !isMultipart && !isBinary && body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body) : [] });
+            } catch (error) { console.error("[audit] could not record completed write", error); }
+          }
+          return result;
+        };
+        return !isGet && deps.audit
+          ? withAuditContext(actor!, route.opId, run)
+          : run();
       },
     );
     if (outcome.kind === "conflict") {

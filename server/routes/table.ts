@@ -1,3 +1,5 @@
+import { resourceTargets, createdResource, namedResource, selectedTargets } from "./audit.ts";
+import type { RouteHandlerContext, HandlerResult } from "./executor.ts";
 // Typed route table. The single source of truth for route declarations. Each
 // route declares { opId, method, path, auth, emits } plus its request/response
 // TYPES. See
@@ -30,6 +32,7 @@ import {
   agentMemberPromptUpdate,
   selfUserOrApi,
   officeOwner,
+  auditOwner,
   officeEnvOwner,
   ownerProxyMemberCreate,
   userScope,
@@ -239,6 +242,7 @@ export type RoutePrecondition =
   | "webhookTargetAllowed";
 
 export interface RouteDef<Req = unknown, Res = unknown> {
+  audit?: { owner: "none"; reason: string } | { owner: "store" } | { owner: "executor"; targets: (ctx: RouteHandlerContext, result: HandlerResult) => string[] };
   opId: string;
   method: HttpMethod;
   path: string;
@@ -344,6 +348,10 @@ type InteractionResponseRes = {
 };
 
 export const API_ROUTES: readonly RouteDef[] = [
+  defineRoute({ opId: "audit.list", method: "GET", path: "/api/audit-log", auth: cap("audit:read", auditOwner), emits: [] }),
+  defineRoute({ opId: "tasks.history", method: "GET", path: "/api/tasks/:id/history", auth: cap("task:read", operationalAuthenticated), emits: [] }),
+  defineRoute({ opId: "tasks.restore", method: "POST", path: "/api/tasks/:id/restore", auth: cap("audit:read", auditOwner), emits: ["tasks"], audit: { owner: "store" } }),
+
   defineRoute<
     void,
     { version: string; topics: { topic: string; description: string }[] }
@@ -363,6 +371,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<SpawnReq, AgentEnvelope>({
     opId: "agents.spawn",
+    audit: { owner: "executor", targets: createdResource("agent") },
     method: "POST",
     path: "/api/agents",
     auth: cap("agent:manage", bodyRoom("roomId")),
@@ -370,6 +379,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "agents.kill",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/agents/:id",
     auth: cap("agent:manage", agentParam("id")),
@@ -377,6 +387,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ReviveReq, AgentEnvelope>({
     opId: "agents.revive",
+    audit: { owner: "executor", targets: createdResource("agent") },
     method: "POST",
     path: "/api/agents/:id/revive",
     // Guard: access to the TARGET room (body.roomId). The ∧ lastRoomId access
@@ -387,6 +398,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "agents.abort",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/abort",
     // An operator stops any agent it can reach; every agent stops any agent it
@@ -396,6 +408,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<EditAgentReq, AgentEnvelope>({
     opId: "agents.update",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/agents/:id",
     auth: cap("agent:manage", agentParam("id")),
@@ -424,6 +437,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<AgentSystemPromptPreviewReq, AgentSystemPromptRes>({
     opId: "agents.previewSystemPrompt",
+    audit: { owner: "none", reason: "Computes a preview without changing state." },
     method: "POST",
     path: "/api/agents/system-prompt-preview",
     auth: authn(bodyRoom("roomId")),
@@ -444,6 +458,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // the target's manager still can't pass the manager-match branch.
   defineRoute<SetPrivilegedReq, AgentEnvelope>({
     opId: "agents.setPrivileged",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/agents/:id/privileged",
     auth: cap(
@@ -454,6 +469,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MoveAgentReq, AgentEnvelope>({
     opId: "agents.move",
+    audit: { owner: "executor", targets: selectedTargets({"body": ["targetRoomId"]}) },
     method: "POST",
     path: "/api/agents/:id/move",
     auth: cap("agent:manage", and(agentParam("id"), bodyRoom("targetRoomId"))),
@@ -461,6 +477,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<TopicReq, NoContent>({
     opId: "agents.setTopic",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/agents/:id/topic",
     auth: cap("agent:manage", agentParam("id")),
@@ -471,6 +488,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // conversation.
   defineRoute<void, NoContent>({
     opId: "agents.regenerateTopic",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/agents/:id/topic",
     auth: cap("agent:manage", agentParam("id")),
@@ -478,6 +496,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<SwapDesksReq, NoContent>({
     opId: "rooms.swapDesks",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/rooms/:roomId/swap-desks",
     auth: cap("agent:manage", roomParam("roomId")),
@@ -486,6 +505,7 @@ export const API_ROUTES: readonly RouteDef[] = [
 
   defineRoute<SendMessageReq, AgentMessageAck | ScheduledAck>({
     opId: "agents.sendMessage",
+    audit: { owner: "executor", targets: selectedTargets({"result": ["messageId", "scheduledId"]}) },
     method: "POST",
     path: "/api/agents/:id/messages",
     // any-of so a USER (converse) and an AGENT (send-as-self) both clear stage 1
@@ -511,6 +531,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<InteractionResponseReq, InteractionResponseRes>({
     opId: "agents.respondInteraction",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/interactions/:interactionId/respond",
     // The same operator-vs-self policy as conversation reset. It allows a
@@ -532,6 +553,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "agents.cancelScheduledMessage",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/agents/:id/scheduled-messages/:scheduledId",
     auth: cap(["agent:converse", "agent:send-as-self"], scheduledMessagesOwner),
@@ -539,6 +561,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<EditMessageReq, MessageAck>({
     opId: "agents.editMessage",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/agents/:id/messages/:logEntryId",
     auth: cap("agent:converse", agentParam("id")),
@@ -546,6 +569,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "agents.cancelQueued",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/agents/:id/queue/:messageId",
     auth: cap("agent:converse", agentParam("id")),
@@ -553,6 +577,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "agents.sendNow",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/send-now",
     auth: cap("agent:converse", agentParam("id")),
@@ -565,6 +590,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // session. conversationReset enforces the operator-vs-self split.
   defineRoute<NewConversationReq, NoContent>({
     opId: "agents.newConversation",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/new-conversation",
     auth: cap(["agent:converse", "self:affordance"], conversationReset),
@@ -582,6 +608,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // clear_logs (the reset) then the fresh turn's log_entry (the injected brief).
   defineRoute<HandoffReq, { ok: true }>({
     opId: "agents.handoff",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/handoff",
     auth: cap(["agent:converse", "self:affordance"], conversationReset),
@@ -589,6 +616,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ResumeReq, NoContent>({
     opId: "agents.resume",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/resume",
     auth: cap("agent:converse", agentParam("id")),
@@ -607,6 +635,7 @@ export const API_ROUTES: readonly RouteDef[] = [
 
   defineRoute<AffordanceReadFileReq, OkTrue>({
     opId: "agents.readFile",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/read-file",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
@@ -614,6 +643,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<AffordanceDiffReq, OkTrue>({
     opId: "agents.diff",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/diff",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
@@ -621,6 +651,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<AffordanceEditFileReq, OkTrue>({
     opId: "agents.editFile",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/edit-file",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
@@ -628,6 +659,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<AffordanceTerminalCmdReq, OkTrue>({
     opId: "agents.terminalCommand",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/terminal-command",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
@@ -635,6 +667,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<AffordancePreviewUrlReq, OkTrue>({
     opId: "agents.previewUrl",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/preview-url",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
@@ -646,6 +679,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // read and interaction actions answer the caller and leave the chat alone.
   defineRoute<AffordanceBrowserReq, AffordanceBrowserResp>({
     opId: "agents.browser",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/browser",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
@@ -707,6 +741,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<EditorSaveReq, { ok: true; mtime: number }>({
     opId: "agents.saveFile",
+    audit: { owner: "executor", targets: selectedTargets({"body": ["path"]}) },
     method: "PUT",
     path: "/api/agents/:id/file",
     auth: cap("editor:use", agentParam("id")),
@@ -714,6 +749,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "agents.closeFile",
+    audit: { owner: "executor", targets: selectedTargets({"body": ["path"]}) },
     method: "DELETE",
     path: "/api/agents/:id/file/watch",
     auth: cap("editor:use", agentParam("id")),
@@ -722,6 +758,7 @@ export const API_ROUTES: readonly RouteDef[] = [
 
   defineRoute<unknown, { attachments: Attachment[] }>({
     opId: "agents.upload",
+    audit: { owner: "store" },
     method: "POST",
     path: "/api/agents/:id/uploads",
     auth: cap("file:upload", agentParam("id")),
@@ -751,6 +788,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MembersChatPostReq, MembersChatMessage>({
     opId: "membersChat.post",
+    audit: { owner: "executor", targets: selectedTargets({"result": ["messageId"]}) },
     method: "POST",
     path: "/api/members-chat",
     auth: cap("chat:members", operationalAuthenticated),
@@ -758,6 +796,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MembersChatPinReq, MembersChatMessage>({
     opId: "membersChat.pin",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/members-chat/:id/pin",
     auth: cap("chat:members", operationalAuthenticated),
@@ -765,6 +804,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MembersChatThumbsUpReq, MembersChatMessage>({
     opId: "membersChat.thumbsUp",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/members-chat/:id/thumbs-up",
     auth: cap("chat:members", operationalAuthenticated),
@@ -772,6 +812,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MembersChatEditReq, MembersChatMessage>({
     opId: "membersChat.edit",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/members-chat/:id",
     auth: cap("chat:members", operationalAuthenticated),
@@ -779,6 +820,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "membersChat.delete",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/members-chat/:id",
     auth: cap("chat:members", operationalAuthenticated),
@@ -786,6 +828,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MembersChatReadReq, MembersChatReadRes>({
     opId: "membersChat.markRead",
+    audit: { owner: "none", reason: "Read markers are internal bookkeeping." },
     method: "POST",
     path: "/api/members-chat/read",
     auth: cap("chat:members", operationalAuthenticated),
@@ -793,6 +836,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<unknown, { attachments: Attachment[] }>({
     opId: "membersChat.upload",
+    audit: { owner: "store" },
     method: "POST",
     path: "/api/members-chat/uploads",
     auth: cap("chat:members", operationalAuthenticated),
@@ -808,6 +852,7 @@ export const API_ROUTES: readonly RouteDef[] = [
 
   defineRoute<RoomCreateReq, { room: RoomWire }>({
     opId: "rooms.create",
+    audit: { owner: "executor", targets: createdResource("room") },
     method: "POST",
     path: "/api/rooms",
     auth: cap("room:manage", operationalAuthenticated),
@@ -815,6 +860,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "rooms.close",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/rooms/:roomId",
     auth: cap("room:manage", roomParam("roomId")),
@@ -831,6 +877,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // cosmetic gain.
   defineRoute<RoomRenameReq, NoContent>({
     opId: "rooms.rename",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/rooms/:roomId",
     auth: cap("room:manage", roomParam("roomId")),
@@ -855,6 +902,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<RoomSettingsReq, NoContent>({
     opId: "rooms.setSettings",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/rooms/:roomId/settings",
     auth: cap("room:manage", roomParam("roomId")),
@@ -863,6 +911,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // View preferences affect visibility only; they never grant or deny access.
   defineRoute<ViewOrderReq, NoContent>({
     opId: "view.setOrder",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "PUT",
     path: "/api/me/view/order",
     auth: cap("view:manage", authenticated),
@@ -870,6 +919,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ShownRoomsReq, NoContent>({
     opId: "view.setShown",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "PUT",
     path: "/api/me/view/shown",
     auth: cap("view:manage", authenticated),
@@ -879,6 +929,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<NotifRoomsReq, NoContent>({
     opId: "view.setNotifRooms",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "PUT",
     path: "/api/me/view/notif-rooms",
     auth: cap("view:manage", authenticated),
@@ -886,6 +937,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<TuckedRoomsReq, NoContent>({
     opId: "view.setTucked",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "PUT",
     path: "/api/me/view/tucked",
     auth: cap("view:manage", authenticated),
@@ -920,6 +972,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.pair",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "POST",
     path: "/api/me/browser/pair",
     auth: cap("user:self", authenticated),
@@ -927,6 +980,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.revoke",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "DELETE",
     path: "/api/me/browser",
     auth: cap("user:self", authenticated),
@@ -934,6 +988,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.revokeOne",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "DELETE",
     path: "/api/me/browser/browsers/:id",
     auth: cap("user:self", authenticated),
@@ -948,6 +1003,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // absent from AGENT_CAPABILITIES and PRIVILEGED_AGENT_CAPABILITIES.
   defineRoute<PreferencesReq, NoContent>({
     opId: "prefs.update",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "PATCH",
     path: "/api/me/preferences",
     auth: cap("user:self", authenticated),
@@ -969,6 +1025,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<UserEnvReplaceReq, NoContent>({
     opId: "userEnv.replace",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/users/:username/env",
     auth: cap("user:env", selfUserOrApi),
@@ -995,6 +1052,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<UserEnvReplaceReq, NoContent>({
     opId: "officeEnv.replace",
+    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
     method: "PUT",
     path: "/api/office/env",
     auth: cap("user:env", officeEnvOwner),
@@ -1012,6 +1070,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<PagerSettingsReq, PagerSettingsRes>({
     opId: "pagerSettings.update",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/users/:username/pager-settings",
     auth: cap("user:env", selfUserOrApi),
@@ -1021,6 +1080,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, PagerTestRes>({
     opId: "pagerSettings.test",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/users/:username/pager-settings/test",
     auth: cap("user:env", selfUserOrApi),
@@ -1045,6 +1105,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderLoginStartReq, ProviderLoginStartRes>({
     opId: "providerAccounts.start",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/login",
     auth: cap("user:self", userScope),
@@ -1052,6 +1113,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderLoginCallbackReq, { submitted: true }>({
     opId: "providerAccounts.callback",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/callback",
     auth: cap("user:self", userScope),
@@ -1059,6 +1121,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, ProviderAccountsWire>({
     opId: "providerAccounts.refresh",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "POST",
     path: "/api/me/provider-accounts/refresh",
     auth: cap("user:self", userScope),
@@ -1066,6 +1129,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderLoginCancelReq, { canceled: true }>({
     opId: "providerAccounts.cancel",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/cancel",
     auth: cap("user:self", userScope),
@@ -1073,6 +1137,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderDisconnectReq, ProviderAccountsWire>({
     opId: "providerAccounts.disconnect",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/disconnect",
     auth: cap("user:self", userScope),
@@ -1080,6 +1145,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ApiTokenCreateReq, ApiTokenCreateRes>({
     opId: "apiTokens.mint",
+    audit: { owner: "executor", targets: createdResource("apiToken", "id") },
     method: "POST",
     path: "/api/me/api-tokens",
     auth: cap("user:self", userScope),
@@ -1087,6 +1153,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "apiTokens.revoke",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/me/api-tokens/:id",
     auth: cap("user:self", userScope),
@@ -1094,6 +1161,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ApiTokenInboxSendReq, ApiTokenInboxSendRes>({
     opId: "apiTokenInbox.send",
+    audit: { owner: "executor", targets: selectedTargets({"result": ["messageId"]}) },
     method: "POST",
     path: "/api/api-token-inboxes/:tokenId/messages",
     auth: cap("agent:send-to-api-token", agentTokenSender),
@@ -1102,6 +1170,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ApiTokenInboxDrainReq, ApiTokenInboxDrainRes>({
     opId: "apiTokenInbox.drain",
+    audit: { owner: "none", reason: "Polling read advances only the inbox cursor." },
     method: "POST",
     path: "/api/me/api-token-inbox/drain",
     auth: cap("api:drain-inbox", apiTokenInboxSelf),
@@ -1114,6 +1183,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // grants allowed); it still cannot mint the sign-in link.
   defineRoute<UserCreateReq, { user: UserAdminWire }>({
     opId: "users.create",
+    audit: { owner: "executor", targets: createdResource("user", "id") },
     method: "POST",
     path: "/api/users",
     auth: cap(
@@ -1133,6 +1203,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // shape); agents receive only MemberPromptRes. The handler shapes the response.
   defineRoute<UserUpdateReq, { user: UserSelfWire } | MemberPromptRes>({
     opId: "users.update",
+    audit: { owner: "executor", targets: createdResource("user", "id") },
     method: "PATCH",
     path: "/api/users/:username",
     auth: cap(["user:self", "user:admin", "user:prompt"], or(selfOrOwner, agentMemberPromptUpdate)),
@@ -1143,6 +1214,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<SetAccessReq, { user: UserAdminWire }>({
     opId: "users.setAccess",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/users/:username/access",
     auth: cap("user:admin", officeOwner),
@@ -1154,6 +1226,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "users.delete",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/users/:username",
     auth: cap(["user:self", "user:admin"], selfOrOwner),
@@ -1172,6 +1245,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "apiTokens.adminRevoke",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/users/:username/api-tokens/:id",
     auth: cap("user:admin", officeOwner),
@@ -1184,6 +1258,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // every device.
   defineRoute<InviteMintReq, { url: string; invite: InviteWire }>({
     opId: "invites.mint",
+    audit: { owner: "executor", targets: createdResource("invite", "tokenPrefix") },
     method: "POST",
     path: "/api/invites",
     auth: cap("invite:manage", officeOwner),
@@ -1191,6 +1266,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, { url: string; invite: InviteWire }>({
     opId: "invites.mintSelf",
+    audit: { owner: "executor", targets: createdResource("invite", "tokenPrefix") },
     method: "POST",
     path: "/api/invites/self",
     auth: cap("invite:manage", authenticated),
@@ -1200,6 +1276,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // control plane call it on offices of every version.
   defineRoute<RecoveryMintReq, { url: string; invite: InviteWire }>({
     opId: "invites.mintRecovery",
+    audit: { owner: "executor", targets: createdResource("invite", "tokenPrefix") },
     method: "POST",
     path: "/api/invites/recovery",
     auth: cap("invite:manage", officeOwner),
@@ -1214,6 +1291,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "invites.revoke",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/invites/:tokenPrefix",
     // owner unrestricted; member own-only is a typed precondition
@@ -1231,6 +1309,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "sessions.revoke",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/sessions/:sessionPrefix",
     // Owner global / member self + not-last-owner lockout: typed preconditions.
@@ -1240,6 +1319,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "sessions.logout",
+    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
     method: "DELETE",
     path: "/api/sessions/current",
     // Cap is `authenticated` in the spec: any identity with a current session,
@@ -1260,6 +1340,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     { signInUrl: string | null; restartRequired: boolean }
   >({
     opId: "office.setAccess",
+    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
     method: "PUT",
     path: "/api/office/access",
     auth: cap("office:admin", officeOwner),
@@ -1290,6 +1371,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     { ok: true; via: "system" | "user"; tag: string }
   >({
     opId: "office.triggerUpdate",
+    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
     method: "POST",
     path: "/api/office/update",
     auth: cap("office:admin", officeOwner),
@@ -1305,6 +1387,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<OfficeSettingsReq, NoContent>({
     opId: "office.setSettings",
+    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
     method: "PUT",
     path: "/api/office/settings",
     auth: cap("office:admin", officeOwner),
@@ -1312,6 +1395,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ValidateCwdReq, { ok: boolean; error?: string }>({
     opId: "validate.cwd",
+    audit: { owner: "none", reason: "Validates a path without changing state." },
     method: "POST",
     path: "/api/validate/cwd",
     auth: cap("agent:manage", operationalAuthenticated),
@@ -1322,6 +1406,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     { ok: boolean; keyCount?: number; error?: string }
   >({
     opId: "validate.env",
+    audit: { owner: "none", reason: "Validates an environment without changing state." },
     method: "POST",
     path: "/api/validate/env",
     // Object-level policy (office or another user ⇒ officeOwner; own user ⇒
@@ -1365,6 +1450,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // Task attribution comes from the caller token, never the request body.
   defineRoute<TaskCreateReq, TaskItem>({
     opId: "tasks.create",
+    audit: { owner: "store" },
     method: "POST",
     path: "/api/tasks",
     auth: cap("task:write", operationalAuthenticated),
@@ -1372,6 +1458,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<TaskUpdateReq, TaskItem>({
     opId: "tasks.update",
+    audit: { owner: "store" },
     method: "PATCH",
     path: "/api/tasks/:id",
     auth: cap("task:write", operationalAuthenticated),
@@ -1379,6 +1466,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<TaskClaimReq, TaskItem>({
     opId: "tasks.claim",
+    audit: { owner: "store" },
     method: "POST",
     path: "/api/tasks/:id/claim",
     auth: cap("task:write", operationalAuthenticated),
@@ -1386,6 +1474,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, TaskItem>({
     opId: "tasks.done",
+    audit: { owner: "store" },
     method: "POST",
     path: "/api/tasks/:id/done",
     auth: cap("task:write", operationalAuthenticated),
@@ -1393,6 +1482,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "tasks.delete",
+    audit: { owner: "store" },
     method: "DELETE",
     path: "/api/tasks/:id",
     // taskDelete, not `authenticated`: task:write is one coarse capability, and
@@ -1408,6 +1498,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // tasks; an app page is also open to the app owner and office owners.
   defineRoute<{ title: string; body?: string; key?: string }, PagerEntry>({
     opId: "pager.raise",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/pager",
     auth: cap("pager:raise", operationalAuthenticated),
@@ -1429,6 +1520,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, PagerEntry>({
     opId: "pager.ack",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/pager/:id/ack",
     auth: cap("pager:write", operationalAuthenticated),
@@ -1436,6 +1528,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, PagerEntry>({
     opId: "pager.resolve",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/pager/:id/resolve",
     auth: cap("pager:write", operationalAuthenticated),
@@ -1476,6 +1569,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // executor leaves the body to the handler (body: "binary").
   defineRoute<Uint8Array, AppWire>({
     opId: "apps.setThumbnail",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/apps/:name/thumbnail",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
@@ -1484,6 +1578,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<AppRegisterReq, AppWire>({
     opId: "apps.register",
+    audit: { owner: "executor", targets: namedResource },
     method: "POST",
     path: "/api/apps",
     // hasOwningUser, not bare `authenticated`: an app must belong to a user, and
@@ -1497,6 +1592,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // anywhere.
   defineRoute<AppUpdateReq, AppWire>({
     opId: "apps.update",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/apps/:name",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
@@ -1504,6 +1600,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "apps.delete",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/apps/:name",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
@@ -1521,6 +1618,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // other cure than DELETE, which costs it its port and its data directory.
   defineRoute<void, AppWire>({
     opId: "apps.start",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/apps/:name/start",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
@@ -1528,6 +1626,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, AppWire>({
     opId: "apps.stop",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/apps/:name/stop",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
@@ -1535,6 +1634,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, AppWire>({
     opId: "apps.restart",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/apps/:name/restart",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
@@ -1543,6 +1643,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // One shared flag per app; start and restart clear it.
   defineRoute<void, AppWire>({
     opId: "apps.archive",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/apps/:name/archive",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
@@ -1550,6 +1651,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, AppWire>({
     opId: "apps.unarchive",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/apps/:name/unarchive",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
@@ -1567,6 +1669,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // routes-table.test.ts.
   defineRoute<AppMessageReq, AgentMessageAck>({
     opId: "apps.sendMessage",
+    audit: { owner: "executor", targets: selectedTargets({"result": ["messageId"]}) },
     method: "POST",
     path: "/api/app/message",
     // app:message is held by APP scope alone, so the capability already excludes
@@ -1582,6 +1685,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // off these routes.
   defineRoute<{ title: string; body?: string; key?: string }, PagerEntry>({
     opId: "pager.appRaise",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/app/pager",
     auth: cap("pager:raise", appScope),
@@ -1589,6 +1693,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<{ id?: string; key?: string }, PagerEntry>({
     opId: "pager.appResolve",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/app/pager/resolve",
     auth: cap("pager:raise", appScope),
@@ -1618,6 +1723,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<WebhookCreateReq, WebhookWire>({
     opId: "webhooks.create",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/webhooks",
     auth: cap("webhook:write", and(operationalAuthenticated, hasOwningUser)),
@@ -1626,6 +1732,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<WebhookUpdateReq, WebhookWire>({
     opId: "webhooks.update",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/webhooks/:id",
     auth: cap("webhook:write", webhookOwnerOrOfficeOwner("id")),
@@ -1634,6 +1741,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "webhooks.delete",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/webhooks/:id",
     auth: cap("webhook:write", webhookOwnerOrOfficeOwner("id")),
@@ -1648,6 +1756,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<WebhookDryRunReq, WebhookDryRunRes>({
     opId: "webhooks.dryRun",
+    audit: { owner: "none", reason: "Plans a delivery without dispatch or persistence." },
     method: "POST",
     path: "/api/webhooks/:id/dry-run",
     auth: cap("webhook:read", operationalAuthenticated),
@@ -1662,6 +1771,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, WebhookSecretRes>({
     opId: "webhooks.rotateSecret",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/webhooks/:id/secret",
     auth: cap("webhook:write", and(userScope, webhookOwnerOrOfficeOwner("id"))),
@@ -1681,6 +1791,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MemoryCreateReq, MemoryAppendRes>({
     opId: "memory.append",
+    audit: { owner: "store" },
     method: "POST",
     path: "/api/memory",
     auth: cap("memory:write", operationalAuthenticated),
@@ -1688,6 +1799,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MemoryReplaceReq, MemoryWriteRes>({
     opId: "memory.replace",
+    audit: { owner: "store" },
     method: "PUT",
     path: "/api/memory",
     auth: cap("memory:write", operationalAuthenticated),
@@ -1730,6 +1842,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<SkillSaveReq, SkillSaveRes>({
     opId: "skills.saveFile",
+    audit: { owner: "executor", targets: selectedTargets({"body": ["path"]}) },
     method: "PUT",
     path: "/api/skills/file",
     auth: cap("editor:use", operationalAuthenticated),
@@ -1737,6 +1850,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<SkillDeleteReq, void>({
     opId: "skills.deleteFile",
+    audit: { owner: "executor", targets: selectedTargets({"body": ["path"]}) },
     method: "DELETE",
     path: "/api/skills/file",
     auth: cap("editor:use", operationalAuthenticated),
@@ -1744,6 +1858,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<SkillCreateReq, SkillFileRes>({
     opId: "skills.create",
+    audit: { owner: "executor", targets: selectedTargets({"result": ["path"]}) },
     method: "POST",
     path: "/api/skills",
     auth: cap("editor:use", operationalAuthenticated),
@@ -1773,6 +1888,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<CronCreateReq, CronjobListWire>({
     opId: "cron.create",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/cronjobs",
     auth: cap("cron:manage", operationalAuthenticated),
@@ -1780,6 +1896,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<CronUpdateReq, CronjobListWire>({
     opId: "cron.update",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/cronjobs/:id",
     auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
@@ -1787,6 +1904,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "cron.delete",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/cronjobs/:id",
     auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
@@ -1794,6 +1912,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, { runId: string }>({
     opId: "cron.runNow",
+    audit: { owner: "executor", targets: selectedTargets({"result": ["runId"]}) },
     method: "POST",
     path: "/api/cronjobs/:id/runs",
     auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
@@ -1801,6 +1920,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<CronPromptReq, NoContent>({
     opId: "cron.setPrompt",
+    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
     method: "PUT",
     path: "/api/cron-prompt",
     // off the :id namespace to avoid shadowing /api/cronjobs/:id.
@@ -1830,6 +1950,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<CronRunMessageReq, MessageAck>({
     opId: "cron.runMessage",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/cronjobs/:id/runs/:runId/messages",
     auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
@@ -1837,6 +1958,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<EditMessageReq, MessageAck>({
     opId: "cron.editRunMessage",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/cronjobs/:id/runs/:runId/messages/:logEntryId",
     auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
@@ -1844,6 +1966,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<AffordanceReadFileReq, OkTrue>({
     opId: "cron.runReadFile",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/cronjobs/:id/runs/:runId/read-file",
     auth: cap("self:affordance", runParamMustEqualTokenRun),
@@ -1851,6 +1974,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<AffordanceDiffReq, OkTrue>({
     opId: "cron.runDiff",
+    audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/cronjobs/:id/runs/:runId/diff",
     auth: cap("self:affordance", runParamMustEqualTokenRun),
@@ -1903,6 +2027,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // scheduler ever calls it (server/storage-prune.ts).
   defineRoute<StoragePruneReq, StoragePruneRes>({
     opId: "storage.prune",
+    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
     method: "POST",
     path: "/api/storage/prune",
     auth: cap("office:admin", officeOwner),

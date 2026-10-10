@@ -5,6 +5,25 @@
 import type { Catalog } from "./en.ts";
 
 export const es: Catalog = {
+  "apiCall.audit.list": "Leer registro de auditoría",
+  "apiCall.tasks.history": "Leer historial de la tarea",
+  "apiCall.tasks.restore": "Restaurar tarea",
+
+  "audit.title": "Registro de auditoría",
+  "audit.restore": "Restaurar",
+  "audit.restored": "Restaurado",
+  "audit.actorKind": "Tipo de actor",
+  "audit.actorId": "Id del actor",
+  "audit.ownerId": "Id del propietario",
+  "audit.targetId": "Id del destino",
+  "audit.operation": "Operación",
+  "audit.from": "Desde (época ms)",
+  "audit.to": "Hasta (época ms)",
+  "audit.filter": "Filtrar",
+  "audit.loading": "Cargando…",
+  "audit.older": "Anteriores",
+  "audit.history": "Historial",
+
   "browser.offerHelp":
     "Abre la pestaña que quieras ofrecer, elige Todos o un agente en la extensión y activa Control del agente.",
   "browser.allAgents": "Todos",

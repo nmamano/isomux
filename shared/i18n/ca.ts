@@ -5,6 +5,25 @@
 import type { Catalog } from "./en.ts";
 
 export const ca: Catalog = {
+  "apiCall.audit.list": "Llegeix el registre d’auditoria",
+  "apiCall.tasks.history": "Llegeix l’historial de la tasca",
+  "apiCall.tasks.restore": "Restaura la tasca",
+
+  "audit.title": "Registre d’auditoria",
+  "audit.restore": "Restaura",
+  "audit.restored": "Restaurat",
+  "audit.actorKind": "Tipus d’actor",
+  "audit.actorId": "Id de l’actor",
+  "audit.ownerId": "Id del propietari",
+  "audit.targetId": "Id de la destinació",
+  "audit.operation": "Operació",
+  "audit.from": "Des de (època ms)",
+  "audit.to": "Fins a (època ms)",
+  "audit.filter": "Filtra",
+  "audit.loading": "Carregant…",
+  "audit.older": "Anteriors",
+  "audit.history": "Historial",
+
   "browser.offerHelp":
     "Obre la pestanya que vols oferir, tria Tots o un agent a l’extensió i activa Control de l’agent.",
   "browser.allAgents": "Tots",

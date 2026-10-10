@@ -1,3 +1,4 @@
+import { savedFileAudit } from "../audit.ts";
 // Members chat resource handlers (opIds membersChat.*). The humans-only stream
 // on the Lobby tab: a cookie user, that user's API token, and that user's
 // privileged agents may read and write it; the chat:members capability on the
@@ -303,6 +304,7 @@ export function membersChatHandlers(
           value.name,
         );
         if (!saved) return fail(500, "save_failed", "Failed to save file");
+        savedFileAudit(`members-chat/${saved.filename}`);
         attachments.push(saved);
       }
       return ok({ attachments });

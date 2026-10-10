@@ -1053,6 +1053,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   "validate.env": { caps: ["office:read"], emits: [] },
   "backends.listModels": { caps: ["agent:manage"], emits: [] },
   // Tasks
+  "audit.list": { caps: ["audit:read"], emits: [] },
+  "tasks.history": { caps: ["task:read"], emits: [] },
+  "tasks.restore": { caps: ["audit:read"], emits: ["tasks"] },
   "tasks.list": { caps: ["task:read"], emits: [] },
   "tasks.get": { caps: ["task:read"], emits: [] },
   "tasks.create": { caps: ["task:write"], emits: ["tasks"] },
@@ -1413,6 +1416,9 @@ describe("agents.listSessions non-agent service scopes", () => {
 // intended remote-boss surface, not a snapshot of whatever today's guards let
 // through. The first run against the old guards is deliberately red.
 const API_REACHABLE_OPIDS = [
+  "audit.list",
+  "tasks.history",
+  "tasks.restore",
   "agentReference.list",
   "agentReference.get",
   "agents.spawn",
@@ -1661,4 +1667,28 @@ describe("member prompt route authority", () => {
       expect(runAuthorize(route.auth, identity, { username: "other" }, { memberPrompt: "draft", memberPromptVersion: "v" }, { ...deps, isOfficeOwnerUserId: () => true }).ok).toBe(true);
     }
   });
+});
+
+// No fallback in defineRoute: a new write must declare audit ownership and its
+// resolver, or state why it is a read/bookkeeping operation. Removing a resolver fails this walk.
+it("every executor write declares audit ownership or an explicit exclusion", () => {
+  for (const route of API_ROUTES) {
+    if (["GET", "HEAD"].includes(route.method)) continue;
+    expect(route.audit, route.opId).toBeDefined();
+    if (route.audit?.owner === "executor") expect(typeof route.audit.targets, route.opId).toBe("function");
+    else if (route.audit?.owner === "none") expect(route.audit.reason.length, route.opId).toBeGreaterThan(0);
+    else expect(route.audit?.owner, route.opId).toBe("store");
+  }
+});
+it("audit and restore reject member-owned API tokens and admit owner proxies", () => {
+  for (const opId of ["audit.list","tasks.restore"]) {
+    const route = API_ROUTES.find(route => route.opId === opId)!;
+    for (const scope of ["api","agent"] as const) {
+      const identity: Identity = {scope,userId:"member",role:"member",capabilities:scope === "api" ? API_CAPABILITIES : PRIVILEGED_AGENT_CAPABILITIES,agentId:"agent",apiTokenId:"token"};
+      const deps: GuardDeps = { hasRoomAccess:() => true, roomIdForAgent:() => null,userIdForUsername:() => null,cronjobCreatorUserId:() => null,appOwnerUserId:() => null,webhookOwnerUserId:() => null,agentManagerUserId:() => null,killedAgentManagerUserId:() => null,isOfficeOwnerUserId:id => id === "owner" };
+      expect(runAuthorize(route.auth,identity,{},undefined,deps)).toMatchObject({ok:false,status:403});
+      expect(runAuthorize(route.auth,{...identity,userId:"owner"},{},undefined,deps).ok).toBe(true);
+      if (scope === "agent") expect(runAuthorize(route.auth,{...identity,userId:"owner",capabilities:AGENT_CAPABILITIES},{},undefined,deps)).toMatchObject({ok:false,status:403});
+    }
+  }
 });

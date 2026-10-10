@@ -537,3 +537,21 @@ describe("routes/uploads REST: legacy /api/upload follows room access", () => {
     expect(((await allowed.json()).attachments as unknown[]).length).toBe(1);
   });
 });
+it("audits each saved multipart file when the sixth file is rejected, including legacy uploads", async () => {
+  const { officeAuditStore } = await import("../audit-store.ts");
+  const srv = await startTestServer(); server = srv;
+  const owner = await srv.seedOwner("UploadAuditor");
+  const agent = await spawnAgent(srv,"UploadAgent",srv.agentManager.getRooms()[0].id);
+  for (const [path,operation] of [[`/api/agents/${agent.id}/uploads`,"agents.upload"],[`/api/upload/${agent.id}`,"uploads.legacy"]]) {
+    const form = new FormData();
+    for (let n=0;n<6;n++) form.append("file",new File([`file-${operation}-${n}`],`file-${n}.txt`));
+    const response = await srv.http(path,{method:"POST",rawSessionId:owner.rawSessionId,body:form});
+    expect(response.status).toBe(400);
+    const rows = officeAuditStore().list({operation}).items;
+    expect(rows).toHaveLength(5);
+    expect(rows.every(row => row.actor.kind === "member" && row.actor.name === "UploadAuditor")).toBe(true);
+    expect(rows.every(row => row.fields.length === 0)).toBe(true);
+    const fileIds = rows.flatMap(row => row.targets.filter(target => target.startsWith(agent.id+"/")));
+    expect(new Set(fileIds).size).toBe(5);
+  }
+});

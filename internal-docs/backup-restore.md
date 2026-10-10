@@ -10,6 +10,26 @@ give this runbook to an agent OUTSIDE the office (a plain `claude` in a
 terminal on the box, or anything with SSH access), since the office's
 own agents die with the service they would be restoring.
 
+## SQLite state
+
+`office.sqlite` holds tasks and the office audit log. The backup child uses
+`VACUUM INTO`, checks the snapshot with `PRAGMA integrity_check`, and closes it
+before tar reads it. The live database and its `-wal` and `-shm` files are
+excluded. Startup removes snapshot staging directories left by a stopped process.
+A timeout or failed snapshot fails the backup and removes the staged
+file. Other state files are still archived independently.
+
+Restore with the service stopped into a fresh state root, as below. Do not copy
+a live SQLite file or reuse its old WAL/SHM files. The server sets WAL mode each
+time it opens the database, including after restore.
+
+An old backup with only `tasks.json` is imported when the database has no tasks.
+The server commits the import in one transaction and keeps `tasks.json` as a frozen copy
+for code rollback. Tasks created on old code after a rollback do not come back on the next upgrade.
+The import does not backfill audit
+rows. A malformed source is preserved as `tasks.json.corrupt-<timestamp>`; the
+server logs both paths and opens an empty board. An old `memory/.oplog.jsonl` is kept untouched, with no import.
+
 ## What the daily backup is
 
 `server/backup.ts` archives the office state once a day. It omits persisted

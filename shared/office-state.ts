@@ -92,6 +92,9 @@ export class OfficeState {
   };
   private _tasks: TaskItem[] = [];
   private _recentCwds: string[] = [];
+  // Server persistence commits here before the live board or event stream changes.
+  beforeTaskChange?: (change: TaskChange) => void;
+
   private onChangeHandlers = new Set<(event: OfficeEvent) => void>();
 
   constructor(initial?: { rooms?: RoomInput[]; office?: OfficeSettings }) {
@@ -695,6 +698,7 @@ export class OfficeState {
       version: "",
     };
     task.version = taskVersion(task);
+    this.beforeTaskChange?.({ kind: "created", task: { ...task } });
     this._tasks.push(task);
     const events: OfficeEvent[] = [
       {
@@ -723,21 +727,23 @@ export class OfficeState {
     // Captured BEFORE the assign: a re-file changes who may see this task, and
     // the recipients who lose it are computed from where it used to live.
     const prevRoomId = task.roomId;
-    Object.assign(task, changes);
+    const next = { ...task, ...changes };
     // Canonical global shape is an ABSENT roomId (see addTask). A clear arrives
     // as `roomId: undefined` in `changes` - Object.assign leaves the key present
     // with an undefined value, so drop it to keep one canonical "global" and
     // match the persisted/wire shape of a task that never had a room.
-    if ("roomId" in changes && !task.roomId) delete task.roomId;
+    if ("roomId" in changes && !next.roomId) delete next.roomId;
     // Same for a cleared priority: `priority: undefined` in
     // `changes` must leave a task shaped like one that never had a priority.
-    if ("priority" in changes && !task.priority) delete task.priority;
-    task.version = taskVersion(task);
+    if ("priority" in changes && !next.priority) delete next.priority;
+    next.version = taskVersion(next);
+    this.beforeTaskChange?.({ kind: "updated", task: { ...next }, prevRoomId });
+    this._tasks = this._tasks.map(t => t.id === id ? next : t);
     const events: OfficeEvent[] = [
       {
         type: "tasks_changed",
         tasks: [...this._tasks],
-        change: { kind: "updated", task: { ...task }, prevRoomId },
+        change: { kind: "updated", task: { ...next }, prevRoomId },
       },
     ];
     this.emitEvents(events);
@@ -750,6 +756,7 @@ export class OfficeState {
     // wrapper already treated this case as a no-op (it compares the length
     // before/after and returns false), so callers see the same outcome.
     if (!task) return [];
+    this.beforeTaskChange?.({ kind: "deleted", task: { ...task } });
     this._tasks = this._tasks.filter((t) => t.id !== id);
     const events: OfficeEvent[] = [
       {
@@ -760,6 +767,16 @@ export class OfficeState {
         change: { kind: "deleted", task: { ...task } },
       },
     ];
+    this.emitEvents(events);
+    return events;
+  }
+
+  restoreTask(record: Omit<TaskItem, "version">): OfficeEvent[] {
+    if (this._tasks.some(t => t.id === record.id)) throw new Error("Task already exists");
+    const task: TaskItem = { ...record, version: taskVersion(record) };
+    this.beforeTaskChange?.({ kind: "created", task: { ...task } });
+    this._tasks.push(task);
+    const events: OfficeEvent[] = [{ type: "tasks_changed", tasks: [...this._tasks], change: { kind: "created", task: { ...task } } }];
     this.emitEvents(events);
     return events;
   }

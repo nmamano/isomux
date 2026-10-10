@@ -1,3 +1,6 @@
+import { auditHandlers } from "./routes/handlers/audit.ts";
+import { auditActor } from "./audit-actor.ts";
+import { officeAuditStore, recordAudit } from "./audit-store.ts";
 import { BrowserExtensionStore } from "./browser-extension-store";
 import {
   BrowserExtensionService,
@@ -2749,9 +2752,13 @@ function buildExecutorDeps(
   };
 
   register(agentReferenceHandlers());
+  register(auditHandlers(officeAuditStore));
 
   register(
     tasksHandlers({
+      history: (id, before) => officeAuditStore().list({ targetId: id, before }, true),
+      deletedTask: id => officeAuditStore().list({ targetId: id, operation: "tasks.delete", limit: 1 }).items[0]?.deletedTask ?? null,
+      restoreTask: task => agentManager.restoreTask(task),
       listTasks: () => agentManager.getTasks(),
       createTask: ({
         title,
@@ -5124,6 +5131,14 @@ function buildExecutorDeps(
   });
 
   return {
+    audit: {
+      actor: ({ identity }) => {
+        const app = identity.appName ? appRegistry.get(identity.appName) : null;
+        return auditActor(identity, attributionFor(identity).createdBy,
+          app ? `${app.name}:${appRegistrationGeneration(app)}` : undefined);
+      },
+      write: recordAudit,
+    },
     guardDeps: buildLiveGuardDeps(),
     idempotency: idempotencyCache,
     handlers,
@@ -6291,7 +6306,7 @@ async function handleInboundMessage(
       }
       case "terminal_open": {
         if (!agentVisibleForSession(session, cmd.agentId)) break;
-        const opened = agentManager.openTerminal(cmd.agentId);
+        const opened = agentManager.openTerminal(cmd.agentId, { kind: "member", id: session.userId, name: getUserById(session.userId)?.name ?? session.userId });
         if (opened) {
           // Seed ONLY the requester that just opened the terminal. The live
           // terminal_output stream is ACL-gated on the live emit path (it is a
@@ -6334,13 +6349,13 @@ async function handleInboundMessage(
         break;
       case "terminal_close":
         if (!agentVisibleForSession(session, cmd.agentId)) break;
-        agentManager.closeTerminal(cmd.agentId);
+        agentManager.closeTerminal(cmd.agentId, { kind: "member", id: session.userId, name: getUserById(session.userId)?.name ?? session.userId });
         break;
       case "terminal_restart":
         // Restart is a terminal-I/O capability: it can kill a foreground
         // process, so it carries the same room visibility gate as open/input.
         if (!agentVisibleForSession(session, cmd.agentId)) break;
-        agentManager.restartTerminal(cmd.agentId);
+        agentManager.restartTerminal(cmd.agentId, { kind: "member", id: session.userId, name: getUserById(session.userId)?.name ?? session.userId });
         break;
     }
   } catch (err) {
@@ -7112,7 +7127,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                 value.type || "application/octet-stream",
                 value.name,
               );
-              if (att) attachments.push(att);
+              if (att) {
+                recordAudit({ actor: auditActor(auth.identity, attributionFor(auth.identity).createdBy), operation: "uploads.legacy", targets: [agentId, `${agentId}/${att.filename}`], fields: [] });
+                attachments.push(att);
+              }
             }
             return new Response(JSON.stringify({ attachments }), {
               headers: { "Content-Type": "application/json" },

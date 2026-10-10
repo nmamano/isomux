@@ -1,3 +1,4 @@
+import { recordAudit } from "./audit-store.ts";
 // HTTP middleware + WS upgrade auth + /auth/* routes.
 //
 // The whole gating layer lives in this file so a future audit can read one
@@ -509,6 +510,8 @@ export async function handleAccept(
     }
     return renderInviteError(i18n, result.error, officeName);
   }
+  const acceptedUser = getUserByName(result.username);
+  if (acceptedUser) recordAudit({ actor: { kind: "setup", id: acceptedUser.id, name: acceptedUser.name }, operation: "auth.accept", targets: [acceptedUser.id], fields: [] });
   if (result.isBootstrap && onOwnerCreated) {
     // Best-effort: never roll back the accept on hook failure.
     try {
@@ -633,7 +636,8 @@ export async function handleLogout(
     );
   }
   if (lookup) {
-    await logoutBySessionHash(lookup.sessionIdHash);
+    const revoked = await logoutBySessionHash(lookup.sessionIdHash);
+    if (revoked) recordAudit({ actor: { kind: "member", id: lookup.userId, name: getUserById(lookup.userId)?.name ?? lookup.userId }, operation: "auth.logout", targets: [lookup.userId], fields: [] });
   }
   // Both names, as independent Set-Cookie lines (an object literal can only
   // carry one). Clearing the name that did NOT authenticate this request is
@@ -856,6 +860,8 @@ async function handleClaim(
     claim: (name, userAgent) => claimOwnership(name, { userAgent }),
   });
   if (result instanceof Response) return result;
+  const claimedUser = getUserByName(result.username);
+  if (claimedUser) recordAudit({ actor: { kind: "setup", id: claimedUser.id, name: claimedUser.name }, operation: "auth.claim", targets: [claimedUser.id], fields: [] });
   if (onOwnerCreated) {
     // Best-effort, same contract as the bootstrap-invite path: hook
     // failure must not roll the claim back. Runs after the session has

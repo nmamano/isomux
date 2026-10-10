@@ -1,3 +1,5 @@
+import type { AuditActor } from "../shared/audit.ts";
+import { recordAudit } from "./audit-store.ts";
 import { join } from "path";
 import type { ManagedAgent } from "./internal-types.ts";
 import { getAgentHost, type AgentHost } from "./agent-host.ts";
@@ -37,7 +39,7 @@ function sidecarSend(managed: ManagedAgent, msg: Record<string, unknown>) {
   if (stdin) void stdin.write(JSON.stringify(msg) + "\n");
 }
 
-export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
+export function openTerminal(agentId: string, deps: TerminalDeps, actor?: AuditActor): boolean {
   const managed = deps.getAgent(agentId);
   if (!managed) return false;
 
@@ -71,6 +73,7 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   const sidecar = host.spawnPipe([bunPath, PTY_SIDECAR_PATH]);
 
   managed.ptySidecar = sidecar;
+  if (actor) recordAudit({ actor, operation: "terminal.open", targets: [agentId], fields: [] });
   managed.ptyBuffer = "";
 
   const finalize = createTerminalFinalizer({
@@ -196,17 +199,18 @@ export function terminalStatus(agentId: string, deps: TerminalDeps) {
   if (managed?.ptySidecar) sidecarSend(managed, { type: "status" });
 }
 
-export function closeTerminal(agentId: string, deps: TerminalDeps) {
+export function closeTerminal(agentId: string, deps: TerminalDeps, actor?: AuditActor) {
   const managed = deps.getAgent(agentId);
   if (!managed?.ptySidecar) return;
   sidecarSend(managed, { type: "kill" });
+  if (actor) recordAudit({ actor, operation: "terminal.close", targets: [agentId], fields: [] });
   managed.ptySidecar = null;
   managed.ptyBuffer = "";
 }
 
-export function restartTerminal(agentId: string, deps: TerminalDeps): boolean {
-  closeTerminal(agentId, deps);
-  return openTerminal(agentId, deps);
+export function restartTerminal(agentId: string, deps: TerminalDeps, actor?: AuditActor): boolean {
+  closeTerminal(agentId, deps, actor);
+  return openTerminal(agentId, deps, actor);
 }
 
 // Used during kill flow: shut down a sidecar held in `managed` directly.

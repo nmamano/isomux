@@ -1,3 +1,4 @@
+import { recordAudit } from "./audit-store.ts";
 // Unix-domain admin socket at ADMIN_SOCKET_PATH (<state root>/admin.sock by
 // default). It answers POST /admin/owner-login with a 15-minute owner sign-in
 // URL. Its callers run as root: install.sh claim_owner, the control plane's
@@ -282,6 +283,7 @@ async function handleAdmin(req: Request): Promise<Response> {
   if (!minted.ok) {
     return jsonResponse(500, { ok: false, error: minted.error });
   }
+  recordAudit({ actor: { kind: "admin_cli", id: "admin-cli", name: "admin-cli" }, operation: "admin.ownerLogin", targets: [user.id], fields: [] });
   const { origin } = buildPublicOrigin();
   return jsonResponse(200, {
     ok: true,

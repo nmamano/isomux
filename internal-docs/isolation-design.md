@@ -1,5 +1,9 @@
 # Isolation Architecture
 
+Current state note (2026-10-10): tasks and the audit log now use `office.sqlite`.
+The state layout below is historical. Use the SQLite snapshot procedure in
+[backup-restore.md](backup-restore.md), never a live database file copy.
+
 How isomux scopes state, identity, and execution across multiple users on a single deployment. Three layers, each with a different boundary, enforcement mechanism, and status.
 
 ## Layers at a glance

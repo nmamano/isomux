@@ -303,17 +303,12 @@ describe("backlog -> P4 boot migration (task 77460aea)", () => {
     });
   });
 
-  it("writes the new shape back, so a second load changes nothing", () => {
+  it("imports the new shape once and preserves the original JSON", () => {
     seed();
+    const original = readFileSync(tasksFile(), "utf-8");
     const first = loadTasks();
-    const onDisk = readFileSync(tasksFile(), "utf-8");
-    expect(
-      JSON.parse(onDisk).some(
-        (t: { status: string }) => t.status === "backlog",
-      ),
-    ).toBe(false);
+    expect(readFileSync(tasksFile(), "utf-8")).toBe(original);
     expect(loadTasks()).toEqual(first);
-    expect(readFileSync(tasksFile(), "utf-8")).toBe(onDisk);
   });
 
   it("drops a stored version, which OfficeState recomputes", () => {

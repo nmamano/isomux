@@ -1,3 +1,4 @@
+import type { AuditActor } from "../shared/audit.ts";
 import { createTaskStore } from "./task-store.ts";
 import {
   claudeConfigRoot,
@@ -473,7 +474,8 @@ export const TOOL_BOUNDARY_NOTE =
 export function createAgentManager(deps: ManagerDeps) {
   const getBackend = deps.resolveBackend;
   const officeState = deps.officeState;
-  const taskStore = createTaskStore(() => officeState.tasks);
+  const taskStore = createTaskStore();
+  officeState.beforeTaskChange = taskStore.change;
   const initialLoadedAgents = deps.initialRooms;
   const runBrowserAction =
     deps.runBrowserAction ??
@@ -1093,21 +1095,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       });
       return;
     }
-    if (event.type === "tasks_changed") {
-      const change = event.change;
-      switch (change.kind) {
-        case "created":
-          taskStore.create(change.task);
-          break;
-        case "updated":
-          taskStore.update(change.task);
-          break;
-        case "deleted":
-          taskStore.delete(change.task.id);
-          break;
-      }
-      return;
-    }
+    if (event.type === "tasks_changed") return;
     if (!officeStatePersistenceEnabled) return;
     if (event.type === "agent_updated") {
       const keys = Object.keys(event.changes);
@@ -1166,6 +1154,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (events.length === 0) return null;
     for (const event of events) eventHandler(event);
     return officeState.tasks.find((t) => t.id === id) ?? null;
+  }
+
+  function restoreTask(record: Omit<TaskItem, "version">): TaskItem {
+    const events = officeState.restoreTask(record);
+    for (const event of events) eventHandler(event);
+    return officeState.tasks.find(t => t.id === record.id)!;
   }
 
   function deleteTask(id: string): boolean {
@@ -2501,7 +2495,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // fields (room ids, prompt/envFile defaults) that weren't present before.
     // Must run AFTER agents are populated or persistAll writes empty rooms.
     persistAll();
-    officeState.setTasksDirect(taskStore.load());
+    try { officeState.setTasksDirect(taskStore.load()); }
+    catch (error) {
+      console.error("[tasks] could not load task storage; starting with an empty board", error);
+      officeState.setTasksDirect([]);
+    }
     officeStatePersistenceEnabled = true;
     // Durable-queue hygiene: drop records for agents that no
     // longer exist (e.g. killed while the store write failed, or removed from
@@ -9887,8 +9885,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emit: (event) => emit(event),
   };
 
-  function openTerminal(agentId: string): boolean {
-    return openTerminalImpl(agentId, terminalDeps);
+  function openTerminal(agentId: string, actor?: AuditActor): boolean {
+    return openTerminalImpl(agentId, terminalDeps, actor);
   }
 
   function getTerminalBuffer(agentId: string): string | null {
@@ -9903,12 +9901,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     terminalResizeImpl(agentId, cols, rows, terminalDeps);
   }
 
-  function closeTerminal(agentId: string) {
-    closeTerminalImpl(agentId, terminalDeps);
+  function closeTerminal(agentId: string, actor?: AuditActor) {
+    closeTerminalImpl(agentId, terminalDeps, actor);
   }
 
-  function restartTerminal(agentId: string): boolean {
-    return restartTerminalImpl(agentId, terminalDeps);
+  function restartTerminal(agentId: string, actor?: AuditActor): boolean {
+    return restartTerminalImpl(agentId, terminalDeps, actor);
   }
 
   function terminalStatus(agentId: string) {
@@ -10043,6 +10041,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     addTask,
     updateTask,
     deleteTask,
+    restoreTask,
     setOfficeSettings,
     setRoomSettings,
     validateEnvPath,

@@ -285,12 +285,16 @@ describe("verified backup publication", () => {
       ".isomux-backup-123-456-dead.partial",
     );
     const unrelated = path.join(f.backupDir, "operator-note.txt");
+    const snapshot = path.join(f.backupDir, ".sqlite-snapshot-dead");
+    fs.mkdirSync(snapshot);
+    fs.writeFileSync(path.join(snapshot, "office.sqlite"), "private state");
     fs.writeFileSync(orphan, "truncated archive");
     fs.writeFileSync(unrelated, "keep me");
 
     prepareBackupDirectoryForTest(f.backupDir);
 
     expect(fs.existsSync(orphan)).toBe(false);
+    expect(fs.existsSync(snapshot)).toBe(false);
     expect(fs.readFileSync(unrelated, "utf8")).toBe("keep me");
   });
 
@@ -516,4 +520,45 @@ describe("verified backup publication", () => {
     if (expected > 0)
       expect(Math.abs(available - expected)).toBeLessThan(expected / 10 + 1e8);
   });
+});
+
+test("archives a consistent SQLite snapshot without live WAL or SHM files", async () => {
+  const { openOfficeDatabase, createAuditStore } = await import("./audit-store.ts");
+  const f = fixture();
+  const db = openOfficeDatabase(path.join(f.state,"office.sqlite"));
+  try {
+    db.exec("PRAGMA wal_autocheckpoint=0");
+    db.query("INSERT INTO tasks(id,record) VALUES (?,?)").run("one",JSON.stringify({id:"one",title:"task"}));
+    createAuditStore(db).append({actor:{kind:"member",id:"u",name:"Member"},operation:"tasks.create",targets:["one"],fields:["title"]});
+    const file = await runBackupOnceForTest(config(f),realDeps);
+    const restored = extract(f,file);
+    expect(fs.existsSync(path.join(restored,"office.sqlite-wal"))).toBe(false);
+    expect(fs.existsSync(path.join(restored,"office.sqlite-shm"))).toBe(false);
+    expect(fs.existsSync(path.join(restored,".office-snapshot"))).toBe(false);
+    const copy = openOfficeDatabase(path.join(restored,"office.sqlite"));
+    try {
+      expect(copy.query("SELECT * FROM tasks").all()).toHaveLength(1);
+      expect(copy.query("SELECT * FROM audit").all()).toHaveLength(1);
+      expect(copy.query("PRAGMA integrity_check").get()).toEqual({integrity_check:"ok"});
+    } finally { copy.close(); }
+    expect(fs.readdirSync(f.backupDir).some(name => name.startsWith(".sqlite-snapshot-"))).toBe(false);
+  } finally { db.close(); }
+});
+test("restoring a pre-SQLite archive imports its task JSON and preserves the source", async () => {
+  const {openOfficeDatabase,createAuditStore} = await import("./audit-store.ts");
+  const {importLegacyTasks} = await import("./task-store.ts");
+  const f=fixture();
+  const source=JSON.stringify([{id:"old",title:"old backup task",status:"backlog",device:"Member",createdBy:"Member",createdAt:1}]);
+  fs.writeFileSync(path.join(f.state,"tasks.json"),source);
+  const file=await runBackupOnceForTest(config(f),realDeps);
+  const restored=extract(f,file);
+  const db=openOfficeDatabase(path.join(restored,"office.sqlite"));
+  try {
+    const store=createAuditStore(db);
+    importLegacyTasks(store,restored);
+    expect(fs.readFileSync(path.join(restored,"tasks.json"),"utf8")).toBe(source);
+    const row=db.query("SELECT record FROM tasks").get() as {record:string};
+    expect(JSON.parse(row.record)).toMatchObject({id:"old",status:"open",priority:"P4",username:"Member"});
+    expect(store.list().items).toHaveLength(0);
+  } finally {db.close();}
 });

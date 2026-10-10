@@ -1,3 +1,4 @@
+import { recordAudit } from "./audit-store.ts";
 import manifest from "../browser-extension/manifest.json";
 import { browserDisplay } from "./browser-extension-display";
 import type { ServerWebSocket } from "bun";
@@ -148,6 +149,7 @@ export class BrowserExtensionService {
           const paired = this.store.redeem(msg.code, ws.data.origin, (member) =>
             this.access.memberExists(member),
           );
+          recordAudit({ actor: { kind: "member", id: paired.member, name: this.access.memberName?.(paired.member) ?? paired.member }, operation: "browserExtension.pair", targets: [paired.browser], fields: [] });
           credential = paired.credential;
           ws.send(
             JSON.stringify({
@@ -194,6 +196,7 @@ export class BrowserExtensionService {
           throw new Error();
         const browser = this.store.browserForHash(ws.data.credentialHash!)!;
         this.store.revokeBrowser(connection.memberId, browser.browser.id);
+        recordAudit({ actor: { kind: "member", id: connection.memberId, name: this.access.memberName?.(connection.memberId) ?? connection.memberId }, operation: "browserExtension.unpair", targets: [browser.browser.id], fields: [] });
         ws.send(
           JSON.stringify({
             kind: "unpaired",

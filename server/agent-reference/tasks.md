@@ -21,3 +21,5 @@ Safe example: `GET /api/tasks?status=all`.
 | `DELETE /api/tasks/:id` (not available to OpenCode agents) | Empty body                                        | `204`          |
 
 All calls require task capability and room visibility. Hidden or missing tasks and inaccessible target rooms return 404; invalid status, priority, fields, or room returns 400/422; a stale version or a claim of a held task returns 409.
+
+`GET /api/tasks/:id/history` (not available to OpenCode agents) returns creation provenance and task history. It uses the same task visibility rules; hidden or missing tasks return 404. Use `before` with the returned `nextBefore` for older rows.

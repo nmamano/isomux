@@ -806,3 +806,10 @@ export function or(...guards: readonly Guard[]): Guard {
     return lastDeny;
   };
 }
+
+// Audit authority is separate from officeOwner so existing owner-only routes
+// do not acquire agent reach. The manager's owner status is checked live.
+export const auditOwner: Guard = ({ identity, deps }) => {
+  if (identity.scope === "user") return identity.role === "owner" ? ALLOW : FORBIDDEN;
+  return (identity.scope === "agent" || identity.scope === "api") && identity.userId && deps.isOfficeOwnerUserId(identity.userId) ? ALLOW : FORBIDDEN;
+};

@@ -20,6 +20,25 @@
 // value, the same placeholders and tags as English).
 
 export const en = {
+  "apiCall.audit.list": "Read audit log",
+  "apiCall.tasks.history": "Read task history",
+  "apiCall.tasks.restore": "Restore task",
+
+  "audit.title": "Audit log",
+  "audit.restore": "Restore",
+  "audit.restored": "Restored",
+  "audit.actorKind": "Actor kind",
+  "audit.actorId": "Actor id",
+  "audit.ownerId": "Owner id",
+  "audit.targetId": "Target id",
+  "audit.operation": "Operation",
+  "audit.from": "From (epoch ms)",
+  "audit.to": "To (epoch ms)",
+  "audit.filter": "Filter",
+  "audit.loading": "Loading…",
+  "audit.older": "Older",
+  "audit.history": "History",
+
   "browser.offerHelp":
     "Open the tab to offer, choose All or an agent in the extension popup, and turn on Agent control.",
   "browser.allAgents": "All",

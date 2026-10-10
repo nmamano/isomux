@@ -1,4 +1,5 @@
 import { versionOf } from "../../shared/blob-version.ts";
+import { AuditPane } from "./AuditList.tsx";
 import { OfficeOwnerCheckbox } from "./OfficeOwnerCheckbox.tsx";
 import { ordinaryRooms } from "../../shared/types.ts";
 // The full-page Settings surface (master-detail), replacing the old crowded modal
@@ -86,6 +87,7 @@ import { noTranslate } from "../no-translate.ts";
 // says so. "connections" split in two because one pane held both the office's
 // sign-ins and variables and the caller's own.
 export type SettingsSection =
+  | "audit"
   | "office"
   | "storage"
   | "usage"
@@ -381,6 +383,7 @@ export function UserSettingsView({
                   sectionRow("access", t("settings.sidebar.access")),
                   sectionRow("invites", t("settings.sidebar.invites")),
                   sectionRow("sessions", t("settings.sidebar.sessions")),
+                  sectionRow("audit", t("audit.title")),
                 ]
               : []),
             sectionRow(
@@ -890,6 +893,8 @@ export function UserSettingsView({
                   <OfficePane closeRef={detailCloseRef} />
                 ) : selection.section === "usage" ? (
                   <UsagePane />
+                ) : selection.section === "audit" && isOwner ? (
+                  <AuditPane />
                 ) : selection.section === "storage" && isOwner ? (
                   <StoragePane closeRef={detailCloseRef} />
                 ) : selection.section === "updates" ? (
