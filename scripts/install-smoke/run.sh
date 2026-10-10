@@ -127,7 +127,7 @@ check_node_free() {
       pid=$(systemctl show -p MainPID --value isomux)
       [[ $pid =~ ^[1-9][0-9]*$ ]]
       mapfile -d "" -t service_env < "/proc/$pid/environ"
-      exec env -i "${service_env[@]}" "$1" /tmp/isomux-node-free.ts "$2" --standalone
+      exec env -i "${service_env[@]}" "$1" /tmp/isomux-node-free.ts "$2"
     ' bash "$bun" "$repo"
   else
     docker exec -u "$user" -w "$repo" "$name" "$bun" /tmp/isomux-node-free.ts "$repo" "$@"
@@ -242,7 +242,7 @@ installer() {
         ".externalAccess == true and .publicOrigin == \$origin" \
         /home/isomux/.isomux/office-config.json'
   fi
-  step node-free check_node_free /usr/local/bin/bun isomux /opt/isomux --standalone
+  step node-free check_node_free /usr/local/bin/bun isomux /opt/isomux
   step office-checks run_checks /usr/local/bin/bun root \
     --base http://127.0.0.1:4000 --origin "https://$domain" \
     --claim invite --invite-file /var/lib/isomux-install/invite-url
@@ -259,6 +259,7 @@ container() {
     -e ISOMUX_SETUP_KEY="$(cat "$work/setup-key")" "$name-image"
   docker cp "$work/setup-key" "$name:/tmp/setup-key"
   docker exec "$name" chmod 644 /tmp/setup-key
+  step node-free check_node_free /usr/local/bin/bun node /opt/isomux
   step office-checks run_checks bun node \
     --base http://127.0.0.1:10000 --origin "https://$domain" \
     --claim setup-key --setup-key-file /tmp/setup-key

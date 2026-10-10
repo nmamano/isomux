@@ -2195,16 +2195,12 @@ Coses que pots fer per ell:
   "commands.isomuxDiff.gitError": "No s'ha pogut executar git diff a `{path}`:",
   "commands.isomuxDiff.clean":
     "L'arbre de treball de `{path}` està net: no hi ha canvis sense confirmar.",
-  "commands.usage.heading":
-    "**Aquí no es mostren els límits del pla de subscripció.**",
-  "commands.usage.intro":
-    "Per consultar la teva quota de subscripció de Claude o de ChatGPT, obre el terminal integrat i:",
-  "commands.usage.claude": "executa `claude` i escriu `/usage`",
-  "commands.usage.codex": "executa `~/.isomux/bin/codex` i escriu `/status`",
+  "commands.usage.meter":
+    "Consulta el mesurador d'ús a la capçalera del xat per veure els límits de la subscripció i quan es restableixen.",
+  "commands.usage.unavailable":
+    "Aquest agent no informa de l'ús de la subscripció.",
   "commands.usage.office":
     "Per a la despesa de tokens de l'oficina (per agent, per sala i per programació), mira `/isomux-usage`.",
-  "commands.usage.codexCardOmitted":
-    "S'omet la targeta de `/status` de Codex: {error}",
   "commands.isomuxStorage.forbidden":
     "L'ús de disc només està disponible per als membres de l'oficina que hagin iniciat sessió.",
   "commands.skill.queueFailed":

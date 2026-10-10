@@ -35,6 +35,9 @@ instead of a moving tag. Registry credentials belong on the host.
 | Home and state     | `/var/data/home`, `/var/data/home/.isomux`                       |
 | Projects           | `/var/data/workspaces` or another directory under the data mount |
 
+The image runs Bun on Debian Bookworm and includes build and workspace tools.
+Node.js, npm and npx are not installed.
+
 Root creates the home and workspace directories, then starts the runtime as
 `node` (UID/GID 1000). A mount whose directories already belong to that user can
 run with `--user 1000:1000`. The container needs neither privileged mode nor the

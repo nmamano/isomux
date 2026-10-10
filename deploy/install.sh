@@ -571,39 +571,6 @@ EOF
   fi
 }
 
-# The terminal's plugin and usage instructions invoke the standalone CLI.
-# Anthropic installs and updates it as the service user. The system-wide link
-# follows the native launcher's own symlink, including after an auto-update.
-# This network-dependent convenience must never abort the office install.
-install_claude_cli() {
-  step install-claude-cli
-  local service_path=/usr/local/bin:/usr/bin:/bin
-  local launcher="$SERVICE_HOME/.local/bin/claude"
-  if as_service_user env "PATH=$service_path" sh -c 'command -v claude' >/dev/null 2>&1; then
-    log "Claude Code CLI already installed"
-    return 0
-  fi
-  if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would install the native Claude Code CLI as $SERVICE_USER and link /usr/local/bin/claude"
-    return 0
-  fi
-  if ! as_service_user test -x "$launcher"; then
-    if ! as_service_user env "PATH=$service_path" bash -o pipefail -c 'curl -fsSL https://claude.ai/install.sh | bash'; then
-      log "warning: could not install the Claude Code CLI. Re-run this installer to retry; nothing else is affected."
-      return 0
-    fi
-  fi
-  if ! as_service_user test -x "$launcher" || ! ln -sfnT "$launcher" /usr/local/bin/claude; then
-    log "warning: could not link the native Claude Code CLI on the service PATH. Re-run this installer to retry; nothing else is affected."
-    return 0
-  fi
-  if ! as_service_user env "PATH=$service_path" claude --version; then
-    log "warning: the native Claude Code CLI could not run as $SERVICE_USER. Re-run this installer to retry; nothing else is affected."
-    return 0
-  fi
-  log "Claude Code CLI installed and available to $SERVICE_USER"
-}
-
 install_github_cli() {
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would add the GitHub CLI apt repository and install gh"
@@ -3320,6 +3287,46 @@ build_isomux() {
   run_as_service_user bash -c "cd $INSTALL_DIR && /usr/local/bin/bun run build:ui"
 }
 
+link_bundled_claude() {
+  step link-bundled-claude
+  local service_path=/usr/local/bin:/usr/bin:/bin
+  local link=/usr/local/bin/claude target current
+  if as_service_user env "PATH=$service_path" sh -c 'command -v claude' >/dev/null 2>&1; then
+    return 0
+  fi
+  # Preserve other installs, including non-executable files and foreign links.
+  [[ ! -e $link ]] || return 0
+  if [[ -L $link ]]; then
+    current=$(readlink "$link")
+    case "$current" in
+      "$INSTALL_DIR"/node_modules/@anthropic-ai/claude-agent-sdk-linux-*/claude) ;;
+      *) return 0 ;;
+    esac
+  fi
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would link the bundled Claude binary as /usr/local/bin/claude"
+    return 0
+  fi
+  # Use the agents' resolver as the service user, never run checkout code as root.
+  if ! target=$(as_service_user /usr/local/bin/bun -e \
+    'const { CLAUDE_NATIVE_BIN } = await import(process.argv[1]); process.stdout.write(CLAUDE_NATIVE_BIN)' \
+    "$INSTALL_DIR/server/cwd-utils.ts"); then
+    log "warning: could not resolve the bundled Claude binary; skipping the terminal link."
+    return 0
+  fi
+  case "$target" in
+    "$INSTALL_DIR"/node_modules/@anthropic-ai/claude-agent-sdk-linux-*/claude) ;;
+    *) log "warning: bundled Claude path is outside this install; skipping the terminal link."; return 0 ;;
+  esac
+  if ! as_service_user test -x "$target"; then
+    log "warning: bundled Claude binary is missing or not executable; skipping the terminal link."
+    return 0
+  fi
+  if ! ln -sfnT "$target" "$link"; then
+    log "warning: could not link the bundled Claude binary; skipping the terminal link."
+  fi
+}
+
 # Root-of-trust config for the updater plus an installed copy of it. The
 # copy's bytes come from a ROOT-OWNED fetch of $ISOMUX_REPO - never from
 # $INSTALL_DIR: that checkout is writable by the service user (which agents
@@ -5935,7 +5942,6 @@ main() {
   enable_auto_updates
   configure_oom_protection
   create_service_user
-  install_claude_cli
   configure_user_manager
   check_root_reachability
   install_browser
@@ -5943,6 +5949,7 @@ main() {
   fetch_isomux
   install_bun
   build_isomux
+  link_bundled_claude
   install_updater
   install_service
   wait_for_server

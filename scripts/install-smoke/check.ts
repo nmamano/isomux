@@ -253,7 +253,7 @@ function agentOf(office: OfficeSocket, engine: Engine): Agent | undefined {
 async function checkTerminal(
   office: OfficeSocket,
   agent: Agent,
-  standaloneClaude = false,
+  bundledClaude = false,
 ) {
   const mark = office.frameCount;
   const own = (m: ServerMessage) => m.agentId === agent.id;
@@ -278,7 +278,9 @@ async function checkTerminal(
     type: "terminal_input",
     agentId: agent.id,
     data:
-      (standaloneClaude ? "command -v claude && claude --version && " : "") +
+      (bundledClaude
+        ? `sdk_binary=$(bun -e 'const { CLAUDE_NATIVE_BIN } = await import("/opt/isomux/server/cwd-utils.ts"); process.stdout.write(CLAUDE_NATIVE_BIN)') && cli_version=$(claude --version) && sdk_version=$("$sdk_binary" --version) && [ "$cli_version" = "$sdk_version" ] && `
+        : "") +
       "printf 'isomux-smoke-%s\\n' terminal-ok\r",
   });
   const output = () =>
@@ -569,7 +571,7 @@ async function main() {
       checkTerminal(
         socket,
         agentOf(socket, "claude")!,
-        path === "installer" || path === "hosted",
+        path === "installer" || path === "hosted" || path === "container",
       ),
     );
     for (const engine of SIGNED_OUT_ENGINES)

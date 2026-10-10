@@ -1,4 +1,4 @@
-// Run as node in an isolated image, with networking disabled and no credentials.
+// Run as UID/GID 1000 in an isolated image, with networking disabled and no credentials.
 import { spawn, spawnSync } from "node:child_process";
 import { resolveCodexLauncherPath } from "../../server/backends/codex/native-bin.ts";
 import { resolveOpenCodeBinary } from "../../server/backends/opencode/runtime.ts";
@@ -11,6 +11,16 @@ import { readFileSync } from "node:fs";
 // distinguish a sandboxed renderer from a browser launched with --no-sandbox.
 if (process.getuid?.() !== 1000)
   throw new Error("Native checks must run as node (UID 1000)");
+if (process.getgid?.() !== 1000)
+  throw new Error("Native checks must run with GID 1000");
+for (const command of ["node", "npm", "npx"]) {
+  const result = spawnSync("/bin/sh", ["-c", `command -v ${command}`], {
+    encoding: "utf8",
+  });
+  if (result.status !== 127)
+    throw new Error(`Expected ${command} to be absent: exit=${result.status}`);
+  console.log(`PASS command -v ${command}: exit=${result.status}`);
+}
 if (!/^CapEff:\s+0+$/m.test(readFileSync("/proc/self/status", "utf8"))) {
   throw new Error("Native checks must run without effective capabilities");
 }
@@ -51,7 +61,7 @@ for (const args of [
     `node_modules/@anthropic-ai/claude-agent-sdk-linux-${process.arch}/claude`,
     "--version",
   ],
-  ["node", resolveCodexLauncherPath(), "--version"],
+  [process.execPath, resolveCodexLauncherPath(), "--version"],
   [resolveOpenCodeBinary(), "--version"],
   // Codex looks bwrap up on PATH; without it, Codex shows install advice.
   ["bwrap", "--version"],
@@ -111,7 +121,7 @@ await new Promise<void>((resolve, reject) => {
         // The complete sentinel is absent from the echoed command.
         send({
           type: "input",
-          data: "printf 'native-%s-ready\\n' pty; exit\r",
+          data: `sdk_binary=$(bun -e 'import { CLAUDE_NATIVE_BIN } from "/opt/isomux/server/cwd-utils.ts"; process.stdout.write(CLAUDE_NATIVE_BIN)') && cli_version=$(claude --version) && sdk_version=$("$sdk_binary" --version) && [ "$cli_version" = "$sdk_version" ] && printf 'native-%s-ready\\n' pty; exit\r`,
         });
       } else if (message.type === "output") {
         output += message.data || "";

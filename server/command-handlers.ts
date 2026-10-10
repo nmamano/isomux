@@ -37,10 +37,6 @@ import { listCronjobs } from "./cronjob-manager.ts";
 import { cronjobVisibleTo } from "./cronjob-visibility.ts";
 import { resolveSkillPrompt, type UserSkillRoot } from "./skills.ts";
 import { recordSkillUse } from "./skill-usage.ts";
-import {
-  ensureCodexWrapperScript,
-  codexWrapperCommandForShell,
-} from "./backends/codex/native-bin.ts";
 import { renderUsageReport, usageAudienceForUser } from "./usage-report.ts";
 import { aggregateOnly, type StorageUsage } from "./storage-usage.ts";
 import { renderStorageReport, type AgentLabel } from "./storage-report.ts";
@@ -1086,57 +1082,21 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async usage(agentId, _managed, _args, rawText, username, device) {
+    async usage(agentId, managed, _args, rawText, username, device) {
       const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
-      const usageLines = [
-        t("commands.usage.heading"),
-        "",
-        t("commands.usage.intro"),
-        "",
-        `- ${t("commands.usage.claude")}`,
-        `- ${t("commands.usage.codex")}`,
-        "",
-        t("commands.usage.office"),
-      ];
-      deps.addLogEntry(agentId, "system", usageLines.join("\n"));
       deps.addLogEntry(
         agentId,
-        "terminal-command",
-        "claude",
-        undefined,
-        undefined,
-        { terminal: { command: "claude" } },
+        "system",
+        [
+          t(managed.info.agentType === "opencode"
+            ? "commands.usage.unavailable"
+            : "commands.usage.meter"),
+          "",
+          t("commands.usage.office"),
+        ].join("\n"),
       );
-      // Materialize the codex wrapper before emitting the card; otherwise a
-      // user who hits /usage before any Codex auth-error path won't have
-      // `~/.isomux/bin/codex` on disk and the card will fail with "command
-      // not found". If materialization throws (e.g. @openai/codex missing),
-      // skip the card entirely and surface a one-line system note - a dead
-      // card is worse than no card.
-      let codexWrapperReady = false;
-      try {
-        ensureCodexWrapperScript();
-        codexWrapperReady = true;
-      } catch (err) {
-        deps.addLogEntry(
-          agentId,
-          "system",
-          t("commands.usage.codexCardOmitted", { error: errMessage(err) }),
-        );
-      }
-      if (codexWrapperReady) {
-        const codexCmd = codexWrapperCommandForShell();
-        deps.addLogEntry(
-          agentId,
-          "terminal-command",
-          codexCmd,
-          undefined,
-          undefined,
-          { terminal: { command: codexCmd } },
-        );
-      }
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },

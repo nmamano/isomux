@@ -47,7 +47,7 @@ function stepIndex(name: string): number {
   return idx;
 }
 
-describe("install.sh hosted identity and Claude CLI", () => {
+describe("install.sh hosted identity and bundled Claude", () => {
   it("projects root-only enrollment into a readable marker in both directions", () => {
     expect(SRC).not.toContain("INSTALL_KIND=");
     expect(SRC).toContain("[[ -f /etc/isomux/renewal/enrollment.json ]]");
@@ -65,19 +65,17 @@ describe("install.sh hosted identity and Claude CLI", () => {
     expect(deps).not.toContain("sync_install_kind");
   });
 
-  it("installs native Claude before service start, but not during updates", () => {
-    expect(SRC).toContain("https://claude.ai/install.sh");
+  it("does not install a separate Claude CLI", () => {
+    expect(SRC).not.toContain("install_claude_cli");
+    expect(SRC).not.toContain("https://claude.ai/install.sh");
     expect(SRC).not.toContain("npm install");
-    expect(SRC).toContain("PATH=$service_path");
-    expect(SRC).toContain("command -v claude");
-    expect(stepIndex("install_claude_cli")).toBeLessThan(
-      stepIndex("install_service"),
-    );
-    const deps = SRC.slice(
-      SRC.indexOf("deps_only() {"),
-      SRC.indexOf("main() {"),
-    );
-    expect(deps).not.toContain("install_claude_cli");
+  });
+
+  it("links the bundled CLI after the build on full installs only", () => {
+    expect(stepIndex("build_isomux")).toBeLessThan(stepIndex("link_bundled_claude"));
+    expect(stepIndex("link_bundled_claude")).toBeLessThan(stepIndex("install_service"));
+    const deps = SRC.slice(SRC.indexOf("deps_only() {"), SRC.indexOf("main() {"));
+    expect(deps).not.toContain("link_bundled_claude");
   });
 });
 

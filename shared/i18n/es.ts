@@ -2202,16 +2202,12 @@ Cosas que puedes hacer por él:
   "commands.isomuxDiff.gitError": "No se pudo ejecutar git diff en `{path}`:",
   "commands.isomuxDiff.clean":
     "El árbol de trabajo de `{path}` está limpio: no hay cambios sin confirmar.",
-  "commands.usage.heading":
-    "**Aquí no se muestran los límites del plan de suscripción.**",
-  "commands.usage.intro":
-    "Para consultar tu cuota de suscripción de Claude o de ChatGPT, abre el terminal integrado y:",
-  "commands.usage.claude": "ejecuta `claude` y escribe `/usage`",
-  "commands.usage.codex": "ejecuta `~/.isomux/bin/codex` y escribe `/status`",
+  "commands.usage.meter":
+    "Consulta el medidor de uso en la cabecera del chat para ver los límites de la suscripción y cuándo se restablecen.",
+  "commands.usage.unavailable":
+    "Este agente no informa del uso de la suscripción.",
   "commands.usage.office":
     "Para el gasto de tokens de la oficina (por agente, por sala y por programación), mira `/isomux-usage`.",
-  "commands.usage.codexCardOmitted":
-    "Se omite la tarjeta de `/status` de Codex: {error}",
   "commands.isomuxStorage.forbidden":
     "El uso de disco solo está disponible para miembros de la oficina que hayan iniciado sesión.",
   "commands.skill.queueFailed": "No se pudo encolar {command}: {error}",

@@ -32,16 +32,19 @@ wizard and gateway workflow. No customer message is part of this slice.
 
 ## Verified current code
 
-- [Render image](../deploy/render/Dockerfile): Node 24 Bookworm, Bun 1.3.11,
-  Python, build tools, Git, Chromium, and tini; frozen dependency install and UI
-  build. [render.yaml](../render.yaml) calls the deployment a prototype.
-- [Entrypoint](../deploy/render/entrypoint.sh): sets `HOME=/var/data/home`,
+- The [Render compatibility Dockerfile](../deploy/render/Dockerfile) is
+  byte-identical to the [common image](../deploy/container/Dockerfile), and their
+  Dockerfile ignore files match. A [test](../deploy/container/context.test.ts) enforces
+  both rules. The image has no Node.js, npm or npx.
+  [render.yaml](../render.yaml) selects the common Dockerfile and marks the
+  deployment as a prototype.
+- [Entrypoint](../deploy/container/entrypoint.sh): sets `HOME=/var/data/home`,
   `ISOMUX_HOME=/var/data/home/.isomux`, container supervision, and default
   `PORT=10000`. Root initializes home/workspaces ownership, then drops to `node`.
   App and agent processes run without root.
-- [Office launcher](../deploy/render/office.ts): requires an HTTPS
+- [Office launcher](../deploy/container/office.ts): requires an HTTPS
   `ISOMUX_PUBLIC_URL`, reapplies public origin and all-interface binding on each
-  boot, and runs the [setup form](../deploy/render/bootstrap.ts) before the
+  boot, and runs the [setup form](../deploy/container/bootstrap.ts) before the
   office if there is no owner. Setup requires `ISOMUX_SETUP_KEY` of at least
   32 characters, checks the request Origin, limits attempts, and sets the owner
   session cookie. The launcher removes the key from its own environment before

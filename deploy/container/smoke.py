@@ -9,6 +9,7 @@ import time
 import uuid
 
 image = sys.argv[1]
+previous_image = sys.argv[2] if len(sys.argv) > 2 else None
 name = "isomux-check-" + uuid.uuid4().hex[:10]
 volume = name + "-data"
 origin = "https://office.example.com"
@@ -39,7 +40,18 @@ def start(first=False, nonroot=False):
         args += ["-e", "ISOMUX_SETUP_KEY=" + key]
     if nonroot:
         args += ["--user", "1000:1000"]
-    run(*args, image)
+    run(*args, previous_image if first and previous_image else image)
+
+
+def account_check():
+    execute("python3", "-c", """
+import os,pwd
+account=pwd.getpwnam('node')
+assert (account.pw_uid,account.pw_gid,account.pw_dir,account.pw_shell)==(1000,1000,'/home/node','/bin/bash')
+assert (os.getuid(),os.getgid())==(1000,1000)
+assert os.environ['HOME']=='/var/data/home'
+""")
+    print("PASS node account: UID/GID 1000, /home/node, /bin/bash; runtime HOME=/var/data/home", flush=True)
 
 
 def request(path="/", method="GET", body=None, cookie=None, host="office.example.com", form=False):
@@ -87,7 +99,14 @@ def app_cookie(cookie):
 
 try:
     run("docker", "volume", "create", volume)
+    for label, candidate in (("new", image), ("previous", previous_image)):
+        if candidate:
+            print(label + " image: " + run("docker", "image", "inspect", candidate,
+                  "--format", "{{.Id}} {{index .Config.Labels \"org.opencontainers.image.revision\"}}"), flush=True)
     start(first=True)
+    account_check()
+    if previous_image:
+        print("PASS old image has Node: " + execute("sh", "-c", "command -v node"), flush=True)
     inspected = json.loads(run("docker", "inspect", name))[0]
     assert inspected["HostConfig"]["Privileged"] is False
     assert not inspected["HostConfig"]["CapAdd"]
@@ -131,6 +150,13 @@ Bun.serve({hostname:process.env.ISOMUX_APP_HOST,port:Number(process.env.PORT),
 fetch(req,server){if(server.upgrade(req))return;writeFileSync(file,String(++count));return Response.json({count,pid:process.pid,uid:process.getuid()});},
 websocket:{message(ws,msg){ws.send(msg)}}});`);
 """)
+    execute("python3", "-c", """
+import os
+for path in ['/var/data/workspaces/preserved.txt','/var/data/home/provider-state-fixture']:
+ stat=os.stat(path)
+ assert (stat.st_uid,stat.st_gid)==(1000,1000)
+""")
+    print("PASS original image wrote home and project files as UID/GID 1000", flush=True)
     for app in ("counter", "stopped"):
         check(request("/api/apps", "POST", {"name": app, "command": "bun counter.ts", "cwd": "/var/data/workspaces"}, cookie), 201)
     check(request("/api/apps/stopped/stop", "POST", {}, cookie), 200)
@@ -194,10 +220,25 @@ for pid in os.listdir('/proc'):
     run("docker", "rm", name)
     start(nonroot=True)
     ready(401)
+    account_check()
+    # The new image must work without Node, also when the previous image
+    # created the volume. Run all native checks on that image after replacement.
+    print(execute("bun", "deploy/container/native-check.ts"), flush=True)
     execute("bun", "deploy/container/probe.ts")
     check(request(cookie=cookie), 200)
     assert execute("cat", "/var/data/workspaces/preserved.txt") == "persistent-project"
     assert execute("cat", "/var/data/home/provider-state-fixture") == "synthetic-state-no-login"
+    execute("python3", "-c", """
+import os
+for path in ['/var/data/workspaces/preserved.txt','/var/data/home/provider-state-fixture']:
+ with open(path,'a') as output: output.write('\\nwritten-after-replacement')
+ stat=os.stat(path)
+ assert (stat.st_uid,stat.st_gid)==(1000,1000)
+with open('/var/data/workspaces/new-file.txt','w') as output: output.write('new-image')
+stat=os.stat('/var/data/workspaces/new-file.txt')
+assert (stat.st_uid,stat.st_gid)==(1000,1000)
+""")
+    print("PASS replacement writes old and new files as UID/GID 1000", flush=True)
     after = json.loads(check(request(host="counter.office.example.com", cookie=app_cookie(cookie)), 200)["body"])
     assert after["count"] > before["count"]
     apps = json.loads(check(request("/api/apps", cookie=cookie), 200)["body"])

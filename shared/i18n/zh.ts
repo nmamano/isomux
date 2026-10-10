@@ -1991,14 +1991,12 @@ App 的一些原则：
   "commands.isomuxDiff.notRepo": "`{path}` 不是 git 仓库。",
   "commands.isomuxDiff.gitError": "在 `{path}` 中运行 git diff 失败：",
   "commands.isomuxDiff.clean": "`{path}` 中的工作树干净，没有未提交的更改。",
-  "commands.usage.heading": "**此处不显示订阅套餐限额。**",
-  "commands.usage.intro":
-    "要检查 Claude 或 ChatGPT 订阅额度，请打开内置终端，然后：",
-  "commands.usage.claude": "启动 `claude`，再输入 `/usage`",
-  "commands.usage.codex": "启动 `~/.isomux/bin/codex`，再输入 `/status`",
+  "commands.usage.meter":
+    "查看聊天顶部的用量指示器，了解订阅限额和重置时间。",
+  "commands.usage.unavailable":
+    "此智能体不提供订阅用量。",
   "commands.usage.office":
     "办公室级 token 消耗（按智能体、房间或定时任务）请参见 `/isomux-usage`。",
-  "commands.usage.codexCardOmitted": "已省略 Codex `/status` 卡片：{error}",
   "commands.isomuxStorage.forbidden":
     "只有已登录的办公室成员可以查看存储用量。",
   "commands.skill.queueFailed": "无法将 {command} 加入队列：{error}",

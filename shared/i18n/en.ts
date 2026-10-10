@@ -2180,14 +2180,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "Working tree clean in `{path}` - no uncommitted changes.",
 
   // /usage
-  "commands.usage.heading": "**Subscription plan limits aren't shown here.**",
-  "commands.usage.intro":
-    "To check your Claude or ChatGPT subscription quota, open the embedded terminal and:",
-  "commands.usage.claude": "launch `claude`, then type `/usage`",
-  "commands.usage.codex": "launch `~/.isomux/bin/codex`, then type `/status`",
+  "commands.usage.meter":
+    "Check the usage meter in the chat header for subscription limits and reset times.",
+  "commands.usage.unavailable":
+    "This agent does not report subscription usage.",
   "commands.usage.office":
     "For office-level token spend (per-agent / per-room / per-schedule), see `/isomux-usage`.",
-  "commands.usage.codexCardOmitted": "Codex `/status` card omitted: {error}",
 
   // /isomux-storage
   "commands.isomuxStorage.forbidden":
