@@ -31,6 +31,7 @@ type Service = {
   cpus?: number;
   mem_limit?: string;
   memswap_limit?: string;
+  logging?: { driver: string; options: { tag: string } };
 };
 
 const compose = Bun.YAML.parse(
@@ -61,6 +62,13 @@ function envTemplate(name: string): Map<string, string> {
 }
 
 describe("the compose project", () => {
+  test("app journals use stable service tags and do not change db or owner logging", () => {
+    for (const service of ["provisioner", "web"]) {
+      expect(services[service].logging).toEqual({ driver: "journald", options: { tag: `\${ISOMUX_HOSTED_PROJECT:-isomux-hosted}-${service}` } });
+    }
+    expect(services.db.logging).toBeUndefined();
+    expect(services.owner.logging).toBeUndefined();
+  });
   test("has the three services and the owner CLI, nothing else", () => {
     expect(Object.keys(services).sort()).toEqual([
       "db",

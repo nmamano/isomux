@@ -37,6 +37,7 @@ import {
 } from "./driver.ts";
 import { ACCESS_WINDOW_MS } from "./access-window-policy.ts";
 import { runtimeRepoFile } from "./runtime-files.ts";
+import { failureEvidence, diagnosticText } from "./failure-evidence.ts";
 import { destroyPrivateKey, type KeyPair } from "./keys.ts";
 import { validateCustomerSshKey } from "./key-lines.ts";
 import { probeLiveness } from "./liveness.ts";
@@ -216,10 +217,33 @@ function sshFor(
   /** The STEP this client belongs to. Every child it runs is audited under this
    * name, so a primitive that issues three commands leaves three records. */
   label: string,
+  secrets: string[] = [],
+  captureFailure = true,
 ): SshClient {
   return new SshClient(
     targetFor(rec),
-    deps.exec,
+    captureFailure ? {
+      async run(argv, opts) {
+        // Diagnostics can contain key comments or owner names; evidence is operator-only.
+        let result;
+        try {
+          result = await deps.exec.run(argv, opts);
+        } catch (err) {
+          // No output was returned. Replace stale diagnostics, but keep the
+          // original transport exception and its ambiguity classification.
+          try { ctx.recordFailure?.(failureEvidence(label, null, "")); } catch { /* Observation only. */ }
+          throw err;
+        }
+        if (result.code !== 0) {
+          // Observation cannot change transport or audit classification.
+          try {
+            ctx.recordFailure?.(failureEvidence(label, result.code,
+              `${result.stdout}\n${result.stderr}`, secrets));
+          } catch { /* Keep the command's original verdict. */ }
+        }
+        return result;
+      },
+    } : deps.exec,
     "yes",
     () => ctx.budget.claim(label),
     (phase, kind) => ctx.audit(label, phase, kind),
@@ -626,8 +650,10 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
       const ev = evidenceOf(ctx);
       const phase = str(ev.phase);
       const identity = identityFor(rec.loginUser);
-      const ssh = sshFor(ctx, rec, deps, "run_installer");
+      const secrets: string[] = [];
+      const ssh = sshFor(ctx, rec, deps, "run_installer", secrets);
       const attempts = (ev.attempts as unknown[]) ?? [];
+      const retainedFailure = ev.failure === undefined ? {} : { failure: ev.failure };
 
       if (phase === "") {
         const parsedEndpoint = parseCertificateEndpoint(
@@ -644,6 +670,7 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
           await revokeCertificateCredentials(ctx.store, ctx.instance.id);
           return issueCertificateCredential(ctx.store, ctx.instance.id);
         });
+        secrets.push(credential.token);
         await remote(ctx, "stage_certificate_identity", async () => {
           const made = await ssh.script(
             `${rec.loginUser === "root" ? "" : "sudo -n "}install -d -m 0700 -o root -g root /etc/isomux/renewal\n`,
@@ -681,7 +708,7 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
             "0755",
           ),
         );
-        return { kind: "progress", evidence: { phase: "staged", attempts } };
+        return { kind: "progress", evidence: { phase: "staged", attempts, ...retainedFailure } };
       }
 
       if (phase === "staged") {
@@ -689,7 +716,7 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
         const runId = `install-${ctx.now}-${attempts.length}`;
         return {
           kind: "progress",
-          evidence: { phase: "launching", runId, attempts },
+          evidence: { phase: "launching", runId, attempts, ...retainedFailure },
         };
       }
 
@@ -744,7 +771,7 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
           case "already-exists":
             return {
               kind: "progress",
-              evidence: { phase: "running", runId, attempts },
+              evidence: { phase: "running", runId, attempts, ...retainedFailure },
             };
           case "unconfirmed":
             return {
@@ -754,6 +781,7 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
                 runId,
                 attempts,
                 launch: launch.reason,
+                ...retainedFailure,
               },
             };
           case "failed":
@@ -764,7 +792,7 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
       // Below this line the tick is known to be about OUR generation, which is
       // the precondition for advancing or concluding the operation at all.
       if (tick.state === "running") {
-        const marker = `${tick.step}`;
+        const marker = diagnosticText(tick.step);
         return marker === ev.step
           ? { kind: "waiting", evidence: { ...ev, phase: "running" } }
           : {
@@ -785,13 +813,24 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
         tick.state === "crashed"
           ? "crashed"
           : `exit ${tick.state === "finished" ? tick.exit : "?"}`;
-      const lastStep = tick.state === "none" ? "" : tick.step;
+      const lastStep = tick.state === "none" ? "" : diagnosticText(tick.step);
+      let logTail = "";
+      // A failed diagnostic read cannot change the known installer's verdict.
+      try {
+        if (/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(runId)) {
+          const tail = await remote(ctx, "installer_failure_tail", () =>
+            ssh.script(`${rec.loginUser === "root" ? "" : "sudo -n "}${WRAPPER_REMOTE_PATH} tail "$1"\n`, [runId]),
+          );
+          if (tail.code === 0) logTail = tail.stdout;
+        }
+      } catch { /* Diagnostics must not stop the known failure's retry. */ }
       return {
         kind: "retry",
         reason: `installer generation ${runId} ${verdict} at step ${lastStep}`,
         evidence: {
           phase: "staged",
           attempts: [...attempts, { runId, verdict, step: lastStep }],
+          failure: failureEvidence(lastStep, tick.state === "finished" ? tick.exit : null, logTail, secrets),
         },
       };
     },
@@ -956,7 +995,7 @@ export function mintInviteHandler(deps: HandlerDeps): Handler {
         }
       }
 
-      const ssh = sshFor(ctx, rec, deps, "mint_invite");
+      const ssh = sshFor(ctx, rec, deps, "mint_invite", [], false);
       const minted = await remote(ctx, "mint_invite", () =>
         ssh.pipe(
           [...privilegeArgvFor(rec.loginUser), "bash", "-s"],

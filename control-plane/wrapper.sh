@@ -33,6 +33,7 @@
 # Usage (as root):
 #   isomux-cp-run launch <runId> <command> [args...]
 #   isomux-cp-run tick
+#   isomux-cp-run tail <runId>
 #   isomux-cp-run _supervise <runId> <command> [args...]   (internal)
 
 set -Eeuo pipefail
@@ -197,6 +198,21 @@ last_step() {
     sed 's/.*--- step: //' || true
 }
 
+# Read only the requested generation, never the mutable `current` pointer.
+failure_tail() {
+  local run_id=${1:-}
+  [[ $run_id =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || return 2
+  local log=$RUNS/$run_id/log
+  [[ -f $log ]] || return 1
+  # Discard a possibly partial first line before the controller redacts it.
+  # The extra newline preserves the first line of a short file.
+  { printf '\n'; awk '
+    /-----BEGIN .*PRIVATE KEY-----/ { private_key=1 }
+    !private_key { print }
+    /-----END .*PRIVATE KEY-----/ { private_key=0; print "<private key material redacted>" }
+  ' "$log"; } | tail -c 65536 | { IFS= read -r _ || true; cat; } | tail -n 80
+}
+
 case "${1:-}" in
   launch)
     shift
@@ -209,8 +225,11 @@ case "${1:-}" in
   tick)
     tick
     ;;
+  tail)
+    failure_tail "${2:-}"
+    ;;
   *)
-    echo "usage: isomux-cp-run {launch <runId> <command>... | tick}" >&2
+    echo "usage: isomux-cp-run {launch <runId> <command>... | tick | tail <runId>}" >&2
     exit 2
     ;;
 esac

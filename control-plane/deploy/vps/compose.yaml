@@ -56,6 +56,10 @@ services:
     <<: *hardened
     image: ${ISOMUX_PROVISIONER_IMAGE:?}
     restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: ${ISOMUX_HOSTED_PROJECT:-isomux-hosted}-provisioner
     env_file:
       - ${ISOMUX_HOSTED_ENV_DIR:?}/provisioner.env
       - ${ISOMUX_HOSTED_ENV_DIR:?}/generated/provisioner-db.env
@@ -104,6 +108,10 @@ services:
     <<: *hardened
     image: ${ISOMUX_WEB_IMAGE:?}
     restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: ${ISOMUX_HOSTED_PROJECT:-isomux-hosted}-web
     env_file:
       - ${ISOMUX_HOSTED_ENV_DIR:?}/web.env
       - ${ISOMUX_HOSTED_ENV_DIR:?}/generated/web-db.env

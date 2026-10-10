@@ -12,6 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   firstContactHandler,
+  armRevocationHandler,
   mintInviteHandler,
   installCustomerKeyHandler,
   revokeAccessHandler,
@@ -31,7 +32,7 @@ import {
   PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
 } from "./testing/pg.ts";
-import type { ExecResult, Exec, ExecOptions } from "./ssh.ts";
+import { RemoteTimeoutError, type ExecResult, type Exec, type ExecOptions } from "./ssh.ts";
 import { RemoteBudget, Ticker, type HandlerContext } from "./tick.ts";
 import { raiseAttentionIn } from "./attention.ts";
 
@@ -99,6 +100,56 @@ class FakeExec implements Exec {
 }
 
 const OK: ExecResult = { code: 0, stdout: "", stderr: "" };
+
+describe("failed SSH command diagnostics", () => {
+  for (const factory of [waitForPackageManagerHandler, firstContactHandler, installCustomerKeyHandler, armRevocationHandler, runInstallerHandler, revokeAccessHandler]) {
+    test(`${factory.name} keeps a transport exception when empty-tail capture throws`, async () => {
+      const outcomes: string[] = [];
+      for (const failCapture of [false, true]) {
+        const b = await bed(new FakeExec(() => { throw new RemoteTimeoutError("transport unavailable"); }));
+        const ctx = await b.ctx({ phase: "" });
+        ctx.instance.access_window_expires_at = ctx.instance.created_at + 60_000;
+        ctx.instance.customer_ssh_key = validKey();
+        const captured: unknown[] = [];
+        ctx.recordFailure = (value) => {
+          captured.push(value);
+          if (failCapture) throw new Error("observation unavailable");
+        };
+        try { outcomes.push((await factory(b.deps).run(ctx)).kind); }
+        catch (err) { outcomes.push(`throw:${err instanceof Error ? err.constructor.name : "unknown"}`); }
+        expect(captured).toHaveLength(1);
+        expect(captured[0]).toMatchObject({ exit: null, logTail: "" });
+        expect(b.audits.join("\n")).not.toContain("transport unavailable");
+      }
+      expect(new Set(outcomes).size).toBe(1);
+    });
+
+    test(`${factory.name} preserves its outcome when capture works or throws`, async () => {
+      const outcomes: string[] = [];
+      for (const capture of ["absent", "works", "throws"]) {
+        const b = await bed(new FakeExec(() => ({ code: 9, stdout: "diagnostic-marker password=small", stderr: "" })));
+        const ctx = await b.ctx({ phase: "" });
+        ctx.instance.access_window_expires_at = ctx.instance.created_at + 60_000;
+        ctx.instance.customer_ssh_key = validKey();
+        const evidence: unknown[] = [];
+        if (capture !== "absent") ctx.recordFailure = (v) => {
+          if (capture === "throws") throw new Error("capture unavailable");
+          evidence.push(v);
+        };
+        try {
+          outcomes.push((await factory(b.deps).run(ctx)).kind);
+        } catch (err) { outcomes.push(`throw:${err instanceof Error ? err.constructor.name : "unknown"}`); }
+        if (capture === "works") {
+          expect(evidence.length).toBeGreaterThan(0);
+          expect(JSON.stringify(evidence)).toContain("diagnostic-marker");
+          expect(JSON.stringify(evidence)).not.toContain("small");
+        }
+        expect(b.audits.join("\n")).not.toContain("diagnostic-marker");
+      }
+      expect(new Set(outcomes).size).toBe(1);
+    });
+  }
+});
 
 function validKey(): string {
   const name = Buffer.from("ssh-ed25519");
@@ -734,6 +785,110 @@ describe("verify_https includes app wildcard readiness", () => {
 });
 
 describe("run_installer", () => {
+  test("the last failure survives every retry phase and success; the next failure replaces it", async () => {
+    for (const confirmed of [false, true]) {
+      let tick = "state=finished runId=install-old exit=22 step=configure_public_access";
+      let runId = "install-old";
+      const exec = new FakeExec((_argv, stdin) => {
+        if (stdin?.includes(" tick")) return { ...OK, stdout: tick };
+        if (stdin?.includes(" tail ")) return { ...OK, stdout: "HTTP 403" };
+        if (stdin?.includes(" launch ")) return { ...OK, stdout: confirmed ? `CONFIRMED ${runId}` : "UNCONFIRMED publication timed out" };
+        return OK;
+      });
+      const b = await bed(exec); const handler = runInstallerHandler(b.deps);
+      let evidence: Record<string, unknown> = { phase: "running", runId, attempts: [] };
+      const advance = async () => {
+        const result = await handler.run(await b.ctx(evidence));
+        evidence = result.evidence as Record<string, unknown>;
+        return result.kind;
+      };
+      expect(await advance()).toBe("retry");
+      const failure = evidence.failure;
+      expect(failure).toMatchObject({ exit: 22, logTail: "HTTP 403" });
+      expect(await advance()).toBe("progress");
+      expect(evidence.phase).toBe("launching");
+      expect(evidence.failure).toEqual(failure);
+      runId = evidence.runId as string;
+      tick = "state=none";
+      expect(await advance()).toBe("progress");
+      expect(evidence.phase).toBe(confirmed ? "running" : "awaiting_publication");
+      expect(evidence.failure).toEqual(failure);
+      if (!confirmed) {
+        expect(await advance()).toBe("waiting");
+        expect(evidence.failure).toEqual(failure);
+      }
+      tick = `state=running runId=${runId} pid=123 step=download`;
+      expect(await advance()).toBe("progress");
+      expect(evidence.failure).toEqual(failure);
+      expect(await advance()).toBe("waiting");
+      expect(evidence.failure).toEqual(failure);
+      const running = evidence;
+      tick = `state=finished runId=${runId} exit=0 step=done`;
+      expect(await advance()).toBe("done");
+      expect(evidence.failure).toEqual(failure);
+      evidence = running;
+      tick = `state=finished runId=${runId} exit=9 step=download`;
+      expect(await advance()).toBe("retry");
+      expect(evidence.failure).toMatchObject({ exit: 9, step: "download" });
+      expect(evidence.failure).not.toEqual(failure);
+    }
+  });
+
+  test("failed generation captures its own redacted tail and a failed tail read still retries", async () => {
+    for (const mode of ["ok", "failed", "timeout", "observer"] as const) {
+      const token = "a".repeat(43);
+      const exec = new FakeExec((_argv, stdin) => {
+        if (stdin?.includes(" tick")) return { code: 0, stdout: "state=finished runId=install-1 exit=22 step=configure_public_access", stderr: "" };
+        if (stdin?.includes(" tail ")) {
+          if (mode === "timeout") throw new RemoteTimeoutError("timed out");
+          return { code: mode === "failed" ? 1 : 0, stdout: `HTTP 403\nhttps://office.test/i/secret\n${token}`, stderr: "" };
+        }
+        return OK;
+      });
+      const b = await bed(exec);
+      const ctx = await b.ctx({ phase: "running", runId: "install-1", attempts: [] });
+      if (mode === "observer") {
+        const audit = ctx.audit.bind(ctx);
+        ctx.audit = async (action, outcome, detail) => {
+          if (action === "installer_failure_tail" && outcome === "succeeded") throw new Error("store unavailable");
+          await audit(action, outcome, detail);
+        };
+      }
+      const result = await runInstallerHandler(b.deps).run(ctx);
+      expect(result.kind).toBe("retry");
+      const ev = result.evidence as { failure: { step: string; exit: number; logTail: string }; attempts: unknown[] };
+      expect(ev.failure.exit).toBe(22);
+      expect(ev.failure.step).toBe("configure_public_access");
+      expect(ev.attempts).toHaveLength(1);
+      expect(ev.failure.logTail).not.toContain(token);
+      expect(ev.failure.logTail).not.toContain("/i/secret");
+      expect(ev.failure.logTail.includes("HTTP 403")).toBe(mode === "ok");
+      expect(exec.calls.find((c) => c.stdin?.includes(" tail "))?.argv.at(-1)).toBe("install-1");
+      expect(b.audits.join("\n")).not.toContain("HTTP 403");
+    }
+  });
+
+  test("staging command failure removes a token-shaped enrollment credential without changing the throw", async () => {
+    let token = "";
+    const exec = new FakeExec((_argv, stdin) => {
+      if (stdin?.startsWith('{"endpoint"')) {
+        token = (JSON.parse(stdin) as { token: string }).token;
+        return { code: 9, stdout: `upload failed ${token}`, stderr: "" };
+      }
+      return OK;
+    });
+    const b = await bed(exec); const ctx = await b.ctx({});
+    const captured: unknown[] = []; ctx.recordFailure = (v) => { captured.push(v); };
+    let failure: unknown;
+    try { await runInstallerHandler(b.deps).run(ctx); } catch (err) { failure = err; }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toMatch(/installing/);
+    expect(token).not.toBe("");
+    expect(captured).toHaveLength(1);
+    expect(JSON.stringify(captured)).not.toContain(token);
+    expect(b.audits.join("\n")).not.toContain(token);
+  });
+
   function installerExec(tickOut: string, launchOut = "") {
     return new FakeExec((argv, stdin) => {
       // A file upload runs `install -m ... /dev/stdin <path>` as the remote
@@ -948,9 +1103,11 @@ describe("mint_invite", () => {
       stderr: `failed after ${URL}`,
     }));
     const b = await bed(exec);
-    const result = await mintInviteHandler(b.deps).run(
-      await b.ctx({ phase: "minting" }),
-    );
+    const ctx = await b.ctx({ phase: "minting" });
+    const captured: unknown[] = [];
+    ctx.recordFailure = (failure) => { captured.push(failure); };
+    const result = await mintInviteHandler(b.deps).run(ctx);
+    expect(captured).toHaveLength(0);
     expect(result.kind).toBe("retry");
     expect((result as { reason: string }).reason).toBe(
       "minting the invite failed",

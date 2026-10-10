@@ -20,9 +20,11 @@
 // precisely so that every writer of a table can be named.
 
 import NextAuth, { type NextAuthConfig } from "next-auth";
+import { inspect } from "node:util";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { identityForSignIn } from "./lib/services.server";
+import { redactLogText } from "../report";
 
 const devAuthEnabled =
   process.env.CONTROL_PLANE_DEV_AUTH === "1" &&
@@ -65,6 +67,11 @@ export const googleSignInAvailable = googleConfigured;
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers,
+  logger: {
+    error(error) { console.error(redactLogText(inspect(error, { depth: 4 }))); },
+    warn(code) { console.warn(redactLogText(code)); },
+    debug() { /* Production authentication never logs request metadata. */ },
+  },
   session: { strategy: "jwt" },
   pages: { signIn: "/signin" },
   callbacks: {

@@ -2497,6 +2497,18 @@ provisioner state root is the named volume `provisioner-state` at `/data`, as on
 the Fly volume. Containers restart with the Docker daemon, so the host needs no
 unit of its own.
 
+The provisioner and web use Docker's `journald` log driver. The tags are
+`<compose project>-provisioner` and `<compose project>-web`; container replacement
+does not remove their journal entries. `docker logs` and `docker compose logs`
+still read the current containers. Use `journalctl` by tag to read across deploys.
+The reader needs root or membership in `systemd-journal` or `adm`.
+
+Retention belongs to the host journal, not Compose. Checked 2026-10-10: the
+deployed host has persistent storage, `MaxRetentionSec=7day`,
+`SystemMaxUse=1G`, and `RuntimeMaxUse=100M`. It keeps up to seven days, fewer
+if the host journal reaches 1 GiB first. These limits cover all host services.
+The deployment script does not change journal settings or reader access.
+
 The host layout, with the defaults that `ISOMUX_HOSTED_PROJECT`,
 `ISOMUX_HOSTED_ENV_DIR`, `ISOMUX_HOSTED_ROOT`, `ISOMUX_HOSTED_WEB_PORT` and
 `ISOMUX_HOSTED_PROVISIONER_PORT` change:
@@ -2824,7 +2836,7 @@ hostname.
 with no office id when the bearer did not authenticate:
 
 ```
-docker compose ... logs provisioner | grep -E 'certificate (renewal|status):'
+journalctl -t isomux-hosted-provisioner --since '2 days ago' --no-pager | grep -E 'certificate (renewal|status):'
 ```
 
 A failed renewal line ends with `cause="..."`: the last lines of lego's
@@ -2833,8 +2845,9 @@ stderr, with credentials replaced.
 Fly can go when every office with an active certificate credential has a
 `certificate status: ok office=<id> via=direct` line and no `via=forwarder`
 line after it. A silent office proves nothing: the helper runs daily, so read
-the log at least two days after the last deploy, which starts a new container
-and a new log.
+the log over at least two days. That window no longer needs a period without
+a deploy. Use the configured Compose project name in the tag if it differs
+from `isomux-hosted`, and confirm the journal retained the full window.
 
 ## The driver protocol
 
@@ -2862,6 +2875,21 @@ retry can run two installers over each other. So the box runs a wrapper
   re-reads `exit` before calling anything a crash: a process that exited between
   the two reads is finished, not crashed. The recorded start ticks bind the pid
   to that generation, so a reused pid cannot make a dead run look alive.
+
+During provisioning, a failed installer run reads the tail of its own generation
+through `isomux-cp-run tail <runId>`. A failed tail read does not stop the retry.
+Failed on-box SSH commands also supply diagnostics, except invite minting, whose
+output is never recorded. The operation keeps only the
+latest `failure: {step, exit, logTail}`: credentials are removed before clipping
+to 40 lines, 512 bytes per line and 8 KiB total. A new failure replaces the old
+one, including with an empty tail when the read fails. Installer progress and
+success keep the last failure for later inspection. Logs do not enter audit
+details, attention reasons or the customer progress projection.
+
+Three distinct consecutive installer runs with the same known nonzero exit and
+step raise a critical `operation_condition` through the usual attention path.
+An empty step counts; a crash without an exit does not. Retries continue, the
+absolute deadline remains active, and success clears the repeated-failure reason.
 
 ## Zero standing access
 

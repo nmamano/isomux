@@ -64,6 +64,7 @@ import {
 } from "./driver.ts";
 import { destroyPrivateKey, generateKeyPair } from "./keys.ts";
 import { Reporter, credentialValues } from "./report.ts";
+import { runCliEntry } from "./cli-entry.ts";
 import { SpawnExec, SshClient, type SshTarget } from "./ssh.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
 import { CreateLatch, migrateLegacyIntents } from "./create-latch.ts";
@@ -118,7 +119,7 @@ import {
 } from "./drive-loop.ts";
 import { lifecycleTick, resolveBrokenPromise } from "./lifecycle-tick.ts";
 
-const reporter = new Reporter();
+const reporter = new Reporter(undefined, process.argv[2] === "run");
 const audit = new AuditLog(AUDIT_FILE, "control-plane-cli");
 const exec = new SpawnExec();
 const CADENCE_FAILURE_LIMIT = 3;
@@ -1453,8 +1454,4 @@ async function main(): Promise<void> {
   }
 }
 
-try {
-  await main();
-} finally {
-  await closeOpenStores();
-}
+await runCliEntry(main, closeOpenStores, reporter, process.argv[2] === "run");

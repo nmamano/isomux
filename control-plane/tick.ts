@@ -9,6 +9,7 @@
 // it provably owns the lease for longer than that bound plus a margin.
 
 import * as os from "node:os";
+import { repeatedInstallerFailure, REPEATED_INSTALLER_FAILURE_REASON, type FailureEvidence } from "./failure-evidence.ts";
 import {
   raiseAttentionIn,
   clearAttentionIn,
@@ -110,6 +111,8 @@ export interface HandlerContext {
    * every caller: it opens its own transaction, so a dropped await would let a
    * handler's next statement race the row it is writing. */
   audit(action: string, outcome: AuditOutcome, detail?: string): Promise<void>;
+  /** In-memory diagnostics only; finish persists them under the operation fence. */
+  recordFailure?(failure: FailureEvidence): void;
 }
 
 export type AuditOutcome = "started" | "succeeded" | "failed" | "ambiguous";
@@ -394,6 +397,7 @@ export class Ticker {
     }
 
     let result: HandlerResult;
+    let failure: FailureEvidence | undefined;
     try {
       result = await handler.run({
         store: this.store,
@@ -408,6 +412,7 @@ export class Ticker {
         ),
         now: this.now(),
         report: this.report,
+        recordFailure: (value) => { failure = value; },
         audit: async (action, outcome, detail) => {
           await this.store.tx(() =>
             this.store.appendAudit({
@@ -425,7 +430,7 @@ export class Ticker {
       result = this.classifyThrow(err, handler);
     }
 
-    const completed = await this.finish(fence, leased, result);
+    const completed = await this.finish(fence, leased, result, failure);
     return completed ? "completed" : "acted";
   }
 
@@ -487,6 +492,7 @@ export class Ticker {
     fence: Fence,
     op: OperationRow,
     result: HandlerResult,
+    failure?: FailureEvidence,
   ): Promise<boolean> {
     const d = deadlinesFor(op.kind);
     const now = this.now();
@@ -546,6 +552,13 @@ export class Ticker {
         // the store has already moved it, so re-read rather than trusting the
         // copy taken before the remote call.
         const current = await this.store.getOperation(fence.id);
+        if (failure && (result.kind === "retry" || result.kind === "ambiguous" || result.kind === "fatal")) {
+          const evidence = (result.evidence ?? JSON.parse(current?.evidence ?? op.evidence)) as Record<string, unknown>;
+          // A failed tail read must not replace the known installer verdict.
+          const ownFailure = (result.evidence as { failure?: unknown } | undefined)?.failure;
+          patch.evidence = { ...evidence, failure: ownFailure ?? failure };
+          patch.evidence_at = now;
+        }
         const live: Fence = {
           id: fence.id,
           version: current?.version ?? fence.version,
@@ -579,6 +592,16 @@ export class Ticker {
             if (!clearable.includes(r.reason_class)) continue;
             await clearAttentionIn(this.store, op.instance_id, r.id);
           }
+        }
+
+        if (op.kind === "run_installer" && result.kind === "retry" && repeatedInstallerFailure(result.evidence)) {
+          await raiseAttentionIn(this.store, {
+            instanceId: op.instance_id,
+            sourceOpId: op.id,
+            reasonClass: "operation_condition",
+            reason: REPEATED_INSTALLER_FAILURE_REASON,
+            severity: "critical",
+          });
         }
 
         if (result.kind === "fatal" || result.kind === "ambiguous") {

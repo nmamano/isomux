@@ -118,18 +118,25 @@ export function credentialValues(env: NodeJS.ProcessEnv): string[] {
     .map(([, value]) => value ?? "");
 }
 
+/** Durable process logs never carry the interactive owner's invite. */
+export function redactLogText(text: string, secrets: readonly string[] = credentialValues(process.env)): string {
+  return redactCredentialShapes(redactForTranscript(redactValues(text, secrets)));
+}
+
 export class Reporter {
   /** A redacted copy of the run, safe to paste anywhere. */
   readonly transcript: string[] = [];
 
-  constructor(private readonly sink: Sink = consoleSink) {}
+  constructor(private readonly sink: Sink = consoleSink, private readonly durable = false) {}
 
   line(text: string): void {
+    if (this.durable) text = redactLogText(text);
     this.sink.out(redactKeyMaterial(text));
     this.transcript.push(redactForTranscript(text));
   }
 
   problem(text: string): void {
+    if (this.durable) text = redactLogText(text);
     this.sink.err(redactKeyMaterial(text));
     this.transcript.push(redactForTranscript(text));
   }
@@ -144,6 +151,7 @@ export class Reporter {
    * box is a stale credential the moment a new one is minted.
    */
   invite(url: string): void {
+    if (this.durable) url = INVITE_REDACTION;
     this.sink.out(`OWNER INVITE: ${url}`);
     this.transcript.push(`OWNER INVITE: ${INVITE_REDACTION}`);
   }
