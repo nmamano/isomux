@@ -144,8 +144,11 @@ export interface AppsDeps {
     agentId: string,
   ): "ok" | "invalid_id" | "unavailable";
   // Both the caller and the app owner must reach this live agent.
-  resolveCreator(identity: Identity, ownerUserId: string | null, agentId: string):
-    { id: string; name: string } | "invalid_id" | "unavailable";
+  resolveCreator(
+    identity: Identity,
+    ownerUserId: string | null,
+    agentId: string,
+  ): { id: string; name: string } | "invalid_id" | "unavailable";
   // Token-derived attribution, shared with the task board: createdBy is the
   // caller's display identity (agent name, or the human's name), username the
   // token's owning user.
@@ -389,7 +392,8 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
   const wireOf = (
     record: AppRecord,
     runtime: AppRuntime | undefined,
-  ): AppWire => toWire(record, runtime, deps.publicUrl(record), deps.shortUrl(record));
+  ): AppWire =>
+    toWire(record, runtime, deps.publicUrl(record), deps.shortUrl(record));
 
   // Every handler wraps its registry access, so a corrupt registry answers with
   // its own code on a READ as well as a write - a list that silently returned
@@ -698,14 +702,30 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         let creator: { id: string; name: string } | undefined;
         if (body.createdByAgentId !== undefined) {
           if (typeof body.createdByAgentId !== "string") {
-            return fail(400, "invalid_request", "createdByAgentId must be a valid agent id");
+            return fail(
+              400,
+              "invalid_request",
+              "createdByAgentId must be a valid agent id",
+            );
           }
-          const resolved = deps.resolveCreator(ctx.identity, before.userId, body.createdByAgentId);
+          const resolved = deps.resolveCreator(
+            ctx.identity,
+            before.userId,
+            body.createdByAgentId,
+          );
           if (resolved === "invalid_id") {
-            return fail(400, "invalid_request", "createdByAgentId must be a valid agent id");
+            return fail(
+              400,
+              "invalid_request",
+              "createdByAgentId must be a valid agent id",
+            );
           }
           if (resolved === "unavailable") {
-            return fail(403, "forbidden", "createdByAgentId must name a live agent the caller and app owner can access");
+            return fail(
+              403,
+              "forbidden",
+              "createdByAgentId must name a live agent the caller and app owner can access",
+            );
           }
           creator = resolved;
         }
@@ -1072,7 +1092,12 @@ function archiveHandler(deps: AppsDeps, archived: boolean): RouteHandler {
         if (!after) return fail(404, "not_found");
         record = after;
       }
-      const wire = toWire(record, runtime, deps.publicUrl(record), deps.shortUrl(record));
+      const wire = toWire(
+        record,
+        runtime,
+        deps.publicUrl(record),
+        deps.shortUrl(record),
+      );
       announced(record.name, () => deps.announce(wire));
       return ok(wire);
     } catch (err) {

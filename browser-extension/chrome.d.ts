@@ -103,6 +103,10 @@ declare const chrome: {
         ) => void,
       ): void;
     };
-    onDetach: { addListener(callback: (source: ChromeDebuggee, reason: string) => void): void };
+    onDetach: {
+      addListener(
+        callback: (source: ChromeDebuggee, reason: string) => void,
+      ): void;
+    };
   };
 };

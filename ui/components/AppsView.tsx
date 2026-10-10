@@ -113,7 +113,8 @@ export function appHref(
   app: Pick<AppWire, "shortUrl" | "url" | "port">,
   officeHostname: string,
 ): string {
-  if (typeof app.shortUrl === "string" && app.shortUrl !== "") return app.shortUrl;
+  if (typeof app.shortUrl === "string" && app.shortUrl !== "")
+    return app.shortUrl;
   if (typeof app.url === "string" && app.url !== "") return app.url;
   return `http://${portLinkHost(officeHostname)}:${app.port}/`;
 }
@@ -1110,7 +1111,11 @@ export function AppsView({
             href={linkHref}
             target="_blank"
             rel="noreferrer"
-            style={{ fontSize: 12, color: "var(--accent-text)", overflowWrap: "anywhere" }}
+            style={{
+              fontSize: 12,
+              color: "var(--accent-text)",
+              overflowWrap: "anywhere",
+            }}
           >
             {appHref(app, window.location.hostname)}
           </a>

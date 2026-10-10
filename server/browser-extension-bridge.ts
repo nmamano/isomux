@@ -55,7 +55,11 @@ type Assignment = {
   connected: boolean;
   announced: boolean;
   closed: boolean;
-  recovery?: { done: Promise<void>; finish(): void; timer: ReturnType<typeof setTimeout> };
+  recovery?: {
+    done: Promise<void>;
+    finish(): void;
+    timer: ReturnType<typeof setTimeout>;
+  };
 };
 
 export type BrowserTab = {
@@ -265,7 +269,9 @@ export class ExtensionConnection {
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
         a.recovery.done,
-        new Promise<void>((resolve) => { timer = setTimeout(resolve, maxMs); }),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, maxMs);
+        }),
       ]);
       clearTimeout(timer);
     }
@@ -505,7 +511,8 @@ export class ExtensionConnection {
     params: Fields,
   ): Promise<Fields> {
     this.check(a);
-    if (a.recovery) return Promise.reject(new Error("Debugger recovery in progress"));
+    if (a.recovery)
+      return Promise.reject(new Error("Debugger recovery in progress"));
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       let settled!: () => void;
@@ -606,10 +613,19 @@ export class ExtensionConnection {
       }
       this.check(a);
       if (msg.method === "recovering") {
-        if (a.recovery) { this.release(a); return; }
+        if (a.recovery) {
+          this.release(a);
+          return;
+        }
         let finish!: () => void;
-        const done = new Promise<void>((resolve) => { finish = resolve; });
-        a.recovery = { done, finish, timer: setTimeout(() => this.release(a), BROWSER_REATTACH_MS) };
+        const done = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        a.recovery = {
+          done,
+          finish,
+          timer: setTimeout(() => this.release(a), BROWSER_REATTACH_MS),
+        };
         // Retire only this CDP client. Its close cannot revoke the retained
         // grant, and late results cannot enter the next client session.
         const peer = a.peer;
@@ -627,7 +643,10 @@ export class ExtensionConnection {
         return;
       }
       if (msg.method === "recovered") {
-        if (!a.recovery) { this.release(a); return; }
+        if (!a.recovery) {
+          this.release(a);
+          return;
+        }
         clearTimeout(a.recovery.timer);
         a.recovery.finish();
         a.recovery = undefined;

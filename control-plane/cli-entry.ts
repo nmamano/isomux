@@ -8,13 +8,21 @@ export async function runCliEntry(
   daemon: boolean,
 ): Promise<void> {
   if (!daemon) {
-    try { await main(); } finally { await close(); }
+    try {
+      await main();
+    } finally {
+      await close();
+    }
     return;
   }
   let failed = false;
   const report = (error: unknown) => {
     failed = true;
-    reporter.problem(redactLogText(error instanceof Error ? error.stack ?? error.message : String(error)));
+    reporter.problem(
+      redactLogText(
+        error instanceof Error ? (error.stack ?? error.message) : String(error),
+      ),
+    );
   };
   try {
     await main();

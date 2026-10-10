@@ -1096,9 +1096,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (event.type === "tasks_changed") {
       const change = event.change;
       switch (change.kind) {
-        case "created": taskStore.create(change.task); break;
-        case "updated": taskStore.update(change.task); break;
-        case "deleted": taskStore.delete(change.task.id); break;
+        case "created":
+          taskStore.create(change.task);
+          break;
+        case "updated":
+          taskStore.update(change.task);
+          break;
+        case "deleted":
+          taskStore.delete(change.task.id);
+          break;
       }
       return;
     }

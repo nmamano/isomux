@@ -119,15 +119,23 @@ export function credentialValues(env: NodeJS.ProcessEnv): string[] {
 }
 
 /** Durable process logs never carry the interactive owner's invite. */
-export function redactLogText(text: string, secrets: readonly string[] = credentialValues(process.env)): string {
-  return redactCredentialShapes(redactForTranscript(redactValues(text, secrets)));
+export function redactLogText(
+  text: string,
+  secrets: readonly string[] = credentialValues(process.env),
+): string {
+  return redactCredentialShapes(
+    redactForTranscript(redactValues(text, secrets)),
+  );
 }
 
 export class Reporter {
   /** A redacted copy of the run, safe to paste anywhere. */
   readonly transcript: string[] = [];
 
-  constructor(private readonly sink: Sink = consoleSink, private readonly durable = false) {}
+  constructor(
+    private readonly sink: Sink = consoleSink,
+    private readonly durable = false,
+  ) {}
 
   line(text: string): void {
     if (this.durable) text = redactLogText(text);

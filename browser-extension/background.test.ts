@@ -188,7 +188,11 @@ async function harness(autoAck = true, debuggerRecovery = true) {
           : Promise.resolve({});
       },
       onEvent: { addListener() {} },
-      onDetach: { addListener(fn: typeof debuggerDetached) { debuggerDetached = fn; } },
+      onDetach: {
+        addListener(fn: typeof debuggerDetached) {
+          debuggerDetached = fn;
+        },
+      },
     },
   };
   const timers = new Map<number, () => void>();
@@ -209,7 +213,12 @@ async function harness(autoAck = true, debuggerRecovery = true) {
   await settle();
   const socket = sockets[0];
   socket.onopen?.();
-  socket.receive({ kind: "ready", version: 4, generation: "generation-1", debuggerRecovery });
+  socket.receive({
+    kind: "ready",
+    version: 4,
+    generation: "generation-1",
+    debuggerRecovery,
+  });
   socket.receive({
     kind: "metadata",
     generation: "generation-1",
@@ -312,15 +321,29 @@ async function harness(autoAck = true, debuggerRecovery = true) {
         throw new Error("Foreign reply");
       }),
     calls,
-    debuggerDetached: (reason: string, tabId = 7) => debuggerDetached({ tabId }, reason),
-    targets: (value: typeof targets) => { targets = value; },
+    debuggerDetached: (reason: string, tabId = 7) =>
+      debuggerDetached({ tabId }, reason),
+    targets: (value: typeof targets) => {
+      targets = value;
+    },
     holdEvaluation: () => {
       let finish!: () => void;
-      evaluation = () => new Promise<void>((resolve) => { finish = resolve; });
+      evaluation = () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        });
       return () => finish();
     },
-    failAttach: () => { attach = async () => { throw new Error("attach failed"); }; },
-    removeTab: () => { getTab = async () => { throw new Error("tab closed"); }; },
+    failAttach: () => {
+      attach = async () => {
+        throw new Error("attach failed");
+      };
+    },
+    removeTab: () => {
+      getTab = async () => {
+        throw new Error("tab closed");
+      };
+    },
     focused,
     intercepted,
     failChooser: () => {
@@ -1326,19 +1349,32 @@ for (const reason of ["canceled_by_user", "unknown_reason"]) {
   });
 }
 
-for (const failure of ["closed tab", "different target", "different tab", "non-page target", "attach failure"] as const) {
+for (const failure of [
+  "closed tab",
+  "different target",
+  "different tab",
+  "non-page target",
+  "attach failure",
+] as const) {
   test(`target_closed releases on ${failure}`, async () => {
     const h = await harness();
     await h.offer();
     if (failure === "closed tab") h.removeTab();
-    if (failure === "different target") h.targets([{ id: "replacement", tabId: 7, type: "page" }]);
-    if (failure === "different tab") h.targets([{ id: "owned", tabId: 8, type: "page" }]);
-    if (failure === "non-page target") h.targets([{ id: "owned", tabId: 7, type: "iframe" }]);
+    if (failure === "different target")
+      h.targets([{ id: "replacement", tabId: 7, type: "page" }]);
+    if (failure === "different tab")
+      h.targets([{ id: "owned", tabId: 8, type: "page" }]);
+    if (failure === "non-page target")
+      h.targets([{ id: "owned", tabId: 7, type: "iframe" }]);
     if (failure === "attach failure") h.failAttach();
     h.debuggerDetached("target_closed");
     await settle();
-    expect(recoveryEvents(h)).toEqual(failure === "attach failure" ? ["recovering", "detached"] : ["detached"]);
-    expect(h.calls.filter((call) => call === "attach")).toHaveLength(failure === "attach failure" ? 2 : 1);
+    expect(recoveryEvents(h)).toEqual(
+      failure === "attach failure" ? ["recovering", "detached"] : ["detached"],
+    );
+    expect(h.calls.filter((call) => call === "attach")).toHaveLength(
+      failure === "attach failure" ? 2 : 1,
+    );
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
   });
 }
@@ -1374,8 +1410,14 @@ test("a command spanning detach fails even if Chrome returns a late success", as
   const h = await harness();
   await h.offer();
   const finish = h.holdEvaluation();
-  h.socket.receive({ kind: "command", generation: "generation-1", assignment: h.assignment(), id: 99,
-    method: "cdp", params: { method: "Runtime.evaluate", params: { expression: "1" } } });
+  h.socket.receive({
+    kind: "command",
+    generation: "generation-1",
+    assignment: h.assignment(),
+    id: 99,
+    method: "cdp",
+    params: { method: "Runtime.evaluate", params: { expression: "1" } },
+  });
   await settle();
   h.debuggerDetached("target_closed");
   await settle();
@@ -1424,11 +1466,19 @@ test("commands cannot dispatch while detached target identity is being checked",
   await h.offer();
   const finish = h.delayCreate();
   h.debuggerDetached("target_closed");
-  h.socket.receive({ kind: "command", generation: "generation-1", assignment: h.assignment(), id: 98,
-    method: "cdp", params: { method: "Runtime.evaluate", params: { expression: "1" } } });
+  h.socket.receive({
+    kind: "command",
+    generation: "generation-1",
+    assignment: h.assignment(),
+    id: 98,
+    method: "cdp",
+    params: { method: "Runtime.evaluate", params: { expression: "1" } },
+  });
   await settle();
   expect(h.calls.includes("Runtime.evaluate")).toBe(false);
-  expect(typeof h.socket.sent.find((m) => m.kind === "result" && m.id === 98)?.error).toBe("string");
+  expect(
+    typeof h.socket.sent.find((m) => m.kind === "result" && m.id === 98)?.error,
+  ).toBe("string");
   finish();
   await settle();
   expect(recoveryEvents(h)).toEqual(["recovering", "recovered"]);

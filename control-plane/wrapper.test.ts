@@ -95,9 +95,16 @@ describe("launch and publication", () => {
   test("tail is generation-bound, bounded, and rejects traversal", async () => {
     const dir = path.join(runRoot(), "runs", "old");
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "log"), "-----BEGIN PRIVATE KEY-----\n" + "private material\n".repeat(6000) + "-----END PRIVATE KEY-----\n" + "old diagnostic\n".repeat(50));
+    fs.writeFileSync(
+      path.join(dir, "log"),
+      "-----BEGIN PRIVATE KEY-----\n" +
+        "private material\n".repeat(6000) +
+        "-----END PRIVATE KEY-----\n" +
+        "old diagnostic\n".repeat(50),
+    );
     const other = path.join(runRoot(), "runs", "new");
-    fs.mkdirSync(other); fs.writeFileSync(path.join(other, "log"), "wrong generation");
+    fs.mkdirSync(other);
+    fs.writeFileSync(path.join(other, "log"), "wrong generation");
     fs.symlinkSync(other, path.join(runRoot(), "current"));
     const result = await wrapper(["tail", "old"]);
     expect(result.code).toBe(0);
@@ -114,7 +121,9 @@ describe("launch and publication", () => {
     expect(Buffer.byteLength(large.stdout)).toBeLessThanOrEqual(65536);
     expect(large.stdout).toContain("end");
     fs.writeFileSync(path.join(dir, "log"), "short line\n".repeat(100));
-    expect((await wrapper(["tail", "old"])).stdout.trimEnd().split("\n")).toHaveLength(80);
+    expect(
+      (await wrapper(["tail", "old"])).stdout.trimEnd().split("\n"),
+    ).toHaveLength(80);
   });
 
   test("the launcher confirms only a complete, published generation", async () => {

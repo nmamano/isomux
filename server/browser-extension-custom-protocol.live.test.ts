@@ -48,11 +48,18 @@ async function startChrome() {
         throw new Error("Fixture connection did not settle");
       await Bun.sleep(20);
     }
-    return { raw, setup, admin, id, fixture, close: async () => {
-      await raw!.close();
-      fixture.stop();
-      rmSync(dir, { recursive: true, force: true });
-    } };
+    return {
+      raw,
+      setup,
+      admin,
+      id,
+      fixture,
+      close: async () => {
+        await raw!.close();
+        fixture.stop();
+        rmSync(dir, { recursive: true, force: true });
+      },
+    };
   } catch (error) {
     await raw?.close();
     fixture.stop();
@@ -63,9 +70,12 @@ async function startChrome() {
 
 let chrome: Awaited<ReturnType<typeof startChrome>>;
 beforeAll(async () => {
-  if (process.env.ISOMUX_TEST_BROWSER_EXTENSION === "1") chrome = await startChrome();
+  if (process.env.ISOMUX_TEST_BROWSER_EXTENSION === "1")
+    chrome = await startChrome();
 }, 30_000);
-afterAll(async () => { await chrome?.close(); });
+afterAll(async () => {
+  await chrome?.close();
+});
 
 // Poll observations under a bound, then let the caller assert the actual state.
 async function observe(predicate: () => boolean, ms = 3000) {
@@ -87,7 +97,11 @@ async function withOfferedTab(
   deadlineMs = 5000,
 ) {
   const { setup, admin, id, fixture } = chrome;
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: req => site(new URL(req.url)) });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (req) => site(new URL(req.url)),
+  });
   const connection = fixture.bridge.connections("fixture-member")[0];
   const receive = connection.receive.bind(connection);
   let sessions: ExtensionBrowserSessions | undefined;
@@ -112,7 +126,10 @@ async function withOfferedTab(
     const recoveryEvents: string[] = [];
     connection.receive = (message: unknown) => {
       const event = message as { kind?: string; method?: string };
-      if (event.kind === "event" && (event.method === "recovering" || event.method === "recovered"))
+      if (
+        event.kind === "event" &&
+        (event.method === "recovering" || event.method === "recovered")
+      )
         recoveryEvents.push(event.method);
       receive(message);
     };
@@ -134,7 +151,9 @@ async function withOfferedTab(
       turnOff: async () => {
         await offered!.bringToFront();
         const popup = await openExtensionActionPopup(admin, id, target);
-        await popup.waitFor('document.querySelector("#allow").checked && !document.querySelector("#allow").disabled');
+        await popup.waitFor(
+          'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled',
+        );
         try {
           // Off is complete when the office releases the grant. The popup is
           // not part of that contract and need not stay open for another read.
@@ -179,12 +198,20 @@ for (const stop of ["tab close", "member Off"] as const) {
     `custom-protocol click keeps the same grant; ${stop} releases it`,
     async () => {
       await withOfferedTab(
-        (url) => url.pathname === "/frame"
-          ? html('<p id="inside">frame available</p>')
-          : html(`<a id="launch" href="#" onclick="location.href='x-proto://launch';return false">Launch</a><p id="status">available</p><iframe src="http://localhost:${url.port}/frame"></iframe>`),
+        (url) =>
+          url.pathname === "/frame"
+            ? html('<p id="inside">frame available</p>')
+            : html(
+                `<a id="launch" href="#" onclick="location.href='x-proto://launch';return false">Launch</a><p id="status">available</p><iframe src="http://localhost:${url.port}/frame"></iframe>`,
+              ),
         async ({ act, grant, setupPage, turnOff, recoveryEvents }) => {
-          expect((await act({ action: "text", selector: "#status" })).result).toMatchObject({ ok: true, text: "available" });
-          expect((await act({ action: "text", framePath: [0], selector: "#inside" })).result).toMatchObject({ ok: true, text: "frame available" });
+          expect(
+            (await act({ action: "text", selector: "#status" })).result,
+          ).toMatchObject({ ok: true, text: "available" });
+          expect(
+            (await act({ action: "text", framePath: [0], selector: "#inside" }))
+              .result,
+          ).toMatchObject({ ok: true, text: "frame available" });
           const original = grant();
           expect(typeof original).toBe("string");
           const click = await act({ action: "click", selector: "#launch" });
@@ -195,9 +222,14 @@ for (const stop of ["tab close", "member Off"] as const) {
           expect(recoveryEvents).toContain("recovering");
           if (!click.result.ok) expect(click.result.code).toBe("action_failed");
           expect(grant()).toBe(original);
-          expect((await act({ action: "text", selector: "#status" })).result).toMatchObject({ ok: true, text: "available" });
+          expect(
+            (await act({ action: "text", selector: "#status" })).result,
+          ).toMatchObject({ ok: true, text: "available" });
           expect(grant()).toBe(original);
-          expect((await act({ action: "text", framePath: [0], selector: "#inside" })).result).toMatchObject({ ok: true, text: "frame available" });
+          expect(
+            (await act({ action: "text", framePath: [0], selector: "#inside" }))
+              .result,
+          ).toMatchObject({ ok: true, text: "frame available" });
           console.log("Recovery events after read", recoveryEvents);
           expect(recoveryEvents).toEqual(["recovering", "recovered"]);
           if (stop === "tab close") await setupPage.close();
@@ -205,7 +237,9 @@ for (const stop of ["tab close", "member Off"] as const) {
           const deadline = Date.now() + 3000;
           while (grant() && Date.now() < deadline) await Bun.sleep(20);
           expect(grant()).toBeUndefined();
-          expect((await act({ action: "text", selector: "#status" })).result).toMatchObject({ ok: false, code: "browser_control_ended" });
+          expect(
+            (await act({ action: "text", selector: "#status" })).result,
+          ).toMatchObject({ ok: false, code: "browser_control_ended" });
         },
       );
     },

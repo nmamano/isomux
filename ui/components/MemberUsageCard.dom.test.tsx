@@ -86,7 +86,9 @@ it("saves the switch and share with the settings and shows one status line per p
 
 it("reserves the card frame and disables writes until settings arrive", async () => {
   let resolve!: (value: unknown) => void;
-  const pending = new Promise((done) => { resolve = done; });
+  const pending = new Promise((done) => {
+    resolve = done;
+  });
   const writes: unknown[] = [];
   setApiShim(async (method, _path, body) => {
     if (method === "GET") return pending;
@@ -104,7 +106,9 @@ it("reserves the card frame and disables writes until settings arrive", async ()
     resolve({ version: "1", memberUsageCap: false, memberUsageShare: 80 });
   });
   expect(writes).toHaveLength(0);
-  expect(view.container.querySelector('section[aria-busy="false"]')?.tagName).toBe("SECTION");
+  expect(
+    view.container.querySelector('section[aria-busy="false"]')?.tagName,
+  ).toBe("SECTION");
   expect((view.getByRole("checkbox") as HTMLInputElement).disabled).toBe(false);
   view.unmount();
 });
@@ -113,10 +117,15 @@ for (const outcome of ["failed", "unsupported"] as const) {
   it(`removes the reserved card after ${outcome} settings`, async () => {
     let resolve!: (value: unknown) => void;
     let reject!: (reason: Error) => void;
-    const pending = new Promise((done, fail) => { resolve = done; reject = fail; });
+    const pending = new Promise((done, fail) => {
+      resolve = done;
+      reject = fail;
+    });
     setApiShim(async () => pending);
     const view = render(onLanguage(null, createElement(MemberUsageCard)));
-    expect(view.container.querySelector('section[aria-busy="true"]')?.tagName).toBe("SECTION");
+    expect(
+      view.container.querySelector('section[aria-busy="true"]')?.tagName,
+    ).toBe("SECTION");
     await act(async () => {
       if (outcome === "failed") reject(new Error("unavailable"));
       else resolve({ version: "1" });

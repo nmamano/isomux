@@ -1,12 +1,21 @@
 // Drive the real runner through Docker's boundary without installing a machine.
 // Its saved-state checks run as real bash/jq against temporary fixture files.
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
+});
 
 async function run(mode: string) {
   const dir = mkdtempSync(join(tmpdir(), "hosted-run-"));
@@ -16,10 +25,28 @@ async function run(mode: string) {
     writeFileSync(file, `#!/usr/bin/env bash\nset -e\n${body}\n`);
     chmodSync(file, 0o755);
   };
-  writeFileSync(join(dir, "office-config.json"), JSON.stringify({ externalAccess: mode !== "access-off", publicOrigin: mode === "wrong-origin" ? "https://other.isomux.app" : "https://smoke.isomux.app" }));
-  if (mode !== "missing-invite") writeFileSync(join(dir, "invite-url"), "https://smoke.isomux.app/i/fixture");
-  stub("git", '[[ $1 != rev-parse ]] || echo 1111111111111111111111111111111111111111');
-  stub("docker", `
+  writeFileSync(
+    join(dir, "office-config.json"),
+    JSON.stringify({
+      externalAccess: mode !== "access-off",
+      publicOrigin:
+        mode === "wrong-origin"
+          ? "https://other.isomux.app"
+          : "https://smoke.isomux.app",
+    }),
+  );
+  if (mode !== "missing-invite")
+    writeFileSync(
+      join(dir, "invite-url"),
+      "https://smoke.isomux.app/i/fixture",
+    );
+  stub(
+    "git",
+    "[[ $1 != rev-parse ]] || echo 1111111111111111111111111111111111111111",
+  );
+  stub(
+    "docker",
+    `
 if [[ $1 != exec ]]; then exit 0; fi
 shift
 while [[ $1 == -e || $1 == -u ]]; do
@@ -43,13 +70,28 @@ elif [[ $1 == bash && $2 == -c && $3 == *"replayed PUT"* ]]; then
   exit 0
 elif [[ "$*" == *"/opt/install-smoke/check.ts"* ]]; then
   touch "$STUB_ROOT/office-checked"
-fi`);
+fi`,
+  );
   const child = Bun.spawn(["bash", join(import.meta.dir, "run.sh"), "hosted"], {
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, STUB_ROOT: dir, STUB_MODE: mode, SMOKE_LOG_DIR: join(dir, "logs") },
-    stdout: "pipe", stderr: "pipe",
+    env: {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      STUB_ROOT: dir,
+      STUB_MODE: mode,
+      SMOKE_LOG_DIR: join(dir, "logs"),
+    },
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const out = (await new Response(child.stdout).text()) + (await new Response(child.stderr).text());
-  return { code: await child.exited, out, checked: await Bun.file(join(dir, "office-checked")).exists(), installLog: readFileSync(join(dir, "logs/install.log"), "utf8") };
+  const out =
+    (await new Response(child.stdout).text()) +
+    (await new Response(child.stderr).text());
+  return {
+    code: await child.exited,
+    out,
+    checked: await Bun.file(join(dir, "office-checked")).exists(),
+    installLog: readFileSync(join(dir, "logs/install.log"), "utf8"),
+  };
 }
 
 test("hosted runner reaches office checks with marker, saved address and invite", async () => {
@@ -58,7 +100,13 @@ test("hosted runner reaches office checks with marker, saved address and invite"
   expect(result.checked).toBe(true);
 });
 
-for (const mode of ["wrong-marker", "missing-boundary", "access-off", "wrong-origin", "missing-invite"]) {
+for (const mode of [
+  "wrong-marker",
+  "missing-boundary",
+  "access-off",
+  "wrong-origin",
+  "missing-invite",
+]) {
   test(`hosted runner refuses ${mode} before office checks`, async () => {
     const result = await run(mode);
     expect(result.code).not.toBe(0);

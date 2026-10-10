@@ -251,7 +251,11 @@ import {
   recordApiReferenceUsage,
 } from "./agent-reference-telemetry.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
-import { appRegistry, appRegistrationGeneration, RESERVED_APP_NAMES } from "./app-registry.ts";
+import {
+  appRegistry,
+  appRegistrationGeneration,
+  RESERVED_APP_NAMES,
+} from "./app-registry.ts";
 import { appShortUrl } from "./app-short-url.ts";
 import { webhookRegistry } from "./webhooks/registry.ts";
 import {
@@ -2849,9 +2853,13 @@ function buildExecutorDeps(
         if (!isSafeScopeId(agentId)) return "invalid_id";
         const owner = ownerUserId ? getUserById(ownerUserId) : null;
         const target = agentManager.getAgent(agentId);
-        if (!owner || !target ||
-            !accessibleRoomIdsFor(owner).has(target.roomId) ||
-            !buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)) return "unavailable";
+        if (
+          !owner ||
+          !target ||
+          !accessibleRoomIdsFor(owner).has(target.roomId) ||
+          !buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)
+        )
+          return "unavailable";
         return { id: target.id, name: target.name };
       },
       // The token and its environment file, written together. A failure to
@@ -2913,7 +2921,12 @@ function buildExecutorDeps(
       },
       limiter: appMessageLimiter,
       publicUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
-      shortUrl: (app) => appShortUrl(app, appPublicUrl(app.hostLabel, appHostDomain()), buildPublicOrigin().origin),
+      shortUrl: (app) =>
+        appShortUrl(
+          app,
+          appPublicUrl(app.hostLabel, appHostDomain()),
+          buildPublicOrigin().origin,
+        ),
       canAccess: canUserAccessApp,
       registrationGeneration: appRegistrationGeneration,
       thumbnails: appThumbnailStore,
@@ -2951,7 +2964,9 @@ function buildExecutorDeps(
       },
       announce: (wire, before) => {
         if (before && before.createdByAgentId !== wire.createdByAgentId) {
-          announceAppAudienceChanges(new Map([[wire.name, appVisibilityFacts(before)]]));
+          announceAppAudienceChanges(
+            new Map([[wire.name, appVisibilityFacts(before)]]),
+          );
           // Also update viewers who retain access: their app moved rooms too.
         }
         const visibility = appVisibilityFacts(wire);
@@ -6638,10 +6653,14 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
 
         // Short links stay on the office host. Reserved names fall through to
         // their existing handlers, and sign-in belongs to the app origin.
-        if ((req.method === "GET" || req.method === "HEAD") &&
-            appHostDomain() !== null &&
-            normalizeRequestHost(req.headers.get("host")) === appHostDomain()) {
-          const match = /^\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\/?$/.exec(url.pathname);
+        if (
+          (req.method === "GET" || req.method === "HEAD") &&
+          appHostDomain() !== null &&
+          normalizeRequestHost(req.headers.get("host")) === appHostDomain()
+        ) {
+          const match = /^\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\/?$/.exec(
+            url.pathname,
+          );
           if (match && !RESERVED_APP_NAMES.has(match[1])) {
             let app: AppRecord | null = null;
             try {
@@ -6650,8 +6669,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               // A broken optional shortcut must not block the office shell.
               console.error("[apps] could not resolve short link:", err);
             }
-            const publicUrl = app ? appPublicUrl(app.hostLabel, appHostDomain()) : null;
-            if (appShortUrl(app, publicUrl, buildPublicOrigin().origin) !== null) {
+            const publicUrl = app
+              ? appPublicUrl(app.hostLabel, appHostDomain())
+              : null;
+            if (
+              appShortUrl(app, publicUrl, buildPublicOrigin().origin) !== null
+            ) {
               const target = new URL(publicUrl!);
               target.search = url.search;
               return new Response(null, {

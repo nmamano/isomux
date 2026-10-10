@@ -68,9 +68,15 @@ export const googleSignInAvailable = googleConfigured;
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers,
   logger: {
-    error(error) { console.error(redactLogText(inspect(error, { depth: 4 }))); },
-    warn(code) { console.warn(redactLogText(code)); },
-    debug() { /* Production authentication never logs request metadata. */ },
+    error(error) {
+      console.error(redactLogText(inspect(error, { depth: 4 })));
+    },
+    warn(code) {
+      console.warn(redactLogText(code));
+    },
+    debug() {
+      /* Production authentication never logs request metadata. */
+    },
   },
   session: { strategy: "jwt" },
   pages: { signIn: "/signin" },

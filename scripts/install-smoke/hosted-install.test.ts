@@ -4,14 +4,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
+});
 
-async function run(failAt = "", entry = 'main "$@"', boundary = "configure_caddy") {
+async function run(
+  failAt = "",
+  entry = 'main "$@"',
+  boundary = "configure_caddy",
+) {
   const dir = mkdtempSync(join(tmpdir(), "hosted-smoke-"));
   dirs.push(dir);
   const file = join(dir, "install.sh");
   const steps = join(dir, "steps");
-  writeFileSync(file, `set -Eeuo pipefail
+  writeFileSync(
+    file,
+    `set -Eeuo pipefail
 step() { echo "$1" >> "$STEPS"; [[ $1 != "$FAIL_AT" ]]; }
 configure_caddy() { step tls; }
 main() {
@@ -23,12 +32,23 @@ main() {
   step report
 }
 ${entry}
-`);
-  const child = Bun.spawn(["bash", join(import.meta.dir, "hosted-install.sh"), file], {
-    env: { ...process.env, STEPS: steps, FAIL_AT: failAt }, stdout: "pipe", stderr: "pipe",
-  });
+`,
+  );
+  const child = Bun.spawn(
+    ["bash", join(import.meta.dir, "hosted-install.sh"), file],
+    {
+      env: { ...process.env, STEPS: steps, FAIL_AT: failAt },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   const code = await child.exited;
-  return { code, steps: Bun.file(steps).size ? readFileSync(steps, "utf8").trim().split("\n") : [] };
+  return {
+    code,
+    steps: Bun.file(steps).size
+      ? readFileSync(steps, "utf8").trim().split("\n")
+      : [],
+  };
 }
 
 test("hosted wrapper runs claim, access and invite before stopping at TLS", async () => {

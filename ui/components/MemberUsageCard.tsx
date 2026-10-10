@@ -57,7 +57,8 @@ export function MemberUsageCard() {
     };
   }, []);
 
-  if (!loading && (!settings || settings.memberUsageCap === undefined)) return null;
+  if (!loading && (!settings || settings.memberUsageCap === undefined))
+    return null;
 
   const baselineCap = settings?.memberUsageCap ?? false;
   const baselineShare = settings?.memberUsageShare ?? DEFAULT_MEMBER_SHARE;

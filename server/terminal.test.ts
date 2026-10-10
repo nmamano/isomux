@@ -155,22 +155,37 @@ for (const structuredExit of [false, true]) {
   it(`drains sidecar output before ${structuredExit ? "structured" : "fallback"} exit`, async () => {
     const f = fixture(() => ({}));
     let controller!: ReadableStreamDefaultController<Uint8Array>;
-    const stdout = new ReadableStream<Uint8Array>({ start(c) { controller = c; } });
+    const stdout = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+    });
     f.spawn.mockReturnValue({
-      stdin: { write: () => 0 }, stdout, exited: Promise.resolve(9), pid: 123,
+      stdin: { write: () => 0 },
+      stdout,
+      exited: Promise.resolve(9),
+      pid: 123,
     } as unknown as ReturnType<typeof Bun.spawn>);
     openTerminal("agent-terminal", f.deps);
     await Promise.resolve();
     await Promise.resolve();
     expect(f.emit.mock.calls).toHaveLength(0);
-    const lines = JSON.stringify({ type: "output", data: "tail" }) + "\n" +
-      (structuredExit ? JSON.stringify({ type: "exit", exitCode: 7 }) + "\n" : "");
+    const lines =
+      JSON.stringify({ type: "output", data: "tail" }) +
+      "\n" +
+      (structuredExit
+        ? JSON.stringify({ type: "exit", exitCode: 7 }) + "\n"
+        : "");
     controller.enqueue(new TextEncoder().encode(lines));
     controller.close();
     await Bun.sleep(0);
     expect(f.emit.mock.calls.map(([event]) => event)).toEqual([
       { type: "terminal_output", agentId: "agent-terminal", data: "tail" },
-      { type: "terminal_exit", agentId: "agent-terminal", exitCode: structuredExit ? 7 : 9 },
+      {
+        type: "terminal_exit",
+        agentId: "agent-terminal",
+        exitCode: structuredExit ? 7 : 9,
+      },
     ]);
   });
 }

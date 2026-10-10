@@ -214,7 +214,9 @@ export class ExtensionBrowserSessions {
     let session = this.sessions.get(key);
     if (
       session &&
-      (session.signal.aborted || !session.browser.isConnected() || session.member !== member)
+      (session.signal.aborted ||
+        !session.browser.isConnected() ||
+        session.member !== member)
     ) {
       this.end(key);
       session = undefined;
@@ -231,7 +233,9 @@ export class ExtensionBrowserSessions {
       return { ok: true, url: "", title: "", closed: true };
     }
     if (!(await connection.waitForRecovery(grant, actionMs))) {
-      return connection.offered(agent, target) === grant ? timeoutResult(true) : ended();
+      return connection.offered(agent, target) === grant
+        ? timeoutResult(true)
+        : ended();
     }
     if (session && (session.signal.aborted || !session.browser.isConnected())) {
       this.end(key);
@@ -287,7 +291,11 @@ export class ExtensionBrowserSessions {
     let transport: ReturnType<typeof browserExtensionTransport> | undefined;
     let timedOut = false;
     let debuggerDetached = false;
-    const detachedResult = () => failure("action_failed", "The Chrome debugger detached; the action outcome is unknown.");
+    const detachedResult = () =>
+      failure(
+        "action_failed",
+        "The Chrome debugger detached; the action outcome is unknown.",
+      );
     let timeoutWinner = "client_closed";
     let interrupt!: (result: BrowserResult) => void;
     const interrupted = new Promise<BrowserResult>((resolve) => {
@@ -637,11 +645,14 @@ export class ExtensionBrowserSessions {
           operation,
           interrupted,
           new Promise<BrowserResult>((resolve) => {
-            timer = setTimeout(() => {
-              timeoutWinner = "watchdog_timeout";
-              timedOut = true;
-              resolve(timeoutResult(true));
-            }, Math.max(0, deadline - performance.now()) + SETTLEMENT_GRACE_MS);
+            timer = setTimeout(
+              () => {
+                timeoutWinner = "watchdog_timeout";
+                timedOut = true;
+                resolve(timeoutResult(true));
+              },
+              Math.max(0, deadline - performance.now()) + SETTLEMENT_GRACE_MS,
+            );
           }),
         ]);
         if (debuggerDetached) return valid() ? detachedResult() : ended();

@@ -80,7 +80,6 @@ Open a new terminal after this so `bun` lands on `PATH`. If `bun` is still not f
 
 The embedded terminal uses Bun. Node.js is needed to install Claude Code with npm.
 
-
 ### 2. Install & Run
 
 ```sh

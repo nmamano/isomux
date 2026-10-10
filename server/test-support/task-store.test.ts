@@ -33,7 +33,10 @@ function expectBoard(state: OfficeState) {
 describe("per-record task persistence", () => {
   it("persists create, update, clear, re-file and delete with the existing array bytes", () => {
     const { state, manager } = setup();
-    const a = manager.addTask("a", "member", { roomId: "room-a", priority: "P1" });
+    const a = manager.addTask("a", "member", {
+      roomId: "room-a",
+      priority: "P1",
+    });
     expectBoard(state);
     const b = manager.addTask("b", "agent");
     expectBoard(state);
@@ -54,9 +57,15 @@ describe("per-record task persistence", () => {
 
   it("uses the current board after direct seeding and array replacement", () => {
     const { state, manager } = setup();
-    state.setTasksDirect([{
-      id: "seed", title: "seed", status: "open", createdBy: "member", createdAt: 1,
-    }]);
+    state.setTasksDirect([
+      {
+        id: "seed",
+        title: "seed",
+        status: "open",
+        createdBy: "member",
+        createdAt: 1,
+      },
+    ]);
     manager.updateTask("seed", { status: "done" });
     expectBoard(state);
     manager.deleteTask("seed");
@@ -77,7 +86,9 @@ describe("per-record task persistence", () => {
       rmdirSync(taskPath + ".tmp");
       manager.addTask("second", "member");
       expectBoard(state);
-      expect(JSON.parse(disk()).map((task: { id: string }) => task.id)).toContain(a.id);
+      expect(
+        JSON.parse(disk()).map((task: { id: string }) => task.id),
+      ).toContain(a.id);
     } finally {
       error.mockRestore();
     }

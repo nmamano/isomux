@@ -18,9 +18,10 @@ export async function terminalOwner(shellPid: number): Promise<string | null> {
     }
     if (!Number.isInteger(foreground) || foreground <= 0) return null;
     // Match node-pty's argv[0] on Linux; comm truncates names to 15 bytes.
-    const name = process.platform === "linux"
-      ? (await readFile(`/proc/${foreground}/cmdline`, "utf8")).split("\0")[0]
-      : await ps("comm=", foreground);
+    const name =
+      process.platform === "linux"
+        ? (await readFile(`/proc/${foreground}/cmdline`, "utf8")).split("\0")[0]
+        : await ps("comm=", foreground);
     return normalizeTerminalProcess(name) || null;
   } catch {
     // The process can exit between the two reads. Never call an unknown
@@ -31,9 +32,10 @@ export async function terminalOwner(shellPid: number): Promise<string | null> {
 
 async function ps(column: string, pid: number): Promise<string> {
   const child = Bun.spawn(["/bin/ps", "-o", column, "-p", String(pid)], {
-    stdout: "pipe", stderr: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
   });
   const output = await new Response(child.stdout).text();
-  if (await child.exited !== 0) return "";
+  if ((await child.exited) !== 0) return "";
   return output.trim();
 }

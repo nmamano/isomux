@@ -5,10 +5,22 @@ import { customerFailure, safeCustomerReason } from "./customer-error.ts";
 describe("customer payment failures", () => {
   test("server detail removes credentials before the log receives it", () => {
     const logged: unknown[][] = [];
-    customerFailure("en", "transient", "payments", new Error("Bearer short-secret https://office.test/i/owner-secret password=small"), {
-      log: (...args) => { logged.push(args); },
-    });
-    expect(JSON.stringify(logged)).not.toMatch(/short-secret|owner-secret|small/);
+    customerFailure(
+      "en",
+      "transient",
+      "payments",
+      new Error(
+        "Bearer short-secret https://office.test/i/owner-secret password=small",
+      ),
+      {
+        log: (...args) => {
+          logged.push(args);
+        },
+      },
+    );
+    expect(JSON.stringify(logged)).not.toMatch(
+      /short-secret|owner-secret|small/,
+    );
     expect(JSON.stringify(logged)).toContain("redacted");
   });
   test("keeps configuration detail only in the server log", () => {

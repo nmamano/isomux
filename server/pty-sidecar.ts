@@ -71,12 +71,19 @@ function stop() {
 
 input.on("line", (line) => {
   let msg;
-  try { msg = JSON.parse(line); } catch { return; }
+  try {
+    msg = JSON.parse(line);
+  } catch {
+    return;
+  }
   switch (msg.type) {
     case "spawn": {
       if (child || stopping) return;
       if (typeof Bun.Terminal !== "function") {
-        send({ type: "output", data: "This terminal needs Bun 1.3.11 or later. Update Bun and restart Isomux.\r\n" });
+        send({
+          type: "output",
+          data: "This terminal needs Bun 1.3.11 or later. Update Bun and restart Isomux.\r\n",
+        });
         send({ type: "exit", exitCode: 127, signal: null });
         stop();
         return;
@@ -84,12 +91,16 @@ input.on("line", (line) => {
       const shell = msg.shell || "/bin/bash";
       shellName = normalizeTerminalProcess(shell);
       const terminalOptions: Bun.TerminalOptions = {
-        cols: msg.cols || 80, rows: msg.rows || 24,
+        cols: msg.cols || 80,
+        rows: msg.rows || 24,
         data(_terminal, bytes) {
           const data = decoder.decode(bytes, { stream: true });
           if (data) send({ type: "output", data });
         },
-        exit() { outputEnded = true; finish(); },
+        exit() {
+          outputEnded = true;
+          finish();
+        },
       };
       try {
         child = Bun.spawn([shell, "-i", "-l"], {
@@ -113,10 +124,11 @@ input.on("line", (line) => {
         exit = { exitCode, signal: spawned.signalCode };
         // A background job can retain the slave after the shell exits. Keep
         // node-pty's 200 ms drain bound for that case; normal exits use EOF.
-        if (!outputEnded) drainTimer = setTimeout(() => {
-          outputEnded = true;
-          finish();
-        }, 200);
+        if (!outputEnded)
+          drainTimer = setTimeout(() => {
+            outputEnded = true;
+            finish();
+          }, 200);
         finish();
       });
       owner = shellName;
@@ -131,7 +143,9 @@ input.on("line", (line) => {
       }
       break;
     case "resize":
-      try { terminal?.resize(msg.cols, msg.rows); } catch {}
+      try {
+        terminal?.resize(msg.cols, msg.rows);
+      } catch {}
       break;
     case "status":
       void reportOwner(true);

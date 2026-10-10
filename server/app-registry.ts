@@ -1055,7 +1055,12 @@ export function createAppRegistry(
 
       const updated: AppRecord = {
         ...apps[index],
-        ...(patch.creator ? { createdByAgentId: patch.creator.id, createdBy: patch.creator.name } : {}),
+        ...(patch.creator
+          ? {
+              createdByAgentId: patch.creator.id,
+              createdBy: patch.creator.name,
+            }
+          : {}),
         ...(patch.command !== undefined ? { command: patch.command } : {}),
         ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
         ...(patch.messageTargetAgentId !== undefined
@@ -1067,9 +1072,12 @@ export function createAppRegistry(
       };
       // An explicit target wins. Legacy records keep their absent target and
       // therefore follow the new creator through the existing send fallback.
-      if (patch.creator && patch.messageTargetAgentId === undefined &&
-          apps[index].messageTargetAgentId !== undefined &&
-          apps[index].messageTargetAgentId === apps[index].createdByAgentId) {
+      if (
+        patch.creator &&
+        patch.messageTargetAgentId === undefined &&
+        apps[index].messageTargetAgentId !== undefined &&
+        apps[index].messageTargetAgentId === apps[index].createdByAgentId
+      ) {
         updated.messageTargetAgentId = patch.creator.id;
       }
       if (patch.archived === true) updated.archived = true;

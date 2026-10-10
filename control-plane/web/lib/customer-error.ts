@@ -67,7 +67,12 @@ export function customerFailure(
 ): string {
   const reference = deps.newReference?.() ?? referenceCode();
   const log = deps.log ?? console.error;
-  log(`[customer-error ${reference}]`, redactLogText(typeof detail === "string" ? detail : inspect(detail, { depth: 4 })));
+  log(
+    `[customer-error ${reference}]`,
+    redactLogText(
+      typeof detail === "string" ? detail : inspect(detail, { depth: 4 }),
+    ),
+  );
   const { t } = translatorFor(language);
   return `${t(friendlyKey(kind, surface))} ${t("errors.reference", { reference })}`;
 }

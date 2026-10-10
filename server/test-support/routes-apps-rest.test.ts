@@ -2546,24 +2546,54 @@ describe("routes/apps REST: move to another creator", () => {
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const creator = await spawnAgent(srv, "Creator");
-    const target = await spawnAgent(srv, "NewCreator", srv.agentManager.createRoom("Next room"));
+    const target = await spawnAgent(
+      srv,
+      "NewCreator",
+      srv.agentManager.createRoom("Next room"),
+    );
     const registered = await api(srv, "/api/apps", {
-      method: "POST", bearer: mintAgentToken(creator.id, getUserByName("Boss")!.id), body: body(srv, "moving"),
+      method: "POST",
+      bearer: mintAgentToken(creator.id, getUserByName("Boss")!.id),
+      body: body(srv, "moving"),
     });
     expect(registered.status).toBe(201);
     const before = registered.body as AppWire;
     const calls = [...srv.appSupervisor.calls];
     const moved = await api(srv, "/api/apps/moving", {
-      method: "PATCH", rawSessionId: owner.rawSessionId, body: { createdByAgentId: target.id },
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { createdByAgentId: target.id },
     });
     expect(moved.status).toBe(200);
-    expect(moved.body).toEqual({ ...before, createdBy: target.name, createdByAgentId: target.id, messageTargetAgentId: target.id });
-    expect(srv.appSupervisor.calls.slice(calls.length).filter((call) => !call.startsWith("states:"))).toEqual([]);
+    expect(moved.body).toEqual({
+      ...before,
+      createdBy: target.name,
+      createdByAgentId: target.id,
+      messageTargetAgentId: target.id,
+    });
+    expect(
+      srv.appSupervisor.calls
+        .slice(calls.length)
+        .filter((call) => !call.startsWith("states:")),
+    ).toEqual([]);
     const { createAppRegistry } = await import("../app-registry.ts");
-    const persisted = createAppRegistry({ dir: join(srv.stateRoot, "apps"), portMin: Number(process.env.ISOMUX_TEST_APP_PORT_MIN), portMax: Number(process.env.ISOMUX_TEST_APP_PORT_MAX) }).get("moving");
-    expect(persisted).toMatchObject({ createdBy: target.name, createdByAgentId: target.id, messageTargetAgentId: target.id, port: before.port, dataDir: before.dataDir, userId: before.userId });
+    const persisted = createAppRegistry({
+      dir: join(srv.stateRoot, "apps"),
+      portMin: Number(process.env.ISOMUX_TEST_APP_PORT_MIN),
+      portMax: Number(process.env.ISOMUX_TEST_APP_PORT_MAX),
+    }).get("moving");
+    expect(persisted).toMatchObject({
+      createdBy: target.name,
+      createdByAgentId: target.id,
+      messageTargetAgentId: target.id,
+      port: before.port,
+      dataDir: before.dataDir,
+      userId: before.userId,
+    });
     const same = await api(srv, "/api/apps/moving", {
-      method: "PATCH", rawSessionId: owner.rawSessionId, body: { createdByAgentId: target.id },
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { createdByAgentId: target.id },
     });
     expect(same.status).toBe(200);
     expect(same.body).toEqual(moved.body);
@@ -2578,13 +2608,41 @@ describe("routes/apps REST: move to another creator", () => {
     const messenger = await spawnAgent(srv, "Messenger");
     const token = mintAgentToken(creator.id, getUserByName("Boss")!.id);
     for (const name of ["separate", "explicit"]) {
-      expect((await api(srv, "/api/apps", { method: "POST", bearer: token, body: body(srv, name) })).status).toBe(201);
+      expect(
+        (
+          await api(srv, "/api/apps", {
+            method: "POST",
+            bearer: token,
+            body: body(srv, name),
+          })
+        ).status,
+      ).toBe(201);
     }
-    expect((await api(srv, "/api/apps/separate", { method: "PATCH", rawSessionId: owner.rawSessionId, body: { messageTargetAgentId: messenger.id } })).status).toBe(200);
+    expect(
+      (
+        await api(srv, "/api/apps/separate", {
+          method: "PATCH",
+          rawSessionId: owner.rawSessionId,
+          body: { messageTargetAgentId: messenger.id },
+        })
+      ).status,
+    ).toBe(200);
     for (const name of ["separate", "explicit"]) {
-      const moved = await api(srv, `/api/apps/${name}`, { method: "PATCH", rawSessionId: owner.rawSessionId, body: { createdByAgentId: target.id, ...(name === "explicit" ? { messageTargetAgentId: messenger.id } : {}) } });
+      const moved = await api(srv, `/api/apps/${name}`, {
+        method: "PATCH",
+        rawSessionId: owner.rawSessionId,
+        body: {
+          createdByAgentId: target.id,
+          ...(name === "explicit"
+            ? { messageTargetAgentId: messenger.id }
+            : {}),
+        },
+      });
       expect(moved.status).toBe(200);
-      expect(moved.body).toMatchObject({ createdByAgentId: target.id, messageTargetAgentId: messenger.id });
+      expect(moved.body).toMatchObject({
+        createdByAgentId: target.id,
+        messageTargetAgentId: messenger.id,
+      });
     }
   });
 
@@ -2594,22 +2652,55 @@ describe("routes/apps REST: move to another creator", () => {
     const owner = await srv.seedOwner("Boss");
     const creator = await spawnAgent(srv, "Creator");
     const target = await spawnAgent(srv, "NewCreator");
-    expect((await api(srv, "/api/apps", { method: "POST", bearer: mintAgentToken(creator.id, getUserByName("Boss")!.id), body: body(srv, "legacy") })).status).toBe(201);
+    expect(
+      (
+        await api(srv, "/api/apps", {
+          method: "POST",
+          bearer: mintAgentToken(creator.id, getUserByName("Boss")!.id),
+          body: body(srv, "legacy"),
+        })
+      ).status,
+    ).toBe(201);
     const path = join(srv.stateRoot, "apps", "apps.json");
-    const stored = JSON.parse(readFileSync(path, "utf8")) as { apps: AppRecord[] };
+    const stored = JSON.parse(readFileSync(path, "utf8")) as {
+      apps: AppRecord[];
+    };
     delete stored.apps[0].messageTargetAgentId;
     writeFileSync(path, JSON.stringify(stored));
-    const moved = await api(srv, "/api/apps/legacy", { method: "PATCH", rawSessionId: owner.rawSessionId, body: { createdByAgentId: target.id } });
+    const moved = await api(srv, "/api/apps/legacy", {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { createdByAgentId: target.id },
+    });
     expect(moved.status).toBe(200);
-    expect(moved.body).toMatchObject({ createdByAgentId: target.id, createdBy: target.name });
+    expect(moved.body).toMatchObject({
+      createdByAgentId: target.id,
+      createdBy: target.name,
+    });
     expect(moved.body).not.toHaveProperty("messageTargetAgentId");
-    expect(JSON.parse(readFileSync(path, "utf8")).apps[0]).not.toHaveProperty("messageTargetAgentId");
+    expect(JSON.parse(readFileSync(path, "utf8")).apps[0]).not.toHaveProperty(
+      "messageTargetAgentId",
+    );
     const sent = await api(srv, "/api/app/message", {
-      method: "POST", bearer: srv.appSupervisor.tokenFiles.get("legacy"), body: { text: "legacy delivery probe" },
+      method: "POST",
+      bearer: srv.appSupervisor.tokenFiles.get("legacy"),
+      body: { text: "legacy delivery probe" },
     });
     expect(sent.status).toBe(200);
-    await waitUntil(() => srv.fakeBackend.sessions.some((session) => session.opts.agentId === target.id && session.sent.some((message) => message.text.includes("legacy delivery probe"))));
-    expect(srv.fakeBackend.sessions.filter((session) => session.opts.agentId === creator.id).flatMap((session) => session.sent)).toHaveLength(0);
+    await waitUntil(() =>
+      srv.fakeBackend.sessions.some(
+        (session) =>
+          session.opts.agentId === target.id &&
+          session.sent.some((message) =>
+            message.text.includes("legacy delivery probe"),
+          ),
+      ),
+    );
+    expect(
+      srv.fakeBackend.sessions
+        .filter((session) => session.opts.agentId === creator.id)
+        .flatMap((session) => session.sent),
+    ).toHaveLength(0);
   });
 
   it("refuses unreachable, missing, dead and malformed creators without a partial write", async () => {
@@ -2619,31 +2710,86 @@ describe("routes/apps REST: move to another creator", () => {
     const alice = await srv.seedMember("Alice");
     const aliceId = getUserByName("Alice")!.id;
     const creator = await spawnAgent(srv, "Creator");
-    const hidden = await spawnAgent(srv, "Hidden", srv.agentManager.createRoom("Hidden room"));
-    expect(updateUserById(aliceId, { allowedRooms: [creator.roomId] }).ok).toBe(true);
-    expect((await api(srv, "/api/apps", { method: "POST", bearer: mintAgentToken(creator.id, aliceId), body: body(srv, "guarded") })).status).toBe(201);
+    const hidden = await spawnAgent(
+      srv,
+      "Hidden",
+      srv.agentManager.createRoom("Hidden room"),
+    );
+    expect(updateUserById(aliceId, { allowedRooms: [creator.roomId] }).ok).toBe(
+      true,
+    );
+    expect(
+      (
+        await api(srv, "/api/apps", {
+          method: "POST",
+          bearer: mintAgentToken(creator.id, aliceId),
+          body: body(srv, "guarded"),
+        })
+      ).status,
+    ).toBe(201);
     const path = join(srv.stateRoot, "apps", "apps.json");
     const before = readFileSync(path, "utf8");
     const watcher = await srv.connectWs(boss.rawSessionId);
     for (const rawSessionId of [boss.rawSessionId, alice.rawSessionId]) {
-      const denied = await api(srv, "/api/apps/guarded", { method: "PATCH", rawSessionId, body: { createdByAgentId: hidden.id, description: "must not persist" } });
+      const denied = await api(srv, "/api/apps/guarded", {
+        method: "PATCH",
+        rawSessionId,
+        body: { createdByAgentId: hidden.id, description: "must not persist" },
+      });
       expect(denied.status).toBe(403);
       expect(errCode(denied)).toBe("forbidden");
       expect(readFileSync(path, "utf8")).toBe(before);
     }
     const reachable = await spawnAgent(srv, "Reachable");
-    const explicitDenied = await api(srv, "/api/apps/guarded", { method: "PATCH", rawSessionId: alice.rawSessionId, body: { createdByAgentId: reachable.id, messageTargetAgentId: hidden.id } });
+    const explicitDenied = await api(srv, "/api/apps/guarded", {
+      method: "PATCH",
+      rawSessionId: alice.rawSessionId,
+      body: { createdByAgentId: reachable.id, messageTargetAgentId: hidden.id },
+    });
     expect(explicitDenied.status).toBe(403);
     expect(readFileSync(path, "utf8")).toBe(before);
-    expect((await api(srv, `/api/agents/${hidden.id}`, { method: "DELETE", rawSessionId: boss.rawSessionId })).status).toBe(204);
-    for (const createdByAgentId of [hidden.id, "agent-missing", "", "../agent", null, 7]) {
-      const denied = await api(srv, "/api/apps/guarded", { method: "PATCH", rawSessionId: boss.rawSessionId, body: { createdByAgentId, command: "must not persist" } });
-      expect(denied.status).toBe(typeof createdByAgentId === "string" && createdByAgentId.startsWith("agent-") ? 403 : 400);
+    expect(
+      (
+        await api(srv, `/api/agents/${hidden.id}`, {
+          method: "DELETE",
+          rawSessionId: boss.rawSessionId,
+        })
+      ).status,
+    ).toBe(204);
+    for (const createdByAgentId of [
+      hidden.id,
+      "agent-missing",
+      "",
+      "../agent",
+      null,
+      7,
+    ]) {
+      const denied = await api(srv, "/api/apps/guarded", {
+        method: "PATCH",
+        rawSessionId: boss.rawSessionId,
+        body: { createdByAgentId, command: "must not persist" },
+      });
+      expect(denied.status).toBe(
+        typeof createdByAgentId === "string" &&
+          createdByAgentId.startsWith("agent-")
+          ? 403
+          : 400,
+      );
       expect(readFileSync(path, "utf8")).toBe(before);
     }
     // A successful later patch is a socket barrier for all refused moves.
-    expect((await api(srv, "/api/apps/guarded", { method: "PATCH", rawSessionId: alice.rawSessionId, body: { description: "barrier" } })).status).toBe(200);
-    await waitUntil(() => appUpsertsOf(watcher).some((app) => app.description === "barrier"));
+    expect(
+      (
+        await api(srv, "/api/apps/guarded", {
+          method: "PATCH",
+          rawSessionId: alice.rawSessionId,
+          body: { description: "barrier" },
+        })
+      ).status,
+    ).toBe(200);
+    await waitUntil(() =>
+      appUpsertsOf(watcher).some((app) => app.description === "barrier"),
+    );
     expect(appUpsertsOf(watcher)).toHaveLength(1);
     expect(appDeletesOf(watcher)).toHaveLength(0);
   });
@@ -2657,32 +2803,110 @@ describe("routes/apps REST: move to another creator", () => {
     const oldViewer = await srv.seedMember("OldViewer");
     const newViewer = await srv.seedMember("NewViewer");
     const creator = await spawnAgent(srv, "Creator");
-    const target = await spawnAgent(srv, "NewCreator", srv.agentManager.createRoom("Next room"));
-    expect(updateUserById(getUserByName("OldViewer")!.id, { allowedRooms: [creator.roomId] }).ok).toBe(true);
-    expect(updateUserById(getUserByName("NewViewer")!.id, { allowedRooms: [target.roomId] }).ok).toBe(true);
+    const target = await spawnAgent(
+      srv,
+      "NewCreator",
+      srv.agentManager.createRoom("Next room"),
+    );
+    expect(
+      updateUserById(getUserByName("OldViewer")!.id, {
+        allowedRooms: [creator.roomId],
+      }).ok,
+    ).toBe(true);
+    expect(
+      updateUserById(getUserByName("NewViewer")!.id, {
+        allowedRooms: [target.roomId],
+      }).ok,
+    ).toBe(true);
     for (const name of ["AppOwner", "BothViewer"]) {
-      expect(updateUserById(getUserByName(name)!.id, { allowedRooms: [creator.roomId, target.roomId] }).ok).toBe(true);
+      expect(
+        updateUserById(getUserByName(name)!.id, {
+          allowedRooms: [creator.roomId, target.roomId],
+        }).ok,
+      ).toBe(true);
     }
-    const retainedSockets = await Promise.all([owner, appOwner, bothViewer].map((viewer) => srv.connectWs(viewer.rawSessionId)));
+    const retainedSockets = await Promise.all(
+      [owner, appOwner, bothViewer].map((viewer) =>
+        srv.connectWs(viewer.rawSessionId),
+      ),
+    );
     const oldSocket = await srv.connectWs(oldViewer.rawSessionId);
     const newSocket = await srv.connectWs(newViewer.rawSessionId);
-    expect((await api(srv, "/api/apps", { method: "POST", bearer: mintAgentToken(creator.id, getUserByName("AppOwner")!.id), body: body(srv, "moving") })).status).toBe(201);
-    await waitUntil(() => appUpsertsOf(oldSocket).some((app) => app.name === "moving"));
+    expect(
+      (
+        await api(srv, "/api/apps", {
+          method: "POST",
+          bearer: mintAgentToken(creator.id, getUserByName("AppOwner")!.id),
+          body: body(srv, "moving"),
+        })
+      ).status,
+    ).toBe(201);
+    await waitUntil(() =>
+      appUpsertsOf(oldSocket).some((app) => app.name === "moving"),
+    );
     expect(appUpsertsOf(newSocket)).toHaveLength(0);
-    const denied = await api(srv, "/api/apps/moving", { method: "PATCH", rawSessionId: oldViewer.rawSessionId, body: { createdByAgentId: target.id } });
+    const denied = await api(srv, "/api/apps/moving", {
+      method: "PATCH",
+      rawSessionId: oldViewer.rawSessionId,
+      body: { createdByAgentId: target.id },
+    });
     expect(denied.status).toBe(403);
-    expect((await api(srv, "/api/apps/moving", { method: "PATCH", rawSessionId: owner.rawSessionId, body: { createdByAgentId: target.id, description: "moved in the same patch" } })).status).toBe(200);
-    await waitUntil(() => appDeletesOf(oldSocket).includes("moving"), 2000, "move removes old room app");
-    await waitUntil(() => appUpsertsOf(newSocket).some((app) => app.name === "moving"), 2000, "move adds new room app");
+    expect(
+      (
+        await api(srv, "/api/apps/moving", {
+          method: "PATCH",
+          rawSessionId: owner.rawSessionId,
+          body: {
+            createdByAgentId: target.id,
+            description: "moved in the same patch",
+          },
+        })
+      ).status,
+    ).toBe(200);
+    await waitUntil(
+      () => appDeletesOf(oldSocket).includes("moving"),
+      2000,
+      "move removes old room app",
+    );
+    await waitUntil(
+      () => appUpsertsOf(newSocket).some((app) => app.name === "moving"),
+      2000,
+      "move adds new room app",
+    );
     for (const socket of retainedSockets) {
-      await waitUntil(() => appUpsertsOf(socket).some((app) => app.createdByAgentId === target.id), 2000, "move updates retained viewer");
-      expect(appUpsertsOf(socket).at(-1)).toMatchObject({ createdByAgentId: target.id, description: "moved in the same patch" });
+      await waitUntil(
+        () =>
+          appUpsertsOf(socket).some(
+            (app) => app.createdByAgentId === target.id,
+          ),
+        2000,
+        "move updates retained viewer",
+      );
+      expect(appUpsertsOf(socket).at(-1)).toMatchObject({
+        createdByAgentId: target.id,
+        description: "moved in the same patch",
+      });
     }
     for (const socket of retainedSockets.slice(0, 2)) {
-      expect(appUpsertsOf(socket).at(-1)).toMatchObject({ createdBy: target.name, canManage: true });
+      expect(appUpsertsOf(socket).at(-1)).toMatchObject({
+        createdBy: target.name,
+        canManage: true,
+      });
     }
-    expect(appUpsertsOf(newSocket).at(-1)).toMatchObject({ name: "moving", createdByAgentId: target.id, canManage: false });
-    expect((await api(srv, "/api/apps", { rawSessionId: oldViewer.rawSessionId })).body).toEqual([]);
-    expect((await api(srv, "/api/apps", { rawSessionId: newViewer.rawSessionId })).body).toEqual([expect.objectContaining({ name: "moving", createdByAgentId: target.id })]);
+    expect(appUpsertsOf(newSocket).at(-1)).toMatchObject({
+      name: "moving",
+      createdByAgentId: target.id,
+      canManage: false,
+    });
+    expect(
+      (await api(srv, "/api/apps", { rawSessionId: oldViewer.rawSessionId }))
+        .body,
+    ).toEqual([]);
+    expect(
+      (await api(srv, "/api/apps", { rawSessionId: newViewer.rawSessionId }))
+        .body,
+    ).toEqual([
+      expect.objectContaining({ name: "moving", createdByAgentId: target.id }),
+    ]);
   });
 });

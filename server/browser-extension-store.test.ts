@@ -1312,21 +1312,43 @@ for (const outcome of ["recovered", "detached"] as const) {
     const h = await timeoutSessionFixture();
     try {
       // Complete the existing fixture's selector timeout before detaching.
-      expect(await h.sessions.run("agent", { action: "fill", selector: "input", text: "fixture" })).toMatchObject({ code: "action_timeout" });
-      const event = (method: string) => h.connection.receive({ kind: "event", generation: h.connection.generation, assignment: h.grant, method, params: {} });
+      expect(
+        await h.sessions.run("agent", {
+          action: "fill",
+          selector: "input",
+          text: "fixture",
+        }),
+      ).toMatchObject({ code: "action_timeout" });
+      const event = (method: string) =>
+        h.connection.receive({
+          kind: "event",
+          generation: h.connection.generation,
+          assignment: h.grant,
+          method,
+          params: {},
+        });
       event("recovering");
       let finished = false;
       const started = performance.now();
-      const waiting = h.sessions.run("agent", { action: "text" }).then((result) => { finished = true; return result; });
+      const waiting = h.sessions
+        .run("agent", { action: "text" })
+        .then((result) => {
+          finished = true;
+          return result;
+        });
       await Bun.sleep(5);
       expect(finished).toBe(false);
       expect(h.calls()).toBe(0);
       event(outcome);
-      expect(await waiting).toMatchObject(outcome === "recovered"
-        ? { ok: true, text: "fixture" }
-        : { ok: false, code: "browser_control_ended" });
+      expect(await waiting).toMatchObject(
+        outcome === "recovered"
+          ? { ok: true, text: "fixture" }
+          : { ok: false, code: "browser_control_ended" },
+      );
       expect(performance.now() - started).toBeLessThan(3000);
       expect(h.connect).toHaveBeenCalledTimes(outcome === "recovered" ? 2 : 1);
-    } finally { h.stop(); }
+    } finally {
+      h.stop();
+    }
   });
 }

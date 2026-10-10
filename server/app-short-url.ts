@@ -8,6 +8,7 @@ export function appShortUrl(
   publicUrl: string | null,
   officeOrigin: string,
 ): string | null {
-  if (!app || publicUrl === null || RESERVED_APP_NAMES.has(app.name)) return null;
+  if (!app || publicUrl === null || RESERVED_APP_NAMES.has(app.name))
+    return null;
   return `${officeOrigin}/${app.name}`;
 }

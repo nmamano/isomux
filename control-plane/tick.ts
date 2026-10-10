@@ -9,7 +9,11 @@
 // it provably owns the lease for longer than that bound plus a margin.
 
 import * as os from "node:os";
-import { repeatedInstallerFailure, REPEATED_INSTALLER_FAILURE_REASON, type FailureEvidence } from "./failure-evidence.ts";
+import {
+  repeatedInstallerFailure,
+  REPEATED_INSTALLER_FAILURE_REASON,
+  type FailureEvidence,
+} from "./failure-evidence.ts";
 import {
   raiseAttentionIn,
   clearAttentionIn,
@@ -412,7 +416,9 @@ export class Ticker {
         ),
         now: this.now(),
         report: this.report,
-        recordFailure: (value) => { failure = value; },
+        recordFailure: (value) => {
+          failure = value;
+        },
         audit: async (action, outcome, detail) => {
           await this.store.tx(() =>
             this.store.appendAudit({
@@ -552,10 +558,21 @@ export class Ticker {
         // the store has already moved it, so re-read rather than trusting the
         // copy taken before the remote call.
         const current = await this.store.getOperation(fence.id);
-        if (failure && (result.kind === "retry" || result.kind === "ambiguous" || result.kind === "fatal")) {
-          const evidence = (result.evidence ?? JSON.parse(current?.evidence ?? op.evidence)) as Record<string, unknown>;
+        if (
+          failure &&
+          (result.kind === "retry" ||
+            result.kind === "ambiguous" ||
+            result.kind === "fatal")
+        ) {
+          const evidence = (result.evidence ??
+            JSON.parse(current?.evidence ?? op.evidence)) as Record<
+            string,
+            unknown
+          >;
           // A failed tail read must not replace the known installer verdict.
-          const ownFailure = (result.evidence as { failure?: unknown } | undefined)?.failure;
+          const ownFailure = (
+            result.evidence as { failure?: unknown } | undefined
+          )?.failure;
           patch.evidence = { ...evidence, failure: ownFailure ?? failure };
           patch.evidence_at = now;
         }
@@ -594,7 +611,11 @@ export class Ticker {
           }
         }
 
-        if (op.kind === "run_installer" && result.kind === "retry" && repeatedInstallerFailure(result.evidence)) {
+        if (
+          op.kind === "run_installer" &&
+          result.kind === "retry" &&
+          repeatedInstallerFailure(result.evidence)
+        ) {
           await raiseAttentionIn(this.store, {
             instanceId: op.instance_id,
             sourceOpId: op.id,

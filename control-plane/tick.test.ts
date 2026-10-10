@@ -274,15 +274,31 @@ describe("remote timeouts", () => {
 
 describe("deadlines flag, they do not conclude", () => {
   test("identical installer failures flag once, keep retrying, and clear only on done", async () => {
-    const c = clock(); const store = await tempStore(c.now); const inst = await seed(store, "installed");
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store, "installed");
     const attempts: { runId: string; verdict: string; step: string }[] = [];
     let done = false;
     let step = "configure_public_access";
-    const ticker = new Ticker({ store, holder: "a", handlers: [fakeHandler("run_installer", async () => {
-      if (done) return { kind: "done" };
-      attempts.push({ runId: `run-${attempts.length}`, verdict: "exit 22", step });
-      return { kind: "retry", reason: "installer failed", evidence: { attempts: [...attempts] } };
-    })] });
+    const ticker = new Ticker({
+      store,
+      holder: "a",
+      handlers: [
+        fakeHandler("run_installer", async () => {
+          if (done) return { kind: "done" };
+          attempts.push({
+            runId: `run-${attempts.length}`,
+            verdict: "exit 22",
+            step,
+          });
+          return {
+            kind: "retry",
+            reason: "installer failed",
+            evidence: { attempts: [...attempts] },
+          };
+        }),
+      ],
+    });
     const op = await ticker.enqueue(inst, "run_installer");
     for (let n = 1; n <= 5; n++) {
       await ticker.once();
@@ -291,52 +307,118 @@ describe("deadlines flag, they do not conclude", () => {
       expect(row.status).toBe("running");
       expect(row.next_attempt_at).toBeGreaterThan(c.now());
       expect(row.absolute_flagged).toBe(0);
-      const reasons = (await store.openReasons(inst)).filter((r) => r.reason_class === "operation_condition");
+      const reasons = (await store.openReasons(inst)).filter(
+        (r) => r.reason_class === "operation_condition",
+      );
       expect(reasons).toHaveLength(n < 3 ? 0 : 1);
       if (n >= 3) {
         expect(reasons[0].severity).toBe("critical");
-        expect((await store.getInstance(inst))?.attention_state).toBe("needs_operator");
+        expect((await store.getInstance(inst))?.attention_state).toBe(
+          "needs_operator",
+        );
       }
       c.state.t = row.next_attempt_at;
     }
     step = "another_step";
     await ticker.once();
-    expect((await store.openReasons(inst)).filter((r) => r.reason_class === "operation_condition")).toHaveLength(1);
+    expect(
+      (await store.openReasons(inst)).filter(
+        (r) => r.reason_class === "operation_condition",
+      ),
+    ).toHaveLength(1);
     c.state.t = op.absolute_deadline_at + 1;
     await ticker.evaluateDeadlines();
-    expect((await store.openReasons(inst)).some((r) => r.reason_class === "absolute_deadline")).toBe(true);
-    done = true; await ticker.once();
+    expect(
+      (await store.openReasons(inst)).some(
+        (r) => r.reason_class === "absolute_deadline",
+      ),
+    ).toBe(true);
+    done = true;
+    await ticker.once();
     expect(await store.openReasons(inst)).toHaveLength(0);
   });
 
   for (const kind of ["retry", "ambiguous", "fatal"] as const) {
     test(`failure capture preserves ${kind}, replaces old evidence and keeps audits classified`, async () => {
-      const c = clock(); const store = await tempStore(c.now); const inst = await seed(store);
-      const ticker = new Ticker({ store, holder: "a", handlers: [fakeHandler("run_installer", async (ctx) => {
-        ctx.recordFailure?.({ step: "new", exit: 7, logTail: "diagnostic-marker" });
-        return { kind, reason: "classified" };
-      })] });
+      const c = clock();
+      const store = await tempStore(c.now);
+      const inst = await seed(store);
+      const ticker = new Ticker({
+        store,
+        holder: "a",
+        handlers: [
+          fakeHandler("run_installer", async (ctx) => {
+            ctx.recordFailure?.({
+              step: "new",
+              exit: 7,
+              logTail: "diagnostic-marker",
+            });
+            return { kind, reason: "classified" };
+          }),
+        ],
+      });
       const op = await ticker.enqueue(inst, "run_installer");
-      await store.sqlRun("update operations set evidence = $1 where id = $2", [JSON.stringify({ phase: "running", failure: { step: "old", logTail: "old-tail" } }), op.id]);
+      await store.sqlRun("update operations set evidence = $1 where id = $2", [
+        JSON.stringify({
+          phase: "running",
+          failure: { step: "old", logTail: "old-tail" },
+        }),
+        op.id,
+      ]);
       await ticker.once();
       const row = (await store.getOperation(op.id))!;
-      expect(JSON.parse(row.evidence)).toMatchObject({ phase: "running", failure: { step: "new", exit: 7, logTail: "diagnostic-marker" } });
-      expect(row.status).toBe(kind === "fatal" ? "failed" : kind === "ambiguous" ? "ambiguous" : "running");
-      expect(JSON.stringify(await store.sqlAll("select * from audit_events"))).not.toContain("diagnostic-marker");
-      expect(JSON.stringify(await store.openReasons(inst))).not.toContain("diagnostic-marker");
+      expect(JSON.parse(row.evidence)).toMatchObject({
+        phase: "running",
+        failure: { step: "new", exit: 7, logTail: "diagnostic-marker" },
+      });
+      expect(row.status).toBe(
+        kind === "fatal"
+          ? "failed"
+          : kind === "ambiguous"
+            ? "ambiguous"
+            : "running",
+      );
+      expect(
+        JSON.stringify(await store.sqlAll("select * from audit_events")),
+      ).not.toContain("diagnostic-marker");
+      expect(JSON.stringify(await store.openReasons(inst))).not.toContain(
+        "diagnostic-marker",
+      );
     });
   }
 
   test("handler failure evidence wins over a failed diagnostic command", async () => {
-    const c = clock(); const store = await tempStore(c.now); const inst = await seed(store);
-    const installerFailure = { step: "configure_public_access", exit: 22, logTail: "" };
-    const ticker = new Ticker({ store, holder: "a", handlers: [fakeHandler("run_installer", async (ctx) => {
-      ctx.recordFailure?.({ step: "run_installer", exit: 1, logTail: "tail could not be read" });
-      return { kind: "retry", reason: "installer failed", evidence: { phase: "staged", failure: installerFailure } };
-    })] });
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    const installerFailure = {
+      step: "configure_public_access",
+      exit: 22,
+      logTail: "",
+    };
+    const ticker = new Ticker({
+      store,
+      holder: "a",
+      handlers: [
+        fakeHandler("run_installer", async (ctx) => {
+          ctx.recordFailure?.({
+            step: "run_installer",
+            exit: 1,
+            logTail: "tail could not be read",
+          });
+          return {
+            kind: "retry",
+            reason: "installer failed",
+            evidence: { phase: "staged", failure: installerFailure },
+          };
+        }),
+      ],
+    });
     const op = await ticker.enqueue(inst, "run_installer");
     await ticker.once();
-    expect(JSON.parse((await store.getOperation(op.id))!.evidence).failure).toEqual(installerFailure);
+    expect(
+      JSON.parse((await store.getOperation(op.id))!.evidence).failure,
+    ).toEqual(installerFailure);
   });
 
   test("a blown inactivity deadline raises attention and keeps the operation alive", async () => {

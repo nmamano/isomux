@@ -23,7 +23,7 @@ Safe example: `GET /api/apps`.
 | `GET /api/apps`                  | None                                                    | `AppWire[]` projected for caller |
 | `GET /api/apps/:name`            | Name                                                    | `AppWire`                        |
 | `POST /api/apps`                 | Registration fields above                               | `201 AppWire`                    |
-| `PATCH /api/apps/:name`          | Partial command/cwd/description/target/creator                  | `AppWire`                        |
+| `PATCH /api/apps/:name`          | Partial command/cwd/description/target/creator          | `AppWire`                        |
 | `DELETE /api/apps/:name`         | Empty body                                              | `204`                            |
 | `GET /api/apps/:name/logs`       | Optional `lines`                                        | `{lines:string[]}`               |
 | `POST /api/apps/:name/start`     | Empty body                                              | `AppWire`                        |

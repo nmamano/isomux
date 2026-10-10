@@ -14,10 +14,20 @@ for (const failClose of [false, true]) {
         if (${failClose}) throw new Error("close failure token=private-close-value");
       }, new Reporter(undefined, true), true);
     `;
-    const child = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([process.execPath, "-e", script], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     let expired = false;
-    const timeout = setTimeout(() => { expired = true; child.kill("SIGKILL"); }, 3000);
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const timeout = setTimeout(() => {
+      expired = true;
+      child.kill("SIGKILL");
+    }, 3000);
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
     clearTimeout(timeout);
     expect(expired).toBe(false);
     expect(code).toBe(1);

@@ -222,28 +222,42 @@ function sshFor(
 ): SshClient {
   return new SshClient(
     targetFor(rec),
-    captureFailure ? {
-      async run(argv, opts) {
-        // Diagnostics can contain key comments or owner names; evidence is operator-only.
-        let result;
-        try {
-          result = await deps.exec.run(argv, opts);
-        } catch (err) {
-          // No output was returned. Replace stale diagnostics, but keep the
-          // original transport exception and its ambiguity classification.
-          try { ctx.recordFailure?.(failureEvidence(label, null, "")); } catch { /* Observation only. */ }
-          throw err;
+    captureFailure
+      ? {
+          async run(argv, opts) {
+            // Diagnostics can contain key comments or owner names; evidence is operator-only.
+            let result;
+            try {
+              result = await deps.exec.run(argv, opts);
+            } catch (err) {
+              // No output was returned. Replace stale diagnostics, but keep the
+              // original transport exception and its ambiguity classification.
+              try {
+                ctx.recordFailure?.(failureEvidence(label, null, ""));
+              } catch {
+                /* Observation only. */
+              }
+              throw err;
+            }
+            if (result.code !== 0) {
+              // Observation cannot change transport or audit classification.
+              try {
+                ctx.recordFailure?.(
+                  failureEvidence(
+                    label,
+                    result.code,
+                    `${result.stdout}\n${result.stderr}`,
+                    secrets,
+                  ),
+                );
+              } catch {
+                /* Keep the command's original verdict. */
+              }
+            }
+            return result;
+          },
         }
-        if (result.code !== 0) {
-          // Observation cannot change transport or audit classification.
-          try {
-            ctx.recordFailure?.(failureEvidence(label, result.code,
-              `${result.stdout}\n${result.stderr}`, secrets));
-          } catch { /* Keep the command's original verdict. */ }
-        }
-        return result;
-      },
-    } : deps.exec,
+      : deps.exec,
     "yes",
     () => ctx.budget.claim(label),
     (phase, kind) => ctx.audit(label, phase, kind),
@@ -653,7 +667,8 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
       const secrets: string[] = [];
       const ssh = sshFor(ctx, rec, deps, "run_installer", secrets);
       const attempts = (ev.attempts as unknown[]) ?? [];
-      const retainedFailure = ev.failure === undefined ? {} : { failure: ev.failure };
+      const retainedFailure =
+        ev.failure === undefined ? {} : { failure: ev.failure };
 
       if (phase === "") {
         const parsedEndpoint = parseCertificateEndpoint(
@@ -708,7 +723,10 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
             "0755",
           ),
         );
-        return { kind: "progress", evidence: { phase: "staged", attempts, ...retainedFailure } };
+        return {
+          kind: "progress",
+          evidence: { phase: "staged", attempts, ...retainedFailure },
+        };
       }
 
       if (phase === "staged") {
@@ -771,7 +789,12 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
           case "already-exists":
             return {
               kind: "progress",
-              evidence: { phase: "running", runId, attempts, ...retainedFailure },
+              evidence: {
+                phase: "running",
+                runId,
+                attempts,
+                ...retainedFailure,
+              },
             };
           case "unconfirmed":
             return {
@@ -819,18 +842,28 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
       try {
         if (/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(runId)) {
           const tail = await remote(ctx, "installer_failure_tail", () =>
-            ssh.script(`${rec.loginUser === "root" ? "" : "sudo -n "}${WRAPPER_REMOTE_PATH} tail "$1"\n`, [runId]),
+            ssh.script(
+              `${rec.loginUser === "root" ? "" : "sudo -n "}${WRAPPER_REMOTE_PATH} tail "$1"\n`,
+              [runId],
+            ),
           );
           if (tail.code === 0) logTail = tail.stdout;
         }
-      } catch { /* Diagnostics must not stop the known failure's retry. */ }
+      } catch {
+        /* Diagnostics must not stop the known failure's retry. */
+      }
       return {
         kind: "retry",
         reason: `installer generation ${runId} ${verdict} at step ${lastStep}`,
         evidence: {
           phase: "staged",
           attempts: [...attempts, { runId, verdict, step: lastStep }],
-          failure: failureEvidence(lastStep, tick.state === "finished" ? tick.exit : null, logTail, secrets),
+          failure: failureEvidence(
+            lastStep,
+            tick.state === "finished" ? tick.exit : null,
+            logTail,
+            secrets,
+          ),
         },
       };
     },
