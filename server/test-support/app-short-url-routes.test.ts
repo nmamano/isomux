@@ -34,7 +34,7 @@ async function getApp(
 }
 
 describe("short app links through the office request pipeline", () => {
-  it("redirects signed-out GET and HEAD with an optional slash and passes queries only to the app host", async () => {
+  it("keeps signed-out HEAD redirects and query forwarding", async () => {
     const srv = await startFlatOffice((current) => {
       server = current;
     });
@@ -43,7 +43,7 @@ describe("short app links through the office request pipeline", () => {
     const app = await getApp(srv, token, "board");
     expect(app.url).toBe(`https://board.${OFFICE_HOST}`);
     expect(app.shortUrl).toBe(`${HTTPS_ORIGIN}/board`);
-    for (const method of ["GET", "HEAD"]) {
+    for (const method of ["HEAD"]) {
       for (const suffix of [
         "",
         "/",
@@ -113,7 +113,7 @@ describe("short app links through the office request pipeline", () => {
         `${HTTPS_ORIGIN}/board`,
       );
     }
-    const archived = await raw(srv.port, { host: OFFICE_HOST, path: "/board" });
+    const archived = await raw(srv.port, { host: OFFICE_HOST, path: "/board", method: "HEAD" });
     expect(archived.status).toBe(302);
     expect(archived.headers.location).toBe(`https://board.${OFFICE_HOST}/`);
     expect(

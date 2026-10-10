@@ -38,6 +38,7 @@ import type { AppRegistry } from "./app-registry.ts";
 import { appSupervisor as productionSupervisor } from "./app-supervisor.ts";
 import type { AppSupervisor } from "./app-supervisor.ts";
 import { relayToApp } from "./app-proxy.ts";
+import { withAppFraming } from "./app-framing.ts";
 import {
   APP_AUTH_PATH,
   appHostAuthGate,
@@ -212,6 +213,16 @@ export interface AppHostDeps {
 // branch is the one that can resolve to `undefined`: a request that became a
 // socket has no response, which is exactly what the runtime expects back.
 export function handleAppHostRequest(
+  req: Request,
+  deps: AppHostDeps,
+): Response | Promise<Response | undefined> | null {
+  const result = dispatchAppHostRequest(req, deps);
+  if (result === null) return null;
+  if (result instanceof Response) return withAppFraming(result);
+  return result.then((response) => response ? withAppFraming(response) : response);
+}
+
+function dispatchAppHostRequest(
   req: Request,
   deps: AppHostDeps,
 ): Response | Promise<Response | undefined> | null {

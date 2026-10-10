@@ -12,7 +12,7 @@ When a person must act and the agent may be down, the app server can page its ow
 
 A member sees the apps they own plus apps built by agents in rooms they can access; office owners see them all. Anyone who can see an app can open it and read its state and restart count. Its logs, command, working directory, thumbnail upload, and start/stop/restart/archive/delete controls stay with its owner and office owners.
 
-Give members the registry `shortUrl` when present, else `url`. Registration refuses names that collide with office paths. Otherwise use the box hostname and port; never give them server localhost. If only the office port is exposed, give an SSH port-forward command.
+Give members the registry `shortUrl` when present, else `url`. The short address opens an office page with the app and its target agent's shared chat. Chat appears only for members who can access both the app and that agent's room. Members can paste, drop or attach screenshots to that shared chat. Isomux does not take screenshots. The direct `url` opens the app alone. Registration refuses names that collide with office paths. Otherwise use the box hostname and port; never give them server localhost. If only the office port is exposed, give an SSH port-forward command.
 
 Safe example: `GET /api/apps`.
 

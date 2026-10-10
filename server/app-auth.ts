@@ -55,6 +55,10 @@ export const APP_AUTH_PATH = "/__isomux/auth";
 // so an unauthenticated visitor meets the normal login page here.
 export const APP_MINT_PATH = "/auth/app";
 
+// Protocol value shared with the office wrapper. No app or member data crosses
+// the frame boundary, and unknown labels use the same response.
+export const APP_SESSION_REQUIRED_MESSAGE = "isomux:app-session-required";
+
 // The app-host cookie. `__Host-` is browser-enforced: Secure, Path=/, and no
 // Domain attribute, which makes it host-only in a way a sibling app cannot
 // override. One name serves every app because host-only cookies of the same
@@ -198,6 +202,7 @@ export interface PendingCode {
   // validated exactly once, cannot be swapped between the two hops, and is
   // not a second value written into a browser's history.
   returnPath: string;
+  wrapperReturn?: boolean;
   expiresAt: number;
 }
 
@@ -355,6 +360,7 @@ export function mintAppCode(
     appHost: string;
     officeSessionHash: string;
     returnPath: string;
+    wrapperReturn?: boolean;
   },
   now: number = Date.now(),
 ): { code: string } | { error: MintFailure } {
@@ -378,6 +384,7 @@ export function mintAppCode(
     appHost: input.appHost,
     officeSessionHash: input.officeSessionHash,
     returnPath: input.returnPath,
+    wrapperReturn: input.wrapperReturn,
     expiresAt: now + APP_CODE_TTL_MS,
   });
   return { code };
@@ -518,6 +525,26 @@ export function validateAppSession(
   return { userId: office.userId, officeSessionHash: row.officeSessionHash };
 }
 
+// Server readiness is not proof that the browser kept its app cookie. The
+// framed refusal signal covers that case without exposing either credential.
+export function appSessionExpiresAt(
+  app: AppRecord,
+  officeSessionHash: string | null,
+  now = Date.now(),
+): number | null {
+  if (!officeSessionHash) return null;
+  const office = revalidateByHash(officeSessionHash);
+  if (!office) return null;
+  let expiresAt: number | null = null;
+  for (const row of appSessions.values()) {
+    if (row.officeSessionHash === officeSessionHash && row.label === app.hostLabel &&
+        row.hostGen === app.hostGen && row.registrationGen === appRegistrationGeneration(app) && row.expiresAt > now) {
+      expiresAt = Math.max(expiresAt ?? 0, Math.min(row.expiresAt, office.absoluteExpiresAt));
+    }
+  }
+  return expiresAt;
+}
+
 // How many minted codes are still outstanding. Test-only, and it exists for one
 // assertion that cannot be made from the outside: that presenting a code
 // CONSUMES it even when the presentation is refused. Both orders of the delete
@@ -605,7 +632,9 @@ export function handleAppMintRequest(
 
   const labelParam = singleParam(url, "app");
   const rParam = singleParam(url, "r");
-  if (labelParam === undefined || rParam === undefined) {
+  const modeParam = singleParam(url, "mode");
+  const registrationParam = singleParam(url, "registration");
+  if (labelParam === undefined || rParam === undefined || modeParam === undefined || registrationParam === undefined || (modeParam !== null && modeParam !== "wrapper")) {
     return handshake(400, BAD_REQUEST_BODY);
   }
   if (labelParam === null) return neutralNotFound();
@@ -614,6 +643,7 @@ export function handleAppMintRequest(
   const app = liveAppByLabel(registry, labelParam);
   if (app === null) return neutralNotFound();
   if (!opts.canAccess(app, session.userId)) return neutralNotFound();
+  if (modeParam === "wrapper" && registrationParam !== String(appRegistrationGeneration(app))) return neutralNotFound();
 
   const returnPath = validateReturnPath(rParam);
   if (returnPath === null) return handshake(400, BAD_REQUEST_BODY);
@@ -629,6 +659,7 @@ export function handleAppMintRequest(
       appHost,
       officeSessionHash: session.sessionIdHash,
       returnPath,
+      wrapperReturn: modeParam === "wrapper",
     },
     opts.now,
   );
@@ -699,7 +730,10 @@ export function handleAppAuthRedeem(
   );
   if (started === null) return handshake(400, SIGN_IN_FAILED_BODY);
 
-  return handshakeRedirect(record.returnPath, [
+  const destination = record.wrapperReturn
+    ? `${buildPublicOrigin().origin}/${ctx.app.name}${new URL(record.returnPath, "https://app.invalid").search}`
+    : record.returnPath;
+  return handshakeRedirect(destination, [
     appCookieLine(started.token, started.maxAgeSec),
   ]);
 }
@@ -796,6 +830,17 @@ function noAppSessionAnswer(
   opts: { label: string; rawCookie: string | null; upgrade: boolean },
 ): Response {
   const clear = opts.rawCookie === null ? [] : [appCookieClearLine()];
+  if (!opts.upgrade && req.method === "GET" && req.headers.get("Sec-Fetch-Dest") === "iframe") {
+    const origin = buildPublicOrigin().origin;
+    // The host arm also adds self to this policy; keep this response safe alone.
+    const script = `parent.postMessage(${JSON.stringify(APP_SESSION_REQUIRED_MESSAGE)},${JSON.stringify(origin)});`;
+    const hash = createHash("sha256").update(script).digest("base64");
+    return handshake(401, `<!doctype html><script>${script}</script>`, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": `default-src 'none'; script-src 'sha256-${hash}'; frame-ancestors ${origin}`,
+      ...(clear.length > 0 ? { "Set-Cookie": clear[0] } : {}),
+    });
+  }
   if (opts.upgrade || !mayInitiateHandshake(req)) {
     return handshake(
       401,

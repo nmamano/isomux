@@ -157,7 +157,7 @@ An agent can inspect current limits for any agent in a room its manager can acce
 
 ### Apps
 
-App responses add `shortUrl`, a short office address that redirects to the app, when the office has an app domain. `PATCH /api/apps/:name` with `createdByAgentId` moves an app to another agent and its room; the app owner must also have access to that agent.
+App responses add `shortUrl`, a short office address that shows the app with its shared-chat widget, when the office has an app domain. `PATCH /api/apps/:name` with `createdByAgentId` moves an app to another agent and its room; the app owner must also have access to that agent.
 
 ### Cronjobs
 
@@ -285,3 +285,12 @@ with fixed guidance. Errors never echo selector text or browser exceptions.
 A privileged agent can read `GET /api/users/:username/member-prompt` and send `PATCH /api/users/:username` with only `{memberPrompt,memberPromptVersion}`. The target is its manager, or any member when its manager is an office owner. Both return `{memberPrompt,memberPromptVersion}` to the agent. API tokens cannot use these routes.
 
 Every prompt PATCH, including a human save, requires the version from the read. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. Human PATCH responses remain `{user}`; edits to other fields need no prompt version.
+
+
+## App page readiness
+
+Members and personal API tokens can call `GET /api/apps/:name/widget?registration=<generation>`. Agents cannot call this member-page helper. It returns `{registration, appUrl, sessionExpiresAt, chat}`. The server returns the same 404 for a missing app, an inaccessible app, or an old registration. The server returns `chat: null` unless the member can access the target agent's room; otherwise chat holds `{agentId, agentName, sessionId}`. An API token has no browser session, so its `sessionExpiresAt` is null.
+
+The browser sign-in route supports `GET /auth/app?app=<label>&mode=wrapper&registration=<generation>&r=<app-relative-path-and-query>`. The single-use code binds the current app registration and the office session. Redemption returns to the registered app's short office address and forwards the query; the request cannot select a return origin or another app. Direct app visits retain their app-relative return path.
+
+The widget sends through `POST /api/agents/:id/messages` with the existing text, attachments and retry id, plus optional `appContext: {name, registration}`. Members and personal API tokens can use this field; other identities receive 403 `forbidden`. Invalid fields return 422 `invalid_app_context`. A missing, hidden or stale app returns the same 404 `app_unavailable`; a visible app whose current target differs from `:id` returns 409 `app_target_changed`. The server derives the app name from the checked registry record and appends `App <name>` to the member's device label. The agent and room see the normal shared message, for example `[Nil (App hello)]` or `[Nil (Phone; App hello)]`. API-token labels retain their inbox handle and append `; App hello`. History and live replies use the existing room-filtered office socket.

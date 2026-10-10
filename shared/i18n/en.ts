@@ -2726,6 +2726,16 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.skills.read": "Read a skill",
   "apiCall.skills.save": "Save a skill",
   "apiCall.skills.create": "Create a skill",
+  "appWidget.launcher": "Chat",
+  "appWidget.title": "Chat with {agentName}",
+  "appWidget.notice": "Shared with members of the agent's room.",
+  "appWidget.windowsHint": "Press Win+Shift+S, then paste your screenshot here.",
+  "appWidget.macHint": "Press Control+Shift+Command+4, then paste your screenshot here.",
+  "appWidget.genericHint": "Take a screenshot, then paste or attach it here.",
+  "appWidget.attach": "Attach image",
+  "appWidget.close": "Close chat",
+  "appWidget.direct": "Open app directly",
+  "appWidget.unavailable": "Chat is unavailable.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

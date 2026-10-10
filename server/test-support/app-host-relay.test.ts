@@ -98,8 +98,10 @@ describe("app-host relay: end to end", () => {
     expect(res.status).toBe(200);
     expect(res.body).toBe("<h1>the app</h1>");
     expect(res.headers["content-type"]).toBe("text/html");
-    // Office hardening does not rewrite an agent-built app's response.
-    expect(res.headers["content-security-policy"]).toBeUndefined();
+    // The office owns framing while preserving the app's bytes and other headers.
+    expect(res.headers["content-security-policy"]).toBe(
+      `frame-ancestors 'self' https://${OFFICE_HOST}`,
+    );
     expect(res.headers["x-content-type-options"]).toBeUndefined();
     // The app's own cookie reaches the browser untouched...
     expect(res.setCookies).toEqual(["app_pref=blue; Path=/"]);

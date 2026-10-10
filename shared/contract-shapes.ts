@@ -144,6 +144,7 @@ export interface SwapDesksReq {
 
 export interface SendMessageReq {
   text: string;
+  appContext?: { name: string; registration: number };
   device?: string;
   attachments?: Attachment[];
   // Optional legacy input. Sender authority is ALWAYS the token; rejected if
@@ -1441,4 +1442,13 @@ export interface BackupStatusWire {
   error: string | null;
   retention: number;
   destDir: string;
+}
+
+
+// Office app wrapper readiness. A null chat hides all target metadata.
+export interface AppWidgetStatus {
+  registration: number;
+  appUrl: string;
+  sessionExpiresAt: number | null;
+  chat: { agentId: string; agentName: string; sessionId: string | null } | null;
 }

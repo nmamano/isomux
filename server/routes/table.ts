@@ -1,3 +1,4 @@
+import type { AppWidgetStatus } from "../../shared/contract-shapes.ts";
 import {
   resourceTargets,
   createdResource,
@@ -41,6 +42,7 @@ import {
   officeEnvOwner,
   ownerProxyMemberCreate,
   userScope,
+  memberScope,
   requiresRoomAccess,
   agentParamMustEqualTokenAgent,
   agentManagerMatch,
@@ -1615,6 +1617,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/apps",
     auth: cap("app:read", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<void, AppWidgetStatus>({
+    opId: "apps.widget",
+    method: "GET",
+    path: "/api/apps/:name/widget",
+    auth: cap("app:read", memberScope),
     emits: [],
   }),
   defineRoute<void, AppWire>({

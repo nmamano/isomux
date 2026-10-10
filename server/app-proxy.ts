@@ -29,6 +29,7 @@ import { appRegistrationKey, watchAppRetirement } from "./app-lifecycle.ts";
 import type { AppRuntime, AppSupervisor } from "./app-supervisor.ts";
 import { APP_COOKIE_NAME } from "./app-auth.ts";
 import { COOKIE_NAME, HOST_COOKIE_NAME } from "./auth.ts";
+import { setAppFramingPolicy } from "./app-framing.ts";
 import {
   APP_BUSY_BODY,
   APP_STOPPED_BODY,
@@ -261,6 +262,7 @@ export function buildDownstreamHeaders(upstream: Response): Headers {
   for (const line of upstream.headers.getSetCookie()) {
     out.append("Set-Cookie", line);
   }
+  setAppFramingPolicy(out);
   return out;
 }
 

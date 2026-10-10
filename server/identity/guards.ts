@@ -822,3 +822,8 @@ export const auditOwner: Guard = ({ identity, deps }) => {
     ? ALLOW
     : FORBIDDEN;
 };
+
+
+// Member UI helpers also serve remote API tokens owned by the member.
+export const memberScope: Guard = ({ identity }) =>
+  identity.scope === "user" || identity.scope === "api" ? ALLOW : FORBIDDEN;

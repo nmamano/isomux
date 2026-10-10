@@ -55,7 +55,8 @@ import {
 } from "./app-host-test-kit.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { createHash } from "crypto";
-import { appRegistrationGeneration, appRegistry } from "../app-registry.ts";
+import { runInNewContext } from "node:vm";
+import { _testSetAppRegistrationGeneration, appRegistrationGeneration, appRegistry } from "../app-registry.ts";
 import {
   APP_COOKIE_NAME,
   APP_MINT_MAX_PER_WINDOW,
@@ -64,6 +65,8 @@ import {
   mintAppCode,
   startAppSession,
   validateAppSession,
+  appSessionExpiresAt,
+  APP_SESSION_REQUIRED_MESSAGE,
 } from "../app-auth.ts";
 
 const SIGN_IN_FAILED_BODY =
@@ -493,20 +496,103 @@ describe("app-host handshake: only navigations and metadata-less clients are bou
           },
         }),
       ],
-      [
-        "iframe",
-        await raw(srv.port, {
-          host,
-          path: "/embed",
-          headers: {
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Dest": "iframe",
-          },
-        }),
-      ],
     ];
     // A refusal, never a redirect: that is the whole point of the branch.
     for (const [where, res] of cases) expectAuthRequired(res, where);
+  });
+
+  it("sets framing on app-host refusals and reserved paths", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    for (const path of ["/", "/__isomux/unknown", "/__isomux/auth"]) {
+      const response = await raw(srv.port, { host: appHost(label), path, headers: { "Sec-Fetch-Dest": "empty" } });
+      expect(response.headers["content-security-policy"]).toBe(`frame-ancestors 'self' ${HTTPS_ORIGIN}`);
+      expect(response.headers["x-frame-options"]).toBeUndefined();
+    }
+    const cookie = await signIn(srv, label, rawSessionId);
+    const unavailable = await raw(srv.port, { host: appHost(label), headers: withAppCookie(cookie) });
+    expect(unavailable.status).toBe(502);
+    expect(unavailable.headers["content-security-policy"]).toBe(`frame-ancestors 'self' ${HTTPS_ORIGIN}`);
+  });
+
+  it("signals a framed missing session without exposing label existence", async () => {
+    const { srv, label } = await anOfficeWithAnApp();
+    const headers = { "Sec-Fetch-Dest": "iframe" };
+    const known = await raw(srv.port, { host: appHost(label), headers });
+    const unknown = await raw(srv.port, { host: appHost("unknown"), headers });
+    expect(known.stable).toBe(unknown.stable);
+    expect(known.status).toBe(401);
+    expect(known.headers.location).toBeUndefined();
+    expect(known.headers["content-type"]).toContain("text/html");
+    const script = known.body.match(/<script>(.*?)<\/script>/)?.[1];
+    expect(script).toBeDefined();
+    const messages: unknown[][] = [];
+    runInNewContext(script!, { parent: { postMessage: (...args: unknown[]) => messages.push(args) } });
+    expect(messages).toEqual([[APP_SESSION_REQUIRED_MESSAGE, HTTPS_ORIGIN]]);
+    const hash = createHash("sha256").update(script!).digest("base64");
+    expect(known.headers["content-security-policy"]).toBe(
+      `default-src 'none'; script-src 'sha256-${hash}'; frame-ancestors 'self' ${HTTPS_ORIGIN}`,
+    );
+    const rejected = await raw(srv.port, {
+      host: appHost(label), headers: { ...headers, Cookie: `${APP_COOKIE_NAME}=dead` },
+    });
+    expect(rejected.body).toBe(known.body);
+    expect(rejected.setCookies).toHaveLength(1);
+    expect(rejected.setCookies[0]).toContain("Max-Age=0");
+  });
+
+  it("readiness binds every registration field and the live office session", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    await signIn(srv, label, rawSessionId);
+    const app = appRegistry.get("hello")!;
+    const hash = createHash("sha256").update(rawSessionId).digest("hex");
+    const generation = appRegistrationGeneration(app);
+    expect(appSessionExpiresAt(app, hash)).toBeGreaterThan(Date.now());
+    const replacement = { ...app };
+    _testSetAppRegistrationGeneration(replacement, generation + 1);
+    expect(appSessionExpiresAt(replacement, hash)).toBeNull();
+    const otherHostGeneration = { ...app, hostGen: app.hostGen + 1 };
+    _testSetAppRegistrationGeneration(otherHostGeneration, generation);
+    expect(appSessionExpiresAt(otherHostGeneration, hash)).toBeNull();
+    const otherLabel = { ...app, hostLabel: "other-app" };
+    _testSetAppRegistrationGeneration(otherLabel, generation);
+    expect(appSessionExpiresAt(otherLabel, hash)).toBeNull();
+    const otherMember = await srv.seedMember("Other");
+    const otherHash = createHash("sha256").update(otherMember.rawSessionId).digest("hex");
+    expect(appSessionExpiresAt(app, otherHash)).toBeNull();
+    const out = await srv.http("/auth/logout", { method: "POST", rawSessionId, redirect: "manual" });
+    expect(out.status).toBe(302);
+    expect(appSessionExpiresAt(app, hash)).toBeNull();
+  });
+
+  it("binds wrapper return to the registration and keeps query forwarding", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    const app = appRegistry.list().find((a) => a.hostLabel === label)!;
+    const registration = appRegistrationGeneration(app);
+    const params = new URLSearchParams({
+      app: label, mode: "wrapper", registration: String(registration),
+      r: "/other-path?tab=one%20two&x=3",
+    });
+    const minted = await mint(srv, `?${params}`, { rawSessionId });
+    const redeemed = await redeem(srv, label, codeFromMint(minted));
+    expect(redeemed.headers.location).toBe(`${HTTPS_ORIGIN}/${app.name}?tab=one%20two&x=3`);
+    expect(redeemed.setCookies).toHaveLength(1);
+    const sessionHash = createHash("sha256").update(rawSessionId).digest("hex");
+    expect(appSessionExpiresAt(app, sessionHash)).toBeGreaterThan(Date.now());
+    expect(appSessionExpiresAt(app, null)).toBeNull();
+    expect(appSessionExpiresAt(app, sessionHash, Date.now() + APP_SESSION_TTL_MS + 1)).toBeNull();
+    for (const bad of ["https://evil.example/", "//evil.example/", "/\\evil.example/"]) {
+      params.set("r", bad);
+      expect((await mint(srv, `?${params}`, { rawSessionId })).status).toBe(400);
+    }
+    for (const safePath of ["/%2f%2fevil.example/", "/another-app"]) {
+      params.set("r", safePath);
+      const encodedMint = await mint(srv, `?${params}`, { rawSessionId });
+      const encodedRedeem = await redeem(srv, label, codeFromMint(encodedMint));
+      expect(encodedRedeem.headers.location).toBe(`${HTTPS_ORIGIN}/${app.name}`);
+    }
+    params.set("r", "/");
+    params.set("registration", String(registration + 1));
+    expect((await mint(srv, `?${params}`, { rawSessionId })).status).toBe(404);
   });
 
   it("bounces a GET with no Sec-Fetch metadata, but not a partial one", async () => {

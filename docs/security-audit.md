@@ -4,7 +4,7 @@ navTitle: Security audit
 
 # Isomux security audit
 
-**Date:** 2026-10-03, last updated 2026-10-06. This audit replaces the audit of 2026-05-17.
+**Date:** 2026-10-03, last updated 2026-10-10. This audit replaces the audit of 2026-05-17.
 
 **Method:** Static review of the Isomux source. No live attack tests were done.
 
@@ -131,6 +131,8 @@ The sign-in link page (`/i/<token>`) and the accept form have no rate limit. Wit
 ### 4.6 App hosts
 
 Each app has its own host name (`<label>.<app domain>`), which is a different origin from the office. The relay removes the office cookies before it sends a request to the app. An app session lasts 12 hours at most. A host name that has no live app gets the same answer as a live app, so an attacker cannot list app names.
+
+Every app-host response permits framing only by the app itself and the configured office origin. Isomux replaces upstream frame-ancestors and removes X-Frame-Options; it preserves other CSP directives and report-only policies. A framed request with no live app session sends a fixed, origin-bound sign-in signal. The signal reveals no app or member data.
 
 ### 4.7 Webhooks
 

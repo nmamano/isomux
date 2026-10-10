@@ -13,3 +13,5 @@ Safe example: `POST /api/agents/:id/messages` with `{"text":"..."}`.
 ## Route contract
 
 `POST /api/agents/:id/messages` accepts `{text,steer?,clientMessageId?,deliverAt?}` and returns `{messageId,queued?}` or `{scheduledId}`. `POST /api/api-token-inboxes/:tokenId/messages` accepts `{text}` and returns a delivery acknowledgement. `POST /api/agents/:id/abort` returns 204, or 409 `nothing_to_abort` when the agent runs no turn and waits on no prompt. Agent sender identity and API-token owner come from authorization, never the body. Invalid text/time returns 400/422; unavailable targets return 404; pending prompts, unsafe steering, or duplicate state can return 409; queue limits return 429; delivery failure returns 500.
+
+The optional `appContext: {name, registration}` on the member message route is for members and their API tokens. An agent or scheduled run that supplies it receives 403 `forbidden`; agents continue to send ordinary messages without it. The server checks the current app, access and target before it adds the app name to the member device label.

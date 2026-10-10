@@ -149,8 +149,9 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 
 - **Your personal app suite** - apps agents make for you or for other members of the office, available 24/7 from any device that can access the office. Room visibility decides which apps you see: share a room, share the apps.
 - **Apps tab**: see all your apps and their links in one place.
-- **Its own web address** - on an office with its own domain and wildcard DNS, an app can get a short address like `myoffice.com/myapp` that redirects to `myapp.myoffice.com`, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
+- **Its own web address** - on an office with its own domain and wildcard DNS, an app can get a short address like `myoffice.com/myapp` that shows the app full-page with a chat button, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
+- **Chat beside an app** - members with access to the app and its target agent's room can use the agent's shared conversation from the app page. Members can paste or drop screenshots, or attach image files, and review or remove each image before sending. The widget shows the screenshot shortcut for Windows or macOS when it can identify the platform; other devices get a general hint. Isomux does not take the screenshot. Closing chat keeps the app and draft in place. The direct app link opens the app in its own tab.
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.
 - **Deleting an app keeps its data** - the data directory moves to `.retired` next to the other apps' data, on the office's disk. Nothing is erased automatically.
 

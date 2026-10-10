@@ -1080,6 +1080,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // appOwnerOrOfficeOwner guard, not by capability absence. No emits until the
   // Apps tab exists.
   "apps.list": { caps: ["app:read"], emits: [] },
+  "apps.widget": { caps: ["app:read"], emits: [] },
   "apps.get": { caps: ["app:read"], emits: [] },
   "apps.getThumbnail": { caps: ["app:read"], emits: [] },
   "apps.setThumbnail": { caps: ["app:write"], emits: ["app_upserted"] },
@@ -1492,6 +1493,7 @@ const API_REACHABLE_OPIDS = [
   "pager.ack",
   "pager.resolve",
   "apps.list",
+  "apps.widget",
   "apps.get",
   "apps.getThumbnail",
   "apps.setThumbnail",

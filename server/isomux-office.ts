@@ -1,3 +1,4 @@
+import { appWidgetHandlers } from "./routes/handlers/app-widget.ts";
 import { auditHandlers } from "./routes/handlers/audit.ts";
 import { auditActor } from "./audit-actor.ts";
 import { officeAuditStore, recordAudit } from "./audit-store.ts";
@@ -281,6 +282,7 @@ import {
 import {
   APP_MINT_PATH,
   handleAppMintRequest,
+  appSessionExpiresAt,
   invalidateAppRegistration,
 } from "./app-auth.ts";
 import { retireAppRegistration } from "./app-lifecycle.ts";
@@ -2840,6 +2842,20 @@ function buildExecutorDeps(
     }),
   );
 
+  register(appWidgetHandlers({
+    get: (name) => appRegistry.get(name),
+    registration: appRegistrationGeneration,
+    canAccess: canUserAccessApp,
+    appUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
+    sessionExpiresAt: appSessionExpiresAt,
+    chat: (app, identity) => {
+      const targetId = app.messageTargetAgentId ?? app.createdByAgentId;
+      const target = targetId ? agentManager.getAgent(targetId) : null;
+      if (!target || !buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)) return null;
+      return { agentId: target.id, agentName: target.name, sessionId: agentManager.getCurrentSessionId(target.id) };
+    },
+  }));
+
   // Apps (agent-built web apps). Ownership + attribution come from the token:
   // the app belongs to the caller's USER so it outlives the agent that built
   // it. Registry errors (including a corrupt or unwritable registry) surface as
@@ -4449,6 +4465,13 @@ function buildExecutorDeps(
   register(
     conversationHandlers({
       attributionFor,
+      resolveAppContext: (identity, agentId, context) => {
+        const app = appRegistry.get(context.name);
+        if (!app || !identity.userId || !canUserAccessApp(app, identity.userId) ||
+            appRegistrationGeneration(app) !== context.registration) return { error: "app_unavailable" };
+        if ((app.messageTargetAgentId ?? app.createdByAgentId) !== agentId) return { error: "app_target_changed" };
+        return { name: app.name };
+      },
       sendAsUser: (
         agentId,
         text,
@@ -6402,6 +6425,7 @@ function escapeHtml(s: string): string {
 async function serveIndexHtml(
   req?: Request,
   session?: SessionLookup,
+  widget?: { name: string; registration: number },
 ): Promise<Response> {
   // A missing bundle (ui/dist not built yet) must be a clean 503, not an
   // unhandled ENOENT that resets the socket mid-response - that crash shape
@@ -6417,11 +6441,15 @@ async function serveIndexHtml(
   const raw = await file.text();
   const officeName = agentManager.getOfficeSettings().name;
   const title = officeName ? `${escapeHtml(officeName)} | Isomux` : "Isomux";
-  const html = raw.replace("__OFFICE_TITLE__", title);
+  let html = raw.replace("__OFFICE_TITLE__", title);
+  if (widget) {
+    const boot = escapeHtml(JSON.stringify(widget)).replace(/"/g, "&quot;");
+    html = html.replace("</head>", `<meta name="isomux-app-widget" content="${boot}"></head>`);
+  }
   const res = new Response(html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-cache",
+      "Cache-Control": widget ? "no-store" : "no-cache",
       ...securityHeaders(),
     },
   });
@@ -6709,8 +6737,9 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           // fall through to the 404 path below if the asset isn't on disk
         }
 
-        // Short links stay on the office host. Reserved names fall through to
-        // their existing handlers, and sign-in belongs to the app origin.
+        // HEAD keeps the old bodyless redirect. GET waits for office auth and
+        // visibility before deciding whether to serve the app wrapper.
+        let requestedApp: AppRecord | null = null;
         if (
           (req.method === "GET" || req.method === "HEAD") &&
           appHostDomain() !== null &&
@@ -6727,10 +6756,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               // A broken optional shortcut must not block the office shell.
               console.error("[apps] could not resolve short link:", err);
             }
+            if (req.method === "GET") requestedApp = app;
             const publicUrl = app
               ? appPublicUrl(app.hostLabel, appHostDomain())
               : null;
             if (
+              req.method === "HEAD" &&
               appShortUrl(app, publicUrl, buildPublicOrigin().origin) !== null
             ) {
               const target = new URL(publicUrl!);
@@ -6849,6 +6880,17 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             status: 403,
             headers: { "Content-Type": "application/json" },
           });
+        }
+
+        if (requestedApp && auth.identity.userId) {
+          const app = requestedApp;
+          if (app && canUserAccessApp(app, auth.identity.userId)) {
+            return serveIndexHtml(req, auth.session, {
+              name: app.name,
+              registration: appRegistrationGeneration(app),
+            });
+          }
+          // Hidden and unknown apps retain the normal office-shell fallback.
         }
 
         // GET /auth/app?app=<label>&r=<path> - mint a single-use code for one of

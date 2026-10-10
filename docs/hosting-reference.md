@@ -53,7 +53,7 @@ Environment variables for the default direct-host installation, set before runni
 
 Each app an agent registers can get its own address, like `hello.office.example.com`, open from any device and behind the same sign-in as the office. A fresh install sets up the proxy side, and the wildcard A record ([VPS guide](hosting-vps.md)) points the names at the server. An office installed before this existed gets the proxy side from one re-run of the installer, or from adding the site block to `/etc/caddy/Caddyfile` by hand; an update replaces only a byte-exact older installer rendering, and only to add its access log.
 
-The Apps page shows a short link such as `office.example.com/hello`. The office redirects it to the app's own address, where sign-in is checked.
+The Apps page shows a short link such as `office.example.com/hello`. The office checks sign-in and shows the app in a full-page frame with a chat button. Chat requires access to both the app and the target agent's room. The page also has a direct link to the app's own address.
 
 Certificates are obtained per app the first time it is opened. Two things follow:
 

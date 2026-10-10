@@ -99,6 +99,11 @@ export type HandoffResult =
     };
 
 export interface ConversationDeps {
+  resolveAppContext(
+    identity: Identity,
+    agentId: string,
+    context: { name: string; registration: number },
+  ): { name: string } | { error: "app_unavailable" | "app_target_changed" };
   // Token-derived attribution (username from identity, NEVER the body) for the
   // USER chat + edit paths - the WS cases used session.username, not a body field.
   attributionFor(identity: Identity): {
@@ -301,6 +306,18 @@ export function conversationHandlers(
           "device, clientMessageId, and deliverAt must be strings; attachments must be an array of {filename, originalName, mediaType} strings plus a nonnegative integer size; sendNow and steer must be booleans",
         );
       }
+      let appName: string | undefined;
+      if (b.appContext !== undefined) {
+        if (ctx.identity.scope !== "user" && ctx.identity.scope !== "api") return fail(403, "forbidden");
+        const context = b.appContext;
+        if (!context || typeof context !== "object" || typeof context.name !== "string" ||
+            !Number.isSafeInteger(context.registration) || context.registration < 0) return fail(422, "invalid_app_context");
+        const resolved = deps.resolveAppContext(ctx.identity, ctx.params.id, context);
+        if ("error" in resolved) return fail(resolved.error === "app_unavailable" ? 404 : 409, resolved.error);
+        appName = resolved.name;
+      }
+      const withAppDevice = (device?: string): string | undefined =>
+        appName ? `${device ? device + "; " : ""}App ${appName}` : device;
       // sendNow is USER-branch only (the composer's Ctrl/Cmd+Enter). Rejected
       // loudly for agent senders - mirrors the deliverAt style below (never
       // silently ignore a delivery-affecting flag); agents pass steer instead
@@ -458,10 +475,10 @@ export function conversationHandlers(
           ctx.params.id,
           b.text,
           deps.attributionFor(ctx.identity).username,
-          formatApiTokenDevice(
+          withAppDevice(formatApiTokenDevice(
             ctx.identity.apiTokenName ?? "unknown",
             ctx.identity.apiTokenId ?? "reply unavailable: missing token id",
-          ),
+          ))!,
           ctx.identity.apiTokenId ?? "",
         );
         if (!r.ok) return fail(r.status, r.code, r.message);
@@ -488,7 +505,7 @@ export function conversationHandlers(
         ctx.params.id,
         b.text,
         deps.attributionFor(ctx.identity).username,
-        b.device,
+        withAppDevice(b.device),
         b.attachments,
         b.sendNow === true,
         b.clientMessageId,
