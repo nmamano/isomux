@@ -13,7 +13,7 @@ import { savedFileAudit } from "../audit.ts";
 // helpers.
 //
 // Limits: 5 files / 200MB each / 400MB total
-// - matching the legacy route + the saveFile MAX_FILE_BYTES storage backstop.
+// - matching the legacy route + the saveFile MAX_UPLOAD_BYTES storage backstop.
 //
 // Multipart: the executor skips JSON body-parse for multipart/form-data and passes
 // `req`, so the upload handler reads `ctx.req.formData()` directly (the edge the
@@ -26,9 +26,9 @@ import { savedFileAudit } from "../audit.ts";
 
 import { ok, fail, file, type RouteHandler } from "../executor.ts";
 import type { Attachment } from "../../../shared/types.ts";
+import { MAX_UPLOAD_BYTES } from "../../../shared/types.ts";
 
 const MAX_FILES = 5;
-const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
 const MAX_TOTAL = 400 * 1024 * 1024; // 400MB
 
 export interface UploadsDeps {
@@ -72,7 +72,7 @@ export function uploadsHandlers(
             `Maximum ${MAX_FILES} files per upload`,
           );
         }
-        if (value.size > MAX_FILE_SIZE) {
+        if (value.size > MAX_UPLOAD_BYTES) {
           return fail(
             400,
             "file_too_large",

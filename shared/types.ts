@@ -1555,6 +1555,9 @@ export interface OfficeWire {
 // events into state - shared so the two never drift.
 export const KILLED_AGENT_CHIP_CAP = 12;
 
+// Largest file a member or agent can upload, checked by the browser and the server.
+export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+
 // Summary of a killed agent shown as a "revive" chip in the spawn menu.
 // Carries only what the chip needs to render + the id + lastRoomId for
 // ACL filtering on the wire (cwd/customInstructions stay server-side and

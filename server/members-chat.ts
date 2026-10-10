@@ -42,6 +42,7 @@ import {
   type Attachment,
   type MembersChatMessage,
   type MembersChatReactor,
+  MAX_UPLOAD_BYTES,
 } from "../shared/types.ts";
 import { atomicWriteFileSync, sanitizeFilename } from "./persistence.ts";
 
@@ -53,7 +54,6 @@ export const MEMBERS_CHAT_MAX_PAGE = 200;
 // Unread counting stops here; the UI label shows this number at the cap.
 export const MEMBERS_CHAT_UNREAD_CAP = 100;
 // Same backstop as persistence.ts saveFile.
-const MAX_ATTACHMENT_BYTES = 200 * 1024 * 1024;
 
 const MONTH_FILE = /^(\d{4})-(\d{2})\.jsonl$/;
 const ID_SHAPE = /^(\d{4})(\d{2})-[0-9a-f]{8}$/;
@@ -504,7 +504,7 @@ export function createMembersChatStore(
     originalName: string,
   ): Attachment | null {
     try {
-      if (data.length > MAX_ATTACHMENT_BYTES) return null;
+      if (data.length > MAX_UPLOAD_BYTES) return null;
       mkdirSync(filesDir, { recursive: true });
       let filename = sanitizeFilename(originalName);
       let filepath = join(filesDir, filename);

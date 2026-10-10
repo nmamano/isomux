@@ -32,6 +32,7 @@ import {
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { Attachment, MembersChatMessage } from "../../../shared/types.ts";
+import { MAX_UPLOAD_BYTES } from "../../../shared/types.ts";
 import type {
   MembersChatPostReq,
   MembersChatEditReq,
@@ -47,7 +48,6 @@ import {
 
 // Same limits as agents.upload.
 const MAX_FILES = 5;
-const MAX_FILE_SIZE = 200 * 1024 * 1024;
 const MAX_TOTAL = 400 * 1024 * 1024;
 const MAX_DEVICE_CHARS = 64;
 
@@ -286,7 +286,7 @@ export function membersChatHandlers(
             `Maximum ${MAX_FILES} files per upload`,
           );
         }
-        if (value.size > MAX_FILE_SIZE) {
+        if (value.size > MAX_UPLOAD_BYTES) {
           return fail(
             400,
             "file_too_large",

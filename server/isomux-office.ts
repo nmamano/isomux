@@ -97,7 +97,7 @@ import {
   buildKilledManifest,
 } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
-import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
+import { KILLED_AGENT_CHIP_CAP, MAX_UPLOAD_BYTES } from "../shared/types.ts";
 import type { Attachment, InviteWire, SessionWire } from "../shared/types.ts";
 import {
   startUpdateChecker,
@@ -2842,19 +2842,29 @@ function buildExecutorDeps(
     }),
   );
 
-  register(appWidgetHandlers({
-    get: (name) => appRegistry.get(name),
-    registration: appRegistrationGeneration,
-    canAccess: canUserAccessApp,
-    appUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
-    sessionExpiresAt: appSessionExpiresAt,
-    chat: (app, identity) => {
-      const targetId = app.messageTargetAgentId ?? app.createdByAgentId;
-      const target = targetId ? agentManager.getAgent(targetId) : null;
-      if (!target || !buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)) return null;
-      return { agentId: target.id, agentName: target.name, sessionId: agentManager.getCurrentSessionId(target.id) };
-    },
-  }));
+  register(
+    appWidgetHandlers({
+      get: (name) => appRegistry.get(name),
+      registration: appRegistrationGeneration,
+      canAccess: canUserAccessApp,
+      appUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
+      sessionExpiresAt: appSessionExpiresAt,
+      chat: (app, identity) => {
+        const targetId = app.messageTargetAgentId ?? app.createdByAgentId;
+        const target = targetId ? agentManager.getAgent(targetId) : null;
+        if (
+          !target ||
+          !buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)
+        )
+          return null;
+        return {
+          agentId: target.id,
+          agentName: target.name,
+          sessionId: agentManager.getCurrentSessionId(target.id),
+        };
+      },
+    }),
+  );
 
   // Apps (agent-built web apps). Ownership + attribution come from the token:
   // the app belongs to the caller's USER so it outlives the agent that built
@@ -4467,9 +4477,15 @@ function buildExecutorDeps(
       attributionFor,
       resolveAppContext: (identity, agentId, context) => {
         const app = appRegistry.get(context.name);
-        if (!app || !identity.userId || !canUserAccessApp(app, identity.userId) ||
-            appRegistrationGeneration(app) !== context.registration) return { error: "app_unavailable" };
-        if ((app.messageTargetAgentId ?? app.createdByAgentId) !== agentId) return { error: "app_target_changed" };
+        if (
+          !app ||
+          !identity.userId ||
+          !canUserAccessApp(app, identity.userId) ||
+          appRegistrationGeneration(app) !== context.registration
+        )
+          return { error: "app_unavailable" };
+        if ((app.messageTargetAgentId ?? app.createdByAgentId) !== agentId)
+          return { error: "app_target_changed" };
         return { name: app.name };
       },
       sendAsUser: (
@@ -6444,7 +6460,10 @@ async function serveIndexHtml(
   let html = raw.replace("__OFFICE_TITLE__", title);
   if (widget) {
     const boot = escapeHtml(JSON.stringify(widget)).replace(/"/g, "&quot;");
-    html = html.replace("</head>", `<meta name="isomux-app-widget" content="${boot}"></head>`);
+    html = html.replace(
+      "</head>",
+      `<meta name="isomux-app-widget" content="${boot}"></head>`,
+    );
   }
   const res = new Response(html, {
     headers: {
@@ -7152,7 +7171,6 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           try {
             const formData = await req.formData();
             const attachments: Attachment[] = [];
-            const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
             const MAX_FILES = 5;
             const MAX_TOTAL = 400 * 1024 * 1024; // 400MB
             let totalSize = 0;
@@ -7172,7 +7190,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                   },
                 );
               }
-              if (value.size > MAX_FILE_SIZE) {
+              if (value.size > MAX_UPLOAD_BYTES) {
                 return new Response(
                   JSON.stringify({
                     error: `File "${value.name}" exceeds 200MB limit`,

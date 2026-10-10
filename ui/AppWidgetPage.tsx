@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
+import { MAX_UPLOAD_BYTES } from "../shared/types.ts";
 import { apiFetch } from "./api.ts";
 import { useAppState } from "./store.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CSS } from "./styles.ts";
 import { LogEntryCard } from "./log-view/LogEntryCard.tsx";
 import {
-  APP_WIDGET_RECHECK_MS, APP_WIDGET_SANDBOX, beginAppHandshake,
-  isAppSessionSignal, widgetDraftKey, screenshotHint, type AppWidgetBoot,
+  APP_WIDGET_RECHECK_MS,
+  APP_WIDGET_SANDBOX,
+  beginAppHandshake,
+  isAppSessionSignal,
+  widgetDraftKey,
+  screenshotHint,
+  type AppWidgetBoot,
 } from "./app-widget-state.ts";
 
 const WIDGET_CSS = `
@@ -58,72 +64,114 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   const [verified, setVerified] = useState("");
   // State-only agent updates do not force extra readiness requests.
   const accessStamp = JSON.stringify([
-    state.hydrationEpoch, state.connected, state.apps, state.rooms, [...state.users.values()],
+    state.hydrationEpoch,
+    state.connected,
+    state.apps,
+    state.rooms,
+    [...state.users.values()],
     state.agents.map((agent) => [agent.id, agent.roomId]),
   ]);
   const liveStatus = verified === accessStamp ? status : null;
 
-  const recover = useCallback((url: string) => {
-    if (recovering.current || recoveryStopped.current) return;
-    if (!beginAppHandshake(sessionStorage, boot, Date.now())) {
-      recoveryStopped.current = true;
+  const recover = useCallback(
+    (url: string) => {
+      if (recovering.current || recoveryStopped.current) return;
+      if (!beginAppHandshake(sessionStorage, boot, Date.now())) {
+        recoveryStopped.current = true;
+        ++requestSeq.current;
+        setUnavailable(true);
+        setStatus(null);
+        setFrameUrl(null);
+        return;
+      }
+      recovering.current = true;
       ++requestSeq.current;
-      setUnavailable(true); setStatus(null); setFrameUrl(null); return;
-    }
-    recovering.current = true;
-    ++requestSeq.current;
-    const query = new URLSearchParams({
-      app: new URL(url).hostname.split(".")[0], mode: "wrapper",
-      registration: String(boot.registration), r: "/" + window.location.search,
-    });
-    window.location.assign("/auth/app?" + query.toString());
-  }, [boot]);
+      const query = new URLSearchParams({
+        app: new URL(url).hostname.split(".")[0],
+        mode: "wrapper",
+        registration: String(boot.registration),
+        r: "/" + window.location.search,
+      });
+      window.location.assign("/auth/app?" + query.toString());
+    },
+    [boot],
+  );
 
   const refresh = useCallback(async () => {
-    if (recoveryStopped.current || recovering.current || document.visibilityState === "hidden") return;
+    if (
+      recoveryStopped.current ||
+      recovering.current ||
+      document.visibilityState === "hidden"
+    )
+      return;
     const seq = ++requestSeq.current;
     try {
-      const next = await apiFetch<AppWidgetStatus>("GET",
-        `/api/apps/${encodeURIComponent(boot.name)}/widget?registration=${boot.registration}`);
+      const next = await apiFetch<AppWidgetStatus>(
+        "GET",
+        `/api/apps/${encodeURIComponent(boot.name)}/widget?registration=${boot.registration}`,
+      );
       if (seq !== requestSeq.current) return;
       setAppUrl(next.appUrl);
       setVerified(accessStamp);
-      if (next.sessionExpiresAt === null || next.sessionExpiresAt <= Date.now()) {
-        setStatus(null); recover(next.appUrl); return;
+      if (
+        next.sessionExpiresAt === null ||
+        next.sessionExpiresAt <= Date.now()
+      ) {
+        setStatus(null);
+        recover(next.appUrl);
+        return;
       }
-      setStatus(next); setUnavailable(false);
+      setStatus(next);
+      setUnavailable(false);
       setFrameUrl(next.appUrl + "/" + window.location.search);
     } catch {
       if (seq !== requestSeq.current) return;
-      setStatus(null); setFrameUrl(null); setUnavailable(true); setOpen(false);
+      setStatus(null);
+      setFrameUrl(null);
+      setUnavailable(true);
+      setOpen(false);
     }
   }, [boot, accessStamp, recover]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | undefined;
     const visible = () => {
-      clearInterval(interval); interval = undefined;
+      clearInterval(interval);
+      interval = undefined;
       if (document.visibilityState !== "hidden") {
         void refresh();
-        interval = setInterval(() => { void refresh(); }, APP_WIDGET_RECHECK_MS);
+        interval = setInterval(() => {
+          void refresh();
+        }, APP_WIDGET_RECHECK_MS);
       }
     };
     visible();
     document.addEventListener("visibilitychange", visible);
-    // This scalar invalidates old HTTP responses; it is not a DOM ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    return () => { ++requestSeq.current; clearInterval(interval); document.removeEventListener("visibilitychange", visible); };
+    return () => {
+      // This scalar invalidates old HTTP responses; it is not a DOM ref.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      ++requestSeq.current;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", visible);
+    };
   }, [refresh]);
 
   useEffect(() => {
     if (!status?.sessionExpiresAt) return;
-    const timer = setTimeout(() => { void refresh(); }, Math.max(0, status.sessionExpiresAt - Date.now()));
+    const timer = setTimeout(
+      () => {
+        void refresh();
+      },
+      Math.max(0, status.sessionExpiresAt - Date.now()),
+    );
     return () => clearTimeout(timer);
   }, [status?.sessionExpiresAt, refresh]);
 
   useEffect(() => {
     const listener = (event: MessageEvent) => {
-      if (isAppSessionSignal(event, frame.current?.contentWindow ?? null, appUrl)) {
+      if (
+        isAppSessionSignal(event, frame.current?.contentWindow ?? null, appUrl)
+      ) {
         recover(appUrl!);
       }
     };
@@ -134,64 +182,202 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   useEffect(() => {
     const viewport = window.visualViewport;
     const resize = () => {
-      document.documentElement.style.setProperty("--widget-height", (viewport?.height ?? window.innerHeight) + "px");
-      document.documentElement.style.setProperty("--widget-top", (viewport?.offsetTop ?? 0) + "px");
+      document.documentElement.style.setProperty(
+        "--widget-height",
+        (viewport?.height ?? window.innerHeight) + "px",
+      );
+      document.documentElement.style.setProperty(
+        "--widget-top",
+        (viewport?.offsetTop ?? 0) + "px",
+      );
     };
-    resize(); viewport?.addEventListener("resize", resize); viewport?.addEventListener("scroll", resize);
-    return () => { viewport?.removeEventListener("resize", resize); viewport?.removeEventListener("scroll", resize); };
+    resize();
+    viewport?.addEventListener("resize", resize);
+    viewport?.addEventListener("scroll", resize);
+    return () => {
+      viewport?.removeEventListener("resize", resize);
+      viewport?.removeEventListener("scroll", resize);
+    };
   }, []);
 
   const target = liveStatus?.chat;
   const agent = state.agents.find((item) => item.id === target?.agentId);
-  const logs = target ? state.logs.get(target.agentId) ?? [] : [];
+  const logs = target ? (state.logs.get(target.agentId) ?? []) : [];
   const latest = logs.at(-1)?.id;
-  const [readMark, setReadMark] = useState<{agent?: string; latest?: string}>({});
-  if (readMark.agent !== target?.agentId || (open && readMark.latest !== latest)) {
-    setReadMark({agent: target?.agentId, latest});
+  const [readMark, setReadMark] = useState<{ agent?: string; latest?: string }>(
+    {},
+  );
+  if (
+    readMark.agent !== target?.agentId ||
+    (open && readMark.latest !== latest)
+  ) {
+    setReadMark({ agent: target?.agentId, latest });
   }
   const unread = !open && !!readMark.latest && latest !== readMark.latest;
 
-  const close = () => { setOpen(false); launcher.current?.focus(); };
-  return <main className="app-widget" onDragOver={event => event.preventDefault()} onDrop={event => event.preventDefault()}>
-    <style>{CSS + WIDGET_CSS}</style>
-    {frameUrl && <iframe ref={frame} className="app-widget-frame" title={boot.name} src={frameUrl} sandbox={APP_WIDGET_SANDBOX} />}
-    {appUrl && <a className="app-widget-direct" href={appUrl + "/" + window.location.search} target="_blank" rel="noopener noreferrer">{t("appWidget.direct")}</a>}
-    {unavailable && <p role="status" className="app-widget-unavailable">{t("appWidget.unavailable")}</p>}
-    {target && agent && <>
-      <button ref={launcher} className="app-widget-launcher" aria-expanded={open} aria-controls="app-widget-chat" onClick={() => { setOpen(!open); setReadMark({agent: target?.agentId, latest}); }}>
-        {t("appWidget.launcher")}{unread && <span aria-hidden="true" style={{ display: "inline-block", width: 8, height: 8, marginLeft: 8, borderRadius: "50%", background: "currentColor" }} />}
-      </button>
-      <section id="app-widget-chat" className="app-widget-panel" role="dialog" aria-label={t("appWidget.title", { agentName: target.agentName })} style={{ display: open ? "flex" : "none" }} onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
-        <WidgetChat key={widgetDraftKey(boot, target.agentId)} boot={boot} agent={agent} logs={logs} connected={state.connected} open={open} onClose={close} onRecheck={() => { void refresh(); }} />
-      </section>
-    </>}
-  </main>;
+  const close = () => {
+    setOpen(false);
+    launcher.current?.focus();
+  };
+  return (
+    <main
+      className="app-widget"
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => event.preventDefault()}
+    >
+      <style>{CSS + WIDGET_CSS}</style>
+      {frameUrl && (
+        <iframe
+          ref={frame}
+          className="app-widget-frame"
+          title={boot.name}
+          src={frameUrl}
+          sandbox={APP_WIDGET_SANDBOX}
+        />
+      )}
+      {appUrl && (
+        <a
+          className="app-widget-direct"
+          href={appUrl + "/" + window.location.search}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {t("appWidget.direct")}
+        </a>
+      )}
+      {unavailable && (
+        <p role="status" className="app-widget-unavailable">
+          {t("appWidget.unavailable")}
+        </p>
+      )}
+      {target && agent && (
+        <>
+          <button
+            ref={launcher}
+            className="app-widget-launcher"
+            aria-expanded={open}
+            aria-controls="app-widget-chat"
+            onClick={() => {
+              setOpen(!open);
+              setReadMark({ agent: target?.agentId, latest });
+            }}
+          >
+            {t("appWidget.launcher")}
+            {unread && (
+              <span
+                aria-hidden="true"
+                style={{
+                  display: "inline-block",
+                  width: 8,
+                  height: 8,
+                  marginLeft: 8,
+                  borderRadius: "50%",
+                  background: "currentColor",
+                }}
+              />
+            )}
+          </button>
+          <section
+            id="app-widget-chat"
+            className="app-widget-panel"
+            role="dialog"
+            aria-label={t("appWidget.title", { agentName: target.agentName })}
+            style={{ display: open ? "flex" : "none" }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") close();
+            }}
+          >
+            <WidgetChat
+              key={widgetDraftKey(boot, target.agentId)}
+              boot={boot}
+              agent={agent}
+              logs={logs}
+              connected={state.connected}
+              open={open}
+              onClose={close}
+              onRecheck={() => {
+                void refresh();
+              }}
+            />
+          </section>
+        </>
+      )}
+    </main>
+  );
 }
 
-interface WidgetImage { id: string; name: string; attachment?: Attachment; error?: "size" | "upload" }
-interface SavedWidgetDraft { text: string; clientMessageId: string; images: WidgetImage[] }
+interface WidgetImage {
+  id: string;
+  name: string;
+  attachment?: Attachment;
+  error?: "size" | "upload";
+}
+interface SavedWidgetDraft {
+  text: string;
+  clientMessageId: string;
+  images: WidgetImage[];
+}
 
 function readDraft(key: string): SavedWidgetDraft {
   try {
-    const saved = JSON.parse(sessionStorage.getItem(key) ?? "null") as Partial<SavedWidgetDraft> | null;
-    if (saved && typeof saved.text === "string" && typeof saved.clientMessageId === "string") {
-      const images = Array.isArray(saved.images) ? saved.images.filter(image =>
-        image && typeof image.id === "string" && typeof image.name === "string" &&
-        image.attachment && typeof image.attachment.filename === "string" &&
-        typeof image.attachment.originalName === "string" && typeof image.attachment.mediaType === "string" &&
-        typeof image.attachment.size === "number") : [];
-      return { text: saved.text, clientMessageId: saved.clientMessageId, images };
+    const saved = JSON.parse(
+      sessionStorage.getItem(key) ?? "null",
+    ) as Partial<SavedWidgetDraft> | null;
+    if (
+      saved &&
+      typeof saved.text === "string" &&
+      typeof saved.clientMessageId === "string"
+    ) {
+      const images = Array.isArray(saved.images)
+        ? saved.images.filter(
+            (image) =>
+              image &&
+              typeof image.id === "string" &&
+              typeof image.name === "string" &&
+              image.attachment &&
+              typeof image.attachment.filename === "string" &&
+              typeof image.attachment.originalName === "string" &&
+              typeof image.attachment.mediaType === "string" &&
+              typeof image.attachment.size === "number",
+          )
+        : [];
+      return {
+        text: saved.text,
+        clientMessageId: saved.clientMessageId,
+        images,
+      };
     }
-  } catch { /* A missing or old draft starts empty. */ }
+  } catch {
+    /* A missing or old draft starts empty. */
+  }
   return { text: "", clientMessageId: crypto.randomUUID(), images: [] };
 }
 
-export function WidgetChat({ boot, agent, logs, connected, open, onClose, onRecheck }: {
-  boot: AppWidgetBoot; agent: AgentInfo; logs: LogEntry[]; connected: boolean; open: boolean; onClose?: () => void; onRecheck: () => void;
+export function WidgetChat({
+  boot,
+  agent,
+  logs,
+  connected,
+  open,
+  onClose,
+  onRecheck,
+}: {
+  boot: AppWidgetBoot;
+  agent: AgentInfo;
+  logs: LogEntry[];
+  connected: boolean;
+  open: boolean;
+  onClose?: () => void;
+  onRecheck: () => void;
 }) {
   const { t } = useI18n();
   const key = widgetDraftKey(boot, agent.id);
-  const freshDraft = () => ({ key, ...readDraft(key), sending: false, failed: false });
+  const freshDraft = () => ({
+    key,
+    ...readDraft(key),
+    sending: false,
+    failed: false,
+  });
   const [draft, setDraft] = useState(freshDraft);
   // A target can change through readiness alone, without a parent remount.
   if (draft.key !== key) setDraft(freshDraft());
@@ -199,91 +385,290 @@ export function WidgetChat({ boot, agent, logs, connected, open, onClose, onRech
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (open) textarea.current?.focus(); }, [open]);
-  useEffect(() => { if (open) end.current?.scrollIntoView?.({ block: "end" }); }, [logs, open]);
+  useEffect(() => {
+    if (open) textarea.current?.focus();
+  }, [open]);
+  useEffect(() => {
+    if (open) end.current?.scrollIntoView?.({ block: "end" });
+  }, [logs, open]);
   useEffect(() => {
     if (draft.key !== key) return;
-    try { sessionStorage.setItem(key, JSON.stringify({ text: draft.text, clientMessageId: draft.clientMessageId, images: draft.images.filter(image => image.attachment) })); } catch { /* Keep the live draft. */ }
+    try {
+      sessionStorage.setItem(
+        key,
+        JSON.stringify({
+          text: draft.text,
+          clientMessageId: draft.clientMessageId,
+          images: draft.images.filter((image) => image.attachment),
+        }),
+      );
+    } catch {
+      /* Keep the live draft. */
+    }
   }, [draft, key]);
   const update = (value: string) => {
-    setDraft(current => ({ ...current, text: value, clientMessageId: crypto.randomUUID(), failed: false }));
+    setDraft((current) => ({
+      ...current,
+      text: value,
+      clientMessageId: crypto.randomUUID(),
+      failed: false,
+    }));
   };
   const removeImage = (id: string) => {
-    setDraft(current => ({ ...current, images: current.images.filter(image => image.id !== id), clientMessageId: crypto.randomUUID(), failed: false }));
+    setDraft((current) => ({
+      ...current,
+      images: current.images.filter((image) => image.id !== id),
+      clientMessageId: crypto.randomUUID(),
+      failed: false,
+    }));
   };
   const selectImages = (files: File[]) => {
     if (sending) return;
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
       const id = crypto.randomUUID();
-      const tooLarge = file.size > 200 * 1024 * 1024;
-      setDraft(current => ({ ...current, clientMessageId: crypto.randomUUID(), failed: false,
-        images: [...current.images, { id, name: file.name, ...(tooLarge ? {error: "size" as const} : {}) }] }));
+      const tooLarge = file.size > MAX_UPLOAD_BYTES;
+      setDraft((current) => ({
+        ...current,
+        clientMessageId: crypto.randomUUID(),
+        failed: false,
+        images: [
+          ...current.images,
+          {
+            id,
+            name: file.name,
+            ...(tooLarge ? { error: "size" as const } : {}),
+          },
+        ],
+      }));
       if (tooLarge) continue;
-      const form = new FormData(); form.append("file", file);
+      const form = new FormData();
+      form.append("file", file);
       // Both the URL and key are captured before the upload starts.
       void fetch(`/api/upload/${agent.id}`, { method: "POST", body: form })
-        .then(async response => {
+        .then(async (response) => {
           if (!response.ok) throw new Error("upload");
-          const data = await response.json() as {attachments: Attachment[]};
+          const data = (await response.json()) as { attachments: Attachment[] };
           const attachment = data.attachments[0];
           if (!attachment) throw new Error("upload");
-          setDraft(current => current.key === key && current.images.some(image => image.id === id)
-            ? { ...current, images: current.images.map(image => image.id === id ? {...image, attachment} : image) }
-            : current);
+          setDraft((current) =>
+            current.key === key &&
+            current.images.some((image) => image.id === id)
+              ? {
+                  ...current,
+                  images: current.images.map((image) =>
+                    image.id === id ? { ...image, attachment } : image,
+                  ),
+                }
+              : current,
+          );
         })
         .catch(() => {
-          setDraft(current => current.key === key
-            ? { ...current, images: current.images.map(image => image.id === id ? {...image, error: "upload" as const} : image) }
-            : current);
+          setDraft((current) =>
+            current.key === key
+              ? {
+                  ...current,
+                  images: current.images.map((image) =>
+                    image.id === id
+                      ? { ...image, error: "upload" as const }
+                      : image,
+                  ),
+                }
+              : current,
+          );
         });
     }
   };
-  const pendingImages = draft.images.some(image => !image.attachment);
+  const pendingImages = draft.images.some((image) => !image.attachment);
   const busy = agent.state === "thinking" || agent.state === "tool_executing";
   const send = async () => {
-    if (draft.key !== key || (!text.trim() && draft.images.length === 0) || pendingImages || sending || !connected) return;
+    if (
+      draft.key !== key ||
+      (!text.trim() && draft.images.length === 0) ||
+      pendingImages ||
+      sending ||
+      !connected
+    )
+      return;
     setDraft({ ...draft, sending: true, failed: false });
     try {
       await apiFetch("POST", `/api/agents/${agent.id}/messages`, {
-        text, clientMessageId: draft.clientMessageId, appContext: boot, attachments: draft.images.map(image => image.attachment!),
+        text,
+        clientMessageId: draft.clientMessageId,
+        appContext: boot,
+        attachments: draft.images.map((image) => image.attachment!),
       });
-      const next = { key, text: "", clientMessageId: crypto.randomUUID(), images: [], sending: false, failed: false };
-      setDraft(current => current.key === key ? next : current);
+      const next = {
+        key,
+        text: "",
+        clientMessageId: crypto.randomUUID(),
+        images: [],
+        sending: false,
+        failed: false,
+      };
+      setDraft((current) => (current.key === key ? next : current));
     } catch {
-      setDraft(current => current.key === key ? { ...current, sending: false, failed: true } : current);
+      setDraft((current) =>
+        current.key === key
+          ? { ...current, sending: false, failed: true }
+          : current,
+      );
       onRecheck();
     }
   };
-  return <div className="app-widget-chat-content" style={{display:"flex",flexDirection:"column",flex:1,minHeight:0}} onDragOver={event => { event.preventDefault(); }} onDrop={event => { event.preventDefault(); selectImages(Array.from(event.dataTransfer.files)); }} onPaste={event => {
-    const images = Array.from(event.clipboardData.items).filter(item => item.kind === "file" && item.type.startsWith("image/")).map(item => item.getAsFile()).filter((file): file is File => file !== null);
-    if (images.length) { event.preventDefault(); selectImages(images); }
-  }}>
-    <header className="app-widget-header"><h1>{t("appWidget.title", { agentName: agent.name })}</h1>{onClose && <button onClick={onClose}>{t("appWidget.close")}</button>}</header>
-    <p className="app-widget-notice">{t("appWidget.notice")}</p>
-    <div className="app-widget-log" role="log">
-      {logs.map((entry) => <LogEntryCard key={entry.id} entry={entry} isMobile={window.innerWidth <= 600} />)}
-      <div ref={end} />
+  return (
+    <div
+      className="app-widget-chat-content"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        selectImages(Array.from(event.dataTransfer.files));
+      }}
+      onPaste={(event) => {
+        const images = Array.from(event.clipboardData.items)
+          .filter(
+            (item) => item.kind === "file" && item.type.startsWith("image/"),
+          )
+          .map((item) => item.getAsFile())
+          .filter((file): file is File => file !== null);
+        if (images.length) {
+          event.preventDefault();
+          selectImages(images);
+        }
+      }}
+    >
+      <header className="app-widget-header">
+        <h1>{t("appWidget.title", { agentName: agent.name })}</h1>
+        {onClose && <button onClick={onClose}>{t("appWidget.close")}</button>}
+      </header>
+      <p className="app-widget-notice">{t("appWidget.notice")}</p>
+      <div className="app-widget-log" role="log">
+        {logs.map((entry) => (
+          <LogEntryCard
+            key={entry.id}
+            entry={entry}
+            isMobile={window.innerWidth <= 600}
+          />
+        ))}
+        <div ref={end} />
+      </div>
+      <form
+        className="app-widget-compose"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void send();
+        }}
+      >
+        <p className="app-widget-hint">
+          {t(
+            screenshotHint(
+              navigator.platform,
+              navigator.userAgent,
+              navigator.maxTouchPoints,
+            ),
+          )}
+        </p>
+        <div className="app-widget-images">
+          {draft.images.map((image) => (
+            <figure className="app-widget-image" key={image.id}>
+              {image.attachment && (
+                <img
+                  src={`/api/files/${agent.id}/${encodeURIComponent(image.attachment.filename)}`}
+                  alt={image.name}
+                />
+              )}
+              <figcaption>{image.name}</figcaption>
+              {!image.attachment && (
+                <span role="status">
+                  {image.error === "size"
+                    ? t("logView.attachTooLarge")
+                    : image.error
+                      ? t("membersChat.uploadFailed")
+                      : t("logView.attachUploading")}
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => removeImage(image.id)}
+              >
+                {t("settings.env.remove")}
+              </button>
+            </figure>
+          ))}
+        </div>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(event) => {
+            selectImages(Array.from(event.target.files ?? []));
+            event.target.value = "";
+          }}
+        />
+        <textarea
+          ref={textarea}
+          aria-label={t("logView.composer.typeShort")}
+          placeholder={t("logView.composer.typeShort")}
+          value={text}
+          disabled={sending}
+          onChange={(event) => {
+            update(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing &&
+              !window.matchMedia("(pointer: coarse)").matches
+            ) {
+              event.preventDefault();
+              void send();
+            }
+          }}
+        />
+        <div className="app-widget-actions">
+          <button
+            type="button"
+            disabled={sending}
+            onClick={() => fileInput.current?.click()}
+          >
+            {t("appWidget.attach")}
+          </button>
+          <span className="app-widget-status" role="status">
+            {!connected
+              ? t("app.reconnecting")
+              : failed
+                ? t("logView.outbox.notSent")
+                : agent.queue?.length
+                  ? t("logView.queue.count", { count: agent.queue.length })
+                  : busy
+                    ? t("logView.state.thinking")
+                    : ""}
+          </span>
+          <button
+            type="submit"
+            disabled={
+              !connected ||
+              sending ||
+              pendingImages ||
+              (!text.trim() && draft.images.length === 0)
+            }
+          >
+            {busy ? t("logView.composer.queue") : t("common.send")}
+          </button>
+        </div>
+      </form>
     </div>
-    <form className="app-widget-compose" onSubmit={(event) => { event.preventDefault(); void send(); }}>
-      <p className="app-widget-hint">{t(screenshotHint(navigator.platform, navigator.userAgent, navigator.maxTouchPoints))}</p>
-      <div className="app-widget-images">
-        {draft.images.map(image => <figure className="app-widget-image" key={image.id}>
-          {image.attachment && <img src={`/api/files/${agent.id}/${encodeURIComponent(image.attachment.filename)}`} alt={image.name}/>}
-          <figcaption>{image.name}</figcaption>
-          {!image.attachment && <span role="status">{image.error === "size" ? t("logView.attachTooLarge") : image.error ? t("membersChat.uploadFailed") : t("logView.attachUploading")}</span>}
-          <button type="button" disabled={sending} onClick={() => removeImage(image.id)}>{t("settings.env.remove")}</button>
-        </figure>)}
-      </div>
-      <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={event => { selectImages(Array.from(event.target.files ?? [])); event.target.value = ""; }}/>
-      <textarea ref={textarea} aria-label={t("logView.composer.typeShort")} placeholder={t("logView.composer.typeShort")} value={text} disabled={sending} onChange={(event) => { update(event.target.value); }} onKeyDown={(event) => {
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !window.matchMedia("(pointer: coarse)").matches) { event.preventDefault(); void send(); }
-      }} />
-      <div className="app-widget-actions">
-        <button type="button" disabled={sending} onClick={() => fileInput.current?.click()}>{t("appWidget.attach")}</button>
-        <span className="app-widget-status" role="status">{!connected ? t("app.reconnecting") : failed ? t("logView.outbox.notSent") : agent.queue?.length ? t("logView.queue.count", { count: agent.queue.length }) : busy ? t("logView.state.thinking") : ""}</span>
-        <button type="submit" disabled={!connected || sending || pendingImages || (!text.trim() && draft.images.length === 0)}>{busy ? t("logView.composer.queue") : t("common.send")}</button>
-      </div>
-    </form>
-  </div>;
+  );
 }

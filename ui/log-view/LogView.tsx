@@ -20,6 +20,7 @@ import type {
 import { formatIdentity } from "../../shared/identity.ts";
 import {
   familyDisplayLabel,
+  MAX_UPLOAD_BYTES,
   modelLabelImpliesEngine,
 } from "../../shared/types.ts";
 import { styleForModel } from "../model-styles.ts";
@@ -1664,7 +1665,7 @@ export function LogView({
   function handleFileSelect(files: FileList | null) {
     if (!files || files.length === 0) return;
     for (const file of Array.from(files)) {
-      if (file.size > 200 * 1024 * 1024) {
+      if (file.size > MAX_UPLOAD_BYTES) {
         const id = Math.random().toString(36).slice(2, 10);
         setStagedAttachments((prev) => [
           ...prev,

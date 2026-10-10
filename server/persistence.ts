@@ -27,7 +27,11 @@ import type {
   OfficeSettings,
   ScheduledMessageEntry,
 } from "../shared/types.ts";
-import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
+import {
+  familyFromLegacyModel,
+  generateRoomId,
+  MAX_UPLOAD_BYTES,
+} from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { sessionMessagePreview } from "../shared/session-label.ts";
@@ -1504,8 +1508,6 @@ export function saveMessageQueues(store: Record<string, unknown>) {
   atomicWriteFileSync(MESSAGE_QUEUES_FILE, JSON.stringify(store, null, 2));
 }
 
-const MAX_FILE_BYTES = 200 * 1024 * 1024; // 200MB
-
 const EXTENSION_TO_MIME: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -1539,7 +1541,7 @@ export function saveFile(
   originalName: string,
 ): Attachment | null {
   try {
-    if (data.length > MAX_FILE_BYTES) return null;
+    if (data.length > MAX_UPLOAD_BYTES) return null;
 
     const dir = join(LOGS_DIR, agentId, "files");
     mkdirSync(dir, { recursive: true });
