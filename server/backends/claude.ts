@@ -84,6 +84,7 @@ import {
   effortLevelsFor,
 } from "../../shared/types.ts";
 import type { ModelFamily, EffortLevel } from "../../shared/types.ts";
+import { getAgentHost } from "../agent-host.ts";
 import { saveFile } from "../persistence.ts";
 import {
   resolveAttachmentNotices,
@@ -100,6 +101,7 @@ import {
   isClaudeCloudSelected,
   isClaudeCodeInstalled,
   limitedClaudeFamilies,
+  withCloudModelDefaults,
 } from "./claude-install-check.ts";
 
 import type {
@@ -1409,10 +1411,10 @@ export function buildClaudeUserMessage(
 
 function claudeModelForEnvironment(
   modelFamily: string,
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = getAgentHost().baseEnv(),
 ): string {
-  // Cloud model IDs and family pins belong to Claude Code. Passing an alias
-  // lets ANTHROPIC_DEFAULT_*_MODEL apply to both turns and topic generation.
+  // Passing an alias lets resolved cloud defaults and explicit family pins
+  // apply to both turns and topic generation.
   if (isClaudeCloudSelected(env)) return modelFamily;
   return FAMILY_TO_MODEL[modelFamily as ModelFamily] ?? modelFamily;
 }
@@ -1457,11 +1459,12 @@ export function toolBoundaryHooks(
 }
 
 function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
-  const model = claudeModelForEnvironment(opts.modelFamily, opts.env);
+  const env = withCloudModelDefaults(opts.env ?? getAgentHost().baseEnv());
+  const model = claudeModelForEnvironment(opts.modelFamily, env);
   // A limited family (Sonnet 4.5 and Haiku 4.5 on Bedrock and Vertex) takes no
   // effort and no auto mode. Auto runs as default, the stricter mode, never as
   // bypassPermissions.
-  const limited = limitedClaudeFamilies(opts.env ?? process.env).includes(
+  const limited = limitedClaudeFamilies(env).includes(
     opts.modelFamily,
   );
   const permissionMode =
@@ -1502,7 +1505,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // clarifying questions in plain chat instead.
     disallowedTools: ["AskUserQuestion"],
   };
-  if (opts.env) sdkOpts.env = opts.env;
+  if (opts.env || isClaudeCloudSelected(env)) sdkOpts.env = env;
   return sdkOpts;
 }
 
@@ -1677,7 +1680,8 @@ export function createClaudeBackend(
       // roleplaying as an agent attempting the conversation's task. The
       // adapter (V2 or V1) sets tools:[] / thinking:disabled / settingSources:
       // [] / cwd:"/tmp" to keep this a pure single-turn label task.
-      const model = claudeModelForEnvironment(opts.modelFamily, opts.env);
+      const env = withCloudModelDefaults(opts.env ?? getAgentHost().baseEnv());
+      const model = claudeModelForEnvironment(opts.modelFamily, env);
       return sdkClient.oneShotPrompt({
         prompt,
         model,
@@ -1687,7 +1691,7 @@ export function createClaudeBackend(
         // built-in default (auto-memory ON), so the flag layer is needed
         // here too or the /tmp cwd gets its own memory folder.
         settings: CLAUDE_LAUNCH_SETTINGS,
-        env: opts.env,
+        env: opts.env || isClaudeCloudSelected(env) ? env : undefined,
       });
     },
 

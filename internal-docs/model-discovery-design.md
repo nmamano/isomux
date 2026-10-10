@@ -27,6 +27,8 @@ On 2026-10-02 Anthropic served `claude-sonnet-5-5`, and the remote catalog liste
 3. A turn on the explicit id ran and reported a 200k window. Context bars, the fullness notices and the `/context` route would have used the wrong window for every agent on it.
 4. SDK 0.3.287 (released the day before) fixed all three. The fix was a dependency bump and a one-line change to `FAMILY_TO_MODEL`.
 
+Model release rule (Nil, 2026-10-10): whenever Isomux updates `FAMILY_TO_MODEL` to show a new Claude model, update `CLAUDE_CLOUD_MODEL_DEFAULTS` in `shared/types.ts` in the same change. Check the newest bundled CLI first, then verify provider IDs and supported source regions against the AWS and Google model cards. Record the source and check date. Recheck aliases without a table row too (currently Opus and Fable). Keep explicit pins, preserve region variables, and never add a global fallback. Run `server/backends/claude-cloud-defaults.test.ts`; its alignment test must fail if a picker model changes without its cloud row. Verify launches, titles, model labels, and effort/Auto limits use the same resolved defaults. Report which IDs were tested live; an offline alias or request capture does not prove account access.
+
 So for Claude the rule is: show a model only when the bundled SDK's `supportedModels()` lists it (PM recommendation for Q1 below). Codex had the same case the other way round: Nil asked for "Astra 6.1", and no Codex release or remote catalog lists it on 2026-10-02. Discovery would correctly show nothing.
 
 ## What the hardcoded tables carry

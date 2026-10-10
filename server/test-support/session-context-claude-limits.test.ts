@@ -6,6 +6,9 @@ import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 
 const HOST_VARIABLES = [
+  "AWS_REGION", "AWS_DEFAULT_REGION", "ANTHROPIC_BEDROCK_REGION_PREFIX",
+  "CLOUD_ML_REGION", "VERTEX_REGION_CLAUDE_5_5_SONNET", "VERTEX_REGION_CLAUDE_HAIKU_5_5",
+  "ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION",
   "CLAUDE_CODE_USE_BEDROCK",
   "CLAUDE_CODE_USE_VERTEX",
   "ANTHROPIC_DEFAULT_SONNET_MODEL",
@@ -191,6 +194,30 @@ it("sends each member and each agent the families limited in its own env, again 
       "claude-haiku-4-5",
       "claude-haiku-4-5",
     ]);
+    // A supported office region moves unpinned families to the current models.
+    bossSocket.messages.length = 0;
+    memberSocket.messages.length = 0;
+    expect((await put("/api/office/env", boss.rawSessionId, {
+      CLAUDE_CODE_USE_VERTEX: "1", CLOUD_ML_REGION: "global",
+    })).status).toBe(204);
+    const coveredContext = await bossSocket.waitFor("session_context");
+    expect(limitedIn(coveredContext)).toEqual([]);
+    expect(modelsIn(coveredContext)).toEqual({});
+    expect(agentLimits(bossAgent)).toEqual([]);
+    expect(agentModels(bossAgent)).toEqual({});
+    expect(await reportedModes(bossAgent)).toEqual(["auto", "auto"]);
+    expect(await reported(bossAgent, "model")).toEqual(["claude-haiku-5-5", "claude-haiku-5-5"]);
+
+    // A member's old-model pin still wins over that office default.
+    memberSocket.messages.length = 0;
+    expect((await put("/api/users/Member/env", member.rawSessionId, {
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5@20251001",
+    })).status).toBe(204);
+    expect(limitedIn(await memberSocket.waitFor("session_context"))).toEqual(["haiku"]);
+    expect(agentLimits(memberAgent)).toEqual(["haiku"]);
+    expect(agentLimits(bossAgent)).toEqual([]);
+    expect(await reportedModes(memberAgent)).toEqual(["default", "default"]);
+    expect(await reported(memberAgent, "model")).toEqual(["claude-haiku-4-5@20251001", "claude-haiku-4-5@20251001"]);
   } finally {
     bossSocket.close();
     memberSocket.close();

@@ -17,6 +17,8 @@ import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
 import { getAgentHost } from "../agent-host.ts";
 import {
   FAMILY_TO_MODEL,
+  CLAUDE_CLOUD_MODEL_DEFAULTS,
+  CLAUDE_BEDROCK_GEO_REGIONS,
   MODEL_FAMILIES,
   type ClaudeFamilyModels,
 } from "../../shared/types.ts";
@@ -83,52 +85,69 @@ export function isClaudeCloudSelected(env: {
   [key: string]: string | undefined;
 }): boolean {
   return [env.CLAUDE_CODE_USE_BEDROCK, env.CLAUDE_CODE_USE_VERTEX].some(
-    (value) =>
-      ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? ""),
+    cloudFlag,
   );
 }
 
-// Claude families that run an older model without effort and Auto in this
-// environment. Claude Code 2.1.293 (bundled SDK 0.3.293), checked 2026-10-07:
-// on Bedrock and Vertex the sonnet and haiku aliases resolve to Sonnet 4.5 and
-// Haiku 4.5. Only ANTHROPIC_DEFAULT_<FAMILY>_MODEL moves an alias, and the CLI
-// gives a pinned id effort and Auto when it names a model below in any case.
-// Any other pin stays limited here.
-const CLOUD_PIN_TAKES_EFFORT_AND_AUTO = [
-  ["sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-5"],
-  ["haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-5-5"],
-] as const;
+type CloudEnv = { [key: string]: string | undefined };
 
-export function limitedClaudeFamilies(env: {
-  [key: string]: string | undefined;
-}): string[] {
+function cloudFlag(value: string | undefined): boolean {
+  return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
+}
+
+// Claude Code 2.1.293, checked 2026-10-10: o8 validates regions without trimming.
+function awsRegion(value: string | undefined): string | undefined {
+  return value && /^[a-z]{2,}(?:-[a-z0-9]+){0,4}$/i.test(value) ? value : undefined;
+}
+
+// Resolve only the final merged Claude environment. Unknown regions (including
+// a region in ~/.aws/config) keep the CLI default; explicit pins always win.
+export function withCloudModelDefaults(env: CloudEnv): CloudEnv {
+  if (!isClaudeCloudSelected(env)) return env;
+  const bedrock = cloudFlag(env.CLAUDE_CODE_USE_BEDROCK);
+  // A prefix is an office routing choice, including global. Leave it to the CLI.
+  if (bedrock && env.ANTHROPIC_BEDROCK_REGION_PREFIX?.trim()) return env;
+  const result = { ...env };
+  const geoFor = (region: string | undefined) => Object.entries(CLAUDE_BEDROCK_GEO_REGIONS).find(
+    ([, regions]) => (regions as readonly string[]).includes(region ?? ""),
+  )?.[0];
+  for (const [family, row] of Object.entries(CLAUDE_CLOUD_MODEL_DEFAULTS)) {
+    const variable = `ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`;
+    if (env[variable]?.trim()) continue;
+    let model: string | undefined;
+    if (bedrock) {
+      const geo = geoFor(awsRegion(env.AWS_REGION) || awsRegion(env.AWS_DEFAULT_REGION));
+      // The same Haiku pin also serves background calls. A cross-geo helper
+      // region cannot use the primary region's inference profile.
+      const helperRegion = awsRegion(env.ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION);
+      if (family === "haiku" && helperRegion && geoFor(helperRegion) !== geo) continue;
+      model = geo ? (row.bedrock as Record<string, string>)[geo] : undefined;
+    } else {
+      const region = env[row.vertexRegionVariable] || env.CLOUD_ML_REGION;
+      if ((row.vertexRegions as readonly string[]).includes(region ?? "")) model = row.vertex;
+    }
+    if (model) result[variable] = model;
+  }
+  return result;
+}
+
+export function limitedClaudeFamilies(env: CloudEnv): string[] {
   if (!isClaudeCloudSelected(env)) return [];
-  return CLOUD_PIN_TAKES_EFFORT_AND_AUTO.filter(
-    ([, variable, model]) =>
-      !(env[variable]?.toLowerCase() ?? "").includes(model),
+  const effective = withCloudModelDefaults(env);
+  return Object.entries(CLAUDE_CLOUD_MODEL_DEFAULTS).filter(
+    ([family, row]) => !(effective[`ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`]?.toLowerCase() ?? "").includes(row.effortModel),
   ).map(([family]) => family);
 }
 
-// The model each Claude family runs in this environment, where it differs from
-// FAMILY_TO_MODEL. On Bedrock and Vertex Isomux passes the alias, so
-// ANTHROPIC_DEFAULT_<FAMILY>_MODEL picks the model. Claude Code 2.1.293,
-// checked 2026-10-08: with no pin, opus and fable run FAMILY_TO_MODEL and
-// sonnet and haiku run 4.5. Values are canonical Anthropic ids, like
-// FAMILY_TO_MODEL; the CLI sends a regional, dated provider id for them.
-const CLOUD_ALIAS_MODELS: ClaudeFamilyModels = {
-  sonnet: "claude-sonnet-4-5",
-  haiku: "claude-haiku-4-5",
-};
-
-export function claudeFamilyModels(env: {
-  [key: string]: string | undefined;
-}): ClaudeFamilyModels {
+export function claudeFamilyModels(env: CloudEnv): ClaudeFamilyModels {
   const models: ClaudeFamilyModels = {};
   if (!isClaudeCloudSelected(env)) return models;
+  const effective = withCloudModelDefaults(env);
   for (const { family } of MODEL_FAMILIES) {
-    const model =
-      env[`ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`]?.trim() ||
-      CLOUD_ALIAS_MODELS[family];
+    const fallback = family in CLAUDE_CLOUD_MODEL_DEFAULTS
+      ? CLAUDE_CLOUD_MODEL_DEFAULTS[family as keyof typeof CLAUDE_CLOUD_MODEL_DEFAULTS].cliDefault
+      : undefined;
+    const model = effective[`ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`]?.trim() || fallback;
     if (model && model !== FAMILY_TO_MODEL[family]) models[family] = model;
   }
   return models;

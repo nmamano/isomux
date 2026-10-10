@@ -153,6 +153,55 @@ export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   haiku: "claude-haiku-5-5",
 };
 
+// Update cloud defaults in the same change as FAMILY_TO_MODEL. See
+// internal-docs/model-discovery-design.md (model release rule).
+// Checked 2026-10-10 against Claude Code 2.1.293 and 2.1.296: Opus/Fable
+// already resolve to 5.5/5.1 on both providers; recheck them on every release.
+// Model IDs and source regions, read 2026-10-10:
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-5-5.html
+// https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/sonnet-5-5
+// https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/haiku-5-5
+// Offline request captures, CLI 2.1.293, 2026-10-10: eu-west-1 uses eu.;
+// ap-northeast-1 and ap-southeast-2 Opus use apac. Isomux uses the model
+// cards' jp./au. profiles instead (no Sonnet geo profile in Japan).
+// Source regions below are per profile, checked against both model cards.
+// No global fallback: an unset pin must not change the office's geography.
+export const CLAUDE_BEDROCK_GEO_REGIONS = {
+  us: ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "ca-central-1", "ca-west-1"],
+  eu: ["eu-central-1", "eu-central-2", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-2", "eu-west-3"],
+  au: ["ap-southeast-2", "ap-southeast-4"],
+  jp: ["ap-northeast-1", "ap-northeast-3"],
+} as const;
+
+export const CLAUDE_CLOUD_MODEL_DEFAULTS = {
+  sonnet: {
+    bedrock: {
+      us: "us.anthropic.claude-sonnet-5-5",
+      eu: "eu.anthropic.claude-sonnet-5-5",
+      au: "au.anthropic.claude-sonnet-5-5",
+    },
+    vertex: "claude-sonnet-5-5",
+    vertexRegionVariable: "VERTEX_REGION_CLAUDE_5_5_SONNET",
+    vertexRegions: ["global", "us", "eu"],
+    cliDefault: "claude-sonnet-4-5",
+    effortModel: "claude-sonnet-5",
+  },
+  haiku: {
+    bedrock: {
+      us: "us.anthropic.claude-haiku-5-5",
+      eu: "eu.anthropic.claude-haiku-5-5",
+      au: "au.anthropic.claude-haiku-5-5",
+      jp: "jp.anthropic.claude-haiku-5-5",
+    },
+    vertex: "claude-haiku-5-5",
+    vertexRegionVariable: "VERTEX_REGION_CLAUDE_HAIKU_5_5",
+    vertexRegions: ["global", "us", "eu"],
+    cliDefault: "claude-haiku-4-5",
+    effortModel: "claude-haiku-5-5",
+  },
+} as const;
+
 // The model a Claude family runs where it differs from FAMILY_TO_MODEL, keyed
 // by family (server/backends/claude-install-check.ts claudeFamilyModels): on
 // Bedrock and Vertex, a family pin verbatim or the canonical Anthropic id of
