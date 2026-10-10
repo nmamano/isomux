@@ -282,6 +282,6 @@ describe("install.sh: every package run goes through apt_install", () => {
 
   it("installs the packages through the helper", () => {
     expect(SRC).toMatch(/apt_install[^\n]*\bpolkitd\b/);
-    expect(SRC).toMatch(/apt_install[^\n]*\bnodejs\b/);
+    expect(SRC).toMatch(/apt_install[^\n]*\bgh\b/);
   });
 });
