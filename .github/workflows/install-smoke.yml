@@ -45,6 +45,7 @@ jobs:
         path:
           - manual
           - installer
+          - hosted
           - container
           - kubernetes
     runs-on: ubuntu-24.04

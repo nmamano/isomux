@@ -4,14 +4,18 @@
 # against the office it produces. Exit 0 is a pass. A failure names the path
 # and the step, and prints the end of that step's log.
 #
-#   scripts/install-smoke/run.sh manual|installer|container|kubernetes [REVISION]
+#   scripts/install-smoke/run.sh manual|installer|hosted|container|kubernetes [REVISION]
 #
 #   manual     docs/hosting/blocks/install.md on a fresh Ubuntu 24.04, as a
 #              normal user: Node.js through nvm, apt packages, Bun, git clone,
 #              bun install, bun run dev, then the printed setup link.
 #   installer  deploy/install.sh as root on a fresh Ubuntu 24.04 server with
-#              systemd, as the VPS guide and hosted provisioning run it, then
+#              systemd, as the VPS guide runs it, then
 #              the saved owner invite link.
+#   hosted     the same installer with a staged enrollment, through owner
+#              claim, first public address enable and invite. Excludes
+#              configure_caddy (renewal helper, hosted Caddyfile),
+#              write_loopback_bind_if_proxied and report.
 #   container  the release image (deploy/container/Dockerfile) as Render runs
 #              it: a data volume, ISOMUX_PUBLIC_URL and a setup key.
 #   kubernetes the release image in a local k3d cluster with the owner overlay
@@ -28,12 +32,12 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/../.."
 
 usage() {
-  echo "usage: scripts/install-smoke/run.sh manual|installer|container|kubernetes [REVISION]" >&2
+  echo "usage: scripts/install-smoke/run.sh manual|installer|hosted|container|kubernetes [REVISION]" >&2
   exit 2
 }
 [[ $# == 1 || $# == 2 ]] || usage
 path=$1
-case $path in manual | installer | container | kubernetes) ;; *) usage ;; esac
+case $path in manual | installer | hosted | container | kubernetes) ;; *) usage ;; esac
 sha=$(git rev-parse --verify "${2:-HEAD}^{commit}")
 
 suffix=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
@@ -42,6 +46,7 @@ work=$(mktemp -d)
 logs=${SMOKE_LOG_DIR:-$work/logs}
 mkdir -p "$logs"
 domain=office.example.com
+[[ $path != hosted ]] || domain=smoke.isomux.app
 images=()
 check_set=()
 [[ ${SMOKE_FREE_AGENT:-} != 1 ]] || check_set=(--free-agent)
@@ -73,7 +78,7 @@ trap 'exit 143' TERM INT
 office_log() {
   case $path in
     manual) docker exec "$name" tail -n 60 /home/smoke/dev.log ;;
-    installer) docker exec "$name" journalctl -u isomux -n 60 --no-pager ;;
+    installer | hosted) docker exec "$name" journalctl -u isomux -n 60 --no-pager ;;
     container) docker logs --tail 60 "$name" 2>&1 ;;
     kubernetes)
       kubectl -n isomux get pods
@@ -143,6 +148,29 @@ manual() {
     --claim setup-link --office-log /home/smoke/dev.log
 }
 
+# Keep the original failure even if the diagnostic replay succeeds.
+run_hosted_install() {
+  local rc=0 marker=""
+  "$@" || rc=$?
+  marker=$(docker exec "$name" cat /etc/isomux/install-kind) || true
+  printf 'install-kind=%s\n' "$marker"
+  if ((rc != 0)); then
+    docker exec -e DOMAIN="$domain" "$name" bash -c '
+      echo "replayed PUT /api/office/access after install failure:"
+      if [[ ! -s /var/lib/isomux-install/session.cookies ]]; then
+        echo "no installer cookie jar; replay unavailable"
+        exit 0
+      fi
+      curl -sS --max-time 15 -b /var/lib/isomux-install/session.cookies \
+        -X PUT http://127.0.0.1:4000/api/office/access \
+        -H "Content-Type: application/json" \
+        --data "$(jq -n --arg origin "https://$DOMAIN" "{externalAccess: true, publicOrigin: \$origin}")" \
+        -w "\nreplay HTTP %{http_code}\n"' || true
+    return "$rc"
+  fi
+  [[ $marker == hosted ]]
+}
+
 installer() {
   images+=("$name-box")
   step box-image docker build -q -t "$name-box" -f scripts/install-smoke/box.Dockerfile scripts/install-smoke
@@ -173,12 +201,33 @@ installer() {
     git daemon --reuseaddr --base-path=/srv --export-all --listen=127.0.0.1 --detach'
   git show "$sha:deploy/install.sh" > "$work/install.sh"
   docker cp "$work/install.sh" "$name:/root/install.sh"
-  step install docker exec -e DOMAIN="$domain" -e ISOMUX_REPO=git://127.0.0.1/isomux.git \
-    -e ISOMUX_REF=smoke "$name" bash /root/install.sh
+  local install_command=(bash /root/install.sh) install_runner=()
+  if [[ $path == hosted ]]; then
+    step enrollment docker exec "$name" bash -ec '
+      install -d -m 0700 /etc/isomux/renewal
+      printf "%s\n" "{\"endpoint\":\"http://127.0.0.1:9/unused\",\"token\":\"smoke-only\"}" > /etc/isomux/renewal/enrollment.json
+      chmod 0600 /etc/isomux/renewal/enrollment.json'
+    docker cp scripts/install-smoke/hosted-install.sh "$name:/root/hosted-install.sh"
+    install_command=(bash /root/hosted-install.sh /root/install.sh)
+    install_runner=(run_hosted_install)
+  fi
+  step install "${install_runner[@]}" docker exec -e DOMAIN="$domain" -e ISOMUX_REPO=git://127.0.0.1/isomux.git \
+    -e ISOMUX_REF=smoke "$name" "${install_command[@]}"
+  if [[ $path == hosted ]]; then
+    sed -n "/^install-kind=/p" "$logs/install.log"
+    step hosted-boundary grep -Fxq HOSTED_SMOKE_TLS_BOUNDARY "$logs/install.log"
+    step hosted-state docker exec -e DOMAIN="$domain" "$name" bash -ec '
+      [[ -s /var/lib/isomux-install/invite-url ]]
+      jq -e --arg origin "https://$DOMAIN" \
+        ".externalAccess == true and .publicOrigin == \$origin" \
+        /home/isomux/.isomux/office-config.json'
+  fi
   step office-checks run_checks /usr/local/bin/bun root \
     --base http://127.0.0.1:4000 --origin "https://$domain" \
     --claim invite --invite-file /var/lib/isomux-install/invite-url
 }
+
+hosted() { installer; }
 
 container() {
   images+=("$name-image")

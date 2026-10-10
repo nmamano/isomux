@@ -61,7 +61,7 @@ first-run behaviour - it is the path paying customers take.
 
 Before the tag, `scripts/release.sh` already required a green Install smoke
 run for the commit (`scripts/install-smoke`, see
-`internal-docs/testing-guide.md`): the manual install, the installer, the
+`internal-docs/testing-guide.md`): the manual install, the self-hosted and Hosted installer paths, the
 container image and a local Kubernetes cluster, each fresh, then the claim, a
 terminal and the signed-out Claude and Codex notices. It runs no real VPS,
 DNS, TLS certificate, provider sign-in or update, and checks the free
