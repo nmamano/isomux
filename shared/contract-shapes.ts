@@ -1114,7 +1114,7 @@ export interface AppMessageReq {
   text: string;
 }
 
-// PATCH /api/apps/:name. Any subset of the three mutable fields; an absent key
+// PATCH /api/apps/:name. Any subset of the mutable fields; an absent key
 // is a field left alone. `name` and `port` are deliberately NOT here: they are
 // the app's address, so a typo in either is fixed by deleting and registering
 // again rather than quietly rewritten under whoever already bookmarked it.
@@ -1132,6 +1132,7 @@ export interface AppUpdateReq {
   cwd?: string;
   description?: string | null;
   messageTargetAgentId?: string;
+  createdByAgentId?: string;
 }
 
 // The `error.code` values the app routes answer with, as a closed union so the

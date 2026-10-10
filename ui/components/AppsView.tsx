@@ -96,7 +96,7 @@ function portLinkHost(officeHostname: string): string {
 }
 
 /**
- * Where the app's name links to. `url` is the office's own answer - the full
+ * Where the app links to. Prefer its office short URL. `url` is the full
  * https origin the app answers on, present exactly when the office has app
  * hostnames at all - so it is used verbatim and nothing about it is derived
  * here. Without one, the link stays what it has always been: this office's
@@ -110,15 +110,16 @@ function portLinkHost(officeHostname: string): string {
  * the row to the page it is already on.
  */
 export function appHref(
-  app: Pick<AppWire, "url" | "port">,
+  app: Pick<AppWire, "shortUrl" | "url" | "port">,
   officeHostname: string,
 ): string {
+  if (typeof app.shortUrl === "string" && app.shortUrl !== "") return app.shortUrl;
   if (typeof app.url === "string" && app.url !== "") return app.url;
   return `http://${portLinkHost(officeHostname)}:${app.port}/`;
 }
 
 export function appLinkHref(
-  app: Pick<AppWire, "name" | "url" | "port">,
+  app: Pick<AppWire, "name" | "shortUrl" | "url" | "port">,
   officeHostname: string,
   liveAppPreviews: boolean,
 ): string {
@@ -1105,6 +1106,14 @@ export function AppsView({
               </span>
             )}
           </div>
+          <a
+            href={linkHref}
+            target="_blank"
+            rel="noreferrer"
+            style={{ fontSize: 12, color: "var(--accent-text)", overflowWrap: "anywhere" }}
+          >
+            {appHref(app, window.location.hostname)}
+          </a>
           {app.description && (
             <div
               title={app.description}

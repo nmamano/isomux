@@ -35,7 +35,7 @@ export function hostedIdentityNote(
 export function appHostingSection(unsupportedReason: string | null): string {
   if (unsupportedReason !== null)
     return `- Agent-built apps are not available. ${unsupportedReason} Tell the member when they ask for one.`;
-  return "- The member asks for a web app that keeps running: register it as an app. Page: `apps`.";
+  return "- The member asks for a web app that keeps running: register it as an app. Give members its `shortUrl` when present. Page: `apps`.";
 }
 
 // The Claude caveat about long-lived processes points at apps, which an

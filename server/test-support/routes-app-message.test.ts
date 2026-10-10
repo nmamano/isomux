@@ -549,10 +549,12 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     remove: () => record,
     update: () => record,
     resolveMessageTarget: () => "ok",
+    resolveCreator: () => "unavailable",
     attributionFor: () => ({ createdBy: "AppBot", username: "alice" }),
     validateCwd: (cwd: string) => ({ ok: true as const, resolved: cwd }),
     projectForList: (_identity, _record, wire) => wire,
     publicUrl: () => null,
+    shortUrl: () => null,
     canAccess: () => true,
     registrationGeneration: (app) => app.hostGen,
     thumbnails: {

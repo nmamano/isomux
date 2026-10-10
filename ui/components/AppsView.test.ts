@@ -332,3 +332,14 @@ describe("appLinkHref", () => {
     ).not.toStartWith("/demo/");
   });
 });
+
+describe("app short links", () => {
+  it("prefers the short address for app links and keeps the demo route", () => {
+    const app = { name: "board", port: 21000, url: "https://board.office.example", shortUrl: "https://office.example/board" };
+    expect(appHref(app, "ignored.example")).toBe(app.shortUrl);
+    expect(appLinkHref(app, "ignored.example", true)).toBe(app.shortUrl);
+    expect(appLinkHref(app, "ignored.example", false)).toBe("/demo/app?name=board");
+    expect(appHref({ ...app, shortUrl: undefined }, "ignored.example")).toBe(app.url);
+    expect(appHref({ ...app, shortUrl: "" }, "ignored.example")).toBe(app.url);
+  });
+});

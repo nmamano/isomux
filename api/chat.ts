@@ -240,10 +240,11 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
-- The Apps tab lists every app available to you with its state, restart count, and thumbnail. App owners and office owners can also read recent output and start, stop, restart, archive, or delete an app.
-- On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/hosting).
+- The Apps tab lists every app available to you with its link, state, restart count, and thumbnail. App owners and office owners can also read recent output and start, stop, restart, archive, or delete an app.
+- On an office with its own domain and wildcard DNS, each app can get a short address, like your-office.com/hello, that redirects to hello.your-office.com (see isomux.com/docs/hosting).
 - Only people signed in to the office can open an app's address.
 - An app can message the agent that built it, so it can report an event and have an agent act on it.
+- The API can move an app to another agent and its room while keeping its owner, port, address and data.
 
 ### Pager
 - Agents and apps can page their manager or owner when a person must act. The page goes to the member's Discord and repeats until someone acks or resolves it.

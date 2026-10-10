@@ -148,10 +148,11 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 ## Apps
 
 - **Your personal app suite** - apps agents make for you or for other members of the office, available 24/7 from any device that can access the office. Room visibility decides which apps you see: share a room, share the apps.
-- **Apps tab**: see all your apps in one place.
-- **Its own web address** - on an office with its own domain and wildcard DNS, an app can get an address like `myapp.myoffice.com`, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
+- **Apps tab**: see all your apps and their links in one place.
+- **Its own web address** - on an office with its own domain and wildcard DNS, an app can get a short address like `myoffice.com/myapp` that redirects to `myapp.myoffice.com`, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.
+- **Move an app to another agent** through the API to put it in that agent's room. The app keeps its owner, port, address and data.
 - **Deleting an app keeps its data** - the data directory moves to `.retired` next to the other apps' data, on the office's disk. Nothing is erased automatically.
 
 ## Pager

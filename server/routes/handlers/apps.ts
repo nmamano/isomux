@@ -117,6 +117,7 @@ export interface AppsDeps {
       cwd?: string;
       description?: string | null;
       messageTargetAgentId?: string;
+      creator?: { id: string; name: string };
       thumbnailUpdatedAt?: number;
       archived?: boolean;
     },
@@ -142,6 +143,9 @@ export interface AppsDeps {
     ownerUserId: string | null,
     agentId: string,
   ): "ok" | "invalid_id" | "unavailable";
+  // Both the caller and the app owner must reach this live agent.
+  resolveCreator(identity: Identity, ownerUserId: string | null, agentId: string):
+    { id: string; name: string } | "invalid_id" | "unavailable";
   // Token-derived attribution, shared with the task board: createdBy is the
   // caller's display identity (agent name, or the human's name), username the
   // token's owning user.
@@ -163,6 +167,7 @@ export interface AppsDeps {
   // Derived on every read from the boot-frozen domain and the app's label -
   // the same value its unit injects as ISOMUX_APP_URL.
   publicUrl(app: AppRecord): string | null;
+  shortUrl(app: AppRecord): string | null;
   canAccess(app: AppRecord, userId: string): boolean;
 
   // Tell every socket that may see this app about it. Called with the SAME wire
@@ -174,7 +179,7 @@ export interface AppsDeps {
   // is the truthful result of it.
   //
   // Never called anywhere its throw could change the response: see announced().
-  announce(wire: AppWire): void;
+  announce(wire: AppWire, before?: AppRecord): void;
   // Tell the same audience the app is gone. The full record preserves the
   // creator facts after the registry removes it.
   announceRemoved(app: AppRecord): void;
@@ -237,6 +242,7 @@ function toWire(
   record: AppRecord,
   runtime: AppRuntime | undefined,
   url: string | null,
+  shortUrl: string | null,
 ): AppWire {
   const { state, restartCount, startError } = runtime ?? UNKNOWN_RUNTIME;
   return {
@@ -247,6 +253,7 @@ function toWire(
     // `!== null`, not truthiness: the rule is present-iff-there-is-a-URL, and
     // an empty string would be a URL-shaped answer meaning "none".
     ...(url !== null ? { url } : {}),
+    ...(shortUrl !== null ? { shortUrl } : {}),
   };
 }
 
@@ -382,7 +389,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
   const wireOf = (
     record: AppRecord,
     runtime: AppRuntime | undefined,
-  ): AppWire => toWire(record, runtime, deps.publicUrl(record));
+  ): AppWire => toWire(record, runtime, deps.publicUrl(record), deps.shortUrl(record));
 
   // Every handler wraps its registry access, so a corrupt registry answers with
   // its own code on a READ as well as a write - a list that silently returned
@@ -688,18 +695,33 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             );
           }
         }
+        let creator: { id: string; name: string } | undefined;
+        if (body.createdByAgentId !== undefined) {
+          if (typeof body.createdByAgentId !== "string") {
+            return fail(400, "invalid_request", "createdByAgentId must be a valid agent id");
+          }
+          const resolved = deps.resolveCreator(ctx.identity, before.userId, body.createdByAgentId);
+          if (resolved === "invalid_id") {
+            return fail(400, "invalid_request", "createdByAgentId must be a valid agent id");
+          }
+          if (resolved === "unavailable") {
+            return fail(403, "forbidden", "createdByAgentId must name a live agent the caller and app owner can access");
+          }
+          creator = resolved;
+        }
         // An empty patch is a caller mistake, not a no-op: answering 200 to a
         // request that asked for nothing hides whatever built it.
         if (
           body.command === undefined &&
           body.cwd === undefined &&
           body.description === undefined &&
-          body.messageTargetAgentId === undefined
+          body.messageTargetAgentId === undefined &&
+          body.createdByAgentId === undefined
         ) {
           return fail(
             400,
             "invalid_request",
-            "nothing to update: send at least one of command, cwd, description, messageTargetAgentId",
+            "nothing to update: send at least one of command, cwd, description, messageTargetAgentId, createdByAgentId",
           );
         }
 
@@ -713,6 +735,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         }
 
         const after = deps.update(before.name, {
+          ...(creator ? { creator } : {}),
           ...(body.command !== undefined ? { command: body.command } : {}),
           ...(cwd !== undefined ? { cwd } : {}),
           ...(body.description !== undefined
@@ -748,7 +771,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           }
         }
         const wire = wireOf(after, deps.states([after.name]).get(after.name));
-        announced(after.name, () => deps.announce(wire));
+        announced(after.name, () => deps.announce(wire, before));
         return ok(wire);
       } catch (err) {
         return renderRegistryError(err);
@@ -1022,6 +1045,7 @@ function actionHandler(
         record,
         deps.states([record.name]).get(record.name),
         deps.publicUrl(record),
+        deps.shortUrl(record),
       );
       announced(record.name, () => deps.announce(wire));
       return ok(wire);
@@ -1048,7 +1072,7 @@ function archiveHandler(deps: AppsDeps, archived: boolean): RouteHandler {
         if (!after) return fail(404, "not_found");
         record = after;
       }
-      const wire = toWire(record, runtime, deps.publicUrl(record));
+      const wire = toWire(record, runtime, deps.publicUrl(record), deps.shortUrl(record));
       announced(record.name, () => deps.announce(wire));
       return ok(wire);
     } catch (err) {

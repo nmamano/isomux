@@ -251,7 +251,8 @@ import {
   recordApiReferenceUsage,
 } from "./agent-reference-telemetry.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
-import { appRegistry, appRegistrationGeneration } from "./app-registry.ts";
+import { appRegistry, appRegistrationGeneration, RESERVED_APP_NAMES } from "./app-registry.ts";
+import { appShortUrl } from "./app-short-url.ts";
 import { webhookRegistry } from "./webhooks/registry.ts";
 import {
   createWebhookIngress,
@@ -264,7 +265,7 @@ import {
   webhookTargetPrecondition,
 } from "./routes/handlers/webhooks.ts";
 import { appThumbnailStore, readCappedFile } from "./app-thumbnails.ts";
-import { handleAppHostRequest } from "./app-hosts.ts";
+import { handleAppHostRequest, normalizeRequestHost } from "./app-hosts.ts";
 import {
   appHostDomain,
   appPublicUrl,
@@ -2658,6 +2659,7 @@ function viewerAppWire(app: AppWire): AppListWire | null {
     state: app.state,
     restartCount: app.restartCount,
     ...(app.url !== undefined ? { url: app.url } : {}),
+    ...(app.shortUrl !== undefined ? { shortUrl: app.shortUrl } : {}),
     ...(app.thumbnailUpdatedAt !== undefined
       ? { thumbnailUpdatedAt: app.thumbnailUpdatedAt }
       : {}),
@@ -2672,12 +2674,14 @@ function appWireForDependency(
 ): AppWire {
   const current = runtime ?? UNKNOWN_RUNTIME;
   const url = appPublicUrl(app.hostLabel, appHostDomain());
+  const shortUrl = appShortUrl(app, url, buildPublicOrigin().origin);
   return {
     ...app,
     state: current.state,
     restartCount: current.restartCount,
     ...(current.startError ? { startError: current.startError } : {}),
     ...(url !== null ? { url } : {}),
+    ...(shortUrl !== null ? { shortUrl } : {}),
   };
 }
 
@@ -2841,6 +2845,15 @@ function buildExecutorDeps(
           ? "ok"
           : "unavailable";
       },
+      resolveCreator: (identity, ownerUserId, agentId) => {
+        if (!isSafeScopeId(agentId)) return "invalid_id";
+        const owner = ownerUserId ? getUserById(ownerUserId) : null;
+        const target = agentManager.getAgent(agentId);
+        if (!owner || !target ||
+            !accessibleRoomIdsFor(owner).has(target.roomId) ||
+            !buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)) return "unavailable";
+        return { id: target.id, name: target.name };
+      },
       // The token and its environment file, written together. A failure to
       // write the file takes the hash back, so an app either has a usable
       // token or has none - never a hash whose plaintext was lost, which is
@@ -2900,6 +2913,7 @@ function buildExecutorDeps(
       },
       limiter: appMessageLimiter,
       publicUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
+      shortUrl: (app) => appShortUrl(app, appPublicUrl(app.hostLabel, appHostDomain()), buildPublicOrigin().origin),
       canAccess: canUserAccessApp,
       registrationGeneration: appRegistrationGeneration,
       thumbnails: appThumbnailStore,
@@ -2935,7 +2949,11 @@ function buildExecutorDeps(
         }
         return viewerAppWire(ownerWire);
       },
-      announce: (wire) => {
+      announce: (wire, before) => {
+        if (before && before.createdByAgentId !== wire.createdByAgentId) {
+          announceAppAudienceChanges(new Map([[wire.name, appVisibilityFacts(before)]]));
+          // Also update viewers who retain access: their app moved rooms too.
+        }
         const visibility = appVisibilityFacts(wire);
         pushAppDeltaToEachWs({
           kind: "upserted",
@@ -6616,6 +6634,32 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             });
           }
           // fall through to the 404 path below if the asset isn't on disk
+        }
+
+        // Short links stay on the office host. Reserved names fall through to
+        // their existing handlers, and sign-in belongs to the app origin.
+        if ((req.method === "GET" || req.method === "HEAD") &&
+            appHostDomain() !== null &&
+            normalizeRequestHost(req.headers.get("host")) === appHostDomain()) {
+          const match = /^\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\/?$/.exec(url.pathname);
+          if (match && !RESERVED_APP_NAMES.has(match[1])) {
+            let app: AppRecord | null = null;
+            try {
+              app = appRegistry.get(match[1]);
+            } catch (err) {
+              // A broken optional shortcut must not block the office shell.
+              console.error("[apps] could not resolve short link:", err);
+            }
+            const publicUrl = app ? appPublicUrl(app.hostLabel, appHostDomain()) : null;
+            if (appShortUrl(app, publicUrl, buildPublicOrigin().origin) !== null) {
+              const target = new URL(publicUrl!);
+              target.search = url.search;
+              return new Response(null, {
+                status: 302,
+                headers: { Location: target.href, "Cache-Control": "no-store" },
+              });
+            }
+          }
         }
 
         // Unified REST surface. Routes declared in the typed table are

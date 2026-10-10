@@ -122,6 +122,23 @@ export const RESERVED_APP_NAMES: ReadonlySet<string> = new Set([
   "ws",
   "docs",
   "cdn",
+  // Office routes and extensionless static entries. The coverage test in
+  // app-short-url.test.ts checks these against routing sources and ui/dist.
+  "tasks",
+  "cronjobs",
+  "skills",
+  "settings",
+  "pager",
+  "users",
+  "agents",
+  "setup",
+  "i",
+  "hooks",
+  "browser-extension",
+  "backup",
+  "readyz",
+  "icons",
+  "katex",
 ]);
 
 // Every refusal and every failure the registry can raise, carrying the wire
@@ -764,7 +781,7 @@ export interface RegisterAppInput {
   createdByAgentId?: string;
 }
 
-// A patch over the three fields an app may change. An absent key leaves the
+// A patch over the fields an app may change. An absent key leaves the
 // field alone; `description: null` removes it (see AppUpdateReq for why absence
 // and the empty string are different answers).
 export interface UpdateAppInput {
@@ -772,6 +789,8 @@ export interface UpdateAppInput {
   cwd?: string;
   description?: string | null;
   messageTargetAgentId?: string;
+  // Resolved together from a live agent by the route handler.
+  creator?: { id: string; name: string };
   // Set by the thumbnail upload, never by PATCH.
   thumbnailUpdatedAt?: number;
   // true sets the flag; false removes the key.
@@ -785,7 +804,7 @@ export interface AppRegistry {
   // Reserve a name + port, create the data dir, persist the record. Throws
   // AppRegistryError on any refusal or failure.
   register(input: RegisterAppInput): AppRecord;
-  // Change command, cwd and/or description on a registered app. Returns the
+  // Change the mutable fields on a registered app. Returns the
   // updated record, or null when no live app has that name. Throws
   // AppRegistryError on any refusal or failure.
   update(name: string, patch: UpdateAppInput): AppRecord | null;
@@ -1008,7 +1027,7 @@ export function createAppRegistry(
 
     // The cure for a typo that would otherwise cost the app its address.
     // Everything that makes the app THE app - name, port, data directory,
-    // ownership, creation attribution - is untouched by construction: only the
+    // ownership - is untouched by construction: only the
     // patchable fields are ever copied over, and the record keeps its
     // position in the file so registration order still reads as registration
     // order.
@@ -1036,6 +1055,7 @@ export function createAppRegistry(
 
       const updated: AppRecord = {
         ...apps[index],
+        ...(patch.creator ? { createdByAgentId: patch.creator.id, createdBy: patch.creator.name } : {}),
         ...(patch.command !== undefined ? { command: patch.command } : {}),
         ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
         ...(patch.messageTargetAgentId !== undefined
@@ -1045,6 +1065,13 @@ export function createAppRegistry(
           ? { thumbnailUpdatedAt: patch.thumbnailUpdatedAt }
           : {}),
       };
+      // An explicit target wins. Legacy records keep their absent target and
+      // therefore follow the new creator through the existing send fallback.
+      if (patch.creator && patch.messageTargetAgentId === undefined &&
+          apps[index].messageTargetAgentId !== undefined &&
+          apps[index].messageTargetAgentId === apps[index].createdByAgentId) {
+        updated.messageTargetAgentId = patch.creator.id;
+      }
       if (patch.archived === true) updated.archived = true;
       else if (patch.archived === false) delete updated.archived;
       withRegistrationGeneration(

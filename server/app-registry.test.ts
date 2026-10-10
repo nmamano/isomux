@@ -1133,7 +1133,7 @@ describe("app-registry: persistence failures are never reported as success", () 
 // deleting the app, which costs it its port and sets its data directory aside.
 // So the tests below care about two things above all: that the patchable fields
 // really change and persist, and that NOTHING ELSE does - the name, the port,
-// the data directory and the creation attribution are the app's identity.
+// the data directory are fixed for the app's lifetime.
 describe("app-registry: update", () => {
   it("changes command, cwd and description, and persists them", () => {
     const reg = make();

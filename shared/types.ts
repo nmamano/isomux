@@ -1091,8 +1091,9 @@ export interface AppRecord {
   // app survives the agent, so ownership can never be the agent.
   userId: string | null;
   username: string | null; // display snapshot of the owner (can go stale)
-  // Attribution only: who registered it. Older app records also use
-  // createdByAgentId as the message target when messageTargetAgentId is absent.
+  // The assigned creator; PATCH can move the app to another live agent. Its
+  // room grants visibility. Older records also use this id as the message
+  // target when messageTargetAgentId is absent.
   createdBy: string;
   createdByAgentId?: string;
   // Where POST /api/app/message delivers. Older records omit this and fall
@@ -1158,6 +1159,8 @@ export interface AppWire extends AppRecord {
   // present exactly when a URL exists, absent otherwise, the same rule the
   // app's own ISOMUX_APP_URL follows.
   url?: string;
+  // Office path that redirects to url; absent without an app domain or for reserved names.
+  shortUrl?: string;
 }
 
 // The launch-only projection returned to a room-derived viewer who may open
@@ -1174,6 +1177,8 @@ export interface AppViewerWire {
   state: AppState;
   restartCount: number;
   url?: string;
+  // Office path that redirects to url; absent without an app domain or for reserved names.
+  shortUrl?: string;
   thumbnailUpdatedAt?: number;
   archived?: boolean;
   canManage: false;

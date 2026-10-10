@@ -155,6 +155,14 @@ App hosting needs Linux with systemd. On any other host, such as a macOS local o
 
 An agent can inspect current limits for any agent in a room its manager can access. `GET /api/agents/:id/context` returns the latest context-window measurement. `GET /api/agents/:id/subscription` asks the provider when the target has a live session, then returns the plan and every subscription window with its usage and reset time. It also returns `observedAtMs`, when Isomux received the reading from the provider, and `ageMs` since then. `freshness` is `fresh` when the provider interaction completed for this call and the account stayed unchanged. It is `cached` when there is no live session or the refresh could not produce a current, valid answer; a cached reading carries `staleReason` `no_session` or `refresh_failed`. When there is no reading at all, `available` is false with `reason` `no_session`, `not_yet_measured`, or `provider_unavailable`. OpenCode reports `provider_unavailable` because its adapter does not provide subscription allowance. Both routes require authentication and use the same room access as the conversation-log route.
 
+### Apps
+
+App responses keep `url` as the app's own address and add `shortUrl` when an app domain is configured and the name does not collide with an office path. Give members `shortUrl` when present, else `url` or the existing port address. New registrations refuse names that collide with office paths; existing apps keep their own address without a short URL.
+
+`PATCH /api/apps/:name` accepts `createdByAgentId` to move an app to another live agent and its room. Both the caller and the app owner must have access to that agent. Invalid ids return 400; missing, dead or inaccessible agents return 403, with no change. The app owner or an office owner can make the change, as for other app writes.
+
+`createdBy` follows the new agent's display name. `messageTargetAgentId` follows when it equalled the old creator; a separate target stays. An explicit target in the same PATCH wins and must pass the existing app-owner access check. A missing target stays absent and falls back to the new creator. Owner, port, address and data stay. The registry saves the change and updates live viewers without a restart.
+
 ### Cronjobs
 
 `GET /api/cronjobs/:id/system-prompt` returns `{ "systemPrompt": "...", "firstUserMessage": "..." }` for a cronjob. The first field is assembled from the current office and cronjob settings, and the second field is the cronjob's configured prompt. A caller who cannot see the cronjob gets `404`.
