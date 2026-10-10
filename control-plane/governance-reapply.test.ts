@@ -759,8 +759,7 @@ suite("it refuses before writing anything", () => {
     60_000,
   );
 
-  // Quarantined: timed out at 60 s in batch 1017 CI (task 771856ca).
-  test.skip(
+  test(
     "when a runtime role holds a sequence privilege",
     () =>
       serial(() =>
