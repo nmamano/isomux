@@ -431,10 +431,10 @@ Coses que pots fer per ell:
   "settings.profile.agentContext": "Context per als agents",
   "settings.profile.promptConflict": "Les instruccions especials han canviat en un altre lloc. Es conserva el teu esborrany. Revisa el text actual abans de tornar a desar.",
   "settings.profile.currentPrompt": "Instruccions especials actuals",
-  "settings.profile.profilePrompt": "Prompt de perfil",
+  "settings.profile.profilePrompt": "Instruccions especials",
   "settings.profile.profilePromptHint":
     "(s'injecta al prompt de sistema dels agents que tens; els agents d'altres membres el poden consultar si necessiten context sobre tu)",
-  "settings.profile.profilePromptTitle": "{user} · Prompt de perfil",
+  "settings.profile.profilePromptTitle": "{user} · Instruccions especials",
   "settings.profile.profilePromptExpandedHint":
     "S'injecta al prompt de sistema dels agents d'aquest membre; els agents d'altres membres el poden consultar si necessiten context sobre ell.",
   "settings.profile.profilePromptPlaceholder":

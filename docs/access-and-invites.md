@@ -21,7 +21,7 @@ The link carries the setup key. The key is also in `~/.isomux/setup-key` on the 
 
 ## Invite a member
 
-1. **Create the member.** In `Settings`, select `New member` at the end of the `Members` list. Fill in the name, owner role, room access, profile prompt and avatar, and click `Create member`. The list shows "never signed in" until they accept a link.
+1. **Create the member.** In `Settings`, select `New member` at the end of the `Members` list. Fill in the name, owner role, room access, special instructions and avatar, and click `Create member`. The list shows "never signed in" until they accept a link.
 2. **Send a sign-in link.** Open `Settings` → `Office` → `Invites`, select the member and click `Create sign-in link`. The URL shows once. Send it privately (Signal, text, email).
 
 A sign-in link works once and expires 24 hours after you create it. A new link replaces the member's previous one. If a link expires, the member stays as they are: send a new one. The link still works after you rename the member; deleting the member revokes it.

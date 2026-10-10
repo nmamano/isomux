@@ -431,10 +431,10 @@ Cosas que puedes hacer por él:
   "settings.profile.agentContext": "Contexto para agentes",
   "settings.profile.promptConflict": "Las instrucciones especiales cambiaron en otro lugar. Tu borrador se conserva. Revisa el texto actual antes de volver a guardar.",
   "settings.profile.currentPrompt": "Instrucciones especiales actuales",
-  "settings.profile.profilePrompt": "Prompt de perfil",
+  "settings.profile.profilePrompt": "Instrucciones especiales",
   "settings.profile.profilePromptHint":
     "(se inyecta en el prompt de sistema de los agentes que posees; los agentes de otros miembros pueden consultarlo si necesitan contexto sobre ti)",
-  "settings.profile.profilePromptTitle": "{user} · Prompt de perfil",
+  "settings.profile.profilePromptTitle": "{user} · Instrucciones especiales",
   "settings.profile.profilePromptExpandedHint":
     "Se inyecta en el prompt de sistema de los agentes que posee este miembro; los agentes de otros miembros pueden consultarlo si necesitan contexto sobre él.",
   "settings.profile.profilePromptPlaceholder":

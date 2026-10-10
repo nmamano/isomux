@@ -446,10 +446,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.profile.agentContext": "Agent Context",
   "settings.profile.promptConflict": "Special instructions changed elsewhere. Your draft is kept. Review the current text before you save again.",
   "settings.profile.currentPrompt": "Current special instructions",
-  "settings.profile.profilePrompt": "Profile Prompt",
+  "settings.profile.profilePrompt": "Special instructions",
   "settings.profile.profilePromptHint":
     "(auto-injected into the system prompt of agents you own; other members' agents can look it up if they need context on you)",
-  "settings.profile.profilePromptTitle": "{user} · Profile Prompt",
+  "settings.profile.profilePromptTitle": "{user} · Special instructions",
   "settings.profile.profilePromptExpandedHint":
     "Auto-injected into the system prompt of agents this member owns; other members' agents can look it up if they need context on them.",
   "settings.profile.profilePromptPlaceholder":
