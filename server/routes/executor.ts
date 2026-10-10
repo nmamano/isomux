@@ -337,7 +337,10 @@ export async function executeRoute(
     const outcome = await deps.idempotency.run<HandlerResult>(
       { identity, method, opId: route.opId, idempotencyKey, rawBody },
       async () => {
-        const actor = !isGet && route.audit?.owner !== "none" ? deps.audit?.actor(ctx) : undefined;
+        const actor =
+          !isGet && route.audit?.owner !== "none"
+            ? deps.audit?.actor(ctx)
+            : undefined;
         const run = async () => {
           const result = await handler(ctx);
           if (result.kind === "error") throw new HandlerErrorSignal(result);
@@ -347,10 +350,22 @@ export async function executeRoute(
           // Values never enter the row. Multipart/binary have no field names.
           if (!isGet && deps.audit && route.audit?.owner === "executor") {
             try {
-              deps.audit.write({ actor: actor!, operation: route.opId,
+              deps.audit.write({
+                actor: actor!,
+                operation: route.opId,
                 targets: route.audit.targets(ctx, result),
-                fields: !isMultipart && !isBinary && body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body) : [] });
-            } catch (error) { console.error("[audit] could not record completed write", error); }
+                fields:
+                  !isMultipart &&
+                  !isBinary &&
+                  body &&
+                  typeof body === "object" &&
+                  !Array.isArray(body)
+                    ? Object.keys(body)
+                    : [],
+              });
+            } catch (error) {
+              console.error("[audit] could not record completed write", error);
+            }
           }
           return result;
         };

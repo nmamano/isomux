@@ -1340,8 +1340,12 @@ function UserEditPanel({
   );
   // Keep the version tied to the draft's baseline, never a live WS refresh.
   const [promptBaseline, setPromptBaseline] = useState(user.memberPrompt ?? "");
-  const [promptVersion, setPromptVersion] = useState(() => versionOf(user.memberPrompt ?? ""));
-  const [promptConflict, setPromptConflict] = useState<MemberPromptRes | null>(null);
+  const [promptVersion, setPromptVersion] = useState(() =>
+    versionOf(user.memberPrompt ?? ""),
+  );
+  const [promptConflict, setPromptConflict] = useState<MemberPromptRes | null>(
+    null,
+  );
   // Member-scoped memory for this user, edited via the unified /api/memory verbs
   // (load + version-guarded save), keyed by the stable userId so it survives a
   // rename. Saved separately from the user PATCH.
@@ -1455,8 +1459,7 @@ function UserEditPanel({
     // false-positive dirtiness on trailing whitespace the user can't see.
     if (isOwner && officeOwner !== targetIsOwner) return true;
     if (name.trim() !== user.name) return true;
-    if ((memberPrompt.trim() || null) !== (promptBaseline || null))
-      return true;
+    if ((memberPrompt.trim() || null) !== (promptBaseline || null)) return true;
     if (mem.dirty) return true;
     if (avatarColor !== user.avatarColor) return true;
     if (avatarVariant !== user.avatarVariant) return true;
@@ -1537,7 +1540,8 @@ function UserEditPanel({
       ? normalizeHexColor(avatarColor)
       : user.avatarColor;
     const memoryChanged = mem.dirty;
-    const promptChanged = (memberPrompt.trim() || null) !== (promptBaseline || null);
+    const promptChanged =
+      (memberPrompt.trim() || null) !== (promptBaseline || null);
     const recordChanged =
       (isOwner && officeOwner !== targetIsOwner) ||
       renamed ||
@@ -1573,10 +1577,12 @@ function UserEditPanel({
                 : "member"
               : undefined,
           name: renamed ? trimmed : undefined,
-          ...(promptChanged ? {
-            memberPrompt: memberPrompt.trim() || null,
-            memberPromptVersion: promptVersion,
-          } : {}),
+          ...(promptChanged
+            ? {
+                memberPrompt: memberPrompt.trim() || null,
+                memberPromptVersion: promptVersion,
+              }
+            : {}),
           avatarColor: normalizedColor,
           avatarVariant,
         });
@@ -1648,8 +1654,10 @@ function UserEditPanel({
       if (err instanceof ApiError && err.code === "version_conflict") {
         // Read the current text for comparison; keep the member's draft intact.
         try {
-          const current = await apiFetch<MemberPromptRes>("GET",
-            `/api/users/${encodeURIComponent(origName)}/member-prompt`);
+          const current = await apiFetch<MemberPromptRes>(
+            "GET",
+            `/api/users/${encodeURIComponent(origName)}/member-prompt`,
+          );
           setPromptBaseline(current.memberPrompt ?? "");
           setPromptVersion(current.memberPromptVersion);
           setPromptConflict(current);
@@ -1658,7 +1666,9 @@ function UserEditPanel({
           setError(err.message);
         }
       } else {
-        setError(err instanceof ApiError ? err.message : t("common.saveFailed"));
+        setError(
+          err instanceof ApiError ? err.message : t("common.saveFailed"),
+        );
       }
     } finally {
       setSaving(false);
@@ -2009,8 +2019,11 @@ function UserEditPanel({
         {promptConflict && (
           <label style={subLabelStyle}>
             {t("settings.profile.currentPrompt")}
-            <textarea readOnly value={promptConflict.memberPrompt ?? ""}
-              style={{ ...inputStyle, minHeight: 90, width: "100%" }} />
+            <textarea
+              readOnly
+              value={promptConflict.memberPrompt ?? ""}
+              style={{ ...inputStyle, minHeight: 90, width: "100%" }}
+            />
           </label>
         )}
 

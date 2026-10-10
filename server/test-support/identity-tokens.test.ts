@@ -452,9 +452,14 @@ describe("identity: redactTokens (Phase 2.1)", () => {
   });
 });
 
- it("member prompt capability belongs only to privileged agents", () => {
-   expect(PRIVILEGED_AGENT_CAPABILITIES).toContain("user:prompt");
-   for (const caps of [AGENT_CAPABILITIES, API_CAPABILITIES, RUN_CAPABILITIES, APP_CAPABILITIES]) {
-     expect(caps).not.toContain("user:prompt");
-   }
- });
+it("member prompt capability belongs only to privileged agents", () => {
+  expect(PRIVILEGED_AGENT_CAPABILITIES).toContain("user:prompt");
+  for (const caps of [
+    AGENT_CAPABILITIES,
+    API_CAPABILITIES,
+    RUN_CAPABILITIES,
+    APP_CAPABILITIES,
+  ]) {
+    expect(caps).not.toContain("user:prompt");
+  }
+});

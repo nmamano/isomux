@@ -1,30 +1,58 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const source = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
-const installer = source.slice(source.indexOf("install_claude_cli() {"), source.indexOf("\ninstall_github_cli()"));
-const asUser = source.slice(source.indexOf("as_service_user() {"), source.indexOf("\nrun_as_service_user()"));
+const installer = source.slice(
+  source.indexOf("install_claude_cli() {"),
+  source.indexOf("\ninstall_github_cli()"),
+);
+const asUser = source.slice(
+  source.indexOf("as_service_user() {"),
+  source.indexOf("\nrun_as_service_user()"),
+);
 const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
+});
 
 function fixture(mode = "success") {
   const dir = mkdtempSync(join(tmpdir(), "isomux-native-claude-"));
   dirs.push(dir);
   const bin = join(dir, "bin");
   const home = join(dir, "home");
-  mkdirSync(bin); mkdirSync(home);
-  const executable = (path: string, text: string) => { writeFileSync(path, text); chmodSync(path, 0o755); };
+  mkdirSync(bin);
+  mkdirSync(home);
+  const executable = (path: string, text: string) => {
+    writeFileSync(path, text);
+    chmodSync(path, 0o755);
+  };
   // Only the user switch is stubbed. The native install pipeline, HOME,
   // launcher chain and PATH lookup run in real Bash without host mutations.
-  executable(join(bin, "runuser"), `#!/bin/bash
+  executable(
+    join(bin, "runuser"),
+    `#!/bin/bash
 printf '%s\\n' "$*" >> "$FIXTURE/user-calls"
 [[ "$1 $2 $3" == '-u service-fixture --' ]] || exit 91
 shift 3
 exec "$@"
-`);
-  executable(join(bin, "curl"), `#!/bin/bash
+`,
+  );
+  executable(
+    join(bin, "curl"),
+    `#!/bin/bash
 printf '%s\\n' "$*" >> "$FIXTURE/downloads"
 [[ "$MODE" != download-fails ]] || exit 22
 cat <<'NATIVE'
@@ -34,9 +62,12 @@ printf '#!/bin/bash\\nprintf "native-v1\\\\n"\\n' > "$HOME/.local/share/claude/v
 chmod +x "$HOME/.local/share/claude/versions/1"
 ln -s ../share/claude/versions/1 "$HOME/.local/bin/claude"
 NATIVE
-`);
+`,
+  );
   const harness = join(dir, "run.sh");
-  writeFileSync(harness, `set -euo pipefail
+  writeFileSync(
+    harness,
+    `set -euo pipefail
 SERVICE_USER=service-fixture
 SERVICE_HOME="$FIXTURE/home"
 DRY_RUN="\${DRY_RUN:-}"
@@ -46,11 +77,32 @@ ${asUser}
 ${installer.replaceAll("/usr/local/bin", bin)}
 install_claude_cli
 printf 'continued\\n'
-`);
-  return { dir, bin, home, executable, run: (dry = false) => {
-    const result = Bun.spawnSync(["bash", harness], { env: { ...process.env, HOME: "/root-wrong-home", PATH: `${bin}:/usr/bin:/bin`, FIXTURE: dir, MODE: mode, DRY_RUN: dry ? "1" : "" }, stdout: "pipe", stderr: "pipe" });
-    return { code: result.exitCode, output: result.stdout.toString() + result.stderr.toString() };
-  } };
+`,
+  );
+  return {
+    dir,
+    bin,
+    home,
+    executable,
+    run: (dry = false) => {
+      const result = Bun.spawnSync(["bash", harness], {
+        env: {
+          ...process.env,
+          HOME: "/root-wrong-home",
+          PATH: `${bin}:/usr/bin:/bin`,
+          FIXTURE: dir,
+          MODE: mode,
+          DRY_RUN: dry ? "1" : "",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      return {
+        code: result.exitCode,
+        output: result.stdout.toString() + result.stderr.toString(),
+      };
+    },
+  };
 }
 
 describe("native Claude installer", () => {
@@ -59,13 +111,29 @@ describe("native Claude installer", () => {
     expect(f.run().code).toBe(0);
     const target = join(f.home, ".local/bin/claude");
     expect(readlinkSync(join(f.bin, "claude"))).toBe(target);
-    const calls = readFileSync(join(f.dir, "user-calls"), "utf8").trim().split("\n");
-    expect(calls.every((line) => line.startsWith(`-u service-fixture -- env HOME=${f.home} `))).toBe(true);
-    expect(calls.some((line) => line.includes("bash -o pipefail -c"))).toBe(true);
-    expect(readFileSync(join(f.dir, "downloads"), "utf8")).toContain("https://claude.ai/install.sh");
-    f.executable(join(f.home, ".local/share/claude/versions/2"), "#!/bin/bash\necho native-v2\n");
-    rmSync(target); symlinkSync("../share/claude/versions/2", target);
-    const updated = Bun.spawnSync(["bash", "-c", "claude --version"], { env: { PATH: `${f.bin}:/usr/bin:/bin` } });
+    const calls = readFileSync(join(f.dir, "user-calls"), "utf8")
+      .trim()
+      .split("\n");
+    expect(
+      calls.every((line) =>
+        line.startsWith(`-u service-fixture -- env HOME=${f.home} `),
+      ),
+    ).toBe(true);
+    expect(calls.some((line) => line.includes("bash -o pipefail -c"))).toBe(
+      true,
+    );
+    expect(readFileSync(join(f.dir, "downloads"), "utf8")).toContain(
+      "https://claude.ai/install.sh",
+    );
+    f.executable(
+      join(f.home, ".local/share/claude/versions/2"),
+      "#!/bin/bash\necho native-v2\n",
+    );
+    rmSync(target);
+    symlinkSync("../share/claude/versions/2", target);
+    const updated = Bun.spawnSync(["bash", "-c", "claude --version"], {
+      env: { PATH: `${f.bin}:/usr/bin:/bin` },
+    });
     expect(updated.exitCode).toBe(0);
     expect(updated.stdout.toString().trim()).toBe("native-v2");
   });
@@ -84,10 +152,16 @@ describe("native Claude installer", () => {
     it(`repairs a ${dangling ? "dangling" : "missing"} system link without reinstalling the native launcher`, () => {
       const f = fixture();
       mkdirSync(join(f.home, ".local/bin"), { recursive: true });
-      f.executable(join(f.home, ".local/bin/claude"), "#!/bin/bash\necho partial-native\n");
-      if (dangling) symlinkSync(join(f.dir, "missing-version"), join(f.bin, "claude"));
+      f.executable(
+        join(f.home, ".local/bin/claude"),
+        "#!/bin/bash\necho partial-native\n",
+      );
+      if (dangling)
+        symlinkSync(join(f.dir, "missing-version"), join(f.bin, "claude"));
       expect(f.run().code).toBe(0);
-      expect(readlinkSync(join(f.bin, "claude"))).toBe(join(f.home, ".local/bin/claude"));
+      expect(readlinkSync(join(f.bin, "claude"))).toBe(
+        join(f.home, ".local/bin/claude"),
+      );
       expect(existsSync(join(f.dir, "downloads"))).toBe(false);
     });
   }

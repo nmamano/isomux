@@ -40,7 +40,13 @@ import type { Identity } from "../../identity/index.ts";
 // distinction is the route guard's, not the type's), or a status-mapped failure.
 type UserOutcome =
   | { ok: true; user: UserSelfWire }
-  | { ok: false; status: HandlerErrorStatus; code: string; error: string; version?: string };
+  | {
+      ok: false;
+      status: HandlerErrorStatus;
+      code: string;
+      error: string;
+      version?: string;
+    };
 
 type DeleteOutcome =
   | { ok: true }
@@ -154,22 +160,34 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
       const changes = { ...body };
       const malformed = malformedUserUpdate(changes);
       if (malformed) return fail(422, "invalid_request", malformed);
-      if (changes.memberPrompt !== undefined &&
-        (typeof changes.memberPromptVersion !== "string" || changes.memberPromptVersion.length === 0)) {
-        return fail(400, "invalid_version",
-          "memberPromptVersion is required when memberPrompt is present (read it via GET /api/users/:username/member-prompt first)");
+      if (
+        changes.memberPrompt !== undefined &&
+        (typeof changes.memberPromptVersion !== "string" ||
+          changes.memberPromptVersion.length === 0)
+      ) {
+        return fail(
+          400,
+          "invalid_version",
+          "memberPromptVersion is required when memberPrompt is present (read it via GET /api/users/:username/member-prompt first)",
+        );
       }
       const r = await deps.update({
         username: ctx.params.username,
         changes,
         identity: ctx.identity,
       });
-      if (!r.ok) return fail(r.status, r.code, r.error,
-        r.version === undefined ? undefined : { version: r.version });
-      if (ctx.identity.scope === "agent") return ok({
-        memberPrompt: r.user.memberPrompt,
-        memberPromptVersion: versionOf(r.user.memberPrompt ?? ""),
-      });
+      if (!r.ok)
+        return fail(
+          r.status,
+          r.code,
+          r.error,
+          r.version === undefined ? undefined : { version: r.version },
+        );
+      if (ctx.identity.scope === "agent")
+        return ok({
+          memberPrompt: r.user.memberPrompt,
+          memberPromptVersion: versionOf(r.user.memberPrompt ?? ""),
+        });
       return ok({ user: r.user });
     },
 

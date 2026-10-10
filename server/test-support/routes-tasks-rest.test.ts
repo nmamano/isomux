@@ -1544,56 +1544,147 @@ describe("routes/tasks REST: obsolete status", () => {
 
 describe("task history and restore", () => {
   it("uses task visibility for history and owner authority for audit and restore", async () => {
-    const srv = await startTestServer(); server = srv;
+    const srv = await startTestServer();
+    server = srv;
     const owner = await srv.seedOwner("HistoryOwner");
     const member = await srv.seedMember("HistoryMember");
     const room = srv.agentManager.getRooms()[0].id;
-    updateUserById(getUserByName("HistoryMember")!.id,{allowedRooms:[]});
-    const made = await api(srv,"/api/tasks",{method:"POST",rawSessionId:owner.rawSessionId,body:{title:"history",roomId:room}});
+    updateUserById(getUserByName("HistoryMember")!.id, { allowedRooms: [] });
+    const made = await api(srv, "/api/tasks", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { title: "history", roomId: room },
+    });
     const task = made.body as TaskItem;
     expect(made.status).toBe(201);
-    expect((await api(srv,`/api/tasks/${task.id}/history`,{rawSessionId:member.rawSessionId})).status).toBe(404);
-    expect((await api(srv,"/api/audit-log",{rawSessionId:member.rawSessionId})).status).toBe(403);
-    updateUserById(getUserByName("HistoryMember")!.id,{allowedRooms:[room]});
-    const history = await api(srv,`/api/tasks/${task.id}/history`,{rawSessionId:member.rawSessionId});
+    expect(
+      (
+        await api(srv, `/api/tasks/${task.id}/history`, {
+          rawSessionId: member.rawSessionId,
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await api(srv, "/api/audit-log", { rawSessionId: member.rawSessionId }))
+        .status,
+    ).toBe(403);
+    updateUserById(getUserByName("HistoryMember")!.id, {
+      allowedRooms: [room],
+    });
+    const history = await api(srv, `/api/tasks/${task.id}/history`, {
+      rawSessionId: member.rawSessionId,
+    });
     expect(history.status).toBe(200);
-    expect((history.body as {items:unknown[]}).items).toHaveLength(1);
-    expect((await api(srv,`/api/tasks/${task.id}/restore`,{method:"POST",rawSessionId:member.rawSessionId})).status).toBe(403);
-    await api(srv,`/api/tasks/${task.id}`,{method:"DELETE",rawSessionId:owner.rawSessionId});
-    const restored = await api(srv,`/api/tasks/${task.id}/restore`,{method:"POST",rawSessionId:owner.rawSessionId});
+    expect((history.body as { items: unknown[] }).items).toHaveLength(1);
+    expect(
+      (
+        await api(srv, `/api/tasks/${task.id}/restore`, {
+          method: "POST",
+          rawSessionId: member.rawSessionId,
+        })
+      ).status,
+    ).toBe(403);
+    await api(srv, `/api/tasks/${task.id}`, {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
+    const restored = await api(srv, `/api/tasks/${task.id}/restore`, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+    });
     expect(restored.status).toBe(201);
     expect(restored.body).toEqual(task);
-    expect((await api(srv,`/api/tasks/${task.id}/restore`,{method:"POST",rawSessionId:owner.rawSessionId})).status).toBe(409);
-    const page = await api(srv,`/api/audit-log?targetId=${task.id}`,{rawSessionId:owner.rawSessionId});
-    const rows = (page.body as {items:{operation:string}[]}).items;
-    expect(rows.map(row => row.operation)).toEqual(["tasks.restore","tasks.delete","tasks.create"]);
-    expect((await api(srv,"/api/audit-log?limit=1001",{rawSessionId:owner.rawSessionId})).status).toBe(400);
+    expect(
+      (
+        await api(srv, `/api/tasks/${task.id}/restore`, {
+          method: "POST",
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(409);
+    const page = await api(srv, `/api/audit-log?targetId=${task.id}`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    const rows = (page.body as { items: { operation: string }[] }).items;
+    expect(rows.map((row) => row.operation)).toEqual([
+      "tasks.restore",
+      "tasks.delete",
+      "tasks.create",
+    ]);
+    expect(
+      (
+        await api(srv, "/api/audit-log?limit=1001", {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(400);
   });
   it("a failed restore transaction leaves the deleted task absent", async () => {
     const { officeAuditStore } = await import("../audit-store.ts");
-    const srv = await startTestServer(); server = srv;
+    const srv = await startTestServer();
+    server = srv;
     const owner = await srv.seedOwner("RestoreOwner");
-    const made = await api(srv,"/api/tasks",{method:"POST",rawSessionId:owner.rawSessionId,body:{title:"restore"}});
+    const made = await api(srv, "/api/tasks", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { title: "restore" },
+    });
     const task = made.body as TaskItem;
-    await api(srv,`/api/tasks/${task.id}`,{method:"DELETE",rawSessionId:owner.rawSessionId});
-    officeAuditStore().db.exec("CREATE TRIGGER audit_fail BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT, 'test failure'); END");
-    expect((await api(srv,`/api/tasks/${task.id}/restore`,{method:"POST",rawSessionId:owner.rawSessionId})).status).toBe(500);
-    expect(srv.agentManager.getTasks().some(t => t.id === task.id)).toBe(false);
-    expect(officeAuditStore().db.query("SELECT * FROM tasks WHERE id=?").all(task.id)).toHaveLength(0);
+    await api(srv, `/api/tasks/${task.id}`, {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
+    officeAuditStore().db.exec(
+      "CREATE TRIGGER audit_fail BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+    );
+    expect(
+      (
+        await api(srv, `/api/tasks/${task.id}/restore`, {
+          method: "POST",
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(500);
+    expect(srv.agentManager.getTasks().some((t) => t.id === task.id)).toBe(
+      false,
+    );
+    expect(
+      officeAuditStore()
+        .db.query("SELECT * FROM tasks WHERE id=?")
+        .all(task.id),
+    ).toHaveLength(0);
   });
 });
 
 it("refuses to restore a task from a closed room", async () => {
-  const srv = await startTestServer(); server = srv;
+  const srv = await startTestServer();
+  server = srv;
   const owner = await srv.seedOwner("ClosedRoomOwner");
   const roomId = srv.agentManager.createRoom("Closed task room");
-  const made = await api(srv,"/api/tasks",{method:"POST",rawSessionId:owner.rawSessionId,body:{title:"private task",roomId}});
+  const made = await api(srv, "/api/tasks", {
+    method: "POST",
+    rawSessionId: owner.rawSessionId,
+    body: { title: "private task", roomId },
+  });
   const task = made.body as TaskItem;
   expect(made.status).toBe(201);
-  await api(srv,`/api/tasks/${task.id}`,{method:"DELETE",rawSessionId:owner.rawSessionId});
-  expect((await api(srv,`/api/rooms/${roomId}`,{method:"DELETE",rawSessionId:owner.rawSessionId})).status).toBe(204);
-  const restored = await api(srv,`/api/tasks/${task.id}/restore`,{method:"POST",rawSessionId:owner.rawSessionId});
+  await api(srv, `/api/tasks/${task.id}`, {
+    method: "DELETE",
+    rawSessionId: owner.rawSessionId,
+  });
+  expect(
+    (
+      await api(srv, `/api/rooms/${roomId}`, {
+        method: "DELETE",
+        rawSessionId: owner.rawSessionId,
+      })
+    ).status,
+  ).toBe(204);
+  const restored = await api(srv, `/api/tasks/${task.id}/restore`, {
+    method: "POST",
+    rawSessionId: owner.rawSessionId,
+  });
   expect(restored.status).toBe(409);
-  expect(restored.body).toMatchObject({error:{code:"room_unavailable"}});
-  expect(srv.agentManager.getTasks().some(t => t.id === task.id)).toBe(false);
+  expect(restored.body).toMatchObject({ error: { code: "room_unavailable" } });
+  expect(srv.agentManager.getTasks().some((t) => t.id === task.id)).toBe(false);
 });

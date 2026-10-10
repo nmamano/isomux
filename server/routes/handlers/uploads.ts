@@ -94,7 +94,10 @@ export function uploadsHandlers(
           value.type || "application/octet-stream",
           value.name,
         );
-        if (att) { savedFileAudit(`${ctx.params.id}/${att.filename}`); attachments.push(att); }
+        if (att) {
+          savedFileAudit(`${ctx.params.id}/${att.filename}`);
+          attachments.push(att);
+        }
       }
       return ok({ attachments });
     },

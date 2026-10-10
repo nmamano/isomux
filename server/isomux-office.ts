@@ -2756,9 +2756,15 @@ function buildExecutorDeps(
 
   register(
     tasksHandlers({
-      history: (id, before) => officeAuditStore().list({ targetId: id, before }, true),
-      deletedTask: id => officeAuditStore().list({ targetId: id, operation: "tasks.delete", limit: 1 }).items[0]?.deletedTask ?? null,
-      restoreTask: task => agentManager.restoreTask(task),
+      history: (id, before) =>
+        officeAuditStore().list({ targetId: id, before }, true),
+      deletedTask: (id) =>
+        officeAuditStore().list({
+          targetId: id,
+          operation: "tasks.delete",
+          limit: 1,
+        }).items[0]?.deletedTask ?? null,
+      restoreTask: (task) => agentManager.restoreTask(task),
       listTasks: () => agentManager.getTasks(),
       createTask: ({
         title,
@@ -3576,10 +3582,12 @@ function buildExecutorDeps(
     usersHandlers({
       readMemberPrompt: (username) => {
         const user = getUser(username);
-        return user ? {
-          memberPrompt: user.memberPrompt,
-          memberPromptVersion: versionOf(user.memberPrompt ?? ""),
-        } : null;
+        return user
+          ? {
+              memberPrompt: user.memberPrompt,
+              memberPromptVersion: versionOf(user.memberPrompt ?? ""),
+            }
+          : null;
       },
       create: async ({
         name,
@@ -3645,13 +3653,16 @@ function buildExecutorDeps(
             error: `User ${username} not found`,
           };
         }
-        if (changes.memberPrompt !== undefined &&
-          changes.memberPromptVersion !== versionOf(target.memberPrompt ?? "")) {
+        if (
+          changes.memberPrompt !== undefined &&
+          changes.memberPromptVersion !== versionOf(target.memberPrompt ?? "")
+        ) {
           return {
             ok: false,
             status: 409,
             code: "version_conflict",
-            error: "the member's special instructions changed since your read; re-read and retry",
+            error:
+              "the member's special instructions changed since your read; re-read and retry",
             version: versionOf(target.memberPrompt ?? ""),
           };
         }
@@ -5134,8 +5145,11 @@ function buildExecutorDeps(
     audit: {
       actor: ({ identity }) => {
         const app = identity.appName ? appRegistry.get(identity.appName) : null;
-        return auditActor(identity, attributionFor(identity).createdBy,
-          app ? `${app.name}:${appRegistrationGeneration(app)}` : undefined);
+        return auditActor(
+          identity,
+          attributionFor(identity).createdBy,
+          app ? `${app.name}:${appRegistrationGeneration(app)}` : undefined,
+        );
       },
       write: recordAudit,
     },
@@ -6306,7 +6320,11 @@ async function handleInboundMessage(
       }
       case "terminal_open": {
         if (!agentVisibleForSession(session, cmd.agentId)) break;
-        const opened = agentManager.openTerminal(cmd.agentId, { kind: "member", id: session.userId, name: getUserById(session.userId)?.name ?? session.userId });
+        const opened = agentManager.openTerminal(cmd.agentId, {
+          kind: "member",
+          id: session.userId,
+          name: getUserById(session.userId)?.name ?? session.userId,
+        });
         if (opened) {
           // Seed ONLY the requester that just opened the terminal. The live
           // terminal_output stream is ACL-gated on the live emit path (it is a
@@ -6349,13 +6367,21 @@ async function handleInboundMessage(
         break;
       case "terminal_close":
         if (!agentVisibleForSession(session, cmd.agentId)) break;
-        agentManager.closeTerminal(cmd.agentId, { kind: "member", id: session.userId, name: getUserById(session.userId)?.name ?? session.userId });
+        agentManager.closeTerminal(cmd.agentId, {
+          kind: "member",
+          id: session.userId,
+          name: getUserById(session.userId)?.name ?? session.userId,
+        });
         break;
       case "terminal_restart":
         // Restart is a terminal-I/O capability: it can kill a foreground
         // process, so it carries the same room visibility gate as open/input.
         if (!agentVisibleForSession(session, cmd.agentId)) break;
-        agentManager.restartTerminal(cmd.agentId, { kind: "member", id: session.userId, name: getUserById(session.userId)?.name ?? session.userId });
+        agentManager.restartTerminal(cmd.agentId, {
+          kind: "member",
+          id: session.userId,
+          name: getUserById(session.userId)?.name ?? session.userId,
+        });
         break;
     }
   } catch (err) {
@@ -7128,7 +7154,15 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                 value.name,
               );
               if (att) {
-                recordAudit({ actor: auditActor(auth.identity, attributionFor(auth.identity).createdBy), operation: "uploads.legacy", targets: [agentId, `${agentId}/${att.filename}`], fields: [] });
+                recordAudit({
+                  actor: auditActor(
+                    auth.identity,
+                    attributionFor(auth.identity).createdBy,
+                  ),
+                  operation: "uploads.legacy",
+                  targets: [agentId, `${agentId}/${att.filename}`],
+                  fields: [],
+                });
                 attachments.push(att);
               }
             }

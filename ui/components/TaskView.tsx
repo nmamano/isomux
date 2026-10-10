@@ -879,7 +879,9 @@ function TaskDetailPanel({
             {timeAgo(language, t, task.createdAt)}
           </div>
         )}
-        {mode === "edit" && task && <TaskHistoryList id={task.id} version={task.version} />}
+        {mode === "edit" && task && (
+          <TaskHistoryList id={task.id} version={task.version} />
+        )}
       </div>
 
       {/* Footer */}

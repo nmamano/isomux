@@ -250,7 +250,11 @@ function agentOf(office: OfficeSocket, engine: Engine): Agent | undefined {
   return [...office.agents.values()].find((a) => a.agentType === engine);
 }
 
-async function checkTerminal(office: OfficeSocket, agent: Agent, standaloneClaude = false) {
+async function checkTerminal(
+  office: OfficeSocket,
+  agent: Agent,
+  standaloneClaude = false,
+) {
   const mark = office.frameCount;
   const own = (m: ServerMessage) => m.agentId === agent.id;
   office.send({ type: "terminal_open", agentId: agent.id });
@@ -273,7 +277,9 @@ async function checkTerminal(office: OfficeSocket, agent: Agent, standaloneClaud
   office.send({
     type: "terminal_input",
     agentId: agent.id,
-    data: (standaloneClaude ? "command -v claude && claude --version && " : "") + "printf 'isomux-smoke-%s\\n' terminal-ok\r",
+    data:
+      (standaloneClaude ? "command -v claude && claude --version && " : "") +
+      "printf 'isomux-smoke-%s\\n' terminal-ok\r",
   });
   const output = () =>
     stripAnsi(
@@ -560,7 +566,11 @@ async function main() {
       ),
     );
     await step("terminal", () =>
-      checkTerminal(socket, agentOf(socket, "claude")!, path === "installer" || path === "hosted"),
+      checkTerminal(
+        socket,
+        agentOf(socket, "claude")!,
+        path === "installer" || path === "hosted",
+      ),
     );
     for (const engine of SIGNED_OUT_ENGINES)
       await step(`signed-out-${engine}`, () =>

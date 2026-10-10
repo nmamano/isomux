@@ -587,7 +587,17 @@ export function createWebhookIngress(deps: WebhookIngressDeps): WebhookIngress {
       // A retry reads the event and the delivery id from the stored row, not
       // from this request.
       const { log, row } = claim;
-      recordAudit({ actor: { kind: "webhook", id: record.id, name: record.name, ownerId: record.userId }, operation: "hooks.deliver", targets: [record.id, row.id], fields: [] });
+      recordAudit({
+        actor: {
+          kind: "webhook",
+          id: record.id,
+          name: record.name,
+          ownerId: record.userId,
+        },
+        operation: "hooks.deliver",
+        targets: [record.id, row.id],
+        fields: [],
+      });
       const retrying =
         claim.kind === "retry"
           ? {

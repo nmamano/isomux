@@ -1159,7 +1159,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function restoreTask(record: Omit<TaskItem, "version">): TaskItem {
     const events = officeState.restoreTask(record);
     for (const event of events) eventHandler(event);
-    return officeState.tasks.find(t => t.id === record.id)!;
+    return officeState.tasks.find((t) => t.id === record.id)!;
   }
 
   function deleteTask(id: string): boolean {
@@ -2495,9 +2495,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // fields (room ids, prompt/envFile defaults) that weren't present before.
     // Must run AFTER agents are populated or persistAll writes empty rooms.
     persistAll();
-    try { officeState.setTasksDirect(taskStore.load()); }
-    catch (error) {
-      console.error("[tasks] could not load task storage; starting with an empty board", error);
+    try {
+      officeState.setTasksDirect(taskStore.load());
+    } catch (error) {
+      console.error(
+        "[tasks] could not load task storage; starting with an empty board",
+        error,
+      );
       officeState.setTasksDirect([]);
     }
     officeStatePersistenceEnabled = true;

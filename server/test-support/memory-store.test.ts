@@ -46,7 +46,8 @@ const TS = "2026-06-28T12:00:00.000Z";
 function freshStore(opts?: { caps?: Record<string, number> }) {
   const root = tempRoot();
   const rawStore = createMemoryStore({
-    audit: entry => auditRows.set(root, [...(auditRows.get(root) ?? []), entry]),
+    audit: (entry) =>
+      auditRows.set(root, [...(auditRows.get(root) ?? []), entry]),
     stateRoot: root,
     today: () => DATE,
     now: () => TS,
@@ -54,13 +55,30 @@ function freshStore(opts?: { caps?: Record<string, number> }) {
       | Record<"office" | "room" | "agent" | "boss", number>
       | undefined,
   });
-  const store = { ...rawStore,
-    append: (input: Parameters<typeof rawStore.append>[0]) => withAuditContextSync({ kind: input.authorAgentId ? "agent" : "member", id: input.authorAgentId ?? "member", name: input.author }, "memory.append", () => rawStore.append(input)),
-    replace: (input: Parameters<typeof rawStore.replace>[0]) => withAuditContextSync({ kind: "member", id: "member", name: input.author }, "memory.replace", () => rawStore.replace(input)),
+  const store = {
+    ...rawStore,
+    append: (input: Parameters<typeof rawStore.append>[0]) =>
+      withAuditContextSync(
+        {
+          kind: input.authorAgentId ? "agent" : "member",
+          id: input.authorAgentId ?? "member",
+          name: input.author,
+        },
+        "memory.append",
+        () => rawStore.append(input),
+      ),
+    replace: (input: Parameters<typeof rawStore.replace>[0]) =>
+      withAuditContextSync(
+        { kind: "member", id: "member", name: input.author },
+        "memory.replace",
+        () => rawStore.replace(input),
+      ),
   };
   return { root, store };
 }
-function opLog(root: string): AuditWrite[] { return auditRows.get(root) ?? []; }
+function opLog(root: string): AuditWrite[] {
+  return auditRows.get(root) ?? [];
+}
 
 describe("memory-store: format/parse", () => {
   it("formatMemoryLine renders the raw bullet shape", () => {
@@ -687,18 +705,40 @@ describe("memory-store: render for prompt", () => {
 });
 it("refuses a memory write without an active actor before creating a file", () => {
   const root = tempRoot();
-  const store = createMemoryStore({stateRoot:root});
-  expect(() => store.append({scope:"office",scopeId:null,author:"Untrusted display",text:"fact"})).toThrow();
-  expect(existsSync(join(root,"memory","office.md"))).toBe(false);
+  const store = createMemoryStore({ stateRoot: root });
+  expect(() =>
+    store.append({
+      scope: "office",
+      scopeId: null,
+      author: "Untrusted display",
+      text: "fact",
+    }),
+  ).toThrow();
+  expect(existsSync(join(root, "memory", "office.md"))).toBe(false);
 });
 it("preserves a legacy oplog and returns success if the new audit insert fails", () => {
   const root = tempRoot();
-  mkdirSync(join(root,"memory"));
-  const old = join(root,"memory",".oplog.jsonl");
-  writeFileSync(old,"legacy bytes\n");
-  const store = createMemoryStore({stateRoot:root,audit:() => {throw new Error("audit insert failed");}});
+  mkdirSync(join(root, "memory"));
+  const old = join(root, "memory", ".oplog.jsonl");
+  writeFileSync(old, "legacy bytes\n");
+  const store = createMemoryStore({
+    stateRoot: root,
+    audit: () => {
+      throw new Error("audit insert failed");
+    },
+  });
   // The injected writer follows the same best-effort boundary as production.
-  withAuditContextSync({kind:"member",id:"u",name:"Member"},"memory.append",() => store.append({scope:"office",scopeId:null,author:"Member",text:"fact"}));
-  expect(store.read("office",null).text).toContain("fact");
-  expect(readFileSync(old,"utf8")).toBe("legacy bytes\n");
+  withAuditContextSync(
+    { kind: "member", id: "u", name: "Member" },
+    "memory.append",
+    () =>
+      store.append({
+        scope: "office",
+        scopeId: null,
+        author: "Member",
+        text: "fact",
+      }),
+  );
+  expect(store.read("office", null).text).toContain("fact");
+  expect(readFileSync(old, "utf8")).toBe("legacy bytes\n");
 });

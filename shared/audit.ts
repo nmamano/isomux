@@ -1,6 +1,14 @@
 import type { TaskItem } from "./types.ts";
 
-export type AuditActorKind = "member" | "agent" | "api_token" | "cronjob" | "webhook" | "admin_cli" | "setup" | "app";
+export type AuditActorKind =
+  | "member"
+  | "agent"
+  | "api_token"
+  | "cronjob"
+  | "webhook"
+  | "admin_cli"
+  | "setup"
+  | "app";
 export interface AuditActor {
   kind: AuditActorKind;
   id: string;
@@ -30,5 +38,13 @@ export interface AuditFilter {
   before?: number;
   limit?: number;
 }
-export interface AuditPage { items: AuditEntry[]; nextBefore: number | null }
-export interface TaskHistory { createdAt: number; createdBy: string; items: AuditEntry[]; nextBefore: number | null }
+export interface AuditPage {
+  items: AuditEntry[];
+  nextBefore: number | null;
+}
+export interface TaskHistory {
+  createdAt: number;
+  createdBy: string;
+  items: AuditEntry[];
+  nextBefore: number | null;
+}

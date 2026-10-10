@@ -1464,9 +1464,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   // A limited family (Sonnet 4.5 and Haiku 4.5 on Bedrock and Vertex) takes no
   // effort and no auto mode. Auto runs as default, the stricter mode, never as
   // bypassPermissions.
-  const limited = limitedClaudeFamilies(env).includes(
-    opts.modelFamily,
-  );
+  const limited = limitedClaudeFamilies(env).includes(opts.modelFamily);
   const permissionMode =
     limited && opts.permissionMode === "auto" ? "default" : opts.permissionMode;
   const sdkOpts: SdkSessionOptions = {

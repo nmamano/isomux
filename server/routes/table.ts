@@ -1,4 +1,9 @@
-import { resourceTargets, createdResource, namedResource, selectedTargets } from "./audit.ts";
+import {
+  resourceTargets,
+  createdResource,
+  namedResource,
+  selectedTargets,
+} from "./audit.ts";
 import type { RouteHandlerContext, HandlerResult } from "./executor.ts";
 // Typed route table. The single source of truth for route declarations. Each
 // route declares { opId, method, path, auth, emits } plus its request/response
@@ -242,7 +247,13 @@ export type RoutePrecondition =
   | "webhookTargetAllowed";
 
 export interface RouteDef<Req = unknown, Res = unknown> {
-  audit?: { owner: "none"; reason: string } | { owner: "store" } | { owner: "executor"; targets: (ctx: RouteHandlerContext, result: HandlerResult) => string[] };
+  audit?:
+    | { owner: "none"; reason: string }
+    | { owner: "store" }
+    | {
+        owner: "executor";
+        targets: (ctx: RouteHandlerContext, result: HandlerResult) => string[];
+      };
   opId: string;
   method: HttpMethod;
   path: string;
@@ -348,9 +359,28 @@ type InteractionResponseRes = {
 };
 
 export const API_ROUTES: readonly RouteDef[] = [
-  defineRoute({ opId: "audit.list", method: "GET", path: "/api/audit-log", auth: cap("audit:read", auditOwner), emits: [] }),
-  defineRoute({ opId: "tasks.history", method: "GET", path: "/api/tasks/:id/history", auth: cap("task:read", operationalAuthenticated), emits: [] }),
-  defineRoute({ opId: "tasks.restore", method: "POST", path: "/api/tasks/:id/restore", auth: cap("audit:read", auditOwner), emits: ["tasks"], audit: { owner: "store" } }),
+  defineRoute({
+    opId: "audit.list",
+    method: "GET",
+    path: "/api/audit-log",
+    auth: cap("audit:read", auditOwner),
+    emits: [],
+  }),
+  defineRoute({
+    opId: "tasks.history",
+    method: "GET",
+    path: "/api/tasks/:id/history",
+    auth: cap("task:read", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute({
+    opId: "tasks.restore",
+    method: "POST",
+    path: "/api/tasks/:id/restore",
+    auth: cap("audit:read", auditOwner),
+    emits: ["tasks"],
+    audit: { owner: "store" },
+  }),
 
   defineRoute<
     void,
@@ -437,7 +467,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<AgentSystemPromptPreviewReq, AgentSystemPromptRes>({
     opId: "agents.previewSystemPrompt",
-    audit: { owner: "none", reason: "Computes a preview without changing state." },
+    audit: {
+      owner: "none",
+      reason: "Computes a preview without changing state.",
+    },
     method: "POST",
     path: "/api/agents/system-prompt-preview",
     auth: authn(bodyRoom("roomId")),
@@ -469,7 +502,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MoveAgentReq, AgentEnvelope>({
     opId: "agents.move",
-    audit: { owner: "executor", targets: selectedTargets({"body": ["targetRoomId"]}) },
+    audit: {
+      owner: "executor",
+      targets: selectedTargets({ body: ["targetRoomId"] }),
+    },
     method: "POST",
     path: "/api/agents/:id/move",
     auth: cap("agent:manage", and(agentParam("id"), bodyRoom("targetRoomId"))),
@@ -505,7 +541,10 @@ export const API_ROUTES: readonly RouteDef[] = [
 
   defineRoute<SendMessageReq, AgentMessageAck | ScheduledAck>({
     opId: "agents.sendMessage",
-    audit: { owner: "executor", targets: selectedTargets({"result": ["messageId", "scheduledId"]}) },
+    audit: {
+      owner: "executor",
+      targets: selectedTargets({ result: ["messageId", "scheduledId"] }),
+    },
     method: "POST",
     path: "/api/agents/:id/messages",
     // any-of so a USER (converse) and an AGENT (send-as-self) both clear stage 1
@@ -741,7 +780,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<EditorSaveReq, { ok: true; mtime: number }>({
     opId: "agents.saveFile",
-    audit: { owner: "executor", targets: selectedTargets({"body": ["path"]}) },
+    audit: { owner: "executor", targets: selectedTargets({ body: ["path"] }) },
     method: "PUT",
     path: "/api/agents/:id/file",
     auth: cap("editor:use", agentParam("id")),
@@ -749,7 +788,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "agents.closeFile",
-    audit: { owner: "executor", targets: selectedTargets({"body": ["path"]}) },
+    audit: { owner: "executor", targets: selectedTargets({ body: ["path"] }) },
     method: "DELETE",
     path: "/api/agents/:id/file/watch",
     auth: cap("editor:use", agentParam("id")),
@@ -788,7 +827,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<MembersChatPostReq, MembersChatMessage>({
     opId: "membersChat.post",
-    audit: { owner: "executor", targets: selectedTargets({"result": ["messageId"]}) },
+    audit: {
+      owner: "executor",
+      targets: selectedTargets({ result: ["messageId"] }),
+    },
     method: "POST",
     path: "/api/members-chat",
     auth: cap("chat:members", operationalAuthenticated),
@@ -911,7 +953,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // View preferences affect visibility only; they never grant or deny access.
   defineRoute<ViewOrderReq, NoContent>({
     opId: "view.setOrder",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PUT",
     path: "/api/me/view/order",
     auth: cap("view:manage", authenticated),
@@ -919,7 +961,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ShownRoomsReq, NoContent>({
     opId: "view.setShown",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PUT",
     path: "/api/me/view/shown",
     auth: cap("view:manage", authenticated),
@@ -929,7 +971,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<NotifRoomsReq, NoContent>({
     opId: "view.setNotifRooms",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PUT",
     path: "/api/me/view/notif-rooms",
     auth: cap("view:manage", authenticated),
@@ -937,7 +979,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<TuckedRoomsReq, NoContent>({
     opId: "view.setTucked",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PUT",
     path: "/api/me/view/tucked",
     auth: cap("view:manage", authenticated),
@@ -972,7 +1014,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.pair",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/browser/pair",
     auth: cap("user:self", authenticated),
@@ -980,7 +1022,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.revoke",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "DELETE",
     path: "/api/me/browser",
     auth: cap("user:self", authenticated),
@@ -988,7 +1030,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.revokeOne",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "DELETE",
     path: "/api/me/browser/browsers/:id",
     auth: cap("user:self", authenticated),
@@ -1003,7 +1045,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // absent from AGENT_CAPABILITIES and PRIVILEGED_AGENT_CAPABILITIES.
   defineRoute<PreferencesReq, NoContent>({
     opId: "prefs.update",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PATCH",
     path: "/api/me/preferences",
     auth: cap("user:self", authenticated),
@@ -1052,7 +1094,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<UserEnvReplaceReq, NoContent>({
     opId: "officeEnv.replace",
-    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "PUT",
     path: "/api/office/env",
     auth: cap("user:env", officeEnvOwner),
@@ -1105,7 +1147,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderLoginStartReq, ProviderLoginStartRes>({
     opId: "providerAccounts.start",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/login",
     auth: cap("user:self", userScope),
@@ -1113,7 +1155,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderLoginCallbackReq, { submitted: true }>({
     opId: "providerAccounts.callback",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/callback",
     auth: cap("user:self", userScope),
@@ -1121,7 +1163,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, ProviderAccountsWire>({
     opId: "providerAccounts.refresh",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/refresh",
     auth: cap("user:self", userScope),
@@ -1129,7 +1171,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderLoginCancelReq, { canceled: true }>({
     opId: "providerAccounts.cancel",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/cancel",
     auth: cap("user:self", userScope),
@@ -1137,7 +1179,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderDisconnectReq, ProviderAccountsWire>({
     opId: "providerAccounts.disconnect",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/disconnect",
     auth: cap("user:self", userScope),
@@ -1161,7 +1203,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ApiTokenInboxSendReq, ApiTokenInboxSendRes>({
     opId: "apiTokenInbox.send",
-    audit: { owner: "executor", targets: selectedTargets({"result": ["messageId"]}) },
+    audit: {
+      owner: "executor",
+      targets: selectedTargets({ result: ["messageId"] }),
+    },
     method: "POST",
     path: "/api/api-token-inboxes/:tokenId/messages",
     auth: cap("agent:send-to-api-token", agentTokenSender),
@@ -1170,7 +1215,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ApiTokenInboxDrainReq, ApiTokenInboxDrainRes>({
     opId: "apiTokenInbox.drain",
-    audit: { owner: "none", reason: "Polling read advances only the inbox cursor." },
+    audit: {
+      owner: "none",
+      reason: "Polling read advances only the inbox cursor.",
+    },
     method: "POST",
     path: "/api/me/api-token-inbox/drain",
     auth: cap("api:drain-inbox", apiTokenInboxSelf),
@@ -1196,7 +1244,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "users.readMemberPrompt",
     method: "GET",
     path: "/api/users/:username/member-prompt",
-    auth: cap(["user:self", "user:admin", "user:prompt"], or(selfOrOwner, agentMemberPrompt)),
+    auth: cap(
+      ["user:self", "user:admin", "user:prompt"],
+      or(selfOrOwner, agentMemberPrompt),
+    ),
     emits: [],
   }),
   // Humans receive { user: UserSelfWire | UserAdminWire } (same UserRecord
@@ -1206,7 +1257,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: createdResource("user", "id") },
     method: "PATCH",
     path: "/api/users/:username",
-    auth: cap(["user:self", "user:admin", "user:prompt"], or(selfOrOwner, agentMemberPromptUpdate)),
+    auth: cap(
+      ["user:self", "user:admin", "user:prompt"],
+      or(selfOrOwner, agentMemberPromptUpdate),
+    ),
     // Record fields only (name/env/prompt/avatar).
     // emitUserUpdated + emitUsersList; NO full_state - access/view prefs are not
     // editable here, so nothing re-projects the subject's rooms.
@@ -1258,7 +1312,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   // every device.
   defineRoute<InviteMintReq, { url: string; invite: InviteWire }>({
     opId: "invites.mint",
-    audit: { owner: "executor", targets: createdResource("invite", "tokenPrefix") },
+    audit: {
+      owner: "executor",
+      targets: createdResource("invite", "tokenPrefix"),
+    },
     method: "POST",
     path: "/api/invites",
     auth: cap("invite:manage", officeOwner),
@@ -1266,7 +1323,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, { url: string; invite: InviteWire }>({
     opId: "invites.mintSelf",
-    audit: { owner: "executor", targets: createdResource("invite", "tokenPrefix") },
+    audit: {
+      owner: "executor",
+      targets: createdResource("invite", "tokenPrefix"),
+    },
     method: "POST",
     path: "/api/invites/self",
     auth: cap("invite:manage", authenticated),
@@ -1276,7 +1336,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   // control plane call it on offices of every version.
   defineRoute<RecoveryMintReq, { url: string; invite: InviteWire }>({
     opId: "invites.mintRecovery",
-    audit: { owner: "executor", targets: createdResource("invite", "tokenPrefix") },
+    audit: {
+      owner: "executor",
+      targets: createdResource("invite", "tokenPrefix"),
+    },
     method: "POST",
     path: "/api/invites/recovery",
     auth: cap("invite:manage", officeOwner),
@@ -1319,7 +1382,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "sessions.logout",
-    audit: { owner: "executor", targets: selectedTargets({"self": true}) },
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "DELETE",
     path: "/api/sessions/current",
     // Cap is `authenticated` in the spec: any identity with a current session,
@@ -1340,7 +1403,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     { signInUrl: string | null; restartRequired: boolean }
   >({
     opId: "office.setAccess",
-    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "PUT",
     path: "/api/office/access",
     auth: cap("office:admin", officeOwner),
@@ -1371,7 +1434,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     { ok: true; via: "system" | "user"; tag: string }
   >({
     opId: "office.triggerUpdate",
-    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
     path: "/api/office/update",
     auth: cap("office:admin", officeOwner),
@@ -1387,7 +1450,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<OfficeSettingsReq, NoContent>({
     opId: "office.setSettings",
-    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "PUT",
     path: "/api/office/settings",
     auth: cap("office:admin", officeOwner),
@@ -1395,7 +1458,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ValidateCwdReq, { ok: boolean; error?: string }>({
     opId: "validate.cwd",
-    audit: { owner: "none", reason: "Validates a path without changing state." },
+    audit: {
+      owner: "none",
+      reason: "Validates a path without changing state.",
+    },
     method: "POST",
     path: "/api/validate/cwd",
     auth: cap("agent:manage", operationalAuthenticated),
@@ -1406,7 +1472,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     { ok: boolean; keyCount?: number; error?: string }
   >({
     opId: "validate.env",
-    audit: { owner: "none", reason: "Validates an environment without changing state." },
+    audit: {
+      owner: "none",
+      reason: "Validates an environment without changing state.",
+    },
     method: "POST",
     path: "/api/validate/env",
     // Object-level policy (office or another user ⇒ officeOwner; own user ⇒
@@ -1669,7 +1738,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   // routes-table.test.ts.
   defineRoute<AppMessageReq, AgentMessageAck>({
     opId: "apps.sendMessage",
-    audit: { owner: "executor", targets: selectedTargets({"result": ["messageId"]}) },
+    audit: {
+      owner: "executor",
+      targets: selectedTargets({ result: ["messageId"] }),
+    },
     method: "POST",
     path: "/api/app/message",
     // app:message is held by APP scope alone, so the capability already excludes
@@ -1756,7 +1828,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<WebhookDryRunReq, WebhookDryRunRes>({
     opId: "webhooks.dryRun",
-    audit: { owner: "none", reason: "Plans a delivery without dispatch or persistence." },
+    audit: {
+      owner: "none",
+      reason: "Plans a delivery without dispatch or persistence.",
+    },
     method: "POST",
     path: "/api/webhooks/:id/dry-run",
     auth: cap("webhook:read", operationalAuthenticated),
@@ -1842,7 +1917,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<SkillSaveReq, SkillSaveRes>({
     opId: "skills.saveFile",
-    audit: { owner: "executor", targets: selectedTargets({"body": ["path"]}) },
+    audit: { owner: "executor", targets: selectedTargets({ body: ["path"] }) },
     method: "PUT",
     path: "/api/skills/file",
     auth: cap("editor:use", operationalAuthenticated),
@@ -1850,7 +1925,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<SkillDeleteReq, void>({
     opId: "skills.deleteFile",
-    audit: { owner: "executor", targets: selectedTargets({"body": ["path"]}) },
+    audit: { owner: "executor", targets: selectedTargets({ body: ["path"] }) },
     method: "DELETE",
     path: "/api/skills/file",
     auth: cap("editor:use", operationalAuthenticated),
@@ -1858,7 +1933,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<SkillCreateReq, SkillFileRes>({
     opId: "skills.create",
-    audit: { owner: "executor", targets: selectedTargets({"result": ["path"]}) },
+    audit: {
+      owner: "executor",
+      targets: selectedTargets({ result: ["path"] }),
+    },
     method: "POST",
     path: "/api/skills",
     auth: cap("editor:use", operationalAuthenticated),
@@ -1912,7 +1990,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, { runId: string }>({
     opId: "cron.runNow",
-    audit: { owner: "executor", targets: selectedTargets({"result": ["runId"]}) },
+    audit: {
+      owner: "executor",
+      targets: selectedTargets({ result: ["runId"] }),
+    },
     method: "POST",
     path: "/api/cronjobs/:id/runs",
     auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
@@ -1920,7 +2001,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<CronPromptReq, NoContent>({
     opId: "cron.setPrompt",
-    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "PUT",
     path: "/api/cron-prompt",
     // off the :id namespace to avoid shadowing /api/cronjobs/:id.
@@ -2027,7 +2108,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // scheduler ever calls it (server/storage-prune.ts).
   defineRoute<StoragePruneReq, StoragePruneRes>({
     opId: "storage.prune",
-    audit: { owner: "executor", targets: selectedTargets({"fixed": "office"}) },
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
     path: "/api/storage/prune",
     auth: cap("office:admin", officeOwner),

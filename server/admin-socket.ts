@@ -283,7 +283,12 @@ async function handleAdmin(req: Request): Promise<Response> {
   if (!minted.ok) {
     return jsonResponse(500, { ok: false, error: minted.error });
   }
-  recordAudit({ actor: { kind: "admin_cli", id: "admin-cli", name: "admin-cli" }, operation: "admin.ownerLogin", targets: [user.id], fields: [] });
+  recordAudit({
+    actor: { kind: "admin_cli", id: "admin-cli", name: "admin-cli" },
+    operation: "admin.ownerLogin",
+    targets: [user.id],
+    fields: [],
+  });
   const { origin } = buildPublicOrigin();
   return jsonResponse(200, {
     ok: true,

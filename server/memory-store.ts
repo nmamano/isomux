@@ -318,10 +318,17 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
   function logOp(entry: OpLogEntry): void {
     const context = requireAuditContext();
     try {
-      (deps.audit ?? recordAudit)({ actor: context.actor, operation: context.operation,
-        targets: [`memory:${entry.scope}:${entry.scopeId ?? "office"}`], fields: ["content"],
-        memoryContent: entry.content, time: Date.parse(entry.ts) });
-    } catch (error) { console.error("[audit] could not record completed memory write", error); }
+      (deps.audit ?? recordAudit)({
+        actor: context.actor,
+        operation: context.operation,
+        targets: [`memory:${entry.scope}:${entry.scopeId ?? "office"}`],
+        fields: ["content"],
+        memoryContent: entry.content,
+        time: Date.parse(entry.ts),
+      });
+    } catch (error) {
+      console.error("[audit] could not record completed memory write", error);
+    }
   }
 
   function append(input: {

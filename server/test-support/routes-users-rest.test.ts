@@ -366,7 +366,11 @@ describe("routes/users REST - update (record split, Option A)", () => {
     const r = await api(server, `/api/users/${member.username}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { memberPrompt: "hi", memberPromptVersion: versionOf(""), allowedRooms: ["sneaky"] },
+      body: {
+        memberPrompt: "hi",
+        memberPromptVersion: versionOf(""),
+        allowedRooms: ["sneaky"],
+      },
     });
     expect(r.status).toBe(200);
     expect(userOf(r).memberPrompt).toBe("hi");
@@ -589,70 +593,195 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
   });
 });
 
-
 describe("routes/users member prompt", () => {
   it("checks both writers, rejects every extra agent field, and returns only prompt data", async () => {
-    const srv = server = await startTestServer();
+    const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Boss");
     const mia = await srv.seedMember("Mia");
     const room = srv.agentManager.getRooms()[0].id;
-    const agent = await srv.agentManager.spawn("Prompt editor", srv.stateRoot, "default", undefined, undefined, room);
+    const agent = await srv.agentManager.spawn(
+      "Prompt editor",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      room,
+    );
     if (!agent) throw new Error("spawn failed");
     const bossId = getUserByName("Boss")!.id;
     const miaId = getUserByName("Mia")!.id;
-    const read = (bearer: string, name = "Boss") => api(srv, `/api/users/${name}/member-prompt`, { bearer });
-    const patch = (bearer: string, body: unknown, name = "Boss") => api(srv, `/api/users/${name}`, { bearer, method: "PATCH", body });
-    const tokenRes = await api(srv, "/api/me/api-tokens", { method: "POST", rawSessionId: owner.rawSessionId, body: { name: "Prompt exclusion", expiresInDays: 30 } });
+    const read = (bearer: string, name = "Boss") =>
+      api(srv, `/api/users/${name}/member-prompt`, { bearer });
+    const patch = (bearer: string, body: unknown, name = "Boss") =>
+      api(srv, `/api/users/${name}`, { bearer, method: "PATCH", body });
+    const tokenRes = await api(srv, "/api/me/api-tokens", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { name: "Prompt exclusion", expiresInDays: 30 },
+    });
     const apiToken = (tokenRes.body as ApiTokenCreateRes).token;
     expect((await read(apiToken)).status).toBe(403);
-    expect((await patch(apiToken, { memberPrompt: "denied", memberPromptVersion: versionOf("") })).status).toBe(403);
+    expect(
+      (
+        await patch(apiToken, {
+          memberPrompt: "denied",
+          memberPromptVersion: versionOf(""),
+        })
+      ).status,
+    ).toBe(403);
     const ordinary = mintAgentToken(agent.id, bossId, false);
     expect((await read(ordinary)).status).toBe(403);
-    expect((await patch(ordinary, { memberPrompt: "denied", memberPromptVersion: versionOf("") })).status).toBe(403);
+    expect(
+      (
+        await patch(ordinary, {
+          memberPrompt: "denied",
+          memberPromptVersion: versionOf(""),
+        })
+      ).status,
+    ).toBe(403);
     const member = mintAgentToken(agent.id, miaId, true);
     expect((await read(member)).status).toBe(403);
     expect((await read(member, "Unknown")).status).toBe(403);
-    expect((await patch(member, { memberPrompt: "denied", memberPromptVersion: versionOf("") })).status).toBe(403);
+    expect(
+      (
+        await patch(member, {
+          memberPrompt: "denied",
+          memberPromptVersion: versionOf(""),
+        })
+      ).status,
+    ).toBe(403);
     expect((await read(member, "Mia")).status).toBe(200);
-    expect((await patch(member, { memberPrompt: "mine", memberPromptVersion: versionOf("") }, "Mia")).status).toBe(200);
+    expect(
+      (
+        await patch(
+          member,
+          { memberPrompt: "mine", memberPromptVersion: versionOf("") },
+          "Mia",
+        )
+      ).status,
+    ).toBe(200);
     const privileged = mintAgentToken(agent.id, bossId, true);
     const initial = await read(privileged);
-    expect(initial.body).toEqual({ memberPrompt: null, memberPromptVersion: versionOf("") });
-    for (const [key, value] of Object.entries({ role: "owner", name: "Renamed", avatarColor: "#000000", avatarVariant: "sleepy", allowedRooms: [room], language: "es", hidden: [room], unknown: true })) {
+    expect(initial.body).toEqual({
+      memberPrompt: null,
+      memberPromptVersion: versionOf(""),
+    });
+    for (const [key, value] of Object.entries({
+      role: "owner",
+      name: "Renamed",
+      avatarColor: "#000000",
+      avatarVariant: "sleepy",
+      allowedRooms: [room],
+      language: "es",
+      hidden: [room],
+      unknown: true,
+    })) {
       const before = structuredClone(getUserByName("Mia"));
-      expect((await patch(privileged, { memberPrompt: "denied", memberPromptVersion: versionOf("mine"), [key]: value }, "Mia")).status, key).toBe(403);
+      expect(
+        (
+          await patch(
+            privileged,
+            {
+              memberPrompt: "denied",
+              memberPromptVersion: versionOf("mine"),
+              [key]: value,
+            },
+            "Mia",
+          )
+        ).status,
+        key,
+      ).toBe(403);
       expect(getUserByName("Mia")).toEqual(before);
     }
     for (const memberPromptVersion of [undefined, "", null, 7]) {
-      const r = await patch(privileged, { memberPrompt: "denied", memberPromptVersion });
+      const r = await patch(privileged, {
+        memberPrompt: "denied",
+        memberPromptVersion,
+      });
       expect(r.status).toBe(400);
       expect(errCode(r)).toBe("invalid_version");
       expect(getUserByName("Boss")!.memberPrompt).toBeNull();
     }
     for (const memberPromptVersion of ["stale"]) {
-      const r = await patch(privileged, { memberPrompt: "denied", memberPromptVersion });
+      const r = await patch(privileged, {
+        memberPrompt: "denied",
+        memberPromptVersion,
+      });
       expect(r.status).toBe(409);
-      expect(r.body).toMatchObject({ error: { code: "version_conflict", version: versionOf("") } });
+      expect(r.body).toMatchObject({
+        error: { code: "version_conflict", version: versionOf("") },
+      });
       expect(getUserByName("Boss")!.memberPrompt).toBeNull();
     }
-    const saved = await patch(privileged, { memberPrompt: " agent text ", memberPromptVersion: versionOf("") });
-    expect(saved.body).toEqual({ memberPrompt: "agent text", memberPromptVersion: versionOf("agent text") });
+    const saved = await patch(privileged, {
+      memberPrompt: " agent text ",
+      memberPromptVersion: versionOf(""),
+    });
+    expect(saved.body).toEqual({
+      memberPrompt: "agent text",
+      memberPromptVersion: versionOf("agent text"),
+    });
     expect((await read(privileged)).body).toEqual(saved.body);
-    const humanStale = await api(srv, "/api/users/Boss", { method: "PATCH", rawSessionId: owner.rawSessionId, body: { name: "Wrong", memberPrompt: "old draft", memberPromptVersion: versionOf("") } });
+    const humanStale = await api(srv, "/api/users/Boss", {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        name: "Wrong",
+        memberPrompt: "old draft",
+        memberPromptVersion: versionOf(""),
+      },
+    });
     expect(humanStale.status).toBe(409);
     expect(getUserByName("Boss")!.memberPrompt).toBe("agent text");
     expect(getUserByName("Wrong")).toBeUndefined();
-    const humanMissing = await api(srv, "/api/users/Mia", { method: "PATCH", rawSessionId: mia.rawSessionId, body: { memberPrompt: null } });
+    const humanMissing = await api(srv, "/api/users/Mia", {
+      method: "PATCH",
+      rawSessionId: mia.rawSessionId,
+      body: { memberPrompt: null },
+    });
     expect(humanMissing.status).toBe(400);
     expect(errCode(humanMissing)).toBe("invalid_version");
     expect(getUserByName("Mia")!.memberPrompt).toBe("mine");
-    expect((await patch(privileged, { memberPrompt: null, memberPromptVersion: versionOf("mine") }, "Mia")).body).toEqual({ memberPrompt: null, memberPromptVersion: versionOf("") });
-    const humanSave = await api(srv, "/api/users/Boss", { method: "PATCH", rawSessionId: owner.rawSessionId, body: { memberPrompt: "human text", memberPromptVersion: versionOf("agent text") } });
+    expect(
+      (
+        await patch(
+          privileged,
+          { memberPrompt: null, memberPromptVersion: versionOf("mine") },
+          "Mia",
+        )
+      ).body,
+    ).toEqual({ memberPrompt: null, memberPromptVersion: versionOf("") });
+    const humanSave = await api(srv, "/api/users/Boss", {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        memberPrompt: "human text",
+        memberPromptVersion: versionOf("agent text"),
+      },
+    });
     expect(userOf(humanSave).memberPrompt).toBe("human text");
-    expect((await patch(privileged, { memberPrompt: "stale agent", memberPromptVersion: versionOf("agent text") })).status).toBe(409);
+    expect(
+      (
+        await patch(privileged, {
+          memberPrompt: "stale agent",
+          memberPromptVersion: versionOf("agent text"),
+        })
+      ).status,
+    ).toBe(409);
     expect(getUserByName("Boss")!.memberPrompt).toBe("human text");
-    expect((await patch(privileged, { memberPrompt: 7, memberPromptVersion: versionOf("human text") })).status).toBe(422);
-    const scalar = await api(srv, "/api/users/Boss", { method: "PATCH", rawSessionId: owner.rawSessionId, body: { avatarColor: "#000000" } });
+    expect(
+      (
+        await patch(privileged, {
+          memberPrompt: 7,
+          memberPromptVersion: versionOf("human text"),
+        })
+      ).status,
+    ).toBe(422);
+    const scalar = await api(srv, "/api/users/Boss", {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { avatarColor: "#000000" },
+    });
     expect(scalar.status).toBe(200);
   });
 });

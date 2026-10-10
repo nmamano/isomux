@@ -1006,7 +1006,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:admin", "user:create"],
     emits: ["users_list"],
   },
-  "users.readMemberPrompt": { caps: ["user:self", "user:admin", "user:prompt"], emits: [] },
+  "users.readMemberPrompt": {
+    caps: ["user:self", "user:admin", "user:prompt"],
+    emits: [],
+  },
   "users.update": {
     caps: ["user:self", "user:admin", "user:prompt"],
     emits: ["user_updated", "users_list"],
@@ -1647,24 +1650,60 @@ describe("route table: an API identity authorizes exactly the remote-boss surfac
   });
 });
 
-
 describe("member prompt route authority", () => {
   const deps: GuardDeps = {
-    hasRoomAccess: () => true, roomIdForAgent: () => "r1",
-    userIdForUsername: (name) => name === "manager" ? "u1" : "u2",
-    cronjobCreatorUserId: () => "u1", appOwnerUserId: () => "u1",
-    webhookOwnerUserId: () => "u1", isOfficeOwnerUserId: () => false,
-    agentManagerUserId: () => "u1", killedAgentManagerUserId: () => "u1",
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: (name) => (name === "manager" ? "u1" : "u2"),
+    cronjobCreatorUserId: () => "u1",
+    appOwnerUserId: () => "u1",
+    webhookOwnerUserId: () => "u1",
+    isOfficeOwnerUserId: () => false,
+    agentManagerUserId: () => "u1",
+    killedAgentManagerUserId: () => "u1",
   };
   it("opens only the two prompt routes to a privileged member's agent", () => {
-    const identity: Identity = { scope: "agent", agentId: "a1", userId: "u1", role: "member", capabilities: PRIVILEGED_AGENT_CAPABILITIES };
-    const reachable = API_ROUTES.filter((route) => route.opId.startsWith("users.") &&
-      runAuthorize(route.auth, identity, { username: "manager" }, { memberPrompt: "draft", memberPromptVersion: "v" }, deps).ok).map((r) => r.opId).sort();
+    const identity: Identity = {
+      scope: "agent",
+      agentId: "a1",
+      userId: "u1",
+      role: "member",
+      capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+    };
+    const reachable = API_ROUTES.filter(
+      (route) =>
+        route.opId.startsWith("users.") &&
+        runAuthorize(
+          route.auth,
+          identity,
+          { username: "manager" },
+          { memberPrompt: "draft", memberPromptVersion: "v" },
+          deps,
+        ).ok,
+    )
+      .map((r) => r.opId)
+      .sort();
     expect(reachable).toEqual(["users.readMemberPrompt", "users.update"]);
     for (const opId of reachable) {
       const route = API_ROUTES.find((r) => r.opId === opId)!;
-      expect(runAuthorize(route.auth, identity, { username: "other" }, { memberPrompt: "draft", memberPromptVersion: "v" }, deps).ok).toBe(false);
-      expect(runAuthorize(route.auth, identity, { username: "other" }, { memberPrompt: "draft", memberPromptVersion: "v" }, { ...deps, isOfficeOwnerUserId: () => true }).ok).toBe(true);
+      expect(
+        runAuthorize(
+          route.auth,
+          identity,
+          { username: "other" },
+          { memberPrompt: "draft", memberPromptVersion: "v" },
+          deps,
+        ).ok,
+      ).toBe(false);
+      expect(
+        runAuthorize(
+          route.auth,
+          identity,
+          { username: "other" },
+          { memberPrompt: "draft", memberPromptVersion: "v" },
+          { ...deps, isOfficeOwnerUserId: () => true },
+        ).ok,
+      ).toBe(true);
     }
   });
 });
@@ -1675,20 +1714,59 @@ it("every executor write declares audit ownership or an explicit exclusion", () 
   for (const route of API_ROUTES) {
     if (["GET", "HEAD"].includes(route.method)) continue;
     expect(route.audit, route.opId).toBeDefined();
-    if (route.audit?.owner === "executor") expect(typeof route.audit.targets, route.opId).toBe("function");
-    else if (route.audit?.owner === "none") expect(route.audit.reason.length, route.opId).toBeGreaterThan(0);
+    if (route.audit?.owner === "executor")
+      expect(typeof route.audit.targets, route.opId).toBe("function");
+    else if (route.audit?.owner === "none")
+      expect(route.audit.reason.length, route.opId).toBeGreaterThan(0);
     else expect(route.audit?.owner, route.opId).toBe("store");
   }
 });
 it("audit and restore reject member-owned API tokens and admit owner proxies", () => {
-  for (const opId of ["audit.list","tasks.restore"]) {
-    const route = API_ROUTES.find(route => route.opId === opId)!;
-    for (const scope of ["api","agent"] as const) {
-      const identity: Identity = {scope,userId:"member",role:"member",capabilities:scope === "api" ? API_CAPABILITIES : PRIVILEGED_AGENT_CAPABILITIES,agentId:"agent",apiTokenId:"token"};
-      const deps: GuardDeps = { hasRoomAccess:() => true, roomIdForAgent:() => null,userIdForUsername:() => null,cronjobCreatorUserId:() => null,appOwnerUserId:() => null,webhookOwnerUserId:() => null,agentManagerUserId:() => null,killedAgentManagerUserId:() => null,isOfficeOwnerUserId:id => id === "owner" };
-      expect(runAuthorize(route.auth,identity,{},undefined,deps)).toMatchObject({ok:false,status:403});
-      expect(runAuthorize(route.auth,{...identity,userId:"owner"},{},undefined,deps).ok).toBe(true);
-      if (scope === "agent") expect(runAuthorize(route.auth,{...identity,userId:"owner",capabilities:AGENT_CAPABILITIES},{},undefined,deps)).toMatchObject({ok:false,status:403});
+  for (const opId of ["audit.list", "tasks.restore"]) {
+    const route = API_ROUTES.find((route) => route.opId === opId)!;
+    for (const scope of ["api", "agent"] as const) {
+      const identity: Identity = {
+        scope,
+        userId: "member",
+        role: "member",
+        capabilities:
+          scope === "api" ? API_CAPABILITIES : PRIVILEGED_AGENT_CAPABILITIES,
+        agentId: "agent",
+        apiTokenId: "token",
+      };
+      const deps: GuardDeps = {
+        hasRoomAccess: () => true,
+        roomIdForAgent: () => null,
+        userIdForUsername: () => null,
+        cronjobCreatorUserId: () => null,
+        appOwnerUserId: () => null,
+        webhookOwnerUserId: () => null,
+        agentManagerUserId: () => null,
+        killedAgentManagerUserId: () => null,
+        isOfficeOwnerUserId: (id) => id === "owner",
+      };
+      expect(
+        runAuthorize(route.auth, identity, {}, undefined, deps),
+      ).toMatchObject({ ok: false, status: 403 });
+      expect(
+        runAuthorize(
+          route.auth,
+          { ...identity, userId: "owner" },
+          {},
+          undefined,
+          deps,
+        ).ok,
+      ).toBe(true);
+      if (scope === "agent")
+        expect(
+          runAuthorize(
+            route.auth,
+            { ...identity, userId: "owner", capabilities: AGENT_CAPABILITIES },
+            {},
+            undefined,
+            deps,
+          ),
+        ).toMatchObject({ ok: false, status: 403 });
     }
   }
 });

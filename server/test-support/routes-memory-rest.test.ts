@@ -98,7 +98,10 @@ function readMem(srv: TestServer, ...parts: string[]): string | null {
   }
 }
 function opLog(_srv: TestServer) {
-  return officeAuditStore().list().items.filter(row => row.operation.startsWith("memory.")).reverse();
+  return officeAuditStore()
+    .list()
+    .items.filter((row) => row.operation.startsWith("memory."))
+    .reverse();
 }
 function asRead(body: unknown): {
   text: string;
@@ -732,9 +735,15 @@ describe("routes/memory REST: op-log", () => {
 
     const log = opLog(srv);
     expect(log).toHaveLength(2);
-    expect(log[0]).toMatchObject({ actor: {kind:"agent",id:bot.id,name:"MemBot"}, operation: "memory.append" });
+    expect(log[0]).toMatchObject({
+      actor: { kind: "agent", id: bot.id, name: "MemBot" },
+      operation: "memory.append",
+    });
     expect(log[0].memoryContent).toContain("one");
-    expect(log[1]).toMatchObject({ actor: {kind:"agent",id:bot.id,name:"MemBot"}, operation: "memory.replace", memoryContent: "- two\n" });
-
+    expect(log[1]).toMatchObject({
+      actor: { kind: "agent", id: bot.id, name: "MemBot" },
+      operation: "memory.replace",
+      memoryContent: "- two\n",
+    });
   });
 });

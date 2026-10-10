@@ -1337,13 +1337,31 @@ describe("Claude cloud defaults at the SDK boundary", () => {
     it(`uses the same defaults for create, resume and titles in ${JSON.stringify(env)}`, async () => {
       const fake = new FakeSdkClient();
       const backend = createClaudeBackend(fake);
-      const opts = { agentId: "cloud-defaults", cwd: "/tmp", systemPrompt: "test", modelFamily: "sonnet", permissionMode: "auto", effort: "high", env };
+      const opts = {
+        agentId: "cloud-defaults",
+        cwd: "/tmp",
+        systemPrompt: "test",
+        modelFamily: "sonnet",
+        permissionMode: "auto",
+        effort: "high",
+        env,
+      };
       const created = backend.createSession(opts);
       const resumed = backend.resumeSession("cloud-defaults-session", opts);
       await backend.oneShotPrompt("Topic", opts);
-      const covered = env.AWS_REGION === "eu-west-1" || env.CLOUD_ML_REGION === "global";
-      const expected = env.AWS_REGION === "eu-west-1" ? "eu.anthropic.claude-sonnet-5-5" : covered ? "claude-sonnet-5-5" : undefined;
-      for (const call of [fake.createCalls[0].opts, fake.resumeCalls[0].opts, fake.oneShotCalls[0]]) {
+      const covered =
+        env.AWS_REGION === "eu-west-1" || env.CLOUD_ML_REGION === "global";
+      const expected =
+        env.AWS_REGION === "eu-west-1"
+          ? "eu.anthropic.claude-sonnet-5-5"
+          : covered
+            ? "claude-sonnet-5-5"
+            : undefined;
+      for (const call of [
+        fake.createCalls[0].opts,
+        fake.resumeCalls[0].opts,
+        fake.oneShotCalls[0],
+      ]) {
         expect(call.model).toBe("sonnet");
         expect(call.env?.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(expected);
         expect(call.env).toMatchObject(env);
@@ -1352,28 +1370,51 @@ describe("Claude cloud defaults at the SDK boundary", () => {
         expect(call.effort).toBe(covered ? "high" : undefined);
         expect(call.permissionMode).toBe(covered ? "auto" : "default");
       }
-      created.close(); resumed.close();
+      created.close();
+      resumed.close();
     });
   }
 
   it("uses the agent host base environment when the caller has no env", async () => {
     const { getAgentHost, setAgentHost } = await import("../agent-host.ts");
     const previous = getAgentHost();
-    const env = { CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "us-west-2", RUNNER_ONLY: "kept" };
+    const env = {
+      CLAUDE_CODE_USE_BEDROCK: "1",
+      AWS_REGION: "us-west-2",
+      RUNNER_ONLY: "kept",
+    };
     setAgentHost({ ...previous, kind: "runner", baseEnv: () => env });
     try {
       const fake = new FakeSdkClient();
       const backend = createClaudeBackend(fake);
-      const opts = { agentId: "runner-defaults", cwd: "/tmp", systemPrompt: "test", modelFamily: "sonnet", permissionMode: "auto", effort: "high" };
+      const opts = {
+        agentId: "runner-defaults",
+        cwd: "/tmp",
+        systemPrompt: "test",
+        modelFamily: "sonnet",
+        permissionMode: "auto",
+        effort: "high",
+      };
       const created = backend.createSession(opts);
       const resumed = backend.resumeSession("runner-defaults-session", opts);
       await backend.oneShotPrompt("Topic", opts);
-      for (const call of [fake.createCalls[0].opts, fake.resumeCalls[0].opts, fake.oneShotCalls[0]]) {
+      for (const call of [
+        fake.createCalls[0].opts,
+        fake.resumeCalls[0].opts,
+        fake.oneShotCalls[0],
+      ]) {
         expect(call.model).toBe("sonnet");
-        expect(call.env).toEqual({ ...env, ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-5-5", ANTHROPIC_DEFAULT_HAIKU_MODEL: "us.anthropic.claude-haiku-5-5" });
+        expect(call.env).toEqual({
+          ...env,
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-5-5",
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "us.anthropic.claude-haiku-5-5",
+        });
       }
       expect(env).not.toHaveProperty("ANTHROPIC_DEFAULT_SONNET_MODEL");
-      created.close(); resumed.close();
-    } finally { setAgentHost(previous); }
+      created.close();
+      resumed.close();
+    } finally {
+      setAgentHost(previous);
+    }
   });
 });

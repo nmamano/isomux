@@ -569,12 +569,19 @@ async function runBackup(
   const final = allocateFinalPath(config.backupDir, now);
   const staging = mkdtempSync(join(config.backupDir, ".sqlite-snapshot-"));
   const stagedRoot = join(staging, config.stateRootName);
-  const database = join(config.stateRootParent, config.stateRootName, OFFICE_DATABASE);
+  const database = join(
+    config.stateRootParent,
+    config.stateRootName,
+    OFFICE_DATABASE,
+  );
   const hasDatabase = existsSync(database);
   try {
     if (hasDatabase) {
       mkdirSync(stagedRoot, { mode: 0o700 });
-      await snapshotOfficeDatabase(database, join(stagedRoot, ".office-snapshot"));
+      await snapshotOfficeDatabase(
+        database,
+        join(stagedRoot, ".office-snapshot"),
+      );
     }
     // Reserve the target at its final privacy mode before tar writes. GNU tar
     // truncates an existing file without changing its mode, so the archive is
@@ -589,14 +596,24 @@ async function runBackup(
         // Unanchored at the start, its patterns can only exclude more.
         ...(flavor === "gnu" ? ["--anchored", "--wildcards"] : []),
         ...archiveExclusionArgs(config.stateRootName),
-        ...[OFFICE_DATABASE, OFFICE_DATABASE + "-wal", OFFICE_DATABASE + "-shm"].map(name => `--exclude=${escapeGlob(config.stateRootName)}/${name}`),
-        ...(hasDatabase ? (flavor === "gnu"
-          ? ["--transform=s|/\\.office-snapshot$|/office.sqlite|"]
-          : ["-s", "|/\\.office-snapshot$|/office.sqlite|"]) : []),
+        ...[
+          OFFICE_DATABASE,
+          OFFICE_DATABASE + "-wal",
+          OFFICE_DATABASE + "-shm",
+        ].map(
+          (name) => `--exclude=${escapeGlob(config.stateRootName)}/${name}`,
+        ),
+        ...(hasDatabase
+          ? flavor === "gnu"
+            ? ["--transform=s|/\\.office-snapshot$|/office.sqlite|"]
+            : ["-s", "|/\\.office-snapshot$|/office.sqlite|"]
+          : []),
         "-C",
         config.stateRootParent,
         config.stateRootName,
-        ...(hasDatabase ? ["-C", staging, `${config.stateRootName}/.office-snapshot`] : []),
+        ...(hasDatabase
+          ? ["-C", staging, `${config.stateRootName}/.office-snapshot`]
+          : []),
       ],
       deps,
     );

@@ -295,20 +295,24 @@ export const selfOrOwner: Guard = (ctx) =>
 // A privileged agent reads or edits only its manager's member prompt, or any
 // member prompt while its manager is an office owner. Stage 1 checks user:prompt.
 export const agentMemberPrompt: Guard = ({ identity, params, deps }) => {
-  if (identity.scope !== "agent" || !identity.userId || !params.username) return FORBIDDEN;
+  if (identity.scope !== "agent" || !identity.userId || !params.username)
+    return FORBIDDEN;
   const target = deps.userIdForUsername(params.username);
   return target !== null &&
     (target === identity.userId || deps.isOfficeOwnerUserId(identity.userId))
-    ? ALLOW : FORBIDDEN;
+    ? ALLOW
+    : FORBIDDEN;
 };
 
 export const agentMemberPromptUpdate: Guard = (ctx) => {
   if (!agentMemberPrompt(ctx).ok) return FORBIDDEN;
   if (!ctx.body || typeof ctx.body !== "object" || Array.isArray(ctx.body))
     return FORBIDDEN;
-  return Object.keys(ctx.body).every((key) =>
-    key === "memberPrompt" || key === "memberPromptVersion")
-    ? ALLOW : FORBIDDEN;
+  return Object.keys(ctx.body).every(
+    (key) => key === "memberPrompt" || key === "memberPromptVersion",
+  )
+    ? ALLOW
+    : FORBIDDEN;
 };
 
 // AGENT-only self-affordance gate: the `:id` path param must equal the token's
@@ -810,6 +814,11 @@ export function or(...guards: readonly Guard[]): Guard {
 // Audit authority is separate from officeOwner so existing owner-only routes
 // do not acquire agent reach. The manager's owner status is checked live.
 export const auditOwner: Guard = ({ identity, deps }) => {
-  if (identity.scope === "user") return identity.role === "owner" ? ALLOW : FORBIDDEN;
-  return (identity.scope === "agent" || identity.scope === "api") && identity.userId && deps.isOfficeOwnerUserId(identity.userId) ? ALLOW : FORBIDDEN;
+  if (identity.scope === "user")
+    return identity.role === "owner" ? ALLOW : FORBIDDEN;
+  return (identity.scope === "agent" || identity.scope === "api") &&
+    identity.userId &&
+    deps.isOfficeOwnerUserId(identity.userId)
+    ? ALLOW
+    : FORBIDDEN;
 };

@@ -39,7 +39,11 @@ function sidecarSend(managed: ManagedAgent, msg: Record<string, unknown>) {
   if (stdin) void stdin.write(JSON.stringify(msg) + "\n");
 }
 
-export function openTerminal(agentId: string, deps: TerminalDeps, actor?: AuditActor): boolean {
+export function openTerminal(
+  agentId: string,
+  deps: TerminalDeps,
+  actor?: AuditActor,
+): boolean {
   const managed = deps.getAgent(agentId);
   if (!managed) return false;
 
@@ -73,7 +77,13 @@ export function openTerminal(agentId: string, deps: TerminalDeps, actor?: AuditA
   const sidecar = host.spawnPipe([bunPath, PTY_SIDECAR_PATH]);
 
   managed.ptySidecar = sidecar;
-  if (actor) recordAudit({ actor, operation: "terminal.open", targets: [agentId], fields: [] });
+  if (actor)
+    recordAudit({
+      actor,
+      operation: "terminal.open",
+      targets: [agentId],
+      fields: [],
+    });
   managed.ptyBuffer = "";
 
   const finalize = createTerminalFinalizer({
@@ -199,16 +209,30 @@ export function terminalStatus(agentId: string, deps: TerminalDeps) {
   if (managed?.ptySidecar) sidecarSend(managed, { type: "status" });
 }
 
-export function closeTerminal(agentId: string, deps: TerminalDeps, actor?: AuditActor) {
+export function closeTerminal(
+  agentId: string,
+  deps: TerminalDeps,
+  actor?: AuditActor,
+) {
   const managed = deps.getAgent(agentId);
   if (!managed?.ptySidecar) return;
   sidecarSend(managed, { type: "kill" });
-  if (actor) recordAudit({ actor, operation: "terminal.close", targets: [agentId], fields: [] });
+  if (actor)
+    recordAudit({
+      actor,
+      operation: "terminal.close",
+      targets: [agentId],
+      fields: [],
+    });
   managed.ptySidecar = null;
   managed.ptyBuffer = "";
 }
 
-export function restartTerminal(agentId: string, deps: TerminalDeps, actor?: AuditActor): boolean {
+export function restartTerminal(
+  agentId: string,
+  deps: TerminalDeps,
+  actor?: AuditActor,
+): boolean {
   closeTerminal(agentId, deps, actor);
   return openTerminal(agentId, deps, actor);
 }

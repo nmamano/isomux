@@ -377,26 +377,53 @@ describe("demo members chat", () => {
   });
 });
 
-
 it("guards demo member prompt writes with the version from the read", async () => {
   const path = "/api/users/Ricky";
-  const before = await demoApi("GET", `${path}/member-prompt`) as { memberPromptVersion: string };
-  const missing = await demoApi("PATCH", path, { memberPrompt: "missing version" }).catch((error: unknown) => error);
+  const before = (await demoApi("GET", `${path}/member-prompt`)) as {
+    memberPromptVersion: string;
+  };
+  const missing = await demoApi("PATCH", path, {
+    memberPrompt: "missing version",
+  }).catch((error: unknown) => error);
   expect(missing).toMatchObject({ status: 400, code: "invalid_version" });
-  await demoApi("PATCH", path, { memberPrompt: "second", memberPromptVersion: before.memberPromptVersion });
-  const stale = await demoApi("PATCH", path, { memberPrompt: "stale", memberPromptVersion: before.memberPromptVersion }).catch((error: unknown) => error);
+  await demoApi("PATCH", path, {
+    memberPrompt: "second",
+    memberPromptVersion: before.memberPromptVersion,
+  });
+  const stale = await demoApi("PATCH", path, {
+    memberPrompt: "stale",
+    memberPromptVersion: before.memberPromptVersion,
+  }).catch((error: unknown) => error);
   expect(stale).toMatchObject({ status: 409, code: "version_conflict" });
-  expect(await demoApi("GET", `${path}/member-prompt`)).toMatchObject({ memberPrompt: "second" });
+  expect(await demoApi("GET", `${path}/member-prompt`)).toMatchObject({
+    memberPrompt: "second",
+  });
 });
 
 it("shows demo task history and restores a deleted task once", async () => {
-  const task=await demoApi("POST","/api/tasks",{title:"Demo audit task"}) as import("../shared/types.ts").TaskItem;
-  await demoApi("DELETE",`/api/tasks/${task.id}`,undefined);
-  const page=await demoApi("GET",`/api/audit-log?targetId=${task.id}`,undefined) as import("../shared/audit.ts").AuditPage;
+  const task = (await demoApi("POST", "/api/tasks", {
+    title: "Demo audit task",
+  })) as import("../shared/types.ts").TaskItem;
+  await demoApi("DELETE", `/api/tasks/${task.id}`, undefined);
+  const page = (await demoApi(
+    "GET",
+    `/api/audit-log?targetId=${task.id}`,
+    undefined,
+  )) as import("../shared/audit.ts").AuditPage;
   expect(page.items[0].deletedTask?.id).toBe(task.id);
-  const restored=await demoApi("POST",`/api/tasks/${task.id}/restore`,undefined) as import("../shared/types.ts").TaskItem;
+  const restored = (await demoApi(
+    "POST",
+    `/api/tasks/${task.id}/restore`,
+    undefined,
+  )) as import("../shared/types.ts").TaskItem;
   expect(restored.id).toBe(task.id);
-  const history=await demoApi("GET",`/api/tasks/${task.id}/history`,undefined) as import("../shared/audit.ts").TaskHistory;
+  const history = (await demoApi(
+    "GET",
+    `/api/tasks/${task.id}/history`,
+    undefined,
+  )) as import("../shared/audit.ts").TaskHistory;
   expect(history.items[0].operation).toBe("tasks.restore");
-  expect(demoApi("POST",`/api/tasks/${task.id}/restore`,undefined)).rejects.toMatchObject({status:409});
+  expect(
+    demoApi("POST", `/api/tasks/${task.id}/restore`, undefined),
+  ).rejects.toMatchObject({ status: 409 });
 });

@@ -429,7 +429,8 @@ Cosas que puedes hacer por él:
   "settings.profile.tuck": "Recoger {room}",
   "settings.profile.notificationsFor": "Notificaciones de {room}",
   "settings.profile.agentContext": "Contexto para agentes",
-  "settings.profile.promptConflict": "Las instrucciones especiales cambiaron en otro lugar. Tu borrador se conserva. Revisa el texto actual antes de volver a guardar.",
+  "settings.profile.promptConflict":
+    "Las instrucciones especiales cambiaron en otro lugar. Tu borrador se conserva. Revisa el texto actual antes de volver a guardar.",
   "settings.profile.currentPrompt": "Instrucciones especiales actuales",
   "settings.profile.profilePrompt": "Instrucciones especiales",
   "settings.profile.profilePromptHint":

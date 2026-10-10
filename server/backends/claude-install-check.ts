@@ -97,7 +97,9 @@ function cloudFlag(value: string | undefined): boolean {
 
 // Claude Code 2.1.293, checked 2026-10-10: o8 validates regions without trimming.
 function awsRegion(value: string | undefined): string | undefined {
-  return value && /^[a-z]{2,}(?:-[a-z0-9]+){0,4}$/i.test(value) ? value : undefined;
+  return value && /^[a-z]{2,}(?:-[a-z0-9]+){0,4}$/i.test(value)
+    ? value
+    : undefined;
 }
 
 // Resolve only the final merged Claude environment. Unknown regions (including
@@ -108,23 +110,28 @@ export function withCloudModelDefaults(env: CloudEnv): CloudEnv {
   // A prefix is an office routing choice, including global. Leave it to the CLI.
   if (bedrock && env.ANTHROPIC_BEDROCK_REGION_PREFIX?.trim()) return env;
   const result = { ...env };
-  const geoFor = (region: string | undefined) => Object.entries(CLAUDE_BEDROCK_GEO_REGIONS).find(
-    ([, regions]) => (regions as readonly string[]).includes(region ?? ""),
-  )?.[0];
+  const geoFor = (region: string | undefined) =>
+    Object.entries(CLAUDE_BEDROCK_GEO_REGIONS).find(([, regions]) =>
+      (regions as readonly string[]).includes(region ?? ""),
+    )?.[0];
   for (const [family, row] of Object.entries(CLAUDE_CLOUD_MODEL_DEFAULTS)) {
     const variable = `ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`;
     if (env[variable]?.trim()) continue;
     let model: string | undefined;
     if (bedrock) {
-      const geo = geoFor(awsRegion(env.AWS_REGION) || awsRegion(env.AWS_DEFAULT_REGION));
+      const geo = geoFor(
+        awsRegion(env.AWS_REGION) || awsRegion(env.AWS_DEFAULT_REGION),
+      );
       // The same Haiku pin also serves background calls. A cross-geo helper
       // region cannot use the primary region's inference profile.
       const helperRegion = awsRegion(env.ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION);
-      if (family === "haiku" && helperRegion && geoFor(helperRegion) !== geo) continue;
+      if (family === "haiku" && helperRegion && geoFor(helperRegion) !== geo)
+        continue;
       model = geo ? (row.bedrock as Record<string, string>)[geo] : undefined;
     } else {
       const region = env[row.vertexRegionVariable] || env.CLOUD_ML_REGION;
-      if ((row.vertexRegions as readonly string[]).includes(region ?? "")) model = row.vertex;
+      if ((row.vertexRegions as readonly string[]).includes(region ?? ""))
+        model = row.vertex;
     }
     if (model) result[variable] = model;
   }
@@ -134,9 +141,16 @@ export function withCloudModelDefaults(env: CloudEnv): CloudEnv {
 export function limitedClaudeFamilies(env: CloudEnv): string[] {
   if (!isClaudeCloudSelected(env)) return [];
   const effective = withCloudModelDefaults(env);
-  return Object.entries(CLAUDE_CLOUD_MODEL_DEFAULTS).filter(
-    ([family, row]) => !(effective[`ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`]?.toLowerCase() ?? "").includes(row.effortModel),
-  ).map(([family]) => family);
+  return Object.entries(CLAUDE_CLOUD_MODEL_DEFAULTS)
+    .filter(
+      ([family, row]) =>
+        !(
+          effective[
+            `ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`
+          ]?.toLowerCase() ?? ""
+        ).includes(row.effortModel),
+    )
+    .map(([family]) => family);
 }
 
 export function claudeFamilyModels(env: CloudEnv): ClaudeFamilyModels {
@@ -144,10 +158,15 @@ export function claudeFamilyModels(env: CloudEnv): ClaudeFamilyModels {
   if (!isClaudeCloudSelected(env)) return models;
   const effective = withCloudModelDefaults(env);
   for (const { family } of MODEL_FAMILIES) {
-    const fallback = family in CLAUDE_CLOUD_MODEL_DEFAULTS
-      ? CLAUDE_CLOUD_MODEL_DEFAULTS[family as keyof typeof CLAUDE_CLOUD_MODEL_DEFAULTS].cliDefault
-      : undefined;
-    const model = effective[`ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`]?.trim() || fallback;
+    const fallback =
+      family in CLAUDE_CLOUD_MODEL_DEFAULTS
+        ? CLAUDE_CLOUD_MODEL_DEFAULTS[
+            family as keyof typeof CLAUDE_CLOUD_MODEL_DEFAULTS
+          ].cliDefault
+        : undefined;
+    const model =
+      effective[`ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`]?.trim() ||
+      fallback;
     if (model && model !== FAMILY_TO_MODEL[family]) models[family] = model;
   }
   return models;

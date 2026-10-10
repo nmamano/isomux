@@ -444,7 +444,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.profile.tuck": "Tuck {room}",
   "settings.profile.notificationsFor": "Notifications for {room}",
   "settings.profile.agentContext": "Agent Context",
-  "settings.profile.promptConflict": "Special instructions changed elsewhere. Your draft is kept. Review the current text before you save again.",
+  "settings.profile.promptConflict":
+    "Special instructions changed elsewhere. Your draft is kept. Review the current text before you save again.",
   "settings.profile.currentPrompt": "Current special instructions",
   "settings.profile.profilePrompt": "Special instructions",
   "settings.profile.profilePromptHint":

@@ -168,8 +168,24 @@ export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
 // Source regions below are per profile, checked against both model cards.
 // No global fallback: an unset pin must not change the office's geography.
 export const CLAUDE_BEDROCK_GEO_REGIONS = {
-  us: ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "ca-central-1", "ca-west-1"],
-  eu: ["eu-central-1", "eu-central-2", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-2", "eu-west-3"],
+  us: [
+    "us-east-1",
+    "us-east-2",
+    "us-west-1",
+    "us-west-2",
+    "ca-central-1",
+    "ca-west-1",
+  ],
+  eu: [
+    "eu-central-1",
+    "eu-central-2",
+    "eu-north-1",
+    "eu-south-1",
+    "eu-south-2",
+    "eu-west-1",
+    "eu-west-2",
+    "eu-west-3",
+  ],
   au: ["ap-southeast-2", "ap-southeast-4"],
   jp: ["ap-northeast-1", "ap-northeast-3"],
 } as const;

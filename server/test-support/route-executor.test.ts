@@ -570,46 +570,103 @@ describe("executor audit", () => {
     const { resourceTargets } = await import("../routes/audit.ts");
     const r = route("test.write", "POST", "/api/x", capAuth("task:write"));
     r.audit = { owner: "executor", targets: resourceTargets };
-    const deps = makeDeps({ "test.write": ctx => (ctx.body as {fail?:boolean}).fail ? fail(400,"bad") : created({id:"new-id",secret:"response-secret"}) });
-    deps.audit = { actor: () => ({kind:"member",id:"u1",name:"Before rename"}), write: value => { rows.push(value); } };
-    const call = (body:unknown, key?:string) => executeRoute(match(r),req("POST","/api/x",body,key ? {"Idempotency-Key":key} : {}),userIdentity("owner"),deps);
-    expect((await call({password:"request-secret"},"same")).status).toBe(201);
-    expect((await call({password:"request-secret"},"same")).headers.get("Idempotency-Replayed")).toBe("true");
-    expect((await call({password:"different"},"same")).status).toBe(409);
-    expect((await call({fail:true})).status).toBe(400);
+    const deps = makeDeps({
+      "test.write": (ctx) =>
+        (ctx.body as { fail?: boolean }).fail
+          ? fail(400, "bad")
+          : created({ id: "new-id", secret: "response-secret" }),
+    });
+    deps.audit = {
+      actor: () => ({ kind: "member", id: "u1", name: "Before rename" }),
+      write: (value) => {
+        rows.push(value);
+      },
+    };
+    const call = (body: unknown, key?: string) =>
+      executeRoute(
+        match(r),
+        req("POST", "/api/x", body, key ? { "Idempotency-Key": key } : {}),
+        userIdentity("owner"),
+        deps,
+      );
+    expect((await call({ password: "request-secret" }, "same")).status).toBe(
+      201,
+    );
+    expect(
+      (await call({ password: "request-secret" }, "same")).headers.get(
+        "Idempotency-Replayed",
+      ),
+    ).toBe("true");
+    expect((await call({ password: "different" }, "same")).status).toBe(409);
+    expect((await call({ fail: true })).status).toBe(400);
     expect(rows).toHaveLength(1);
     expect(rows[0].targets).toEqual(["new-id"]);
     expect(rows[0].fields).toEqual(["password"]);
     expect(JSON.stringify(rows)).not.toContain("request-secret");
     expect(JSON.stringify(rows)).not.toContain("response-secret");
     r.method = "GET";
-    deps.handlers = new Map([["test.write", () => ok({id:"read"})]]);
-    await executeRoute(match(r),req("GET","/api/x"),userIdentity("owner"),deps);
+    deps.handlers = new Map([["test.write", () => ok({ id: "read" })]]);
+    await executeRoute(
+      match(r),
+      req("GET", "/api/x"),
+      userIdentity("owner"),
+      deps,
+    );
     expect(rows).toHaveLength(1);
   });
   it("returns success after a generic audit insert fails", async () => {
     const { resourceTargets } = await import("../routes/audit.ts");
     const { spyOn } = await import("bun:test");
-    const log = spyOn(console,"error").mockImplementation(() => {});
+    const log = spyOn(console, "error").mockImplementation(() => {});
     try {
       const r = route("test.write", "POST", "/api/x", capAuth("task:write"));
-      r.audit = {owner:"executor", targets:resourceTargets};
-      const deps = makeDeps({"test.write": () => noContent()});
-      deps.audit = {actor:() => ({kind:"member",id:"u",name:"Member"}),write:() => {throw new Error("disk full");}};
-      expect((await executeRoute(match(r),req("POST","/api/x",{}),userIdentity("owner"),deps)).status).toBe(204);
+      r.audit = { owner: "executor", targets: resourceTargets };
+      const deps = makeDeps({ "test.write": () => noContent() });
+      deps.audit = {
+        actor: () => ({ kind: "member", id: "u", name: "Member" }),
+        write: () => {
+          throw new Error("disk full");
+        },
+      };
+      expect(
+        (
+          await executeRoute(
+            match(r),
+            req("POST", "/api/x", {}),
+            userIdentity("owner"),
+            deps,
+          )
+        ).status,
+      ).toBe(204);
       expect(log).toHaveBeenCalled();
-    } finally { log.mockRestore(); }
+    } finally {
+      log.mockRestore();
+    }
   });
 });
 
 it("inbox polling adds no audit row", async () => {
   const { API_ROUTES } = await import("../routes/table.ts");
   const { API_CAPABILITIES } = await import("../identity/index.ts");
-  const r = API_ROUTES.find(r => r.opId === "apiTokenInbox.drain")!;
+  const r = API_ROUTES.find((r) => r.opId === "apiTokenInbox.drain")!;
   const rows: unknown[] = [];
-  const deps = makeDeps({[r.opId]: () => ok({messages:[]})});
-  deps.audit = {actor:() => ({kind:"api_token",id:"token",name:"Token"}),write:row => {rows.push(row);}};
-  const identity: Identity = {scope:"api",userId:"owner",role:"owner",apiTokenId:"token",capabilities:API_CAPABILITIES};
-  expect((await executeRoute(match(r),req("POST",r.path,{}),identity,deps)).status).toBe(200);
+  const deps = makeDeps({ [r.opId]: () => ok({ messages: [] }) });
+  deps.audit = {
+    actor: () => ({ kind: "api_token", id: "token", name: "Token" }),
+    write: (row) => {
+      rows.push(row);
+    },
+  };
+  const identity: Identity = {
+    scope: "api",
+    userId: "owner",
+    role: "owner",
+    apiTokenId: "token",
+    capabilities: API_CAPABILITIES,
+  };
+  expect(
+    (await executeRoute(match(r), req("POST", r.path, {}), identity, deps))
+      .status,
+  ).toBe(200);
   expect(rows).toHaveLength(0);
 });

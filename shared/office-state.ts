@@ -738,7 +738,7 @@ export class OfficeState {
     if ("priority" in changes && !next.priority) delete next.priority;
     next.version = taskVersion(next);
     this.beforeTaskChange?.({ kind: "updated", task: { ...next }, prevRoomId });
-    this._tasks = this._tasks.map(t => t.id === id ? next : t);
+    this._tasks = this._tasks.map((t) => (t.id === id ? next : t));
     const events: OfficeEvent[] = [
       {
         type: "tasks_changed",
@@ -772,11 +772,18 @@ export class OfficeState {
   }
 
   restoreTask(record: Omit<TaskItem, "version">): OfficeEvent[] {
-    if (this._tasks.some(t => t.id === record.id)) throw new Error("Task already exists");
+    if (this._tasks.some((t) => t.id === record.id))
+      throw new Error("Task already exists");
     const task: TaskItem = { ...record, version: taskVersion(record) };
     this.beforeTaskChange?.({ kind: "created", task: { ...task } });
     this._tasks.push(task);
-    const events: OfficeEvent[] = [{ type: "tasks_changed", tasks: [...this._tasks], change: { kind: "created", task: { ...task } } }];
+    const events: OfficeEvent[] = [
+      {
+        type: "tasks_changed",
+        tasks: [...this._tasks],
+        change: { kind: "created", task: { ...task } },
+      },
+    ];
     this.emitEvents(events);
     return events;
   }

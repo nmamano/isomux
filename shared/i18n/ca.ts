@@ -429,7 +429,8 @@ Coses que pots fer per ell:
   "settings.profile.tuck": "Recull {room}",
   "settings.profile.notificationsFor": "Notificacions de {room}",
   "settings.profile.agentContext": "Context per als agents",
-  "settings.profile.promptConflict": "Les instruccions especials han canviat en un altre lloc. Es conserva el teu esborrany. Revisa el text actual abans de tornar a desar.",
+  "settings.profile.promptConflict":
+    "Les instruccions especials han canviat en un altre lloc. Es conserva el teu esborrany. Revisa el text actual abans de tornar a desar.",
   "settings.profile.currentPrompt": "Instruccions especials actuals",
   "settings.profile.profilePrompt": "Instruccions especials",
   "settings.profile.profilePromptHint":
@@ -1258,7 +1259,8 @@ Coses que pots fer per ell:
   "apiCall.providerAccounts.refresh": "Actualitzar els comptes de proveïdor",
   "apiCall.providerAccounts.signInCode":
     "Enviar el codi d'inici de sessió del proveïdor",
-  "apiCall.users.readMemberPrompt": "Llegeix les instruccions especials del membre",
+  "apiCall.users.readMemberPrompt":
+    "Llegeix les instruccions especials del membre",
   "apiCall.users.updatePrompt": "Edita les instruccions especials del membre",
   "apiCall.users.create": "Crear un membre",
   "apiCall.users.createNamed": "Crear el membre {name}",

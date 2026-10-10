@@ -194,19 +194,38 @@ it("audits real terminal starts and stops, but not repeated opens or absent clos
   const { closeTerminal, restartTerminal } = await import("./terminal.ts");
   const { officeAuditStore } = await import("./audit-store.ts");
   const f = fixture(() => ({}));
-  f.spawn.mockImplementation(() => ({
-    stdin:{write:() => 1}, stdout:new ReadableStream({start(controller) { controller.close(); }}),
-    exited:new Promise<number>(() => {}), pid:123,
-  }) as unknown as ReturnType<typeof Bun.spawn>);
-  const actor = {kind:"member" as const,id:"terminal-member",name:"Terminal member"};
-  const before = officeAuditStore().list({actorId:actor.id}).items.length;
+  f.spawn.mockImplementation(
+    () =>
+      ({
+        stdin: { write: () => 1 },
+        stdout: new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        exited: new Promise<number>(() => {}),
+        pid: 123,
+      }) as unknown as ReturnType<typeof Bun.spawn>,
+  );
+  const actor = {
+    kind: "member" as const,
+    id: "terminal-member",
+    name: "Terminal member",
+  };
+  const before = officeAuditStore().list({ actorId: actor.id }).items.length;
   openTerminal("agent-terminal", f.deps, actor);
   openTerminal("agent-terminal", f.deps, actor);
   closeTerminal("agent-terminal", f.deps, actor);
   closeTerminal("agent-terminal", f.deps, actor);
   openTerminal("agent-terminal", f.deps, actor);
   restartTerminal("agent-terminal", f.deps, actor);
-  const rows = officeAuditStore().list({actorId:actor.id}).items;
+  const rows = officeAuditStore().list({ actorId: actor.id }).items;
   expect(rows.length - before).toBe(5);
-  expect(rows.slice(0,5).map(row => row.operation)).toEqual(["terminal.open","terminal.close","terminal.open","terminal.close","terminal.open"]);
+  expect(rows.slice(0, 5).map((row) => row.operation)).toEqual([
+    "terminal.open",
+    "terminal.close",
+    "terminal.open",
+    "terminal.close",
+    "terminal.open",
+  ]);
 });

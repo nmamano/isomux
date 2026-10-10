@@ -103,19 +103,32 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
     return taskVisible(t, deps.accessibleRoomIds(identity)) ? t : null;
   };
   return {
-    "tasks.history": ctx => {
+    "tasks.history": (ctx) => {
       const task = visibleTask(ctx.params.id, ctx.identity);
       if (!task) return fail(404, "not_found");
       const raw = ctx.query.get("before");
-      if (raw !== null && (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)))) return fail(400, "invalid_request");
-      const page = deps.history!(task.id, raw === null ? undefined : Number(raw));
-      return ok({ createdAt: task.createdAt, createdBy: task.createdBy, ...page });
+      if (
+        raw !== null &&
+        (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)))
+      )
+        return fail(400, "invalid_request");
+      const page = deps.history!(
+        task.id,
+        raw === null ? undefined : Number(raw),
+      );
+      return ok({
+        createdAt: task.createdAt,
+        createdBy: task.createdBy,
+        ...page,
+      });
     },
-    "tasks.restore": ctx => {
-      if (deps.listTasks().some(task => task.id === ctx.params.id)) return fail(409, "task_exists");
+    "tasks.restore": (ctx) => {
+      if (deps.listTasks().some((task) => task.id === ctx.params.id))
+        return fail(409, "task_exists");
       const task = deps.deletedTask!(ctx.params.id);
       if (!task) return fail(409, "no_stored_deletion");
-      if (task.roomId && !deps.accessibleRoomIds(ctx.identity).has(task.roomId)) return fail(409, "room_unavailable");
+      if (task.roomId && !deps.accessibleRoomIds(ctx.identity).has(task.roomId))
+        return fail(409, "room_unavailable");
       return created(deps.restoreTask!(task));
     },
     "tasks.list": (ctx) => {
