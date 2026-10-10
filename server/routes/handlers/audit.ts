@@ -1,4 +1,4 @@
-import type { AuditActorKind, AuditFilter } from "../../../shared/audit.ts";
+import { AUDIT_ACTOR_KINDS, type AuditActorKind, type AuditFilter } from "../../../shared/audit.ts";
 import type { AuditStore } from "../../audit-store.ts";
 import { fail, ok, type RouteHandler } from "../executor.ts";
 export function parseAuditFilter(query: URLSearchParams): AuditFilter | null {
@@ -22,16 +22,7 @@ export function parseAuditFilter(query: URLSearchParams): AuditFilter | null {
   const kind = query.get("actorKind");
   if (kind !== null) {
     if (
-      ![
-        "member",
-        "agent",
-        "api_token",
-        "cronjob",
-        "webhook",
-        "admin_cli",
-        "setup",
-        "app",
-      ].includes(kind)
+      !(AUDIT_ACTOR_KINDS as readonly string[]).includes(kind)
     )
       return null;
     filter.actorKind = kind as AuditActorKind;
