@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { openCodeErrorMessage, openCodeRetryMessage } from "./errors.ts";
 import type { NormalizedEvent } from "../types.ts";
 import type {
   ApprovalDecision,
@@ -42,9 +44,9 @@ export const OPENCODE_SERVER_STOPPED_FAILURE =
 export const OPENCODE_SERVER_UNRESPONSIVE_FAILURE =
   "The OpenCode server stopped responding during this turn. Send your message again.";
 
-// OpenCode 1.18.23 sends server.heartbeat on /event every 10 s, also during a
-// silent 90 s tool call and a 90 s wait for the first model token (largest
-// gap 10.3 s, measured 2026-10-07). 30 s is three missed heartbeats. The same
+// OpenCode 1.18.35 sends server.heartbeat on /event every 10 s. Local silent
+// provider timeout and 35 s compaction controls measured gaps of 10.000-10.040 s
+// on 2026-10-10. 30 s is three missed heartbeats. The same
 // bound covers the requests a turn makes before its stream reads: with 8
 // sessions on one server, /event headers took at most 0.5 s, POST /session
 // 1.7 s and /provider 12.8 s (2026-10-07).
@@ -515,6 +517,7 @@ export class OpenCodeTransport {
   }
 
   async send(parts: OpenCodePromptPart[], sink: EventSink): Promise<void> {
+    const billedSteps = new Map<string, { usage?: TokenUsage; cost?: number }>();
     let settled = false;
     let turnStarted = false;
     let controller: AbortController | undefined;
@@ -522,6 +525,26 @@ export class OpenCodeTransport {
       if (event.kind === "turn_completed") {
         if (settled) return;
         settled = true;
+        // OpenCode emits per-step charges, including compaction. A repeated
+        // part update replaces its snapshot; it must not charge the turn twice.
+        let usage: TokenUsage | undefined;
+        let cost: number | undefined;
+        for (const step of billedSteps.values()) {
+          if (step.usage) {
+            usage ??= { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
+            usage.inputTokens += step.usage.inputTokens;
+            usage.outputTokens += step.usage.outputTokens;
+            usage.cacheReadInputTokens += step.usage.cacheReadInputTokens;
+            usage.cacheCreationInputTokens += step.usage.cacheCreationInputTokens;
+          }
+          if (step.cost !== undefined) cost = (cost ?? 0) + step.cost;
+        }
+        event = { ...event, ...(usage ? { usage } : {}), ...(cost !== undefined ? { cost } : {}),
+          ...(usage || cost !== undefined ? {
+            costMode: "turn" as const,
+            usageId: createHash("sha256").update(JSON.stringify([this.sessionId, [...billedSteps.keys()].sort()])).digest("hex"),
+          } : {}),
+        };
         this.activeTurn = false;
         // A request still open when the turn ends can never be answered.
         for (const id of this.pendingPermissions.keys())
@@ -583,7 +606,7 @@ export class OpenCodeTransport {
       controller = new AbortController();
       this.abortController = controller;
       try {
-        await this.consumeEvents(sessionId, emit, controller.signal, fail);
+        await this.consumeEvents(sessionId, emit, controller.signal, fail, billedSteps);
       } catch (error) {
         if (controller.signal.aborted) throw error;
         // No prompt is out yet, so recovery replays nothing. When the guard
@@ -595,7 +618,7 @@ export class OpenCodeTransport {
           throw error instanceof OpenCodeTurnFailure ? error : recoveryError;
         }
         this.authorityBinding?.activate(this.lease!.pid);
-        await this.consumeEvents(sessionId, emit, controller.signal, fail);
+        await this.consumeEvents(sessionId, emit, controller.signal, fail, billedSteps);
       }
       if (settled) return;
       // After beginTurn and recovery, which can each replace the server.
@@ -724,6 +747,7 @@ export class OpenCodeTransport {
     sink: EventSink,
     signal: AbortSignal,
     onFailure: (error: unknown, context: string) => void,
+    billedSteps: Map<string, { usage?: TokenUsage; cost?: number }>,
   ): Promise<void> {
     const lease = this.lease!;
     const serverPid = lease.pid;
@@ -735,12 +759,14 @@ export class OpenCodeTransport {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const assistantMessages = new Set<string>();
+    const summaryMessages = new Set<string>();
     const textByPart = new Map<string, string>();
     const reasoningByPart = new Map<string, string>();
     const tools = new Map<string, TrackedTool>();
     const seenPermissions = new Set<string>();
     const safetyWarningState = { shown: false };
-    let stepFinish: { usage?: TokenUsage; cost?: number } | null = null;
+    let hasCompletedStep = false;
+    let overflowPending = false;
     let settled = false;
     const settle = (event: NormalizedEvent): void => {
       if (settled) return;
@@ -831,8 +857,19 @@ export class OpenCodeTransport {
             const event = parseAllowedEvent(data);
             if (!event || event.sessionId !== sessionId) continue;
             this.contractShapeSink?.(`sse:${event.kind}`);
-            if (event.kind === "assistant")
-              assistantMessages.add(event.messageId);
+            if (event.kind === "assistant") {
+              if (event.summary) {
+                summaryMessages.add(event.messageId);
+                assistantMessages.delete(event.messageId);
+              } else assistantMessages.add(event.messageId);
+            }
+            if (event.kind === "retry") {
+              sink({
+                kind: "system_text",
+                text: openCodeRetryMessage(event.message, event.attempt),
+                isomuxAuthored: true,
+              });
+            }
             if (
               event.kind === "text" &&
               assistantMessages.has(event.messageId)
@@ -937,23 +974,26 @@ export class OpenCodeTransport {
               });
             }
             if (event.kind === "step_finish") {
-              stepFinish = { usage: event.usage, cost: event.cost };
-              if (event.contextBreakdown)
-                this.completedStepSink?.(event.contextBreakdown);
+              billedSteps.set(event.partId, { usage: event.usage, cost: event.cost });
+              if (!(event.messageId && summaryMessages.has(event.messageId))) {
+                overflowPending = false;
+                hasCompletedStep = true;
+                if (event.contextBreakdown)
+                  this.completedStepSink?.(event.contextBreakdown);
+              }
             }
             if (event.kind === "idle") {
               if (this.abortRequested) {
                 for (const result of interruptedToolResults(tools.values()))
                   sink(result);
                 settle({ kind: "turn_completed", status: "interrupted" });
-              } else if (stepFinish) {
+              } else if (overflowPending) {
+                settle({ kind: "turn_completed", status: "failed",
+                  error: openCodeErrorMessage({ name: "ContextOverflowError" }) });
+              } else if (hasCompletedStep) {
                 settle({
                   kind: "turn_completed",
                   status: "completed",
-                  ...(stepFinish.usage ? { usage: stepFinish.usage } : {}),
-                  ...(stepFinish.cost !== undefined
-                    ? { cost: stepFinish.cost }
-                    : {}),
                 });
               } else {
                 fail(
@@ -965,7 +1005,13 @@ export class OpenCodeTransport {
             }
             if (event.kind === "error") {
               if (this.abortRequested) continue;
-              this.safeErrorSink?.(event.error);
+              try { this.safeErrorSink?.(event.error); } catch { /* Logging cannot end a turn. */ }
+              // OpenCode emits this before automatic compaction and replay.
+              // Idle without a later answer is the terminal overflow case.
+              if (event.error.name === "ContextOverflowError") {
+                overflowPending = true;
+                continue;
+              }
               const failure = await this.classifyProviderFailure(event.error);
               settle({
                 kind: "turn_completed",
@@ -975,7 +1021,7 @@ export class OpenCodeTransport {
                     ? openCodeModelUnavailableFailure(this.model)
                     : failure === "authentication"
                       ? OPENCODE_AUTH_FAILURE
-                      : "OpenCode reported a provider or transport error.",
+                      : openCodeErrorMessage(event.error),
               });
               return;
             }
@@ -1259,7 +1305,8 @@ export function allowMessages(raw: unknown): NormalizedMessage[] {
 }
 
 type AllowedEvent =
-  | { kind: "assistant"; sessionId: string; messageId: string }
+  | { kind: "assistant"; sessionId: string; messageId: string; summary?: boolean }
+  | { kind: "retry"; sessionId: string; attempt: number; message?: string }
   | {
       kind: "text";
       sessionId: string;
@@ -1301,6 +1348,8 @@ type AllowedEvent =
   | {
       kind: "step_finish";
       sessionId: string;
+      partId: string;
+      messageId?: string;
       usage?: TokenUsage;
       contextBreakdown?: OpenCodeContextBreakdown;
       cost?: number;
@@ -1373,6 +1422,12 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
   const sessionId = stringField(properties, "sessionID");
   if (!sessionId) return null;
   if (type === "session.idle") return { kind: "idle", sessionId };
+  if (type === "session.status") {
+    const status = asRecord(properties.status);
+    const attempt = numberField(status, "attempt");
+    if (status.type === "retry" && attempt !== null && Number.isSafeInteger(attempt) && attempt > 0)
+      return { kind: "retry", sessionId, attempt, ...(typeof status.message === "string" ? { message: status.message } : {}) };
+  }
   if (type === "session.error") {
     return { kind: "error", sessionId, error: allowError(properties.error) };
   }
@@ -1397,7 +1452,7 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
     const info = asRecord(properties.info);
     const messageId = stringField(info, "id");
     if (info.role === "assistant" && messageId) {
-      return { kind: "assistant", sessionId, messageId };
+      return { kind: "assistant", sessionId, messageId, ...(info.summary === true ? { summary: true } : {}) };
     }
   }
   if (type === "message.part.updated") {
@@ -1491,6 +1546,8 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
       return {
         kind: "step_finish",
         sessionId,
+        partId,
+        ...(messageId ? { messageId } : {}),
         ...(usage ? { usage } : {}),
         ...(contextBreakdown ? { contextBreakdown } : {}),
         ...(cost !== null ? { cost } : {}),

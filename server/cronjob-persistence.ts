@@ -260,6 +260,7 @@ type RunSessionsMap = Record<
     priorRunsUsage?: PersistedUsage;
     forkBaseUsage?: PersistedUsage;
     usageSnapshots?: UsageSnapshot[];
+    lastAccountedUsageId?: string;
   }
 >;
 
@@ -425,10 +426,15 @@ export function accumulateRunSessionUsage(
   sessionId: string,
   turnTokens: Omit<PersistedUsage, "costUSD">,
   runCostUSD: number,
+  accounting?: { costMode?: "turn"; usageId?: string },
 ): PersistedUsage {
   const map = loadRunSessionsMap(jobId, runId);
   const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
   const prev = existing.usage;
+  const isTurnCost = accounting?.costMode === "turn";
+  // Keep only the latest key, atomically with its totals. Resume preserves it.
+  if (isTurnCost && accounting.usageId && existing.lastAccountedUsageId === accounting.usageId)
+    return prev ?? { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 };
   const next: PersistedUsage = {
     inputTokens: (prev?.inputTokens ?? 0) + turnTokens.inputTokens,
     outputTokens: (prev?.outputTokens ?? 0) + turnTokens.outputTokens,
@@ -437,9 +443,11 @@ export function accumulateRunSessionUsage(
     cacheCreationInputTokens:
       (prev?.cacheCreationInputTokens ?? 0) +
       turnTokens.cacheCreationInputTokens,
-    costUSD: runCostUSD,
+    costUSD: isTurnCost ? (prev?.costUSD ?? 0) + runCostUSD : runCostUSD,
   };
-  map[sessionId] = { ...existing, usage: next, lastModified: Date.now() };
+  map[sessionId] = { ...existing, usage: next, lastModified: Date.now(),
+    ...(isTurnCost && accounting.usageId ? { lastAccountedUsageId: accounting.usageId } : {}),
+  };
   saveRunSessionsMap(jobId, runId, map);
   return next;
 }

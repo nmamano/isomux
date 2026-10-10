@@ -141,7 +141,7 @@ async function waitHealthy(
         healthy?: boolean;
         version?: string;
       };
-      if (response.ok && body.healthy && body.version === "1.18.23")
+      if (response.ok && body.healthy && body.version === "1.18.35")
         return true;
     } catch {}
     await Bun.sleep(50);

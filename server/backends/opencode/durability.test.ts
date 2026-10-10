@@ -27,7 +27,7 @@ const send = (controller, value) => controller.enqueue(
 Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   const url = new URL(request.url);
   if (url.pathname === "/global/health")
-    return Response.json({ healthy: true, version: "1.18.23" });
+    return Response.json({ healthy: true, version: "1.18.35" });
   if (url.pathname === "/session" && request.method === "POST")
     return Response.json({ id: \`session-\${++nextSession}\` });
   if (url.pathname === "/event") {
@@ -132,7 +132,7 @@ await new Promise(() => {});
         },
       },
     );
-    expect(await health.json()).toEqual({ healthy: true, version: "1.18.23" });
+    expect(await health.json()).toEqual({ healthy: true, version: "1.18.35" });
     const resume = run("resume");
     const [exitCode, stderr] = await Promise.all([
       resume.exited,

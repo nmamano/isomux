@@ -221,7 +221,7 @@ Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
   if (new URL(request.url).pathname !== "/global/health")
     return new Response("not found", { status: 404 });
   appendFileSync(${JSON.stringify(healthMarker)}, "hit\\n");
-  return Response.json({ healthy: true, version: "1.18.23" });
+  return Response.json({ healthy: true, version: "1.18.35" });
 }});
 await new Promise(() => {});
 `,
@@ -452,7 +452,7 @@ describe("OpenCode shared server supervisor", () => {
         killerHits++;
         process.kill(firstPid, "SIGKILL");
         while (readLinuxProcessStartTicks(firstPid)) await Bun.sleep(5);
-        return Response.json({ healthy: true, version: "1.18.23" });
+        return Response.json({ healthy: true, version: "1.18.35" });
       },
     });
     mocks.push(killer);
@@ -969,7 +969,7 @@ if (!existsSync(marker)) {
         try { readFileSync("/proc/" + parentPid + "/stat"); await Bun.sleep(5); }
         catch { break; }
       }
-      const response = Response.json({ healthy: true, version: "1.18.23" });
+      const response = Response.json({ healthy: true, version: "1.18.35" });
       void server.stop().then(() => process.exit(0));
       return response;
     }});
@@ -980,7 +980,7 @@ if (!existsSync(marker)) {
 }
 appendFileSync(marker, \`second:\${process.pid}\\n\`);
 Bun.serve({ hostname: "127.0.0.1", port, fetch() {
-  return Response.json({ healthy: true, version: "1.18.23" });
+  return Response.json({ healthy: true, version: "1.18.35" });
 }});
 await new Promise(() => {});
 `,

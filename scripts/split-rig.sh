@@ -514,7 +514,7 @@ Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
-    if (path === "/global/health") return Response.json({ healthy: true, version: "1.18.23" });
+    if (path === "/global/health") return Response.json({ healthy: true, version: "1.18.35" });
     if (path === "/provider")
       return Response.json({
         all: [{ id: "rig", name: "Rig", models: { stub: { name: "Stub", limit: { context: 1000 }, variants: {} } } }],

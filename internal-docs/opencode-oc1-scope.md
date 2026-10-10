@@ -2,11 +2,52 @@
 
 Status: OC1 implementation in progress\
 Decision dates: 2026-08-27 to 2026-08-28\
-Runtime target: OpenCode CLI 1.18.23
+Runtime target: OpenCode CLI 1.18.35 (upgraded 2026-10-10)
 
 This is the master implementation document for OC1. Where it conflicts with
 `opencode-backend-scope.md`, this document controls. The feasibility report and
 its evidence support the decisions here; they are not separate product plans.
+
+## Turn errors and recovery
+
+OpenCode owns provider retries and its five-minute provider header and chunk
+timeouts. Isomux shows each retry cause and attempt out of five in chat and does not replay a failed
+turn. The final error identifies the cause; reviewed error fields go to the
+server log with secret redaction.
+
+Measured on 2026-10-10: both provider timeout types receive five retries
+(six requests). At the default five minutes per attempt, a silent provider can
+take about 31 minutes to fail, including native backoff. Isomux does not add
+an inactivity deadline. Members can use Stop and then send another message.
+
+A `ContextOverflowError` can start automatic compaction. Isomux keeps that turn
+open, hides the internal summary, and delivers the replayed prompt's answer.
+Peer messages wait for the original turn to finish. Idle without a later
+non-summary completion makes the overflow terminal. A later message can use
+the same session without `/clear`.
+
+The credential-free controls in
+`server/test-support/agent-manager.opencode.errors.live.test.ts` run with
+`bun run test:opencode`.
+
+## Turn usage and cost
+
+Turn totals sum all observed billed step parts, including tool steps and
+compaction. Repeated updates replace the snapshot for that part ID. Each new
+turn starts a fresh total. Failed or stopped turns keep the charges observed
+before they end. Steps without usage or cost do not invent a charge.
+The context meter still uses the latest non-summary step, not the sum.
+
+OpenCode marks cost as per-turn with `costMode: "turn"`; other backends keep
+the existing cumulative-cost contract. Agent and cron accounting add turn
+cost and tokens together. A hash of the session ID and sorted billed part IDs
+identifies the usage event. Persistence saves only the last accounted hash,
+in the same write as the totals, and retains it on resume. A repeat of the
+latest event adds nothing. An older event replayed after a newer one adds
+again; this is the accepted last-key limit (PM ruling, 2026-10-11).
+Turns without reported charges have no usage key. The transport emits once
+per send and does not reconnect after sending a prompt; stream loss fails
+that turn. The persisted guard is defensive, not a turn-replay mechanism.
 
 ## Decision
 
@@ -58,8 +99,20 @@ server emits `permission.asked` and accepts
 route. A small HTTP client with narrow runtime validators avoids a mixed
 contract. Validators accept unknown fields but never log them.
 
-Pin the CLI to 1.18.23. Any CLI version change invalidates the fixtures and
-requires the gate harness and event analysis to run again.
+Pin the CLI to 1.18.35. Any CLI version change requires the gate harness and
+event analysis to run again. Keep the historical 1.18.23 recordings as
+regression inputs; an upgrade does not require wholesale re-recording.
+
+On 2026-10-10, 1.18.35 passed `bun test server/backends/opencode` and the
+live gates in `agent-manager.opencode.live.test.ts`,
+`agent-manager.opencode.errors.live.test.ts`, `adapter.test.ts` and
+`authority-broker.opencode.test.ts` with `ISOMUX_TEST_OPENCODE=1`. The complete
+`bun run test:opencode` gate also ran; its existing Connections-guidance race
+(`agent-manager.di.test.ts`, task c610c42b) is outside this lane. Raw event
+analysis covered error, retry, summary-message ordering,
+compaction and heartbeat events. A 35-second compaction kept the original turn
+open and gave the queued peer its own answer; header and chunk timeout controls
+with 500 ms test settings each showed five retries and same-session recovery.
 
 Tool state is keyed by `(sessionID, partID)`. `callID` pairs a call with its
 result, but it is not globally unique. Abort is also distinct from ordinary

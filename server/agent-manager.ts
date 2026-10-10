@@ -4620,6 +4620,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             managed.sessionManager.sessionId,
             ev.usage,
             ev.cost ?? 0,
+            { costMode: ev.costMode, usageId: ev.usageId },
           );
           if (managed.lastWrittenEntryId) {
             appendSessionUsageSnapshot(

@@ -526,6 +526,42 @@ function turnUsage(inputTokens: number, outputTokens: number) {
   };
 }
 
+describe("OpenCode turn-cost consumer", () => {
+  it("adds turn cost once, retains the last key on resume, and preserves cumulative mode", async () => {
+    let event: { cost: number; costMode?: "turn"; usageId?: string } = { cost: 2, costMode: "turn", usageId: "A" };
+    const fake = new FakeBackend({ session: { onSend: (_t, _a, session) => {
+      session.push({ kind: "assistant_text", text: "reply" });
+      session.push({ kind: "turn_completed", status: "completed", usage: turnUsage(10, 1), ...event });
+    } } });
+    const { sink } = capture();
+    const mgr = makeManager(fake, sink);
+    const info = (await mgr.spawn("Usage", STATE_ROOT, "default", undefined, undefined, "room-a"))!;
+    const send = async () => {
+      await mgr.sendMessage(info.id, "next");
+      const sid = fake.sessionForAgent(info.id)!.sessionId;
+      return { sid, entry: loadSessionsMap(info.id)[sid] };
+    };
+    const first = await send();
+    expect(first.entry.usage).toEqual(usage(10, 1, 0, 0, 2));
+    expect((await send()).entry.usage).toEqual(usage(10, 1, 0, 0, 2));
+    event = { cost: 3, costMode: "turn", usageId: "B" };
+    expect((await send()).entry.usage).toEqual(usage(20, 2, 0, 0, 5));
+    event = { cost: 2, costMode: "turn", usageId: "A" };
+    // PM ruling: only the last key is retained; an older replay adds again.
+    expect((await send()).entry.usage).toEqual(usage(30, 3, 0, 0, 7));
+    rollSessionUsageOnResume(info.id, first.sid);
+    const duplicate = await send();
+    expect(duplicate.entry.priorRunsUsage).toEqual(usage(30, 3, 0, 0, 7));
+    expect(duplicate.entry.usage).toBeUndefined();
+    expect(duplicate.entry.lastAccountedUsageId).toBe("A");
+    event = { cost: 11 };
+    expect((await send()).entry.usage).toEqual(usage(10, 1, 0, 0, 11));
+    event = { cost: 13 };
+    expect((await send()).entry.usage).toEqual(usage(20, 2, 0, 0, 13));
+    expect(readAgentUsage(info.id, first.sid).session.costUSD).toBe(20);
+  });
+});
+
 describe("B2 turn_completed -> accumulate + snapshot (Phase 1.4a)", () => {
   it("accumulates the turn usage and anchors the snapshot to the LAST written log entry", async () => {
     const fake = new FakeBackend({

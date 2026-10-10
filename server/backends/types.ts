@@ -189,13 +189,16 @@ export type NormalizedEvent =
       inputType: "question";
       requestId: string;
     }
-  // Turn boundary. `cost` is total session cost in USD when the backend
-  // reports it (Claude: yes; Codex: not yet).
+  // Turn boundary. Cost is cumulative session/process USD by default.
+  // costMode:"turn" reports this turn's cost instead; usageId identifies its
+  // billed parts for persistent latest-turn deduplication of tokens and cost.
   | {
       kind: "turn_completed";
       status: "completed" | "interrupted" | "failed";
       usage?: TokenUsage;
       cost?: number;
+      costMode?: "turn";
+      usageId?: string;
       error?: string;
       // Set by backends that know the turn failed due to an auth issue but
       // have already coalesced/rewritten `error` so it no longer matches

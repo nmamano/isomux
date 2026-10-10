@@ -808,6 +808,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
               cacheCreationInputTokens: ev.usage.cacheCreationInputTokens,
             },
             ev.cost ?? 0,
+            { costMode: ev.costMode, usageId: ev.usageId },
           );
           if (active.lastWrittenEntryId) {
             appendRunSessionUsageSnapshot(

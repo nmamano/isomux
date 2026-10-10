@@ -260,6 +260,7 @@ type SessionsMap = Record<
     priorRunsUsage?: PersistedUsage;
     forkBaseUsage?: PersistedUsage;
     usageSnapshots?: UsageSnapshot[];
+    lastAccountedUsageId?: string;
   }
 >;
 
@@ -531,18 +532,23 @@ export function persistSessionFork(
 }
 
 // Accumulate a turn's usage into the session's current-run bucket. Token
-// fields (per-turn from the SDK) are summed; cost (cumulative-per-process
-// from the SDK) overwrites. Returns the resulting cumulative so callers can
-// use it for downstream bookkeeping (e.g. snapshots).
+// fields are summed; cumulative cost overwrites, while costMode:"turn" adds.
+// The latest usageId deduplicates both tokens and cost for turn-mode events.
+// Returns the cumulative for downstream bookkeeping (e.g. snapshots).
 export function accumulateSessionUsage(
   agentId: string,
   sessionId: string,
   turnTokens: Omit<PersistedUsage, "costUSD">,
   runCostUSD: number,
+  accounting?: { costMode?: "turn"; usageId?: string },
 ): PersistedUsage {
   const map = loadSessionsMap(agentId);
   const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
   const prev = existing.usage;
+  const isTurnCost = accounting?.costMode === "turn";
+  // Keep only the latest key, atomically with its totals. Resume preserves it.
+  if (isTurnCost && accounting.usageId && existing.lastAccountedUsageId === accounting.usageId)
+    return prev ?? { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 };
   const next: PersistedUsage = {
     inputTokens: (prev?.inputTokens ?? 0) + turnTokens.inputTokens,
     outputTokens: (prev?.outputTokens ?? 0) + turnTokens.outputTokens,
@@ -551,9 +557,11 @@ export function accumulateSessionUsage(
     cacheCreationInputTokens:
       (prev?.cacheCreationInputTokens ?? 0) +
       turnTokens.cacheCreationInputTokens,
-    costUSD: runCostUSD,
+    costUSD: isTurnCost ? (prev?.costUSD ?? 0) + runCostUSD : runCostUSD,
   };
-  map[sessionId] = { ...existing, usage: next, lastModified: Date.now() };
+  map[sessionId] = { ...existing, usage: next, lastModified: Date.now(),
+    ...(isTurnCost && accounting.usageId ? { lastAccountedUsageId: accounting.usageId } : {}),
+  };
   saveSessionsMap(agentId, map);
   return next;
 }

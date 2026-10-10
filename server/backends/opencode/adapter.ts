@@ -1,3 +1,4 @@
+import { logOpenCodeError } from "./errors.ts";
 // OpenCode backend boundary. The production singleton uses the pinned OC1
 // server transport. createOpenCodeTracerBackend remains as the deterministic
 // no-process test double that proved the S1a orchestrator seam.
@@ -418,6 +419,7 @@ export function createOpenCodeTracerBackend(
 export function createOpenCodeBackend(
   options: OpenCodeBackendOptions = {},
 ): Backend {
+  const safeErrorSink = options.safeErrorSink ?? logOpenCodeError;
   const bindings = new Map<
     string,
     {
@@ -466,7 +468,7 @@ export function createOpenCodeBackend(
       supervisor: binding.supervisor,
       sessionId,
       contractShapeSink: options.contractShapeSink,
-      safeErrorSink: options.safeErrorSink,
+      safeErrorSink,
     });
   };
   const bindSession = (
@@ -517,7 +519,7 @@ export function createOpenCodeBackend(
         supervisor,
         undefined,
         options.contractShapeSink,
-        options.safeErrorSink,
+        safeErrorSink,
         (sessionId) =>
           setBinding(sessionId, { cwd: opts.cwd, supervisor, model, agent }),
       );
@@ -536,7 +538,7 @@ export function createOpenCodeBackend(
         supervisor,
         sessionId,
         options.contractShapeSink,
-        options.safeErrorSink,
+        safeErrorSink,
         (resolvedSessionId) =>
           setBinding(resolvedSessionId, {
             cwd: opts.cwd,
@@ -623,6 +625,9 @@ export function createOpenCodeBackend(
         },
         model,
         supervisor,
+        undefined,
+        options.contractShapeSink,
+        safeErrorSink,
       );
       const timeoutError = new Error("OpenCode one-shot prompt timed out.");
       let timeout: ReturnType<typeof setTimeout> | undefined;

@@ -303,7 +303,7 @@ it.skipIf(!LIVE)(
     });
     try {
       const reply = expectedLog("provider error", (content) =>
-        content.includes("provider or transport error"),
+        /HTTP\s+400/.test(content),
       );
       const mgr = createAgentManager({
         eventSink: reply.sink,
@@ -340,7 +340,7 @@ it.skipIf(!LIVE)(
       expect(warmLease.pid).toBe(warmPid);
       expect(alive(warmPid)).toBe(true);
       warmLease.release();
-      expect(normalized).toContain("provider or transport error");
+      expect(mgr.getAgentLogs(info!.id).some(entry => entry.kind === "error" && /HTTP\s+400/.test(entry.content))).toBe(true);
       expect(normalized).not.toContain(canary);
       expect(
         mgr
