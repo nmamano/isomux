@@ -2,6 +2,7 @@ import { dialogInput, dialogLabel, dialogCancelBtn } from "./dialog-styles.ts";
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { timeSince } from "../../shared/i18n/time.ts";
 import type { AuditEntry, AuditPage, TaskHistory } from "../../shared/audit.ts";
 
 function AuditRows({
@@ -173,8 +174,13 @@ function TaskHistoryDisclosure({ id }: { id: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
-    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>{t("audit.history")}</summary>
+    <details
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      style={{ marginTop: 4 }}
+    >
+      <summary style={{ ...HINT, cursor: "pointer" }}>
+        {t("audit.history")}
+      </summary>
       {open && <TaskHistoryContent id={id} />}
     </details>
   );
@@ -201,29 +207,124 @@ function TaskHistoryContent({ id }: { id: string }) {
     };
   }, [id, before]);
   return (
-    <>
-      {error && <p role="alert">{error}</p>}
-      {history && (
-        <>
-          <p>
-            {history.createdBy} · {new Date(history.createdAt).toLocaleString()}
-          </p>
-          <AuditRows items={history.items} onError={setError} />
-          {history.nextBefore !== null && (
-            <button
-              type="button"
-              style={dialogCancelBtn}
-              onClick={() => {
-                setBefore(history.nextBefore);
-                setHistory(null);
-                setError("");
-              }}
-            >
-              {t("audit.older")}
-            </button>
-          )}
-        </>
+    <div style={{ marginTop: 6 }}>
+      {error && (
+        <div role="alert" style={{ ...HINT, color: "var(--red-text)" }}>
+          {error}
+        </div>
       )}
-    </>
+      {history?.items.map((entry) => (
+        <TaskHistoryEntry key={entry.sequence} entry={entry} />
+      ))}
+      {history && history.nextBefore !== null && (
+        <button
+          type="button"
+          style={{ ...dialogCancelBtn, marginTop: 6 }}
+          onClick={() => {
+            setBefore(history.nextBefore);
+            setHistory(null);
+            setError("");
+          }}
+        >
+          {t("audit.older")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const HINT = {
+  fontSize: 11,
+  color: "var(--text-hint)",
+  fontFamily: "'JetBrains Mono',monospace",
+} as const;
+
+// Fields shown as "old -> new"; any other changed field shows as edited.
+const VALUE_FIELDS = ["status", "priority", "assignee", "title"] as const;
+const FIELD_LABEL = {
+  title: "tasks.field.title",
+  description: "tasks.field.description",
+  priority: "tasks.field.priority",
+  status: "tasks.field.status",
+  assignee: "tasks.field.assignee",
+  roomId: "tasks.field.room",
+} as const;
+const STATUS_LABEL = {
+  open: "tasks.status.open",
+  in_progress: "tasks.status.inProgress",
+  done: "tasks.status.done",
+  obsolete: "tasks.status.obsolete",
+} as const;
+// Bookkeeping fields that every write touches; they say nothing to a reader.
+const HIDDEN_FIELDS = new Set([
+  "id",
+  "version",
+  "createdAt",
+  "createdBy",
+  "username",
+  "updatedAt",
+]);
+
+function TaskHistoryEntry({ entry }: { entry: AuditEntry }) {
+  const { t, language } = useI18n();
+  const since = timeSince(language, entry.time);
+  const when = since.kind === "now" ? t("common.justNow") : since.text;
+  const show = (field: string, value: unknown): string => {
+    if (value === null || value === undefined || value === "") return "—";
+    if (
+      field === "status" &&
+      typeof value === "string" &&
+      value in STATUS_LABEL
+    )
+      return t(STATUS_LABEL[value as keyof typeof STATUS_LABEL]);
+    return typeof value === "string" ? value : JSON.stringify(value);
+  };
+  const lines: React.ReactNode[] = [];
+  if (entry.operation === "tasks.create") lines.push(t("audit.taskCreated"));
+  else if (entry.operation === "tasks.delete")
+    lines.push(t("audit.taskDeleted"));
+  else if (entry.operation === "tasks.restore") lines.push(t("audit.restored"));
+  else {
+    const changes = entry.taskChanges ?? {};
+    const fields = entry.taskChanges ? Object.keys(changes) : entry.fields;
+    for (const field of fields) {
+      if (HIDDEN_FIELDS.has(field)) continue;
+      const label =
+        field in FIELD_LABEL
+          ? t(FIELD_LABEL[field as keyof typeof FIELD_LABEL])
+          : field;
+      const change = changes[field];
+      if (change && (VALUE_FIELDS as readonly string[]).includes(field))
+        lines.push(
+          <>
+            {label}:{" "}
+            <span style={{ color: "var(--text-hint)" }}>
+              {show(field, change.old)}
+            </span>
+            {" → "}
+            {show(field, change.new)}
+          </>,
+        );
+      else lines.push(t("audit.fieldEdited", { field: label }));
+    }
+  }
+  return (
+    <div
+      style={{
+        borderLeft: "2px solid var(--border)",
+        paddingLeft: 8,
+        marginTop: 6,
+        overflowWrap: "anywhere",
+      }}
+    >
+      <div style={HINT}>
+        {entry.actor.name} · {when}
+      </div>
+      {lines.map((line, index) => (
+        <div key={index} style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          {line}
+        </div>
+      ))}
+    </div>
   );
 }

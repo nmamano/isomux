@@ -38,6 +38,9 @@ export const en = {
   "audit.loading": "Loading…",
   "audit.older": "Older",
   "audit.history": "History",
+  "audit.taskCreated": "Created",
+  "audit.taskDeleted": "Deleted",
+  "audit.fieldEdited": "{field} edited",
 
   "browser.offerHelp":
     "Open the tab to offer, choose All or an agent in the extension popup, and turn on Agent control.",
