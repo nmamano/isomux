@@ -11,6 +11,7 @@
 //   resourceGuard deny  (s2) → the guard's outcome, verbatim (403, non-leak)
 // A missing capability is 403, never 401; 401 means "no identity".
 
+import type { RouteAuth } from "../routes/table.ts";
 import {
   identityHasCapability,
   type Capability,
@@ -50,6 +51,17 @@ export interface AuthorizeInput {
   deps: GuardDeps;
 }
 
+// Shared stage 1 for the executor and the OpenCode broker. Resource guards
+// still run in the executor with live state. Public routes use their own entry.
+export function passesRouteStageOne(auth: RouteAuth, identity: Identity | null): boolean {
+  if (!identity || auth.kind === "public") return false;
+  if (auth.kind === "authenticated") return true;
+  const required = typeof auth.requiredCapability === "string"
+    ? [auth.requiredCapability]
+    : auth.requiredCapability;
+  return required.some((cap) => identityHasCapability(identity, cap));
+}
+
 export function authorize(
   route: RouteAuthz,
   input: AuthorizeInput,
@@ -60,11 +72,7 @@ export function authorize(
   // Stage 1: coarse capability (any-of - the caller needs at least one of the
   // declared capabilities). A missing capability is 403, and we MUST NOT run the
   // resourceGuard - stage 2 never observes a caller that failed stage 1.
-  const required: readonly Capability[] =
-    typeof route.requiredCapability === "string"
-      ? [route.requiredCapability]
-      : route.requiredCapability;
-  if (!required.some((cap) => identityHasCapability(identity, cap)))
+  if (!passesRouteStageOne({ kind: "capability", ...route }, identity))
     return FORBIDDEN;
   // Stage 2: object-level resource guard.
   return route.resourceGuard({

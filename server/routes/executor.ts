@@ -24,9 +24,10 @@ import type { ExecutorAudit } from "./audit.ts";
 import type { RouteAuth, RoutePrecondition } from "./table.ts";
 import type { RouteMatch } from "./match.ts";
 import type { Identity } from "../identity/index.ts";
-import { authorize } from "../identity/dispatch.ts";
+import { passesRouteStageOne, authorize } from "../identity/dispatch.ts";
 import {
   ALLOW,
+  FORBIDDEN,
   type AuthzOutcome,
   type GuardDeps,
 } from "../identity/guards.ts";
@@ -233,6 +234,7 @@ export function runAuthorize(
     case "public":
       return ALLOW;
     case "authenticated":
+      if (!passesRouteStageOne(auth, identity)) return FORBIDDEN;
       return auth.resourceGuard({ identity, params, body, deps: guardDeps });
     case "capability":
       return authorize(

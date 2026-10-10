@@ -10,8 +10,8 @@ Safe example: `GET /api/cronjobs`.
 
 ## Route contract
 
-`GET /api/cronjobs`, `GET /api/cronjobs/:id`, `GET /api/cronjobs/:id/system-prompt` (not available to OpenCode agents), `POST /api/cronjobs`, `PATCH /api/cronjobs/:id`, `DELETE /api/cronjobs/:id`, `POST /api/cronjobs/:id/runs`, `GET /api/cronjobs/:id/runs`, `GET /api/cron-runs`, `GET /api/cronjobs/:id/runs/:runId`, `POST /api/cronjobs/:id/runs/:runId/messages` (not available to OpenCode agents), and `PATCH /api/cronjobs/:id/runs/:runId/messages/:logEntryId` (not available to OpenCode agents) return cronjob/run/message wires or 204.
+`GET /api/cronjobs`, `GET /api/cronjobs/:id`, `GET /api/cronjobs/:id/system-prompt`, `POST /api/cronjobs`, `PATCH /api/cronjobs/:id`, `DELETE /api/cronjobs/:id`, `POST /api/cronjobs/:id/runs`, `GET /api/cronjobs/:id/runs`, `GET /api/cron-runs`, `GET /api/cronjobs/:id/runs/:runId`, `POST /api/cronjobs/:id/runs/:runId/messages`, and `PATCH /api/cronjobs/:id/runs/:runId/messages/:logEntryId` return cronjob/run/message wires or 204.
 
 These routes require a privileged agent. Reads return jobs you can see; mutations are limited to jobs the agent owns. Invalid bodies return 400/422; a mutation on someone else's job returns 403; hidden or missing jobs, missing runs, and an inaccessible `roomId` return 404; backend failures return 500.
 
-`POST /api/cronjobs/:id/runs/:runId/messages` (not available to OpenCode agents) accepts `{text,clientMessageId?}` and returns 200 when the message is in the run log. A busy or unresumable run returns 409 and the usage cap 429. A resend with an accepted `clientMessageId` returns 200 with an empty `messageId` and sends nothing.
+`POST /api/cronjobs/:id/runs/:runId/messages` accepts `{text,clientMessageId?}` and returns 200 when the message is in the run log. A busy or unresumable run returns 409 and the usage cap 429. A resend with an accepted `clientMessageId` returns 200 with an empty `messageId` and sends nothing.

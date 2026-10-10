@@ -7039,7 +7039,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // bearer-gated /api surface (/api/tasks*, /api/cronjobs*, /api/cron-runs,
         // /api/backup/status), which is where every caller - agents included - is
         // told to go. A no-identity request never reaches here: it 401s at the
-        // cookie wall above. An authenticated one gets a JSON 404 rather than
+        // cookie wall above. GET/HEAD of the task and schedule page paths can
+        // reach the SPA shell. Other authenticated calls get a JSON 404 rather than
         // falling through to the SPA shell, which would answer 200 text/html and
         // mask the caller. Note the two things that went away with the handlers:
         // the anonymous loopback trust, and the `Access-Control-Allow-Origin: *`
@@ -7053,12 +7054,16 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // separator, and no handler is behind any of these paths either way.
         const retiredPath =
           url.pathname.replace(/%2f/gi, "/").replace(/\/+$/, "") || "/";
+        const boardPageRequest =
+          (req.method === "GET" || req.method === "HEAD") &&
+          /^\/(tasks|cronjobs)\/*$/.test(url.pathname);
         if (
           (retiredPath === "/api/me/browser" && req.method === "PATCH") ||
-          retiredPath === "/tasks" ||
-          retiredPath.startsWith("/tasks/") ||
-          retiredPath === "/cronjobs" ||
-          retiredPath.startsWith("/cronjobs/") ||
+          (!boardPageRequest &&
+            (retiredPath === "/tasks" ||
+              retiredPath.startsWith("/tasks/") ||
+              retiredPath === "/cronjobs" ||
+              retiredPath.startsWith("/cronjobs/"))) ||
           retiredPath === "/backup/status"
         ) {
           return new Response(JSON.stringify({ error: "not found" }), {

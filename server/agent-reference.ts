@@ -41,10 +41,6 @@ export const PRIVILEGED_REFERENCE_TOPICS: ReadonlySet<AgentReferenceTopic> =
     "members",
   ]);
 
-// Written right after a route the OpenCode authority broker refuses, at each
-// place a topic names it. The broker allowlist test checks both directions.
-export const OPENCODE_UNAVAILABLE_MARK = "(not available to OpenCode agents)";
-
 // Every office route that the prompt teaches an agent is tied to one topic.
 // The route-table contract test independently verifies the method/path text in
 // that topic and requires every agent-authorized route to be mapped or named in

@@ -99,6 +99,7 @@ async function request(
   path = "/agents",
   method = "GET",
   body = "",
+  contentType: string | null = "application/json",
 ) {
   return await new Promise<{ status: number; body: string }>(
     (resolve, reject) => {
@@ -108,7 +109,7 @@ async function request(
         socket: {
           open(socket) {
             socket.write(
-              `${method} ${path} HTTP/1.1\r\nHost: isomux\r\n${handle ? `X-Isomux-Turn: ${handle}\r\n` : ""}${body ? `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n` : ""}\r\n${body}`,
+              `${method} ${path} HTTP/1.1\r\nHost: isomux\r\n${handle ? `X-Isomux-Turn: ${handle}\r\n` : ""}${body ? `${contentType === null ? "" : `Content-Type: ${contentType}\r\n`}Content-Length: ${Buffer.byteLength(body)}\r\n` : ""}\r\n${body}`,
             );
           },
           data(_socket, chunk) {
@@ -167,6 +168,15 @@ describe("OpenCode office proxy", () => {
     expect((await request(socketPath, handle)).status).toBe(403);
     expect(binding.activate(process.pid)).toBe(handle);
     expect((await request(socketPath, handle)).status).toBe(200);
+  });
+
+  it("refuses non-GET methods on the discovery alias before forwarding", async () => {
+    const { broker, socketPath, seen } = fixture();
+    const handle = broker.bind("agent-b", "token-b").activate(process.pid);
+    for (const method of ["POST", "DELETE"]) {
+      expect((await request(socketPath, handle, "/agents", method)).status).toBe(403);
+      expect(seen).toEqual([]);
+    }
   });
 
   it("refuses a handle from a different session", async () => {
@@ -257,6 +267,20 @@ describe("OpenCode office proxy", () => {
       thumbnail,
       `${thumbnail}?v=1&image=1`,
     ]);
+  });
+
+  it("forwards raw bodies and only the supplied content type", async () => {
+    const { broker, socketPath, bodies } = fixture();
+    const handle = broker.bind("agent-b", "token-b").activate(process.pid);
+    const path = "/api/apps/hello/thumbnail";
+    for (const [body, contentType] of [
+      ['{ "senderAgentId": "other", "x": 1 }', "application/json"],
+      ["raw bytes", "image/png"],
+      ["no type", null],
+    ] as const) {
+      expect((await request(socketPath, handle, path, "PUT", body, contentType)).status).toBe(200);
+      expect(bodies.at(-1)).toEqual({ contentType, body });
+    }
   });
 
   it("limits calls for each turn", async () => {

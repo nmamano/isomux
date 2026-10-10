@@ -1,3 +1,7 @@
+import { API_ROUTES } from "../../routes/table.ts";
+import { matchRoute } from "../../routes/match.ts";
+import { passesRouteStageOne } from "../../identity/dispatch.ts";
+import { PRIVILEGED_AGENT_CAPABILITIES, type Identity } from "../../identity/index.ts";
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
@@ -7,11 +11,11 @@ import { openCodeAuthoritySocketPath } from "./office-proxy-shared.ts";
 import { readProcessHop, type ProcessHop } from "./process-identity.ts";
 import {
   httpResponse,
-  parseHttpRequest,
   readPeerCredentials,
   socketFileDescriptor,
-  type ParsedRequest,
 } from "../../unix-socket-server.ts";
+
+import { BrokerResponseWriter, parseRequestHead, RequestHeadError, StreamingRequestBody, type RequestHead } from "./authority-request.ts";
 
 interface TurnBinding {
   owner: symbol;
@@ -26,6 +30,9 @@ interface ConnectionData {
   peer: PeerIdentity | null;
   buffer: Buffer;
   handled: boolean;
+  body: StreamingRequestBody | null;
+  abort: AbortController;
+  writer: BrokerResponseWriter | null;
 }
 
 export interface OpenCodeAuthorityBinding {
@@ -53,85 +60,21 @@ const HOST_PROCESS_READERS: OpenCodeAuthorityProcessReaders = {
   readProcessHop: (pid) => readProcessHop(pid),
 };
 
-const MAX_REQUEST_BYTES = 64 * 1024;
+const MAX_REQUEST_HEAD_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_CALLS_PER_TURN = 32;
 const MAX_ANCESTRY_DEPTH = 32;
 const PROXY_TIMEOUT_MS = 30_000;
 const PORT = process.env.PORT || "4000";
 
-const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
-  { method: "GET", path: /^\/agents$/ },
-  { method: "GET", path: /^\/api\/agent-reference(?:\/[^/]+)?$/ },
-  { method: "GET", path: /^\/api\/tasks$/ },
-  { method: "POST", path: /^\/api\/tasks$/ },
-  { method: "PATCH", path: /^\/api\/tasks\/[^/]+$/ },
-  { method: "POST", path: /^\/api\/tasks\/[^/]+\/(claim|done)$/ },
-  { method: "GET", path: /^\/api\/pager(?:\/[^/]+)?$/ },
-  { method: "POST", path: /^\/api\/pager(?:\/[^/]+\/(ack|resolve))?$/ },
-  {
-    method: "GET",
-    path: /^\/api\/agents\/[^/]+\/(context|subscription|logs|sessions|instructions|scheduled-messages)$/,
-  },
-  {
-    method: "POST",
-    path: /^\/api\/agents\/[^/]+\/(messages|read-file|preview-url|browser|diff|edit-file|terminal-command|resume|new-conversation|handoff|send-now|abort|move|revive)$/,
-  },
-  { method: "PATCH", path: /^\/api\/agents\/[^/]+(?:\/messages\/[^/]+)?$/ },
-  {
-    method: "DELETE",
-    path: /^\/api\/agents\/[^/]+(?:\/queue\/[^/]+|\/scheduled-messages\/[^/]+)?$/,
-  },
-  { method: "POST", path: /^\/api\/agents$/ },
-  {
-    method: "GET",
-    path: /^\/api\/apps(?:\/[^/]+(?:\/logs|\/thumbnail)?)?$/,
-  },
-  {
-    method: "POST",
-    path: /^\/api\/apps(?:\/[^/]+\/(restart|start|stop|archive|unarchive))?$/,
-  },
-  { method: "PATCH", path: /^\/api\/apps\/[^/]+$/ },
-  { method: "PUT", path: /^\/api\/apps\/[^/]+\/thumbnail$/ },
-  { method: "DELETE", path: /^\/api\/apps\/[^/]+$/ },
-  {
-    method: "GET",
-    path: /^\/api\/webhooks(?:\/[^/]+(?:\/deliveries)?)?$/,
-  },
-  { method: "POST", path: /^\/api\/webhooks(?:\/[^/]+\/dry-run)?$/ },
-  { method: "PATCH", path: /^\/api\/webhooks\/[^/]+$/ },
-  { method: "DELETE", path: /^\/api\/webhooks\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/memory$/ },
-  { method: "POST", path: /^\/api\/memory$/ },
-  { method: "PUT", path: /^\/api\/memory$/ },
-  { method: "GET", path: /^\/api\/skills(?:\/file)?$/ },
-  { method: "PUT", path: /^\/api\/skills\/file$/ },
-  { method: "DELETE", path: /^\/api\/skills\/file$/ },
-  { method: "POST", path: /^\/api\/skills$/ },
-  { method: "POST", path: /^\/api\/rooms$/ },
-  { method: "PATCH", path: /^\/api\/rooms\/[^/]+$/ },
-  { method: "DELETE", path: /^\/api\/rooms\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/rooms\/[^/]+\/settings$/ },
-  { method: "PUT", path: /^\/api\/rooms\/[^/]+\/settings$/ },
-  { method: "POST", path: /^\/api\/rooms\/[^/]+\/swap-desks$/ },
-  { method: "POST", path: /^\/api\/users$/ },
-  { method: "GET", path: /^\/api\/users\/[^/]+\/member-prompt$/ },
-  { method: "PATCH", path: /^\/api\/users\/[^/]+$/ },
-  {
-    method: "GET",
-    path: /^\/api\/cronjobs(?:\/[^/]+(?:\/runs(?:\/[^/]+)?)?)?$/,
-  },
-  { method: "POST", path: /^\/api\/cronjobs(?:\/[^/]+\/runs)?$/ },
-  { method: "PATCH", path: /^\/api\/cronjobs\/[^/]+$/ },
-  { method: "DELETE", path: /^\/api\/cronjobs\/[^/]+$/ },
-  { method: "GET", path: /^\/api\/cron-runs$/ },
-  { method: "POST", path: /^\/api\/api-token-inboxes\/[^/]+\/messages$/ },
-  { method: "GET", path: /^\/api\/members-chat$/ },
-  { method: "POST", path: /^\/api\/members-chat$/ },
-  { method: "PATCH", path: /^\/api\/members-chat\/[^/]+$/ },
-  { method: "DELETE", path: /^\/api\/members-chat\/[^/]+$/ },
-  { method: "PUT", path: /^\/api\/members-chat\/[^/]+\/thumbs-up$/ },
-];
+// This ceiling admits every route available to an agent. The executor resolves
+// the actual token and applies its capabilities and all live resource guards.
+const AGENT_CEILING: Identity = {
+  scope: "agent",
+  userId: null,
+  role: "member",
+  capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+};
 
 export class OpenCodeAuthorityBroker {
   private readonly turns = new Map<string, TurnBinding>();
@@ -207,6 +150,9 @@ export class OpenCodeAuthorityBroker {
         peer: null,
         buffer: Buffer.alloc(0),
         handled: false,
+        body: null,
+        abort: new AbortController(),
+        writer: null,
       },
       socket: {
         open: (socket) => {
@@ -215,37 +161,59 @@ export class OpenCodeAuthorityBroker {
             peer: fd === null ? null : this.readPeer(fd),
             buffer: Buffer.alloc(0),
             handled: false,
+            body: null,
+            abort: new AbortController(),
+            writer: new BrokerResponseWriter(socket),
           };
         },
         data: (socket, chunk) => {
+          if (socket.data.body) { socket.data.body.push(chunk); return; }
           if (socket.data.handled) return;
-          socket.data.buffer = Buffer.concat([
-            socket.data.buffer,
-            Buffer.from(chunk),
-          ]);
-          if (socket.data.buffer.length > MAX_REQUEST_BYTES) {
+          const buffer = Buffer.concat([socket.data.buffer, chunk]);
+          const headEnd = buffer.indexOf("\r\n\r\n");
+          if ((headEnd < 0 ? buffer.length : headEnd + 4) > MAX_REQUEST_HEAD_BYTES) {
             socket.data.handled = true;
-            socket.end(
-              httpResponse(413, "OpenCode office request is too large."),
-            );
+            socket.data.writer!.send(httpResponse(413, "OpenCode office request head is too large."));
             return;
           }
-          let request: ParsedRequest | null;
-          try {
-            request = parseHttpRequest(socket.data.buffer, MAX_REQUEST_BYTES);
-          } catch {
-            socket.data.handled = true;
-            socket.end(httpResponse(400, "Invalid OpenCode office request."));
-            return;
-          }
-          if (!request) return;
+          if (headEnd < 0) { socket.data.buffer = buffer; return; }
+          socket.pause();
           socket.data.handled = true;
-          void this.proxy(request, socket.data.peer).then(
-            (response) => socket.end(response),
-            () =>
-              socket.end(httpResponse(502, "OpenCode office request failed.")),
+          socket.data.buffer = Buffer.alloc(0);
+          let request: RequestHead;
+          try { request = parseRequestHead(buffer.subarray(0, headEnd)); }
+          catch (error) {
+            socket.data.writer!.send(httpResponse(error instanceof RequestHeadError ? error.status : 400,
+              error instanceof RequestHeadError ? error.message : "Invalid OpenCode office request."));
+            return;
+          }
+          const body = new StreamingRequestBody(request.contentLength, socket);
+          socket.data.body = body;
+          const signal = AbortSignal.any([socket.data.abort.signal, AbortSignal.timeout(PROXY_TIMEOUT_MS)]);
+          signal.addEventListener("abort", () => {
+            body.abort(new Error("OpenCode office request aborted."));
+            // A response already partly written cannot be replaced by a 502.
+            // Bound a stalled reader too, and release its queued response.
+            if (socket.data.writer?.draining) {
+              socket.data.writer.close();
+              socket.terminate();
+            }
+          }, { once: true });
+          let initial: Buffer | null = buffer.subarray(headEnd + 4);
+          void this.proxy(request, socket.data.peer, body.stream, signal, () => {
+            const readBody = () => { body.admit(initial!); initial = null; };
+            // Other Expect values are ignored. Never forward Expect upstream.
+            if (request.headers.get("expect")?.toLowerCase() === "100-continue")
+              socket.data.writer!.interim(Buffer.from("HTTP/1.1 100 Continue\r\n\r\n"), readBody);
+            else readBody();
+          }).then(
+            (response) => { body.abort(new Error("OpenCode office request finished.")); socket.data.writer!.send(response); },
+            () => { body.abort(new Error("OpenCode office request failed.")); socket.data.writer!.send(httpResponse(502, "OpenCode office request failed.")); },
           );
         },
+        drain: (socket) => { socket.data.writer?.drain(); },
+        close: (socket) => { socket.data.writer?.close(); socket.data.abort.abort(); },
+        error: (socket) => { socket.data.writer?.close(); socket.data.abort.abort(); },
       },
     });
     // A process needs write permission on a socket to connect. Until this
@@ -261,8 +229,11 @@ export class OpenCodeAuthorityBroker {
   }
 
   private async proxy(
-    request: ParsedRequest,
+    request: RequestHead,
     peer: PeerIdentity | null,
+    requestBody: ReadableStream<Uint8Array>,
+    signal: AbortSignal,
+    admit: () => void,
   ): Promise<Buffer> {
     const handle = request.headers.get("x-isomux-turn") ?? "";
     const turn = this.turns.get(handle);
@@ -285,13 +256,10 @@ export class OpenCodeAuthorityBroker {
         429,
         "OpenCode office call limit reached for this turn.",
       );
-    if (
-      !ROUTES.some(
-        (route) =>
-          route.method === request.method &&
-          route.path.test(request.url.pathname),
-      )
-    )
+    const matched = matchRoute(API_ROUTES, request.method, request.url.pathname);
+    // Discovery is the only agent endpoint outside API_ROUTES.
+    const manifest = request.method === "GET" && request.url.pathname === "/agents";
+    if (!manifest && (!matched || !passesRouteStageOne(matched.route.auth, AGENT_CEILING)))
       return httpResponse(
         403,
         "This Isomux API route is not available through OpenCode.",
@@ -300,24 +268,17 @@ export class OpenCodeAuthorityBroker {
     const upstream = new URL(request.url.pathname, this.upstreamOrigin);
     for (const [name, value] of request.url.searchParams)
       upstream.searchParams.append(name, value);
-    let upstreamBody: string | undefined;
-    if (request.body.length) {
-      try {
-        upstreamBody = JSON.stringify(
-          JSON.parse(request.body.toString("utf8")),
-        );
-      } catch {
-        return httpResponse(400, "OpenCode office request body must be JSON.");
-      }
-    }
+    const contentType = request.headers.get("content-type");
+    admit();
     const response = await fetch(upstream, {
       method: request.method,
       headers: {
         authorization: `Bearer ${turn.token}`,
-        ...(upstreamBody ? { "content-type": "application/json" } : {}),
+        ...(contentType !== null ? { "content-type": contentType } : {}),
+        ...(request.contentLength ? { "content-length": String(request.contentLength) } : {}),
       },
-      body: upstreamBody,
-      signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
+      body: request.contentLength ? requestBody : undefined,
+      signal,
     });
     const contentLength = response.headers.get("content-length");
     if (

@@ -1,9 +1,4 @@
-// Every office route an OpenCode agent is taught must pass the OpenCode
-// authority broker, and every route the broker refuses must be marked as
-// unavailable to OpenCode agents at each place a reference names it. The
-// routes come from what the agent actually reads: the fetch command in its
-// system prompt (privileged, so the privileged pages are in) and every topic
-// as the reference route serves it, not from a hand-copied list.
+// Keep every documented office route in step with the route table and broker.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -13,28 +8,28 @@ import { OpenCodeAuthorityBroker } from "./authority-broker.ts";
 import { buildSystemPrompt } from "../../system-prompt.ts";
 import {
   AGENT_REFERENCE_TOPICS,
-  OPENCODE_UNAVAILABLE_MARK,
   agentReferenceContent,
 } from "../../agent-reference.ts";
 import { PRIVILEGED_AGENT_CAPABILITIES } from "../../identity/index.ts";
 
-// "METHOD /path" -> one-line reason the broker refuses it although no
-// OpenCode agent is meant to call it, so it carries no unavailability mark.
-const EXCLUDED: Record<string, string> = {
-  "POST /api/app/message":
-    "App-server route: the app's own token never goes through the agent proxy.",
-  "POST /api/app/pager":
-    "App-server route: the app's own token never goes through the agent proxy.",
-  "POST /api/app/pager/resolve":
-    "App-server route: the app's own token never goes through the agent proxy.",
-};
+import { API_ROUTES, PUBLIC_ROUTES, type RouteDef } from "../../routes/table.ts";
+import { matchRoute } from "../../routes/match.ts";
+
+// Independent expectation: changing the broker predicate must fail this test.
+function agentStageOne(route: RouteDef): boolean {
+  if (route.auth.kind === "authenticated") return true;
+  if (route.auth.kind !== "capability") return false;
+  const required = typeof route.auth.requiredCapability === "string"
+    ? [route.auth.requiredCapability] : route.auth.requiredCapability;
+  return required.some((cap) => PRIVILEGED_AGENT_CAPABILITIES.includes(cap));
+}
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose();
 });
 
-type Occurrence = { route: string; marked: boolean; where: string };
+type Occurrence = { route: string; where: string };
 
 function documentedRoutes(): Occurrence[] {
   const prompt = buildSystemPrompt(
@@ -51,6 +46,7 @@ function documentedRoutes(): Occurrence[] {
     null,
     "opencode",
   );
+  expect(prompt).not.toMatch(/not available to OpenCode agents/i);
   const found: Occurrence[] = [];
   for (const command of prompt.split(/(?=\bcurl )/)) {
     if (!command.startsWith("curl ")) continue;
@@ -59,7 +55,6 @@ function documentedRoutes(): Occurrence[] {
     const method = /-X (\w+)/.exec(command)?.[1] ?? "GET";
     found.push({
       route: `${method} ${url[1]}`,
-      marked: false,
       where: "prompt",
     });
   }
@@ -72,21 +67,17 @@ function documentedRoutes(): Occurrence[] {
     role: "owner",
     capabilities: PRIVILEGED_AGENT_CAPABILITIES,
   } as const;
-  const mark = OPENCODE_UNAVAILABLE_MARK.replace(/[()]/g, "\\$&");
-  const span = new RegExp(
-    `\`(GET|POST|PUT|PATCH|DELETE) (\\/[^\`\\s?]*)\`( ${mark})?`,
-    "g",
-  );
+  const span = /`(GET|HEAD|POST|PUT|PATCH|DELETE) (\/[^`\s?]*)`/g;
   for (const topic of Object.keys(AGENT_REFERENCE_TOPICS)) {
     const markdown = agentReferenceContent(privileged, topic);
     if (typeof markdown !== "string") throw new Error(`${topic} unreadable`);
+    expect(markdown, topic).not.toMatch(/not available to OpenCode agents/i);
     // Exact `METHOD /path` spans. The route-table test pins every agent route
     // in that form, so shorthand spans with {a,b} or a|b add nothing here.
     for (const match of markdown.matchAll(span)) {
       if (/[{|]/.test(match[2])) continue;
       found.push({
         route: `${match[1]} ${match[2]}`,
-        marked: match[3] !== undefined,
         where: topic,
       });
     }
@@ -125,7 +116,7 @@ async function status(
 }
 
 describe("OpenCode broker allowlist", () => {
-  it("passes every route OpenCode agents are taught and marks every refused one where it appears", async () => {
+  it("admits documented and table routes exactly when agent stage one allows them", async () => {
     const root = mkdtempSync(join(tmpdir(), "isomux-broker-prompt-routes-"));
     const socketPath = join(root, "private", "authority.sock");
     const upstream = Bun.serve({
@@ -158,31 +149,26 @@ describe("OpenCode broker allowlist", () => {
     expect(routes).toContain("GET /api/apps/:name");
     expect(routes).toContain("POST /api/apps/:name/start");
     expect(routes).toContain("POST /api/api-token-inboxes/:tokenId/messages");
-    expect(occurrences.some((o) => o.marked)).toBe(true);
-    expect(Object.keys(EXCLUDED).filter((r) => !routes.includes(r))).toEqual(
-      [],
-    );
-
-    const refused = new Set<string>();
-    for (const route of routes) {
-      const [method, path] = route.split(" ");
-      // A fresh activation resets the per-turn call limit.
+    for (const route of [...API_ROUTES, ...PUBLIC_ROUTES]) {
       const handle = binding.activate(process.pid);
-      // The upstream answers 200 to everything, so a 403 is the broker's.
-      const actual = await status(socketPath, handle, method, path);
-      if (actual === 403) refused.add(route);
-      else expect(actual, route).toBe(200);
+      expect(await status(socketPath, handle, route.method, route.path), route.opId)
+        .toBe(agentStageOne(route) ? 200 : 403);
     }
-    const mismatches = occurrences
-      .filter((o) =>
-        o.route in EXCLUDED
-          ? !refused.has(o.route) || o.marked
-          : refused.has(o.route) !== o.marked,
-      )
-      .map(
-        (o) =>
-          `${o.where}: ${o.route} ${refused.has(o.route) ? "refused" : "allowed"}, ${o.marked ? "marked" : "unmarked"}`,
-      );
-    expect(mismatches).toEqual([]);
+
+    for (const occurrence of occurrences) {
+      const [method, path] = occurrence.route.split(" ");
+      const matched = matchRoute(API_ROUTES, method, path);
+      const manifest = method === "GET" && path === "/agents";
+      // A documented route cannot silently become an unknown-route exception.
+      expect(manifest || matched !== null, occurrence.route).toBe(true);
+      const handle = binding.activate(process.pid);
+      const actual = await status(socketPath, handle, method, path);
+      expect(actual, `${occurrence.where}: ${occurrence.route}`)
+        .toBe(manifest || (matched && agentStageOne(matched.route)) ? 200 : 403);
+    }
+    // A specific user-only refusal also guards against replacing the predicate
+    // with true, independently of the route-table loop above.
+    expect(await status(socketPath, binding.activate(process.pid), "PUT",
+      "/api/agents/agent-x/privileged")).toBe(403);
   });
 });
