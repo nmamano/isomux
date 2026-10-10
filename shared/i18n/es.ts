@@ -26,7 +26,7 @@ export const es: Catalog = {
   "audit.taskCreated": "creó la tarea",
   "audit.taskDeleted": "eliminó la tarea",
   "audit.taskRestored": "restauró la tarea",
-  "audit.fieldEdited": "editó {field}",
+  "audit.edited": "editado",
 
   "browser.offerHelp":
     "Abre la pestaña que quieras ofrecer, elige Todos o un agente en la extensión y activa Control del agente.",

@@ -41,7 +41,7 @@ export const en = {
   "audit.taskCreated": "created",
   "audit.taskDeleted": "deleted",
   "audit.taskRestored": "restored",
-  "audit.fieldEdited": "edited {field}",
+  "audit.edited": "edited",
 
   "browser.offerHelp":
     "Open the tab to offer, choose All or an agent in the extension popup, and turn on Agent control.",

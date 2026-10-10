@@ -264,7 +264,9 @@ const HIDDEN_FIELDS = new Set([
   "updatedAt",
 ]);
 
-// One line per write, e.g. "Nil P2 → P1". The time is in the tooltip.
+// The actor, then one row per change: "Nil | PRIORITY P2 → P1". Interface words
+// (field names, "edited", "created") use the small mono hint style so they never
+// read as task content. The time is in the tooltip.
 function TaskHistoryEntry({ entry }: { entry: AuditEntry }) {
   const { t, language } = useI18n();
   const show = (field: string, value: unknown): string => {
@@ -277,59 +279,87 @@ function TaskHistoryEntry({ entry }: { entry: AuditEntry }) {
       return t(STATUS_LABEL[value as keyof typeof STATUS_LABEL]);
     return typeof value === "string" ? value : JSON.stringify(value);
   };
-  const parts: React.ReactNode[] = [];
-  if (entry.operation === "tasks.create") parts.push(t("audit.taskCreated"));
+  const label = (field: string) =>
+    field in FIELD_LABEL
+      ? t(FIELD_LABEL[field as keyof typeof FIELD_LABEL])
+      : field;
+  const rows: { label?: string; body: React.ReactNode }[] = [];
+  const word = (text: string) => <span style={HINT}>{text}</span>;
+  if (entry.operation === "tasks.create")
+    rows.push({ body: word(t("audit.taskCreated")) });
   else if (entry.operation === "tasks.delete")
-    parts.push(t("audit.taskDeleted"));
+    rows.push({ body: word(t("audit.taskDeleted")) });
   else if (entry.operation === "tasks.restore")
-    parts.push(t("audit.taskRestored"));
+    rows.push({ body: word(t("audit.taskRestored")) });
   else {
     const changes = entry.taskChanges ?? {};
     const fields = entry.taskChanges ? Object.keys(changes) : entry.fields;
     for (const field of fields) {
       if (HIDDEN_FIELDS.has(field)) continue;
       const change = changes[field];
-      if (change && (VALUE_FIELDS as readonly string[]).includes(field))
-        parts.push(
-          <>
-            {show(field, change.old)}
-            <span style={{ color: "var(--text-hint)", margin: "0 4px" }}>
-              →
-            </span>
-            <span style={{ color: "var(--text)" }}>
-              {show(field, change.new)}
-            </span>
-          </>,
-        );
-      else {
-        const label =
-          field in FIELD_LABEL
-            ? t(FIELD_LABEL[field as keyof typeof FIELD_LABEL])
-            : field;
-        parts.push(
-          t("audit.fieldEdited", { field: label.toLocaleLowerCase(language) }),
-        );
-      }
+      rows.push({
+        label: label(field),
+        body:
+          change && (VALUE_FIELDS as readonly string[]).includes(field) ? (
+            <>
+              <span style={{ color: "var(--text-hint)" }}>
+                {show(field, change.old)}
+              </span>
+              <span
+                aria-hidden
+                style={{ color: "var(--accent)", padding: "0 6px" }}
+              >
+                →
+              </span>
+              <span style={{ color: "var(--text)" }}>
+                {show(field, change.new)}
+              </span>
+            </>
+          ) : (
+            word(t("audit.edited"))
+          ),
+      });
     }
   }
   return (
     <div
       title={new Date(entry.time).toLocaleString(language)}
       style={{
+        display: "grid",
+        gridTemplateColumns: "auto 1fr",
+        columnGap: 8,
+        rowGap: 2,
+        alignItems: "baseline",
         fontSize: 12,
-        color: "var(--text-dim)",
-        marginTop: 4,
+        marginTop: 6,
         overflowWrap: "anywhere",
       }}
     >
-      <span style={{ color: "var(--accent)", fontWeight: 600, marginRight: 6 }}>
+      <span
+        style={{
+          gridRow: `1 / span ${Math.max(rows.length, 1)}`,
+          color: "var(--accent)",
+          fontWeight: 600,
+        }}
+      >
         {entry.actor.name}
       </span>
-      {parts.map((part, index) => (
-        <span key={index}>
-          {index > 0 && ", "}
-          {part}
-        </span>
+      {rows.map((row, index) => (
+        <div key={index}>
+          {row.label && (
+            <span
+              style={{
+                ...HINT,
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginRight: 8,
+              }}
+            >
+              {row.label}
+            </span>
+          )}
+          {row.body}
+        </div>
       ))}
     </div>
   );

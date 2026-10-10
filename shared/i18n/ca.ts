@@ -26,7 +26,7 @@ export const ca: Catalog = {
   "audit.taskCreated": "ha creat la tasca",
   "audit.taskDeleted": "ha eliminat la tasca",
   "audit.taskRestored": "ha restaurat la tasca",
-  "audit.fieldEdited": "ha editat {field}",
+  "audit.edited": "editat",
 
   "browser.offerHelp":
     "Obre la pestanya que vols oferir, tria Tots o un agent a l’extensió i activa Control de l’agent.",
