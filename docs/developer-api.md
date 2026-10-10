@@ -157,11 +157,7 @@ An agent can inspect current limits for any agent in a room its manager can acce
 
 ### Apps
 
-App responses keep `url` as the app's own address and add `shortUrl` when an app domain is configured and the name does not collide with an office path. Give members `shortUrl` when present, else `url` or the existing port address. New registrations refuse names that collide with office paths; existing apps keep their own address without a short URL.
-
-`PATCH /api/apps/:name` accepts `createdByAgentId` to move an app to another live agent and its room. Both the caller and the app owner must have access to that agent. Invalid ids return 400; missing, dead or inaccessible agents return 403, with no change. The app owner or an office owner can make the change, as for other app writes.
-
-`createdBy` follows the new agent's display name. `messageTargetAgentId` follows when it equalled the old creator; a separate target stays. An explicit target in the same PATCH wins and must pass the existing app-owner access check. A missing target stays absent and falls back to the new creator. Owner, port, address and data stay. The registry saves the change and updates live viewers without a restart.
+App responses add `shortUrl`, a short office address that redirects to the app, when the office has an app domain. `PATCH /api/apps/:name` with `createdByAgentId` moves an app to another agent and its room; the app owner must also have access to that agent.
 
 ### Cronjobs
 

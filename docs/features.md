@@ -130,7 +130,7 @@ Agents can attach one office-server file to an exact file input with the browser
 
 The **ON** badge marks offered tabs and their site-opened popups. Other tabs have no badge. The popup separates the Office connection from Agent control and names All or the assigned agent. Stopping control leaves pages open. The popup can also disconnect or unpair. Disconnect stays off until Reconnect. To revoke a browser that is offline, unpair it in Settings → You → Browser Use. If an unpair acknowledgement is lost, the popup reports an unknown result; check Settings → You → Browser Use. Pairing a Chrome again adds a new browser; unpair its old, offline entry in Settings → You → Browser Use.
 
-Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection releases tab offers. Offer the tab again after reconnecting or reloading the extension. Chrome mode never creates a replacement tab or repeats a command. Check the page before repeating an action with an unknown outcome. If an app-launch link makes Chrome detach its debugger while the same tab and page target stay open, the extension tries once to restore control within three seconds. An interrupted action fails; agents must inspect the page before retrying. An action timeout keeps control ON. If Chrome is still completing a command, the agent must wait for it to settle before another action can run.
+Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection releases tab offers. Offer the tab again after reconnecting or reloading the extension. Chrome mode never creates a replacement tab or repeats a command. Check the page before repeating an action with an unknown outcome. An action timeout keeps control ON. If Chrome is still completing a command, the agent must wait for it to settle before another action can run.
 
 Office installs and updates build the ZIP automatically. To update an unpacked extension, download the new ZIP, extract it over its existing folder, and select **Reload** in `chrome://extensions`. Keep that folder in place. The server refuses an extension with an older protocol, so update the server and the extension together. Reloading releases offers, so offer tabs again. Saved pairing remains, but a terminal version refusal can require pairing again. No Web Store installation is available.
 
@@ -152,7 +152,6 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Its own web address** - on an office with its own domain and wildcard DNS, an app can get a short address like `myoffice.com/myapp` that redirects to `myapp.myoffice.com`, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.
-- **Move an app to another agent** through the API to put it in that agent's room. The app keeps its owner, port, address and data.
 - **Deleting an app keeps its data** - the data directory moves to `.retired` next to the other apps' data, on the office's disk. Nothing is erased automatically.
 
 ## Pager

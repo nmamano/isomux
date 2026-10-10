@@ -192,7 +192,7 @@ export const HOSTING_LEGACY_LINKS: Record<string, string> = {
   notes: `${hostingUrl("vps")}#installer-notes`,
   "desktop-chrome-extension": "/docs#desktop-chrome-extension",
   "your-own-hardware": hostingUrl("private"),
-  "native-build-recovery": "/docs/hosting-reference#native-build-recovery",
+  "native-build-recovery": hostingUrl("local"),
   "keep-the-server-running": `${hostingUrl("private")}#keep-the-office-running`,
   "make-the-office-reachable": "/docs/hosting#choose-a-setup",
   "your-devices-and-anyone-willing-to-install-tailscale": hostingUrl("private"),
