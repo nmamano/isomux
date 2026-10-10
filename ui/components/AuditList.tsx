@@ -2,7 +2,6 @@ import { dialogInput, dialogLabel, dialogCancelBtn } from "./dialog-styles.ts";
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
-import { timeSince } from "../../shared/i18n/time.ts";
 import type { AuditEntry, AuditPage, TaskHistory } from "../../shared/audit.ts";
 
 function AuditRows({
@@ -265,10 +264,9 @@ const HIDDEN_FIELDS = new Set([
   "updatedAt",
 ]);
 
+// One line per write, e.g. "Nil P2 → P1". The time is in the tooltip.
 function TaskHistoryEntry({ entry }: { entry: AuditEntry }) {
   const { t, language } = useI18n();
-  const since = timeSince(language, entry.time);
-  const when = since.kind === "now" ? t("common.justNow") : since.text;
   const show = (field: string, value: unknown): string => {
     if (value === null || value === undefined || value === "") return "—";
     if (
@@ -279,25 +277,21 @@ function TaskHistoryEntry({ entry }: { entry: AuditEntry }) {
       return t(STATUS_LABEL[value as keyof typeof STATUS_LABEL]);
     return typeof value === "string" ? value : JSON.stringify(value);
   };
-  const lines: React.ReactNode[] = [];
-  if (entry.operation === "tasks.create") lines.push(t("audit.taskCreated"));
+  const parts: React.ReactNode[] = [];
+  if (entry.operation === "tasks.create") parts.push(t("audit.taskCreated"));
   else if (entry.operation === "tasks.delete")
-    lines.push(t("audit.taskDeleted"));
-  else if (entry.operation === "tasks.restore") lines.push(t("audit.restored"));
+    parts.push(t("audit.taskDeleted"));
+  else if (entry.operation === "tasks.restore")
+    parts.push(t("audit.taskRestored"));
   else {
     const changes = entry.taskChanges ?? {};
     const fields = entry.taskChanges ? Object.keys(changes) : entry.fields;
     for (const field of fields) {
       if (HIDDEN_FIELDS.has(field)) continue;
-      const label =
-        field in FIELD_LABEL
-          ? t(FIELD_LABEL[field as keyof typeof FIELD_LABEL])
-          : field;
       const change = changes[field];
       if (change && (VALUE_FIELDS as readonly string[]).includes(field))
-        lines.push(
+        parts.push(
           <>
-            {label}:{" "}
             <span style={{ color: "var(--text-hint)" }}>
               {show(field, change.old)}
             </span>
@@ -305,25 +299,33 @@ function TaskHistoryEntry({ entry }: { entry: AuditEntry }) {
             {show(field, change.new)}
           </>,
         );
-      else lines.push(t("audit.fieldEdited", { field: label }));
+      else {
+        const label =
+          field in FIELD_LABEL
+            ? t(FIELD_LABEL[field as keyof typeof FIELD_LABEL])
+            : field;
+        parts.push(
+          t("audit.fieldEdited", { field: label.toLocaleLowerCase(language) }),
+        );
+      }
     }
   }
   return (
     <div
+      title={new Date(entry.time).toLocaleString(language)}
       style={{
-        borderLeft: "2px solid var(--border)",
-        paddingLeft: 8,
-        marginTop: 6,
+        fontSize: 12,
+        color: "var(--text-dim)",
+        marginTop: 4,
         overflowWrap: "anywhere",
       }}
     >
-      <div style={HINT}>
-        {entry.actor.name} · {when}
-      </div>
-      {lines.map((line, index) => (
-        <div key={index} style={{ fontSize: 12, color: "var(--text-dim)" }}>
-          {line}
-        </div>
+      <span style={{ color: "var(--text)" }}>{entry.actor.name}</span>{" "}
+      {parts.map((part, index) => (
+        <span key={index}>
+          {index > 0 && ", "}
+          {part}
+        </span>
       ))}
     </div>
   );

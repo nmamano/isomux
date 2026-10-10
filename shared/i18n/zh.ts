@@ -22,7 +22,8 @@ export const zh: Catalog = {
   "audit.history": "历史记录",
   "audit.taskCreated": "创建了任务",
   "audit.taskDeleted": "删除了任务",
-  "audit.fieldEdited": "{field} 已编辑",
+  "audit.taskRestored": "恢复了任务",
+  "audit.fieldEdited": "编辑了{field}",
 
   "browser.offerHelp":
     "打开要提供的标签页，在扩展弹窗中选择全部或一个代理，然后开启代理控制。",

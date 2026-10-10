@@ -36,7 +36,7 @@ The bearer token is a Bedrock API key from the AWS console (Bedrock → API keys
 
 Then `/clear` Claude agents to pick up the variables.
 
-Agents use the current Sonnet, Haiku, Opus and Fable models. To use a different model, add `ANTHROPIC_DEFAULT_SONNET_MODEL` (or `_HAIKU_`, `_OPUS_`, `_FABLE_`) with its ID to the same environment variables.
+Agents run the same Claude models as with a Claude login. To use a different model, add `ANTHROPIC_DEFAULT_SONNET_MODEL` (or `_HAIKU_`, `_OPUS_`, `_FABLE_`) with its ID to the same environment variables.
 
 Bedrock offices outside the US, EU, Australia and Japan, and Vertex offices in a region that does not serve the current models, must set these to a model their region serves.
 

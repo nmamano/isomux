@@ -23,9 +23,10 @@ export const es: Catalog = {
   "audit.loading": "Cargando…",
   "audit.older": "Anteriores",
   "audit.history": "Historial",
-  "audit.taskCreated": "Tarea creada",
-  "audit.taskDeleted": "Tarea eliminada",
-  "audit.fieldEdited": "Cambios en {field}",
+  "audit.taskCreated": "creó la tarea",
+  "audit.taskDeleted": "eliminó la tarea",
+  "audit.taskRestored": "restauró la tarea",
+  "audit.fieldEdited": "editó {field}",
 
   "browser.offerHelp":
     "Abre la pestaña que quieras ofrecer, elige Todos o un agente en la extensión y activa Control del agente.",
