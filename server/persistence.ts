@@ -26,7 +26,6 @@ import type {
   LogEntry,
   OfficeSettings,
   ScheduledMessageEntry,
-  TaskItem,
 } from "../shared/types.ts";
 import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
@@ -43,7 +42,6 @@ const LOGS_DIR = join(ISOMUX_DIR, "logs");
 const AGENTS_FILE = join(ISOMUX_DIR, "agents.json");
 const OFFICE_PROMPT_FILE = join(ISOMUX_DIR, "office-prompt.md");
 const OFFICE_CONFIG_FILE = join(ISOMUX_DIR, "office-config.json");
-const TASKS_FILE = join(ISOMUX_DIR, "tasks.json");
 const AGENT_HISTORY_FILE = join(ISOMUX_DIR, "agent-history.json");
 
 // Importing this module is side-effect-free: state directories are created
@@ -1377,64 +1375,9 @@ export function saveAgentHistory(history: AgentHistory) {
   }
 }
 
-// Returned without versions: OfficeState.setTasksDirect stamps them.
-export function loadTasks(): Omit<TaskItem, "version">[] {
-  try {
-    if (!existsSync(TASKS_FILE)) return [];
-    const records = JSON.parse(readFileSync(TASKS_FILE, "utf-8")) as Array<
-      Omit<TaskItem, "status" | "version"> & {
-        status: TaskItem["status"] | "backlog";
-        device?: string;
-        version?: string;
-      }
-    >;
-    // Migrate legacy `device` field → `username` (the field's actual semantics
-    // has always been "the member's name").
-    let migrated = 0;
-    for (const r of records) {
-      if (r.device !== undefined && r.username === undefined) {
-        r.username = r.device;
-        migrated++;
-      }
-      delete (r as { device?: unknown }).device;
-    }
-    if (migrated > 0) {
-      console.log(
-        `[migration] migrated ${migrated} task(s) from device → username`,
-      );
-    }
-    // "backlog" stopped being a status in 2026-10 (task 77460aea): a backlog
-    // task becomes an open P4 task. Written back at once, so the file holds
-    // the new shape; a rerun finds nothing to change.
-    let backlog = 0;
-    for (const r of records) {
-      delete r.version;
-      if (r.status === "backlog") {
-        r.status = "open";
-        r.priority = "P4";
-        backlog++;
-      }
-    }
-    const tasks = records as Omit<TaskItem, "version">[];
-    if (backlog > 0) {
-      saveTasks(tasks);
-      console.log(
-        `[migration] migrated ${backlog} backlog task(s) to open + P4`,
-      );
-    }
-    return tasks;
-  } catch {
-    return [];
-  }
-}
-
-export function saveTasks(tasks: Omit<TaskItem, "version">[]) {
-  try {
-    atomicWriteFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
-  } catch (err) {
-    console.error("Failed to save tasks:", err);
-  }
-}
+// Existing import seam for persistence characterization and migration tests.
+// Runtime task mutations use createTaskStore's per-record operations.
+export { loadTasks, saveTasks } from "./task-store.ts";
 
 const SCHEDULED_MESSAGES_FILE = join(ISOMUX_DIR, "scheduled-messages.json");
 

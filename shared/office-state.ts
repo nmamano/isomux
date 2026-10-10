@@ -51,8 +51,8 @@ export type OfficeEvent =
 // Which SINGLE task a tasks_changed event moved. The board is room-scoped and a
 // full board is large (hundreds of KB once done tasks accumulate), so the WS
 // layer pushes a per-recipient delta built from this instead of re-sending the
-// whole list on every mutation. `tasks` stays on the event for
-// the persistence sink and the demo shim, which both want the whole board.
+// whole list on every mutation. The server task store consumes the same change;
+// `tasks` stays on the event for the demo shim, which wants the whole board.
 export type TaskChange =
   | { kind: "created"; task: TaskItem }
   // prevRoomId is the room the task was in BEFORE the update (absent = it was

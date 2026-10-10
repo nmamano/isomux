@@ -207,7 +207,7 @@ export function saveRuns(jobId: string, runs: CronjobRun[]) {
   }
 }
 
-// Append a single run (writes the whole file - mirrors saveTasks pattern).
+// Append a single run (writes the whole JSON file).
 export function appendRun(jobId: string, run: CronjobRun) {
   const runs = loadRuns(jobId);
   runs.push(run);

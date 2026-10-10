@@ -1,3 +1,4 @@
+import { createTaskStore } from "./task-store.ts";
 import {
   claudeConfigRoot,
   resolveClaudeSessionRoot,
@@ -83,8 +84,6 @@ import {
   rollSessionUsageOnResume,
   loadOfficeConfig,
   saveOfficeConfig,
-  loadTasks,
-  saveTasks,
   readEnvFile,
   loadAgentHistory,
   saveAgentHistory,
@@ -474,6 +473,7 @@ export const TOOL_BOUNDARY_NOTE =
 export function createAgentManager(deps: ManagerDeps) {
   const getBackend = deps.resolveBackend;
   const officeState = deps.officeState;
+  const taskStore = createTaskStore(() => officeState.tasks);
   const initialLoadedAgents = deps.initialRooms;
   const runBrowserAction =
     deps.runBrowserAction ??
@@ -1094,7 +1094,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return;
     }
     if (event.type === "tasks_changed") {
-      saveTasks(officeState.tasks);
+      const change = event.change;
+      switch (change.kind) {
+        case "created": taskStore.create(change.task); break;
+        case "updated": taskStore.update(change.task); break;
+        case "deleted": taskStore.delete(change.task.id); break;
+      }
       return;
     }
     if (!officeStatePersistenceEnabled) return;
@@ -2490,7 +2495,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // fields (room ids, prompt/envFile defaults) that weren't present before.
     // Must run AFTER agents are populated or persistAll writes empty rooms.
     persistAll();
-    officeState.setTasksDirect(loadTasks());
+    officeState.setTasksDirect(taskStore.load());
     officeStatePersistenceEnabled = true;
     // Durable-queue hygiene: drop records for agents that no
     // longer exist (e.g. killed while the store write failed, or removed from
