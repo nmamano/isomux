@@ -7,7 +7,7 @@
 #   scripts/install-smoke/run.sh manual|installer|hosted|container|kubernetes [REVISION]
 #
 #   manual     docs/hosting/blocks/install.md on a fresh Ubuntu 24.04, as a
-#              normal user: Node.js through nvm, apt packages, Bun, git clone,
+#              normal user: apt packages, Bun, git clone,
 #              bun install, bun run dev, then the printed setup link.
 #   installer  deploy/install.sh as root on a fresh Ubuntu 24.04 server with
 #              systemd, as the VPS guide runs it, then
@@ -114,6 +114,26 @@ serve_revision() {
     "file://$PWD" "$sha:refs/heads/smoke"
 }
 
+check_node_free() {
+  local bun=$1 user=$2 repo=$3
+  shift 3
+  docker cp scripts/install-smoke/node-free.ts "$name:/tmp/isomux-node-free.ts"
+  docker exec "$name" chmod a+r /tmp/isomux-node-free.ts
+  if [[ $path == installer || $path == hosted ]]; then
+    # Read the running service environment as its user without printing it.
+    # Container root lacks ptrace access to another user's /proc environment.
+    # A Docker exec environment would prove a different PATH from the service.
+    docker exec -u "$user" -w "$repo" "$name" bash -ec '
+      pid=$(systemctl show -p MainPID --value isomux)
+      [[ $pid =~ ^[1-9][0-9]*$ ]]
+      mapfile -d "" -t service_env < "/proc/$pid/environ"
+      exec env -i "${service_env[@]}" "$1" /tmp/isomux-node-free.ts "$2" --standalone
+    ' bash "$bun" "$repo"
+  else
+    docker exec -u "$user" -w "$repo" "$name" "$bun" /tmp/isomux-node-free.ts "$repo" "$@"
+  fi
+}
+
 run_checks() {
   local bun=$1 user=$2
   shift 2
@@ -135,12 +155,12 @@ manual() {
   step serve-revision serve_revision
   docker cp "$work/isomux.git" "$name:/srv/isomux.git"
   docker exec "$name" chown -R smoke:smoke /srv/isomux.git
-  step node as_user manual-steps node
   step packages as_user manual-steps packages
   step bun as_user manual-steps bun
   step runtimes as_user manual-steps runtimes
   step clone as_user "manual-steps clone /srv/isomux.git && git -C isomux checkout --quiet --detach origin/smoke"
   step bun-install as_user manual-steps install
+  step node-free check_node_free /home/smoke/.bun/bin/bun smoke /home/smoke/isomux
   # `bun run dev` stays in the reader's terminal; here it runs detached.
   docker exec -d -u smoke -w /home/smoke/isomux "$name" bash -ic 'bun run dev > /home/smoke/dev.log 2>&1'
   step office-checks run_checks /home/smoke/.bun/bin/bun smoke \
@@ -222,6 +242,7 @@ installer() {
         ".externalAccess == true and .publicOrigin == \$origin" \
         /home/isomux/.isomux/office-config.json'
   fi
+  step node-free check_node_free /usr/local/bin/bun isomux /opt/isomux --standalone
   step office-checks run_checks /usr/local/bin/bun root \
     --base http://127.0.0.1:4000 --origin "https://$domain" \
     --claim invite --invite-file /var/lib/isomux-install/invite-url

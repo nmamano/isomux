@@ -7,7 +7,11 @@ run-name: >-
 # fresh container, and checks the office it produces: it answers /readyz, the
 # first owner can claim it, a terminal runs a command, and a signed-out agent
 # of each engine shows the sign-in notice and nothing else
-# (scripts/install-smoke). Slower than the Build workflow and kept apart from
+# (scripts/install-smoke). Manual and installer paths also check that Node,
+# npm and npx are absent and the bundled Claude binary runs. The installer
+# paths check the native CLI with the production install check and service
+# environment, a login shell, and the terminal panel.
+# Slower than the Build workflow and kept apart from
 # it. scripts/release.sh requires a green run of the release set for the
 # commit it tags and starts one when there is none. The weekly set adds an
 # answer from the Free Welcome Agent, which depends on OpenCode's service.

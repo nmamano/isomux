@@ -281,7 +281,7 @@ wait_inactive() {
 }
 
 # Install the system dependencies the TARGET release needs (apt packages,
-# Node.js, the headless browser) by running THAT release's own installer in its
+# the headless browser) by running THAT release's own installer in its
 # deps-only mode. The release's installer is the single declaration of what the
 # release requires, so nothing here keeps a second copy of the list. Without
 # this the updater only ever moves the checkout, and a box installed before a

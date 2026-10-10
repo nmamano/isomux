@@ -15,7 +15,7 @@ StartLimitIntervalSec=0
 
 [Service]
 WorkingDirectory="$PWD"
-Environment="PATH=$HOME/.bun/bin:$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart="$HOME/.bun/bin/bun" run dev
 Restart=on-failure
 RestartSec=5s

@@ -60,7 +60,7 @@
 #   DRY_RUN       set to 1 to print state-changing commands instead of
 #                 running them.
 #   ISOMUX_DEPS_ONLY  set to 1 to install only the system dependencies (apt
-#                 packages, Node.js, the headless browser, the codex sandbox,
+#                 packages, the headless browser, the codex sandbox,
 #                 and installer-owned host policy) and exit without restarting
 #                 the office or changing SSH, UFW defaults, or swap.
 #                 DOMAIN is not needed. scripts/update.sh runs the TARGET
@@ -571,26 +571,34 @@ EOF
   fi
 }
 
-# Claude Code is needed for the human subscription-login flow. Install it in
-# npm's root prefix (/usr/local/bin), which is on the system service's effective
-# PATH. This network-dependent convenience must never abort the office install.
+# The terminal's plugin and usage instructions invoke the standalone CLI.
+# Anthropic installs and updates it as the service user. The system-wide link
+# follows the native launcher's own symlink, including after an auto-update.
+# This network-dependent convenience must never abort the office install.
 install_claude_cli() {
   step install-claude-cli
   local service_path=/usr/local/bin:/usr/bin:/bin
+  local launcher="$SERVICE_HOME/.local/bin/claude"
   if as_service_user env "PATH=$service_path" sh -c 'command -v claude' >/dev/null 2>&1; then
     log "Claude Code CLI already installed"
     return 0
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would install @anthropic-ai/claude-code globally with npm"
+    log "DRY-RUN: would install the native Claude Code CLI as $SERVICE_USER and link /usr/local/bin/claude"
     return 0
   fi
-  if ! npm install -g @anthropic-ai/claude-code; then
-    log "warning: could not install the Claude Code CLI. Re-run this installer to retry; nothing else is affected."
+  if ! as_service_user test -x "$launcher"; then
+    if ! as_service_user env "PATH=$service_path" bash -o pipefail -c 'curl -fsSL https://claude.ai/install.sh | bash'; then
+      log "warning: could not install the Claude Code CLI. Re-run this installer to retry; nothing else is affected."
+      return 0
+    fi
+  fi
+  if ! as_service_user test -x "$launcher" || ! ln -sfnT "$launcher" /usr/local/bin/claude; then
+    log "warning: could not link the native Claude Code CLI on the service PATH. Re-run this installer to retry; nothing else is affected."
     return 0
   fi
-  if ! as_service_user env "PATH=$service_path" sh -c 'command -v claude' >/dev/null 2>&1; then
-    log "warning: npm installed the Claude Code CLI, but the isomux service account cannot find claude on its PATH. Re-run this installer to retry; nothing else is affected."
+  if ! as_service_user env "PATH=$service_path" claude --version; then
+    log "warning: the native Claude Code CLI could not run as $SERVICE_USER. Re-run this installer to retry; nothing else is affected."
     return 0
   fi
   log "Claude Code CLI installed and available to $SERVICE_USER"
@@ -704,16 +712,8 @@ install_packages() {
   # isomux runtime dependencies.
   apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd openssh-client python3 build-essential ffmpeg ripgrep tmux
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would install the pinned Caddy release and add the NodeSource apt repository for nodejs"
+    log "DRY-RUN: would install the pinned Caddy release"
   else
-    # Node.js from NodeSource supplies npm for install_claude_cli.
-    # Claude Code needs a current Node release; Ubuntu 24.04 ships v18.
-    curl -fsSL 'https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key' |
-      gpg --batch --yes --dearmor -o /usr/share/keyrings/nodesource.gpg
-    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
-      >/etc/apt/sources.list.d/nodesource.list
-    apt_get update -y
-    apt_install nodejs
     if [[ -n $CADDY_MASKED ]]; then
       # On a host without caddy, the mask above exists before the unit does,
       # so the package's postinst cannot preset the masked unit. It ignores
@@ -5798,9 +5798,8 @@ ISOMUX_CONTAINER_SECCOMP_LICENSE
 
 # System dependencies only (ISOMUX_DEPS_ONLY=1). This is what scripts/update.sh
 # runs from the TARGET release, so an update delivers the system dependencies
-# that release needs - the checkout-only updater cannot (a box installed before
-# the Node.js step, for example, keeps a dead terminal panel through every
-# update until someone re-runs the whole installer).
+# that release needs - the checkout-only updater cannot add a new system
+# dependency to an existing box.
 #
 # Deliberately narrow, because it runs on a live, configured box. It converges
 # additive dependencies and installer-owned policy without restarting the

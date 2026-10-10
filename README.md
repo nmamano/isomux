@@ -70,7 +70,7 @@ self-hosters.
 
 ### 1. Prerequisites
 
-You need [Bun](https://bun.sh/) (v1.3.11+), [Node.js](https://nodejs.org/) 24 (LTS), and access to at least one supported provider.
+You need [Bun](https://bun.sh/) (v1.3.11+) and access to at least one supported provider.
 
 ```sh
 curl -fsSL https://bun.sh/install | bash
@@ -78,7 +78,7 @@ curl -fsSL https://bun.sh/install | bash
 
 Open a new terminal after this so `bun` lands on `PATH`. If `bun` is still not found, add the lines the installer printed to your shell config and open another terminal.
 
-The embedded terminal uses Bun. Node.js is needed to install Claude Code with npm.
+Claude, Codex and OpenCode ship bundled. For Claude’s terminal plugin and usage commands, install [Claude Code](https://code.claude.com/docs/en/setup).
 
 ### 2. Install & Run
 

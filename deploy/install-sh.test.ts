@@ -65,8 +65,9 @@ describe("install.sh hosted identity and Claude CLI", () => {
     expect(deps).not.toContain("sync_install_kind");
   });
 
-  it("installs Claude globally before service start, but not during updates", () => {
-    expect(SRC).toContain("npm install -g @anthropic-ai/claude-code");
+  it("installs native Claude before service start, but not during updates", () => {
+    expect(SRC).toContain("https://claude.ai/install.sh");
+    expect(SRC).not.toContain("npm install");
     expect(SRC).toContain("PATH=$service_path");
     expect(SRC).toContain("command -v claude");
     expect(stepIndex("install_claude_cli")).toBeLessThan(
@@ -181,10 +182,9 @@ describe("install.sh escalation: template unit + placement", () => {
     expect(SRC).toMatch(/apt_install[^\n]*\bpolkitd\b/);
   });
 
-  it("nodejs comes from NodeSource for the Claude CLI installer", () => {
-    // The installer still needs npm and a supported Node for Claude Code.
-    expect(SRC).toContain("deb.nodesource.com/node_24.x");
-    expect(SRC).toMatch(/apt_install[^\n]*\bnodejs\b/);
+  it("does not install NodeSource or Node.js", () => {
+    expect(SRC).not.toContain("nodesource");
+    expect(SRC).not.toMatch(/apt_install[^\n]*\b(nodejs|npm)\b/);
   });
 
   it("uses GitHub's scoped apt repository for GitHub CLI", () => {
