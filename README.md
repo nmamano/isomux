@@ -78,8 +78,6 @@ curl -fsSL https://bun.sh/install | bash
 
 Open a new terminal after this so `bun` lands on `PATH`. If `bun` is still not found, add the lines the installer printed to your shell config and open another terminal.
 
-Claude, Codex and OpenCode ship bundled. For Claude's terminal plugin and usage commands, install [Claude Code](https://code.claude.com/docs/en/setup).
-
 ### 2. Install & Run
 
 ```sh

@@ -37,8 +37,5 @@ its normal user account.
 
    Leave this terminal open.
 
-Claude, Codex and OpenCode ship bundled. For Claude's terminal plugin and usage
-commands, install [Claude Code](https://code.claude.com/docs/en/setup).
-
 A Chrome-family browser installed on this computer also enables page-preview
 cards. It is optional for office setup.

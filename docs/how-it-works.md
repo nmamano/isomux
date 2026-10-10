@@ -18,6 +18,6 @@ Everything in the UI is also a REST endpoint: rooms, agents, tasks, messages, ap
 
 ## State is files on the server
 
-Conversations, agent settings, tasks, and the rest live in `~/.isomux` on the server. Tasks and the office audit log share `office.sqlite`; other state stays in plain files. After a restart, each agent resumes its session. Daily backups include a consistent SQLite snapshot.
+Conversations, agent settings, tasks, and the rest live in `~/.isomux` on the server. Tasks and the office audit log share `office.sqlite`; other state stays in plain files. After a restart, each agent resumes its session.
 
 For the design story, see the [Design and Architecture blog post](https://nilmamano.com/blog/isomux).

@@ -34,8 +34,6 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/wrap-session` (check for loose ends and close a session cleanly), `/figure-it-out`, `/isomux-report-bug`.
 - **Inspection commands**: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-usage`, `/isomux-storage`.
 
-A privileged agent can edit its manager's special instructions. If the manager is an office owner, the agent can edit any member's special instructions. Concurrent edits are checked; a settings save conflict keeps the draft and shows the current text.
-
 ## Multiple members
 
 - **Real-time collaboration** - multiple authenticated members can chime in to the same conversation simultaneously.
@@ -178,6 +176,6 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Office address** - self-hosted owners can set the public URL and external access in Settings → Office → Access. Hosted offices show the Isomux-managed address read-only.
 - **Survives a memory spike** - the office biases the out-of-memory kill toward the runaway agent or build, not itself. [One root command](hosting-reference.md#running-out-of-memory) adds box-wide protection and keeps SSH reachable. Linux only.
 - **Office audit log:** Owners can filter recorded writes in Settings by actor, target, operation, and time. The log keeps task history and memory snapshots. Owners can restore deleted tasks from their audit rows.
-- **Daily local backups:** Isomux keeps seven daily office backups, including a consistent SQLite snapshot of tasks and the audit log.
+- **Daily local backups:** Isomux keeps seven daily office backups.
 - **Disk-usage breakdown and manual pruning** - `/isomux-storage` in any conversation, or `GET /api/storage/usage`, splits the office footprint by conversation transcripts, attachments, codex home, cron history, backups, and update snapshots, with per-agent detail for the owner. Office owners also get Settings → Office → Storage to see a breakdown of isomux disk storage and manage it. `POST /api/storage/prune` removes old transcripts, and attachments once no surviving transcript references them: a dry run unless you ask it to apply, never scheduled, and it always spares live sessions, each agent's newest sessions, and any session another was branched from.
 - **Update notice** - the header shows when a new release is out. On installer-managed hosts and AWS containers the owner applies it from there, and a failed direct-host update rolls back. On Render and Kubernetes the owner deploys the new image. A source checkout shows how far main is ahead.

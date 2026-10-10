@@ -36,9 +36,9 @@ The bearer token is a Bedrock API key from the AWS console (Bedrock → API keys
 
 Then `/clear` Claude agents to pick up the variables.
 
-Isomux supplies current Sonnet and Haiku defaults where the configured region and routing settings support them: Bedrock uses matching geographic inference profiles, and Vertex uses supported model regions. An explicit `ANTHROPIC_DEFAULT_SONNET_MODEL` or `ANTHROPIC_DEFAULT_HAIKU_MODEL` pin wins; use a pin when an office needs a specific model or inference profile. Opus and Fable use the CLI defaults unless pinned with `ANTHROPIC_DEFAULT_OPUS_MODEL` or `ANTHROPIC_DEFAULT_FABLE_MODEL`. Conversation titles use the Sonnet default. `ANTHROPIC_MODEL` does not override the picker. Agents pick up changes on their next new or resumed conversation.
+Agents use the same models as the model picker. To use a different one, set `ANTHROPIC_DEFAULT_SONNET_MODEL` (or `_HAIKU_`, `_OPUS_`, `_FABLE_`) to its ID.
 
-Offices outside the covered regions must pin an available model or a `global.` Bedrock profile before their 4.5 model access ends. Claude agents on Bedrock or Vertex need access to the Sonnet and Haiku models Isomux selects. Isomux never activates models or changes account permissions.
+Bedrock offices outside the US, EU, Australia and Japan, and Vertex offices in a region that does not serve the current models, must set these to a model their region serves.
 
 Connections shows Bedrock as connected when the variables are set; it does not check AWS model access. A member who wants their own Claude login in a Bedrock office sets `CLAUDE_CODE_USE_BEDROCK=0` in `Individual connections`. Vertex works the same way with `CLAUDE_CODE_USE_VERTEX`.
 
