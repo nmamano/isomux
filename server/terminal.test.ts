@@ -23,7 +23,7 @@ function fixture(buildEnvForUserId: TerminalDeps["buildEnvForUserId"]) {
     exited: new Promise<number>(() => {}),
     pid: 123,
   } as unknown as ReturnType<typeof Bun.spawn>);
-  const emit = mock(() => {});
+  const emit = mock((_event: Parameters<TerminalDeps["emit"]>[0]) => {});
   spyOn(console, "log").mockImplementation(() => {});
   const warn = spyOn(console, "warn").mockImplementation(() => {});
   const deps: TerminalDeps = {
@@ -99,7 +99,7 @@ describe("terminal environment", () => {
 });
 
 describe("terminal on an agent host", () => {
-  it("takes the shell's environment, node and process from the host", () => {
+  it("takes the shell's environment, Bun and process from the host", () => {
     const write = mock((data: string) => data.length);
     const spawnPipe = mock((argv: string[]) => ({
       pid: 7,
@@ -119,7 +119,7 @@ describe("terminal on an agent host", () => {
       baseEnv: () => ({ PATH: "/agent/bin", SHELL: "/bin/zsh", USER: "agent" }),
       home: () => "/agent/home",
       username: () => "agent-name",
-      realNodePath: () => "/agent/node",
+      bunPath: () => "/agent/bun",
       spawnPipe,
       isomuxDiff: async () => ({ kind: "not_repo", cwd: "/" }),
     };
@@ -139,7 +139,7 @@ describe("terminal on an agent host", () => {
       }),
     ).toBe(true);
     expect(spawn).not.toHaveBeenCalled();
-    expect(spawnPipe.mock.calls[0][0][0]).toBe("/agent/node");
+    expect(spawnPipe.mock.calls[0][0][0]).toBe("/agent/bun");
     const env = JSON.parse(write.mock.calls[0][0]).env;
     expect(env).toMatchObject({
       SHELL: "/bin/zsh",
@@ -150,3 +150,27 @@ describe("terminal on an agent host", () => {
     expect(env.HOME).not.toBe(homedir());
   });
 });
+
+for (const structuredExit of [false, true]) {
+  it(`drains sidecar output before ${structuredExit ? "structured" : "fallback"} exit`, async () => {
+    const f = fixture(() => ({}));
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stdout = new ReadableStream<Uint8Array>({ start(c) { controller = c; } });
+    f.spawn.mockReturnValue({
+      stdin: { write: () => 0 }, stdout, exited: Promise.resolve(9), pid: 123,
+    } as unknown as ReturnType<typeof Bun.spawn>);
+    openTerminal("agent-terminal", f.deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(f.emit.mock.calls).toHaveLength(0);
+    const lines = JSON.stringify({ type: "output", data: "tail" }) + "\n" +
+      (structuredExit ? JSON.stringify({ type: "exit", exitCode: 7 }) + "\n" : "");
+    controller.enqueue(new TextEncoder().encode(lines));
+    controller.close();
+    await Bun.sleep(0);
+    expect(f.emit.mock.calls.map(([event]) => event)).toEqual([
+      { type: "terminal_output", agentId: "agent-terminal", data: "tail" },
+      { type: "terminal_exit", agentId: "agent-terminal", exitCode: structuredExit ? 7 : 9 },
+    ]);
+  });
+}

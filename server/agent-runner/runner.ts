@@ -34,7 +34,7 @@ import {
 // stdout.
 export const ENTRY_NAMES = new Set([
   "diff",
-  "real-node",
+  "bun-path",
   "diagnose",
   "codex-hook-config",
   "codex-trust-hash",

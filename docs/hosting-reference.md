@@ -64,11 +64,9 @@ A tailnet office (`*.ts.net`) keeps port links: Tailscale has no wildcard names,
 
 ## Native build recovery
 
-On Linux, Bun compiles `node-pty` through a shim that fetches the latest `node-gyp`, whose Node 24 requirement is 24.15.0 or later ([node-gyp requirements](https://github.com/nodejs/node-gyp/blob/main/package.json)).
-
-Check `bun --version`, `node --version`, and `command -v bun node python3 make g++` in the install shell. Install missing prerequisites, then run `bun install --force` from the Isomux directory to rebuild.
-
-If `node-gyp: command not found` persists, [report the error](https://github.com/nmamano/isomux/issues) with those command outputs, the Linux distribution, and the install log. Bun supplies `node-gyp`; a missing compiler produces a different error.
+The embedded terminal uses Bun and needs no native module build. Update Isomux
+and run `bun install` from its directory. The [local install guide](hosting/local.md)
+lists the current prerequisites.
 
 ## Running out of memory
 

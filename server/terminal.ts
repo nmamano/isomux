@@ -3,7 +3,7 @@ import type { ManagedAgent } from "./internal-types.ts";
 import { getAgentHost, type AgentHost } from "./agent-host.ts";
 import { createTerminalFinalizer } from "./terminal-finalizer.ts";
 
-const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.cjs");
+const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.ts");
 const MAX_PTY_BUFFER = 100_000;
 
 type TerminalEvent =
@@ -67,18 +67,8 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
     PATH: hostEnv.PATH || "/usr/local/bin:/usr/bin:/bin",
   };
 
-  const nodePath = host.realNodePath();
-  if (!nodePath) {
-    console.warn(
-      `[terminal] cannot open PTY for ${agentId}: no real Node.js binary found. ` +
-        `node-pty's native bindings won't run under Bun's node-compat. ` +
-        `Install Node and either put it on PATH or set ISOMUX_NODE_PATH.`,
-    );
-    deps.emit({ type: "terminal_exit", agentId, exitCode: 127 });
-    return false;
-  }
-
-  const sidecar = host.spawnPipe([nodePath, PTY_SIDECAR_PATH]);
+  const bunPath = host.bunPath();
+  const sidecar = host.spawnPipe([bunPath, PTY_SIDECAR_PATH]);
 
   managed.ptySidecar = sidecar;
   managed.ptyBuffer = "";
@@ -94,7 +84,7 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
       deps.emit({ type: "terminal_exit", agentId, exitCode }),
   });
 
-  void (async () => {
+  const outputDone = (async () => {
     const reader = sidecar.stdout.getReader();
     const decoder = new TextDecoder();
     let partial = "";
@@ -153,7 +143,10 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   // The sidecar normally reports a structured exit line. If it dies before it
   // can do that, this fallback still tells the client instead of silently
   // clearing the reference. finalize makes the two paths one-shot.
-  void sidecar.exited.then((exitCode) => finalize(exitCode));
+  void sidecar.exited.then(async (exitCode) => {
+    await outputDone;
+    finalize(exitCode);
+  });
 
   sidecarSend(managed, {
     type: "spawn",
@@ -165,7 +158,7 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   });
 
   console.log(
-    `[terminal] Spawned sidecar for ${agentId}: shell=${shell}, cwd=${managed.info.cwd}, node=${nodePath}, pid=${sidecar.pid}`,
+    `[terminal] Spawned sidecar for ${agentId}: shell=${shell}, cwd=${managed.info.cwd}, bun=${bunPath}, pid=${sidecar.pid}`,
   );
   return true;
 }

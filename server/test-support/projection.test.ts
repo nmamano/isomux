@@ -648,7 +648,7 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
     // room access (and duplicating it into other already-open panels). The fix
     // seeds only the requesting ws; the live terminal_output stream
     // (routeAgentEventToWs, the same agentVisibleForSession arm as log/slash)
-    // keeps other visible sockets current. FakeBackend has no node-pty, so the
+    // keeps other visible sockets current. FakeBackend has no PTY, so the
     // buffer is seeded through the manager's test-only stubbed-terminal seam.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;

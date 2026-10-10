@@ -577,18 +577,20 @@ export class RunnerAgentHost implements AgentHost {
   constructor(
     private readonly socketPath: string,
     private readonly info: RunnerInfo,
-    private readonly nodePath: string | null,
+    private readonly runtimePath: string,
   ) {
     this.fs = runnerAgentFs(socketPath);
   }
 
   static async connect(socketPath: string): Promise<RunnerAgentHost> {
     const info = await readRunnerInfo(socketPath);
-    const probe = (await runRunnerEntry(socketPath, "real-node", {})) as {
+    const probe = (await runRunnerEntry(socketPath, "bun-path", {})) as {
       path?: unknown;
     } | null;
-    const nodePath = typeof probe?.path === "string" ? probe.path : null;
-    return new RunnerAgentHost(socketPath, info, nodePath);
+    if (typeof probe?.path !== "string" || !probe.path) {
+      throw new Error("Agent runner did not report its Bun executable");
+    }
+    return new RunnerAgentHost(socketPath, info, probe.path);
   }
 
   get uid(): number {
@@ -607,8 +609,8 @@ export class RunnerAgentHost implements AgentHost {
     return this.info.user;
   }
 
-  realNodePath(): string | null {
-    return this.nodePath;
+  bunPath(): string {
+    return this.runtimePath;
   }
 
   spawnPipe(argv: string[]): AgentProcess {

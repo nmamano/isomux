@@ -14,7 +14,7 @@ case $1 in
     ;;
   packages)
     sudo apt update
-    sudo apt install -y git curl unzip python3 build-essential
+    sudo apt install -y git curl unzip
     ;;
   bun)
     curl -fsSL https://bun.sh/install | bash

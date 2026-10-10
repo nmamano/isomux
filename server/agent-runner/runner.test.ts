@@ -8,7 +8,6 @@ import { connect, createServer, type Server } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runIsomuxDiff } from "../isomux-diff.ts";
-import { resolveRealNode } from "../real-node.ts";
 import {
   readRunnerInfo,
   RunnerAgentHost,
@@ -224,10 +223,10 @@ describe("agent runner identity and entries", () => {
     expect(info.env.PATH).toBe(process.env.PATH!);
   });
 
-  it("gives the real-node probe the same answer as in process", async () => {
+  it("reports the runner Bun executable", async () => {
     start();
     const host = await RunnerAgentHost.connect(socketPath);
-    expect(host.realNodePath()).toBe(resolveRealNode());
+    expect(host.bunPath()).toBe(process.execPath);
   });
 
   it("returns the same diff as the in-process code", async () => {

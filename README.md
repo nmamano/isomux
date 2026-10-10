@@ -70,9 +70,7 @@ self-hosters.
 
 ### 1. Prerequisites
 
-You need [Bun](https://bun.sh/) (v1.2+), [Node.js](https://nodejs.org/) 24 (LTS), and access to at least one supported provider.
-
-On Debian/Ubuntu, also install the native build tools: `sudo apt install python3 build-essential`.
+You need [Bun](https://bun.sh/) (v1.3.11+), [Node.js](https://nodejs.org/) 24 (LTS), and access to at least one supported provider.
 
 ```sh
 curl -fsSL https://bun.sh/install | bash
@@ -80,9 +78,8 @@ curl -fsSL https://bun.sh/install | bash
 
 Open a new terminal after this so `bun` lands on `PATH`. If `bun` is still not found, add the lines the installer printed to your shell config and open another terminal.
 
-The embedded terminal runs on Node.js; Bun can't replace it.
+The embedded terminal uses Bun. Node.js is needed to install Claude Code with npm.
 
-If `bun install` fails while building `node-pty`, see [native build recovery](docs/self-hosted.md#native-build-recovery).
 
 ### 2. Install & Run
 

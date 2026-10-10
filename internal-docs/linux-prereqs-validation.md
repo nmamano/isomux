@@ -2,6 +2,9 @@
 
 Validated 2026-09-08 for task 7f2866b8 (manual install prerequisites).
 
+Historical record: the 2026-10-10 Bun terminal replacement removes node-pty
+and its compiler prerequisites. See [the replacement audit](bun-terminal-spike.md).
+
 The validation used a disposable fresh clone, a fresh HOME, an isolated TMPDIR
 and a restricted PATH on the existing Ubuntu 24.04 x64 host. This was not a
 fresh OS image. Docker was not used. The installer smoke-test program is a

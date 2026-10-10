@@ -48,26 +48,13 @@ else
   git worktree add "$worktree_path" -b "$name"
 fi
 
-# Parallel lane setups race on bunx's shared node-gyp cache in /tmp (six
-# concurrent installs corrupted one lane's node-pty build, 2026-09-10), so the
-# install steps take a box-wide lock.
+# Serialize dependency installs that share the package-manager cache.
 install_lock=/tmp/isomux-worktree-install.lock
 (
   cd "$worktree_path"
   flock "$install_lock" bun install --frozen-lockfile
 )
 
-main_pty="$repo_root/node_modules/node-pty/build/Release/pty.node"
-worktree_pty="$worktree_path/node_modules/node-pty/build/Release/pty.node"
-if [[ ! -e $worktree_pty ]]; then
-  [[ -f $main_pty ]] || {
-    echo "Missing native node-pty build in the main checkout: $main_pty" >&2
-    exit 1
-  }
-  mkdir -p "$(dirname "$worktree_pty")"
-  ln "$main_pty" "$worktree_pty" 2>/dev/null || cp "$main_pty" "$worktree_pty"
-  echo "node-pty native build missing after install; supplied from the main checkout" >&2
-fi
 
 (
   cd "$worktree_path"

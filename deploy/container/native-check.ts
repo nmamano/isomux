@@ -4,7 +4,6 @@ import { resolveCodexLauncherPath } from "../../server/backends/codex/native-bin
 import { resolveOpenCodeBinary } from "../../server/backends/opencode/runtime.ts";
 import { createServer } from "node:http";
 import { capturePreview } from "../../server/preview-capture.ts";
-import { resolveRealNode } from "../../server/real-node.ts";
 import { createInterface } from "node:readline";
 import { readFileSync } from "node:fs";
 
@@ -66,19 +65,11 @@ for (const args of [
   console.log(result.stdout.trim());
 }
 
-// Exercise the same Node resolver, sidecar file, and JSONL exchange as terminal.ts.
-const nodePath = resolveRealNode();
-if (!nodePath) throw new Error("Real Node executable is unavailable");
-const identity = spawnSync(
-  nodePath,
-  ["-e", "process.exit(process.versions.bun ? 1 : 0)"],
-  { timeout: 5000 },
-);
-if (identity.status !== 0) throw new Error("PTY sidecar requires real Node");
+// Exercise the same Bun sidecar and JSONL exchange as terminal.ts.
 await new Promise<void>((resolve, reject) => {
   const child = spawn(
-    nodePath,
-    [new URL("../../server/pty-sidecar.cjs", import.meta.url).pathname],
+    process.execPath,
+    [new URL("../../server/pty-sidecar.ts", import.meta.url).pathname],
     {
       stdio: ["pipe", "pipe", "pipe"],
     },
@@ -163,7 +154,7 @@ await new Promise<void>((resolve, reject) => {
     env: { ...process.env, TERM: "xterm-256color", SHELL: "/bin/bash" },
   });
 });
-console.log(`PASS production PTY sidecar JSONL via ${nodePath}`);
+console.log(`PASS production PTY sidecar JSONL via ${process.execPath}`);
 // Exercise the retained server screenshot path on a local fixture.
 const fixture = createServer((_req, res) => {
   res.setHeader("Content-Type", "text/html");

@@ -698,22 +698,16 @@ install_packages() {
   apt_get update -y
   # polkitd: authorizes the in-UI update trigger (see install_updater); present
   # on most Ubuntu images but not guaranteed on minimal ones.
-  # build-essential + python3: node-gyp compiles native modules (node-pty)
-  # during bun install; fresh server images ship without a toolchain.
   # openssh-client: the root-reachability check logs in to this box to find out
   # whether the service account can; server images ship sshd without the client.
-  # ffmpeg, ripgrep, tmux: broadly useful utilities for agent workloads, not
+  # python3, build-essential, ffmpeg, ripgrep, tmux: tools for agent workloads, not
   # isomux runtime dependencies.
-  apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd build-essential python3 openssh-client ffmpeg ripgrep tmux
+  apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd openssh-client python3 build-essential ffmpeg ripgrep tmux
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would install the pinned Caddy release and add the NodeSource apt repository for nodejs"
   else
-    # Node.js from NodeSource: the terminal panel's PTY sidecar needs real
-    # Node (node-pty's bindings don't run under bun's node-compat), at
-    # /usr/bin/node where the server probes for it. A current version, not
-    # Ubuntu 24.04's apt nodejs (v18): once a real node is on PATH, bun's
-    # node-pty rebuild runs node-gyp under it, and node-gyp@latest crashes
-    # on v18 (observed on the first re-run of the real VPS test box).
+    # Node.js from NodeSource supplies npm for install_claude_cli.
+    # Claude Code needs a current Node release; Ubuntu 24.04 ships v18.
     curl -fsSL 'https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key' |
       gpg --batch --yes --dearmor -o /usr/share/keyrings/nodesource.gpg
     echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
@@ -3323,19 +3317,6 @@ fetch_isomux() {
 build_isomux() {
   step build-isomux
   run_as_service_user bash -c "cd $INSTALL_DIR && /usr/local/bin/bun install --frozen-lockfile"
-  # bun can leave node-pty configured but uncompiled: when an earlier install
-  # attempt died mid-script (the first real VPS run: no toolchain yet), a
-  # re-run treats the package as installed and never re-runs its build. The
-  # terminal panel needs the binding, so reinstall the one package to force
-  # the compile, and fail loudly rather than ship a box with a dead terminal.
-  local pty_binding=$INSTALL_DIR/node_modules/node-pty/build/Release/pty.node
-  if [[ -z $DRY_RUN && ! -f $pty_binding ]]; then
-    log "node-pty native binding missing after bun install; rebuilding node-pty"
-    run_as_service_user rm -rf "$INSTALL_DIR/node_modules/node-pty"
-    run_as_service_user bash -c "cd $INSTALL_DIR && /usr/local/bin/bun install --frozen-lockfile"
-    [[ -f $pty_binding ]] ||
-      die "node-pty did not produce its native binding; the terminal panel would not work (check the bun install output above)"
-  fi
   run_as_service_user bash -c "cd $INSTALL_DIR && /usr/local/bin/bun run build:ui"
 }
 

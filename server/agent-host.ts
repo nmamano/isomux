@@ -15,7 +15,6 @@ import {
   type IsomuxDiffRequest,
   type IsomuxDiffRunResult,
 } from "./isomux-diff.ts";
-import { resolveRealNode } from "./real-node.ts";
 
 // The part of a child process that callers use. A Bun Subprocess satisfies it.
 export interface AgentProcess {
@@ -90,8 +89,8 @@ export interface AgentHost {
   baseEnv(): Record<string, string | undefined>;
   home(): string;
   username(): string;
-  // A real Node.js binary that the agent user can run, or null.
-  realNodePath(): string | null;
+  // The Bun executable used by this host, accessible to the agent user.
+  bunPath(): string;
   // Start argv with piped stdin and stdout; stderr goes to the office log.
   spawnPipe(argv: string[]): AgentProcess;
   spawnChild(argv: string[], options?: SpawnChildOptions): AgentChild;
@@ -162,7 +161,7 @@ export const localAgentHost: AgentHost = {
   baseEnv: () => process.env,
   home: () => homedir(),
   username: () => userInfo().username,
-  realNodePath: () => resolveRealNode(),
+  bunPath: () => process.execPath,
   spawnPipe: (argv) =>
     Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "inherit" }),
   spawnChild: spawnLocalChild,

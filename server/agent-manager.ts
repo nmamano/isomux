@@ -9911,8 +9911,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   // Test-only seam (projection/ACL net). Seed a fake PTY sidecar + buffered
   // output so the terminal_open buffered-replay path can be exercised without a
-  // real node-pty sidecar: node-pty's native binding won't run under Bun, so
-  // FakeBackend has no PTY. This sets the exact "already running" state
+  // real shell. FakeBackend has no PTY. This sets the exact "already running" state
   // openTerminal early-returns on, so the REAL openTerminal (no spawn) and the
   // REAL getTerminalBuffer run against it. Throws on an unknown agent so a test
   // can't silently seed nothing. Never called in production; exposed only as

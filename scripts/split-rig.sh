@@ -162,7 +162,7 @@ Bun.listen<{ decode: ReturnType<typeof createFrameDecoder> }>({
             user: user.username, home: homedir(), env: process.env }));
         } else if (request.op === "entry") {
           const value = request.name === "diagnose" ? denied
-            : request.name === "real-node" ? { path: "/usr/local/bin/node" } : null;
+            : request.name === "bun-path" ? { path: "/usr/local/bin/bun" } : null;
           socket.write(encodeFrame(FRAME_STDOUT, Buffer.from(JSON.stringify(value))));
           socket.write(encodeJson({ type: "exit", code: 0, signal: null }));
         }

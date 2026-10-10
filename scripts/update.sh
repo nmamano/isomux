@@ -294,8 +294,7 @@ wait_inactive() {
 # Runs BEFORE the checkout, so a failure leaves nothing of isomux's to undo:
 # the service is still up on the old code, and node_modules and ui/dist are
 # untouched. (Host packages are a different matter - a failed apt run can leave
-# them partly changed, and that is not rolled back.) It also means the
-# dependencies node-gyp needs are in place before `bun install`.
+# them partly changed, and that is not rolled back.)
 #
 # Skipped with a note where the box cannot or should not do this: a user-kind
 # (dev) box has no root, a box without apt manages its own packages, and a
