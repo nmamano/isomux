@@ -13,7 +13,12 @@ export function openOfficeDatabase(path: string): Database {
   const db = new Database(path, { create: true });
   try {
     chmodSync(path, 0o600);
-    db.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;");
+    // WAL with synchronous=NORMAL fsyncs at checkpoints, not on every commit;
+    // a commit can be lost only to an OS crash or power loss, never to a
+    // process crash.
+    db.exec(
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;",
+    );
     const version = db.query("PRAGMA user_version").get() as {
       user_version: number;
     };
