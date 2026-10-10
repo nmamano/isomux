@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   BROWSER_EXTENSION_PROTOCOL,
+  BROWSER_REATTACH_MS,
   validGrantDuration,
   validGrantScope,
   type BrowserGrantScope,
@@ -54,6 +55,7 @@ type Assignment = {
   connected: boolean;
   announced: boolean;
   closed: boolean;
+  recovery?: { done: Promise<void>; finish(): void; timer: ReturnType<typeof setTimeout> };
 };
 
 export type BrowserTab = {
@@ -115,6 +117,7 @@ export class BrowserExtensionBridge {
       peer.send({
         kind: "ready",
         version: BROWSER_EXTENSION_PROTOCOL,
+        debuggerRecovery: true,
         generation: connection.generation,
       });
       connection.sendMetadata();
@@ -224,6 +227,7 @@ export class ExtensionConnection {
       !this.authorize(agentId) ||
       !assignment?.target ||
       assignment.connected ||
+      assignment.recovery ||
       this.pendingCount(assignment.id)
     )
       throw new Error(
@@ -239,15 +243,33 @@ export class ExtensionConnection {
           ? this.dispatch(assignment, message, agentId, peer)
           : Promise.resolve(),
       close: () => {
+        if (assignment.peer !== peer) return;
         if (!retainGrant) {
           this.release(assignment);
           return;
         }
-        if (assignment.peer !== peer) return;
         assignment.connected = false;
         assignment.peer = { send() {}, close() {} };
       },
     };
+  }
+
+  isRecovering(grant: string): boolean {
+    return !!this.assignments.get(grant)?.recovery;
+  }
+
+  async waitForRecovery(grant: string, maxMs: number): Promise<boolean> {
+    const a = this.assignments.get(grant);
+    if (!a) return false;
+    if (a.recovery) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        a.recovery.done,
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, maxMs); }),
+      ]);
+      clearTimeout(timer);
+    }
+    return !a.closed && !a.recovery;
   }
 
   private accessible(a: Assignment, agent: string): boolean {
@@ -483,6 +505,7 @@ export class ExtensionConnection {
     params: Fields,
   ): Promise<Fields> {
     this.check(a);
+    if (a.recovery) return Promise.reject(new Error("Debugger recovery in progress"));
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       let settled!: () => void;
@@ -582,11 +605,39 @@ export class ExtensionConnection {
         return;
       }
       this.check(a);
+      if (msg.method === "recovering") {
+        if (a.recovery) { this.release(a); return; }
+        let finish!: () => void;
+        const done = new Promise<void>((resolve) => { finish = resolve; });
+        a.recovery = { done, finish, timer: setTimeout(() => this.release(a), BROWSER_REATTACH_MS) };
+        // Retire only this CDP client. Its close cannot revoke the retained
+        // grant, and late results cannot enter the next client session.
+        const peer = a.peer;
+        a.peer = { send() {}, close() {} };
+        a.connected = false;
+        a.children.clear();
+        for (const [id, pending] of this.pending) {
+          if (pending.assignment !== a.id) continue;
+          clearTimeout(pending.timer);
+          pending.settled();
+          pending.reject(new Error("Chrome debugger detached"));
+          this.pending.delete(id);
+        }
+        peer.close();
+        return;
+      }
+      if (msg.method === "recovered") {
+        if (!a.recovery) { this.release(a); return; }
+        clearTimeout(a.recovery.timer);
+        a.recovery.finish();
+        a.recovery = undefined;
+        return;
+      }
       if (msg.method === "detached") {
         this.release(a);
         return;
       }
-      if (!a.target || typeof msg.method !== "string") return;
+      if (a.recovery || !a.target || typeof msg.method !== "string") return;
       if (msg.method === "popup") {
         const params = fields(msg.params);
         const target = fields(params.targetInfo);
@@ -808,6 +859,11 @@ export class ExtensionConnection {
         }),
     );
     a.closed = true;
+    if (a.recovery) {
+      clearTimeout(a.recovery.timer);
+      a.recovery.finish();
+      a.recovery = undefined;
+    }
     a.cancelExpiry?.();
     this.assignments.delete(a.id);
     for (const [id, pending] of this.pending) {

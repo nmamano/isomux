@@ -86,6 +86,7 @@ declare const chrome: {
     ): Promise<{ windowId: number }>;
   };
   debugger: {
+    getTargets(): Promise<{ id: string; tabId?: number; type: string }[]>;
     attach(target: ChromeDebuggee, version: string): Promise<void>;
     detach(target: ChromeDebuggee): Promise<void>;
     sendCommand(
@@ -102,6 +103,6 @@ declare const chrome: {
         ) => void,
       ): void;
     };
-    onDetach: { addListener(callback: (source: ChromeDebuggee) => void): void };
+    onDetach: { addListener(callback: (source: ChromeDebuggee, reason: string) => void): void };
   };
 };

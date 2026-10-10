@@ -4,6 +4,7 @@ import {
   browserCredentialHash,
 } from "./browser-extension-bridge";
 import {
+  BROWSER_REATTACH_MS,
   browserSocketURL,
   fields,
   type Fields,
@@ -1336,4 +1337,68 @@ test("offers from several browsers of one member resolve as one set", async () =
     laptop.close();
     desk.close();
   }
+});
+
+test("recovery retires pending commands and the client while keeping the grant", async () => {
+  const h = await harness(true);
+  try {
+    const { assignment, sessionId } = await create(h);
+    expect(h.extension.messages.find((m) => m.kind === "ready")?.debuggerRecovery).toBe(true);
+    const work = h.agent.receive({ id: 2, sessionId, method: "Runtime.evaluate", params: { expression: "1" } });
+    expect(h.connection.pendingCount(assignment)).toBe(1);
+    const command = h.extension.messages.at(-1)!;
+    h.connection.receive({ kind: "event", generation: h.connection.generation, assignment, method: "recovering", params: {} });
+    await work;
+    expect(h.client.closed).toBe(true);
+    expect(h.connection.pendingCount(assignment)).toBe(0);
+    expect(h.connection.offered("agent")).toBe(assignment);
+    expect(h.client.messages.some((m) => m.id === 2 && m.result)).toBe(false);
+    expect(() => h.connection.assign("agent", peer(), true)).toThrow();
+    let ready = false;
+    const waiting = h.connection.waitForRecovery(assignment, 3000).then((value) => { ready = value; });
+    await Promise.resolve();
+    expect(ready).toBe(false);
+    h.connection.receive({ kind: "event", generation: h.connection.generation, assignment, method: "recovered", params: {} });
+    await waiting;
+    expect(ready).toBe(true);
+    const fresh = peer();
+    h.connection.assign("agent", fresh, true);
+    // The old client's close and its late result cannot revoke or reach fresh.
+    h.agent.close();
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+    expect(fresh.messages).toHaveLength(0);
+    expect(h.connection.offered("agent")).toBe(assignment);
+  } finally { h.connection.close(); }
+});
+
+test("an old extension detached event releases immediately without waiting for recovery", async () => {
+  const h = await harness(true);
+  const assignment = h.connection.offered("agent")!;
+  // Old extensions send only detached, never recovering/recovered.
+  h.connection.receive({ kind: "event", generation: h.connection.generation, assignment, method: "detached", params: {} });
+  expect(h.connection.offered("agent")).toBeUndefined();
+  expect(h.connection.isRecovering(assignment)).toBe(false);
+  expect(await h.connection.waitForRecovery(assignment, 3000)).toBe(false);
+  expect(h.client.closed).toBe(true);
+  h.connection.close();
+});
+
+test("a missing recovery completion releases the grant and bounded waiters", async () => {
+  const h = await harness(true);
+  const native = globalThis.setTimeout;
+  let expire!: () => void;
+  const spy = (await import("bun:test")).spyOn(globalThis, "setTimeout")
+    .mockImplementation(((callback: () => void, ms: number) => {
+      if (ms === BROWSER_REATTACH_MS) expire = callback;
+      return native(callback, ms);
+    }) as typeof setTimeout);
+  try {
+    const assignment = h.connection.offered("agent")!;
+    h.connection.receive({ kind: "event", generation: h.connection.generation, assignment, method: "recovering", params: {} });
+    const waiting = h.connection.waitForRecovery(assignment, 4000);
+    expect(typeof expire).toBe("function");
+    expire();
+    expect(await waiting).toBe(false);
+    expect(h.connection.offered("agent")).toBeUndefined();
+  } finally { spy.mockRestore(); h.connection.close(); }
 });

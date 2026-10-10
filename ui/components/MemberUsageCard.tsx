@@ -26,6 +26,7 @@ import { useI18n } from "../i18n.tsx";
 // omits it, and then the card does not render.
 export function MemberUsageCard() {
   const { t, language } = useI18n();
+  const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<OfficeSettingsRes | null>(null);
   const [usageCap, setUsageCap] = useState(false);
   const [usageShare, setUsageShare] = useState(DEFAULT_MEMBER_SHARE);
@@ -46,18 +47,21 @@ export function MemberUsageCard() {
         if (!cancelled) adopt(r);
       })
       .catch(() => {
-        // No version to write with: the card stays hidden.
+        // No version to write with: hide the card after loading.
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (!settings || settings.memberUsageCap === undefined) return null;
+  if (!loading && (!settings || settings.memberUsageCap === undefined)) return null;
 
-  const baselineCap = settings.memberUsageCap ?? false;
-  const baselineShare = settings.memberUsageShare ?? DEFAULT_MEMBER_SHARE;
-  const shareKnown = settings.memberUsageShare !== undefined;
+  const baselineCap = settings?.memberUsageCap ?? false;
+  const baselineShare = settings?.memberUsageShare ?? DEFAULT_MEMBER_SHARE;
+  const shareKnown = settings?.memberUsageShare !== undefined;
   const dirty = usageCap !== baselineCap || usageShare !== baselineShare;
 
   async function handleSave() {
@@ -92,7 +96,7 @@ export function MemberUsageCard() {
   }
 
   return (
-    <section style={{ ...cardStyle, marginTop: 14 }}>
+    <section aria-busy={loading} style={{ ...cardStyle, marginTop: 14 }}>
       <label
         style={{
           display: "flex",
@@ -104,6 +108,7 @@ export function MemberUsageCard() {
       >
         <input
           type="checkbox"
+          disabled={loading}
           checked={usageCap}
           onChange={(e) => setUsageCap(e.target.checked)}
         />
@@ -152,7 +157,7 @@ export function MemberUsageCard() {
         </label>
       )}
       {baselineCap &&
-        (settings.memberUsageStatus ?? []).map((row) => (
+        (settings?.memberUsageStatus ?? []).map((row) => (
           <p
             key={row.provider}
             style={{
@@ -190,14 +195,14 @@ export function MemberUsageCard() {
             setError(null);
           }}
           style={dialogCancelBtn}
-          disabled={saving || !dirty}
+          disabled={loading || saving || !dirty}
         >
           {t("common.cancel")}
         </button>
         <button
           onClick={() => void handleSave()}
           style={dialogSaveBtn}
-          disabled={saving || !dirty}
+          disabled={loading || saving || !dirty}
         >
           {saving
             ? t("common.saving")

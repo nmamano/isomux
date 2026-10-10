@@ -1,5 +1,6 @@
 // Internal wire protocol. No page, token, or CDP payload belongs in a log.
 export const BROWSER_EXTENSION_PROTOCOL = 4;
+export const BROWSER_REATTACH_MS = 3000;
 export const BROWSER_GRANT_DURATIONS = [0, 15, 60, 240] as const;
 export type BrowserGrantDuration = (typeof BROWSER_GRANT_DURATIONS)[number];
 export function validGrantDuration(

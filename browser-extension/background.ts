@@ -1,6 +1,7 @@
 import { translatorFor } from "../shared/i18n/translate";
 import {
   BROWSER_EXTENSION_PROTOCOL,
+  BROWSER_REATTACH_MS,
   validGrantDuration,
   validGrantScope,
   sameGrantScope,
@@ -32,6 +33,8 @@ type OwnedTab = {
   phase?: "offering" | "on" | "revoking";
   work?: Promise<Fields>;
   releasing?: Promise<void>;
+  recovery?: object;
+  epoch?: number;
 };
 type Connection = {
   ws: WebSocket;
@@ -41,6 +44,7 @@ type Connection = {
   closed: boolean;
   terminal?: boolean;
   watchdog?: ReturnType<typeof setTimeout>;
+  debuggerRecovery?: boolean;
   metadata?: BrowserMetadata;
   offers: Map<string, (ok: boolean) => void>;
   unpairResult?: (ok: boolean) => void;
@@ -510,6 +514,8 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
   }
   if (!tab || tab.phase !== "on" || msg.method !== "cdp")
     throw new Error("Unknown assignment");
+  if (tab.recovery || [...tab.popups.values()].some((popup) => popup.recovery))
+    throw new Error("Debugger recovery in progress");
   const args = fields(msg.params);
   const params = fields(args.params);
   if (
@@ -545,14 +551,15 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
           filter: [{ type: "iframe", exclude: false }, { exclude: true }],
         }
       : params;
+  const epoch = selected.epoch;
   const result = await chrome.debugger.sendCommand(
     { tabId: selected.tabId, sessionId: child },
     args.method,
     commandParams,
   );
   check(c);
-  if (c.tabs.get(id) !== tab || tab.phase !== "on")
-    throw new Error("Browser control ended");
+  if (c.tabs.get(id) !== tab || tab.phase !== "on" || selected.epoch !== epoch)
+    throw new Error("Browser control ended or debugger detached");
   // Playwright enables Page on child frame sessions before resuming them.
   // Each session needs its own interception to suppress the native chooser.
   if (args.method === "Page.enable" && child !== undefined) {
@@ -562,8 +569,8 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
       { enabled: true },
     );
     check(c);
-    if (c.tabs.get(id) !== tab || tab.phase !== "on")
-      throw new Error("Browser control ended");
+    if (c.tabs.get(id) !== tab || tab.phase !== "on" || selected.epoch !== epoch)
+      throw new Error("Browser control ended or debugger detached");
   }
   return fields(result ?? {});
 }
@@ -675,6 +682,7 @@ async function configure(reset = true): Promise<void> {
           !c.generation
         ) {
           c.generation = msg.generation;
+          c.debuggerRecovery = msg.debuggerRecovery === true;
           refreshBadges();
           retry = 0;
           void chrome.alarms.clear("reconnect");
@@ -951,18 +959,83 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
     break;
   }
 });
-chrome.debugger.onDetach.addListener((source) => {
-  refreshBadges();
-  const c = current;
-  if (!c) return;
-  for (const [assignment, tab] of c.tabs) {
-    if (tab.phase === "revoking") continue;
-    if (source.tabId === tab.tabId) {
+// Chrome can detach its debugger for an external-protocol launch while the
+// page target survives. Rebuild the debugger connection, never replay input.
+function recoverDebugger(c: Connection, assignment: string, main: OwnedTab, tab: OwnedTab): void {
+  const recovery = {};
+  tab.recovery = recovery;
+  tab.epoch = (tab.epoch ?? 0) + 1;
+  const owned = () => {
+    check(c);
+    if (c.tabs.get(assignment) !== main || main.phase !== "on" ||
+        tab.recovery !== recovery ||
+        (tab !== main && ![...main.popups.values()].includes(tab)))
+      throw new Error("Browser control ended");
+  };
+  let recovering = false;
+  const retire = () => {
+    if (recovering) void revoke(c, assignment);
+    else retireDebugger(c, assignment, main, tab.tabId);
+  };
+  const timer = setTimeout(() => {
+    if (tab.recovery !== recovery) return;
+    tab.recovery = undefined;
+    retire();
+  }, BROWSER_REATTACH_MS);
+  tab.work = (async () => {
+    let attached = false;
+    try {
+      const currentTab = await chrome.tabs.get(tab.tabId);
+      owned();
+      if (currentTab.id !== tab.tabId) throw new Error("Tab closed");
+      const targets = await chrome.debugger.getTargets();
+      owned();
+      if (!targets.some((target) => target.type === "page" &&
+          target.tabId === tab.tabId && target.id === tab.targetId))
+        throw new Error("Page target changed");
+      recovering = true;
+      send(c, { kind: "event", generation: c.generation, assignment,
+        method: "recovering", params: {} });
+      // One attempt. Every await checks ownership before more work is sent.
+      await chrome.debugger.attach({ tabId: tab.tabId }, "1.3");
+      attached = true;
+      owned();
+      const info = fields(await chrome.debugger.sendCommand({ tabId: tab.tabId }, "Target.getTargetInfo"));
+      owned();
+      if (fields(info.targetInfo).targetId !== tab.targetId)
+        throw new Error("Page target changed");
+      for (const [method, params] of [
+        ["Page.enable", {}],
+        ["Page.setInterceptFileChooserDialog", { enabled: true }],
+        ["Emulation.setFocusEmulationEnabled", { enabled: true }],
+      ] as const) {
+        await chrome.debugger.sendCommand({ tabId: tab.tabId }, method, params);
+        owned();
+      }
+      tab.children.clear();
+      tab.recovery = undefined;
+      send(c, { kind: "event", generation: c.generation, assignment,
+        method: "recovered", params: {} });
+      refreshBadges();
+    } catch {
+      // A timed-out attach can finish late; retire that attachment as well.
+      if (attached) await detach(tab);
+      if (tab === main || [...main.popups.values()].includes(tab)) retire();
+    } finally {
+      clearTimeout(timer);
+      if (tab.recovery === recovery) tab.recovery = undefined;
+    }
+    return {};
+  })();
+}
+
+function retireDebugger(c: Connection, assignment: string, tab: OwnedTab, tabId: number): void {
+    if (tabId === tab.tabId) {
       void revoke(c, assignment);
-      continue;
+      return;
     }
     const popup = [...tab.popups].find(
-      ([, owned]) => owned.tabId === source.tabId,
+      ([, owned]) => owned.tabId === tabId,
     );
     if (popup) {
       const removed = new Set([popup[1].tabId]);
@@ -991,6 +1064,7 @@ chrome.debugger.onDetach.addListener((source) => {
         );
         const [sessionId, node] = retiring.splice(index, 1)[0];
         tab.popups.delete(sessionId);
+        node.recovery = undefined;
         void detach(node);
         send(c, {
           kind: "event",
@@ -1002,6 +1076,23 @@ chrome.debugger.onDetach.addListener((source) => {
       }
       tab.leafTabId = popup[1].parentTabId ?? tab.tabId;
     }
+}
+
+chrome.debugger.onDetach.addListener((source, reason) => {
+  refreshBadges();
+  const c = current;
+  if (!c) return;
+  for (const [assignment, tab] of c.tabs) {
+    if (tab.phase === "revoking") continue;
+    const detached = source.tabId === tab.tabId ? tab :
+      [...tab.popups.values()].find((popup) => popup.tabId === source.tabId);
+    if (detached && reason === "target_closed" && c.debuggerRecovery &&
+        tab.phase === "on" && !tab.recovery &&
+        ![...tab.popups.values()].some((popup) => popup.recovery)) {
+      recoverDebugger(c, assignment, tab, detached);
+      continue;
+    }
+    retireDebugger(c, assignment, tab, source.tabId);
   }
 });
 chrome.storage.onChanged.addListener((changes, area) => {

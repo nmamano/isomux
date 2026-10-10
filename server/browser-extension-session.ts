@@ -205,6 +205,7 @@ export class ExtensionBrowserSessions {
     bound: Resolved | undefined,
   ): Promise<BrowserResult> {
     const actionMs = this.actionDeadline();
+    const actionStarted = performance.now();
     const params = parseBrowserParams(body);
     if (!params.ok) return params;
     if (!this.service.store.paired(member))
@@ -213,7 +214,7 @@ export class ExtensionBrowserSessions {
     let session = this.sessions.get(key);
     if (
       session &&
-      (!session.browser.isConnected() || session.member !== member)
+      (session.signal.aborted || !session.browser.isConnected() || session.member !== member)
     ) {
       this.end(key);
       session = undefined;
@@ -228,6 +229,13 @@ export class ExtensionBrowserSessions {
       this.end(key);
       connection.revoke(agent, target);
       return { ok: true, url: "", title: "", closed: true };
+    }
+    if (!(await connection.waitForRecovery(grant, actionMs))) {
+      return connection.offered(agent, target) === grant ? timeoutResult(true) : ended();
+    }
+    if (session && (session.signal.aborted || !session.browser.isConnected())) {
+      this.end(key);
+      session = undefined;
     }
     const prior = this.recovering.get(key);
     if (prior?.connection === connection && prior.grant === grant)
@@ -252,7 +260,7 @@ export class ExtensionBrowserSessions {
       if (connection.pendingCount(grant)) return timeoutResult(true);
     }
     const started = performance.now();
-    const deadline = started + actionMs;
+    const deadline = actionStarted + actionMs;
     let operationSettled = false;
     let phase = "start";
     let inputsAtClick: number | undefined;
@@ -278,6 +286,8 @@ export class ExtensionBrowserSessions {
     let policy: { session: Session; dialogs: ActionDialogs } | undefined;
     let transport: ReturnType<typeof browserExtensionTransport> | undefined;
     let timedOut = false;
+    let debuggerDetached = false;
+    const detachedResult = () => failure("action_failed", "The Chrome debugger detached; the action outcome is unknown.");
     let timeoutWinner = "client_closed";
     let interrupt!: (result: BrowserResult) => void;
     const interrupted = new Promise<BrowserResult>((resolve) => {
@@ -286,7 +296,11 @@ export class ExtensionBrowserSessions {
     let watched: AbortSignal | undefined;
     const onEnd = () => {
       timedOut = true;
-      if (valid()) interrupt(timeoutResult(true));
+      if (valid() && connection.isRecovering(grant)) {
+        debuggerDetached = true;
+        this.end(key);
+        interrupt(detachedResult());
+      } else if (valid()) interrupt(timeoutResult(true));
       else {
         this.end(key);
         interrupt(ended());
@@ -627,14 +641,16 @@ export class ExtensionBrowserSessions {
               timeoutWinner = "watchdog_timeout";
               timedOut = true;
               resolve(timeoutResult(true));
-            }, actionMs + SETTLEMENT_GRACE_MS);
+            }, Math.max(0, deadline - performance.now()) + SETTLEMENT_GRACE_MS);
           }),
         ]);
+        if (debuggerDetached) return valid() ? detachedResult() : ended();
         if (!result.ok && result.code === "action_timeout")
           return await settleTimeout(timeoutWinner);
         return result;
       } catch (error) {
         if (!valid()) return ended();
+        if (debuggerDetached) return detachedResult();
         if (
           (error instanceof Error && error.name === "TimeoutError") ||
           connection.pendingTimedOut(grant)

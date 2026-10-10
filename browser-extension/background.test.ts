@@ -13,14 +13,17 @@ beforeAll(async () => {
 });
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-async function harness(autoAck = true) {
+async function harness(autoAck = true, debuggerRecovery = true) {
   const sockets: FakeSocket[] = [];
   const calls: string[] = [];
+  let debuggerDetached!: (source: { tabId: number }, reason: string) => void;
+  let targets = [{ id: "owned", tabId: 7, type: "page" }];
   let updated!: (id: number, change: { status?: string }) => void;
   let badgeDelay: () => Promise<void> = async () => {};
   let navigation!: (event: { sourceTabId: number; tabId: number }) => void;
   let attach: () => Promise<void> = async () => {};
   let detach: (tabId: number) => Promise<void> = async () => {};
+  let evaluation: () => Promise<unknown> = async () => ({});
   let focus: () => Promise<unknown> = async () => ({});
   let chooser: () => Promise<unknown> = async () => ({});
   const intercepted: Array<{ tabId: number; params: unknown }> = [];
@@ -156,6 +159,7 @@ async function harness(autoAck = true) {
       get: () => getTab(),
     },
     debugger: {
+      getTargets: async () => targets,
       attach: () => {
         calls.push("attach");
         return attach();
@@ -170,6 +174,7 @@ async function harness(autoAck = true) {
         params?: unknown,
       ) => {
         calls.push(method);
+        if (method === "Runtime.evaluate") return evaluation();
         if (method === "Page.setInterceptFileChooserDialog") {
           intercepted.push({ tabId: target.tabId, params });
           return chooser();
@@ -183,7 +188,7 @@ async function harness(autoAck = true) {
           : Promise.resolve({});
       },
       onEvent: { addListener() {} },
-      onDetach: { addListener() {} },
+      onDetach: { addListener(fn: typeof debuggerDetached) { debuggerDetached = fn; } },
     },
   };
   const timers = new Map<number, () => void>();
@@ -204,7 +209,7 @@ async function harness(autoAck = true) {
   await settle();
   const socket = sockets[0];
   socket.onopen?.();
-  socket.receive({ kind: "ready", version: 4, generation: "generation-1" });
+  socket.receive({ kind: "ready", version: 4, generation: "generation-1", debuggerRecovery });
   socket.receive({
     kind: "metadata",
     generation: "generation-1",
@@ -307,6 +312,15 @@ async function harness(autoAck = true) {
         throw new Error("Foreign reply");
       }),
     calls,
+    debuggerDetached: (reason: string, tabId = 7) => debuggerDetached({ tabId }, reason),
+    targets: (value: typeof targets) => { targets = value; },
+    holdEvaluation: () => {
+      let finish!: () => void;
+      evaluation = () => new Promise<void>((resolve) => { finish = resolve; });
+      return () => finish();
+    },
+    failAttach: () => { attach = async () => { throw new Error("attach failed"); }; },
+    removeTab: () => { getTab = async () => { throw new Error("tab closed"); }; },
     focused,
     intercepted,
     failChooser: () => {
@@ -1285,4 +1299,138 @@ test("confirmed pairing records its code and never writes the popup's draft", as
   expect(h.session.get("pairedCode")).toBe(code);
   expect(h.session.get("pairingDraft")).toBe(draft);
   socket.close();
+});
+
+const recoveryEvents = (h: Awaited<ReturnType<typeof harness>>) =>
+  h.socket.sent.filter((m) => m.kind === "event").map((m) => m.method);
+
+test("target_closed reattaches once only when the same tab and page target survive", async () => {
+  const h = await harness();
+  await h.offer();
+  h.debuggerDetached("target_closed");
+  await settle();
+  expect(h.calls.filter((call) => call === "attach")).toHaveLength(2);
+  expect(recoveryEvents(h)).toEqual(["recovering", "recovered"]);
+  expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
+});
+
+for (const reason of ["canceled_by_user", "unknown_reason"]) {
+  test(`${reason} releases without a recovery attempt`, async () => {
+    const h = await harness();
+    await h.offer();
+    h.debuggerDetached(reason);
+    await settle();
+    expect(h.calls.filter((call) => call === "attach")).toHaveLength(1);
+    expect(recoveryEvents(h)).toEqual(["detached"]);
+    expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
+  });
+}
+
+for (const failure of ["closed tab", "different target", "different tab", "non-page target", "attach failure"] as const) {
+  test(`target_closed releases on ${failure}`, async () => {
+    const h = await harness();
+    await h.offer();
+    if (failure === "closed tab") h.removeTab();
+    if (failure === "different target") h.targets([{ id: "replacement", tabId: 7, type: "page" }]);
+    if (failure === "different tab") h.targets([{ id: "owned", tabId: 8, type: "page" }]);
+    if (failure === "non-page target") h.targets([{ id: "owned", tabId: 7, type: "iframe" }]);
+    if (failure === "attach failure") h.failAttach();
+    h.debuggerDetached("target_closed");
+    await settle();
+    expect(recoveryEvents(h)).toEqual(failure === "attach failure" ? ["recovering", "detached"] : ["detached"]);
+    expect(h.calls.filter((call) => call === "attach")).toHaveLength(failure === "attach failure" ? 2 : 1);
+    expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
+  });
+}
+
+test("recovery timeout releases and a late tab lookup cannot attach", async () => {
+  const h = await harness();
+  await h.offer();
+  const finish = h.delayCreate();
+  const priorTimers = new Set(h.timers.keys());
+  h.debuggerDetached("target_closed");
+  await settle();
+  const timers = [...h.timers].filter(([id]) => !priorTimers.has(id));
+  expect(timers).toHaveLength(1);
+  timers[0][1]();
+  await settle();
+  finish();
+  await settle();
+  expect(recoveryEvents(h)).toEqual(["detached"]);
+  expect(h.calls.filter((call) => call === "attach")).toHaveLength(1);
+});
+
+test("a bridge without recovery capability keeps detach-and-release behavior", async () => {
+  // Simulates the old bridge ready message, with no supported capability.
+  const h = await harness(true, false);
+  await h.offer();
+  h.debuggerDetached("target_closed");
+  await settle();
+  expect(recoveryEvents(h)).toEqual(["detached"]);
+  expect(h.calls.filter((call) => call === "attach")).toHaveLength(1);
+});
+
+test("a command spanning detach fails even if Chrome returns a late success", async () => {
+  const h = await harness();
+  await h.offer();
+  const finish = h.holdEvaluation();
+  h.socket.receive({ kind: "command", generation: "generation-1", assignment: h.assignment(), id: 99,
+    method: "cdp", params: { method: "Runtime.evaluate", params: { expression: "1" } } });
+  await settle();
+  h.debuggerDetached("target_closed");
+  await settle();
+  expect(recoveryEvents(h)).toEqual(["recovering", "recovered"]);
+  finish();
+  await settle();
+  const reply = h.socket.sent.find((m) => m.kind === "result" && m.id === 99);
+  expect(typeof reply?.error).toBe("string");
+  expect(reply?.result).toBeUndefined();
+});
+
+for (const capability of [false, true]) {
+  for (const missing of ["tab", "target"]) {
+    test(`closing an owned popup keeps the root grant (recovery=${capability}, missing ${missing})`, async () => {
+      const h = await harness(true, capability);
+      await h.offer();
+      h.navigation(7, 8);
+      await settle();
+      if (missing === "tab") h.removeTab();
+      else h.selected(8);
+      h.debuggerDetached("target_closed", 8);
+      await settle();
+      expect(recoveryEvents(h)).toEqual(["popup", "popupDetached"]);
+      expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
+    });
+  }
+}
+
+test("popup retirement during the identity check cannot later release the root", async () => {
+  const h = await harness();
+  await h.offer();
+  h.navigation(7, 8);
+  await settle();
+  const finish = h.delayCreate();
+  h.debuggerDetached("target_closed", 8);
+  await settle();
+  h.debuggerDetached("canceled_by_user", 8);
+  finish();
+  await settle();
+  expect(recoveryEvents(h)).toEqual(["popup", "popupDetached"]);
+  expect(h.calls.filter((call) => call === "attach")).toHaveLength(2);
+});
+
+test("commands cannot dispatch while detached target identity is being checked", async () => {
+  const h = await harness();
+  await h.offer();
+  const finish = h.delayCreate();
+  h.debuggerDetached("target_closed");
+  h.socket.receive({ kind: "command", generation: "generation-1", assignment: h.assignment(), id: 98,
+    method: "cdp", params: { method: "Runtime.evaluate", params: { expression: "1" } } });
+  await settle();
+  expect(h.calls.includes("Runtime.evaluate")).toBe(false);
+  expect(typeof h.socket.sent.find((m) => m.kind === "result" && m.id === 98)?.error).toBe("string");
+  finish();
+  await settle();
+  expect(recoveryEvents(h)).toEqual(["recovering", "recovered"]);
+  expect(h.calls.includes("Runtime.evaluate")).toBe(false);
 });
