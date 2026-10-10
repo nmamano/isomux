@@ -292,11 +292,13 @@ function TaskHistoryEntry({ entry }: { entry: AuditEntry }) {
       if (change && (VALUE_FIELDS as readonly string[]).includes(field))
         parts.push(
           <>
-            <span style={{ color: "var(--text-hint)" }}>
-              {show(field, change.old)}
+            {show(field, change.old)}
+            <span style={{ color: "var(--text-hint)", margin: "0 4px" }}>
+              →
             </span>
-            {" → "}
-            {show(field, change.new)}
+            <span style={{ color: "var(--text)" }}>
+              {show(field, change.new)}
+            </span>
           </>,
         );
       else {
@@ -320,7 +322,9 @@ function TaskHistoryEntry({ entry }: { entry: AuditEntry }) {
         overflowWrap: "anywhere",
       }}
     >
-      <span style={{ color: "var(--text)" }}>{entry.actor.name}</span>{" "}
+      <span style={{ color: "var(--accent)", fontWeight: 600, marginRight: 6 }}>
+        {entry.actor.name}
+      </span>
       {parts.map((part, index) => (
         <span key={index}>
           {index > 0 && ", "}
