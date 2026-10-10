@@ -22,7 +22,6 @@ import {
   zstdCompressSync,
 } from "zlib";
 import {
-  carriesDecodedCoding,
   forwardedForValue,
   relayToApp,
   _testRelayInFlight,
@@ -575,24 +574,24 @@ describe("relay: what the app is not handed", () => {
 });
 
 describe("relay: content encoding", () => {
-  it("drops the encoding headers Bun's fetch has already made untrue", async () => {
+  it("preserves gzip bytes and their encoding and length", async () => {
     up = startUpstream();
     const res = await relay(get("/gzip"), { app: appRecord(up.port) });
+    const encoded = gzipSync(Buffer.from(GZIP_TEXT));
     expect(res.status).toBe(200);
-    // Bun decompressed on the way in: forwarding `gzip` plus the COMPRESSED
-    // length would hand the browser a lie and a wrong framing.
-    expect(res.headers.get("content-encoding")).toBeNull();
-    expect(res.headers.get("content-length")).toBeNull();
-    expect(await res.text()).toBe(GZIP_TEXT);
+    expect(res.headers.get("content-encoding")).toBe("gzip");
+    expect(res.headers.get("content-length")).toBe(String(encoded.length));
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(encoded);
   });
 
-  it("does the same for brotli", async () => {
+  it("preserves brotli bytes and their encoding and length", async () => {
     up = startUpstream();
     const res = await relay(get("/brotli"), { app: appRecord(up.port) });
+    const encoded = brotliCompressSync(Buffer.from(GZIP_TEXT));
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-encoding")).toBeNull();
-    expect(res.headers.get("content-length")).toBeNull();
-    expect(await res.text()).toBe(GZIP_TEXT);
+    expect(res.headers.get("content-encoding")).toBe("br");
+    expect(res.headers.get("content-length")).toBe(String(encoded.length));
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(encoded);
   });
 
   it("leaves an encoding it did not decode completely alone", async () => {
@@ -604,88 +603,77 @@ describe("relay: content encoding", () => {
     expect(await res.text()).toBe("rawbytes");
   });
 
-  it("leaves a spelling the runtime does not decode alone, bytes and all", async () => {
-    // The trap in the other direction, and the reason the rewrite matches the
-    // decoder rather than the HTTP grammar: `GZIP` is a legal way to name the
-    // coding, but this runtime hands it over still compressed. Stripping the
-    // headers here would leave the browser holding gzip bytes with nothing
-    // saying so.
-    up = startUpstream();
-    const res = await relay(get("/shouty-gzip"), { app: appRecord(up.port) });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-encoding")).toBe("GZIP");
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    expect(Buffer.from(bytes).equals(gzipSync(Buffer.from(GZIP_TEXT)))).toBe(
-      true,
-    );
-  });
-
-  // The assumption the rewrite rests on, pinned against the runtime itself
-  // rather than against our own code. If a Bun upgrade widens or narrows what
-  // `fetch` decodes, this fails first and names the set to change - the
-  // alternative is shipping bodies whose Content-Encoding is a lie.
-  it("pins exactly which codings this runtime decodes", async () => {
-    const text = "payload ".repeat(20);
-    const bodies: Record<string, Buffer> = {
-      gzip: gzipSync(Buffer.from(text)),
-      br: brotliCompressSync(Buffer.from(text)),
-      deflate: deflateSync(Buffer.from(text)),
-      zstd: zstdCompressSync(Buffer.from(text)),
-    };
-    const cases: { header: string; body: keyof typeof bodies }[] = [
-      { header: "gzip", body: "gzip" },
-      { header: "deflate", body: "deflate" },
-      { header: "br", body: "br" },
-      { header: "zstd", body: "zstd" },
-      { header: " gzip ", body: "gzip" },
-      { header: "GZIP", body: "gzip" },
-      { header: "Gzip", body: "gzip" },
-      { header: "x-gzip", body: "gzip" },
-      { header: "identity, gzip", body: "gzip" },
-      { header: "foo", body: "gzip" },
+  // Exercise the relay against real bytes, including coding lists that a
+  // runtime might decode partly. This must pass on installed Bun 1.3.11 and
+  // the new 1.4.2 pin without a version-dependent decoder list.
+  it("preserves aliases, case, stacked codings and unknown codings byte for byte", async () => {
+    const raw = Buffer.from("payload ".repeat(20));
+    const gzip = gzipSync(raw);
+    const brotli = brotliCompressSync(raw);
+    const cases: { header: string; body: Buffer<ArrayBuffer> }[] = [
+      { header: "gzip", body: gzip },
+      { header: "deflate", body: deflateSync(raw) },
+      { header: "br", body: brotli },
+      { header: "zstd", body: zstdCompressSync(raw) },
+      { header: " gzip ", body: gzip },
+      { header: "GZIP", body: gzip },
+      { header: "Gzip", body: gzip },
+      { header: "x-gzip", body: gzip },
+      { header: "Deflate", body: deflateSync(raw) },
+      { header: "BR", body: brotli },
+      { header: "identity", body: raw },
+      { header: "identity, gzip", body: gzip },
+      { header: "gzip, identity", body: gzip },
+      { header: "gzip, br", body: brotliCompressSync(gzip) },
+      { header: "br, gzip", body: gzipSync(brotli) },
+      { header: "foo", body: raw },
+      { header: "foo, gzip", body: gzip },
+      { header: "gzip, foo", body: gzip },
     ];
     const server = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
       fetch(req) {
-        const i = Number(new URL(req.url).pathname.slice(1));
-        const body = new Uint8Array(bodies[cases[i].body]);
-        return new Response(body, {
+        const entry = cases[Number(new URL(req.url).pathname.slice(1))];
+        return new Response(new Uint8Array(entry.body), {
           headers: {
-            "Content-Encoding": cases[i].header,
-            "Content-Length": String(body.length),
+            "Content-Encoding": entry.header,
+            "Content-Length": String(entry.body.length),
           },
         });
       },
     });
     try {
-      const observed: Record<string, boolean> = {};
       for (let i = 0; i < cases.length; i++) {
-        const res = await fetch(`http://127.0.0.1:${server.port}/${i}`);
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        observed[cases[i].header] = bytes.length === text.length;
-      }
-      expect(observed).toEqual({
-        gzip: true,
-        deflate: true,
-        br: true,
-        zstd: true,
-        " gzip ": true,
-        GZIP: false,
-        Gzip: false,
-        "x-gzip": false,
-        "identity, gzip": false,
-        foo: false,
-      });
-      // ...and the relay's rule says the same thing about each of them.
-      for (const [header, decoded] of Object.entries(observed)) {
-        expect({ header, rewrite: carriesDecodedCoding(header) }).toEqual({
-          header,
-          rewrite: decoded,
-        });
+        const entry = cases[i];
+        const res = await relay(get(`/${i}`), { app: appRecord(server.port!) });
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-encoding")).toBe(entry.header.trim());
+        expect(res.headers.get("content-length")).toBe(
+          String(entry.body.length),
+        );
+        expect(Buffer.from(await res.arrayBuffer())).toEqual(entry.body);
       }
     } finally {
       void server.stop(true);
+    }
+  });
+
+  it("lets the downstream HTTP client decode the app response", async () => {
+    up = startUpstream();
+    const app = appRecord(up.port);
+    const downstream = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => relay(get("/gzip"), { app }),
+    });
+    try {
+      const res = await fetch(`http://127.0.0.1:${downstream.port}/`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-encoding")).toBe("gzip");
+      expect(await res.text()).toBe(GZIP_TEXT);
+    } finally {
+      void downstream.stop(true);
     }
   });
 

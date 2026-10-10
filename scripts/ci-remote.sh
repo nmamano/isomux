@@ -27,8 +27,8 @@ set -uo pipefail
 
 NODE_VERSION=v24.19.0
 NODE_SHA256=f625d97cd707df4ff96254916fbc5ff014f09c09effe5a1e0ca8f6d41a8789d4
-BUN_VERSION=1.3.14
-BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
+BUN_VERSION=1.4.2
+BUN_SHA256=36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913
 PG_VERSION=18.4.0-beta.17
 # The control-plane suite's Postgres port, a constant in control-plane/testing/pg.ts.
 PG_PORT=5433

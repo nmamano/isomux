@@ -318,7 +318,7 @@ async function remote(opts: {
   git(src, "config", "user.name", "Probe");
   writeFileSync(
     join(src, "package.json"),
-    JSON.stringify({ packageManager: `bun@${opts.pin ?? "1.3.14"}` }),
+    JSON.stringify({ packageManager: `bun@${opts.pin ?? "1.4.2"}` }),
   );
   git(src, "add", ".");
   git(src, "commit", "-qm", "commit under test");
@@ -327,7 +327,7 @@ async function remote(opts: {
   git(dir, "init", "-q", "--bare", bare);
 
   const nodeBin = join(tools, "node-v24.19.0-linux-x64", "bin");
-  const bunDir = join(tools, "bun-1.3.14");
+  const bunDir = join(tools, "bun-1.4.2");
   const pgBin = join(
     tools,
     "pg-18.4.0-beta.17/node_modules/@embedded-postgres/linux-x64/native/bin",
@@ -337,7 +337,7 @@ async function remote(opts: {
   stub(join(nodeBin, "docker"), `exit ${opts.docker ?? 0}`);
   stub(
     join(bunDir, "bun"),
-    `[[ $1 == --version ]] && { echo 1.3.14; exit 0; }
+    `[[ $1 == --version ]] && { echo 1.4.2; exit 0; }
 echo "$* $(pwd)" >> "${dir}/bun.log"
 [[ $* == "run ci" ]] && { echo "ci output"; exit ${opts.ci ?? 0}; }
 exit 0`,

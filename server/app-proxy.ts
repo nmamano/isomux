@@ -16,8 +16,8 @@
 //     go the same way, for the same money.
 //   - the app never sees a client's `X-Forwarded-*`. The relay writes those,
 //     and a header the relay owns is worthless if a client can pre-fill it.
-//   - the browser never sees the app's hop-by-hop headers, and never sees a
-//     `Content-Encoding` describing bytes Bun already decoded on the way in.
+//   - the browser never sees the app's hop-by-hop headers. The relay keeps
+//     encoded bytes and their Content-Encoding and Content-Length together.
 //   - nothing at all is sent to an app that is not RUNNING. A stopped app's
 //     port is just a free port, and any local process can be sitting on it.
 //
@@ -87,26 +87,6 @@ const RELAY_OWNED_REQUEST_HEADERS = new Set([
   "x-forwarded-proto",
 ]);
 
-// Content codings Bun's fetch decodes transparently.
-//
-// This set exists because of a measurement, and it has to keep matching a
-// measurement rather than the spec. A gzip response arrives here with its body
-// ALREADY DECOMPRESSED and its `Content-Encoding: gzip` plus the COMPRESSED
-// `Content-Length` still attached, so forwarding those verbatim hands the
-// browser a lie about the bytes and a wrong framing for them. Sending
-// `Accept-Encoding: identity` upstream does not prevent it (also measured).
-//
-// THE MATCH IS EXACT AND CASE-SENSITIVE ON PURPOSE, which is not what the HTTP
-// grammar says a coding list is. Measured on Bun 1.3.11: `gzip`, `deflate`,
-// `br` and `zstd` are decoded; `GZIP`, `Gzip`, `x-gzip`, `Deflate`, `BR` and
-// any comma list (`identity, gzip`) are NOT - the body comes through still
-// compressed. Parsing this the way the RFC describes would therefore strip the
-// headers off bodies Bun left ENCODED, which is the same corruption in the
-// other direction. So the rule mirrors the decoder, and a test pins the
-// decoder's behavior directly: if a runtime upgrade widens it, that test fails
-// and points here rather than shipping broken bytes.
-const DECODED_CODINGS = new Set(["gzip", "deflate", "br", "zstd"]);
-
 // Cookies that never leave the office, whoever sent them.
 //
 // `__Host-isomux_app` is the load-bearing one and the explicit handoff:
@@ -141,14 +121,6 @@ function connectionNominated(headers: Headers): Set<string> {
     if (name.length > 0) out.add(name);
   }
   return out;
-}
-
-// Did Bun decode this response on the way in? Whitespace is trimmed because
-// the decoder trims too (measured: ` gzip` and `gzip ` are both decoded);
-// nothing else is normalized, for the reason above.
-export function carriesDecodedCoding(contentEncoding: string | null): boolean {
-  if (contentEncoding === null) return false;
-  return DECODED_CODINGS.has(contentEncoding.trim());
 }
 
 // The Cookie header with every isomux credential removed, or null when nothing
@@ -272,15 +244,9 @@ export function buildUpstreamHeaders(
   return out;
 }
 
-export function buildDownstreamHeaders(
-  upstream: Response,
-  opts: { rewriteEncoding: boolean },
-): Headers {
+export function buildDownstreamHeaders(upstream: Response): Headers {
   const drop = connectionNominated(upstream.headers);
   const out = new Headers();
-  const rewrite =
-    opts.rewriteEncoding &&
-    carriesDecodedCoding(upstream.headers.get("content-encoding"));
   for (const [name, value] of upstream.headers) {
     const lower = name.toLowerCase();
     if (HOP_BY_HOP.has(lower) || drop.has(lower)) continue;
@@ -289,8 +255,6 @@ export function buildDownstreamHeaders(
     // comma - so re-appending that string would hand the browser one malformed
     // cookie instead of two good ones.
     if (lower === "set-cookie") continue;
-    if (rewrite && (lower === "content-encoding" || lower === "content-length"))
-      continue;
     out.set(name, value);
   }
   // getSetCookie() is the multi-value read; append is the multi-value write.
@@ -438,6 +402,10 @@ export async function relayToApp(
         // deciding where the user goes, and would silently turn one app's
         // redirect into a request the user never made.
         redirect: "manual",
+        // Carry the app bytes unchanged with their encoding and length. Bun
+        // versions decode different codings by default (measured 2026-10-10
+        // on 1.3.11 and 1.4.2); the browser owns content decoding.
+        decompress: false,
         signal: ac.signal,
       });
     } catch (err) {
@@ -460,13 +428,7 @@ export async function relayToApp(
       req.method === "HEAD" ||
       NULL_BODY_STATUSES.has(upstream.status) ||
       upstream.body === null;
-    const headers = buildDownstreamHeaders(upstream, {
-      // A HEAD or a 304 carries metadata ABOUT a representation it does not
-      // contain, so its `Content-Encoding` and `Content-Length` describe bytes
-      // Bun never saw, let alone decoded. Rewriting them there would corrupt a
-      // cache validation with a length of a body that was never sent.
-      rewriteEncoding: !bodyless,
-    });
+    const headers = buildDownstreamHeaders(upstream);
 
     if (bodyless) {
       // Cancel rather than leave a body half-read holding the connection.
@@ -535,7 +497,8 @@ function guardBody(
   };
   const terminate = (): void => {
     if (finished) return;
-    void reader.cancel("app registration retired");
+    // Retirement aborts fetch first, so this reader can already be errored.
+    reader.cancel("app registration retired").catch(() => {});
     finish();
     controllerRef?.error(
       new DOMException("app registration retired", "AbortError"),
