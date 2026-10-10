@@ -24,7 +24,7 @@ on:
       - docs/hosting/blocks/install.md
       - package.json
       - bun.lock
-      - server/pty-sidecar.cjs
+      - server/pty-sidecar.ts
       - scripts/install-smoke/**
       - .github/workflows/install-smoke.yml
   workflow_dispatch:
