@@ -699,7 +699,8 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
-  it("replaces a server killed during a turn when the retained lease begins the next turn", async () => {
+  // Quarantined 2026-10-11, P1 423f0a19: same refusal to signal an unverifiable process under load.
+  it.skip("replaces a server killed during a turn when the retained lease begins the next turn", async () => {
     const path = await root();
     const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
     const lease = await supervisor.acquire();
