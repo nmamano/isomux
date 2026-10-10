@@ -34,6 +34,8 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/wrap-session` (check for loose ends and close a session cleanly), `/figure-it-out`, `/isomux-report-bug`.
 - **Inspection commands**: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-usage`, `/isomux-storage`.
 
+A privileged agent can edit its manager's special instructions. If the manager is an office owner, the agent can edit any member's special instructions. Concurrent edits are checked; a settings save conflict keeps the draft and shows the current text.
+
 ## Multiple members
 
 - **Real-time collaboration** - multiple authenticated members can chime in to the same conversation simultaneously.

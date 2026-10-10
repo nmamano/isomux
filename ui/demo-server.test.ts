@@ -376,3 +376,15 @@ describe("demo members chat", () => {
     expect(threw).toBe(true);
   });
 });
+
+
+it("guards demo member prompt writes with the version from the read", async () => {
+  const path = "/api/users/Ricky";
+  const before = await demoApi("GET", `${path}/member-prompt`) as { memberPromptVersion: string };
+  const missing = await demoApi("PATCH", path, { memberPrompt: "missing version" }).catch((error: unknown) => error);
+  expect(missing).toMatchObject({ status: 400, code: "invalid_version" });
+  await demoApi("PATCH", path, { memberPrompt: "second", memberPromptVersion: before.memberPromptVersion });
+  const stale = await demoApi("PATCH", path, { memberPrompt: "stale", memberPromptVersion: before.memberPromptVersion }).catch((error: unknown) => error);
+  expect(stale).toMatchObject({ status: 409, code: "version_conflict" });
+  expect(await demoApi("GET", `${path}/member-prompt`)).toMatchObject({ memberPrompt: "second" });
+});

@@ -3567,6 +3567,13 @@ function buildExecutorDeps(
   );
   register(
     usersHandlers({
+      readMemberPrompt: (username) => {
+        const user = getUser(username);
+        return user ? {
+          memberPrompt: user.memberPrompt,
+          memberPromptVersion: versionOf(user.memberPrompt ?? ""),
+        } : null;
+      },
       create: async ({
         name,
         role,
@@ -3629,6 +3636,16 @@ function buildExecutorDeps(
             status: 404,
             code: "not_found",
             error: `User ${username} not found`,
+          };
+        }
+        if (changes.memberPrompt !== undefined &&
+          changes.memberPromptVersion !== versionOf(target.memberPrompt ?? "")) {
+          return {
+            ok: false,
+            status: 409,
+            code: "version_conflict",
+            error: "the member's special instructions changed since your read; re-read and retry",
+            version: versionOf(target.memberPrompt ?? ""),
           };
         }
         if (

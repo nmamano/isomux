@@ -41,6 +41,7 @@ import {
 const ALL_CAPS = new Set<Capability>([
   ...USER_CAPABILITIES,
   ...AGENT_CAPABILITIES,
+  ...PRIVILEGED_AGENT_CAPABILITIES,
   ...RUN_CAPABILITIES,
   // app:message and pager:raise today; listed so a capability added to the APP
   // set has to be a real Capability, and so this union does not quietly go
@@ -289,9 +290,9 @@ describe("route table: any-of capabilities where the spec uses `|`", () => {
       ]),
     );
   });
-  it("users.update requires user:self | user:admin", () => {
+  it("users.update requires user:self | user:admin | user:prompt", () => {
     expect(new Set(capsOf(route("users.update").auth))).toEqual(
-      new Set<Capability>(["user:self", "user:admin"]),
+      new Set<Capability>(["user:self", "user:admin", "user:prompt"]),
     );
   });
 });
@@ -1005,8 +1006,9 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:admin", "user:create"],
     emits: ["users_list"],
   },
+  "users.readMemberPrompt": { caps: ["user:self", "user:admin", "user:prompt"], emits: [] },
   "users.update": {
-    caps: ["user:self", "user:admin"],
+    caps: ["user:self", "user:admin", "user:prompt"],
     emits: ["user_updated", "users_list"],
   },
   "users.setAccess": {
@@ -1636,5 +1638,27 @@ describe("route table: an API identity authorizes exactly the remote-boss surfac
       if (outcome.ok) allowed.push(route.opId);
     }
     expect(allowed).toEqual(API_REACHABLE_OPIDS);
+  });
+});
+
+
+describe("member prompt route authority", () => {
+  const deps: GuardDeps = {
+    hasRoomAccess: () => true, roomIdForAgent: () => "r1",
+    userIdForUsername: (name) => name === "manager" ? "u1" : "u2",
+    cronjobCreatorUserId: () => "u1", appOwnerUserId: () => "u1",
+    webhookOwnerUserId: () => "u1", isOfficeOwnerUserId: () => false,
+    agentManagerUserId: () => "u1", killedAgentManagerUserId: () => "u1",
+  };
+  it("opens only the two prompt routes to a privileged member's agent", () => {
+    const identity: Identity = { scope: "agent", agentId: "a1", userId: "u1", role: "member", capabilities: PRIVILEGED_AGENT_CAPABILITIES };
+    const reachable = API_ROUTES.filter((route) => route.opId.startsWith("users.") &&
+      runAuthorize(route.auth, identity, { username: "manager" }, { memberPrompt: "draft", memberPromptVersion: "v" }, deps).ok).map((r) => r.opId).sort();
+    expect(reachable).toEqual(["users.readMemberPrompt", "users.update"]);
+    for (const opId of reachable) {
+      const route = API_ROUTES.find((r) => r.opId === opId)!;
+      expect(runAuthorize(route.auth, identity, { username: "other" }, { memberPrompt: "draft", memberPromptVersion: "v" }, deps).ok).toBe(false);
+      expect(runAuthorize(route.auth, identity, { username: "other" }, { memberPrompt: "draft", memberPromptVersion: "v" }, { ...deps, isOfficeOwnerUserId: () => true }).ok).toBe(true);
+    }
   });
 });

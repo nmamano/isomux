@@ -46,6 +46,7 @@ export type Capability =
   // members through user:admin. The route guard limits a proxy to a member
   // (room grants allowed), and only while its user is an office owner.
   | "user:create"
+  | "user:prompt"
   | "office:admin"
   | "invite:manage"
   | "session:manage"
@@ -231,7 +232,8 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // defense-in-depth on top of that. Whenever a new capability is added, decide
 // explicitly whether a privileged agent should hold it; do NOT let it ride in by
 // default.
-// user:create is the one user capability here: it reaches only users.create,
+// user:prompt grants only member-prompt reads and edits through its guards.
+// user:create reaches member creation: it reaches only users.create,
 // whose guard allows a member (room grants allowed), and only while the
 // spawning user is an office owner. It mints no sign-in link.
 // agent:send-as-cron is deliberately absent too: cron attribution belongs only
@@ -248,6 +250,7 @@ export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
   "cron:read",
   "cron:manage",
   "user:create",
+  "user:prompt",
 ];
 
 // The capability set an AGENT-scope token resolves to, by its privileged flag.

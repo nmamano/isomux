@@ -29,8 +29,10 @@ import type {
   UserAdminWire,
   UserCreateReq,
   UserSelfWire,
+  MemberPromptRes,
   UserUpdateReq,
 } from "../../../shared/contract-shapes.ts";
+import { versionOf } from "../../../shared/blob-version.ts";
 import type { Identity } from "../../identity/index.ts";
 
 // Outcome the seam shapes for a record edit / access change: ok → the updated
@@ -38,13 +40,14 @@ import type { Identity } from "../../identity/index.ts";
 // distinction is the route guard's, not the type's), or a status-mapped failure.
 type UserOutcome =
   | { ok: true; user: UserSelfWire }
-  | { ok: false; status: HandlerErrorStatus; code: string; error: string };
+  | { ok: false; status: HandlerErrorStatus; code: string; error: string; version?: string };
 
 type DeleteOutcome =
   | { ok: true }
   | { ok: false; status: HandlerErrorStatus; code: string; error: string };
 
 export interface UsersDeps {
+  readMemberPrompt(username: string): MemberPromptRes | null;
   // Owner creates a member (officeOwner already passed). Validates the name and
   // the room grants, creates the record with pendingSignIn, emits users_list.
   create(
@@ -141,17 +144,32 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
       return r.ok ? created({ user: r.user }) : fail(r.status, r.code, r.error);
     },
 
+    "users.readMemberPrompt": (ctx) => {
+      const prompt = deps.readMemberPrompt(ctx.params.username);
+      return prompt ? ok(prompt) : fail(404, "not_found", "Member not found.");
+    },
+
     "users.update": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<UserUpdateReq>;
       const changes = { ...body };
       const malformed = malformedUserUpdate(changes);
       if (malformed) return fail(422, "invalid_request", malformed);
+      if (changes.memberPrompt !== undefined &&
+        (typeof changes.memberPromptVersion !== "string" || changes.memberPromptVersion.length === 0)) {
+        return fail(400, "invalid_version",
+          "memberPromptVersion is required when memberPrompt is present (read it via GET /api/users/:username/member-prompt first)");
+      }
       const r = await deps.update({
         username: ctx.params.username,
         changes,
         identity: ctx.identity,
       });
-      if (!r.ok) return fail(r.status, r.code, r.error);
+      if (!r.ok) return fail(r.status, r.code, r.error,
+        r.version === undefined ? undefined : { version: r.version });
+      if (ctx.identity.scope === "agent") return ok({
+        memberPrompt: r.user.memberPrompt,
+        memberPromptVersion: versionOf(r.user.memberPrompt ?? ""),
+      });
       return ok({ user: r.user });
     },
 

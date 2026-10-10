@@ -145,6 +145,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "cron:read",
       "cron:manage",
       "user:create",
+      "user:prompt",
     ] as Capability[]) {
       expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(c);
     }
@@ -448,3 +449,10 @@ describe("identity: redactTokens (Phase 2.1)", () => {
     expect(redactTokens(`x ${raw} y`)).toContain(raw);
   });
 });
+
+ it("member prompt capability belongs only to privileged agents", () => {
+   expect(PRIVILEGED_AGENT_CAPABILITIES).toContain("user:prompt");
+   for (const caps of [AGENT_CAPABILITIES, API_CAPABILITIES, RUN_CAPABILITIES, APP_CAPABILITIES]) {
+     expect(caps).not.toContain("user:prompt");
+   }
+ });

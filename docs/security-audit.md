@@ -201,6 +201,8 @@ An owner can make any agent privileged. A member can make privileged only the ag
 
 A privileged agent gets a part of its member's capabilities: it can drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1). It cannot mint sign-in links, revoke sessions, change room access or office settings, or open a terminal panel.
 
+A privileged agent can read and edit its manager's special instructions, or any member's when its manager is an office owner. This does not grant other user-record edits. Prompt writes from agents and humans require the version from the read; stale writes return 409.
+
 A privileged agent has the destructive reach of its member. For example, it can close a shared room. Give the flag as you give your own seat.
 
 ### 6.3 Safety hooks

@@ -279,3 +279,9 @@ or `[name=/^Post$/]` for an exact name; `[exact=true]` is unsupported.
 CSS `[role="button"]` matches only explicit role attributes, not every
 semantic button. Known selector syntax errors return `400 invalid_request`
 with fixed guidance. Errors never echo selector text or browser exceptions.
+
+### Member special instructions
+
+A privileged agent can read `GET /api/users/:username/member-prompt` and send `PATCH /api/users/:username` with only `{memberPrompt,memberPromptVersion}`. The target is its manager, or any member when its manager is an office owner. Both return `{memberPrompt,memberPromptVersion}` to the agent. API tokens cannot use these routes.
+
+Every prompt PATCH, including a human save, requires the version from the read. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. Human PATCH responses remain `{user}`; edits to other fields need no prompt version.

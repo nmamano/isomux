@@ -410,6 +410,8 @@ Cosas que puedes hacer por él:
   "settings.profile.tuck": "Recoger {room}",
   "settings.profile.notificationsFor": "Notificaciones de {room}",
   "settings.profile.agentContext": "Contexto para agentes",
+  "settings.profile.promptConflict": "Las instrucciones especiales cambiaron en otro lugar. Tu borrador se conserva. Revisa el texto actual antes de volver a guardar.",
+  "settings.profile.currentPrompt": "Instrucciones especiales actuales",
   "settings.profile.profilePrompt": "Prompt de perfil",
   "settings.profile.profilePromptHint":
     "(se inyecta en el prompt de sistema de los agentes que posees; los agentes de otros miembros pueden consultarlo si necesitan contexto sobre ti)",
@@ -1241,6 +1243,8 @@ Cosas que puedes hacer por él:
   "apiCall.providerAccounts.refresh": "Actualizar las cuentas de proveedor",
   "apiCall.providerAccounts.signInCode":
     "Enviar el código de inicio de sesión del proveedor",
+  "apiCall.users.readMemberPrompt": "Leer instrucciones especiales del miembro",
+  "apiCall.users.updatePrompt": "Editar instrucciones especiales del miembro",
   "apiCall.users.create": "Crear un miembro",
   "apiCall.users.createNamed": "Crear el miembro {name}",
   "apiCall.env.readUser": "Leer el entorno gestionado",

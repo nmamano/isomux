@@ -1113,6 +1113,10 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
 });
 
 describe("describeIsomuxRoute", () => {
+  test("labels member prompt reads and writes for a concrete username", () => {
+    expect(describeIsomuxRoute("GET", "/api/users/Nil/member-prompt")).toBe("apiCall.users.readMemberPrompt");
+    expect(describeIsomuxRoute("PATCH", "/api/users/Nil")).toBe("apiCall.users.updatePrompt");
+  });
   test("matches with query strings and trailing slashes", () => {
     expect(describeIsomuxRoute("GET", "/api/tasks?status=all")).toBe(
       "apiCall.tasks.list",

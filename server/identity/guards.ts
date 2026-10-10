@@ -292,6 +292,25 @@ export const selfUserOrApi: Guard = ({ identity, params, deps }) => {
 export const selfOrOwner: Guard = (ctx) =>
   officeOwner(ctx).ok ? ALLOW : selfUser(ctx);
 
+// A privileged agent reads or edits only its manager's member prompt, or any
+// member prompt while its manager is an office owner. Stage 1 checks user:prompt.
+export const agentMemberPrompt: Guard = ({ identity, params, deps }) => {
+  if (identity.scope !== "agent" || !identity.userId || !params.username) return FORBIDDEN;
+  const target = deps.userIdForUsername(params.username);
+  return target !== null &&
+    (target === identity.userId || deps.isOfficeOwnerUserId(identity.userId))
+    ? ALLOW : FORBIDDEN;
+};
+
+export const agentMemberPromptUpdate: Guard = (ctx) => {
+  if (!agentMemberPrompt(ctx).ok) return FORBIDDEN;
+  if (!ctx.body || typeof ctx.body !== "object" || Array.isArray(ctx.body))
+    return FORBIDDEN;
+  return Object.keys(ctx.body).every((key) =>
+    key === "memberPrompt" || key === "memberPromptVersion")
+    ? ALLOW : FORBIDDEN;
+};
+
 // AGENT-only self-affordance gate: the `:id` path param must equal the token's
 // agentId. USER and CRON-RUN identities carry no agentId, so they can NEVER
 // satisfy it (impossibility-by-construction). The binding must be a NON-EMPTY

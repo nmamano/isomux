@@ -425,6 +425,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.profile.tuck": "Tuck {room}",
   "settings.profile.notificationsFor": "Notifications for {room}",
   "settings.profile.agentContext": "Agent Context",
+  "settings.profile.promptConflict": "Special instructions changed elsewhere. Your draft is kept. Review the current text before you save again.",
+  "settings.profile.currentPrompt": "Current special instructions",
   "settings.profile.profilePrompt": "Profile Prompt",
   "settings.profile.profilePromptHint":
     "(auto-injected into the system prompt of agents you own; other members' agents can look it up if they need context on you)",
@@ -1221,6 +1223,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.providerAccounts.signOut": "Sign out provider account",
   "apiCall.providerAccounts.refresh": "Refresh provider accounts",
   "apiCall.providerAccounts.signInCode": "Submit provider sign-in code",
+  "apiCall.users.readMemberPrompt": "Read member special instructions",
+  "apiCall.users.updatePrompt": "Edit member special instructions",
   "apiCall.users.create": "Create a member",
   "apiCall.users.createNamed": "Create member {name}",
   "apiCall.env.readUser": "Read managed environment",

@@ -22,7 +22,7 @@ export const AGENT_REFERENCE_TOPICS = {
   rooms: "Privileged room management",
   "cronjob-management": "Privileged cronjob management",
   "members-chat": "Privileged members-chat use",
-  members: "Privileged member creation",
+  members: "Member creation and special instructions",
   pager: "Pages to your manager",
   skills: "Skills: list, read, edit and create",
 } as const;
@@ -92,6 +92,8 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "rooms.rename": "rooms",
   "rooms.getSettings": "rooms",
   "users.create": "members",
+  "users.readMemberPrompt": "members",
+  "users.update": "members",
   "rooms.setSettings": "rooms",
   "apiTokenInbox.send": "messaging",
   "tasks.list": "tasks",

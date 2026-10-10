@@ -391,6 +391,8 @@ App 的一些原则：
   "settings.profile.tuck": "收起 {room}",
   "settings.profile.notificationsFor": "{room} 的通知",
   "settings.profile.agentContext": "智能体上下文",
+  "settings.profile.promptConflict": "特别指令已在其他位置更改。你的草稿已保留。请查看当前文本后再保存。",
+  "settings.profile.currentPrompt": "当前特别指令",
   "settings.profile.profilePrompt": "个人资料提示词",
   "settings.profile.profilePromptHint":
     "（自动加入所拥有智能体的系统提示词；其他成员的智能体在需要了解你的背景时可以查阅）",
@@ -1093,6 +1095,8 @@ App 的一些原则：
   "apiCall.providerAccounts.signOut": "退出提供方账户",
   "apiCall.providerAccounts.refresh": "刷新提供方账户",
   "apiCall.providerAccounts.signInCode": "提交提供方登录验证码",
+  "apiCall.users.readMemberPrompt": "读取成员特别指令",
+  "apiCall.users.updatePrompt": "编辑成员特别指令",
   "apiCall.users.create": "创建成员",
   "apiCall.users.createNamed": "创建成员 {name}",
   "apiCall.env.readUser": "读取托管环境",

@@ -26,6 +26,8 @@ import {
   agentTokenSender,
   apiTokenInboxSelf,
   selfOrOwner,
+  agentMemberPrompt,
+  agentMemberPromptUpdate,
   selfUserOrApi,
   officeOwner,
   officeEnvOwner,
@@ -168,6 +170,7 @@ import type {
   CronRunMessageReq,
   CronPromptReq,
   UserSelfWire,
+  MemberPromptRes,
   UserAdminWire,
   StorageUsageWire,
   UsageReportWire,
@@ -1119,13 +1122,20 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     emits: ["users_list"],
   }),
-  // Response is UserSelfWire (self) or UserAdminWire (owner) - same UserRecord
-  // shape; the audience distinction is enforced by the handler, not the type.
-  defineRoute<UserUpdateReq, { user: UserSelfWire }>({
+  defineRoute<void, MemberPromptRes>({
+    opId: "users.readMemberPrompt",
+    method: "GET",
+    path: "/api/users/:username/member-prompt",
+    auth: cap(["user:self", "user:admin", "user:prompt"], or(selfOrOwner, agentMemberPrompt)),
+    emits: [],
+  }),
+  // Humans receive { user: UserSelfWire | UserAdminWire } (same UserRecord
+  // shape); agents receive only MemberPromptRes. The handler shapes the response.
+  defineRoute<UserUpdateReq, { user: UserSelfWire } | MemberPromptRes>({
     opId: "users.update",
     method: "PATCH",
     path: "/api/users/:username",
-    auth: cap(["user:self", "user:admin"], selfOrOwner),
+    auth: cap(["user:self", "user:admin", "user:prompt"], or(selfOrOwner, agentMemberPromptUpdate)),
     // Record fields only (name/env/prompt/avatar).
     // emitUserUpdated + emitUsersList; NO full_state - access/view prefs are not
     // editable here, so nothing re-projects the subject's rooms.

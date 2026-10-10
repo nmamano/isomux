@@ -702,10 +702,16 @@ export interface ApiTokenInboxDrainRes {
   drainedAt: number;
 }
 
+export interface MemberPromptRes {
+  memberPrompt: string | null;
+  memberPromptVersion: string;
+}
+
 export type UserUpdateReq = Partial<{
   role: UserRecord["role"];
   name: string;
   memberPrompt: string | null;
+  memberPromptVersion: string;
   avatarColor: string;
   avatarVariant: UserRecord["avatarVariant"];
 }>;

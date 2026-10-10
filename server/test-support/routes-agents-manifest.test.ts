@@ -710,3 +710,26 @@ it("exposes skill deletion to agents with editor authority and refreshes the cat
       .some((skill) => skill.path === path),
   ).toBe(false);
 });
+
+
+it("member prompt routes follow the live privilege flag", async () => {
+  const srv = server = await startTestServer();
+  const owner = await srv.seedOwner("Boss");
+  const agent = await spawnOwnedBy(srv, "Prompt editor", srv.agentManager.getRooms()[0].id, 0, owner.username);
+  const read = () => fetch(`${srv.baseUrl}/api/users/Boss/member-prompt`, {
+    headers: { Authorization: `Bearer ${bearerFor(agent.id)}` },
+  });
+  expect((await read()).status).toBe(403);
+  await srv.agentManager.setPrivileged(agent.id, true);
+  const res = await read();
+  expect(res.status).toBe(200);
+  const body = await res.json() as { memberPrompt: string | null; memberPromptVersion: string };
+  const patch = () => fetch(`${srv.baseUrl}/api/users/Boss`, {
+    method: "PATCH", headers: { Authorization: `Bearer ${bearerFor(agent.id)}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  expect((await patch()).status).toBe(200);
+  await srv.agentManager.setPrivileged(agent.id, false);
+  expect((await read()).status).toBe(403);
+  expect((await patch()).status).toBe(403);
+});

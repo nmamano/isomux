@@ -3090,6 +3090,12 @@ export async function demoApi(
     shimEmit({ type: "users_list", users: [...users.values()] });
     return { user: updated };
   }
+  const memberPromptMatch = pathname.match(/^\/api\/users\/([^/]+)\/member-prompt$/);
+  if (memberPromptMatch && method === "GET") {
+    const user = users.get(decodeURIComponent(memberPromptMatch[1]).toLowerCase());
+    if (!user) throw new ApiError(404, "not_found", "Member not found.");
+    return { memberPrompt: user.memberPrompt, memberPromptVersion: versionOf(user.memberPrompt ?? "") };
+  }
   // users.update (PATCH) / users.delete (DELETE) on /api/users/:username.
   // PATCH = record fields only; view prefs ride the no-op view.* routes; this
   // mirrors the retired update_user record path (rename-collision 409,
@@ -3112,9 +3118,18 @@ export async function demoApi(
     const c = (body ?? {}) as {
       name?: string;
       memberPrompt?: string | null;
+      memberPromptVersion?: string;
       avatarColor?: string;
       avatarVariant?: string;
     };
+    if (c.memberPrompt !== undefined &&
+      (typeof c.memberPromptVersion !== "string" || c.memberPromptVersion.length === 0)) {
+      throw new ApiError(400, "invalid_version",
+        "memberPromptVersion is required when memberPrompt is present (read it via GET /api/users/:username/member-prompt first)");
+    }
+    if (c.memberPrompt !== undefined && c.memberPromptVersion !== versionOf(existing.memberPrompt ?? "")) {
+      throw new ApiError(409, "version_conflict", "the member's special instructions changed since your read; re-read and retry", { version: versionOf(existing.memberPrompt ?? "") });
+    }
     const trimmedName = c.name?.trim();
     const renamed = !!trimmedName && trimmedName !== existing.name;
     if (renamed && trimmedName) {

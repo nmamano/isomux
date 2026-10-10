@@ -9,6 +9,7 @@
 //   - office envFile never reaches a member (full_state.office or the all-
 //     audience office_settings_updated); owners keep it in their full_state.
 
+import { versionOf } from "../../shared/blob-version.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import {
   startTestServer,
@@ -244,6 +245,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
 
     await ownerUpdate(server, owner.rawSessionId, mia.username, {
       memberPrompt: "be concise",
+      memberPromptVersion: versionOf(""),
     });
 
     // Subject (Mia): own full record via self, carrying the new private field.
