@@ -131,4 +131,3 @@ export function ActivityIndicator({
     </div>
   );
 }
-

@@ -6,7 +6,10 @@ import { apiFetch } from "./api.ts";
 import { useAppState } from "./store.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CSS } from "./styles.ts";
-import { ChatTranscript, useChatTranscript } from "./log-view/ChatTranscript.tsx";
+import {
+  ChatTranscript,
+  useChatTranscript,
+} from "./log-view/ChatTranscript.tsx";
 import { Character } from "./office/Character.tsx";
 import {
   APP_WIDGET_RECHECK_MS,
@@ -43,7 +46,10 @@ const WIDGET_CSS = `
 .app-widget-unavailable { position:fixed; bottom:20px; right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
 `;
 
-export function AppWidgetPage({ boot, onOpenOffice }: {
+export function AppWidgetPage({
+  boot,
+  onOpenOffice,
+}: {
   boot: AppWidgetBoot;
   onOpenOffice?: (agent: AgentInfo) => void;
 }) {
@@ -236,13 +242,26 @@ export function AppWidgetPage({ boot, onOpenOffice }: {
             aria-expanded={state.isMobile ? undefined : open}
             aria-controls={state.isMobile ? undefined : "app-widget-chat"}
             onClick={() => {
-              if (state.isMobile) { onOpenOffice?.(agent); return; }
+              if (state.isMobile) {
+                onOpenOffice?.(agent);
+                return;
+              }
               setOpen(!open);
               setReadMark({ agent: target?.agentId, latest });
             }}
           >
-            <span aria-hidden="true" className="app-widget-avatar" data-agent-id={agent.id} data-agent-state={agent.state}>
-              <Character key={agent.state} state={agent.state} outfit={agent.outfit} height={36} />
+            <span
+              aria-hidden="true"
+              className="app-widget-avatar"
+              data-agent-id={agent.id}
+              data-agent-state={agent.state}
+            >
+              <Character
+                key={agent.state}
+                state={agent.state}
+                outfit={agent.outfit}
+                height={36}
+              />
             </span>
             {t("appWidget.launcher")}
             {unread && (
@@ -259,30 +278,32 @@ export function AppWidgetPage({ boot, onOpenOffice }: {
               />
             )}
           </button>
-          {!state.isMobile && <section
-            id="app-widget-chat"
-            className="app-widget-panel"
-            role="dialog"
-            aria-label={t("appWidget.title", { agentName: target.agentName })}
-            style={{ display: open ? "flex" : "none" }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") close();
-            }}
-          >
-            <WidgetChat
-              key={widgetDraftKey(boot, target.agentId)}
-              boot={boot}
-              agent={agent}
-              logs={logs}
-              stateChangedAt={state.stateChangedAt.get(agent.id)}
-              connected={state.connected}
-              open={open}
-              onClose={close}
-              onRecheck={() => {
-                void refresh();
+          {!state.isMobile && (
+            <section
+              id="app-widget-chat"
+              className="app-widget-panel"
+              role="dialog"
+              aria-label={t("appWidget.title", { agentName: target.agentName })}
+              style={{ display: open ? "flex" : "none" }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") close();
               }}
-            />
-          </section>}
+            >
+              <WidgetChat
+                key={widgetDraftKey(boot, target.agentId)}
+                boot={boot}
+                agent={agent}
+                logs={logs}
+                stateChangedAt={state.stateChangedAt.get(agent.id)}
+                connected={state.connected}
+                open={open}
+                onClose={close}
+                onRecheck={() => {
+                  void refresh();
+                }}
+              />
+            </section>
+          )}
         </>
       )}
     </main>
@@ -356,7 +377,10 @@ export function WidgetChat({
   stateChangedAt?: number;
 }) {
   const { t } = useI18n();
-  const transcript = useChatTranscript(logs, agent.state === "thinking" || agent.state === "tool_executing");
+  const transcript = useChatTranscript(
+    logs,
+    agent.state === "thinking" || agent.state === "tool_executing",
+  );
   const key = widgetDraftKey(boot, agent.id);
   const freshDraft = () => ({
     key,
@@ -532,15 +556,30 @@ export function WidgetChat({
       }}
     >
       <header className="app-widget-header">
-        <span aria-hidden="true" className="app-widget-avatar" data-agent-id={agent.id} data-agent-state={agent.state}>
-          <Character key={agent.state} state={agent.state} outfit={agent.outfit} height={44} />
+        <span
+          aria-hidden="true"
+          className="app-widget-avatar"
+          data-agent-id={agent.id}
+          data-agent-state={agent.state}
+        >
+          <Character
+            key={agent.state}
+            state={agent.state}
+            outfit={agent.outfit}
+            height={44}
+          />
         </span>
         <h1>{t("appWidget.title", { agentName: agent.name })}</h1>
         {onClose && <button onClick={onClose}>{t("appWidget.close")}</button>}
       </header>
       <p className="app-widget-notice">{t("appWidget.notice")}</p>
       <div className="app-widget-log" role="log">
-        <ChatTranscript logs={logs} view={transcript} isMobile={false} activity={{ state: agent.state, stateChangedAt }} />
+        <ChatTranscript
+          logs={logs}
+          view={transcript}
+          isMobile={false}
+          activity={{ state: agent.state, stateChangedAt }}
+        />
         <div ref={end} />
       </div>
       <form

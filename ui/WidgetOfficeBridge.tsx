@@ -25,7 +25,10 @@ export function WidgetOfficeBridge({ boot }: { boot: AppWidgetBoot }) {
   }, [entryMarker]);
 
   const openOffice = (agent: AgentInfo) => {
-    window.history.replaceState({ ...window.history.state, isomuxAppWrapper: entryMarker }, "");
+    window.history.replaceState(
+      { ...window.history.state, isomuxAppWrapper: entryMarker },
+      "",
+    );
     if (state.sessionContext?.username) {
       saveView(state.sessionContext.username, {
         roomId: agent.roomId,
@@ -38,5 +41,9 @@ export function WidgetOfficeBridge({ boot }: { boot: AppWidgetBoot }) {
     dispatch({ type: "focus", agentId: agent.id });
     setOffice(true);
   };
-  return office ? <App /> : <AppWidgetPage boot={boot} onOpenOffice={openOffice} />;
+  return office ? (
+    <App />
+  ) : (
+    <AppWidgetPage boot={boot} onOpenOffice={openOffice} />
+  );
 }

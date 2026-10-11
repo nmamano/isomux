@@ -1,8 +1,23 @@
 import { ActivityIndicator } from "./ActivityIndicator.tsx";
-import { useCallback, useMemo, useState, type ComponentProps, type ReactNode, type RefCallback } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+  type RefCallback,
+} from "react";
 import type { AgentState, LogEntry } from "../../shared/types.ts";
-import { LogEntryCard, RawToolCallGroupCard, senderIsHuman } from "./LogEntryCard.tsx";
-import { findRawToolCallGroups, liveTailEntryIds, lastVisibleEntryIndex } from "./tool-call-groups.ts";
+import {
+  LogEntryCard,
+  RawToolCallGroupCard,
+  senderIsHuman,
+} from "./LogEntryCard.tsx";
+import {
+  findRawToolCallGroups,
+  liveTailEntryIds,
+  lastVisibleEntryIndex,
+} from "./tool-call-groups.ts";
 
 // Both chat surfaces keep the same turn boundaries and expansion state.
 export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
@@ -103,12 +118,36 @@ export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
     return entryMap;
   }, [logs, groupedChildIds]);
 
-  return { expandedMessages, toggleMessage, groupedChildIds, rawToolGroupByFirstId, turnData };
+  return {
+    expandedMessages,
+    toggleMessage,
+    groupedChildIds,
+    rawToolGroupByFirstId,
+    turnData,
+  };
 }
 
-type EntryOptions = Omit<ComponentProps<typeof LogEntryCard>, "entry" | "messageExpanded" | "onToggleMessage" | "isLastInTurn" | "turnEntries" | "isMobile">;
+type EntryOptions = Omit<
+  ComponentProps<typeof LogEntryCard>,
+  | "entry"
+  | "messageExpanded"
+  | "onToggleMessage"
+  | "isLastInTurn"
+  | "turnEntries"
+  | "isMobile"
+>;
 
-export function ChatTranscript({ logs, view, isMobile, getUserMessageRef, entryProps, onCopyToTerminal, afterEntry, interaction, activity }: {
+export function ChatTranscript({
+  logs,
+  view,
+  isMobile,
+  getUserMessageRef,
+  entryProps,
+  onCopyToTerminal,
+  afterEntry,
+  interaction,
+  activity,
+}: {
   logs: LogEntry[];
   view: ReturnType<typeof useChatTranscript>;
   isMobile: boolean;
@@ -117,31 +156,51 @@ export function ChatTranscript({ logs, view, isMobile, getUserMessageRef, entryP
   onCopyToTerminal?: (command: string) => void;
   afterEntry?: (entry: LogEntry) => ReactNode;
   interaction?: ReactNode;
-  activity?: { state: AgentState; stateChangedAt?: number; onAbort?: () => void };
+  activity?: {
+    state: AgentState;
+    stateChangedAt?: number;
+    onAbort?: () => void;
+  };
 }) {
-  return <>{logs.map((entry) => {
-    if (entry.metadata?.interactionFallback === true) return null;
-    if (view.groupedChildIds.has(entry.id)) return null;
-    const td = view.turnData.get(entry.id);
-    const rawToolGroup = view.rawToolGroupByFirstId.get(entry.id);
-    const isUserMsg = entry.kind === "user_message" && senderIsHuman(entry.metadata);
-    return <div key={entry.id} ref={isUserMsg ? getUserMessageRef?.(entry.id) : undefined}>
-      {rawToolGroup ? <RawToolCallGroupCard
-        entries={rawToolGroup.entries}
-        isLastInTurn={td?.isLastInTurn}
-        turnEntries={td?.turnEntries}
-        isMobile={isMobile}
-        onCopyToTerminal={onCopyToTerminal}
-      /> : <LogEntryCard
-        entry={entry}
-        messageExpanded={view.expandedMessages.has(entry.id)}
-        onToggleMessage={view.toggleMessage}
-        isLastInTurn={td?.isLastInTurn}
-        turnEntries={td?.turnEntries}
-        isMobile={isMobile}
-        {...entryProps?.(entry)}
-      />}
-      {afterEntry?.(entry)}
-    </div>;
-  })}{interaction}{activity && <ActivityIndicator {...activity} />}</>;
+  return (
+    <>
+      {logs.map((entry) => {
+        if (entry.metadata?.interactionFallback === true) return null;
+        if (view.groupedChildIds.has(entry.id)) return null;
+        const td = view.turnData.get(entry.id);
+        const rawToolGroup = view.rawToolGroupByFirstId.get(entry.id);
+        const isUserMsg =
+          entry.kind === "user_message" && senderIsHuman(entry.metadata);
+        return (
+          <div
+            key={entry.id}
+            ref={isUserMsg ? getUserMessageRef?.(entry.id) : undefined}
+          >
+            {rawToolGroup ? (
+              <RawToolCallGroupCard
+                entries={rawToolGroup.entries}
+                isLastInTurn={td?.isLastInTurn}
+                turnEntries={td?.turnEntries}
+                isMobile={isMobile}
+                onCopyToTerminal={onCopyToTerminal}
+              />
+            ) : (
+              <LogEntryCard
+                entry={entry}
+                messageExpanded={view.expandedMessages.has(entry.id)}
+                onToggleMessage={view.toggleMessage}
+                isLastInTurn={td?.isLastInTurn}
+                turnEntries={td?.turnEntries}
+                isMobile={isMobile}
+                {...entryProps?.(entry)}
+              />
+            )}
+            {afterEntry?.(entry)}
+          </div>
+        );
+      })}
+      {interaction}
+      {activity && <ActivityIndicator {...activity} />}
+    </>
+  );
 }

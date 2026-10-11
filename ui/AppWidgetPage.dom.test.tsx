@@ -434,10 +434,38 @@ it("keeps oversize and failed images removable without sending them", async () =
 
 it("folds a settled tool group, expands results on demand, and updates the office avatar", () => {
   const entries: import("../shared/types.ts").LogEntry[] = [
-    { id: "c1", agentId: "one", timestamp: 1, kind: "tool_call", content: "Bash", metadata: { toolId: "t1", input: { command: "pwd" } } },
-    { id: "r1", agentId: "one", timestamp: 2, kind: "tool_result", content: "first result body", metadata: { toolUseId: "t1" } },
-    { id: "c2", agentId: "one", timestamp: 3, kind: "tool_call", content: "Bash", metadata: { toolId: "t2", input: { command: "ls" } } },
-    { id: "r2", agentId: "one", timestamp: 4, kind: "tool_result", content: "second result body", metadata: { toolUseId: "t2" } },
+    {
+      id: "c1",
+      agentId: "one",
+      timestamp: 1,
+      kind: "tool_call",
+      content: "Bash",
+      metadata: { toolId: "t1", input: { command: "pwd" } },
+    },
+    {
+      id: "r1",
+      agentId: "one",
+      timestamp: 2,
+      kind: "tool_result",
+      content: "first result body",
+      metadata: { toolUseId: "t1" },
+    },
+    {
+      id: "c2",
+      agentId: "one",
+      timestamp: 3,
+      kind: "tool_call",
+      content: "Bash",
+      metadata: { toolId: "t2", input: { command: "ls" } },
+    },
+    {
+      id: "r2",
+      agentId: "one",
+      timestamp: 4,
+      kind: "tool_result",
+      content: "second result body",
+      metadata: { toolUseId: "t2" },
+    },
   ];
   const view = render(<WidgetChat {...props} logs={entries} />);
   const log = view.container.querySelector('[role="log"]')!;
@@ -448,10 +476,23 @@ it("folds a settled tool group, expands results on demand, and updates the offic
   expect(log.textContent?.includes("pwd")).toBe(true);
   fireEvent.click(log.querySelector("button")!);
   expect(log.textContent?.includes("pwd")).toBe(false);
-  view.rerender(<WidgetChat {...props} logs={entries} agent={{ ...agent, state: "thinking" }} stateChangedAt={Date.now() - 180000} />);
-  expect(view.container.querySelector(".app-widget-avatar")?.getAttribute("data-agent-state")).toBe("thinking");
+  view.rerender(
+    <WidgetChat
+      {...props}
+      logs={entries}
+      agent={{ ...agent, state: "thinking" }}
+      stateChangedAt={Date.now() - 180000}
+    />,
+  );
+  expect(
+    view.container
+      .querySelector(".app-widget-avatar")
+      ?.getAttribute("data-agent-state"),
+  ).toBe("thinking");
   expect(view.container.querySelector(".app-widget-avatar svg")).not.toBeNull();
   expect(log.textContent?.includes("pwd")).toBe(true);
   // Only the tool disclosure/copy controls occur in the transcript; no abort.
-  expect(log.querySelector('button[title="' + en["logView.abortTitle"] + '"]')).toBeNull();
+  expect(
+    log.querySelector('button[title="' + en["logView.abortTitle"] + '"]'),
+  ).toBeNull();
 });

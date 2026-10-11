@@ -1,4 +1,8 @@
-import { STATE_LABEL_KEYS, escalationColor, formatElapsed } from "./ActivityIndicator.tsx";
+import {
+  STATE_LABEL_KEYS,
+  escalationColor,
+  formatElapsed,
+} from "./ActivityIndicator.tsx";
 import { StatusShape } from "../components/StatusShape.tsx";
 import { coalesceCodexDiagnostics } from "../../shared/codex-diagnostics.ts";
 import {
@@ -40,9 +44,7 @@ import { voiceInputErrorMessage } from "../voice-input-error.ts";
 import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
-import {
-  serializeEntries,
-} from "./LogEntryCard.tsx";
+import { serializeEntries } from "./LogEntryCard.tsx";
 import { pinnedHumanMessageId } from "./pinned-message.ts";
 import { ChatTranscript, useChatTranscript } from "./ChatTranscript.tsx";
 import { citationBlock } from "./cite.ts";
@@ -2401,21 +2403,40 @@ export function LogView({
                 isMobile={isMobile}
                 getUserMessageRef={getUserMsgRefCb}
                 entryProps={(entry) => ({
-                  canEdit: entry.kind === "user_message" && agent.state === "waiting_for_response" && !editingLogEntryId && agent.capabilities.edit,
+                  canEdit:
+                    entry.kind === "user_message" &&
+                    agent.state === "waiting_for_response" &&
+                    !editingLogEntryId &&
+                    agent.capabilities.edit,
                   isEditing: editingLogEntryId === entry.id,
                   onStartEdit: setEditingLogEntryId,
                   onCancelEdit: handleCancelEdit,
                   onSubmitEdit: handleSubmitEdit,
-                  onRestoreFailedEdit: agent.capabilities.edit ? restoreFailedEdit : undefined,
+                  onRestoreFailedEdit: agent.capabilities.edit
+                    ? restoreFailedEdit
+                    : undefined,
                   onOpenInEditor: features.editor ? openInEditor : undefined,
-                  onCopyToTerminal: features.terminal ? copyToTerminal : undefined,
+                  onCopyToTerminal: features.terminal
+                    ? copyToTerminal
+                    : undefined,
                   tasks: taskMap,
                   onOpenTask,
                 })}
-                onCopyToTerminal={features.terminal ? copyToTerminal : undefined}
-                interaction={interaction && <ChoiceInteractionCard interaction={interaction} />}
-                activity={{ state: agent.state, stateChangedAt: stateChangedAt.get(agent.id), onAbort: () => sendAbortDebounced(agent.id) }}
-                afterEntry={(entry) => <>
+                onCopyToTerminal={
+                  features.terminal ? copyToTerminal : undefined
+                }
+                interaction={
+                  interaction && (
+                    <ChoiceInteractionCard interaction={interaction} />
+                  )
+                }
+                activity={{
+                  state: agent.state,
+                  stateChangedAt: stateChangedAt.get(agent.id),
+                  onAbort: () => sendAbortDebounced(agent.id),
+                }}
+                afterEntry={(entry) => (
+                  <>
                     {(entry.metadata?.providerLogin === "codex" ||
                       entry.metadata?.providerLogin === "claude") &&
                       agent.userId !== null &&
@@ -2433,9 +2454,9 @@ export function LogView({
                           }}
                         />
                       )}
-                </>}
+                  </>
+                )}
               />
-
             </div>
           </div>
 
