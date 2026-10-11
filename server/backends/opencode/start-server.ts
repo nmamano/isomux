@@ -17,7 +17,7 @@ import {
 } from "./process-identity.ts";
 import { lockDarwinFileUntilExit } from "./darwin-libsystem.ts";
 import { openCodeServerHealth } from "./server-health.ts";
-import { parseOpenCodeServerPort } from "./server-port.ts";
+import { OPENCODE_SERVER_USERNAME as username, waitHealthy } from "./server-startup.ts";
 
 interface ServerRecord {
   pid: number;
@@ -54,7 +54,6 @@ const environmentRevision = required("OPENCODE_ENVIRONMENT_REVISION");
 // action, profile and record; requiring start-only state above it breaks the
 // replacement path that this revision protects.
 const configRevision = required("OPENCODE_CONFIG_REVISION");
-const username = "isomux";
 const keepDebugOutput = process.env.ISOMUX_OPENCODE_DEBUG === "1";
 // A server whose turn saw no event-stream frame within the deadline. It may
 // still answer health late, but it is never adopted again.
@@ -69,10 +68,6 @@ function required(name: string): string {
 function lockRecord(): void {
   if (!lockDarwinFileUntilExit(recordPath))
     throw new Error("Could not lock the OpenCode server record.");
-}
-
-function authHeader(secret: string): string {
-  return `Basic ${btoa(`${username}:${secret}`)}`;
 }
 
 async function adoptable(record: ServerRecord): Promise<boolean> {
@@ -128,36 +123,6 @@ async function running(pid: number): Promise<boolean> {
 
 function childExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null;
-}
-
-async function waitHealthy(
-  child: ChildProcess,
-  stdoutPath: string,
-): Promise<number | null> {
-  let port: number | null = null;
-  for (let attempt = 0; attempt < 160; attempt++) {
-    if (childExited(child) || !child.pid) return null;
-    try {
-      // Only the child's private output supplies its bound port. Never expose
-      // the rest of this file: OpenCode can write provider data to its output.
-      port ??= parseOpenCodeServerPort(await readFile(stdoutPath, "utf8"));
-      if (port !== null) {
-        process.kill(child.pid, 0);
-        const response = await fetch(`http://127.0.0.1:${port}/global/health`, {
-          headers: { authorization: authHeader(password) },
-          signal: AbortSignal.timeout(300),
-        });
-        const body = (await response.json()) as {
-          healthy?: boolean;
-          version?: string;
-        };
-        if (response.ok && body.healthy && body.version === "1.18.35")
-          return port;
-      }
-    } catch {}
-    await Bun.sleep(50);
-  }
-  return null;
 }
 
 function sanitizedChildEnvironment(): NodeJS.ProcessEnv {
@@ -241,7 +206,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
   await Promise.all([stdout.close(), stderr.close()]);
   child.unref();
   let identityLostAfterHealth = false;
-  const port = child.pid ? await waitHealthy(child, stdoutPath) : null;
+  const port = child.pid ? await waitHealthy(child, stdoutPath, password) : null;
   if (child.pid && port !== null) {
     const startTicks = readProcessStartTicks(child.pid);
     if (startTicks) {

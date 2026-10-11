@@ -23,6 +23,8 @@ The maintained reference for Isomux's test suite: the tiers, how to run them, th
 
 ## Tiers (LLM-call policy)
 
+OpenCode startup deadlines use a controlled clock in `server/backends/opencode/server-startup.test.ts`: slow live children can finish startup, exited children fail without using the remaining budget, silent children stop at the deadline, and healthy wrong-version children fail without waiting.
+
 OpenCode local-failure coverage is deterministic in `server/backends/opencode/transport-failure.test.ts`: injected setup, HTTP and stream faults check the error sink, failed completion, and agent JSONL. The running-server `/config` check for disabled sharing and updates is in `supervisor.test.ts`, gated by `ISOMUX_TEST_OPENCODE=1` and included in `bun run test:opencode`.
 
 Default `bun test` makes zero LLM calls.
