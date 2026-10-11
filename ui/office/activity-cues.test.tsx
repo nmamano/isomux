@@ -234,7 +234,8 @@ describe("sweat", () => {
     ).includes("data-sweat");
 
   it("shows only on an agent that is mid-turn and asked to sweat", () => {
-    for (const state of MID_TURN) expect([state, sweaty(state)]).toEqual([state, true]);
+    for (const state of MID_TURN)
+      expect([state, sweaty(state)]).toEqual([state, true]);
     for (const state of NOT_MID_TURN)
       expect([state, sweaty(state)]).toEqual([state, false]);
     expect(

@@ -152,7 +152,9 @@ describe("the office database across fresh boots", () => {
     server = await startTestServer();
     const store = officeAuditStore();
     store.append(auditWrite);
-    store.db.query("INSERT INTO tasks(id, record) VALUES ('task-1', '{}')").run();
+    store.db
+      .query("INSERT INTO tasks(id, record) VALUES ('task-1', '{}')")
+      .run();
     const fd = openSync(officeFile(), "r");
     await server.stop();
 

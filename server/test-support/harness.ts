@@ -136,7 +136,9 @@ function officeSchema(): string {
   return JSON.stringify([
     db.query("PRAGMA user_version").get(),
     db
-      .query("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY name")
+      .query(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY name",
+      )
       .all(),
   ]);
 }
@@ -204,8 +206,7 @@ async function bootTestServer(
       if (emptyOfficeDatabase()) {
         const kept = ["", "-wal", "-shm"].map((end) => OFFICE_DATABASE + end);
         for (const entry of readdirSync(STATE_ROOT))
-          if (!kept.includes(entry))
-            removeStateDir(join(STATE_ROOT, entry));
+          if (!kept.includes(entry)) removeStateDir(join(STATE_ROOT, entry));
       } else {
         removeStateDir(STATE_ROOT);
         mkdirSync(STATE_ROOT, { recursive: true });

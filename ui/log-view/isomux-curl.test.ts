@@ -2045,9 +2045,7 @@ describe("parseIsomuxCurl python -c tails and one-line curl functions", () => {
     expect(parseIsomuxCurl(`${get} | python3 -c 'print(1)' x`)).toBeNull();
     expect(parseIsomuxCurl(`${get} | python3 script.py`)).toBeNull();
     // The tail's own shell rules still apply.
-    expect(
-      parseIsomuxCurl(`${get} | python3 -c "$(cat prog.py)"`),
-    ).toBeNull();
+    expect(parseIsomuxCurl(`${get} | python3 -c "$(cat prog.py)"`)).toBeNull();
     expect(parseIsomuxCurl(`${get} | python3 -c 'x' > /tmp/out`)).toBeNull();
   });
 
