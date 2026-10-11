@@ -455,7 +455,8 @@ const HIDDEN_FIELDS = new Set([
 
 // The actor sits above full-width changes. Interface words
 // (field names, "edited", "created") use the small mono hint style so they never
-// read as task content. The time is in the tooltip.
+// read as task content; old and new values use the content font, the old one
+// struck through. The time is in the tooltip.
 function TaskChanges({ entry }: { entry: AuditEntry }) {
   const { t } = useI18n();
   const show = (field: string, value: unknown): string => {
@@ -505,7 +506,9 @@ function TaskChanges({ entry }: { entry: AuditEntry }) {
             >
               <span
                 style={{
-                  color: "var(--text-hint)",
+                  color: "var(--text-secondary)",
+                  textDecoration: "line-through",
+                  textDecorationColor: "var(--text-hint)",
                   ...(field === "title" ? { paddingLeft: 20 } : {}),
                 }}
               >
