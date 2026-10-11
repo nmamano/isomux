@@ -223,3 +223,24 @@ describe("face light, across every skin the picker offers", () => {
       expect([ch, darkest[ch] < palest[ch] - 60]).toEqual([ch, true]);
   });
 });
+
+// Sweat is the long-stretch cue. DeskUnit decides when a stretch is long; the
+// character draws it only while it is typing, so a stale flag never leaves
+// drops on an agent that has stopped.
+describe("sweat", () => {
+  const sweaty = (state: AgentState) =>
+    renderToStaticMarkup(
+      <Character state={state} outfit={OUTFIT} sweating />,
+    ).includes("data-sweat");
+
+  it("shows only on an agent that is mid-turn and asked to sweat", () => {
+    for (const state of MID_TURN) expect([state, sweaty(state)]).toEqual([state, true]);
+    for (const state of NOT_MID_TURN)
+      expect([state, sweaty(state)]).toEqual([state, false]);
+    expect(
+      renderToStaticMarkup(
+        <Character state="thinking" outfit={OUTFIT} />,
+      ).includes("data-sweat"),
+    ).toBe(false);
+  });
+});

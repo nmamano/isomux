@@ -10,6 +10,10 @@ import { styleForModel } from "../model-styles.ts";
 import { PENDING_PROMPT_BADGE } from "../pending-prompt.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { isWorkingState } from "../store.tsx";
+
+/** How long an agent works without a break before it starts to sweat. */
+export const SWEAT_AFTER_MS = 2 * 60_000;
 
 export function DeskUnit({
   agent,
@@ -18,6 +22,7 @@ export function DeskUnit({
   needsAttention,
   onSwap,
   stateChangedAt,
+  workingSince,
 }: {
   agent: AgentInfo;
   onClick: () => void;
@@ -25,6 +30,7 @@ export function DeskUnit({
   needsAttention?: boolean;
   onSwap?: (sourceDesk: number, targetDesk: number) => void;
   stateChangedAt?: number;
+  workingSince?: number;
 }) {
   const { t } = useI18n();
   const [hov, setHov] = useState(false);
@@ -32,8 +38,7 @@ export function DeskUnit({
   const containerRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggered = useRef(false);
-  const isWorking =
-    agent.state === "thinking" || agent.state === "tool_executing";
+  const isWorking = isWorkingState(agent.state);
   const modelStyle = styleForModel(agent.modelFamily);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -100,6 +105,12 @@ export function DeskUnit({
 
   const elapsedMs =
     isWorking && stateChangedAt ? now - stateChangedAt : undefined;
+  // Read off the clock the status light already ticks while working, so an
+  // agent that is not working costs nothing here.
+  const sweating =
+    isWorking &&
+    workingSince !== undefined &&
+    now - workingSince >= SWEAT_AFTER_MS;
   const pos = DESK_SLOTS[agent.desk];
   // An agent whose desk names no slot has nowhere to be drawn. OfficeState
   // rejects such a desk at spawn, so this only fires for a
@@ -215,7 +226,11 @@ export function DeskUnit({
             pointerEvents: "none",
           }}
         >
-          <Character state={agent.state} outfit={agent.outfit} />
+          <Character
+            state={agent.state}
+            outfit={agent.outfit}
+            sweating={sweating}
+          />
         </div>
 
         {/* Desk */}

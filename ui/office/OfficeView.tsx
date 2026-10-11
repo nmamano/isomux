@@ -189,6 +189,7 @@ export function OfficeView({
     agents,
     needsAttention,
     stateChangedAt,
+    workingSince,
     office,
     tasks,
     currentRoomId,
@@ -874,6 +875,7 @@ export function OfficeView({
                               } satisfies SwapDesksReq).catch(() => {});
                           }}
                           stateChangedAt={stateChangedAt.get(agent.id)}
+                          workingSince={workingSince.get(agent.id)}
                         />
                       );
                     }

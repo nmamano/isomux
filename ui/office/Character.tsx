@@ -458,16 +458,70 @@ function Accessory({
   );
 }
 
+/** Sweat at the temples of an agent that has worked for a long stretch. Two
+ *  drops that slide down and fade, out of step with each other. Drawn as
+ *  paths, not a glyph: iOS Safari draws a sweat emoji in its own colours. */
+function SweatDrops({ headCx, headCy }: { headCx: number; headCy: number }) {
+  const drops = [
+    { x: headCx + 12, y: headCy - 4, begin: "0s" },
+    { x: headCx - 12, y: headCy - 1, begin: "0.8s" },
+  ];
+  return (
+    <g data-sweat>
+      {drops.map((d) => (
+        <g key={d.x} transform={`translate(${d.x} ${d.y}) scale(1.25)`}>
+          <g opacity="0">
+            <path
+              d="M0 -3.2 Q2.4 0.4 0 2 Q-2.4 0.4 0 -3.2 Z"
+              fill="#9fd8ff"
+              stroke="#5aa9dc"
+              strokeWidth=".5"
+            />
+            <path
+              d="M-.6 -.6 Q-.9 .5 -.2 1"
+              fill="none"
+              stroke="white"
+              strokeOpacity=".8"
+              strokeWidth=".5"
+              strokeLinecap="round"
+            />
+            <animateTransform
+              attributeName="transform"
+              type="translate"
+              values="0 0;0 7"
+              dur="1.6s"
+              begin={d.begin}
+              repeatCount="indefinite"
+            />
+            <animate
+              attributeName="opacity"
+              values="0;1;1;0"
+              keyTimes="0;0.15;0.7;1"
+              dur="1.6s"
+              begin={d.begin}
+              repeatCount="indefinite"
+            />
+          </g>
+        </g>
+      ))}
+    </g>
+  );
+}
+
 export function Character({
   state,
   outfit,
   portrait = false,
   height = CHARACTER_GEOMETRY.height,
+  sweating = false,
 }: {
   state: AgentState;
   outfit: AgentOutfit;
   portrait?: boolean;
   height?: number;
+  /** Only read while the agent is mid-turn: the caller decides when a
+   *  working stretch has run long enough. */
+  sweating?: boolean;
 }) {
   const skin = outfit.skin ?? "#FFD5B8";
   const costume = costumeOf(outfit.costume);
@@ -838,6 +892,7 @@ export function Character({
       <circle cx={hCx - 4} cy={hCy + 1} r={1.5} fill="#333" />
       <circle cx={hCx + 4} cy={hCy + 1} r={1.5} fill="#333" />
       <Beard type={beard} color={hair} headCx={hCx} headCy={hCy} />
+      {sweating && <SweatDrops headCx={hCx} headCy={hCy} />}
       <rect
         x={18}
         y={CHARACTER_GEOMETRY.feetY - 10}

@@ -29,6 +29,7 @@ import {
 } from "../shared/types.ts";
 import type {
   AgentInfo,
+  AgentState,
   AgentChoiceInteraction,
   KilledAgentSummary,
   LogEntry,
@@ -142,6 +143,10 @@ export interface AppState {
     { commands: { name: string; description?: string }[]; skills: SkillInfo[] }
   >; // agentId → available commands
   stateChangedAt: Map<string, number>; // agentId → timestamp when agent state last changed
+  // agentId → when the agent's current unbroken working stretch began, as this
+  // client saw it. Unlike stateChangedAt it survives the thinking ↔
+  // tool_executing flips inside a turn; an agent not working has no entry.
+  workingSince: Map<string, number>;
   office: OfficeSettings;
   rooms: RoomWire[];
   tasks: TaskItem[];
@@ -586,6 +591,11 @@ function mergeRuns(
   return [...fetched, ...(cached ?? []).filter((run) => !ids.has(run.id))];
 }
 
+/** Mid-turn: the states the office draws as typing at the desk. */
+export function isWorkingState(state: AgentState): boolean {
+  return state === "thinking" || state === "tool_executing";
+}
+
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "full_state": {
@@ -675,6 +685,12 @@ export function reducer(state: AppState, action: Action): AppState {
             .filter((a) => a.state !== "idle" && a.state !== "stopped")
             .map((a) => [a.id, Date.now()]),
         ),
+        // A reconnect keeps the stretch of an agent that is still working.
+        workingSince: new Map(
+          action.agents
+            .filter((a) => isWorkingState(a.state))
+            .map((a) => [a.id, state.workingSince.get(a.id) ?? Date.now()]),
+        ),
         hasReceivedInitialState: true,
       };
     }
@@ -756,6 +772,16 @@ export function reducer(state: AppState, action: Action): AppState {
       const stateChangedAt = action.changes.state
         ? new Map(state.stateChangedAt).set(action.agentId, Date.now())
         : state.stateChangedAt;
+      let workingSince = state.workingSince;
+      if (action.changes.state) {
+        const working = isWorkingState(action.changes.state);
+        if (working && !workingSince.has(action.agentId))
+          workingSince = new Map(workingSince).set(action.agentId, Date.now());
+        else if (!working && workingSince.has(action.agentId)) {
+          workingSince = new Map(workingSince);
+          workingSince.delete(action.agentId);
+        }
+      }
       // Mark as needing attention if state changed to an attention state
       // and the user is not currently viewing this agent
       if (action.changes.state && ATTENTION_STATES.has(action.changes.state)) {
@@ -784,9 +810,16 @@ export function reducer(state: AppState, action: Action): AppState {
           needsAttention,
           soundTrigger,
           stateChangedAt,
+          workingSince,
         };
       }
-      return { ...state, agents: newAgents, needsAttention, stateChangedAt };
+      return {
+        ...state,
+        agents: newAgents,
+        needsAttention,
+        stateChangedAt,
+        workingSince,
+      };
     }
     case "log_entry": {
       // Per-stream id Set for dedupe. Cloned (not mutated) so the reducer
@@ -1521,6 +1554,7 @@ export const initialState: AppState = {
   recentCwds: [],
   slashCommands: new Map(),
   stateChangedAt: new Map(),
+  workingSince: new Map(),
   office: {
     prompt: null,
     envFile: null,

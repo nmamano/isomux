@@ -23,6 +23,8 @@ import { UpdatePane } from "./components/UpdatePane.tsx";
 import { UserSettingsView } from "./components/UserSettingsView.tsx";
 import { RoomTabBar } from "./office/RoomTabBar.tsx";
 import type {
+  AgentInfo,
+  AgentState,
   AppWire,
   CronjobListWire,
   CronjobRun,
@@ -1548,5 +1550,54 @@ describe("members chat pins outside the loaded page", () => {
     });
     expect(refreshed.membersChat.pinsStale).toBe(false);
     expect(refreshed.membersChat.unread).toBe(7);
+  });
+});
+
+// The office draws sweat on an agent that has worked for a long unbroken
+// stretch, timed from workingSince. A turn flips between thinking and
+// tool_executing many times, and none of those flips is a break.
+describe("reducer: workingSince", () => {
+  const A = "agent-1";
+  const agent = (state: AgentState) => ({ id: A, state }) as AgentInfo;
+  const fullState = (state: AgentState) => ({
+    type: "full_state" as const,
+    agents: [agent(state)],
+    recentCwds: [],
+    office: { prompt: null, name: null },
+    rooms: [],
+    killedAgents: [],
+    interactions: [],
+  });
+  const update = (s: AppState, state: AgentState) =>
+    reducer(s, { type: "agent_updated", agentId: A, changes: { state } });
+
+  it("keeps one stretch across a turn's state flips and ends it on a break", () => {
+    let s = reducer(initialState, fullState("idle"));
+    expect(s.workingSince.has(A)).toBe(false);
+    s = update(s, "thinking");
+    const began = s.workingSince.get(A);
+    expect(began).toBeNumber();
+    for (const state of ["tool_executing", "thinking"] as const) {
+      s = { ...s, workingSince: new Map([[A, 1]]) };
+      s = update(s, state);
+      expect(s.workingSince.get(A)).toBe(1);
+    }
+    for (const pause of [
+      "waiting_for_response",
+      "idle",
+      "error",
+      "stopped",
+    ] as const) {
+      const ended = update({ ...s, workingSince: new Map([[A, 1]]) }, pause);
+      expect([pause, ended.workingSince.has(A)]).toEqual([pause, false]);
+    }
+  });
+
+  it("keeps a still-working agent's stretch across a reconnect", () => {
+    const before = { ...initialState, workingSince: new Map([[A, 1]]) };
+    expect(
+      reducer(before, fullState("tool_executing")).workingSince.get(A),
+    ).toBe(1);
+    expect(reducer(before, fullState("idle")).workingSince.has(A)).toBe(false);
   });
 });
