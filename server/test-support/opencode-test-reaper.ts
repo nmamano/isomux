@@ -23,7 +23,9 @@ export function createOpenCodeTestReaper() {
     },
     async afterAll(this: void): Promise<void> {
       // Bun does not cancel timed-out bodies; they can restart a server after afterEach.
-      await Promise.all([...supervisors].map((supervisor) => supervisor.shutdown()));
+      await Promise.all(
+        [...supervisors].map((supervisor) => supervisor.shutdown()),
+      );
       supervisors.clear();
     },
   };
