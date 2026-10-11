@@ -16,6 +16,11 @@ import type { UserRecord } from "../shared/types.ts";
 const source = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
 const definitions = source.slice(0, source.lastIndexOf('\nmain "$@"'));
 const fixtures: string[] = [];
+// Measured 2026-10-11: up to 8.06 s per case with 16 competing CPU workers.
+// Slow cases need 15 s; the two owner cases need 20 s. Each case runs real
+// Bash, often for both installation and repair, with a 10 s limit per process.
+const INSTALL_CASE_TIMEOUT_MS = 15_000;
+const INSTALL_PROCESS_TIMEOUT_MS = 10_000;
 const digest = `ghcr.io/nmamano/isomux@sha256:${"a".repeat(64)}`;
 
 // Real Bash and generated files; root, mounts, network and service mutations are
@@ -107,6 +112,7 @@ install_caddyfile_transaction() { cp "$1" "$CADDYFILE"; }
 `;
   const harness = join(dir, "harness.sh");
   writeFileSync(harness, alternate + prefix + script);
+  const started = performance.now();
   const result = Bun.spawnSync(["bash", harness], {
     // TMPDIR keeps the installer's failure sentinel in the fixture.
     env: {
@@ -115,8 +121,15 @@ install_caddyfile_transaction() { cp "$1" "$CADDYFILE"; }
       HOME: dir,
       TMPDIR: dir,
     },
-    timeout: 10000,
+    timeout: INSTALL_PROCESS_TIMEOUT_MS,
   });
+  // A killed shell is a harness failure, including in cases that expect the
+  // installer to refuse a configuration. A null exit code must not pass those.
+  if (result.signalCode) {
+    throw new Error(performance.now() - started >= INSTALL_PROCESS_TIMEOUT_MS
+      ? `installer shell timed out after ${INSTALL_PROCESS_TIMEOUT_MS} ms`
+      : `installer shell terminated by ${result.signalCode}`);
+  }
   return {
     code: result.exitCode,
     out: result.stdout.toString(),
@@ -244,7 +257,7 @@ describe("container installer", () => {
     expect(events(dir)).not.toMatch(
       /host-office|(?:restart|enable) isomux\.service|nodejs|bun install/,
     );
-  });
+  }, INSTALL_CASE_TIMEOUT_MS);
 
   it("preserves an absent setup key only with a confirmed owner", () => {
     const dir = fixture();
@@ -259,7 +272,7 @@ describe("container installer", () => {
     writeOwner(dir);
     expect(run(dir, "container_main").code).toBe(0);
     expect(readFileSync(path, "utf8")).toBe(env);
-  });
+  }, 20_000);
 
   it("points to the setup key only while the office has no owner", () => {
     const dir = fixture();
@@ -275,7 +288,7 @@ describe("container installer", () => {
     expect(claimed.code).toBe(0);
     expect(claimed.out).toContain("https://office.example.com");
     expect(claimed.out).not.toContain(keyFile);
-  });
+  }, 20_000);
 
   it("rejects a changed tag digest before restarting the office", () => {
     const dir = fixture();
@@ -288,7 +301,7 @@ describe("container installer", () => {
     expect(run(dir, "container_main").code).not.toBe(0);
     expect(events(dir)).not.toContain("restart isomux-container");
     expect(readFileSync(join(dir, "config/image"), "utf8").trim()).toBe(digest);
-  });
+  }, INSTALL_CASE_TIMEOUT_MS);
 
   it("recovers from service failure without replacing the setup key", () => {
     const dir = fixture();
@@ -298,7 +311,7 @@ describe("container installer", () => {
     rmSync(join(dir, "fail-start"));
     expect(run(dir, "container_main").code).toBe(0);
     expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
-  });
+  }, INSTALL_CASE_TIMEOUT_MS);
 
   for (const condition of [
     "missing-mount",
@@ -349,7 +362,7 @@ describe("container installer", () => {
     writeFileSync(join(dir, "events"), "");
     expect(run(dir, "container_main").code).not.toBe(0);
     expect(events(dir)).not.toContain("packages");
-  });
+  }, INSTALL_CASE_TIMEOUT_MS);
 
   it("refuses a different mount UUID on repair and on unit startup", () => {
     const dir = fixture();
@@ -364,7 +377,7 @@ describe("container installer", () => {
         '"$CONTAINER_DIR/mount-check.sh" "$CONTAINER_DATA" "$CONTAINER_DIR/mount.uuid"',
       ).code,
     ).not.toBe(0);
-  });
+  }, INSTALL_CASE_TIMEOUT_MS);
 
   it("does not evaluate shell syntax or expose secrets from saved settings", () => {
     const dir = fixture();
@@ -377,7 +390,7 @@ describe("container installer", () => {
     expect(result.code).not.toBe(0);
     expect(existsSync(join(dir, "executed"))).toBe(false);
     expect(result.out + result.err).not.toContain("$(touch");
-  });
+  }, INSTALL_CASE_TIMEOUT_MS);
 
   it("refuses a conflicting data writer or Compose project", () => {
     const dir = fixture();
@@ -413,7 +426,7 @@ describe("container installer", () => {
     const env = readFileSync(join(dir, "config/office.env"), "utf8");
     expect(run(dir, "container_main").code).toBe(0);
     expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
-  });
+  }, INSTALL_CASE_TIMEOUT_MS);
 
   it("checks the mount before every service start", () => {
     const dir = fixture();
@@ -451,7 +464,7 @@ describe("container installer", () => {
     writeFileSync(join(dir, "events"), "");
     expect(run(dir, "container_main").code).not.toBe(0);
     expect(events(dir)).not.toContain("packages");
-  });
+  }, INSTALL_CASE_TIMEOUT_MS);
 
   it("installs only host infrastructure packages and restores Caddy on failure", () => {
     const dir = fixture();
@@ -586,7 +599,7 @@ container_install_packages
     ).toBe(false);
     expect(service.security_opt).toEqual(["seccomp=./seccomp/chromium.json"]);
     expect(service.privileged ?? false).toBe(false);
-  });
+  }, INSTALL_CASE_TIMEOUT_MS);
 
   it("refuses an image from another source revision", () => {
     const dir = fixture();
@@ -650,7 +663,7 @@ container_check_saved
   expect(readFileSync(join(dir, "config/revision"), "utf8").trim()).toBe(
     "b".repeat(40),
   );
-});
+}, INSTALL_CASE_TIMEOUT_MS);
 
 it("other-office guard accepts its container config on retry and refuses host or ambiguous configs", () => {
   const dir = fixture();
@@ -682,4 +695,4 @@ it("retries a first install interrupted after writing the container updater conf
   expect(existsSync(join(dir, "update.conf"))).toBe(true);
   expect(existsSync(join(dir, "config"))).toBe(false);
   expect(run(dir, "container_main").code).toBe(0);
-});
+}, INSTALL_CASE_TIMEOUT_MS);

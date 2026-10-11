@@ -31,15 +31,18 @@ let origin: string;
 let detachedPid: number | undefined;
 let detachedStart: string | undefined;
 let containerStdout = "";
+let containerStderr = "";
+let lastResponseError: unknown;
 
-async function until(
-  check: () => boolean | Promise<boolean>,
+async function until<T>(
+  check: () => T | Promise<T>,
   message: string,
   ms = 6000,
 ) {
   const end = Date.now() + ms;
   do {
-    if (await check()) return;
+    const value = await check();
+    if (value) return value;
     await Bun.sleep(30);
   } while (Date.now() < end);
   throw new Error(message);
@@ -47,15 +50,17 @@ async function until(
 
 async function boot(office: string[] = [], stdout: "pipe" | number = "pipe") {
   containerStdout = "";
+  containerStderr = "";
   daemon = spawn(
     "python3",
     [program, "serve", join(root, "runtime"), ...office],
     {
-      stdio: ["ignore", stdout, "ignore"],
+      stdio: ["ignore", stdout, "pipe"],
       env: { ...process.env, RENDER_SECRET_SENTINEL: "must-not-reach-app" },
     },
   );
   daemon.stdout?.on("data", (chunk) => (containerStdout += String(chunk)));
+  daemon.stderr?.on("data", (chunk) => (containerStderr += String(chunk)));
   supervisor = createContainerAppSupervisor(
     join(root, "runtime", "control.sock"),
     () => "office.example.com",
@@ -85,21 +90,48 @@ async function closeDaemon() {
 }
 
 async function response() {
+  let res: Response;
   try {
-    const res = await fetch(origin, { signal: AbortSignal.timeout(300) });
-    return (await res.json()) as {
-      pid: number;
-      token: string;
-      count: number;
-      secret?: string;
-      url: string;
-    };
-  } catch {
+    res = await fetch(origin, { signal: AbortSignal.timeout(300) });
+  } catch (error) {
+    lastResponseError = error;
     return null;
+  }
+  lastResponseError = undefined;
+  if (!res.ok) throw new Error(`app returned HTTP ${res.status}`);
+  // A bad body is a test failure, not a connection that is still starting.
+  return (await res.json()) as {
+    pid: number;
+    token: string;
+    count: number;
+    secret?: string;
+    url: string;
+  };
+}
+
+async function appResponse(count?: number, ms = 6000) {
+  let last: Awaited<ReturnType<typeof response>> = null;
+  const message = count === undefined
+    ? "app did not answer"
+    : `app did not reach start count ${count}`;
+  try {
+    // Return the sample that proves readiness. A second one-shot request can
+    // fail even after this one succeeds, especially while the host is busy.
+    return await until(async () => {
+      last = await response();
+      return last && (count === undefined || last.count === count) ? last : null;
+    }, message, ms);
+  } catch (error) {
+    throw new Error(
+      `${message}; last transport error: ${String(lastResponseError)}; ` +
+      `last response: ${JSON.stringify(last)}; supervisor stderr: ${containerStderr}`,
+      { cause: error },
+    );
   }
 }
 
 beforeEach(async () => {
+  lastResponseError = undefined;
   detachedPid = undefined;
   detachedStart = undefined;
   root = mkdtempSync(join(tmpdir(), "container-app-test-"));
@@ -160,27 +192,33 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-test.skip("1205f261: real app: token, logs, crash restart, stop, delete, and port reuse", async () => {
+// Measured 2026-10-11: the full case took 21.75 s at load average 32.11.
+// The 60 s case budget leaves room for process cleanup under load.
+test("real app: token, logs, crash restart, stop, delete, and port reuse", async () => {
   supervisor.provisionToken(app.name, "synthetic-token-one");
   supervisor.install(app);
-  await until(
-    async () => (await response())?.count === 1,
-    "app did not become reachable",
-  );
-  const first = await response();
-  expect(first?.token).toBe("synthetic-token-one");
-  expect(first?.secret).toBeUndefined();
-  expect(first?.url).toBe("https://sample.office.example.com");
-  expect(supervisor.logs(app.name, 5)).toContain("synthetic-app-start");
+  const first = await appResponse(1);
+  expect(first.count).toBe(1);
+  expect(first.token).toBe("synthetic-token-one");
+  expect(first.secret).toBeUndefined();
+  expect(first.url).toBe("https://sample.office.example.com");
+  const logs = await until(() => {
+    const lines = supervisor.logs(app.name, 5);
+    return lines.includes("synthetic-app-start") ? lines : null;
+  }, "app startup log did not arrive");
+  expect(logs).toContain("synthetic-app-start");
   supervisor.provisionToken(app.name, "synthetic-token-two");
-  expect((await response())?.token).toBe("synthetic-token-one");
+  const provisioned = await appResponse();
+  expect(provisioned.pid).toBe(first.pid);
+  expect(provisioned.count).toBe(1);
+  expect(provisioned.token).toBe("synthetic-token-one");
   const crash = await fetch(origin + "/crash", { method: "POST" });
   expect(crash.status).toBe(200);
-  await until(
-    async () => (await response())?.count === 2,
-    "crashed app was not restarted",
-  );
-  expect((await response())?.token).toBe("synthetic-token-two");
+  // Measured 2026-10-11: recovery took up to 5.98 s at load averages 47-53.
+  // This includes the 2 s restart delay, host /proc scans, and cold starts.
+  const restarted = await appResponse(2, 15_000);
+  expect(restarted.count).toBe(2);
+  expect(restarted.token).toBe("synthetic-token-two");
   expect(supervisor.states([app.name]).get(app.name)?.restartCount).toBe(1);
   supervisor.stop(app.name);
   expect(supervisor.states([app.name]).get(app.name)?.state).toBe("stopped");
@@ -195,22 +233,16 @@ test.skip("1205f261: real app: token, logs, crash restart, stop, delete, and por
     socket: { data() {} },
   });
   reused.stop(true);
-}, 30000);
+}, 60_000);
 
 test("container restart restores running apps, data, credentials, and stopped intent", async () => {
   supervisor.provisionToken(app.name, "synthetic-persistent-token");
   supervisor.install(app);
-  await until(
-    async () => (await response())?.count === 1,
-    "first app boot failed",
-  );
+  await appResponse(1);
   await closeDaemon();
   await boot();
-  await until(
-    async () => (await response())?.count === 2,
-    "running intent was not restored",
-  );
-  expect((await response())?.token).toBe("synthetic-persistent-token");
+  const restored = await appResponse(2);
+  expect(restored.token).toBe("synthetic-persistent-token");
   supervisor.stop(app.name);
   await closeDaemon();
   await boot();

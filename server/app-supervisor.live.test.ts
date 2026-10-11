@@ -12,11 +12,11 @@
 // restartCount. A fake can only prove we send the strings we meant to send.
 //
 // CLEANUP IS THE SAFETY PROPERTY. Units are machine-global, so this file uses
-// its own `isomux-app-test-live-<pid>-` prefix - which cannot collide with the
+// its own `isomux-app-test-.live-<pid>-` prefix - which cannot collide with the
 // production `isomux-app-<name>` namespace - and tears every unit down in a
 // finally + afterAll, so a failing assertion never leaves a service behind.
 
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   existsSync,
   lstatSync,
@@ -36,6 +36,7 @@ import {
 } from "./app-supervisor.ts";
 import {
   cleanupFailure,
+  checkLiveTestResidue,
   cleanupLiveTestUnit,
 } from "./test-support/live-unit-cleanup.ts";
 import { reconcileAppUrls } from "./app-url-reconcile.ts";
@@ -56,6 +57,14 @@ const tmpRoot = LIVE
   : join(tmpdir(), "unused");
 
 let supervisor: AppSupervisor | null = null;
+let cleanStart = false;
+
+beforeAll(() => {
+  if (!LIVE) return;
+  const failure = cleanupFailure(checkLiveTestResidue(createSystemdHost()));
+  if (failure) throw failure;
+  cleanStart = true;
+});
 // The office's app-host domain for this test, moved by hand: there is no boot
 // here to freeze the real one, and moving it is exactly the transition boot URL
 // reconciliation exists for.
@@ -72,6 +81,10 @@ let liveDomain: string | null = null;
 // still there.
 afterAll(() => {
   if (!LIVE) return;
+  if (!cleanStart) {
+    rmSync(tmpRoot, { recursive: true, force: true });
+    return;
+  }
   const host = createSystemdHost();
   const unit = `${UNIT_PREFIX}${APP_NAME}.service`;
   // The janitor is deliberately NOT supervisor.teardown(): teardown is strict
@@ -88,7 +101,6 @@ afterAll(() => {
       unitFile: join(host.unitDir, unit),
       enableSymlink: join(host.unitDir, "default.target.wants", unit),
       launcher: join(tmpRoot, "units 50%", `${APP_NAME}.sh`),
-      unitGlob: `${UNIT_PREFIX}*`,
     },
     { exists: existsSync, lexists: lstatSafe },
   );

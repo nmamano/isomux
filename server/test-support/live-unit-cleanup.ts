@@ -23,6 +23,7 @@
 //
 // Test-support ONLY; no production path imports this.
 
+import { join } from "node:path";
 import type { SupervisorHost } from "../app-supervisor.ts";
 
 export interface CleanupPaths {
@@ -31,9 +32,6 @@ export interface CleanupPaths {
   unitFile: string;
   enableSymlink: string;
   launcher: string;
-  // Glob for the listing checks - the run's own disjoint prefix, never a
-  // production one.
-  unitGlob: string;
 }
 
 export interface CleanupProbe {
@@ -52,6 +50,29 @@ export interface CleanupOutcome {
   residue: string[];
 }
 
+// Non-default offices own isomux-app-test-.<hex digest>- units. Only .live-
+// belongs to this gate; "live" cannot collide with a hexadecimal digest.
+const TEST_UNIT_GLOB = "isomux-app-test-.live-*";
+
+export interface LiveTestOwner {
+  pid: number;
+  isAlive(pid: number): boolean;
+}
+
+const currentOwner: LiveTestOwner = {
+  pid: process.pid,
+  isAlive(pid) {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+      if ((error as NodeJS.ErrnoException).code === "EPERM") return true;
+      throw error;
+    }
+  },
+};
+
 // systemd's several ways of saying the unit is not there.
 const MISSING = /(does not exist|not loaded|no such file|not found)/i;
 
@@ -59,6 +80,7 @@ export function cleanupLiveTestUnit(
   host: SupervisorHost,
   paths: CleanupPaths,
   probe: CleanupProbe,
+  owner: LiveTestOwner = currentOwner,
 ): CleanupOutcome {
   const errors: string[] = [];
   const residue: string[] = [];
@@ -128,6 +150,35 @@ export function cleanupLiveTestUnit(
   }
   if (probe.exists(paths.launcher)) residue.push(`launcher ${paths.launcher}`);
 
+  const check = inspectLiveTestResidue(host, owner, busReachable);
+  errors.push(...check.errors);
+  residue.push(...check.residue);
+
+  return { errors, residue };
+}
+
+// Both the preflight and the janitor use the same bus and listing checks.
+export function checkLiveTestResidue(
+  host: SupervisorHost,
+  owner: LiveTestOwner = currentOwner,
+): CleanupOutcome {
+  let alive;
+  try {
+    alive = host.run(["systemctl", "--user", "show", "--property=Version"]);
+  } catch (error) {
+    return { errors: [`bus probe: ${String(error)}`], residue: [] };
+  }
+  return inspectLiveTestResidue(host, owner, alive.code === 0);
+}
+
+function inspectLiveTestResidue(
+  host: SupervisorHost,
+  owner: LiveTestOwner,
+  busReachable: boolean,
+): CleanupOutcome {
+  const errors: string[] = [];
+  const residue: string[] = [];
+  const units = new Map<string, string>();
   if (!busReachable) {
     errors.push(
       "the user bus could not be reached, so an empty unit listing proves nothing " +
@@ -137,8 +188,8 @@ export function cleanupLiveTestUnit(
     for (const listing of ["list-units", "list-unit-files"]) {
       const args =
         listing === "list-units"
-          ? [listing, "--all", "--no-legend", paths.unitGlob]
-          : [listing, "--no-legend", paths.unitGlob];
+          ? [listing, "--all", "--no-legend", TEST_UNIT_GLOB]
+          : [listing, "--no-legend", TEST_UNIT_GLOB];
       let r;
       try {
         r = host.run(["systemctl", "--user", ...args]);
@@ -170,10 +221,48 @@ export function cleanupLiveTestUnit(
         );
         continue;
       }
-      if (r.stdout.trim()) residue.push(`${listing}: ${r.stdout.trim()}`);
+      for (const line of r.stdout.trim().split("\n")) {
+        // list-units can prefix a failed unit with a bullet.
+        const unit = line.trim().replace(/^●\s*/, "").split(/\s+/)[0];
+        if (unit && !units.has(unit)) units.set(unit, line.trim());
+      }
     }
   }
 
+  for (const [unit, listing] of units) {
+    const match = /^isomux-app-test-\.live-(\d+)-/.exec(unit);
+    const pid = match ? Number(match[1]) : null;
+    try {
+      // Other live owners can be concurrent gates. Our own surviving unit is
+      // always residue. PID reuse can hide an old leak, but cannot stop another
+      // run or create a false failure: this check never removes foreign units.
+      if (pid !== null && pid !== owner.pid && owner.isAlive(pid)) continue;
+      const properties = ["ActiveState", "UnitFileState", "ExecStart", "ActiveEnterTimestamp"];
+      const details = host.run([
+        "systemctl", "--user", "show", unit,
+        `--property=${properties.join(",")}`,
+      ]);
+      if (details.code !== 0) {
+        errors.push(`show ${unit}: exit ${details.code} ${details.stderr.trim()}`);
+      }
+      const values = new Map(details.stdout.split("\n").map((line) => {
+        const split = line.indexOf("=");
+        return [line.slice(0, split), line.slice(split + 1)];
+      }));
+      const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+      residue.push([
+        listing,
+        ...properties.map((key) => `${key}=${values.get(key) ?? "(unavailable)"}`),
+        "Manual cleanup:",
+        `systemctl --user stop ${quote(unit)}`,
+        `systemctl --user disable ${quote(unit)}`,
+        `rm -- ${quote(join(host.unitDir, unit))}`,
+        "systemctl --user daemon-reload",
+      ].join("\n"));
+    } catch (error) {
+      errors.push(`inspect ${unit}: ${String(error)}`);
+    }
+  }
   return { errors, residue };
 }
 

@@ -11,6 +11,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   cleanupFailure,
+  checkLiveTestResidue,
   cleanupLiveTestUnit,
   type CleanupPaths,
   type CleanupProbe,
@@ -23,7 +24,6 @@ const PATHS: CleanupPaths = {
   enableSymlink:
     "/units/default.target.wants/isomux-app-test-.abc-probe.service",
   launcher: "/launchers/probe.sh",
-  unitGlob: "isomux-app-test-.abc-*",
 };
 
 // Nothing exists: the state after a cleanup that worked.
@@ -245,5 +245,79 @@ describe("live-test janitor: everything runs, everything is reported", () => {
     const err = cleanupFailure(outcome);
     expect(err?.message).toContain("unit file");
     expect(err?.message).toContain("daemon-reload");
+  });
+});
+
+
+describe("live-test namespace check", () => {
+  const owner = { pid: 123, isAlive: (pid: number) => pid === 123 || pid === 456 };
+  const oldUnit = "isomux-app-test-.live-789-probe.service";
+  const liveUnit = "isomux-app-test-.live-456-probe.service";
+  const ownUnit = "isomux-app-test-.live-123-probe.service";
+  const officeUnit = `isomux-app-test-.${"a".repeat(64)}-sample.service`;
+
+  function namespaceHost(units: string[], listing = "list-units") {
+    return fakeHost((argv) => {
+      if (argv[2] === listing) {
+        const glob = new Bun.Glob(argv.at(-1)!);
+        return { stdout: units.filter((unit) => glob.match(unit)).join("\n") };
+      }
+      if (argv[2] === "show" && argv[3] !== "--property=Version") {
+        return { stdout: "ActiveState=active\nUnitFileState=enabled\nExecStart={ path=/bin/sleep ; argv[]=/bin/sleep 60 ; }\nActiveEnterTimestamp=Thu 2026-08-06 12:40:43 UTC\n" };
+      }
+      return missingUnit(argv);
+    });
+  }
+
+  for (const listing of ["list-units", "list-unit-files"]) {
+    it(`fails on a dead owner's ${listing} without removing it`, () => {
+      const host = namespaceHost([oldUnit], listing);
+      const start = checkLiveTestResidue(host, owner);
+      expect(start.errors).toEqual([]);
+      expect(start.residue).toHaveLength(1);
+      expect(cleanupFailure(start)).not.toBeNull();
+      for (const value of [oldUnit, "ActiveState=active", "UnitFileState=enabled", "ExecStart=", "ActiveEnterTimestamp="]) {
+        expect(start.residue[0]).toContain(value);
+      }
+      expect(host.removed).toEqual([]);
+      expect(verbs(host)).not.toContain("stop");
+      const end = cleanupLiveTestUnit(host, PATHS, CLEAN_PROBE, owner);
+      expect(end.residue).toEqual(start.residue);
+      expect(host.removed).toEqual([PATHS.unitFile, PATHS.enableSymlink, PATHS.launcher]);
+      for (const argv of host.runs) {
+        if (["stop", "disable", "kill", "reset-failed"].includes(argv[2])) {
+          expect(argv.at(-1)).toBe(PATHS.unit);
+        }
+      }
+    });
+  }
+
+  it("leaves a concurrent live owner's unit alone", () => {
+    const host = namespaceHost([liveUnit]);
+    expect(checkLiveTestResidue(host, owner)).toEqual({ errors: [], residue: [] });
+    expect(host.removed).toEqual([]);
+    expect(verbs(host)).not.toContain("stop");
+  });
+
+  it("does not inspect a real office's digest namespace", () => {
+    const host = namespaceHost([officeUnit]);
+    expect(checkLiveTestResidue(host, owner)).toEqual({ errors: [], residue: [] });
+    expect(host.runs.some((argv) => argv.includes(officeUnit))).toBe(false);
+  });
+
+  it("reports our own surviving unit even while our PID is alive", () => {
+    const host = namespaceHost([ownUnit]);
+    const ownPaths = { ...PATHS, unit: ownUnit, unitFile: `/units/${ownUnit}`, enableSymlink: `/units/default.target.wants/${ownUnit}` };
+    const end = cleanupLiveTestUnit(host, ownPaths, CLEAN_PROBE, owner);
+    expect(end.residue).toHaveLength(1);
+    expect(end.residue[0]).toContain(ownUnit);
+    expect(cleanupFailure(end)).not.toBeNull();
+  });
+
+  it("refuses to start when the bus cannot be reached", () => {
+    const host = fakeHost(() => ({ code: 1, stderr: "Failed to connect to bus" }));
+    const start = checkLiveTestResidue(host, owner);
+    expect(cleanupFailure(start)).not.toBeNull();
+    expect(verbs(host)).toEqual(["show"]);
   });
 });
