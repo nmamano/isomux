@@ -63,6 +63,14 @@ Every tab offer is released. Members must offer a tab again; previously opened p
 
 ## Public Playwright seam and ownership
 
+A popup can close while an action completes. A closed-target click error is
+recoverable only after the bridge received its mouse release and the page closed;
+a close on mouse-down still fails. The session checks the grant again and reads
+metadata from the selected parent, without replaying input. A page that closes
+during the metadata read triggers the same bounded selection check. Text, snapshot
+and screenshot payloads use that selected page. Other action or read errors remain
+failures.
+
 Pinned Playwright 1.62.1 runs inside the Bun office process. The public
 `chromium.connectOverCDP(transport, { noDefaults: true })` overload connects
 directly to an authorized assignment through `browser-extension-transport.ts`.

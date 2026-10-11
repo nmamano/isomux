@@ -134,7 +134,7 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
           .targetId;
         await session.detach();
       }
-      popup = await openExtensionActionPopup(setupCDP, id, targetId);
+      popup = await openExtensionActionPopup(setupCDP, id, targetId, setup!);
       return popup;
     };
     popup = await openPopup();
@@ -213,6 +213,11 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
         });
       },
     });
+    console.log("Isolated office fixture", {
+      profile: join(dir, "profile"),
+      office: officeOrigin,
+      site: site.url.origin,
+    });
     const url = `http://localhost:${site.port}/main`;
     expect(
       (await action(first.id, { action: "snapshot" })).body.error.code,
@@ -265,7 +270,8 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
       );
       await popup.click("#allow");
       await popup.waitFor(
-        'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled',
+        // The switch is checked during offering, before the office accepts it.
+        'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled && !!document.querySelector("#expiry-state").textContent',
       );
       expect(
         await popup.read<boolean>('document.querySelector("#expiry").disabled'),
@@ -992,21 +998,18 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
   }
 }
 
-// Quarantined 2026-10-09: flaky (task e513ce4e).
-test.skip(
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   "real office routes use paired Chrome, separate agents, frames and retained popup opener",
   () => runOfficeScenario(false),
   130_000,
 );
-// Quarantined 2026-10-09: flaky (task e513ce4e).
-test.skip(
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   "packaged Chrome reads and controls owned same-origin, cross-origin and nested frames",
   () => runOfficeScenario(true),
   90_000,
 );
 
-// Quarantined 2026-10-09: flaky (task e513ce4e).
-test.skip(
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   "real office browser reads composers, scopes long feeds and sanitizes selector errors",
   () => runOfficeScenario(true, true),
   130_000,

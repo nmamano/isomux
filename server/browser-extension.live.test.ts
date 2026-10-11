@@ -80,7 +80,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         const target = (await session.send("Target.getTargetInfo")).targetInfo
           .targetId;
         await session.detach();
-        const popup = await openExtensionActionPopup(setupCDP, id, target);
+        const popup = await openExtensionActionPopup(setupCDP, id, target, setup!);
         await popup.waitFor('!document.querySelector("#allow").disabled');
         await popup.click("#allow");
         await popup.waitFor(

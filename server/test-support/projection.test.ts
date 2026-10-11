@@ -801,6 +801,7 @@ describe("desktop browser projection", () => {
     let navigated = false;
     const page = {
       on: () => {},
+      isClosed: () => false,
       goto: async () => {
         navigated = true;
       },

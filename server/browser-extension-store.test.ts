@@ -1,4 +1,4 @@
-import { chromium, type Browser } from "playwright-core";
+import { chromium, errors, type Browser } from "playwright-core";
 import { BrowserExtensionService } from "./browser-extension-service";
 import { ExtensionBrowserSessions } from "./browser-extension-session";
 import { test, expect, spyOn } from "bun:test";
@@ -401,6 +401,7 @@ test("Never has no desktop idle timer and stays offered across four hours and ac
             pages: () => [
               {
                 on() {},
+                isClosed: () => false,
                 url: () => "https://example.com/",
                 title: async () => "Fixture",
                 mainFrame: () => ({
@@ -692,6 +693,7 @@ async function timeoutSessionFixture(
         close: async () => {
           pageClosed = true;
         },
+        isClosed: () => pageClosed,
         url: () => "https://example.com/",
         title: async () => "Fixture",
         mainFrame: () => ({
@@ -891,8 +893,7 @@ test("watchdog response waits for old operation settlement without releasing the
   }
 });
 
-// Quarantined: f0354186 — full-suite failure, same-commit isolated pass (2026-09-21).
-test.skip("Playwright initialization timeout retains the offer while outstanding initialization drains", async () => {
+test("Playwright initialization timeout retains the offer while outstanding initialization drains", async () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-init-timeout-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
   const service = new BrowserExtensionService(store, {
@@ -906,6 +907,23 @@ test.skip("Playwright initialization timeout retains the offer while outstanding
     () => 20,
   );
   const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  // Model Playwright's initialization failure only after a real CDP command
+  // reaches the bridge. Real Playwright startup is covered by
+  // browser-extension-interactions.live.test.ts through browserExtensionTransport.
+  const dispatched = Promise.withResolvers<void>();
+  const connect = spyOn(chromium, "connectOverCDP").mockImplementation(async (wire) => {
+    const transport = wire as import("playwright-core").ConnectOverCDPTransport;
+    let sessionId: string | undefined;
+    transport.onmessage = (message) => {
+      const event = message as { method?: string; params?: { sessionId: string } };
+      if (event.method === "Target.attachedToTarget") sessionId = event.params?.sessionId;
+    };
+    transport.send({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true } });
+    expect(sessionId).toBeString();
+    transport.send({ id: 2, method: "Runtime.enable", params: {}, sessionId });
+    await dispatched.promise;
+    throw new errors.TimeoutError("Initialization timed out");
+  });
   try {
     const { code } = store.pair("member");
     const { credential } = store.redeem(code, origin, () => true);
@@ -913,6 +931,10 @@ test.skip("Playwright initialization timeout retains the offer while outstanding
     const connection = service.bridge.connect(credential, {
       send: (m) => {
         messages.push(m);
+        if (m.method === "cdp") {
+          expect(connection.pendingCount(grant)).toBeGreaterThan(0);
+          dispatched.resolve();
+        }
       },
       close() {},
     });
@@ -941,6 +963,9 @@ test.skip("Playwright initialization timeout retains the offer while outstanding
     expect(await sessions.run("agent", { action: "snapshot" })).toMatchObject({
       code: "action_timeout",
     });
+    const reasons = diagnostics.mock.calls.flat().join(" ");
+    expect(reasons).toContain("operation_timeout");
+    expect(reasons).not.toContain("watchdog_timeout");
     expect(connection.pendingCount(grant)).toBeGreaterThan(0);
     expect(connection.offered("agent")).toBe(grant);
     expect(service.bridge.connections("member")[0]).toBe(connection);
@@ -954,6 +979,7 @@ test.skip("Playwright initialization timeout retains the offer while outstanding
     await Bun.sleep(0);
     expect(connection.offered("agent")).toBeUndefined();
   } finally {
+    connect.mockRestore();
     sessions.stop();
     service.stop();
     diagnostics.mockRestore();

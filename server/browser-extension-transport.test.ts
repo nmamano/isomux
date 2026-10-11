@@ -150,10 +150,13 @@ test("the transport counts every Input command that it sends", async () => {
   const page = browser.contexts()[0].pages()[0];
   expect(page.url()).toBe("https://example.com/");
   expect(transport.inputs).toBe(0);
+  expect(transport.mouseReleases).toBe(0);
   await page.mouse.click(5, 5);
   expect(transport.inputs).toBe(3);
+  expect(transport.mouseReleases).toBe(1);
   await page.keyboard.press("A");
   expect(transport.inputs).toBe(5);
+  expect(transport.mouseReleases).toBe(1);
   await browser.close();
   h.connection.close();
 }, 3000);

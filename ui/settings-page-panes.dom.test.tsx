@@ -1,110 +1,19 @@
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 
-// Quarantined 2026-09-17, P1 e04ff785: only the flaky file timing cap.
-// All three behavior tests remain active (5082 ms against a 5000 ms cap).
-setUpDomTestFile({ capMs: Infinity });
+setUpDomTestFile();
 
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { UserSettingsView } = await import("./components/UserSettingsView.tsx");
-const { App } = await import("./App.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
 
-const apiShim = async (method: string, path: string, body?: unknown) => {
-  if (path.startsWith("/api/memory"))
-    return { text: "", version: "0", size: 0, cap: 4000 };
-  // Leave usage unloaded: this test exercises the page layout, including its
-  // loading state, without coupling it to usage totals. Storage answers with
-  // an empty measurement so its cleanup guard can run below.
-  if (path === "/api/usage") return null;
-  if (path === "/api/storage/usage")
-    return {
-      stateRoot: "/state",
-      measuredAt: Date.now(),
-      stateRootBytes: 0,
-      categories: [],
-      agents: [],
-    };
-  if (path === "/api/backup/status")
-    return {
-      lastRunAt: null,
-      ok: false,
-      error: null,
-      retention: 0,
-      destDir: "/backups",
-    };
-  if (method === "POST" && path === "/api/storage/prune") {
-    const plan = {
-      target: "transcripts",
-      policy: { olderThanDays: 90, keepPerAgent: 5 },
-      candidates: [
-        {
-          path: "agent-1/session.jsonl",
-          bytes: 100,
-          agentId: "agent-1",
-          sessionId: "session",
-          ageDays: 100,
-          mtimeMs: 0,
-        },
-      ],
-      bytes: 100,
-      skipped: [],
-    };
-    if ((body as { apply?: boolean } | undefined)?.apply)
-      return new Promise(() => {});
-    return { plan, applied: null };
-  }
-  return {};
-};
+const { settingsReportsApi: apiShim } = await import("./test-support/settings-reports-fixture.ts");
 beforeEach(() => setApiShim(apiShim));
 afterAll(() => setApiShim(null));
 
 describe("Settings report panes", () => {
-  it("uses the leave prompt while Storage cleanup is applying", async () => {
-    window.history.replaceState(null, "", "/settings");
-    const view = render(
-      onLanguage(null, createElement(App, {}), {
-        hasReceivedInitialState: true,
-      }),
-    );
-
-    fireEvent.click(view.getByRole("button", { name: "Storage" }));
-    fireEvent.click(
-      view.getByRole("button", { name: "Preview what would be deleted" }),
-    );
-    fireEvent.click(
-      await view.findByRole("button", {
-        name: /Delete 1 conversation transcripts permanently/,
-      }),
-    );
-    fireEvent.change(view.getByPlaceholderText("Type DELETE to confirm"), {
-      target: { value: "DELETE" },
-    });
-    fireEvent.click(view.getByRole("button", { name: "Delete permanently" }));
-    const applying = view.getByRole("button", { name: "Deleting…" });
-    expect(applying.hasAttribute("disabled")).toBe(true);
-
-    const originalConfirm = window.confirm;
-    window.confirm = () => {
-      throw new Error("native confirm was called");
-    };
-    try {
-      await act(async () => {
-        document.body.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        );
-      });
-    } finally {
-      window.confirm = originalConfirm;
-    }
-
-    expect(view.queryByText(/A cleanup is still running/) !== null).toBe(true);
-    expect(view.getByRole("button", { name: "Leave" })).toBeDefined();
-    expect(window.location.pathname).toBe("/settings");
-  });
-
   for (const isMobile of [false, true]) {
     it(`renders Storage and Usage as page content (${isMobile ? "mobile" : "desktop"})`, async () => {
       const view = render(

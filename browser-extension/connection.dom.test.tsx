@@ -2,8 +2,19 @@ import { test, expect } from "bun:test";
 import { setUpDomTestFile } from "../ui/test-support/dom";
 
 setUpDomTestFile();
-const { runInNewContext } = await import("node:vm");
+const { Script } = await import("node:vm");
 const { readFile } = await import("node:fs/promises");
+// Build and compile once; each popup still gets a fresh VM context and DOM.
+const build = await Bun.build({
+  entrypoints: ["browser-extension/connection.ts"],
+  target: "browser",
+});
+if (!build.success) throw new AggregateError(build.logs, "Popup build failed");
+const popupSource = await build.outputs[0].text();
+if (!popupSource.trim()) throw new Error("Popup build is empty");
+const popupScript = new Script(`(async () => { ${popupSource} })()`);
+const popupHTML = (await readFile("browser-extension/connection.html", "utf8"))
+  .split("<body>")[1].split("</body>")[0];
 
 // Session storage with no pairing draft in it.
 const noDraft = {
@@ -22,18 +33,7 @@ const sessionOn = (map: Map<string, unknown>) => ({
 });
 
 test("popup defaults to Never, freezes the chosen duration and renders the server deadline", async () => {
-  document.body.innerHTML = (
-    await readFile("browser-extension/connection.html", "utf8")
-  )
-    .split("<body>")[1]
-    .split("</body>")[0];
-  const build = Bun.spawnSync([
-    "bun",
-    "build",
-    "browser-extension/connection.ts",
-    "--target=browser",
-  ]);
-  expect(build.exitCode).toBe(0);
+  document.body.innerHTML = popupHTML;
   type Assignment = {
     scope: { kind: "agent"; agentId: string };
     id: string;
@@ -59,7 +59,7 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
     new Promise<typeof state>((resolve) => {
       accept = resolve;
     });
-  await runInNewContext(`(async () => { ${build.stdout.toString()} })()`, {
+  await popupScript.runInNewContext({
     document,
     window,
     navigator: { language: "en" },
@@ -201,15 +201,10 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
 });
 
 for (const language of ["en", "es", "ca", "zh"]) {
-  // ea03689b: English case timed out in CI; retained for repair.
-  test.skipIf(language === "en")(
+  test(
     `pairing code stays masked unless explicitly shown, including replacement and failed submit (${language})`,
     async () => {
-      document.body.innerHTML = (
-        await readFile("browser-extension/connection.html", "utf8")
-      )
-        .split("<body>")[1]
-        .split("</body>")[0];
+      document.body.innerHTML = popupHTML;
       const code = document.getElementById("code") as HTMLInputElement;
       const reveal = document.getElementById(
         "code-visibility",
@@ -220,13 +215,6 @@ for (const language of ["en", "es", "ca", "zh"]) {
       expect(reveal.type).toBe("button");
       expect(reveal.getAttribute("aria-controls")).toBe(code.id);
       expect(reveal.getAttribute("aria-describedby")).toBe("code-label");
-      const build = Bun.spawnSync([
-        "bun",
-        "build",
-        "browser-extension/connection.ts",
-        "--target=browser",
-      ]);
-      expect(build.exitCode).toBe(0);
       let state = {
         state: "unpaired",
         office: "",
@@ -236,7 +224,7 @@ for (const language of ["en", "es", "ca", "zh"]) {
       let finish!: (value: typeof state & { error?: string }) => void;
       const sent: Record<string, unknown>[] = [];
       const session = new Map<string, unknown>();
-      await runInNewContext(`(async () => { ${build.stdout.toString()} })()`, {
+      await popupScript.runInNewContext({
         document,
         window,
         navigator: { language },
@@ -328,23 +316,12 @@ for (const language of ["en", "es", "ca", "zh"]) {
 }
 
 test("pairing fields survive closing and reopening the popup", async () => {
-  const build = Bun.spawnSync([
-    "bun",
-    "build",
-    "browser-extension/connection.ts",
-    "--target=browser",
-  ]);
-  expect(build.exitCode).toBe(0);
   const session = new Map<string, unknown>();
   let state = { state: "unpaired", office: "", agents: [], assignments: [] };
   const sent: Record<string, unknown>[] = [];
   const open = async () => {
-    document.body.innerHTML = (
-      await readFile("browser-extension/connection.html", "utf8")
-    )
-      .split("<body>")[1]
-      .split("</body>")[0];
-    await runInNewContext(`(async () => { ${build.stdout.toString()} })()`, {
+    document.body.innerHTML = popupHTML;
+    await popupScript.runInNewContext({
       document,
       window,
       navigator: { language: "en" },
@@ -446,18 +423,7 @@ test("pairing fields survive closing and reopening the popup", async () => {
 });
 
 test("a code typed while the popup checks the confirmation is kept", async () => {
-  document.body.innerHTML = (
-    await readFile("browser-extension/connection.html", "utf8")
-  )
-    .split("<body>")[1]
-    .split("</body>")[0];
-  const build = Bun.spawnSync([
-    "bun",
-    "build",
-    "browser-extension/connection.ts",
-    "--target=browser",
-  ]);
-  expect(build.exitCode).toBe(0);
+  document.body.innerHTML = popupHTML;
   const session = new Map<string, unknown>();
   const stored = sessionOn(session);
   let release!: () => void;
@@ -466,7 +432,7 @@ test("a code typed while the popup checks the confirmation is kept", async () =>
     notify = resolve;
   });
   const state = { state: "unpaired", office: "", agents: [], assignments: [] };
-  await runInNewContext(`(async () => { ${build.stdout.toString()} })()`, {
+  await popupScript.runInNewContext({
     document,
     window,
     navigator: { language: "en" },

@@ -87,6 +87,20 @@ A scratch copy made by excluding `.git` from a tar archive makes tests that
 call `git ls-files` exit 128. Confirm that exit appears on both sides before
 reading it as a regression.
 
+### Browser extension fixtures
+
+The native popup helper waits for the new popup window client to become visible
+before attaching CDP. Attaching while Chrome loads the popup marks it for
+inspection and can open a DevTools window. Read visibility through the existing
+extension service worker so the readiness check does not inspect the popup.
+
+Live extension tests wait for the popup's expiry display after enabling control.
+The checked, enabled switch also represents an offer still awaiting the office;
+it is not proof that a grant exists. The expiry display is rendered only after
+the office acknowledgement. A popup helper waits for target destruction when
+it closes the popup. Target destruction does not prove that OS window focus
+has settled: focus assertions also require a window manager on the test display.
+
 ### Render tests (happy-dom)
 
 Measured 2026-09-05 with bun 1.3.11, happy-dom 20.14.0,

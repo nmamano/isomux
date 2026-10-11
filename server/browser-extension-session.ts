@@ -6,6 +6,7 @@ import {
 } from "./browser-upload";
 import {
   chromium,
+  errors,
   type Browser,
   type Dialog,
   type Page,
@@ -81,6 +82,7 @@ const SETTLEMENT_GRACE_MS = 1000;
 const INPUT_RESERVE_MS = 1500;
 const TITLE_RESERVE_MS = 500;
 const MAX_DIALOG_MESSAGE = 2000;
+const PLAYWRIGHT_CLOSED_TARGET = "Target page, context or browser has been closed";
 const notPerformed = (action: "click" | "select", reason: string) =>
   failure(
     "action_failed",
@@ -398,6 +400,22 @@ export class ExtensionBrowserSessions {
       policy = { session, dialogs };
       const timeout = actionMs;
       const page = session.page;
+      const closedTarget = (error: unknown) => error instanceof Error &&
+        error.message.includes(PLAYWRIGHT_CLOSED_TARGET);
+      const waitForClose = (closedPage: Page) => new Promise<boolean>((resolve) => {
+        const onClose = () => { cleanup(); resolve(true); };
+        const timer = setTimeout(() => {
+          cleanup();
+          resolve(false);
+        }, Math.max(1, deadline - performance.now()));
+        const cleanup = () => {
+          clearTimeout(timer);
+          closedPage.off("close", onClose);
+        };
+        closedPage.on("close", onClose);
+        if (closedPage.isClosed()) onClose();
+      });
+      let mouseReleasesAtClick: number | undefined;
       const frame =
         params.framePath &&
         params.action !== "snapshot" &&
@@ -445,6 +463,7 @@ export class ExtensionBrowserSessions {
           };
           const inputs = session.transport.inputs;
           inputsAtClick = inputs;
+          mouseReleasesAtClick = session.transport.mouseReleases;
           try {
             // One Playwright click: actionability, then one dispatch. With
             // noWaitAfter Playwright neither retries after the dispatch nor
@@ -457,6 +476,14 @@ export class ExtensionBrowserSessions {
                 : page.click(params.selector!, options),
             );
           } catch (error) {
+            // A self-closing popup can close before Playwright resolves the
+            // click. Recover only after mouse-up was handed to the bridge.
+            if (closedTarget(error) && session.transport.mouseReleases > mouseReleasesAtClick) {
+              if (!await waitForClose(page)) throw error;
+              if (!valid()) return ended();
+              if (session.page === page || session.page.isClosed()) throw error;
+              break;
+            }
             // No Input command left the transport: nothing was dispatched.
             if (
               error instanceof Error &&
@@ -549,12 +576,42 @@ export class ExtensionBrowserSessions {
           break;
       }
       if (timedOut) return timeoutResult(true);
-      const current = session.page;
+      let current: Page;
+      let title: string;
+      let metadataRetry = false;
+      for (;;) {
+        if (!valid()) return ended();
+        if (metadataRetry && performance.now() >= deadline)
+          throw new errors.TimeoutError("Browser metadata deadline reached");
+        current = session.page;
+        if (current.isClosed()) throw new Error("Selected browser page closed");
+        try {
+          title = await current.title();
+        } catch (error) {
+          if (!closedTarget(error) || (params.action === "click" && session.transport.mouseReleases <= mouseReleasesAtClick!)) throw error;
+          if (!await waitForClose(current)) throw error;
+          if (!valid()) return ended();
+          if (session.page === current) throw error;
+          metadataRetry = true;
+          continue;
+        }
+        // A close can also follow a successful title read. Select the live
+        // parent before reading its URL or any text, snapshot or screenshot.
+        if (current.isClosed()) {
+          await waitForClose(current);
+          if (!valid()) return ended();
+          if (session.page === current) throw new Error("Selected browser page closed");
+          metadataRetry = true;
+          continue;
+        }
+        break;
+      }
+      const url = current.url();
       const result: BrowserResult = {
         ok: true,
         target,
-        url: current.url(),
-        title: await current.title(),
+        url,
+        title,
         ...(uploaded ? { uploaded } : {}),
         ...(selected ? { selected } : {}),
         ...(loading ? { loading: true } : {}),
@@ -580,7 +637,7 @@ export class ExtensionBrowserSessions {
           fullPage: params.fullPage === true,
           timeout,
         });
-        Object.assign(result, describeShot(current.url()));
+        Object.assign(result, describeShot(url));
       }
       if (dialogs.answers.length) {
         let wait: ReturnType<typeof setTimeout> | undefined;

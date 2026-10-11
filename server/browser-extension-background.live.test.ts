@@ -9,7 +9,10 @@ import { buildBrowserExtension } from "../scripts/build-browser-extension";
 import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
 import { browserExtensionTransport } from "./browser-extension-transport";
 
-// Quarantined 2026-10-09: flaky (task e513ce4e).
+// e513ce4e: Xvfb has no window manager; Chrome loses window focus before any
+// agent connects. Evidence (2026-10-11):
+// /tmp/b1019-browser-tests/background-destroy-event-1.log
+// Keep quarantined until the live environment has reliable window focus.
 test.skip("owned background roots and popups click without activating tabs and disable emulation on detach", async () => {
   const dir = mkdtempSync(join(tmpdir(), "isomux-background-proof-"));
   const fixture = browserExtensionFixture();
@@ -133,7 +136,7 @@ test.skip("owned background roots and popups click without activating tabs and d
     const offeredTarget = (await offeredCDP.send("Target.getTargetInfo"))
       .targetInfo.targetId;
     await offeredCDP.detach();
-    const popup = await openExtensionActionPopup(admin, id, offeredTarget);
+    const popup = await openExtensionActionPopup(admin, id, offeredTarget, setup);
     await popup.waitFor('!document.querySelector("#allow").disabled');
     await popup.click("#allow");
     await popup.waitFor(

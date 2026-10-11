@@ -35,6 +35,11 @@ async function withOfferedTab(
     port: 0,
     fetch: (req) => site(new URL(req.url)),
   });
+  console.log("Isolated interaction fixture", {
+    profile: join(dir, "profile"),
+    site: server.url.origin,
+    extension: fixture.origin,
+  });
   let raw: Awaited<ReturnType<typeof launchRawExtensionChrome>> | undefined;
   let sessions: ExtensionBrowserSessions | undefined;
   try {
@@ -77,11 +82,12 @@ async function withOfferedTab(
     const target = (await offeredCDP.send("Target.getTargetInfo")).targetInfo
       .targetId;
     await offeredCDP.detach();
-    const popup = await openExtensionActionPopup(admin, id, target);
+    const popup = await openExtensionActionPopup(admin, id, target, setup);
     await popup.waitFor('!document.querySelector("#allow").disabled');
     await popup.click("#allow");
     await popup.waitFor(
-      'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled',
+      // The switch is checked during offering, before the office accepts it.
+      'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled && !!document.querySelector("#expiry-state").textContent',
     );
     await popup.close();
     const connection = fixture.bridge.connections("fixture-member")[0];
@@ -232,8 +238,7 @@ function expectations(act: (body: Record<string, unknown>) => Promise<Timed>) {
   return { ok, failed, read };
 }
 
-// Quarantined 2026-10-09: flaky (task e513ce4e).
-test.skip("clicks, listboxes and dialogs on a Namecheap-like page return their real outcome", async () => {
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")("clicks, listboxes and dialogs on a Namecheap-like page return their real outcome", async () => {
   await withOfferedTab(
     () => html(DNS_PAGE),
     async ({ dir, act, setupPage, closeSetup }) => {

@@ -96,7 +96,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_DIALOGS !== "1")(
       const target = (await offeredCDP.send("Target.getTargetInfo")).targetInfo
         .targetId;
       await offeredCDP.detach();
-      const popup = await openExtensionActionPopup(admin, id, target);
+      const popup = await openExtensionActionPopup(admin, id, target, context);
       await popup.waitFor('!document.querySelector("#allow").disabled');
       await popup.click("#allow");
       await popup.waitFor(

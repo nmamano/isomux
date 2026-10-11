@@ -7,22 +7,27 @@ export function browserExtensionTransport(
   agentId: string,
   retainGrant = false,
   target?: string,
-): ConnectOverCDPTransport & { signal: AbortSignal; inputs: number } {
+): ConnectOverCDPTransport & { signal: AbortSignal; inputs: number; mouseReleases: number } {
   let closed = false;
   const controller = new AbortController();
   const transport: ConnectOverCDPTransport & {
     signal: AbortSignal;
     inputs: number;
+    mouseReleases: number;
   } = {
     signal: controller.signal,
     // Input commands sent so far. An action that sent none dispatched no input.
     inputs: 0,
+    // Mouse releases handed to the browser bridge, not proof the page applied them.
+    mouseReleases: 0,
     send(message) {
       if (closed || !assignment)
         throw new Error("Browser transport is not available");
-      const { method } = message as { method?: unknown };
+      const { method, params } = message as { method?: unknown; params?: { type?: unknown } };
       if (typeof method === "string" && method.startsWith("Input."))
         transport.inputs++;
+      if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased")
+        transport.mouseReleases++;
       void assignment.receive(message);
     },
     close() {
