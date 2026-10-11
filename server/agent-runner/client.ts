@@ -91,8 +91,8 @@ class RunnerStream {
       }
     });
     // A failed connect emits error and then close; close settles the caller.
-    // The runner never half-closes; an end is the end of the operation. Bun's
-    // net does not close the socket on its own after the peer's end.
+    // The runner half-closes after the final report and drains late input.
+    // End completes the operation; close our side so the runner can release it.
     this.socket.on("end", () => this.socket.destroy());
     this.socket.on("error", () => {});
     this.socket.on("close", () => {

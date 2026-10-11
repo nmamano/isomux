@@ -124,8 +124,7 @@ describe("runner child", () => {
     expect(child.signalCode).toBe("SIGTERM");
   });
 
-  // Quarantined 2026-10-11, P1 6325cb59: under load the child exits with no signal (received null).
-  it.skip("delivers a kill while the child's stdin is full", async () => {
+  it("delivers a kill while the child's stdin is full", async () => {
     // The child takes 64 KiB, says so, and reads nothing more: the rest of
     // the input fills its pipe and waits in the runner and in this process.
     const child = host.spawnChild([
@@ -149,10 +148,7 @@ describe("runner child", () => {
       child.once("exit", (_code, signal) => resolve(signal)),
     );
     child.kill("SIGKILL");
-    const signal = await Promise.race([
-      exited,
-      Bun.sleep(1000).then(() => "none"),
-    ]);
+    const signal = await exited;
     expect(signal).toBe("SIGKILL");
     expect(running(pid)).toBe(false);
   });

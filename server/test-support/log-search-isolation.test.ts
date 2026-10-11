@@ -29,8 +29,8 @@
 // deliberately NON-YIELDING: many bait entries inside a single stream chunk, so
 // the scan runs one uninterrupted synchronous burst with no interruption point
 // to notice a cancellation. That is the case a Worker provably could not stop.
-// It asserts the request comes back near the deadline, that the main thread
-// kept ticking throughout, and that the child is really gone.
+// It waits for scan entry, proves a parent macrotask runs before the outcome,
+// triggers the deadline, and observes the child's SIGKILL and slot release.
 //
 // The timing assertion is SELF-CALIBRATING rather than pinned to a magic
 // duration: it measures what one match costs on the machine running the test
@@ -40,7 +40,7 @@
 // T0-ish: no server and no LLM, but it does spawn real child processes.
 
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
-import { mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { parseLogQuery, type LogQuery } from "../log-search.ts";
@@ -149,8 +149,7 @@ describe("log search: process isolation", () => {
     expect(outcome.result.totalMatches).toBe(1);
   });
 
-  // Quarantined 2026-09-17, P1 e04ff785: the heartbeat counted 2 ticks against a >2 assertion.
-  it.skip("SIGKILLs a non-yielding scan at the deadline, so the 504 is true", async () => {
+  it("SIGKILLs a non-yielding scan at the deadline, so the 504 is true", async () => {
     // Calibrate against THIS machine: what does one bait match cost here?
     const calStart = performance.now();
     BAIT_PATTERN.test(BAIT);
@@ -161,58 +160,74 @@ describe("log search: process isolation", () => {
     expect(oneMatchMs).toBeGreaterThan(20);
     const inProcessCostMs = oneMatchMs * BAIT_ENTRIES;
 
-    // A heartbeat on the main thread. If the scan ran in-process, this would
-    // stop ticking for the whole duration - the event loop would be inside
-    // .exec() with nothing to yield to.
-    let beats = 0;
-    const heartbeat = setInterval(() => beats++, 20);
-
-    const started = performance.now();
-    const outcome = await runSearchInChild("caller:evil", AGENT, CATASTROPHIC, {
+    const marker = join(LOGS_DIR, AGENT, "scan-entered");
+    const preload = join(LOGS_DIR, AGENT, "scan-preload.ts");
+    rmSync(marker, { force: true });
+    // This runs in the real child. A marker before the first bait exec proves
+    // the deadline cannot win merely because the child has not started yet.
+    writeFileSync(preload, `
+      import { writeFileSync } from "fs";
+      const exec = RegExp.prototype.exec;
+      RegExp.prototype.exec = function (text) {
+        if (this.source === ${JSON.stringify(BAIT_PATTERN.source)} && text === ${JSON.stringify(BAIT)}) {
+          writeFileSync(${JSON.stringify(marker)}, "entered");
+          RegExp.prototype.exec = exec;
+        }
+        return exec.call(this, text);
+      };
+    `);
+    let child: Bun.Subprocess<"pipe", "pipe", "inherit"> | undefined;
+    let triggerDeadline: (() => void) | undefined;
+    let settled = false;
+    const pending = runSearchInChild("caller:evil", AGENT, CATASTROPHIC, {
       logsDir: LOGS_DIR,
-      hardTimeoutMs: 400,
+      spawnChild: (childPath) => {
+        child = Bun.spawn([process.execPath, "run", "--preload", preload, childPath], {
+          stdin: "pipe", stdout: "pipe", stderr: "inherit",
+        });
+        return child;
+      },
+      scheduleDeadline: (callback) => {
+        triggerDeadline = callback;
+        // A cleanup watchdog, not the deadline used to prove the behavior.
+        return setTimeout(callback, 15_000);
+      },
+    }).then((outcome) => {
+      settled = true;
+      return outcome;
     });
-    const elapsed = performance.now() - started;
-    clearInterval(heartbeat);
-
-    expect(outcome.ok).toBe(false);
-    if (outcome.ok) return;
-    expect(outcome.status).toBe(504);
-    expect(outcome.code).toBe("search_timeout");
-    // Bounded by the DEADLINE rather than by the work: run to completion this
-    // scan takes many times longer. This is the assertion a Worker could NOT
-    // have satisfied for this fixture - one chunk of bait entries is a single
-    // synchronous burst with no interruption point to be terminated at.
-    expect(elapsed).toBeLessThan(inProcessCostMs / 4);
-    // ...and the main thread stayed live throughout, which is the other half of
-    // the point. Running in-process it would have ticked zero times.
-    expect(beats).toBeGreaterThan(2);
-
-    // The work really STOPPED, and stopped BECAUSE OF THE SIGNAL. Admission is
-    // released only when the child's exit is observed, so the moment the slot
-    // frees is the moment the process died - and timing it is what separates
-    // the two explanations. The child would ALSO exit on its own once its
-    // cooperative budget expired, so a test that merely waited "long enough"
-    // would pass identically with no kill at all. Requiring the slot back in
-    // well under SCAN_BUDGET_MS can only be the signal.
-    const killedAt = performance.now();
-    let freedAfterMs = Infinity;
-    while (performance.now() - killedAt < SCAN_BUDGET_MS) {
-      const probe = await runSearchInChild(
-        "caller:evil",
-        AGENT,
-        query("q=needle"),
-        {
-          logsDir: LOGS_DIR,
-        },
-      );
-      if (probe.ok) {
-        freedAfterMs = performance.now() - killedAt;
-        break;
+    try {
+      const setupDeadline = performance.now() + 10_000;
+      while (!existsSync(marker) && !settled && performance.now() < setupDeadline) {
+        await Bun.sleep(10);
       }
-      await new Promise((r) => setTimeout(r, 25));
+      expect(existsSync(marker)).toBe(true);
+      // A parent macrotask after scan entry must run before the outcome.
+      // An in-process scan finishes its synchronous burst before this task.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+      expect(child!.exitCode).toBeNull();
+      expect(triggerDeadline).toBeDefined();
+      const started = performance.now();
+      triggerDeadline!();
+      const outcome = await pending;
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) return;
+      expect(outcome.status).toBe(504);
+      expect(outcome.code).toBe("search_timeout");
+      expect(performance.now() - started).toBeLessThan(inProcessCostMs / 4);
+      await child!.exited;
+      expect(child!.signalCode).toBe("SIGKILL");
+      const probe = await runSearchInChild("caller:evil", AGENT, query("q=needle"), {
+        logsDir: LOGS_DIR,
+      });
+      expect(probe.ok).toBe(true);
+    } finally {
+      triggerDeadline?.();
+      child?.kill("SIGKILL");
+      await child?.exited;
+      await pending;
     }
-    expect(freedAfterMs).toBeLessThan(SCAN_BUDGET_MS / 2);
   }, 30_000);
 
   it("holds the caller's slot after a deadline until the child actually exits", async () => {

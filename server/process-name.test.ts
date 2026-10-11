@@ -21,19 +21,36 @@ const ENTRY_POINT = `${import.meta.dir}/isomux-office.ts`;
 async function inSubprocess(
   code: string,
   env?: Record<string, string | undefined>,
+  timeoutMs = 4_000,
 ): Promise<string> {
   const proc = Bun.spawn(["bun", "-e", code], {
     env,
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [out, err] = await Promise.all([
+  const output = Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
+    proc.exited,
   ]);
-  const exit = await proc.exited;
-  if (exit !== 0) throw new Error(`subprocess exited ${exit}: ${err}`);
-  return out.trim();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const [out, err, exit] = await Promise.race([
+      output,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          proc.kill("SIGKILL");
+          reject(new Error(`subprocess exceeded ${timeoutMs} ms`));
+        }, timeoutMs);
+      }),
+    ]);
+    if (exit !== 0) throw new Error(`subprocess exited ${exit}: ${err}`);
+    return out.trim();
+  } finally {
+    clearTimeout(timer);
+    if (proc.exitCode === null) proc.kill("SIGKILL");
+    await output;
+  }
 }
 
 /** Field 2 of /proc/PID/stat is the process name, in parentheses. */
@@ -100,8 +117,10 @@ describe("setProcessName", () => {
 });
 
 describe("wiring", () => {
-  // Quarantined 2026-10-02 (task 0cafb6be): timed out at 5 s in the full suite, green alone.
-  test.skip("importing the office entry point does not rename the process", async () => {
+  // 2026-10-11: a cold import took 1.98–2.69 s under load; startup was
+  // 6–11 ms. Keep the cold graph and give the real import a bounded budget.
+  // The child watchdog reaps it before Bun's outer timeout can abandon it.
+  test("importing the office entry point does not rename the process", async () => {
     const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));
     try {
       const out = await inSubprocess(
@@ -118,12 +137,13 @@ describe("wiring", () => {
           XDG_CONFIG_HOME: stateDir,
           PORT: "0",
         },
+        10_000,
       );
       expect(out).toBe("bun");
     } finally {
       rmSync(stateDir, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 
   test("the office entry point renames its own process on a normal boot", async () => {
     const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));

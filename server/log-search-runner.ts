@@ -45,8 +45,8 @@ const CHILD_PATH = fileURLToPath(
 // Spawning goes through this thunk so `proc`'s type carries the piped-stdio
 // narrowing (`ReturnType<typeof Bun.spawn>` widens stdin/stdout back to the
 // generic union, which would lose `.write()` / the readable stream).
-const spawnChild = () =>
-  Bun.spawn([process.execPath, "run", CHILD_PATH], {
+const spawnChild = (childPath: string) =>
+  Bun.spawn([process.execPath, "run", childPath], {
     stdin: "pipe",
     stdout: "pipe",
     // Straight to the server journal: a child that fails to start is an
@@ -136,11 +136,17 @@ export function runSearchInChild(
   callerKey: string,
   agentId: string,
   query: LogQuery,
-  // `logsDir` and `hardTimeoutMs` are TEST SEAMS, not deployment configuration.
-  // Production passes neither: the office reads its own log tree and waits the
+  // These options are TEST SEAMS, not deployment configuration.
+  // Production passes none: the office reads its own log tree and waits the
   // full budget. Tests point at a fixture tree and shorten the wait so proving
   // the deadline does not cost eight seconds of suite time.
-  opts: { logsDir?: string; hardTimeoutMs?: number } = {},
+  opts: {
+    logsDir?: string;
+    hardTimeoutMs?: number;
+    // Tests observe a real child and trigger its deadline after scan entry.
+    spawnChild?: typeof spawnChild;
+    scheduleDeadline?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  } = {},
 ): Promise<SearchOutcome> {
   const admitted = admit(callerKey);
   if (!admitted.ok) return Promise.resolve(admitted.outcome);
@@ -149,7 +155,7 @@ export function runSearchInChild(
   return new Promise<SearchOutcome>((resolve) => {
     let proc: ReturnType<typeof spawnChild>;
     try {
-      proc = spawnChild();
+      proc = (opts.spawnChild ?? spawnChild)(CHILD_PATH);
     } catch (err) {
       // Nothing was spawned, so there is no process to wait on.
       release(admission);
@@ -178,7 +184,7 @@ export function runSearchInChild(
       resolve(outcome);
     };
 
-    const timer = setTimeout(() => {
+    const timer = (opts.scheduleDeadline ?? setTimeout)(() => {
       killed = true;
       // A real stop, not a request to stop. The admission slot is still held
       // until `exited` fires, so a caller retrying into repeated timeouts

@@ -109,9 +109,13 @@ function flush(socket: RunnerSocket): void {
 function finish(socket: RunnerSocket, message: RunnerControl): void {
   send(socket, [encodeJson(message)]);
   socket.data.ended = true;
-  // end() waits for Bun's own buffer; our queue is empty or the peer is gone.
-  if (socket.data.queued.length === 0) socket.end();
-  else socket.data.drainWaiters.push(() => socket.end());
+  // Input can still be in flight when the child exits. Close only our write
+  // side after the exit report drains; keep reading and dropping late input
+  // until the peer closes. A full close here can turn that input into EPIPE
+  // and make the client lose the exit report.
+  // Bun 1.4.2 strace (2026-10-11): shutdown() is SHUT_WR; true is SHUT_RD.
+  if (socket.data.queued.length === 0) socket.shutdown();
+  else socket.data.drainWaiters.push(() => socket.shutdown());
 }
 
 function fail(socket: RunnerSocket, code: string, message: string): void {
@@ -393,9 +397,11 @@ function pumpStdin(socket: RunnerSocket, child: ChildProcess): void {
   if (!stdin) return;
   while (!data.stdinBlocked && data.stdinQueue.length > 0) {
     const chunk = data.stdinQueue.shift()!;
-    const room = stdin.write(chunk, () =>
-      send(socket, [encodeJson({ type: "stdin-ack", bytes: chunk.length })]),
-    );
+    const room = stdin.write(chunk, (error) => {
+      // A failed pipe write consumed no input. Do not release more of the
+      // client's window while the child is closing.
+      if (!error) send(socket, [encodeJson({ type: "stdin-ack", bytes: chunk.length })]);
+    });
     if (!room) {
       data.stdinBlocked = true;
       stdin.once("drain", () => {
@@ -432,6 +438,7 @@ export function startRunner(options: RunnerOptions): { stop(): void } {
   }
   const listener = Bun.listen<Connection>({
     unix: options.socketPath,
+    allowHalfOpen: true,
     socket: {
       open(socket) {
         socket.data = {
