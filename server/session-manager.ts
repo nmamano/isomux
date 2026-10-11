@@ -611,7 +611,16 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       // need THEIR specific session installed (/resume pick, edit-fork): the
       // concurrent wake now wins and the pick no-ops - rarer and safer than
       // cross-thread delivery.
-      if (this.session === null) {
+      //
+      // A kill that lands during the drain nulls the slot and drops the
+      // record, so the null check alone would install on the orphaned object
+      // and leak the replacement subprocess and its consumer (task 3e8482e2).
+      // Check for the kill first and close the replacement on that path.
+      if (!this.deps.isStillManaged(host)) {
+        try {
+          newSession.close();
+        } catch {}
+      } else if (this.session === null) {
         this.installSession(host, newSession);
         installedByUs = true;
       } else {
@@ -628,10 +637,6 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       }))
         this.deps.emit(event);
     }
-    // PARKED FOR NIL (task 3e8482e2): a kill that lands during the drain
-    // above nulls the slot and drops the record, so the install just ran on
-    // the orphaned object and this guard only skips the normalization below.
-    // Preserve this order exactly until the fix slice (ruling 7).
     if (!this.deps.isStillManaged(host)) return; // killed during the drain
     // Post-swap dead-turn normalization: only when WE
     // installed (atomic with the null-check above - no await between), any

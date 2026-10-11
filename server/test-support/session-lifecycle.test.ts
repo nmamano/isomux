@@ -45,8 +45,7 @@
 //      interrupts nothing". Added here: the aborting flag's event suppression
 //      and its lifetime through the drain, sendMessage awaiting abortPromise,
 //      and the Codex interrupted/failed mapping.
-//   7. Kill during a swap drain: PARKED FOR NIL (ruling 7, task 3e8482e2);
-//      nothing pinned in S1.
+//   7. Kill during a swap drain: added here with its fix (task 3e8482e2).
 //   8. drainConsumerBounded's bound: queue-reliability.test.ts (the test named
 //      under 6) via _testSetConsumerDrainTimeout(300). Nothing added.
 //
@@ -360,6 +359,55 @@ describe("session lifecycle: replaceSession closes, drains, then installs", () =
     const sessions = sessionsFor(lane.fake, agent.id);
     expect(sessions.length).toBe(2);
     expect(sessions[1].sent).toEqual([]);
+  });
+});
+
+describe("session lifecycle: kill during a swap drain", () => {
+  it("closes the replacement instead of installing it on the killed agent, so no backend session or consumer outlives the kill", async () => {
+    const lane = makeLane(parkingBackend({ hangOnClose: true }));
+    const agent = await spawnLazy(lane.mgr, "codex");
+    const old = await wakeToIdle(lane, agent.id);
+
+    // Park the swap on the old consumer's drain, then kill inside it.
+    let swapSettled = false;
+    const swapDone = lane.mgr.setPrivileged(agent.id, true).then(
+      () => {
+        swapSettled = true;
+      },
+      () => {
+        swapSettled = true;
+      },
+    );
+    await waitUntil(
+      () => agentOf(lane.mgr, agent.id).sessionSwapping === true,
+      "swap draining",
+    );
+    expect(sessionsFor(lane.fake, agent.id).length).toBe(2);
+    const replacement = sessionsFor(lane.fake, agent.id)[1];
+    // Buffered before the kill: the fake's stream yields buffered events even
+    // after a close, so any consumer ever started on the replacement delivers
+    // this to the sink.
+    const from = lane.events.length;
+    replacement.push({ kind: "assistant_text", text: "orphan-text" });
+    await lane.mgr.kill(agent.id);
+    expect(lane.mgr.getAllAgents().some((a) => a.id === agent.id)).toBe(false);
+    expect(swapSettled).toBe(false);
+
+    old.endStream();
+    await swapDone;
+    await sleep(100);
+
+    // The backend session the swap built for the killed agent is closed, and
+    // nothing ever consumed it. One assertion so a failure shows both halves.
+    const wasClosed = replacement.closed;
+    const consumed = entriesSince(lane.events, agent.id, from).some((e) =>
+      e.content.includes("orphan-text"),
+    );
+    expect({ wasClosed, consumed }).toEqual({
+      wasClosed: true,
+      consumed: false,
+    });
+    expect(sessionsFor(lane.fake, agent.id).length).toBe(2);
   });
 });
 
