@@ -215,9 +215,7 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     await store.close();
   });
 
-  // Quarantined 2026-09-18, P1 e04ff785: 5554 ms exceeded the 5000 ms timeout;
-  // the full file passed alone, with this case taking 1160 ms.
-  test.skip("runtime refuses certificate-contact columns until the owner migration", async () => {
+  test("runtime refuses certificate-contact columns until the owner migration", async () => {
     const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
     await admin.query(
       `alter table ${quoteIdentifier(schema)}.instances drop column certificate_contact_next_check_at`,
@@ -245,8 +243,7 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     await store.close();
   });
 
-  // Quarantined 2026-09-17, P1 e04ff785: 5319 ms exceeded the 5000 ms test timeout.
-  test.skip("runtime refuses cancellation schema before the owner migration", async () => {
+  test("runtime refuses cancellation schema before the owner migration", async () => {
     const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
     await admin.query(
       `drop index ${quoteIdentifier(schema)}.provider_assets_provider_id_unique`,

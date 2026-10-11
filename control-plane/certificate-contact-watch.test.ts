@@ -36,7 +36,7 @@ const capabilities = {
 };
 
 describe("the daily certificate-contact pass", () => {
-  test.skip("b15b5965: one failure does not skip later offices or keep any office due", async () => {
+  test("one failure does not skip later offices or keep any office due", async () => {
     const now = { value: 1_000_000 };
     const store = await openTestStore(() => now.value);
     for (const id of ["inst-a", "inst-b", "inst-c"]) await live(store, id);
@@ -49,15 +49,17 @@ describe("the daily certificate-contact pass", () => {
         report: (line) => reports.push(line),
         apply: async (_store, id) => {
           visited.push(id);
-          if (id === "inst-b") throw new Error("scripted failure");
+          // Fail first in whichever order PostgreSQL returns equal timestamps.
+          if (visited.length === 1) throw new Error("scripted failure");
         },
       }),
     ).toBe(3);
 
-    expect(visited).toEqual(["inst-a", "inst-b", "inst-c"]);
-    expect(reports).toEqual([
-      "certificate-contact check failed for inst-b: scripted failure",
-    ]);
+    expect(visited).toHaveLength(3);
+    expect([...visited].sort()).toEqual(["inst-a", "inst-b", "inst-c"]);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toContain(visited[0]);
+    expect(reports[0]).toContain("scripted failure");
     for (const id of visited) {
       expect(
         (await store.getInstance(id))?.certificate_contact_next_check_at,

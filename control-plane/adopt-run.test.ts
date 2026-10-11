@@ -197,21 +197,22 @@ describe("--revoke", () => {
     await store.close();
   });
 
-  // Quarantined 2026-09-17, P1 e04ff785: 5056 ms exceeded the 5000 ms test timeout.
-  test.skip("opens one revocation, and a repeat is an idempotent no-op", async () => {
+  test("opens one revocation, and a repeat is an idempotent no-op", async () => {
     const b = await bed();
-    run(b, "--start");
+    expect(run(b, "--start").code).toBe(0);
     await live(b);
+    const store = await open(b);
     const first = run(b, "--revoke");
     expect(first.code).toBe(0);
+    const firstRevocation = await store.activeOperation(b.instanceId, "revoke_access");
+    expect(firstRevocation).not.toBeNull();
     const second = run(b, "--revoke");
     expect(second.code).toBe(0);
-    expect(second.out).toContain("already");
-    const store = await open(b);
     const revocations = (await store.operationsFor(b.instanceId)).filter(
       (o) => o.kind === "revoke_access",
     );
     expect(revocations).toHaveLength(1);
+    expect(revocations[0]?.id).toBe(firstRevocation!.id);
     // The attempt is recorded even though nothing changed.
     expect(
       (await store.auditEvents()).filter((e) => e.outcome === "already_active"),

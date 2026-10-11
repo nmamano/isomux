@@ -652,9 +652,7 @@ describe("reconcile", () => {
     expect(disabled.nextDueAt).toBeNull();
   });
 
-  // Quarantined 2026-09-17, P1 e04ff785: 12172 ms exceeded the 10000 ms wall-clock assertion.
-  test.skip("production-shaped idle wakes isolate provider work from other classes", async () => {
-    const bodyStartedAt = performance.now();
+  test("production-shaped idle wakes isolate provider work from other classes", async () => {
     const c = clock();
     const store = await tempStore(c.now);
     const inst = await seed(store);
@@ -688,14 +686,16 @@ describe("reconcile", () => {
       host_key_fingerprint: null,
       next_reconcile_at: c.now(),
     });
+    let reconciled = 0;
     const ticker = new Ticker({
       store,
       handlers: [],
       holder: "probe",
       now: c.now,
-      reconcile: async (_asset) => ({
-        assetState: "active",
-      }),
+      reconcile: async (_asset) => {
+        reconciled++;
+        return { assetState: "active" };
+      },
     });
     let tickPasses = 0;
     let cadencePasses = 0;
@@ -723,10 +723,9 @@ describe("reconcile", () => {
       cadencePasses: 0,
       livenessPasses: 0,
     });
-    // This replaces the essential 720-iteration, five-second-cadence body. The
-    // new production hour has 60 idle wakes, so retaining its old 60s timeout
-    // would hide rather than document the cheaper design.
-    expect(performance.now() - bodyStartedAt).toBeLessThan(10_000);
+    // Assert the work done during the logical hour. Shared database load must
+    // not turn a correct schedule into a wall-clock performance failure.
+    expect(reconciled).toBe(60);
   }, 20_000);
 
   test("the wake probe sees a due asset and becomes idle after it is scheduled", async () => {
