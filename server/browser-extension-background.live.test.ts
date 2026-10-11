@@ -9,11 +9,9 @@ import { buildBrowserExtension } from "../scripts/build-browser-extension";
 import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
 import { browserExtensionTransport } from "./browser-extension-transport";
 
-// e513ce4e: Xvfb has no window manager; Chrome loses window focus before any
-// agent connects. Evidence (2026-10-11):
-// /tmp/b1019-browser-tests/background-destroy-event-1.log
-// Keep quarantined until the live environment has reliable window focus.
-test.skip("owned background roots and popups click without activating tabs and disable emulation on detach", async () => {
+// e513ce4e (2026-10-11): Chrome's outdated-build bubble stole window focus.
+// The raw launcher suppresses that startup UI; keep these real focus checks.
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")("owned background roots and popups click without activating tabs and disable emulation on detach", async () => {
   const dir = mkdtempSync(join(tmpdir(), "isomux-background-proof-"));
   const fixture = browserExtensionFixture();
   let setup: BrowserContext | undefined;

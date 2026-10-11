@@ -98,8 +98,9 @@ Live extension tests wait for the popup's expiry display after enabling control.
 The checked, enabled switch also represents an offer still awaiting the office;
 it is not proof that a grant exists. The expiry display is rendered only after
 the office acknowledgement. A popup helper waits for target destruction when
-it closes the popup. Target destruction does not prove that OS window focus
-has settled: focus assertions also require a window manager on the test display.
+it closes the popup. The raw Chrome launcher disables `OutdatedBuildDetector`
+to prevent Chrome's update bubble from taking focus. On 2026-10-11, that bubble
+caused the background focus failure; adding a window manager did not fix it.
 
 ### Render tests (happy-dom)
 

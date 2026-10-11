@@ -12,6 +12,9 @@ export async function launchRawExtensionChrome(dir: string) {
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-dev-shm-usage",
+        // Suppress the "can't update Chrome" bubble that takes window focus.
+        // Keep disabled features in this one switch; Chrome uses only the last.
+        "--disable-features=OutdatedBuildDetector",
         "--enable-unsafe-extension-debugging",
         "--remote-debugging-port=0",
         "--remote-debugging-address=127.0.0.1",
