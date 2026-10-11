@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 export async function launchRawExtensionChrome(dir: string) {
   let chrome: ReturnType<typeof Bun.spawn> | undefined;
+  // Kept so a launch failure can say why Chrome did not start.
+  const stderrPath = join(dir, "chrome-stderr.log");
   try {
     chrome = Bun.spawn(
       [
@@ -20,7 +22,7 @@ export async function launchRawExtensionChrome(dir: string) {
         "--remote-debugging-address=127.0.0.1",
         "--user-data-dir=" + join(dir, "profile"),
       ],
-      { stdout: "ignore", stderr: "ignore" },
+      { stdout: "ignore", stderr: Bun.file(stderrPath) },
     );
     const portFile = join(dir, "profile", "DevToolsActivePort");
     const launchDeadline = Date.now() + 10_000;
@@ -32,8 +34,14 @@ export async function launchRawExtensionChrome(dir: string) {
           endpoint = "ws://127.0.0.1:" + port + path;
       }
       if (endpoint) break;
-      if (Date.now() >= launchDeadline)
-        throw new Error("Isolated Chrome did not start");
+      if (Date.now() >= launchDeadline || chrome.exitCode !== null) {
+        const stderr = existsSync(stderrPath)
+          ? readFileSync(stderrPath, "utf8").slice(-2000)
+          : "";
+        throw new Error(
+          `Isolated Chrome did not start (exit ${chrome.exitCode ?? "none"}): ${stderr}`,
+        );
+      }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     console.log("Isolated Chrome fixture", {
