@@ -7,7 +7,11 @@ export function browserExtensionTransport(
   agentId: string,
   retainGrant = false,
   target?: string,
-): ConnectOverCDPTransport & { signal: AbortSignal; inputs: number; mouseReleases: number } {
+): ConnectOverCDPTransport & {
+  signal: AbortSignal;
+  inputs: number;
+  mouseReleases: number;
+} {
   let closed = false;
   const controller = new AbortController();
   const transport: ConnectOverCDPTransport & {
@@ -23,10 +27,16 @@ export function browserExtensionTransport(
     send(message) {
       if (closed || !assignment)
         throw new Error("Browser transport is not available");
-      const { method, params } = message as { method?: unknown; params?: { type?: unknown } };
+      const { method, params } = message as {
+        method?: unknown;
+        params?: { type?: unknown };
+      };
       if (typeof method === "string" && method.startsWith("Input."))
         transport.inputs++;
-      if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased")
+      if (
+        method === "Input.dispatchMouseEvent" &&
+        params?.type === "mouseReleased"
+      )
         transport.mouseReleases++;
       void assignment.receive(message);
     },

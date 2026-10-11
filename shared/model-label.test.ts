@@ -98,12 +98,20 @@ describe("showEngineCue", () => {
     expect(showEngineCue("claude", "opus", "header")).toBe(false);
     expect(showEngineCue("codex", "gpt-5.6-sol", "header")).toBe(false);
     expect(
-      showEngineCue("opencode", "opencode/muse-spark-1.2-contributor-free", "header"),
+      showEngineCue(
+        "opencode",
+        "opencode/muse-spark-1.2-contributor-free",
+        "header",
+      ),
     ).toBe(true);
   });
 
   it("keeps both cues for OpenCode ids with engine-like provider prefixes", () => {
-    for (const model of ["gpt-provider/model", "claude-provider/model", "opus"]) {
+    for (const model of [
+      "gpt-provider/model",
+      "claude-provider/model",
+      "opus",
+    ]) {
       for (const surface of ["header", "listing"] as const) {
         expect(showEngineCue("opencode", model, surface)).toBe(true);
       }
@@ -112,7 +120,9 @@ describe("showEngineCue", () => {
 
   it("omits both cues for a Claude composite model", () => {
     for (const surface of ["header", "listing"] as const) {
-      expect(showEngineCue("claude", "anthropic/claude-sonnet-4-6", surface)).toBe(false);
+      expect(
+        showEngineCue("claude", "anthropic/claude-sonnet-4-6", surface),
+      ).toBe(false);
     }
   });
 

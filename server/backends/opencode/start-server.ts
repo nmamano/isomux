@@ -17,7 +17,10 @@ import {
 } from "./process-identity.ts";
 import { lockDarwinFileUntilExit } from "./darwin-libsystem.ts";
 import { openCodeServerHealth } from "./server-health.ts";
-import { OPENCODE_SERVER_USERNAME as username, waitHealthy } from "./server-startup.ts";
+import {
+  OPENCODE_SERVER_USERNAME as username,
+  waitHealthy,
+} from "./server-startup.ts";
 
 interface ServerRecord {
   pid: number;
@@ -206,7 +209,9 @@ for (let attempt = 0; attempt < 40; attempt++) {
   await Promise.all([stdout.close(), stderr.close()]);
   child.unref();
   let identityLostAfterHealth = false;
-  const port = child.pid ? await waitHealthy(child, stdoutPath, password) : null;
+  const port = child.pid
+    ? await waitHealthy(child, stdoutPath, password)
+    : null;
   if (child.pid && port !== null) {
     const startTicks = readProcessStartTicks(child.pid);
     if (startTicks) {

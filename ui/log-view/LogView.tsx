@@ -1889,29 +1889,31 @@ export function LogView({
                 </span>
                 {/* The shared predicate keeps the engine cue consistent with
                     the listing while preserving the Codex header rule. */}
-                {showEngineCue(agent.agentType, agent.modelFamily, "header") && (
-                    <>
-                      <span style={{ color: "var(--text-ghost)" }}>
-                        &middot;
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: "'JetBrains Mono',monospace",
-                          fontSize: 10,
-                          fontWeight: 600,
-                          letterSpacing: 0.5,
-                          textTransform: "uppercase",
-                          color: "var(--accent-text)",
-                          whiteSpace: "nowrap",
-                        }}
-                        title={i18n.t("logView.backendTitle", {
-                          backend: agent.agentType,
-                        })}
-                      >
-                        {agent.agentType}
-                      </span>
-                    </>
-                  )}
+                {showEngineCue(
+                  agent.agentType,
+                  agent.modelFamily,
+                  "header",
+                ) && (
+                  <>
+                    <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+                    <span
+                      style={{
+                        fontFamily: "'JetBrains Mono',monospace",
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: 0.5,
+                        textTransform: "uppercase",
+                        color: "var(--accent-text)",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={i18n.t("logView.backendTitle", {
+                        backend: agent.agentType,
+                      })}
+                    >
+                      {agent.agentType}
+                    </span>
+                  </>
+                )}
               </span>
             </div>
             {STATE_LABEL_KEYS[agent.state] && (

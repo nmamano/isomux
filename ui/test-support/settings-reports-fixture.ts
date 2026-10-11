@@ -1,5 +1,9 @@
 // Shared responses for the settings report layout and cleanup navigation tests.
-export const settingsReportsApi = async (method: string, path: string, body?: unknown) => {
+export const settingsReportsApi = async (
+  method: string,
+  path: string,
+  body?: unknown,
+) => {
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   // Leave usage unloaded: this test exercises the page layout, including its

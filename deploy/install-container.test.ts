@@ -126,9 +126,11 @@ install_caddyfile_transaction() { cp "$1" "$CADDYFILE"; }
   // A killed shell is a harness failure, including in cases that expect the
   // installer to refuse a configuration. A null exit code must not pass those.
   if (result.signalCode) {
-    throw new Error(performance.now() - started >= INSTALL_PROCESS_TIMEOUT_MS
-      ? `installer shell timed out after ${INSTALL_PROCESS_TIMEOUT_MS} ms`
-      : `installer shell terminated by ${result.signalCode}`);
+    throw new Error(
+      performance.now() - started >= INSTALL_PROCESS_TIMEOUT_MS
+        ? `installer shell timed out after ${INSTALL_PROCESS_TIMEOUT_MS} ms`
+        : `installer shell terminated by ${result.signalCode}`,
+    );
   }
   return {
     code: result.exitCode,
@@ -220,44 +222,50 @@ describe("container installer", () => {
     ).not.toBe(0);
   });
 
-  it("installs once, records identity and repairs with the same secret and digest", () => {
-    const dir = fixture();
-    const first = run(dir, "container_main");
-    expect(first).toEqual({ code: 0, out: expect.any(String), err: "" });
-    expect(events(dir).indexOf("container-updater")).toBeGreaterThanOrEqual(0);
-    expect(events(dir).indexOf("container-updater")).toBeLessThan(
-      events(dir).indexOf("systemctl restart isomux-container.service"),
-    );
-    const env = readFileSync(join(dir, "config/office.env"), "utf8");
-    const key = env.match(/ISOMUX_SETUP_KEY=(.+)/)![1];
-    expect(key).toMatch(/^[a-f0-9]{64}$/);
-    expect(first.out + first.err + events(dir)).not.toContain(key);
-    expect(env).toContain(`ISOMUX_IMAGE=${digest}`);
-    expect(readFileSync(join(dir, "config/mount.uuid"), "utf8")).toBe(
-      "fixture-uuid\n",
-    );
-    const second = run(dir, "container_main");
-    expect(second.code).toBe(0);
-    expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
-    expect(events(dir)).toContain(`docker pull ${digest}`);
-    const config = readFileSync(join(dir, "Caddyfile"), "utf8");
-    expect(config).toContain("127.0.0.1:10000");
-    expect(config).not.toContain("127.0.0.1:4000");
-    expect(config).toContain("admin off");
-    expect(config).toContain("respond /__isomux/tls-ask 404");
-    expect(config).toContain("on_demand_tls");
-    expect(config).toContain("isomux-office-access.log");
-    expect(readFileSync(join(dir, "unit"), "utf8")).toContain(
-      "ExecStartPre=/opt/isomux-container/mount-check.sh",
-    );
-    const compose = readFileSync(join(dir, "config/compose.yaml"), "utf8");
-    expect(compose).toContain('restart: "no"');
-    expect(compose).toContain("create_host_path: false");
-    expect(compose).toContain("seccomp=./seccomp/chromium.json");
-    expect(events(dir)).not.toMatch(
-      /host-office|(?:restart|enable) isomux\.service|nodejs|bun install/,
-    );
-  }, INSTALL_CASE_TIMEOUT_MS);
+  it(
+    "installs once, records identity and repairs with the same secret and digest",
+    () => {
+      const dir = fixture();
+      const first = run(dir, "container_main");
+      expect(first).toEqual({ code: 0, out: expect.any(String), err: "" });
+      expect(events(dir).indexOf("container-updater")).toBeGreaterThanOrEqual(
+        0,
+      );
+      expect(events(dir).indexOf("container-updater")).toBeLessThan(
+        events(dir).indexOf("systemctl restart isomux-container.service"),
+      );
+      const env = readFileSync(join(dir, "config/office.env"), "utf8");
+      const key = env.match(/ISOMUX_SETUP_KEY=(.+)/)![1];
+      expect(key).toMatch(/^[a-f0-9]{64}$/);
+      expect(first.out + first.err + events(dir)).not.toContain(key);
+      expect(env).toContain(`ISOMUX_IMAGE=${digest}`);
+      expect(readFileSync(join(dir, "config/mount.uuid"), "utf8")).toBe(
+        "fixture-uuid\n",
+      );
+      const second = run(dir, "container_main");
+      expect(second.code).toBe(0);
+      expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
+      expect(events(dir)).toContain(`docker pull ${digest}`);
+      const config = readFileSync(join(dir, "Caddyfile"), "utf8");
+      expect(config).toContain("127.0.0.1:10000");
+      expect(config).not.toContain("127.0.0.1:4000");
+      expect(config).toContain("admin off");
+      expect(config).toContain("respond /__isomux/tls-ask 404");
+      expect(config).toContain("on_demand_tls");
+      expect(config).toContain("isomux-office-access.log");
+      expect(readFileSync(join(dir, "unit"), "utf8")).toContain(
+        "ExecStartPre=/opt/isomux-container/mount-check.sh",
+      );
+      const compose = readFileSync(join(dir, "config/compose.yaml"), "utf8");
+      expect(compose).toContain('restart: "no"');
+      expect(compose).toContain("create_host_path: false");
+      expect(compose).toContain("seccomp=./seccomp/chromium.json");
+      expect(events(dir)).not.toMatch(
+        /host-office|(?:restart|enable) isomux\.service|nodejs|bun install/,
+      );
+    },
+    INSTALL_CASE_TIMEOUT_MS,
+  );
 
   it("preserves an absent setup key only with a confirmed owner", () => {
     const dir = fixture();
@@ -290,28 +298,38 @@ describe("container installer", () => {
     expect(claimed.out).not.toContain(keyFile);
   }, 20_000);
 
-  it("rejects a changed tag digest before restarting the office", () => {
-    const dir = fixture();
-    expect(run(dir, "container_main").code).toBe(0);
-    writeFileSync(join(dir, "events"), "");
-    writeFileSync(
-      join(dir, "digest"),
-      `ghcr.io/nmamano/isomux@sha256:${"b".repeat(64)}`,
-    );
-    expect(run(dir, "container_main").code).not.toBe(0);
-    expect(events(dir)).not.toContain("restart isomux-container");
-    expect(readFileSync(join(dir, "config/image"), "utf8").trim()).toBe(digest);
-  }, INSTALL_CASE_TIMEOUT_MS);
+  it(
+    "rejects a changed tag digest before restarting the office",
+    () => {
+      const dir = fixture();
+      expect(run(dir, "container_main").code).toBe(0);
+      writeFileSync(join(dir, "events"), "");
+      writeFileSync(
+        join(dir, "digest"),
+        `ghcr.io/nmamano/isomux@sha256:${"b".repeat(64)}`,
+      );
+      expect(run(dir, "container_main").code).not.toBe(0);
+      expect(events(dir)).not.toContain("restart isomux-container");
+      expect(readFileSync(join(dir, "config/image"), "utf8").trim()).toBe(
+        digest,
+      );
+    },
+    INSTALL_CASE_TIMEOUT_MS,
+  );
 
-  it("recovers from service failure without replacing the setup key", () => {
-    const dir = fixture();
-    writeFileSync(join(dir, "fail-start"), "");
-    expect(run(dir, "container_main").code).not.toBe(0);
-    const env = readFileSync(join(dir, "config/office.env"), "utf8");
-    rmSync(join(dir, "fail-start"));
-    expect(run(dir, "container_main").code).toBe(0);
-    expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
-  }, INSTALL_CASE_TIMEOUT_MS);
+  it(
+    "recovers from service failure without replacing the setup key",
+    () => {
+      const dir = fixture();
+      writeFileSync(join(dir, "fail-start"), "");
+      expect(run(dir, "container_main").code).not.toBe(0);
+      const env = readFileSync(join(dir, "config/office.env"), "utf8");
+      rmSync(join(dir, "fail-start"));
+      expect(run(dir, "container_main").code).toBe(0);
+      expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
+    },
+    INSTALL_CASE_TIMEOUT_MS,
+  );
 
   for (const condition of [
     "missing-mount",
@@ -347,50 +365,62 @@ describe("container installer", () => {
     });
   }
 
-  it("accepts the package default but refuses a modified managed Caddyfile", () => {
-    const dir = fixture();
-    writeFileSync(join(dir, "Caddyfile"), ":80 { respond default }\n");
-    writeFileSync(
-      join(dir, "default-caddy"),
-      readFileSync(join(dir, "Caddyfile")),
-    );
-    expect(run(dir, "container_main").code).toBe(0);
-    writeFileSync(
-      join(dir, "Caddyfile"),
-      "# Managed by the isomux installer\nother.example.com { respond private }\n",
-    );
-    writeFileSync(join(dir, "events"), "");
-    expect(run(dir, "container_main").code).not.toBe(0);
-    expect(events(dir)).not.toContain("packages");
-  }, INSTALL_CASE_TIMEOUT_MS);
+  it(
+    "accepts the package default but refuses a modified managed Caddyfile",
+    () => {
+      const dir = fixture();
+      writeFileSync(join(dir, "Caddyfile"), ":80 { respond default }\n");
+      writeFileSync(
+        join(dir, "default-caddy"),
+        readFileSync(join(dir, "Caddyfile")),
+      );
+      expect(run(dir, "container_main").code).toBe(0);
+      writeFileSync(
+        join(dir, "Caddyfile"),
+        "# Managed by the isomux installer\nother.example.com { respond private }\n",
+      );
+      writeFileSync(join(dir, "events"), "");
+      expect(run(dir, "container_main").code).not.toBe(0);
+      expect(events(dir)).not.toContain("packages");
+    },
+    INSTALL_CASE_TIMEOUT_MS,
+  );
 
-  it("refuses a different mount UUID on repair and on unit startup", () => {
-    const dir = fixture();
-    expect(run(dir, "container_main").code).toBe(0);
-    writeFileSync(join(dir, "uuid"), "other-disk\n");
-    writeFileSync(join(dir, "events"), "");
-    expect(run(dir, "container_main").code).not.toBe(0);
-    expect(events(dir)).not.toContain("packages");
-    expect(
-      run(
-        dir,
-        '"$CONTAINER_DIR/mount-check.sh" "$CONTAINER_DATA" "$CONTAINER_DIR/mount.uuid"',
-      ).code,
-    ).not.toBe(0);
-  }, INSTALL_CASE_TIMEOUT_MS);
+  it(
+    "refuses a different mount UUID on repair and on unit startup",
+    () => {
+      const dir = fixture();
+      expect(run(dir, "container_main").code).toBe(0);
+      writeFileSync(join(dir, "uuid"), "other-disk\n");
+      writeFileSync(join(dir, "events"), "");
+      expect(run(dir, "container_main").code).not.toBe(0);
+      expect(events(dir)).not.toContain("packages");
+      expect(
+        run(
+          dir,
+          '"$CONTAINER_DIR/mount-check.sh" "$CONTAINER_DATA" "$CONTAINER_DIR/mount.uuid"',
+        ).code,
+      ).not.toBe(0);
+    },
+    INSTALL_CASE_TIMEOUT_MS,
+  );
 
-  it("does not evaluate shell syntax or expose secrets from saved settings", () => {
-    const dir = fixture();
-    expect(run(dir, "container_main").code).toBe(0);
-    writeFileSync(
-      join(dir, "config/office.env"),
-      `ISOMUX_SETUP_KEY=$(touch ${dir}/executed)\n`,
-    );
-    const result = run(dir, "container_main");
-    expect(result.code).not.toBe(0);
-    expect(existsSync(join(dir, "executed"))).toBe(false);
-    expect(result.out + result.err).not.toContain("$(touch");
-  }, INSTALL_CASE_TIMEOUT_MS);
+  it(
+    "does not evaluate shell syntax or expose secrets from saved settings",
+    () => {
+      const dir = fixture();
+      expect(run(dir, "container_main").code).toBe(0);
+      writeFileSync(
+        join(dir, "config/office.env"),
+        `ISOMUX_SETUP_KEY=$(touch ${dir}/executed)\n`,
+      );
+      const result = run(dir, "container_main");
+      expect(result.code).not.toBe(0);
+      expect(existsSync(join(dir, "executed"))).toBe(false);
+      expect(result.out + result.err).not.toContain("$(touch");
+    },
+    INSTALL_CASE_TIMEOUT_MS,
+  );
 
   it("refuses a conflicting data writer or Compose project", () => {
     const dir = fixture();
@@ -417,16 +447,20 @@ describe("container installer", () => {
     }
   });
 
-  it("repairs a recorded installation interrupted before the unit was written", () => {
-    const dir = fixture();
-    const result = run(dir, "install() { return 1; }; container_main");
-    expect(result.code).not.toBe(0);
-    expect(existsSync(join(dir, "config/release"))).toBe(true);
-    expect(existsSync(join(dir, "unit"))).toBe(false);
-    const env = readFileSync(join(dir, "config/office.env"), "utf8");
-    expect(run(dir, "container_main").code).toBe(0);
-    expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
-  }, INSTALL_CASE_TIMEOUT_MS);
+  it(
+    "repairs a recorded installation interrupted before the unit was written",
+    () => {
+      const dir = fixture();
+      const result = run(dir, "install() { return 1; }; container_main");
+      expect(result.code).not.toBe(0);
+      expect(existsSync(join(dir, "config/release"))).toBe(true);
+      expect(existsSync(join(dir, "unit"))).toBe(false);
+      const env = readFileSync(join(dir, "config/office.env"), "utf8");
+      expect(run(dir, "container_main").code).toBe(0);
+      expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
+    },
+    INSTALL_CASE_TIMEOUT_MS,
+  );
 
   it("checks the mount before every service start", () => {
     const dir = fixture();
@@ -449,22 +483,26 @@ describe("container installer", () => {
     expect(events(dir)).toBe("");
   });
 
-  it("refuses damaged or changed private records before package changes", () => {
-    const dir = fixture();
-    expect(run(dir, "container_main").code).toBe(0);
-    for (const change of [
-      "DOMAIN=other.example.com",
-      "ISOMUX_REF=v2026.9.22",
-    ]) {
+  it(
+    "refuses damaged or changed private records before package changes",
+    () => {
+      const dir = fixture();
+      expect(run(dir, "container_main").code).toBe(0);
+      for (const change of [
+        "DOMAIN=other.example.com",
+        "ISOMUX_REF=v2026.9.22",
+      ]) {
+        writeFileSync(join(dir, "events"), "");
+        expect(run(dir, change + "; container_main").code).not.toBe(0);
+        expect(events(dir)).not.toContain("packages");
+      }
+      writeFileSync(join(dir, "config/compose.yaml"), "custom configuration");
       writeFileSync(join(dir, "events"), "");
-      expect(run(dir, change + "; container_main").code).not.toBe(0);
+      expect(run(dir, "container_main").code).not.toBe(0);
       expect(events(dir)).not.toContain("packages");
-    }
-    writeFileSync(join(dir, "config/compose.yaml"), "custom configuration");
-    writeFileSync(join(dir, "events"), "");
-    expect(run(dir, "container_main").code).not.toBe(0);
-    expect(events(dir)).not.toContain("packages");
-  }, INSTALL_CASE_TIMEOUT_MS);
+    },
+    INSTALL_CASE_TIMEOUT_MS,
+  );
 
   it("installs only host infrastructure packages and restores Caddy on failure", () => {
     const dir = fixture();
@@ -543,63 +581,67 @@ container_install_packages
     expect(run(dir, script).code).toBe(0);
   });
 
-  it("renders a Compose contract the installed CLI accepts", () => {
-    const dir = fixture();
-    expect(run(dir, "container_main").code).toBe(0);
-    const docker = Bun.which("docker");
-    if (!docker) return;
-    const result = Bun.spawnSync(
-      [
-        docker,
-        "compose",
-        "--env-file",
-        "office.env",
-        "-f",
-        "compose.yaml",
-        "config",
-        "--format",
-        "json",
-      ],
-      {
-        cwd: join(dir, "config"),
-        env: { PATH: process.env.PATH, HOME: dir },
-      },
-    );
-    expect(result.exitCode).toBe(0);
-    const service = JSON.parse(result.stdout.toString()).services.office;
-    expect(service.image).toBe(digest);
-    expect(service.ports[0].host_ip).toBe("127.0.0.1");
-    expect(service.ports[0].published).toBe("10000");
-    expect(service.restart).toBe("no");
-    expect(service.volumes[0].source).toBe("/srv/isomux-data");
-    expect(service.volumes[0].target).toBe("/var/data");
-    expect(service.volumes[0].bind.create_host_path ?? false).toBe(false);
-    expect(
-      service.volumes
-        .slice(1)
-        .map(
-          (volume: { source: string; target: string; read_only: boolean }) => [
-            volume.source,
-            volume.target,
-            volume.read_only,
-          ],
+  it(
+    "renders a Compose contract the installed CLI accepts",
+    () => {
+      const dir = fixture();
+      expect(run(dir, "container_main").code).toBe(0);
+      const docker = Bun.which("docker");
+      if (!docker) return;
+      const result = Bun.spawnSync(
+        [
+          docker,
+          "compose",
+          "--env-file",
+          "office.env",
+          "-f",
+          "compose.yaml",
+          "config",
+          "--format",
+          "json",
+        ],
+        {
+          cwd: join(dir, "config"),
+          env: { PATH: process.env.PATH, HOME: dir },
+        },
+      );
+      expect(result.exitCode).toBe(0);
+      const service = JSON.parse(result.stdout.toString()).services.office;
+      expect(service.image).toBe(digest);
+      expect(service.ports[0].host_ip).toBe("127.0.0.1");
+      expect(service.ports[0].published).toBe("10000");
+      expect(service.restart).toBe("no");
+      expect(service.volumes[0].source).toBe("/srv/isomux-data");
+      expect(service.volumes[0].target).toBe("/var/data");
+      expect(service.volumes[0].bind.create_host_path ?? false).toBe(false);
+      expect(
+        service.volumes
+          .slice(1)
+          .map(
+            (volume: {
+              source: string;
+              target: string;
+              read_only: boolean;
+            }) => [volume.source, volume.target, volume.read_only],
+          ),
+      ).toEqual([
+        ["/run/isomux-update", "/run/isomux-update", true],
+        [
+          "/opt/isomux-container/client-update.conf",
+          "/etc/isomux/update.conf",
+          true,
+        ],
+      ]);
+      expect(
+        service.volumes.some((volume: { source: string }) =>
+          volume.source.includes("docker.sock"),
         ),
-    ).toEqual([
-      ["/run/isomux-update", "/run/isomux-update", true],
-      [
-        "/opt/isomux-container/client-update.conf",
-        "/etc/isomux/update.conf",
-        true,
-      ],
-    ]);
-    expect(
-      service.volumes.some((volume: { source: string }) =>
-        volume.source.includes("docker.sock"),
-      ),
-    ).toBe(false);
-    expect(service.security_opt).toEqual(["seccomp=./seccomp/chromium.json"]);
-    expect(service.privileged ?? false).toBe(false);
-  }, INSTALL_CASE_TIMEOUT_MS);
+      ).toBe(false);
+      expect(service.security_opt).toEqual(["seccomp=./seccomp/chromium.json"]);
+      expect(service.privileged ?? false).toBe(false);
+    },
+    INSTALL_CASE_TIMEOUT_MS,
+  );
 
   it("refuses an image from another source revision", () => {
     const dir = fixture();
@@ -627,21 +669,23 @@ container_install_packages
   });
 });
 
-it("updater finalization preserves the installer rerun record contract", () => {
-  const dir = fixture();
-  expect(run(dir, "container_main").code).toBe(0);
-  const updater = readFileSync(
-    new URL("../scripts/update.sh", import.meta.url),
-    "utf8",
-  );
-  const finalize = updater.slice(
-    updater.indexOf("container_finalize() {"),
-    updater.indexOf("# --- Main", updater.indexOf("container_finalize() {")),
-  );
-  const result = run(
-    dir,
-    finalize +
-      `
+it(
+  "updater finalization preserves the installer rerun record contract",
+  () => {
+    const dir = fixture();
+    expect(run(dir, "container_main").code).toBe(0);
+    const updater = readFileSync(
+      new URL("../scripts/update.sh", import.meta.url),
+      "utf8",
+    );
+    const finalize = updater.slice(
+      updater.indexOf("container_finalize() {"),
+      updater.indexOf("# --- Main", updater.indexOf("container_finalize() {")),
+    );
+    const result = run(
+      dir,
+      finalize +
+        `
 CONTAINER_STAGE="$FIXTURE/next"
 container_assets "$CONTAINER_STAGE"
 cp "$CONTAINER_DIR/installer.sha256" "$CONTAINER_STAGE/installer.sha256"
@@ -654,16 +698,18 @@ CONTAINER_REVISION=$target_commit
 CONTAINER_UUID=fixture-uuid
 container_check_saved
 `,
-  );
-  expect(result.code).toBe(0);
-  expect(statSync(join(dir, "config/office.env")).mode & 0o777).toBe(0o600);
-  expect(readFileSync(join(dir, "config/release"), "utf8").trim()).toBe(
-    "v2099.1.2",
-  );
-  expect(readFileSync(join(dir, "config/revision"), "utf8").trim()).toBe(
-    "b".repeat(40),
-  );
-}, INSTALL_CASE_TIMEOUT_MS);
+    );
+    expect(result.code).toBe(0);
+    expect(statSync(join(dir, "config/office.env")).mode & 0o777).toBe(0o600);
+    expect(readFileSync(join(dir, "config/release"), "utf8").trim()).toBe(
+      "v2099.1.2",
+    );
+    expect(readFileSync(join(dir, "config/revision"), "utf8").trim()).toBe(
+      "b".repeat(40),
+    );
+  },
+  INSTALL_CASE_TIMEOUT_MS,
+);
 
 it("other-office guard accepts its container config on retry and refuses host or ambiguous configs", () => {
   const dir = fixture();
@@ -685,14 +731,18 @@ it("other-office guard accepts its container config on retry and refuses host or
   }
 });
 
-it("retries a first install interrupted after writing the container updater config", () => {
-  const dir = fixture();
-  const interrupted = run(
-    dir,
-    `container_start() { return 1; }; container_main`,
-  );
-  expect(interrupted.code).not.toBe(0);
-  expect(existsSync(join(dir, "update.conf"))).toBe(true);
-  expect(existsSync(join(dir, "config"))).toBe(false);
-  expect(run(dir, "container_main").code).toBe(0);
-}, INSTALL_CASE_TIMEOUT_MS);
+it(
+  "retries a first install interrupted after writing the container updater config",
+  () => {
+    const dir = fixture();
+    const interrupted = run(
+      dir,
+      `container_start() { return 1; }; container_main`,
+    );
+    expect(interrupted.code).not.toBe(0);
+    expect(existsSync(join(dir, "update.conf"))).toBe(true);
+    expect(existsSync(join(dir, "config"))).toBe(false);
+    expect(run(dir, "container_main").code).toBe(0);
+  },
+  INSTALL_CASE_TIMEOUT_MS,
+);

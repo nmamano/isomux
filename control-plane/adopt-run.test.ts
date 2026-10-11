@@ -204,7 +204,10 @@ describe("--revoke", () => {
     const store = await open(b);
     const first = run(b, "--revoke");
     expect(first.code).toBe(0);
-    const firstRevocation = await store.activeOperation(b.instanceId, "revoke_access");
+    const firstRevocation = await store.activeOperation(
+      b.instanceId,
+      "revoke_access",
+    );
     expect(firstRevocation).not.toBeNull();
     const second = run(b, "--revoke");
     expect(second.code).toBe(0);

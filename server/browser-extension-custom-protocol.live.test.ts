@@ -14,7 +14,10 @@ import type { Page } from "playwright-core";
 async function startChrome() {
   const dir = mkdtempSync(join(tmpdir(), "isomux-interactions-"));
   const fixture = browserExtensionFixture();
-  console.log("Isolated custom protocol fixture", { profile: join(dir, "profile"), extension: fixture.origin });
+  console.log("Isolated custom protocol fixture", {
+    profile: join(dir, "profile"),
+    extension: fixture.origin,
+  });
   let raw: Awaited<ReturnType<typeof launchRawExtensionChrome>> | undefined;
   try {
     await buildBrowserExtension(join(dir, "extension"));
@@ -200,7 +203,10 @@ for (const stop of ["tab close", "member Off"] as const) {
   // Old helper: 1/5 red; anchor-focus wait: 1/5 red (2026-10-11).
   // Evidence: /tmp/b1019-browser-tests/custom-popup-old-helper-2.log
   // and /tmp/b1019-browser-tests/custom-focus-fixed-3.log.
-  const run = stop === "member Off" ? test.skip : test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1");
+  const run =
+    stop === "member Off"
+      ? test.skip
+      : test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1");
   run(
     `custom-protocol click keeps the same grant; ${stop} releases it`,
     async () => {

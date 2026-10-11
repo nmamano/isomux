@@ -911,19 +911,35 @@ test("Playwright initialization timeout retains the offer while outstanding init
   // reaches the bridge. Real Playwright startup is covered by
   // browser-extension-interactions.live.test.ts through browserExtensionTransport.
   const dispatched = Promise.withResolvers<void>();
-  const connect = spyOn(chromium, "connectOverCDP").mockImplementation(async (wire) => {
-    const transport = wire as import("playwright-core").ConnectOverCDPTransport;
-    let sessionId: string | undefined;
-    transport.onmessage = (message) => {
-      const event = message as { method?: string; params?: { sessionId: string } };
-      if (event.method === "Target.attachedToTarget") sessionId = event.params?.sessionId;
-    };
-    transport.send({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true } });
-    expect(sessionId).toBeString();
-    transport.send({ id: 2, method: "Runtime.enable", params: {}, sessionId });
-    await dispatched.promise;
-    throw new errors.TimeoutError("Initialization timed out");
-  });
+  const connect = spyOn(chromium, "connectOverCDP").mockImplementation(
+    async (wire) => {
+      const transport =
+        wire as import("playwright-core").ConnectOverCDPTransport;
+      let sessionId: string | undefined;
+      transport.onmessage = (message) => {
+        const event = message as {
+          method?: string;
+          params?: { sessionId: string };
+        };
+        if (event.method === "Target.attachedToTarget")
+          sessionId = event.params?.sessionId;
+      };
+      transport.send({
+        id: 1,
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true },
+      });
+      expect(sessionId).toBeString();
+      transport.send({
+        id: 2,
+        method: "Runtime.enable",
+        params: {},
+        sessionId,
+      });
+      await dispatched.promise;
+      throw new errors.TimeoutError("Initialization timed out");
+    },
+  );
   try {
     const { code } = store.pair("member");
     const { credential } = store.redeem(code, origin, () => true);

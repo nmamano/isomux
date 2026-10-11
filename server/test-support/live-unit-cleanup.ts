@@ -237,28 +237,45 @@ function inspectLiveTestResidue(
       // always residue. PID reuse can hide an old leak, but cannot stop another
       // run or create a false failure: this check never removes foreign units.
       if (pid !== null && pid !== owner.pid && owner.isAlive(pid)) continue;
-      const properties = ["ActiveState", "UnitFileState", "ExecStart", "ActiveEnterTimestamp"];
+      const properties = [
+        "ActiveState",
+        "UnitFileState",
+        "ExecStart",
+        "ActiveEnterTimestamp",
+      ];
       const details = host.run([
-        "systemctl", "--user", "show", unit,
+        "systemctl",
+        "--user",
+        "show",
+        unit,
         `--property=${properties.join(",")}`,
       ]);
       if (details.code !== 0) {
-        errors.push(`show ${unit}: exit ${details.code} ${details.stderr.trim()}`);
+        errors.push(
+          `show ${unit}: exit ${details.code} ${details.stderr.trim()}`,
+        );
       }
-      const values = new Map(details.stdout.split("\n").map((line) => {
-        const split = line.indexOf("=");
-        return [line.slice(0, split), line.slice(split + 1)];
-      }));
-      const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-      residue.push([
-        listing,
-        ...properties.map((key) => `${key}=${values.get(key) ?? "(unavailable)"}`),
-        "Manual cleanup:",
-        `systemctl --user stop ${quote(unit)}`,
-        `systemctl --user disable ${quote(unit)}`,
-        `rm -- ${quote(join(host.unitDir, unit))}`,
-        "systemctl --user daemon-reload",
-      ].join("\n"));
+      const values = new Map(
+        details.stdout.split("\n").map((line) => {
+          const split = line.indexOf("=");
+          return [line.slice(0, split), line.slice(split + 1)];
+        }),
+      );
+      const quote = (value: string) =>
+        "'" + value.replaceAll("'", "'\\''") + "'";
+      residue.push(
+        [
+          listing,
+          ...properties.map(
+            (key) => `${key}=${values.get(key) ?? "(unavailable)"}`,
+          ),
+          "Manual cleanup:",
+          `systemctl --user stop ${quote(unit)}`,
+          `systemctl --user disable ${quote(unit)}`,
+          `rm -- ${quote(join(host.unitDir, unit))}`,
+          "systemctl --user daemon-reload",
+        ].join("\n"),
+      );
     } catch (error) {
       errors.push(`inspect ${unit}: ${String(error)}`);
     }

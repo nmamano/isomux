@@ -21,11 +21,15 @@ describe("modelListingLabel", () => {
 
   it("keeps the OpenCode cue for an engine-like provider id", () => {
     for (const model of ["gpt-provider/model", "claude-provider/model"]) {
-      expect(modelListingLabel("opencode", model)).toBe(`${familyDisplayLabel(model)} · opencode`);
+      expect(modelListingLabel("opencode", model)).toBe(
+        `${familyDisplayLabel(model)} · opencode`,
+      );
     }
   });
 
   it("preserves the listing without a cue for a custom Codex model", () => {
-    expect(modelListingLabel("codex", "custom/model")).toBe(familyDisplayLabel("custom/model"));
+    expect(modelListingLabel("codex", "custom/model")).toBe(
+      familyDisplayLabel("custom/model"),
+    );
   });
 });

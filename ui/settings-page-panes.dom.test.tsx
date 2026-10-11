@@ -9,7 +9,8 @@ const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
 
-const { settingsReportsApi: apiShim } = await import("./test-support/settings-reports-fixture.ts");
+const { settingsReportsApi: apiShim } =
+  await import("./test-support/settings-reports-fixture.ts");
 beforeEach(() => setApiShim(apiShim));
 afterAll(() => setApiShim(null));
 

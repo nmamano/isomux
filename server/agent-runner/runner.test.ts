@@ -91,24 +91,36 @@ describe("agent runner spawn", () => {
     const socket = connect({ path: socketPath, allowHalfOpen: true });
     const errors: Error[] = [];
     socket.on("error", (error) => errors.push(error));
-    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    const closed = new Promise<void>((resolve) =>
+      socket.once("close", () => resolve()),
+    );
     const decode = createFrameDecoder();
     const controls: { type: string; code?: number }[] = [];
     socket.on("data", (chunk: Buffer) => {
       for (const frame of decode(chunk)) {
-        if (frame.type === FRAME_JSON) controls.push(JSON.parse(frame.payload.toString()));
+        if (frame.type === FRAME_JSON)
+          controls.push(JSON.parse(frame.payload.toString()));
       }
     });
     const ended = new Promise<void>((resolve) => socket.once("end", resolve));
     try {
       socket.write(encodeJson({ op: "spawn", argv: ["true"] }));
       await ended;
-      expect(controls.some((message) => message.type === "exit" && message.code === 0)).toBe(true);
+      expect(
+        controls.some(
+          (message) => message.type === "exit" && message.code === 0,
+        ),
+      ).toBe(true);
       // The peer has received EOF but still has input in flight. The runner
       // must keep its read side open until this peer closes its write side.
-      const writeError = await new Promise<Error | null | undefined>((resolve) => {
-        socket.write(Buffer.concat(encodeData(FRAME_STDIN, Buffer.alloc(3_000_000))), resolve);
-      });
+      const writeError = await new Promise<Error | null | undefined>(
+        (resolve) => {
+          socket.write(
+            Buffer.concat(encodeData(FRAME_STDIN, Buffer.alloc(3_000_000))),
+            resolve,
+          );
+        },
+      );
       expect(writeError ?? null).toBeNull();
       socket.end();
       await closed;
@@ -123,31 +135,50 @@ describe("agent runner spawn", () => {
     start();
     const socket = connect(socketPath);
     socket.on("error", () => {});
-    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    const closed = new Promise<void>((resolve) =>
+      socket.once("close", () => resolve()),
+    );
     socket.once("end", () => socket.destroy());
     const decode = createFrameDecoder();
     let output = "";
     const controls: { type: string; signal?: string }[] = [];
     socket.on("data", (chunk: Buffer) => {
       for (const frame of decode(chunk)) {
-        if (frame.type === FRAME_JSON) controls.push(JSON.parse(frame.payload.toString()));
+        if (frame.type === FRAME_JSON)
+          controls.push(JSON.parse(frame.payload.toString()));
         if (frame.type === FRAME_STDOUT) output += frame.payload.toString();
       }
     });
     try {
-      socket.write(encodeJson({
-        op: "spawn",
-        argv: ["sh", "-c", "head -c 65536 >/dev/null; echo consumed; exec sleep 30"],
-      }));
+      socket.write(
+        encodeJson({
+          op: "spawn",
+          argv: [
+            "sh",
+            "-c",
+            "head -c 65536 >/dev/null; echo consumed; exec sleep 30",
+          ],
+        }),
+      );
       // One frame is larger than the child's read plus its pipe capacity. Its
       // write callback stays pending until the kill makes that write fail.
-      socket.write(Buffer.concat(encodeData(FRAME_STDIN, Buffer.alloc(1_000_000))));
+      socket.write(
+        Buffer.concat(encodeData(FRAME_STDIN, Buffer.alloc(1_000_000))),
+      );
       expect(await waitFor(() => output === "consumed\n")).toBe(true);
-      expect(controls.some((message) => message.type === "stdin-ack")).toBe(false);
+      expect(controls.some((message) => message.type === "stdin-ack")).toBe(
+        false,
+      );
       socket.write(encodeJson({ type: "signal", signal: "SIGKILL" }));
       await closed;
-      expect(controls.some((message) => message.type === "exit" && message.signal === "SIGKILL")).toBe(true);
-      expect(controls.some((message) => message.type === "stdin-ack")).toBe(false);
+      expect(
+        controls.some(
+          (message) => message.type === "exit" && message.signal === "SIGKILL",
+        ),
+      ).toBe(true);
+      expect(controls.some((message) => message.type === "stdin-ack")).toBe(
+        false,
+      );
     } finally {
       socket.destroy();
       await closed;
@@ -191,43 +222,51 @@ describe("agent runner spawn", () => {
   const STUBBORN =
     '(trap "" TERM; exec sleep 300) </dev/null >/dev/null 2>&1 & echo $!';
 
-  it.each(["end", "destroy"] as const)("stops the whole process group when the server uses %s", async (close) => {
-    start(process.getuid!(), 300);
-    const socket = connect(socketPath);
-    const decode = createFrameDecoder();
-    let childPid = 0;
-    let grandchildPid = 0;
-    try {
-      socket.on("data", (chunk: Buffer) => {
-        for (const frame of decode(chunk)) {
-          if (frame.type === FRAME_JSON) {
-            const message = JSON.parse(frame.payload.toString());
-            if (message.type === "spawned") childPid = message.pid;
-          } else if (frame.type === FRAME_STDOUT)
-            grandchildPid = Number(frame.payload.toString().trim());
-        }
-      });
-      socket.write(
-        encodeJson({ op: "spawn", argv: ["sh", "-c", `${STUBBORN}; wait`] }),
-      );
-      expect(await waitFor(() => childPid > 0 && grandchildPid > 0)).toBe(true);
-      expect([running(childPid), running(grandchildPid)]).toEqual([true, true]);
-      socket[close]();
-      expect(
-        await waitFor(() => !running(childPid) && !running(grandchildPid)),
-      ).toBe(true);
-    } finally {
-      socket.destroy();
-      for (const pid of [childPid, grandchildPid]) {
-        if (!running(pid)) continue;
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // The process may have exited between the check and the signal.
+  it.each(["end", "destroy"] as const)(
+    "stops the whole process group when the server uses %s",
+    async (close) => {
+      start(process.getuid!(), 300);
+      const socket = connect(socketPath);
+      const decode = createFrameDecoder();
+      let childPid = 0;
+      let grandchildPid = 0;
+      try {
+        socket.on("data", (chunk: Buffer) => {
+          for (const frame of decode(chunk)) {
+            if (frame.type === FRAME_JSON) {
+              const message = JSON.parse(frame.payload.toString());
+              if (message.type === "spawned") childPid = message.pid;
+            } else if (frame.type === FRAME_STDOUT)
+              grandchildPid = Number(frame.payload.toString().trim());
+          }
+        });
+        socket.write(
+          encodeJson({ op: "spawn", argv: ["sh", "-c", `${STUBBORN}; wait`] }),
+        );
+        expect(await waitFor(() => childPid > 0 && grandchildPid > 0)).toBe(
+          true,
+        );
+        expect([running(childPid), running(grandchildPid)]).toEqual([
+          true,
+          true,
+        ]);
+        socket[close]();
+        expect(
+          await waitFor(() => !running(childPid) && !running(grandchildPid)),
+        ).toBe(true);
+      } finally {
+        socket.destroy();
+        for (const pid of [childPid, grandchildPid]) {
+          if (!running(pid)) continue;
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            // The process may have exited between the check and the signal.
+          }
         }
       }
-    }
-  });
+    },
+  );
 
   it("stops what the group left behind after its leader exited", async () => {
     start(process.getuid!(), 300);

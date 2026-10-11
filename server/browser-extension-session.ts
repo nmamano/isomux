@@ -82,7 +82,8 @@ const SETTLEMENT_GRACE_MS = 1000;
 const INPUT_RESERVE_MS = 1500;
 const TITLE_RESERVE_MS = 500;
 const MAX_DIALOG_MESSAGE = 2000;
-const PLAYWRIGHT_CLOSED_TARGET = "Target page, context or browser has been closed";
+const PLAYWRIGHT_CLOSED_TARGET =
+  "Target page, context or browser has been closed";
 const notPerformed = (action: "click" | "select", reason: string) =>
   failure(
     "action_failed",
@@ -400,21 +401,29 @@ export class ExtensionBrowserSessions {
       policy = { session, dialogs };
       const timeout = actionMs;
       const page = session.page;
-      const closedTarget = (error: unknown) => error instanceof Error &&
+      const closedTarget = (error: unknown) =>
+        error instanceof Error &&
         error.message.includes(PLAYWRIGHT_CLOSED_TARGET);
-      const waitForClose = (closedPage: Page) => new Promise<boolean>((resolve) => {
-        const onClose = () => { cleanup(); resolve(true); };
-        const timer = setTimeout(() => {
-          cleanup();
-          resolve(false);
-        }, Math.max(1, deadline - performance.now()));
-        const cleanup = () => {
-          clearTimeout(timer);
-          closedPage.off("close", onClose);
-        };
-        closedPage.on("close", onClose);
-        if (closedPage.isClosed()) onClose();
-      });
+      const waitForClose = (closedPage: Page) =>
+        new Promise<boolean>((resolve) => {
+          const onClose = () => {
+            cleanup();
+            resolve(true);
+          };
+          const timer = setTimeout(
+            () => {
+              cleanup();
+              resolve(false);
+            },
+            Math.max(1, deadline - performance.now()),
+          );
+          const cleanup = () => {
+            clearTimeout(timer);
+            closedPage.off("close", onClose);
+          };
+          closedPage.on("close", onClose);
+          if (closedPage.isClosed()) onClose();
+        });
       let mouseReleasesAtClick: number | undefined;
       const frame =
         params.framePath &&
@@ -478,8 +487,11 @@ export class ExtensionBrowserSessions {
           } catch (error) {
             // A self-closing popup can close before Playwright resolves the
             // click. Recover only after mouse-up was handed to the bridge.
-            if (closedTarget(error) && session.transport.mouseReleases > mouseReleasesAtClick) {
-              if (!await waitForClose(page)) throw error;
+            if (
+              closedTarget(error) &&
+              session.transport.mouseReleases > mouseReleasesAtClick
+            ) {
+              if (!(await waitForClose(page))) throw error;
               if (!valid()) return ended();
               if (session.page === page || session.page.isClosed()) throw error;
               break;
@@ -588,8 +600,13 @@ export class ExtensionBrowserSessions {
         try {
           title = await current.title();
         } catch (error) {
-          if (!closedTarget(error) || (params.action === "click" && session.transport.mouseReleases <= mouseReleasesAtClick!)) throw error;
-          if (!await waitForClose(current)) throw error;
+          if (
+            !closedTarget(error) ||
+            (params.action === "click" &&
+              session.transport.mouseReleases <= mouseReleasesAtClick!)
+          )
+            throw error;
+          if (!(await waitForClose(current))) throw error;
           if (!valid()) return ended();
           if (session.page === current) throw error;
           metadataRetry = true;
@@ -600,7 +617,8 @@ export class ExtensionBrowserSessions {
         if (current.isClosed()) {
           await waitForClose(current);
           if (!valid()) return ended();
-          if (session.page === current) throw new Error("Selected browser page closed");
+          if (session.page === current)
+            throw new Error("Selected browser page closed");
           metadataRetry = true;
           continue;
         }

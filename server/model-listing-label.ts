@@ -1,8 +1,5 @@
 import type { AgentInfo } from "../shared/types.ts";
-import {
-  familyDisplayLabel,
-  showEngineCue,
-} from "../shared/types.ts";
+import { familyDisplayLabel, showEngineCue } from "../shared/types.ts";
 
 export function modelListingLabel(
   agentType: AgentInfo["agentType"],

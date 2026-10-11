@@ -33,7 +33,10 @@ export async function launchRawExtensionChrome(dir: string) {
         throw new Error("Isolated Chrome did not start");
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    console.log("Isolated Chrome fixture", { profile: join(dir, "profile"), cdpPort: Number(new URL(endpoint).port) });
+    console.log("Isolated Chrome fixture", {
+      profile: join(dir, "profile"),
+      cdpPort: Number(new URL(endpoint).port),
+    });
     const socket = new WebSocket(endpoint);
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(

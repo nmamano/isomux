@@ -145,7 +145,10 @@ export function runSearchInChild(
     hardTimeoutMs?: number;
     // Tests observe a real child and trigger its deadline after scan entry.
     spawnChild?: typeof spawnChild;
-    scheduleDeadline?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
+    scheduleDeadline?: (
+      callback: () => void,
+      ms: number,
+    ) => ReturnType<typeof setTimeout>;
   } = {},
 ): Promise<SearchOutcome> {
   const admitted = admit(callerKey);

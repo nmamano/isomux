@@ -165,7 +165,9 @@ describe("log search: process isolation", () => {
     rmSync(marker, { force: true });
     // This runs in the real child. A marker before the first bait exec proves
     // the deadline cannot win merely because the child has not started yet.
-    writeFileSync(preload, `
+    writeFileSync(
+      preload,
+      `
       import { writeFileSync } from "fs";
       const exec = RegExp.prototype.exec;
       RegExp.prototype.exec = function (text) {
@@ -175,16 +177,22 @@ describe("log search: process isolation", () => {
         }
         return exec.call(this, text);
       };
-    `);
+    `,
+    );
     let child: Bun.Subprocess<"pipe", "pipe", "inherit"> | undefined;
     let triggerDeadline: (() => void) | undefined;
     let settled = false;
     const pending = runSearchInChild("caller:evil", AGENT, CATASTROPHIC, {
       logsDir: LOGS_DIR,
       spawnChild: (childPath) => {
-        child = Bun.spawn([process.execPath, "run", "--preload", preload, childPath], {
-          stdin: "pipe", stdout: "pipe", stderr: "inherit",
-        });
+        child = Bun.spawn(
+          [process.execPath, "run", "--preload", preload, childPath],
+          {
+            stdin: "pipe",
+            stdout: "pipe",
+            stderr: "inherit",
+          },
+        );
         return child;
       },
       scheduleDeadline: (callback) => {
@@ -198,7 +206,11 @@ describe("log search: process isolation", () => {
     });
     try {
       const setupDeadline = performance.now() + 10_000;
-      while (!existsSync(marker) && !settled && performance.now() < setupDeadline) {
+      while (
+        !existsSync(marker) &&
+        !settled &&
+        performance.now() < setupDeadline
+      ) {
         await Bun.sleep(10);
       }
       expect(existsSync(marker)).toBe(true);
@@ -218,9 +230,14 @@ describe("log search: process isolation", () => {
       expect(performance.now() - started).toBeLessThan(inProcessCostMs / 4);
       await child!.exited;
       expect(child!.signalCode).toBe("SIGKILL");
-      const probe = await runSearchInChild("caller:evil", AGENT, query("q=needle"), {
-        logsDir: LOGS_DIR,
-      });
+      const probe = await runSearchInChild(
+        "caller:evil",
+        AGENT,
+        query("q=needle"),
+        {
+          logsDir: LOGS_DIR,
+        },
+      );
       expect(probe.ok).toBe(true);
     } finally {
       triggerDeadline?.();

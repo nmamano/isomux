@@ -111,20 +111,27 @@ async function response() {
 
 async function appResponse(count?: number, ms = 6000) {
   let last: Awaited<ReturnType<typeof response>> = null;
-  const message = count === undefined
-    ? "app did not answer"
-    : `app did not reach start count ${count}`;
+  const message =
+    count === undefined
+      ? "app did not answer"
+      : `app did not reach start count ${count}`;
   try {
     // Return the sample that proves readiness. A second one-shot request can
     // fail even after this one succeeds, especially while the host is busy.
-    return await until(async () => {
-      last = await response();
-      return last && (count === undefined || last.count === count) ? last : null;
-    }, message, ms);
+    return await until(
+      async () => {
+        last = await response();
+        return last && (count === undefined || last.count === count)
+          ? last
+          : null;
+      },
+      message,
+      ms,
+    );
   } catch (error) {
     throw new Error(
       `${message}; last transport error: ${String(lastResponseError)}; ` +
-      `last response: ${JSON.stringify(last)}; supervisor stderr: ${containerStderr}`,
+        `last response: ${JSON.stringify(last)}; supervisor stderr: ${containerStderr}`,
       { cause: error },
     );
   }

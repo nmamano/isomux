@@ -3,13 +3,15 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, fireEvent, render, within } = await import("@testing-library/react");
+const { act, fireEvent, render, within } =
+  await import("@testing-library/react");
 const { App } = await import("./App.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
 
-const { settingsReportsApi: apiShim } = await import("./test-support/settings-reports-fixture.ts");
+const { settingsReportsApi: apiShim } =
+  await import("./test-support/settings-reports-fixture.ts");
 beforeEach(() => setApiShim(apiShim));
 afterAll(() => setApiShim(null));
 
@@ -25,7 +27,9 @@ describe("Storage cleanup navigation", () => {
     // Restrict the lookup to the named button. Computing accessible names
     // for every button in App dominated this test's cost under load.
     const storage = view.getByText("Storage", { selector: "button" });
-    fireEvent.click(within(storage.parentElement!).getByRole("button", { name: "Storage" }));
+    fireEvent.click(
+      within(storage.parentElement!).getByRole("button", { name: "Storage" }),
+    );
     const content = within(view.getByTestId("settings-content"));
     fireEvent.click(
       content.getByRole("button", { name: "Preview what would be deleted" }),
@@ -38,7 +42,9 @@ describe("Storage cleanup navigation", () => {
     fireEvent.change(content.getByPlaceholderText("Type DELETE to confirm"), {
       target: { value: "DELETE" },
     });
-    fireEvent.click(content.getByRole("button", { name: "Delete permanently" }));
+    fireEvent.click(
+      content.getByRole("button", { name: "Delete permanently" }),
+    );
     const applying = content.getByRole("button", { name: "Deleting…" });
     expect(applying.hasAttribute("disabled")).toBe(true);
 
@@ -60,5 +66,4 @@ describe("Storage cleanup navigation", () => {
     expect(view.getByRole("button", { name: "Leave" })).toBeDefined();
     expect(window.location.pathname).toBe("/settings");
   });
-
 });

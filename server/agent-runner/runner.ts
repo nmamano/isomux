@@ -400,7 +400,8 @@ function pumpStdin(socket: RunnerSocket, child: ChildProcess): void {
     const room = stdin.write(chunk, (error) => {
       // A failed pipe write consumed no input. Do not release more of the
       // client's window while the child is closing.
-      if (!error) send(socket, [encodeJson({ type: "stdin-ack", bytes: chunk.length })]);
+      if (!error)
+        send(socket, [encodeJson({ type: "stdin-ack", bytes: chunk.length })]);
     });
     if (!room) {
       data.stdinBlocked = true;

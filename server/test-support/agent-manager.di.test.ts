@@ -1171,7 +1171,11 @@ describe("AgentManager DI (temp-state isolated)", () => {
       const newKey = `recovered-${apiKey}`;
       const userId = "opencode-recovery-test";
       const requestPaths: string[] = [];
-      const requests: Array<{ path: string; authorization: string | null; status: number }> = [];
+      const requests: Array<{
+        path: string;
+        authorization: string | null;
+        status: number;
+      }> = [];
       const safeErrors: Array<Record<string, unknown>> = [];
       const mock = Bun.serve({
         hostname: "127.0.0.1",
@@ -1190,7 +1194,11 @@ describe("AgentManager DI (temp-state isolated)", () => {
             return new Response("not found", { status: 404 });
           const authorization = request.headers.get("authorization");
           const accepted = authorization === `Bearer ${newKey}`;
-          requests.push({ path: url.pathname, authorization, status: accepted ? 200 : 401 });
+          requests.push({
+            path: url.pathname,
+            authorization,
+            status: accepted ? 200 : 401,
+          });
           if (!accepted) {
             return Response.json(
               {
@@ -1300,11 +1308,14 @@ describe("AgentManager DI (temp-state isolated)", () => {
       // This profile config is separate from the supervisor's managed config.
       const configDir = join(profile.configHome, "opencode");
       mkdirSync(configDir, { recursive: true });
-      writeFileSync(join(configDir, "opencode.json"), JSON.stringify({
-        model: "openai/gpt-4o",
-        small_model: "openai/gpt-4o",
-        enabled_providers: ["openai"],
-      }));
+      writeFileSync(
+        join(configDir, "opencode.json"),
+        JSON.stringify({
+          model: "openai/gpt-4o",
+          small_model: "openai/gpt-4o",
+          enabled_providers: ["openai"],
+        }),
+      );
       const supervisor = openCodeSupervisorForEnvironment(
         environmentKey,
         buildEnvForUserId(userId),
@@ -1343,7 +1354,8 @@ describe("AgentManager DI (temp-state isolated)", () => {
         await measure("server teardown", () => supervisor.shutdown());
         await mock.stop(true);
         removeManagedUserEnv(userId);
-        for (const pid of startedPids) expect(processIsRunning(pid), "fixture server stopped").toBe(false);
+        for (const pid of startedPids)
+          expect(processIsRunning(pid), "fixture server stopped").toBe(false);
       });
       try {
         lease = await measure("server start", () => supervisor.acquire());
@@ -1361,18 +1373,28 @@ describe("AgentManager DI (temp-state isolated)", () => {
           },
         };
         const isGuidance = (entry: { kind: string; content: string }) =>
-          entry.kind === "system" && entry.content.includes("OPENCODE_API_KEY") &&
-          /connections/i.test(entry.content) && entry.content.includes("/clear");
+          entry.kind === "system" &&
+          entry.content.includes("OPENCODE_API_KEY") &&
+          /connections/i.test(entry.content) &&
+          entry.content.includes("/clear");
         const guidanceLogged = Promise.withResolvers<void>();
         let settled = Promise.withResolvers<void>();
         const expectedAgent = { id: "" };
         const mgr = createAgentManager({
           eventSink: (event) => {
-            if (event.type === "log_entry" && event.entry.agentId === expectedAgent.id && isGuidance(event.entry)) {
+            if (
+              event.type === "log_entry" &&
+              event.entry.agentId === expectedAgent.id &&
+              isGuidance(event.entry)
+            ) {
               guidanceLogged.resolve();
             }
-            if (event.type === "agent_updated" && event.agentId === expectedAgent.id &&
-                (event.changes.state === "waiting_for_response" || event.changes.state === "error")) {
+            if (
+              event.type === "agent_updated" &&
+              event.agentId === expectedAgent.id &&
+              (event.changes.state === "waiting_for_response" ||
+                event.changes.state === "error")
+            ) {
               settled.resolve();
             }
           },
@@ -1413,9 +1435,15 @@ describe("AgentManager DI (temp-state isolated)", () => {
           await Promise.race([
             guidanceLogged.promise,
             new Promise<never>((_resolve, reject) => {
-              guidanceDeadline = setTimeout(() => reject(new Error(
-                "Connections guidance never arrived after the auth-failed turn settled",
-              )), 5000);
+              guidanceDeadline = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      "Connections guidance never arrived after the auth-failed turn settled",
+                    ),
+                  ),
+                5000,
+              );
             }),
           ]);
         } finally {
@@ -1430,7 +1458,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
           }),
         );
         const logs = mgr.getAgentLogs(info!.id);
-        expect(logs.some(isGuidance), "system guidance names the key, Connections and /clear").toBe(true);
+        expect(
+          logs.some(isGuidance),
+          "system guidance names the key, Connections and /clear",
+        ).toBe(true);
         expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(
           false,
         );
@@ -1443,17 +1474,35 @@ describe("AgentManager DI (temp-state isolated)", () => {
         );
         expect(await Bun.file(globalAuth).exists()).toBe(false);
         await Promise.allSettled(topicCalls);
-        expect(topicCalls.length, "the initial topic call also reached the local provider").toBeGreaterThan(0);
-        expect(safeErrors, "one rejected-key error from the turn and one from topic generation").toHaveLength(2);
+        expect(
+          topicCalls.length,
+          "the initial topic call also reached the local provider",
+        ).toBeGreaterThan(0);
+        expect(
+          safeErrors,
+          "one rejected-key error from the turn and one from topic generation",
+        ).toHaveLength(2);
         expect(requestPaths).toContain("/v1/responses");
-        expect(safeErrors.every((error) => error.statusCode === 401), "only rejected-key errors before recovery").toBe(true);
+        expect(
+          safeErrors.every((error) => error.statusCode === 401),
+          "only rejected-key errors before recovery",
+        ).toBe(true);
         const authErrorCount = safeErrors.length;
         const initialTopicCount = topicCalls.length;
         expect(requests.length).toBeGreaterThan(0);
-        expect(requests.every((request) => request.authorization === `Bearer ${apiKey}` && request.status === 401),
-          "the original key was rejected before recovery").toBe(true);
+        expect(
+          requests.every(
+            (request) =>
+              request.authorization === `Bearer ${apiKey}` &&
+              request.status === 401,
+          ),
+          "the original key was rejected before recovery",
+        ).toBe(true);
         expect(mgr.getAgent(info!.id)?.state).toBe("waiting_for_response");
-        expect(JSON.stringify(logs).includes(apiKey), "guidance logs exclude the provider key").toBe(false);
+        expect(
+          JSON.stringify(logs).includes(apiKey),
+          "guidance logs exclude the provider key",
+        ).toBe(false);
 
         writeManagedUserEnv(userId, { ...env, OPENAI_API_KEY: newKey });
         expect(environmentSourceKeyForUserId(userId)).toBe(environmentKey);
@@ -1468,43 +1517,81 @@ describe("AgentManager DI (temp-state isolated)", () => {
         startedPids.add(lease.pid);
         // Distinguish a turn that never reached the mock from a stale key.
         const recoveryRequests = requests.slice(beforeRecovery);
-        const recoveryCause = (mgr.getAgentLogs(info!.id)
-          .filter((entry) => entry.kind === "error" || entry.kind === "system")
-          .at(-1)?.content ?? "No recovery error or system entry")
+        const recoveryCause = (
+          mgr
+            .getAgentLogs(info!.id)
+            .filter(
+              (entry) => entry.kind === "error" || entry.kind === "system",
+            )
+            .at(-1)?.content ?? "No recovery error or system entry"
+        )
           .replaceAll(newKey, "[REDACTED]")
           .replaceAll(apiKey, "[REDACTED]");
-        expect(recoveryRequests.length,
+        expect(
+          recoveryRequests.length,
           `No provider request arrived after /clear. Last recovery error/system entry: ${recoveryCause}`,
         ).toBeGreaterThan(0);
         // An env-revision mutant sends another 401 and fails here.
-        expect(recoveryRequests.some((request) =>
-          request.authorization === `Bearer ${newKey}` && request.status === 200),
-          "recovery provider request uses the new managed key").toBe(true);
-        expect(mgr.getAgentLogs(info!.id).some((entry) =>
-          entry.kind === "text" && entry.content === "Recovered after login."),
-          "a real provider reply arrives after /clear").toBe(true);
+        expect(
+          recoveryRequests.some(
+            (request) =>
+              request.authorization === `Bearer ${newKey}` &&
+              request.status === 200,
+          ),
+          "recovery provider request uses the new managed key",
+        ).toBe(true);
+        expect(
+          mgr
+            .getAgentLogs(info!.id)
+            .some(
+              (entry) =>
+                entry.kind === "text" &&
+                entry.content === "Recovered after login.",
+            ),
+          "a real provider reply arrives after /clear",
+        ).toBe(true);
         expect(lease.pid).not.toBe(firstPid);
         expect(processIsRunning(firstPid)).toBe(false);
         expect(supervisor.profileDir).toBe(profile.profileDir);
-        const recoveryTopics = await Promise.allSettled(topicCalls.slice(initialTopicCount));
-        expect(recoveryTopics.length, "recovery also exercises topic generation").toBeGreaterThan(0);
-        expect(recoveryTopics.every((result) => result.status === "fulfilled"), "recovery topic calls succeed").toBe(true);
+        const recoveryTopics = await Promise.allSettled(
+          topicCalls.slice(initialTopicCount),
+        );
+        expect(
+          recoveryTopics.length,
+          "recovery also exercises topic generation",
+        ).toBeGreaterThan(0);
+        expect(
+          recoveryTopics.every((result) => result.status === "fulfilled"),
+          "recovery topic calls succeed",
+        ).toBe(true);
         expect(safeErrors).toHaveLength(authErrorCount);
-        console.info("OpenCode recovery mock requests", JSON.stringify(
-          requestPaths.reduce<Record<string, number>>((counts, path) => {
-            counts[path] = (counts[path] ?? 0) + 1;
-            return counts;
-          }, {}),
-        ));
-        expect(requestPaths.every((path) => path === "/v1/models" || path === "/v1/responses"),
-          "all provider requests use the local mock protocol").toBe(true);
+        console.info(
+          "OpenCode recovery mock requests",
+          JSON.stringify(
+            requestPaths.reduce<Record<string, number>>((counts, path) => {
+              counts[path] = (counts[path] ?? 0) + 1;
+              return counts;
+            }, {}),
+          ),
+        );
+        expect(
+          requestPaths.every(
+            (path) => path === "/v1/models" || path === "/v1/responses",
+          ),
+          "all provider requests use the local mock protocol",
+        ).toBe(true);
         const serialized = JSON.stringify(mgr.getAgentLogs(info!.id));
-        expect(serialized.includes(apiKey), "recovery logs exclude provider keys").toBe(false);
+        expect(
+          serialized.includes(apiKey),
+          "recovery logs exclude provider keys",
+        ).toBe(false);
         let scannedFiles = 0;
         for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
           scannedFiles++;
-          expect((await Bun.file(join(STATE_ROOT, path)).text()).includes(apiKey),
-            "persisted logs exclude provider keys").toBe(false);
+          expect(
+            (await Bun.file(join(STATE_ROOT, path)).text()).includes(apiKey),
+            "persisted logs exclude provider keys",
+          ).toBe(false);
         }
         expect(
           scannedFiles,

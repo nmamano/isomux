@@ -10,14 +10,35 @@ export async function openExtensionActionPopup(
   context: BrowserContext,
 ) {
   await cdp.send("Target.setDiscoverTargets", { discover: true });
-  const worker = context.serviceWorkers().find((worker) => worker.url().startsWith(`chrome-extension://${extensionId}/`))
-    ?? await context.waitForEvent("serviceworker", { predicate: (worker) => worker.url().startsWith(`chrome-extension://${extensionId}/`) });
-  const windowClients = () => worker.evaluate(async () => {
-    const clients = (self as unknown as { clients: { matchAll(options: { includeUncontrolled: boolean; type: string }): Promise<{ id: string; url: string; visibilityState: string }[]> } }).clients;
-    return (await clients.matchAll({ includeUncontrolled: true, type: "window" }))
-      .map(({ id, url, visibilityState }) => ({ id, url, visibilityState }));
-  });
-  const beforeClients = new Set((await windowClients()).map((client) => client.id));
+  const worker =
+    context
+      .serviceWorkers()
+      .find((worker) =>
+        worker.url().startsWith(`chrome-extension://${extensionId}/`),
+      ) ??
+    (await context.waitForEvent("serviceworker", {
+      predicate: (worker) =>
+        worker.url().startsWith(`chrome-extension://${extensionId}/`),
+    }));
+  const windowClients = () =>
+    worker.evaluate(async () => {
+      const clients = (
+        self as unknown as {
+          clients: {
+            matchAll(options: {
+              includeUncontrolled: boolean;
+              type: string;
+            }): Promise<{ id: string; url: string; visibilityState: string }[]>;
+          };
+        }
+      ).clients;
+      return (
+        await clients.matchAll({ includeUncontrolled: true, type: "window" })
+      ).map(({ id, url, visibilityState }) => ({ id, url, visibilityState }));
+    });
+  const beforeClients = new Set(
+    (await windowClients()).map((client) => client.id),
+  );
   const exactURL = `chrome-extension://${extensionId}/connection.html`;
   const before = new Set(
     (await cdp.send("Target.getTargets")).targetInfos.map((t) => t.targetId),
@@ -60,13 +81,28 @@ export async function openExtensionActionPopup(
   // attach marks it as inspected and causes Chrome to open a DevTools window.
   // Observe the new popup from its service worker without attaching to it.
   const visibleDeadline = Date.now() + 5000;
-  while (!(await windowClients()).some((client) => !beforeClients.has(client.id) && client.url === exactURL && client.visibilityState === "visible")) {
-    if (Date.now() >= visibleDeadline) throw new Error("Native action popup was not shown");
+  while (
+    !(await windowClients()).some(
+      (client) =>
+        !beforeClients.has(client.id) &&
+        client.url === exactURL &&
+        client.visibilityState === "visible",
+    )
+  ) {
+    if (Date.now() >= visibleDeadline)
+      throw new Error("Native action popup was not shown");
     await Bun.sleep(50);
   }
   let unexpectedDevTools = false;
-  const watchDevTools = ({ targetInfo }: { targetInfo: { targetId: string; url: string } }) => {
-    if (!before.has(targetInfo.targetId) && targetInfo.url.startsWith("devtools://"))
+  const watchDevTools = ({
+    targetInfo,
+  }: {
+    targetInfo: { targetId: string; url: string };
+  }) => {
+    if (
+      !before.has(targetInfo.targetId) &&
+      targetInfo.url.startsWith("devtools://")
+    )
       unexpectedDevTools = true;
   };
   cdp.on("Target.targetCreated", watchDevTools);
@@ -134,7 +170,16 @@ export async function openExtensionActionPopup(
         .catch((error: Error) => {
           pending.delete(id);
           clearTimeout(timer);
-          reject(new Error("Popup test transport closed (" + method + ", command " + id + "): " + error.message));
+          reject(
+            new Error(
+              "Popup test transport closed (" +
+                method +
+                ", command " +
+                id +
+                "): " +
+                error.message,
+            ),
+          );
         });
     });
   const read = async <T>(expression: string): Promise<T> => {
@@ -186,7 +231,8 @@ export async function openExtensionActionPopup(
   await waitFor('!!document.querySelector("#status")?.dataset.state');
   for (const targetInfo of (await cdp.send("Target.getTargets")).targetInfos)
     watchDevTools({ targetInfo });
-  if (unexpectedDevTools) throw new Error("Popup driver opened an unexpected DevTools window");
+  if (unexpectedDevTools)
+    throw new Error("Popup driver opened an unexpected DevTools window");
   return {
     read,
     waitFor,
@@ -230,7 +276,10 @@ export async function openExtensionActionPopup(
         if (event.targetId === targetId) destroyed.resolve();
       };
       cdp.on("Target.targetDestroyed", onDestroyed);
-      const timeout = setTimeout(() => destroyed.reject(new Error("Popup did not close")), 5000);
+      const timeout = setTimeout(
+        () => destroyed.reject(new Error("Popup did not close")),
+        5000,
+      );
       try {
         const targets = await cdp.send("Target.getTargets");
         if (!targets.targetInfos.some((target) => target.targetId === targetId))
@@ -246,7 +295,8 @@ export async function openExtensionActionPopup(
         cdp.off("Target.targetCreated", watchDevTools);
         cdp.off("Target.targetInfoChanged", watchDevTools);
       }
-      if (unexpectedDevTools) throw new Error("Popup driver opened an unexpected DevTools window");
+      if (unexpectedDevTools)
+        throw new Error("Popup driver opened an unexpected DevTools window");
     },
   };
 }

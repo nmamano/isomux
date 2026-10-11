@@ -136,7 +136,12 @@ test.skip("owned background roots and popups click without activating tabs and d
     const offeredTarget = (await offeredCDP.send("Target.getTargetInfo"))
       .targetInfo.targetId;
     await offeredCDP.detach();
-    const popup = await openExtensionActionPopup(admin, id, offeredTarget, setup);
+    const popup = await openExtensionActionPopup(
+      admin,
+      id,
+      offeredTarget,
+      setup,
+    );
     await popup.waitFor('!document.querySelector("#allow").disabled');
     await popup.click("#allow");
     await popup.waitFor(

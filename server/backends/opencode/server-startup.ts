@@ -41,11 +41,21 @@ export async function waitHealthy(
       if (clock.now() >= deadline) return null;
       if (port !== null) {
         process.kill(child.pid, 0);
-        const response = await clock.fetch(`http://127.0.0.1:${port}/global/health`, {
-          headers: { authorization: `Basic ${btoa(`${OPENCODE_SERVER_USERNAME}:${password}`)}` },
-          signal: AbortSignal.timeout(Math.max(1, Math.min(300, deadline - clock.now()))),
-        });
-        const body = (await response.json()) as { healthy?: boolean; version?: string };
+        const response = await clock.fetch(
+          `http://127.0.0.1:${port}/global/health`,
+          {
+            headers: {
+              authorization: `Basic ${btoa(`${OPENCODE_SERVER_USERNAME}:${password}`)}`,
+            },
+            signal: AbortSignal.timeout(
+              Math.max(1, Math.min(300, deadline - clock.now())),
+            ),
+          },
+        );
+        const body = (await response.json()) as {
+          healthy?: boolean;
+          version?: string;
+        };
         if (response.ok && body.healthy) {
           // This child cannot change version while we wait.
           if (body.version !== OPENCODE_CLI_VERSION) return null;

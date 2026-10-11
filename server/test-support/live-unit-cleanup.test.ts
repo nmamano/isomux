@@ -248,9 +248,11 @@ describe("live-test janitor: everything runs, everything is reported", () => {
   });
 });
 
-
 describe("live-test namespace check", () => {
-  const owner = { pid: 123, isAlive: (pid: number) => pid === 123 || pid === 456 };
+  const owner = {
+    pid: 123,
+    isAlive: (pid: number) => pid === 123 || pid === 456,
+  };
   const oldUnit = "isomux-app-test-.live-789-probe.service";
   const liveUnit = "isomux-app-test-.live-456-probe.service";
   const ownUnit = "isomux-app-test-.live-123-probe.service";
@@ -263,7 +265,10 @@ describe("live-test namespace check", () => {
         return { stdout: units.filter((unit) => glob.match(unit)).join("\n") };
       }
       if (argv[2] === "show" && argv[3] !== "--property=Version") {
-        return { stdout: "ActiveState=active\nUnitFileState=enabled\nExecStart={ path=/bin/sleep ; argv[]=/bin/sleep 60 ; }\nActiveEnterTimestamp=Thu 2026-08-06 12:40:43 UTC\n" };
+        return {
+          stdout:
+            "ActiveState=active\nUnitFileState=enabled\nExecStart={ path=/bin/sleep ; argv[]=/bin/sleep 60 ; }\nActiveEnterTimestamp=Thu 2026-08-06 12:40:43 UTC\n",
+        };
       }
       return missingUnit(argv);
     });
@@ -276,14 +281,24 @@ describe("live-test namespace check", () => {
       expect(start.errors).toEqual([]);
       expect(start.residue).toHaveLength(1);
       expect(cleanupFailure(start)).not.toBeNull();
-      for (const value of [oldUnit, "ActiveState=active", "UnitFileState=enabled", "ExecStart=", "ActiveEnterTimestamp="]) {
+      for (const value of [
+        oldUnit,
+        "ActiveState=active",
+        "UnitFileState=enabled",
+        "ExecStart=",
+        "ActiveEnterTimestamp=",
+      ]) {
         expect(start.residue[0]).toContain(value);
       }
       expect(host.removed).toEqual([]);
       expect(verbs(host)).not.toContain("stop");
       const end = cleanupLiveTestUnit(host, PATHS, CLEAN_PROBE, owner);
       expect(end.residue).toEqual(start.residue);
-      expect(host.removed).toEqual([PATHS.unitFile, PATHS.enableSymlink, PATHS.launcher]);
+      expect(host.removed).toEqual([
+        PATHS.unitFile,
+        PATHS.enableSymlink,
+        PATHS.launcher,
+      ]);
       for (const argv of host.runs) {
         if (["stop", "disable", "kill", "reset-failed"].includes(argv[2])) {
           expect(argv.at(-1)).toBe(PATHS.unit);
@@ -294,20 +309,31 @@ describe("live-test namespace check", () => {
 
   it("leaves a concurrent live owner's unit alone", () => {
     const host = namespaceHost([liveUnit]);
-    expect(checkLiveTestResidue(host, owner)).toEqual({ errors: [], residue: [] });
+    expect(checkLiveTestResidue(host, owner)).toEqual({
+      errors: [],
+      residue: [],
+    });
     expect(host.removed).toEqual([]);
     expect(verbs(host)).not.toContain("stop");
   });
 
   it("does not inspect a real office's digest namespace", () => {
     const host = namespaceHost([officeUnit]);
-    expect(checkLiveTestResidue(host, owner)).toEqual({ errors: [], residue: [] });
+    expect(checkLiveTestResidue(host, owner)).toEqual({
+      errors: [],
+      residue: [],
+    });
     expect(host.runs.some((argv) => argv.includes(officeUnit))).toBe(false);
   });
 
   it("reports our own surviving unit even while our PID is alive", () => {
     const host = namespaceHost([ownUnit]);
-    const ownPaths = { ...PATHS, unit: ownUnit, unitFile: `/units/${ownUnit}`, enableSymlink: `/units/default.target.wants/${ownUnit}` };
+    const ownPaths = {
+      ...PATHS,
+      unit: ownUnit,
+      unitFile: `/units/${ownUnit}`,
+      enableSymlink: `/units/default.target.wants/${ownUnit}`,
+    };
     const end = cleanupLiveTestUnit(host, ownPaths, CLEAN_PROBE, owner);
     expect(end.residue).toHaveLength(1);
     expect(end.residue[0]).toContain(ownUnit);
@@ -315,7 +341,10 @@ describe("live-test namespace check", () => {
   });
 
   it("refuses to start when the bus cannot be reached", () => {
-    const host = fakeHost(() => ({ code: 1, stderr: "Failed to connect to bus" }));
+    const host = fakeHost(() => ({
+      code: 1,
+      stderr: "Failed to connect to bus",
+    }));
     const start = checkLiveTestResidue(host, owner);
     expect(cleanupFailure(start)).not.toBeNull();
     expect(verbs(host)).toEqual(["show"]);
