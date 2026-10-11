@@ -87,9 +87,13 @@ export interface LobbySceneProps {
   onOpenCronjobs?: () => void;
 }
 
+// One shared empty list: a fresh `[]` default per render reads as a presence
+// change in useGhostTransitions and re-renders forever.
+const NO_PRESENCES: PresenceInfo[] = [];
+
 export function LobbyScene({
   rooms,
-  presences = [],
+  presences = NO_PRESENCES,
   ownConnectionId = null,
   onMoveGhost,
   onOpenUser,
