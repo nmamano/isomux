@@ -4,12 +4,13 @@
 // richer onboarding / projection flows are Phase 1; this is the smoke that
 // proves the harness itself works.
 import { describe, it, expect, afterEach } from "bun:test";
-import { existsSync, readFileSync } from "fs";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { expectRejection } from "./expect-rejection.ts";
 import { STATE_ROOT } from "../config.ts";
+import { OFFICE_DATABASE, officeAuditStore } from "../audit-store.ts";
 
 let server: TestServer | null = null;
 
@@ -135,5 +136,60 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
   it("refuses a second concurrent harness (single-instance-per-process)", async () => {
     server = await startTestServer();
     await expectRejection(startTestServer(), /already active/);
+  });
+});
+
+describe("the office database across fresh boots", () => {
+  const officeFile = () => join(STATE_ROOT, OFFICE_DATABASE);
+  const auditWrite = {
+    actor: { kind: "member" as const, id: "member-1", name: "Member" },
+    operation: "tasks.create",
+    targets: ["task-1"],
+    fields: [],
+  };
+
+  it("starts empty in the same file, so a boot creates no new database", async () => {
+    server = await startTestServer();
+    const store = officeAuditStore();
+    store.append(auditWrite);
+    store.db.query("INSERT INTO tasks(id, record) VALUES ('task-1', '{}')").run();
+    const fd = openSync(officeFile(), "r");
+    await server.stop();
+
+    try {
+      server = await startTestServer();
+      // Still linked: the boot reused the file instead of replacing it.
+      expect(fstatSync(fd).nlink).toBe(1);
+    } finally {
+      closeSync(fd);
+    }
+    const { db, list, append } = officeAuditStore();
+    expect(db.query("SELECT * FROM tasks").all()).toHaveLength(0);
+    expect(list().items).toHaveLength(0);
+    expect(db.query("SELECT * FROM audit_targets").all()).toHaveLength(0);
+    // A new file numbers its first entry 1; an emptied one must too.
+    expect(append(auditWrite)).toBe(1);
+  });
+
+  it("is a new file when a test changed its schema", async () => {
+    server = await startTestServer();
+    officeAuditStore().db.exec(
+      "CREATE TRIGGER audit_fail BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+    );
+    const fd = openSync(officeFile(), "r");
+    await server.stop();
+
+    try {
+      server = await startTestServer();
+      expect(fstatSync(fd).nlink).toBe(0);
+    } finally {
+      closeSync(fd);
+    }
+    expect(
+      officeAuditStore()
+        .db.query("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+        .all(),
+    ).toHaveLength(0);
+    expect(officeAuditStore().append(auditWrite)).toBe(1);
   });
 });

@@ -10,13 +10,15 @@
 // active; stop() releases the lock. Fine for the T1 tier, which runs serially.
 //
 // Not imported by any production path.
-import { mkdirSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "fs";
+import { join } from "path";
 import {
   startServer,
   type ServerHandle,
   type StartServerOpts,
 } from "../isomux-office.ts";
 import { STATE_ROOT } from "../config.ts";
+import { OFFICE_DATABASE, officeAuditStore } from "../audit-store.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import {
   createFakeAppSupervisor,
@@ -123,6 +125,46 @@ const unavailableAccountClient = () =>
 // Process-global single-instance guard (see file header).
 let activeHarness = false;
 
+// The office database's schema as a boot creates it, recorded once per
+// process. A new office.sqlite costs six fsyncs, and one per test slowed the
+// Postgres governance suites toward their test timeout (task 771856ca), so a
+// wipe empties a database that still has this schema instead of deleting it.
+let freshOfficeSchema: string | undefined;
+
+function officeSchema(): string {
+  const { db } = officeAuditStore();
+  return JSON.stringify([
+    db.query("PRAGMA user_version").get(),
+    db
+      .query("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY name")
+      .all(),
+  ]);
+}
+
+// True when the office database had the fresh schema and is now empty;
+// false, with nothing changed, otherwise.
+function emptyOfficeDatabase(): boolean {
+  if (
+    freshOfficeSchema === undefined ||
+    !existsSync(join(STATE_ROOT, OFFICE_DATABASE))
+  )
+    return false;
+  try {
+    if (officeSchema() !== freshOfficeSchema) return false;
+    const { db } = officeAuditStore();
+    const tables = db
+      .query("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all() as { name: string }[];
+    db.transaction(() => {
+      db.exec("PRAGMA defer_foreign_keys = ON");
+      for (const { name } of tables) db.exec(`DELETE FROM "${name}"`);
+    })();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function startTestServer(
   opts: StartTestServerOpts = {},
 ): Promise<TestServer> {
@@ -159,8 +201,15 @@ async function bootTestServer(
     if (wipe) {
       // Clean slate per boot: wipe + recreate STATE_ROOT so each fresh harness
       // server starts empty. restart() skips this to preserve on-disk state.
-      removeStateDir(STATE_ROOT);
-      mkdirSync(STATE_ROOT, { recursive: true });
+      if (emptyOfficeDatabase()) {
+        const kept = ["", "-wal", "-shm"].map((end) => OFFICE_DATABASE + end);
+        for (const entry of readdirSync(STATE_ROOT))
+          if (!kept.includes(entry))
+            removeStateDir(join(STATE_ROOT, entry));
+      } else {
+        removeStateDir(STATE_ROOT);
+        mkdirSync(STATE_ROOT, { recursive: true });
+      }
       _testResetOwnerClaimedInThisProcess();
     }
     // Reset the module caches that lazy-load from STATE_ROOT - ALWAYS, even on a
@@ -237,6 +286,13 @@ async function bootTestServer(
       }),
       ...opts.startServer,
     });
+
+    if (
+      wipe &&
+      freshOfficeSchema === undefined &&
+      existsSync(join(STATE_ROOT, OFFICE_DATABASE))
+    )
+      freshOfficeSchema = officeSchema();
 
     const baseUrl = `http://127.0.0.1:${handle.port}`;
     const sockets: TestSocket[] = [];
