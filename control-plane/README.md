@@ -2503,10 +2503,12 @@ does not remove their journal entries. `docker logs` and `docker compose logs`
 still read the current containers. Use `journalctl` by tag to read across deploys.
 The reader needs root or membership in `systemd-journal` or `adm`.
 
-Retention belongs to the host journal, not Compose. Checked 2026-10-10: the
+Retention belongs to the host journal, not Compose. Checked 2026-10-11: the
 deployed host has persistent storage, `MaxRetentionSec=7day`,
-`SystemMaxUse=1G`, and `RuntimeMaxUse=100M`. It keeps up to seven days, fewer
-if the host journal reaches 1 GiB first. These limits cover all host services.
+`MaxFileSec=1day`, `SystemMaxUse=1G`, and `RuntimeMaxUse=100M`. Journald
+deletes whole files, so without `MaxFileSec` one file can span the whole week
+and go at once. With daily files it keeps about a week and drops one day at a
+time, less if the host journal reaches 1 GiB first. These limits cover all host services.
 The deployment script does not change journal settings or reader access.
 
 The host layout, with the defaults that `ISOMUX_HOSTED_PROJECT`,
