@@ -1,6 +1,6 @@
 # Slice loop: the server gets its own OS user
 
-Board task 01f5038c. Worktree `loop-os-user` (`~/nil/isomux-worktrees/loop-os-user`). Read this whole file at the start of every slice.
+Board tasks 01f5038c (the split) and b38ddd02 (secrets, co-designed: [secrets-design.md](secrets-design.md)). Parked worktrees `loop-os-user` (slice 4) and `loop-os-user-b` (slice 6). Read this whole file at the start of every slice.
 
 ## North star
 
@@ -13,7 +13,7 @@ The server process runs as one OS user (the server user). Agents, terminals, app
 3. The isomux repo is public and has self-hosters. Existing installs keep working with no action. A change for this office box lands on a generic surface (deploy/install.sh, server code, docs), never as a fix for this box alone.
 4. No human-approval gates on agent actions; no arbitrary resource caps (Isomux design philosophy).
 5. In scope: a directory fence on the routes that make the server read a file at a path an agent names (`resolveEditorPath` in server/file-editor.ts: POST /api/agents/:id/read-file and the JSON `{path}` form of PUT /api/apps/:name/thumbnail from task a5ab665e). Once the server has its own user, those routes must not read what the agent user cannot.
-6. The office box (auntie) moves to the split only with Nil present: it needs sudo and a restart. The loop ships code, installer and docs; the box migration is PARKED FOR NIL.
+6. The office box that dogfoods the split moves only with Nil present: it needs sudo and a restart. The loop ships code, installer and docs; the box migration is PARKED FOR NIL.
 7. Never restart the running office server. Never use sudo. Real two-user tests run in a container (Docker is available to office processes) or in a throwaway ISOMUX_HOME, never against the live office.
 8. Isomux PM, 2026-10-06, on the design (internal-docs/os-user-split-design.md, section 10), all as designed unless stated:
    - The state layout, `split.json`, `SHARE_ROOT` and the identity rule (section 3.1.2).
@@ -23,9 +23,13 @@ The server process runs as one OS user (the server user). Agents, terminals, app
    - The container switch is the env var `ISOMUX_SPLIT=1` on the same image.
    - Kubernetes, self-hosted-by-owner and macOS stay single-user by default in this loop.
    - Agent-reference pages stop pointing agents at state files in every mode, not only in split mode: discovery.md and cronjobs.md point at API routes. Reuse an existing route where one exists; add the smallest route where none does. `logDir` stays in the response.
-10. Isomux PM, 2026-10-06 (slice 2): the trusted checks walk the whole code tree at every split-mode start, not depth 2 (bun install leaves dependency files at mode 0666; the full walk took 2.8 s on the rig). Slice 6 normalizes modes (no group or other write) in the image, the installer and every update. This replaces design section 2.4 "Depth".
+10. Isomux PM, 2026-10-06 (slice 2): the trusted checks walk the whole code tree at every split-mode start, not depth 2 (bun install leaves dependency files at mode 0666; the full walk took 2.8 s on the rig). Slice 7 normalizes modes (no group or other write) in the image, the installer and every update. This replaces design section 2.4 "Depth".
 11. Isomux PM, 2026-10-06 (slice 2): the image uid and gid for isomux-server are 10001 (gid 999 is systemd-journal in the image).
-9. The design's PARKED FOR NIL items (P1 docker/sudo on this box, P2 served code on this box, P3 split by default on fresh installs) wait for Nil. No slice depends on them before the last one.
+9. The design's PARKED FOR NIL items (P1 the agent user holds docker or sudo, P2 served code agent-writable, P3 split by default on fresh installs) wait for Nil. No slice depends on them before the last one.
+12. Isomux PM, 2026-10-06 (slice 3, option B): the async conversion of `inspectStoredSession` and `checkSessionResumable` and their callers moves to slice 4, with the transcript and rollout checks. Ruling 10 was applied in slice 3.
+13. Isomux PM, 2026-10-06, speed rules: one rig run per hand-off. The reviewer re-runs only the mutants for code that changed in that round. Slices 4 and 6 ran in parallel (worktrees `loop-os-user` and `loop-os-user-b`); the second to merge rebases.
+14. Isomux PM, 2026-10-06 (slice 6 backups): the runner `tar` holds all of `AGENT_ROOT` with the credential exclusions, and the server `tar` takes `SHARE_ROOT/files`. A split backup holds what a single-user backup holds. The restore steps must work or be updated.
+15. Nil, 2026-10-12: the split and the secrets system are co-designed in one lane; the split comes first. Design: [secrets-design.md](secrets-design.md); its PARKED FOR NIL items (D1-D5) wait for Nil.
 
 ## Decision protocol
 
@@ -44,10 +48,28 @@ Loop slice N+1 is design slice N (section 8 of the design).
 - [x] Slice 1: design doc. Approved by Reviewer 2 at 6472be7b, merged as one commit. Rulings in item 8.
 - [x] Slice 2 (design slice 1): runner, AgentHost, trusted checks, terminal, Node probe, whole diff, tier-1 rig. Approved by Reviewer 3 at b8341b92, merged as one commit. Bun 1.3.11 cannot listen on an inherited fd, so slice 6 uses the RuntimeDirectory layout (design 2.3). Notes: Bun drops a close made inside Bun.listen open() (the runner defers it); Bun's net client reports an immediate peer close as ECONNREFUSED (the rig's raw client is Python); a rig build takes 4-7 min under load; in split mode the welcome agents' default cwd is the server HOME (fix in a later slice).
 - [x] Slice 3 (design slice 2): agent backends, identity rule. Approved by Reviewer 2 at 3c631f37, merged as one commit. Task d32356f2 reproduced and fixed. Bun 1.3.11 chmod drops the setgid bit, so the share uses chmod(1). Tier-2 live run: `scripts/split-rig-tier2.sh <rev>` copies the operator's Claude and Codex sign-ins into a throwaway rig container; PARKED FOR NIL, to run once on the slice-7 candidate.
-- [ ] Slice 4 (design slice 3, part 1): session checks and resume paths in agent space
-- [ ] Slice 5 (design slice 3, part 2): fence, agent-space files, routes that replace state reads
-- [ ] Slice 6 (design slice 4): apps, preview, cron, backups, admin.sock, OOM stamping of runner children (measure first)
-- [ ] Slice 7 (design slice 5): installer, migration with undo, container split, docs; removes the rig-only gate
+- [ ] Slice 4 (design slice 3, part 1): session checks and resume paths in agent space. Parked at d14b92fa, never reviewed (see RESUME PLAN). Denied access in the OpenCode inspector (an `existsSync` false under a mode-000 directory reads as missing, server/backends/opencode/storage.ts) must be indeterminate in split mode, never missing; the reproducer becomes a test.
+- [ ] Slice 5 (design slice 3, part 2): fence, agent-space files, routes that replace state reads. Also owns `moveClaudeSessionFile` (the cwd-change transcript rename and its reversal), per the slice 4 ruling.
+- [ ] Slice 6 (design slice 4): apps, preview, cron, backups, admin.sock, OOM stamping of runner children (measure first). Parked at 3ccfe186, work in progress (see RESUME PLAN).
+- [ ] Slice 7 (design slice 5): installer, migration with undo, container split, code-tree mode normalization, docs; removes the rig-only gate
+- [ ] Secrets S1-S4 (secrets-design.md section 7): proxy tracer; members turn it on; git and CLIs; SSH
+
+## RESUME PLAN (2026-10-12)
+
+Measured with `git merge-tree --write-tree main <tip>` on main at bc2b9614, which shows the conflicts of a squashed rebase. No parked worktree was changed.
+
+| Branch | Behind main | Branch diff | Conflicts | Files changed on both sides |
+|---|---|---|---|---|
+| Slice 4, d14b92fa (3 commits) | 153 commits | 33 files, +1792/-576 | 4 files, 7 hunks: agent-host.ts (1, imports), agent-manager.ts (2, the wake path), command-handlers.ts (2, the send dependency and the `/usage` Codex card), auth-detect.test.ts (2) | 17 |
+| Slice 6, 3ccfe186 (6 commits, one a merge of main) | 152 commits | 23 files, +2089/-256 | 3 files, 5 hunks: backup.ts (2), backup.test.ts (2, 393 conflict lines), isomux-office.ts (1, the app supervisor pick) | 11 |
+| Slice 6 on top of slice 4 | | | 2 more files: scripts/split-rig.sh, server/agent-runner/runner.ts | |
+
+The markers are the small part. Main also changed these areas since the park:
+- Sign-in handling (852fc577, adc43856): slice 4 fixed the Codex signed-out text in split mode; keep only what main does not already do.
+- The office SQLite audit store (174c4542), which backups snapshot: the split backup (ruling 14) must keep the snapshot.
+- The container image dropped Node and the separate Claude install (10ab025a): the rig builds from that Dockerfile, so its stubs need a re-check.
+
+Recommendation: rebase, do not redo. Squash each branch to one commit first (slice 6 holds a merge commit), then rebase onto main, so each branch has one conflict round. Order: slice 4 (rebase, sign-in re-check, one rig run, its first review), then slice 6 on top (full tier-1 rig, review), then slice 5, then slice 7, then the secrets slices. Redo slice 4 only if its review finds that the async session checks no longer fit main's wake path.
 
 ## SLICE-1 PICKUP: design
 
@@ -125,4 +147,29 @@ Traps: single-user behavior must not change; the auto-resume and demote paths ha
 Acceptance: the rig resumes a Claude, a Codex and an OpenCode session after a split-office restart (stub binaries), keeps the stored id under a denied directory, and shows the Codex signed-out text for a signed-out Codex agent; the single-user scoped tests pass. The reviewer re-runs the rig on the approved hash.
 
 Decide with the reviewer: the shape of the boot pre-pass; how the stub binaries model a resumable session.
+Locked: rulings 1-11 and the design.
+
+## SLICE-6 PICKUP (appended 2026-10-12 from the park notes): apps, preview, cron, backups, admin.sock, OOM stamping (design slice 4)
+
+Historical: the pickup as written on 2026-10-06, when slice 6 ran in parallel with slice 4. The RESUME PLAN above supersedes its order: slice 6 now rebases onto slice 4 and runs after it.
+
+Runs in parallel with slice 4, in its own worktree `loop-os-user-b`. Isomux PM merges both; the second to merge rebases.
+
+Read internal-docs/os-user-split-design.md in full first; rulings 1-11 in internal-docs/os-user-loop.md settle its open items. Slices 1-3 are on main.
+
+Goal: design slice 4 (section 8, item 4).
+- Apps: `systemctl --user` and `journalctl --user` (app-supervisor.ts, `createSystemdHost().run`) and the app launcher and unit files run through AgentHost, so apps run under the agent user's manager. The container supervisor's client call goes through the runner (control.sock belongs to the agent user). The app unit-name identity follows design 3.1.2 (slice 3 added the identity rule; reuse it).
+- Preview capture (preview-capture.ts): headless Chrome runs as the agent user; the PNG comes back through the runner.
+- Cron runs: confirm each cron run's agent spawn already goes through the slice-3 backends, and fix any path that does not.
+- Backups (Isomux PM ruling, 2026-10-06): app data moves to agent space, and backups keep it. The runner streams a tar of the app data into the same archive; the credential exclusions (backup.ts) stay.
+- admin.sock: in split mode it also refuses the agent uid, and refuses to start if ISOMUX_RECOVERY_UID equals the agent uid.
+- OOM stamping (server/oom-stamp.ts walks only server descendants): first measure in the rig whether runner children miss the stamp. If they do, the runner stamps its own children.
+
+Speed rules (Isomux PM, 2026-10-06): one rig run per hand-off, not three. The reviewer re-runs only the mutants for code that changed in that round. Avoid touching agent-manager.ts session-resume code: slice 4 owns it.
+
+Traps: single-user behavior must not change. Write your state to a file in /tmp as you go and hand off near 50% context.
+
+Acceptance: the rig shows an app process, a preview Chrome and a cron run's agent as the agent uid; a backup archive holds app data written by the agent user and no credential file; admin.sock refuses the agent uid; the OOM finding is measured and, if real, fixed. Single-user scoped tests pass. The reviewer re-runs the rig on the approved hash.
+
+Decide with the reviewer: how the tar stream is framed into the archive.
 Locked: rulings 1-11 and the design.

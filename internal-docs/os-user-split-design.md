@@ -1,6 +1,6 @@
 # Design: the server gets its own OS user
 
-Board task 01f5038c. Loop file: [os-user-loop.md](os-user-loop.md). Status: slice-1 design, written 2026-10-06. Items marked **PM** need a ruling from Isomux PM. Items marked **PARKED FOR NIL** are product tradeoffs.
+Board task 01f5038c. Loop file: [os-user-loop.md](os-user-loop.md). Status: slice-1 design, written 2026-10-06; updated 2026-10-12 for the secrets co-design ([secrets-design.md](secrets-design.md), task b38ddd02). Items marked **PM** need a ruling from Isomux PM. Items marked **PARKED FOR NIL** are product tradeoffs.
 
 Line numbers are from main at fbfe9335.
 
@@ -12,6 +12,7 @@ Line numbers are from main at fbfe9335.
 - **The switch.** When `ISOMUX_AGENT_RUNNER` (the socket path) is not set, the server works as today: it uses one user and spawns in process. Existing installs keep working with no action (ruling 3). Until the last slice lands, split mode is for the test rig only (section 8). No release offers it, and no slice before the last one claims a boundary.
 - **The fence (ruling 5).** In split mode, every read, write or watch at a path that an agent names goes through the runner. The kernel then applies the agent user's permissions. The fence needs no denylist.
 - **The proof.** Ownership and mode checks that the server makes itself, plus real two-user denial tests, establish the boundary. The runner's own report is a diagnostic only (section 2.4).
+- **Secrets build on it.** A secret proxy runs as the server user and adds members' secret values to agents' outgoing requests, so no agent-user process holds a value ([secrets-design.md](secrets-design.md)). Its process, files and checks are in sections 1, 3.1 and 2.4 below.
 
 ## 1. Process inventory
 
@@ -41,6 +42,7 @@ Today every agent-facing env comes from `buildEnvForUserId` (server/env-loader.t
 | 16 | Version `git` | server/version.ts:35, on the server checkout | server | |
 | 17 | Codex safety-hook build and stamp | server/backends/codex/safety-hook-build.ts:73,101; safety-hook-install.ts:79 | server | The output goes to the share dir (section 3). |
 | 18 | `sysctl` (macOS OpenCode) | server/backends/opencode/runtime.ts:69 | n/a | macOS only. |
+| 19 | Secret proxy (planned, secrets-design.md 2.2) | the server starts it directly, never through the runner | server | It holds secret values and never runs code that an agent chose. |
 
 The inventory found no other runtime spawns. The inventory search covered `spawn`, `spawnSync`, `exec*`, `fork`, `Bun.spawn*`, `Bun.$`, pty and `new Worker` in server/, tests excluded. Probes that run only as standalone scripts (hook-latency-probe.ts, safety-hook-benchmark.ts) are not runtime.
 
@@ -100,7 +102,7 @@ An agent can impersonate the runner, so the runner cannot prove that its own uid
   - The agent user has no effective write on any entry. `STATE_ROOT` itself is mode 0700, so the agent has no read or search either.
   - "Effective" means the check reads the mode bits for owner, group (with the agent user's groups) and other, and also every POSIX ACL entry, including named-user and named-group grants and the mask. A symlink is checked at its resolved target, and so are the target's ancestors.
   - Ancestors matter because an owner of a parent directory can rename a child and put a different one in its place. For example, the image chowns `/var/data` to `node` (deploy/container/Dockerfile:9), so the container split must change that owner (section 6).
-- **The share** is `SHARE_ROOT` and everything below it. Each entry is owned by the server user, with group `<agent group>`. Each directory keeps the setgid bit. For directories and regular files, the agent user has no effective write (the same mode, ACL and symlink rules). The one exception is `authority/authority.sock`. It must allow group write (0660), because a process needs write permission on a socket to connect to it. Its parent directory stays without agent write, and the broker's peer-uid check applies to every connection. Any other socket or entry type in the share fails the check.
+- **The share** is `SHARE_ROOT` and everything below it. Each entry is owned by the server user, with group `<agent group>`. Each directory keeps the setgid bit. For directories and regular files, the agent user has no effective write (the same mode, ACL and symlink rules). The one exception is `authority/authority.sock` (and, from secrets slice S4, `ssh/agent.sock`). It must allow group write (0660), because a process needs write permission on a socket to connect to it. Its parent directory stays without agent write, and the broker's peer-uid check applies to every connection. Any other socket or entry type in the share fails the check.
 - **Depth.** At start the server checks `STATE_ROOT`, the share, the ancestors and the top two levels of the code tree. `isomux-split-users --check` walks the full code tree. The migration and every update run it, and a failure stops them. The rig tests a deep code entry with `--check` and a top-level entry at start.
 - The agent user cannot reach root. The installer's hardening gate (install.sh:1834-1867) runs for the agent user too.
 
@@ -118,8 +120,8 @@ An `O_WRONLY` open on a directory fails with `EISDIR` even when the directory is
 
 | Area | Owner and mode | Contents |
 |---|---|---|
-| **Server state** `STATE_ROOT` | server user, 0700 | Everything in `~/.isomux` today except the agent-space subtrees. This includes users, sessions, invites, API tokens, `user-env/`, `office-env/`, webhook secrets, pager settings, logs, cronjobs, memory, tasks, `provider-account-state.json`, `apps/apps.json`, `apps/app-tokens.json` (hashes) and `apps/thumbnails/`. |
-| **Share** `SHARE_ROOT` | see section 3.1.1 | Files that the server writes and the agent user only reads, runs or connects to: `files/<agentId>/` (uploads and shown files), `bin/` (the Codex safety hook, today `STATE_ROOT/bin` at 0700, safety-hook-install.ts:22-29,509), and `authority/` (the OpenCode authority socket). |
+| **Server state** `STATE_ROOT` | server user, 0700 | Everything in `~/.isomux` today except the agent-space subtrees. This includes users, sessions, invites, API tokens, `user-env/`, `office-env/`, `secrets/` (secret values, the placeholder key and the office CA key; secrets-design.md 1), webhook secrets, pager settings, logs, cronjobs, memory, tasks, `provider-account-state.json`, `apps/apps.json`, `apps/app-tokens.json` (hashes) and `apps/thumbnails/`. |
+| **Share** `SHARE_ROOT` | see section 3.1.1 | Files that the server writes and the agent user only reads, runs or connects to: `files/<agentId>/` (uploads and shown files), `bin/` (the Codex safety hook, today `STATE_ROOT/bin` at 0700, safety-hook-install.ts:22-29,509), `authority/` (the OpenCode authority socket), and `secrets/ca-bundle.pem` (the office CA joined with the system roots, 0640; secrets-design.md 2.3). |
 | **Agent space** `AGENT_ROOT` | agent user | `provider-homes/` (server/provider-homes.ts:35-56), `codex-home/` (the office `CODEX_HOME`, server/backends/codex/native-bin.ts:35-36), the `bin/codex` wrapper that terminal cards name (native-bin.ts:185-222), `opencode/profiles/` (sign-ins inside), `apps/data/<name>`, `apps/units/<name>.sh` and `.env` (they hold the plaintext app token, as today), the agent user's `~/.claude`, `~/.codex` and `~/.config/systemd/user`, and all workspaces. |
 
 In single-user mode, `AGENT_ROOT = SHARE_ROOT = STATE_ROOT`, so nothing moves.
@@ -189,7 +191,7 @@ The `logDir` field of `GET /agents` points into `STATE_ROOT/logs`. In split mode
 
 ### 3.5 Backups
 
-`backup.ts` archives `STATE_ROOT` (:558). App data moves to agent space. A slice must decide between two options: a runner `tar` stream that goes into the same archive, or a change to the backup docs. The credential exclusions (backup.ts:176-225) stay.
+`backup.ts` archives `STATE_ROOT`. App data moves to agent space. Isomux PM ruling (slice 6, 2026-10-06): the runner streams a `tar` of all of `AGENT_ROOT`, with the same credential exclusions rooted there, into the archive; the server's own `tar` takes `STATE_ROOT` and `SHARE_ROOT/files`. A split backup holds what a single-user backup holds, and the restore steps must work or be updated. Since slice 6 was parked, main snapshots the office SQLite database into the archive (`OFFICE_DATABASE`, server/backup.ts), so the split archive must keep that snapshot. `STATE_ROOT/secrets/` joins the credential exclusions (secrets-design.md 1).
 
 ## 4. The fence (ruling 5)
 
@@ -252,20 +254,16 @@ The installer gets a new command, `isomux-split-users` (root). The updater insta
 
 The rig starts the container twice and checks that the second start does not migrate again. **PM:** whether the container switch is an env var or the default of a new image tag.
 
-### 6.1 This office box (auntie): to run later, with Nil present
+### 6.1 An office box whose agent user is a human login
 
-- The agent user is `nil`. The server user is a new `isomux-server`. Today the server is a user unit of `nil` (`~/.config/systemd/user/isomux.service`, which runs `/home/nil/nil/isomux`). It becomes a system unit. Nil's apps stay as `nil` user units.
-- `/home/nil/.isomux` splits as described in section 6. A generic Linux script does the work, run with `--agent-user nil`, not a box-only fix (ruling 3).
-- **PARKED FOR NIL (P1): `nil` is in the `sudo` and `docker` groups** (`id` output, 2026-10-06). Membership in the `docker` group is root-equivalent. While the agent user keeps it, the split is no boundary on this box (security-audit.md:62).
-  - Recommendation: give agents rootless Docker as `nil`, take `nil` out of `docker` and `sudo`, and do admin work from a separate admin login.
+An office that the owner runs as their own login user (self-hosted, or a box set up by hand) moves with the same generic script, run with `--agent-user <login>`, never with a box-only fix (ruling 3). The steps for the office box that dogfoods the split are in the gitignored internal-docs/private/ notes. Two items decide whether the split is a boundary on such a box:
+
+- **PARKED FOR NIL (P1): the agent user holds `sudo` or `docker`.** Membership in the `docker` group is root-equivalent. While the agent user keeps it, the split is no boundary (security-audit.md:62).
+  - Recommendation: give agents rootless Docker as the login user, take that user out of `docker` and `sudo`, and do admin work from a separate admin login.
   - The two-user rig (section 7) needs Docker. Rootless Docker keeps that working.
-- **PARKED FOR NIL (P2): the served code is agent-writable on this box.** The server runs from `~/nil/isomux`, the main checkout that agents edit. The north star says that the agent user cannot change the server code.
-  - Recommendation: the server runs from `/opt/isomux`, owned by `isomux-server`. A deploy step pulls `main` from `~/nil/isomux` into it.
-  - This changes the flow on this box. Today "merge + `build:ui`" makes UI work live. After the change, "merge + deploy" does. A server change still needs a restart.
-- **Recommended steps with Nil:**
-  1. Fix P1 and P2.
-  2. Run the split script with `--agent-user nil --code /opt/isomux`. The script makes its own backup first (section 6, step 3).
-  3. From a terminal panel, check that `cat /var/lib/isomux-server/.isomux/users.json` fails with "Permission denied".
+- **PARKED FOR NIL (P2): the served code is agent-writable.** On such a box the server often runs from a checkout that agents edit. The north star says that the agent user cannot change the server code.
+  - Recommendation: the server runs from `/opt/isomux`, owned by `isomux-server`. A deploy step pulls `main` from the working checkout into it.
+  - This changes the flow on that box. Today "merge + `build:ui`" makes UI work live. After the change, "merge + deploy" does. A server change still needs a restart.
 
 ## 7. Testing for real
 
@@ -295,6 +293,8 @@ Each slice report names the rig command and its result.
 
 ## 8. Slice plan
 
+Design slices map to loop slices as follows (status 2026-10-12): design 1 and 2 are loop slices 2 and 3, on main. Design 3 is loop slices 4 (parked, unreviewed) and 5 (not started). Design 4 is loop slice 6 (parked, work in progress). Design 5 is loop slice 7. The secrets slices (secrets-design.md 7) follow loop slice 7. The loop file holds the order and the plan for the parked work.
+
 The single-user path stays unchanged in every slice. Slices 1-4 add split-mode wiring that only the rig uses: the server starts in split mode only when `ISOMUX_SPLIT_RIG=1` is also set, and no doc, installer or release mentions split mode. Until slice 5, a split office still runs some agent work as the server user, so none of those slices claims a boundary. Slice 5 removes the rig-only gate, but only after the full tier-1 rig, the migration tests and tier 2 pass.
 
 1. **Runner, `AgentHost` and the proof.** This slice adds `server/agent-runner/`, the protocol, fixed entries, `LocalAgentHost`, `RunnerAgentHost`, the trusted checks and the runner diagnostic. It checks whether Bun accepts an inherited listener. It moves the terminal (#7), the Node probe (#7b) and the whole diff (#11) onto `AgentHost`. It brings up the tier-1 rig with the boundary, trusted-check, false-denial and diff tests.
@@ -315,10 +315,9 @@ The single-user path stays unchanged in every slice. Slices 1-4 add split-mode w
 
 ## 10. Open items
 
-- **PM:** the state layout and `split.json` (section 3.1), the identity rule (section 3.1.2), the upload move and its symlinks (section 6), the switch name `ISOMUX_AGENT_RUNNER` and the rig-only gate (section 8), the user names `isomux-server` and the image uid, the agent-facing routes (section 3.3), the container switch (section 6), and Kubernetes staying single-user (section 5).
-- **PARKED FOR NIL:** P1 (`nil` holds `docker` and `sudo`), P2 (the served code on this box is agent-writable), P3 (split by default on fresh installer installs).
+- **PM:** ruled 2026-10-06 (loop file, ruling 8).
+- **PARKED FOR NIL:** P1 (the agent user holds `docker` or `sudo`), P2 (the served code is agent-writable), P3 (split by default on fresh installer installs). The secrets items are in secrets-design.md section 8.
+- **Checked since:** the OpenCode ancestry walk works across the two users (slice 3 rig). Bun 1.3.11 cannot listen on an inherited socket, so the units use the `RuntimeDirectory` layout (slice 2).
 - **Unchecked:**
-  - The OpenCode ancestry walk from the peer to the `opencode serve` pid when the two processes and the broker belong to different users (section 3.4).
-  - Whether Bun can listen on an inherited socket (section 2.3).
   - Whether `forkSession` and `getSessionMessages` touch files outside the session store.
   - The file modes of the transcripts that the CLIs write. The design does not depend on them.
