@@ -1,7 +1,7 @@
 import type { AgentInfo } from "../shared/types.ts";
 import {
   familyDisplayLabel,
-  modelLabelImpliesEngine,
+  showEngineCue,
 } from "../shared/types.ts";
 
 export function modelListingLabel(
@@ -10,7 +10,7 @@ export function modelListingLabel(
   models?: AgentInfo["claudeFamilyModels"],
 ): string {
   const label = familyDisplayLabel(modelFamily, models);
-  if (agentType === "opencode" && !modelLabelImpliesEngine(modelFamily)) {
+  if (showEngineCue(agentType, modelFamily, "listing")) {
     return `${label} · opencode`;
   }
   return label;

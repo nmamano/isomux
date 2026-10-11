@@ -142,10 +142,12 @@ export type ModelFamily = "opus" | "fable" | "sonnet" | "haiku";
 
 export type ClaudeModel = string;
 
-// Repointing a family at a newer model the bundled CLI doesn't know yet? Bump
-// @anthropic-ai/claude-agent-sdk in the same commit. The CLI reports the
-// model's context window, and an unrecognized id makes it fall back to a 200k
-// default.
+// Before a family repoint, check the bundled CLI's model metadata and context
+// resolver; bump @anthropic-ai/claude-agent-sdk if it cannot size the new model.
+// The CLI has a 200k base fallback, but native-1M metadata, [1m], and runtime
+// settings can override it. Fable 5.1 has native-1M metadata in SDK 0.3.257
+// and 0.3.293 (source checked 2026-10-11); a missing string in sdk.mjs does
+// not prove the model is unknown to the platform CLI binary.
 export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   opus: "claude-opus-5-5",
   fable: "claude-fable-5-1",
@@ -437,13 +439,17 @@ function slugDisplayLabel(value: string): string {
   return parts.join(" ");
 }
 
-// True when familyDisplayLabel's output already tells you which engine the
-// agent runs on, so rendering the engine next to it would just repeat it
-// ("GPT-5.6 Sol · codex"). A provider/model label does not identify the
-// harness engine: an OpenCode agent can use Anthropic, OpenAI, or other model
-// providers, so those labels keep the explicit OpenCode badge.
-export function modelLabelImpliesEngine(family: string): boolean {
-  return isClaudeFamily(family) || /^gpt-/i.test(family);
+// OpenCode model providers do not identify the harness, so always show its cue.
+// Claude never needs a cue. Keep the existing Codex surface difference explicit:
+// listings omit it; headers show it when the model label does not name the engine.
+export function showEngineCue(
+  agentType: AgentBackendType,
+  modelId: string,
+  surface: "header" | "listing",
+): boolean {
+  if (agentType === "opencode") return true;
+  if (agentType === "claude" || surface === "listing") return false;
+  return !isClaudeFamily(modelId) && !/^gpt-/i.test(modelId);
 }
 
 // Migrate a legacy exact model ID (e.g. "claude-opus-4-6") to a family.
@@ -1865,7 +1871,6 @@ export interface ProviderAccountWire {
   accountLabel?: string;
   shared?: boolean;
   canBrowserLogin: boolean;
-  fallbackToTerminal?: boolean;
   externalCli?: boolean;
   explicitDirectory?: boolean;
   error?: string;

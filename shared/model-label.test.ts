@@ -1,13 +1,11 @@
-// modelLabelImpliesEngine decides whether the LogView header still needs the
-// engine badge next to the model name (task 176a5085). The rule it encodes:
-// a label that already names the engine shouldn't be followed by "· codex".
+// Engine cues identify the harness when the model label alone cannot.
 import { describe, it, expect } from "bun:test";
 import {
   CODEX_MODELS,
   MODEL_FAMILIES,
   familyDisplayLabel,
   familyPickerLabel,
-  modelLabelImpliesEngine,
+  showEngineCue,
 } from "./types.ts";
 
 // On Bedrock and Vertex a family can run another model than FAMILY_TO_MODEL
@@ -45,26 +43,30 @@ describe("Claude labels with ClaudeFamilyModels", () => {
   });
 });
 
-describe("modelLabelImpliesEngine", () => {
+describe("showEngineCue", () => {
   it("covers every known Codex model, so none renders the redundant badge", () => {
     for (const m of CODEX_MODELS) {
-      expect(modelLabelImpliesEngine(m.value)).toBe(true);
+      for (const surface of ["header", "listing"] as const) {
+        expect(showEngineCue("codex", m.value, surface)).toBe(false);
+      }
     }
   });
 
   it("covers every Claude family", () => {
     for (const m of MODEL_FAMILIES) {
-      expect(modelLabelImpliesEngine(m.family)).toBe(true);
+      for (const surface of ["header", "listing"] as const) {
+        expect(showEngineCue("claude", m.family, surface)).toBe(false);
+      }
     }
   });
 
   it("pretty-prints a Codex slug the table doesn't carry", () => {
-    expect(modelLabelImpliesEngine("gpt-6-nova")).toBe(true);
+    expect(showEngineCue("codex", "gpt-6-nova", "header")).toBe(false);
     expect(familyDisplayLabel("gpt-6-nova")).toBe("GPT-6 Nova");
   });
 
   it("pretty-prints a composite provider/model id", () => {
-    expect(modelLabelImpliesEngine("gate/gate-model")).toBe(false);
+    expect(showEngineCue("opencode", "gate/gate-model", "header")).toBe(true);
     expect(familyDisplayLabel("gate/gate-model")).toBe("Gate Model");
     expect(familyDisplayLabel("opencode/mimo-v2.5-free")).toBe(
       "MiMo V2.5 Free",
@@ -81,7 +83,9 @@ describe("modelLabelImpliesEngine", () => {
       "github-copilot/gpt-4.1",
       "opencode/mimo-v2.5-free",
     ]) {
-      expect(modelLabelImpliesEngine(model)).toBe(false);
+      for (const surface of ["header", "listing"] as const) {
+        expect(showEngineCue("opencode", model, surface)).toBe(true);
+      }
     }
   });
 
@@ -91,10 +95,30 @@ describe("modelLabelImpliesEngine", () => {
     expect(familyDisplayLabel("opencode/muse-spark-1.2-contributor-free")).toBe(
       "Muse Spark 1.2 Free",
     );
-    expect(modelLabelImpliesEngine("opus")).toBe(true);
-    expect(modelLabelImpliesEngine("gpt-5.6-sol")).toBe(true);
+    expect(showEngineCue("claude", "opus", "header")).toBe(false);
+    expect(showEngineCue("codex", "gpt-5.6-sol", "header")).toBe(false);
     expect(
-      modelLabelImpliesEngine("opencode/muse-spark-1.2-contributor-free"),
-    ).toBe(false);
+      showEngineCue("opencode", "opencode/muse-spark-1.2-contributor-free", "header"),
+    ).toBe(true);
+  });
+
+  it("keeps both cues for OpenCode ids with engine-like provider prefixes", () => {
+    for (const model of ["gpt-provider/model", "claude-provider/model", "opus"]) {
+      for (const surface of ["header", "listing"] as const) {
+        expect(showEngineCue("opencode", model, surface)).toBe(true);
+      }
+    }
+  });
+
+  it("omits both cues for a Claude composite model", () => {
+    for (const surface of ["header", "listing"] as const) {
+      expect(showEngineCue("claude", "anthropic/claude-sonnet-4-6", surface)).toBe(false);
+    }
+  });
+
+  it("preserves the Codex surface difference for a custom model id", () => {
+    expect(showEngineCue("codex", "custom/model", "header")).toBe(true);
+    expect(showEngineCue("codex", "custom/model", "listing")).toBe(false);
+    expect(showEngineCue("codex", "opus", "header")).toBe(false);
   });
 });

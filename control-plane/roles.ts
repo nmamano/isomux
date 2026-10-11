@@ -495,7 +495,7 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "instances",
     verb: "update",
-    via: "store.casInstance, tick.ts:591",
+    via: "store.ts Store.casInstance, from tick.ts Ticker.finish",
   },
   {
     table: "provider_assets",
@@ -515,7 +515,7 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "operations",
     verb: "insert",
-    via: "store.enqueue, tick.ts:194 and tick.ts:614",
+    via: "store.ts Store.enqueue, from tick.ts Ticker.enqueue and Ticker.finish",
   },
   {
     table: "operations",
@@ -565,7 +565,7 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "attention_reasons",
     verb: "update",
-    via: "store.clearReason, store.ts:2067",
+    via: "store.ts Store.clearReason",
   },
   {
     table: "audit_events",
@@ -586,9 +586,9 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
     table: "name_reservations",
     verb: "select",
     via:
-      "mint-seam.ts:79 fetchInvite -> signup.ts:135 instanceOwnedBy -> " +
-      "signup.ts:111 reservationForInstance; the same read the 2026-08-12 " +
-      "probe (deploy/probe.ts:146) was refused",
+      "mint-seam.ts fetchInvite -> signup.ts instanceOwnedBy -> " +
+      "signup.ts reservationForInstance; the same read the 2026-08-12 " +
+      "probe (deploy/probe.ts main) was refused",
   },
   {
     table: "name_reservations",

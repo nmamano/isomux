@@ -490,7 +490,6 @@ export class ProviderAccountManager {
         loginStatus: "idle",
         shared: false,
         canBrowserLogin: false,
-        fallbackToTerminal: provider === "claude",
         error: err instanceof Error ? err.message : String(err),
       };
     }
@@ -599,7 +598,6 @@ export class ProviderAccountManager {
         loginStatus: "idle",
         shared: target.shared,
         canBrowserLogin: timedOut,
-        ...(timedOut ? {} : { fallbackToTerminal: true }),
         externalCli: target.externalCli,
         explicitDirectory: target.explicitDirectory,
         error: err instanceof Error ? err.message : String(err),

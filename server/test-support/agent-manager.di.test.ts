@@ -1038,7 +1038,6 @@ describe("AgentManager DI (temp-state isolated)", () => {
             accountStatus: "unavailable" as const,
             loginStatus: "idle" as const,
             canBrowserLogin: false,
-            fallbackToTerminal: true,
           },
         ],
       ],

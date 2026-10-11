@@ -7411,7 +7411,6 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                         accountStatus: "unavailable",
                         loginStatus: "idle",
                         canBrowserLogin: false,
-                        fallbackToTerminal: true,
                         error: "Could not read your env file.",
                       },
                       {
@@ -7420,7 +7419,6 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                         accountStatus: "unavailable",
                         loginStatus: "idle",
                         canBrowserLogin: false,
-                        fallbackToTerminal: true,
                         error: "Could not read your env file.",
                       },
                       {
@@ -7429,7 +7427,6 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                         accountStatus: "unavailable",
                         loginStatus: "idle",
                         canBrowserLogin: false,
-                        fallbackToTerminal: true,
                         error: "Could not read your env file.",
                       },
                       {
@@ -7438,7 +7435,6 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                         accountStatus: "unavailable",
                         loginStatus: "idle",
                         canBrowserLogin: false,
-                        fallbackToTerminal: true,
                         error: "Could not read your env file.",
                       },
                     ],

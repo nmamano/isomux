@@ -68,11 +68,6 @@ describe("ProviderAccountManager", () => {
       canBrowserLogin: true,
       error: "",
     });
-    expect(
-      firstAccounts.find(
-        (account) => account.provider === "codex" && account.scope === "office",
-      )?.fallbackToTerminal,
-    ).toBeUndefined();
 
     const second = manager.list("member");
     await Promise.resolve();
@@ -96,7 +91,6 @@ describe("ProviderAccountManager", () => {
     expect(wire).toMatchObject({
       accountStatus: "unavailable",
       canBrowserLogin: false,
-      fallbackToTerminal: true,
       error: "probe failed",
     });
   });

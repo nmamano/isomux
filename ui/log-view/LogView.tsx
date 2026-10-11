@@ -26,7 +26,7 @@ import { formatIdentity } from "../../shared/identity.ts";
 import {
   familyDisplayLabel,
   MAX_UPLOAD_BYTES,
-  modelLabelImpliesEngine,
+  showEngineCue,
 } from "../../shared/types.ts";
 import { styleForModel } from "../model-styles.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
@@ -1887,11 +1887,9 @@ export function LogView({
                     agent.claudeFamilyModels,
                   )}
                 </span>
-                {/* Only when the formatted model name doesn't already give the
-                    engine away - "GPT-5.6 Sol · codex" says codex twice (task
-                    176a5085). */}
-                {agent.agentType !== "claude" &&
-                  !modelLabelImpliesEngine(agent.modelFamily) && (
+                {/* The shared predicate keeps the engine cue consistent with
+                    the listing while preserving the Codex header rule. */}
+                {showEngineCue(agent.agentType, agent.modelFamily, "header") && (
                     <>
                       <span style={{ color: "var(--text-ghost)" }}>
                         &middot;
