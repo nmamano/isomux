@@ -2746,7 +2746,7 @@ Cosas que puedes hacer por él:
   "appWidget.windowsHint":
     "Pulsa Win+Shift+S y luego pega aquí la captura de pantalla.",
   "appWidget.macHint":
-    "Pulsa Control+Shift+Command+4 y luego pega aquí la captura de pantalla.",
+    "Pulsa Shift+Command+4 y luego arrastra aquí la captura de pantalla.",
   "appWidget.genericHint":
     "Haz una captura de pantalla y luego pégala o adjúntala aquí.",
   "appWidget.attach": "Adjuntar imagen",

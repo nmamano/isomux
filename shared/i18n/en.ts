@@ -2731,8 +2731,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "appWidget.notice": "Shared with members of the agent's room.",
   "appWidget.windowsHint":
     "Press Win+Shift+S, then paste your screenshot here.",
-  "appWidget.macHint":
-    "Press Control+Shift+Command+4, then paste your screenshot here.",
+  "appWidget.macHint": "Press Shift+Command+4, then drag the screenshot here.",
   "appWidget.genericHint": "Take a screenshot, then paste or attach it here.",
   "appWidget.attach": "Attach image",
   "appWidget.close": "Close chat",

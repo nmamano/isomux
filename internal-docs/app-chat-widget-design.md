@@ -28,7 +28,7 @@ Proposed new copy, for review (placeholders in braces):
 - Title: “Chat with {agentName}”
 - Notice: “Shared with members of the agent's room.”
 - Windows hint: “Press Win+Shift+S, then paste your screenshot here.”
-- macOS hint: “Press Control+Shift+Command+4, then paste your screenshot here.”
+- macOS hint: “Press Shift+Command+4, then drag the screenshot here.”
 - Other desktop/mobile hint: “Take a screenshot, then paste or attach it here.”
 - File button: “Attach image”
 - Close button: “Close chat”

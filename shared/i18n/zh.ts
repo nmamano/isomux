@@ -2464,7 +2464,7 @@ App 的一些原则：
   "appWidget.title": "与 {agentName} 聊天",
   "appWidget.notice": "此聊天与该智能体所在房间的成员共享。",
   "appWidget.windowsHint": "按 Win+Shift+S，然后将截图粘贴到此处。",
-  "appWidget.macHint": "按 Control+Shift+Command+4，然后将截图粘贴到此处。",
+  "appWidget.macHint": "按 Shift+Command+4，然后将截图拖到此处。",
   "appWidget.genericHint": "截屏后，将图片粘贴或附加到此处。",
   "appWidget.attach": "附加图片",
   "appWidget.close": "关闭聊天",

@@ -2743,7 +2743,7 @@ Coses que pots fer per ell:
   "appWidget.windowsHint":
     "Prem Win+Shift+S i després enganxa aquí la captura de pantalla.",
   "appWidget.macHint":
-    "Prem Control+Shift+Command+4 i després enganxa aquí la captura de pantalla.",
+    "Prem Shift+Command+4 i després arrossega aquí la captura de pantalla.",
   "appWidget.genericHint":
     "Fes una captura de pantalla i després enganxa-la o adjunta-la aquí.",
   "appWidget.attach": "Adjunta una imatge",
