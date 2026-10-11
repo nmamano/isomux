@@ -34,7 +34,10 @@ import {
   createOpenCodeBackend,
   createOpenCodeTracerBackend,
 } from "../backends/opencode/adapter.ts";
-import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
+import { openCodeSupervisorForEnvironment } from "../backends/opencode/supervisor.ts";
+import { openCodeProfilePaths } from "../backends/opencode/profile-paths.ts";
+import { processIsRunning } from "../backends/opencode/process-identity.ts";
+import { writeManagedUserEnv, removeManagedUserEnv } from "../user-env.ts";
 import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { join } from "node:path";
@@ -46,7 +49,12 @@ import {
   backendSessionHasFixedCwd,
 } from "../agent-manager.ts";
 import { personalProviderHome } from "../provider-homes.ts";
-import { setPersonalProviderActiveProvider } from "../env-loader.ts";
+import {
+  setPersonalProviderActiveProvider,
+  buildEnvForUserId,
+  environmentSourceKeyForUserId,
+  environmentSourceRevisionForUserId,
+} from "../env-loader.ts";
 
 // STATE_ROOT is a temp dir (the bun test preload preset ISOMUX_HOME before
 // config.ts was imported), so the disk-touching assertions below run in-suite
@@ -1158,10 +1166,13 @@ describe("AgentManager DI (temp-state isolated)", () => {
 
   // Real subprocess credential scrub: run with bun run test:opencode.
   it.skipIf(!LIVE)(
-    "keeps provider credentials out of Connections guidance and agent logs",
+    "keeps provider credentials out of Connections guidance and agent logs, then recovers after a managed key change and /clear",
     async () => {
       const apiKey = `sk-${"S2_MANUAL_LOGIN_CANARY"}`;
+      const newKey = `recovered-${apiKey}`;
+      const userId = "opencode-recovery-test";
       const requestPaths: string[] = [];
+      const requests: Array<{ path: string; authorization: string | null; status: number }> = [];
       const safeErrors: Array<Record<string, unknown>> = [];
       const mock = Bun.serve({
         hostname: "127.0.0.1",
@@ -1169,6 +1180,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         fetch(request) {
           const url = new URL(request.url);
           requestPaths.push(url.pathname);
+
           if (url.pathname === "/v1/models") {
             return Response.json({
               object: "list",
@@ -1177,9 +1189,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
           }
           if (url.pathname !== "/v1/responses")
             return new Response("not found", { status: 404 });
-          if (
-            request.headers.get("authorization") !== `Bearer rejected-${apiKey}`
-          ) {
+          const authorization = request.headers.get("authorization");
+          const accepted = authorization === `Bearer ${newKey}`;
+          requests.push({ path: url.pathname, authorization, status: accepted ? 200 : 401 });
+          if (!accepted) {
             return Response.json(
               {
                 error: {
@@ -1277,21 +1290,27 @@ describe("AgentManager DI (temp-state isolated)", () => {
           });
         },
       });
-      const supervisor = new OpenCodeSupervisor({
-        profileDir: join(STATE_ROOT, "opencode", "profiles", "default"),
-        serverCwd: STATE_ROOT,
-        idleShutdownMs: 100,
-        launchEnv: {
-          OPENAI_API_KEY: apiKey,
-          OPENAI_BASE_URL: `http://127.0.0.1:${mock.port}/v1`,
-        },
-        config: {
-          autoupdate: false,
-          model: "openai/gpt-4o",
-          small_model: "openai/gpt-4o",
-          share: "disabled",
-        },
-      });
+      const env = {
+        OPENAI_API_KEY: apiKey,
+        OPENAI_BASE_URL: `http://127.0.0.1:${mock.port}/v1`,
+      };
+      writeManagedUserEnv(userId, env);
+      const environmentKey = environmentSourceKeyForUserId(userId);
+      const profile = openCodeProfilePaths(environmentKey);
+      // Route both reply and small-model/title work to the local provider.
+      // This profile config is separate from the supervisor's managed config.
+      const configDir = join(profile.configHome, "opencode");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, "opencode.json"), JSON.stringify({
+        model: "openai/gpt-4o",
+        small_model: "openai/gpt-4o",
+        enabled_providers: ["openai"],
+      }));
+      const supervisor = openCodeSupervisorForEnvironment(
+        environmentKey,
+        buildEnvForUserId(userId),
+        environmentSourceRevisionForUserId(userId),
+      );
       const measure = async <T>(
         phase: string,
         action: () => Promise<T>,
@@ -1310,46 +1329,52 @@ describe("AgentManager DI (temp-state isolated)", () => {
           );
         }
       };
-      let lease: Awaited<ReturnType<OpenCodeSupervisor["acquire"]>> | undefined;
+      let lease: Awaited<ReturnType<typeof supervisor.acquire>> | undefined;
+      const startedPids = new Set<number>();
+      const topicCalls: Promise<string>[] = [];
+      let stopAgent: (() => Promise<unknown>) | undefined;
       reaper.track(supervisor);
       const teardown = reaper.add(async () => {
+        await stopAgent?.();
+        // A failed assertion can leave the real topic call starting a server.
+        // Drain it before shutdown so it cannot start a server after cleanup.
+        await Promise.allSettled(topicCalls);
+        if (lease) startedPids.add(lease.pid);
         lease?.release();
         await measure("server teardown", () => supervisor.shutdown());
         await mock.stop(true);
+        removeManagedUserEnv(userId);
+        for (const pid of startedPids) expect(processIsRunning(pid), "fixture server stopped").toBe(false);
       });
       try {
         lease = await measure("server start", () => supervisor.acquire());
-        const backend = createOpenCodeBackend({
-          supervisor,
+        startedPids.add(lease.pid);
+        const firstPid = lease.pid;
+        const productionBackend = createOpenCodeBackend({
           safeErrorSink: (error) => safeErrors.push({ ...error }),
         });
-        const guidance =
-          "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
+        const backend: Backend = {
+          ...productionBackend,
+          oneShotPrompt(...args) {
+            const call = productionBackend.oneShotPrompt(...args);
+            topicCalls.push(call);
+            return call;
+          },
+        };
+        const isGuidance = (entry: { kind: string; content: string }) =>
+          entry.kind === "system" && entry.content.includes("OPENCODE_API_KEY") &&
+          /connections/i.test(entry.content) && entry.content.includes("/clear");
         const guidanceLogged = Promise.withResolvers<void>();
+        let settled = Promise.withResolvers<void>();
         const expectedAgent = { id: "" };
-        let observedGuidance = false;
         const mgr = createAgentManager({
           eventSink: (event) => {
-            if (
-              event.type === "log_entry" &&
-              event.entry.agentId === expectedAgent.id &&
-              event.entry.content === guidance
-            ) {
-              observedGuidance = true;
+            if (event.type === "log_entry" && event.entry.agentId === expectedAgent.id && isGuidance(event.entry)) {
+              guidanceLogged.resolve();
             }
-            if (
-              event.type === "agent_updated" &&
-              event.agentId === expectedAgent.id &&
-              (event.changes.state === "waiting_for_response" ||
-                event.changes.state === "error")
-            ) {
-              if (observedGuidance) guidanceLogged.resolve();
-              else
-                guidanceLogged.reject(
-                  new Error(
-                    "Agent settled without the required Connections guidance log event",
-                  ),
-                );
+            if (event.type === "agent_updated" && event.agentId === expectedAgent.id &&
+                (event.changes.state === "waiting_for_response" || event.changes.state === "error")) {
+              settled.resolve();
             }
           },
           resolveBackend: () => backend,
@@ -1369,21 +1394,34 @@ describe("AgentManager DI (temp-state isolated)", () => {
           undefined,
           "openai/gpt-4o",
           "high",
-          undefined,
+          "tester",
           "opencode",
+          undefined,
+          userId,
         );
         expectedAgent.id = info!.id;
+        stopAgent = () => mgr.kill(info!.id);
         const replyStarted = performance.now();
         mgr.enqueueMessage(info!.id, {
           sender: { kind: "user", username: "tester" },
           text: "fail before login",
         });
-        // The provider-error log event, rather than elapsed time, ends this wait.
-        console.info("Waiting for Connections guidance log event");
-        await guidanceLogged.promise;
-        expect(observedGuidance, "Missing Connections guidance log event").toBe(
-          true,
-        );
+        await settled.promise;
+        // Login guidance is asynchronous and may follow the settled state.
+        // This deadline detects a missing event; success ends on the event itself.
+        let guidanceDeadline: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            guidanceLogged.promise,
+            new Promise<never>((_resolve, reject) => {
+              guidanceDeadline = setTimeout(() => reject(new Error(
+                "Connections guidance never arrived after the auth-failed turn settled",
+              )), 5000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(guidanceDeadline);
+        }
         console.info(
           "OpenCode DI timing",
           JSON.stringify({
@@ -1393,7 +1431,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
           }),
         );
         const logs = mgr.getAgentLogs(info!.id);
-        expect(logs.some((entry) => entry.content === guidance)).toBe(true);
+        expect(logs.some(isGuidance), "system guidance names the key, Connections and /clear").toBe(true);
         expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(
           false,
         );
@@ -1405,16 +1443,69 @@ describe("AgentManager DI (temp-state isolated)", () => {
           "auth.json",
         );
         expect(await Bun.file(globalAuth).exists()).toBe(false);
-        const serialized = JSON.stringify(mgr.getAgentLogs(info!.id));
-        expect(safeErrors).toHaveLength(1);
+        await Promise.allSettled(topicCalls);
+        expect(topicCalls.length, "the initial topic call also reached the local provider").toBeGreaterThan(0);
+        expect(safeErrors, "one rejected-key error from the turn and one from topic generation").toHaveLength(2);
         expect(requestPaths).toContain("/v1/responses");
-        expect(serialized).not.toContain(apiKey);
+        expect(safeErrors.every((error) => error.statusCode === 401), "only rejected-key errors before recovery").toBe(true);
+        const authErrorCount = safeErrors.length;
+        const initialTopicCount = topicCalls.length;
+        expect(requests.length).toBeGreaterThan(0);
+        expect(requests.every((request) => request.authorization === `Bearer ${apiKey}` && request.status === 401),
+          "the original key was rejected before recovery").toBe(true);
+        expect(mgr.getAgent(info!.id)?.state).toBe("waiting_for_response");
+        expect(JSON.stringify(logs).includes(apiKey), "guidance logs exclude the provider key").toBe(false);
+
+        writeManagedUserEnv(userId, { ...env, OPENAI_API_KEY: newKey });
+        expect(environmentSourceKeyForUserId(userId)).toBe(environmentKey);
+        const beforeRecovery = requests.length;
+        await mgr.sendMessage(info!.id, "/clear", "tester");
+        settled = Promise.withResolvers<void>();
+        mgr.enqueueMessage(info!.id, {
+          sender: { kind: "user", username: "tester" },
+          text: "reply after the managed key change",
+        });
+        await measure("recovery reply", () => settled.promise);
+        startedPids.add(lease.pid);
+        // Distinguish a turn that never reached the mock from a stale key.
+        const recoveryRequests = requests.slice(beforeRecovery);
+        const recoveryCause = (mgr.getAgentLogs(info!.id)
+          .filter((entry) => entry.kind === "error" || entry.kind === "system")
+          .at(-1)?.content ?? "No recovery error or system entry")
+          .replaceAll(newKey, "[REDACTED]")
+          .replaceAll(apiKey, "[REDACTED]");
+        expect(recoveryRequests.length,
+          `No provider request arrived after /clear. Last recovery error/system entry: ${recoveryCause}`,
+        ).toBeGreaterThan(0);
+        // An env-revision mutant sends another 401 and fails here.
+        expect(recoveryRequests.some((request) =>
+          request.authorization === `Bearer ${newKey}` && request.status === 200),
+          "recovery provider request uses the new managed key").toBe(true);
+        expect(mgr.getAgentLogs(info!.id).some((entry) =>
+          entry.kind === "text" && entry.content === "Recovered after login."),
+          "a real provider reply arrives after /clear").toBe(true);
+        expect(lease.pid).not.toBe(firstPid);
+        expect(processIsRunning(firstPid)).toBe(false);
+        expect(supervisor.profileDir).toBe(profile.profileDir);
+        const recoveryTopics = await Promise.allSettled(topicCalls.slice(initialTopicCount));
+        expect(recoveryTopics.length, "recovery also exercises topic generation").toBeGreaterThan(0);
+        expect(recoveryTopics.every((result) => result.status === "fulfilled"), "recovery topic calls succeed").toBe(true);
+        expect(safeErrors).toHaveLength(authErrorCount);
+        console.info("OpenCode recovery mock requests", JSON.stringify(
+          requestPaths.reduce<Record<string, number>>((counts, path) => {
+            counts[path] = (counts[path] ?? 0) + 1;
+            return counts;
+          }, {}),
+        ));
+        expect(requestPaths.every((path) => path === "/v1/models" || path === "/v1/responses"),
+          "all provider requests use the local mock protocol").toBe(true);
+        const serialized = JSON.stringify(mgr.getAgentLogs(info!.id));
+        expect(serialized.includes(apiKey), "recovery logs exclude provider keys").toBe(false);
         let scannedFiles = 0;
         for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
           scannedFiles++;
-          expect(await Bun.file(join(STATE_ROOT, path)).text()).not.toContain(
-            apiKey,
-          );
+          expect((await Bun.file(join(STATE_ROOT, path)).text()).includes(apiKey),
+            "persisted logs exclude provider keys").toBe(false);
         }
         expect(
           scannedFiles,

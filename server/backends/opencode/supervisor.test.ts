@@ -563,17 +563,33 @@ describe("OpenCode shared server supervisor", () => {
     20_000,
   );
 
-  // Quarantined 2026-09-17, P1 e04ff785: fixture record reads race independent 1000 ms idle reapers.
-  it.skip("adopts an unchanged config but replaces a pre-revision config record", async () => {
+  // Adoption and record upgrades do not depend on elapsed idle time.
+  // Each owner releases its lease, but the fixture controls all idle reapers.
+  it("adopts an unchanged config but replaces a pre-revision config record", async () => {
     const path = await root();
     const oldConfig = gateConfig(mockProvider());
     const { binary, healthMarker } = await makeHealthOnlyBinary(path);
-    const first = makeSupervisor(path, oldConfig, 1000, {}, 5000, binary);
+    const owners: ReturnType<typeof manualIdleScheduler>[] = [];
+    const owner = (config: Record<string, unknown>) => {
+      const idle = manualIdleScheduler();
+      owners.push(idle);
+      const supervisor = new OpenCodeSupervisor({
+        profileDir: join(path, "profile"),
+        serverCwd: path,
+        config,
+        binary,
+        idleScheduler: idle.scheduler,
+      });
+      supervisors.push(supervisor);
+      return supervisor;
+    };
+    const first = owner(oldConfig);
     const initial = await first.acquire();
     const firstPid = initial.pid;
     initial.release();
+    expect(owners[0].isScheduled()).toBe(true);
 
-    const unchanged = makeSupervisor(path, oldConfig, 1000, {}, 5000, binary);
+    const unchanged = owner(oldConfig);
     const adopted = await unchanged.acquire();
     expect(adopted.pid).toBe(firstPid);
     adopted.release();
@@ -583,14 +599,7 @@ describe("OpenCode shared server supervisor", () => {
     ) as Record<string, unknown>;
     delete legacyRecord.startTicks;
     await writeFile(first.recordPath, `${JSON.stringify(legacyRecord)}\n`);
-    const legacyUpgrade = makeSupervisor(
-      path,
-      oldConfig,
-      1000,
-      {},
-      5000,
-      binary,
-    );
+    const legacyUpgrade = owner(oldConfig);
     const legacyLease = await legacyUpgrade.acquire();
     expect(legacyLease.pid).toBe(firstPid);
     expect(
@@ -612,14 +621,7 @@ describe("OpenCode shared server supervisor", () => {
         },
       },
     };
-    const upgraded = makeSupervisor(
-      path,
-      changedConfig,
-      1000,
-      {},
-      5000,
-      binary,
-    );
+    const upgraded = owner(changedConfig);
     const replaced = await upgraded.acquire();
     expect(replaced.pid).not.toBe(firstPid);
     expect(alive(firstPid)).toBe(false);
