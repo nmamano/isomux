@@ -217,12 +217,13 @@ async function makeHealthOnlyBinary(path: string) {
 import { appendFileSync } from "node:fs";
 appendFileSync(${JSON.stringify(launchMarker)}, process.pid + "\\n");
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
-Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
+const server = Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
   if (new URL(request.url).pathname !== "/global/health")
     return new Response("not found", { status: 404 });
   appendFileSync(${JSON.stringify(healthMarker)}, "hit\\n");
   return Response.json({ healthy: true, version: "1.18.35" });
 }});
+console.log("opencode server listening on http://127.0.0.1:" + server.port);
 await new Promise(() => {});
 `,
   );
@@ -317,6 +318,25 @@ describe("OpenCode shared server supervisor", () => {
     },
     30_000,
   );
+
+  it("starts concurrent real servers on distinct reported ports", async () => {
+    const config = gateConfig(mockProvider());
+    const first = makeSupervisor(await root(), config);
+    const second = makeSupervisor(await root(), config);
+    const leases = await Promise.all([first.acquire(), second.acquire()]);
+    expect(leases[0].baseUrl).not.toBe(leases[1].baseUrl);
+    console.info(`OpenCode port-0 regression: default port leases ${leases.filter((lease) => new URL(lease.baseUrl).port === "4096").length}`);
+    for (const lease of leases) {
+      const args = (await readFile(`/proc/${lease.pid}/cmdline`)).toString().split("\0");
+      expect(args[args.indexOf("--port") + 1]).toBe("0");
+      const response = await fetch(`${lease.baseUrl}/global/health`, {
+        headers: { authorization: lease.authHeader },
+      });
+      expect(response.ok).toBe(true);
+      expect((await response.json() as { healthy: boolean }).healthy).toBe(true);
+      lease.release();
+    }
+  }, 30_000);
 
   it("serializes two supervisors and reconciles by adopting one healthy process", async () => {
     const path = await root();
@@ -699,8 +719,7 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
-  // Quarantined 2026-10-11, P1 423f0a19: same refusal to signal an unverifiable process under load.
-  it.skip("replaces a server killed during a turn when the retained lease begins the next turn", async () => {
+  it("replaces a server killed during a turn when the retained lease begins the next turn", async () => {
     const path = await root();
     const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
     const lease = await supervisor.acquire();
@@ -738,8 +757,7 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
-  // Quarantined 2026-10-11, P1 423f0a19: once refused to signal an unverifiable process under load.
-  it.skip("does not replace an identity-matching server after a false health result while another turn is active", async () => {
+  it("does not replace an identity-matching server after a false health result while another turn is active", async () => {
     const path = await root();
     let health: OpenCodeServerHealth = "healthy";
     let ensures = 0;
@@ -926,13 +944,13 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
-  it("fails once when startup fails for a reason other than a used port", async () => {
+  it.each(["exit 1", "kill -KILL $$"])("fails once without signaling an exited child: %s", async (exit) => {
     const path = await root();
     const marker = join(path, "starts");
     const binary = join(path, "broken-opencode");
     await writeFile(
       binary,
-      `#!/bin/sh\nprintf x >> ${JSON.stringify(marker)}\nprintf 'wrong architecture' >&2\nexit 1\n`,
+      `#!/bin/sh\nprintf x >> ${JSON.stringify(marker)}\nprintf 'wrong architecture' >&2\n${exit}\n`,
     );
     await chmod(binary, 0o700);
     const supervisor = new OpenCodeSupervisor({
@@ -942,7 +960,13 @@ describe("OpenCode shared server supervisor", () => {
       idleShutdownMs: 1000,
     });
     supervisors.push(supervisor);
-    await expectRejection(supervisor.acquire(), /ISOMUX_OPENCODE_DEBUG=1/);
+    const failure = await supervisor.acquire().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toMatch(/ISOMUX_OPENCODE_DEBUG=1/);
+    expect((failure as Error).message).not.toContain("Refusing to signal");
     expect(await readFile(marker, "utf8")).toBe("x");
   }, 10_000);
 
@@ -973,15 +997,17 @@ if (!existsSync(marker)) {
       void server.stop().then(() => process.exit(0));
       return response;
     }});
+    console.log("opencode server listening on http://127.0.0.1:" + server.port);
     await new Promise(() => {});
-  \`], { detached: true, stdio: "ignore" });
+  \`], { detached: true, stdio: ["ignore", "inherit", "ignore"] });
   child.unref();
   await new Promise(() => {});
 }
 appendFileSync(marker, \`second:\${process.pid}\\n\`);
-Bun.serve({ hostname: "127.0.0.1", port, fetch() {
+const server = Bun.serve({ hostname: "127.0.0.1", port, fetch() {
   return Response.json({ healthy: true, version: "1.18.35" });
 }});
+console.log("opencode server listening on http://127.0.0.1:" + server.port);
 await new Promise(() => {});
 `,
     );

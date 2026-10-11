@@ -24,7 +24,7 @@ let nextSession = 0;
 const send = (controller, value) => controller.enqueue(
   new TextEncoder().encode(\`data: \${JSON.stringify(value)}\\n\\n\`),
 );
-Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
+const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   const url = new URL(request.url);
   if (url.pathname === "/global/health")
     return Response.json({ healthy: true, version: "1.18.35" });
@@ -69,6 +69,7 @@ Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   }
   return new Response("not found", { status: 404 });
 }});
+console.log("opencode server listening on http://127.0.0.1:" + server.port);
 await new Promise(() => {});
 `,
     );

@@ -17,6 +17,7 @@ import {
 } from "./process-identity.ts";
 import { lockDarwinFileUntilExit } from "./darwin-libsystem.ts";
 import { openCodeServerHealth } from "./server-health.ts";
+import { parseOpenCodeServerPort } from "./server-port.ts";
 
 interface ServerRecord {
   pid: number;
@@ -125,28 +126,38 @@ async function running(pid: number): Promise<boolean> {
   return processIsRunning(pid);
 }
 
+function childExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
 async function waitHealthy(
   child: ChildProcess,
-  port: number,
-): Promise<boolean> {
+  stdoutPath: string,
+): Promise<number | null> {
+  let port: number | null = null;
   for (let attempt = 0; attempt < 160; attempt++) {
-    if (child.exitCode !== null || !child.pid) return false;
+    if (childExited(child) || !child.pid) return null;
     try {
-      process.kill(child.pid, 0);
-      const response = await fetch(`http://127.0.0.1:${port}/global/health`, {
-        headers: { authorization: authHeader(password) },
-        signal: AbortSignal.timeout(300),
-      });
-      const body = (await response.json()) as {
-        healthy?: boolean;
-        version?: string;
-      };
-      if (response.ok && body.healthy && body.version === "1.18.35")
-        return true;
+      // Only the child's private output supplies its bound port. Never expose
+      // the rest of this file: OpenCode can write provider data to its output.
+      port ??= parseOpenCodeServerPort(await readFile(stdoutPath, "utf8"));
+      if (port !== null) {
+        process.kill(child.pid, 0);
+        const response = await fetch(`http://127.0.0.1:${port}/global/health`, {
+          headers: { authorization: authHeader(password) },
+          signal: AbortSignal.timeout(300),
+        });
+        const body = (await response.json()) as {
+          healthy?: boolean;
+          version?: string;
+        };
+        if (response.ok && body.healthy && body.version === "1.18.35")
+          return port;
+      }
     } catch {}
     await Bun.sleep(50);
   }
-  return false;
+  return null;
 }
 
 function sanitizedChildEnvironment(): NodeJS.ProcessEnv {
@@ -157,10 +168,6 @@ function sanitizedChildEnvironment(): NodeJS.ProcessEnv {
         name !== "ISOMUX_OPENCODE_DEBUG",
     ),
   );
-}
-
-function bindFailure(stderr: string): boolean {
-  return /EADDRINUSE|address already in use/i.test(stderr);
 }
 
 await mkdir(profileDir, { recursive: true });
@@ -183,8 +190,8 @@ if (prior && (await adoptable(prior))) {
 if (prior) await stop(prior);
 
 let started: ServerRecord | null = null;
+// Retry only when a healthy child exits before its identity can be captured.
 for (let attempt = 0; attempt < 40; attempt++) {
-  const port = 22000 + Math.floor(Math.random() * 1000);
   const debugDir = await mkdtemp(join(tmpdir(), "isomux-opencode-debug-"));
   const stdoutPath = join(debugDir, "stdout.log");
   const stderrPath = join(debugDir, "stderr.log");
@@ -198,7 +205,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
       "--hostname",
       "127.0.0.1",
       "--port",
-      String(port),
+      "0",
       "--print-logs",
       "--log-level",
       "INFO",
@@ -234,7 +241,8 @@ for (let attempt = 0; attempt < 40; attempt++) {
   await Promise.all([stdout.close(), stderr.close()]);
   child.unref();
   let identityLostAfterHealth = false;
-  if (child.pid && (await waitHealthy(child, port))) {
+  const port = child.pid ? await waitHealthy(child, stdoutPath) : null;
+  if (child.pid && port !== null) {
     const startTicks = readProcessStartTicks(child.pid);
     if (startTicks) {
       started = {
@@ -253,10 +261,10 @@ for (let attempt = 0; attempt < 40; attempt++) {
     }
     identityLostAfterHealth = true;
   }
-  if (child.pid)
+  if (child.pid && !childExited(child))
     await stop({
       pid: child.pid,
-      port,
+      port: port ?? 0,
       password,
       binary,
       profileDir,
@@ -264,21 +272,18 @@ for (let attempt = 0; attempt < 40; attempt++) {
       configRevision,
       startTicks: readProcessStartTicks(child.pid) ?? undefined,
     });
-  const startupError = await readFile(stderrPath, "utf8").catch(() => "");
   if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });
   if (identityLostAfterHealth) continue;
-  if (!bindFailure(startupError)) {
-    const debugAdvice = keepDebugOutput
-      ? ` Debug output is in ${debugDir}.`
-      : " Set ISOMUX_OPENCODE_DEBUG=1 to keep private startup output under /tmp.";
-    throw new Error(
-      `Pinned OpenCode server failed during startup.${debugAdvice}`,
-    );
-  }
+  const debugAdvice = keepDebugOutput
+    ? ` Debug output is in ${debugDir}.`
+    : " Set ISOMUX_OPENCODE_DEBUG=1 to keep private startup output under /tmp.";
+  throw new Error(
+    `Pinned OpenCode server failed during startup.${debugAdvice}`,
+  );
 }
 if (!started)
   throw new Error(
-    "Pinned OpenCode server did not start in the reserved port range 22000-22999.",
+    "Pinned OpenCode server exited before its identity could be captured.",
   );
 await writeFile(recordPath, `${JSON.stringify(started)}\n`, { mode: 0o600 });
 await chmod(recordPath, 0o600);

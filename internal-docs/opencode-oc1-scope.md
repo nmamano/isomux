@@ -660,9 +660,11 @@ path only for a dead process, a process marked unresponsive by an event-stream
 deadline, or an unreachable process with no other active turn. Two sessions that find the same dead record converge on one replacement.
 This applies after an Isomux SIGKILL and across test processes, not only inside
 one supervisor object. An ordinary Isomux SIGINT or SIGTERM reaps the shared
-server before the signal is re-raised. The reserved retry range is
-22000-22999, directly above Isomux app allocation at 21000-21999 and below the
-Linux ephemeral range; an occupied port is retried.
+server before the signal is re-raised. Each launch requests `--port 0`. OpenCode 1.18.35 first tries loopback port
+4096, then asks the OS for a free port if that bind fails (checked 2026-10-11).
+The helper reads the bound port from the child's private stdout listening line
+and checks authenticated health before it writes the record. It retries only
+if a healthy child exits before its process identity can be read.
 Two concurrent starts are proved by a `/proc` count of the exact pinned binary,
 not by the supervisor registry. `supervisor.lock.test.ts` proves the lock on
 both Linux and macOS with a health-only stand-in binary.
