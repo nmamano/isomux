@@ -3,12 +3,16 @@ import { parseOpenCodeServerPort } from "./server-port.ts";
 
 describe("OpenCode startup address", () => {
   it("reads a complete loopback listening line amid other output", () => {
-    expect(parseOpenCodeServerPort(
-      "diagnostic output\nopencode server listening on http://127.0.0.1:34567\nmore output\n",
-    )).toBe(34567);
-    expect(parseOpenCodeServerPort(
-      "opencode server listening on http://127.0.0.1:65535\r\n",
-    )).toBe(65535);
+    expect(
+      parseOpenCodeServerPort(
+        "diagnostic output\nopencode server listening on http://127.0.0.1:34567\nmore output\n",
+      ),
+    ).toBe(34567);
+    expect(
+      parseOpenCodeServerPort(
+        "opencode server listening on http://127.0.0.1:65535\r\n",
+      ),
+    ).toBe(65535);
   });
 
   it.each([

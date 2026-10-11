@@ -56,7 +56,11 @@ import {
 import { startTestServer, type TestServer } from "./harness.ts";
 import { createHash } from "crypto";
 import { runInNewContext } from "node:vm";
-import { _testSetAppRegistrationGeneration, appRegistrationGeneration, appRegistry } from "../app-registry.ts";
+import {
+  _testSetAppRegistrationGeneration,
+  appRegistrationGeneration,
+  appRegistry,
+} from "../app-registry.ts";
 import {
   APP_COOKIE_NAME,
   APP_MINT_MAX_PER_WINDOW,
@@ -504,14 +508,25 @@ describe("app-host handshake: only navigations and metadata-less clients are bou
   it("sets framing on app-host refusals and reserved paths", async () => {
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
     for (const path of ["/", "/__isomux/unknown", "/__isomux/auth"]) {
-      const response = await raw(srv.port, { host: appHost(label), path, headers: { "Sec-Fetch-Dest": "empty" } });
-      expect(response.headers["content-security-policy"]).toBe(`frame-ancestors 'self' ${HTTPS_ORIGIN}`);
+      const response = await raw(srv.port, {
+        host: appHost(label),
+        path,
+        headers: { "Sec-Fetch-Dest": "empty" },
+      });
+      expect(response.headers["content-security-policy"]).toBe(
+        `frame-ancestors 'self' ${HTTPS_ORIGIN}`,
+      );
       expect(response.headers["x-frame-options"]).toBeUndefined();
     }
     const cookie = await signIn(srv, label, rawSessionId);
-    const unavailable = await raw(srv.port, { host: appHost(label), headers: withAppCookie(cookie) });
+    const unavailable = await raw(srv.port, {
+      host: appHost(label),
+      headers: withAppCookie(cookie),
+    });
     expect(unavailable.status).toBe(502);
-    expect(unavailable.headers["content-security-policy"]).toBe(`frame-ancestors 'self' ${HTTPS_ORIGIN}`);
+    expect(unavailable.headers["content-security-policy"]).toBe(
+      `frame-ancestors 'self' ${HTTPS_ORIGIN}`,
+    );
   });
 
   it("signals a framed missing session without exposing label existence", async () => {
@@ -526,14 +541,17 @@ describe("app-host handshake: only navigations and metadata-less clients are bou
     const script = known.body.match(/<script>(.*?)<\/script>/)?.[1];
     expect(script).toBeDefined();
     const messages: unknown[][] = [];
-    runInNewContext(script!, { parent: { postMessage: (...args: unknown[]) => messages.push(args) } });
+    runInNewContext(script!, {
+      parent: { postMessage: (...args: unknown[]) => messages.push(args) },
+    });
     expect(messages).toEqual([[APP_SESSION_REQUIRED_MESSAGE, HTTPS_ORIGIN]]);
     const hash = createHash("sha256").update(script!).digest("base64");
     expect(known.headers["content-security-policy"]).toBe(
       `default-src 'none'; script-src 'sha256-${hash}'; frame-ancestors 'self' ${HTTPS_ORIGIN}`,
     );
     const rejected = await raw(srv.port, {
-      host: appHost(label), headers: { ...headers, Cookie: `${APP_COOKIE_NAME}=dead` },
+      host: appHost(label),
+      headers: { ...headers, Cookie: `${APP_COOKIE_NAME}=dead` },
     });
     expect(rejected.body).toBe(known.body);
     expect(rejected.setCookies).toHaveLength(1);
@@ -557,9 +575,15 @@ describe("app-host handshake: only navigations and metadata-less clients are bou
     _testSetAppRegistrationGeneration(otherLabel, generation);
     expect(appSessionExpiresAt(otherLabel, hash)).toBeNull();
     const otherMember = await srv.seedMember("Other");
-    const otherHash = createHash("sha256").update(otherMember.rawSessionId).digest("hex");
+    const otherHash = createHash("sha256")
+      .update(otherMember.rawSessionId)
+      .digest("hex");
     expect(appSessionExpiresAt(app, otherHash)).toBeNull();
-    const out = await srv.http("/auth/logout", { method: "POST", rawSessionId, redirect: "manual" });
+    const out = await srv.http("/auth/logout", {
+      method: "POST",
+      rawSessionId,
+      redirect: "manual",
+    });
     expect(out.status).toBe(302);
     expect(appSessionExpiresAt(app, hash)).toBeNull();
   });
@@ -569,26 +593,44 @@ describe("app-host handshake: only navigations and metadata-less clients are bou
     const app = appRegistry.list().find((a) => a.hostLabel === label)!;
     const registration = appRegistrationGeneration(app);
     const params = new URLSearchParams({
-      app: label, mode: "wrapper", registration: String(registration),
+      app: label,
+      mode: "wrapper",
+      registration: String(registration),
       r: "/other-path?tab=one%20two&x=3",
     });
     const minted = await mint(srv, `?${params}`, { rawSessionId });
     const redeemed = await redeem(srv, label, codeFromMint(minted));
-    expect(redeemed.headers.location).toBe(`${HTTPS_ORIGIN}/${app.name}?tab=one%20two&x=3`);
+    expect(redeemed.headers.location).toBe(
+      `${HTTPS_ORIGIN}/${app.name}?tab=one%20two&x=3`,
+    );
     expect(redeemed.setCookies).toHaveLength(1);
     const sessionHash = createHash("sha256").update(rawSessionId).digest("hex");
     expect(appSessionExpiresAt(app, sessionHash)).toBeGreaterThan(Date.now());
     expect(appSessionExpiresAt(app, null)).toBeNull();
-    expect(appSessionExpiresAt(app, sessionHash, Date.now() + APP_SESSION_TTL_MS + 1)).toBeNull();
-    for (const bad of ["https://evil.example/", "//evil.example/", "/\\evil.example/"]) {
+    expect(
+      appSessionExpiresAt(
+        app,
+        sessionHash,
+        Date.now() + APP_SESSION_TTL_MS + 1,
+      ),
+    ).toBeNull();
+    for (const bad of [
+      "https://evil.example/",
+      "//evil.example/",
+      "/\\evil.example/",
+    ]) {
       params.set("r", bad);
-      expect((await mint(srv, `?${params}`, { rawSessionId })).status).toBe(400);
+      expect((await mint(srv, `?${params}`, { rawSessionId })).status).toBe(
+        400,
+      );
     }
     for (const safePath of ["/%2f%2fevil.example/", "/another-app"]) {
       params.set("r", safePath);
       const encodedMint = await mint(srv, `?${params}`, { rawSessionId });
       const encodedRedeem = await redeem(srv, label, codeFromMint(encodedMint));
-      expect(encodedRedeem.headers.location).toBe(`${HTTPS_ORIGIN}/${app.name}`);
+      expect(encodedRedeem.headers.location).toBe(
+        `${HTTPS_ORIGIN}/${app.name}`,
+      );
     }
     params.set("r", "/");
     params.set("registration", String(registration + 1));

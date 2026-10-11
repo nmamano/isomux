@@ -517,7 +517,10 @@ export class OpenCodeTransport {
   }
 
   async send(parts: OpenCodePromptPart[], sink: EventSink): Promise<void> {
-    const billedSteps = new Map<string, { usage?: TokenUsage; cost?: number }>();
+    const billedSteps = new Map<
+      string,
+      { usage?: TokenUsage; cost?: number }
+    >();
     let settled = false;
     let turnStarted = false;
     let controller: AbortController | undefined;
@@ -531,19 +534,37 @@ export class OpenCodeTransport {
         let cost: number | undefined;
         for (const step of billedSteps.values()) {
           if (step.usage) {
-            usage ??= { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
+            usage ??= {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+            };
             usage.inputTokens += step.usage.inputTokens;
             usage.outputTokens += step.usage.outputTokens;
             usage.cacheReadInputTokens += step.usage.cacheReadInputTokens;
-            usage.cacheCreationInputTokens += step.usage.cacheCreationInputTokens;
+            usage.cacheCreationInputTokens +=
+              step.usage.cacheCreationInputTokens;
           }
           if (step.cost !== undefined) cost = (cost ?? 0) + step.cost;
         }
-        event = { ...event, ...(usage ? { usage } : {}), ...(cost !== undefined ? { cost } : {}),
-          ...(usage || cost !== undefined ? {
-            costMode: "turn" as const,
-            usageId: createHash("sha256").update(JSON.stringify([this.sessionId, [...billedSteps.keys()].sort()])).digest("hex"),
-          } : {}),
+        event = {
+          ...event,
+          ...(usage ? { usage } : {}),
+          ...(cost !== undefined ? { cost } : {}),
+          ...(usage || cost !== undefined
+            ? {
+                costMode: "turn" as const,
+                usageId: createHash("sha256")
+                  .update(
+                    JSON.stringify([
+                      this.sessionId,
+                      [...billedSteps.keys()].sort(),
+                    ]),
+                  )
+                  .digest("hex"),
+              }
+            : {}),
         };
         this.activeTurn = false;
         // A request still open when the turn ends can never be answered.
@@ -606,7 +627,13 @@ export class OpenCodeTransport {
       controller = new AbortController();
       this.abortController = controller;
       try {
-        await this.consumeEvents(sessionId, emit, controller.signal, fail, billedSteps);
+        await this.consumeEvents(
+          sessionId,
+          emit,
+          controller.signal,
+          fail,
+          billedSteps,
+        );
       } catch (error) {
         if (controller.signal.aborted) throw error;
         // No prompt is out yet, so recovery replays nothing. When the guard
@@ -618,7 +645,13 @@ export class OpenCodeTransport {
           throw error instanceof OpenCodeTurnFailure ? error : recoveryError;
         }
         this.authorityBinding?.activate(this.lease!.pid);
-        await this.consumeEvents(sessionId, emit, controller.signal, fail, billedSteps);
+        await this.consumeEvents(
+          sessionId,
+          emit,
+          controller.signal,
+          fail,
+          billedSteps,
+        );
       }
       if (settled) return;
       // After beginTurn and recovery, which can each replace the server.
@@ -974,7 +1007,10 @@ export class OpenCodeTransport {
               });
             }
             if (event.kind === "step_finish") {
-              billedSteps.set(event.partId, { usage: event.usage, cost: event.cost });
+              billedSteps.set(event.partId, {
+                usage: event.usage,
+                cost: event.cost,
+              });
               if (!(event.messageId && summaryMessages.has(event.messageId))) {
                 overflowPending = false;
                 hasCompletedStep = true;
@@ -988,8 +1024,11 @@ export class OpenCodeTransport {
                   sink(result);
                 settle({ kind: "turn_completed", status: "interrupted" });
               } else if (overflowPending) {
-                settle({ kind: "turn_completed", status: "failed",
-                  error: openCodeErrorMessage({ name: "ContextOverflowError" }) });
+                settle({
+                  kind: "turn_completed",
+                  status: "failed",
+                  error: openCodeErrorMessage({ name: "ContextOverflowError" }),
+                });
               } else if (hasCompletedStep) {
                 settle({
                   kind: "turn_completed",
@@ -1005,7 +1044,11 @@ export class OpenCodeTransport {
             }
             if (event.kind === "error") {
               if (this.abortRequested) continue;
-              try { this.safeErrorSink?.(event.error); } catch { /* Logging cannot end a turn. */ }
+              try {
+                this.safeErrorSink?.(event.error);
+              } catch {
+                /* Logging cannot end a turn. */
+              }
               // OpenCode emits this before automatic compaction and replay.
               // Idle without a later answer is the terminal overflow case.
               if (event.error.name === "ContextOverflowError") {
@@ -1305,7 +1348,12 @@ export function allowMessages(raw: unknown): NormalizedMessage[] {
 }
 
 type AllowedEvent =
-  | { kind: "assistant"; sessionId: string; messageId: string; summary?: boolean }
+  | {
+      kind: "assistant";
+      sessionId: string;
+      messageId: string;
+      summary?: boolean;
+    }
   | { kind: "retry"; sessionId: string; attempt: number; message?: string }
   | {
       kind: "text";
@@ -1425,8 +1473,20 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
   if (type === "session.status") {
     const status = asRecord(properties.status);
     const attempt = numberField(status, "attempt");
-    if (status.type === "retry" && attempt !== null && Number.isSafeInteger(attempt) && attempt > 0)
-      return { kind: "retry", sessionId, attempt, ...(typeof status.message === "string" ? { message: status.message } : {}) };
+    if (
+      status.type === "retry" &&
+      attempt !== null &&
+      Number.isSafeInteger(attempt) &&
+      attempt > 0
+    )
+      return {
+        kind: "retry",
+        sessionId,
+        attempt,
+        ...(typeof status.message === "string"
+          ? { message: status.message }
+          : {}),
+      };
   }
   if (type === "session.error") {
     return { kind: "error", sessionId, error: allowError(properties.error) };
@@ -1452,7 +1512,12 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
     const info = asRecord(properties.info);
     const messageId = stringField(info, "id");
     if (info.role === "assistant" && messageId) {
-      return { kind: "assistant", sessionId, messageId, ...(info.summary === true ? { summary: true } : {}) };
+      return {
+        kind: "assistant",
+        sessionId,
+        messageId,
+        ...(info.summary === true ? { summary: true } : {}),
+      };
     }
   }
   if (type === "message.part.updated") {

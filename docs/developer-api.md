@@ -286,7 +286,6 @@ A privileged agent can read `GET /api/users/:username/member-prompt` and send `P
 
 Every prompt PATCH, including a human save, requires the version from the read. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. Human PATCH responses remain `{user}`; edits to other fields need no prompt version.
 
-
 ## App page readiness
 
 Members and personal API tokens can call `GET /api/apps/:name/widget?registration=<generation>`. Agents cannot call this member-page helper. It returns `{registration, appUrl, sessionExpiresAt, chat}`. The server returns the same 404 for a missing app, an inaccessible app, or an old registration. The server returns `chat: null` unless the member can access the target agent's room; otherwise chat holds `{agentId, agentName, sessionId}`. An API token has no browser session, so its `sessionExpiresAt` is null.

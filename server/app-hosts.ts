@@ -219,7 +219,9 @@ export function handleAppHostRequest(
   const result = dispatchAppHostRequest(req, deps);
   if (result === null) return null;
   if (result instanceof Response) return withAppFraming(result);
-  return result.then((response) => response ? withAppFraming(response) : response);
+  return result.then((response) =>
+    response ? withAppFraming(response) : response,
+  );
 }
 
 function dispatchAppHostRequest(

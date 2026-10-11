@@ -12,15 +12,21 @@ import {
 } from "../../agent-reference.ts";
 import { PRIVILEGED_AGENT_CAPABILITIES } from "../../identity/index.ts";
 
-import { API_ROUTES, PUBLIC_ROUTES, type RouteDef } from "../../routes/table.ts";
+import {
+  API_ROUTES,
+  PUBLIC_ROUTES,
+  type RouteDef,
+} from "../../routes/table.ts";
 import { matchRoute } from "../../routes/match.ts";
 
 // Independent expectation: changing the broker predicate must fail this test.
 function agentStageOne(route: RouteDef): boolean {
   if (route.auth.kind === "authenticated") return true;
   if (route.auth.kind !== "capability") return false;
-  const required = typeof route.auth.requiredCapability === "string"
-    ? [route.auth.requiredCapability] : route.auth.requiredCapability;
+  const required =
+    typeof route.auth.requiredCapability === "string"
+      ? [route.auth.requiredCapability]
+      : route.auth.requiredCapability;
   return required.some((cap) => PRIVILEGED_AGENT_CAPABILITIES.includes(cap));
 }
 
@@ -151,8 +157,10 @@ describe("OpenCode broker allowlist", () => {
     expect(routes).toContain("POST /api/api-token-inboxes/:tokenId/messages");
     for (const route of [...API_ROUTES, ...PUBLIC_ROUTES]) {
       const handle = binding.activate(process.pid);
-      expect(await status(socketPath, handle, route.method, route.path), route.opId)
-        .toBe(agentStageOne(route) ? 200 : 403);
+      expect(
+        await status(socketPath, handle, route.method, route.path),
+        route.opId,
+      ).toBe(agentStageOne(route) ? 200 : 403);
     }
 
     for (const occurrence of occurrences) {
@@ -163,12 +171,19 @@ describe("OpenCode broker allowlist", () => {
       expect(manifest || matched !== null, occurrence.route).toBe(true);
       const handle = binding.activate(process.pid);
       const actual = await status(socketPath, handle, method, path);
-      expect(actual, `${occurrence.where}: ${occurrence.route}`)
-        .toBe(manifest || (matched && agentStageOne(matched.route)) ? 200 : 403);
+      expect(actual, `${occurrence.where}: ${occurrence.route}`).toBe(
+        manifest || (matched && agentStageOne(matched.route)) ? 200 : 403,
+      );
     }
     // A specific user-only refusal also guards against replacing the predicate
     // with true, independently of the route-table loop above.
-    expect(await status(socketPath, binding.activate(process.pid), "PUT",
-      "/api/agents/agent-x/privileged")).toBe(403);
+    expect(
+      await status(
+        socketPath,
+        binding.activate(process.pid),
+        "PUT",
+        "/api/agents/agent-x/privileged",
+      ),
+    ).toBe(403);
   });
 });

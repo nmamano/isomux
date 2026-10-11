@@ -113,7 +113,11 @@ describe("short app links through the office request pipeline", () => {
         `${HTTPS_ORIGIN}/board`,
       );
     }
-    const archived = await raw(srv.port, { host: OFFICE_HOST, path: "/board", method: "HEAD" });
+    const archived = await raw(srv.port, {
+      host: OFFICE_HOST,
+      path: "/board",
+      method: "HEAD",
+    });
     expect(archived.status).toBe(302);
     expect(archived.headers.location).toBe(`https://board.${OFFICE_HOST}/`);
     expect(

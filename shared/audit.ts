@@ -1,7 +1,14 @@
 import type { TaskItem } from "./types.ts";
 
 export const AUDIT_ACTOR_KINDS = [
-  "member", "agent", "api_token", "cronjob", "webhook", "admin_cli", "setup", "app",
+  "member",
+  "agent",
+  "api_token",
+  "cronjob",
+  "webhook",
+  "admin_cli",
+  "setup",
+  "app",
 ] as const;
 export type AuditActorKind = (typeof AUDIT_ACTOR_KINDS)[number];
 export interface AuditActor {

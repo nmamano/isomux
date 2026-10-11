@@ -22,8 +22,12 @@ it("filters audit rows and restores the task named by its deletion snapshot", as
           deletedTask: { id: "task-1", title: "A deleted task title" },
         },
         {
-          sequence: 2, time: 2, actor: { kind: "member", id: "u", name: "Member" },
-          operation: "tasks.update", targets: ["task-2"], fields: ["title"],
+          sequence: 2,
+          time: 2,
+          actor: { kind: "member", id: "u", name: "Member" },
+          operation: "tasks.update",
+          targets: ["task-2"],
+          fields: ["title"],
           taskChanges: { title: { old: "old-content", new: "new-content" } },
         },
       ],
@@ -32,7 +36,9 @@ it("filters audit rows and restores the task named by its deletion snapshot", as
   });
   const view = render(<AuditPane />);
   await act(async () => {});
-  expect(view.container.querySelector('[title="task-1"]')?.textContent).toBe("A deleted task title");
+  expect(view.container.querySelector('[title="task-1"]')?.textContent).toBe(
+    "A deleted task title",
+  );
   expect(view.getByText("old-content").textContent).toBe("old-content");
   expect(view.getAllByText("new-content").length).toBeGreaterThan(0);
   fireEvent.click(view.getByRole("button", { name: "Restore" }));
@@ -87,63 +93,92 @@ it("maps roster IDs and local minute bounds, keeps filters when paging, and clea
   const previousZone = process.env.TZ;
   process.env.TZ = "America/Los_Angeles";
   try {
-  expect(new Date(2026, 9, 10, 14, 30).getTimezoneOffset()).not.toBe(0);
-  const { StateCtx } = await import("../store.tsx");
-  const calls: string[] = [];
-  setApiShim(async (_method, path) => {
-    calls.push(path);
-    return { items: [], nextBefore: 17 };
-  });
-  let base!: React.ContextType<typeof StateCtx>;
-  const { useContext } = await import("react");
-  function Fixture() {
-    base = useContext(StateCtx);
-    return <StateCtx.Provider value={{ ...base, users: new Map([
-      ["member", { id: "member-id", name: "Long Member Name", role: "owner", avatarColor: "#fff", avatarVariant: "classic", createdAt: 1 }],
-    ]) }}><AuditPane /></StateCtx.Provider>;
-  }
-  const view = render(<Fixture />);
-  await act(async () => {});
-  const field = (name: string) => view.container.querySelector(`[name="${name}"]`)!;
-  const change = (name: string, value: string) => fireEvent.change(field(name), { target: { value } });
-  change("actorKind", "member");
-  expect(field("actorId").tagName).toBe("SELECT");
-  change("actorId", "member-id");
-  change("ownerId", "member-id");
-  change("operation", "auth.claim");
-  change("from", "2026-10-10T14:30");
-  change("to", "2026-10-10T14:30");
-  const beforeSubmit = calls.length;
-  fireEvent.submit(view.container.querySelector("form")!);
-  await act(async () => {});
-  expect(calls).toHaveLength(beforeSubmit + 1);
-  const params = new URL(calls.at(-1)!, "http://fixture").searchParams;
-  expect(params.get("actorKind")).toBe("member");
-  expect(params.get("actorId")).toBe("member-id");
-  expect(params.get("ownerId")).toBe("member-id");
-  expect(params.get("operation")).toBe("auth.claim");
-  const start = new Date(2026, 9, 10, 14, 30).getTime();
-  expect(Number(params.get("from"))).toBe(start);
-  expect(Number(params.get("to"))).toBe(start + 59_999);
-  fireEvent.click(view.container.querySelector("section > button")!);
-  await act(async () => {});
-  const older = new URL(calls.at(-1)!, "http://fixture").searchParams;
-  expect(older.get("before")).toBe("17");
-  for (const [key, value] of params) expect(older.get(key)).toBe(value);
-  fireEvent.click(view.container.querySelector('form button[type="button"]')!);
-  await act(async () => {});
-  expect(calls.at(-1)).toBe("/api/audit-log?");
-  for (const control of view.container.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[name]")) expect(control.value).toBe("");
-  const beforeInvalid = calls.length;
-  change("actorId", "agent-1");
-  change("actorKind", "member");
-  change("from", "2026-10-11T14:30");
-  change("to", "2026-10-10T14:30");
-  fireEvent.submit(view.container.querySelector("form")!);
-  await act(async () => {});
-  expect(calls).toHaveLength(beforeInvalid);
-  expect(view.queryByRole("alert")).not.toBeNull();
-  expect((view.container.querySelector('[name="actorId"]') as HTMLSelectElement).value).toBe("");
+    expect(new Date(2026, 9, 10, 14, 30).getTimezoneOffset()).not.toBe(0);
+    const { StateCtx } = await import("../store.tsx");
+    const calls: string[] = [];
+    setApiShim(async (_method, path) => {
+      calls.push(path);
+      return { items: [], nextBefore: 17 };
+    });
+    let base!: React.ContextType<typeof StateCtx>;
+    const { useContext } = await import("react");
+    function Fixture() {
+      base = useContext(StateCtx);
+      return (
+        <StateCtx.Provider
+          value={{
+            ...base,
+            users: new Map([
+              [
+                "member",
+                {
+                  id: "member-id",
+                  name: "Long Member Name",
+                  role: "owner",
+                  avatarColor: "#fff",
+                  avatarVariant: "classic",
+                  createdAt: 1,
+                },
+              ],
+            ]),
+          }}
+        >
+          <AuditPane />
+        </StateCtx.Provider>
+      );
+    }
+    const view = render(<Fixture />);
+    await act(async () => {});
+    const field = (name: string) =>
+      view.container.querySelector(`[name="${name}"]`)!;
+    const change = (name: string, value: string) =>
+      fireEvent.change(field(name), { target: { value } });
+    change("actorKind", "member");
+    expect(field("actorId").tagName).toBe("SELECT");
+    change("actorId", "member-id");
+    change("ownerId", "member-id");
+    change("operation", "auth.claim");
+    change("from", "2026-10-10T14:30");
+    change("to", "2026-10-10T14:30");
+    const beforeSubmit = calls.length;
+    fireEvent.submit(view.container.querySelector("form")!);
+    await act(async () => {});
+    expect(calls).toHaveLength(beforeSubmit + 1);
+    const params = new URL(calls.at(-1)!, "http://fixture").searchParams;
+    expect(params.get("actorKind")).toBe("member");
+    expect(params.get("actorId")).toBe("member-id");
+    expect(params.get("ownerId")).toBe("member-id");
+    expect(params.get("operation")).toBe("auth.claim");
+    const start = new Date(2026, 9, 10, 14, 30).getTime();
+    expect(Number(params.get("from"))).toBe(start);
+    expect(Number(params.get("to"))).toBe(start + 59_999);
+    fireEvent.click(view.container.querySelector("section > button")!);
+    await act(async () => {});
+    const older = new URL(calls.at(-1)!, "http://fixture").searchParams;
+    expect(older.get("before")).toBe("17");
+    for (const [key, value] of params) expect(older.get(key)).toBe(value);
+    fireEvent.click(
+      view.container.querySelector('form button[type="button"]')!,
+    );
+    await act(async () => {});
+    expect(calls.at(-1)).toBe("/api/audit-log?");
+    for (const control of view.container.querySelectorAll<
+      HTMLInputElement | HTMLSelectElement
+    >("[name]"))
+      expect(control.value).toBe("");
+    const beforeInvalid = calls.length;
+    change("actorId", "agent-1");
+    change("actorKind", "member");
+    change("from", "2026-10-11T14:30");
+    change("to", "2026-10-10T14:30");
+    fireEvent.submit(view.container.querySelector("form")!);
+    await act(async () => {});
+    expect(calls).toHaveLength(beforeInvalid);
+    expect(view.queryByRole("alert")).not.toBeNull();
+    expect(
+      (view.container.querySelector('[name="actorId"]') as HTMLSelectElement)
+        .value,
+    ).toBe("");
   } finally {
     if (previousZone === undefined) delete process.env.TZ;
     else process.env.TZ = previousZone;

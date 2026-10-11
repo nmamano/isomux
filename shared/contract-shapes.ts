@@ -1444,7 +1444,6 @@ export interface BackupStatusWire {
   destDir: string;
 }
 
-
 // Office app wrapper readiness. A null chat hides all target metadata.
 export interface AppWidgetStatus {
   registration: number;

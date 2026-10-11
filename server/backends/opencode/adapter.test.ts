@@ -450,13 +450,30 @@ describe("OpenCode pinned transport", () => {
   it("logs redacted provider errors through the default production sink", async () => {
     const logged = spyOn(console, "error").mockImplementation(() => {});
     try {
-      const harness = oneShotHarness([{ type: "session.error", properties: {
-        sessionID: "one-shot-session", error: { name: "APIError", data: {
-          statusCode: 503, isRetryable: true,
-          message: "Incorrect API key provided: sk-abcdefghijklmnopqrstuvwxyz123456",
-        } },
-      } }], 2_000);
-      const session = harness.backend.createSession({ ...opts, modelFamily: "gate/free" });
+      const harness = oneShotHarness(
+        [
+          {
+            type: "session.error",
+            properties: {
+              sessionID: "one-shot-session",
+              error: {
+                name: "APIError",
+                data: {
+                  statusCode: 503,
+                  isRetryable: true,
+                  message:
+                    "Incorrect API key provided: sk-abcdefghijklmnopqrstuvwxyz123456",
+                },
+              },
+            },
+          },
+        ],
+        2_000,
+      );
+      const session = harness.backend.createSession({
+        ...opts,
+        modelFamily: "gate/free",
+      });
       try {
         await session.send("fail");
         for await (const event of session.stream()) {
@@ -465,15 +482,23 @@ describe("OpenCode pinned transport", () => {
             break;
           }
         }
-      } finally { session.close(); }
-      const entry = logged.mock.calls.find(args => args[0] === "[opencode]");
+      } finally {
+        session.close();
+      }
+      const entry = logged.mock.calls.find((args) => args[0] === "[opencode]");
       expect(entry).toBeDefined();
       const cause = JSON.parse(String(entry![1]));
-      expect(cause).toMatchObject({ name: "APIError", statusCode: 503, isRetryable: true });
+      expect(cause).toMatchObject({
+        name: "APIError",
+        statusCode: 503,
+        isRetryable: true,
+      });
       expect(cause.message).toContain("REDACTED");
       expect(cause.message).not.toContain("abcdefghijklmnopqrstuvwxyz123456");
       console.info("Default sink redacted example", entry![1]);
-    } finally { logged.mockRestore(); }
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   const topicFrames = [
@@ -1631,12 +1656,20 @@ describe("OpenCode pinned transport", () => {
     expect(permissionAbortCompletion).toEqual({
       kind: "turn_completed",
       status: "interrupted",
-      ...(permissionAbortCompletion?.kind === "turn_completed" && permissionAbortCompletion?.usage ? {
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
-        cost: 0,
-        costMode: "turn",
-        usageId: expect.stringMatching(/^[a-f0-9]{64}$/),
-      } : {}),
+      ...(permissionAbortCompletion?.kind === "turn_completed" &&
+      permissionAbortCompletion?.usage
+        ? {
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+            },
+            cost: 0,
+            costMode: "turn",
+            usageId: expect.stringMatching(/^[a-f0-9]{64}$/),
+          }
+        : {}),
     });
     expect(
       toolAbort.filter((event) => event.kind === "tool_call"),
@@ -1649,12 +1682,20 @@ describe("OpenCode pinned transport", () => {
     expect(toolAbortCompletion).toEqual({
       kind: "turn_completed",
       status: "interrupted",
-      ...(toolAbortCompletion?.kind === "turn_completed" && toolAbortCompletion?.usage ? {
-        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
-        cost: 0,
-        costMode: "turn",
-        usageId: expect.stringMatching(/^[a-f0-9]{64}$/),
-      } : {}),
+      ...(toolAbortCompletion?.kind === "turn_completed" &&
+      toolAbortCompletion?.usage
+        ? {
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+            },
+            cost: 0,
+            costMode: "turn",
+            usageId: expect.stringMatching(/^[a-f0-9]{64}$/),
+          }
+        : {}),
     });
     yield; // Edits and both abort paths are complete.
     const repoA = join(root, "repo-a");

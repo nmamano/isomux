@@ -537,9 +537,17 @@ export function appSessionExpiresAt(
   if (!office) return null;
   let expiresAt: number | null = null;
   for (const row of appSessions.values()) {
-    if (row.officeSessionHash === officeSessionHash && row.label === app.hostLabel &&
-        row.hostGen === app.hostGen && row.registrationGen === appRegistrationGeneration(app) && row.expiresAt > now) {
-      expiresAt = Math.max(expiresAt ?? 0, Math.min(row.expiresAt, office.absoluteExpiresAt));
+    if (
+      row.officeSessionHash === officeSessionHash &&
+      row.label === app.hostLabel &&
+      row.hostGen === app.hostGen &&
+      row.registrationGen === appRegistrationGeneration(app) &&
+      row.expiresAt > now
+    ) {
+      expiresAt = Math.max(
+        expiresAt ?? 0,
+        Math.min(row.expiresAt, office.absoluteExpiresAt),
+      );
     }
   }
   return expiresAt;
@@ -634,7 +642,13 @@ export function handleAppMintRequest(
   const rParam = singleParam(url, "r");
   const modeParam = singleParam(url, "mode");
   const registrationParam = singleParam(url, "registration");
-  if (labelParam === undefined || rParam === undefined || modeParam === undefined || registrationParam === undefined || (modeParam !== null && modeParam !== "wrapper")) {
+  if (
+    labelParam === undefined ||
+    rParam === undefined ||
+    modeParam === undefined ||
+    registrationParam === undefined ||
+    (modeParam !== null && modeParam !== "wrapper")
+  ) {
     return handshake(400, BAD_REQUEST_BODY);
   }
   if (labelParam === null) return neutralNotFound();
@@ -643,7 +657,11 @@ export function handleAppMintRequest(
   const app = liveAppByLabel(registry, labelParam);
   if (app === null) return neutralNotFound();
   if (!opts.canAccess(app, session.userId)) return neutralNotFound();
-  if (modeParam === "wrapper" && registrationParam !== String(appRegistrationGeneration(app))) return neutralNotFound();
+  if (
+    modeParam === "wrapper" &&
+    registrationParam !== String(appRegistrationGeneration(app))
+  )
+    return neutralNotFound();
 
   const returnPath = validateReturnPath(rParam);
   if (returnPath === null) return handshake(400, BAD_REQUEST_BODY);
@@ -830,7 +848,11 @@ function noAppSessionAnswer(
   opts: { label: string; rawCookie: string | null; upgrade: boolean },
 ): Response {
   const clear = opts.rawCookie === null ? [] : [appCookieClearLine()];
-  if (!opts.upgrade && req.method === "GET" && req.headers.get("Sec-Fetch-Dest") === "iframe") {
+  if (
+    !opts.upgrade &&
+    req.method === "GET" &&
+    req.headers.get("Sec-Fetch-Dest") === "iframe"
+  ) {
     const origin = buildPublicOrigin().origin;
     // The host arm also adds self to this policy; keep this response safe alone.
     const script = `parent.postMessage(${JSON.stringify(APP_SESSION_REQUIRED_MESSAGE)},${JSON.stringify(origin)});`;

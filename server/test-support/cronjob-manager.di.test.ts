@@ -852,52 +852,109 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
   it("accounts OpenCode turn costs once through cron resume and retains only the last key", async () => {
     let usageId = "A";
     let cost = 2;
-    const tokens = { inputTokens: 10, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
-    const fake = new FakeBackend({ session: { onSend: (_t, _a, session) => {
-      session.push({ kind: "assistant_text", text: "reply" });
-      session.push({ kind: "turn_completed", status: "completed", usage: tokens, cost, costMode: "turn", usageId });
-    } } });
-    const { mgr, job, run } = await primaryRunThenLeaf(fake, { persistence: {
-      ...makeFakeCronPersistence(),
-      loadRunSessionsMap: cronPersistence.loadRunSessionsMap,
-      accumulateRunSessionUsage: cronPersistence.accumulateRunSessionUsage,
-      rollRunSessionUsageOnResume: cronPersistence.rollRunSessionUsageOnResume,
-      appendRunSessionUsageSnapshot: cronPersistence.appendRunSessionUsageSnapshot,
-    } });
-    const sid = mgr.findRun(job.id, run.id)!.currentSessionId ?? run.rootSessionId;
-    const stored = () => cronPersistence.loadRunSessionsMap(job.id, run.id)[sid];
+    const tokens = {
+      inputTokens: 10,
+      outputTokens: 1,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+    };
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_t, _a, session) => {
+          session.push({ kind: "assistant_text", text: "reply" });
+          session.push({
+            kind: "turn_completed",
+            status: "completed",
+            usage: tokens,
+            cost,
+            costMode: "turn",
+            usageId,
+          });
+        },
+      },
+    });
+    const { mgr, job, run } = await primaryRunThenLeaf(fake, {
+      persistence: {
+        ...makeFakeCronPersistence(),
+        loadRunSessionsMap: cronPersistence.loadRunSessionsMap,
+        accumulateRunSessionUsage: cronPersistence.accumulateRunSessionUsage,
+        rollRunSessionUsageOnResume:
+          cronPersistence.rollRunSessionUsageOnResume,
+        appendRunSessionUsageSnapshot:
+          cronPersistence.appendRunSessionUsageSnapshot,
+      },
+    });
+    const sid =
+      mgr.findRun(job.id, run.id)!.currentSessionId ?? run.rootSessionId;
+    const stored = () =>
+      cronPersistence.loadRunSessionsMap(job.id, run.id)[sid];
     const total = () => ({
-      input: (stored().usage?.inputTokens ?? 0) + (stored().priorRunsUsage?.inputTokens ?? 0),
-      cost: (stored().usage?.costUSD ?? 0) + (stored().priorRunsUsage?.costUSD ?? 0),
+      input:
+        (stored().usage?.inputTokens ?? 0) +
+        (stored().priorRunsUsage?.inputTokens ?? 0),
+      cost:
+        (stored().usage?.costUSD ?? 0) +
+        (stored().priorRunsUsage?.costUSD ?? 0),
     });
     const resume = async () => {
       await mgr.sendRunMessage(job.id, run.id, "next", "Nil");
-      await waitFor(() => mgr.findRun(job.id, run.id)?.status === "completed", "usage turn finalized");
+      await waitFor(
+        () => mgr.findRun(job.id, run.id)?.status === "completed",
+        "usage turn finalized",
+      );
     };
     try {
       expect(total()).toEqual({ input: 10, cost: 2 });
       await resume();
       expect(total()).toEqual({ input: 10, cost: 2 });
-      usageId = "B"; cost = 3;
+      usageId = "B";
+      cost = 3;
       await resume();
       expect(total()).toEqual({ input: 20, cost: 5 });
-      usageId = "A"; cost = 2;
+      usageId = "A";
+      cost = 2;
       await resume();
       expect(total()).toEqual({ input: 30, cost: 7 });
       expect(stored().lastAccountedUsageId).toBe("A");
       await resume();
       expect(total()).toEqual({ input: 30, cost: 7 });
       // Within one process bucket, turn costs add; legacy costs overwrite.
-      cronPersistence.accumulateRunSessionUsage(job.id, run.id, sid, tokens, 17, { costMode: "turn", usageId: "C" });
-      cronPersistence.accumulateRunSessionUsage(job.id, run.id, sid, tokens, 19, { costMode: "turn", usageId: "D" });
+      cronPersistence.accumulateRunSessionUsage(
+        job.id,
+        run.id,
+        sid,
+        tokens,
+        17,
+        { costMode: "turn", usageId: "C" },
+      );
+      cronPersistence.accumulateRunSessionUsage(
+        job.id,
+        run.id,
+        sid,
+        tokens,
+        19,
+        { costMode: "turn", usageId: "D" },
+      );
       expect(stored().usage?.costUSD).toBe(36);
       // Legacy cumulative mode remains overwrite within the same run process.
-      cronPersistence.accumulateRunSessionUsage(job.id, run.id, sid, tokens, 11);
+      cronPersistence.accumulateRunSessionUsage(
+        job.id,
+        run.id,
+        sid,
+        tokens,
+        11,
+      );
       expect(stored().usage?.costUSD).toBe(11);
-      cronPersistence.accumulateRunSessionUsage(job.id, run.id, sid, tokens, 13);
+      cronPersistence.accumulateRunSessionUsage(
+        job.id,
+        run.id,
+        sid,
+        tokens,
+        13,
+      );
       expect(stored().usage?.costUSD).toBe(13);
     } finally {
-      fake.sessions.forEach(session => session.close());
+      fake.sessions.forEach((session) => session.close());
     }
   });
 

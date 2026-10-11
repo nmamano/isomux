@@ -174,7 +174,9 @@ describe("OpenCode office proxy", () => {
     const { broker, socketPath, seen } = fixture();
     const handle = broker.bind("agent-b", "token-b").activate(process.pid);
     for (const method of ["POST", "DELETE"]) {
-      expect((await request(socketPath, handle, "/agents", method)).status).toBe(403);
+      expect(
+        (await request(socketPath, handle, "/agents", method)).status,
+      ).toBe(403);
       expect(seen).toEqual([]);
     }
   });
@@ -278,7 +280,10 @@ describe("OpenCode office proxy", () => {
       ["raw bytes", "image/png"],
       ["no type", null],
     ] as const) {
-      expect((await request(socketPath, handle, path, "PUT", body, contentType)).status).toBe(200);
+      expect(
+        (await request(socketPath, handle, path, "PUT", body, contentType))
+          .status,
+      ).toBe(200);
       expect(bodies.at(-1)).toEqual({ contentType, body });
     }
   });

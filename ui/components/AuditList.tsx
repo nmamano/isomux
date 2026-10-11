@@ -6,8 +6,16 @@ import { useAppState } from "../store.tsx";
 import { AUDIT_OPERATIONS } from "../audit-operations.ts";
 import { AUDIT_ACTOR_KINDS } from "../../shared/audit.ts";
 import type { MemoryScope } from "../../shared/types.ts";
-import type { PlainMessageKey, Translator } from "../../shared/i18n/translate.ts";
-import type { AuditActorKind, AuditEntry, AuditPage, TaskHistory } from "../../shared/audit.ts";
+import type {
+  PlainMessageKey,
+  Translator,
+} from "../../shared/i18n/translate.ts";
+import type {
+  AuditActorKind,
+  AuditEntry,
+  AuditPage,
+  TaskHistory,
+} from "../../shared/audit.ts";
 
 const ACTOR_KIND_LABEL: Record<AuditActorKind, PlainMessageKey> = {
   member: "audit.kind.member",
@@ -26,17 +34,32 @@ const MEMORY_LABEL: Record<MemoryScope, PlainMessageKey> = {
   boss: "audit.memory.member",
 } as const;
 
-function targetName(id: string, entry: AuditEntry, names: Map<string, string>, t: Translator["t"]): React.ReactNode {
-  if (entry.deletedTask?.id === id && entry.deletedTask.title) return entry.deletedTask.title;
+function targetName(
+  id: string,
+  entry: AuditEntry,
+  names: Map<string, string>,
+  t: Translator["t"],
+): React.ReactNode {
+  if (entry.deletedTask?.id === id && entry.deletedTask.title)
+    return entry.deletedTask.title;
   if (names.has(id)) return names.get(id)!;
-  if (entry.operation.startsWith("tasks.") && typeof entry.taskChanges?.title?.new === "string") return entry.taskChanges.title.new;
+  if (
+    entry.operation.startsWith("tasks.") &&
+    typeof entry.taskChanges?.title?.new === "string"
+  )
+    return entry.taskChanges.title.new;
   if (id.startsWith("memory:")) {
     const [, scope, ...parts] = id.split(":");
     const scopeId = parts.join(":");
-    if (scope && scope in MEMORY_LABEL) return <>
-      <span style={HINT}>{t(MEMORY_LABEL[scope as keyof typeof MEMORY_LABEL])}</span>
-      {scope !== "office" && <> · {names.get(scopeId) ?? scopeId}</>}
-    </>;
+    if (scope && scope in MEMORY_LABEL)
+      return (
+        <>
+          <span style={HINT}>
+            {t(MEMORY_LABEL[scope as keyof typeof MEMORY_LABEL])}
+          </span>
+          {scope !== "office" && <> · {names.get(scopeId) ?? scopeId}</>}
+        </>
+      );
   }
   return id;
 }
@@ -59,14 +82,20 @@ function AuditRows({
       {items.map((entry) => (
         <li key={entry.sequence} style={{ marginBottom: 16 }}>
           <div style={{ ...HINT, marginBottom: 6 }}>
-            {new Date(entry.time).toLocaleString()} · <span title={entry.actor.id}>{entry.actor.name || names.get(entry.actor.id) || entry.actor.id}</span> ·{" "}
-            {entry.operation}
+            {new Date(entry.time).toLocaleString()} ·{" "}
+            <span title={entry.actor.id}>
+              {entry.actor.name || names.get(entry.actor.id) || entry.actor.id}
+            </span>{" "}
+            · {entry.operation}
           </div>
-          <div>{entry.targets.map((id, index) => (
-            <span key={id} title={id}>
-              {index > 0 && ", "}{targetName(id, entry, names, t)}
-            </span>
-          ))}</div>
+          <div>
+            {entry.targets.map((id, index) => (
+              <span key={id} title={id}>
+                {index > 0 && ", "}
+                {targetName(id, entry, names, t)}
+              </span>
+            ))}
+          </div>
           {entry.operation.startsWith("tasks.") ? (
             <TaskChanges entry={entry} />
           ) : (
@@ -101,7 +130,9 @@ function AuditRows({
 export function AuditPane() {
   const { t } = useI18n();
   const state = useAppState();
-  const members = [...state.users.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const members = [...state.users.values()].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
   const names = new Map<string, string>([
     ...members.map((item) => [item.id, item.name] as [string, string]),
     ...state.agents.map((item) => [item.id, item.name] as [string, string]),
@@ -147,10 +178,19 @@ export function AuditPane() {
         onSubmit={(event) => {
           event.preventDefault();
           const params = new URLSearchParams();
-          const from = filters.from ? new Date(filters.from).getTime() : undefined;
-          const to = filters.to ? new Date(filters.to).getTime() + 59_999 : undefined;
-          if ([from, to].some((value) => value !== undefined && (!Number.isFinite(value) || value < 0)) ||
-            (from !== undefined && to !== undefined && from > to)) {
+          const from = filters.from
+            ? new Date(filters.from).getTime()
+            : undefined;
+          const to = filters.to
+            ? new Date(filters.to).getTime() + 59_999
+            : undefined;
+          if (
+            [from, to].some(
+              (value) =>
+                value !== undefined && (!Number.isFinite(value) || value < 0),
+            ) ||
+            (from !== undefined && to !== undefined && from > to)
+          ) {
             setFilterError(t("audit.invalidRange"));
             return;
           }
@@ -170,54 +210,129 @@ export function AuditPane() {
           marginBottom: 16,
         }}
       >
-        {(["actorKind", "actorId", "ownerId", "targetId", "operation", "from", "to"] as const).map((key) => {
-          const memberControl = key === "ownerId" || (key === "actorId" && filters.actorKind === "member");
-          const change = (value: string) => setFilters((old) => ({ ...old, [key]: value,
-            ...(key === "actorKind" ? { actorId: "" } : {}),
-          }));
-          const options = key === "actorKind"
-            ? AUDIT_ACTOR_KINDS.map((kind) => ({ id: kind, name: t(ACTOR_KIND_LABEL[kind]) }))
-            : members;
-          return <label key={key} style={{ ...dialogLabel, flex: "1 1 200px", minWidth: 0 }}>
-            {t(`audit.${key}`)}
-            {key === "actorKind" || memberControl ? (
-              <select name={key} value={filters[key] ?? ""} onChange={(event) => change(event.target.value)} style={{ ...dialogInput, display: "block" }}>
-                <option value="">{t("audit.any")}</option>
-                {options.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            ) : (
-              <input name={key} type={key === "from" || key === "to" ? "datetime-local" : "text"}
-                step={key === "from" || key === "to" ? 60 : undefined}
-                list={key === "operation" ? `${listId}-operations` : key === "targetId" ? `${listId}-targets` : key === "actorId" ? `${listId}-actors` : undefined}
-                value={filters[key] ?? ""} onChange={(event) => change(event.target.value)}
-                style={{ ...dialogInput, display: "block", minWidth: 0 }} />
-            )}
-          </label>;
+        {(
+          [
+            "actorKind",
+            "actorId",
+            "ownerId",
+            "targetId",
+            "operation",
+            "from",
+            "to",
+          ] as const
+        ).map((key) => {
+          const memberControl =
+            key === "ownerId" ||
+            (key === "actorId" && filters.actorKind === "member");
+          const change = (value: string) =>
+            setFilters((old) => ({
+              ...old,
+              [key]: value,
+              ...(key === "actorKind" ? { actorId: "" } : {}),
+            }));
+          const options =
+            key === "actorKind"
+              ? AUDIT_ACTOR_KINDS.map((kind) => ({
+                  id: kind,
+                  name: t(ACTOR_KIND_LABEL[kind]),
+                }))
+              : members;
+          return (
+            <label
+              key={key}
+              style={{ ...dialogLabel, flex: "1 1 200px", minWidth: 0 }}
+            >
+              {t(`audit.${key}`)}
+              {key === "actorKind" || memberControl ? (
+                <select
+                  name={key}
+                  value={filters[key] ?? ""}
+                  onChange={(event) => change(event.target.value)}
+                  style={{ ...dialogInput, display: "block" }}
+                >
+                  <option value="">{t("audit.any")}</option>
+                  {options.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  name={key}
+                  type={
+                    key === "from" || key === "to" ? "datetime-local" : "text"
+                  }
+                  step={key === "from" || key === "to" ? 60 : undefined}
+                  list={
+                    key === "operation"
+                      ? `${listId}-operations`
+                      : key === "targetId"
+                        ? `${listId}-targets`
+                        : key === "actorId"
+                          ? `${listId}-actors`
+                          : undefined
+                  }
+                  value={filters[key] ?? ""}
+                  onChange={(event) => change(event.target.value)}
+                  style={{ ...dialogInput, display: "block", minWidth: 0 }}
+                />
+              )}
+            </label>
+          );
         })}
         <datalist id={`${listId}-operations`}>
-          {AUDIT_OPERATIONS.map((operation) => <option key={operation} value={operation} />)}
+          {AUDIT_OPERATIONS.map((operation) => (
+            <option key={operation} value={operation} />
+          ))}
         </datalist>
         <datalist id={`${listId}-targets`}>
-          {[...names].map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          {[...names].map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
         </datalist>
         <datalist id={`${listId}-actors`}>
-          {(filters.actorKind === "agent" ? state.agents : []).map((actor) => <option key={actor.id} value={actor.id}>{actor.name}</option>)}
+          {(filters.actorKind === "agent" ? state.agents : []).map((actor) => (
+            <option key={actor.id} value={actor.id}>
+              {actor.name}
+            </option>
+          ))}
         </datalist>
         <div style={{ display: "flex", gap: 8, flexBasis: "100%" }}>
-        <button type="submit" style={dialogCancelBtn}>
-          {t("audit.filter")}
-        </button>
-        <button type="button" style={dialogCancelBtn} onClick={() => {
-          setFilters({}); setQuery(""); setFilterError(""); setRefresh((value) => value + 1);
-        }}>{t("audit.clear")}</button>
+          <button type="submit" style={dialogCancelBtn}>
+            {t("audit.filter")}
+          </button>
+          <button
+            type="button"
+            style={dialogCancelBtn}
+            onClick={() => {
+              setFilters({});
+              setQuery("");
+              setFilterError("");
+              setRefresh((value) => value + 1);
+            }}
+          >
+            {t("audit.clear")}
+          </button>
         </div>
-        {filterError && <p role="alert" style={{ width: "100%", color: "var(--red-text)" }}>{filterError}</p>}
+        {filterError && (
+          <p role="alert" style={{ width: "100%", color: "var(--red-text)" }}>
+            {filterError}
+          </p>
+        )}
       </form>
       {error && <p role="alert">{error}</p>}
       {loading ? (
         <p>{t("audit.loading")}</p>
       ) : (
-        <AuditRows items={page.items} names={names} restore onError={setError} />
+        <AuditRows
+          items={page.items}
+          names={names}
+          restore
+          onError={setError}
+        />
       )}
       {page.nextBefore !== null && (
         <button
@@ -375,19 +490,58 @@ function TaskChanges({ entry }: { entry: AuditEntry }) {
         label: label(field),
         body:
           change && (VALUE_FIELDS as readonly string[]).includes(field) ? (
-            <span style={{ display: "grid", width: field === "title" ? "100%" : "fit-content", maxWidth: "100%", gridTemplateColumns: field === "title" ? "1fr" : "minmax(0, 1fr) 16px minmax(0, 1fr)", gap: 4, alignItems: "baseline" }}>
-              <span style={{ color: "var(--text-hint)", ...(field === "title" ? { paddingLeft: 20 } : {}) }}>
+            <span
+              style={{
+                display: "grid",
+                width: field === "title" ? "100%" : "fit-content",
+                maxWidth: "100%",
+                gridTemplateColumns:
+                  field === "title"
+                    ? "1fr"
+                    : "minmax(0, 1fr) 16px minmax(0, 1fr)",
+                gap: 4,
+                alignItems: "baseline",
+              }}
+            >
+              <span
+                style={{
+                  color: "var(--text-hint)",
+                  ...(field === "title" ? { paddingLeft: 20 } : {}),
+                }}
+              >
                 {show(field, change.old)}
               </span>
               {field === "title" ? (
-                <span style={{ display: "grid", gridTemplateColumns: "16px minmax(0, 1fr)", gap: 4 }}>
-                  <span aria-hidden style={{ color: "var(--accent)", fontWeight: 700 }}>→</span>
-                  <span style={{ color: "var(--text)" }}>{show(field, change.new)}</span>
+                <span
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "16px minmax(0, 1fr)",
+                    gap: 4,
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    style={{ color: "var(--accent)", fontWeight: 700 }}
+                  >
+                    →
+                  </span>
+                  <span style={{ color: "var(--text)" }}>
+                    {show(field, change.new)}
+                  </span>
                 </span>
-              ) : <>
-                <span aria-hidden style={{ color: "var(--accent)", fontWeight: 700 }}>→</span>
-                <span style={{ color: "var(--text)" }}>{show(field, change.new)}</span>
-              </>}
+              ) : (
+                <>
+                  <span
+                    aria-hidden
+                    style={{ color: "var(--accent)", fontWeight: 700 }}
+                  >
+                    →
+                  </span>
+                  <span style={{ color: "var(--text)" }}>
+                    {show(field, change.new)}
+                  </span>
+                </>
+              )}
             </span>
           ) : (
             word(t("audit.edited"))
@@ -396,7 +550,16 @@ function TaskChanges({ entry }: { entry: AuditEntry }) {
     }
   }
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 6, fontSize: 12, marginTop: 6, overflowWrap: "anywhere" }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)",
+        gap: 6,
+        fontSize: 12,
+        marginTop: 6,
+        overflowWrap: "anywhere",
+      }}
+    >
       {rows.map((row, index) => (
         <div key={index}>
           {row.label && (
@@ -421,8 +584,21 @@ function TaskChanges({ entry }: { entry: AuditEntry }) {
 
 function TaskHistoryEntry({ entry }: { entry: AuditEntry }) {
   const { language } = useI18n();
-  return <div title={new Date(entry.time).toLocaleString(language)} style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 6, fontSize: 12, overflowWrap: "anywhere" }}>
-    <div style={{ color: "var(--accent)", fontWeight: 600 }}>{entry.actor.name}</div>
-    <TaskChanges entry={entry} />
-  </div>;
+  return (
+    <div
+      title={new Date(entry.time).toLocaleString(language)}
+      style={{
+        borderTop: "1px solid var(--border)",
+        paddingTop: 8,
+        marginTop: 6,
+        fontSize: 12,
+        overflowWrap: "anywhere",
+      }}
+    >
+      <div style={{ color: "var(--accent)", fontWeight: 600 }}>
+        {entry.actor.name}
+      </div>
+      <TaskChanges entry={entry} />
+    </div>
+  );
 }

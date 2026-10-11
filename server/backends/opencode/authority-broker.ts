@@ -1,7 +1,10 @@
 import { API_ROUTES } from "../../routes/table.ts";
 import { matchRoute } from "../../routes/match.ts";
 import { passesRouteStageOne } from "../../identity/dispatch.ts";
-import { PRIVILEGED_AGENT_CAPABILITIES, type Identity } from "../../identity/index.ts";
+import {
+  PRIVILEGED_AGENT_CAPABILITIES,
+  type Identity,
+} from "../../identity/index.ts";
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
@@ -15,7 +18,13 @@ import {
   socketFileDescriptor,
 } from "../../unix-socket-server.ts";
 
-import { BrokerResponseWriter, parseRequestHead, RequestHeadError, StreamingRequestBody, type RequestHead } from "./authority-request.ts";
+import {
+  BrokerResponseWriter,
+  parseRequestHead,
+  RequestHeadError,
+  StreamingRequestBody,
+  type RequestHead,
+} from "./authority-request.ts";
 
 interface TurnBinding {
   owner: symbol;
@@ -167,53 +176,107 @@ export class OpenCodeAuthorityBroker {
           };
         },
         data: (socket, chunk) => {
-          if (socket.data.body) { socket.data.body.push(chunk); return; }
+          if (socket.data.body) {
+            socket.data.body.push(chunk);
+            return;
+          }
           if (socket.data.handled) return;
           const buffer = Buffer.concat([socket.data.buffer, chunk]);
           const headEnd = buffer.indexOf("\r\n\r\n");
-          if ((headEnd < 0 ? buffer.length : headEnd + 4) > MAX_REQUEST_HEAD_BYTES) {
+          if (
+            (headEnd < 0 ? buffer.length : headEnd + 4) > MAX_REQUEST_HEAD_BYTES
+          ) {
             socket.data.handled = true;
-            socket.data.writer!.send(httpResponse(413, "OpenCode office request head is too large."));
+            socket.data.writer!.send(
+              httpResponse(413, "OpenCode office request head is too large."),
+            );
             return;
           }
-          if (headEnd < 0) { socket.data.buffer = buffer; return; }
+          if (headEnd < 0) {
+            socket.data.buffer = buffer;
+            return;
+          }
           socket.pause();
           socket.data.handled = true;
           socket.data.buffer = Buffer.alloc(0);
           let request: RequestHead;
-          try { request = parseRequestHead(buffer.subarray(0, headEnd)); }
-          catch (error) {
-            socket.data.writer!.send(httpResponse(error instanceof RequestHeadError ? error.status : 400,
-              error instanceof RequestHeadError ? error.message : "Invalid OpenCode office request."));
+          try {
+            request = parseRequestHead(buffer.subarray(0, headEnd));
+          } catch (error) {
+            socket.data.writer!.send(
+              httpResponse(
+                error instanceof RequestHeadError ? error.status : 400,
+                error instanceof RequestHeadError
+                  ? error.message
+                  : "Invalid OpenCode office request.",
+              ),
+            );
             return;
           }
           const body = new StreamingRequestBody(request.contentLength, socket);
           socket.data.body = body;
-          const signal = AbortSignal.any([socket.data.abort.signal, AbortSignal.timeout(PROXY_TIMEOUT_MS)]);
-          signal.addEventListener("abort", () => {
-            body.abort(new Error("OpenCode office request aborted."));
-            // A response already partly written cannot be replaced by a 502.
-            // Bound a stalled reader too, and release its queued response.
-            if (socket.data.writer?.draining) {
-              socket.data.writer.close();
-              socket.terminate();
-            }
-          }, { once: true });
+          const signal = AbortSignal.any([
+            socket.data.abort.signal,
+            AbortSignal.timeout(PROXY_TIMEOUT_MS),
+          ]);
+          signal.addEventListener(
+            "abort",
+            () => {
+              body.abort(new Error("OpenCode office request aborted."));
+              // A response already partly written cannot be replaced by a 502.
+              // Bound a stalled reader too, and release its queued response.
+              if (socket.data.writer?.draining) {
+                socket.data.writer.close();
+                socket.terminate();
+              }
+            },
+            { once: true },
+          );
           let initial: Buffer | null = buffer.subarray(headEnd + 4);
-          void this.proxy(request, socket.data.peer, body.stream, signal, () => {
-            const readBody = () => { body.admit(initial!); initial = null; };
-            // Other Expect values are ignored. Never forward Expect upstream.
-            if (request.headers.get("expect")?.toLowerCase() === "100-continue")
-              socket.data.writer!.interim(Buffer.from("HTTP/1.1 100 Continue\r\n\r\n"), readBody);
-            else readBody();
-          }).then(
-            (response) => { body.abort(new Error("OpenCode office request finished.")); socket.data.writer!.send(response); },
-            () => { body.abort(new Error("OpenCode office request failed.")); socket.data.writer!.send(httpResponse(502, "OpenCode office request failed.")); },
+          void this.proxy(
+            request,
+            socket.data.peer,
+            body.stream,
+            signal,
+            () => {
+              const readBody = () => {
+                body.admit(initial!);
+                initial = null;
+              };
+              // Other Expect values are ignored. Never forward Expect upstream.
+              if (
+                request.headers.get("expect")?.toLowerCase() === "100-continue"
+              )
+                socket.data.writer!.interim(
+                  Buffer.from("HTTP/1.1 100 Continue\r\n\r\n"),
+                  readBody,
+                );
+              else readBody();
+            },
+          ).then(
+            (response) => {
+              body.abort(new Error("OpenCode office request finished."));
+              socket.data.writer!.send(response);
+            },
+            () => {
+              body.abort(new Error("OpenCode office request failed."));
+              socket.data.writer!.send(
+                httpResponse(502, "OpenCode office request failed."),
+              );
+            },
           );
         },
-        drain: (socket) => { socket.data.writer?.drain(); },
-        close: (socket) => { socket.data.writer?.close(); socket.data.abort.abort(); },
-        error: (socket) => { socket.data.writer?.close(); socket.data.abort.abort(); },
+        drain: (socket) => {
+          socket.data.writer?.drain();
+        },
+        close: (socket) => {
+          socket.data.writer?.close();
+          socket.data.abort.abort();
+        },
+        error: (socket) => {
+          socket.data.writer?.close();
+          socket.data.abort.abort();
+        },
       },
     });
     // A process needs write permission on a socket to connect. Until this
@@ -256,10 +319,18 @@ export class OpenCodeAuthorityBroker {
         429,
         "OpenCode office call limit reached for this turn.",
       );
-    const matched = matchRoute(API_ROUTES, request.method, request.url.pathname);
+    const matched = matchRoute(
+      API_ROUTES,
+      request.method,
+      request.url.pathname,
+    );
     // Discovery is the only agent endpoint outside API_ROUTES.
-    const manifest = request.method === "GET" && request.url.pathname === "/agents";
-    if (!manifest && (!matched || !passesRouteStageOne(matched.route.auth, AGENT_CEILING)))
+    const manifest =
+      request.method === "GET" && request.url.pathname === "/agents";
+    if (
+      !manifest &&
+      (!matched || !passesRouteStageOne(matched.route.auth, AGENT_CEILING))
+    )
       return httpResponse(
         403,
         "This Isomux API route is not available through OpenCode.",
@@ -275,7 +346,9 @@ export class OpenCodeAuthorityBroker {
       headers: {
         authorization: `Bearer ${turn.token}`,
         ...(contentType !== null ? { "content-type": contentType } : {}),
-        ...(request.contentLength ? { "content-length": String(request.contentLength) } : {}),
+        ...(request.contentLength
+          ? { "content-length": String(request.contentLength) }
+          : {}),
       },
       body: request.contentLength ? requestBody : undefined,
       signal,

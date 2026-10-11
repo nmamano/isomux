@@ -340,7 +340,14 @@ it.skipIf(!LIVE)(
       expect(warmLease.pid).toBe(warmPid);
       expect(alive(warmPid)).toBe(true);
       warmLease.release();
-      expect(mgr.getAgentLogs(info!.id).some(entry => entry.kind === "error" && /HTTP\s+400/.test(entry.content))).toBe(true);
+      expect(
+        mgr
+          .getAgentLogs(info!.id)
+          .some(
+            (entry) =>
+              entry.kind === "error" && /HTTP\s+400/.test(entry.content),
+          ),
+      ).toBe(true);
       expect(normalized).not.toContain(canary);
       expect(
         mgr

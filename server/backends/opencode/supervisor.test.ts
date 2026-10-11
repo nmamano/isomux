@@ -325,15 +325,21 @@ describe("OpenCode shared server supervisor", () => {
     const second = makeSupervisor(await root(), config);
     const leases = await Promise.all([first.acquire(), second.acquire()]);
     expect(leases[0].baseUrl).not.toBe(leases[1].baseUrl);
-    console.info(`OpenCode port-0 regression: default port leases ${leases.filter((lease) => new URL(lease.baseUrl).port === "4096").length}`);
+    console.info(
+      `OpenCode port-0 regression: default port leases ${leases.filter((lease) => new URL(lease.baseUrl).port === "4096").length}`,
+    );
     for (const lease of leases) {
-      const args = (await readFile(`/proc/${lease.pid}/cmdline`)).toString().split("\0");
+      const args = (await readFile(`/proc/${lease.pid}/cmdline`))
+        .toString()
+        .split("\0");
       expect(args[args.indexOf("--port") + 1]).toBe("0");
       const response = await fetch(`${lease.baseUrl}/global/health`, {
         headers: { authorization: lease.authHeader },
       });
       expect(response.ok).toBe(true);
-      expect((await response.json() as { healthy: boolean }).healthy).toBe(true);
+      expect(((await response.json()) as { healthy: boolean }).healthy).toBe(
+        true,
+      );
       lease.release();
     }
   }, 30_000);
@@ -944,31 +950,35 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
-  it.each(["exit 1", "kill -KILL $$"])("fails once without signaling an exited child: %s", async (exit) => {
-    const path = await root();
-    const marker = join(path, "starts");
-    const binary = join(path, "broken-opencode");
-    await writeFile(
-      binary,
-      `#!/bin/sh\nprintf x >> ${JSON.stringify(marker)}\nprintf 'wrong architecture' >&2\n${exit}\n`,
-    );
-    await chmod(binary, 0o700);
-    const supervisor = new OpenCodeSupervisor({
-      profileDir: join(path, "profile"),
-      serverCwd: path,
-      binary,
-      idleShutdownMs: 1000,
-    });
-    supervisors.push(supervisor);
-    const failure = await supervisor.acquire().then(
-      () => null,
-      (error: unknown) => error,
-    );
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toMatch(/ISOMUX_OPENCODE_DEBUG=1/);
-    expect((failure as Error).message).not.toContain("Refusing to signal");
-    expect(await readFile(marker, "utf8")).toBe("x");
-  }, 10_000);
+  it.each(["exit 1", "kill -KILL $$"])(
+    "fails once without signaling an exited child: %s",
+    async (exit) => {
+      const path = await root();
+      const marker = join(path, "starts");
+      const binary = join(path, "broken-opencode");
+      await writeFile(
+        binary,
+        `#!/bin/sh\nprintf x >> ${JSON.stringify(marker)}\nprintf 'wrong architecture' >&2\n${exit}\n`,
+      );
+      await chmod(binary, 0o700);
+      const supervisor = new OpenCodeSupervisor({
+        profileDir: join(path, "profile"),
+        serverCwd: path,
+        binary,
+        idleShutdownMs: 1000,
+      });
+      supervisors.push(supervisor);
+      const failure = await supervisor.acquire().then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toMatch(/ISOMUX_OPENCODE_DEBUG=1/);
+      expect((failure as Error).message).not.toContain("Refusing to signal");
+      expect(await readFile(marker, "utf8")).toBe("x");
+    },
+    10_000,
+  );
 
   it("retries when a fresh healthy child exits before identity capture", async () => {
     const path = await root();

@@ -1,13 +1,28 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const source = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
-const step = source.slice(source.indexOf("link_bundled_claude() {"), source.indexOf("# Root-of-trust config"));
+const step = source.slice(
+  source.indexOf("link_bundled_claude() {"),
+  source.indexOf("# Root-of-trust config"),
+);
 const dirs: string[] = [];
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
 });
 
 function fixture() {
@@ -16,7 +31,10 @@ function fixture() {
   const bin = join(dir, "bin");
   const other = join(dir, "other-bin");
   const install = join(dir, "install");
-  const target = join(install, "node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude");
+  const target = join(
+    install,
+    "node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude",
+  );
   const link = join(bin, "claude");
   mkdirSync(bin);
   mkdirSync(other);
@@ -27,7 +45,9 @@ function fixture() {
   };
   executable(target, "bundled-v1");
   const script = join(dir, "run.sh");
-  writeFileSync(script, `set -euo pipefail
+  writeFileSync(
+    script,
+    `set -euo pipefail
 step() { :; }
 log() { printf '%s\\n' "$*"; }
 as_service_user() {
@@ -42,15 +62,32 @@ as_service_user() {
 ${step.replace("/usr/local/bin:/usr/bin:/bin", `${bin}:${other}:/usr/bin:/bin`).replaceAll("/usr/local/bin/claude", link)}
 link_bundled_claude
 printf 'continued\\n'
-`);
+`,
+  );
   return {
-    dir, bin, other, install, target, link, executable,
+    dir,
+    bin,
+    other,
+    install,
+    target,
+    link,
+    executable,
     run(dry = false, sdkBinary = target) {
       const result = Bun.spawnSync(["bash", script], {
-        env: { ...process.env, FIXTURE: dir, INSTALL_DIR: install, SDK_BINARY: sdkBinary, DRY_RUN: dry ? "1" : "" },
-        stdout: "pipe", stderr: "pipe",
+        env: {
+          ...process.env,
+          FIXTURE: dir,
+          INSTALL_DIR: install,
+          SDK_BINARY: sdkBinary,
+          DRY_RUN: dry ? "1" : "",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
       });
-      return { code: result.exitCode, output: result.stdout.toString() + result.stderr.toString() };
+      return {
+        code: result.exitCode,
+        output: result.stdout.toString() + result.stderr.toString(),
+      };
     },
   };
 }
@@ -61,7 +98,9 @@ describe("bundled Claude terminal link", () => {
     expect(f.run().code).toBe(0);
     expect(readlinkSync(f.link)).toBe(f.target);
     const calls = readFileSync(join(f.dir, "calls"), "utf8");
-    expect(calls).toContain(`env PATH=${f.bin}:${f.other}:/usr/bin:/bin sh -c command -v claude`);
+    expect(calls).toContain(
+      `env PATH=${f.bin}:${f.other}:/usr/bin:/bin sh -c command -v claude`,
+    );
     expect(calls).toContain("CLAUDE_NATIVE_BIN");
     f.executable(f.target, "bundled-v2");
     const result = Bun.spawnSync([f.link, "--version"]);
@@ -96,14 +135,23 @@ describe("bundled Claude terminal link", () => {
 
   it("repairs a dangling link into this install's SDK packages", () => {
     const f = fixture();
-    symlinkSync(join(f.install, "node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude"), f.link);
+    symlinkSync(
+      join(
+        f.install,
+        "node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude",
+      ),
+      f.link,
+    );
     expect(f.run().code).toBe(0);
     expect(readlinkSync(f.link)).toBe(f.target);
   });
 
   it("leaves a foreign dangling link untouched", () => {
     const f = fixture();
-    const foreign = join(f.dir, "other-install/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude");
+    const foreign = join(
+      f.dir,
+      "other-install/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude",
+    );
     symlinkSync(foreign, f.link);
     expect(f.run().code).toBe(0);
     expect(readlinkSync(f.link)).toBe(foreign);

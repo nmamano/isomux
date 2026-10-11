@@ -22,7 +22,8 @@ export const es: Catalog = {
   "audit.filter": "Filtrar",
   "audit.any": "Cualquiera",
   "audit.clear": "Limpiar",
-  "audit.invalidRange": "Introduce un intervalo válido, con Desde antes de Hasta.",
+  "audit.invalidRange":
+    "Introduce un intervalo válido, con Desde antes de Hasta.",
   "audit.kind.member": "Miembro",
   "audit.kind.agent": "Agente",
   "audit.kind.apiToken": "Token API",
@@ -2742,9 +2743,12 @@ Cosas que puedes hacer por él:
   "appWidget.launcher": "Chat",
   "appWidget.title": "Chat con {agentName}",
   "appWidget.notice": "Compartido con los miembros de la sala del agente.",
-  "appWidget.windowsHint": "Pulsa Win+Shift+S y luego pega aquí la captura de pantalla.",
-  "appWidget.macHint": "Pulsa Control+Shift+Command+4 y luego pega aquí la captura de pantalla.",
-  "appWidget.genericHint": "Haz una captura de pantalla y luego pégala o adjúntala aquí.",
+  "appWidget.windowsHint":
+    "Pulsa Win+Shift+S y luego pega aquí la captura de pantalla.",
+  "appWidget.macHint":
+    "Pulsa Control+Shift+Command+4 y luego pega aquí la captura de pantalla.",
+  "appWidget.genericHint":
+    "Haz una captura de pantalla y luego pégala o adjúntala aquí.",
   "appWidget.attach": "Adjuntar imagen",
   "appWidget.close": "Cerrar chat",
   "appWidget.direct": "Abrir la app directamente",

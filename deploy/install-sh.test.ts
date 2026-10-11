@@ -72,9 +72,16 @@ describe("install.sh hosted identity and bundled Claude", () => {
   });
 
   it("links the bundled CLI after the build on full installs only", () => {
-    expect(stepIndex("build_isomux")).toBeLessThan(stepIndex("link_bundled_claude"));
-    expect(stepIndex("link_bundled_claude")).toBeLessThan(stepIndex("install_service"));
-    const deps = SRC.slice(SRC.indexOf("deps_only() {"), SRC.indexOf("main() {"));
+    expect(stepIndex("build_isomux")).toBeLessThan(
+      stepIndex("link_bundled_claude"),
+    );
+    expect(stepIndex("link_bundled_claude")).toBeLessThan(
+      stepIndex("install_service"),
+    );
+    const deps = SRC.slice(
+      SRC.indexOf("deps_only() {"),
+      SRC.indexOf("main() {"),
+    );
     expect(deps).not.toContain("link_bundled_claude");
   });
 });

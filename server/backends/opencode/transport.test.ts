@@ -1282,7 +1282,8 @@ describe("OpenCode permission event integration", () => {
         const url = new URL(request.url);
         if (url.pathname === "/event") {
           return new Response(
-            turns.shift()!
+            turns
+              .shift()!
               .map((frame) => `data: ${JSON.stringify(frame)}\n\n`)
               .join(""),
             { headers: { "content-type": "text/event-stream" } },
@@ -1323,11 +1324,13 @@ describe("OpenCode permission event integration", () => {
     for (let turn = 0; turn <= laterTurns.length; turn++) {
       await transport.send([{ type: "text", text: "go" }], (event) => {
         events.push(event);
-        if (stopOnText && event.kind === "assistant_text") void transport.abort();
+        if (stopOnText && event.kind === "assistant_text")
+          void transport.abort();
       });
       const deadline = Date.now() + 1_000;
       while (
-        events.filter((event) => event.kind === "turn_completed").length <= turn &&
+        events.filter((event) => event.kind === "turn_completed").length <=
+          turn &&
         Date.now() < deadline
       )
         await Bun.sleep(5);
@@ -1337,36 +1340,74 @@ describe("OpenCode permission event integration", () => {
     return { events, replies, contexts };
   }
 
-  const frame = (type: string, properties: object) => ({ type, properties: { sessionID: "session-1", ...properties } });
-  const overflow = frame("session.error", { error: { name: "ContextOverflowError", data: { message: "too long" } } });
-  const assistant = (id: string, summary = false) => frame("message.updated", { info: { id, role: "assistant", summary } });
-  const text = (id: string, value: string) => frame("message.part.updated", { part: { id: id + "-text", messageID: id, type: "text", text: value } });
-  const finish = (id: string) => frame("message.part.updated", { part: { id: id + "-finish", messageID: id, type: "step-finish" } });
+  const frame = (type: string, properties: object) => ({
+    type,
+    properties: { sessionID: "session-1", ...properties },
+  });
+  const overflow = frame("session.error", {
+    error: { name: "ContextOverflowError", data: { message: "too long" } },
+  });
+  const assistant = (id: string, summary = false) =>
+    frame("message.updated", { info: { id, role: "assistant", summary } });
+  const text = (id: string, value: string) =>
+    frame("message.part.updated", {
+      part: { id: id + "-text", messageID: id, type: "text", text: value },
+    });
+  const finish = (id: string) =>
+    frame("message.part.updated", {
+      part: { id: id + "-finish", messageID: id, type: "step-finish" },
+    });
   const idle = frame("session.idle", {});
 
-  const billed = (partId: string, messageId: string, n: number) => frame("message.part.updated", {
-    part: { id: partId, messageID: messageId, type: "step-finish", cost: n / 8,
-      tokens: { total: n * 10, input: n, output: n * 2, reasoning: 0, cache: { read: n * 3, write: n * 4 } } },
-  });
+  const billed = (partId: string, messageId: string, n: number) =>
+    frame("message.part.updated", {
+      part: {
+        id: partId,
+        messageID: messageId,
+        type: "step-finish",
+        cost: n / 8,
+        tokens: {
+          total: n * 10,
+          input: n,
+          output: n * 2,
+          reasoning: 0,
+          cache: { read: n * 3, write: n * 4 },
+        },
+      },
+    });
   const totals = (n: number) => ({
-    usage: { inputTokens: n, outputTokens: n * 2, cacheReadInputTokens: n * 3, cacheCreationInputTokens: n * 4 },
+    usage: {
+      inputTokens: n,
+      outputTokens: n * 2,
+      cacheReadInputTokens: n * 3,
+      cacheCreationInputTokens: n * 4,
+    },
     cost: n / 8,
     costMode: "turn" as const,
     usageId: expect.stringMatching(/^[a-f0-9]{64}$/),
   });
 
   it("sums billed tool and compaction steps once per part and keeps context separate", async () => {
-    const result = await runFrames([
-      assistant("tool"), billed("tool-a", "tool", 1), billed("tool-b", "tool", 2),
-      billed("tool-a", "tool", 1), overflow,
-      assistant("summary", true), billed("summary-step", "summary", 4),
-      billed("summary-step", "summary", 4),
-      assistant("answer"), billed("answer-step", "answer", 8),
-      billed("answer-step", "answer", 16), idle,
-    ], undefined, [], [
-      [assistant("next"), billed("next-step", "next", 32), idle],
-    ]);
-    expect(result.events.filter(e => e.kind === "turn_completed")).toEqual([
+    const result = await runFrames(
+      [
+        assistant("tool"),
+        billed("tool-a", "tool", 1),
+        billed("tool-b", "tool", 2),
+        billed("tool-a", "tool", 1),
+        overflow,
+        assistant("summary", true),
+        billed("summary-step", "summary", 4),
+        billed("summary-step", "summary", 4),
+        assistant("answer"),
+        billed("answer-step", "answer", 8),
+        billed("answer-step", "answer", 16),
+        idle,
+      ],
+      undefined,
+      [],
+      [[assistant("next"), billed("next-step", "next", 32), idle]],
+    );
+    expect(result.events.filter((e) => e.kind === "turn_completed")).toEqual([
       { kind: "turn_completed", status: "completed", ...totals(23) },
       { kind: "turn_completed", status: "completed", ...totals(32) },
     ]);
@@ -1374,78 +1415,170 @@ describe("OpenCode permission event integration", () => {
     expect(result.contexts.at(-2)).toBe(160);
     expect(result.contexts.at(-1)).toBe(320);
     const replay = await runFrames([
-      assistant("summary", true), billed("summary-step", "summary", 4),
-      billed("tool-b", "tool", 2), billed("answer-step", "answer", 16),
-      billed("tool-a", "tool", 1), idle,
+      assistant("summary", true),
+      billed("summary-step", "summary", 4),
+      billed("tool-b", "tool", 2),
+      billed("answer-step", "answer", 16),
+      billed("tool-a", "tool", 1),
+      idle,
     ]);
-    const first = result.events.find(e => e.kind === "turn_completed");
-    const repeated = replay.events.find(e => e.kind === "turn_completed");
+    const first = result.events.find((e) => e.kind === "turn_completed");
+    const repeated = replay.events.find((e) => e.kind === "turn_completed");
     expect(repeated?.usageId).toBe(first?.usageId);
-    expect(result.events.filter(e => e.kind === "turn_completed")[1]?.usageId).not.toBe(first?.usageId);
+    expect(
+      result.events.filter((e) => e.kind === "turn_completed")[1]?.usageId,
+    ).not.toBe(first?.usageId);
   });
 
   it("keeps billed steps when overflow or a provider error ends the turn", async () => {
     for (const ending of [
       [overflow, idle],
-      [frame("session.error", { error: { name: "APIError", data: { statusCode: 503 } } })],
+      [
+        frame("session.error", {
+          error: { name: "APIError", data: { statusCode: 503 } },
+        }),
+      ],
       [], // A dropped event stream uses send()'s failure path.
     ]) {
-      const result = await runFrames([assistant("tool"), billed("tool-a", "tool", 2), ...ending]);
-      expect(result.events.filter(e => e.kind === "turn_completed")).toEqual([
-        { kind: "turn_completed", status: "failed", error: expect.any(String), ...totals(2) },
+      const result = await runFrames([
+        assistant("tool"),
+        billed("tool-a", "tool", 2),
+        ...ending,
+      ]);
+      expect(result.events.filter((e) => e.kind === "turn_completed")).toEqual([
+        {
+          kind: "turn_completed",
+          status: "failed",
+          error: expect.any(String),
+          ...totals(2),
+        },
       ]);
     }
   });
 
   it("keeps billed steps when a member stops the turn", async () => {
-    const result = await runFrames([
-      assistant("tool"), billed("tool-step", "tool", 4), text("tool", "partial"), idle,
-    ], undefined, [], [], true);
-    expect(result.events.filter(e => e.kind === "turn_completed")).toEqual([
+    const result = await runFrames(
+      [
+        assistant("tool"),
+        billed("tool-step", "tool", 4),
+        text("tool", "partial"),
+        idle,
+      ],
+      undefined,
+      [],
+      [],
+      true,
+    );
+    expect(result.events.filter((e) => e.kind === "turn_completed")).toEqual([
       { kind: "turn_completed", status: "interrupted", ...totals(4) },
     ]);
   });
 
   it("keeps overflow open through compaction and delivers only the replay answer", async () => {
-    const result = await runFrames([overflow, assistant("summary", true), text("summary", "private summary"), finish("summary"), assistant("answer"), text("answer", "original answer"), finish("answer"), idle]);
-    expect(result.events.filter(e => e.kind === "assistant_text")).toEqual([{ kind: "assistant_text", text: "original answer" }]);
-    expect(result.events.filter(e => e.kind === "turn_completed")).toEqual([{ kind: "turn_completed", status: "completed" }]);
+    const result = await runFrames([
+      overflow,
+      assistant("summary", true),
+      text("summary", "private summary"),
+      finish("summary"),
+      assistant("answer"),
+      text("answer", "original answer"),
+      finish("answer"),
+      idle,
+    ]);
+    expect(result.events.filter((e) => e.kind === "assistant_text")).toEqual([
+      { kind: "assistant_text", text: "original answer" },
+    ]);
+    expect(result.events.filter((e) => e.kind === "turn_completed")).toEqual([
+      { kind: "turn_completed", status: "completed" },
+    ]);
   });
 
   it("fails terminal overflow even after an earlier tool step or a summary", async () => {
-    for (const frames of [[finish("tool"), overflow, idle], [overflow, assistant("summary", true), finish("summary"), idle]]) {
+    for (const frames of [
+      [finish("tool"), overflow, idle],
+      [overflow, assistant("summary", true), finish("summary"), idle],
+    ]) {
       const result = await runFrames(frames);
-      expect(result.events.at(-1)).toMatchObject({ kind: "turn_completed", status: "failed", error: expect.stringMatching(/conversation.*long/i) });
+      expect(result.events.at(-1)).toMatchObject({
+        kind: "turn_completed",
+        status: "failed",
+        error: expect.stringMatching(/conversation.*long/i),
+      });
     }
   });
 
   it("shows native retry attempts without settling the turn or exposing provider text", async () => {
-    const messages = ["SSE read timed out", "Connection reset by server", "HTTP 503", "rate limit", "SECRET_CANARY"];
+    const messages = [
+      "SSE read timed out",
+      "Connection reset by server",
+      "HTTP 503",
+      "rate limit",
+      "SECRET_CANARY",
+    ];
     for (const terminal of [false, true]) {
       const result = await runFrames([
-        ...messages.map((message, i) => frame("session.status", { status: { type: "retry", attempt: i + 1, message } })),
-        ...(terminal ? [frame("session.error", { error: { name: "APIError", data: { statusCode: 503 } } })] : [assistant("answer"), text("answer", "answer"), finish("answer"), idle]),
+        ...messages.map((message, i) =>
+          frame("session.status", {
+            status: { type: "retry", attempt: i + 1, message },
+          }),
+        ),
+        ...(terminal
+          ? [
+              frame("session.error", {
+                error: { name: "APIError", data: { statusCode: 503 } },
+              }),
+            ]
+          : [
+              assistant("answer"),
+              text("answer", "answer"),
+              finish("answer"),
+              idle,
+            ]),
       ]);
-      const retries = result.events.filter(e => e.kind === "system_text");
+      const retries = result.events.filter((e) => e.kind === "system_text");
       expect(retries).toHaveLength(5);
-      const causes = [/time/i, /connection/i, /503/, /rate limit/i, /provider/i];
+      const causes = [
+        /time/i,
+        /connection/i,
+        /503/,
+        /rate limit/i,
+        /provider/i,
+      ];
       for (const [i, entry] of retries.entries()) {
         expect(entry.isomuxAuthored).toBe(true);
         expect(entry.text).toMatch(causes[i]);
         expect(entry.text).toMatch(new RegExp(`retrying ${i + 1} of 5`));
       }
       expect(JSON.stringify(result.events)).not.toContain("SECRET_CANARY");
-      expect(result.events.filter(e => e.kind === "turn_completed")).toHaveLength(1);
-      expect(result.events.at(-1)).toMatchObject({ kind: "turn_completed", status: terminal ? "failed" : "completed" });
+      expect(
+        result.events.filter((e) => e.kind === "turn_completed"),
+      ).toHaveLength(1);
+      expect(result.events.at(-1)).toMatchObject({
+        kind: "turn_completed",
+        status: terminal ? "failed" : "completed",
+      });
     }
   });
 
   it("replaces pending overflow with a later compaction timeout", async () => {
-    const result = await runFrames([overflow, frame("session.error", { error: {
-      name: "APIError", data: { message: "SSE read timed out", isRetryable: true },
-    } }), idle]);
-    expect(result.events.at(-1)).toMatchObject({ kind: "turn_completed", status: "failed", error: expect.stringMatching(/time/i) });
-    expect(result.events.filter(e => e.kind === "turn_completed")).toHaveLength(1);
+    const result = await runFrames([
+      overflow,
+      frame("session.error", {
+        error: {
+          name: "APIError",
+          data: { message: "SSE read timed out", isRetryable: true },
+        },
+      }),
+      idle,
+    ]);
+    expect(result.events.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      status: "failed",
+      error: expect.stringMatching(/time/i),
+    });
+    expect(
+      result.events.filter((e) => e.kind === "turn_completed"),
+    ).toHaveLength(1);
   });
 
   it("reports the observed model refusal as model unavailable", async () => {

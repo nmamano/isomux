@@ -528,14 +528,34 @@ function turnUsage(inputTokens: number, outputTokens: number) {
 
 describe("OpenCode turn-cost consumer", () => {
   it("adds turn cost once, retains the last key on resume, and preserves cumulative mode", async () => {
-    let event: { cost: number; costMode?: "turn"; usageId?: string } = { cost: 2, costMode: "turn", usageId: "A" };
-    const fake = new FakeBackend({ session: { onSend: (_t, _a, session) => {
-      session.push({ kind: "assistant_text", text: "reply" });
-      session.push({ kind: "turn_completed", status: "completed", usage: turnUsage(10, 1), ...event });
-    } } });
+    let event: { cost: number; costMode?: "turn"; usageId?: string } = {
+      cost: 2,
+      costMode: "turn",
+      usageId: "A",
+    };
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_t, _a, session) => {
+          session.push({ kind: "assistant_text", text: "reply" });
+          session.push({
+            kind: "turn_completed",
+            status: "completed",
+            usage: turnUsage(10, 1),
+            ...event,
+          });
+        },
+      },
+    });
     const { sink } = capture();
     const mgr = makeManager(fake, sink);
-    const info = (await mgr.spawn("Usage", STATE_ROOT, "default", undefined, undefined, "room-a"))!;
+    const info = (await mgr.spawn(
+      "Usage",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-a",
+    ))!;
     const send = async () => {
       await mgr.sendMessage(info.id, "next");
       const sid = fake.sessionForAgent(info.id)!.sessionId;

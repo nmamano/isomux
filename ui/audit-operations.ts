@@ -121,5 +121,5 @@ export const AUDIT_OPERATIONS = [
   "webhooks.create",
   "webhooks.delete",
   "webhooks.rotateSecret",
-  "webhooks.update"
+  "webhooks.update",
 ] as const;

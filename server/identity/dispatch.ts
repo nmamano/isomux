@@ -53,12 +53,16 @@ export interface AuthorizeInput {
 
 // Shared stage 1 for the executor and the OpenCode broker. Resource guards
 // still run in the executor with live state. Public routes use their own entry.
-export function passesRouteStageOne(auth: RouteAuth, identity: Identity | null): boolean {
+export function passesRouteStageOne(
+  auth: RouteAuth,
+  identity: Identity | null,
+): boolean {
   if (!identity || auth.kind === "public") return false;
   if (auth.kind === "authenticated") return true;
-  const required = typeof auth.requiredCapability === "string"
-    ? [auth.requiredCapability]
-    : auth.requiredCapability;
+  const required =
+    typeof auth.requiredCapability === "string"
+      ? [auth.requiredCapability]
+      : auth.requiredCapability;
   return required.some((cap) => identityHasCapability(identity, cap));
 }
 

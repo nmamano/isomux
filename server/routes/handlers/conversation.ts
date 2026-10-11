@@ -308,12 +308,27 @@ export function conversationHandlers(
       }
       let appName: string | undefined;
       if (b.appContext !== undefined) {
-        if (ctx.identity.scope !== "user" && ctx.identity.scope !== "api") return fail(403, "forbidden");
+        if (ctx.identity.scope !== "user" && ctx.identity.scope !== "api")
+          return fail(403, "forbidden");
         const context = b.appContext;
-        if (!context || typeof context !== "object" || typeof context.name !== "string" ||
-            !Number.isSafeInteger(context.registration) || context.registration < 0) return fail(422, "invalid_app_context");
-        const resolved = deps.resolveAppContext(ctx.identity, ctx.params.id, context);
-        if ("error" in resolved) return fail(resolved.error === "app_unavailable" ? 404 : 409, resolved.error);
+        if (
+          !context ||
+          typeof context !== "object" ||
+          typeof context.name !== "string" ||
+          !Number.isSafeInteger(context.registration) ||
+          context.registration < 0
+        )
+          return fail(422, "invalid_app_context");
+        const resolved = deps.resolveAppContext(
+          ctx.identity,
+          ctx.params.id,
+          context,
+        );
+        if ("error" in resolved)
+          return fail(
+            resolved.error === "app_unavailable" ? 404 : 409,
+            resolved.error,
+          );
         appName = resolved.name;
       }
       const withAppDevice = (device?: string): string | undefined =>
@@ -475,10 +490,12 @@ export function conversationHandlers(
           ctx.params.id,
           b.text,
           deps.attributionFor(ctx.identity).username,
-          withAppDevice(formatApiTokenDevice(
-            ctx.identity.apiTokenName ?? "unknown",
-            ctx.identity.apiTokenId ?? "reply unavailable: missing token id",
-          ))!,
+          withAppDevice(
+            formatApiTokenDevice(
+              ctx.identity.apiTokenName ?? "unknown",
+              ctx.identity.apiTokenId ?? "reply unavailable: missing token id",
+            ),
+          )!,
           ctx.identity.apiTokenId ?? "",
         );
         if (!r.ok) return fail(r.status, r.code, r.message);

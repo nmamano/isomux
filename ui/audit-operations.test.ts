@@ -12,8 +12,11 @@ it("offers every audited route and direct audit operation", async () => {
   const direct = new Set<string>();
   for await (const path of glob.scan({ cwd: `${import.meta.dir}/../server` })) {
     if (path.includes("test") || path.includes("_generated")) continue;
-    const source = await Bun.file(`${import.meta.dir}/../server/${path}`).text();
-    for (const match of source.matchAll(/operation:\s*"([\w.]+)"/g)) direct.add(match[1]);
+    const source = await Bun.file(
+      `${import.meta.dir}/../server/${path}`,
+    ).text();
+    for (const match of source.matchAll(/operation:\s*"([\w.]+)"/g))
+      direct.add(match[1]);
   }
   expect(direct.size).toBeGreaterThan(0);
   for (const operation of direct) expect([...known]).toContain(operation);

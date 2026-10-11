@@ -11,8 +11,12 @@ import { initFocusDebug } from "./focus-debug.ts";
 // localStorage flag is set (see focus-debug.ts).
 initFocusDebug();
 
-const widgetMeta = document.querySelector<HTMLMetaElement>('meta[name="isomux-app-widget"]');
-const widgetBoot = widgetMeta ? JSON.parse(widgetMeta.content) as AppWidgetBoot : null;
+const widgetMeta = document.querySelector<HTMLMetaElement>(
+  'meta[name="isomux-app-widget"]',
+);
+const widgetBoot = widgetMeta
+  ? (JSON.parse(widgetMeta.content) as AppWidgetBoot)
+  : null;
 
 const root = createRoot(document.getElementById("root")!);
 root.render(

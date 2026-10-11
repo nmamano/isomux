@@ -1,4 +1,8 @@
-import { AUDIT_ACTOR_KINDS, type AuditActorKind, type AuditFilter } from "../../../shared/audit.ts";
+import {
+  AUDIT_ACTOR_KINDS,
+  type AuditActorKind,
+  type AuditFilter,
+} from "../../../shared/audit.ts";
 import type { AuditStore } from "../../audit-store.ts";
 import { fail, ok, type RouteHandler } from "../executor.ts";
 export function parseAuditFilter(query: URLSearchParams): AuditFilter | null {
@@ -21,10 +25,7 @@ export function parseAuditFilter(query: URLSearchParams): AuditFilter | null {
   }
   const kind = query.get("actorKind");
   if (kind !== null) {
-    if (
-      !(AUDIT_ACTOR_KINDS as readonly string[]).includes(kind)
-    )
-      return null;
+    if (!(AUDIT_ACTOR_KINDS as readonly string[]).includes(kind)) return null;
     filter.actorKind = kind as AuditActorKind;
   }
   for (const key of ["from", "to", "before", "limit"] as const) {

@@ -1090,9 +1090,11 @@ export function createCommandHandling(deps: HandlerDeps) {
         agentId,
         "system",
         [
-          t(managed.info.agentType === "opencode"
-            ? "commands.usage.unavailable"
-            : "commands.usage.meter"),
+          t(
+            managed.info.agentType === "opencode"
+              ? "commands.usage.unavailable"
+              : "commands.usage.meter",
+          ),
           "",
           t("commands.usage.office"),
         ].join("\n"),

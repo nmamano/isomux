@@ -18,17 +18,36 @@ describe("/usage", () => {
       } as unknown as Parameters<typeof createCommandHandling>[0];
       const { commandHandlers } = createCommandHandling(deps);
       const managed = { info: { agentType } } as ManagedAgent;
-      expect(await commandHandlers.usage(
-        "usage-agent", managed, [], "/usage", undefined, undefined,
-      )).toBe(true);
-      expect(entries.map((entry) => entry.kind)).toEqual(["user_message", "system"]);
+      expect(
+        await commandHandlers.usage(
+          "usage-agent",
+          managed,
+          [],
+          "/usage",
+          undefined,
+          undefined,
+        ),
+      ).toBe(true);
+      expect(entries.map((entry) => entry.kind)).toEqual([
+        "user_message",
+        "system",
+      ]);
       const { t } = translatorFor("en");
-      expect(entries[1].content).toBe([
-        t(agentType === "opencode" ? "commands.usage.unavailable" : "commands.usage.meter"),
-        "",
-        t("commands.usage.office"),
-      ].join("\n"));
-      expect(updateState).toHaveBeenCalledWith("usage-agent", "waiting_for_response");
+      expect(entries[1].content).toBe(
+        [
+          t(
+            agentType === "opencode"
+              ? "commands.usage.unavailable"
+              : "commands.usage.meter",
+          ),
+          "",
+          t("commands.usage.office"),
+        ].join("\n"),
+      );
+      expect(updateState).toHaveBeenCalledWith(
+        "usage-agent",
+        "waiting_for_response",
+      );
     });
   }
 });

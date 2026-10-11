@@ -280,8 +280,7 @@ async function checkTerminal(
     data:
       (bundledClaude
         ? `sdk_binary=$(bun -e 'const { CLAUDE_NATIVE_BIN } = await import("/opt/isomux/server/cwd-utils.ts"); process.stdout.write(CLAUDE_NATIVE_BIN)') && cli_version=$(claude --version) && sdk_version=$("$sdk_binary" --version) && [ "$cli_version" = "$sdk_version" ] && `
-        : "") +
-      "printf 'isomux-smoke-%s\\n' terminal-ok\r",
+        : "") + "printf 'isomux-smoke-%s\\n' terminal-ok\r",
   });
   const output = () =>
     stripAnsi(

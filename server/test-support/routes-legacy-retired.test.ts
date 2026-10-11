@@ -37,7 +37,11 @@ const RETIRED: Array<{ method: string; path: string }> = [
   { method: "POST", path: "/tasks" },
   { method: "POST", path: "/tasks/" },
   ...["PUT", "PATCH", "DELETE"].flatMap((method) =>
-    ["/tasks", "/tasks/", "/cronjobs", "/cronjobs/"].map((path) => ({ method, path }))),
+    ["/tasks", "/tasks/", "/cronjobs", "/cronjobs/"].map((path) => ({
+      method,
+      path,
+    })),
+  ),
   { method: "POST", path: "/cronjobs" },
   { method: "POST", path: "/cronjobs/" },
   { method: "HEAD", path: "/tasks/deadbeef" },
@@ -116,7 +120,8 @@ describe("routes/legacy-retired: authenticated callers get a JSON 404", () => {
         status: 404,
       });
       expect(res.headers.get("content-type")).toContain("application/json");
-      if (method !== "HEAD") expect(await res.json()).toEqual({ error: "not found" });
+      if (method !== "HEAD")
+        expect(await res.json()).toEqual({ error: "not found" });
     }
   });
 
@@ -213,12 +218,24 @@ describe("routes/pages: direct loads and reloads", () => {
       { headers: { Authorization: `Bearer ${raw}` } },
     ];
     for (const identity of identities) {
-      for (const page of ["tasks", "cronjobs", "apps", "skills", "settings", "pager", "users"]) {
+      for (const page of [
+        "tasks",
+        "cronjobs",
+        "apps",
+        "skills",
+        "settings",
+        "pager",
+        "users",
+      ]) {
         for (const suffix of ["", "/", "//", "?status=all"]) {
           for (const method of ["GET", "HEAD"]) {
             const path = `/${page}${suffix}`;
             const res = await srv.http(path, { ...identity, method });
-            expect({ path, method, status: res.status }).toEqual({ path, method, status: 200 });
+            expect({ path, method, status: res.status }).toEqual({
+              path,
+              method,
+              status: 200,
+            });
             expect(res.headers.get("content-type")).toContain("text/html");
             const body = await res.text();
             if (method === "GET") expect(body).toMatch(/<div[^>]+id="root"/);
@@ -227,7 +244,9 @@ describe("routes/pages: direct loads and reloads", () => {
         }
       }
     }
-    const api = await srv.http("/api/tasks", { rawSessionId: owner.rawSessionId });
+    const api = await srv.http("/api/tasks", {
+      rawSessionId: owner.rawSessionId,
+    });
     expect(api.status).toBe(200);
     expect(api.headers.get("content-type")).toContain("application/json");
     expect(await api.json()).toEqual([]);

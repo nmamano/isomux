@@ -2006,10 +2006,8 @@ App 的一些原则：
   "commands.isomuxDiff.notRepo": "`{path}` 不是 git 仓库。",
   "commands.isomuxDiff.gitError": "在 `{path}` 中运行 git diff 失败：",
   "commands.isomuxDiff.clean": "`{path}` 中的工作树干净，没有未提交的更改。",
-  "commands.usage.meter":
-    "查看聊天顶部的用量指示器，了解订阅限额和重置时间。",
-  "commands.usage.unavailable":
-    "此智能体不提供订阅用量。",
+  "commands.usage.meter": "查看聊天顶部的用量指示器，了解订阅限额和重置时间。",
+  "commands.usage.unavailable": "此智能体不提供订阅用量。",
   "commands.usage.office":
     "办公室级 token 消耗（按智能体、房间或定时任务）请参见 `/isomux-usage`。",
   "commands.isomuxStorage.forbidden":

@@ -22,7 +22,8 @@ export const ca: Catalog = {
   "audit.filter": "Filtra",
   "audit.any": "Qualsevol",
   "audit.clear": "Neteja",
-  "audit.invalidRange": "Introdueix un interval vàlid, amb Des de abans de Fins a.",
+  "audit.invalidRange":
+    "Introdueix un interval vàlid, amb Des de abans de Fins a.",
   "audit.kind.member": "Membre",
   "audit.kind.agent": "Agent",
   "audit.kind.apiToken": "Token API",
@@ -2739,9 +2740,12 @@ Coses que pots fer per ell:
   "appWidget.launcher": "Xat",
   "appWidget.title": "Xat amb {agentName}",
   "appWidget.notice": "Compartit amb els membres de la sala de l'agent.",
-  "appWidget.windowsHint": "Prem Win+Shift+S i després enganxa aquí la captura de pantalla.",
-  "appWidget.macHint": "Prem Control+Shift+Command+4 i després enganxa aquí la captura de pantalla.",
-  "appWidget.genericHint": "Fes una captura de pantalla i després enganxa-la o adjunta-la aquí.",
+  "appWidget.windowsHint":
+    "Prem Win+Shift+S i després enganxa aquí la captura de pantalla.",
+  "appWidget.macHint":
+    "Prem Control+Shift+Command+4 i després enganxa aquí la captura de pantalla.",
+  "appWidget.genericHint":
+    "Fes una captura de pantalla i després enganxa-la o adjunta-la aquí.",
   "appWidget.attach": "Adjunta una imatge",
   "appWidget.close": "Tanca el xat",
   "appWidget.direct": "Obre l'app directament",
