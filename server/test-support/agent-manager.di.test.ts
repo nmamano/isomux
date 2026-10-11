@@ -17,7 +17,7 @@
 // lazily on first write), so neither the import nor these assertions touch real
 // state. The preload removes the temp root at process exit.
 
-import { describe, it, expect } from "bun:test";
+import { afterAll, afterEach, describe, it, expect } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
@@ -52,7 +52,13 @@ import { setPersonalProviderActiveProvider } from "../env-loader.ts";
 // config.ts was imported), so the disk-touching assertions below run in-suite
 // instead of skipping. The preload owns temp-root cleanup at process exit.
 
+import { createOpenCodeTestReaper } from "./opencode-test-reaper.ts";
+
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
+
+const reaper = createOpenCodeTestReaper();
+afterEach(reaper.afterEach);
+afterAll(reaper.afterAll);
 
 function rooms(...ids: string[]): RoomWire[] {
   return ids.map((id, i) => ({
@@ -1305,6 +1311,12 @@ describe("AgentManager DI (temp-state isolated)", () => {
         }
       };
       let lease: Awaited<ReturnType<OpenCodeSupervisor["acquire"]>> | undefined;
+      reaper.track(supervisor);
+      const teardown = reaper.add(async () => {
+        lease?.release();
+        await measure("server teardown", () => supervisor.shutdown());
+        await mock.stop(true);
+      });
       try {
         lease = await measure("server start", () => supervisor.acquire());
         const backend = createOpenCodeBackend({
@@ -1410,9 +1422,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         ).toBeGreaterThan(0);
         await mgr.kill(info!.id);
       } finally {
-        lease?.release();
-        await measure("server teardown", () => supervisor.shutdown());
-        await mock.stop(true);
+        await teardown();
       }
     },
     130_000,

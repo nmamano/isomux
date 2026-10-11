@@ -5,7 +5,7 @@
 //
 //   bun run test:opencode
 
-import { expect, it } from "bun:test";
+import { afterAll, afterEach, expect, it } from "bun:test";
 import { loadavg } from "node:os";
 import type { EventHandler } from "../internal-types.ts";
 import { OfficeState } from "../../shared/office-state.ts";
@@ -18,7 +18,13 @@ import { createAgentManager } from "../agent-manager.ts";
 import { STATE_ROOT } from "../config.ts";
 import { environmentSourceKeyForUserId } from "../env-loader.ts";
 
+import { createOpenCodeTestReaper } from "./opencode-test-reaper.ts";
+
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
+
+const reaper = createOpenCodeTestReaper();
+afterEach(reaper.afterEach);
+afterAll(reaper.afterAll);
 
 function expectedLog(label: string, matches: (content: string) => boolean) {
   const seen = Promise.withResolvers<void>();
@@ -175,6 +181,11 @@ it.skipIf(!LIVE)(
         },
       },
     });
+    reaper.track(supervisor);
+    const teardown = reaper.add(async () => {
+      await measure("first reply teardown", () => supervisor.shutdown());
+      await mock.stop(true);
+    });
     try {
       const backend = createOpenCodeBackend({ supervisor });
       let reportStoredSessionAsDurable = false;
@@ -242,8 +253,7 @@ it.skipIf(!LIVE)(
       reportStoredSessionAsDurable = true;
       expect(await mgr.demoteToLazy(info!.id)).toBe(true);
     } finally {
-      await measure("first reply teardown", () => supervisor.shutdown());
-      await mock.stop(true);
+      await teardown();
     }
   },
   25_000,
@@ -300,6 +310,11 @@ it.skipIf(!LIVE)(
           },
         },
       },
+    });
+    reaper.track(supervisor);
+    const teardown = reaper.add(async () => {
+      await measure("provider error teardown", () => supervisor.shutdown());
+      await mock.stop(true);
     });
     try {
       const reply = expectedLog("provider error", (content) =>
@@ -373,8 +388,7 @@ it.skipIf(!LIVE)(
       }
       await mgr.kill(info!.id);
     } finally {
-      await measure("provider error teardown", () => supervisor.shutdown());
-      await mock.stop(true);
+      await teardown();
     }
   },
   25_000,

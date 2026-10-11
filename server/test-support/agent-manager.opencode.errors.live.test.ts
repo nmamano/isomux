@@ -1,12 +1,18 @@
 // Credential-free provider controls for the pinned real OpenCode server.
-import { expect, it } from "bun:test";
+import { afterAll, afterEach, expect, it } from "bun:test";
 import { OfficeState } from "../../shared/office-state.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { createOpenCodeBackend } from "../backends/opencode/adapter.ts";
 import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import { STATE_ROOT } from "../config.ts";
 
+import { createOpenCodeTestReaper } from "./opencode-test-reaper.ts";
+
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
+
+const reaper = createOpenCodeTestReaper();
+afterEach(reaper.afterEach);
+afterAll(reaper.afterAll);
 async function until(condition: () => boolean) {
   const deadline = Date.now() + 20_000;
   while (!condition()) {
@@ -117,6 +123,13 @@ for (const scenario of [
       });
       mgr.configureAgentTurnDeps();
       let id: string | undefined;
+      reaper.track(supervisor);
+      const teardown = reaper.add(async () => {
+        releaseSummary.resolve();
+        if (id) await mgr.abort(id);
+        await supervisor.shutdown();
+        await mock.stop(true);
+      });
       try {
         const agent = await mgr.spawn(
           "Error control",
@@ -221,10 +234,7 @@ for (const scenario of [
         );
         expect(mgr.listSessions(id)[0]?.sessionId).toBe(session);
       } finally {
-        releaseSummary.resolve();
-        if (id) await mgr.abort(id);
-        await supervisor.shutdown();
-        await mock.stop(true);
+        await teardown();
       }
     },
     60_000,
