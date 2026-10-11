@@ -1,3 +1,4 @@
+import { readWidgetMetadata, applyWidgetMetadata } from "./app-widget-metadata.ts";
 import { appWidgetHandlers } from "./routes/handlers/app-widget.ts";
 import { auditHandlers } from "./routes/handlers/audit.ts";
 import { auditActor } from "./audit-actor.ts";
@@ -6441,7 +6442,7 @@ function escapeHtml(s: string): string {
 async function serveIndexHtml(
   req?: Request,
   session?: SessionLookup,
-  widget?: { name: string; registration: number },
+  widget?: { name: string; registration: number; metadata: Awaited<ReturnType<typeof readWidgetMetadata>> },
 ): Promise<Response> {
   // A missing bundle (ui/dist not built yet) must be a clean 503, not an
   // unhandled ENOENT that resets the socket mid-response - that crash shape
@@ -6459,7 +6460,8 @@ async function serveIndexHtml(
   const title = officeName ? `${escapeHtml(officeName)} | Isomux` : "Isomux";
   let html = raw.replace("__OFFICE_TITLE__", title);
   if (widget) {
-    const boot = escapeHtml(JSON.stringify(widget)).replace(/"/g, "&quot;");
+    html = await applyWidgetMetadata(html, widget.metadata);
+    const boot = escapeHtml(JSON.stringify({ name: widget.name, registration: widget.registration })).replace(/"/g, "&quot;");
     html = html.replace(
       "</head>",
       `<meta name="isomux-app-widget" content="${boot}"></head>`,
@@ -6907,6 +6909,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             return serveIndexHtml(req, auth.session, {
               name: app.name,
               registration: appRegistrationGeneration(app),
+              metadata: await readWidgetMetadata({
+                app,
+                host: new URL(appPublicUrl(app.hostLabel, appHostDomain())!).host,
+                apps: appRegistry.list(),
+                supervisor: appSupervisor,
+              }),
             });
           }
           // Hidden and unknown apps retain the normal office-shell fallback.

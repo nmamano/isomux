@@ -6,7 +6,8 @@ import { apiFetch } from "./api.ts";
 import { useAppState } from "./store.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CSS } from "./styles.ts";
-import { LogEntryCard } from "./log-view/LogEntryCard.tsx";
+import { ChatTranscript, useChatTranscript } from "./log-view/ChatTranscript.tsx";
+import { Character } from "./office/Character.tsx";
 import {
   APP_WIDGET_RECHECK_MS,
   APP_WIDGET_SANDBOX,
@@ -23,9 +24,9 @@ const WIDGET_CSS = `
 .app-widget button,.app-widget a { font:inherit; }
 .app-widget button { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }
 .app-widget button:disabled { cursor:default; opacity:.55; }
-.app-widget-launcher { position:fixed; right:20px; bottom:20px; z-index:3; box-shadow:0 3px 18px #0004; }
+.app-widget-launcher { display:flex; align-items:center; gap:8px; position:fixed; right:20px; bottom:max(20px,env(safe-area-inset-bottom)); z-index:3; box-shadow:0 3px 18px #0004; }
 .app-widget-direct { position:fixed; top:10px; right:12px; z-index:2; background:var(--bg-surface-solid); color:var(--text-primary); padding:6px 10px; border-radius:7px; font-size:12px!important; }
-.app-widget-panel { position:fixed; right:20px; bottom:76px; z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
+.app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
 .app-widget-header { padding:14px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); }
 .app-widget-header h1 { flex:1; font-size:16px; margin:0; }
 .app-widget-notice { padding:9px 14px; font-size:12px; color:var(--text-secondary); }
@@ -40,14 +41,12 @@ const WIDGET_CSS = `
 .app-widget-hint { font-size:12px; color:var(--text-secondary); margin:0 0 8px; }
 .app-widget-status { margin-right:auto; font-size:12px; color:var(--text-secondary); }
 .app-widget-unavailable { position:fixed; bottom:20px; right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
-@media(max-width:600px) {
- .app-widget-panel { top:var(--widget-top,0px); left:0; right:0; bottom:auto; width:100%; max-width:none; height:var(--widget-height,100dvh); border:0; border-radius:0; }
- .app-widget-compose { padding-bottom:max(12px,env(safe-area-inset-bottom)); }
- .app-widget-launcher { bottom:max(16px,env(safe-area-inset-bottom)); right:16px; }
-}
 `;
 
-export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
+export function AppWidgetPage({ boot, onOpenOffice }: {
+  boot: AppWidgetBoot;
+  onOpenOffice?: (agent: AgentInfo) => void;
+}) {
   const { t } = useI18n();
   const state = useAppState();
   const frame = useRef<HTMLIFrameElement>(null);
@@ -179,27 +178,6 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
     return () => window.removeEventListener("message", listener);
   }, [recover, appUrl]);
 
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    const resize = () => {
-      document.documentElement.style.setProperty(
-        "--widget-height",
-        (viewport?.height ?? window.innerHeight) + "px",
-      );
-      document.documentElement.style.setProperty(
-        "--widget-top",
-        (viewport?.offsetTop ?? 0) + "px",
-      );
-    };
-    resize();
-    viewport?.addEventListener("resize", resize);
-    viewport?.addEventListener("scroll", resize);
-    return () => {
-      viewport?.removeEventListener("resize", resize);
-      viewport?.removeEventListener("scroll", resize);
-    };
-  }, []);
-
   const target = liveStatus?.chat;
   const agent = state.agents.find((item) => item.id === target?.agentId);
   const logs = target ? (state.logs.get(target.agentId) ?? []) : [];
@@ -255,13 +233,17 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
           <button
             ref={launcher}
             className="app-widget-launcher"
-            aria-expanded={open}
-            aria-controls="app-widget-chat"
+            aria-expanded={state.isMobile ? undefined : open}
+            aria-controls={state.isMobile ? undefined : "app-widget-chat"}
             onClick={() => {
+              if (state.isMobile) { onOpenOffice?.(agent); return; }
               setOpen(!open);
               setReadMark({ agent: target?.agentId, latest });
             }}
           >
+            <span aria-hidden="true" className="app-widget-avatar" data-agent-id={agent.id} data-agent-state={agent.state}>
+              <Character key={agent.state} state={agent.state} outfit={agent.outfit} height={36} />
+            </span>
             {t("appWidget.launcher")}
             {unread && (
               <span
@@ -277,7 +259,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
               />
             )}
           </button>
-          <section
+          {!state.isMobile && <section
             id="app-widget-chat"
             className="app-widget-panel"
             role="dialog"
@@ -292,6 +274,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
               boot={boot}
               agent={agent}
               logs={logs}
+              stateChangedAt={state.stateChangedAt.get(agent.id)}
               connected={state.connected}
               open={open}
               onClose={close}
@@ -299,7 +282,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
                 void refresh();
               }}
             />
-          </section>
+          </section>}
         </>
       )}
     </main>
@@ -361,6 +344,7 @@ export function WidgetChat({
   open,
   onClose,
   onRecheck,
+  stateChangedAt,
 }: {
   boot: AppWidgetBoot;
   agent: AgentInfo;
@@ -369,8 +353,10 @@ export function WidgetChat({
   open: boolean;
   onClose?: () => void;
   onRecheck: () => void;
+  stateChangedAt?: number;
 }) {
   const { t } = useI18n();
+  const transcript = useChatTranscript(logs, agent.state === "thinking" || agent.state === "tool_executing");
   const key = widgetDraftKey(boot, agent.id);
   const freshDraft = () => ({
     key,
@@ -546,18 +532,15 @@ export function WidgetChat({
       }}
     >
       <header className="app-widget-header">
+        <span aria-hidden="true" className="app-widget-avatar" data-agent-id={agent.id} data-agent-state={agent.state}>
+          <Character key={agent.state} state={agent.state} outfit={agent.outfit} height={44} />
+        </span>
         <h1>{t("appWidget.title", { agentName: agent.name })}</h1>
         {onClose && <button onClick={onClose}>{t("appWidget.close")}</button>}
       </header>
       <p className="app-widget-notice">{t("appWidget.notice")}</p>
       <div className="app-widget-log" role="log">
-        {logs.map((entry) => (
-          <LogEntryCard
-            key={entry.id}
-            entry={entry}
-            isMobile={window.innerWidth <= 600}
-          />
-        ))}
+        <ChatTranscript logs={logs} view={transcript} isMobile={false} activity={{ state: agent.state, stateChangedAt }} />
         <div ref={end} />
       </div>
       <form

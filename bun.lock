@@ -26,6 +26,7 @@
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/xterm": "^6.0.0",
         "diff2html": "^3.4.56",
+        "entities": "^7.0.1",
         "highlight.js": "^11.11.1",
         "katex": "^0.16.47",
         "marked": "^18.0.3",

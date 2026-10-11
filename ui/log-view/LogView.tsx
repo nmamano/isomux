@@ -1,3 +1,4 @@
+import { STATE_LABEL_KEYS, escalationColor, formatElapsed } from "./ActivityIndicator.tsx";
 import { StatusShape } from "../components/StatusShape.tsx";
 import { coalesceCodexDiagnostics } from "../../shared/codex-diagnostics.ts";
 import {
@@ -40,17 +41,10 @@ import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import {
-  LogEntryCard,
-  RawToolCallGroupCard,
   serializeEntries,
-  senderIsHuman,
 } from "./LogEntryCard.tsx";
 import { pinnedHumanMessageId } from "./pinned-message.ts";
-import {
-  findRawToolCallGroups,
-  liveTailEntryIds,
-  lastVisibleEntryIndex,
-} from "./tool-call-groups.ts";
+import { ChatTranscript, useChatTranscript } from "./ChatTranscript.tsx";
 import { citationBlock } from "./cite.ts";
 import { appendBlockToDraft } from "./draft-append.ts";
 import { sendAttempt, takeAttempt } from "./outbox.ts";
@@ -87,13 +81,6 @@ import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { noTranslate } from "../no-translate.ts";
-
-// Catalog keys, read at render: the header shows them in the reader's language
-// (internal-docs/i18n-loop.md, ruling 7).
-const STATE_LABEL_KEYS: Partial<Record<AgentState, PlainMessageKey>> = {
-  thinking: "logView.state.thinking",
-  tool_executing: "logView.state.toolExecuting",
-};
 
 // Header label for an agent parked on a two-step prompt. It
 // sits where the activity indicator would be if a turn were running - which is
@@ -160,23 +147,6 @@ function writePanelWidth(kind: "terminal" | "editor", width: number): void {
   } catch {}
 }
 
-const ESCALATION_AMBER_MS = 2 * 60 * 1000; // 2 minutes
-const ESCALATION_RED_MS = 5 * 60 * 1000; // 5 minutes
-
-function formatElapsed(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  return `${min}:${sec.toString().padStart(2, "0")}`;
-}
-
-function escalationColor(elapsedMs: number, baseColor: string): string {
-  if (elapsedMs >= ESCALATION_RED_MS) return "var(--red-text)";
-  if (elapsedMs >= ESCALATION_AMBER_MS) return "var(--orange-text)";
-  return baseColor;
-}
-
 // Debounce abort sends across all sites (textarea Ctrl+C, ActivityIndicator
 // button, mobile Stop). Users tap Ctrl+C twice when the first tap doesn't
 // visibly do anything, and the second frame races with the in-flight abort -
@@ -188,111 +158,6 @@ function sendAbortDebounced(agentId: string) {
   if (now - last < 2000) return;
   lastAbortAtPerAgent.set(agentId, now);
   apiFetch("POST", `/api/agents/${agentId}/abort`).catch(() => {});
-}
-
-function ActivityIndicator({
-  state,
-  stateChangedAt,
-  agentId,
-}: {
-  state: AgentState;
-  stateChangedAt?: number;
-  agentId: string;
-}) {
-  const { t } = useI18n();
-  const labelKey = STATE_LABEL_KEYS[state];
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!labelKey) return;
-    const id = setInterval(() => setNow(Date.now()), 100);
-    return () => clearInterval(id);
-  }, [labelKey]);
-
-  if (!labelKey) return null;
-
-  const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
-  const baseColor =
-    state === "waiting_for_response"
-      ? "var(--purple-text)"
-      : "var(--green-text)";
-  const color = escalationColor(elapsedMs, baseColor);
-  const showAbort = elapsedMs >= ESCALATION_AMBER_MS;
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "12px 14px",
-        margin: "8px 0",
-        color,
-        fontSize: 12,
-        animation: "fadeIn 0.2s ease-out",
-      }}
-    >
-      <span style={{ display: "inline-flex", gap: 3 }}>
-        <span
-          style={{
-            width: 4,
-            height: 4,
-            borderRadius: "50%",
-            background: color,
-            animation: "dotBounce 1.4s ease-in-out infinite",
-            animationDelay: "0s",
-          }}
-        />
-        <span
-          style={{
-            width: 4,
-            height: 4,
-            borderRadius: "50%",
-            background: color,
-            animation: "dotBounce 1.4s ease-in-out infinite",
-            animationDelay: "0.2s",
-          }}
-        />
-        <span
-          style={{
-            width: 4,
-            height: 4,
-            borderRadius: "50%",
-            background: color,
-            animation: "dotBounce 1.4s ease-in-out infinite",
-            animationDelay: "0.4s",
-          }}
-        />
-      </span>
-      <span>{labelKey && t(labelKey)}...</span>
-      <span
-        style={{
-          fontFamily: "'JetBrains Mono',monospace",
-          fontSize: 11,
-        }}
-      >
-        {formatElapsed(elapsedMs)}
-      </span>
-      {showAbort && (
-        <button
-          onClick={() => sendAbortDebounced(agentId)}
-          title={t("logView.abortTitle")}
-          style={{
-            marginLeft: 8,
-            padding: "2px 10px",
-            borderRadius: 4,
-            border: `1px solid ${color}`,
-            background: "transparent",
-            color,
-            fontSize: 11,
-            cursor: "pointer",
-          }}
-        >
-          {t("logView.abort")}
-        </button>
-      )}
-    </div>
-  );
 }
 
 function SessionSwapIndicator({ swapping }: { swapping: boolean }) {
@@ -777,17 +642,6 @@ export function LogView({
     dispatch({ type: "set_draft", agentId: agent.id, text });
   }
   const [autoScroll, setAutoScroll] = useState(true);
-  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const toggleMessage = useCallback((entryId: string) => {
-    setExpandedMessages((previous) => {
-      const next = new Set(previous);
-      if (next.has(entryId)) next.delete(entryId);
-      else next.add(entryId);
-      return next;
-    });
-  }, []);
   const speechLocale = useSpeechLocale();
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
@@ -1191,6 +1045,7 @@ export function LogView({
   }
 
   const isBusy = agent.state === "thinking" || agent.state === "tool_executing";
+  const transcript = useChatTranscript(logs, isBusy);
 
   // Pin a user message to the top of the chat when none are visible in the
   // viewport, so the user always has context for what they asked. The pinned
@@ -1252,92 +1107,6 @@ export function LogView({
     const target = userMsgNodesRef.current.get(pinnedMessage.id);
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-
-  // Do not collapse the trailing live tool batch: active tool work stays
-  // visible as it arrives, while settled history remains stable even when one
-  // agent turn runs for hours.
-  const liveTailIds = useMemo(
-    () => liveTailEntryIds(logs, isBusy),
-    [isBusy, logs],
-  );
-  const rawToolGroups = useMemo(
-    () => findRawToolCallGroups(logs, liveTailIds),
-    [liveTailIds, logs],
-  );
-  const rawToolGroupByFirstId = useMemo(
-    () => new Map(rawToolGroups.map((group) => [group.firstId, group])),
-    [rawToolGroups],
-  );
-  const groupedChildIds = useMemo(
-    () =>
-      new Set(
-        rawToolGroups.flatMap((group) =>
-          group.entries.slice(1).map((entry) => entry.id),
-        ),
-      ),
-    [rawToolGroups],
-  );
-
-  // Compute agent turns: group entries between user_messages
-  // For each entry, determine if it's the last in its agent turn
-  const turnData = useMemo(() => {
-    // Identify turn boundaries (user_message entries start a new turn)
-    // Agent turn = all non-user entries after a user message, until the next user message
-    let currentTurn: { startIdx: number; entries: LogEntry[] } = {
-      startIdx: 0,
-      entries: [],
-    };
-    const turns: { startIdx: number; entries: LogEntry[] }[] = [];
-
-    for (let i = 0; i < logs.length; i++) {
-      const entry = logs[i];
-      if (entry.kind === "user_message") {
-        if (currentTurn.entries.length > 0) {
-          turns.push(currentTurn);
-        }
-        // User messages are their own "turn" (no grouping needed)
-        turns.push({ startIdx: i, entries: [entry] });
-        currentTurn = { startIdx: i + 1, entries: [] };
-      } else {
-        currentTurn.entries.push(entry);
-      }
-    }
-    if (currentTurn.entries.length > 0) {
-      turns.push(currentTurn);
-    }
-
-    const entryMap = new Map<
-      string,
-      { isLastInTurn: boolean; turnEntries: LogEntry[] }
-    >();
-    for (const turn of turns) {
-      if (
-        turn.entries.length === 1 &&
-        turn.entries[0].kind === "user_message"
-      ) {
-        entryMap.set(turn.entries[0].id, {
-          isLastInTurn: false,
-          turnEntries: [],
-        });
-        continue;
-      }
-      // Find the last entry that will actually render. Folded tool_results
-      // are hidden, so the turn-level copy button needs to land on the
-      // preceding visible entry (usually the matching tool_call).
-      const lastVisibleIdx = lastVisibleEntryIndex(
-        turn.entries,
-        groupedChildIds,
-      );
-      for (let i = 0; i < turn.entries.length; i++) {
-        entryMap.set(turn.entries[i].id, {
-          isLastInTurn: i === lastVisibleIdx,
-          turnEntries: turn.entries,
-        });
-      }
-    }
-
-    return entryMap;
-  }, [logs, groupedChildIds]);
 
   const getConversationText = useCallback(
     () => serializeEntries(i18n, logs),
@@ -2626,62 +2395,27 @@ export function LogView({
                   )}
                 </div>
               )}
-              {logs.map((entry) => {
-                if (entry.metadata?.interactionFallback === true) return null;
-                if (groupedChildIds.has(entry.id)) return null;
-                const td = turnData.get(entry.id);
-                const rawToolGroup = rawToolGroupByFirstId.get(entry.id);
-                const canEditMsg =
-                  entry.kind === "user_message" &&
-                  agent.state === "waiting_for_response" &&
-                  !editingLogEntryId &&
-                  agent.capabilities.edit;
-                const isUserMsg =
-                  entry.kind === "user_message" &&
-                  senderIsHuman(entry.metadata);
-                return (
-                  <div
-                    key={entry.id}
-                    ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
-                  >
-                    {rawToolGroup ? (
-                      <RawToolCallGroupCard
-                        entries={rawToolGroup.entries}
-                        isLastInTurn={td?.isLastInTurn}
-                        turnEntries={td?.turnEntries}
-                        isMobile={isMobile}
-                        onCopyToTerminal={
-                          features.terminal ? copyToTerminal : undefined
-                        }
-                      />
-                    ) : (
-                      <LogEntryCard
-                        entry={entry}
-                        messageExpanded={expandedMessages.has(entry.id)}
-                        onToggleMessage={toggleMessage}
-                        isLastInTurn={td?.isLastInTurn}
-                        turnEntries={td?.turnEntries}
-                        isMobile={isMobile}
-                        canEdit={canEditMsg}
-                        isEditing={editingLogEntryId === entry.id}
-                        onStartEdit={setEditingLogEntryId}
-                        onCancelEdit={handleCancelEdit}
-                        onSubmitEdit={handleSubmitEdit}
-                        onRestoreFailedEdit={
-                          agent.capabilities.edit
-                            ? restoreFailedEdit
-                            : undefined
-                        }
-                        onOpenInEditor={
-                          features.editor ? openInEditor : undefined
-                        }
-                        onCopyToTerminal={
-                          features.terminal ? copyToTerminal : undefined
-                        }
-                        tasks={taskMap}
-                        onOpenTask={onOpenTask}
-                      />
-                    )}
+              <ChatTranscript
+                logs={logs}
+                view={transcript}
+                isMobile={isMobile}
+                getUserMessageRef={getUserMsgRefCb}
+                entryProps={(entry) => ({
+                  canEdit: entry.kind === "user_message" && agent.state === "waiting_for_response" && !editingLogEntryId && agent.capabilities.edit,
+                  isEditing: editingLogEntryId === entry.id,
+                  onStartEdit: setEditingLogEntryId,
+                  onCancelEdit: handleCancelEdit,
+                  onSubmitEdit: handleSubmitEdit,
+                  onRestoreFailedEdit: agent.capabilities.edit ? restoreFailedEdit : undefined,
+                  onOpenInEditor: features.editor ? openInEditor : undefined,
+                  onCopyToTerminal: features.terminal ? copyToTerminal : undefined,
+                  tasks: taskMap,
+                  onOpenTask,
+                })}
+                onCopyToTerminal={features.terminal ? copyToTerminal : undefined}
+                interaction={interaction && <ChoiceInteractionCard interaction={interaction} />}
+                activity={{ state: agent.state, stateChangedAt: stateChangedAt.get(agent.id), onAbort: () => sendAbortDebounced(agent.id) }}
+                afterEntry={(entry) => <>
                     {(entry.metadata?.providerLogin === "codex" ||
                       entry.metadata?.providerLogin === "claude") &&
                       agent.userId !== null &&
@@ -2699,17 +2433,9 @@ export function LogView({
                           }}
                         />
                       )}
-                  </div>
-                );
-              })}
-              {interaction && (
-                <ChoiceInteractionCard interaction={interaction} />
-              )}
-              <ActivityIndicator
-                state={agent.state}
-                stateChangedAt={stateChangedAt.get(agent.id)}
-                agentId={agent.id}
+                </>}
               />
+
             </div>
           </div>
 
