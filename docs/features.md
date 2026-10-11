@@ -149,9 +149,9 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 
 - **Your personal app suite** - apps agents make for you or for other members of the office, available 24/7 from any device that can access the office. Room visibility decides which apps you see: share a room, share the apps.
 - **Apps tab**: see all your apps and their links in one place.
-- **Its own web address** - on an office with its own domain and wildcard DNS, an app can get a short address like `myoffice.com/myapp` that shows the app full-page with a chat button, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
+- **Its own web address** - on an office with its own domain and wildcard DNS, an app can get a short address like `myoffice.com/myapp`, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
-- **Chat beside an app** - members with access to the app and its target agent's room can use the agent's shared conversation from the app page. Members can paste or drop screenshots, or attach image files, and review or remove each image before sending. The widget shows the screenshot shortcut for Windows or macOS when it can identify the platform; other devices get a general hint. Isomux does not take the screenshot. Closing chat keeps the app and draft in place. The direct app link opens the app in its own tab.
+- **Chat beside an app** - Chat with the agent who created the app from a widget in the app itself.
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.
 - **Deleting an app keeps its data** - the data directory moves to `.retired` next to the other apps' data, on the office's disk. Nothing is erased automatically.
 
@@ -176,7 +176,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Kill** removes agent and frees desk.
 - **Office address** - self-hosted owners can set the public URL and external access in Settings → Office → Access. Hosted offices show the Isomux-managed address read-only.
 - **Survives a memory spike** - the office biases the out-of-memory kill toward the runaway agent or build, not itself. [One root command](hosting-reference.md#running-out-of-memory) adds box-wide protection and keeps SSH reachable. Linux only.
-- **Office audit log:** Owners can filter recorded writes in Settings by actor, target, operation, and local date and time, with member names and operation suggestions. The log keeps task history and memory snapshots. Owners can restore deleted tasks from their audit rows.
+- **Office audit log:** Filter logs by actor, target, operation, or time. The log keeps task history and memory snapshots. Owners can restore deleted tasks from their audit rows.
 - **Daily local backups:** Isomux keeps seven daily office backups.
 - **Disk-usage breakdown and manual pruning** - `/isomux-storage` in any conversation, or `GET /api/storage/usage`, splits the office footprint by conversation transcripts, attachments, codex home, cron history, backups, and update snapshots, with per-agent detail for the owner. Office owners also get Settings → Office → Storage to see a breakdown of isomux disk storage and manage it. `POST /api/storage/prune` removes old transcripts, and attachments once no surviving transcript references them: a dry run unless you ask it to apply, never scheduled, and it always spares live sessions, each agent's newest sessions, and any session another was branched from.
 - **Update notice** - the header shows when a new release is out. On installer-managed hosts and AWS containers the owner applies it from there, and a failed direct-host update rolls back. On Render and Kubernetes the owner deploys the new image. A source checkout shows how far main is ahead.

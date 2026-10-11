@@ -8,8 +8,6 @@ Isomux is one server process. It runs on a machine you control, and everyone use
 
 Each agent is a Claude Code, Codex, or OpenCode session that runs on the server, with the server's shell and files. Isomux drives each engine through its own interface: the Claude Agent SDK, the Codex app-server, and a shared OpenCode server. The office owner can set up office-wide connections for each LLM provider; invited members can override them with their own.
 
-OpenCode retries appear in the chat with the cause and the attempt number out of five. If a turn fails, the chat shows its cause. OpenCode can shorten a long conversation and continue the same turn; messages that arrive during this work wait for their own turn.
-
 ## Everyone sees the same office
 
 Browsers stay connected over a WebSocket. Every message, tool call, and status change reaches every open device as it happens, so two members and a phone see the same conversation.
