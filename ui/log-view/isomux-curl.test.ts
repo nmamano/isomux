@@ -2010,3 +2010,149 @@ describe("describeIsomuxRoute: pager settings", () => {
     );
   });
 });
+
+// Task 5377b96f: two office API calls from Nil's chat that showed as raw Bash.
+describe("parseIsomuxCurl python -c tails and one-line curl functions", () => {
+  const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
+  const READ_TAIL = `| python3 -c 'import json,sys;print(json.load(sys.stdin)["markdown"][:1800])'`;
+  const BROWSER = "localhost:4000/api/agents/agent-1791472525063-y2h7/browser";
+  const SNAPSHOT_TAIL = `| python3 -c 'import json,sys;d=json.load(sys.stdin);s=d.get("snapshot") or str(d);print(d.get("url"));i=s.find("- dialog:");print(s[i:i+2500] if i>=0 else s[:1500])'`;
+  const fn = (body: string) =>
+    `B() { curl -s -X POST ${BROWSER} ${AUTH} -H 'Content-Type: application/json' ${body}; }; `;
+
+  test("Nil's first command: a pipe tail into python3 -c", () => {
+    const req = parseIsomuxCurl(
+      `curl -s localhost:4000/api/agent-reference/discovery ${AUTH} ${READ_TAIL}`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("GET");
+    expect(req!.path).toBe("/api/agent-reference/discovery");
+    expect(req!.hasAuth).toBe(true);
+    expect(req!.pipeTail).toBe(READ_TAIL);
+  });
+
+  test("python -c is a pipe stage only, with exactly one script", () => {
+    const get = "curl -s localhost:4000/api/tasks";
+    expect(parseIsomuxCurl(`${get} | python -c 'print(1)'`)).not.toBeNull();
+    expect(
+      parseIsomuxCurl(`${get} | jq . | python3 -c 'print(1)' | head -3`),
+    ).not.toBeNull();
+    // Not as a trailing statement, which reads no response.
+    expect(parseIsomuxCurl(`${get}; python3 -c 'print(1)'`)).toBeNull();
+    expect(parseIsomuxCurl(`${get} && python3 -c 'print(1)'`)).toBeNull();
+    // No script, extra arguments, or a script file.
+    expect(parseIsomuxCurl(`${get} | python3 -c`)).toBeNull();
+    expect(parseIsomuxCurl(`${get} | python3 -c 'print(1)' x`)).toBeNull();
+    expect(parseIsomuxCurl(`${get} | python3 script.py`)).toBeNull();
+    // The tail's own shell rules still apply.
+    expect(
+      parseIsomuxCurl(`${get} | python3 -c "$(cat prog.py)"`),
+    ).toBeNull();
+    expect(parseIsomuxCurl(`${get} | python3 -c 'x' > /tmp/out`)).toBeNull();
+  });
+
+  test("Nil's second command: a one-line function wrapping curl, called once", () => {
+    const req = parseIsomuxCurl(
+      `${fn(`-d "$1"`)}B '{"action":"snapshot"}' ${SNAPSHOT_TAIL}`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("POST");
+    expect(req!.path).toBe("/api/agents/agent-1791472525063-y2h7/browser");
+    expect(req!.bodyFields).toEqual([{ key: "action", value: "snapshot" }]);
+    expect(req!.hasAuth).toBe(true);
+    expect(req!.pipeTail).toBe(SNAPSHOT_TAIL);
+  });
+
+  test("the call argument is the body the shell passes", () => {
+    const body = (call: string) => {
+      const req = parseIsomuxCurl(`${fn(`-d "$1"`)}${call}`);
+      return req && (req.bodyFields ?? req.bodyRaw);
+    };
+    // Literal dollar signs stay literal inside single quotes or escaped.
+    expect(body(`B '{"text":"costs $5"}'`)).toEqual([
+      { key: "text", value: "costs $5" },
+    ]);
+    expect(body(`B "{\\"text\\":\\"\\$HOME\\"}"`)).toEqual([
+      { key: "text", value: "$HOME" },
+    ]);
+    // An embedded apostrophe survives the re-quoting.
+    expect(body(`B '{"text":"it'\\''s"}'`)).toEqual([
+      { key: "text", value: "it's" },
+    ]);
+    // A missing or empty argument makes "$1" empty.
+    expect(body("B")).toBe("");
+    expect(body("B ''")).toBe("");
+  });
+
+  test("a call argument the shell would expand stays raw", () => {
+    const call = (arg: string) => parseIsomuxCurl(`${fn(`-d "$1"`)}B ${arg}`);
+    expect(call(`"{\\"text\\":\\"$HOME\\"}"`)).toBeNull();
+    expect(call(`"$(cat body.json)"`)).toBeNull();
+    expect(call("`cat body.json`")).toBeNull();
+    expect(call("$BODY")).toBeNull();
+    expect(call("body*.json")).toBeNull();
+    expect(call("~/body.json")).toBeNull();
+  });
+
+  test("only the whole function-and-call shape is inlined", () => {
+    const raw = [
+      // Two calls are two requests; a card shows one.
+      `${fn(`-d "$1"`)}B '{"a":1}'; B '{"a":2}'`,
+      `${fn(`-d "$1"`)}B '{"a":1}' && B '{"a":2}'`,
+      // A second argument, or a call to another name.
+      `${fn(`-d "$1"`)}B '{"a":1}' extra`,
+      `${fn(`-d "$1"`)}C '{"a":1}'`,
+      // A command that is not the call, before or after it.
+      `${fn(`-d "$1"`)}rm -rf /tmp/x; B '{"a":1}'`,
+      `${fn(`-d "$1"`)}B '{"a":1}'; rm -rf /tmp/x`,
+      // A second call in the tail is a second request; the stage gate
+      // refuses it like any command outside the filter list.
+      `${fn(`-d "$1"`)}B '{"a":1}' | B`,
+      // B2 and B1 are other names, not B with a redirection: Bash runs a
+      // command B2 and sends no request.
+      `B() { curl -s ${BROWSER}; }; B2>/dev/null`,
+      `B() { curl -s ${BROWSER}; }; B1>/dev/null`,
+      // A name the parser runs by name would shadow it.
+      `jq() { curl -s -X POST ${BROWSER} -d "$1"; }; jq '{"a":1}' | jq .`,
+      // Parameters other than a whole "$1" word.
+      `${fn(`-d "$2"`)}B '{"a":1}'`,
+      `${fn(`-d "$@"`)}B '{"a":1}'`,
+      `${fn(`-d $1`)}B '{"a":1}'`,
+      `${fn(`-d "{\\"a\\":\\"$1\\"}"`)}B x`,
+      `${fn(`-d "\${1}"`)}B '{"a":1}'`,
+      // A body that is more than one simple curl.
+      `B() { curl -s ${BROWSER} | jq .; }; B`,
+      `B() { curl -s ${BROWSER} > /tmp/out; }; B`,
+      `B() { echo hi; }; B`,
+      `B() { curl -s ${BROWSER}; rm -rf /tmp/x; }; B`,
+      // Not a definition followed by a call.
+      `B() { curl -s ${BROWSER}; }`,
+      `B() { curl -s ${BROWSER}; } B`,
+      `x; B() { curl -s ${BROWSER}; }; B`,
+    ];
+    for (const command of raw) expect(parseIsomuxCurl(command)).toBeNull();
+  });
+
+  test("a redirection after the call keeps the card", () => {
+    for (const call of ["B 2>/dev/null", "B>/dev/null", "B >/dev/null"]) {
+      const req = parseIsomuxCurl(`B() { curl -s ${BROWSER}; }; ${call}`);
+      expect(req?.path).toBe("/api/agents/agent-1791472525063-y2h7/browser");
+    }
+  });
+
+  test("a quoted or escaped $1 in the body is literal, and a body without $1 needs no argument", () => {
+    const quoted = parseIsomuxCurl(
+      `B() { curl -s -X POST ${BROWSER} -d '{"price":"$1"}'; }; B '{"a":1}'`,
+    );
+    expect(quoted!.bodyFields).toEqual([{ key: "price", value: "$1" }]);
+    const escaped = parseIsomuxCurl(
+      `B() { curl -s -X POST ${BROWSER} -d \\$1; }; B '{"a":1}'`,
+    );
+    expect(escaped!.bodyRaw).toBe("$1");
+    const get = parseIsomuxCurl(
+      `B() { curl -s localhost:4000/api/tasks ${AUTH}; }; B | jq '.[0]'`,
+    );
+    expect(get!.path).toBe("/api/tasks");
+    expect(get!.pipeTail).toBe(`| jq '.[0]'`);
+  });
+});

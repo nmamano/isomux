@@ -351,7 +351,7 @@ A Webhooks panel, reached from the Schedules page (`CronjobsView`) as a second t
 
 - List: name, target, enabled, last delivery (outcome and time), and a warning shape when the secret is missing or a counter is not zero.
 - Hook detail:
-  - "Set up in GitHub": payload URL with a copy button, content type `application/json`, secret behind a "Show" button (members only), the event names from the rules, and a "Rotate secret" button with a confirm step.
+  - "Set up in GitHub": payload URL with a copy button, content type `application/json`, secret behind a "Show" button with a copy button that copies it while hidden (members only), the event names from the rules, and a "Rotate secret" button with a confirm step.
   - Rules and target, editable in a dialog like `CronjobDialog`.
   - Counters, with "since <time>".
   - Delivery log: time, event, outcome, rule, args, and a link to the cronjob run or the agent chat.

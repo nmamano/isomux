@@ -10,7 +10,7 @@
 //     flat list. Used entries beyond the cap stay in their origin group
 //     (keeping their ×N badge); an entry never appears twice.
 //   - Never-used entries keep the original grouped layout: built-in commands
-//     first (mirrors /help), then skills as bundled / user / project /
+//     first, then skills as bundled / user / project /
 //     plugin, alphabetical. With no counts at all the menu is identical to
 //     the pre-counts layout.
 //   - An entry with `aliasFor` is a friendlier alias of a canonical name;

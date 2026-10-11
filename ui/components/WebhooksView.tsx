@@ -5,6 +5,7 @@
 // [the secret] It never enters the store. WebhookDetail holds it in state while
 // it shows, and every way the view can stop showing it (Hide, close, another
 // hook, a lost permission) also voids a read still in flight.
+// Copy while hidden reads it straight into the clipboard, with no state.
 
 import { useEffect, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
@@ -859,6 +860,22 @@ function SecretField({ hook }: { hook: WebhookWire }) {
     setSecret(null);
     setBusy(false);
   };
+  // Copy while hidden: the read goes straight to the clipboard and never
+  // into state. A failed read shows its own error; a refused write shows
+  // copyFailed.
+  const readForCopy = () => {
+    setError(null);
+    const read = apiFetch<WebhookSecretRes>(
+      "GET",
+      `/api/webhooks/${encodeURIComponent(hook.id)}/secret`,
+    ).then((res) => res.secret);
+    read.catch((err) => {
+      setError(
+        err instanceof ApiError ? err.message : t("webhooks.secretFailed"),
+      );
+    });
+    return read;
+  };
 
   return (
     <Field label={t("webhooks.setup.secret")}>
@@ -900,15 +917,27 @@ function SecretField({ hook }: { hook: WebhookWire }) {
             </>
           ) : (
             hook.secretState === "set" && (
-              <button
-                type="button"
-                onClick={() => void run("GET")}
-                disabled={busy}
-                style={smallBtn}
-                data-webhook-secret-show=""
-              >
-                {t("webhooks.setup.show")}
-              </button>
+              <>
+                <span data-webhook-secret-copy="" style={{ display: "flex" }}>
+                  <CopyButton
+                    getText={readForCopy}
+                    onCopyFailed={() =>
+                      setError(
+                        (current) => current ?? t("webhooks.setup.copyFailed"),
+                      )
+                    }
+                  />
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void run("GET")}
+                  disabled={busy}
+                  style={smallBtn}
+                  data-webhook-secret-show=""
+                >
+                  {t("webhooks.setup.show")}
+                </button>
+              </>
             )
           )}
           {confirmRotate ? (

@@ -7,7 +7,6 @@ import type {
   OfficeSettings,
   QueuedMessage,
   RoomWire,
-  SkillInfo,
 } from "../shared/types.ts";
 import { sessionResumeLabel } from "../shared/session-label.ts";
 import { translatorForUsername } from "./i18n.ts";
@@ -63,6 +62,9 @@ import {
 import { modelListingLabel } from "./model-listing-label.ts";
 
 export const DOCS_URL = "https://isomux.com/docs";
+// The Skills page route (ui/routes.ts). Relative, so it opens on the office
+// the reader is on.
+export const SKILLS_PAGE_PATH = "/skills";
 const EDIT_USAGE = "`/isomux-edit <path>`";
 
 type HandlerFn = (
@@ -506,6 +508,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       const lines: string[] = [
         t("commands.help.receptionist"),
         t("commands.help.docs", { url: DOCS_URL }),
+        // Skills are listed on the Skills page, not here (Nil, 2026-10-12).
+        t("commands.help.skills", { url: SKILLS_PAGE_PATH }),
       ];
 
       // Collapse aliased entries (e.g. `/diff` aliasFor `/isomux-diff`) into a
@@ -528,28 +532,6 @@ export function createCommandHandling(deps: HandlerDeps) {
         .map((g) => formatAliasGroup(t, g.names, g.description))
         .join("\n");
       lines.push(`${t("commands.help.commands")}\n${cmdList}`);
-
-      // Two sections, not five: the skills isomux ships, and everything else
-      // the reader brought with them. The origin a non-isomux skill came from
-      // (their own directory, the project, a plugin, the backend) is not a
-      // distinction a reader acts on.
-      const isomuxSkills = managed.skills.filter((s) => s.origin === "isomux");
-      const ownSkills = managed.skills.filter((s) => s.origin !== "isomux");
-      const skillSection = (label: string, skills: SkillInfo[]) => {
-        if (skills.length === 0) return;
-        const skillLines = groupByAlias(
-          skills.map((s) => ({
-            name: s.name,
-            description: s.description,
-            aliasFor: s.aliasFor,
-          })),
-        )
-          .map((g) => formatAliasGroup(t, g.names, g.description))
-          .join("\n");
-        lines.push(`\n## ${label}\n${skillLines}`);
-      };
-      skillSection(t("commands.help.skillsIsomux"), isomuxSkills);
-      skillSection(t("commands.help.skillsUser"), ownSkills);
 
       deps.addLogEntry(agentId, "system", t("commands.help.header"), {
         helpContent: lines.join("\n"),

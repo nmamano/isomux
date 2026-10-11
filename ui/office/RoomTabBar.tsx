@@ -425,6 +425,11 @@ export function RoomTabBar({
             // overlays: 42px = chevron button (22) + fade (20). Only affects
             // programmatic scrolling, not manual scroll positions.
             scrollPadding: "0 42px",
+            // A swipe on the bar scrolls only the bar: no vertical pan and
+            // no overscroll chained to the page (an unproven suspect for
+            // rough scrolling on iOS, task 17537680).
+            touchAction: "pan-x",
+            overscrollBehaviorX: "contain",
           }}
         >
           {/* The Lobby tab: client state, not a room. First, never draggable,

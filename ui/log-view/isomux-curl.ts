@@ -10,7 +10,7 @@
 // anything it can't FULLY understand (compound commands, command substitution,
 // unknown flags, non-isomux hosts), and the caller falls back to the plain
 // rendering. A false null costs nothing; a false parse would show a wrong
-// summary. Five deliberate tolerances on top of that:
+// summary. Six deliberate tolerances on top of that:
 // - side-effect-free redirections (`2>/dev/null`, `>/dev/null`, `2>&1`) are
 //   accepted and omitted from the card (see tokenize);
 // - saving output to a file (`> file`, `>> file`, `-o file`) is accepted for
@@ -33,6 +33,9 @@
 //   display/inspection commands, and - like a pipe tail - are ALWAYS shown on
 //   the card verbatim (trailingCommand); see splitStatements and
 //   TRAILING_COMMANDS.
+// - a one-line shell function that wraps one curl and is called once
+//   (`B() { curl ... -d "$1"; }; B '{...}' | ...`) is inlined and then parsed
+//   like the plain command; see inlineShellFunction.
 
 import type {
   MessageKey,
@@ -591,27 +594,38 @@ export function pipeTailForDisplay(tail: string): string {
  * file redirections, and substitutions in the tail bail out; the safe stream
  * redirections tokenize() tolerates - `2>/dev/null` and friends - are fine
  * and stay visible in the verbatim tail) and must invoke an allowed filter
- * command. `python -m json.tool` is allowed as a special case.
+ * command. Python is allowed in two shapes: `python -m json.tool`, and
+ * `python -c '<script>'` as a pipe stage only (see isSafeStage).
  * See FILTER_COMMANDS for what this does and does not guarantee.
  */
 function isSafePipeTail(tail: string): boolean {
-  return isSafeStage(tail.slice(1), FILTER_COMMANDS);
+  return isSafeStage(tail.slice(1), FILTER_COMMANDS, true);
 }
 
 /**
  * Validate one command plus its own optional `| ...` continuation. `allowed`
  * gates only this command's name; anything past a `|` reads stdin by
  * construction, so the recursion always gates on FILTER_COMMANDS.
+ *
+ * `pipeStage` admits `python -c '<script>'`, the usual way agents format a
+ * JSON response. Like sed, its program can do more than filter, so it gets the
+ * same display contract as every tail (shown verbatim, see
+ * pipeTailForDisplay), and it is admitted only where it reads the response
+ * from stdin, never as a trailing statement.
  */
-function isSafeStage(text: string, allowed: ReadonlySet<string>): boolean {
+function isSafeStage(
+  text: string,
+  allowed: ReadonlySet<string>,
+  pipeStage: boolean,
+): boolean {
   const stage = tokenize(text);
   if (!stage || stage.tokens.length === 0) return false;
   const [cmd, ...rest] = stage.tokens;
+  const python = cmd === "python" || cmd === "python3";
   const ok =
     allowed.has(cmd) ||
-    ((cmd === "python" || cmd === "python3") &&
-      rest[0] === "-m" &&
-      rest[1] === "json.tool");
+    (python && rest[0] === "-m" && rest[1] === "json.tool") ||
+    (python && pipeStage && rest.length === 2 && rest[0] === "-c");
   if (!ok) return false;
   return stage.pipeTail === null || isSafePipeTail(stage.pipeTail);
 }
@@ -1595,6 +1609,183 @@ function outerExpandsBody(command: string): boolean {
   return false;
 }
 
+// Names the inliner refuses for a function: anything the parser runs by name.
+// A function named like a filter would shadow that filter in the tail
+// (`jq() { curl ...; }; jq '...' | jq .` runs the curl twice).
+const RESERVED_FUNCTION_NAMES = new Set([
+  ...TRAILING_COMMANDS,
+  "curl",
+  "python",
+  "python3",
+  "bash",
+  "sh",
+]);
+
+const FUNCTION_DEF_RE = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{\s/;
+
+// An active expansion of a positional or special parameter that means
+// something else inside a function body ($1..$9, $@, $*, $#, ${...}).
+const POSITIONAL_RE = /[0-9@*#{]/;
+
+/**
+ * Read one shell word that expands to a literal: single-quoted text,
+ * double-quoted text with no `$` or backtick, backslash escapes, and plain
+ * path-like characters. Returns null for anything the shell would expand
+ * (variables, substitutions, globs, a leading `~`), so a value read here is
+ * exactly what the command passes.
+ */
+function readLiteralWord(
+  src: string,
+  start: number,
+): { value: string; end: number } | null {
+  let value = "";
+  let i = start;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === "'") {
+      const end = src.indexOf("'", i + 1);
+      if (end === -1) return null;
+      value += src.slice(i + 1, end);
+      i = end + 1;
+      continue;
+    }
+    if (c === '"') {
+      let j = i + 1;
+      while (j < n && src[j] !== '"') {
+        const d = src[j];
+        if (d === "\\" && j + 1 < n && '"\\$`\n'.includes(src[j + 1])) {
+          if (src[j + 1] !== "\n") value += src[j + 1];
+          j += 2;
+          continue;
+        }
+        if (d === "$" || d === "`") return null;
+        value += d;
+        j++;
+      }
+      if (j >= n) return null;
+      i = j + 1;
+      continue;
+    }
+    if (c === "\\") {
+      if (i + 1 >= n) return null;
+      if (src[i + 1] !== "\n") value += src[i + 1];
+      i += 2;
+      continue;
+    }
+    if (" \t\r\n|;&<>()".includes(c)) break;
+    if (!/[A-Za-z0-9_\-.,:/@%+=]/.test(c)) return null;
+    value += c;
+    i++;
+  }
+  return i === start ? null : { value, end: i };
+}
+
+/**
+ * Inline a one-line shell function that wraps one curl and is called once:
+ *
+ *   B() { curl ... -d "$1"; }; B '{"action":"snapshot"}' | python3 -c '...'
+ *
+ * becomes `curl ... -d '{"action":"snapshot"}' | python3 -c '...'`, which the
+ * caller parses under the usual rules (the tail and trailing gates included).
+ * The whole command must have this shape. The body is one simple curl command
+ * with no pipe or redirection; its only parameter is `"$1"` as a whole
+ * double-quoted word, replaced by the call's argument re-quoted in single
+ * quotes. Any other positional or special expansion in the body, a call
+ * argument the shell would expand, a second argument, or a reserved function
+ * name returns null. A second call (`B a; B b`, `B a | B`) is a second
+ * request: it reaches the trailing-statement or pipe-stage gate, which
+ * refuses it, since no function name is on those lists.
+ */
+function inlineShellFunction(command: string): string | null {
+  const src = command.trim();
+  const def = FUNCTION_DEF_RE.exec(src);
+  if (!def) return null;
+  const name = def[1];
+  if (RESERVED_FUNCTION_NAMES.has(name)) return null;
+  const n = src.length;
+  let i = def[0].length;
+  // The body, split around each "$1" so the argument can go in between.
+  const parts: string[] = [];
+  let cur = "";
+  while (i < n && src[i] !== ";") {
+    const c = src[i];
+    if (c === "'") {
+      const end = src.indexOf("'", i + 1);
+      if (end === -1) return null;
+      cur += src.slice(i, end + 1);
+      i = end + 1;
+      continue;
+    }
+    if (c === '"') {
+      if (src.startsWith('"$1"', i)) {
+        parts.push(cur);
+        cur = "";
+        i += 4;
+        continue;
+      }
+      let j = i + 1;
+      while (j < n && src[j] !== '"') {
+        if (src[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (src[j] === "$" && POSITIONAL_RE.test(src[j + 1] ?? "")) return null;
+        j++;
+      }
+      if (j >= n) return null;
+      cur += src.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    if (c === "\\") {
+      cur += src.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    if (c === "$" && POSITIONAL_RE.test(src[i + 1] ?? "")) return null;
+    if (c === "{" || c === "}") return null;
+    cur += c;
+    i++;
+  }
+  parts.push(cur);
+  // `; }` closes the body and `;` separates the call.
+  const close = /^;\s*\}\s*;\s*/.exec(src.slice(i));
+  if (!close) return null;
+  i += close[0].length;
+
+  if (!src.startsWith(name, i)) return null;
+  i += name.length;
+  // The name must end the word: `B2>/dev/null` runs a command B2, not B with
+  // a redirection.
+  if (i < n && !" \t|;&>".includes(src[i])) return null;
+  // Whatever follows the call - a pipe, a redirection, trailing statements -
+  // must start here, so an extra argument cannot slip into the rewrite.
+  const restStart = /^\s*(?:$|[|;&>]|[12]>)/;
+  let arg: string | null = null;
+  if (!restStart.test(src.slice(i))) {
+    if (src[i] !== " " && src[i] !== "\t") return null;
+    while (src[i] === " " || src[i] === "\t") i++;
+    const word = readLiteralWord(src, i);
+    if (!word) return null;
+    arg = word.value;
+    i = word.end;
+    if (!restStart.test(src.slice(i))) return null;
+  }
+  const rest = src.slice(i).trim();
+  const quoted = `'${(arg ?? "").replaceAll("'", "'\\''")}'`;
+  const body = parts.join(quoted).trim();
+  const stage = tokenize(body);
+  if (
+    !stage ||
+    stage.tokens[0] !== "curl" ||
+    stage.pipeTail !== null ||
+    stage.outputRedirect !== null
+  )
+    return null;
+  return rest === "" ? body : `${body} ${rest}`;
+}
+
 /**
  * Parse a Bash command string; return a structured request if it is a single
  * curl invocation against the isomux server (optionally piped into a filter),
@@ -1633,6 +1824,9 @@ function parseIsomuxCurlInner(
       ports,
       outerExpandedBody || outerExpandsBody(command),
     );
+  const inlined = inlineShellFunction(command);
+  if (inlined !== null)
+    return parseIsomuxCurlInner(inlined, ports, outerExpandedBody);
   // A recognized heredoc is stripped off before tokenizing; its body feeds
   // either a jq producer stage or curl's stdin (both checked below). When
   // extractHeredoc returns null, the untouched command's `<`/newline makes
@@ -1675,7 +1869,7 @@ function parseIsomuxCurlInner(
       // one stray `&& curl ...` (a second request the card could not describe)
       // or `&& git push` takes the whole command back to raw rendering.
       for (const st of statements.slice(1)) {
-        if (!isSafeStage(st.text, TRAILING_COMMANDS)) return null;
+        if (!isSafeStage(st.text, TRAILING_COMMANDS, false)) return null;
       }
       statement = statements[0].text;
       // The statements are contiguous slices, so the remainder - separator

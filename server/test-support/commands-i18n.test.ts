@@ -21,7 +21,7 @@ import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
-import { DOCS_URL } from "../command-handlers.ts";
+import { DOCS_URL, SKILLS_PAGE_PATH } from "../command-handlers.ts";
 
 async function waitUntil(
   pred: () => boolean,
@@ -47,6 +47,7 @@ async function spawnAgent(
   name: string,
   roomId: string,
   username?: string,
+  agentType: "claude" | "codex" | "opencode" = "claude",
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
@@ -59,7 +60,7 @@ async function spawnAgent(
     undefined,
     undefined,
     username,
-    "claude",
+    agentType,
   );
   if (!info) throw new Error(`spawn ${name} returned null`);
   return info;
@@ -142,14 +143,12 @@ describe("a slash command answers in the typing user's language", () => {
     expect(receptionistAt).toBe(0);
     expect(docsAt).toBeGreaterThan(receptionistAt);
     expect(commandsAt).toBeGreaterThan(docsAt);
-    const skillHeadings = [
-      t("commands.help.skillsIsomux"),
-      t("commands.help.skillsUser"),
-    ]
-      .map((label) => help!.indexOf(`## ${label}`))
-      .filter((at) => at >= 0);
-    expect(skillHeadings.length).toBeGreaterThan(0);
-    for (const at of skillHeadings) expect(at).toBeGreaterThan(commandsAt);
+    // Skills are not listed: one line links the Skills page, after the docs.
+    const skillsAt = help!.indexOf(
+      t("commands.help.skills", { url: SKILLS_PAGE_PATH }),
+    );
+    expect(skillsAt).toBeGreaterThan(docsAt);
+    expect(commandsAt).toBeGreaterThan(skillsAt);
     expect(helpEntry?.content).toBe(t("commands.help.header"));
     const diffLine = help!
       .split("\n")
@@ -158,6 +157,40 @@ describe("a slash command answers in the typing user's language", () => {
     // The registry carries no English description any more, so this text can
     // only have come from the catalog.
     expect(help).toContain("Borrar el historial de la conversación");
+  });
+
+  it("/help lists no skill on any engine and links the Skills page", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const { t } = translatorFor("en");
+    for (const engine of ["claude", "codex", "opencode"] as const) {
+      const agent = await spawnAgent(
+        server,
+        engine,
+        room.id,
+        owner.username,
+        engine,
+      );
+      const { commands, skills } = server.agentManager.getAgentCommands(
+        agent.id,
+      );
+      const commandNames = new Set(commands.map((c) => c.name));
+      const skillNames = skills
+        .map((s) => s.name)
+        .filter((name) => !commandNames.has(name));
+      expect(skillNames.length).toBeGreaterThan(0);
+
+      await server.agentManager.sendMessage(agent.id, "/help", owner.username);
+      const help = server.agentManager
+        .getAgentLogs(agent.id)
+        .find((entry) => typeof entry.metadata?.helpContent === "string")
+        ?.metadata?.helpContent as string | undefined;
+      expect(help).toContain(
+        t("commands.help.skills", { url: SKILLS_PAGE_PATH }),
+      );
+      for (const name of skillNames) expect(help).not.toContain(`/${name}\``);
+    }
   });
 
   it("refuses an unsupported command in the user's language", async () => {
