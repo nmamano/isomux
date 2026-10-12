@@ -30,7 +30,7 @@ import {
 } from "../../shared/types.ts";
 import { styleForModel } from "../model-styles.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
-import { Character } from "../office/Character.tsx";
+import { LiveCharacter } from "../office/LiveCharacter.tsx";
 import { ghostBodyBottomOffset } from "../office/Ghost.tsx";
 import { MiniGhostCluster } from "../office/MiniGhostCluster.tsx";
 import {
@@ -2289,11 +2289,7 @@ export function LogView({
                   }}
                   title={i18n.t("logView.editAgent")}
                 >
-                  <Character
-                    key={agent.state}
-                    state={agent.state}
-                    outfit={agent.outfit}
-                  />
+                  <LiveCharacter agent={agent} />
                 </div>
               </div>
             )}

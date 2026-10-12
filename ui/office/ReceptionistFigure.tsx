@@ -5,7 +5,8 @@
 // full label, as desk tags do. The group opts back into pointer events.
 import { useI18n } from "../i18n.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
-import { Character, CHARACTER_GEOMETRY } from "./Character.tsx";
+import { CHARACTER_GEOMETRY } from "./Character.tsx";
+import { LiveCharacter } from "./LiveCharacter.tsx";
 import { styleForModel } from "../model-styles.ts";
 import { noTranslate } from "../no-translate.ts";
 
@@ -60,7 +61,7 @@ export function ReceptionistFigure({
       <g
         transform={`translate(${-HALF_W * SCALE} ${-FEET_Y * SCALE}) scale(${SCALE})`}
       >
-        <Character state={agent.state} outfit={agent.outfit} />
+        <LiveCharacter agent={agent} />
       </g>
       <foreignObject
         x={-200}

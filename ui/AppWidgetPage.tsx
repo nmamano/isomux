@@ -10,7 +10,7 @@ import {
   ChatTranscript,
   useChatTranscript,
 } from "./log-view/ChatTranscript.tsx";
-import { Character } from "./office/Character.tsx";
+import { LiveCharacter } from "./office/LiveCharacter.tsx";
 import {
   APP_WIDGET_RECHECK_MS,
   APP_WIDGET_SANDBOX,
@@ -256,12 +256,7 @@ export function AppWidgetPage({
               data-agent-id={agent.id}
               data-agent-state={agent.state}
             >
-              <Character
-                key={agent.state}
-                state={agent.state}
-                outfit={agent.outfit}
-                height={36}
-              />
+              <LiveCharacter agent={agent} height={36} />
             </span>
             {t("appWidget.launcher")}
             {unread && (
@@ -562,12 +557,7 @@ export function WidgetChat({
           data-agent-id={agent.id}
           data-agent-state={agent.state}
         >
-          <Character
-            key={agent.state}
-            state={agent.state}
-            outfit={agent.outfit}
-            height={44}
-          />
+          <LiveCharacter agent={agent} height={44} />
         </span>
         <h1>{t("appWidget.title", { agentName: agent.name })}</h1>
         {onClose && <button onClick={onClose}>{t("appWidget.close")}</button>}
