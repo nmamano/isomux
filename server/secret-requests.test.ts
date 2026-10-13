@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { SECRET_MIN_VALUE_LENGTH } from "../shared/secret-hosts.ts";
 import type { SecretRequestPayload } from "../shared/types.ts";
 import { createSecretRequests, SERVER_BOOT_ID } from "./secret-requests.ts";
 import { createSecretStore } from "./secret-store.ts";
@@ -198,6 +199,13 @@ describe("the member's answer", () => {
       hosts: ["api.openai.com"],
     });
     expect(neverListed.ok ? "ok" : neverListed.code).toBe("host_not_allowed");
+    const short = await t.requests.save("u-alice", "a1", requestId, {
+      value: VALUE.slice(0, SECRET_MIN_VALUE_LENGTH - 1),
+    });
+    expect(short.ok ? null : short.detail).toEqual({
+      field: "value",
+      reason: "too_short",
+    });
     expect(t.settled).toEqual([]);
     expect(
       (await t.requests.save("u-alice", "a1", requestId, { value: VALUE })).ok,

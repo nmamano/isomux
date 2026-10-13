@@ -14,6 +14,7 @@ import {
   checkSecretForm,
   checkSecretHosts,
   checkSecretName,
+  SECRET_MIN_VALUE_LENGTH,
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
 import { hasCredentialShape } from "./log-redaction.ts";
@@ -82,7 +83,10 @@ function fieldFailure(error: SecretFieldError): SecretRequestFailure {
     ok: false,
     status: 400,
     code: "invalid_secret",
-    message: `the ${error.field} field is not valid`,
+    message:
+      error.reason === "too_short"
+        ? `the value must have at least ${SECRET_MIN_VALUE_LENGTH} characters`
+        : `the ${error.field} field is not valid`,
     detail: { field: error.field, reason: error.reason },
   };
 }

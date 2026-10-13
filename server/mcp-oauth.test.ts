@@ -17,6 +17,7 @@ import {
 } from "./mcp-servers.ts";
 import { createMcpOAuth } from "./mcp-oauth.ts";
 import { oauthSecretNames } from "../shared/mcp-servers.ts";
+import { SECRET_MIN_VALUE_LENGTH } from "../shared/secret-hosts.ts";
 import { resetOAuthTokens } from "./mcp-oauth-tokens.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import type { RouteHandlerContext } from "./routes/executor.ts";
@@ -192,6 +193,22 @@ describe("the sign-in", () => {
       `pasted-client:${LEAK}client-secret`,
     );
     expect(context.rig.tokenBodies[0].get("client_secret")).toBeNull();
+  });
+
+  it("refuses a pasted client secret that the store would refuse, and saves nothing", () => {
+    const context = setup({ registration: false });
+    const result = context.oauth.create(member, {
+      name: "mail",
+      url: MCP_URL,
+      secret: null,
+      oauth: {
+        clientId: "pasted-client",
+        clientSecret: "f".repeat(SECRET_MIN_VALUE_LENGTH - 1),
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(context.sources.servers.list(member)).toEqual([]);
+    expect(context.sources.secrets.list(member)).toEqual([]);
   });
 
   it("needs a pasted client when the server offers no registration", async () => {

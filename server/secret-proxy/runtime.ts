@@ -248,6 +248,14 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       if ((signatures.get(scopeId(scope)) ?? "[]") !== signature)
         changed.push(scope);
     }
+    // A scope whose file is gone (a removed member's) lost its secrets.
+    for (const [id, signature] of signatures)
+      if (!next.has(id) && signature !== "[]")
+        changed.push(
+          id === "office"
+            ? { kind: "office" }
+            : { kind: "user", userId: id.slice("user:".length) },
+        );
     signatures = next;
     // Log redaction masks the owned values too.
     deps.onValues(

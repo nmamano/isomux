@@ -5,9 +5,9 @@
 // STATE_ROOT/mcp-servers/office.json and STATE_ROOT/mcp-servers/users/<userId>.json,
 // 0600 files in 0700 directories, written like the secret store: the URL of
 // some hosted servers carries a token in its path. A file that does not parse
-// is never rewritten, and a member's file is never deleted, even when its list
-// becomes empty: its path is part of the member's OpenCode profile key
-// (env-loader.ts), so the key must not move back.
+// is never rewritten, and a member's file is deleted only when the member
+// leaves the office, not when its list becomes empty: its path is part of the
+// member's OpenCode profile key (env-loader.ts), so the key must not move back.
 
 import {
   chmodSync,
@@ -409,6 +409,14 @@ export function createMcpServerStore(
       if (next.length === servers.length) return false;
       write(scope, next);
       return true;
+    },
+
+    // The member left the office: their file goes, even one that does not
+    // parse.
+    removeMember(userId: string): void {
+      rmSync(mcpServersPathFor(root, { kind: "user", userId }), {
+        force: true,
+      });
     },
   };
 }

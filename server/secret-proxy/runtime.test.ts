@@ -401,6 +401,21 @@ describe("restarts", () => {
     );
   });
 
+  test("a removed member's file marks their scope and drops their values", async () => {
+    await runtime.enable();
+    add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
+    add(AT_BOB, "BOB_TOKEN", BOB_VALUE);
+    await runtime.changed();
+    expect(values).toContain(ALICE_VALUE);
+    changes = [];
+    store.removeMember(ALICE);
+    await runtime.changed();
+    expect(changes).toEqual([[AT_ALICE]]);
+    expect(runtime.environmentFor(ALICE)).toBeNull();
+    expect(values).not.toContain(ALICE_VALUE);
+    expect(values).toContain(BOB_VALUE);
+  });
+
   test("an office secret marks the office scope, which every agent is in", async () => {
     await runtime.enable();
     add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);

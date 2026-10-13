@@ -846,7 +846,7 @@ Cosas que puedes hacer por él:
   "settings.secrets.error.reservedName":
     "La oficina define este nombre por sí misma. Elige otro nombre.",
   "settings.secrets.error.value":
-    "El valor debe ser ASCII imprimible, sin espacios al principio ni al final, de hasta 16 KiB.",
+    "El valor debe tener entre 8 caracteres y 16 KiB de ASCII imprimible, sin espacios al principio ni al final.",
   "settings.secrets.error.hosts":
     "Indica de 1 a 20 nombres de host como api.github.com, sin https://, puerto ni ruta.",
   "settings.secrets.error.header":

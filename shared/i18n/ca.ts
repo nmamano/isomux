@@ -843,7 +843,7 @@ Coses que pots fer per ell:
   "settings.secrets.error.reservedName":
     "L'oficina defineix aquest nom per si mateixa. Tria un altre nom.",
   "settings.secrets.error.value":
-    "El valor ha de ser ASCII imprimible, sense espais al principi ni al final, de fins a 16 KiB.",
+    "El valor ha de tenir entre 8 caràcters i 16 KiB d'ASCII imprimible, sense espais al principi ni al final.",
   "settings.secrets.error.hosts":
     "Indica d'1 a 20 noms de host com api.github.com, sense https://, port ni camí.",
   "settings.secrets.error.header": "Escriu un nom de capçalera com x-api-key.",

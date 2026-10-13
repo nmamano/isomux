@@ -22,12 +22,16 @@
 //
 // Seam: startTestServer(). Zero LLM.
 
+import { existsSync } from "fs";
+import { join } from "path";
+
 import { versionOf } from "../../shared/blob-version.ts";
 import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { _testMintLegacyInvite, acceptInvite, peekInvite } from "../auth.ts";
 import { getUserByName } from "../users.ts";
+import { managedUserEnvNotesPath, managedUserEnvPath } from "../user-env.ts";
 import { getAgentTokenRaw, mintAgentToken } from "../identity/tokens.ts";
 import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
 
@@ -524,6 +528,78 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
     });
     expect(r.status).toBe(204);
     expect(getUserByName(member.username)).toBeUndefined();
+  });
+
+  it("deleting a member deletes their secrets, variables and MCP servers, and no one else's", async () => {
+    server = await startTestServer();
+    const srv = server;
+    const owner = await srv.seedOwner("Boss");
+    const rawSessionId = owner.rawSessionId;
+    // What an owner can give a member on the Integrations page.
+    async function equip(username: string): Promise<string[]> {
+      for (const [path, method, body] of [
+        [
+          `/api/users/${username}/secrets`,
+          "POST",
+          {
+            name: "LINEAR_TOKEN",
+            value: "fake-linear-value-0001",
+            hosts: ["mcp.example.com"],
+            form: { kind: "authorization" },
+          },
+        ],
+        [
+          `/api/users/${username}/env/ZED_TOKEN`,
+          "PUT",
+          { value: "fake-zed-value", note: "For the Zed CLI." },
+        ],
+        [
+          `/api/users/${username}/mcp-servers`,
+          "POST",
+          {
+            name: "linear",
+            url: "https://mcp.example.com/mcp",
+            secret: "LINEAR_TOKEN",
+          },
+        ],
+      ] as const)
+        expect(
+          (await api(srv, path, { method, body, rawSessionId })).status,
+        ).toBeLessThan(300);
+      const id = getUserByName(username)!.id;
+      const files = [
+        join(srv.stateRoot, "secrets", "users", `${id}.json`),
+        managedUserEnvPath(id),
+        managedUserEnvNotesPath(id),
+        join(srv.stateRoot, "mcp-servers", "users", `${id}.json`),
+      ];
+      for (const file of files) expect(existsSync(file)).toBe(true);
+      return files;
+    }
+    const mia = await equip((await srv.seedMember("Mia")).username);
+    const bob = await equip((await srv.seedMember("Bob")).username);
+    const office = await api(srv, "/api/office/secrets", {
+      method: "POST",
+      rawSessionId,
+      body: {
+        name: "OFFICE_TOKEN",
+        value: "fake-office-value-0001",
+        hosts: ["api.example.com"],
+        form: { kind: "authorization" },
+      },
+    });
+    expect(office.status).toBe(201);
+
+    const r = await api(srv, "/api/users/Mia", {
+      method: "DELETE",
+      rawSessionId,
+    });
+    expect(r.status).toBe(204);
+    for (const file of mia) expect(existsSync(file)).toBe(false);
+    for (const file of bob) expect(existsSync(file)).toBe(true);
+    expect(existsSync(join(srv.stateRoot, "secrets", "office.json"))).toBe(
+      true,
+    );
   });
 
   it("deleting a member revokes their outstanding sign-in link", async () => {

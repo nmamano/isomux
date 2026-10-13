@@ -83,6 +83,15 @@ export function dropOAuthTokens(scope: SecretScope, name: string): void {
   signInNeeded.delete(prefix);
 }
 
+// Every token and sign-in mark of a scope: the member left the office.
+export function dropOAuthTokensOfScope(scope: SecretScope): void {
+  const prefix = `${scopeKey(scope)}\n`;
+  for (const key of tokens.keys())
+    if (key.startsWith(prefix)) tokens.delete(key);
+  for (const key of signInNeeded)
+    if (key.startsWith(prefix)) signInNeeded.delete(key);
+}
+
 // Tests only.
 export function resetOAuthTokens(): void {
   tokens.clear();

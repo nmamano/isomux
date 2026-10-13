@@ -767,7 +767,7 @@ App 的一些原则：
   "settings.secrets.error.reservedName":
     "办公室会自行设置此名称。请换一个名称。",
   "settings.secrets.error.value":
-    "值必须是可打印的 ASCII 字符，首尾不能有空格，最多 16 KiB。",
+    "值必须是 8 个字符到 16 KiB 的可打印 ASCII 字符，首尾不能有空格。",
   "settings.secrets.error.hosts":
     "列出 1 到 20 个主机名，例如 api.github.com，不含 https://、端口或路径。",
   "settings.secrets.error.header": "输入请求头名称，例如 x-api-key。",

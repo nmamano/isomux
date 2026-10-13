@@ -111,6 +111,10 @@ export function isNeverListed(host: string): boolean {
 
 export const SECRET_MAX_HOSTS = 20;
 export const SECRET_MAX_VALUE_LENGTH = 16 * 1024;
+// The proxy's scrub and the log masking skip shorter values
+// (server/secret-proxy/scrub.ts), so a host that reflected one would return
+// it to the agent. A value stored before this rule keeps working.
+export const SECRET_MIN_VALUE_LENGTH = 8;
 const SECRET_MAX_NAME_LENGTH = 128;
 
 const LABEL = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -178,7 +182,7 @@ const HEADER_TOKEN = /^[!#$%&'*+.^_`|~0-9a-z-]+$/;
 // only for a never-listed host, which is a name from the fixed list above.
 export interface SecretFieldError {
   field: "name" | "value" | "hosts" | "form" | "note";
-  reason: "invalid" | "reserved" | "too_long" | "never_listed";
+  reason: "invalid" | "reserved" | "too_short" | "too_long" | "never_listed";
   host?: string;
 }
 
@@ -196,6 +200,8 @@ export function checkSecretName(name: unknown): SecretFieldError | null {
 export function checkSecretValue(value: unknown): SecretFieldError | null {
   if (typeof value !== "string" || value.length === 0)
     return { field: "value", reason: "invalid" };
+  if (value.length < SECRET_MIN_VALUE_LENGTH)
+    return { field: "value", reason: "too_short" };
   if (value.length > SECRET_MAX_VALUE_LENGTH)
     return { field: "value", reason: "too_long" };
   for (let i = 0; i < value.length; i++) {

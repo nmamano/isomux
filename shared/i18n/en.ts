@@ -842,7 +842,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.secrets.error.reservedName":
     "The office sets this name itself. Choose another name.",
   "settings.secrets.error.value":
-    "The value must be printable ASCII with no space at either end, up to 16 KiB.",
+    "The value must be 8 characters to 16 KiB of printable ASCII, with no space at either end.",
   "settings.secrets.error.hosts":
     "List 1 to 20 host names such as api.github.com, with no https://, port or path.",
   "settings.secrets.error.header": "Enter a header name such as x-api-key.",

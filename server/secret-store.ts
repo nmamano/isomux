@@ -344,6 +344,12 @@ export function createSecretStore(root: string = STATE_ROOT) {
       write(scope, next);
       return true;
     },
+
+    // The member left the office: their file goes, even one that does not
+    // parse.
+    removeMember(userId: string): void {
+      rmSync(pathFor({ kind: "user", userId }), { force: true });
+    },
   };
 }
 

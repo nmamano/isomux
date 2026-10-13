@@ -10,6 +10,7 @@ import { join } from "path";
 import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
+import { SECRET_MIN_VALUE_LENGTH } from "../../shared/secret-hosts.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 
 const FAKE = "fake-secret-value-0000-routes";
@@ -558,6 +559,68 @@ describe("secret field rules", () => {
       expect(output).not.toContain(FAKE);
       expect(readFileSync(file, "utf8")).toBe(content);
     }
+  });
+
+  it("refuses a new value under the minimum length, and keeps a short value saved before the rule", async () => {
+    server = await startTestServer();
+    const srv = server;
+    const owner = await srv.seedOwner("Boss");
+    const session = owner.rawSessionId;
+    const base = `/api/users/${owner.username}/secrets`;
+    const short = "x".repeat(SECRET_MIN_VALUE_LENGTH - 1);
+    const shortest = "y".repeat(SECRET_MIN_VALUE_LENGTH);
+
+    const refused = await call(srv, "POST", base, {
+      session,
+      body: github(short),
+    });
+    expect(refused.status).toBe(400);
+    expect(errorOf(refused)).toEqual(
+      expect.objectContaining({
+        code: "invalid_secret",
+        field: "value",
+        reason: "too_short",
+      }),
+    );
+    expect(refused.text).not.toContain(short);
+    expect((await call(srv, "GET", base, { session })).body).toEqual({
+      secrets: [],
+    });
+    const created = await call(srv, "POST", base, {
+      session,
+      body: github(shortest),
+    });
+    expect(created.status).toBe(201);
+    const rotate = await call(srv, "PUT", `${base}/GH_TOKEN/value`, {
+      session,
+      body: { value: short },
+    });
+    expect(rotate.status).toBe(400);
+    expect(errorOf(rotate).reason).toBe("too_short");
+
+    // A value saved before the rule: the store reads it, and the edits that
+    // carry no value go through.
+    const ownerId = getUserByName(owner.username)!.id;
+    const file = join(srv.stateRoot, "secrets", "users", `${ownerId}.json`);
+    const stored = JSON.parse(readFileSync(file, "utf8"));
+    stored.secrets[0].value = short;
+    writeFileSync(file, JSON.stringify(stored), { mode: 0o600 });
+    const listed = await call(srv, "GET", base, { session });
+    expect(listed.status).toBe(200);
+    expect(
+      (listed.body as { secrets: { name: string }[] }).secrets.map(
+        (s) => s.name,
+      ),
+    ).toEqual(["GH_TOKEN"]);
+    for (const res of [
+      await call(srv, "PATCH", `${base}/GH_TOKEN`, {
+        session,
+        body: { hosts: ["api.github.com"] },
+      }),
+      await call(srv, "POST", `${base}/GH_TOKEN/reissue`, { session }),
+    ])
+      expect(res.status).toBe(200);
+    expect(JSON.parse(readFileSync(file, "utf8")).secrets[0].value).toBe(short);
   });
 });
 

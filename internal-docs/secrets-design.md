@@ -19,7 +19,7 @@ Secrets have their own list next to the variables list, on the office and the pe
 | Field | Meaning |
 |---|---|
 | name | The environment name (`GH_TOKEN`), same rules as a variable. Unique in its scope. |
-| value | Write-only. No route returns it. The list shows "set" and the date of the last value change. |
+| value | Write-only. No route returns it. The list shows "set" and the date of the last value change. A new value has at least 8 characters, because the scrub and the log masking skip shorter values (Nil, 2026-10-13); a shorter value saved before that rule keeps working. |
 | hosts | 1-20 exact DNS host names that may receive it (`api.github.com`). No scheme, port, path, wildcard, IP literal or `localhost`. A host on the never-list (section 2.2) is refused. |
 | form | `authorization`: the `Authorization` header in any scheme (Bearer, `token`, the user or password of Basic after decoding). `header`: the whole value of one named header (`x-api-key`). |
 | generation | Starts at 1. B2 derives the placeholder from it; reissue raises it. |
@@ -31,7 +31,7 @@ Secrets have their own list next to the variables list, on the office and the pe
 
 **Storage.** `STATE_ROOT/secrets/office.json` and `STATE_ROOT/secrets/users/<userId>.json`, 0600 in 0700 directories, written atomically as the env files are (server/user-env.ts:106-130). Each file is `{"version":1,"secrets":[...]}`, sorted by name. No encryption at rest: a key next to the file adds nothing. An office without secrets has no `secrets/` directory. Backups exclude the directory, as they exclude the env files (server/backup.ts:196-202).
 
-**A removed member.** Removal keeps `secrets/users/<userId>.json`, as it keeps `user-env/<userId>.env` today; no route reads it and no agent uses it. Whether removal should delete both files is parked for Nil (B1 report).
+**A removed member.** Removal deletes `secrets/users/<userId>.json`, `user-env/<userId>.env` with its notes, and `mcp-servers/users/<userId>.json` (Nil, 2026-10-13). There is no purge action. The member's agents keep running; those that had a member secret restart after their turn, without it.
 
 **Routes.** Gated as the variables are: `cap("user:env")`, which no agent scope holds. A member's secrets reach the member and an office owner (`selfOrEnvOwner`, Nil, 2026-10-13); office secrets reach owners (`officeEnvOwner`), and members read the office list as names, hosts and notes (`officeEnvReader`). Show is the only response with a value: `cap("secret:show")`, held by humans and their API tokens and by no agent scope, for the secret's own member (`selfUserOrApi`) or an owner on an office secret. An owner never reads a member's secret.
 
@@ -209,7 +209,7 @@ Tool support: [curl](https://curl.se/docs/sslcerts.html) reads `CURL_CA_BUNDLE` 
 
 **Restarts.** A change of the set of secrets in a scope (add, delete, reissue) marks that scope's agents: their next turn starts a new process, as a changed variable does today with `/clear` (shared/i18n/en.ts:831), and the OpenCode server of the profile is replaced. Terminals that are open keep their environment until they are reopened, and the terminal card says so.
 
-**OpenCode profile identity.** Today the source key hashes the paths of the env files and the revision hashes their contents (server/env-loader.ts:176-209). Two members with secrets but no env files would share the default profile. So the key also hashes the logical path of the member's own secrets file once it exists (the store never deletes it; office files never join the key; integrations A2 adds its MCP servers file by the same rule). The revision also hashes each secret's scope, name, generation and placeholder, and the proxy port. Adding, deleting and reissuing change the revision and replace the server; a value rotation or an edit of hosts or form does not, because the proxy reads them per request.
+**OpenCode profile identity.** Today the source key hashes the paths of the env files and the revision hashes their contents (server/env-loader.ts:176-209). Two members with secrets but no env files would share the default profile. So the key also hashes the logical path of the member's own secrets file once it exists (the store deletes it only when the member is removed; office files never join the key; integrations A2 adds its MCP servers file by the same rule). The revision also hashes each secret's scope, name, generation and placeholder, and the proxy port. Adding, deleting and reissuing change the revision and replace the server; a value rotation or an edit of hosts or form does not, because the proxy reads them per request.
 
 **Boundary cases (tests).** A host that the proxy terminates but the secret does not list gets 403 and no value; a tunneled host receives only the placeholder; a never-listed host is always a tunnel; `TRACE` and `OPTIONS` to a listed host carry no value; a `CONNECT`, SNI or `Host` mismatch gets 421 and no value; a redirect to another origin carries no value; a stub that reflects the header gets the raw, Basic and URL-encoded forms scrubbed, and a reflection in another encoding (for example hex) reaches the client, which the test records as the known limit of section 2.5.
 

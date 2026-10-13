@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  checkSecretValue,
+  SECRET_MIN_VALUE_LENGTH,
+} from "../../shared/secret-hosts.ts";
+import {
   SCRUB_MARKER,
   scrubPatterns,
   scrubText,
@@ -11,6 +15,19 @@ const VALUE = "ghp_FAKEscrubFAKEscrubFAKEscrubFAKE01";
 const patterns = scrubPatterns([VALUE]);
 
 describe("scrubText", () => {
+  test("scrubs the shortest value the store takes, and the store refuses a value it would skip", () => {
+    const shortest = "f".repeat(SECRET_MIN_VALUE_LENGTH);
+    expect(checkSecretValue(shortest)).toBeNull();
+    expect(scrubText(`a ${shortest} b`, scrubPatterns([shortest]))).toBe(
+      `a ${SCRUB_MARKER} b`,
+    );
+    const skipped = shortest.slice(1);
+    expect(scrubText(`a ${skipped} b`, scrubPatterns([skipped]))).toBe(
+      `a ${skipped} b`,
+    );
+    expect(checkSecretValue(skipped)?.reason).toBe("too_short");
+  });
+
   test("removes the raw and URL-encoded forms", () => {
     const special = "fake+value/with=chars&more";
     const p = scrubPatterns([special]);

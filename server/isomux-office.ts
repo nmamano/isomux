@@ -345,6 +345,7 @@ import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
 import { createSecretRequests, SERVER_BOOT_ID } from "./secret-requests.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import { createMcpOAuth, type McpOAuth } from "./mcp-oauth.ts";
+import { dropOAuthTokensOfScope } from "./mcp-oauth-tokens.ts";
 import { createMcpServerStore } from "./mcp-server-store.ts";
 import {
   createMcpServerSources,
@@ -397,6 +398,7 @@ import {
   readManagedOfficeEnvNotes,
   readManagedUserEnv,
   readManagedUserEnvNotes,
+  removeManagedUserEnv,
   writeManagedOfficeEnv,
   writeManagedOfficeEnvNotes,
   writeManagedUserEnv,
@@ -4149,11 +4151,28 @@ function buildExecutorDeps(
               "This is the last owner record. Promote another user to owner first, then retry.",
           };
         }
+        // The member's own secrets, variables and MCP servers go with them
+        // (Nil's ruling, 2026-10-13), before the record: a failed delete
+        // leaves the member, and a retry finishes the job.
+        if (target) {
+          mcpSources.secrets.removeMember(target.id);
+          mcpSources.servers.removeMember(target.id);
+          dropOAuthTokensOfScope({ kind: "user", userId: target.id });
+          removeManagedUserEnv(target.id);
+        }
         // Idempotent: deleteUser is a no-op for an unknown username; the
         // users_list broadcast still fires so a watcher sees the target absent.
         deleteUser(username);
         emitUsersList();
         if (target) {
+          // The proxy drops the secrets; the member's agents that had one
+          // restart without them after their turn.
+          try {
+            await secretsRuntime.changed();
+          } catch {
+            console.error("[secrets] the proxy did not take a change");
+          }
+          agentManager.refreshLimitedClaudeFamilies(target.id);
           await evictSessionsForUserId(target.id);
           if ((await revokeInvitesForUser(target)) > 0) emitInvitesList();
         }

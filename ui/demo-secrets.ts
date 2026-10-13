@@ -7,6 +7,7 @@ import {
   checkSecretHosts,
   checkSecretName,
   checkSecretValue,
+  SECRET_MIN_VALUE_LENGTH,
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
 import { checkConnectionNote } from "../shared/connection-notes.ts";
@@ -32,7 +33,9 @@ function refuse(error: SecretFieldError): never {
   throw new ApiError(
     400,
     "invalid_secret",
-    `the ${error.field} field is not valid`,
+    error.reason === "too_short"
+      ? `the value must have at least ${SECRET_MIN_VALUE_LENGTH} characters`
+      : `the ${error.field} field is not valid`,
     { code: "invalid_secret", field: error.field, reason: error.reason },
   );
 }

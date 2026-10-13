@@ -249,8 +249,9 @@ export function readOfficeEnvFile(): Record<string, string> {
 // The member's other Isomux-held source files join it when they exist: their
 // secrets and their MCP servers (integrations A2; Lead ruling, 2026-10-13).
 // Without them, two members with no env file would share one OpenCode server,
-// and one member's MCP servers would reach the other's agents. The stores never
-// delete these files, so the key never moves back. Office files do not join:
+// and one member's MCP servers would reach the other's agents. The stores
+// delete these files only when the member leaves the office, so the key never
+// moves back while they are a member. Office files do not join:
 // an office change revises the server's config, not its profile.
 export function environmentSourceKeyForUserId(
   userId: string | null | undefined,

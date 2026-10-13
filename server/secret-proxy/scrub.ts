@@ -4,16 +4,16 @@
 // that reflects a value in another encoding (hex, for one) still returns it
 // (section 2.5).
 
+import { SECRET_MIN_VALUE_LENGTH } from "../../shared/secret-hosts.ts";
+
 export const SCRUB_MARKER = "ISOMUX-REDACTED";
 
 // No pattern shorter than this is scrubbed, here or in the log masking
 // (log-redaction.ts). A short pattern matches ordinary text and binary
 // bodies: a 3-character value would rewrite every response of every
-// terminated host, and break a git packfile's checksum. That is safe because
-// the scrub is a backstop: agents never get a value, and the proxy sends it
-// only to the hosts its secret lists. A credential shorter than this is not
-// one that a service issues.
-export const MIN_SCRUB_LENGTH = 8;
+// terminated host, and break a git packfile's checksum. The store refuses a
+// new value shorter than this; one stored before that rule is not scrubbed.
+export const MIN_SCRUB_LENGTH = SECRET_MIN_VALUE_LENGTH;
 
 // The base64 text of `value` at each of the three byte alignments, without
 // the edge groups that mix in neighbouring bytes. A value inside a longer
