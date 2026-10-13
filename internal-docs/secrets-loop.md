@@ -41,7 +41,7 @@ The room prompt gates: `bun run build:ui` (plus `bun run build:demo` when the di
 
 - [x] B1: design doc to the rulings; the secret store and the Secrets list; read-path audit. Approved by Reviewer 3 at 3c796ed1, merged as e3e68cd7. Carried to B4: a recursive search rooted at STATE_ROOT or an ancestor (Grep, grep -r) still reads the store; the variables hint still suggests GH_TOKEN as a variable; until B2 a saved secret does nothing for agents.
 - [x] B2: the proxy. Approved by Reviewer 4 at 145730a0, merged as 1d87d8ce. Supervised child on a loopback port, office CA in-process (node:crypto), own strict HTTP/1.1 reader, scrub with gzip/deflate/br decoding, secrets.use audit rows (actor secret_proxy), company HTTPS_PROXY chained, restart marking per scope, MCP headers carry placeholders. Known limits: design appendix F. Parked for Nil: refuse secret values under 8 characters (the scrub and log masking skip them).
-- [ ] B3: each preset proven end to end (curl, git over HTTPS, gh, stripe, fly, Node and Python SDKs)
+- [x] B3: each preset proven end to end. Approved by Reviewer 3 at 14ffd0e9, merged as 16df1297. curl, git, gh, stripe, Node and Bun fetch, Node https, Python requests work through the proxy (stub hosts); flyctl cannot (it drops a FLY_API_TOKEN that is not a macaroon; not installed here, from source). Added the git credential helper the design promised. Parked for Nil: install flyctl to confirm.
 - [ ] B4: an agent asks for a secret and the member types it in a masked form; the honest sentence; docs
 
 ## SLICE-B1 PICKUP: design to the rulings, the store, the Secrets list
@@ -108,6 +108,8 @@ Decide with the reviewer: which checks live in CI and which stay a recorded manu
 Locked: rulings 1-11.
 
 ## SLICE-B4 PICKUP: the agent asks, the member types; the honest sentence; docs
+
+Time box (Lead, 2026-10-13): hand off for review by 15:35 UTC; if not approved by 16:00 UTC, commit the work in progress on the branch, report where it stands, and stop (not merged). The honest sentence already shipped in the Secrets list hint (f9f579ae); B4 keeps it and adds it to the docs. Parked for Nil, do not decide: a minimum secret length.
 
 Starts after B2 is merged into main (B3 may run before or after).
 
