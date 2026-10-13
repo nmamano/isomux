@@ -1,5 +1,6 @@
 // The directories that hold member and office credentials as plain text: the
-// secret store and the managed variable files. Routes that read or write a
+// secret store, the managed variable files and the MCP server registrations,
+// whose URLs can carry a token. Routes that read or write a
 // file by path (the editor, read-file, validate.env) and the agents' safety
 // hooks refuse them.
 //
@@ -12,7 +13,12 @@ import { basename, dirname, isAbsolute, join, resolve } from "path";
 
 import { STATE_ROOT } from "./config.ts";
 
-const STORE_DIRS = ["secrets", "user-env", "office-env"] as const;
+const STORE_DIRS = [
+  "secrets",
+  "user-env",
+  "office-env",
+  "mcp-servers",
+] as const;
 
 // The error text of a route that refuses such a path.
 export const CREDENTIAL_PATH_MESSAGE =

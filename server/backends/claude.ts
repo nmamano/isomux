@@ -126,6 +126,7 @@ import type {
   SubscriptionUsageWindow,
   TokenUsage,
 } from "./types.ts";
+import type { AgentMcpServer } from "../mcp-servers.ts";
 
 function loginInstructions(command: string): string {
   return `To authenticate Claude Code:
@@ -242,9 +243,28 @@ export const CLAUDE_LAUNCH_SETTINGS: Extract<Options["settings"], object> = {
   env: { DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1" },
 };
 
+// Remote MCP servers for a session (server/mcp-servers.ts). Never part of
+// SdkSessionOptions: the SDK puts the `mcpServers` option on the CLI's argv as
+// --mcp-config, headers included. These go over the control channel with
+// setMcpServers after query() starts, on create and on every resume.
+export interface SdkMcpRegistration {
+  agentId: string;
+  servers: Record<
+    string,
+    { type: "http"; url: string; headers: Record<string, string> }
+  >;
+}
+
 export interface SdkClient {
-  createSession(opts: SdkSessionOptions): SdkConversation;
-  resumeSession(sessionId: string, opts: SdkSessionOptions): SdkConversation;
+  createSession(
+    opts: SdkSessionOptions,
+    mcp?: SdkMcpRegistration,
+  ): SdkConversation;
+  resumeSession(
+    sessionId: string,
+    opts: SdkSessionOptions,
+    mcp?: SdkMcpRegistration,
+  ): SdkConversation;
   oneShotPrompt(opts: SdkOneShotOptions): Promise<string>;
   forkSession(
     sessionId: string,
@@ -346,6 +366,7 @@ export interface V1QueryLike extends AsyncIterable<SDKMessage> {
   usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown>;
   // Optional so test stubs need not carry it.
   mcpServerStatus?: () => Promise<unknown>;
+  setMcpServers?: (servers: SdkMcpRegistration["servers"]) => Promise<unknown>;
 }
 
 // Which claude.ai rate-limit windows isomux surfaces, in DISPLAY order (the
@@ -497,13 +518,95 @@ export function normalizeClaudeSubscriptionUsage(
   };
 }
 
-// How long the post-turn MCP status read may take (integrations list).
+// How long an MCP status read may take (the post-turn read for the
+// integrations list, and the status line after setMcpServers).
 const MCP_STATUS_TIMEOUT_MS = 5_000;
+// How long the first message waits for setMcpServers. The CLI answers once it
+// has tried to connect the servers: about 1.5 s on a fresh session with the
+// Anthropic API reachable (measured 2026-10-13).
+const MCP_SET_TIMEOUT_MS = 10_000;
+
+// One line with the name and status of each server Isomux set, read from the
+// session once setMcpServers answers (an operator can see that the session
+// reached them). The names are Isomux's own: no URL, header or error text.
+async function logMcpStatus(
+  q: V1QueryLike,
+  mcp: SdkMcpRegistration,
+): Promise<void> {
+  if (typeof q.mcpServerStatus !== "function") return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const servers = await Promise.race([
+      q.mcpServerStatus(),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), MCP_STATUS_TIMEOUT_MS);
+      }),
+    ]);
+    if (!Array.isArray(servers)) return;
+    const ours = (servers as { name?: unknown; status?: unknown }[]).filter(
+      (server) => typeof server.name === "string" && server.name in mcp.servers,
+    );
+    console.log(
+      `[mcp] ${mcp.agentId} status: ${ours
+        .map((server) => `${server.name as string}=${String(server.status)}`)
+        .join(" ")}`,
+    );
+  } catch {
+    // A status that cannot be read is not logged.
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Registers the servers and settles within MCP_SET_TIMEOUT_MS, never with a
+// rejection. The log names the servers only: the SDK's error text can carry
+// the URL. The status line is not waited for.
+export function registerMcpServers(
+  q: V1QueryLike,
+  mcp: SdkMcpRegistration | undefined,
+  timeoutMs = MCP_SET_TIMEOUT_MS,
+): Promise<void> | null {
+  if (!mcp || Object.keys(mcp.servers).length === 0) return null;
+  if (typeof q.setMcpServers !== "function") {
+    console.warn(`[mcp] ${mcp.agentId}: this SDK cannot set MCP servers`);
+    return null;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const set = q
+    .setMcpServers(mcp.servers)
+    .then((result) => {
+      const errors =
+        result && typeof result === "object"
+          ? (result as { errors?: Record<string, unknown> }).errors
+          : undefined;
+      const failed = Object.keys(errors ?? {});
+      if (failed.length > 0)
+        console.warn(
+          `[mcp] ${mcp.agentId}: could not connect ${failed.sort().join(", ")}`,
+        );
+      void logMcpStatus(q, mcp);
+    })
+    .catch(() => {
+      console.warn(`[mcp] ${mcp.agentId}: setting the MCP servers failed`);
+    });
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(
+        `[mcp] ${mcp.agentId}: setting the MCP servers did not answer in time`,
+      );
+      resolve();
+    }, timeoutMs);
+  });
+  return Promise.race([set, timeout]).finally(() => clearTimeout(timer));
+}
 
 export function wrapV1Query(
   q: V1QueryLike,
   input: PushableInput<SDKUserMessage>,
   abortController?: AbortController,
+  // The setMcpServers call. Every message waits for it, so the first turn
+  // already has the servers; they are pushed in the order they were sent.
+  mcpReady?: Promise<void> | null,
 ): SdkConversation {
   let closed = false;
   // Throttle state for the experimental /usage call (see
@@ -528,6 +631,8 @@ export function wrapV1Query(
               parent_tool_use_id: null,
             }
           : msg;
+      if (mcpReady) await mcpReady;
+      if (closed) return;
       input.push(userMsg);
     },
     close() {
@@ -660,7 +765,7 @@ export function wrapV1Query(
 }
 
 export const realV1SdkClient: SdkClient = {
-  createSession(opts) {
+  createSession(opts, mcp) {
     const input = makePushableInput<SDKUserMessage>();
     // Threaded into close() so it can force the SDK subprocess to terminate
     // (see wrapV1Query.close); the SDK otherwise owns the child and exposes no
@@ -670,9 +775,9 @@ export const realV1SdkClient: SdkClient = {
       prompt: input.iterable,
       options: withAgentSpawn({ ...sessionOptsToV1(opts), abortController }),
     });
-    return wrapV1Query(q, input, abortController);
+    return wrapV1Query(q, input, abortController, registerMcpServers(q, mcp));
   },
-  resumeSession(sessionId, opts) {
+  resumeSession(sessionId, opts, mcp) {
     const input = makePushableInput<SDKUserMessage>();
     const abortController = new AbortController();
     const q = query({
@@ -682,7 +787,7 @@ export const realV1SdkClient: SdkClient = {
         abortController,
       }),
     });
-    return wrapV1Query(q, input, abortController);
+    return wrapV1Query(q, input, abortController, registerMcpServers(q, mcp));
   },
   async oneShotPrompt({
     prompt,
@@ -742,6 +847,27 @@ export const realV1SdkClient: SdkClient = {
 //   - close() resolves any in-flight approvals with deny so the SDK and any
 //     orchestrator-side awaiter both unblock.
 
+// The servers as setMcpServers takes them, or undefined when there are none.
+export function sdkMcpRegistration(
+  agentId: string,
+  servers: AgentMcpServer[] | undefined,
+): SdkMcpRegistration | undefined {
+  if (!servers || servers.length === 0) return undefined;
+  return {
+    agentId,
+    servers: Object.fromEntries(
+      servers.map((server) => [
+        server.name,
+        {
+          type: "http" as const,
+          url: server.url,
+          headers: { ...server.headers },
+        },
+      ]),
+    ),
+  };
+}
+
 // Exported for test injection; non-test consumers should go through
 // `claudeBackend.createSession` / `claudeBackend.resumeSession`.
 export class ClaudeSession implements BackendSession {
@@ -769,6 +895,7 @@ export class ClaudeSession implements BackendSession {
     sdkClient: SdkClient,
     sdkOpts: SdkSessionOptions,
     resumeSessionId?: string,
+    mcpServers?: AgentMcpServer[],
   ) {
     this.bypassPermissions = sdkOpts.permissionMode === "bypassPermissions";
     this.imageSink = ({ data, mediaType, suggestedName }) =>
@@ -778,9 +905,10 @@ export class ClaudeSession implements BackendSession {
       canUseTool: (toolName, input, callOpts) =>
         this.handleCanUseTool(toolName, input, callOpts),
     };
+    const mcp = sdkMcpRegistration(agentId, mcpServers);
     this.conversation = resumeSessionId
-      ? sdkClient.resumeSession(resumeSessionId, optsWithApproval)
-      : sdkClient.createSession(optsWithApproval);
+      ? sdkClient.resumeSession(resumeSessionId, optsWithApproval, mcp)
+      : sdkClient.createSession(optsWithApproval, mcp);
     void this.feedSDKMessages();
   }
 
@@ -1600,7 +1728,13 @@ export function createClaudeBackend(
     },
 
     createSession(opts: CreateSessionOptions): BackendSession {
-      return new ClaudeSession(opts.agentId, sdkClient, buildSdkOpts(opts));
+      return new ClaudeSession(
+        opts.agentId,
+        sdkClient,
+        buildSdkOpts(opts),
+        undefined,
+        opts.mcpServers,
+      );
     },
 
     resumeSession(
@@ -1612,6 +1746,7 @@ export function createClaudeBackend(
         sdkClient,
         buildSdkOpts(opts),
         sessionId,
+        opts.mcpServers,
       );
     },
 

@@ -23,7 +23,10 @@ import { readEnvFile } from "./persistence.ts";
 import { logicalAgentPath } from "./split/roots.ts";
 import { getUserByName } from "./users.ts";
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { STATE_ROOT } from "./config.ts";
+import { MCP_SERVERS_DIR } from "./mcp-server-store.ts";
 import {
   isPersonalProviderActive,
   personalProviderHome,
@@ -67,6 +70,17 @@ function resolveUserEnvSource(
 ): string | null {
   if (!userId) return null;
   return managedUserEnvExists(userId) ? managedUserEnvPath(userId) : null;
+}
+
+const SAFE_USER_ID = /^[A-Za-z0-9_-]+$/;
+
+// The member's secrets and MCP servers files that exist, for the profile key.
+function memberStoreFiles(userId: string | null | undefined): string[] {
+  if (!userId || !SAFE_USER_ID.test(userId)) return [];
+  return [
+    join(STATE_ROOT, "secrets", "users", `${userId}.json`),
+    join(STATE_ROOT, MCP_SERVERS_DIR, "users", `${userId}.json`),
+  ].filter((path) => existsSync(path));
 }
 
 function resolveOfficeEnvSource(): string | null {
@@ -173,13 +187,22 @@ export function readOfficeEnvFile(): Record<string, string> {
 // identity: rotating a credential must replace the server without stranding
 // durable sessions in a new profile. Do not derive this from the merged
 // process environment; systemd values change on every isomux restart.
+//
+// The member's other Isomux-held source files join it when they exist: their
+// secrets and their MCP servers (integrations A2; Lead ruling, 2026-10-13).
+// Without them, two members with no env file would share one OpenCode server,
+// and one member's MCP servers would reach the other's agents. The stores never
+// delete these files, so the key never moves back. Office files do not join:
+// an office change revises the server's config, not its profile.
 export function environmentSourceKeyForUserId(
   userId: string | null | undefined,
 ): string {
   const userEnvFile = resolveUserEnvSource(userId);
-  const sources = [resolveOfficeEnvSource(), userEnvFile].filter(
-    (path): path is string => Boolean(path),
-  );
+  const sources = [
+    resolveOfficeEnvSource(),
+    userEnvFile,
+    ...memberStoreFiles(userId),
+  ].filter((path): path is string => Boolean(path));
   if (sources.length === 0) return "default";
   // In split mode the files moved with the server state; the key hashes the
   // paths they had before (design section 3.1.2), so it does not change.

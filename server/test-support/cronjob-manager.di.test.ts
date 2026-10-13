@@ -408,6 +408,32 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     codex.sessions.forEach((s) => s.close());
   });
 
+  it("gives a run its member's remote MCP servers", async () => {
+    const fake = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },
+    });
+    const servers = [
+      { name: "isomux-docs", url: "https://docs.example.com/mcp", headers: {} },
+    ];
+    const asked: (string | null | undefined)[] = [];
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        resolveUser: (() => ({ id: "u-nil" })) as never,
+        resolveMcpServers: (userId) => {
+          asked.push(userId);
+          return servers;
+        },
+      }),
+    );
+    const job = mgr.addCronjob(intervalInput("McpRunJob"));
+    mgr.runCronjobNow(job.id, "Nil");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(fake.lastSession?.opts.mcpServers).toEqual(servers);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((id) => id === job.userId)).toBe(true);
+  });
+
   it("runs OpenCode with its unattended profile and no office bearer", async () => {
     const fake = new FakeBackend({
       session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },

@@ -194,6 +194,10 @@ describe("verified backup publication", () => {
       "secrets/office.json",
       "secrets/users/u-alice.json",
       "secrets/users/.secrets.4242.0b1e5c1d-7d55-4d2a-9a43-1f2b3c4d5e6f.tmp",
+      "mcp-servers/office.json",
+      "mcp-servers/users/u-alice.json",
+      "mcp-servers/users/.mcp-servers.4242.0b1e5c1d-7d55-4d2a-9a43-1f2b3c4d5e6f.tmp",
+      "opencode/profiles/shared/opencode.json",
       "codex-home/auth.json",
       "codex-home/shell_snapshots/one.sh",
       "provider-homes/u-alice/claude/.credentials.json",
@@ -227,6 +231,7 @@ describe("verified backup publication", () => {
       "provider-homes/u-alice/claude/.claude.json",
       "provider-homes/u-alice/codex/state.db",
       "opencode/profiles/shared/data/opencode/opencode.db",
+      "opencode/profiles/shared/server.lock",
       "tls/cert.crt",
       "nil-codex-noauth.env",
       "webhooks/webhooks.json",
@@ -267,6 +272,31 @@ describe("verified backup publication", () => {
     write(f.state, "secrets/users/u-alice.json", store);
     write(f.state, "secrets/users/.secrets.1.a.tmp", store);
     write(f.state, "office-env/.office.1.a.tmp", `GH_TOKEN='${fake}'\n`);
+    // A remote MCP server's credential (integrations A2): the header in the
+    // OpenCode profile's config, and a token in a registered URL's path.
+    write(
+      f.state,
+      "opencode/profiles/0123456789abcdef/opencode.json",
+      JSON.stringify({
+        mcp: {
+          "isomux-docs": {
+            type: "remote",
+            url: "https://docs.example.com/mcp",
+            headers: { Authorization: `Bearer ${fake}` },
+          },
+        },
+      }),
+    );
+    write(
+      f.state,
+      "mcp-servers/users/u-alice.json",
+      JSON.stringify({
+        version: 1,
+        servers: [
+          { name: "docs", url: `https://docs.example.com/${fake}/mcp` },
+        ],
+      }),
+    );
     write(f.state, "pager.json", "KEPT\n");
 
     const file = await runBackupOnceForTest(config(f), realDeps);

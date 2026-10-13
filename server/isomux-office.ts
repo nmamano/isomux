@@ -341,7 +341,8 @@ import {
 import { createMembersChatStore } from "./members-chat.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
-import { createSecretStore } from "./secret-store.ts";
+import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
+import { createMcpServerSources, mcpServerRows } from "./mcp-servers.ts";
 import {
   claudeFamilyModelsForUserId,
   limitedClaudeFamiliesForUserId,
@@ -352,7 +353,10 @@ import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { providerAccountsHandlers } from "./routes/handlers/provider-accounts.ts";
 import { buildConnectionsList } from "./connections-list.ts";
 import { connectionsHandlers } from "./routes/handlers/connections.ts";
-import { claudeConnectorsFor } from "./claude-connectors.ts";
+import {
+  claudeConnectorsFor,
+  claudeEngineServersFor,
+} from "./claude-connectors.ts";
 import {
   ProviderAccountManager,
   type CreateClaudeAccountClient,
@@ -3624,8 +3628,11 @@ function buildExecutorDeps(
       },
     }),
   );
-  // Secrets: write-only, and nothing reads them for agents until B2.
-  register(secretsHandlers({ store: createSecretStore() }));
+  // Secrets: write-only. Agents get their values only as MCP server headers
+  // (A2) until B2's proxy. MCP servers name a secret in the same scope.
+  const mcpSources = createMcpServerSources();
+  register(secretsHandlers({ store: mcpSources.secrets }));
+  register(mcpServersHandlers({ store: mcpSources.servers }));
   register(
     usersHandlers({
       readMemberPrompt: (username) => {
@@ -5020,6 +5027,9 @@ function buildExecutorDeps(
           claudeConnectorDir: (scope) =>
             providerAccountManager.claudeConnectorDir(userId, scope),
           claudeConnectorsFor,
+          mcpServers: () => mcpServerRows(mcpSources, userId, officeOwner),
+          engineMcpServers: () =>
+            claudeEngineServersFor(agentManager.agentIdsOfUser(userId)),
         }),
     }),
   );

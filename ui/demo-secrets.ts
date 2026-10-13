@@ -117,3 +117,9 @@ export function demoSecretsRoute(
   secret.updatedAt = now;
   return { handled: true, result: { secret } };
 }
+
+// The hosts of a demo secret, for the demo's MCP servers (demo-mcp-servers.ts).
+// `key` is "office" or a user id.
+export function demoSecretHosts(key: string, name: string): string[] | null {
+  return scopes.get(key)?.find((s) => s.name === name)?.hosts ?? null;
+}

@@ -790,6 +790,27 @@ describe("NotebookEdit coverage", () => {
     }
   });
 
+  // The profile config Isomux writes holds the headers of the remote MCP
+  // servers it registers (integrations A2). A project's own opencode.json
+  // stays readable.
+  it("denies reading an OpenCode profile's config, not a project's", async () => {
+    for (const [file_path, expected] of [
+      [
+        "/home/someone/.isomux/opencode/profiles/0123456789abcdef/opencode.json",
+        true,
+      ],
+      [
+        "/srv/isomux-user/opencode/profiles/fedcba9876543210/opencode.json",
+        true,
+      ],
+      ["/tmp/some-project/opencode.json", false],
+      ["/tmp/some-project/opencode/opencode.json", false],
+    ] as const) {
+      const { denied } = await decide("Read", { file_path });
+      expect({ file_path, denied }).toEqual({ file_path, denied: expected });
+    }
+  });
+
   it("denies reading the native OpenCode provider and MCP logins", async () => {
     for (const file_path of [
       "/home/someone/.local/share/opencode/auth.json",

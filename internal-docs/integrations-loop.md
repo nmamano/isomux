@@ -46,6 +46,7 @@ UI slices show the page in headless Chrome (internal-docs/ui-verification.md), d
 
 - [x] A1: the page lists every connection, read-only. Approved by Reviewer 1 at 6b529a7c, merged as 0122b4d3. GET /api/me/connections; claude.ai connectors kept in memory per sign-in (init message + status read after each turn, source "claudeai" only). With streaming input the init message comes on every turn (Worker 1, 2026-10-13). Codex Apps and OpenCode: none shown.
 - [ ] A2: remote MCP servers registered once for every engine (after A1 and secrets B1)
+  - For B2: `credentialFor` in server/mcp-servers.ts is where the header gets the placeholder instead of the value.
 - [ ] A2b: OAuth MCP servers (only if A2 splits it out)
 - [ ] A3: Test button and diagnostics per connection
 - [ ] A4: a usage note per connection that agents read
@@ -99,3 +100,15 @@ Acceptance: a stub remote MCP server registered once at office scope and once at
 
 Decide with the reviewer: the route and store shape for registrations; OAuth in A2 or A2b.
 Locked: rulings 1-12.
+
+## SLICE-A2b PLAN: OAuth MCP servers (Worker 2 and Reviewer 2, 2026-10-13; not started)
+
+A2 ships servers with a static credential only. A server that needs the MCP authorization flow (for example a hosted Gmail or Notion server) is A2b. The flow needs, at least: discovery of the server's authorization metadata, dynamic client registration (or a client id the member pastes), PKCE, a callback route on the office origin, a refresh loop, and storage of the refresh token. The access token expires about every hour, so a B2 placeholder for it would change at each refresh.
+
+Two designs. The Lead chooses before code:
+
+1. Isomux is the OAuth client. Isomux runs the flow once per registration and stores the refresh token as a secret of the registration's scope (bound to the server's host). Isomux refreshes the access token and gives it to each engine as the A2 header, so it reaches Claude, Codex and OpenCode the same way and fits B2: the proxy can put the current access token in for a fixed placeholder. Costs: a callback route and a refresh loop in the server, and the office must be reachable at its own origin from the member's browser (it is, for sign-in).
+2. Each engine's own MCP OAuth. Claude reports a server that needs it as `needs-auth` (`mcpServerStatus`) and keeps the tokens in the sign-in's config directory; Codex has `mcpServer/oauth/login` on the app-server and keeps them under CODEX_HOME; OpenCode keeps them in `mcp-auth.json` per profile (backup.ts already leaves that file out). Isomux registers the server without a header and asks the member to sign in once per engine and per sign-in or profile. Costs: up to three sign-ins for one server, tokens on disk in three formats, no B2 placeholder, and a per-engine login UI. From the generated types and the probe report only; not run.
+
+Recommendation: 1, because it keeps "register once, every engine gets it" (ruling 5) and the B2 promise.
+

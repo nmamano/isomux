@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import type {
   SDKMessage,
   SDKUserMessage,
@@ -7,6 +7,7 @@ import {
   makePushableInput,
   normalizeClaudeSubscriptionUsage,
   sessionOptsToV1,
+  registerMcpServers,
   wrapV1Query,
   type PushableInput,
   type V1QueryLike,
@@ -168,6 +169,7 @@ class FakeQuery implements V1QueryLike {
   // Declared as an own property so a test can delete it, standing in for an
   // SDK release that renames or drops the experimental method.
   mcpServerStatus?: () => Promise<unknown>;
+  setMcpServers?: V1QueryLike["setMcpServers"];
 
   usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> =
     async () => {
@@ -858,5 +860,139 @@ describe("sessionOptsToV1", () => {
     expect(v1.permissionMode).toBe("default");
     expect(v1.env).toEqual({ FOO: "bar" });
     expect(v1.disallowedTools).toEqual(["AskUserQuestion"]);
+  });
+});
+
+describe("registerMcpServers", () => {
+  const mcp = {
+    agentId: "agent-mcp",
+    servers: {
+      "isomux-docs": {
+        type: "http" as const,
+        url: "https://docs.example.com/secret-path/mcp",
+        headers: { Authorization: "Bearer fake-mcp-value-0000" },
+      },
+    },
+  };
+
+  function captureWarnings() {
+    const lines: string[] = [];
+    const spy = spyOn(console, "warn").mockImplementation((...args) => {
+      lines.push(args.map(String).join(" "));
+    });
+    return { lines, restore: () => spy.mockRestore() };
+  }
+
+  it("holds every message until setMcpServers settles, in the order sent", async () => {
+    const q = new FakeQuery();
+    let settle!: (value: unknown) => void;
+    const calls: unknown[] = [];
+    q.setMcpServers = (servers) => {
+      calls.push(servers);
+      return new Promise((resolve) => (settle = resolve));
+    };
+    const input = makePushableInput<SDKUserMessage>();
+    const conv = wrapV1Query(q, input, undefined, registerMcpServers(q, mcp));
+    expect(calls).toEqual([mcp.servers]);
+    const sent = [conv.send("first"), conv.send("second")];
+    const it = input.iterable[Symbol.asyncIterator]();
+    let pushed = false;
+    const next = it.next().then((r) => {
+      pushed = true;
+      return r;
+    });
+    await Bun.sleep(5);
+    expect(pushed).toBe(false);
+    settle({ added: ["isomux-docs"], removed: [], errors: {} });
+    await Promise.all(sent);
+    expect(((await next).value as SDKUserMessage).message.content).toBe(
+      "first",
+    );
+    expect(((await it.next()).value as SDKUserMessage).message.content).toBe(
+      "second",
+    );
+  });
+
+  it("logs failed servers by name, never the SDK's error text", async () => {
+    const q = new FakeQuery();
+    q.setMcpServers = async () => ({
+      added: [],
+      removed: [],
+      errors: {
+        "isomux-docs": "connect to https://docs.example.com/secret-path failed",
+      },
+    });
+    const warn = captureWarnings();
+    try {
+      await registerMcpServers(q, mcp);
+      q.setMcpServers = async () => {
+        throw new Error("https://docs.example.com/secret-path refused");
+      };
+      await registerMcpServers(q, mcp);
+    } finally {
+      warn.restore();
+    }
+    expect(warn.lines).toHaveLength(2);
+    expect(warn.lines[0]).toContain("isomux-docs");
+    expect(warn.lines.join("\n")).not.toContain("secret-path");
+    expect(warn.lines.join("\n")).not.toContain("fake-mcp-value");
+  });
+
+  it("stops waiting after its time limit, so a message is never held for good", async () => {
+    const q = new FakeQuery();
+    q.setMcpServers = () => new Promise(() => {});
+    const warn = captureWarnings();
+    try {
+      const ready = registerMcpServers(q, mcp, 20);
+      const input = makePushableInput<SDKUserMessage>();
+      const conv = wrapV1Query(q, input, undefined, ready);
+      await conv.send("hello");
+      const r = await input.iterable[Symbol.asyncIterator]().next();
+      expect((r.value as SDKUserMessage).message.content).toBe("hello");
+    } finally {
+      warn.restore();
+    }
+    expect(warn.lines.join("\n")).toContain("did not answer in time");
+  });
+
+  it("logs the status of the servers it set once the session answers, names and statuses only", async () => {
+    const q = new FakeQuery();
+    q.setMcpServers = async () => ({
+      added: ["isomux-docs"],
+      removed: [],
+      errors: {},
+    });
+    q.mcpServerStatus = async () => [
+      {
+        name: "isomux-docs",
+        status: "connected",
+        scope: "dynamic",
+        config: { url: "https://docs.example.com/secret-path/mcp" },
+      },
+      { name: "user-notes", status: "failed", scope: "user" },
+    ];
+    const lines: string[] = [];
+    const spy = spyOn(console, "log").mockImplementation((...args) => {
+      lines.push(args.map(String).join(" "));
+    });
+    try {
+      await registerMcpServers(q, mcp);
+      // The status line is not waited for: it lands a moment later.
+      await Bun.sleep(5);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(lines).toEqual(["[mcp] agent-mcp status: isomux-docs=connected"]);
+  });
+
+  it("does nothing with no servers", () => {
+    const q = new FakeQuery();
+    let called = false;
+    q.setMcpServers = async () => {
+      called = true;
+    };
+    expect(registerMcpServers(q, undefined)).toBe(null);
+    expect(registerMcpServers(q, { agentId: "a", servers: {} })).toBe(null);
+    expect(called).toBe(false);
   });
 });

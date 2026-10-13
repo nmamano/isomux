@@ -804,7 +804,31 @@ export type ConnectionsListRes = {
     seenAt: number | null;
     names: string[];
   }[];
+  // Remote MCP servers Isomux gives every engine. The host only: the path of
+  // some hosted servers carries the token. `secret` is the credential's name,
+  // null for an office server when the caller is not an owner. `overridden`:
+  // the caller's own server with the same name replaces this office one.
+  mcpServers: {
+    scope: ConnectionScope;
+    name: string;
+    host: string;
+    credential: boolean;
+    secret: string | null;
+    problem: McpServerProblem | null;
+    overridden: boolean;
+  }[];
+  // MCP servers set in Claude itself, as the caller's Claude sessions last
+  // reported them: user settings, or a project's .mcp.json in `folder`.
+  engineMcpServers: {
+    engine: "claude";
+    name: string;
+    source: "user" | "project" | "local";
+    folder: string | null;
+  }[];
 };
+
+// Why a registered server is left out of agent sessions.
+export type McpServerProblem = "secret_missing" | "secret_host";
 
 export interface UserEnvReplaceReq {
   values: Record<string, string>;
@@ -838,6 +862,31 @@ export interface SecretUpdateReq {
 }
 export interface SecretRes {
   secret: SecretWire;
+}
+
+// Remote MCP servers (integrations loop, A2). `secret` names a secret in the
+// same scope; the editor's own list is the only response with the whole URL.
+export interface McpServerWire {
+  name: string;
+  url: string;
+  secret: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface McpServerListRes {
+  servers: McpServerWire[];
+}
+export interface McpServerCreateReq {
+  name: string;
+  url: string;
+  secret: string | null;
+}
+export interface McpServerUpdateReq {
+  url?: string;
+  secret?: string | null;
+}
+export interface McpServerRes {
+  server: McpServerWire;
 }
 
 // A member's pager settings (server/pager-settings.ts). The webhook URL is a

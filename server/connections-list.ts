@@ -18,6 +18,10 @@ export interface ConnectionsListSources {
   // Null when the scope's Claude sign-in has no claude.ai login to read.
   claudeConnectorDir: (scope: ConnectionScope) => string | null;
   claudeConnectorsFor: (dir: string) => ClaudeConnectorRecord | null;
+  // Isomux's remote MCP servers, hosts only (server/mcp-servers.ts), and the
+  // ones set in Claude itself as the caller's agents last reported them.
+  mcpServers: () => ConnectionsListRes["mcpServers"];
+  engineMcpServers: () => ConnectionsListRes["engineMcpServers"];
 }
 
 const SCOPES: ConnectionScope[] = ["office", "personal"];
@@ -76,5 +80,19 @@ export async function buildConnectionsList(
     });
   }
 
-  return { variables, signIns, claudeConnectors };
+  // A store that cannot be read drops its rows, not the whole list.
+  let mcpServers: ConnectionsListRes["mcpServers"] = [];
+  try {
+    mcpServers = sources.mcpServers();
+  } catch {
+    mcpServers = [];
+  }
+
+  return {
+    variables,
+    signIns,
+    claudeConnectors,
+    mcpServers,
+    engineMcpServers: sources.engineMcpServers(),
+  };
 }

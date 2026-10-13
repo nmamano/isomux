@@ -896,6 +896,57 @@ Coses que pots fer per ell:
   "settings.connections.list.claudeConnectors": "Connectors de Claude",
   "settings.connections.list.connectorsPendingHint":
     "Apareixen després del proper torn de Claude amb aquest inici de sessió.",
+  "settings.mcpServers.title": "Servidors MCP",
+  "settings.mcpServers.hint":
+    "Servidors MCP remots per a agents de Claude, Codex i OpenCode. Els agents reben un canvi quan comença la seva sessió següent: fes <code>/clear</code> a un agent per aplicar-lo ara.",
+  "settings.mcpServers.ownerManaged":
+    "Els servidors MCP de l'oficina els gestiona un propietari de l'oficina.",
+  "settings.mcpServers.loadFailed":
+    "No s'han pogut carregar els servidors MCP.",
+  "settings.mcpServers.saveFailed": "No s'ha pogut desar el servidor MCP.",
+  "settings.mcpServers.empty": "Encara no hi ha servidors MCP.",
+  "settings.mcpServers.add": "Afegeix un servidor MCP",
+  "settings.mcpServers.name": "Nom",
+  "settings.mcpServers.url": "URL",
+  "settings.mcpServers.urlNote":
+    "Posa la credencial al camp de credencial, no a l'URL.",
+  "settings.mcpServers.credential": "Credencial",
+  "settings.mcpServers.credentialNone": "Cap",
+  "settings.mcpServers.credentialNew": "Secret nou",
+  "settings.mcpServers.secretName": "Nom del secret",
+  "settings.mcpServers.tokenPlaceholder": 'Només el token, sense "Bearer"',
+  "settings.mcpServers.formBearer": "Authorization: Bearer",
+  "settings.mcpServers.newSecretHost": "El secret només va a {host}.",
+  "settings.mcpServers.newSecretNoHost":
+    "Escriu primer l'URL: el secret només va al seu host.",
+  "settings.mcpServers.error.name":
+    "Fes servir fins a 24 lletres minúscules, dígits i guions, amb una lletra o un dígit a cada extrem.",
+  "settings.mcpServers.error.url":
+    "Escriu un URL https:// sense usuari, contrasenya ni #fragment. Amb credencial, fes servir el port predeterminat. http:// només funciona per a localhost, sense credencial.",
+  "settings.mcpServers.error.exists":
+    "Ja hi ha un servidor MCP amb aquest nom.",
+  "settings.mcpServers.error.secretNotFound": "Aquest secret no existeix.",
+  "settings.mcpServers.error.secretHost":
+    "El secret no inclou {host}. Afegeix el host al secret o tria'n un altre.",
+  "settings.connections.list.kindMcpServer": "Servidor MCP",
+  "settings.connections.list.kindMcpInClaude": "Servidor MCP definit a Claude",
+  "settings.connections.list.engineMcpUser":
+    "Tots els agents de Claude amb el mateix inici de sessió de Claude",
+  "settings.connections.list.engineMcpFolder":
+    "Tots els agents de Claude que treballen a {folder}",
+  "settings.connections.list.mcpNoCredential": "Sense credencial",
+  "settings.connections.list.mcpCredential": "Credencial definida",
+  "settings.connections.list.mcpCredentialNamed": "Credencial: {name}",
+  "settings.connections.list.mcpSecretMissing": "Exclòs: falta el seu secret",
+  "settings.connections.list.mcpSecretHost":
+    "Exclòs: el seu secret no inclou {host}",
+  "settings.connections.list.mcpOverridden":
+    "El teu propi servidor MCP amb aquest nom el substitueix per als teus agents.",
+  "settings.connections.list.setInClaudeUser":
+    "Definit a la configuració d'usuari de Claude",
+  "settings.connections.list.setInClaudeLocal":
+    "Definit a la configuració local de Claude per a {folder}",
+  "settings.connections.list.setInProject": "Definit a {file}",
 
   "settings.signIn.apiKeyNote":
     "Vols fer servir un token d'API? Mira Configuració → Tu → Connexions individuals.",
@@ -1358,6 +1409,14 @@ Coses que pots fer per ell:
     "Substituir el valor d'un secret de l'oficina",
   "apiCall.officeSecrets.update": "Editar un secret de l'oficina",
   "apiCall.officeSecrets.delete": "Suprimir un secret de l'oficina",
+  "apiCall.mcpServers.list": "Llistar els meus servidors MCP",
+  "apiCall.mcpServers.create": "Afegir un servidor MCP",
+  "apiCall.mcpServers.update": "Editar un servidor MCP",
+  "apiCall.mcpServers.delete": "Suprimir un servidor MCP",
+  "apiCall.officeMcpServers.list": "Llistar els servidors MCP de l'oficina",
+  "apiCall.officeMcpServers.create": "Afegir un servidor MCP de l'oficina",
+  "apiCall.officeMcpServers.update": "Editar un servidor MCP de l'oficina",
+  "apiCall.officeMcpServers.delete": "Suprimir un servidor MCP de l'oficina",
   "apiCall.inbox.messageBoss": "Missatge enviat al token extern",
   "apiCall.inbox.drain": "Buidar la safata del token d'API",
   "apiCall.memory.read": "Llegir la memòria",

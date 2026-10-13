@@ -818,6 +818,51 @@ App 的一些原则：
   "settings.connections.list.claudeConnectors": "Claude 连接器",
   "settings.connections.list.connectorsPendingHint":
     "此登录下一次 Claude 轮次后列出。",
+  "settings.mcpServers.title": "MCP 服务器",
+  "settings.mcpServers.hint":
+    "供 Claude、Codex 和 OpenCode 智能体使用的远程 MCP 服务器。智能体在下次会话开始时获得更改：对智能体执行 <code>/clear</code> 可立即应用。",
+  "settings.mcpServers.ownerManaged": "办公室 MCP 服务器由办公室所有者管理。",
+  "settings.mcpServers.loadFailed": "无法加载 MCP 服务器。",
+  "settings.mcpServers.saveFailed": "无法保存 MCP 服务器。",
+  "settings.mcpServers.empty": "还没有 MCP 服务器。",
+  "settings.mcpServers.add": "添加 MCP 服务器",
+  "settings.mcpServers.name": "名称",
+  "settings.mcpServers.url": "URL",
+  "settings.mcpServers.urlNote": "请把凭据填在凭据字段中，不要放在 URL 里。",
+  "settings.mcpServers.credential": "凭据",
+  "settings.mcpServers.credentialNone": "无",
+  "settings.mcpServers.credentialNew": "新密钥",
+  "settings.mcpServers.secretName": "密钥名称",
+  "settings.mcpServers.tokenPlaceholder": '只填令牌，不带 "Bearer"',
+  "settings.mcpServers.formBearer": "Authorization: Bearer",
+  "settings.mcpServers.newSecretHost": "该密钥只发送到 {host}。",
+  "settings.mcpServers.newSecretNoHost":
+    "请先填写 URL：该密钥只发送到它的主机。",
+  "settings.mcpServers.error.name":
+    "最多 24 个小写字母、数字和连字符，首尾须为字母或数字。",
+  "settings.mcpServers.error.url":
+    "请输入不含用户名、密码或 #片段的 https:// URL。带凭据时请使用默认端口。http:// 仅适用于 localhost，且不能带凭据。",
+  "settings.mcpServers.error.exists": "已存在同名的 MCP 服务器。",
+  "settings.mcpServers.error.secretNotFound": "该密钥不存在。",
+  "settings.mcpServers.error.secretHost":
+    "该密钥未列出 {host}。请把该主机添加到密钥，或选择其他密钥。",
+  "settings.connections.list.kindMcpServer": "MCP 服务器",
+  "settings.connections.list.kindMcpInClaude": "在 Claude 中设置的 MCP 服务器",
+  "settings.connections.list.engineMcpUser":
+    "使用同一 Claude 登录的所有 Claude 智能体",
+  "settings.connections.list.engineMcpFolder":
+    "在 {folder} 中工作的所有 Claude 智能体",
+  "settings.connections.list.mcpNoCredential": "无凭据",
+  "settings.connections.list.mcpCredential": "已设置凭据",
+  "settings.connections.list.mcpCredentialNamed": "凭据：{name}",
+  "settings.connections.list.mcpSecretMissing": "已排除：缺少其密钥",
+  "settings.connections.list.mcpSecretHost": "已排除：其密钥未列出 {host}",
+  "settings.connections.list.mcpOverridden":
+    "你自己的同名 MCP 服务器会为你的智能体替换它。",
+  "settings.connections.list.setInClaudeUser": "在 Claude 用户设置中设置",
+  "settings.connections.list.setInClaudeLocal":
+    "在 Claude 针对 {folder} 的本地设置中设置",
+  "settings.connections.list.setInProject": "在 {file} 中设置",
   "settings.signIn.apiKeyNote":
     "想使用 API 令牌？请查看「设置 → 你 → 个人连接」。",
   "settings.signIn.scopeOffice": "办公室通用：为此办公室中的所有智能体登录",
@@ -1209,6 +1254,14 @@ App 的一些原则：
   "apiCall.officeSecrets.rotate": "替换办公室密钥值",
   "apiCall.officeSecrets.update": "编辑办公室密钥",
   "apiCall.officeSecrets.delete": "删除办公室密钥",
+  "apiCall.mcpServers.list": "列出我的 MCP 服务器",
+  "apiCall.mcpServers.create": "添加 MCP 服务器",
+  "apiCall.mcpServers.update": "编辑 MCP 服务器",
+  "apiCall.mcpServers.delete": "删除 MCP 服务器",
+  "apiCall.officeMcpServers.list": "列出办公室 MCP 服务器",
+  "apiCall.officeMcpServers.create": "添加办公室 MCP 服务器",
+  "apiCall.officeMcpServers.update": "编辑办公室 MCP 服务器",
+  "apiCall.officeMcpServers.delete": "删除办公室 MCP 服务器",
   "apiCall.inbox.messageBoss": "已向外部令牌发送消息",
   "apiCall.inbox.drain": "取出 API 令牌收件箱中的消息",
   "apiCall.memory.read": "读取记忆",

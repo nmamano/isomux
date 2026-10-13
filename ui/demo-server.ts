@@ -92,6 +92,7 @@ import {
 } from "../shared/avatar.ts";
 import { shimEmit } from "./ws.ts";
 import { demoSecretsRoute } from "./demo-secrets.ts";
+import { demoMcpServerRows, demoMcpServersRoute } from "./demo-mcp-servers.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
 
 const state = new OfficeState();
@@ -2769,6 +2770,8 @@ export async function demoApi(
         ],
         signIns: [],
         claudeConnectors: [],
+        mcpServers: demoMcpServerRows(selfId, owner),
+        engineMcpServers: [],
       };
     }
     case "GET /api/me/provider-accounts":
@@ -3140,6 +3143,13 @@ export async function demoApi(
     (username) => users.get(username.toLowerCase())?.id ?? null,
   );
   if (secretsRoute) return secretsRoute.result;
+  const mcpServersRoute = demoMcpServersRoute(
+    method,
+    pathname,
+    body,
+    (username) => users.get(username.toLowerCase())?.id ?? null,
+  );
+  if (mcpServersRoute) return mcpServersRoute.result;
   const userEnvMatch = pathname.match(/^\/api\/users\/([^/]+)\/env$/);
   if (userEnvMatch) {
     const uname = decodeURIComponent(userEnvMatch[1]);

@@ -15,6 +15,10 @@ import {
   dialogSaveBtn,
 } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
+import {
+  notifyConnectionsChanged,
+  onConnectionsChanged,
+} from "../connections-events.ts";
 
 // The Secrets list (internal-docs/secrets-design.md, section 1), next to the
 // variables on both halves of the connections settings. Values are
@@ -93,6 +97,16 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, canEdit]);
 
+  // The MCP server editor can add a secret.
+  useEffect(
+    () =>
+      onConnectionsChanged(() => {
+        if (canEdit) void load();
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [path, canEdit],
+  );
+
   function open(next: Mode, from?: SecretWire) {
     setError(null);
     setMode(next);
@@ -162,6 +176,7 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
         await apiFetch("DELETE", `${path}/${encodeURIComponent(mode.name)}`);
       close();
       await load();
+      notifyConnectionsChanged();
     } catch (caught) {
       // The value stays out of the error, and the field keeps it only so the
       // member can fix another field and save again.

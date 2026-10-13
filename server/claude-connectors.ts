@@ -131,3 +131,83 @@ export function resetClaudeConnectorsForTests(): void {
   records.clear();
   generations.clear();
 }
+
+// The MCP servers set in Claude itself (integrations A2): user settings, a
+// project's .mcp.json, or a local entry in the user settings for one folder.
+// Kept per agent, with the folder it ran in, from the same init and status
+// reports, whatever the sign-in: they do not come from claude.ai. Only the
+// name and the source are kept, never a URL, a header or an error text.
+export type ClaudeEngineServerSource = "user" | "project" | "local";
+
+const ENGINE_SOURCES: readonly string[] = ["user", "project", "local"];
+
+const engineRecords = new Map<
+  string,
+  { cwd: string; servers: { name: string; source: ClaudeEngineServerSource }[] }
+>();
+
+export function recordClaudeEngineServers(
+  agentId: string,
+  cwd: string,
+  servers: InitMcpServer[] | null | undefined,
+): void {
+  if (!servers) return;
+  const kept = servers
+    .filter(
+      (server) =>
+        typeof server.name === "string" &&
+        server.name.length > 0 &&
+        ENGINE_SOURCES.includes(server.source ?? ""),
+    )
+    .map((server) => ({
+      name: server.name,
+      source: server.source as ClaudeEngineServerSource,
+    }));
+  engineRecords.set(agentId, { cwd: resolve(cwd), servers: kept });
+}
+
+export function forgetClaudeEngineServers(agentId: string): void {
+  engineRecords.delete(agentId);
+}
+
+// One row per server across the given agents; the folder only for project and
+// local servers, which belong to it.
+export function claudeEngineServersFor(agentIds: string[]): {
+  engine: "claude";
+  name: string;
+  source: ClaudeEngineServerSource;
+  folder: string | null;
+}[] {
+  const rows = new Map<
+    string,
+    {
+      engine: "claude";
+      name: string;
+      source: ClaudeEngineServerSource;
+      folder: string | null;
+    }
+  >();
+  for (const agentId of agentIds) {
+    const record = engineRecords.get(agentId);
+    if (!record) continue;
+    for (const server of record.servers) {
+      const folder = server.source === "user" ? null : record.cwd;
+      rows.set(JSON.stringify([server.name, server.source, folder]), {
+        engine: "claude",
+        name: server.name,
+        source: server.source,
+        folder,
+      });
+    }
+  }
+  return [...rows.values()].sort(
+    (a, b) =>
+      a.name.localeCompare(b.name) ||
+      a.source.localeCompare(b.source) ||
+      (a.folder ?? "").localeCompare(b.folder ?? ""),
+  );
+}
+
+export function resetClaudeEngineServersForTests(): void {
+  engineRecords.clear();
+}

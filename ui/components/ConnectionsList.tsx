@@ -12,7 +12,10 @@ import {
   type ConnectionRow,
   type ConnectionRowWhere,
 } from "../connection-rows.ts";
-import { onManagedEnvSaved } from "../connections-events.ts";
+import {
+  onConnectionsChanged,
+  onManagedEnvSaved,
+} from "../connections-events.ts";
 
 // The integrations list (task 911c9bbb): every connection the viewer's agents
 // can use, read-only, above the editors that set them. Both halves of the
@@ -83,6 +86,7 @@ export function ConnectionsList({
     .join("|");
 
   useEffect(() => onManagedEnvSaved(() => setReloads((n) => n + 1)), []);
+  useEffect(() => onConnectionsChanged(() => setReloads((n) => n + 1)), []);
 
   useEffect(() => {
     let live = true;
@@ -101,7 +105,15 @@ export function ConnectionsList({
           setError(t("settings.connections.list.loadFailed"));
           return;
         }
-        setList(result);
+        // The MCP fields came later (A2): a server from before them has none,
+        // and a field of another shape loses only its own rows.
+        setList({
+          ...result,
+          mcpServers: Array.isArray(result.mcpServers) ? result.mcpServers : [],
+          engineMcpServers: Array.isArray(result.engineMcpServers)
+            ? result.engineMcpServers
+            : [],
+        });
         setError(null);
       })
       .catch((caught) => {
@@ -142,6 +154,16 @@ export function ConnectionsList({
   }
 
   function setIn(where: ConnectionRowWhere) {
+    if (where.kind === "claudeFile")
+      return where.source === "user"
+        ? t("settings.connections.list.setInClaudeUser")
+        : where.source === "local"
+          ? t("settings.connections.list.setInClaudeLocal", {
+              folder: where.folder ?? "",
+            })
+          : t("settings.connections.list.setInProject", {
+              file: `${where.folder ?? ""}/.mcp.json`,
+            });
     if (where.kind === "claude")
       return rich("settings.connections.list.setIn", {
         place: "claude.ai",
@@ -160,9 +182,11 @@ export function ConnectionsList({
     const place =
       where.place === "variables"
         ? t("settings.connections.envTitle")
-        : t("settings.connections.list.placeSignIn", {
-            provider: where.engine === "codex" ? "Codex" : "Claude",
-          });
+        : where.place === "mcpServers"
+          ? t("settings.mcpServers.title")
+          : t("settings.connections.list.placeSignIn", {
+              provider: where.engine === "codex" ? "Codex" : "Claude",
+            });
     return rich("settings.connections.list.setIn", {
       place,
       link: (chunk) => (
@@ -204,6 +228,39 @@ export function ConnectionsList({
           name: t("settings.connections.list.claudeConnectors"),
           kind: t("settings.connections.list.kindManagedInClaude"),
           detail: t("settings.connections.list.connectorsPendingHint"),
+        };
+      case "mcpServer":
+        return {
+          name: <code>{row.name}</code>,
+          kind: t("settings.connections.list.kindMcpServer"),
+          detail: [
+            row.host,
+            row.problem === "secret_missing"
+              ? t("settings.connections.list.mcpSecretMissing")
+              : row.problem === "secret_host"
+                ? t("settings.connections.list.mcpSecretHost", {
+                    host: row.host,
+                  })
+                : row.secret
+                  ? t("settings.connections.list.mcpCredentialNamed", {
+                      name: row.secret,
+                    })
+                  : row.credential
+                    ? t("settings.connections.list.mcpCredential")
+                    : t("settings.connections.list.mcpNoCredential"),
+          ].join(" · "),
+        };
+      case "engineMcp":
+        return {
+          // Names from the member's own files: rendered as text only.
+          name: <code>{row.name}</code>,
+          kind: t("settings.connections.list.kindMcpInClaude"),
+          detail:
+            row.where.kind === "claudeFile" && row.where.folder !== null
+              ? t("settings.connections.list.engineMcpFolder", {
+                  folder: row.where.folder,
+                })
+              : t("settings.connections.list.engineMcpUser"),
         };
     }
   }
@@ -257,11 +314,16 @@ export function ConnectionsList({
                     {name}
                   </strong>
                   <span style={{ ...hint, margin: 0 }}>{kind}</span>
-                  <span data-connection-tag={row.scope} style={tagStyle}>
-                    {row.scope === "office"
-                      ? t("settings.connections.list.scopeOffice")
-                      : t("settings.connections.list.scopePersonal")}
-                  </span>
+                  {/* Office-wide and Individual are Isomux's scopes. A server
+                      set in Claude reaches whoever its Claude file reaches,
+                      which its detail says. */}
+                  {row.kind !== "engineMcp" && (
+                    <span data-connection-tag={row.scope} style={tagStyle}>
+                      {row.scope === "office"
+                        ? t("settings.connections.list.scopeOffice")
+                        : t("settings.connections.list.scopePersonal")}
+                    </span>
+                  )}
                 </div>
                 <div style={{ ...hint, margin: "4px 0 0" }}>
                   <span
@@ -273,6 +335,14 @@ export function ConnectionsList({
                   {" · "}
                   {setIn(row.where)}
                 </div>
+                {row.kind === "mcpServer" && row.overridden && (
+                  <div
+                    data-mcp-overridden
+                    style={{ ...hint, margin: "4px 0 0" }}
+                  >
+                    {t("settings.connections.list.mcpOverridden")}
+                  </div>
+                )}
                 {(row.kind === "connectors" ||
                   row.kind === "connectorsPending") &&
                   row.scope === "office" && (

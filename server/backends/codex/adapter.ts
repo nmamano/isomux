@@ -73,6 +73,7 @@ import type {
   SubscriptionUsageWindow,
   TokenUsage,
 } from "../types.ts";
+import type { AgentMcpServer } from "../../mcp-servers.ts";
 
 import {
   JsonRpcLiteClient,
@@ -157,6 +158,25 @@ export const CODEX_THREAD_CONFIG_OVERRIDES: Readonly<Record<string, boolean>> =
     "memories.use_memories": false,
     "memories.generate_memories": false,
   };
+
+// The thread config of an agent session: the pins above and the remote MCP
+// servers Isomux registers (server/mcp-servers.ts) as `mcp_servers.<name>`
+// with `url` and `http_headers`. This map goes over the app-server's stdin;
+// `-c` (argv), `env_http_headers` and `bearer_token_env_var` (environment)
+// would expose the header. Codex merges it with config.toml per key, so the
+// names carry Isomux's reserved prefix.
+export function codexThreadConfig(
+  mcpServers: AgentMcpServer[] | undefined,
+): Record<string, unknown> {
+  const config: Record<string, unknown> = { ...CODEX_THREAD_CONFIG_OVERRIDES };
+  for (const server of mcpServers ?? []) {
+    config[`mcp_servers.${server.name}`] = {
+      url: server.url,
+      http_headers: { ...server.headers },
+    };
+  }
+  return config;
+}
 
 // Capability flags for the Codex backend. Match the spec's parity table.
 // hooks: false - Codex emits hook/* notifications but provides no
@@ -741,6 +761,8 @@ export interface CodexSessionInitOpts {
   words?: Translator["t"];
   resumeThreadId?: string;
   ephemeral?: boolean;
+  // Remote MCP servers for the thread config (codexThreadConfig).
+  mcpServers?: AgentMcpServer[];
   // Test seam (T2 adapter contract): inject a fake transport to drive the real
   // translation with curated provider events. Undefined in production, where
   // the constructor builds a real JsonRpcLiteClient.
@@ -944,7 +966,7 @@ export class CodexSession implements BackendSession {
           model: this.opts.modelFamily,
           developerInstructions: this.opts.systemPrompt,
           persistExtendedHistory: false,
-          config: { ...CODEX_THREAD_CONFIG_OVERRIDES },
+          config: codexThreadConfig(this.opts.mcpServers),
         });
         this.threadId = resumeResp.thread.id;
       } else {
@@ -1010,7 +1032,7 @@ export class CodexSession implements BackendSession {
       // persistExtendedHistory is deprecated in 0.130 and ignored by the
       // server, but the wire schema still requires the field.
       persistExtendedHistory: false,
-      config: { ...CODEX_THREAD_CONFIG_OVERRIDES },
+      config: codexThreadConfig(this.opts.mcpServers),
     };
     if (this.opts.ephemeral) params.ephemeral = true;
     if (this.opts.effort) {
@@ -2945,6 +2967,7 @@ export const codexBackend: Backend = {
       sandbox: opts.sandbox,
       env: opts.env,
       words: opts.words,
+      mcpServers: opts.mcpServers,
     });
   },
 
@@ -2960,6 +2983,7 @@ export const codexBackend: Backend = {
       env: opts.env,
       words: opts.words,
       resumeThreadId: sessionId,
+      mcpServers: opts.mcpServers,
     });
   },
 

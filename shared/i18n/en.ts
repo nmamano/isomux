@@ -894,6 +894,55 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.connections.list.claudeConnectors": "Claude connectors",
   "settings.connections.list.connectorsPendingHint":
     "Listed after the next Claude turn on this sign-in.",
+  "settings.mcpServers.title": "MCP servers",
+  "settings.mcpServers.hint":
+    "Remote MCP servers for Claude, Codex and OpenCode agents. Agents get a change when their next session starts: <code>/clear</code> an agent to apply it now.",
+  "settings.mcpServers.ownerManaged":
+    "Office MCP servers are managed by an office owner.",
+  "settings.mcpServers.loadFailed": "Could not load MCP servers.",
+  "settings.mcpServers.saveFailed": "Could not save the MCP server.",
+  "settings.mcpServers.empty": "No MCP servers yet.",
+  "settings.mcpServers.add": "Add an MCP server",
+  "settings.mcpServers.name": "Name",
+  "settings.mcpServers.url": "URL",
+  "settings.mcpServers.urlNote":
+    "Put the credential in the credential field, not in the URL.",
+  "settings.mcpServers.credential": "Credential",
+  "settings.mcpServers.credentialNone": "None",
+  "settings.mcpServers.credentialNew": "New secret",
+  "settings.mcpServers.secretName": "Secret name",
+  "settings.mcpServers.tokenPlaceholder": 'The token alone, without "Bearer"',
+  "settings.mcpServers.formBearer": "Authorization: Bearer",
+  "settings.mcpServers.newSecretHost": "The secret goes only to {host}.",
+  "settings.mcpServers.newSecretNoHost":
+    "Enter the URL first: the secret goes only to its host.",
+  "settings.mcpServers.error.name":
+    "Use up to 24 lowercase letters, digits and hyphens, with a letter or digit at each end.",
+  "settings.mcpServers.error.url":
+    "Enter an https:// URL with no user, password or #fragment. With a credential, use the default port. http:// works only for localhost, with no credential.",
+  "settings.mcpServers.error.exists": "An MCP server with this name exists.",
+  "settings.mcpServers.error.secretNotFound": "That secret does not exist.",
+  "settings.mcpServers.error.secretHost":
+    "The secret does not list {host}. Add the host to the secret, or pick another one.",
+  "settings.connections.list.kindMcpServer": "MCP server",
+  "settings.connections.list.kindMcpInClaude": "MCP server set in Claude",
+  "settings.connections.list.engineMcpUser":
+    "Every Claude agent on the same Claude sign-in",
+  "settings.connections.list.engineMcpFolder":
+    "Every Claude agent that works in {folder}",
+  "settings.connections.list.mcpNoCredential": "No credential",
+  "settings.connections.list.mcpCredential": "Credential set",
+  "settings.connections.list.mcpCredentialNamed": "Credential: {name}",
+  "settings.connections.list.mcpSecretMissing":
+    "Left out: its secret is missing",
+  "settings.connections.list.mcpSecretHost":
+    "Left out: its secret does not list {host}",
+  "settings.connections.list.mcpOverridden":
+    "Your own MCP server with this name replaces it for your agents.",
+  "settings.connections.list.setInClaudeUser": "Set in Claude user settings",
+  "settings.connections.list.setInClaudeLocal":
+    "Set in Claude local settings for {folder}",
+  "settings.connections.list.setInProject": "Set in {file}",
 
   "settings.signIn.apiKeyNote":
     "Do you want to use an API token? See Settings → You → Individual connections.",
@@ -1338,6 +1387,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.officeSecrets.rotate": "Replace an office secret value",
   "apiCall.officeSecrets.update": "Edit an office secret",
   "apiCall.officeSecrets.delete": "Delete an office secret",
+  "apiCall.mcpServers.list": "List my MCP servers",
+  "apiCall.mcpServers.create": "Add an MCP server",
+  "apiCall.mcpServers.update": "Edit an MCP server",
+  "apiCall.mcpServers.delete": "Delete an MCP server",
+  "apiCall.officeMcpServers.list": "List office MCP servers",
+  "apiCall.officeMcpServers.create": "Add an office MCP server",
+  "apiCall.officeMcpServers.update": "Edit an office MCP server",
+  "apiCall.officeMcpServers.delete": "Delete an office MCP server",
   "apiCall.inbox.messageBoss": "Sent message to external token",
   "apiCall.inbox.drain": "Drain API token inbox",
   "apiCall.memory.read": "Read memory",

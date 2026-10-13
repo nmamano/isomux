@@ -16,11 +16,17 @@ export type ConnectionRowWhere =
   | {
       kind: "page";
       half: ConnectionScope;
-      place: "variables" | "signIn";
+      place: "variables" | "signIn" | "mcpServers";
       engine?: "claude" | "codex";
       selector: string;
     }
-  | { kind: "claude"; url: string };
+  | { kind: "claude"; url: string }
+  // Set in Claude's own files, which the page cannot open.
+  | {
+      kind: "claudeFile";
+      source: "user" | "project" | "local";
+      folder: string | null;
+    };
 
 export type ConnectionRow =
   | {
@@ -47,6 +53,27 @@ export type ConnectionRow =
       names: string[];
       where: ConnectionRowWhere;
     }
+  // A remote MCP server Isomux gives every engine.
+  | {
+      kind: "mcpServer";
+      key: string;
+      scope: ConnectionScope;
+      name: string;
+      host: string;
+      credential: boolean;
+      secret: string | null;
+      problem: ConnectionsListRes["mcpServers"][number]["problem"];
+      overridden: boolean;
+      where: ConnectionRowWhere;
+    }
+  // An MCP server set in Claude itself, as the caller's sessions report it.
+  | {
+      kind: "engineMcp";
+      key: string;
+      scope: ConnectionScope;
+      name: string;
+      where: ConnectionRowWhere;
+    }
   // A connected Claude sign-in with no turn seen since the server started:
   // its connectors are not known yet, which is not the same as none.
   | {
@@ -67,6 +94,17 @@ export function variablesSelector(
   return `[data-managed-env-path="${path}"]`;
 }
 
+export function mcpServersSelector(
+  scope: ConnectionScope,
+  username: string,
+): string {
+  const path =
+    scope === "office"
+      ? "/api/office/mcp-servers"
+      : `/api/users/${encodeURIComponent(username)}/mcp-servers`;
+  return `[data-mcp-servers-path="${path}"]`;
+}
+
 export function signInSelector(engine: "claude" | "codex"): string {
   return `[data-provider-card="${engine}"]`;
 }
@@ -74,7 +112,10 @@ export function signInSelector(engine: "claude" | "codex"): string {
 const SCOPES: ConnectionScope[] = ["office", "personal"];
 
 // Office rows first, then the caller's own; inside a scope, sign-ins, then
-// what Claude manages, then variables.
+// what Claude manages, then MCP servers, then variables. The servers set in
+// Claude itself are listed with the caller's rows because the caller's own
+// sessions reported them; they carry no scope tag (who gets one depends on its
+// Claude file, not on an Isomux scope).
 export function connectionRows(
   list: ConnectionsListRes,
   username: string,
@@ -122,6 +163,39 @@ export function connectionRows(
           where: claude,
         });
     }
+    for (const server of list.mcpServers) {
+      if (server.scope !== scope) continue;
+      rows.push({
+        kind: "mcpServer",
+        key: `mcpServer:${scope}:${server.name}`,
+        scope,
+        name: server.name,
+        host: server.host,
+        credential: server.credential,
+        secret: server.secret,
+        problem: server.problem,
+        overridden: server.overridden,
+        where: {
+          kind: "page",
+          half: scope,
+          place: "mcpServers",
+          selector: mcpServersSelector(scope, username),
+        },
+      });
+    }
+    if (scope === "personal")
+      for (const server of list.engineMcpServers)
+        rows.push({
+          kind: "engineMcp",
+          key: `engineMcp:${server.source}:${server.folder ?? ""}:${server.name}`,
+          scope,
+          name: server.name,
+          where: {
+            kind: "claudeFile",
+            source: server.source,
+            folder: server.folder,
+          },
+        });
     for (const variable of list.variables) {
       if (variable.scope !== scope) continue;
       rows.push({

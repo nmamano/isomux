@@ -55,7 +55,7 @@ No code in Isomux starts an agent, a terminal, an app or a scheduled run as a di
 ### 3.2 What follows
 
 - **Members have shell access.** A member can open a terminal panel on each agent in their rooms. The terminal runs as the server's OS user. An agent can also run shell commands for the member.
-- **Shell access is access to all office state.** The state directory (`~/.isomux`) holds the user records, the session and invite hashes, the API token hashes, the managed environment files of all members (`user-env/`, `office-env/`), the secrets of all members and the office (`secrets/`), the webhook secrets, the Discord webhook URLs of the pager, and the provider sign-ins of all members (`provider-homes/`). File modes such as 0600 do not stop a process that runs as the owner of the file.
+- **Shell access is access to all office state.** The state directory (`~/.isomux`) holds the user records, the session and invite hashes, the API token hashes, the managed environment files of all members (`user-env/`, `office-env/`), the secrets of all members and the office (`secrets/`), the remote MCP servers that members and owners register (`mcp-servers/`), the webhook secrets, the Discord webhook URLs of the pager, and the provider sign-ins of all members (`provider-homes/`). File modes such as 0600 do not stop a process that runs as the owner of the file.
 - **A process with that user can change what the server does.** It can write state that the server reads at start. After the next restart, it can have a sign-in that it made itself. On an installer-managed box and on a self-hosted office, that user also owns the server code and can change it. In the container image, root owns the code.
 - **Room access is not a boundary against a member.** Room access controls what the office UI and API show. A shell in one room can read the files of all rooms.
 - **The safety hooks are a guardrail, not a boundary.** See section 6.3.
@@ -257,11 +257,11 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 
 ### 8.1 State files
 
-All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `secrets/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files and the secrets hold their values as plain text.
+All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `secrets/`, `mcp-servers/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files and the secrets hold their values as plain text. A registered MCP server's credential also reaches the config file of each OpenCode profile (`opencode/profiles/<key>/opencode.json`, mode 0600) as plain text.
 
 ### 8.2 Backups
 
-Daily backups do not include the managed environment files, the secrets, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
+Daily backups do not include the managed environment files, the secrets, the registered MCP servers, the OpenCode profile configs, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
 
 ### 8.3 Secret redaction in logs
 

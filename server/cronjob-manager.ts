@@ -4,6 +4,11 @@ import {
 } from "./claude-session-root.ts";
 import { translatorForUserId, translatorForUsername } from "./i18n.ts";
 import {
+  createMcpServerSources,
+  mcpServersForUserId,
+  type AgentMcpServer,
+} from "./mcp-servers.ts";
+import {
   billingAccountFor,
   directInputCapped,
   managerCapped,
@@ -190,6 +195,9 @@ export interface CronjobManagerDeps {
   resolveEnv: typeof defaultResolveEnv;
   resolveEnvironmentKey: typeof defaultResolveEnvironmentKey;
   resolveEnvironmentRevision: typeof defaultResolveEnvironmentRevision;
+  // The remote MCP servers a run of this member gets (production:
+  // server/mcp-servers.ts). None when omitted.
+  resolveMcpServers?: (userId: string | null | undefined) => AgentMcpServer[];
   // Owner lookup for env/identity (production: getUserByName).
   resolveUser: typeof defaultResolveUser;
   // The whole cron config/run persistence surface, injected as one unit.
@@ -902,14 +910,16 @@ How to answer questions about Isomux itself: the source lives at https://github.
     userId: string | null | undefined,
   ): Pick<
     CreateSessionOptions,
-    "env" | "environmentKey" | "environmentRevision"
+    "env" | "environmentKey" | "environmentRevision" | "mcpServers"
   > {
     const env = buildEnvForUserId(userId);
-    if (agentType !== "opencode") return { env };
+    const mcpServers = deps.resolveMcpServers?.(userId) ?? [];
+    if (agentType !== "opencode") return { env, mcpServers };
     return {
       env,
       environmentKey: environmentSourceKeyForUserId(userId),
       environmentRevision: environmentSourceRevisionForUserId(userId),
+      mcpServers,
     };
   }
 
@@ -1268,7 +1278,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // process.env when no env file is configured for the cronjob owner.
     let environment: Pick<
       CreateSessionOptions,
-      "env" | "environmentKey" | "environmentRevision"
+      "env" | "environmentKey" | "environmentRevision" | "mcpServers"
     >;
     try {
       environment = resolveRunEnvironment(job.agentType, job.userId ?? null);
@@ -2513,6 +2523,8 @@ export function createProductionCronjobManager(overrides?: {
     resolveEnv: defaultResolveEnv,
     resolveEnvironmentKey: defaultResolveEnvironmentKey,
     resolveEnvironmentRevision: defaultResolveEnvironmentRevision,
+    resolveMcpServers: (userId) =>
+      mcpServersForUserId(createMcpServerSources(), userId),
     resolveUser: defaultResolveUser,
     persistence: cronPersistence,
     clock: overrides?.clock ?? { now: Date.now },

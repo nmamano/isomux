@@ -206,6 +206,12 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
     id: "secret-store",
     archivePatterns: (root) => rootedDirectory(root, "secrets"),
   },
+  // Remote MCP server registrations (integrations A2): the URL path of some
+  // hosted servers carries a token. After a restore, members add them again.
+  {
+    id: "mcp-server-registrations",
+    archivePatterns: (root) => rootedDirectory(root, "mcp-servers"),
+  },
   {
     id: "codex-shell-snapshots",
     archivePatterns: (root) => [

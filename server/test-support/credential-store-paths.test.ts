@@ -1,5 +1,5 @@
-// The credential directories (secrets/, user-env/, office-env/) and the paths
-// that read or write a file by path: the editor, read-file (agent and
+// The credential directories (secrets/, user-env/, office-env/, mcp-servers/)
+// and the paths that read or write a file by path: the editor, read-file (agent and
 // scheduled run), validate.env, the safety hooks and the browser upload. Each
 // refuses them, through a symlink or ".." too, and none returns a value.
 // Accident protection, not a boundary: see server/credential-store-paths.ts.
@@ -43,13 +43,19 @@ function seedStore(root: string) {
   const user = join(root, "secrets", "users", "u-test.json");
   const userEnv = join(root, "user-env", "u-test.env");
   const officeEnvTemp = join(root, "office-env", ".office.1.a.tmp");
-  for (const path of [store, user, userEnv, officeEnvTemp])
+  // A registered MCP server URL can carry a token in its path.
+  const mcpServers = join(root, "mcp-servers", "users", "u-test.json");
+  for (const path of [store, user, userEnv, officeEnvTemp, mcpServers])
     mkdirSync(join(path, ".."), { recursive: true });
   // A one-line JSON store holds no "=": a dotenv parser would quote it.
   writeFileSync(store, `{"secrets":[{"value":"${FAKE}"}]}`);
   writeFileSync(user, `{"secrets":[{"value":"${FAKE}"}]}`);
   writeFileSync(userEnv, `GH_TOKEN='${FAKE}'\n${FAKE}\n`);
   writeFileSync(officeEnvTemp, `${FAKE}\n`);
+  writeFileSync(
+    mcpServers,
+    `{"servers":[{"url":"https://x.example.com/${FAKE}"}]}`,
+  );
   const linkDir = join(root, "linked");
   mkdirSync(linkDir, { recursive: true });
   const link = join(linkDir, "store-link.json");
@@ -61,6 +67,7 @@ function seedStore(root: string) {
     user,
     userEnv,
     officeEnvTemp,
+    mcpServers,
     link,
     viaDirLink: join(dirLink, "office.json"),
     dotDot: join(root, "linked", "..", "secrets", "office.json"),
@@ -68,7 +75,7 @@ function seedStore(root: string) {
 }
 
 describe("isCredentialStorePath", () => {
-  it("matches the three directories, their temp files, symlinks and '..'", () => {
+  it("matches the four directories, their temp files, symlinks and '..'", () => {
     const paths = seedStore(STATE_ROOT);
     for (const path of Object.values(paths))
       expect(isCredentialStorePath(path)).toBe(true);

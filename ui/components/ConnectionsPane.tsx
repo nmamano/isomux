@@ -15,6 +15,7 @@ import { useAppState, useDispatch } from "../store.tsx";
 import { ProviderSignInCard } from "./ProviderSignInCard.tsx";
 import { ManagedEnvEditor } from "./ManagedEnvEditor.tsx";
 import { SecretsList } from "./SecretsList.tsx";
+import { McpServersList } from "./McpServersList.tsx";
 import { MemberUsageCard } from "./MemberUsageCard.tsx";
 import { ConnectionsList } from "./ConnectionsList.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -202,6 +203,19 @@ export function ConnectionsPane({
       </section>
       <SecretsList
         path={
+          isOffice
+            ? "/api/office/secrets"
+            : `/api/users/${encodeURIComponent(username)}/secrets`
+        }
+        canEdit={!isOffice || role === "owner"}
+      />
+      <McpServersList
+        path={
+          isOffice
+            ? "/api/office/mcp-servers"
+            : `/api/users/${encodeURIComponent(username)}/mcp-servers`
+        }
+        secretsPath={
           isOffice
             ? "/api/office/secrets"
             : `/api/users/${encodeURIComponent(username)}/secrets`

@@ -1,4 +1,5 @@
 import type { Translator } from "../../shared/i18n/translate.ts";
+import type { AgentMcpServer } from "../mcp-servers.ts";
 // Backend abstraction shared by Claude (claude-agent-sdk) and Codex (App Server).
 //
 // SessionManager holds the session lifecycle; agent-manager.ts holds queue / abort / fork / topic-gen
@@ -68,12 +69,19 @@ export interface CreateSessionOptions {
   takeToolBoundaryMessage?: () => string | null;
   // Translates notices the backend writes into the chat; English when absent.
   words?: Translator["t"];
+  // Remote MCP servers Isomux registers for this agent (server/mcp-servers.ts).
+  // Their headers can carry a credential: a backend gives them to its engine
+  // only through a channel that is neither argv nor the environment.
+  mcpServers?: AgentMcpServer[];
 }
 
 export interface SessionEnvironmentOptions {
   env?: { [key: string]: string | undefined };
   environmentKey?: string;
   environmentRevision?: string;
+  // OpenCode: the servers of the shared server's config file. Undefined keeps
+  // the config the server has (callers that do not start an agent session).
+  mcpServers?: AgentMcpServer[];
 }
 
 export interface SessionAccessOptions extends SessionEnvironmentOptions {

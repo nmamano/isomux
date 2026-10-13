@@ -37,6 +37,8 @@ function sources(
     claudeConnectorDir: (scope) => `/claude/${scope}`,
     claudeConnectorsFor: (dir) =>
       dir === "/claude/office" ? { names: ["Gmail"], seenAt: 10 } : null,
+    mcpServers: () => [],
+    engineMcpServers: () => [],
     ...overrides,
   };
 }
@@ -59,6 +61,8 @@ describe("buildConnectionsList", () => {
         // Connected, but no Claude turn seen since the server started.
         { scope: "personal", seenAt: null, names: [] },
       ],
+      mcpServers: [],
+      engineMcpServers: [],
     });
   });
 

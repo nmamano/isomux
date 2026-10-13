@@ -29,6 +29,8 @@ import { STATE_ROOT } from "../../config.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import {
   buildCodexUserInput,
+  CODEX_THREAD_CONFIG_OVERRIDES,
+  codexThreadConfig,
   CODEX_PLAN_DISPLAY_NAMES,
   codexResetsAtMs,
   codexWindowLabel,
@@ -426,7 +428,13 @@ describe("CodexSession bootstrap", () => {
     // buildThreadStartParams is the indirect carrier: one call site passes
     // its return value rather than an inline object.
     const builder = src.slice(src.indexOf("private buildThreadStartParams("));
-    expect(builder).toContain("CODEX_THREAD_CONFIG_OVERRIDES");
+    expect(builder).toContain("codexThreadConfig(");
+    // codexThreadConfig spreads the pins (and adds the MCP servers).
+    const helper = src.slice(
+      src.indexOf("export function codexThreadConfig("),
+      src.indexOf("export function codexThreadConfig(") + 400,
+    );
+    expect(helper).toContain("...CODEX_THREAD_CONFIG_OVERRIDES");
     const sites = [...src.matchAll(/"thread\/(?:start|resume)"/g)];
     expect(sites.length).toBeGreaterThanOrEqual(3);
     for (const site of sites) {
@@ -435,6 +443,7 @@ describe("CodexSession bootstrap", () => {
       const window = src.slice(Math.max(0, site.index - 300), site.index + 800);
       const carries =
         window.includes("CODEX_THREAD_CONFIG_OVERRIDES") ||
+        window.includes("codexThreadConfig(") ||
         window.includes("buildThreadStartParams");
       expect({ site: window.slice(280, 360), carries }).toMatchObject({
         carries: true,
@@ -450,6 +459,48 @@ describe("CodexSession bootstrap", () => {
     const config = memoriesConfigOf(fake.requests[0].params);
     expect(config["memories.use_memories"]).toBe(false);
     expect(config["memories.generate_memories"]).toBe(false);
+  });
+
+  // Remote MCP servers (integrations A2) go in the same per-thread config
+  // map, over stdin: never -c (argv) or env_http_headers (environment).
+  const mcpServers = [
+    {
+      name: "isomux-docs",
+      url: "https://docs.example.com/mcp",
+      headers: { Authorization: "Bearer fake-codex-mcp-value-0000" },
+    },
+  ];
+  const mcpEntry = {
+    url: "https://docs.example.com/mcp",
+    http_headers: { Authorization: "Bearer fake-codex-mcp-value-0000" },
+  };
+
+  it("thread/start and thread/resume carry the MCP servers next to the pins", async () => {
+    const started = start(new FakeCodexTransport(), { mcpServers });
+    await nextEvent(started.it, "system_init");
+    const resumedFake = new FakeCodexTransport();
+    const resumed = start(resumedFake, {
+      mcpServers,
+      resumeThreadId: "resumed-thread-9",
+    });
+    await nextEvent(resumed.it, "system_init");
+    for (const request of [started.fake.requests[0], resumedFake.requests[0]]) {
+      const config = memoriesConfigOf(request.params);
+      expect(config["mcp_servers.isomux-docs"]).toEqual(mcpEntry);
+      expect(config["memories.use_memories"]).toBe(false);
+      expect(
+        Object.keys(config).filter((key) => key.startsWith("mcp_servers.")),
+      ).toEqual(["mcp_servers.isomux-docs"]);
+    }
+  });
+
+  it("codexThreadConfig adds nothing without servers and never an env-based header key", () => {
+    expect(codexThreadConfig(undefined)).toEqual({
+      ...CODEX_THREAD_CONFIG_OVERRIDES,
+    });
+    const text = JSON.stringify(codexThreadConfig(mcpServers));
+    expect(text).not.toContain("env_http_headers");
+    expect(text).not.toContain("bearer_token_env_var");
   });
 
   it("bootstrap failure defers: system_init with empty id, send() rejects with the captured error", async () => {

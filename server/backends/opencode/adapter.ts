@@ -452,6 +452,7 @@ export function createOpenCodeBackend(
       opts.environmentKey,
       opts.env,
       opts.environmentRevision,
+      opts.mcpServers,
     );
   };
   const transportForSession = (sessionId: string): OpenCodeTransport => {

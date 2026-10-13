@@ -31,6 +31,8 @@ let connectionsResponse: () => unknown = () => ({
   variables: [],
   signIns: [],
   claudeConnectors: [],
+  mcpServers: [],
+  engineMcpServers: [],
 });
 setApiShim(async (_method, path) => {
   if (path.startsWith("/api/memory"))
@@ -38,6 +40,8 @@ setApiShim(async (_method, path) => {
   if (path.startsWith("/api/me/provider-accounts"))
     return providerAccountsResponse();
   if (path === "/api/me/connections") return connectionsResponse();
+  if (path.endsWith("/mcp-servers")) return { servers: [] };
+  if (path.endsWith("/secrets")) return { secrets: [] };
   return {};
 });
 afterAll(() => setApiShim(null));
@@ -152,6 +156,8 @@ describe("the connections cross-links", () => {
         variables: [],
         signIns: [],
         claudeConnectors: [],
+        mcpServers: [],
+        engineMcpServers: [],
       });
     }
   });

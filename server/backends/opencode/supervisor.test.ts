@@ -6,6 +6,7 @@ import {
   readdir,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -13,6 +14,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   OpenCodeSupervisor,
+  openCodeConfigFor,
   openCodeSupervisorForEnvironment,
 } from "./supervisor.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
@@ -260,6 +262,77 @@ describe("OpenCode shared server supervisor", () => {
     expect(different).not.toBe(first);
     expect(first.profileDir).not.toContain("alpha");
     expect(different.profileDir).not.toContain("beta");
+  });
+
+  it("gives remote MCP servers to the server through its config file only, with every other config layer kept out", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const value = "fake-opencode-mcp-value-0000";
+    const supervisor = makeSupervisor(
+      path,
+      openCodeConfigFor([
+        {
+          name: "isomux-docs",
+          url: "https://docs.example.com/mcp",
+          headers: { Authorization: `Bearer ${value}` },
+        },
+      ]),
+      1000,
+      {},
+      5000,
+      binary,
+    );
+    const lease = await supervisor.acquire();
+    const configPath = join(supervisor.profileDir, "opencode.json");
+    const written = JSON.parse(await readFile(configPath, "utf8"));
+    expect(written.mcp).toEqual({
+      "isomux-docs": {
+        type: "remote",
+        url: "https://docs.example.com/mcp",
+        headers: { Authorization: `Bearer ${value}` },
+        oauth: false,
+        enabled: true,
+      },
+    });
+    expect((await stat(configPath)).mode & 0o777).toBe(0o600);
+    // The lock that keeps a project or user config from merging into these
+    // entries (OpenCode merges layers deeply): no project config, --pure, and
+    // the profile's own HOME and XDG directories.
+    await expectChildEnvironment(lease.pid, {
+      OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+      OPENCODE_CONFIG: configPath,
+      HOME: join(supervisor.profileDir, "home"),
+      XDG_CONFIG_HOME: join(supervisor.profileDir, "config"),
+      XDG_DATA_HOME: join(supervisor.profileDir, "data"),
+      XDG_STATE_HOME: join(supervisor.profileDir, "state"),
+      XDG_CACHE_HOME: join(supervisor.profileDir, "cache"),
+      OPENCODE_CONFIG_CONTENT: undefined,
+    });
+    const cmdline = (await readFile(`/proc/${lease.pid}/cmdline`)).toString();
+    expect(cmdline.replaceAll("\0", " ")).toContain(" serve --pure ");
+    expect(cmdline.includes(value)).toBe(false);
+    const environ = (await readFile(`/proc/${lease.pid}/environ`)).toString();
+    expect(environ.includes(value)).toBe(false);
+    lease.release();
+  });
+
+  it("keeps a profile's MCP servers when a caller passes none", () => {
+    const servers = [
+      { name: "isomux-docs", url: "https://docs.example.com/mcp", headers: {} },
+    ];
+    const supervisor = openCodeSupervisorForEnvironment(
+      "source-mcp-keep",
+      {},
+      "rev",
+      servers,
+    );
+    const config = supervisor.configuration;
+    // A model list or a transcript read passes no servers.
+    openCodeSupervisorForEnvironment("source-mcp-keep", {}, "rev");
+    expect(supervisor.configuration).toBe(config);
+    openCodeSupervisorForEnvironment("source-mcp-keep", {}, "rev", []);
+    expect(supervisor.configuration.mcp).toBeUndefined();
+    expect(openCodeConfigFor([])).not.toHaveProperty("mcp");
   });
 
   it("writes the named unattended agent without widening the default permissions", async () => {

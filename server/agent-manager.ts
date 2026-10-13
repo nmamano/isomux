@@ -6,8 +6,11 @@ import {
 } from "./claude-session-root.ts";
 import {
   claudeConnectorGeneration,
+  forgetClaudeEngineServers,
   recordClaudeConnectorsFromSession,
+  recordClaudeEngineServers,
 } from "./claude-connectors.ts";
+import { createMcpServerSources, mcpServersForUserId } from "./mcp-servers.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
 import type { RoomDecorPatch } from "../shared/room-decor.ts";
@@ -2556,6 +2559,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   function getAgent(agentId: string): AgentInfo | undefined {
     return agents.get(agentId)?.info;
+  }
+
+  // The agents a member spawned (the integrations page lists what their
+  // Claude sessions report).
+  function agentIdsOfUser(userId: string): string[] {
+    return [...agents.values()]
+      .filter((managed) => managed.info.userId === userId)
+      .map((managed) => managed.info.id);
+  }
+
+  // The remote MCP servers a member's agents get (server/mcp-servers.ts).
+  // Never throws: a problem leaves servers out.
+  const mcpSources = createMcpServerSources();
+  function agentMcpServers(userId: string | null | undefined) {
+    return mcpServersForUserId(mcpSources, userId);
   }
 
   function tokenUserIdFor(info: AgentInfo): string | null {
@@ -5288,6 +5306,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (managed.info.agentType !== "claude") return;
     managed.claudeApiKeySource = ev.apiKeySource;
     try {
+      recordClaudeEngineServers(
+        managed.info.id,
+        managed.info.cwd,
+        ev.mcpServers,
+      );
       recordClaudeConnectorsFromSession(launchOf(managed), {
         mcpServers: ev.mcpServers,
         apiKeySource: ev.apiKeySource,
@@ -5313,6 +5336,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     void (async () => {
       try {
         const servers = await session.getMcpServers!();
+        recordClaudeEngineServers(managed.info.id, managed.info.cwd, servers);
         recordClaudeConnectorsFromSession(launch, {
           mcpServers: servers,
           apiKeySource,
@@ -5725,6 +5749,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       environmentRevision: environmentSourceRevisionForUserId(
         managed.info.userId,
       ),
+      mcpServers: agentMcpServers(managed.info.userId),
     };
     const backend = getBackend(managed.info.agentType);
     managed.launchedClaudeConfigDir =
@@ -8737,6 +8762,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agents.delete(agentId);
     dropSettledChoiceInteractions(agentId);
     userSendDedupe.forgetAgent(agentId);
+    forgetClaudeEngineServers(agentId);
     // The agent left the live map; revoke its bearer token (mirrors the mint at
     // spawn/restore). A killed agent has no subprocess and no valid token.
     revokeAgentToken(agentId);
@@ -10177,6 +10203,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     sweepIdleAgents,
     sweepStuckFlushes,
     getAgent,
+    agentIdsOfUser,
+    agentMcpServers,
     emitAgentEditRequest,
     emitAgentTerminalCommand,
     emitAgentReadFile,

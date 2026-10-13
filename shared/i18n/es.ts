@@ -901,6 +901,57 @@ Cosas que puedes hacer por él:
   "settings.connections.list.claudeConnectors": "Conectores de Claude",
   "settings.connections.list.connectorsPendingHint":
     "Aparecen tras el próximo turno de Claude con este inicio de sesión.",
+  "settings.mcpServers.title": "Servidores MCP",
+  "settings.mcpServers.hint":
+    "Servidores MCP remotos para agentes de Claude, Codex y OpenCode. Los agentes reciben un cambio cuando empieza su próxima sesión: usa <code>/clear</code> en un agente para aplicarlo ya.",
+  "settings.mcpServers.ownerManaged":
+    "Los servidores MCP de la oficina los gestiona un propietario de la oficina.",
+  "settings.mcpServers.loadFailed": "No se pudieron cargar los servidores MCP.",
+  "settings.mcpServers.saveFailed": "No se pudo guardar el servidor MCP.",
+  "settings.mcpServers.empty": "Aún no hay servidores MCP.",
+  "settings.mcpServers.add": "Añadir un servidor MCP",
+  "settings.mcpServers.name": "Nombre",
+  "settings.mcpServers.url": "URL",
+  "settings.mcpServers.urlNote":
+    "Pon la credencial en el campo de credencial, no en la URL.",
+  "settings.mcpServers.credential": "Credencial",
+  "settings.mcpServers.credentialNone": "Ninguna",
+  "settings.mcpServers.credentialNew": "Secreto nuevo",
+  "settings.mcpServers.secretName": "Nombre del secreto",
+  "settings.mcpServers.tokenPlaceholder": 'Solo el token, sin "Bearer"',
+  "settings.mcpServers.formBearer": "Authorization: Bearer",
+  "settings.mcpServers.newSecretHost": "El secreto solo va a {host}.",
+  "settings.mcpServers.newSecretNoHost":
+    "Escribe primero la URL: el secreto solo va a su host.",
+  "settings.mcpServers.error.name":
+    "Usa hasta 24 letras minúsculas, dígitos y guiones, con una letra o un dígito en cada extremo.",
+  "settings.mcpServers.error.url":
+    "Escribe una URL https:// sin usuario, contraseña ni #fragmento. Con credencial, usa el puerto predeterminado. http:// solo funciona para localhost, sin credencial.",
+  "settings.mcpServers.error.exists":
+    "Ya existe un servidor MCP con este nombre.",
+  "settings.mcpServers.error.secretNotFound": "Ese secreto no existe.",
+  "settings.mcpServers.error.secretHost":
+    "El secreto no incluye {host}. Añade el host al secreto o elige otro.",
+  "settings.connections.list.kindMcpServer": "Servidor MCP",
+  "settings.connections.list.kindMcpInClaude":
+    "Servidor MCP definido en Claude",
+  "settings.connections.list.engineMcpUser":
+    "Todos los agentes de Claude con el mismo inicio de sesión de Claude",
+  "settings.connections.list.engineMcpFolder":
+    "Todos los agentes de Claude que trabajan en {folder}",
+  "settings.connections.list.mcpNoCredential": "Sin credencial",
+  "settings.connections.list.mcpCredential": "Credencial definida",
+  "settings.connections.list.mcpCredentialNamed": "Credencial: {name}",
+  "settings.connections.list.mcpSecretMissing": "Excluido: falta su secreto",
+  "settings.connections.list.mcpSecretHost":
+    "Excluido: su secreto no incluye {host}",
+  "settings.connections.list.mcpOverridden":
+    "Tu propio servidor MCP con este nombre lo sustituye para tus agentes.",
+  "settings.connections.list.setInClaudeUser":
+    "Definido en la configuración de usuario de Claude",
+  "settings.connections.list.setInClaudeLocal":
+    "Definido en la configuración local de Claude para {folder}",
+  "settings.connections.list.setInProject": "Definido en {file}",
 
   "settings.signIn.apiKeyNote":
     "¿Quieres usar un token de API? Mira Ajustes → Tú → Conexiones individuales.",
@@ -1362,6 +1413,14 @@ Cosas que puedes hacer por él:
     "Reemplazar el valor de un secreto de la oficina",
   "apiCall.officeSecrets.update": "Editar un secreto de la oficina",
   "apiCall.officeSecrets.delete": "Eliminar un secreto de la oficina",
+  "apiCall.mcpServers.list": "Listar mis servidores MCP",
+  "apiCall.mcpServers.create": "Añadir un servidor MCP",
+  "apiCall.mcpServers.update": "Editar un servidor MCP",
+  "apiCall.mcpServers.delete": "Eliminar un servidor MCP",
+  "apiCall.officeMcpServers.list": "Listar los servidores MCP de la oficina",
+  "apiCall.officeMcpServers.create": "Añadir un servidor MCP de la oficina",
+  "apiCall.officeMcpServers.update": "Editar un servidor MCP de la oficina",
+  "apiCall.officeMcpServers.delete": "Eliminar un servidor MCP de la oficina",
   "apiCall.inbox.messageBoss": "Mensaje enviado al token externo",
   "apiCall.inbox.drain": "Vaciar la bandeja del token de API",
   "apiCall.memory.read": "Leer la memoria",

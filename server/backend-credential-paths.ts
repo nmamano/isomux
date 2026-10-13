@@ -8,6 +8,7 @@ export interface BackendCredentialPath {
     | "codex-login"
     | "opencode-login"
     | "opencode-mcp-login"
+    | "opencode-isomux-config"
     | "browser-profile";
   pattern: RegExp;
   archivePatterns: (stateRootName: string) => string[];
@@ -59,6 +60,13 @@ export const BACKEND_CREDENTIAL_PATHS: readonly BackendCredentialPath[] = [
       ...anywhere(root, ".local/share/opencode/mcp-auth.json"),
       `${root}/opencode/profiles/*/data/opencode/mcp-auth.json`,
     ],
+  },
+  // The config Isomux writes for each OpenCode profile: it carries the
+  // headers of the remote MCP servers Isomux registers (integrations A2).
+  {
+    id: "opencode-isomux-config",
+    pattern: /(^|\/)opencode\/profiles\/[^/]+\/opencode\.json$/,
+    archivePatterns: (root) => [`${root}/opencode/profiles/*/opencode.json`],
   },
 ];
 

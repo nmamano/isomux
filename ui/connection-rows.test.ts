@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   CLAUDE_CONNECTORS_URL,
+  mcpServersSelector,
   connectionRows,
   signInSelector,
   variablesSelector,
@@ -20,6 +21,8 @@ const list: ConnectionsListRes = {
     { scope: "office", seenAt: 10, names: ["Gmail", "Drive"] },
     { scope: "personal", seenAt: null, names: [] },
   ],
+  mcpServers: [],
+  engineMcpServers: [],
 };
 
 describe("connectionRows", () => {
@@ -85,5 +88,79 @@ describe("connectionRows", () => {
         (row) => row.kind === "connectorsPending",
       ),
     ).toHaveLength(1);
+  });
+});
+
+describe("connectionRows: MCP servers", () => {
+  const withServers: ConnectionsListRes = {
+    ...list,
+    mcpServers: [
+      {
+        scope: "office",
+        name: "linear",
+        host: "mcp.linear.app",
+        credential: true,
+        secret: null,
+        problem: null,
+        overridden: true,
+      },
+      {
+        scope: "personal",
+        name: "linear",
+        host: "mcp.example.com",
+        credential: false,
+        secret: null,
+        problem: null,
+        overridden: false,
+      },
+    ],
+    engineMcpServers: [
+      { engine: "claude", name: "notes", source: "user", folder: null },
+      { engine: "claude", name: "repo", source: "project", folder: "/w/app" },
+    ],
+  };
+
+  it("puts Isomux servers after connectors in their scope, and Claude's own with the caller's", () => {
+    expect(
+      connectionRows(withServers, "Ann Lee").map((row) => [
+        row.kind,
+        row.scope,
+      ]),
+    ).toEqual([
+      ["signIn", "office"],
+      ["connectors", "office"],
+      ["mcpServer", "office"],
+      ["variable", "office"],
+      ["signIn", "personal"],
+      ["connectorsPending", "personal"],
+      ["mcpServer", "personal"],
+      ["engineMcp", "personal"],
+      ["engineMcp", "personal"],
+      ["variable", "personal"],
+    ]);
+  });
+
+  it("points an Isomux server at its editor and Claude's own at Claude's files", () => {
+    const rows = connectionRows(withServers, "Ann Lee");
+    const where = Object.fromEntries(rows.map((row) => [row.key, row.where]));
+    expect(where["mcpServer:personal:linear"]).toEqual({
+      kind: "page",
+      half: "personal",
+      place: "mcpServers",
+      selector: mcpServersSelector("personal", "Ann Lee"),
+    });
+    expect(mcpServersSelector("personal", "Ann Lee")).toBe(
+      '[data-mcp-servers-path="/api/users/Ann%20Lee/mcp-servers"]',
+    );
+    expect(where["engineMcp:project:/w/app:repo"]).toEqual({
+      kind: "claudeFile",
+      source: "project",
+      folder: "/w/app",
+    });
+    expect(where["engineMcp:user::notes"]).toEqual({
+      kind: "claudeFile",
+      source: "user",
+      folder: null,
+    });
   });
 });

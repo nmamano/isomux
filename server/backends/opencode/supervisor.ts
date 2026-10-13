@@ -4,6 +4,7 @@ import { getAgentHost } from "../../agent-host.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
+import type { AgentMcpServer } from "../../mcp-servers.ts";
 import {
   processIdentityMatches,
   processIsRunning,
@@ -268,6 +269,11 @@ export class OpenCodeSupervisor {
     this.replacementRequested = true;
   }
 
+  // The config the next server start writes to opencode.json.
+  get configuration(): Readonly<Record<string, unknown>> {
+    return this.config;
+  }
+
   updateConfiguration(config: Record<string, unknown>): void {
     const next = { ...config, autoupdate: false };
     const revision = this.computeConfigRevision(next);
@@ -479,10 +485,41 @@ export const openCodeSupervisor = new OpenCodeSupervisor();
 
 const environmentSupervisors = new Map<string, OpenCodeSupervisor>();
 
+// The config file of a profile's server: the defaults and the remote MCP
+// servers Isomux registers (server/mcp-servers.ts). The file is the only
+// channel for their headers: never the server's argv or environment. OpenCode
+// merges config layers deeply, so this is safe only while start-server.ts
+// keeps every other layer out (--pure, OPENCODE_DISABLE_PROJECT_CONFIG and the
+// per-profile HOME and XDG directories); supervisor.test.ts pins them.
+export function openCodeConfigFor(
+  mcpServers: AgentMcpServer[],
+): Record<string, unknown> {
+  if (mcpServers.length === 0) return DEFAULT_OPENCODE_CONFIG;
+  return {
+    ...DEFAULT_OPENCODE_CONFIG,
+    mcp: Object.fromEntries(
+      mcpServers.map((server) => [
+        server.name,
+        {
+          type: "remote",
+          url: server.url,
+          headers: { ...server.headers },
+          oauth: false,
+          enabled: true,
+        },
+      ]),
+    ),
+  };
+}
+
+// `mcpServers` undefined keeps the config the profile's server has: callers
+// that do not start an agent session (a model list, a transcript read) must
+// not drop the servers and restart it.
 export function openCodeSupervisorForEnvironment(
   environmentKey: string | undefined,
   env: Record<string, string | undefined> | undefined,
   environmentRevision = "default",
+  mcpServers?: AgentMcpServer[],
 ): OpenCodeSupervisor {
   const launchEnv = Object.fromEntries(
     Object.entries(env ?? {})
@@ -505,10 +542,12 @@ export function openCodeSupervisorForEnvironment(
       profileDir,
       launchEnv,
       environmentRevision,
+      config: openCodeConfigFor(mcpServers ?? []),
     });
     environmentSupervisors.set(key, supervisor);
   } else {
-    supervisor.updateConfiguration(DEFAULT_OPENCODE_CONFIG);
+    if (mcpServers)
+      supervisor.updateConfiguration(openCodeConfigFor(mcpServers));
     supervisor.updateLaunchEnvironment(launchEnv, environmentRevision);
   }
   return supervisor;

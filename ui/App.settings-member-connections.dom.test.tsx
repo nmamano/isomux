@@ -30,7 +30,15 @@ setApiShim(async (_method, path) => {
     return { text: "", version: "0", size: 0, cap: 4000 };
   if (path.startsWith("/api/me/provider-accounts")) return { accounts: [] };
   if (path === "/api/me/connections")
-    return { variables: [], signIns: [], claudeConnectors: [] };
+    return {
+      variables: [],
+      signIns: [],
+      claudeConnectors: [],
+      mcpServers: [],
+      engineMcpServers: [],
+    };
+  if (path.endsWith("/mcp-servers")) return { servers: [] };
+  if (path.endsWith("/secrets")) return { secrets: [] };
   if (path.endsWith("/env/names"))
     return {
       names: ["GH_TOKEN", "ZED_TOKEN"],

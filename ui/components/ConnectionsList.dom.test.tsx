@@ -17,6 +17,8 @@ const list: List = {
     { scope: "office", seenAt: 1, names: ['<img src=x onerror="boom">'] },
     { scope: "personal", seenAt: 2, names: ["Drive"] },
   ],
+  mcpServers: [],
+  engineMcpServers: [],
 };
 
 test("each row shows its scope tag, and only the office sign-in's connectors say every Claude agent can use them", async () => {
@@ -112,6 +114,8 @@ test("an unseen sign-in reads as pending, and a variables save reloads the list"
     variables: [],
     signIns: [{ scope: "office", engine: "claude", account: null }],
     claudeConnectors: [{ scope: "office", seenAt: null, names: [] }],
+    mcpServers: [],
+    engineMcpServers: [],
   };
   setApiShim(async (method, path) => {
     expect([method, path]).toEqual(["GET", "/api/me/connections"]);
@@ -153,5 +157,69 @@ test("a variables editor save tells the list to reload", async () => {
   await act(async () => fireEvent.click(buttons[buttons.length - 1]));
   expect(saves).toBe(1);
   stop();
+  view.unmount();
+});
+
+test("an MCP server row shows its host and credential, a replaced office one says so, and Claude's own say where they are set", async () => {
+  const { translatorFor } = await import("../../shared/i18n/translate");
+  const { t } = translatorFor("en");
+  setApiShim(async () => ({
+    variables: [],
+    signIns: [],
+    claudeConnectors: [],
+    mcpServers: [
+      {
+        scope: "office",
+        name: "linear",
+        host: "mcp.linear.app",
+        credential: true,
+        secret: null,
+        problem: null,
+        overridden: true,
+      },
+      {
+        scope: "personal",
+        name: "docs",
+        host: "docs.example.com",
+        credential: true,
+        secret: "DOCS_TOKEN",
+        problem: "secret_missing",
+        overridden: false,
+      },
+    ],
+    engineMcpServers: [
+      { engine: "claude", name: "repo", source: "project", folder: "/w/app" },
+    ],
+  }));
+  const view = render(<ConnectionsList username="Ann" half="office" />);
+  await act(async () => {});
+  const rows = [
+    ...view.container.querySelectorAll<HTMLElement>("[data-connection-row]"),
+  ];
+  expect(rows.map((row) => row.dataset.connectionRow)).toEqual([
+    "mcpServer",
+    "mcpServer",
+    "engineMcp",
+  ]);
+  const detail = (row: HTMLElement) =>
+    row.querySelector("[data-connection-detail]")!.textContent;
+  expect(detail(rows[0])).toBe(
+    `mcp.linear.app · ${t("settings.connections.list.mcpCredential")}`,
+  );
+  expect(rows[0].querySelector("[data-mcp-overridden]")).not.toBeNull();
+  expect(detail(rows[1])).toBe(
+    `docs.example.com · ${t("settings.connections.list.mcpSecretMissing")}`,
+  );
+  expect(rows[1].querySelector("[data-mcp-overridden]")).toBeNull();
+  expect(rows[2].textContent).toContain(
+    t("settings.connections.list.setInProject", { file: "/w/app/.mcp.json" }),
+  );
+  // Who gets a server set in Claude depends on its Claude file, not on an
+  // Isomux scope: no Office-wide or Individual tag, and the detail says who.
+  expect(rows[2].querySelector("[data-connection-tag]")).toBeNull();
+  expect(rows[0].querySelector("[data-connection-tag]")).not.toBeNull();
+  expect(detail(rows[2])).toBe(
+    t("settings.connections.list.engineMcpFolder", { folder: "/w/app" }),
+  );
   view.unmount();
 });

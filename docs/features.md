@@ -166,7 +166,8 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Built-in safety checks (Claude, Codex, and OpenCode agents)** - blocks `rm -rf`, `git reset --hard`, recognized process-kill commands, reading secret-bearing files like `.env`, and recognized commands that open outbound tunnels. These guards are an honest-agent safety layer, not OS isolation.
 - **Secret leak prevention** - Isomux masks recognized secret patterns before they reach the logs or the chat.
 - **Managed environment variables** - keep API tokens and other secrets out of prompts: edit office-wide variables in Settings → Office → Office-wide connections and personal ones in Settings → You → Individual connections, and Isomux stores them in private files under `~/.isomux/`. Personal values override office-wide values. Other per-user variables work the same way, for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials. Values are not embedded in prompts or conversation logs.
-- **All connections** - see every variable, sign-in and claude.ai connector your agents can use, who gets it, and where it is set.
+- **All connections** - see every variable, sign-in, claude.ai connector and MCP server your agents can use, who gets it, and where it is set.
+- **Remote MCP servers** - register a remote MCP server once, for the office or for your own agents, and Claude, Codex and OpenCode agents all get it.
 - **Codex approvals** - when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
 - **Personal API tokens** - drive the office from an external tool and receive the token’s sends and replies through the office WebSocket.
 

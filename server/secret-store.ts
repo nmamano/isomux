@@ -1,6 +1,7 @@
 // The secret store (internal-docs/secrets-design.md, section 1). Values are
 // write-only: nothing in this module returns one except readSecretValues,
-// which is for the proxy (B2) and has no caller in B1.
+// which has two callers: the MCP server headers (server/mcp-servers.ts,
+// integrations A2) and the proxy (B2). Neither sends it to a client.
 //
 // STATE_ROOT/secrets/office.json and STATE_ROOT/secrets/users/<userId>.json,
 // 0600 files in 0700 directories, written like the env files. Every change is
@@ -227,6 +228,23 @@ export function createSecretStore(root: string = STATE_ROOT) {
       return { ok: true, secret: toWire(secret) };
     },
 
+    // The value with its hosts and form, or null when there is no secret of
+    // that name. Never for a response or a log line.
+    readSecretValues(
+      scope: SecretScope,
+      name: string,
+    ): { value: string; hosts: string[]; form: SecretForm } | null {
+      const secret = read(scope).find((s) => s.name === name);
+      if (!secret) return null;
+      return {
+        value: secret.value,
+        hosts: [...secret.hosts],
+        form: { ...secret.form },
+      };
+    },
+
+    // Keeps the file when the list becomes empty: its path is part of the
+    // member's OpenCode profile key (env-loader.ts), which must not move back.
     remove(scope: SecretScope, name: string): boolean {
       const secrets = read(scope);
       const next = secrets.filter((s) => s.name !== name);

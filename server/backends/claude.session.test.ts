@@ -16,6 +16,7 @@ import {
   toolBoundaryHooks,
   type SdkClient,
   type SdkConversation,
+  type SdkMcpRegistration,
   type SdkOneShotOptions,
 } from "./claude";
 import type { ContextUsage, SubscriptionUsageResult } from "./types";
@@ -104,10 +105,14 @@ class FakeSdkConversation implements SdkConversation {
 
 class FakeSdkClient implements SdkClient {
   conversations: FakeSdkConversation[] = [];
-  createCalls: { opts: Parameters<SdkClient["createSession"]>[0] }[] = [];
+  createCalls: {
+    opts: Parameters<SdkClient["createSession"]>[0];
+    mcp?: SdkMcpRegistration;
+  }[] = [];
   resumeCalls: {
     sessionId: string;
     opts: Parameters<SdkClient["resumeSession"]>[1];
+    mcp?: SdkMcpRegistration;
   }[] = [];
   oneShotCalls: SdkOneShotOptions[] = [];
   forkCalls: { sessionId: string; opts: { upToMessageId: string } }[] = [];
@@ -119,8 +124,9 @@ class FakeSdkClient implements SdkClient {
 
   createSession(
     opts: Parameters<SdkClient["createSession"]>[0],
+    mcp?: SdkMcpRegistration,
   ): SdkConversation {
-    this.createCalls.push({ opts });
+    this.createCalls.push({ opts, mcp });
     const conv = new FakeSdkConversation();
     this.conversations.push(conv);
     return conv;
@@ -129,8 +135,9 @@ class FakeSdkClient implements SdkClient {
   resumeSession(
     sessionId: string,
     opts: Parameters<SdkClient["resumeSession"]>[1],
+    mcp?: SdkMcpRegistration,
   ): SdkConversation {
-    this.resumeCalls.push({ sessionId, opts });
+    this.resumeCalls.push({ sessionId, opts, mcp });
     const conv = new FakeSdkConversation();
     this.conversations.push(conv);
     return conv;
@@ -1416,5 +1423,68 @@ describe("Claude cloud defaults at the SDK boundary", () => {
     } finally {
       setAgentHost(previous);
     }
+  });
+});
+
+// Remote MCP servers (integrations A2) reach the SDK client as their own
+// argument, for setMcpServers. Never in the Options: the SDK puts its
+// mcpServers option on the CLI's argv, headers included.
+describe("ClaudeBackend remote MCP servers", () => {
+  const value = "fake-claude-mcp-value-0000";
+  const opts = {
+    agentId: "agent-mcp",
+    cwd: "/tmp",
+    systemPrompt: "sys",
+    modelFamily: "haiku",
+    effort: "high",
+    permissionMode: "default",
+    mcpServers: [
+      {
+        name: "isomux-docs",
+        url: "https://docs.example.com/mcp",
+        headers: { Authorization: `Bearer ${value}` },
+      },
+    ],
+  };
+  const expected: SdkMcpRegistration = {
+    agentId: "agent-mcp",
+    servers: {
+      "isomux-docs": {
+        type: "http",
+        url: "https://docs.example.com/mcp",
+        headers: { Authorization: `Bearer ${value}` },
+      },
+    },
+  };
+
+  it("hands them over on create and on resume, never inside the Options", () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    backend.createSession(opts);
+    backend.resumeSession("s-1", opts);
+    expect(fake.createCalls[0].mcp).toEqual(expected);
+    expect(fake.resumeCalls[0].mcp).toEqual(expected);
+    for (const sdkOpts of [
+      fake.createCalls[0].opts,
+      fake.resumeCalls[0].opts,
+    ]) {
+      expect(sdkOpts).not.toHaveProperty("mcpServers");
+      expect(sdkOpts).not.toHaveProperty("extraArgs");
+      const v1 = sessionOptsToV1(sdkOpts, "s-1");
+      expect(v1.mcpServers).toBeUndefined();
+      expect(JSON.stringify(v1)).not.toContain(value);
+      expect(JSON.stringify(v1.env ?? {})).not.toContain(value);
+    }
+  });
+
+  it("hands over nothing when there are none", () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    backend.createSession({ ...opts, mcpServers: [] });
+    backend.createSession({ ...opts, mcpServers: undefined });
+    expect(fake.createCalls.map((call) => call.mcp)).toEqual([
+      undefined,
+      undefined,
+    ]);
   });
 });
