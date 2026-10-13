@@ -45,9 +45,9 @@ UI slices show the page in headless Chrome (internal-docs/ui-verification.md), d
 ## Slices
 
 - [x] A1: the page lists every connection, read-only. Approved by Reviewer 1 at 6b529a7c, merged as 0122b4d3. GET /api/me/connections; claude.ai connectors kept in memory per sign-in (init message + status read after each turn, source "claudeai" only). With streaming input the init message comes on every turn (Worker 1, 2026-10-13). Codex Apps and OpenCode: none shown.
-- [ ] A2: remote MCP servers registered once for every engine (after A1 and secrets B1)
+- [x] A2: remote MCP servers registered once for every engine. Approved by Reviewer 2 at 384b8856, merged as ec337cb2. Static credentials only; OAuth is A2b (plan below, Isomux as the OAuth client: Lead ruling, it is the only design that keeps "once, for every engine"). Claude holds the first message of a session until setMcpServers answers (about 1.5 s, 10 s bound). A credential needs port 443. B2 switch point: credentialFor in server/mcp-servers.ts.
   - For B2: `credentialFor` in server/mcp-servers.ts is where the header gets the placeholder instead of the value.
-- [ ] A2b: OAuth MCP servers (only if A2 splits it out)
+- [ ] A2b: OAuth MCP servers (after A4, if time allows)
 - [ ] A3: Test button and diagnostics per connection
 - [ ] A4: a usage note per connection that agents read
 
@@ -112,3 +112,27 @@ Two designs. The Lead chooses before code:
 
 Recommendation: 1, because it keeps "register once, every engine gets it" (ruling 5) and the B2 promise.
 
+
+
+## SLICE-A3 PICKUP: Test button and diagnostics per connection
+
+Goal: each row of the All connections list that Isomux can check gets a Test button. A test says whether the connection works now, and when it can, which account the service sees. A failure shows a short reason a member can act on. A row that Isomux cannot test says so; it has no dead button.
+
+Per kind (decide the details with the reviewer):
+- Engine sign-in: reuse the existing provider account check (the refresh the sign-in card already does).
+- Secret with a preset: the server itself makes one read-only call to the preset's identity endpoint (for example GitHub GET https://api.github.com/user, Stripe GET https://api.stripe.com/v1/account, Fly's viewer query) with the value, and shows the account the service names (login, account id or email). The call goes only to a host the secret lists. A secret on a custom host: no test.
+- Remote MCP server: the server connects to it the way an engine does (initialize, then tools/list) with its credential, and shows the server's name and the number of tools, or the error. Use a client the repo already ships if there is one; the probe's stub rig in /tmp/b1022/probe/ shows the protocol.
+- Claude connectors and MCP servers set in Claude: show the status the record already has (connected, failed, pending); no extra test.
+- Variable: no test (Isomux does not know which service it is for).
+
+Traps:
+- A test result and its error text never hold a credential, a URL path or a query (hosts only), in the response, the page, the audit log or the server log. Fake-value tests per kind, as B1 did.
+- Rate: one test at a time per connection; a timeout (10 s) per test.
+- A member can test only what they can see in the list; office secrets and office MCP servers: owners.
+- The secrets proxy (loop B) may land during this slice. Tests run in the server, not through the proxy.
+- Run ui/App.settings-*.dom.test.tsx and ui/audit-operations.test.ts (gates).
+
+Acceptance: in a throwaway office with stub HTTPS hosts for a GitHub-preset secret and an MCP server, Test shows the account and the tool count; a wrong credential shows a short reason; nothing holds the fake value. Screenshots desktop and mobile. The reviewer re-runs the tests and the stub run on the approved hash.
+
+Decide with the reviewer: the route shape (one test route per kind or one generic); where results are kept (memory is fine).
+Locked: rulings 1-12.
