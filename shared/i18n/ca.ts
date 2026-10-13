@@ -823,7 +823,7 @@ Coses que pots fer per ell:
   "settings.connections.envTitle": "Variables d'entorn",
   "settings.secrets.title": "Secrets",
   "settings.secrets.hint":
-    "Un valor desat no es torna a mostrar. Només pot anar als hosts que hi consten.",
+    "Un valor desat no es torna a mostrar. Només pot anar als hosts que hi consten. Els agents reben un substitut, no el valor, però un agent que llegeixi a propòsit els fitxers d'aquesta oficina el pot trobar.",
   "settings.secrets.ownerManaged":
     "Els secrets de l'oficina els gestiona un propietari de l'oficina.",
   "settings.secrets.loadFailed": "No s'han pogut carregar els secrets.",

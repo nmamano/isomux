@@ -749,7 +749,7 @@ App 的一些原则：
   "settings.connections.envTitle": "环境变量",
   "settings.secrets.title": "密钥",
   "settings.secrets.hint":
-    "保存的值不会再次显示。它只会发往与它一同列出的主机。",
+    "保存的值不会再次显示。它只会发往与它一同列出的主机。智能体拿到的是占位值，而不是真实值，但有意读取本办公室文件的智能体仍能找到它。",
   "settings.secrets.ownerManaged": "办公室密钥由办公室所有者管理。",
   "settings.secrets.loadFailed": "无法加载密钥。",
   "settings.secrets.saveFailed": "无法保存密钥。",

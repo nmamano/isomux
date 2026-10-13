@@ -827,7 +827,7 @@ Cosas que puedes hacer por él:
   "settings.connections.envTitle": "Variables de entorno",
   "settings.secrets.title": "Secretos",
   "settings.secrets.hint":
-    "Un valor guardado no se vuelve a mostrar. Solo puede ir a los hosts que figuran con él.",
+    "Un valor guardado no se vuelve a mostrar. Solo puede ir a los hosts que figuran con él. Los agentes reciben un sustituto, no el valor, pero un agente que lea a propósito los archivos de esta oficina puede encontrarlo.",
   "settings.secrets.ownerManaged":
     "Los secretos de la oficina los gestiona un propietario de la oficina.",
   "settings.secrets.loadFailed": "No se pudieron cargar los secretos.",

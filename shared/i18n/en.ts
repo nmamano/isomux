@@ -823,7 +823,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.connections.envTitle": "Environment variables",
   "settings.secrets.title": "Secrets",
   "settings.secrets.hint":
-    "A saved value is never shown again. It may go only to the hosts listed with it.",
+    "A saved value is never shown again. It may go only to the hosts listed with it. Agents get a stand-in, not the value, but an agent that reads this office's files on purpose can find it.",
   "settings.secrets.ownerManaged":
     "Office secrets are managed by an office owner.",
   "settings.secrets.loadFailed": "Could not load secrets.",
