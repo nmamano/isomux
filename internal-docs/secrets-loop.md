@@ -39,7 +39,7 @@ The room prompt gates: `bun run build:ui` (plus `bun run build:demo` when the di
 
 ## Slices
 
-- [ ] B1: design doc to the rulings; the secret store and the Secrets list; read-path audit
+- [x] B1: design doc to the rulings; the secret store and the Secrets list; read-path audit. Approved by Reviewer 3 at 3c796ed1, merged as e3e68cd7. Carried to B4: a recursive search rooted at STATE_ROOT or an ancestor (Grep, grep -r) still reads the store; the variables hint still suggests GH_TOKEN as a variable; until B2 a saved secret does nothing for agents.
 - [ ] B2: the proxy (waits for the probe report on engine proxy support)
 - [ ] B3: each preset proven end to end (curl, git over HTTPS, gh, stripe, fly, Node and Python SDKs)
 - [ ] B4: an agent asks for a secret and the member types it in a masked form; the honest sentence; docs
