@@ -16,11 +16,9 @@ A member saves a credential once, with the hosts that may receive it. Agents get
 6. Website logins through browser control are not in this build.
 7. Mechanism (D1): placeholders per scope, an office CA, and a proxy that swaps a placeholder only in the secret's named header and only for a listed host. It never injects on TRACE or OPTIONS, keeps a fixed list of hosts that never get a secret (model APIs, package registries), scrubs the value from responses, and logs each use in the audit log.
 8. The repo is public and has self-hosters: state layouts stay backward compatible; offices without secrets do not change at all; no host, user, path or IP of this office's machines in a commit.
-
-## Accepted defaults (the PM's, not ruled by Nil; reversible, listed in the morning report)
-
-- D5: a secret may go to any host, with presets for common services and a plain statement that the member vouches the host does not send the credential back.
-- Office secrets are owner-only, the same as office variables.
+9. Nil, 2026-10-13 (D5): a secret may go to any host, with presets for common services and a plain statement that the member vouches the host does not send the credential back.
+10. Nil, 2026-10-13: office secrets are owner-only, the same as office variables.
+11. Nil, 2026-10-13: variables, secrets and integrations are one UI. The integrations page (loop A) is where today's Office-wide and Individual connections settings go; its variables list and the secrets list sit there side by side, next to the connections. Loops A and B build into that one page, not two.
 
 ## Decision protocol
 
@@ -50,15 +48,15 @@ The room prompt gates: `bun run build:ui` (plus `bun run build:demo` when the di
 
 Goal: the member can save, list, rotate and delete secrets, and nothing ever returns a value. No proxy yet: agents get nothing new in this slice.
 
-Step 1, design doc (plan-gate it with the reviewer before code): update internal-docs/secrets-design.md to rulings 1-8 and the accepted defaults. Mark D1-D5 decided (D5 and owner-only office secrets as the PM's reversible defaults), drop "secrets after split slice 7", state the single-user promise, and add from the prior art: no injection on TRACE or OPTIONS (Omnigent), a never-list of hosts (Claude Code on the web), and Codex cloud's "a shared scope names the secrets it needs, each member supplies their own value" as a later option, not built now. Fix Appendix B's out-of-date rows (Codex cloud and Claude Code on the web now have network secrets). Keep it short: the doc is the spec for B2-B4.
+Step 1, design doc (plan-gate it with the reviewer before code): update internal-docs/secrets-design.md to rulings 1-11. Mark D1-D5 decided, drop "secrets after split slice 7", state the single-user promise, and add from the prior art: no injection on TRACE or OPTIONS (Omnigent), a never-list of hosts (Claude Code on the web), and Codex cloud's "a shared scope names the secrets it needs, each member supplies their own value" as a later option, not built now. Fix Appendix B's out-of-date rows (Codex cloud and Claude Code on the web now have network secrets). Keep it short: the doc is the spec for B2-B4.
 
 Step 2, store and routes: per design section 1. Office secrets (owner-only) and member secrets, each with name, value (write-only), hosts, the form the credential is sent in, and timestamps; a generation number for placeholders (B2 uses it). Stored in server state as the design says, 0600 in a 0700 directory, written atomically like the env files. Routes: create, list (no values), rotate value, edit hosts and form, delete. Audit log entries for each change (no values).
 
-Step 3, the Secrets list in the UI: next to the variables list, on both the office and the individual half of the connections settings (ui/components/ConnectionsPane.tsx). Write-only value field; host presets for common services (GitHub, Stripe, Fly, Anthropic, OpenAI, with their hosts and header forms); the D5 vouch sentence where hosts are entered. The integrations loop adds a list to the same pane: keep your change to ConnectionsPane to one mount point for a new component.
+Step 3, the Secrets list in the UI: next to the variables list, on both the office and the individual half of the connections settings (ui/components/ConnectionsPane.tsx), which loop A grows into the integrations page (ruling 11). Write-only value field; host presets for common services (GitHub, Stripe, Fly, Anthropic, OpenAI, with their hosts and header forms); the D5 vouch sentence where hosts are entered. The integrations loop adds a list to the same pane: keep your change to ConnectionsPane to one mount point for a new component.
 
 Step 4, read-path audit (Orca's bug: a write-only editor while an RPC returns the values): enumerate every path that could return a secret value - routes, the export and backup paths (server/backup.ts excludes the env files today; secrets must be excluded too), the agent reference, logs, the audit log, the demo server - and add a test per path that a known fake value never appears in its output.
 
 Acceptance: a member saves a secret, sees it listed with its hosts and form and "set" with a date, rotates and deletes it, and no route, export, backup or log contains the value (tests prove each path); a member cannot see or change office secrets beyond what office variables allow today; the design doc matches the rulings; screenshots desktop and mobile. The reviewer re-runs the scoped tests and the read-path tests on the approved hash.
 
 Decide with the reviewer: the store file format; the route shape; the preset table's location (shared with B2 and B3).
-Locked: rulings 1-8 and the accepted defaults.
+Locked: rulings 1-11.

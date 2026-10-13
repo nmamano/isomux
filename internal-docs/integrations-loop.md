@@ -20,6 +20,8 @@ A connection is anything that lets an agent act on an outside service: an API to
 8. Website logins through browser control are not in this build.
 9. The OS-user split is on hold. Nothing in this loop depends on it or touches it.
 10. The repo is public and has self-hosters: state layouts stay backward compatible; no host, user, path or IP of this office's machines in a commit.
+11. Nil, 2026-10-13: variables, secrets and integrations are one UI. This page is where today's Office-wide and Individual connections settings go; its variables list and the secrets list (loop B) sit there side by side, next to the connections. Loops A and B build into that one page, not two.
+12. Nil, 2026-10-13 (secrets loop rulings 9-10): a secret may go to any host, with presets and a plain statement that the member vouches for the host; office secrets are owner-only.
 
 ## Decision protocol
 
@@ -70,4 +72,4 @@ Traps:
 Acceptance: the page shows a variable, a sign-in and (where the box has one) a claude.ai connector correctly for an owner and a member, desktop and mobile; no route returns a variable value; tests cover the list's data shape and the access rules; the reviewer re-runs the scoped tests on the approved hash.
 
 Decide with the reviewer: the component and route shape for the list; where the connector list is recorded.
-Locked: rulings 1-10.
+Locked: rulings 1-12.
