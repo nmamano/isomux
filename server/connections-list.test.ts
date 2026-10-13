@@ -29,6 +29,8 @@ function sources(
     officeOwner: true,
     officeVariableNames: () => ["OFFICE_B", "OFFICE_A"],
     personalVariableNames: () => ["MINE"],
+    officeVariableNotes: () => ({}),
+    personalVariableNotes: () => ({}),
     accounts: async () => [
       account("codex", "office", true, "team@example.com"),
       account("codex", "personal", false),
@@ -51,9 +53,9 @@ describe("buildConnectionsList", () => {
   it("lists variable names, connected sign-ins and each Claude sign-in's connectors", async () => {
     expect(await buildConnectionsList(sources())).toEqual({
       variables: [
-        { scope: "office", name: "OFFICE_A" },
-        { scope: "office", name: "OFFICE_B" },
-        { scope: "personal", name: "MINE" },
+        { scope: "office", name: "OFFICE_A", note: null },
+        { scope: "office", name: "OFFICE_B", note: null },
+        { scope: "personal", name: "MINE", note: null },
       ],
       signIns: [
         { scope: "office", engine: "codex", account: "team@example.com" },
@@ -87,7 +89,9 @@ describe("buildConnectionsList", () => {
         },
       }),
     );
-    expect(list.variables).toEqual([{ scope: "personal", name: "MINE" }]);
+    expect(list.variables).toEqual([
+      { scope: "personal", name: "MINE", note: null },
+    ]);
     expect(officeRead).toBe(false);
     // The office sign-in and its connectors are already visible to members.
     expect(list.signIns.some((signIn) => signIn.scope === "office")).toBe(true);
@@ -135,6 +139,7 @@ describe("buildConnectionsList", () => {
       createdAt: 1,
       valueSetAt: 1,
       updatedAt: 1,
+      note: null,
     });
     const list = await buildConnectionsList(
       sources({
@@ -160,35 +165,87 @@ describe("buildConnectionsList", () => {
         name: "STRIPE_API_KEY",
         hosts: ["api.stripe.com", "files.stripe.com"],
         test: "stripe",
+        note: null,
       },
       {
         scope: "personal",
         name: "GH_TOKEN",
         hosts: ["api.github.com", "github.com"],
         test: "github",
+        note: null,
       },
       {
         scope: "personal",
         name: "CUSTOM",
         hosts: ["api.example.com"],
         test: null,
+        note: null,
       },
       {
         scope: "personal",
         name: "GH_HEADER",
         hosts: ["api.github.com"],
         test: null,
+        note: null,
       },
-      { scope: "personal", name: "GH_WEB", hosts: ["github.com"], test: null },
+      {
+        scope: "personal",
+        name: "GH_WEB",
+        hosts: ["github.com"],
+        test: null,
+        note: null,
+      },
     ]);
     // Names and hosts only: no field carries more of the store's record.
     for (const row of list.secrets ?? [])
       expect(Object.keys(row).sort()).toEqual([
         "hosts",
         "name",
+        "note",
         "scope",
         "test",
       ]);
+  });
+
+  it("puts each variable's and secret's usage note on its row", async () => {
+    let officeNotesRead = false;
+    const secretWire = (note: string | null): SecretWire => ({
+      name: "GH_TOKEN",
+      hosts: ["api.github.com"],
+      form: { kind: "authorization" },
+      createdAt: 1,
+      valueSetAt: 1,
+      updatedAt: 1,
+      note,
+    });
+    const owner = await buildConnectionsList(
+      sources({
+        officeVariableNotes: () => ({ OFFICE_B: "office note" }),
+        personalVariableNotes: () => ({ MINE: "my note" }),
+        secrets: (scope) =>
+          scope === "personal" ? [secretWire("secret note")] : [],
+      }),
+    );
+    expect(owner.variables.map((v) => [v.name, v.note])).toEqual([
+      ["OFFICE_A", null],
+      ["OFFICE_B", "office note"],
+      ["MINE", "my note"],
+    ]);
+    expect(owner.secrets?.[0]?.note).toBe("secret note");
+    // A member reads no office variable notes either.
+    const member = await buildConnectionsList(
+      sources({
+        officeOwner: false,
+        officeVariableNotes: () => {
+          officeNotesRead = true;
+          return { OFFICE_B: "office note" };
+        },
+      }),
+    );
+    expect(member.variables).toEqual([
+      { scope: "personal", name: "MINE", note: null },
+    ]);
+    expect(officeNotesRead).toBe(false);
   });
 
   it("gives a member no office secrets and never reads them", async () => {

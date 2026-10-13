@@ -769,6 +769,9 @@ App 的一些原则：
   "settings.secrets.value": "值",
   "settings.secrets.valuePlaceholder": "粘贴值",
   "settings.secrets.hosts": "可以接收它的主机，每行一个",
+  "settings.connections.note": "给智能体的备注",
+  "settings.connections.notePlaceholder": "智能体应将它用于什么",
+  "settings.connections.error.note": "备注最多 1000 个字符，且只能是纯文本。",
   "settings.secrets.vouch":
     "只列出你信任的主机：保存即表示你担保它们绝不会把凭据发回。",
   "settings.secrets.form": "发送位置",
@@ -1296,6 +1299,7 @@ App 的一些原则：
   "apiCall.inbox.messageBoss": "已向外部令牌发送消息",
   "apiCall.inbox.drain": "取出 API 令牌收件箱中的消息",
   "apiCall.memory.read": "读取记忆",
+  "apiCall.connections.agentList": "读取连接备注",
   "apiCall.memory.append": "追加记忆",
   "apiCall.memory.replace": "替换记忆",
   "apiCall.memory.readAgent": "读取此智能体的记忆",

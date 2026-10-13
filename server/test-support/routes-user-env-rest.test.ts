@@ -134,7 +134,7 @@ describe("managed user env routes", () => {
       plainAgent: 403,
       privilegedAgent: 403,
     });
-    expect(ownCookieRead.body).toEqual({ mode: "managed", values });
+    expect(ownCookieRead.body).toEqual({ mode: "managed", values, notes: {} });
   });
 
   it("rejects unsafe input without putting values in the error", async () => {
@@ -190,7 +190,7 @@ describe("managed office env routes", () => {
     ).toBe(204);
     expect(
       (await officeRequest(server, { session: owner.rawSessionId })).body,
-    ).toEqual({ mode: "managed", values: { GH_TOKEN: "office" } });
+    ).toEqual({ mode: "managed", values: { GH_TOKEN: "office" }, notes: {} });
     expect(
       (await officeRequest(server, { bearer: ownerApi.token })).status,
     ).toBe(200);

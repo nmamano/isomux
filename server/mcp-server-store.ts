@@ -32,6 +32,7 @@ import {
 import { checkSecretName } from "../shared/secret-hosts.ts";
 import type { McpServerWire } from "../shared/contract-shapes.ts";
 import type { SecretScope } from "./secret-store.ts";
+import { checkConnectionNote } from "../shared/connection-notes.ts";
 
 export const MCP_SERVERS_DIR = "mcp-servers";
 
@@ -41,6 +42,8 @@ interface StoredMcpServer {
   secret: string | null;
   createdAt: number;
   updatedAt: number;
+  // The usage note for agents (integrations A4); absent when there is none.
+  note?: string;
 }
 
 interface McpServersFile {
@@ -80,12 +83,29 @@ function isStoredServer(entry: unknown): entry is StoredMcpServer {
     typeof s.url === "string" &&
     (s.secret === null || checkSecretName(s.secret) === null) &&
     typeof s.createdAt === "number" &&
-    typeof s.updatedAt === "number"
+    typeof s.updatedAt === "number" &&
+    // Any string: the note rule is checked at write only.
+    (s.note === undefined || typeof s.note === "string")
   );
 }
 
 function toWire(server: StoredMcpServer): McpServerWire {
-  return { ...server };
+  return { ...server, note: server.note ?? null };
+}
+
+function checkNote(
+  note: unknown,
+):
+  | { ok: true; note: string | null }
+  | Extract<McpServerChange, { kind: "invalid" }> {
+  const checked = checkConnectionNote(note);
+  return checked.ok
+    ? checked
+    : {
+        ok: false,
+        kind: "invalid",
+        error: { field: "note", reason: checked.reason },
+      };
 }
 
 export function mcpServersPathFor(root: string, scope: SecretScope): string {
@@ -188,6 +208,8 @@ export function createMcpServerStore(
       if (nameError) return { ok: false, kind: "invalid", error: nameError };
       const target = checkTarget(scope, input.url, input.secret ?? null);
       if (!target.ok) return target;
+      const note = checkNote(input.note ?? null);
+      if (!note.ok) return note;
       const servers = read(scope);
       const name = input.name as string;
       if (servers.some((s) => s.name === name))
@@ -199,6 +221,7 @@ export function createMcpServerStore(
         secret: target.secret,
         createdAt: now,
         updatedAt: now,
+        ...(note.note !== null ? { note: note.note } : {}),
       };
       write(scope, [...servers, server]);
       return { ok: true, server: toWire(server) };
@@ -218,8 +241,12 @@ export function createMcpServerStore(
         patch.secret !== undefined ? patch.secret : server.secret,
       );
       if (!target.ok) return target;
+      const note = patch.note !== undefined ? checkNote(patch.note) : null;
+      if (note && !note.ok) return note;
       server.url = target.url;
       server.secret = target.secret;
+      if (note?.note === null) delete server.note;
+      else if (note) server.note = note.note;
       server.updatedAt = Date.now();
       write(scope, servers);
       return { ok: true, server: toWire(server) };

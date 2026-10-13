@@ -844,6 +844,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.secrets.value": "Value",
   "settings.secrets.valuePlaceholder": "Paste the value",
   "settings.secrets.hosts": "Hosts that may receive it, one per line",
+  "settings.connections.note": "Note for agents",
+  "settings.connections.notePlaceholder": "What agents should use it for",
+  "settings.connections.error.note":
+    "Keep the note to 1,000 characters of plain text.",
   "settings.secrets.vouch":
     "List only hosts you trust: by saving, you vouch that they never send the credential back.",
   "settings.secrets.form": "Sent in",
@@ -1432,6 +1436,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.inbox.messageBoss": "Sent message to external token",
   "apiCall.inbox.drain": "Drain API token inbox",
   "apiCall.memory.read": "Read memory",
+  "apiCall.connections.agentList": "Read connection notes",
   "apiCall.memory.append": "Append memory",
   "apiCall.memory.replace": "Replace memory",
   "apiCall.memory.readAgent": "Read memories for this agent",

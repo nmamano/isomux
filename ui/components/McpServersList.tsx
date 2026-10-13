@@ -17,6 +17,7 @@ import {
   dialogSaveBtn,
 } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
+import { ConnectionNoteField } from "./ConnectionNoteField.tsx";
 import {
   notifyConnectionsChanged,
   onConnectionsChanged,
@@ -46,6 +47,7 @@ interface Draft {
   value: string;
   formKind: SecretForm["kind"];
   header: string;
+  note: string;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -56,6 +58,7 @@ const EMPTY_DRAFT: Draft = {
   value: "",
   formKind: "authorization",
   header: "",
+  note: "",
 };
 
 interface McpServersListProps {
@@ -127,6 +130,7 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
             name: from.name,
             url: from.url,
             credential: from.secret ?? "",
+            note: from.note ?? "",
           }
         : EMPTY_DRAFT,
     );
@@ -154,6 +158,8 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
       case "invalid_mcp_server":
         if (detail.field === "name") return t("settings.mcpServers.error.name");
         if (detail.field === "url") return t("settings.mcpServers.error.url");
+        if (detail.field === "note")
+          return t("settings.connections.error.note");
         return t("settings.mcpServers.saveFailed");
       // The new secret's own checks (SecretsList has the same texts).
       case "secret_exists":
@@ -207,11 +213,13 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
             name: draft.name.trim(),
             url: draft.url.trim(),
             secret,
+            ...(draft.note.trim() ? { note: draft.note } : {}),
           });
         else if (mode.kind === "edit")
           await apiFetch("PATCH", `${path}/${encodeURIComponent(mode.name)}`, {
             url: draft.url.trim(),
             secret,
+            note: draft.note,
           });
       }
       close();
@@ -356,6 +364,13 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
     </>
   );
 
+  const noteField = (
+    <ConnectionNoteField
+      value={draft.note}
+      onChange={(note) => setDraft((d) => ({ ...d, note }))}
+    />
+  );
+
   const actions = (saveLabel: string) => (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       <button
@@ -456,6 +471,7 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
                 <div style={{ marginTop: 8 }}>
                   {urlField}
                   {credentialFields}
+                  {noteField}
                   {actions(t("common.save"))}
                 </div>
               )}
@@ -489,6 +505,7 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
               </label>
               {urlField}
               {credentialFields}
+              {noteField}
               {actions(t("common.save"))}
             </div>
           ) : (

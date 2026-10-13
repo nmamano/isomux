@@ -772,7 +772,12 @@ export interface OfficeSettingsReq {
   memberUsageShare?: number;
 }
 
-export type UserEnvRes = { mode: "managed"; values: Record<string, string> };
+// `notes`: the usage note of each variable that has one (integrations A4).
+export type UserEnvRes = {
+  mode: "managed";
+  values: Record<string, string>;
+  notes?: Record<string, string>;
+};
 
 // Owner-only member connections. These explicit projections exclude variable
 // values, provider account labels, directory facts, and probe errors.
@@ -793,7 +798,9 @@ export type UserEnvNamesRes = {
 // started, names [] with a seenAt means it really has none.
 export type ConnectionScope = "office" | "personal";
 export type ConnectionsListRes = {
-  variables: { scope: ConnectionScope; name: string }[];
+  // `note` on variables, MCP servers and secrets: the member's usage note for
+  // agents (A4). Absent from servers before A4.
+  variables: { scope: ConnectionScope; name: string; note?: string | null }[];
   signIns: {
     scope: ConnectionScope;
     engine: "claude" | "codex";
@@ -819,6 +826,7 @@ export type ConnectionsListRes = {
     secret: string | null;
     problem: McpServerProblem | null;
     overridden: boolean;
+    note?: string | null;
   }[];
   // MCP servers set in Claude itself, as the caller's Claude sessions last
   // reported them: user settings, or a project's .mcp.json in `folder`.
@@ -838,8 +846,25 @@ export type ConnectionsListRes = {
     name: string;
     hosts: string[];
     test: SecretTestKind | null;
+    note?: string | null;
   }[];
 };
+
+// GET /api/agent-connections (A4): the connections the calling agent gets,
+// with their usage notes. Never a value, a URL path or a secret name.
+// `engineName` is the MCP server's name in the agent's tools.
+export type AgentConnectionKind = "variable" | "secret" | "mcp-server";
+export interface AgentConnectionWire {
+  kind: AgentConnectionKind;
+  scope: ConnectionScope;
+  name: string;
+  engineName?: string;
+  hosts: string[];
+  note: string | null;
+}
+export interface AgentConnectionsRes {
+  connections: AgentConnectionWire[];
+}
 
 // An MCP server's status as Claude reports it (the SDK's closed set).
 export const MCP_SERVER_STATUSES = [
@@ -906,8 +931,10 @@ export interface ConnectionTestRes {
 // Why a registered server is left out of agent sessions.
 export type McpServerProblem = "secret_missing" | "secret_host";
 
+// `notes` absent keeps the notes of the names that remain.
 export interface UserEnvReplaceReq {
   values: Record<string, string>;
+  notes?: Record<string, string>;
 }
 
 // Secrets (internal-docs/secrets-design.md, section 1). No response carries a
@@ -919,6 +946,7 @@ export interface SecretWire {
   createdAt: number;
   valueSetAt: number;
   updatedAt: number;
+  note: string | null;
 }
 export interface SecretListRes {
   secrets: SecretWire[];
@@ -928,6 +956,7 @@ export interface SecretCreateReq {
   value: string;
   hosts: string[];
   form: SecretForm;
+  note?: string | null;
 }
 export interface SecretRotateReq {
   value: string;
@@ -935,6 +964,7 @@ export interface SecretRotateReq {
 export interface SecretUpdateReq {
   hosts?: string[];
   form?: SecretForm;
+  note?: string | null;
 }
 export interface SecretRes {
   secret: SecretWire;
@@ -948,6 +978,7 @@ export interface McpServerWire {
   secret: string | null;
   createdAt: number;
   updatedAt: number;
+  note: string | null;
 }
 export interface McpServerListRes {
   servers: McpServerWire[];
@@ -956,10 +987,12 @@ export interface McpServerCreateReq {
   name: string;
   url: string;
   secret: string | null;
+  note?: string | null;
 }
 export interface McpServerUpdateReq {
   url?: string;
   secret?: string | null;
+  note?: string | null;
 }
 export interface McpServerRes {
   server: McpServerWire;

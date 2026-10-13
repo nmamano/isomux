@@ -29,9 +29,9 @@ export interface SecretsDeps {
   store: SecretStore;
 }
 
-const CREATE_KEYS = ["name", "value", "hosts", "form"];
+const CREATE_KEYS = ["name", "value", "hosts", "form", "note"];
 const ROTATE_KEYS = ["value"];
-const UPDATE_KEYS = ["hosts", "form"];
+const UPDATE_KEYS = ["hosts", "form", "note"];
 
 function memberScope(ctx: Parameters<RouteHandler>[0]): SecretScope | null {
   return (ctx.identity.scope === "user" || ctx.identity.scope === "api") &&

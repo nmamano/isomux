@@ -844,6 +844,11 @@ Coses que pots fer per ell:
   "settings.secrets.value": "Valor",
   "settings.secrets.valuePlaceholder": "Enganxa el valor",
   "settings.secrets.hosts": "Hosts que el poden rebre, un per línia",
+  "settings.connections.note": "Nota per als agents",
+  "settings.connections.notePlaceholder":
+    "Per a què l'han de fer servir els agents",
+  "settings.connections.error.note":
+    "La nota ha de tenir com a màxim 1000 caràcters de text pla.",
   "settings.secrets.vouch":
     "Indica només hosts de confiança: en desar, garanteixes que mai no retornen la credencial.",
   "settings.secrets.form": "S'envia a",
@@ -1456,6 +1461,7 @@ Coses que pots fer per ell:
   "apiCall.inbox.messageBoss": "Missatge enviat al token extern",
   "apiCall.inbox.drain": "Buidar la safata del token d'API",
   "apiCall.memory.read": "Llegir la memòria",
+  "apiCall.connections.agentList": "Llegir les notes de les connexions",
   "apiCall.memory.append": "Afegir a la memòria",
   "apiCall.memory.replace": "Reemplaçar la memòria",
   "apiCall.memory.readAgent": "Llegir les memòries d'aquest agent",

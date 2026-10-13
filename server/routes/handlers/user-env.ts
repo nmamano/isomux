@@ -22,9 +22,15 @@ export interface UserEnvDeps {
   // Takes the username rather than a userId because the officeOwner guard on
   // userEnv.names never resolves the path param - it only asks who is calling.
   names(username: string): Promise<UserEnvNamesRes | null>;
-  replace(userId: string, values: Record<string, string>): Outcome;
+  // `notes` is the body's notes field as sent (undefined keeps the saved
+  // notes); a note that breaks the rule throws ManagedEnvValidationError.
+  replace(
+    userId: string,
+    values: Record<string, string>,
+    notes: unknown,
+  ): Outcome;
   getOffice(): UserEnvRes;
-  replaceOffice(values: Record<string, string>): Outcome;
+  replaceOffice(values: Record<string, string>, notes: unknown): Outcome;
 }
 
 function subjectUserId(ctx: Parameters<RouteHandler>[0]): string | null {
@@ -42,6 +48,10 @@ function valuesFromBody(body: unknown): Record<string, string> | null {
   if (!Object.values(values).every((value) => typeof value === "string"))
     return null;
   return values;
+}
+
+function notesFromBody(body: unknown): unknown {
+  return (body as Partial<UserEnvReplaceReq>).notes;
 }
 
 export function userEnvHandlers(
@@ -76,7 +86,7 @@ export function userEnvHandlers(
       if (!values)
         return fail(400, "invalid_env", "values must be a string map");
       try {
-        const result = deps.replace(userId, values);
+        const result = deps.replace(userId, values, notesFromBody(ctx.body));
         return result.ok
           ? noContent()
           : fail(result.status, result.code, result.message);
@@ -98,7 +108,7 @@ export function userEnvHandlers(
       if (!values)
         return fail(400, "invalid_env", "values must be a string map");
       try {
-        const result = deps.replaceOffice(values);
+        const result = deps.replaceOffice(values, notesFromBody(ctx.body));
         return result.ok
           ? noContent()
           : fail(result.status, result.code, result.message);

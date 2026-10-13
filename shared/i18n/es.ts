@@ -848,6 +848,10 @@ Cosas que puedes hacer por él:
   "settings.secrets.value": "Valor",
   "settings.secrets.valuePlaceholder": "Pega el valor",
   "settings.secrets.hosts": "Hosts que pueden recibirlo, uno por línea",
+  "settings.connections.note": "Nota para los agentes",
+  "settings.connections.notePlaceholder": "Para qué deben usarlo los agentes",
+  "settings.connections.error.note":
+    "La nota debe tener como máximo 1000 caracteres de texto sin formato.",
   "settings.secrets.vouch":
     "Indica solo hosts de confianza: al guardar, garantizas que nunca devuelven la credencial.",
   "settings.secrets.form": "Se envía en",
@@ -1459,6 +1463,7 @@ Cosas que puedes hacer por él:
   "apiCall.inbox.messageBoss": "Mensaje enviado al token externo",
   "apiCall.inbox.drain": "Vaciar la bandeja del token de API",
   "apiCall.memory.read": "Leer la memoria",
+  "apiCall.connections.agentList": "Leer las notas de las conexiones",
   "apiCall.memory.append": "Añadir a la memoria",
   "apiCall.memory.replace": "Reemplazar la memoria",
   "apiCall.memory.readAgent": "Leer las memorias de este agente",

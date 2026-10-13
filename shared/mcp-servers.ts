@@ -14,7 +14,7 @@ const NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
 export interface McpServerFieldError {
-  field: "name" | "url" | "secret";
+  field: "name" | "url" | "secret" | "note";
   reason: "invalid" | "too_long" | "credential_over_http" | "credential_port";
 }
 

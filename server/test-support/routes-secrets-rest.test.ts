@@ -488,7 +488,8 @@ describe("secret field rules", () => {
       }
       const extra = await call(srv, "POST", base, {
         session,
-        body: { ...github(), note: FAKE },
+        // An unknown key ("note" became a field in A4).
+        body: { ...github(), comment: FAKE },
       });
       expect(extra.status).toBe(400);
       expect(extra.text).not.toContain(FAKE);

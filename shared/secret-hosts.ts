@@ -176,7 +176,7 @@ const HEADER_TOKEN = /^[!#$%&'*+.^_`|~0-9a-z-]+$/;
 // so a value pasted into the wrong field does not come back. `host` is set
 // only for a never-listed host, which is a name from the fixed list above.
 export interface SecretFieldError {
-  field: "name" | "value" | "hosts" | "form";
+  field: "name" | "value" | "hosts" | "form" | "note";
   reason: "invalid" | "reserved" | "too_long" | "never_listed";
   host?: string;
 }

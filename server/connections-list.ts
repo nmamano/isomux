@@ -16,6 +16,9 @@ export interface ConnectionsListSources {
   officeOwner: boolean;
   officeVariableNames: () => string[];
   personalVariableNames: () => string[];
+  // The variables' usage notes (A4), by name.
+  officeVariableNotes: () => Record<string, string>;
+  personalVariableNotes: () => Record<string, string>;
   accounts: () => Promise<ProviderAccountWire[]>;
   // Null when the scope's Claude sign-in has no claude.ai login to read.
   claudeConnectorDir: (scope: ConnectionScope) => string | null;
@@ -40,16 +43,20 @@ function sortedNames(names: string[]): string[] {
 export async function buildConnectionsList(
   sources: ConnectionsListSources,
 ): Promise<ConnectionsListRes> {
+  const officeNotes = sources.officeOwner ? sources.officeVariableNotes() : {};
+  const personalNotes = sources.personalVariableNotes();
   const variables: ConnectionsListRes["variables"] = [
     ...(sources.officeOwner
       ? sortedNames(sources.officeVariableNames()).map((name) => ({
           scope: "office" as const,
           name,
+          note: officeNotes[name] ?? null,
         }))
       : []),
     ...sortedNames(sources.personalVariableNames()).map((name) => ({
       scope: "personal" as const,
       name,
+      note: personalNotes[name] ?? null,
     })),
   ];
 
@@ -113,6 +120,7 @@ export async function buildConnectionsList(
         name: secret.name,
         hosts: [...secret.hosts],
         test: secretTestKind(secret),
+        note: secret.note,
       });
   }
 

@@ -882,6 +882,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/memory", "apiCall.memory.read"],
   ["POST", "/api/memory", "apiCall.memory.append"],
   ["PUT", "/api/memory", "apiCall.memory.replace"],
+  ["GET", "/api/agent-connections", "apiCall.connections.agentList"],
   ["GET", "/api/cronjobs", "apiCall.cronjobs.list"],
   ["GET", "/api/cronjobs/*/system-prompt", "apiCall.cronjobs.systemPrompt"],
   // Agent-built apps (internal-docs/agent-apps-design.md).

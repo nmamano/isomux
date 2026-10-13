@@ -9,6 +9,7 @@ import {
   checkSecretValue,
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
+import { checkConnectionNote } from "../shared/connection-notes.ts";
 import type { SecretWire } from "../shared/contract-shapes.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
 
@@ -69,6 +70,8 @@ export function demoSecretsRoute(
     if (!hosts.ok) refuse(hosts.error);
     const form = checkSecretForm(b.form);
     if (!form.ok) refuse(form.error);
+    const note = checkConnectionNote(b.note ?? null);
+    if (!note.ok) refuse({ field: "note", reason: note.reason });
     if (list.some((s) => s.name === b.name))
       throw new ApiError(
         409,
@@ -82,6 +85,7 @@ export function demoSecretsRoute(
       createdAt: now,
       valueSetAt: now,
       updatedAt: now,
+      note: note.note,
     };
     list.push(secret);
     list.sort((a, c) => a.name.localeCompare(c.name));
@@ -113,6 +117,11 @@ export function demoSecretsRoute(
     const form = checkSecretForm(b.form);
     if (!form.ok) refuse(form.error);
     secret.form = form.form;
+  }
+  if (b.note !== undefined) {
+    const note = checkConnectionNote(b.note);
+    if (!note.ok) refuse({ field: "note", reason: note.reason });
+    secret.note = note.note;
   }
   secret.updatedAt = now;
   return { handled: true, result: { secret } };

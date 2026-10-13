@@ -15,6 +15,7 @@ import {
   dialogSaveBtn,
 } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
+import { ConnectionNoteField } from "./ConnectionNoteField.tsx";
 import {
   notifyConnectionsChanged,
   onConnectionsChanged,
@@ -40,6 +41,7 @@ interface Draft {
   hosts: string;
   formKind: SecretForm["kind"];
   header: string;
+  note: string;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -49,6 +51,7 @@ const EMPTY_DRAFT: Draft = {
   hosts: "",
   formKind: "authorization",
   header: "",
+  note: "",
 };
 
 function formOf(draft: Draft): SecretForm {
@@ -118,6 +121,7 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
             hosts: from.hosts.join("\n"),
             formKind: from.form.kind,
             header: from.form.kind === "header" ? from.form.header : "",
+            note: from.note ?? "",
           }
         : EMPTY_DRAFT,
     );
@@ -146,6 +150,7 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
       if (detail.field === "value") return t("settings.secrets.error.value");
       if (detail.field === "hosts") return t("settings.secrets.error.hosts");
       if (detail.field === "form") return t("settings.secrets.error.header");
+      if (detail.field === "note") return t("settings.connections.error.note");
     }
     return t("settings.secrets.saveFailed");
   }
@@ -160,6 +165,7 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
           value: draft.value.trim(),
           hosts: hostsOf(draft.hosts),
           form: formOf(draft),
+          ...(draft.note.trim() ? { note: draft.note } : {}),
         });
       else if (mode.kind === "rotate")
         await apiFetch(
@@ -171,6 +177,7 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
         await apiFetch("PATCH", `${path}/${encodeURIComponent(mode.name)}`, {
           hosts: hostsOf(draft.hosts),
           form: formOf(draft),
+          note: draft.note,
         });
       else if (mode.kind === "delete")
         await apiFetch("DELETE", `${path}/${encodeURIComponent(mode.name)}`);
@@ -262,6 +269,10 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
           />
         </label>
       )}
+      <ConnectionNoteField
+        value={draft.note}
+        onChange={(note) => setDraft((d) => ({ ...d, note }))}
+      />
     </>
   );
 

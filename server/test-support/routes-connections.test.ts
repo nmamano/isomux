@@ -84,8 +84,8 @@ describe("GET /api/me/connections", () => {
     });
     expect(result.status).toBe(200);
     expect(list(result.text).variables).toEqual([
-      { scope: "office", name: "OFFICE_TOKEN" },
-      { scope: "personal", name: "OWNER_TOKEN" },
+      { scope: "office", name: "OFFICE_TOKEN", note: null },
+      { scope: "personal", name: "OWNER_TOKEN", note: null },
     ]);
     expect(result.text).not.toContain(OFFICE_VALUE);
     expect(result.text).not.toContain(OWNER_VALUE);
@@ -98,7 +98,7 @@ describe("GET /api/me/connections", () => {
     });
     expect(result.status).toBe(200);
     expect(list(result.text).variables).toEqual([
-      { scope: "personal", name: "MEMBER_TOKEN" },
+      { scope: "personal", name: "MEMBER_TOKEN", note: null },
     ]);
     expect(result.text).not.toContain("OFFICE_TOKEN");
     expect(result.text).not.toContain("OTHER_TOKEN");

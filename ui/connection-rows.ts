@@ -38,6 +38,8 @@ export type ConnectionRow =
       key: string;
       scope: ConnectionScope;
       name: string;
+      // The member's usage note for agents (A4), null for none.
+      note: string | null;
       where: ConnectionRowWhere;
     }
   | {
@@ -70,6 +72,7 @@ export type ConnectionRow =
       secret: string | null;
       problem: ConnectionsListRes["mcpServers"][number]["problem"];
       overridden: boolean;
+      note: string | null;
       where: ConnectionRowWhere;
     }
   // An MCP server set in Claude itself, as the caller's sessions report it.
@@ -89,6 +92,7 @@ export type ConnectionRow =
       name: string;
       hosts: string[];
       test: SecretTestKind | null;
+      note: string | null;
       where: ConnectionRowWhere;
     }
   // A connected Claude sign-in with no turn seen since the server started:
@@ -138,6 +142,11 @@ export function signInSelector(engine: "claude" | "codex"): string {
 }
 
 const SCOPES: ConnectionScope[] = ["office", "personal"];
+
+// A note from a server before A4 is absent; anything but a string is none.
+function noteOf(note: unknown): string | null {
+  return typeof note === "string" && note ? note : null;
+}
 
 // The answer of GET /api/me/connections as the list reads it, or null when
 // it is not that shape (a server without the route, or a stub). Fields that
@@ -260,6 +269,7 @@ export function connectionRows(
         secret: server.secret,
         problem: server.problem,
         overridden: server.overridden,
+        note: noteOf(server.note),
         where: {
           kind: "page",
           half: scope,
@@ -291,6 +301,7 @@ export function connectionRows(
         name: secret.name,
         hosts: secret.hosts,
         test: secret.test,
+        note: noteOf(secret.note),
         where: {
           kind: "page",
           half: scope,
@@ -306,6 +317,7 @@ export function connectionRows(
         key: `variable:${scope}:${variable.name}`,
         scope,
         name: variable.name,
+        note: noteOf(variable.note),
         where: {
           kind: "page",
           half: scope,

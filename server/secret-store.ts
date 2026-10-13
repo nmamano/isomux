@@ -32,6 +32,7 @@ import {
   type SecretForm,
 } from "../shared/secret-hosts.ts";
 import type { SecretWire } from "../shared/contract-shapes.ts";
+import { checkConnectionNote } from "../shared/connection-notes.ts";
 
 export type SecretScope = { kind: "office" } | { kind: "user"; userId: string };
 
@@ -44,6 +45,8 @@ interface StoredSecret {
   createdAt: number;
   valueSetAt: number;
   updatedAt: number;
+  // The usage note for agents (integrations A4); absent when there is none.
+  note?: string;
 }
 
 interface SecretsFile {
@@ -75,6 +78,7 @@ function toWire(secret: StoredSecret): SecretWire {
     createdAt: secret.createdAt,
     valueSetAt: secret.valueSetAt,
     updatedAt: secret.updatedAt,
+    note: secret.note ?? null,
   };
 }
 
@@ -91,7 +95,9 @@ function isStoredSecret(entry: unknown): entry is StoredSecret {
     (s.generation as number) >= 1 &&
     typeof s.createdAt === "number" &&
     typeof s.valueSetAt === "number" &&
-    typeof s.updatedAt === "number"
+    typeof s.updatedAt === "number" &&
+    // Any string: the note rule is checked at write only.
+    (s.note === undefined || typeof s.note === "string")
   );
 }
 
@@ -166,6 +172,13 @@ export function createSecretStore(root: string = STATE_ROOT) {
       if (!hosts.ok) return { ok: false, kind: "invalid", error: hosts.error };
       const form = checkSecretForm(input.form);
       if (!form.ok) return { ok: false, kind: "invalid", error: form.error };
+      const note = checkConnectionNote(input.note ?? null);
+      if (!note.ok)
+        return {
+          ok: false,
+          kind: "invalid",
+          error: { field: "note", reason: note.reason },
+        };
       const secrets = read(scope);
       const name = input.name as string;
       if (secrets.some((s) => s.name === name))
@@ -180,6 +193,7 @@ export function createSecretStore(root: string = STATE_ROOT) {
         createdAt: now,
         valueSetAt: now,
         updatedAt: now,
+        ...(note.note !== null ? { note: note.note } : {}),
       };
       write(scope, [...secrets, secret]);
       return { ok: true, secret: toWire(secret) };
@@ -218,11 +232,24 @@ export function createSecretStore(root: string = STATE_ROOT) {
           return { ok: false, kind: "invalid", error: checked.error };
         form = checked.form;
       }
+      let note: string | null | undefined;
+      if (patch.note !== undefined) {
+        const checked = checkConnectionNote(patch.note);
+        if (!checked.ok)
+          return {
+            ok: false,
+            kind: "invalid",
+            error: { field: "note", reason: checked.reason },
+          };
+        note = checked.note;
+      }
       const secrets = read(scope);
       const secret = secrets.find((s) => s.name === name);
       if (!secret) return { ok: false, kind: "not_found" };
       if (hosts) secret.hosts = hosts;
       if (form) secret.form = form;
+      if (note === null) delete secret.note;
+      else if (note !== undefined) secret.note = note;
       secret.updatedAt = Date.now();
       write(scope, secrets);
       return { ok: true, secret: toWire(secret) };

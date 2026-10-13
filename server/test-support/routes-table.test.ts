@@ -486,6 +486,21 @@ describe("route table: managed env values are self-only", () => {
       );
   });
 
+  // The agents' connections and their notes (integrations A4): agent tokens,
+  // ordinary or privileged, and nobody else.
+  it("opens agentConnections.list to agent tokens only", () => {
+    const route = API_ROUTES.find((r) => r.opId === "agentConnections.list")!;
+    for (const who of [identities.agent, identities.privilegedAgent])
+      expect(runAuthorize(route.auth, who, {}, undefined, deps).ok).toBe(true);
+    for (const who of [
+      identities.user,
+      { ...identities.user, role: "owner" } as Identity,
+      identities.api,
+      { ...identities.agent, agentId: "" } as Identity,
+    ])
+      expect(runAuthorize(route.auth, who, {}, undefined, deps).ok).toBe(false);
+  });
+
   // The name-only read is the ONE managed-env route whose subject is somebody
   // else, so it swaps selfUserOrApi for officeEnvOwner: office owners only,
   // by cookie or by their own API token. Walked here at the guard level; the
@@ -1048,6 +1063,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apiTokens.adminRevoke": { caps: ["user:admin"], emits: [] },
   "providerAccounts.list": { caps: ["user:self"], emits: [] },
   "connections.list": { caps: ["user:self"], emits: [] },
+  "agentConnections.list": { caps: [], emits: [] },
   "providerAccounts.start": {
     caps: ["user:self"],
     emits: ["provider_accounts_updated"],

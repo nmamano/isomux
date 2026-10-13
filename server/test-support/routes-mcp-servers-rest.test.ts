@@ -447,6 +447,7 @@ describe("read paths", () => {
         secret: "OFFICE_LINEAR",
         problem: null,
         overridden: false,
+        note: null,
       },
     ]);
     // A member sees the office server, without the secret's name, and that
@@ -462,6 +463,7 @@ describe("read paths", () => {
         secret: null,
         problem: null,
         overridden: true,
+        note: null,
       },
       {
         scope: "personal",
@@ -471,6 +473,7 @@ describe("read paths", () => {
         secret: null,
         problem: null,
         overridden: false,
+        note: null,
       },
     ]);
   });

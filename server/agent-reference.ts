@@ -26,6 +26,7 @@ export const AGENT_REFERENCE_TOPICS = {
   members: "Member creation and special instructions",
   pager: "Pages to your manager",
   skills: "Skills: list, read, edit and create",
+  connections: "Your connections and their usage notes",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -149,6 +150,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "cron.getRun": "cronjob-management",
   "cron.runMessage": "cronjob-management",
   "cron.editRunMessage": "cronjob-management",
+  "agentConnections.list": "connections",
 } as const;
 
 export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<

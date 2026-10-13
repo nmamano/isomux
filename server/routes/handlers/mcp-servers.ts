@@ -29,8 +29,8 @@ export interface McpServersDeps {
   store: McpServerStore;
 }
 
-const CREATE_KEYS = ["name", "url", "secret"];
-const UPDATE_KEYS = ["url", "secret"];
+const CREATE_KEYS = ["name", "url", "secret", "note"];
+const UPDATE_KEYS = ["url", "secret", "note"];
 
 function memberScope(ctx: Parameters<RouteHandler>[0]): SecretScope | null {
   return (ctx.identity.scope === "user" || ctx.identity.scope === "api") &&

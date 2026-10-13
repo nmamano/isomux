@@ -190,6 +190,9 @@ describe("verified backup publication", () => {
       "container-runtime/hello.token.tmp",
       "user-env/u-alice.env",
       "office-env/office.env",
+      // The variables' usage notes (integrations A4) share the env dirs.
+      "user-env/u-alice.notes.json",
+      "office-env/office.notes.json",
       "office-env/.office.4242.0b1e5c1d-7d55-4d2a-9a43-1f2b3c4d5e6f.tmp",
       "secrets/office.json",
       "secrets/users/u-alice.json",

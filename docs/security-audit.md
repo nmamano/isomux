@@ -295,6 +295,10 @@ The Test button of the connections page makes the server itself send a secret. O
 - **Outbound requests.** Isomux does not follow redirects. A test stops after 10 seconds, and Isomux reads at most 1 MiB of each answer. The request goes out from the server process, not through the agents' secret proxy.
 - **What comes back.** The answer holds only the host, a reason code, and an account or server name. Isomux drops a name that contains the secret or a part of the URL path or query. No log line holds the URL or the secret.
 
+### 8.7 Usage notes for agents
+
+A member can write a note for agents on a variable, a secret or an MCP server. An agent reads, through `GET /api/agent-connections`, the kind, name, hosts and note of each connection it gets: the office's and its member's, never another member's. The answer holds no value, URL path or query. Thus a member can see, through their agent, the names, hosts and notes of the office secrets, which the connections page shows to owners only. The agent reference tells agents that a note never overrides a chat message or the system prompt.
+
 ---
 
 ## 9. Findings
@@ -416,3 +420,4 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 8.5, mentions and what leaves the office: `buildPageMessage` and `mentions` in `pager-delivery.ts`; `parsePagerSettingsPatch` in `pager-settings.ts`.
 - Section 8.6, who can test and where the secret goes: the `secrets.test`, `officeSecrets.test`, `mcpServers.test` and `officeMcpServers.test` routes in `routes/table.ts`; `IDENTITY_CHECKS` and `secretTestKind` in `connection-tests.ts`; `mcpServerSecret` in `mcp-servers.ts`.
 - Section 8.6, outbound requests and what comes back: `send`, `readBody`, `cleanName` and `CONNECTION_TEST_TIMEOUT_MS` in `connection-tests.ts`.
+- Section 8.7, what an agent reads: the `agentConnections.list` route in `routes/table.ts`; `buildAgentConnections` in `agent-connections.ts`; `server/agent-reference/connections.md`.

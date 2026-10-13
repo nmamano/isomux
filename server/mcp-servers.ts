@@ -81,7 +81,7 @@ function listOrNothing(
 
 // The registrations in force for a member: office first, the member's own
 // replacing any office server of the same name.
-function registrationsFor(
+export function registrationsFor(
   sources: McpServerSources,
   userId: string | null | undefined,
 ): { scope: SecretScope; server: McpServerWire }[] {
@@ -192,6 +192,7 @@ export function mcpServerRows(
           ? null
           : credential.problem,
       overridden: scope.kind === "office" && ownNames.has(server.name),
+      note: server.note,
     };
   };
   return [

@@ -351,12 +351,14 @@ import { connectionTestsHandlers } from "./routes/handlers/connection-tests.ts";
 import {
   claudeFamilyModelsForUserId,
   limitedClaudeFamiliesForUserId,
+  readOfficeEnvFile,
 } from "./env-loader.ts";
 import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { providerAccountsHandlers } from "./routes/handlers/provider-accounts.ts";
 import { buildConnectionsList } from "./connections-list.ts";
+import { buildAgentConnections } from "./agent-connections.ts";
 import { connectionsHandlers } from "./routes/handlers/connections.ts";
 import {
   claudeConnectorsFor,
@@ -376,10 +378,15 @@ import {
   managedOfficeEnvExists,
   managedUserEnvExists,
   managedUserEnvPath,
+  nextManagedEnvNotes,
   readManagedOfficeEnv,
+  readManagedOfficeEnvNotes,
   readManagedUserEnv,
+  readManagedUserEnvNotes,
   writeManagedOfficeEnv,
+  writeManagedOfficeEnvNotes,
   writeManagedUserEnv,
+  writeManagedUserEnvNotes,
 } from "./user-env.ts";
 import {
   legacyEnvFileExists,
@@ -3593,10 +3600,11 @@ function buildExecutorDeps(
     userEnvHandlers({
       get: (userId) => {
         const user = getUserById(userId);
-        if (!user) return { mode: "managed", values: {} };
+        if (!user) return { mode: "managed", values: {}, notes: {} };
         return {
           mode: "managed",
           values: readManagedUserEnv(userId) ?? {},
+          notes: { ...readManagedUserEnvNotes(userId) },
         };
       },
       // The route has checked officeEnvOwner. Drop values and account metadata
@@ -3609,10 +3617,18 @@ function buildExecutorDeps(
           providers: await providerAccountManager.memberStatuses(user.id),
         };
       },
-      replace: (userId, values) => {
+      replace: (userId, values, notes) => {
         const user = getUserById(userId);
         if (!user) return { ok: false, status: 404, code: "not_found" };
+        // Checked before either write; the env first, since a read filters
+        // the notes to its names.
+        const nextNotes = nextManagedEnvNotes(
+          values,
+          notes,
+          readManagedUserEnvNotes(userId),
+        );
         writeManagedUserEnv(userId, values);
+        writeManagedUserEnvNotes(userId, nextNotes);
         // Agents first: a client that sees the new session_context has the
         // agent records that go with it.
         agentManager.refreshLimitedClaudeFamilies(userId);
@@ -3622,9 +3638,16 @@ function buildExecutorDeps(
       getOffice: () => ({
         mode: "managed",
         values: readManagedOfficeEnv() ?? {},
+        notes: { ...readManagedOfficeEnvNotes() },
       }),
-      replaceOffice: (values) => {
+      replaceOffice: (values, notes) => {
+        const nextNotes = nextManagedEnvNotes(
+          values,
+          notes,
+          readManagedOfficeEnvNotes(),
+        );
         writeManagedOfficeEnv(values);
+        writeManagedOfficeEnvNotes(nextNotes);
         // The office variables can change which account (or billing) the
         // office sign-in is: drop the usage cap's readings for both.
         memberUsageCap().invalidate("claude");
@@ -5038,6 +5061,8 @@ function buildExecutorDeps(
           officeVariableNames: () => Object.keys(readManagedOfficeEnv() ?? {}),
           personalVariableNames: () =>
             Object.keys(readManagedUserEnv(userId) ?? {}),
+          officeVariableNotes: () => readManagedOfficeEnvNotes(),
+          personalVariableNotes: () => readManagedUserEnvNotes(userId),
           accounts: () => providerAccountManager.list(userId),
           claudeConnectorDir: (scope) =>
             providerAccountManager.claudeConnectorDir(userId, scope),
@@ -5053,6 +5078,18 @@ function buildExecutorDeps(
                 : { kind: "user", userId },
             ),
         }),
+      forAgent: (userId) =>
+        buildAgentConnections(
+          {
+            officeVariables: readOfficeEnvFile,
+            officeVariableNotes: readManagedOfficeEnvNotes,
+            memberVariables: (id) => readManagedUserEnv(id) ?? {},
+            memberVariableNotes: readManagedUserEnvNotes,
+            secrets: mcpSources.secrets,
+            mcp: mcpSources,
+          },
+          userId,
+        ),
     }),
   );
   register(

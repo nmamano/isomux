@@ -135,6 +135,7 @@ import type {
   UserUpdateReq,
   SetAccessReq,
   UserEnvNamesRes,
+  AgentConnectionsRes,
   ConnectionsListRes,
   UserEnvReplaceReq,
   UserEnvRes,
@@ -1355,6 +1356,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/me/connections",
     auth: cap("user:self", userScope),
+    emits: [],
+  }),
+  // The connections the calling agent gets, with their usage notes
+  // (integrations A4). Agent tokens only; the scope is the token's member.
+  // Read by agents: no capability, as the agent holds none of user:env.
+  defineRoute<void, AgentConnectionsRes>({
+    opId: "agentConnections.list",
+    method: "GET",
+    path: "/api/agent-connections",
+    auth: authn(agentTokenSender),
     emits: [],
   }),
   defineRoute<ProviderLoginStartReq, ProviderLoginStartRes>({

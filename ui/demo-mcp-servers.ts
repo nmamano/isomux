@@ -8,6 +8,7 @@ import {
   type McpServerFieldError,
 } from "../shared/mcp-servers.ts";
 import { checkSecretName } from "../shared/secret-hosts.ts";
+import { checkConnectionNote } from "../shared/connection-notes.ts";
 import type {
   ConnectionsListRes,
   McpServerWire,
@@ -52,6 +53,12 @@ function checkTarget(
   return { url: checked.url, secret: secret as string };
 }
 
+function noteOf(note: unknown): string | null {
+  const checked = checkConnectionNote(note);
+  if (!checked.ok) refuse({ field: "note", reason: checked.reason });
+  return checked.note;
+}
+
 // Answers an MCP servers route, or returns undefined for any other path.
 export function demoMcpServersRoute(
   method: ApiMethod,
@@ -84,6 +91,7 @@ export function demoMcpServersRoute(
     const nameError = checkMcpServerName(b.name);
     if (nameError) refuse(nameError);
     const target = checkTarget(key, b.url, b.secret ?? null);
+    const note = noteOf(b.note ?? null);
     if (list.some((s) => s.name === b.name))
       throw new ApiError(
         409,
@@ -95,6 +103,7 @@ export function demoMcpServersRoute(
       ...target,
       createdAt: now,
       updatedAt: now,
+      note,
     };
     list.push(server);
     list.sort((a, c) => a.name.localeCompare(c.name));
@@ -114,7 +123,8 @@ export function demoMcpServersRoute(
     b.url !== undefined ? b.url : server.url,
     b.secret !== undefined ? b.secret : server.secret,
   );
-  Object.assign(server, target, { updatedAt: now });
+  const note = b.note !== undefined ? noteOf(b.note) : server.note;
+  Object.assign(server, target, { updatedAt: now, note });
   return { handled: true, result: { server } };
 }
 
@@ -147,6 +157,7 @@ export function demoMcpServerRows(
               ? null
               : "secret_host",
       overridden: key === "office" && ownNames.has(server.name),
+      note: server.note,
     };
   };
   return [

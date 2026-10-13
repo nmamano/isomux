@@ -93,6 +93,7 @@ import {
 import { shimEmit } from "./ws.ts";
 import { demoSecretsRoute } from "./demo-secrets.ts";
 import { demoMcpServerRows, demoMcpServersRoute } from "./demo-mcp-servers.ts";
+import { nextVariableNotes } from "../shared/connection-notes.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
 
 const state = new OfficeState();
@@ -247,6 +248,24 @@ const demoPagerSettings: PagerSettingsRes = {
   repeatMinutes: 5,
 };
 let demoManagedOfficeEnv: Record<string, string> = {};
+// The variables' usage notes (integrations A4), by "office" or a user id.
+const demoEnvNotes: Record<string, Record<string, string>> = {};
+
+// A PUT of the variables, with the server's note rule.
+function saveDemoEnv(key: string, body: unknown): Record<string, string> {
+  const req = (body ?? {}) as {
+    values?: Record<string, string>;
+    notes?: unknown;
+  };
+  const values = { ...(req.values ?? {}) };
+  const notes = nextVariableNotes(values, req.notes, demoEnvNotes[key] ?? {});
+  if (!notes.ok)
+    throw new ApiError(400, "invalid_env", "a note is not valid", {
+      code: "invalid_env",
+    });
+  demoEnvNotes[key] = { ...notes.notes };
+  return values;
+}
 
 export const DEMO_ROOM_NAMES = ["Conference Room", "The Annex"] as const;
 // The landing demo keeps both rooms in the default office look.
@@ -2623,11 +2642,13 @@ export async function demoApi(
         version: "demo-version",
       };
     case "GET /api/office/env":
-      return { mode: "managed", values: demoManagedOfficeEnv };
-    case "PUT /api/office/env":
-      demoManagedOfficeEnv = {
-        ...(((body ?? {}) as { values?: Record<string, string> }).values ?? {}),
+      return {
+        mode: "managed",
+        values: demoManagedOfficeEnv,
+        notes: demoEnvNotes.office ?? {},
       };
+    case "PUT /api/office/env":
+      demoManagedOfficeEnv = saveDemoEnv("office", body);
       return undefined;
     case "GET /api/usage":
       return demoUsageReport();
@@ -2761,11 +2782,13 @@ export async function demoApi(
             ? names(demoManagedOfficeEnv).map((name) => ({
                 scope: "office",
                 name,
+                note: demoEnvNotes.office?.[name] ?? null,
               }))
             : []),
           ...names((selfId && demoManagedEnv[selfId]) || {}).map((name) => ({
             scope: "personal",
             name,
+            note: (selfId && demoEnvNotes[selfId]?.[name]) || null,
           })),
         ],
         signIns: [],
@@ -3157,12 +3180,14 @@ export async function demoApi(
     if (!existing)
       throw new ApiError(404, "not_found", `User ${uname} not found`);
     if (method === "GET") {
-      return { mode: "managed", values: demoManagedEnv[existing.id] ?? {} };
+      return {
+        mode: "managed",
+        values: demoManagedEnv[existing.id] ?? {},
+        notes: demoEnvNotes[existing.id] ?? {},
+      };
     }
     if (method === "PUT") {
-      demoManagedEnv[existing.id] = {
-        ...(((body ?? {}) as { values?: Record<string, string> }).values ?? {}),
-      };
+      demoManagedEnv[existing.id] = saveDemoEnv(existing.id, body);
       return undefined;
     }
   }

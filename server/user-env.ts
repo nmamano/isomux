@@ -14,6 +14,7 @@ import { join } from "path";
 
 import { STATE_ROOT } from "./config.ts";
 import { parseDotenv } from "./persistence.ts";
+import { nextVariableNotes } from "../shared/connection-notes.ts";
 
 const USER_ENV_DIR = join(STATE_ROOT, "user-env");
 const OFFICE_ENV_DIR = join(STATE_ROOT, "office-env");
@@ -39,6 +40,7 @@ export function managedUserEnvExists(userId: string): boolean {
 
 export function removeManagedUserEnv(userId: string): void {
   rmSync(managedUserEnvPath(userId), { force: true });
+  rmSync(managedUserEnvNotesPath(userId), { force: true });
 }
 
 export function readManagedUserEnv(userId: string): ManagedEnvValues | null {
@@ -109,7 +111,15 @@ function writeManagedEnv(
   tempName: string,
   values: ManagedEnvValues,
 ): void {
-  const content = serializeManagedUserEnv(values);
+  writeAtomic(directory, path, tempName, serializeManagedUserEnv(values));
+}
+
+function writeAtomic(
+  directory: string,
+  path: string,
+  tempName: string,
+  content: string,
+): void {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   chmodSync(directory, 0o700);
   const temp = join(
@@ -128,4 +138,111 @@ function writeManagedEnv(
     if (fd !== null) closeSync(fd);
     rmSync(temp, { force: true });
   }
+}
+
+// The variables' usage notes for agents (integrations A4): a sidecar next to
+// each .env file, so the .env format stays as it is. It is not part of the
+// OpenCode profile key or revision (env-loader.ts reads the .env files only),
+// so a note change restarts nothing. Under office-env/ and user-env/, it
+// shares their backup exclusion and agent path block.
+
+export type ManagedEnvNotes = Record<string, string>;
+
+interface NotesFile {
+  version: 1;
+  notes: ManagedEnvNotes;
+}
+
+export function managedUserEnvNotesPath(userId: string): string {
+  if (!SAFE_USER_ID.test(userId)) {
+    throw new ManagedEnvValidationError("invalid user id");
+  }
+  return join(USER_ENV_DIR, `${userId}.notes.json`);
+}
+
+const OFFICE_ENV_NOTES_FILE = join(OFFICE_ENV_DIR, "office.notes.json");
+
+// The notes of the names in `values` only: a sidecar left stale by a failed
+// write never shows a note on a gone or re-added variable. A sidecar that does
+// not parse reads as no notes.
+function readNotes(
+  path: string,
+  values: ManagedEnvValues | null,
+): ManagedEnvNotes {
+  const notes: ManagedEnvNotes = Object.create(null);
+  if (!values || !existsSync(path)) return notes;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return notes;
+  }
+  const file = parsed as Partial<NotesFile> | null;
+  if (
+    !file ||
+    typeof file !== "object" ||
+    file.version !== 1 ||
+    !file.notes ||
+    typeof file.notes !== "object"
+  )
+    return notes;
+  for (const [name, note] of Object.entries(file.notes))
+    if (Object.hasOwn(values, name) && typeof note === "string" && note)
+      notes[name] = note;
+  return notes;
+}
+
+export function readManagedUserEnvNotes(userId: string): ManagedEnvNotes {
+  return readNotes(managedUserEnvNotesPath(userId), readManagedUserEnv(userId));
+}
+
+export function readManagedOfficeEnvNotes(): ManagedEnvNotes {
+  return readNotes(OFFICE_ENV_NOTES_FILE, readManagedOfficeEnv());
+}
+
+// The notes to save with `values`; a note that breaks the rule throws.
+export function nextManagedEnvNotes(
+  values: ManagedEnvValues,
+  requested: unknown,
+  saved: ManagedEnvNotes,
+): ManagedEnvNotes {
+  const next = nextVariableNotes(values, requested, saved);
+  if (next.ok) return next.notes;
+  if (next.name === null)
+    throw new ManagedEnvValidationError("notes must be a string map");
+  throw new ManagedEnvValidationError(
+    next.reason === "too_long"
+      ? `the note for ${next.name} is too long`
+      : `the note for ${next.name} is not valid`,
+  );
+}
+
+function writeNotes(
+  directory: string,
+  path: string,
+  tempName: string,
+  notes: ManagedEnvNotes,
+): void {
+  // No sidecar until a variable has a note.
+  if (Object.keys(notes).length === 0 && !existsSync(path)) return;
+  const sorted = Object.fromEntries(
+    Object.entries(notes).sort(([a], [b]) => a.localeCompare(b)),
+  );
+  writeAtomic(
+    directory,
+    path,
+    `${tempName}-notes`,
+    `${JSON.stringify({ version: 1, notes: sorted } satisfies NotesFile, null, 2)}\n`,
+  );
+}
+
+export function writeManagedUserEnvNotes(
+  userId: string,
+  notes: ManagedEnvNotes,
+): void {
+  writeNotes(USER_ENV_DIR, managedUserEnvNotesPath(userId), userId, notes);
+}
+
+export function writeManagedOfficeEnvNotes(notes: ManagedEnvNotes): void {
+  writeNotes(OFFICE_ENV_DIR, OFFICE_ENV_NOTES_FILE, "office", notes);
 }

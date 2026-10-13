@@ -545,6 +545,27 @@ export function ConnectionsList({
                   {" · "}
                   {setIn(row.where)}
                 </div>
+                {(row.kind === "variable" ||
+                  row.kind === "secret" ||
+                  row.kind === "mcpServer") &&
+                  row.note && (
+                    <div
+                      data-connection-note
+                      aria-label={t("settings.connections.note")}
+                      title={t("settings.connections.note")}
+                      style={{
+                        fontSize: 12,
+                        margin: "6px 0 0",
+                        padding: "2px 0 2px 8px",
+                        borderLeft: "2px solid var(--border)",
+                        color: "var(--text-secondary)",
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {row.note}
+                    </div>
+                  )}
                 {testLine(row)}
                 {row.kind === "mcpServer" && row.overridden && (
                   <div
