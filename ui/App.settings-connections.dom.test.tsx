@@ -27,11 +27,17 @@ type View = ReturnType<typeof render>;
 let providerAccountsResponse: () => Promise<unknown> = async () => ({
   accounts: [],
 });
+let connectionsResponse: () => unknown = () => ({
+  variables: [],
+  signIns: [],
+  claudeConnectors: [],
+});
 setApiShim(async (_method, path) => {
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   if (path.startsWith("/api/me/provider-accounts"))
     return providerAccountsResponse();
+  if (path === "/api/me/connections") return connectionsResponse();
   return {};
 });
 afterAll(() => setApiShim(null));
@@ -120,6 +126,34 @@ describe("the connections cross-links", () => {
         '[data-provider-account-state="unavailable"]',
       ),
     ).toHaveLength(2);
+  });
+
+  it("shows a load failure, not a crash, when the connections answer has another shape", async () => {
+    // A UI built before the server restarts meets a server without the route.
+    connectionsResponse = () => ({});
+    try {
+      const view = render(
+        createElement(
+          StateCtx.Provider,
+          { value: SIGNED_IN },
+          createElement(App, {}),
+        ),
+      );
+      await click(
+        view.getByRole("button", { name: "Office-wide connections" }),
+      );
+      await act(async () => {});
+      expect(view.getAllByRole("alert")).toHaveLength(1);
+      expect(
+        view.getAllByRole("button", { name: "Individual connections" }).length,
+      ).toBeGreaterThan(0);
+    } finally {
+      connectionsResponse = () => ({
+        variables: [],
+        signIns: [],
+        claudeConnectors: [],
+      });
+    }
   });
 
   it("finishes the account check when loading the account rows fails", async () => {

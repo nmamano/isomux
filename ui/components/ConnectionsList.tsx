@@ -89,6 +89,18 @@ export function ConnectionsList({
     apiFetch<ConnectionsListRes>("GET", "/api/me/connections")
       .then((result) => {
         if (!live) return;
+        // A server without this route (the UI built before a restart) or a
+        // stub answers with another shape: show the load failure, not a crash
+        // that takes the whole settings page down.
+        if (
+          !Array.isArray(result?.variables) ||
+          !Array.isArray(result?.signIns) ||
+          !Array.isArray(result?.claudeConnectors)
+        ) {
+          setList(null);
+          setError(t("settings.connections.list.loadFailed"));
+          return;
+        }
         setList(result);
         setError(null);
       })

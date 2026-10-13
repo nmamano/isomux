@@ -29,6 +29,8 @@ setApiShim(async (_method, path) => {
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   if (path.startsWith("/api/me/provider-accounts")) return { accounts: [] };
+  if (path === "/api/me/connections")
+    return { variables: [], signIns: [], claudeConnectors: [] };
   if (path.endsWith("/env/names"))
     return {
       names: ["GH_TOKEN", "ZED_TOKEN"],
