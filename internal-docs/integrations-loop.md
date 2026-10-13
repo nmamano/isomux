@@ -114,6 +114,26 @@ Recommendation: 1, because it keeps "register once, every engine gets it" (rulin
 
 
 
+Lead ruling, 2026-10-13: design 1 (Isomux is the OAuth client). It is the only design that keeps ruling 5 ("register once, every engine gets it") and the B2 promise.
+
+## SLICE-A2b PICKUP: OAuth MCP servers (time-boxed tonight)
+
+Goal: a member registers a remote MCP server that needs the MCP authorization flow (for example a hosted Gmail or Notion server) once; Isomux runs the flow in the member's browser, keeps the refresh token as a secret of the registration's scope bound to the server's host, refreshes the access token, and gives it to every engine through the A2 channels.
+
+Mechanics and traps:
+- Follow the MCP authorization spec: protected-resource and authorization-server metadata discovery, dynamic client registration where the server offers it (otherwise a client id and secret the member pastes), PKCE, the state parameter, a callback route on the office origin, refresh before expiry, and a clear "sign in again" state when refresh fails.
+- The redirect URI is the office's own origin. Some authorization servers accept only https or localhost redirects: an office on a plain-http tailnet name may not be able to use some servers. Say what the page shows then; do not work around it.
+- Tokens are secrets: never in a log, an audit row, a URL that leaves the browser except to the authorization server, or an agent's environment. The access token reaches engines through credentialFor like A2's static credential.
+- Test with a stub authorization server and a stub MCP server (the A3 rig). No real provider.
+- Run the gates of this file, including ui/App.settings-*.dom.test.tsx and ui/audit-operations.test.ts.
+
+Time box (Lead, 2026-10-13): the office restarts before Nil's morning report, which needs every agent idle. Hand off for review by 15:30 UTC. If the slice is not approved by 16:00 UTC, commit the work in progress on the branch, report where it stands, and stop: it stays for the next night and is not merged.
+
+Acceptance: with stub servers in a throwaway office, a member registers an OAuth MCP server, signs in once in the browser, and a Claude, a Codex and an OpenCode agent reach it with the access token; a refresh replaces the token without a new sign-in; a failed refresh shows "sign in again"; no token appears in logs, responses or engine argv and environment. The reviewer re-runs it on the approved hash.
+
+Decide with the reviewer: the route shape; where the client registration is kept.
+Locked: rulings 1-12.
+
 ## SLICE-A3 PICKUP: Test button and diagnostics per connection
 
 Goal: each row of the All connections list that Isomux can check gets a Test button. A test says whether the connection works now, and when it can, which account the service sees. A failure shows a short reason a member can act on. A row that Isomux cannot test says so; it has no dead button.
