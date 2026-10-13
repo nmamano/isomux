@@ -17,6 +17,11 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { JsonRpcLiteClient } from "./client.ts";
+import {
+  EXPECTED,
+  SECRET_VALUE,
+  secretAgentEnvironment,
+} from "../../test-support/secret-env-fixture.ts";
 import { SAFETY_WARNING } from "./safety-hook.ts";
 
 const tmpDirs: string[] = [];
@@ -276,4 +281,42 @@ describe("JsonRpcLiteClient.request - spawn failure", () => {
       process.off("unhandledRejection", onUnhandled);
     }
   }, 10000);
+});
+
+describe("an agent with secrets in scope (secrets design, section 2.3)", () => {
+  it("the Codex app-server process gets the placeholders and the proxy and CA variables, never the value", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "codex-client-secrets-"));
+    tmpDirs.push(dir);
+    const out = join(dir, "env.out");
+    const script = join(dir, "fake-codex-env.sh");
+    writeFileSync(
+      script,
+      ["#!/usr/bin/env bash", `env > "${out}"`, "sleep 600", ""].join("\n"),
+    );
+    chmodSync(script, 0o755);
+    const client = new JsonRpcLiteClient({
+      codexBin: script,
+      args: [],
+      cwd: dir,
+      env: { ...secretAgentEnvironment(), PATH: process.env.PATH },
+      skipSafetyPreflightForTestProbe: true,
+    });
+    void client.start().catch(() => {});
+    try {
+      const ok = await waitFor(() => {
+        try {
+          return readFileSync(out, "utf8").includes("NODE_USE_ENV_PROXY=");
+        } catch {
+          return false;
+        }
+      }, 2000);
+      expect(ok).toBe(true);
+      const lines = readFileSync(out, "utf8").split("\n");
+      for (const [name, value] of Object.entries(EXPECTED))
+        expect(lines, name).toContain(`${name}=${value}`);
+      expect(lines.join("\n")).not.toContain(SECRET_VALUE);
+    } finally {
+      await client.close();
+    }
+  });
 });

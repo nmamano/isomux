@@ -112,6 +112,7 @@ export const AUDIT_OPERATIONS = [
   "secrets.rotate",
   "secrets.test",
   "secrets.update",
+  "secrets.use",
   "sessions.logout",
   "sessions.revoke",
   "skills.create",

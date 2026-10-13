@@ -11,7 +11,14 @@ import {
   credentialHeader,
   mcpServerRows,
   mcpServersForUserId,
+  setMcpPlaceholderProvider,
 } from "./mcp-servers.ts";
+import type { SecretScope } from "./secret-store.ts";
+
+// Stands in for the secrets runtime (secrets B2): a placeholder per scope
+// and name.
+const placeholder = (scope: SecretScope, name: string) =>
+  `placeholder-${scope.kind === "office" ? "office" : scope.userId}-${name}`;
 
 const OFFICE_VALUE = "fake-office-mcp-value-0000";
 const MEMBER_VALUE = "fake-member-mcp-value-0000";
@@ -19,8 +26,10 @@ const MEMBER_VALUE = "fake-member-mcp-value-0000";
 let root: string;
 let warnings: string[];
 let warnSpy: ReturnType<typeof spyOn>;
+let restorePlaceholders: Parameters<typeof setMcpPlaceholderProvider>[0];
 
 beforeEach(() => {
+  restorePlaceholders = setMcpPlaceholderProvider(placeholder);
   root = mkdtempSync(join(tmpdir(), "mcp-servers-"));
   warnings = [];
   warnSpy = spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
@@ -28,6 +37,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  setMcpPlaceholderProvider(restorePlaceholders);
   warnSpy.mockRestore();
   rmSync(root, { recursive: true, force: true });
 });
@@ -86,7 +96,7 @@ describe("mcpServersForUserId", () => {
       {
         name: "isomux-shared",
         url: "https://member.example.com/mcp",
-        headers: { "x-api-key": MEMBER_VALUE },
+        headers: { "x-api-key": "placeholder-u1-MEMBER_KEY" },
       },
     ]);
     expect(mcpServersForUserId(sources, "u2")).toEqual([
@@ -94,10 +104,31 @@ describe("mcpServersForUserId", () => {
       {
         name: "isomux-shared",
         url: "https://office.example.com/mcp",
-        headers: { Authorization: `Bearer ${OFFICE_VALUE}` },
+        headers: { Authorization: "Bearer placeholder-office-OFFICE_TOKEN" },
       },
     ]);
     expect(mcpServersForUserId(sources, null)).toHaveLength(2);
+  });
+
+  it("never puts a secret's value in a header (secrets B2)", () => {
+    const sources = seed();
+    const all = JSON.stringify([
+      mcpServersForUserId(sources, "u1"),
+      mcpServersForUserId(sources, "u2"),
+      mcpServersForUserId(sources, null),
+    ]);
+    expect(all).not.toContain(OFFICE_VALUE);
+    expect(all).not.toContain(MEMBER_VALUE);
+  });
+
+  it("leaves out a server with a secret while no secret proxy listens", () => {
+    const sources = seed();
+    setMcpPlaceholderProvider(() => null);
+    expect(mcpServersForUserId(sources, "u1")).toEqual([
+      { name: "isomux-open", url: "https://open.example.com/mcp", headers: {} },
+    ]);
+    expect(warnings.join("\n")).toContain("isomux-shared".slice(7));
+    expect(warnings.join("\n")).not.toContain(OFFICE_VALUE);
   });
 
   it("leaves out a server whose secret is gone or no longer lists the host", () => {

@@ -138,7 +138,7 @@ One sentence in the Secrets list, from B4: values stay out of agent environments
 Each leaves offices without secrets unchanged.
 
 - **B1. The store and the Secrets list.** Write-only store and routes, the preset and never-list table, the list in both halves of the connections settings, and a test per read path that a known value never appears (routes, backup, logs, audit, the agent reference, the demo server). Agents get nothing new.
-- **B2. The proxy.** Placeholders, the proxy process, the CA, header swap, response scrub, use log, the environment and restart rules of section 2.6, exact-value log masking. First, check that Bun can end TLS with a certificate per host name (unchecked). It passes the boundary cases of appendix D with stub hosts.
+- **B2. The proxy.** Placeholders, the proxy process, the CA, header swap, response scrub, use log, the environment and restart rules of section 2.6, exact-value log masking. Bun 1.4.2 ends TLS with a certificate per host name (checked 2026-10-13: a `tls.TLSSocket` over the CONNECT socket with an SNI callback). It passes the boundary cases of appendix D with stub hosts. Known limits, appendix F.
 - **B3. Each preset end to end.** curl, git over HTTPS (the credential helper and Basic swap), gh, stripe, fly, and the Node and Python SDKs, against stub hosts.
 - **B4. An agent asks, the member types.** An agent starts "add a secret" and the member enters the value in a masked form outside the chat (OpenClaw, qm, Grok Bot). The promise sentence of section 4; docs and security-audit text.
 
@@ -205,10 +205,21 @@ Tool support: [curl](https://curl.se/docs/sslcerts.html) reads `CURL_CA_BUNDLE` 
 
 **Restarts.** A change of the set of secrets in a scope (add, delete, reissue) marks that scope's agents: their next turn starts a new process, as a changed variable does today with `/clear` (shared/i18n/en.ts:831), and the OpenCode server of the profile is replaced. Terminals that are open keep their environment until they are reopened, and the terminal card says so.
 
-**OpenCode profile identity.** Today the source key hashes the paths of the env files and the revision hashes their contents (server/env-loader.ts:176-209). Two members with secrets but no env files would share the default profile. So the key also hashes the logical paths of the scopes' secret files, and the revision also hashes each secret's scope, name and generation. Adding, deleting and reissuing change the revision and replace the server; a value rotation or an edit of hosts or form does not, because the proxy reads them per request.
+**OpenCode profile identity.** Today the source key hashes the paths of the env files and the revision hashes their contents (server/env-loader.ts:176-209). Two members with secrets but no env files would share the default profile. So the key also hashes the logical path of the member's own secrets file once it exists (the store never deletes it; office files never join the key; integrations A2 adds its MCP servers file by the same rule). The revision also hashes each secret's scope, name, generation and placeholder, and the proxy port. Adding, deleting and reissuing change the revision and replace the server; a value rotation or an edit of hosts or form does not, because the proxy reads them per request.
 
 **Boundary cases (tests).** A host that the proxy terminates but the secret does not list gets 403 and no value; a tunneled host receives only the placeholder; a never-listed host is always a tunnel; `TRACE` and `OPTIONS` to a listed host carry no value; a `CONNECT`, SNI or `Host` mismatch gets 421 and no value; a redirect to another origin carries no value; a stub that reflects the header gets the raw, Basic and URL-encoded forms scrubbed, and a reflection in another encoding (for example hex) reaches the client, which the test records as the known limit of section 2.5.
 
 ## Appendix E. If the OS-user split resumes
 
 The split is on hold, and nothing in this loop touches it. If it resumes, its design takes from this one: server state gains `secrets/` (values, placeholder key, CA key) and its migration moves the directory; the share gains `secrets/ca-bundle.pem` (0640); the promise of section 4 becomes "the office never gives a secret value to an agent" for split offices.
+
+## Appendix F. Known limits of the proxy (B2)
+
+Measured or read in code, 2026-10-13.
+
+- **Scrub.** It knows the raw, URL-encoded and base64 forms of a value of 8 characters or more. A reflection in hex, base64url (JWT style), JSON-escaped (`\/`) or lower-case percent encoding reaches the client (section 2.5).
+- **Trust.** Tools that ignore `SSL_CERT_FILE` and its siblings, or that pin certificates, fail TLS to a host that a secret lists. On macOS the bundle takes the self-signed certificates of the System keychains and does not read trust settings, so a root that an administrator distrusted is still trusted.
+- **Company proxy.** The server's own `HTTPS_PROXY` is chained with CONNECT, for tunnels and listed hosts alike, and its `NO_PROXY` is honored without CIDR entries. An `https://` company proxy URL is dialled as plain TCP and fails closed (502). A member variable named `HTTPS_PROXY` is replaced, not chained.
+- **Restarts.** A conversation that cannot resume (a Codex thread that is not durable yet) keeps its process and its old environment until `/clear`. An open terminal keeps its environment until it is restarted, and the terminal panel says so.
+- **Protocols.** HTTP/1.1 only to listed hosts; upgrades (WebSocket) to a listed host get 501.
+

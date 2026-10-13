@@ -27,6 +27,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { STATE_ROOT } from "./config.ts";
 import { MCP_SERVERS_DIR } from "./mcp-server-store.ts";
+import type { SecretEnvironment } from "./secret-proxy/runtime.ts";
 import {
   isPersonalProviderActive,
   personalProviderHome,
@@ -51,6 +52,22 @@ let getPersonalProviderActive: typeof isPersonalProviderActive =
 
 export function setOfficeEnvFileProvider(fn: () => string | null): void {
   getOfficeEnvFile = fn;
+}
+
+// The secrets runtime (server/secret-proxy/runtime.ts) registers this at
+// boot. Until then, and in an office without a secret in scope, it answers
+// null and nothing below changes (ruling 8). Returns the provider it
+// replaced, so a test can put it back.
+let getSecretEnvironment: (
+  userId: string | null | undefined,
+) => SecretEnvironment | null = () => null;
+
+export function setSecretEnvironmentProvider(
+  fn: typeof getSecretEnvironment,
+): typeof getSecretEnvironment {
+  const previous = getSecretEnvironment;
+  getSecretEnvironment = fn;
+  return previous;
 }
 
 // Returns the provider it replaced so a test can put back exactly what it
@@ -115,24 +132,36 @@ export function buildEnvForUserId(
   const personalCodex = Boolean(
     userId && getPersonalProviderActive(userId, "codex"),
   );
-  if (!officeEnvFile && !userEnvFile && !personalClaude && !personalCodex)
+  const secrets = getSecretEnvironment(userId);
+  if (
+    !officeEnvFile &&
+    !userEnvFile &&
+    !personalClaude &&
+    !personalCodex &&
+    !secrets
+  )
     return getAgentHost().kind === "runner" ? { ...base } : undefined;
 
+  // Order (secrets design 2.1): office variable, office secret, member
+  // variable, member secret; then the proxy and trust variables over all.
   const merged: { [key: string]: string | undefined } = { ...base };
   if (officeEnvFile) {
     const officeEnv = readEnvFile(officeEnvFile);
     Object.assign(merged, officeEnv);
   }
+  if (secrets) Object.assign(merged, secrets.office);
   const userEnv = userEnvFile ? readEnvFile(userEnvFile) : {};
   if (userEnvFile) {
     Object.assign(merged, userEnv);
   }
+  if (secrets) Object.assign(merged, secrets.member);
   if (userId && personalClaude && !userEnv.CLAUDE_CONFIG_DIR?.trim()) {
     merged.CLAUDE_CONFIG_DIR = personalProviderHome(userId, "claude");
   }
   if (userId && personalCodex && !userEnv.CODEX_HOME?.trim()) {
     merged.CODEX_HOME = personalProviderHome(userId, "codex");
   }
+  if (secrets) Object.assign(merged, secrets.fixed);
   return merged;
 }
 
@@ -228,7 +257,13 @@ export function environmentSourceRevisionForUserId(
   const entries = Object.entries(configured).sort(([a], [b]) =>
     a.localeCompare(b),
   );
-  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+  const hash = createHash("sha256").update(JSON.stringify(entries));
+  // The non-value secret state and the proxy port: an add, a delete, a new
+  // placeholder or a new port replaces the server; a value rotation or a
+  // hosts or form edit does not. No secret in scope: the hash is as before.
+  const secrets = getSecretEnvironment(userId);
+  if (secrets) hash.update(`\0secrets\0${secrets.revision}`);
+  return hash.digest("hex");
 }
 
 // Compatibility wrapper. New code should use `buildEnvForUserId(userId)`

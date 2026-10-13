@@ -3,12 +3,15 @@
 // environment. The integrations list shows the servers set in Claude itself
 // from what the member's sessions report: name and source only.
 
-import { afterEach, expect, it } from "bun:test";
+import { afterAll, afterEach, expect, it } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { STATE_ROOT } from "../config.ts";
-import { createMcpServerSources } from "../mcp-servers.ts";
+import {
+  createMcpServerSources,
+  setMcpPlaceholderProvider,
+} from "../mcp-servers.ts";
 import { resetClaudeEngineServersForTests } from "../claude-connectors.ts";
 import { getUserByName } from "../users.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -18,6 +21,13 @@ const OFFICE_VALUE = "fake-office-agent-mcp-0000";
 const MEMBER_VALUE = "fake-member-agent-mcp-0000";
 
 let server: TestServer | null = null;
+// The harness starts no secret proxy. This stands in for the secrets runtime
+// (secrets B2): a placeholder per scope and name.
+const restorePlaceholders = setMcpPlaceholderProvider(
+  (scope, name) =>
+    `placeholder-${scope.kind === "office" ? "office" : "member"}-${name}`,
+);
+afterAll(() => setMcpPlaceholderProvider(restorePlaceholders));
 afterEach(async () => {
   await server?.stop();
   server = null;
@@ -108,18 +118,21 @@ it("gives each member's sessions the office servers and their own, never in the 
     {
       name: "isomux-office",
       url: "https://office.example.com/mcp",
-      headers: { Authorization: `Bearer ${OFFICE_VALUE}` },
+      headers: { Authorization: "Bearer placeholder-office-OFFICE_TOKEN" },
     },
     {
       name: "isomux-ann",
       url: "https://ann.example.com/mcp",
-      headers: { Authorization: `Bearer ${MEMBER_VALUE}` },
+      headers: { Authorization: "Bearer placeholder-member-ANN_TOKEN" },
     },
   ]);
   expect(bossSession.opts.mcpServers?.map((s) => s.name)).toEqual([
     "isomux-office",
   ]);
   for (const session of [annSession, bossSession]) {
+    // Neither the environment nor the MCP headers hold a value (B2).
+    expect(JSON.stringify(session.opts.mcpServers)).not.toContain(OFFICE_VALUE);
+    expect(JSON.stringify(session.opts.mcpServers)).not.toContain(MEMBER_VALUE);
     const env = JSON.stringify(session.opts.env ?? {});
     expect(env).not.toContain(OFFICE_VALUE);
     expect(env).not.toContain(MEMBER_VALUE);

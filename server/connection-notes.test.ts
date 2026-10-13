@@ -14,7 +14,11 @@ import {
   environmentSourceRevisionForUserId,
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
-import { createMcpServerSources, mcpServersForUserId } from "./mcp-servers.ts";
+import {
+  createMcpServerSources,
+  mcpServersForUserId,
+  setMcpPlaceholderProvider,
+} from "./mcp-servers.ts";
 import {
   managedOfficeEnvPath,
   managedUserEnvNotesPath,
@@ -41,6 +45,11 @@ afterEach(() => {
   rmSync(dirname(managedUserEnvPath("any")), { recursive: true, force: true });
   rmSync(join(STATE_ROOT, "secrets"), { recursive: true, force: true });
   rmSync(join(STATE_ROOT, "mcp-servers"), { recursive: true, force: true });
+});
+
+const afterEachRestores: (() => void)[] = [];
+afterEach(() => {
+  for (const restore of afterEachRestores.splice(0)) restore();
 });
 
 describe("the note rule", () => {
@@ -165,6 +174,12 @@ describe("stored notes", () => {
   });
 
   it("changes no MCP server an engine gets when a note changes", () => {
+    // Stands in for the secrets proxy (B2): with no placeholder, a server
+    // whose credential is a secret is left out.
+    const restore = setMcpPlaceholderProvider(
+      (_scope, name) => `placeholder-${name}`,
+    );
+    afterEachRestores.push(() => setMcpPlaceholderProvider(restore));
     const sources = createMcpServerSources();
     expect(
       sources.secrets.create(member, {

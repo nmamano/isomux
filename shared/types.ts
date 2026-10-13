@@ -2081,6 +2081,9 @@ export type ServerMessage =
       agentId: string;
       process: string;
       shell: boolean;
+      // The secrets in the agent's scope changed after this terminal started:
+      // it keeps its old environment until it restarts.
+      secretsStale?: true;
     }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
   | {

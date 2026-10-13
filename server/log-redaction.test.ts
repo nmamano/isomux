@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { LogEntry } from "../shared/types.ts";
-import { redactLogEntry } from "./log-redaction.ts";
+import { afterEach } from "bun:test";
+import {
+  redactLogEntry,
+  setSecretValuesForRedaction,
+} from "./log-redaction.ts";
 
 function entry(
   content: string,
@@ -218,4 +222,28 @@ it("pins the PM ruling and stays stable on a second pass for every case", () => 
     expect(result.content).toBe(output);
     expect(redactLogEntry(result)).toEqual(result);
   }
+});
+
+describe("secret values", () => {
+  afterEach(() => setSecretValuesForRedaction([]));
+
+  it("masks a current secret value whatever its shape, also URL-encoded and in Basic", () => {
+    const value = "plain words/that+look=harmless";
+    setSecretValuesForRedaction([value]);
+    const basic = Buffer.from(`user:${value}`).toString("base64");
+    const out = redactLogEntry(
+      entry(`a ${value} b ${encodeURIComponent(value)} c Basic ${basic}`),
+    );
+    const text = JSON.stringify(out);
+    expect(text).not.toContain(value);
+    expect(text).not.toContain(encodeURIComponent(value));
+    expect(text).not.toContain(basic);
+  });
+
+  it("leaves a value under the minimum length alone", () => {
+    setSecretValuesForRedaction(["abc"]);
+    expect(redactLogEntry(entry("abcdef tabcount")).content).toBe(
+      "abcdef tabcount",
+    );
+  });
 });

@@ -229,3 +229,52 @@ it("audits real terminal starts and stops, but not repeated opens or absent clos
     "terminal.open",
   ]);
 });
+
+describe("the secrets notice", () => {
+  it("a new terminal clears the flag, and a status after a secrets change carries it", async () => {
+    const managed = {
+      info: { id: "agent-terminal", userId: "member-id", cwd: "/tmp" },
+      ptySidecar: null,
+      ptyBuffer: "",
+      // Left over from a terminal that a change reached before.
+      ptySecretsStale: true,
+    } as unknown as ManagedAgent;
+    let push!: (line: string) => void;
+    const stdout = new ReadableStream<Uint8Array>({
+      start(controller) {
+        push = (line) =>
+          controller.enqueue(new TextEncoder().encode(`${line}\n`));
+      },
+    });
+    spyOn(Bun, "spawn").mockReturnValue({
+      stdin: { write: mock((data: string) => data.length) },
+      stdout,
+      exited: new Promise<number>(() => {}),
+      pid: 123,
+    } as unknown as ReturnType<typeof Bun.spawn>);
+    spyOn(console, "log").mockImplementation(() => {});
+    const events: Parameters<TerminalDeps["emit"]>[0][] = [];
+    const deps: TerminalDeps = {
+      getAgent: () => managed,
+      emit: (event) => events.push(event),
+      buildEnvForUserId: () => ({}),
+    };
+    expect(openTerminal("agent-terminal", deps)).toBe(true);
+    expect(managed.ptySecretsStale).toBe(false);
+    const status = JSON.stringify({
+      type: "status",
+      process: "bash",
+      shell: true,
+    });
+    push(status);
+    await new Promise((r) => setTimeout(r, 20));
+    // The agent manager marks the terminal when its secrets change.
+    managed.ptySecretsStale = true;
+    push(status);
+    await new Promise((r) => setTimeout(r, 20));
+    const statuses = events.filter((e) => e.type === "terminal_status");
+    expect(statuses).toHaveLength(2);
+    expect(statuses[0]).not.toHaveProperty("secretsStale");
+    expect(statuses[1]).toMatchObject({ secretsStale: true });
+  });
+});

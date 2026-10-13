@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   SECRET_PRESETS,
   checkSecretHosts,
+  checkSecretName,
   isNeverListed,
   isValidSecretHost,
 } from "./secret-hosts.ts";
@@ -68,5 +69,28 @@ describe("presets", () => {
   it("pass the host rules, so a preset always saves", () => {
     for (const preset of SECRET_PRESETS)
       expect(checkSecretHosts(preset.hosts).ok).toBe(true);
+  });
+});
+
+describe("checkSecretName", () => {
+  it("refuses every name the proxy sets in an agent's environment", () => {
+    for (const name of [
+      "HTTPS_PROXY",
+      "https_proxy",
+      "NO_PROXY",
+      "no_proxy",
+      "SSL_CERT_FILE",
+      "NODE_EXTRA_CA_CERTS",
+      "CODEX_CA_CERTIFICATE",
+      "REQUESTS_CA_BUNDLE",
+      "CURL_CA_BUNDLE",
+      "GIT_SSL_CAINFO",
+      "CARGO_HTTP_CAINFO",
+      "NODE_USE_ENV_PROXY",
+    ])
+      expect(checkSecretName(name)).toEqual({
+        field: "name",
+        reason: "reserved",
+      });
   });
 });

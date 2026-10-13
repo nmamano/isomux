@@ -342,7 +342,15 @@ import { createMembersChatStore } from "./members-chat.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
-import { createMcpServerSources, mcpServerRows } from "./mcp-servers.ts";
+import {
+  createMcpServerSources,
+  mcpServerRows,
+  setMcpPlaceholderProvider,
+} from "./mcp-servers.ts";
+import { createSecretStore } from "./secret-store.ts";
+import { createSecretsRuntime } from "./secret-proxy/runtime.ts";
+import { setSecretValuesForRedaction } from "./log-redaction.ts";
+import { SHARE_ROOT } from "./split/roots.ts";
 import {
   createConnectionTester,
   type ConnectionTestFetch,
@@ -352,6 +360,7 @@ import {
   claudeFamilyModelsForUserId,
   limitedClaudeFamiliesForUserId,
   readOfficeEnvFile,
+  setSecretEnvironmentProvider,
 } from "./env-loader.ts";
 import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
@@ -571,6 +580,38 @@ function bootPrelude(): void {
 // below read these after startServer() has assigned them (never before).
 let agentManager: AgentManager;
 let cronjobManager: CronjobManager;
+
+// Secrets (internal-docs/secrets-design.md): the store, and the runtime that
+// runs the proxy and gives agents placeholders. The runtime acts only after
+// enable(), which runOfficeMain calls; the in-process test harness never
+// starts a proxy child.
+const secretStore = createSecretStore();
+const secretsRuntime = createSecretsRuntime({
+  store: secretStore,
+  stateRoot: STATE_ROOT,
+  shareRoot: SHARE_ROOT,
+  serverEnv: process.env,
+  onUse: (use) =>
+    recordAudit({
+      actor: {
+        kind: "secret_proxy",
+        id: "secret-proxy",
+        name: "secret-proxy",
+        ...(use.ownerId ? { ownerId: use.ownerId } : {}),
+      },
+      operation: "secrets.use",
+      targets: [use.name],
+      fields: [],
+      secretUse: { host: use.host, method: use.method, path: use.path },
+    }),
+  onSetChanged: (change) => agentManager?.secretsChanged(change),
+  onValues: setSecretValuesForRedaction,
+  log: (code) => console.log(`[secret-proxy] ${code}`),
+});
+setSecretEnvironmentProvider((userId) => secretsRuntime.environmentFor(userId));
+setMcpPlaceholderProvider((scope, name) =>
+  secretsRuntime.placeholderOf(scope, name),
+);
 let scheduledMessageManager: ScheduledMessageManager;
 let pagerStore: PagerStore;
 let pagerSettings: PagerSettingsStore;
@@ -3658,10 +3699,15 @@ function buildExecutorDeps(
       },
     }),
   );
-  // Secrets: write-only. Agents get their values only as MCP server headers
-  // (A2) until B2's proxy. MCP servers name a secret in the same scope.
+  // Secrets: write-only routes. The runtime pushes each change to the proxy.
+  // MCP servers name a secret in the same scope.
   const mcpSources = createMcpServerSources();
-  register(secretsHandlers({ store: mcpSources.secrets }));
+  register(
+    secretsHandlers({
+      store: mcpSources.secrets,
+      onChanged: () => secretsRuntime.changed(),
+    }),
+  );
   register(mcpServersHandlers({ store: mcpSources.servers }));
   register(
     connectionTestsHandlers({
@@ -6026,6 +6072,7 @@ function emitAgentEvent(event: AgentEvent): void {
         agentId: event.agentId,
         process: event.process,
         shell: event.shell,
+        ...(event.secretsStale ? { secretsStale: true as const } : {}),
       });
       break;
     case "terminal_exit":
@@ -8145,6 +8192,13 @@ export async function runOfficeMain(): Promise<void> {
     process.exit(1);
   }
   if (split.mode === "split") setAgentHost(split.host);
+  // Before any agent starts: an office with a secret gets its proxy and its
+  // placeholders. An office without one changes nothing.
+  try {
+    await secretsRuntime.enable();
+  } catch {
+    console.error("[secret-proxy] could not start the secrets proxy");
+  }
   try {
     await prepareCodexSafetyHookArtifact();
   } catch (err) {

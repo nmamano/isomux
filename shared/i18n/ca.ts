@@ -32,6 +32,7 @@ export const ca: Catalog = {
   "audit.kind.adminCli": "CLI d’administració",
   "audit.kind.setup": "Configuració",
   "audit.kind.app": "App",
+  "audit.kind.secretProxy": "Proxy de secrets",
   "audit.memory.office": "Memòria de l’oficina",
   "audit.memory.room": "Memòria de la sala",
   "audit.memory.agent": "Memòria de l’agent",
@@ -1701,6 +1702,8 @@ Coses que pots fer per ell:
   "panels.terminal.interrupt": "Interromp",
   "panels.terminal.interruptHint": "Interromp l'ordre en primer pla",
   "panels.terminal.restart": "Reinicia",
+  "panels.terminal.secretsStale":
+    "Els secrets han canviat. Reinicia aquest terminal per fer-los servir.",
   "panels.terminal.restartHint": "Reinicia la terminal",
   "panels.terminal.close": "Tanca la terminal",
   "panels.terminal.sendToChat": "Envia al xat",
@@ -2442,6 +2445,8 @@ Coses que pots fer per ell:
   "systemEntries.interrupted": "Agent interromput.",
   "systemEntries.wake.idle":
     "S'ha reprès la teva sessió (s'havia alliberat per inactivitat per estalviar memòria).",
+  "systemEntries.wake.secrets":
+    "S'ha reprès la teva sessió amb els secrets actuals.",
   "systemEntries.wake.afterRestart":
     "S'ha reprès la teva sessió després de reiniciar el servidor.",
   "systemEntries.wake.afterBackendEnded":

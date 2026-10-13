@@ -38,7 +38,14 @@ import { errMessage } from "../shared/errors.ts";
 // backend's event stream ended on its own while the session was still bound
 // (subprocess died without a proper error event) and the consumer released
 // the dead session pointer. Null while live. In-memory only.
-export type DormantReason = "idle" | "boot" | "fresh" | "stream-ended" | null;
+export type DormantReason =
+  | "idle"
+  | "boot"
+  | "fresh"
+  | "stream-ended"
+  // Released because the set of secrets in its scope changed.
+  | "secrets"
+  | null;
 
 // The per-turn deferred record. `promise` is the same promise `resolve` /
 // `reject` settle. Code that must wait for the in-flight turn to end ATTACHES

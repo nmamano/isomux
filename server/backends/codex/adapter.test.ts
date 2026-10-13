@@ -14,6 +14,10 @@
 // the private handlers directly, so these exercise the same callback wiring
 // production uses (transport.onNotification / onServerRequest / onStderr /
 // onExit -> handle* -> enqueue -> stream).
+import {
+  MCP_SECRET_VALUE,
+  placeholderMcpServers,
+} from "../../test-support/mcp-placeholder-fixture.ts";
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import {
   mkdirSync,
@@ -3367,5 +3371,15 @@ describe("codex subscription usage", () => {
     expect(await session.getSubscriptionUsage()).toEqual({
       kind: "unavailable",
     });
+  });
+});
+
+describe("MCP servers with a secret (secrets B2)", () => {
+  it("the thread config gets the placeholder in http_headers, never the value", () => {
+    const { servers, placeholder } = placeholderMcpServers();
+    expect(servers).toHaveLength(1);
+    const text = JSON.stringify(codexThreadConfig(servers));
+    expect(text).toContain(placeholder);
+    expect(text).not.toContain(MCP_SECRET_VALUE);
   });
 });

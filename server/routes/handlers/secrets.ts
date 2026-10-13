@@ -27,6 +27,11 @@ import { hasCredentialShape } from "../../log-redaction.ts";
 
 export interface SecretsDeps {
   store: SecretStore;
+  // After a change is stored: the secrets runtime pushes it to the proxy
+  // and marks the agents that must restart. The store write is the commit
+  // point, so a failure here is logged and the route still answers success;
+  // the proxy child gets a full snapshot at its next start.
+  onChanged?: () => Promise<void>;
 }
 
 const CREATE_KEYS = ["name", "value", "hosts", "form", "note"];
@@ -81,6 +86,21 @@ function answer(change: SecretChange, status: "ok" | "created" = "ok") {
   }
 }
 
+// Tells the runtime about a change that the store committed.
+async function committed(
+  deps: SecretsDeps,
+  result: HandlerResult,
+): Promise<HandlerResult> {
+  if (result.kind !== "error" && deps.onChanged) {
+    try {
+      await deps.onChanged();
+    } catch {
+      console.error("[secrets] the proxy did not take a change");
+    }
+  }
+  return result;
+}
+
 function guarded(handler: RouteHandler): RouteHandler {
   return async (ctx): Promise<HandlerResult> => {
     try {
@@ -117,15 +137,16 @@ function scopedHandlers(
           kind: "invalid",
           error: { field: "name", reason: "invalid" },
         });
-      return answer(deps.store.create(scope, body), "created");
+      return committed(deps, answer(deps.store.create(scope, body), "created"));
     },
     rotate: (ctx) => {
       const scope = scopeOf(ctx);
       if (!scope) return fail(403, "forbidden");
       const body = bodyWith(ctx.body, ROTATE_KEYS);
       if (!body) return invalidRequest();
-      return answer(
-        deps.store.rotate(scope, ctx.params.name ?? "", body.value),
+      return committed(
+        deps,
+        answer(deps.store.rotate(scope, ctx.params.name ?? "", body.value)),
       );
     },
     update: (ctx) => {
@@ -133,13 +154,16 @@ function scopedHandlers(
       if (!scope) return fail(403, "forbidden");
       const body = bodyWith(ctx.body, UPDATE_KEYS);
       if (!body || Object.keys(body).length === 0) return invalidRequest();
-      return answer(deps.store.update(scope, ctx.params.name ?? "", body));
+      return committed(
+        deps,
+        answer(deps.store.update(scope, ctx.params.name ?? "", body)),
+      );
     },
     remove: (ctx) => {
       const scope = scopeOf(ctx);
       if (!scope) return fail(403, "forbidden");
       return deps.store.remove(scope, ctx.params.name ?? "")
-        ? noContent()
+        ? committed(deps, noContent())
         : fail(404, "not_found");
     },
   };

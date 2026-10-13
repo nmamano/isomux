@@ -1,3 +1,7 @@
+import {
+  MCP_SECRET_VALUE,
+  placeholderMcpServers,
+} from "../../test-support/mcp-placeholder-fixture.ts";
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   chmod,
@@ -30,6 +34,11 @@ import {
 } from "./server-health.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import { readLinuxProcessStartTicks } from "./process-identity.ts";
+import {
+  EXPECTED,
+  SECRET_VALUE,
+  secretAgentEnvironment,
+} from "../../test-support/secret-env-fixture.ts";
 
 // Opt-in live tier (bun run test:opencode), same switch as adapter.test.ts.
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
@@ -1618,4 +1627,38 @@ describe("OpenCode shared server under load and loss", () => {
     },
     150_000,
   );
+});
+
+describe("an agent with secrets in scope (secrets design, section 2.3)", () => {
+  it("the OpenCode serve process gets the placeholders and the proxy and CA variables, never the value", async () => {
+    const path = await root();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      // As openCodeSupervisorForEnvironment gives it: the agent's env.
+      launchEnv: secretAgentEnvironment(),
+      environmentRevision: "secrets-spawn",
+      idleShutdownMs: 1000,
+    });
+    supervisors.push(supervisor);
+    const lease = await supervisor.acquire();
+    try {
+      await expectChildEnvironment(lease.pid, EXPECTED);
+      const environ = readFileSync(`/proc/${lease.pid}/environ`).toString();
+      expect(environ).not.toContain(SECRET_VALUE);
+    } finally {
+      lease.release();
+    }
+  }, 20_000);
+});
+
+describe("MCP servers with a secret (secrets B2)", () => {
+  it("the config file gets the placeholder in the server's headers, never the value", () => {
+    const { servers, placeholder } = placeholderMcpServers();
+    expect(servers).toHaveLength(1);
+    const text = JSON.stringify(openCodeConfigFor(servers));
+    expect(text).toContain(placeholder);
+    expect(text).not.toContain(MCP_SECRET_VALUE);
+  });
 });

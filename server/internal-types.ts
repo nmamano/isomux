@@ -228,6 +228,14 @@ export interface ManagedAgent {
   }[];
   ptySidecar: import("./agent-host.ts").AgentProcess | null;
   ptyBuffer: string;
+  // The set of secrets in this agent's scope changed after its terminal
+  // started: the terminal keeps its old environment until it restarts, and
+  // the panel says so. A new terminal clears it.
+  ptySecretsStale?: boolean;
+  // The same change, while the agent's process was busy: the process is
+  // released when its turn ends, so the next turn starts with the current
+  // secrets.
+  secretsStale?: boolean;
   // /isomux-usage tracking. The SDK's `result` reports session-cumulative totals,
   // which are written to sessions.json on every turn (`usage` field) along
   // with a per-turn snapshot (`usageSnapshots`). /isomux-usage reads those entries
@@ -322,6 +330,7 @@ export type AgentEvent =
   | { type: "terminal_output"; agentId: string; data: string }
   | {
       type: "terminal_status";
+      secretsStale?: true;
       agentId: string;
       process: string;
       shell: boolean;

@@ -77,6 +77,8 @@ export function openTerminal(
   const sidecar = host.spawnPipe([bunPath, PTY_SIDECAR_PATH]);
 
   managed.ptySidecar = sidecar;
+  // A new terminal starts with the current environment.
+  managed.ptySecretsStale = false;
   if (actor)
     recordAudit({
       actor,
@@ -141,6 +143,9 @@ export function openTerminal(
               agentId,
               process: msg.process,
               shell: msg.shell,
+              ...(managed.ptySecretsStale
+                ? { secretsStale: true as const }
+                : {}),
             });
           } else if (msg.type === "exit") {
             console.log(

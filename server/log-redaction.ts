@@ -1,3 +1,17 @@
+import { scrubPatterns, scrubText } from "./secret-proxy/scrub.ts";
+
+// Every current secret value, in raw, URL-encoded and base64 form, whatever
+// its shape (secrets design, section 6). The secrets runtime sets them on
+// every change. Values shorter than MIN_SCRUB_LENGTH are left out, as in the
+// proxy's scrub: a short pattern would rewrite ordinary log text. That is
+// safe because agents never get a value; a value reaches a log only if a
+// host reflects it in a form the scrub misses.
+let exactPatterns: string[] = [];
+
+export function setSecretValuesForRedaction(values: readonly string[]): void {
+  exactPatterns = scrubPatterns(values);
+}
+
 // Generic assignment names ignore case; provider prefixes remain case-sensitive.
 // A single pass means one match cannot
 // consume the replacement of another overlapping match.
@@ -14,8 +28,8 @@ export function redactLogEntry<T extends object>(entry: T): T {
     if (typeof value === "string") {
       // A bare key keeps its first eight characters. A KEY=value assignment
       // keeps the label and the value's first eight characters, so the
-      // reader still sees which key it was.
-      return value.replace(
+      // reader still sees which key it was. A secret value goes whole first.
+      return scrubText(value, exactPatterns).replace(
         SECRET_PATTERN,
         (match, _label: string | undefined, assigned: string | undefined) =>
           assigned === undefined

@@ -97,6 +97,10 @@ memories, app registrations and app data. It omits known backend login files,
 managed environment files, secrets, app runtime credential files, private legacy TLS
 material, and Codex shell snapshots. `RESTORE.txt` is generated from the same
 exclusion list used by tar; it names only classes present when that backup ran.
+The secrets exclusion covers all of `secrets/`, the placeholder key and the
+office CA key included. Secrets put back without those keys get new ones at
+the next start: every placeholder changes, and agents get the new ones when
+their processes start again.
 The report does not claim that an archive is free of secrets. Conversation logs
 and provider transcripts remain because they are history, even though user text
 can incidentally contain sensitive values.

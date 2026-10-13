@@ -28,6 +28,7 @@ export const zh: Catalog = {
   "audit.kind.adminCli": "管理命令行",
   "audit.kind.setup": "初始设置",
   "audit.kind.app": "应用",
+  "audit.kind.secretProxy": "密钥代理",
   "audit.memory.office": "办公室记忆",
   "audit.memory.room": "房间记忆",
   "audit.memory.agent": "智能体记忆",
@@ -1527,6 +1528,7 @@ App 的一些原则：
   "panels.terminal.interrupt": "打断",
   "panels.terminal.interruptHint": "打断前台命令",
   "panels.terminal.restart": "重启",
+  "panels.terminal.secretsStale": "密钥已更改。重启此终端以使用它们。",
   "panels.terminal.restartHint": "重启终端",
   "panels.terminal.close": "关闭终端",
   "panels.terminal.sendToChat": "发送到聊天",
@@ -2214,6 +2216,7 @@ App 的一些原则：
   "systemEntries.startFailed": "启动失败：{error}",
   "systemEntries.interrupted": "智能体已被打断。",
   "systemEntries.wake.idle": "已继续会话（此前在空闲时释放以节省内存）。",
+  "systemEntries.wake.secrets": "已使用当前密钥继续会话。",
   "systemEntries.wake.afterRestart": "服务器重启后，已继续会话。",
   "systemEntries.wake.afterBackendEnded": "后端意外结束后，已继续会话。",
   "systemEntries.wake.inFlightWarning":

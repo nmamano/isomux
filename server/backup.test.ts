@@ -201,6 +201,12 @@ describe("verified backup publication", () => {
       "mcp-servers/users/u-alice.json",
       "mcp-servers/users/.mcp-servers.4242.0b1e5c1d-7d55-4d2a-9a43-1f2b3c4d5e6f.tmp",
       "opencode/profiles/shared/opencode.json",
+      // The secret proxy's files (internal-docs/secrets-design.md, 2.3).
+      "secrets/placeholder.key",
+      "secrets/ca.pem",
+      "secrets/ca-key.pem",
+      "secrets/proxy.json",
+      "secrets/ca-bundle.pem",
       "codex-home/auth.json",
       "codex-home/shell_snapshots/one.sh",
       "provider-homes/u-alice/claude/.credentials.json",

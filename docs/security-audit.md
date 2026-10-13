@@ -240,6 +240,10 @@ This closes the one-call route. It does not close the class in section 3.2: a pr
 - **Preview a page** (`preview-url`) opens any HTTP or HTTPS URL in a browser on the server. This includes loopback and internal addresses. The only control is the agent system prompt.
 - **Browser control** acts only on a tab that the agent's manager offers in the paired Chrome extension.
 
+### 6.6 The secret proxy
+
+An agent, terminal or scheduled run with a secret in scope gets a placeholder in place of each value, and the proxy and trust variables (`HTTPS_PROXY`, `SSL_CERT_FILE` and similar). A child process of the server, on a loopback port, puts the value into requests to the hosts that the secret lists, only in the header that the secret names. For those hosts it ends TLS with a certificate from the office CA, which agents with a secret trust. Every other host, and the model and package registry hosts on the fixed never-list, pass as plain tunnels. The proxy removes the value from responses as a backstop; a host that returns it in another encoding (hex, for example) defeats that. Each use of a secret is an audit entry. A placeholder is a bearer credential inside the office: any process on the box that has it can use the secret for its listed hosts.
+
 ---
 
 ## 7. Members inside the office
@@ -257,7 +261,7 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 
 ### 8.1 State files
 
-All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `secrets/`, `mcp-servers/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files and the secrets hold their values as plain text. A registered MCP server's credential also reaches the config file of each OpenCode profile (`opencode/profiles/<key>/opencode.json`, mode 0600) as plain text.
+All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `secrets/`, `mcp-servers/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files and the secrets hold their values as plain text. `secrets/` also holds the placeholder key and the office CA key. A registered MCP server's header holds its secret's placeholder, never the value, so the config file of each OpenCode profile (`opencode/profiles/<key>/opencode.json`, mode 0600) holds no value.
 
 ### 8.2 Backups
 
@@ -265,7 +269,7 @@ Daily backups do not include the managed environment files, the secrets, the reg
 
 ### 8.3 Secret redaction in logs
 
-Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments, terminal output and backend transcripts are not scanned.
+Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. It also masks the value of every secret of 8 characters or more, whatever its shape, raw, URL-encoded and base64. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments, terminal output and backend transcripts are not scanned.
 
 ### 8.4 Telemetry
 

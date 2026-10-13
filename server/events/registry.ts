@@ -142,7 +142,12 @@ export interface EventPayloads {
   killed_agent_added: { agent: KilledAgentSummary };
   killed_agent_removed: { agentId: string; lastRoomId: string };
   terminal_output: { agentId: string; data: string };
-  terminal_status: { agentId: string; process: string; shell: boolean };
+  terminal_status: {
+    agentId: string;
+    process: string;
+    shell: boolean;
+    secretsStale?: true;
+  };
   terminal_exit: { agentId: string; exitCode: number };
   room_created: { room: RoomWire };
   // pre-close access snapshot: the roomId is carried; the audience is whoever

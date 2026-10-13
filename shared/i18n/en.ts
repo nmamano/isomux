@@ -46,6 +46,7 @@ export const en = {
   "audit.kind.adminCli": "Admin CLI",
   "audit.kind.setup": "Setup",
   "audit.kind.app": "App",
+  "audit.kind.secretProxy": "Secret proxy",
   "audit.memory.office": "Office memory",
   "audit.memory.room": "Room memory",
   "audit.memory.agent": "Agent memory",
@@ -1672,6 +1673,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "panels.terminal.interrupt": "Interrupt",
   "panels.terminal.interruptHint": "Interrupt the foreground command",
   "panels.terminal.restart": "Restart",
+  "panels.terminal.secretsStale":
+    "Secrets changed. Restart this terminal to use them.",
   "panels.terminal.restartHint": "Restart the terminal",
   "panels.terminal.close": "Close terminal",
   "panels.terminal.sendToChat": "Send to chat",
@@ -2430,6 +2433,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "systemEntries.interrupted": "Agent interrupted.",
   "systemEntries.wake.idle":
     "Resumed your session (it was released while idle to save memory).",
+  "systemEntries.wake.secrets":
+    "Resumed your session with the current secrets.",
   "systemEntries.wake.afterRestart":
     "Resumed your session after the server restarted.",
   "systemEntries.wake.afterBackendEnded":

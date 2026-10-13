@@ -185,3 +185,40 @@ it("maps roster IDs and local minute bounds, keeps filters when paging, and clea
     process.env.TZ = previousZone;
   }
 });
+it("shows the request of a secret use, and survives a wrong-shaped one", async () => {
+  setApiShim(async () => ({
+    items: [
+      {
+        sequence: 1,
+        time: 1,
+        actor: {
+          kind: "secret_proxy",
+          id: "secret-proxy",
+          name: "",
+          ownerId: "u",
+        },
+        operation: "secrets.use",
+        targets: ["GH_TOKEN"],
+        fields: [],
+        secretUse: { host: "api.github.com", method: "GET", path: "/user" },
+      },
+      {
+        sequence: 2,
+        time: 2,
+        actor: { kind: "secret_proxy", id: "secret-proxy", name: "" },
+        operation: "secrets.use",
+        targets: ["OTHER"],
+        fields: [],
+        secretUse: { host: 5, method: null },
+      },
+    ],
+    nextBefore: null,
+  }));
+  const view = render(<AuditPane />);
+  await act(async () => {});
+  const rows = view.container.querySelectorAll("li");
+  expect(rows).toHaveLength(2);
+  expect(rows[0].textContent).toContain("GET api.github.com/user");
+  expect(rows[1].textContent).toContain("OTHER");
+  expect(rows[1].textContent).not.toContain("null");
+});

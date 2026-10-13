@@ -26,6 +26,7 @@ const ACTOR_KIND_LABEL: Record<AuditActorKind, PlainMessageKey> = {
   admin_cli: "audit.kind.adminCli",
   setup: "audit.kind.setup",
   app: "audit.kind.app",
+  secret_proxy: "audit.kind.secretProxy",
 };
 const MEMORY_LABEL: Record<MemoryScope, PlainMessageKey> = {
   office: "audit.memory.office",
@@ -101,6 +102,14 @@ function AuditRows({
           ) : (
             <div style={HINT}>{entry.fields.join(", ")}</div>
           )}
+          {typeof entry.secretUse?.host === "string" &&
+            typeof entry.secretUse.method === "string" &&
+            typeof entry.secretUse.path === "string" && (
+              <div style={HINT}>
+                {entry.secretUse.method} {entry.secretUse.host}
+                {entry.secretUse.path}
+              </div>
+            )}
           {entry.memoryContent !== undefined && (
             <pre style={{ whiteSpace: "pre-wrap" }}>{entry.memoryContent}</pre>
           )}

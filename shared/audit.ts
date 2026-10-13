@@ -9,6 +9,9 @@ export const AUDIT_ACTOR_KINDS = [
   "admin_cli",
   "setup",
   "app",
+  // The secret proxy, for each use of a secret (operation secrets.use). It
+  // knows the secret's scope, never the agent.
+  "secret_proxy",
 ] as const;
 export type AuditActorKind = (typeof AUDIT_ACTOR_KINDS)[number];
 export interface AuditActor {
@@ -28,6 +31,8 @@ export interface AuditEntry {
   taskChanges?: Record<string, { old: unknown; new: unknown }>;
   deletedTask?: Omit<TaskItem, "version">;
   memoryContent?: string;
+  // secrets.use: the request that got the value. The path has no query.
+  secretUse?: { host: string; method: string; path: string };
 }
 export interface AuditFilter {
   actorKind?: AuditActorKind;

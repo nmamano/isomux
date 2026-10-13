@@ -1,7 +1,8 @@
 // The secret store (internal-docs/secrets-design.md, section 1). Values are
-// write-only: nothing in this module returns one except readSecretValues,
-// which has two callers: the MCP server headers (server/mcp-servers.ts,
-// integrations A2) and the proxy (B2). Neither sends it to a client.
+// write-only: nothing in this module returns one except readSecretValues.
+// Its callers: the MCP server headers (server/mcp-servers.ts, integrations
+// A2) and, through readForProxy, the secret proxy (B2). Neither sends a
+// value to a client.
 //
 // STATE_ROOT/secrets/office.json and STATE_ROOT/secrets/users/<userId>.json,
 // 0600 files in 0700 directories, written like the env files. Every change is
@@ -15,6 +16,7 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -36,7 +38,7 @@ import { checkConnectionNote } from "../shared/connection-notes.ts";
 
 export type SecretScope = { kind: "office" } | { kind: "user"; userId: string };
 
-interface StoredSecret {
+export interface StoredSecret {
   name: string;
   value: string;
   hosts: string[];
@@ -158,9 +160,72 @@ export function createSecretStore(root: string = STATE_ROOT) {
     }
   }
 
+  // The only way a value leaves this module: a copy of a stored secret's
+  // value, hosts and form. Never for a response or a log line.
+  function valuesOf(secret: StoredSecret): {
+    value: string;
+    hosts: string[];
+    form: SecretForm;
+  } {
+    return {
+      value: secret.value,
+      hosts: [...secret.hosts],
+      form: { ...secret.form },
+    };
+  }
+
+  // A secret's value, hosts and form, or null when it does not exist.
+  function readSecretValues(
+    scope: SecretScope,
+    name: string,
+  ): { value: string; hosts: string[]; form: SecretForm } | null {
+    const secret = read(scope).find((s) => s.name === name);
+    return secret ? valuesOf(secret) : null;
+  }
+
+  // Every scope that has a file, and the user ids that have one. A file name
+  // that is not a safe user id is skipped, as pathFor would refuse it.
+  function scopes(): SecretScope[] {
+    const found: SecretScope[] = [];
+    if (existsSync(pathFor({ kind: "office" }))) found.push({ kind: "office" });
+    if (!existsSync(usersDir)) return found;
+    for (const entry of readdirSync(usersDir).sort()) {
+      if (!entry.endsWith(".json")) continue;
+      const userId = entry.slice(0, -".json".length);
+      if (SAFE_USER_ID.test(userId)) found.push({ kind: "user", userId });
+    }
+    return found;
+  }
+
   return {
     list(scope: SecretScope): SecretWire[] {
       return read(scope).map(toWire);
+    },
+
+    // One scope's secrets with their values, for the snapshot that the
+    // server sends to the secret proxy and for placeholders. One file read.
+    readForProxy(scope: SecretScope): StoredSecret[] {
+      return read(scope).map((s) => ({ ...s, ...valuesOf(s) }));
+    },
+
+    readSecretValues,
+
+    // The scopes that have a secrets file. A file with no secrets counts.
+    scopes,
+
+    // True when any scope holds at least one secret. An unreadable file
+    // counts as holding one: the proxy starts (it reads that scope as empty,
+    // so it only tunnels for it), and once the file is fixed the next agent
+    // start finds a proxy to point at.
+    hasAny(): boolean {
+      return scopes().some((scope) => {
+        try {
+          return read(scope).length > 0;
+        } catch (error) {
+          if (error instanceof SecretStoreUnreadableError) return true;
+          throw error;
+        }
+      });
     },
 
     create(scope: SecretScope, input: Record<string, unknown>): SecretChange {
@@ -253,21 +318,6 @@ export function createSecretStore(root: string = STATE_ROOT) {
       secret.updatedAt = Date.now();
       write(scope, secrets);
       return { ok: true, secret: toWire(secret) };
-    },
-
-    // The value with its hosts and form, or null when there is no secret of
-    // that name. Never for a response or a log line.
-    readSecretValues(
-      scope: SecretScope,
-      name: string,
-    ): { value: string; hosts: string[]; form: SecretForm } | null {
-      const secret = read(scope).find((s) => s.name === name);
-      if (!secret) return null;
-      return {
-        value: secret.value,
-        hosts: [...secret.hosts],
-        form: { ...secret.form },
-      };
     },
 
     // Keeps the file when the list becomes empty: its path is part of the

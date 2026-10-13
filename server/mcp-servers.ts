@@ -5,8 +5,10 @@
 // "Probe facts"): Claude setMcpServers, the Codex thread config, the OpenCode
 // config file.
 //
-// Until secrets slice B2, a header carries the secret's real value. B2 puts
-// the placeholder here instead, in this one place.
+// A header carries the secret's placeholder, never its value (secrets B2):
+// the secret proxy swaps it for the value on the way to the server's host,
+// which the secret lists. With no proxy listening, a server with a secret is
+// left out.
 //
 // Resolution fails closed and quiet: an unreadable file, a missing secret or
 // a secret that no longer lists the host leaves servers out with a fixed log
@@ -97,11 +99,26 @@ export function registrationsFor(
   ];
 }
 
+// The placeholder for a secret, from the secrets runtime, which registers
+// this at boot. Null: no proxy listens (or none was started), so a header
+// could not reach the host with the value.
+let placeholderOf: (scope: SecretScope, name: string) => string | null = () =>
+  null;
+
+export function setMcpPlaceholderProvider(
+  fn: typeof placeholderOf,
+): typeof placeholderOf {
+  const previous = placeholderOf;
+  placeholderOf = fn;
+  return previous;
+}
+
 type CredentialProblem = McpServerProblem | "unreadable";
 
 // The one rule for a registration's secret: it exists in the same scope and
-// lists the server's host. The agents' headers and the Test button (A3) both
-// use it.
+// lists the server's host. The value it returns is for the Test button (A3),
+// which runs in the server. The agents' headers never use it: they take only
+// the form, with the placeholder (secrets B2, headersFor below).
 export function mcpServerSecret(
   sources: McpServerSources,
   scope: SecretScope,
@@ -123,9 +140,11 @@ export function mcpServerSecret(
 }
 
 type Credential =
-  | { ok: true; headers: Record<string, string> }
-  | { ok: false; problem: CredentialProblem };
+  | { ok: true; form: SecretForm | null }
+  | { ok: false; problem: CredentialProblem | "no_proxy" };
 
+// Whether a server's secret is in order, and the form its header takes.
+// Never the value.
 function credentialFor(
   sources: McpServerSources,
   scope: SecretScope,
@@ -133,11 +152,24 @@ function credentialFor(
 ): Credential {
   const resolved = mcpServerSecret(sources, scope, server);
   if (!resolved.ok) return resolved;
-  const { secret } = resolved;
-  return {
-    ok: true,
-    headers: secret ? credentialHeader(secret.form, secret.value) : {},
-  };
+  return { ok: true, form: resolved.secret?.form ?? null };
+}
+
+// The headers an engine sends: the placeholder in the secret's form.
+function headersFor(
+  sources: McpServerSources,
+  scope: SecretScope,
+  server: McpServerWire,
+):
+  | { ok: true; headers: Record<string, string> }
+  | { ok: false; problem: CredentialProblem | "no_proxy" } {
+  const credential = credentialFor(sources, scope, server);
+  if (!credential.ok) return credential;
+  if (credential.form === null || server.secret === null)
+    return { ok: true, headers: {} };
+  const placeholder = placeholderOf(scope, server.secret);
+  if (!placeholder) return { ok: false, problem: "no_proxy" };
+  return { ok: true, headers: credentialHeader(credential.form, placeholder) };
 }
 
 export function mcpServersForUserId(
@@ -146,12 +178,14 @@ export function mcpServersForUserId(
 ): AgentMcpServer[] {
   const result: AgentMcpServer[] = [];
   for (const { scope, server } of registrationsFor(sources, userId)) {
-    const credential = credentialFor(sources, scope, server);
+    const credential = headersFor(sources, scope, server);
     if (!credential.ok) {
       console.warn(
         credential.problem === "unreadable"
           ? `[mcp] ${server.name}: the ${scope.kind} secrets file could not be read; the server is left out`
-          : `[mcp] ${server.name}: its secret is missing or does not list the host; the server is left out`,
+          : credential.problem === "no_proxy"
+            ? `[mcp] ${server.name}: no secret proxy listens; the server is left out`
+            : `[mcp] ${server.name}: its secret is missing or does not list the host; the server is left out`,
       );
       continue;
     }
@@ -188,7 +222,9 @@ export function mcpServerRows(
       credential: server.secret !== null,
       secret: showSecret ? server.secret : null,
       problem:
-        credential.ok || credential.problem === "unreadable"
+        credential.ok ||
+        credential.problem === "unreadable" ||
+        credential.problem === "no_proxy"
           ? null
           : credential.problem,
       overridden: scope.kind === "office" && ownNames.has(server.name),

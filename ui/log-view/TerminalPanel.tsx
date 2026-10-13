@@ -329,6 +329,8 @@ export function TerminalPanel({
   const { mode } = useTheme();
   const { t } = useI18n();
   const [exited, setExited] = useState<number | null>(null);
+  // The agent's secrets changed after this shell started (server flag).
+  const [secretsStale, setSecretsStale] = useState(false);
   const [owner, setOwner] = useState<{
     process: string;
     shell: boolean;
@@ -390,6 +392,7 @@ export function TerminalPanel({
           advancePendingCommand({ type: "output", data: msg.data });
         } else if (msg.type === "terminal_status" && msg.agentId === agentId) {
           setOwner({ process: msg.process, shell: msg.shell });
+          setSecretsStale(msg.secretsStale === true);
           setCommandIssue(null);
           const status = {
             type: "status" as const,
@@ -411,6 +414,7 @@ export function TerminalPanel({
             });
         } else if (msg.type === "terminal_exit" && msg.agentId === agentId) {
           setOwner(null);
+          setSecretsStale(false);
           setExited(msg.exitCode);
           advancePendingCommand({ type: "exit" });
         }
@@ -907,6 +911,22 @@ export function TerminalPanel({
           </button>
         </div>
       </div>
+
+      {secretsStale && (
+        <div
+          role="status"
+          style={{
+            padding: "4px 12px",
+            fontSize: mobile ? 12 : 11,
+            color: "var(--text-muted)",
+            borderBottom: "1px solid var(--border-strong)",
+            background: "var(--bg-surface)",
+            flexShrink: 0,
+          }}
+        >
+          {t("panels.terminal.secretsStale")}
+        </div>
+      )}
 
       {/* Terminal body. position:relative so the exit overlay anchors to the
           body bottom (above the soft-key bar) without a hard-coded offset. */}

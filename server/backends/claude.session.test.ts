@@ -1,5 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { expectRejection } from "../test-support/expect-rejection.ts";
+import {
+  EXPECTED,
+  SECRET_VALUE,
+  secretAgentEnvironment,
+} from "../test-support/secret-env-fixture.ts";
+import {
+  MCP_SECRET_VALUE,
+  placeholderMcpServers,
+} from "../test-support/mcp-placeholder-fixture.ts";
 import type {
   SDKMessage,
   SDKUserMessage,
@@ -1486,5 +1495,52 @@ describe("ClaudeBackend remote MCP servers", () => {
       undefined,
       undefined,
     ]);
+  });
+});
+
+describe("an agent with secrets in scope (secrets design, section 2.3)", () => {
+  it("the Claude process gets the placeholders and the proxy and CA variables, never the value", () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    const env = secretAgentEnvironment();
+    const session = backend.createSession({
+      agentId: "secret-agent",
+      modelFamily: "sonnet",
+      env,
+      cwd: "/tmp",
+      systemPrompt: "test",
+      permissionMode: "default",
+      effort: "high",
+    });
+    const sent = sessionOptsToV1(fake.createCalls[0].opts).env as Record<
+      string,
+      string | undefined
+    >;
+    for (const [name, value] of Object.entries(EXPECTED))
+      expect(sent[name], name).toBe(value);
+    expect(JSON.stringify(sent)).not.toContain(SECRET_VALUE);
+    session.close();
+  });
+});
+
+describe("MCP servers with a secret (secrets B2)", () => {
+  it("setMcpServers gets the placeholder in the header, never the value", () => {
+    const { servers, placeholder } = placeholderMcpServers();
+    expect(servers).toHaveLength(1);
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    const session = backend.createSession({
+      agentId: "mcp-agent",
+      cwd: "/tmp",
+      systemPrompt: "sys",
+      modelFamily: "haiku",
+      effort: "high",
+      permissionMode: "default",
+      mcpServers: servers,
+    });
+    const text = JSON.stringify(fake.createCalls[0].mcp);
+    session.close();
+    expect(text).toContain(placeholder);
+    expect(text).not.toContain(MCP_SECRET_VALUE);
   });
 });
