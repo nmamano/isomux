@@ -51,16 +51,54 @@ export function MobileHeader({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <span
-          style={{
-            fontSize: 14,
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-            color: "var(--text-primary)",
-          }}
-        >
-          Isomux
-        </span>
+        <div style={{ display: "flex", gap: 8 }}>
+          {(
+            [
+              {
+                n: counts.working,
+                c: "var(--green-text)",
+                label: "office.status.working",
+              },
+              {
+                n: counts.waiting,
+                c: "var(--purple-text)",
+                label: "office.status.waiting",
+              },
+              {
+                n: counts.error,
+                c: "var(--red-text)",
+                label: "office.status.errShort",
+              },
+            ] as const
+          )
+            .filter((s) => s.n > 0)
+            .map((s) => (
+              <div
+                key={s.label}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 3,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: s.c,
+                  fontFamily: "'JetBrains Mono',monospace",
+                  letterSpacing: "0.02em",
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: s.c,
+                    boxShadow: `0 0 6px ${s.c}`,
+                  }}
+                />
+                {s.n} {t(s.label)}
+              </div>
+            ))}
+        </div>
         {updateAvailable && (
           <span
             onClick={onOpenUpdate}
@@ -87,54 +125,6 @@ export function MobileHeader({
             />
           </span>
         )}
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        {(
-          [
-            {
-              n: counts.working,
-              c: "var(--green-text)",
-              label: "office.status.working",
-            },
-            {
-              n: counts.waiting,
-              c: "var(--purple-text)",
-              label: "office.status.waiting",
-            },
-            {
-              n: counts.error,
-              c: "var(--red-text)",
-              label: "office.status.errShort",
-            },
-          ] as const
-        )
-          .filter((s) => s.n > 0)
-          .map((s) => (
-            <div
-              key={s.label}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 3,
-                fontSize: 10,
-                fontWeight: 600,
-                color: s.c,
-                fontFamily: "'JetBrains Mono',monospace",
-                letterSpacing: "0.02em",
-              }}
-            >
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: s.c,
-                  boxShadow: `0 0 6px ${s.c}`,
-                }}
-              />
-              {s.n} {t(s.label)}
-            </div>
-          ))}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <NavActions actions={actions} viewport="mobile" />

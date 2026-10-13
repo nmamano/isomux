@@ -488,17 +488,60 @@ export function OfficeView({
             zIndex: 500,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <span
-              style={{
-                fontSize: 15,
-                fontWeight: 700,
-                letterSpacing: "-0.02em",
-                color: "var(--text-primary)",
-              }}
-            >
-              Isomux
-            </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12 }}>
+              {(
+                [
+                  {
+                    n: counts.working,
+                    c: "var(--green-text)",
+                    l: "office.status.working",
+                  },
+                  {
+                    n: counts.waiting,
+                    c: "var(--purple-text)",
+                    l: "office.status.waiting",
+                  },
+                  {
+                    n: counts.error,
+                    c: "var(--red-text)",
+                    l: "office.status.error",
+                  },
+                  {
+                    n: counts.idle,
+                    c: "var(--text-muted)",
+                    l: "office.status.idle",
+                  },
+                ] as const
+              )
+                .filter((s) => s.n > 0)
+                .map((s) => (
+                  <div
+                    key={s.l}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: s.c,
+                      fontFamily: "'JetBrains Mono',monospace",
+                      letterSpacing: "0.02em",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        background: s.c,
+                        boxShadow: `0 0 6px ${s.c}`,
+                      }}
+                    />
+                    {s.n} {t(s.l)}
+                  </div>
+                ))}
+            </div>
             {updateAvailable && (
               <span
                 onClick={onOpenUpdate}
@@ -534,59 +577,6 @@ export function OfficeView({
                   : t("updateNotice.pill.newRelease")}
               </span>
             )}
-          </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            {(
-              [
-                {
-                  n: counts.working,
-                  c: "var(--green-text)",
-                  l: "office.status.working",
-                },
-                {
-                  n: counts.waiting,
-                  c: "var(--purple-text)",
-                  l: "office.status.waiting",
-                },
-                {
-                  n: counts.error,
-                  c: "var(--red-text)",
-                  l: "office.status.error",
-                },
-                {
-                  n: counts.idle,
-                  c: "var(--text-muted)",
-                  l: "office.status.idle",
-                },
-              ] as const
-            )
-              .filter((s) => s.n > 0)
-              .map((s) => (
-                <div
-                  key={s.l}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: s.c,
-                    fontFamily: "'JetBrains Mono',monospace",
-                    letterSpacing: "0.02em",
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: "50%",
-                      background: s.c,
-                      boxShadow: `0 0 6px ${s.c}`,
-                    }}
-                  />
-                  {s.n} {t(s.l)}
-                </div>
-              ))}
           </div>
           <NavActions actions={officeActions} viewport="desktop" />
         </div>
