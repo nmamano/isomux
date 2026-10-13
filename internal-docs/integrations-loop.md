@@ -136,3 +136,19 @@ Acceptance: in a throwaway office with stub HTTPS hosts for a GitHub-preset secr
 
 Decide with the reviewer: the route shape (one test route per kind or one generic); where results are kept (memory is fine).
 Locked: rulings 1-12.
+
+## SLICE-A4 PICKUP: a usage note per connection that agents read
+
+Goal: the member who sets up a connection writes a short note for agents ("use this token for the acme org only; open issues in the ops repo"). Agents in that connection's scope read the notes of the connections they get, and nothing else about them (no value, no URL path).
+
+Mechanics and traps:
+- Which connections take a note: variables, secrets and Isomux MCP servers, at office (owner writes) or member scope. Engine sign-ins and engine-managed connectors: no note in A4 (say so in the report if one is easy).
+- Where agents read it: an agent-facing route that returns, for the calling agent's scope, each connection's kind, name, host (where there is one) and note; plus one line in server/system-prompt.ts that tells agents to read it when they start work with an outside service (guidance ships in system-prompt.ts, never in office or room memory). Follow the agent-reference pattern (`GET /api/agent-reference` pages) if it fits better; decide with the reviewer. A new agent-facing route goes in ROUTE_LABELS, the routes-table and routes-agents-manifest tests, and server/backends/opencode/authority-broker.prompt-routes.test.ts if the prompt names it.
+- A note is text a member wrote: cap its length (for example 1000 characters), store it next to the connection (the env, secrets and mcp-servers stores; keep their file formats backward compatible), and never treat it as an instruction source with more authority than a member's chat message.
+- The note shows on the connection's row in All connections and is edited where the connection is set.
+- Prompt copy is customer-facing: draft it short; it goes to Nil for sign-off.
+
+Acceptance: an agent in a member's scope gets that member's and the office's notes, and not another member's; the note round-trips through edit; no value appears in the agent route (fake-value test). Screenshots desktop and mobile. The reviewer re-runs the tests on the approved hash.
+
+Decide with the reviewer: the route shape and the prompt line.
+Locked: rulings 1-12.

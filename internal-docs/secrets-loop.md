@@ -86,3 +86,38 @@ Acceptance: in a throwaway office with stub HTTPS hosts, an agent-side curl with
 
 Decide with the reviewer: the proxy's process model (in the server or a supervised child); how values reach it.
 Locked: rulings 1-11.
+
+## SLICE-B3 PICKUP: each preset proven end to end
+
+Starts after B2 is merged into main.
+
+Goal: prove, in a throwaway office with stub hosts that stand in for the real services, that an agent's ordinary tools use a secret through the proxy with no extra setup: curl, git over HTTPS with the credential helper, gh, stripe, fly, a Node SDK call (fetch, and an SDK that uses its own HTTP client if one is easy) and a Python SDK call (requests). Fix what fails.
+
+Mechanics and traps:
+- The stub hosts answer as the real ones would for one read call each (for example GitHub GET /user) and check the header. Map the preset host names to the stubs in the throwaway office only (the proxy's upstream resolution or /etc/hosts in a container), never by changing what a real agent resolves.
+- git over HTTPS: the design's credential helper and Basic swap (design 2.4). gh, stripe and fly read their token from the environment: confirm each sends the placeholder in the form the preset names, and that each honors HTTPS_PROXY and the CA variables (Go CLIs read SSL_CERT_FILE).
+- A tool that cannot be made to work is a finding, not a failure: report which, why, and what the member sees.
+- No real service is contacted and no real credential is used.
+
+Acceptance: a table per tool (works / does not, with the evidence command) in the report; tests for what the repo can run in CI (stub-based); the reviewer re-runs the stub run on the approved hash.
+
+Decide with the reviewer: which checks live in CI and which stay a recorded manual run.
+Locked: rulings 1-11.
+
+## SLICE-B4 PICKUP: the agent asks, the member types; the honest sentence; docs
+
+Starts after B2 is merged into main (B3 may run before or after).
+
+Goal: an agent that needs a credential can ask for it, and the member enters the value in a masked form outside the chat, so the value never enters the transcript. The single-user promise is stated once, honestly. Docs cover secrets for members and agents.
+
+Scope:
+- The ask: an agent-facing route that opens a request for a secret (name, hosts, form, a reason), shown to the member as a card in the chat with a masked form (OpenCode's member side is the reference: the agent proposes hosts, the member edits them). Saving creates the secret in the member's scope; the agent gets only the placeholder and a confirmation. A member can decline. An office secret request goes to owners.
+- Reissue a placeholder (B2 deferred it): a route and a button; the generation goes up and the agents in scope get the new placeholder at their next start.
+- The honest sentence (ruling 3), in the Secrets list and the docs: on this office, an agent that reads the office's files on purpose can read the store. One sentence, no more.
+- Carried from B1 and B2: a recursive search rooted at STATE_ROOT or an ancestor (Grep, grep -r) still reads the store, so the safety hooks refuse such a search unless it excludes secrets/ (accident protection); the variables hint that suggests GH_TOKEN as a variable points at secrets instead; the Secrets list says that a member variable named HTTPS_PROXY is not chained (B2 ruling 4).
+- Docs: docs/ for members (one short section), the agent reference page for agents, internal-docs/documentation.md surfaces. Copy is customer-facing and goes to Nil for sign-off: draft it short.
+
+Acceptance: an agent asks, the member saves in the masked form, the agent's next command uses the placeholder, and the transcript never holds the value (fake-value test); reissue changes the placeholder; the search refusal works; screenshots desktop and mobile. The reviewer re-runs the tests on the approved hash.
+
+Decide with the reviewer: the card's shape (reuse the existing interaction cards if they fit); the agent route.
+Locked: rulings 1-11.
