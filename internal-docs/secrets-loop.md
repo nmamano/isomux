@@ -1,0 +1,64 @@
+# Slice loop B: the secrets proxy
+
+Board task b38ddd02. Design: internal-docs/secrets-design.md. Prior art: internal-docs/secrets-prior-art.md. Worktree `loop-secrets` (`~/nil/isomux-worktrees/loop-secrets`). Read this whole file at the start of every slice. A second loop (integrations page, `internal-docs/integrations-loop.md`) runs at the same time in its own worktree; the Lead merges both into main.
+
+## North star
+
+A member saves a credential once, with the hosts that may receive it. Agents get a placeholder, never the value: `echo`, `printenv`, transcripts and the model context show only the placeholder. A proxy run by the server puts the value into requests to the listed hosts only.
+
+## Rulings (final)
+
+1. Nil, 2026-10-13: the secrets proxy is in this build. Scopes are office and member, as today (D2). No per-agent limits: those would need per-agent sandboxing. Never name per-agent OS users as a blocker or a plan.
+2. Secrets get their own list next to the variables list. No secret switch on a variable row (D4).
+3. The OS-user split is on hold, so secrets ship on single-user offices, with one honest sentence saying an agent that reads the office's files on purpose can read the store (D3). Nothing in this loop depends on the split or touches it.
+4. References: Omnigent for the proxy, OpenClaw for the member side (internal-docs/secrets-prior-art.md has both). Copy their design and their failure-case tests, not their code.
+5. Design for the general case. No copy in terms of "IT", no design tied to one customer.
+6. Website logins through browser control are not in this build.
+7. Mechanism (D1): placeholders per scope, an office CA, and a proxy that swaps a placeholder only in the secret's named header and only for a listed host. It never injects on TRACE or OPTIONS, keeps a fixed list of hosts that never get a secret (model APIs, package registries), scrubs the value from responses, and logs each use in the audit log.
+8. The repo is public and has self-hosters: state layouts stay backward compatible; offices without secrets do not change at all; no host, user, path or IP of this office's machines in a commit.
+
+## Accepted defaults (the PM's, not ruled by Nil; reversible, listed in the morning report)
+
+- D5: a secret may go to any host, with presets for common services and a plain statement that the member vouches the host does not send the credential back.
+- Office secrets are owner-only, the same as office variables.
+
+## Decision protocol
+
+- Worker and reviewer settle implementation choices inside a slice.
+- The Lead settles anything that changes scope, a public interface (route shape, state layout) or a ruling. Ask the Lead; do not pick.
+- A product tradeoff with no clear answer goes into the slice report as PARKED FOR NIL with a recommendation first; the loop continues on the rest.
+- Anything that would change a ruling above, or touch the OS-user split, is PARKED FOR NIL.
+
+## Gates (every hand-off)
+
+The room prompt gates: `bun run build:ui` (plus `bun run build:demo` when the diff touches ui/demo-server.ts or shared/storage-labels.ts), scoped tests on the touched area, eslint on touched files, `bunx tsc --noEmit` (inside a MemoryMax=2G scope: `NODE_OPTIONS=--max-old-space-size=1700`). Add server/test-support/routes-table.test.ts and routes-agents-manifest.test.ts when a route changes, server/test-support/identity-tokens.test.ts when a scope's capabilities change, and server/backends/opencode/authority-broker.prompt-routes.test.ts when an agent-reference page or the system prompt names a route. A new agent-facing route also goes in ROUTE_LABELS in ui/log-view/isomux-curl.ts. Update the doc surfaces in internal-docs/documentation.md that the slice makes stale.
+
+## Prohibitions
+
+- Never restart the running office server; never use sudo; never print a credential or a secret value, in logs, tests output or reports (verify with grep -q, ls and wc only). Test values are obvious fakes.
+- Never read, scan or archive ~/.claude/projects.
+- Proxy and engine checks use a throwaway ISOMUX_HOME, a spare port and stub hosts, never the live office and never a real provider account.
+
+## Slices
+
+- [ ] B1: design doc to the rulings; the secret store and the Secrets list; read-path audit
+- [ ] B2: the proxy (waits for the probe report on engine proxy support)
+- [ ] B3: each preset proven end to end (curl, git over HTTPS, gh, stripe, fly, Node and Python SDKs)
+- [ ] B4: an agent asks for a secret and the member types it in a masked form; the honest sentence; docs
+
+## SLICE-B1 PICKUP: design to the rulings, the store, the Secrets list
+
+Goal: the member can save, list, rotate and delete secrets, and nothing ever returns a value. No proxy yet: agents get nothing new in this slice.
+
+Step 1, design doc (plan-gate it with the reviewer before code): update internal-docs/secrets-design.md to rulings 1-8 and the accepted defaults. Mark D1-D5 decided (D5 and owner-only office secrets as the PM's reversible defaults), drop "secrets after split slice 7", state the single-user promise, and add from the prior art: no injection on TRACE or OPTIONS (Omnigent), a never-list of hosts (Claude Code on the web), and Codex cloud's "a shared scope names the secrets it needs, each member supplies their own value" as a later option, not built now. Fix Appendix B's out-of-date rows (Codex cloud and Claude Code on the web now have network secrets). Keep it short: the doc is the spec for B2-B4.
+
+Step 2, store and routes: per design section 1. Office secrets (owner-only) and member secrets, each with name, value (write-only), hosts, the form the credential is sent in, and timestamps; a generation number for placeholders (B2 uses it). Stored in server state as the design says, 0600 in a 0700 directory, written atomically like the env files. Routes: create, list (no values), rotate value, edit hosts and form, delete. Audit log entries for each change (no values).
+
+Step 3, the Secrets list in the UI: next to the variables list, on both the office and the individual half of the connections settings (ui/components/ConnectionsPane.tsx). Write-only value field; host presets for common services (GitHub, Stripe, Fly, Anthropic, OpenAI, with their hosts and header forms); the D5 vouch sentence where hosts are entered. The integrations loop adds a list to the same pane: keep your change to ConnectionsPane to one mount point for a new component.
+
+Step 4, read-path audit (Orca's bug: a write-only editor while an RPC returns the values): enumerate every path that could return a secret value - routes, the export and backup paths (server/backup.ts excludes the env files today; secrets must be excluded too), the agent reference, logs, the audit log, the demo server - and add a test per path that a known fake value never appears in its output.
+
+Acceptance: a member saves a secret, sees it listed with its hosts and form and "set" with a date, rotates and deletes it, and no route, export, backup or log contains the value (tests prove each path); a member cannot see or change office secrets beyond what office variables allow today; the design doc matches the rulings; screenshots desktop and mobile. The reviewer re-runs the scoped tests and the read-path tests on the approved hash.
+
+Decide with the reviewer: the store file format; the route shape; the preset table's location (shared with B2 and B3).
+Locked: rulings 1-8 and the accepted defaults.
