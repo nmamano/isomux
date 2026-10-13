@@ -120,6 +120,11 @@ describe("OAuth MCP server routes", () => {
         }
       ).mcpServers.find((r) => r.name === "mail");
       expect(row).toMatchObject({ oauth: true, problem: null });
+      // The refresh token is the registration's secret, not a connection.
+      const secretNames = (
+        (list.body as { secrets?: { name: string }[] }).secrets ?? []
+      ).map((r) => r.name);
+      expect(secretNames.some((name) => name.endsWith("_OAUTH"))).toBe(false);
 
       const tested = await call(srv, "POST", `${base}/mail/test`, { session });
       texts.push(tested.text);

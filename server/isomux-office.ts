@@ -351,7 +351,8 @@ import {
   mcpServerRows,
   setMcpPlaceholderProvider,
 } from "./mcp-servers.ts";
-import { createSecretStore } from "./secret-store.ts";
+import { createSecretStore, type SecretScope } from "./secret-store.ts";
+import { OAUTH_SECRET_NAME } from "../shared/mcp-servers.ts";
 import { createSecretsRuntime } from "./secret-proxy/runtime.ts";
 import { setSecretValuesForRedaction } from "./log-redaction.ts";
 import { SHARE_ROOT } from "./split/roots.ts";
@@ -592,6 +593,22 @@ let cronjobManager: CronjobManager;
 const secretStore = createSecretStore();
 // Read only for the secrets OAuth registrations own (integrations A2b).
 const oauthRegistrations = createMcpServerStore(() => null);
+// Secrets an OAuth registration owns (its refresh token and client secret)
+// are the registration's, not a connection agents get: the connections list
+// and the agents' own list leave them out, as the secrets runtime does.
+function withoutOAuthOwned<T extends { name: string }>(
+  scope: SecretScope,
+  secrets: T[],
+): T[] {
+  let owned: ((name: string) => boolean) | null = null;
+  try {
+    const names = new Set(oauthRegistrations.oauthOwnedSecrets(scope));
+    owned = (name) => names.has(name);
+  } catch {
+    owned = (name) => OAUTH_SECRET_NAME.test(name);
+  }
+  return secrets.filter((secret) => !owned(secret.name));
+}
 const secretsRuntime = createSecretsRuntime({
   store: secretStore,
   stateRoot: STATE_ROOT,
@@ -5197,12 +5214,16 @@ function buildExecutorDeps(
           mcpServers: () => mcpServerRows(mcpSources, userId, officeOwner),
           engineMcpServers: () =>
             claudeEngineServersFor(agentManager.agentIdsOfUser(userId)),
-          secrets: (scope) =>
-            mcpSources.secrets.list(
+          secrets: (scope) => {
+            const secretScope: SecretScope =
               scope === "office"
                 ? { kind: "office" }
-                : { kind: "user", userId },
-            ),
+                : { kind: "user", userId };
+            return withoutOAuthOwned(
+              secretScope,
+              mcpSources.secrets.list(secretScope),
+            );
+          },
         }),
       forAgent: (userId) =>
         buildAgentConnections(
@@ -5211,7 +5232,10 @@ function buildExecutorDeps(
             officeVariableNotes: readManagedOfficeEnvNotes,
             memberVariables: (id) => readManagedUserEnv(id) ?? {},
             memberVariableNotes: readManagedUserEnvNotes,
-            secrets: mcpSources.secrets,
+            secrets: {
+              list: (scope) =>
+                withoutOAuthOwned(scope, mcpSources.secrets.list(scope)),
+            },
             mcp: mcpSources,
           },
           userId,
