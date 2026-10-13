@@ -116,7 +116,7 @@ Scope:
 - Reissue a placeholder (B2 deferred it): a route and a button; the generation goes up and the agents in scope get the new placeholder at their next start.
 - The honest sentence (ruling 3), in the Secrets list and the docs: on this office, an agent that reads the office's files on purpose can read the store. One sentence, no more.
 - Carried from B1 and B2: a recursive search rooted at STATE_ROOT or an ancestor (Grep, grep -r) still reads the store, so the safety hooks refuse such a search unless it excludes secrets/ (accident protection); the variables hint that suggests GH_TOKEN as a variable points at secrets instead; the Secrets list says that a member variable named HTTPS_PROXY is not chained (B2 ruling 4).
-- Docs: docs/ for members (one short section), the agent reference page for agents, internal-docs/documentation.md surfaces. Copy is customer-facing and goes to Nil for sign-off: draft it short.
+- Docs: docs/ for members (one short section), the agent reference page `connections` (A4 adds it; B4 extends it, no second page: Lead ruling 2026-10-13), internal-docs/documentation.md surfaces. Copy is customer-facing and goes to Nil for sign-off: draft it short.
 
 Acceptance: an agent asks, the member saves in the masked form, the agent's next command uses the placeholder, and the transcript never holds the value (fake-value test); reissue changes the placeholder; the search refusal works; screenshots desktop and mobile. The reviewer re-runs the tests on the approved hash.
 
