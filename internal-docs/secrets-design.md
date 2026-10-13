@@ -171,6 +171,8 @@ Secrets slices follow split slice 7 (the switch). Each leaves offices without se
 
 Checked 2026-10-12 by a research agent from official docs and source; Isomux Worker 4 read its report. "Reads the value" means a process that the agent controls can print it.
 
+The products in the Related projects of site/about.html, and a re-check of these rows (2026-10-13): [secrets-prior-art.md](secrets-prior-art.md).
+
 | System | Mechanism | Agent reads the value? |
 |---|---|---|
 | [1Password `op run`](https://www.1password.dev/cli/reference/commands/run/) | Fills references into the child's environment; masks them on the stdout and stderr that it relays. The docs' own `op run --no-masking -- printenv` prints the value. | Yes |
