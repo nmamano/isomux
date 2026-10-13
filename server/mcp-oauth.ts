@@ -103,9 +103,7 @@ function freshOAuth(): StoredOAuth {
 
 // The `oauth` field of a create or update body: null, {} (dynamic client
 // registration) or a pasted client.
-export function checkOAuthRequest(
-  value: unknown,
-):
+export function checkOAuthRequest(value: unknown):
   | {
       ok: true;
       oauth: { clientId: string | null; clientSecret: string | null } | null;
