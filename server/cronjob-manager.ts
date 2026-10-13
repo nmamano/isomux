@@ -55,6 +55,10 @@ import {
   type PersistedUsage,
 } from "./persistence.ts";
 import { resolveEditorPath } from "./file-editor.ts";
+import {
+  isCredentialStorePath,
+  CREDENTIAL_PATH_MESSAGE,
+} from "./credential-store-paths.ts";
 import { getAgentHost } from "./agent-host.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { existsSync, statSync, readFileSync } from "fs";
@@ -1509,6 +1513,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
       return { ok: false, status: 400, error: "missing or empty path" };
     }
     const absPath = resolved.path;
+    if (isCredentialStorePath(absPath)) {
+      return { ok: false, status: 403, error: CREDENTIAL_PATH_MESSAGE };
+    }
     if (!existsSync(absPath)) {
       writeLog(active, "system", `\`${absPath}\` does not exist.`);
       return { ok: true };

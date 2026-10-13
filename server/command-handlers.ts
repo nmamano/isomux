@@ -972,6 +972,12 @@ export function createCommandHandling(deps: HandlerDeps) {
             message: probe.message,
           }),
         );
+      } else if (probe.kind === "credential") {
+        deps.addLogEntry(
+          agentId,
+          "system",
+          t("commands.isomuxEdit.credential", { path: resolved.path }),
+        );
       } else {
         deps.addLogEntry(
           agentId,

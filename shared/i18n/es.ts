@@ -824,6 +824,47 @@ Cosas que puedes hacer por él:
   "settings.connections.checkFailed":
     "No se han podido comprobar las cuentas de proveedor.",
   "settings.connections.envTitle": "Variables de entorno",
+  "settings.secrets.title": "Secretos",
+  "settings.secrets.hint":
+    "Un valor guardado no se vuelve a mostrar. Solo puede ir a los hosts que figuran con él.",
+  "settings.secrets.ownerManaged":
+    "Los secretos de la oficina los gestiona un propietario de la oficina.",
+  "settings.secrets.loadFailed": "No se pudieron cargar los secretos.",
+  "settings.secrets.saveFailed": "No se pudo guardar el secreto.",
+  "settings.secrets.empty": "Todavía no hay secretos.",
+  "settings.secrets.setOn": "Definido el {date}",
+  "settings.secrets.formAuthorization": "Cabecera Authorization",
+  "settings.secrets.formHeader": "Otra cabecera",
+  "settings.secrets.formHeaderNamed": "Cabecera {header}",
+  "settings.secrets.rotate": "Reemplazar el valor",
+  "settings.secrets.saveValue": "Guardar el valor",
+  "settings.secrets.edit": "Editar",
+  "settings.secrets.delete": "Eliminar",
+  "settings.secrets.deleteConfirm": "¿Eliminar {name}?",
+  "settings.secrets.add": "Añadir un secreto",
+  "settings.secrets.preset": "Servicio",
+  "settings.secrets.presetCustom": "Otro",
+  "settings.secrets.name": "Nombre",
+  "settings.secrets.value": "Valor",
+  "settings.secrets.valuePlaceholder": "Pega el valor",
+  "settings.secrets.hosts": "Hosts que pueden recibirlo, uno por línea",
+  "settings.secrets.vouch":
+    "Indica solo hosts de confianza: al guardar, garantizas que nunca devuelven la credencial.",
+  "settings.secrets.form": "Se envía en",
+  "settings.secrets.headerName": "Nombre de la cabecera",
+  "settings.secrets.error.name":
+    "Usa letras, dígitos y guiones bajos en el nombre, y no empieces con un dígito.",
+  "settings.secrets.error.reservedName":
+    "La oficina define este nombre por sí misma. Elige otro nombre.",
+  "settings.secrets.error.value":
+    "El valor debe ser ASCII imprimible, sin espacios al principio ni al final, de hasta 16 KiB.",
+  "settings.secrets.error.hosts":
+    "Indica de 1 a 20 nombres de host como api.github.com, sin https://, puerto ni ruta.",
+  "settings.secrets.error.header":
+    "Escribe un nombre de cabecera como x-api-key.",
+  "settings.secrets.error.neverListed":
+    "{host} nunca recibe un secreto: los hosts de modelos y de registros de paquetes están en la lista de exclusión.",
+  "settings.secrets.error.exists": "Ya existe un secreto con este nombre.",
   "settings.connections.officeVars":
     "Variables para cada agente de esta oficina",
   "settings.connections.officeVarsHint":
@@ -1291,6 +1332,17 @@ Cosas que puedes hacer por él:
   "apiCall.env.saveUser": "Guardar el entorno gestionado",
   "apiCall.env.readOffice": "Leer el entorno de la oficina",
   "apiCall.env.saveOffice": "Guardar el entorno de la oficina",
+  "apiCall.secrets.list": "Listar mis secretos",
+  "apiCall.secrets.create": "Guardar un secreto",
+  "apiCall.secrets.rotate": "Reemplazar el valor de un secreto",
+  "apiCall.secrets.update": "Editar un secreto",
+  "apiCall.secrets.delete": "Eliminar un secreto",
+  "apiCall.officeSecrets.list": "Listar los secretos de la oficina",
+  "apiCall.officeSecrets.create": "Guardar un secreto de la oficina",
+  "apiCall.officeSecrets.rotate":
+    "Reemplazar el valor de un secreto de la oficina",
+  "apiCall.officeSecrets.update": "Editar un secreto de la oficina",
+  "apiCall.officeSecrets.delete": "Eliminar un secreto de la oficina",
   "apiCall.inbox.messageBoss": "Mensaje enviado al token externo",
   "apiCall.inbox.drain": "Vaciar la bandeja del token de API",
   "apiCall.memory.read": "Leer la memoria",
@@ -2213,6 +2265,8 @@ Cosas que puedes hacer por él:
   "commands.isomuxEdit.tooLarge":
     "`{path}` ocupa {size}, demasiado para el panel del editor (el límite es 1 MB).",
   "commands.isomuxEdit.ioError": "No se pudo abrir `{path}`: {message}",
+  "commands.isomuxEdit.credential":
+    "`{path}` contiene credenciales, así que no se abre en el panel del editor.",
   "commands.isomuxDiff.notDirectory": "`{path}` no es un directorio.",
   "commands.isomuxDiff.notRepo": "`{path}` no es un repositorio de git.",
   "commands.isomuxDiff.gitError": "No se pudo ejecutar git diff en `{path}`:",

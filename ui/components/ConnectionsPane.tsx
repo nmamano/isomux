@@ -14,6 +14,7 @@ import { dialogCancelBtn } from "./dialog-styles.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { ProviderSignInCard } from "./ProviderSignInCard.tsx";
 import { ManagedEnvEditor } from "./ManagedEnvEditor.tsx";
+import { SecretsList } from "./SecretsList.tsx";
 import { MemberUsageCard } from "./MemberUsageCard.tsx";
 import { useI18n } from "../i18n.tsx";
 
@@ -193,6 +194,14 @@ export function ConnectionsPane({
           </div>
         )}
       </section>
+      <SecretsList
+        path={
+          isOffice
+            ? "/api/office/secrets"
+            : `/api/users/${encodeURIComponent(username)}/secrets`
+        }
+        canEdit={!isOffice || role === "owner"}
+      />
       <CrossLink half={half} onGoToOtherHalf={onGoToOtherHalf} />
       <BedrockHint />
     </div>

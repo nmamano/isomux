@@ -14,6 +14,7 @@ import { extname, isAbsolute, join, resolve } from "path";
 import { homedir } from "os";
 import { errMessage } from "../shared/errors.ts";
 import { STATE_ROOT } from "./config.ts";
+import { isCredentialStorePath } from "./credential-store-paths.ts";
 
 export type ResolvePathResult =
   | { kind: "ok"; path: string }
@@ -41,7 +42,9 @@ export type OpenFileResult =
   | { kind: "not_file"; path: string }
   | { kind: "binary"; path: string }
   | { kind: "too_large"; path: string; size: number }
-  | { kind: "io_error"; path: string; message: string };
+  | { kind: "io_error"; path: string; message: string }
+  // A credential directory (credential-store-paths.ts): never opened.
+  | { kind: "credential"; path: string };
 
 export type SaveFileResult =
   | { kind: "ok"; path: string; mtime: number; rev: number }
@@ -49,7 +52,9 @@ export type SaveFileResult =
   // The file no longer exists on disk. Distinct from "stale" so the client can
   // offer save-to-recreate instead of a dead-end "changed on disk" banner.
   | { kind: "deleted"; path: string }
-  | { kind: "io_error"; path: string; message: string };
+  | { kind: "io_error"; path: string; message: string }
+  // A credential directory (credential-store-paths.ts): never written.
+  | { kind: "credential"; path: string };
 
 const MAX_FILE_BYTES = 1_000_000;
 
@@ -319,6 +324,8 @@ function isBinary(absPath: string, size: number): boolean {
 }
 
 export function openFile(absPath: string): OpenFileResult {
+  if (isCredentialStorePath(absPath))
+    return { kind: "credential", path: absPath };
   // Existence is derived from statSync's ENOENT (no separate existsSync
   // probe, which would leave a delete-between-checks race returning io_error
   // and skipping the missing-sentinel invalidation).
@@ -383,6 +390,8 @@ export function saveFile(
   expectedRev: number | undefined,
   force: boolean,
 ): SaveFileResult {
+  if (isCredentialStorePath(absPath))
+    return { kind: "credential", path: absPath };
   // Concurrency guard: if the disk changed since what the client opened,
   // refuse (unless `force`). Client surfaces a banner that lets the member
   // choose Overwrite (force=true) or Reload.

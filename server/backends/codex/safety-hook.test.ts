@@ -102,8 +102,16 @@ async function mutantHook(
     "../../backend-credential-paths.ts",
     import.meta.url,
   ).href;
+  const storePathsUrl = new URL(
+    "../../credential-store-paths.ts",
+    import.meta.url,
+  ).href;
   const importablePolicy = policySource
     .replace('from "./config.ts"', `from ${JSON.stringify(configUrl)}`)
+    .replace(
+      'from "./credential-store-paths.ts"',
+      `from ${JSON.stringify(storePathsUrl)}`,
+    )
     .replace(
       'from "./backend-credential-paths.ts"',
       `from ${JSON.stringify(credentialPathsUrl)}`,
@@ -210,6 +218,7 @@ describe("standalone Codex safety hook", () => {
       "server/backend-credential-paths.ts",
       "server/backends/codex/safety-hook.ts",
       "server/config.ts",
+      "server/credential-store-paths.ts",
       "server/safety-policy.ts",
     ]);
     const child = Bun.spawn([executablePath, "--source-hash"], {

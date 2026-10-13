@@ -91,6 +91,7 @@ import {
   normalizeHexColor,
 } from "../shared/avatar.ts";
 import { shimEmit } from "./ws.ts";
+import { demoSecretsRoute } from "./demo-secrets.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
 
 const state = new OfficeState();
@@ -3107,6 +3108,13 @@ export async function demoApi(
     }
     return { ...demoPagerSettings };
   }
+  const secretsRoute = demoSecretsRoute(
+    method,
+    pathname,
+    body,
+    (username) => users.get(username.toLowerCase())?.id ?? null,
+  );
+  if (secretsRoute) return secretsRoute.result;
   const userEnvMatch = pathname.match(/^\/api\/users\/([^/]+)\/env$/);
   if (userEnvMatch) {
     const uname = decodeURIComponent(userEnvMatch[1]);

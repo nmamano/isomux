@@ -820,6 +820,46 @@ Coses que pots fer per ell:
   "settings.connections.checkFailed":
     "No s'han pogut comprovar els comptes de proveïdor.",
   "settings.connections.envTitle": "Variables d'entorn",
+  "settings.secrets.title": "Secrets",
+  "settings.secrets.hint":
+    "Un valor desat no es torna a mostrar. Només pot anar als hosts que hi consten.",
+  "settings.secrets.ownerManaged":
+    "Els secrets de l'oficina els gestiona un propietari de l'oficina.",
+  "settings.secrets.loadFailed": "No s'han pogut carregar els secrets.",
+  "settings.secrets.saveFailed": "No s'ha pogut desar el secret.",
+  "settings.secrets.empty": "Encara no hi ha secrets.",
+  "settings.secrets.setOn": "Definit el {date}",
+  "settings.secrets.formAuthorization": "Capçalera Authorization",
+  "settings.secrets.formHeader": "Una altra capçalera",
+  "settings.secrets.formHeaderNamed": "Capçalera {header}",
+  "settings.secrets.rotate": "Substituir el valor",
+  "settings.secrets.saveValue": "Desar el valor",
+  "settings.secrets.edit": "Editar",
+  "settings.secrets.delete": "Suprimir",
+  "settings.secrets.deleteConfirm": "Vols suprimir {name}?",
+  "settings.secrets.add": "Afegir un secret",
+  "settings.secrets.preset": "Servei",
+  "settings.secrets.presetCustom": "Un altre",
+  "settings.secrets.name": "Nom",
+  "settings.secrets.value": "Valor",
+  "settings.secrets.valuePlaceholder": "Enganxa el valor",
+  "settings.secrets.hosts": "Hosts que el poden rebre, un per línia",
+  "settings.secrets.vouch":
+    "Indica només hosts de confiança: en desar, garanteixes que mai no retornen la credencial.",
+  "settings.secrets.form": "S'envia a",
+  "settings.secrets.headerName": "Nom de la capçalera",
+  "settings.secrets.error.name":
+    "Fes servir lletres, dígits i guions baixos al nom, i no comencis amb un dígit.",
+  "settings.secrets.error.reservedName":
+    "L'oficina defineix aquest nom per si mateixa. Tria un altre nom.",
+  "settings.secrets.error.value":
+    "El valor ha de ser ASCII imprimible, sense espais al principi ni al final, de fins a 16 KiB.",
+  "settings.secrets.error.hosts":
+    "Indica d'1 a 20 noms de host com api.github.com, sense https://, port ni camí.",
+  "settings.secrets.error.header": "Escriu un nom de capçalera com x-api-key.",
+  "settings.secrets.error.neverListed":
+    "{host} mai no rep un secret: els hosts de models i de registres de paquets són a la llista d'exclusió.",
+  "settings.secrets.error.exists": "Ja existeix un secret amb aquest nom.",
   "settings.connections.officeVars":
     "Variables per a cada agent d'aquesta oficina",
   "settings.connections.officeVarsHint":
@@ -1288,6 +1328,17 @@ Coses que pots fer per ell:
   "apiCall.env.saveUser": "Desar l'entorn gestionat",
   "apiCall.env.readOffice": "Llegir l'entorn de l'oficina",
   "apiCall.env.saveOffice": "Desar l'entorn de l'oficina",
+  "apiCall.secrets.list": "Llistar els meus secrets",
+  "apiCall.secrets.create": "Desar un secret",
+  "apiCall.secrets.rotate": "Substituir el valor d'un secret",
+  "apiCall.secrets.update": "Editar un secret",
+  "apiCall.secrets.delete": "Suprimir un secret",
+  "apiCall.officeSecrets.list": "Llistar els secrets de l'oficina",
+  "apiCall.officeSecrets.create": "Desar un secret de l'oficina",
+  "apiCall.officeSecrets.rotate":
+    "Substituir el valor d'un secret de l'oficina",
+  "apiCall.officeSecrets.update": "Editar un secret de l'oficina",
+  "apiCall.officeSecrets.delete": "Suprimir un secret de l'oficina",
   "apiCall.inbox.messageBoss": "Missatge enviat al token extern",
   "apiCall.inbox.drain": "Buidar la safata del token d'API",
   "apiCall.memory.read": "Llegir la memòria",
@@ -2206,6 +2257,8 @@ Coses que pots fer per ell:
   "commands.isomuxEdit.tooLarge":
     "`{path}` ocupa {size}, massa per al plafó de l'editor (el límit és 1 MB).",
   "commands.isomuxEdit.ioError": "No s'ha pogut obrir `{path}`: {message}",
+  "commands.isomuxEdit.credential":
+    "`{path}` conté credencials, així que no s'obre al plafó de l'editor.",
   "commands.isomuxDiff.notDirectory": "`{path}` no és un directori.",
   "commands.isomuxDiff.notRepo": "`{path}` no és un repositori de git.",
   "commands.isomuxDiff.gitError": "No s'ha pogut executar git diff a `{path}`:",

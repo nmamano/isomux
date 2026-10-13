@@ -175,6 +175,10 @@ import {
 import { homedir, hostname as osHostname, userInfo } from "os";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
 import {
+  isCredentialStorePath,
+  CREDENTIAL_PATH_MESSAGE,
+} from "./credential-store-paths.ts";
+import {
   mimeTypeForFilename,
   httpContentTypeForFilename,
 } from "./mime-types.ts";
@@ -336,6 +340,8 @@ import {
 } from "./routes/handlers/members-chat.ts";
 import { createMembersChatStore } from "./members-chat.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
+import { secretsHandlers } from "./routes/handlers/secrets.ts";
+import { createSecretStore } from "./secret-store.ts";
 import {
   claudeFamilyModelsForUserId,
   limitedClaudeFamiliesForUserId,
@@ -1763,7 +1769,14 @@ function resolveAndValidateEnv(
       envFile,
     };
   } catch (err) {
-    return { ok: false, error: errMessage(err, "Invalid env file"), envFile };
+    // A parse error quotes the line it failed on. Not for a credential file.
+    return {
+      ok: false,
+      error: isCredentialStorePath(envFile)
+        ? "Invalid env file"
+        : errMessage(err, "Invalid env file"),
+      envFile,
+    };
   }
 }
 
@@ -3608,6 +3621,8 @@ function buildExecutorDeps(
       },
     }),
   );
+  // Secrets: write-only, and nothing reads them for agents until B2.
+  register(secretsHandlers({ store: createSecretStore() }));
   register(
     usersHandlers({
       readMemberPrompt: (username) => {
@@ -4839,6 +4854,13 @@ function buildExecutorDeps(
             code: "io_error",
             message: r.message,
           };
+        if (r.kind === "credential")
+          return {
+            ok: false,
+            status: 403,
+            code: "credential_path",
+            message: CREDENTIAL_PATH_MESSAGE,
+          };
         // r.kind === "ok": install (or replace) the watch for this connection; the
         // callback pushes editor_external_change (or editor_file_deleted, on a
         // confirmed deletion) to the connection's socket.
@@ -4907,6 +4929,13 @@ function buildExecutorDeps(
             stale: true,
             currentMtime: result.currentMtime,
             currentRev: result.currentRev,
+          };
+        if (result.kind === "credential")
+          return {
+            ok: false,
+            status: 403,
+            code: "credential_path",
+            message: CREDENTIAL_PATH_MESSAGE,
           };
         return {
           ok: false,

@@ -132,6 +132,10 @@ import {
   type SaveFileResult,
 } from "./file-editor.ts";
 import {
+  isCredentialStorePath,
+  CREDENTIAL_PATH_MESSAGE,
+} from "./credential-store-paths.ts";
+import {
   discoverUserSkills,
   discoverProjectSkills,
   discoverPluginSkills,
@@ -2620,6 +2624,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       );
       return { ok: true };
     }
+    if (probe.kind === "credential") {
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId)("commands.isomuxEdit.credential", {
+          path: resolved.path,
+        }),
+      );
+      return { ok: true };
+    }
     addLogEntry(agentId, "edit-request", resolved.path, undefined, undefined, {
       file: { cwd: managed.info.cwd, path: resolved.path },
     });
@@ -2683,6 +2697,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return { ok: false, status: 400, error: "missing or empty path" };
     }
     const absPath = resolved.path;
+    if (isCredentialStorePath(absPath)) {
+      return { ok: false, status: 403, error: CREDENTIAL_PATH_MESSAGE };
+    }
     if (!existsSync(absPath)) {
       addLogEntry(
         agentId,

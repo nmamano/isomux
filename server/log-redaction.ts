@@ -47,3 +47,9 @@ export function redactLogEntry<T extends object>(entry: T): T {
   }
   return result;
 }
+
+// True when the text holds a key-shaped string that redactLogEntry would mask.
+// The secret routes use it to refuse a value pasted into the name field.
+export function hasCredentialShape(text: string): boolean {
+  return new RegExp(SECRET_PATTERN.source).test(text);
+}

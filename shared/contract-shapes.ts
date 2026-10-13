@@ -12,6 +12,7 @@
 import type { RoomPet } from "./pets.ts";
 import type { RoomSkin } from "./room-skins.ts";
 import type { RoomDecor, RoomDecorPatch } from "./room-decor.ts";
+import type { SecretForm } from "./secret-hosts.ts";
 import type {
   UserRecord,
   AgentInfo,
@@ -786,6 +787,36 @@ export type UserEnvNamesRes = {
 
 export interface UserEnvReplaceReq {
   values: Record<string, string>;
+}
+
+// Secrets (internal-docs/secrets-design.md, section 1). No response carries a
+// value: the value is write-only.
+export interface SecretWire {
+  name: string;
+  hosts: string[];
+  form: SecretForm;
+  createdAt: number;
+  valueSetAt: number;
+  updatedAt: number;
+}
+export interface SecretListRes {
+  secrets: SecretWire[];
+}
+export interface SecretCreateReq {
+  name: string;
+  value: string;
+  hosts: string[];
+  form: SecretForm;
+}
+export interface SecretRotateReq {
+  value: string;
+}
+export interface SecretUpdateReq {
+  hosts?: string[];
+  form?: SecretForm;
+}
+export interface SecretRes {
+  secret: SecretWire;
 }
 
 // A member's pager settings (server/pager-settings.ts). The webhook URL is a

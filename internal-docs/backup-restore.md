@@ -94,7 +94,7 @@ not `~/isomux-backups`.
 
 The archive keeps office state and history, including provider sessions,
 memories, app registrations and app data. It omits known backend login files,
-managed environment files, app runtime credential files, private legacy TLS
+managed environment files, secrets, app runtime credential files, private legacy TLS
 material, and Codex shell snapshots. `RESTORE.txt` is generated from the same
 exclusion list used by tar; it names only classes present when that backup ran.
 The report does not claim that an archive is free of secrets. Conversation logs

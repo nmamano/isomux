@@ -820,6 +820,46 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.connections.refreshing": "Refreshing…",
   "settings.connections.checkFailed": "Could not check provider accounts.",
   "settings.connections.envTitle": "Environment variables",
+  "settings.secrets.title": "Secrets",
+  "settings.secrets.hint":
+    "A saved value is never shown again. It may go only to the hosts listed with it.",
+  "settings.secrets.ownerManaged":
+    "Office secrets are managed by an office owner.",
+  "settings.secrets.loadFailed": "Could not load secrets.",
+  "settings.secrets.saveFailed": "Could not save the secret.",
+  "settings.secrets.empty": "No secrets yet.",
+  "settings.secrets.setOn": "Set {date}",
+  "settings.secrets.formAuthorization": "Authorization header",
+  "settings.secrets.formHeader": "Another header",
+  "settings.secrets.formHeaderNamed": "{header} header",
+  "settings.secrets.rotate": "Replace value",
+  "settings.secrets.saveValue": "Save value",
+  "settings.secrets.edit": "Edit",
+  "settings.secrets.delete": "Delete",
+  "settings.secrets.deleteConfirm": "Delete {name}?",
+  "settings.secrets.add": "Add a secret",
+  "settings.secrets.preset": "Service",
+  "settings.secrets.presetCustom": "Other",
+  "settings.secrets.name": "Name",
+  "settings.secrets.value": "Value",
+  "settings.secrets.valuePlaceholder": "Paste the value",
+  "settings.secrets.hosts": "Hosts that may receive it, one per line",
+  "settings.secrets.vouch":
+    "List only hosts you trust: by saving, you vouch that they never send the credential back.",
+  "settings.secrets.form": "Sent in",
+  "settings.secrets.headerName": "Header name",
+  "settings.secrets.error.name":
+    "Use letters, digits and underscores for the name, and do not start with a digit.",
+  "settings.secrets.error.reservedName":
+    "The office sets this name itself. Choose another name.",
+  "settings.secrets.error.value":
+    "The value must be printable ASCII with no space at either end, up to 16 KiB.",
+  "settings.secrets.error.hosts":
+    "List 1 to 20 host names such as api.github.com, with no https://, port or path.",
+  "settings.secrets.error.header": "Enter a header name such as x-api-key.",
+  "settings.secrets.error.neverListed":
+    "{host} never receives a secret: model and package registry hosts are on the never-list.",
+  "settings.secrets.error.exists": "A secret with this name exists.",
   "settings.connections.officeVars": "Variables for every agent in this office",
   "settings.connections.officeVarsHint":
     "These variables load for every agent unless a member variable overrides them.",
@@ -1270,6 +1310,16 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.env.saveUser": "Save managed environment",
   "apiCall.env.readOffice": "Read office environment",
   "apiCall.env.saveOffice": "Save office environment",
+  "apiCall.secrets.list": "List my secrets",
+  "apiCall.secrets.create": "Save a secret",
+  "apiCall.secrets.rotate": "Replace a secret value",
+  "apiCall.secrets.update": "Edit a secret",
+  "apiCall.secrets.delete": "Delete a secret",
+  "apiCall.officeSecrets.list": "List office secrets",
+  "apiCall.officeSecrets.create": "Save an office secret",
+  "apiCall.officeSecrets.rotate": "Replace an office secret value",
+  "apiCall.officeSecrets.update": "Edit an office secret",
+  "apiCall.officeSecrets.delete": "Delete an office secret",
   "apiCall.inbox.messageBoss": "Sent message to external token",
   "apiCall.inbox.drain": "Drain API token inbox",
   "apiCall.memory.read": "Read memory",
@@ -2186,6 +2236,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "commands.isomuxEdit.tooLarge":
     "`{path}` is {size} - too large for the editor panel (1 MB limit).",
   "commands.isomuxEdit.ioError": "Failed to open `{path}`: {message}",
+  "commands.isomuxEdit.credential":
+    "`{path}` holds credentials, so it does not open in the editor panel.",
 
   // /isomux-diff (also /diff)
   "commands.isomuxDiff.notDirectory": "`{path}` is not a directory.",

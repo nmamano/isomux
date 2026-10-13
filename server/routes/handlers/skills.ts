@@ -33,6 +33,7 @@ import {
   type DeleteSkillResult,
 } from "../../skill-catalog.ts";
 import type { OpenFileResult, SaveFileResult } from "../../file-editor.ts";
+import { CREDENTIAL_PATH_MESSAGE } from "../../credential-store-paths.ts";
 
 export interface SkillsDeps {
   catalogFor(identity: Identity): SkillCatalogRes;
@@ -71,6 +72,8 @@ function readResult(
     return fail(413, "too_large", "The skill file is larger than 1 MB.");
   if (r.kind === "binary")
     return fail(415, "binary", "The skill file is not text.");
+  if (r.kind === "credential")
+    return fail(403, "credential_path", CREDENTIAL_PATH_MESSAGE);
   return fail(500, "io_error", r.message);
 }
 
@@ -124,6 +127,8 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
           "The skill file changed on disk since you opened it.",
           { currentRev: r.currentRev, currentMtime: r.currentMtime },
         );
+      if (r.kind === "credential")
+        return fail(403, "credential_path", CREDENTIAL_PATH_MESSAGE);
       return fail(500, "io_error", r.message);
     },
 

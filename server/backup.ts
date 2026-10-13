@@ -196,9 +196,15 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
     id: "personal-environment",
     archivePatterns: (root) => rootedDirectory(root, "user-env"),
   },
+  // The whole directory, so a temp file mid-write stays out too.
   {
     id: "office-environment",
-    archivePatterns: (root) => [`${root}/office-env/office.env`],
+    archivePatterns: (root) => rootedDirectory(root, "office-env"),
+  },
+  // Secret values (internal-docs/secrets-design.md), office and members.
+  {
+    id: "secret-store",
+    archivePatterns: (root) => rootedDirectory(root, "secrets"),
   },
   {
     id: "codex-shell-snapshots",

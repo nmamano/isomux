@@ -391,6 +391,11 @@ describe("route table: managed env values are self-only", () => {
     for (const opId of [
       "userEnv.get",
       "userEnv.replace",
+      "secrets.list",
+      "secrets.create",
+      "secrets.rotate",
+      "secrets.update",
+      "secrets.delete",
       "pagerSettings.get",
       "pagerSettings.update",
       "pagerSettings.test",
@@ -539,35 +544,45 @@ describe("route table: managed office env is owner-only", () => {
   });
 
   it("allows owner users and owner API tokens, and refuses every other scope", () => {
-    const route = API_ROUTES.find((r) => r.opId === "officeEnv.get")!;
-    const allowed = (candidate: Identity) =>
-      runAuthorize(route.auth, candidate, {}, undefined, deps).ok;
-    expect(allowed(identity("user", "owner", "owner", USER_CAPABILITIES))).toBe(
-      true,
-    );
-    expect(
-      allowed(identity("user", "member", "member", USER_CAPABILITIES)),
-    ).toBe(false);
-    expect(allowed(identity("api", "owner", "owner", API_CAPABILITIES))).toBe(
-      true,
-    );
-    expect(allowed(identity("api", "member", "member", API_CAPABILITIES))).toBe(
-      false,
-    );
-    expect(
-      allowed(identity("agent", "owner", "member", AGENT_CAPABILITIES)),
-    ).toBe(false);
-    expect(
-      allowed(
-        identity("agent", "owner", "member", PRIVILEGED_AGENT_CAPABILITIES),
-      ),
-    ).toBe(false);
-    expect(allowed(identity("app", "owner", "member", APP_CAPABILITIES))).toBe(
-      false,
-    );
-    expect(
-      allowed(identity("cron-run", "owner", "member", RUN_CAPABILITIES)),
-    ).toBe(false);
+    // Office secrets have the office variables' gate (ruling 10).
+    for (const opId of [
+      "officeEnv.get",
+      "officeSecrets.list",
+      "officeSecrets.create",
+      "officeSecrets.rotate",
+      "officeSecrets.update",
+      "officeSecrets.delete",
+    ]) {
+      const route = API_ROUTES.find((r) => r.opId === opId)!;
+      const allowed = (candidate: Identity) =>
+        runAuthorize(route.auth, candidate, {}, undefined, deps).ok;
+      expect(
+        allowed(identity("user", "owner", "owner", USER_CAPABILITIES)),
+      ).toBe(true);
+      expect(
+        allowed(identity("user", "member", "member", USER_CAPABILITIES)),
+      ).toBe(false);
+      expect(allowed(identity("api", "owner", "owner", API_CAPABILITIES))).toBe(
+        true,
+      );
+      expect(
+        allowed(identity("api", "member", "member", API_CAPABILITIES)),
+      ).toBe(false);
+      expect(
+        allowed(identity("agent", "owner", "member", AGENT_CAPABILITIES)),
+      ).toBe(false);
+      expect(
+        allowed(
+          identity("agent", "owner", "member", PRIVILEGED_AGENT_CAPABILITIES),
+        ),
+      ).toBe(false);
+      expect(
+        allowed(identity("app", "owner", "member", APP_CAPABILITIES)),
+      ).toBe(false);
+      expect(
+        allowed(identity("cron-run", "owner", "member", RUN_CAPABILITIES)),
+      ).toBe(false);
+    }
   });
 });
 
@@ -967,6 +982,16 @@ const SPEC_ROUTE_CONTRACT: Record<
   "userEnv.names": { caps: ["user:env"], emits: [] },
   "officeEnv.get": { caps: ["user:env"], emits: [] },
   "officeEnv.replace": { caps: ["user:env"], emits: [] },
+  "secrets.list": { caps: ["user:env"], emits: [] },
+  "secrets.create": { caps: ["user:env"], emits: [] },
+  "secrets.rotate": { caps: ["user:env"], emits: [] },
+  "secrets.update": { caps: ["user:env"], emits: [] },
+  "secrets.delete": { caps: ["user:env"], emits: [] },
+  "officeSecrets.list": { caps: ["user:env"], emits: [] },
+  "officeSecrets.create": { caps: ["user:env"], emits: [] },
+  "officeSecrets.rotate": { caps: ["user:env"], emits: [] },
+  "officeSecrets.update": { caps: ["user:env"], emits: [] },
+  "officeSecrets.delete": { caps: ["user:env"], emits: [] },
   "pagerSettings.get": { caps: ["user:env"], emits: [] },
   "pagerSettings.update": { caps: ["user:env"], emits: ["pager_upserted"] },
   "pagerSettings.test": { caps: ["user:env"], emits: [] },
@@ -1475,6 +1500,16 @@ const API_REACHABLE_OPIDS = [
   "userEnv.names",
   "officeEnv.get",
   "officeEnv.replace",
+  "secrets.list",
+  "secrets.create",
+  "secrets.rotate",
+  "secrets.update",
+  "secrets.delete",
+  "officeSecrets.list",
+  "officeSecrets.create",
+  "officeSecrets.rotate",
+  "officeSecrets.update",
+  "officeSecrets.delete",
   "pagerSettings.get",
   "pagerSettings.update",
   "pagerSettings.test",

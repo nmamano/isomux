@@ -55,7 +55,7 @@ No code in Isomux starts an agent, a terminal, an app or a scheduled run as a di
 ### 3.2 What follows
 
 - **Members have shell access.** A member can open a terminal panel on each agent in their rooms. The terminal runs as the server's OS user. An agent can also run shell commands for the member.
-- **Shell access is access to all office state.** The state directory (`~/.isomux`) holds the user records, the session and invite hashes, the API token hashes, the managed environment files of all members (`user-env/`, `office-env/`), the webhook secrets, the Discord webhook URLs of the pager, and the provider sign-ins of all members (`provider-homes/`). File modes such as 0600 do not stop a process that runs as the owner of the file.
+- **Shell access is access to all office state.** The state directory (`~/.isomux`) holds the user records, the session and invite hashes, the API token hashes, the managed environment files of all members (`user-env/`, `office-env/`), the secrets of all members and the office (`secrets/`), the webhook secrets, the Discord webhook URLs of the pager, and the provider sign-ins of all members (`provider-homes/`). File modes such as 0600 do not stop a process that runs as the owner of the file.
 - **A process with that user can change what the server does.** It can write state that the server reads at start. After the next restart, it can have a sign-in that it made itself. On an installer-managed box and on a self-hosted office, that user also owns the server code and can change it. In the container image, root owns the code.
 - **Room access is not a boundary against a member.** Room access controls what the office UI and API show. A shell in one room can read the files of all rooms.
 - **The safety hooks are a guardrail, not a boundary.** See section 6.3.
@@ -214,7 +214,7 @@ Isomux checks each recognized tool call of Claude, Codex and OpenCode agents bef
 - destructive git commands, such as `git reset --hard`, `git push --force` and `git clean -f`,
 - `rm -rf` outside one entry in `/tmp` or `/var/tmp`,
 - writes into the state directory,
-- reads of files that usually hold secrets, such as `.env`, private keys and backend sign-in files,
+- reads of files that usually hold secrets, such as `.env`, private keys, backend sign-in files, and the secrets and managed environment files in the state directory,
 - recognized process-kill commands, such as `pkill`, `killall` and kills of processes found by name,
 - recognized commands that open outbound tunnels,
 - recognized uses of the owner recovery socket.
@@ -257,11 +257,11 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 
 ### 8.1 State files
 
-All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files hold their values as plain text.
+All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `secrets/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files and the secrets hold their values as plain text.
 
 ### 8.2 Backups
 
-Daily backups do not include the managed environment files, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
+Daily backups do not include the managed environment files, the secrets, the app environment files, the container app tokens, the webhook secrets, the pager's Discord webhook URLs, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
 
 ### 8.3 Secret redaction in logs
 

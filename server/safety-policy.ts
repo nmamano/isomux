@@ -17,6 +17,7 @@
 import { homedir } from "os";
 import { basename, isAbsolute, normalize, resolve } from "path";
 import { isBackendCredentialPath } from "./backend-credential-paths.ts";
+import { isCredentialStorePath } from "./credential-store-paths.ts";
 import { STATE_ROOT } from "./config.ts";
 
 // The write-protection root follows the active state root, so a test that
@@ -701,12 +702,12 @@ function readerPathOperands(args: ShellWord[], g: ReaderGrammar): string[] {
  *  (`echo "$(cat .env)"`) or a `bash -c` payload is still seen. Input
  *  redirections are kept here (`cat < .env`) and only here - the kill guard has
  *  no use for them, so its call keeps the parser's default behaviour. */
-function bashSensitiveReadTarget(command: string): string | null {
+function bashSensitiveReadTarget(command: string, cwd: unknown): string | null {
   for (const cmd of collectCommands(command, true)) {
     const grammar = READER_GRAMMAR[cmd.name];
     if (!grammar) continue;
     for (const path of readerPathOperands(cmd.args, grammar)) {
-      if (isSensitiveFile(path)) return path;
+      if (isSensitiveFile(path, cwd)) return path;
     }
   }
   return null;
@@ -1028,7 +1029,7 @@ function usesAdminSocket(command: string): boolean {
 /** Suffixes that indicate a template/example file, not real secrets */
 const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
 
-function isSensitiveFile(filePath: string): boolean {
+function isSensitiveFile(filePath: string, cwd: unknown): boolean {
   // A glob arrives here too (Grep's `glob: "*.pem"` selects the same files a
   // path would). A trailing wildcard is not part of any real name, so drop it
   // and match what is left: `.env*` is a request for `.env`. This is still
@@ -1039,6 +1040,10 @@ function isSensitiveFile(filePath: string): boolean {
   // Checked before SAFE_SUFFIXES: a backend login is never a template, and the
   // suffix check returns early, so anything it matched could never be reached.
   if (isBackendCredentialPath(path)) return true;
+  // The secret store and the managed variable files. Accident protection, not
+  // a boundary: see credential-store-paths.ts.
+  const resolved = resolvePath(path, cwd);
+  if (resolved !== null && isCredentialStorePath(resolved)) return true;
   if (SAFE_SUFFIXES.some((s) => name.endsWith(s))) return false;
   if (SENSITIVE_EXACT.has(name)) return true;
   return SENSITIVE_PATTERNS.some((p) => p.test(name));
@@ -2531,7 +2536,7 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
   // sed -n 1p id_rsa, ...). Runs on the RAW command, not quote-blanked text: the
   // reader grammar needs the words themselves, quotes resolved rather than
   // blanked, and a wrapper or `bash -c` payload hides the reader entirely.
-  const secretTarget = bashSensitiveReadTarget(command);
+  const secretTarget = bashSensitiveReadTarget(command, cwd);
   if (secretTarget) {
     return denyMessage(
       `"${basename(secretTarget)}" may contain secrets. Agents are not allowed ` +
@@ -2740,6 +2745,7 @@ function checkPatchSafety(
 function checkSensitiveFileRead(
   toolName: string,
   toolInput: unknown,
+  cwd: unknown,
 ): PolicyDecision {
   const filePaths = collectToolPaths(toolName, toolInput);
   if (filePaths === null)
@@ -2749,7 +2755,8 @@ function checkSensitiveFileRead(
     );
 
   for (const filePath of filePaths) {
-    if (isSensitiveFile(filePath)) return denySecretRead(filePath, toolName);
+    if (isSensitiveFile(filePath, cwd))
+      return denySecretRead(filePath, toolName);
   }
 
   return allow();
@@ -2765,7 +2772,7 @@ export function evaluateProposedAction(
     case "shell":
       return checkBashSafety(action.command, context.cwd);
     case "read-files":
-      return checkSensitiveFileRead(action.toolName, action.input);
+      return checkSensitiveFileRead(action.toolName, action.input, context.cwd);
     case "write-files":
       return checkWriteEditSafety(action.toolName, action.input, context.cwd);
     case "read-and-write-files": {
@@ -2776,7 +2783,7 @@ export function evaluateProposedAction(
       );
       return writeDecision.decision === "deny"
         ? writeDecision
-        : checkSensitiveFileRead(action.toolName, action.input);
+        : checkSensitiveFileRead(action.toolName, action.input, context.cwd);
     }
     case "patch-files":
       return checkPatchSafety(action.toolName, action.patch, context.cwd);

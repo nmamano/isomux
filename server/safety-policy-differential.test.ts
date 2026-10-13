@@ -124,6 +124,8 @@ async function mutantFactory(
     "utf8",
   );
   const configUrl = new URL("./config.ts", import.meta.url).href;
+  const storePathsUrl = new URL("./credential-store-paths.ts", import.meta.url)
+    .href;
   const policyPath = join(scratch, `${name}-policy.ts`);
   const adapterPath = join(scratch, `${name}-hooks.ts`);
   const credentialPathsPath = join(
@@ -132,6 +134,10 @@ async function mutantFactory(
   );
   const importablePolicy = policySource
     .replace('from "./config.ts"', `from ${JSON.stringify(configUrl)}`)
+    .replace(
+      'from "./credential-store-paths.ts"',
+      `from ${JSON.stringify(storePathsUrl)}`,
+    )
     .replace(
       'from "./backend-credential-paths.ts"',
       `from "./${name}-backend-credential-paths.ts"`,

@@ -190,6 +190,10 @@ describe("verified backup publication", () => {
       "container-runtime/hello.token.tmp",
       "user-env/u-alice.env",
       "office-env/office.env",
+      "office-env/.office.4242.0b1e5c1d-7d55-4d2a-9a43-1f2b3c4d5e6f.tmp",
+      "secrets/office.json",
+      "secrets/users/u-alice.json",
+      "secrets/users/.secrets.4242.0b1e5c1d-7d55-4d2a-9a43-1f2b3c4d5e6f.tmp",
       "codex-home/auth.json",
       "codex-home/shell_snapshots/one.sh",
       "provider-homes/u-alice/claude/.credentials.json",
@@ -248,6 +252,38 @@ describe("verified backup publication", () => {
     expect(fs.existsSync(path.join(restored, "apps/units/hello.sh"))).toBe(
       false,
     );
+  });
+
+  test("no file in the archive holds a secret or variable value", async () => {
+    // Secrets read-path audit (internal-docs/secrets-design.md): a known fake
+    // value in the store, a store temp file and an office-env temp file.
+    const f = fixture();
+    const fake = "fake-secret-value-backup-0000";
+    const store = JSON.stringify({
+      version: 1,
+      secrets: [{ name: "GH_TOKEN", value: fake }],
+    });
+    write(f.state, "secrets/office.json", store);
+    write(f.state, "secrets/users/u-alice.json", store);
+    write(f.state, "secrets/users/.secrets.1.a.tmp", store);
+    write(f.state, "office-env/.office.1.a.tmp", `GH_TOKEN='${fake}'\n`);
+    write(f.state, "pager.json", "KEPT\n");
+
+    const file = await runBackupOnceForTest(config(f), realDeps);
+    const restored = extract(f, file);
+
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.isFile()) files.push(full);
+      }
+    };
+    walk(restored);
+    expect(files.some((p) => p.endsWith("pager.json"))).toBe(true);
+    for (const p of files)
+      expect(fs.readFileSync(p).includes(Buffer.from(fake))).toBe(false);
   });
 
   test("health is rebuilt from disk and a stale archive is not success", async () => {
