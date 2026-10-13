@@ -98,6 +98,7 @@ Mechanics and traps:
 - git over HTTPS: the design's credential helper and Basic swap (design 2.4). gh, stripe and fly read their token from the environment: confirm each sends the placeholder in the form the preset names, and that each honors HTTPS_PROXY and the CA variables (Go CLIs read SSL_CERT_FILE).
 - A tool that cannot be made to work is a finding, not a failure: report which, why, and what the member sees.
 - No real service is contacted and no real credential is used.
+- Fly (Worker 1, A3, 2026-10-13, unchecked against real Fly): a Fly token's value is "FlyV1 fm2_..." (the space is part of it), and credentialHeader sends "Authorization: Bearer <value>". Check what fly and the Fly API expect for that token, and fix the Fly preset's form (and the A3 identity test, which uses credentialHeader) if the scheme must not be added.
 
 Acceptance: a table per tool (works / does not, with the evidence command) in the report; tests for what the repo can run in CI (stub-based); the reviewer re-runs the stub run on the approved hash.
 

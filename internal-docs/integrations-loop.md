@@ -48,7 +48,7 @@ UI slices show the page in headless Chrome (internal-docs/ui-verification.md), d
 - [x] A2: remote MCP servers registered once for every engine. Approved by Reviewer 2 at 384b8856, merged as ec337cb2. Static credentials only; OAuth is A2b (plan below, Isomux as the OAuth client: Lead ruling, it is the only design that keeps "once, for every engine"). Claude holds the first message of a session until setMcpServers answers (about 1.5 s, 10 s bound). A credential needs port 443. B2 switch point: credentialFor in server/mcp-servers.ts.
   - For B2: `credentialFor` in server/mcp-servers.ts is where the header gets the placeholder instead of the value.
 - [ ] A2b: OAuth MCP servers (after A4, if time allows)
-- [ ] A3: Test button and diagnostics per connection
+- [x] A3: Test button and diagnostics per connection. Approved by Reviewer 1 at 1dfa1c0a, merged as d697f585. Sign-ins rerun the account check; preset secrets one read-only identity call; MCP servers initialize + tools/list. The list gains secret rows and statuses for Claude connectors and Claude-set MCP servers.
 - [ ] A4: a usage note per connection that agents read
 
 ## SLICE-A1 PICKUP: the page lists every connection
