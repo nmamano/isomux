@@ -384,6 +384,23 @@ describe("restarts", () => {
     expect(environmentSourceRevisionForUserId(ALICE)).not.toBe(rotatedRevision);
   });
 
+  test("a reissue marks the scope and gives a new placeholder for the same value", async () => {
+    await runtime.enable();
+    add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
+    await runtime.changed();
+    const before = runtime.environmentFor(ALICE)!.member.GH_TOKEN;
+    changes = [];
+    expect(store.reissue(AT_ALICE, "GH_TOKEN").ok).toBe(true);
+    await runtime.changed();
+    expect(changes).toEqual([[AT_ALICE]]);
+    const after = runtime.environmentFor(ALICE)!.member.GH_TOKEN;
+    expect(after).not.toBe(before);
+    expect(runtime.placeholderOf(AT_ALICE, "GH_TOKEN")).toBe(after);
+    expect(store.readSecretValues(AT_ALICE, "GH_TOKEN")!.value).toBe(
+      ALICE_VALUE,
+    );
+  });
+
   test("an office secret marks the office scope, which every agent is in", async () => {
     await runtime.enable();
     add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);

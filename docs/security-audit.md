@@ -215,6 +215,7 @@ Isomux checks each recognized tool call of Claude, Codex and OpenCode agents bef
 - `rm -rf` outside one entry in `/tmp` or `/var/tmp`,
 - writes into the state directory,
 - reads of files that usually hold secrets, such as `.env`, private keys, backend sign-in files, and the secrets and managed environment files in the state directory,
+- recursive searches (`grep -r`, `rg`, the Grep tool) rooted at the secret store or above it, unless they exclude `secrets/`,
 - recognized process-kill commands, such as `pkill`, `killall` and kills of processes found by name,
 - recognized commands that open outbound tunnels,
 - recognized uses of the owner recovery socket.
@@ -242,7 +243,9 @@ This closes the one-call route. It does not close the class in section 3.2: a pr
 
 ### 6.6 The secret proxy
 
-An agent, terminal or scheduled run with a secret in scope gets a placeholder in place of each value, and the proxy and trust variables (`HTTPS_PROXY`, `SSL_CERT_FILE` and similar). A child process of the server, on a loopback port, puts the value into requests to the hosts that the secret lists, only in the header that the secret names. For those hosts it ends TLS with a certificate from the office CA, which agents with a secret trust. Every other host, and the model and package registry hosts on the fixed never-list, pass as plain tunnels. The proxy removes the value from responses as a backstop; a host that returns it in another encoding (hex, for example) defeats that. Each use of a secret is an audit entry. A placeholder is a bearer credential inside the office: any process on the box that has it can use the secret for its listed hosts.
+An agent, terminal or scheduled run with a secret in scope gets a placeholder in place of each value, and the proxy and trust variables (`HTTPS_PROXY`, `SSL_CERT_FILE` and similar). A child process of the server, on a loopback port, puts the value into requests to the hosts that the secret lists, only in the header that the secret names. For those hosts it ends TLS with a certificate from the office CA, which agents with a secret trust. Every other host, and the model and package registry hosts on the fixed never-list, pass as plain tunnels. The proxy removes the value from responses as a backstop; a host that returns it in another encoding (hex, for example) defeats that. Each use of a secret is an audit entry. A placeholder is a bearer credential inside the office: any process on the box that has it can use the secret for its listed hosts. A member can reissue a placeholder: the old one stops working at once, and the agents in scope get the new one at their next start.
+
+An agent can ask for a secret (`POST /api/agents/:id/secret-requests`). The request puts a card in the agent's chat; the value goes from the member's browser to the store, never into the transcript. Only the agent's manager can save a personal secret, and only an owner an office secret. The agent gets the placeholder.
 
 ---
 

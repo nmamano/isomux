@@ -1,6 +1,7 @@
 import type { ApiTokenLogEntry } from "./contract-shapes.ts";
 import { en } from "./i18n/en.ts";
 import type { RoomPet } from "./pets.ts";
+import type { SecretForm } from "./secret-hosts.ts";
 import type { RoomSkin } from "./room-skins.ts";
 import type { RoomDecor } from "./room-decor.ts";
 
@@ -900,6 +901,21 @@ export interface TerminalCommandPayload {
   command: string; // single-line shell command
 }
 
+// Structured payload attached to LogEntry when kind === "secret-request".
+// Emitted by POST /api/agents/:id/secret-requests. The card holds a masked
+// form: the member types the value there, so it never enters the chat. A
+// later system entry with metadata.secretRequestSettled = requestId closes it.
+export interface SecretRequestPayload {
+  requestId: string;
+  scope: "personal" | "office";
+  name: string;
+  hosts: string[];
+  form: SecretForm;
+  reason: string;
+  // The server boot that opened it (full_state.serverBootId).
+  bootId?: string;
+}
+
 // Which loop a tool call came from, when it was NOT the agent's own. A
 // subagent (Claude's Agent/Task tool, Codex's collab child threads) runs its
 // own tool calls on the same stream as the parent's - so an unmarked
@@ -935,6 +951,7 @@ export interface LogEntry {
     | "diff"
     | "edit-request"
     | "terminal-command"
+    | "secret-request"
     | "file-view";
   content: string;
   metadata?: Record<string, unknown>;
@@ -942,6 +959,7 @@ export interface LogEntry {
   diff?: DiffPayload; // present only when kind === "diff"
   file?: FilePayload; // present only when kind === "edit-request"
   terminal?: TerminalCommandPayload; // present only when kind === "terminal-command"
+  secretRequest?: SecretRequestPayload; // present only when kind === "secret-request"
   // UI-only markers (e.g. "Conversation cleared.") that must never reach disk.
   // appendLog and the system_init backfill both skip entries with this set.
   ephemeral?: true;
@@ -2021,6 +2039,9 @@ export type ServerMessage =
       // older servers, where every engine is available.
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
+      // This server process. A secret request card from another boot is
+      // closed. Absent on older servers.
+      serverBootId?: string;
     }
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the agent's pre-removal roomId; delivery is scoped to sessions

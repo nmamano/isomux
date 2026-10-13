@@ -686,3 +686,38 @@ describe.skipIf(!LIVE)(
 test("no tool reached a host outside the stubs", () => {
   expect(deny.connects).toEqual([]);
 });
+
+// Last in the file: it moves GH_TOKEN to a new generation.
+describe("reissue", () => {
+  test.skipIf(!has("curl"))(
+    "the proxy stops swapping the old placeholder at once and swaps the new one",
+    async () => {
+      const old = env.GH_TOKEN!;
+      const store = createSecretStore();
+      expect(
+        store.reissue({ kind: "user", userId: MEMBER }, "GH_TOKEN").ok,
+      ).toBe(true);
+      await runtime.changed();
+      const fresh = buildEnvForUserId(MEMBER)!;
+      expect(fresh.GH_TOKEN).not.toBe(old);
+      const call = (placeholder: string) =>
+        run(
+          'curl -sS --max-time 10 -H "Authorization: Bearer $TOKEN" https://api.github.com/user',
+          { TOKEN: placeholder },
+        );
+
+      reset();
+      await call(old);
+      const reached = (s: Seen) =>
+        s.sni === "api.github.com" &&
+        header(s, "authorization") === `Bearer ${VALUES.github}`;
+      expect(stub.seen.some(reached)).toBe(false);
+
+      reset();
+      const { code } = await call(fresh.GH_TOKEN!);
+      expect(code).toBe(0);
+      expect(stub.seen.some(reached)).toBe(true);
+    },
+    20000,
+  );
+});

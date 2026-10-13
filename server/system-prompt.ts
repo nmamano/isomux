@@ -112,6 +112,7 @@ Isomux gives you features beyond your own tools. Each line below names a situati
 ${appHostingSection(appsUnsupported)}
 - The member wants an outside service such as GitHub to wake you or start a cronjob: register a webhook. Page: \`webhooks\`.
 - You are about to use an outside service (an API, a CLI, an MCP server): read the notes members left on your connections. Page: \`connections\`.
+- You need a credential you do not have: ask for it as a secret, so the member types it outside the chat. Never ask for it in chat. Page: \`connections\`.
 - The member needs you to read or act on a page in their own Chrome, for example behind their login: control their browser. Page: \`browser\`.
 - The member asks about cronjobs or their runs: inspect them. Page: \`cronjobs\`.
 - The member asks which skills exist, or wants one changed or added: use the skills routes. Page: \`skills\`.

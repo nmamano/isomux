@@ -824,6 +824,8 @@ Coses que pots fer per ell:
   "settings.secrets.title": "Secrets",
   "settings.secrets.hint":
     "Un valor desat no es torna a mostrar. Només pot anar als hosts que hi consten. Els agents reben un substitut, no el valor, però un agent que llegeixi a propòsit els fitxers d'aquesta oficina el pot trobar.",
+  "settings.secrets.proxyNote":
+    "Els agents amb un secret envien el trànsit pel proxy de secrets de l'oficina, així que una variable <code>HTTPS_PROXY</code> no els s'aplica.",
   "settings.secrets.ownerManaged":
     "Els secrets de l'oficina els gestiona un propietari de l'oficina.",
   "settings.secrets.loadFailed": "No s'han pogut carregar els secrets.",
@@ -838,6 +840,9 @@ Coses que pots fer per ell:
   "settings.secrets.edit": "Editar",
   "settings.secrets.delete": "Suprimir",
   "settings.secrets.deleteConfirm": "Vols suprimir {name}?",
+  "settings.secrets.reissue": "Nou substitut",
+  "settings.secrets.reissueConfirm":
+    "El substitut actual de {name} deixa de funcionar ara. Els agents reben el nou en el proper inici.",
   "settings.secrets.add": "Afegir un secret",
   "settings.secrets.preset": "Servei",
   "settings.secrets.presetCustom": "Un altre",
@@ -876,7 +881,7 @@ Coses que pots fer per ell:
   "settings.connections.personalVarsHint":
     "Aquestes variables es carreguen per als agents que crees i tenen prioritat sobre les de tota l'oficina.",
   "settings.connections.providerKeyNote":
-    "Afegeix <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> o <code>OPENCODE_API_KEY</code> per fer servir claus d'API del proveïdor. La resta de variables per usuari funcionen igual; per exemple, cada membre pot posar <code>GH_TOKEN</code> perquè els seus agents facin servir les seves pròpies credencials de GitHub. Després fes <code>/clear</code> als agents per aplicar els canvis.",
+    "Afegeix <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> o <code>OPENCODE_API_KEY</code> per fer servir claus d'API del proveïdor. Posa la resta de credencials, com <code>GH_TOKEN</code>, a Secrets: els agents reben un substitut, no el valor. Després fes <code>/clear</code> als agents per aplicar els canvis.",
   "settings.connections.crossLinkFromOffice":
     "Les teves pròpies sessions i variables, que tenen prioritat sobre aquestes, són a <link>Tu → Connexions individuals</link>.",
   "settings.connections.crossLinkFromPersonal":
@@ -1396,6 +1401,7 @@ Coses que pots fer per ell:
   "apiCall.agents.offerFileDetail": "Oferir un fitxer a l'editor",
   "apiCall.agents.suggestCommand": "Suggerir una ordre de terminal",
   "apiCall.agents.suggestCommandDetail": "Suggerir una ordre de terminal",
+  "apiCall.agents.requestSecret": "Demanar un secret",
   "apiCall.agents.context": "Consultar l'ús del context",
   "apiCall.agents.subscription": "Consultar l'ús de la subscripció",
   "apiCall.agents.logsSearch": "Cercar als registres de conversa",
@@ -1564,6 +1570,26 @@ Coses que pots fer per ell:
     "L'agent ha vist un fitxer adjuntat abans en aquest xat. Fes clic per mostrar-lo.",
   "cards.editRequest.open": "Obre a l'editor",
   "cards.editRequest.openHint": "Obre {path} al plafó lateral de l'editor",
+  "cards.secretRequest.title": "Sol·licitud de secret: {name}",
+  "cards.secretRequest.personal":
+    "Es desa als secrets del responsable d'aquest agent.",
+  "cards.secretRequest.office":
+    "Secret de l'oficina: el desa un propietari de l'oficina.",
+  "cards.secretRequest.hint":
+    "El valor no entra al xat. L'agent rep un substitut.",
+  "cards.secretRequest.save": "Desar el secret",
+  "cards.secretRequest.decline": "Rebutjar",
+  "cards.secretRequest.saved":
+    "Desat. L'agent rep un substitut en el proper inici.",
+  "cards.secretRequest.declined": "Rebutjada.",
+  "cards.secretRequest.closed":
+    "Aquesta sol·licitud està tancada. L'agent ho pot tornar a demanar.",
+  "cards.secretRequest.ownerAnswers":
+    "Un propietari de l'oficina respon aquesta sol·licitud.",
+  "cards.secretRequest.managerAnswers":
+    "El responsable d'aquest agent respon aquesta sol·licitud.",
+  "cards.secretRequest.forbidden":
+    "Només el responsable de l'agent respon aquesta sol·licitud, o un propietari de l'oficina si és un secret de l'oficina.",
   "cards.terminalCommand.copy": "Copia a la terminal",
   "cards.tool.noOutput": "(sense sortida)",
   "cards.tool.morePaths": "{path} +{count} més",

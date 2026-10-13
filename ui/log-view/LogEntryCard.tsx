@@ -27,6 +27,7 @@ import { PlainTaskText, type TaskMap } from "./task-links.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
+import { SecretRequestCard } from "./SecretRequestCard.tsx";
 import { BASH_RAW_SUMMARY_CHARS } from "./isomux-curl.ts";
 import { IsomuxCurlHeader, IsomuxCurlFields } from "./IsomuxCurlSummary.tsx";
 import {
@@ -760,6 +761,16 @@ export const LogEntryCard = memo(function LogEntryCard({
         <TerminalCommandCard
           payload={entry.terminal}
           onCopy={onCopyToTerminal}
+        />
+      );
+    }
+    case "secret-request": {
+      if (!entry.secretRequest)
+        return <SystemMessage content={entry.content} isMobile={isMobile} />;
+      return (
+        <SecretRequestCard
+          payload={entry.secretRequest}
+          agentId={entry.agentId}
         />
       );
     }

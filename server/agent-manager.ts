@@ -32,6 +32,7 @@ import type {
   ProviderAccountProvider,
   QueuedMessage,
   RoomWire,
+  SecretRequestPayload,
   SkillInfo,
   SubscriptionUsageWire,
   SubscriptionWindowWire,
@@ -2698,6 +2699,42 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ok: true };
   }
 
+  // The card of a secret request (secret-requests.ts): a masked form for the
+  // member. The payload holds no value. False when there is no such agent.
+  function emitAgentSecretRequest(
+    agentId: string,
+    payload: SecretRequestPayload,
+  ): boolean {
+    if (!agents.has(agentId)) return false;
+    addLogEntry(
+      agentId,
+      "secret-request",
+      `Secret request: ${payload.name}`,
+      undefined,
+      undefined,
+      { secretRequest: payload },
+    );
+    return true;
+  }
+
+  // The system entry that closes a secret request's card.
+  function emitAgentSecretRequestSettled(
+    agentId: string,
+    requestId: string,
+    outcome: "saved" | "declined",
+    name: string,
+  ): void {
+    if (!agents.has(agentId)) return;
+    addLogEntry(
+      agentId,
+      "system",
+      outcome === "saved"
+        ? `Secret ${name} saved.`
+        : `Secret request for ${name} declined.`,
+      { secretRequestSettled: requestId, outcome },
+    );
+  }
+
   // Display cap for POST /api/agents/:id/read-file. Independent from the editor
   // panel's 1 MB text cap (file-editor.ts) - this one bounds binary/image
   // display payloads served through /api/files.
@@ -3527,7 +3564,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     content: string,
     metadata?: Record<string, unknown>,
     attachments?: Attachment[],
-    extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
+    extra?: Partial<
+      Pick<LogEntry, "diff" | "file" | "terminal" | "secretRequest">
+    >,
     opts?: { durable?: boolean },
   ): boolean {
     const editTurnText = agents.get(agentId)?.editTurnText;
@@ -10309,6 +10348,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agentMcpServers,
     emitAgentEditRequest,
     emitAgentTerminalCommand,
+    emitAgentSecretRequest,
+    emitAgentSecretRequestSettled,
     emitAgentReadFile,
     emitAgentDiff,
     emitAgentPreviewUrl,

@@ -970,6 +970,27 @@ export interface SecretRes {
   secret: SecretWire;
 }
 
+// Secret requests (secrets loop, B4). The agent proposes; the member saves
+// the value with the hosts and form as edited on the card.
+export interface SecretRequestReq {
+  name: string;
+  hosts: string[];
+  form?: SecretForm;
+  reason: string;
+  scope?: "personal" | "office";
+}
+export interface SecretRequestRes {
+  requestId: string;
+}
+export interface SecretRequestSaveReq {
+  value: string;
+  hosts?: string[];
+  form?: SecretForm;
+}
+export interface SecretRequestAnswerRes {
+  name: string;
+}
+
 // Remote MCP servers (integrations loop, A2). `secret` names a secret in the
 // same scope; the editor's own list is the only response with the whole URL.
 export interface McpServerWire {

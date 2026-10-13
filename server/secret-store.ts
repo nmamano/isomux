@@ -278,6 +278,18 @@ export function createSecretStore(root: string = STATE_ROOT) {
       return { ok: true, secret: toWire(secret) };
     },
 
+    // A new placeholder: the generation goes up and the value stays. The
+    // agents in scope get the new placeholder at their next start.
+    reissue(scope: SecretScope, name: string): SecretChange {
+      const secrets = read(scope);
+      const secret = secrets.find((s) => s.name === name);
+      if (!secret) return { ok: false, kind: "not_found" };
+      secret.generation += 1;
+      secret.updatedAt = Date.now();
+      write(scope, secrets);
+      return { ok: true, secret: toWire(secret) };
+    },
+
     update(
       scope: SecretScope,
       name: string,

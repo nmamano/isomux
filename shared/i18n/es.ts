@@ -828,6 +828,8 @@ Cosas que puedes hacer por él:
   "settings.secrets.title": "Secretos",
   "settings.secrets.hint":
     "Un valor guardado no se vuelve a mostrar. Solo puede ir a los hosts que figuran con él. Los agentes reciben un sustituto, no el valor, pero un agente que lea a propósito los archivos de esta oficina puede encontrarlo.",
+  "settings.secrets.proxyNote":
+    "Los agentes con un secreto envían su tráfico por el proxy de secretos de la oficina, así que una variable <code>HTTPS_PROXY</code> no se les aplica.",
   "settings.secrets.ownerManaged":
     "Los secretos de la oficina los gestiona un propietario de la oficina.",
   "settings.secrets.loadFailed": "No se pudieron cargar los secretos.",
@@ -842,6 +844,9 @@ Cosas que puedes hacer por él:
   "settings.secrets.edit": "Editar",
   "settings.secrets.delete": "Eliminar",
   "settings.secrets.deleteConfirm": "¿Eliminar {name}?",
+  "settings.secrets.reissue": "Nuevo sustituto",
+  "settings.secrets.reissueConfirm":
+    "El sustituto actual de {name} deja de funcionar ahora. Los agentes reciben el nuevo en su próximo inicio.",
   "settings.secrets.add": "Añadir un secreto",
   "settings.secrets.preset": "Servicio",
   "settings.secrets.presetCustom": "Otro",
@@ -880,7 +885,7 @@ Cosas que puedes hacer por él:
   "settings.connections.personalVarsHint":
     "Estas variables se cargan para los agentes que creas y tienen prioridad sobre las de toda la oficina.",
   "settings.connections.providerKeyNote":
-    "Añade <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> u <code>OPENCODE_API_KEY</code> para usar claves de API del proveedor. Las demás variables por usuario funcionan igual; por ejemplo, cada miembro puede poner <code>GH_TOKEN</code> para que sus agentes usen sus propias credenciales de GitHub. Después haz <code>/clear</code> a los agentes para aplicar los cambios.",
+    "Añade <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> u <code>OPENCODE_API_KEY</code> para usar claves de API del proveedor. Pon las demás credenciales, como <code>GH_TOKEN</code>, en Secretos: los agentes reciben un sustituto, no el valor. Después haz <code>/clear</code> a los agentes para aplicar los cambios.",
   "settings.connections.crossLinkFromOffice":
     "Tus propias sesiones y variables, que tienen prioridad sobre estas, están en <link>Tú → Conexiones individuales</link>.",
   "settings.connections.crossLinkFromPersonal":
@@ -1399,6 +1404,7 @@ Cosas que puedes hacer por él:
   "apiCall.agents.offerFileDetail": "Ofrecer un archivo en el editor",
   "apiCall.agents.suggestCommand": "Sugerir un comando de terminal",
   "apiCall.agents.suggestCommandDetail": "Sugerir un comando de terminal",
+  "apiCall.agents.requestSecret": "Pedir un secreto",
   "apiCall.agents.context": "Consultar el uso del contexto",
   "apiCall.agents.subscription": "Consultar el uso de la suscripción",
   "apiCall.agents.logsSearch": "Buscar en los registros de conversación",
@@ -1566,6 +1572,26 @@ Cosas que puedes hacer por él:
     "El agente ha visto un archivo adjuntado antes en este chat. Haz clic para mostrarlo.",
   "cards.editRequest.open": "Abrir en el editor",
   "cards.editRequest.openHint": "Abrir {path} en el panel lateral del editor",
+  "cards.secretRequest.title": "Solicitud de secreto: {name}",
+  "cards.secretRequest.personal":
+    "Se guarda en los secretos del responsable de este agente.",
+  "cards.secretRequest.office":
+    "Secreto de la oficina: lo guarda un propietario de la oficina.",
+  "cards.secretRequest.hint":
+    "El valor no entra en el chat. El agente recibe un sustituto.",
+  "cards.secretRequest.save": "Guardar secreto",
+  "cards.secretRequest.decline": "Rechazar",
+  "cards.secretRequest.saved":
+    "Guardado. El agente recibe un sustituto en su próximo inicio.",
+  "cards.secretRequest.declined": "Rechazada.",
+  "cards.secretRequest.closed":
+    "Esta solicitud está cerrada. El agente puede volver a pedirlo.",
+  "cards.secretRequest.ownerAnswers":
+    "Un propietario de la oficina responde a esta solicitud.",
+  "cards.secretRequest.managerAnswers":
+    "El responsable de este agente responde a esta solicitud.",
+  "cards.secretRequest.forbidden":
+    "Solo el responsable del agente responde a esta solicitud, o un propietario de la oficina si es un secreto de la oficina.",
   "cards.terminalCommand.copy": "Copiar en la terminal",
   "cards.tool.noOutput": "(sin salida)",
   "cards.tool.morePaths": "{path} +{count} más",

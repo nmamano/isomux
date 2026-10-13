@@ -15,7 +15,7 @@
  */
 
 import { homedir } from "os";
-import { basename, isAbsolute, normalize, resolve } from "path";
+import { basename, isAbsolute, join, normalize, resolve } from "path";
 import { isBackendCredentialPath } from "./backend-credential-paths.ts";
 import { isCredentialStorePath } from "./credential-store-paths.ts";
 import { STATE_ROOT } from "./config.ts";
@@ -711,6 +711,100 @@ function bashSensitiveReadTarget(command: string, cwd: unknown): string | null {
     }
   }
   return null;
+}
+
+// A recursive search rooted at the secret store or above it (the state root,
+// the home directory, /) reads the store. Accident protection, as for the
+// direct reads above: the search is refused unless it excludes secrets/.
+const SECRET_STORE_DIR = join(ISOMUX_DIR, "secrets");
+
+function searchReachesSecretStore(root: string, cwd: unknown): boolean {
+  const resolved = resolvePath(root, cwd);
+  return resolved !== null && isAtOrBelow(SECRET_STORE_DIR, resolved);
+}
+
+const GREP_FAMILY = new Set(["grep", "egrep", "fgrep"]);
+// Recursive with no flag.
+const RECURSIVE_SEARCHERS = new Set(["rgrep", "rg", "ag"]);
+
+function isRecursiveGrep(args: ShellWord[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.quoted) continue;
+    const tok = arg.text;
+    if (tok === "--") return false;
+    if (
+      tok === "--recursive" ||
+      tok === "--dereference-recursive" ||
+      tok === "--directories=recurse" ||
+      ((tok === "-d" || tok === "--directories") &&
+        args[i + 1]?.text === "recurse")
+    )
+      return true;
+    if (/^-[A-Za-z]+$/.test(tok) && /[rR]/.test(tok.slice(1))) {
+      // A cluster's value-taking letter ends it: `-e`, `-f`, `-m` and the
+      // context flags take the rest, so an `r` after one is not the flag.
+      const cut = tok.slice(1).search(/[efmABCdD]/);
+      const flags = cut === -1 ? tok.slice(1) : tok.slice(1, cut + 1);
+      if (/[rR]/.test(flags)) return true;
+    }
+  }
+  return false;
+}
+
+// True when the command names secrets/ in an exclusion: grep's
+// --exclude-dir, or an rg or ag glob or ignore that starts with "!".
+function excludesSecretStore(args: ShellWord[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const tok = args[i].text;
+    const next = args[i + 1]?.text ?? "";
+    const eq = tok.indexOf("=");
+    const name = tok.startsWith("--") && eq !== -1 ? tok.slice(0, eq) : tok;
+    const value = tok.startsWith("--") && eq !== -1 ? tok.slice(eq + 1) : next;
+    if (
+      (name === "--exclude-dir" || name === "--ignore-dir") &&
+      value.includes("secrets")
+    )
+      return true;
+    if (
+      (name === "-g" || name === "--glob" || name === "--iglob") &&
+      value.startsWith("!") &&
+      value.includes("secrets")
+    )
+      return true;
+    if (/^-g!/.test(tok) && tok.includes("secrets")) return true;
+  }
+  return false;
+}
+
+/** The root of the first recursive search that would read the secret store,
+ *  or null. */
+function bashStoreSearchRoot(command: string, cwd: unknown): string | null {
+  for (const cmd of collectCommands(command, true)) {
+    const grammar = READER_GRAMMAR[cmd.name];
+    if (!grammar) continue;
+    const recursive =
+      RECURSIVE_SEARCHERS.has(cmd.name) ||
+      (GREP_FAMILY.has(cmd.name) && isRecursiveGrep(cmd.args));
+    if (!recursive || excludesSecretStore(cmd.args)) continue;
+    const roots = readerPathOperands(cmd.args, grammar).filter(
+      (path) => !path.startsWith("!"),
+    );
+    for (const root of roots.length > 0 ? roots : ["."])
+      if (searchReachesSecretStore(root, cwd)) return root;
+  }
+  return null;
+}
+
+function denyStoreSearch(target: string, tool: string): PolicyDecision {
+  return deny(
+    `BLOCKED by isomux safety hooks\n\n` +
+      `Reason: this search would read the office's secret store ` +
+      `(${SECRET_STORE_DIR}). Agents are not allowed to read it.\n\n` +
+      `${tool} target: ${target}\n\n` +
+      `Exclude the store and run it again: grep --exclude-dir=secrets, ` +
+      `rg -g '!secrets/**', or Grep with glob "!**/secrets/**".`,
+  );
 }
 
 // This is deliberately a text tripwire, not complete enforcement. It inspects
@@ -2536,6 +2630,9 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
   // sed -n 1p id_rsa, ...). Runs on the RAW command, not quote-blanked text: the
   // reader grammar needs the words themselves, quotes resolved rather than
   // blanked, and a wrapper or `bash -c` payload hides the reader entirely.
+  const storeSearch = bashStoreSearchRoot(command, cwd);
+  if (storeSearch !== null) return denyStoreSearch(storeSearch, "Bash");
+
   const secretTarget = bashSensitiveReadTarget(command, cwd);
   if (secretTarget) {
     return denyMessage(
@@ -2757,6 +2854,18 @@ function checkSensitiveFileRead(
   for (const filePath of filePaths) {
     if (isSensitiveFile(filePath, cwd))
       return denySecretRead(filePath, toolName);
+  }
+
+  // A search tool reads every file below its root, which is the working
+  // directory when no path is given.
+  if (toolName.toLowerCase() === "grep") {
+    const record = toolInput as Record<string, unknown>;
+    const root =
+      typeof record.path === "string" && record.path ? record.path : ".";
+    const glob = typeof record.glob === "string" ? record.glob : "";
+    const excluded = glob.startsWith("!") && glob.includes("secrets");
+    if (!excluded && searchReachesSecretStore(root, cwd))
+      return denyStoreSearch(root, toolName);
   }
 
   return allow();

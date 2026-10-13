@@ -41,8 +41,12 @@ export function demoSecretsRoute(
   userId: (username: string) => string | null,
 ): { handled: true; result: unknown } | undefined {
   const match =
-    pathname.match(/^\/api\/office\/secrets(?:\/([^/]+))?(\/value)?$/) ??
-    pathname.match(/^\/api\/users\/([^/]+)\/secrets(?:\/([^/]+))?(\/value)?$/);
+    pathname.match(
+      /^\/api\/office\/secrets(?:\/([^/]+))?(\/value|\/reissue)?$/,
+    ) ??
+    pathname.match(
+      /^\/api\/users\/([^/]+)\/secrets(?:\/([^/]+))?(\/value|\/reissue)?$/,
+    );
   if (!match) return undefined;
   const office = pathname.startsWith("/api/office/");
   let key = "office";
@@ -95,6 +99,11 @@ export function demoSecretsRoute(
   const index = list.findIndex((s) => s.name === name);
   if (index === -1) throw new ApiError(404, "not_found", "Not found");
   const secret = list[index];
+  if (value === "/reissue") {
+    if (method !== "POST") return undefined;
+    secret.updatedAt = now;
+    return { handled: true, result: { secret } };
+  }
   if (value) {
     if (method !== "PUT") return undefined;
     const valueError = checkSecretValue(b.value);

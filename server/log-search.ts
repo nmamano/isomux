@@ -96,6 +96,7 @@ export const ALL_KINDS = [
   "diff",
   "edit-request",
   "terminal-command",
+  "secret-request",
   "file-view",
 ] as const satisfies readonly LogKind[];
 

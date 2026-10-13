@@ -18,6 +18,24 @@ import {
   liveTailEntryIds,
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
+import { SecretRequestOutcomes } from "./SecretRequestCard.tsx";
+
+// The settled secret requests, from the system entries that close them.
+function secretRequestOutcomes(
+  logs: LogEntry[],
+): ReadonlyMap<string, "saved" | "declined"> {
+  const outcomes = new Map<string, "saved" | "declined">();
+  for (const entry of logs) {
+    const id = entry.metadata?.secretRequestSettled;
+    const outcome = entry.metadata?.outcome;
+    if (
+      typeof id === "string" &&
+      (outcome === "saved" || outcome === "declined")
+    )
+      outcomes.set(id, outcome);
+  }
+  return outcomes;
+}
 
 // Both chat surfaces keep the same turn boundaries and expansion state.
 export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
@@ -162,8 +180,9 @@ export function ChatTranscript({
     onAbort?: () => void;
   };
 }) {
+  const outcomes = useMemo(() => secretRequestOutcomes(logs), [logs]);
   return (
-    <>
+    <SecretRequestOutcomes.Provider value={outcomes}>
       {logs.map((entry) => {
         if (entry.metadata?.interactionFallback === true) return null;
         if (view.groupedChildIds.has(entry.id)) return null;
@@ -201,6 +220,6 @@ export function ChatTranscript({
       })}
       {interaction}
       {activity && <ActivityIndicator {...activity} />}
-    </>
+    </SecretRequestOutcomes.Provider>
   );
 }

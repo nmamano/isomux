@@ -32,6 +32,7 @@ type Mode =
   | { kind: "add" }
   | { kind: "rotate"; name: string }
   | { kind: "edit"; name: string }
+  | { kind: "reissue"; name: string }
   | { kind: "delete"; name: string };
 
 interface Draft {
@@ -82,7 +83,7 @@ export function SecretsList(props: SecretsListProps) {
 }
 
 function ScopeSecrets({ path, canEdit }: SecretsListProps) {
-  const { t, language } = useI18n();
+  const { t, rich, language } = useI18n();
   const [secrets, setSecrets] = useState<SecretWire[] | null>(null);
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -179,6 +180,11 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
           form: formOf(draft),
           note: draft.note,
         });
+      else if (mode.kind === "reissue")
+        await apiFetch(
+          "POST",
+          `${path}/${encodeURIComponent(mode.name)}/reissue`,
+        );
       else if (mode.kind === "delete")
         await apiFetch("DELETE", `${path}/${encodeURIComponent(mode.name)}`);
       close();
@@ -309,6 +315,11 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
           <p style={{ ...hint, margin: "0 0 10px" }}>
             {t("settings.secrets.hint")}
           </p>
+          <p style={{ ...hint, margin: "0 0 10px" }}>
+            {rich("settings.secrets.proxyNote", {
+              code: (chunk) => <code>{chunk}</code>,
+            })}
+          </p>
           {secrets === null && !error && (
             <p style={hint}>{t("common.loading")}</p>
           )}
@@ -368,6 +379,15 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
                       type="button"
                       style={dialogCancelBtn}
                       onClick={() =>
+                        open({ kind: "reissue", name: secret.name })
+                      }
+                    >
+                      {t("settings.secrets.reissue")}
+                    </button>
+                    <button
+                      type="button"
+                      style={dialogCancelBtn}
+                      onClick={() =>
                         open({ kind: "delete", name: secret.name })
                       }
                     >
@@ -386,6 +406,16 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
                 <div style={{ marginTop: 8 }}>
                   {hostsAndForm}
                   {actions(t("common.save"))}
+                </div>
+              )}
+              {mode.kind === "reissue" && mode.name === secret.name && (
+                <div style={{ marginTop: 8 }}>
+                  <p style={{ ...hint, margin: "0 0 8px" }}>
+                    {t("settings.secrets.reissueConfirm", {
+                      name: secret.name,
+                    })}
+                  </p>
+                  {actions(t("settings.secrets.reissue"))}
                 </div>
               )}
               {mode.kind === "delete" && mode.name === secret.name && (

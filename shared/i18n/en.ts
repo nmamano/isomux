@@ -824,6 +824,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.secrets.title": "Secrets",
   "settings.secrets.hint":
     "A saved value is never shown again. It may go only to the hosts listed with it. Agents get a stand-in, not the value, but an agent that reads this office's files on purpose can find it.",
+  "settings.secrets.proxyNote":
+    "Agents with a secret send their traffic through the office's secret proxy, so an <code>HTTPS_PROXY</code> variable does not apply to them.",
   "settings.secrets.ownerManaged":
     "Office secrets are managed by an office owner.",
   "settings.secrets.loadFailed": "Could not load secrets.",
@@ -838,6 +840,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.secrets.edit": "Edit",
   "settings.secrets.delete": "Delete",
   "settings.secrets.deleteConfirm": "Delete {name}?",
+  "settings.secrets.reissue": "New stand-in",
+  "settings.secrets.reissueConfirm":
+    "The current stand-in for {name} stops working now. Agents get the new one at their next start.",
   "settings.secrets.add": "Add a secret",
   "settings.secrets.preset": "Service",
   "settings.secrets.presetCustom": "Other",
@@ -874,7 +879,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.connections.personalVarsHint":
     "These variables load for agents you spawn and override office-wide variables.",
   "settings.connections.providerKeyNote":
-    "Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or <code>OPENCODE_API_KEY</code> to use provider API keys. Other per-user variables work the same way, for example, each member can set <code>GH_TOKEN</code> so their agents use their own GitHub credentials. Then <code>/clear</code> agents to apply changes.",
+    "Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or <code>OPENCODE_API_KEY</code> to use provider API keys. Put other credentials, such as <code>GH_TOKEN</code>, in Secrets: agents get a stand-in, not the value. Then <code>/clear</code> agents to apply changes.",
   "settings.connections.crossLinkFromOffice":
     "Your own sign-ins and variables, which override these, are under <link>You → Individual connections</link>.",
   "settings.connections.crossLinkFromPersonal":
@@ -1379,6 +1384,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.agents.offerFileDetail": "Offer a file in the editor",
   "apiCall.agents.suggestCommand": "Suggest terminal command",
   "apiCall.agents.suggestCommandDetail": "Suggest a terminal command",
+  "apiCall.agents.requestSecret": "Ask for a secret",
   "apiCall.agents.context": "Check context usage",
   "apiCall.agents.subscription": "Check subscription usage",
   "apiCall.agents.logsSearch": "Search conversation logs",
@@ -1539,6 +1545,24 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "The agent viewed a file attached earlier in this chat. Click to show it.",
   "cards.editRequest.open": "Open in editor",
   "cards.editRequest.openHint": "Open {path} in the editor side panel",
+  "cards.secretRequest.title": "Secret request: {name}",
+  "cards.secretRequest.personal":
+    "Saved in the secrets of this agent's manager.",
+  "cards.secretRequest.office": "Office secret: an office owner saves it.",
+  "cards.secretRequest.hint":
+    "The value stays out of the chat. The agent gets a stand-in.",
+  "cards.secretRequest.save": "Save secret",
+  "cards.secretRequest.decline": "Decline",
+  "cards.secretRequest.saved":
+    "Saved. The agent gets a stand-in at its next start.",
+  "cards.secretRequest.declined": "Declined.",
+  "cards.secretRequest.closed":
+    "This request is closed. The agent can ask again.",
+  "cards.secretRequest.ownerAnswers": "An office owner answers this request.",
+  "cards.secretRequest.managerAnswers":
+    "This agent's manager answers this request.",
+  "cards.secretRequest.forbidden":
+    "Only the agent's manager answers this request, or an office owner for an office secret.",
   "cards.terminalCommand.copy": "Copy to terminal",
   "cards.tool.noOutput": "(no output)",
   "cards.tool.morePaths": "{path} +{count} more",

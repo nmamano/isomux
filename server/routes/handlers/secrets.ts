@@ -117,7 +117,10 @@ function guarded(handler: RouteHandler): RouteHandler {
 function scopedHandlers(
   deps: SecretsDeps,
   scopeOf: (ctx: Parameters<RouteHandler>[0]) => SecretScope | null,
-): Record<"list" | "create" | "rotate" | "update" | "remove", RouteHandler> {
+): Record<
+  "list" | "create" | "rotate" | "update" | "reissue" | "remove",
+  RouteHandler
+> {
   return {
     list: (ctx) => {
       const scope = scopeOf(ctx);
@@ -159,6 +162,16 @@ function scopedHandlers(
         answer(deps.store.update(scope, ctx.params.name ?? "", body)),
       );
     },
+    reissue: (ctx) => {
+      const scope = scopeOf(ctx);
+      if (!scope) return fail(403, "forbidden");
+      if (ctx.body !== undefined && bodyWith(ctx.body, []) === null)
+        return invalidRequest();
+      return committed(
+        deps,
+        answer(deps.store.reissue(scope, ctx.params.name ?? "")),
+      );
+    },
     remove: (ctx) => {
       const scope = scopeOf(ctx);
       if (!scope) return fail(403, "forbidden");
@@ -180,11 +193,13 @@ export function secretsHandlers(
     "secrets.create": member.create,
     "secrets.rotate": member.rotate,
     "secrets.update": member.update,
+    "secrets.reissue": member.reissue,
     "secrets.delete": member.remove,
     "officeSecrets.list": office.list,
     "officeSecrets.create": office.create,
     "officeSecrets.rotate": office.rotate,
     "officeSecrets.update": office.update,
+    "officeSecrets.reissue": office.reissue,
     "officeSecrets.delete": office.remove,
   };
   return Object.fromEntries(

@@ -293,6 +293,8 @@ export interface AppState {
   unavailableEngines: UnavailableEngines;
   // Office features the host cannot run (full_state). The Apps view explains.
   unavailableFeatures: UnavailableFeatures;
+  // The server process from full_state; null before it arrives.
+  serverBootId: string | null;
 }
 
 type Action =
@@ -306,6 +308,7 @@ type Action =
       interactions?: AgentChoiceInteraction[];
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
+      serverBootId?: string;
     }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string; roomId: string }
@@ -656,6 +659,7 @@ export function reducer(state: AppState, action: Action): AppState {
         interactions: action.interactions ?? [],
         unavailableEngines: action.unavailableEngines ?? {},
         unavailableFeatures: action.unavailableFeatures ?? {},
+        serverBootId: action.serverBootId ?? null,
         currentRoomId,
         logs:
           holding && focusedId
@@ -1614,6 +1618,7 @@ export const initialState: AppState = {
   providerAccounts: [],
   unavailableEngines: {},
   unavailableFeatures: {},
+  serverBootId: null,
 };
 
 // Exported so a static render can supply a seeded state. The app itself

@@ -84,6 +84,20 @@ it("saves a preset secret, lists it without a value, and clears the value field"
   expect(put.body).toEqual({ value: `${FAKE}-3` });
   expect(valueInput(view)).toBeNull();
 
+  // A new placeholder: a confirm step, then a body-less POST.
+  fireEvent.click(
+    view.getByRole("button", { name: t("settings.secrets.reissue") }),
+  );
+  expect(calls.some((c) => c.path.endsWith("/reissue"))).toBe(false);
+  fireEvent.click(
+    view.getByRole("button", { name: t("settings.secrets.reissue") }),
+  );
+  await act(async () => {});
+  const reissue = calls.find((c) => c.path.endsWith("/reissue"))!;
+  expect(reissue.method).toBe("POST");
+  expect(reissue.path).toBe(`${path}/GH_TOKEN/reissue`);
+  expect(reissue.body).toBeUndefined();
+
   fireEvent.click(
     view.getByRole("button", { name: t("settings.secrets.delete") }),
   );

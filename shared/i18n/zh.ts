@@ -750,6 +750,8 @@ App 的一些原则：
   "settings.secrets.title": "密钥",
   "settings.secrets.hint":
     "保存的值不会再次显示。它只会发往与它一同列出的主机。智能体拿到的是占位值，而不是真实值，但有意读取本办公室文件的智能体仍能找到它。",
+  "settings.secrets.proxyNote":
+    "拥有密钥的智能体会通过办公室的密钥代理发送流量，因此 <code>HTTPS_PROXY</code> 变量对它们不起作用。",
   "settings.secrets.ownerManaged": "办公室密钥由办公室所有者管理。",
   "settings.secrets.loadFailed": "无法加载密钥。",
   "settings.secrets.saveFailed": "无法保存密钥。",
@@ -763,6 +765,9 @@ App 的一些原则：
   "settings.secrets.edit": "编辑",
   "settings.secrets.delete": "删除",
   "settings.secrets.deleteConfirm": "删除 {name}？",
+  "settings.secrets.reissue": "新占位值",
+  "settings.secrets.reissueConfirm":
+    "{name} 的当前占位值会立即失效。智能体下次启动时会拿到新的占位值。",
   "settings.secrets.add": "添加密钥",
   "settings.secrets.preset": "服务",
   "settings.secrets.presetCustom": "其他",
@@ -797,7 +802,7 @@ App 的一些原则：
   "settings.connections.personalVarsHint":
     "这些变量会为你创建的智能体加载，并覆盖办公室通用变量。",
   "settings.connections.providerKeyNote":
-    "添加 <code>ANTHROPIC_API_KEY</code>、<code>OPENAI_API_KEY</code> 或 <code>OPENCODE_API_KEY</code> 以使用提供方 API 密钥。其他成员级变量的工作方式相同。例如，每位成员可以设置 <code>GH_TOKEN</code>，让其智能体使用自己的 GitHub 凭据。然后对智能体执行 <code>/clear</code> 以应用更改。",
+    "添加 <code>ANTHROPIC_API_KEY</code>、<code>OPENAI_API_KEY</code> 或 <code>OPENCODE_API_KEY</code> 以使用提供方 API 密钥。其他凭据（例如 <code>GH_TOKEN</code>）请放在密钥中：智能体拿到的是占位值，而不是真实值。然后对智能体执行 <code>/clear</code> 以应用更改。",
   "settings.connections.crossLinkFromOffice":
     "个人登录和变量位于<link>你 → 个人连接</link>，会覆盖这些设置。",
   "settings.connections.crossLinkFromPersonal":
@@ -1242,6 +1247,7 @@ App 的一些原则：
   "apiCall.agents.offerFileDetail": "提供在编辑器中打开文件的选项",
   "apiCall.agents.suggestCommand": "建议终端命令",
   "apiCall.agents.suggestCommandDetail": "建议终端命令",
+  "apiCall.agents.requestSecret": "请求密钥",
   "apiCall.agents.context": "检查上下文用量",
   "apiCall.agents.subscription": "检查订阅用量",
   "apiCall.agents.logsSearch": "搜索对话日志",
@@ -1402,6 +1408,19 @@ App 的一些原则：
     "智能体查看了此聊天中较早附加的文件。点击显示。",
   "cards.editRequest.open": "在编辑器中打开",
   "cards.editRequest.openHint": "在编辑器侧面板中打开 {path}",
+  "cards.secretRequest.title": "密钥请求：{name}",
+  "cards.secretRequest.personal": "保存到此智能体负责人的密钥中。",
+  "cards.secretRequest.office": "办公室密钥：由办公室所有者保存。",
+  "cards.secretRequest.hint": "值不会进入聊天。智能体拿到的是占位值。",
+  "cards.secretRequest.save": "保存密钥",
+  "cards.secretRequest.decline": "拒绝",
+  "cards.secretRequest.saved": "已保存。智能体下次启动时会拿到占位值。",
+  "cards.secretRequest.declined": "已拒绝。",
+  "cards.secretRequest.closed": "此请求已关闭。智能体可以再次请求。",
+  "cards.secretRequest.ownerAnswers": "此请求由办公室所有者回应。",
+  "cards.secretRequest.managerAnswers": "此请求由该智能体的负责人回应。",
+  "cards.secretRequest.forbidden":
+    "只有此智能体的负责人可以回应此请求；办公室密钥则由办公室所有者回应。",
   "cards.terminalCommand.copy": "复制到终端",
   "cards.tool.noOutput": "（无输出）",
   "cards.tool.morePaths": "{path} 及另外 {count} 个",

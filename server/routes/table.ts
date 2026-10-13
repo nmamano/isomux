@@ -149,6 +149,10 @@ import type {
   McpServerUpdateReq,
   SecretRotateReq,
   SecretUpdateReq,
+  SecretRequestReq,
+  SecretRequestRes,
+  SecretRequestSaveReq,
+  SecretRequestAnswerRes,
   PagerSettingsReq,
   PagerSettingsRes,
   PagerTestRes,
@@ -718,6 +722,34 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: ["log_entry"],
   }),
+  // Secret requests (secrets loop, B4): the agent asks on its own chat; the
+  // member answers on the card. The core checks who may answer: the agent's
+  // manager for a personal secret, an office owner for an office one. Audit
+  // rows name the agent, the request and the secret, never a value.
+  defineRoute<SecretRequestReq, SecretRequestRes>({
+    opId: "agents.secretRequest",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/agents/:id/secret-requests",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    emits: ["log_entry"],
+  }),
+  defineRoute<SecretRequestSaveReq, SecretRequestAnswerRes>({
+    opId: "secretRequests.save",
+    audit: { owner: "executor", targets: namedResource },
+    method: "POST",
+    path: "/api/agents/:id/secret-requests/:requestId/save",
+    auth: cap("user:env", memberScope),
+    emits: ["log_entry"],
+  }),
+  defineRoute<void, SecretRequestAnswerRes>({
+    opId: "secretRequests.decline",
+    audit: { owner: "executor", targets: namedResource },
+    method: "POST",
+    path: "/api/agents/:id/secret-requests/:requestId/decline",
+    auth: cap("user:env", memberScope),
+    emits: ["log_entry"],
+  }),
   defineRoute<AffordancePreviewUrlReq, OkTrue>({
     opId: "agents.previewUrl",
     audit: { owner: "executor", targets: resourceTargets },
@@ -1157,6 +1189,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:env", selfUserOrApi),
     emits: [],
   }),
+  // A new placeholder for a secret (the generation goes up).
+  defineRoute<void, SecretRes>({
+    opId: "secrets.reissue",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/users/:username/secrets/:name/reissue",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
   // The Test button (integrations A3): the server checks the secret against
   // its service's identity endpoint. Audited like pagerSettings.test.
   defineRoute<void, ConnectionTestRes>({
@@ -1206,6 +1247,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "DELETE",
     path: "/api/office/secrets/:name",
+    auth: cap("user:env", officeEnvOwner),
+    emits: [],
+  }),
+  defineRoute<void, SecretRes>({
+    opId: "officeSecrets.reissue",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/secrets/:name/reissue",
     auth: cap("user:env", officeEnvOwner),
     emits: [],
   }),

@@ -151,6 +151,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "cron.runMessage": "cronjob-management",
   "cron.editRunMessage": "cronjob-management",
   "agentConnections.list": "connections",
+  "agents.secretRequest": "connections",
 } as const;
 
 export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<

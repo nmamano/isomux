@@ -341,6 +341,8 @@ import {
 import { createMembersChatStore } from "./members-chat.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
+import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
+import { createSecretRequests, SERVER_BOOT_ID } from "./secret-requests.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import {
   createMcpServerSources,
@@ -3708,6 +3710,46 @@ function buildExecutorDeps(
       onChanged: () => secretsRuntime.changed(),
     }),
   );
+  // Secret requests: an agent asks, the member types the value on a card.
+  register(
+    secretRequestHandlers(
+      createSecretRequests({
+        store: mcpSources.secrets,
+        onChanged: () => secretsRuntime.changed(),
+        placeholderOf: (scope, name) =>
+          secretsRuntime.placeholderOf(scope, name),
+        agentUserId: (agentId) => {
+          const agent = agentManager.getAgent(agentId);
+          return agent ? (agent.userId ?? null) : undefined;
+        },
+        isOfficeOwnerUserId: (userId) =>
+          buildLiveGuardDeps().isOfficeOwnerUserId(userId),
+        emitRequest: (agentId, payload) =>
+          agentManager.emitAgentSecretRequest(agentId, payload),
+        emitSettled: (agentId, requestId, outcome, name) =>
+          agentManager.emitAgentSecretRequestSettled(
+            agentId,
+            requestId,
+            outcome,
+            name,
+          ),
+        tellAgent: (agentId, userId, text) => {
+          const username = getUserById(userId)?.name;
+          void agentManager
+            .prepareEnqueue(agentId)
+            .then(() =>
+              agentManager.enqueueMessage(agentId, {
+                sender: { kind: "user", ...(username ? { username } : {}) },
+                text,
+              }),
+            )
+            .catch(() =>
+              console.error("[secret-requests] the agent was not told"),
+            );
+        },
+      }),
+    ),
+  );
   register(mcpServersHandlers({ store: mcpSources.servers }));
   register(
     connectionTestsHandlers({
@@ -5564,6 +5606,7 @@ function sendProjectedFullState(
         : { opencode: "needs_linux" },
       unavailableFeatures:
         appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
+      serverBootId: SERVER_BOOT_ID,
     } satisfies ServerMessage),
   );
   // Fence the replay so the client knows the replayed transcript is complete
