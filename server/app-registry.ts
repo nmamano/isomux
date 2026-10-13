@@ -128,6 +128,7 @@ export const RESERVED_APP_NAMES: ReadonlySet<string> = new Set([
   "cronjobs",
   "skills",
   "settings",
+  "integrations",
   "pager",
   "users",
   "agents",

@@ -12,7 +12,7 @@ import {
 // an English wording, whitespace, or shared-clause order regression.
 const ENGLISH_SHA256: Record<string, string> = {
   "isomux-receptionist":
-    "3bfabb8eb25312ea50c645ea161ba4a1d72e9218bf639b0d062fea76b655776b",
+    "f6801b61385a2239258087797eff2c54488bd354d026ad81b3ba5aabce6e0e04",
   "side-project-builder":
     "d7dd430c9d6429bbb8a434ff07b5c650283532f145a4c6e759f9e00fb5b82ee1",
   "personal-site-builder":
