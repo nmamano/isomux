@@ -60,3 +60,29 @@ Acceptance: a member saves a secret, sees it listed with its hosts and form and 
 
 Decide with the reviewer: the store file format; the route shape; the preset table's location (shared with B2 and B3).
 Locked: rulings 1-11.
+
+## Probe facts (Worker 5, 2026-10-13; full report in internal-docs/private/engine-mcp-proxy-probe-20261013.md, not in git)
+
+- All three engines (Claude Code CLI, Codex app-server, OpenCode serve) send both their MCP traffic and their model API traffic through `HTTPS_PROXY`/`https_proxy`, and honor `NO_PROXY`.
+- CA variables: Claude and OpenCode accept `NODE_EXTRA_CA_CERTS` or `SSL_CERT_FILE`. Codex ignores `NODE_EXTRA_CA_CERTS`; it needs `SSL_CERT_FILE` (use the CA plus system-roots bundle) or `CODEX_CA_CERTIFICATE`. No engine needs `NODE_USE_ENV_PROXY`, but Node 24 tools that agents run do (`fetch` ignores `HTTPS_PROXY` without it).
+- Hosts the engines reach at start or per turn, which must stay plain tunnels (never-list): `api.anthropic.com`, `mcp-proxy.anthropic.com` (claude.ai connector traffic, carries the sign-in token), `api.openai.com`, `chatgpt.com`, `models.opencode.ai`, `registry.npmjs.org`. Codex also reaches `github.com` and `api.github.com` at start: those are preset hosts for GitHub secrets, so the proxy ends TLS for them only when an agent in scope has a GitHub secret, and must pass Codex's own requests through unchanged (no placeholder, no injection).
+- If the proxy stops, every agent with a secret in scope loses model traffic too. The server supervises and restarts it.
+
+## SLICE-B2 PICKUP: the proxy
+
+Starts after B1 is merged into main.
+
+Goal: agents with at least one secret in scope get placeholders and the proxy; the proxy puts the value into requests to listed hosts only. Design sections 2.1-2.3 and appendix D are the spec, with ruling 7 and the probe facts.
+
+Mechanics and traps:
+- First, check that Bun can end TLS with a certificate per host name (design S1 says unchecked); if it cannot, stop and report before building on it.
+- Placeholders per scope (HMAC of scope, name and generation, keeping the value's well-known prefix). Environment for agents, terminals and scheduled runs with a secret in scope: the placeholders, `HTTPS_PROXY`, `https_proxy`, `NO_PROXY` for loopback, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `CODEX_CA_CERTIFICATE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`, `NODE_USE_ENV_PROXY=1`. Agents with no secret in scope get nothing new (ruling 8).
+- The proxy: plain tunnel for every host no secret lists and for the never-list; for a listed host, end TLS, swap a placeholder only in the secret's named header (Basic decoded first), 403 for a placeholder of a secret that does not list this host, 421 on any CONNECT/SNI/Host mismatch, no injection on TRACE or OPTIONS, never follow redirects, scrub the raw, Basic and URL-encoded value from responses, one audit entry per use (no value).
+- Omnigent's failure-case tests are the reference: copy the cases (secrets-prior-art.md), not the code.
+- If integrations slice A2 has landed, switch its MCP credentials from the real value to the placeholder.
+- The OpenCode profile identity rule (appendix D) so a change of secrets replaces the right server.
+
+Acceptance: in a throwaway office with stub HTTPS hosts, an agent-side curl with a placeholder reaches a listed stub host that receives the value; every appendix D boundary case passes; a Claude, a Codex and an OpenCode process reach their model host (a stub on the never-list) through the proxy untouched; the agent's environment, transcript and printenv hold only placeholders. The reviewer re-runs the boundary tests on the approved hash.
+
+Decide with the reviewer: the proxy's process model (in the server or a supervised child); how values reach it.
+Locked: rulings 1-11.

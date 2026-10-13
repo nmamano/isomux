@@ -45,7 +45,8 @@ UI slices show the page in headless Chrome (internal-docs/ui-verification.md), d
 ## Slices
 
 - [ ] A1: the page lists every connection, read-only
-- [ ] A2: remote MCP servers registered once for every engine (waits for the probe report)
+- [ ] A2: remote MCP servers registered once for every engine (after A1 and secrets B1)
+- [ ] A2b: OAuth MCP servers (only if A2 splits it out)
 - [ ] A3: Test button and diagnostics per connection
 - [ ] A4: a usage note per connection that agents read
 
@@ -72,4 +73,29 @@ Traps:
 Acceptance: the page shows a variable, a sign-in and (where the box has one) a claude.ai connector correctly for an owner and a member, desktop and mobile; no route returns a variable value; tests cover the list's data shape and the access rules; the reviewer re-runs the scoped tests on the approved hash.
 
 Decide with the reviewer: the component and route shape for the list; where the connector list is recorded.
+Locked: rulings 1-12.
+
+## Probe facts (Worker 5, 2026-10-13; full report in internal-docs/private/engine-mcp-proxy-probe-20261013.md, not in git)
+
+- Claude: register with `q.setMcpServers({...})` on the live Query after start, on create and every resume. The `mcpServers` option puts headers on the CLI's argv (visible in `ps`), and `${VAR}` headers put the value in the environment. An SDK server replaces a same-name user or project server, but on the `setMcpServers` path the project's server connects briefly first. `q.mcpServerStatus()` lists every server with scope (`dynamic`, `user`, `project`, `claudeai`) and status, with no model turn.
+- Codex: the per-thread `config` map already sent on `thread/start` and `thread/resume` (`CODEX_THREAD_CONFIG_OVERRIDES`), keys `mcp_servers.<name>` with `url` and `http_headers`. Not `-c` (argv), and not `env_http_headers` or `bearer_token_env_var` (environment). The merge with `config.toml` is per key, so a same-name entry mixes. Status: `mcpServerStatus/list`. Streamable HTTP only.
+- OpenCode: the per-member `OPENCODE_CONFIG` file, `mcp.<name> = {type:"remote", url, headers, oauth:false, enabled:true}`. A change needs the config revision and a server restart (the supervisor already does this). The merge is deep: a project entry that changed only `url` inherited Isomux's Authorization header. Production is safe only because `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `--pure` and the per-profile XDG directories block other layers; keep them and pin them with a test. Status: `GET /mcp`.
+- Every Isomux-registered server gets a reserved name prefix (`isomux-`) so it never clashes with a user's own server.
+
+## SLICE-A2 PICKUP: remote MCP servers, registered once for every engine
+
+Starts after A1 and secrets slice B1 are merged into main (it uses B1's secret store).
+
+Goal: an owner registers a remote MCP server for the office, or a member for their own agents, once: a name, a URL and, if the server needs one, a credential. Claude, Codex and OpenCode agents in that scope all get it, through the mechanisms in "Probe facts". The integrations page lists it with the A1 fields, and the engine's own servers (user and project `.mcp.json` for Claude) show beside it with where they are set.
+
+Mechanics and traps:
+- The credential is a secret from the secrets loop's store (ruling 6): the member picks an existing secret or creates one in the same form, bound to the MCP server's host. Until secrets slice B2 lands, Isomux passes the real value through the channels above (never argv, never environment); B2 switches it to the placeholder.
+- Office servers are owner-only to add and change, like office variables and secrets.
+- A change reaches running agents on their next session start (Claude and Codex) or profile restart (OpenCode); say so on the page.
+- OAuth servers (for example Gmail): decide with the reviewer whether the MCP authorization flow (Isomux as the OAuth client, the refresh token stored as a secret) fits in A2. If it does not, A2 ships static-credential servers and writes the plan for A2b, and the report says so.
+- Tests: each engine's adapter gets the server in the right shape; no value on argv or in an agent's environment (check the spawn arguments and env the tests already capture); the OpenCode lock stays pinned; the name prefix.
+
+Acceptance: a stub remote MCP server registered once at office scope and once at member scope reaches a Claude, a Codex and an OpenCode agent in a throwaway office (status from each engine's status call, no model turn), and the page shows both with their scope. The reviewer re-runs it on the approved hash.
+
+Decide with the reviewer: the route and store shape for registrations; OAuth in A2 or A2b.
 Locked: rulings 1-12.
