@@ -73,6 +73,7 @@ export type ConnectionRow =
       problem: ConnectionsListRes["mcpServers"][number]["problem"];
       overridden: boolean;
       note: string | null;
+      oauth: boolean;
       where: ConnectionRowWhere;
     }
   // An MCP server set in Claude itself, as the caller's sessions report it.
@@ -270,6 +271,7 @@ export function connectionRows(
         problem: server.problem,
         overridden: server.overridden,
         note: noteOf(server.note),
+        oauth: server.oauth === true,
         where: {
           kind: "page",
           half: scope,

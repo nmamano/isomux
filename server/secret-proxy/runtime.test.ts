@@ -549,3 +549,87 @@ describe("failure paths", () => {
     expect(runtime.proxyPort).toBe(port);
   });
 });
+
+// Integrations A2b: an OAuth MCP server's refresh token and client secret
+// are secrets the registration owns, never an agent's.
+describe("secrets an OAuth registration owns", () => {
+  const OWNED = "MCP_MAIL_OAUTH";
+  const OWNED_CLIENT = "MCP_MAIL_OAUTH_CLIENT";
+  const OWNED_VALUE = "fake-oauth-refresh-runtime-0001";
+  const CLIENT_VALUE = "fake-oauth-client-runtime-0001";
+
+  async function withOwned(owned: (scope: SecretScope) => string[] | null) {
+    await runtime.stop();
+    runtime = makeRuntime({ oauthOwned: owned });
+    setSecretEnvironmentProvider((userId) => runtime.environmentFor(userId));
+    add(AT_ALICE, OWNED, OWNED_VALUE);
+    add(AT_ALICE, OWNED_CLIENT, CLIENT_VALUE);
+    add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
+    await runtime.enable();
+  }
+  const listed = (scope: SecretScope) =>
+    scope.kind === "user" && scope.userId === ALICE
+      ? [OWNED, OWNED_CLIENT]
+      : [];
+
+  test("get no placeholder in an agent's environment; a plain secret in the scope still does", async () => {
+    await withOwned(listed);
+    const env = buildEnvForUserId(ALICE)!;
+    expect(env[OWNED]).toBeUndefined();
+    expect(env[OWNED_CLIENT]).toBeUndefined();
+    expect(env.GH_TOKEN).toMatch(/^ghp_/);
+    expect(envText(env)).not.toContain(OWNED_VALUE);
+    // Log redaction still masks the owned values.
+    expect(values).toContain(OWNED_VALUE);
+  });
+
+  test("do not show in a printenv of the agent's environment", async () => {
+    await withOwned(listed);
+    const env = buildEnvForUserId(ALICE)!;
+    const printed = Bun.spawnSync(["printenv"], { env }).stdout.toString();
+    expect(printed).toContain("GH_TOKEN=");
+    expect(printed).not.toContain(OWNED);
+    expect(printed).not.toContain(OWNED_VALUE);
+  });
+
+  test("are not in the proxy snapshot", async () => {
+    await withOwned(listed);
+    const names = runtime.snapshotSecrets().map((s) => s.name);
+    expect(names).toContain("GH_TOKEN");
+    expect(names).not.toContain(OWNED);
+    expect(names).not.toContain(OWNED_CLIENT);
+  });
+
+  test("restart no agent when the flow rotates one", async () => {
+    await withOwned(listed);
+    await runtime.changed();
+    changes = [];
+    const revision = environmentSourceRevisionForUserId(ALICE);
+    // Another prefix: a plain secret's placeholder would change here.
+    store.rotate(AT_ALICE, OWNED, `github_pat_${"F".repeat(82)}`);
+    await runtime.changed();
+    expect(changes).toEqual([]);
+    expect(environmentSourceRevisionForUserId(ALICE)).toBe(revision);
+  });
+
+  test("give git no credential helper; a plain secret on the same host does", async () => {
+    await withOwned(listed);
+    // The one plain secret on the host sorts after the owned names, so
+    // without the filter an owned secret would take the host's slot.
+    store.remove(AT_ALICE, "GH_TOKEN");
+    add(AT_ALICE, "ZZ_PLAIN", "fake-plain-same-host-0001");
+    const secrets = runtime.environmentFor(ALICE)!;
+    expect(secrets.gitCredentials).toEqual([
+      { host: "api.example-stub.test", placeholder: secrets.member.ZZ_PLAIN },
+    ]);
+  });
+
+  test("stay out when the registrations cannot be read", async () => {
+    await withOwned(() => null);
+    const env = buildEnvForUserId(ALICE)!;
+    expect(env[OWNED]).toBeUndefined();
+    expect(env[OWNED_CLIENT]).toBeUndefined();
+    expect(env.GH_TOKEN).toMatch(/^ghp_/);
+    expect(runtime.snapshotSecrets().map((s) => s.name)).toEqual(["GH_TOKEN"]);
+  });
+});

@@ -841,6 +841,31 @@ App 的一些原则：
   "settings.mcpServers.credential": "凭据",
   "settings.mcpServers.credentialNone": "无",
   "settings.mcpServers.credentialNew": "新密钥",
+  "settings.mcpServers.credentialOAuth": "登录（OAuth）",
+  "settings.mcpServers.oauthHint":
+    "你只需登录一次，Claude、Codex 和 OpenCode 智能体都会获得访问权限。除非服务器需要你在其上注册的客户端，否则请将客户端字段留空。",
+  "settings.mcpServers.clientId": "客户端 ID（可选）",
+  "settings.mcpServers.clientSecret": "客户端密钥（可选）",
+  "settings.mcpServers.signIn": "登录",
+  "settings.mcpServers.signInAgain": "重新登录",
+  "settings.mcpServers.signedIn": "已登录",
+  "settings.mcpServers.notSignedIn": "未登录",
+  "settings.mcpServers.signInDone": "已登录 MCP 服务器。",
+  "settings.mcpServers.signInFailed": "登录失败。请重试。",
+  "settings.mcpServers.signInError.clientNeeded":
+    "此服务器不注册客户端。请输入客户端 ID。",
+  "settings.mcpServers.signInError.redirectRefused":
+    "授权服务器拒绝了此办公室的地址。有些服务器只接受 https 或 localhost 地址。",
+  "settings.mcpServers.signInError.metadata":
+    "服务器的登录信息缺失或与服务器不符。",
+  "settings.mcpServers.signInError.secretExists":
+    "此范围内已有名为 {name} 的密钥。请重命名或删除它，然后登录。",
+  "settings.mcpServers.signInError.expired": "登录用时过长。请重试。",
+  "settings.mcpServers.signInError.wrongMember": "此登录由另一位成员发起。",
+  "settings.mcpServers.signInError.denied": "登录已取消。",
+  "settings.connections.list.mcpSignIn": "已排除：未登录",
+  "settings.connections.list.mcpSignInAgain": "已排除：请重新登录",
+  "settings.connections.list.mcpOAuth": "已通过 OAuth 登录",
   "settings.mcpServers.secretName": "密钥名称",
   "settings.mcpServers.tokenPlaceholder": '只填令牌，不带 "Bearer"',
   "settings.mcpServers.formBearer": "Authorization: Bearer",

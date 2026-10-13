@@ -14,6 +14,7 @@ import {
   type SecretStore,
   type StoredSecret,
 } from "../secret-store.ts";
+import { OAUTH_SECRET_NAME } from "../../shared/mcp-servers.ts";
 import { scopeId, placeholderFor } from "./placeholders.ts";
 import {
   ensureSecretMaterial,
@@ -54,6 +55,9 @@ export interface SecretsRuntimeDeps {
   onSetChanged: (change: SecretSetChange) => void;
   onValues: (values: string[]) => void;
   log: (code: string) => void;
+  // The secrets that OAuth MCP registrations own in a scope (integrations
+  // A2b), or null when the registrations cannot be read.
+  oauthOwned?: (scope: SecretScope) => readonly string[] | null;
   // Tests only: another child entry, its environment, and roots that stand
   // in for the system roots.
   childEntry?: string;
@@ -118,6 +122,17 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
     }
   }
 
+  // The refresh token and client secret of an OAuth MCP server are the
+  // server's own credentials, never an agent's: no placeholder, not in the
+  // proxy snapshot, so the flow's rotation of one restarts no agent. Fails
+  // closed: with unreadable registrations, every name of the flow's shape.
+  function ownedIn(scope: SecretScope): (name: string) => boolean {
+    const owned = deps.oauthOwned ? deps.oauthOwned(scope) : [];
+    if (owned === null) return (name) => OAUTH_SECRET_NAME.test(name);
+    const names = new Set(owned);
+    return (name) => names.has(name);
+  }
+
   // Waits for the first listen, at most `startWaitMs`. A child that never
   // listens must not hold the office's boot or a secret route.
   async function waitForListen(start: Promise<number>): Promise<void> {
@@ -152,7 +167,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
     const key = ensureMaterial().placeholderKey;
     return deps.store.scopes().map((scope) => ({
       scope,
-      secrets: readScope(scope).map((secret) => ({
+      secrets: agentSecrets(scope).map((secret) => ({
         scope: scopeId(scope),
         ownerId: scope.kind === "user" ? scope.userId : null,
         name: secret.name,
@@ -168,6 +183,11 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
         ),
       })),
     }));
+  }
+
+  function agentSecrets(scope: SecretScope): StoredSecret[] {
+    const owned = ownedIn(scope);
+    return readScope(scope).filter((secret) => !owned(secret.name));
   }
 
   function signatureOf(secrets: ProxySecret[]): string {
@@ -229,7 +249,12 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
         changed.push(scope);
     }
     signatures = next;
-    deps.onValues(entries.flatMap((e) => e.secrets.map((s) => s.value)));
+    // Log redaction masks the owned values too.
+    deps.onValues(
+      deps.store
+        .scopes()
+        .flatMap((scope) => readScope(scope).map((s) => s.value)),
+    );
     return changed;
   }
 
@@ -269,7 +294,9 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       const git = new Map<string, string>();
       // Member scope first, so a member secret wins a host over an office one.
       for (const scope of [...scopes].reverse()) {
+        const owned = ownedIn(scope);
         for (const secret of readScope(scope)) {
+          if (owned(secret.name)) continue;
           const placeholder = placeholderFor(
             key,
             scope,
@@ -342,7 +369,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
         logOnce("no_proxy_port", "no_proxy_port");
         return null;
       }
-      const secret = readScope(scope).find((s) => s.name === name);
+      const secret = agentSecrets(scope).find((s) => s.name === name);
       return secret
         ? placeholderFor(
             material.placeholderKey,
@@ -356,6 +383,11 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
 
     async stop(): Promise<void> {
       await supervisor?.stop();
+    },
+
+    // Tests only: the scope and name of each secret the proxy snapshot holds.
+    snapshotSecrets(): { scope: string; name: string }[] {
+      return snapshot().secrets.map((s) => ({ scope: s.scope, name: s.name }));
     },
 
     get proxyPort(): number | null {

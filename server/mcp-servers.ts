@@ -25,6 +25,7 @@ import {
   createMcpServerStore,
   type McpServerStore,
 } from "./mcp-server-store.ts";
+import { oauthAccessToken, oauthSignInNeeded } from "./mcp-oauth-tokens.ts";
 import {
   createSecretStore,
   type SecretScope,
@@ -120,10 +121,25 @@ export function setMcpPlaceholderProvider(
 
 type CredentialProblem = McpServerProblem | "unreadable";
 
+// A signed-in server with no token yet, before the refresh after a restart:
+// left out of a session, and no problem on its row.
+function rowProblem(
+  scope: SecretScope,
+  server: McpServerWire,
+  problem: CredentialProblem,
+): McpServerProblem | null {
+  if (problem === "unreadable") return null;
+  if (problem !== "sign_in" || !server.oauth) return problem;
+  if (oauthSignInNeeded(scope, server.name)) return "sign_in_again";
+  return server.oauth.signedIn ? null : "sign_in";
+}
+
 // The one rule for a registration's secret: it exists in the same scope and
 // lists the server's host. The value it returns is for the Test button (A3),
 // which runs in the server. The agents' headers never use it: they take only
-// the form, with the placeholder (secrets B2, headersFor below).
+// the form, with the placeholder (secrets B2, headersFor below). An OAuth
+// server's credential is its access token, only while it is cached for the
+// registration's current URL (integrations A2b).
 export function mcpServerSecret(
   sources: McpServerSources,
   scope: SecretScope,
@@ -131,6 +147,12 @@ export function mcpServerSecret(
 ):
   | { ok: true; secret: { value: string; form: SecretForm } | null }
   | { ok: false; problem: CredentialProblem } {
+  if (server.oauth) {
+    const token = oauthAccessToken(scope, server.name, server.url);
+    return token
+      ? { ok: true, secret: { value: token, form: { kind: "authorization" } } }
+      : { ok: false, problem: "sign_in" };
+  }
   if (server.secret === null) return { ok: true, secret: null };
   let secret: ReturnType<SecretStore["readSecretValues"]>;
   try {
@@ -168,6 +190,18 @@ function headersFor(
 ):
   | { ok: true; headers: Record<string, string> }
   | { ok: false; problem: CredentialProblem | "no_proxy" } {
+  // An OAuth server's access token is not a secret of the store, so the
+  // proxy has no placeholder for it: the header carries the token itself.
+  if (server.oauth) {
+    const token = mcpServerSecret(sources, scope, server);
+    if (!token.ok) return token;
+    return {
+      ok: true,
+      headers: token.secret
+        ? credentialHeader(token.secret.form, token.secret.value)
+        : {},
+    };
+  }
   const credential = credentialFor(sources, scope, server);
   if (!credential.ok) return credential;
   if (credential.form === null || server.secret === null)
@@ -190,7 +224,9 @@ export function mcpServersForUserId(
           ? `[mcp] ${server.name}: the ${scope.kind} secrets file could not be read; the server is left out`
           : credential.problem === "no_proxy"
             ? `[mcp] ${server.name}: no secret proxy listens; the server is left out`
-            : `[mcp] ${server.name}: its secret is missing or does not list the host; the server is left out`,
+            : credential.problem === "sign_in"
+              ? `[mcp] ${server.name}: it has no access token (sign in); the server is left out`
+              : `[mcp] ${server.name}: its secret is missing or does not list the host; the server is left out`,
       );
       continue;
     }
@@ -227,13 +263,12 @@ export function mcpServerRows(
       credential: server.secret !== null,
       secret: showSecret ? server.secret : null,
       problem:
-        credential.ok ||
-        credential.problem === "unreadable" ||
-        credential.problem === "no_proxy"
+        credential.ok || credential.problem === "no_proxy"
           ? null
-          : credential.problem,
+          : rowProblem(scope, server, credential.problem),
       overridden: scope.kind === "office" && ownNames.has(server.name),
       note: server.note,
+      oauth: server.oauth !== null,
     };
   };
   return [

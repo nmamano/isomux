@@ -448,6 +448,7 @@ describe("read paths", () => {
         problem: null,
         overridden: false,
         note: null,
+        oauth: false,
       },
     ]);
     // A member sees the office server, without the secret's name, and that
@@ -464,6 +465,7 @@ describe("read paths", () => {
         problem: null,
         overridden: true,
         note: null,
+        oauth: false,
       },
       {
         scope: "personal",
@@ -474,6 +476,7 @@ describe("read paths", () => {
         problem: null,
         overridden: false,
         note: null,
+        oauth: false,
       },
     ]);
   });

@@ -16,6 +16,7 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -44,6 +45,36 @@ interface StoredMcpServer {
   updatedAt: number;
   // The usage note for agents (integrations A4); absent when there is none.
   note?: string;
+  // The MCP authorization flow (integrations A2b); absent for other servers.
+  oauth?: StoredOAuth;
+}
+
+export type TokenEndpointAuth =
+  | "none"
+  | "client_secret_post"
+  | "client_secret_basic";
+
+// The client registration and what discovery found. No credential: the
+// client secret and the refresh token are secrets of the same scope, named
+// here.
+export interface StoredOAuth {
+  // The pasted client, or the one dynamic registration gave; null until then.
+  clientId: string | null;
+  // A pasted client stays when the URL changes; a registered one does not.
+  pasted: boolean;
+  clientSecret: string | null;
+  tokenEndpointAuth: TokenEndpointAuth;
+  // The redirect URI a registered client was registered with.
+  redirectUri: string | null;
+  issuer: string | null;
+  authorizationEndpoint: string | null;
+  tokenEndpoint: string | null;
+  scope: string | null;
+  // The secret that holds the refresh token; null until the first sign-in.
+  refreshToken: string | null;
+  // The secrets the flow wrote in this scope. A same-name secret not listed
+  // here is the member's, and the flow never writes it.
+  ownedSecrets: string[];
 }
 
 interface McpServersFile {
@@ -75,10 +106,35 @@ export type SecretHostsLookup = (
 
 const SAFE_USER_ID = /^[A-Za-z0-9_-]+$/;
 
+const nullableString = (value: unknown) =>
+  value === null || typeof value === "string";
+
+function isStoredOAuth(entry: unknown): entry is StoredOAuth {
+  if (!entry || typeof entry !== "object") return false;
+  const o = entry as Record<string, unknown>;
+  return (
+    nullableString(o.clientId) &&
+    typeof o.pasted === "boolean" &&
+    nullableString(o.clientSecret) &&
+    ["none", "client_secret_post", "client_secret_basic"].includes(
+      o.tokenEndpointAuth as string,
+    ) &&
+    nullableString(o.redirectUri) &&
+    nullableString(o.issuer) &&
+    nullableString(o.authorizationEndpoint) &&
+    nullableString(o.tokenEndpoint) &&
+    nullableString(o.scope) &&
+    nullableString(o.refreshToken) &&
+    Array.isArray(o.ownedSecrets) &&
+    o.ownedSecrets.every((name) => typeof name === "string")
+  );
+}
+
 function isStoredServer(entry: unknown): entry is StoredMcpServer {
   if (!entry || typeof entry !== "object") return false;
   const s = entry as Record<string, unknown>;
   return (
+    (s.oauth === undefined || isStoredOAuth(s.oauth)) &&
     checkMcpServerName(s.name) === null &&
     typeof s.url === "string" &&
     (s.secret === null || checkSecretName(s.secret) === null) &&
@@ -90,7 +146,20 @@ function isStoredServer(entry: unknown): entry is StoredMcpServer {
 }
 
 function toWire(server: StoredMcpServer): McpServerWire {
-  return { ...server, note: server.note ?? null };
+  return {
+    name: server.name,
+    url: server.url,
+    secret: server.secret,
+    createdAt: server.createdAt,
+    updatedAt: server.updatedAt,
+    note: server.note ?? null,
+    oauth: server.oauth
+      ? {
+          clientId: server.oauth.clientId,
+          signedIn: server.oauth.refreshToken !== null,
+        }
+      : null,
+  };
 }
 
 function checkNote(
@@ -171,20 +240,25 @@ export function createMcpServerStore(
 
   // The URL and secret together: a secret must exist in the same scope and
   // list the URL's host.
+  // An OAuth server takes no secret and the URL rules of a credential.
   function checkTarget(
     scope: SecretScope,
     url: unknown,
     secret: unknown,
+    oauth = false,
   ):
     | { ok: true; url: string; secret: string | null }
     | Exclude<McpServerChange, { ok: true }> {
-    if (secret !== null && checkSecretName(secret) !== null)
+    if (
+      (secret !== null && checkSecretName(secret) !== null) ||
+      (oauth && secret !== null)
+    )
       return {
         ok: false,
         kind: "invalid",
         error: { field: "secret", reason: "invalid" },
       };
-    const checked = checkMcpServerUrl(url, secret !== null);
+    const checked = checkMcpServerUrl(url, secret !== null || oauth);
     if (!checked.ok)
       return { ok: false, kind: "invalid", error: checked.error };
     if (secret === null) return { ok: true, url: checked.url, secret: null };
@@ -200,13 +274,69 @@ export function createMcpServerStore(
       return read(scope).map(toWire);
     },
 
+    // The whole stored record, for the OAuth flow only (server/mcp-oauth.ts).
+    oauthOf(
+      scope: SecretScope,
+      name: string,
+    ): { url: string; oauth: StoredOAuth } | null {
+      const server = read(scope).find((s) => s.name === name);
+      return server?.oauth ? { url: server.url, oauth: server.oauth } : null;
+    },
+
+    // Saves what the flow learned, only while the registration still has
+    // the URL the flow started with. False when it changed or went away.
+    setOAuth(
+      scope: SecretScope,
+      name: string,
+      url: string,
+      oauth: StoredOAuth,
+    ): boolean {
+      const servers = read(scope);
+      const server = servers.find((s) => s.name === name);
+      if (!server?.oauth || server.url !== url) return false;
+      server.oauth = oauth;
+      write(scope, servers);
+      return true;
+    },
+
+    // The secrets the scope's OAuth registrations own, for the secrets
+    // runtime (integrations A2b). Throws when the file cannot be read.
+    oauthOwnedSecrets(scope: SecretScope): string[] {
+      return read(scope).flatMap((s) => s.oauth?.ownedSecrets ?? []);
+    },
+
+    // The member scopes that have a file, and the office.
+    scopes(): SecretScope[] {
+      let users: string[] = [];
+      try {
+        users = readdirSync(usersDir)
+          .filter((file) => file.endsWith(".json"))
+          .map((file) => file.slice(0, -".json".length))
+          .filter((userId) => SAFE_USER_ID.test(userId));
+      } catch {
+        // No member has a file yet.
+      }
+      return [
+        { kind: "office" },
+        ...users.map((userId) => ({ kind: "user" as const, userId })),
+      ];
+    },
+
+    // `oauth` is the record the flow built (server/mcp-oauth.ts), never a
+    // request body.
     create(
       scope: SecretScope,
       input: Record<string, unknown>,
+      oauth?: StoredOAuth,
     ): McpServerChange {
       const nameError = checkMcpServerName(input.name);
       if (nameError) return { ok: false, kind: "invalid", error: nameError };
-      const target = checkTarget(scope, input.url, input.secret ?? null);
+      const target = checkTarget(
+        scope,
+        input.url,
+        input.secret ?? null,
+        oauth !== undefined,
+      );
       if (!target.ok) return target;
       const note = checkNote(input.note ?? null);
       if (!note.ok) return note;
@@ -222,32 +352,53 @@ export function createMcpServerStore(
         createdAt: now,
         updatedAt: now,
         ...(note.note !== null ? { note: note.note } : {}),
+        ...(oauth ? { oauth } : {}),
       };
       write(scope, [...servers, server]);
       return { ok: true, server: toWire(server) };
     },
 
+    // `oauth`: the record the flow built for the new state; undefined keeps
+    // the stored one, null removes it. `beforeWrite` runs once the change is
+    // valid and before it is saved; if it throws, nothing is saved.
     update(
       scope: SecretScope,
       name: string,
       patch: Record<string, unknown>,
+      oauth?: (
+        current: StoredOAuth | undefined,
+        url: string,
+      ) => StoredOAuth | null,
+      beforeWrite?: () => void,
     ): McpServerChange {
       const servers = read(scope);
       const server = servers.find((s) => s.name === name);
       if (!server) return { ok: false, kind: "not_found" };
+      const nextUrl = patch.url !== undefined ? patch.url : server.url;
+      const nextOAuth = oauth
+        ? oauth(server.oauth, typeof nextUrl === "string" ? nextUrl : "")
+        : (server.oauth ?? null);
       const target = checkTarget(
         scope,
-        patch.url !== undefined ? patch.url : server.url,
-        patch.secret !== undefined ? patch.secret : server.secret,
+        nextUrl,
+        patch.secret !== undefined
+          ? patch.secret
+          : nextOAuth
+            ? null
+            : server.secret,
+        nextOAuth !== null,
       );
       if (!target.ok) return target;
       const note = patch.note !== undefined ? checkNote(patch.note) : null;
       if (note && !note.ok) return note;
       server.url = target.url;
       server.secret = target.secret;
+      if (nextOAuth) server.oauth = nextOAuth;
+      else delete server.oauth;
       if (note?.note === null) delete server.note;
       else if (note) server.note = note.note;
       server.updatedAt = Date.now();
+      beforeWrite?.();
       write(scope, servers);
       return { ok: true, server: toWire(server) };
     },

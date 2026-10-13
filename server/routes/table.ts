@@ -145,6 +145,7 @@ import type {
   McpServerCreateReq,
   McpServerListRes,
   McpServerRes,
+  McpServerSignInRes,
   ConnectionTestRes,
   McpServerUpdateReq,
   SecretRotateReq,
@@ -1309,6 +1310,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:env", selfUserOrApi),
     emits: [],
   }),
+  // The MCP authorization flow (integrations A2b): the authorization URL
+  // for the member's browser.
+  defineRoute<void, McpServerSignInRes>({
+    opId: "mcpServers.signIn",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/users/:username/mcp-servers/:name/sign-in",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
   defineRoute<void, McpServerListRes>({
     opId: "officeMcpServers.list",
     method: "GET",
@@ -1349,6 +1360,24 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/office/mcp-servers/:name/test",
     auth: cap("user:env", officeEnvOwner),
+    emits: [],
+  }),
+  defineRoute<void, McpServerSignInRes>({
+    opId: "officeMcpServers.signIn",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/mcp-servers/:name/sign-in",
+    auth: cap("user:env", officeEnvOwner),
+    emits: [],
+  }),
+  // The authorization server sends the member's browser back here. A human
+  // session only, and the member who started the flow (the state names
+  // them). A GET, so the handler writes its own audit row.
+  defineRoute<void, void>({
+    opId: "mcpOAuth.callback",
+    method: "GET",
+    path: "/api/mcp-oauth/callback",
+    auth: cap("user:env", userScope),
     emits: [],
   }),
   // Where the member's pages go (a Discord webhook). Same self-only gate as

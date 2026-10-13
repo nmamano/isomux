@@ -344,6 +344,8 @@ import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
 import { createSecretRequests, SERVER_BOOT_ID } from "./secret-requests.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
+import { createMcpOAuth, type McpOAuth } from "./mcp-oauth.ts";
+import { createMcpServerStore } from "./mcp-server-store.ts";
 import {
   createMcpServerSources,
   mcpServerRows,
@@ -588,6 +590,8 @@ let cronjobManager: CronjobManager;
 // enable(), which runOfficeMain calls; the in-process test harness never
 // starts a proxy child.
 const secretStore = createSecretStore();
+// Read only for the secrets OAuth registrations own (integrations A2b).
+const oauthRegistrations = createMcpServerStore(() => null);
 const secretsRuntime = createSecretsRuntime({
   store: secretStore,
   stateRoot: STATE_ROOT,
@@ -609,6 +613,13 @@ const secretsRuntime = createSecretsRuntime({
   onSetChanged: (change) => agentManager?.secretsChanged(change),
   onValues: setSecretValuesForRedaction,
   log: (code) => console.log(`[secret-proxy] ${code}`),
+  oauthOwned: (scope) => {
+    try {
+      return oauthRegistrations.oauthOwnedSecrets(scope);
+    } catch {
+      return null;
+    }
+  },
 });
 setSecretEnvironmentProvider((userId) => secretsRuntime.environmentFor(userId));
 setMcpPlaceholderProvider((scope, name) =>
@@ -1400,6 +1411,10 @@ const idempotencyCache = createIdempotencyCache();
 // The HTTP executor's deps for the migrated /api surface. Assembled in
 // startServer once the managers exist; read by the fetch handler at request time.
 let executorDeps: ExecutorDeps;
+// The OAuth MCP flow of this boot (integrations A2b) and its refresh timer.
+let mcpOAuth: McpOAuth | null = null;
+let mcpOAuthTimer: ReturnType<typeof setInterval> | null = null;
+const MCP_OAUTH_TICK_MS = 60_000;
 
 // Editor file watchers, keyed by connectionId -> (`${agentId}\0${absPath}` ->
 // watcher). Rekeyed from a per-WS WeakMap when the editor moved to REST:
@@ -3750,7 +3765,30 @@ function buildExecutorDeps(
       }),
     ),
   );
-  register(mcpServersHandlers({ store: mcpSources.servers }));
+  mcpOAuth = createMcpOAuth({
+    servers: mcpSources.servers,
+    secrets: mcpSources.secrets,
+    fetch: connectionTestFetch,
+    redirectUri: () => `${buildPublicOrigin().origin}/api/mcp-oauth/callback`,
+  });
+  register(
+    mcpServersHandlers({
+      store: mcpSources.servers,
+      oauth: mcpOAuth,
+      auditSignIn: (ctx, targets) =>
+        recordAudit({
+          actor: auditActor(
+            ctx.identity,
+            attributionFor(ctx.identity).createdBy,
+          ),
+          operation: "mcpOAuth.callback",
+          targets,
+          fields: [],
+        }),
+      isOfficeOwnerUserId: (userId) =>
+        buildLiveGuardDeps().isOfficeOwnerUserId(userId),
+    }),
+  );
   register(
     connectionTestsHandlers({
       tester: createConnectionTester({
@@ -7935,6 +7973,19 @@ function runBackgroundBoot(
   // Resume the repeat of open pages from their saved last attempt.
   if (!startOpts.skipSchedulers) pagerDelivery.start();
 
+  // OAuth MCP servers: a refresh pass now (the access tokens are in memory
+  // only), then one a minute for tokens near their expiry.
+  if (!startOpts.skipSchedulers && mcpOAuth) {
+    const oauth = mcpOAuth;
+    // A backstop: the refresher catches its own failures.
+    const refresh = () =>
+      void oauth.refreshDue().catch(() => {
+        console.error("[mcp] an OAuth refresh pass failed");
+      });
+    refresh();
+    mcpOAuthTimer = setInterval(refresh, MCP_OAUTH_TICK_MS);
+  }
+
   // Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
   if (!startOpts.skipBackups) startBackupScheduler();
 
@@ -8050,6 +8101,8 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   extensionService?.stop();
   extensionSessions?.stop();
   pagerDelivery?.stop();
+  if (mcpOAuthTimer) clearInterval(mcpOAuthTimer);
+  mcpOAuthTimer = null;
   await server.stop(true);
   // Editor file-watches are keyed by connectionId in editorWatchers; the WS
   // close handlers that server.stop(true) triggers unregister them. There is no

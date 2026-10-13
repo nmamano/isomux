@@ -827,6 +827,8 @@ export type ConnectionsListRes = {
     problem: McpServerProblem | null;
     overridden: boolean;
     note?: string | null;
+    // Signs in through the MCP authorization flow (integrations A2b).
+    oauth?: boolean;
   }[];
   // MCP servers set in Claude itself, as the caller's Claude sessions last
   // reported them: user settings, or a project's .mcp.json in `folder`.
@@ -929,7 +931,13 @@ export interface ConnectionTestRes {
 }
 
 // Why a registered server is left out of agent sessions.
-export type McpServerProblem = "secret_missing" | "secret_host";
+// An OAuth server with no access token: "sign_in" before the first sign-in,
+// "sign_in_again" when its authorization server refused the refresh.
+export type McpServerProblem =
+  | "secret_missing"
+  | "secret_host"
+  | "sign_in"
+  | "sign_in_again";
 
 // `notes` absent keeps the notes of the names that remain.
 export interface UserEnvReplaceReq {
@@ -1000,6 +1008,14 @@ export interface McpServerWire {
   createdAt: number;
   updatedAt: number;
   note: string | null;
+  // The MCP authorization flow (integrations A2b): null for a server with a
+  // static credential or none. `clientId` is the pasted or registered client.
+  oauth: { clientId: string | null; signedIn: boolean } | null;
+}
+// A pasted client; absent fields mean dynamic client registration.
+export interface McpServerOAuthReq {
+  clientId?: string;
+  clientSecret?: string;
 }
 export interface McpServerListRes {
   servers: McpServerWire[];
@@ -1009,14 +1025,19 @@ export interface McpServerCreateReq {
   url: string;
   secret: string | null;
   note?: string | null;
+  oauth?: McpServerOAuthReq | null;
 }
 export interface McpServerUpdateReq {
   url?: string;
   secret?: string | null;
   note?: string | null;
+  oauth?: McpServerOAuthReq | null;
 }
 export interface McpServerRes {
   server: McpServerWire;
+}
+export interface McpServerSignInRes {
+  authorizationUrl: string;
 }
 
 // A member's pager settings (server/pager-settings.ts). The webhook URL is a

@@ -920,6 +920,33 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.mcpServers.credential": "Credential",
   "settings.mcpServers.credentialNone": "None",
   "settings.mcpServers.credentialNew": "New secret",
+  "settings.mcpServers.credentialOAuth": "Sign in (OAuth)",
+  "settings.mcpServers.oauthHint":
+    "You sign in once, and Claude, Codex and OpenCode agents all get the access. Leave the client fields empty unless the server needs a client you registered with it.",
+  "settings.mcpServers.clientId": "Client ID (optional)",
+  "settings.mcpServers.clientSecret": "Client secret (optional)",
+  "settings.mcpServers.signIn": "Sign in",
+  "settings.mcpServers.signInAgain": "Sign in again",
+  "settings.mcpServers.signedIn": "Signed in",
+  "settings.mcpServers.notSignedIn": "Not signed in",
+  "settings.mcpServers.signInDone": "Signed in to the MCP server.",
+  "settings.mcpServers.signInFailed": "The sign-in failed. Try again.",
+  "settings.mcpServers.signInError.clientNeeded":
+    "This server does not register clients. Enter a client ID.",
+  "settings.mcpServers.signInError.redirectRefused":
+    "The authorization server refused this office's address. Some servers accept only https or localhost addresses.",
+  "settings.mcpServers.signInError.metadata":
+    "The server's sign-in details are missing or do not match the server.",
+  "settings.mcpServers.signInError.secretExists":
+    "A secret named {name} exists in this scope. Rename or delete it, then sign in.",
+  "settings.mcpServers.signInError.expired":
+    "The sign-in took too long. Try again.",
+  "settings.mcpServers.signInError.wrongMember":
+    "Another member started this sign-in.",
+  "settings.mcpServers.signInError.denied": "The sign-in was cancelled.",
+  "settings.connections.list.mcpSignIn": "Left out: not signed in",
+  "settings.connections.list.mcpSignInAgain": "Left out: sign in again",
+  "settings.connections.list.mcpOAuth": "Signed in with OAuth",
   "settings.mcpServers.secretName": "Secret name",
   "settings.mcpServers.tokenPlaceholder": 'The token alone, without "Bearer"',
   "settings.mcpServers.formBearer": "Authorization: Bearer",

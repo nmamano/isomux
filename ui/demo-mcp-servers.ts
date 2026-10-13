@@ -104,6 +104,8 @@ export function demoMcpServersRoute(
       createdAt: now,
       updatedAt: now,
       note,
+      // The demo has no authorization server to sign in to.
+      oauth: null,
     };
     list.push(server);
     list.sort((a, c) => a.name.localeCompare(c.name));

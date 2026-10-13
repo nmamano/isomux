@@ -924,6 +924,36 @@ Coses que pots fer per ell:
   "settings.mcpServers.credential": "Credencial",
   "settings.mcpServers.credentialNone": "Cap",
   "settings.mcpServers.credentialNew": "Secret nou",
+  "settings.mcpServers.credentialOAuth": "Inicia la sessió (OAuth)",
+  "settings.mcpServers.oauthHint":
+    "Inicies la sessió una vegada i els agents de Claude, Codex i OpenCode reben l'accés. Deixa buits els camps del client tret que el servidor necessiti un client que hi vas registrar.",
+  "settings.mcpServers.clientId": "ID de client (opcional)",
+  "settings.mcpServers.clientSecret": "Secret de client (opcional)",
+  "settings.mcpServers.signIn": "Inicia la sessió",
+  "settings.mcpServers.signInAgain": "Torna a iniciar la sessió",
+  "settings.mcpServers.signedIn": "Sessió iniciada",
+  "settings.mcpServers.notSignedIn": "Sense sessió iniciada",
+  "settings.mcpServers.signInDone": "Sessió iniciada al servidor MCP.",
+  "settings.mcpServers.signInFailed":
+    "No s'ha pogut iniciar la sessió. Torna-ho a provar.",
+  "settings.mcpServers.signInError.clientNeeded":
+    "Aquest servidor no registra clients. Introdueix un ID de client.",
+  "settings.mcpServers.signInError.redirectRefused":
+    "El servidor d'autorització ha rebutjat l'adreça d'aquesta oficina. Alguns servidors només accepten adreces https o localhost.",
+  "settings.mcpServers.signInError.metadata":
+    "Les dades d'inici de sessió del servidor falten o no coincideixen amb el servidor.",
+  "settings.mcpServers.signInError.secretExists":
+    "Ja hi ha un secret anomenat {name} en aquest àmbit. Canvia-li el nom o elimina'l i torna a iniciar la sessió.",
+  "settings.mcpServers.signInError.expired":
+    "L'inici de sessió ha trigat massa. Torna-ho a provar.",
+  "settings.mcpServers.signInError.wrongMember":
+    "Un altre membre ha començat aquest inici de sessió.",
+  "settings.mcpServers.signInError.denied":
+    "S'ha cancel·lat l'inici de sessió.",
+  "settings.connections.list.mcpSignIn": "Exclòs: sense sessió iniciada",
+  "settings.connections.list.mcpSignInAgain":
+    "Exclòs: torna a iniciar la sessió",
+  "settings.connections.list.mcpOAuth": "Sessió iniciada amb OAuth",
   "settings.mcpServers.secretName": "Nom del secret",
   "settings.mcpServers.tokenPlaceholder": 'Només el token, sense "Bearer"',
   "settings.mcpServers.formBearer": "Authorization: Bearer",

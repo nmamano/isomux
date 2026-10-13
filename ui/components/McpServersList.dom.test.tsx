@@ -136,6 +136,7 @@ it("offers only the secrets that list the URL's host, and explains a refusal by 
     t("settings.mcpServers.credentialNone"),
     "DOCS_TOKEN",
     t("settings.mcpServers.credentialNew"),
+    t("settings.mcpServers.credentialOAuth"),
   ]);
 
   fireEvent.change(field(view, t("settings.mcpServers.name")), {

@@ -55,6 +55,8 @@ Placeholders are per scope, not per agent: agents of one member share one `openc
 
 When a name is set more than once, the order is: personal secret, personal variable, office secret, office variable. The Secrets list marks a clash with a variable.
 
+The secrets an OAuth MCP registration owns (its refresh token and client secret, integrations A2b) are the server's own credentials: no placeholder, not in the proxy snapshot, and the flow's rotation of one restarts no agent. The registration lists them (`ownedSecrets` in the MCP servers file); when that file cannot be read, every name of the flow's shape (`MCP_<NAME>_OAUTH`, `MCP_<NAME>_OAUTH_CLIENT`) counts as owned. See server/secret-proxy/runtime.ts, `ownedIn`.
+
 ### 2.2 The secret proxy
 
 A server-user process that the server starts and supervises (`server/secret-proxy/`). It runs no code that an agent chose. The server sends it the values over a pipe, so the store has one reader.

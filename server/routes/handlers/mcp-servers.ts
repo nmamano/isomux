@@ -8,6 +8,7 @@
 // response with the whole URL.
 
 import {
+  bytes,
   created,
   fail,
   noContent,
@@ -24,13 +25,21 @@ import {
   SecretStoreUnreadableError,
   type SecretScope,
 } from "../../secret-store.ts";
+import type { McpOAuth } from "../../mcp-oauth.ts";
 
 export interface McpServersDeps {
   store: McpServerStore;
+  // The OAuth flow (integrations A2b). Every create, update and delete goes
+  // through it, so the secrets a registration owns go with it.
+  oauth: McpOAuth;
+  // The audit row of a finished sign-in: the callback is a GET, which the
+  // executor does not audit.
+  auditSignIn: (ctx: Parameters<RouteHandler>[0], targets: string[]) => void;
+  isOfficeOwnerUserId: (userId: string) => boolean;
 }
 
-const CREATE_KEYS = ["name", "url", "secret", "note"];
-const UPDATE_KEYS = ["url", "secret", "note"];
+const CREATE_KEYS = ["name", "url", "secret", "note", "oauth"];
+const UPDATE_KEYS = ["url", "secret", "note", "oauth"];
 
 function memberScope(ctx: Parameters<RouteHandler>[0]): SecretScope | null {
   return (ctx.identity.scope === "user" || ctx.identity.scope === "api") &&
@@ -52,7 +61,9 @@ function bodyWith(
 const invalidRequest = () =>
   fail(400, "invalid_request", "the request body has the wrong shape");
 
-function answer(change: McpServerChange, status: "ok" | "created" = "ok") {
+type Change = McpServerChange | { ok: false; kind: "secret_exists" };
+
+function answer(change: Change, status: "ok" | "created" = "ok") {
   if (change.ok)
     return status === "created"
       ? created({ server: change.server })
@@ -87,6 +98,12 @@ function answer(change: McpServerChange, status: "ok" | "created" = "ok") {
         "secret_host_mismatch",
         "the secret does not list the server's host",
       );
+    case "secret_exists":
+      return fail(
+        409,
+        "secret_exists",
+        "a secret in the same scope has the name the sign-in uses",
+      );
   }
 }
 
@@ -108,7 +125,7 @@ function guarded(handler: RouteHandler): RouteHandler {
 function scopedHandlers(
   deps: McpServersDeps,
   scopeOf: (ctx: Parameters<RouteHandler>[0]) => SecretScope | null,
-): Record<"list" | "create" | "update" | "remove", RouteHandler> {
+): Record<"list" | "create" | "update" | "remove" | "signIn", RouteHandler> {
   return {
     list: (ctx) => {
       const scope = scopeOf(ctx);
@@ -120,22 +137,72 @@ function scopedHandlers(
       if (!scope) return fail(403, "forbidden");
       const body = bodyWith(ctx.body, CREATE_KEYS);
       if (!body) return invalidRequest();
-      return answer(deps.store.create(scope, body), "created");
+      const result = deps.oauth.create(scope, body);
+      return result.ok ? answer(result.change, "created") : invalidRequest();
     },
     update: (ctx) => {
       const scope = scopeOf(ctx);
       if (!scope) return fail(403, "forbidden");
       const body = bodyWith(ctx.body, UPDATE_KEYS);
       if (!body || Object.keys(body).length === 0) return invalidRequest();
-      return answer(deps.store.update(scope, ctx.params.name ?? "", body));
+      const result = deps.oauth.update(scope, ctx.params.name ?? "", body);
+      return result.ok ? answer(result.change) : invalidRequest();
     },
     remove: (ctx) => {
       const scope = scopeOf(ctx);
       if (!scope) return fail(403, "forbidden");
-      return deps.store.remove(scope, ctx.params.name ?? "")
+      return deps.oauth.remove(scope, ctx.params.name ?? "")
         ? noContent()
         : fail(404, "not_found");
     },
+    // The authorization URL for the member's browser; no token in it.
+    signIn: async (ctx) => {
+      const scope = scopeOf(ctx);
+      if (!scope || !ctx.identity.userId) return fail(403, "forbidden");
+      const result = await deps.oauth.startSignIn(
+        scope,
+        ctx.params.name ?? "",
+        ctx.identity.userId,
+      );
+      if (result.ok) return ok({ authorizationUrl: result.authorizationUrl });
+      if (result.reason === "not_found") return fail(404, "not_found");
+      return fail(
+        result.reason === "not_oauth" ? 409 : 502,
+        "sign_in_failed",
+        "the sign-in could not start",
+        { reason: result.reason },
+      );
+    },
+  };
+}
+
+// Where the callback sends the browser back: the settings page, with a fixed
+// code the page reads. Never the authorization server's own text.
+function backToSettings(flag: string): HandlerResult {
+  const target = `/settings?mcpSignIn=${encodeURIComponent(flag)}`;
+  const html = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${target}"><a href="${target}">Isomux</a>\n`;
+  return bytes(new TextEncoder().encode(html), "text/html; charset=utf-8", {
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+  });
+}
+
+function callbackHandler(deps: McpServersDeps): RouteHandler {
+  return async (ctx) => {
+    const userId = ctx.identity.scope === "user" ? ctx.identity.userId : null;
+    if (!userId) return fail(403, "forbidden");
+    // An office server: the member must still be an owner.
+    const result = await deps.oauth.finishSignIn(
+      userId,
+      ctx.query,
+      (scope) => scope.kind !== "office" || deps.isOfficeOwnerUserId(userId),
+    );
+    if (!result.ok) return backToSettings(result.reason);
+    deps.auditSignIn(ctx, [
+      result.name,
+      ...(result.scope.kind === "office" ? ["office"] : []),
+    ]);
+    return backToSettings("ok");
   };
 }
 
@@ -154,6 +221,9 @@ export function mcpServersHandlers(
     "officeMcpServers.create": office.create,
     "officeMcpServers.update": office.update,
     "officeMcpServers.delete": office.remove,
+    "mcpServers.signIn": member.signIn,
+    "officeMcpServers.signIn": office.signIn,
+    "mcpOAuth.callback": callbackHandler(deps),
   };
   return Object.fromEntries(
     Object.entries(handlers).map(([opId, h]) => [opId, guarded(h)]),

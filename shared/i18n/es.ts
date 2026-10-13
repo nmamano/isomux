@@ -927,6 +927,35 @@ Cosas que puedes hacer por él:
   "settings.mcpServers.credential": "Credencial",
   "settings.mcpServers.credentialNone": "Ninguna",
   "settings.mcpServers.credentialNew": "Secreto nuevo",
+  "settings.mcpServers.credentialOAuth": "Iniciar sesión (OAuth)",
+  "settings.mcpServers.oauthHint":
+    "Inicias sesión una vez y los agentes de Claude, Codex y OpenCode reciben el acceso. Deja vacíos los campos del cliente salvo que el servidor necesite un cliente que registraste en él.",
+  "settings.mcpServers.clientId": "ID de cliente (opcional)",
+  "settings.mcpServers.clientSecret": "Secreto de cliente (opcional)",
+  "settings.mcpServers.signIn": "Iniciar sesión",
+  "settings.mcpServers.signInAgain": "Volver a iniciar sesión",
+  "settings.mcpServers.signedIn": "Sesión iniciada",
+  "settings.mcpServers.notSignedIn": "Sin sesión iniciada",
+  "settings.mcpServers.signInDone": "Sesión iniciada en el servidor MCP.",
+  "settings.mcpServers.signInFailed":
+    "No se pudo iniciar sesión. Inténtalo de nuevo.",
+  "settings.mcpServers.signInError.clientNeeded":
+    "Este servidor no registra clientes. Introduce un ID de cliente.",
+  "settings.mcpServers.signInError.redirectRefused":
+    "El servidor de autorización rechazó la dirección de esta oficina. Algunos servidores solo aceptan direcciones https o localhost.",
+  "settings.mcpServers.signInError.metadata":
+    "Los datos de inicio de sesión del servidor faltan o no coinciden con el servidor.",
+  "settings.mcpServers.signInError.secretExists":
+    "Ya existe un secreto llamado {name} en este ámbito. Cámbiale el nombre o elimínalo y vuelve a iniciar sesión.",
+  "settings.mcpServers.signInError.expired":
+    "El inicio de sesión tardó demasiado. Inténtalo de nuevo.",
+  "settings.mcpServers.signInError.wrongMember":
+    "Otro miembro empezó este inicio de sesión.",
+  "settings.mcpServers.signInError.denied": "Se canceló el inicio de sesión.",
+  "settings.connections.list.mcpSignIn": "Excluido: sin sesión iniciada",
+  "settings.connections.list.mcpSignInAgain":
+    "Excluido: vuelve a iniciar sesión",
+  "settings.connections.list.mcpOAuth": "Sesión iniciada con OAuth",
   "settings.mcpServers.secretName": "Nombre del secreto",
   "settings.mcpServers.tokenPlaceholder": 'Solo el token, sin "Bearer"',
   "settings.mcpServers.formBearer": "Authorization: Bearer",

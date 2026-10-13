@@ -442,13 +442,19 @@ export function ConnectionsList({
                 ? t("settings.connections.list.mcpSecretHost", {
                     host: row.host,
                   })
-                : row.secret
-                  ? t("settings.connections.list.mcpCredentialNamed", {
-                      name: row.secret,
-                    })
-                  : row.credential
-                    ? t("settings.connections.list.mcpCredential")
-                    : t("settings.connections.list.mcpNoCredential"),
+                : row.problem === "sign_in"
+                  ? t("settings.connections.list.mcpSignIn")
+                  : row.problem === "sign_in_again"
+                    ? t("settings.connections.list.mcpSignInAgain")
+                    : row.oauth
+                      ? t("settings.connections.list.mcpOAuth")
+                      : row.secret
+                        ? t("settings.connections.list.mcpCredentialNamed", {
+                            name: row.secret,
+                          })
+                        : row.credential
+                          ? t("settings.connections.list.mcpCredential")
+                          : t("settings.connections.list.mcpNoCredential"),
           ].join(" · "),
         };
       case "engineMcp":

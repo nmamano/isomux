@@ -18,6 +18,20 @@ export interface McpServerFieldError {
   reason: "invalid" | "too_long" | "credential_over_http" | "credential_port";
 }
 
+// The secrets an OAuth server's sign-in writes in its scope (integrations
+// A2b): the refresh token and a client secret.
+export function oauthSecretNames(name: string): {
+  refreshToken: string;
+  clientSecret: string;
+} {
+  const base = `MCP_${name.toUpperCase().replace(/-/g, "_")}_OAUTH`;
+  return { refreshToken: base, clientSecret: `${base}_CLIENT` };
+}
+
+// Every name oauthSecretNames can give: when the registrations cannot be
+// read, the secrets runtime treats each secret of this shape as owned.
+export const OAUTH_SECRET_NAME = /^MCP_[A-Z0-9_]+_OAUTH(_CLIENT)?$/;
+
 export function mcpEngineName(name: string): string {
   return `${MCP_SERVER_PREFIX}${name}`;
 }

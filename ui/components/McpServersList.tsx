@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 
 import type {
   McpServerListRes,
+  McpServerSignInRes,
   McpServerWire,
   SecretListRes,
   SecretWire,
 } from "../../shared/contract-shapes.ts";
-import { mcpServerHost } from "../../shared/mcp-servers.ts";
+import { mcpServerHost, oauthSecretNames } from "../../shared/mcp-servers.ts";
 import type { SecretForm } from "../../shared/secret-hosts.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import { cardStyle, hint } from "./access-shared.tsx";
@@ -36,8 +37,29 @@ type Mode =
   | { kind: "delete"; name: string };
 
 // "" = no credential, NEW_SECRET = a new secret from the fields below,
-// anything else = the name of an existing secret.
+// OAUTH = the MCP authorization flow (A2b), anything else = the name of an
+// existing secret.
 const NEW_SECRET = "\u0000new";
+const OAUTH = "\u0000oauth";
+
+// The sign-in comes back to /settings?mcpSignIn=<code>. The first list that
+// mounts shows it and takes it off the address.
+let signInReturn: string | null | undefined;
+function takeSignInReturn(): string | null {
+  if (signInReturn !== undefined) return null;
+  const url = new URL(window.location.href);
+  signInReturn = url.searchParams.get("mcpSignIn");
+  if (signInReturn !== null) {
+    url.searchParams.delete("mcpSignIn");
+    window.history.replaceState(window.history.state, "", url.href);
+  }
+  return signInReturn;
+}
+
+// Tests only.
+export function resetSignInReturn(): void {
+  signInReturn = undefined;
+}
 
 interface Draft {
   name: string;
@@ -48,6 +70,8 @@ interface Draft {
   formKind: SecretForm["kind"];
   header: string;
   note: string;
+  clientId: string;
+  clientSecret: string;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -59,6 +83,8 @@ const EMPTY_DRAFT: Draft = {
   formKind: "authorization",
   header: "",
   note: "",
+  clientId: "",
+  clientSecret: "",
 };
 
 interface McpServersListProps {
@@ -83,6 +109,7 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = () =>
     Promise.all([
@@ -103,6 +130,14 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
         setSecrets(secretList.secrets);
       })
       .catch(() => setError(t("settings.mcpServers.loadFailed")));
+
+  useEffect(() => {
+    const back = takeSignInReturn();
+    if (back === "ok") setNotice(t("settings.mcpServers.signInDone"));
+    else if (back !== null) setError(signInErrorText(back, null));
+    // Once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (canEdit) void load();
@@ -129,7 +164,7 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
             ...EMPTY_DRAFT,
             name: from.name,
             url: from.url,
-            credential: from.secret ?? "",
+            credential: from.oauth ? OAUTH : (from.secret ?? ""),
             note: from.note ?? "",
           }
         : EMPTY_DRAFT,
@@ -143,6 +178,56 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
   }
 
   const host = mcpServerHost(draft.url.trim());
+
+  // A sign-in failure: a fixed code from the server, never its own text.
+  function signInErrorText(reason: unknown, name: string | null): string {
+    switch (reason) {
+      case "client_needed":
+        return t("settings.mcpServers.signInError.clientNeeded");
+      case "redirect_refused":
+        return t("settings.mcpServers.signInError.redirectRefused");
+      case "discovery_failed":
+      case "resource_mismatch":
+      case "issuer_mismatch":
+      case "insecure_endpoint":
+        return t("settings.mcpServers.signInError.metadata");
+      case "secret_exists":
+        return name
+          ? t("settings.mcpServers.signInError.secretExists", {
+              name: oauthSecretNames(name).refreshToken,
+            })
+          : t("settings.secrets.error.exists");
+      case "state_unknown":
+      case "state_expired":
+        return t("settings.mcpServers.signInError.expired");
+      case "wrong_member":
+        return t("settings.mcpServers.signInError.wrongMember");
+      case "denied":
+        return t("settings.mcpServers.signInError.denied");
+    }
+    return t("settings.mcpServers.signInFailed");
+  }
+
+  // The browser goes to the authorization server and comes back here.
+  async function signIn(name: string) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { authorizationUrl } = await apiFetch<McpServerSignInRes>(
+        "POST",
+        `${path}/${encodeURIComponent(name)}/sign-in`,
+      );
+      window.location.assign(authorizationUrl);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? signInErrorText(caught.detail?.reason, name)
+          : t("settings.mcpServers.signInFailed"),
+      );
+      setBusy(false);
+    }
+  }
 
   function errorText(caught: unknown): string {
     if (!(caught instanceof ApiError))
@@ -184,7 +269,7 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
   // A new secret first, then the server. If the server fails, the secret
   // stays in the Secrets list, where the member can use or delete it.
   async function secretForDraft(): Promise<string | null> {
-    if (draft.credential === "") return null;
+    if (draft.credential === "" || draft.credential === OAUTH) return null;
     if (draft.credential !== NEW_SECRET) return draft.credential;
     const name = draft.secretName.trim();
     await apiFetch("POST", secretsPath, {
@@ -208,19 +293,39 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
         await apiFetch("DELETE", `${path}/${encodeURIComponent(mode.name)}`);
       } else {
         const secret = await secretForDraft();
+        const clientId = draft.clientId.trim();
+        const oauth = clientId
+          ? {
+              clientId,
+              ...(draft.clientSecret.trim()
+                ? { clientSecret: draft.clientSecret.trim() }
+                : {}),
+            }
+          : {};
         if (mode.kind === "add")
           await apiFetch("POST", path, {
             name: draft.name.trim(),
             url: draft.url.trim(),
             secret,
+            ...(draft.credential === OAUTH ? { oauth } : {}),
             ...(draft.note.trim() ? { note: draft.note } : {}),
           });
-        else if (mode.kind === "edit")
+        else if (mode.kind === "edit") {
+          const was = servers?.find((s) => s.name === mode.name)?.oauth;
           await apiFetch("PATCH", `${path}/${encodeURIComponent(mode.name)}`, {
             url: draft.url.trim(),
             secret,
             note: draft.note,
+            // The stored client stays unless the member typed a new one.
+            ...(draft.credential === OAUTH
+              ? was && !clientId
+                ? {}
+                : { oauth }
+              : was
+                ? { oauth: null }
+                : {}),
           });
+        }
       }
       close();
       await load();
@@ -259,14 +364,53 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
           ))}
           {draft.credential &&
             draft.credential !== NEW_SECRET &&
+            draft.credential !== OAUTH &&
             !usable.some((secret) => secret.name === draft.credential) && (
               <option value={draft.credential}>{draft.credential}</option>
             )}
           <option value={NEW_SECRET}>
             {t("settings.mcpServers.credentialNew")}
           </option>
+          <option value={OAUTH}>
+            {t("settings.mcpServers.credentialOAuth")}
+          </option>
         </select>
       </label>
+      {draft.credential === OAUTH && (
+        <div data-mcp-oauth>
+          <p style={{ ...hint, margin: "0 0 8px" }}>
+            {t("settings.mcpServers.oauthHint")}
+          </p>
+          <label style={{ display: "block", marginBottom: 8 }}>
+            <span style={dialogLabel}>{t("settings.mcpServers.clientId")}</span>
+            <input
+              data-mcp-client-id
+              value={draft.clientId}
+              spellCheck={false}
+              autoComplete="off"
+              style={dialogInput}
+              onChange={(event) =>
+                setDraft((d) => ({ ...d, clientId: event.target.value }))
+              }
+            />
+          </label>
+          <label style={{ display: "block", marginBottom: 8 }}>
+            <span style={dialogLabel}>
+              {t("settings.mcpServers.clientSecret")}
+            </span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              spellCheck={false}
+              value={draft.clientSecret}
+              style={dialogInput}
+              onChange={(event) =>
+                setDraft((d) => ({ ...d, clientSecret: event.target.value }))
+              }
+            />
+          </label>
+        </div>
+      )}
       {draft.credential === NEW_SECRET && (
         <div data-mcp-new-secret>
           <label style={{ display: "block", marginBottom: 8 }}>
@@ -437,15 +581,32 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
                   <code style={{ fontWeight: 650 }}>{server.name}</code>
                   <div style={hint}>{server.url}</div>
                   <div style={hint}>
-                    {server.secret
-                      ? t("settings.connections.list.mcpCredentialNamed", {
-                          name: server.secret,
-                        })
-                      : t("settings.connections.list.mcpNoCredential")}
+                    {server.oauth
+                      ? server.oauth.signedIn
+                        ? t("settings.mcpServers.signedIn")
+                        : t("settings.mcpServers.notSignedIn")
+                      : server.secret
+                        ? t("settings.connections.list.mcpCredentialNamed", {
+                            name: server.secret,
+                          })
+                        : t("settings.connections.list.mcpNoCredential")}
                   </div>
                 </div>
                 {mode.kind === "idle" && (
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {server.oauth && (
+                      <button
+                        type="button"
+                        data-mcp-sign-in
+                        style={dialogCancelBtn}
+                        disabled={busy}
+                        onClick={() => void signIn(server.name)}
+                      >
+                        {server.oauth.signedIn
+                          ? t("settings.mcpServers.signInAgain")
+                          : t("settings.mcpServers.signIn")}
+                      </button>
+                    )}
                     <button
                       type="button"
                       style={dialogCancelBtn}
@@ -522,6 +683,11 @@ function ScopeMcpServers({ path, secretsPath, canEdit }: McpServersListProps) {
           {error && (
             <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
               {error}
+            </p>
+          )}
+          {notice && (
+            <p role="status" style={{ ...hint, margin: "6px 0 0" }}>
+              {notice}
             </p>
           )}
         </>
