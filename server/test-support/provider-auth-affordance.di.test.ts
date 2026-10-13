@@ -1184,9 +1184,14 @@ describe("Claude auth-error status checks", () => {
             e.content.includes("`/clear`"),
         ),
       ).toBe(false);
-      expect(
-        logs.find((e) => e.metadata?.providerLogin === "claude")?.content,
-      ).toContain(scope === "office" ? "Office" : "Individual connections");
+      // Each scope points at its own card on the Integrations page.
+      const content =
+        logs.find((e) => e.metadata?.providerLogin === "claude")?.content ?? "";
+      expect(content).toContain("Integrations");
+      expect(content).toContain(
+        scope === "office" ? "Office-wide" : "Personal",
+      );
+      expect(content).not.toContain("Settings →");
     });
   }
 

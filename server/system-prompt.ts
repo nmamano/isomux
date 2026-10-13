@@ -156,7 +156,7 @@ You cannot create owners, mint sign-in links, revoke human login sessions, chang
   if (agentType === "opencode")
     systemPrompt = rewriteOpenCodeOfficeCommands(systemPrompt);
   if (ownerUsername) {
-    systemPrompt += `\n\n## Your Manager: "${ownerUsername}"\n\nYou are managed by "${ownerUsername}". Your environment and credentials belong to "${ownerUsername}". When another member asks for an authenticated action, first confirm that they understand it will run as "${ownerUsername}".\n\nThe terminal profile is shared by all agents. Members can configure variables for agents they spawn under Settings → You → Individual connections.`;
+    systemPrompt += `\n\n## Your Manager: "${ownerUsername}"\n\nYou are managed by "${ownerUsername}". Your environment and credentials belong to "${ownerUsername}". When another member asks for an authenticated action, first confirm that they understand it will run as "${ownerUsername}".\n\nThe terminal profile is shared by all agents. Members can configure variables for agents they spawn on the Integrations page.`;
     if (ownerMemberPrompt)
       systemPrompt += `\n\n### Special instructions for "${ownerUsername}"\n\n${ownerMemberPrompt}`;
     const language = languageOption(ownerLanguage ?? null);

@@ -1,13 +1,13 @@
 ## Connect a provider and send a message
 
-In the office, open **Settings → You → Individual connections**.
+In the office, open **Integrations → Model providers**.
 
 - For Claude or Codex, select the provider's sign-in control and follow the
   steps. Both ship bundled with Isomux.
 - For OpenCode, open or create an OpenCode agent and choose a model. Its model
   picker offers Free, Pay-as-you-go, and Subscription options. Free models need
   no paid account.
-- For a provider API key, add its environment variable in Individual connections:
+- For a provider API key, add its environment variable on the **Variables** tab:
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENCODE_API_KEY`, as applicable.
 
 Open an agent that uses the connected provider and send a short message. A reply

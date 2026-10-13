@@ -137,7 +137,7 @@ export const es: Catalog = {
 - Responde a la pregunta que te hagan. No enumeres funciones a menos que te pidan la lista.
 - Nunca inventes una función, una sala, un agente o una persona. Si no lo sabes, dilo y remite a la documentación o a un propietario.
 
-Nunca pidas ni repitas secretos (claves API, tokens, contraseñas). Dirige a la gente a Ajustes → Tú → Conexiones individuales.`,
+Nunca pidas ni repitas secretos (claves API, tokens, contraseñas). Dirige a la gente a la pestaña Secretos de la página Integraciones.`,
   "templates.moneyPlanner.instructions": `Ayuda al miembro a tomar decisiones prácticas sobre gastos, ahorro, deudas, impuestos, inversiones y formularios financieros.
 
 Si tener un documento fuera útil, pregunta al miembro si se siente cómodo compartiéndolo. Explícale que puedes leer PDFs y capturas de pantalla, pero que todo lo que veas se comparte con OpenAI o Anthropic, según tu backend. Antes de que comparta algo sensible, explícale que los proveedores suelen tener un ajuste para excluir sus datos del entrenamiento y anímale a usarlo.
@@ -404,12 +404,10 @@ Cosas que puedes hacer por él:
   "settings.sidebar.access": "Acceso",
   "settings.sidebar.invites": "Invitaciones",
   "settings.sidebar.sessions": "Sesiones",
-  "settings.sidebar.connectionsOffice": "Conexiones de toda la oficina",
   "settings.sidebar.usage": "Uso",
   "settings.sidebar.storage": "Almacenamiento",
   "settings.sidebar.updates": "Actualizaciones",
   "settings.sidebar.profile": "Perfil",
-  "settings.sidebar.connectionsPersonal": "Conexiones individuales",
   "settings.sidebar.apiTokens": "Tokens de API",
   "settings.sidebar.signInLinks": "Enlaces de inicio de sesión",
   "settings.sidebar.deviceLabel": "Etiqueta del dispositivo",
@@ -523,7 +521,7 @@ Cosas que puedes hacer por él:
   "settings.room.promptPlaceholder":
     "p. ej. Estás en la sala de Marketing. Sigue la voz de nuestra marca.",
   "settings.room.promptNote":
-    "Los cambios se aplican en la siguiente conversación. Define las variables de entorno en Conexiones de toda la oficina o Conexiones individuales.",
+    "Los cambios se aplican en la siguiente conversación. Define las variables de entorno en la página Integraciones.",
   "settings.room.memoryHint":
     "(hechos duraderos de esta sala; líneas en bruto; {size} / {cap})",
   "settings.room.memoryTitle": "{room} · Memoria",
@@ -816,38 +814,20 @@ Cosas que puedes hacer por él:
   "settings.apiTokens.createFailed": "No se ha podido crear el token de API",
   "settings.apiTokens.revokeFailed": "No se ha podido revocar el token de API",
 
-  "settings.connections.officeIntro":
-    "Las cuentas y variables que usa cada agente de esta oficina. Las credenciales las guarda el proveedor, no nosotros.",
-  "settings.connections.personalIntro":
-    "Las cuentas y variables que usan los agentes que creas tú. Tienen prioridad sobre las de la oficina. Las credenciales las guarda el proveedor, no nosotros.",
   "settings.connections.refresh": "Actualizar",
   "settings.connections.refreshing": "Actualizando…",
   "settings.connections.checkFailed":
     "No se han podido comprobar las cuentas de proveedor.",
-  "settings.connections.envTitle": "Variables de entorno",
-  "settings.secrets.title": "Secretos",
-  "settings.secrets.hint":
-    "Un valor guardado no se vuelve a mostrar. Solo puede ir a los hosts que figuran con él. Los agentes reciben un sustituto, no el valor, pero un agente que lea a propósito los archivos de esta oficina puede encontrarlo.",
-  "settings.secrets.proxyNote":
-    "Los agentes con un secreto envían su tráfico por el proxy de secretos de la oficina, así que una variable <code>HTTPS_PROXY</code> no se les aplica.",
-  "settings.secrets.ownerManaged":
-    "Los secretos de la oficina los gestiona un propietario de la oficina.",
   "settings.secrets.loadFailed": "No se pudieron cargar los secretos.",
   "settings.secrets.saveFailed": "No se pudo guardar el secreto.",
-  "settings.secrets.empty": "Todavía no hay secretos.",
-  "settings.secrets.setOn": "Definido el {date}",
   "settings.secrets.formAuthorization": "Cabecera Authorization",
-  "settings.secrets.formHeader": "Otra cabecera",
   "settings.secrets.formHeaderNamed": "Cabecera {header}",
   "settings.secrets.rotate": "Reemplazar el valor",
   "settings.secrets.saveValue": "Guardar el valor",
   "settings.secrets.edit": "Editar",
-  "settings.secrets.delete": "Eliminar",
-  "settings.secrets.deleteConfirm": "¿Eliminar {name}?",
   "settings.secrets.reissue": "Nuevo sustituto",
   "settings.secrets.reissueConfirm":
     "El sustituto actual de {name} deja de funcionar ahora. Los agentes reciben el nuevo en su próximo inicio.",
-  "settings.secrets.add": "Añadir un secreto",
   "settings.secrets.preset": "Servicio",
   "settings.secrets.presetCustom": "Otro",
   "settings.secrets.name": "Nombre",
@@ -860,7 +840,6 @@ Cosas que puedes hacer por él:
     "La nota debe tener como máximo 1000 caracteres de texto sin formato.",
   "settings.secrets.vouch":
     "Indica solo hosts de confianza: al guardar, garantizas que nunca devuelven la credencial.",
-  "settings.secrets.form": "Se envía en",
   "settings.secrets.headerName": "Nombre de la cabecera",
   "settings.secrets.error.name":
     "Usa letras, dígitos y guiones bajos en el nombre, y no empieces con un dígito.",
@@ -875,67 +854,16 @@ Cosas que puedes hacer por él:
   "settings.secrets.error.neverListed":
     "{host} nunca recibe un secreto: los hosts de modelos y de registros de paquetes están en la lista de exclusión.",
   "settings.secrets.error.exists": "Ya existe un secreto con este nombre.",
-  "settings.connections.officeVars":
-    "Variables para cada agente de esta oficina",
-  "settings.connections.officeVarsHint":
-    "Estas variables se cargan para cada agente salvo que una variable de miembro tenga prioridad.",
-  "settings.connections.ownerManaged":
-    "Las variables de toda la oficina las gestiona una persona propietaria.",
-  "settings.connections.personalVars": "Variables para los agentes que creo",
-  "settings.connections.personalVarsHint":
-    "Estas variables se cargan para los agentes que creas y tienen prioridad sobre las de toda la oficina.",
-  "settings.connections.providerKeyNote":
-    "Añade <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> u <code>OPENCODE_API_KEY</code> para usar claves de API del proveedor. Pon las demás credenciales, como <code>GH_TOKEN</code>, en Secretos: los agentes reciben un sustituto, no el valor. Después haz <code>/clear</code> a los agentes para aplicar los cambios.",
-  "settings.connections.crossLinkFromOffice":
-    "Tus propias sesiones y variables, que tienen prioridad sobre estas, están en <link>Tú → Conexiones individuales</link>.",
-  "settings.connections.crossLinkFromPersonal":
-    "Las sesiones y variables de toda la oficina sobre las que estas tienen prioridad están en <link>Oficina → Conexiones de toda la oficina</link>.",
   "settings.connections.bedrockHint":
     "¿Quieres conectar Bedrock? Lee <link>aquí</link>.",
-  "settings.connections.list.title": "Todas las conexiones",
-  "settings.connections.list.legend":
-    "De toda la oficina: la recibe cada agente. Individual: la reciben tus agentes por defecto, pero no está limitada a ellos.",
-  "settings.connections.list.empty": "Aún no hay conexiones.",
-  "settings.connections.list.loadFailed":
-    "No se pudieron cargar las conexiones.",
-  "settings.connections.list.kindVariable": "Variable",
-  "settings.connections.list.kindSignIn": "Inicio de sesión",
-  "settings.connections.list.kindManagedInClaude": "Gestionado en Claude",
-  "settings.connections.list.accountUnknown": "Cuenta desconocida",
-  "settings.connections.list.scopeOffice": "De toda la oficina",
-  "settings.connections.list.scopePersonal": "Individual",
-  "settings.connections.list.setIn": "Se configura en <link>{place}</link>",
-  "settings.connections.list.placeSignIn": "Inicio de sesión de {provider}",
-  "settings.connections.list.everyClaudeAgent":
-    "Todos los agentes de Claude de la oficina pueden usarlos.",
-  "settings.connections.list.claudeConnectors": "Conectores de Claude",
-  "settings.connections.list.connectorsPendingHint":
-    "Aparecen tras el próximo turno de Claude con este inicio de sesión.",
-  "settings.mcpServers.title": "Servidores MCP",
-  "settings.mcpServers.hint":
-    "Servidores MCP remotos para agentes de Claude, Codex y OpenCode. Los agentes reciben un cambio cuando empieza su próxima sesión: usa <code>/clear</code> en un agente para aplicarlo ya.",
-  "settings.mcpServers.ownerManaged":
-    "Los servidores MCP de la oficina los gestiona un propietario de la oficina.",
   "settings.mcpServers.loadFailed": "No se pudieron cargar los servidores MCP.",
   "settings.mcpServers.saveFailed": "No se pudo guardar el servidor MCP.",
-  "settings.mcpServers.empty": "Aún no hay servidores MCP.",
   "settings.mcpServers.add": "Añadir un servidor MCP",
   "settings.mcpServers.name": "Nombre",
-  "settings.mcpServers.url": "URL",
-  "settings.mcpServers.urlNote":
-    "Pon la credencial en el campo de credencial, no en la URL.",
-  "settings.mcpServers.credential": "Credencial",
-  "settings.mcpServers.credentialNone": "Ninguna",
-  "settings.mcpServers.credentialNew": "Secreto nuevo",
-  "settings.mcpServers.credentialOAuth": "Iniciar sesión (OAuth)",
-  "settings.mcpServers.oauthHint":
-    "Inicias sesión una vez y los agentes de Claude, Codex y OpenCode reciben el acceso. Deja vacíos los campos del cliente salvo que el servidor necesite un cliente que registraste en él.",
   "settings.mcpServers.clientId": "ID de cliente (opcional)",
   "settings.mcpServers.clientSecret": "Secreto de cliente (opcional)",
   "settings.mcpServers.signIn": "Iniciar sesión",
   "settings.mcpServers.signInAgain": "Volver a iniciar sesión",
-  "settings.mcpServers.signedIn": "Sesión iniciada",
-  "settings.mcpServers.notSignedIn": "Sin sesión iniciada",
   "settings.mcpServers.signInDone": "Sesión iniciada en el servidor MCP.",
   "settings.mcpServers.signInFailed":
     "No se pudo iniciar sesión. Inténtalo de nuevo.",
@@ -955,13 +883,7 @@ Cosas que puedes hacer por él:
   "settings.connections.list.mcpSignIn": "Excluido: sin sesión iniciada",
   "settings.connections.list.mcpSignInAgain":
     "Excluido: vuelve a iniciar sesión",
-  "settings.connections.list.mcpOAuth": "Sesión iniciada con OAuth",
-  "settings.mcpServers.secretName": "Nombre del secreto",
   "settings.mcpServers.tokenPlaceholder": 'Solo el token, sin "Bearer"',
-  "settings.mcpServers.formBearer": "Authorization: Bearer",
-  "settings.mcpServers.newSecretHost": "El secreto solo va a {host}.",
-  "settings.mcpServers.newSecretNoHost":
-    "Escribe primero la URL: el secreto solo va a su host.",
   "settings.mcpServers.error.name":
     "Usa hasta 24 letras minúsculas, dígitos y guiones, con una letra o un dígito en cada extremo.",
   "settings.mcpServers.error.url":
@@ -971,15 +893,10 @@ Cosas que puedes hacer por él:
   "settings.mcpServers.error.secretNotFound": "Ese secreto no existe.",
   "settings.mcpServers.error.secretHost":
     "El secreto no incluye {host}. Añade el host al secreto o elige otro.",
-  "settings.connections.list.kindMcpServer": "Servidor MCP",
-  "settings.connections.list.kindMcpInClaude":
-    "Servidor MCP definido en Claude",
   "settings.connections.list.engineMcpUser":
     "Todos los agentes de Claude con el mismo inicio de sesión de Claude",
   "settings.connections.list.engineMcpFolder":
     "Todos los agentes de Claude que trabajan en {folder}",
-  "settings.connections.list.mcpNoCredential": "Sin credencial",
-  "settings.connections.list.mcpCredential": "Credencial definida",
   "settings.connections.list.mcpCredentialNamed": "Credencial: {name}",
   "settings.connections.list.mcpSecretMissing": "Excluido: falta su secreto",
   "settings.connections.list.mcpSecretHost":
@@ -991,25 +908,12 @@ Cosas que puedes hacer por él:
   "settings.connections.list.setInClaudeLocal":
     "Definido en la configuración local de Claude para {folder}",
   "settings.connections.list.setInProject": "Definido en {file}",
-  "settings.connections.list.kindSecret": "Secreto",
-  "settings.connections.list.nameStatus": "{name} ({status})",
-  "settings.connections.status.connected": "conectado",
-  "settings.connections.status.failed": "con error",
-  "settings.connections.status.needsAuth": "requiere iniciar sesión",
-  "settings.connections.status.pending": "pendiente",
-  "settings.connections.status.disabled": "desactivado",
   "settings.connections.test.button": "Probar",
   "settings.connections.test.running": "Probando…",
-  "settings.connections.test.none": "Sin prueba",
   "settings.connections.test.noHostTest": "Sin prueba para sus hosts",
-  "settings.connections.test.ownersOnly":
-    "Solo los propietarios pueden probarlo",
-  "settings.connections.test.variablesHint":
-    "Las variables no tienen prueba: Isomux no sabe para qué servicio son.",
   "settings.connections.test.works": "Funciona",
   "settings.connections.test.tools.one": "{count} herramienta",
   "settings.connections.test.tools.other": "{count} herramientas",
-  "settings.connections.test.signedOut": "No hay sesión iniciada.",
   "settings.connections.test.refused":
     "{host} rechazó la credencial. Revísala o rótala.",
   "settings.connections.test.forbidden":
@@ -1026,15 +930,184 @@ Cosas que puedes hacer por él:
   "settings.connections.test.needsOauth":
     "{host} pide iniciar sesión con OAuth, que Isomux aún no admite.",
   "settings.connections.test.requestFailed": "No se pudo hacer la prueba.",
+  "common.integrations": "Integraciones",
+  "integrations.ownerIntro":
+    "Configura lo que pueden usar los agentes, para la oficina y para cada miembro.",
+  "integrations.memberIntro":
+    "Los propietarios configuran lo que usan los agentes. Puedes añadir lo tuyo para los agentes que inicias.",
+  "integrations.tabs.providers": "Proveedores de modelos",
+  "integrations.tabs.mcp": "Servidores MCP",
+  "integrations.tabs.secrets": "Secretos",
+  "integrations.tabs.variables": "Variables",
+  "integrations.tabIntro.providers":
+    "Las cuentas de Claude y Codex con las que funcionan los agentes.",
+  "integrations.tabIntro.mcp":
+    "Herramientas que los agentes pueden llamar, como Linear o Sentry.",
+  "integrations.tabIntro.secrets":
+    "Claves de API y tokens de servicios como GitHub.",
+  "integrations.tabIntro.variables":
+    "Ajustes simples que los agentes pueden leer, como una zona horaria. Pon las claves en Secretos.",
+  "integrations.secretsHonesty":
+    "Isomux impide que los agentes lean los secretos guardados, pero esta oficina no tiene un muro firme entre los agentes y sus archivos.",
+  "integrations.office": "De toda la oficina",
+  "integrations.officeWho": "Todos los agentes de la oficina",
+  "integrations.officeWhoMember":
+    "Todos los agentes de la oficina. Solo los propietarios pueden cambiar las integraciones de toda la oficina.",
+  "integrations.personal": "Personales",
+  "integrations.personalWhoSelf":
+    "Los agentes que inicias. Una personal sustituye a la de toda la oficina con el mismo nombre.",
+  "integrations.personalWhoMember":
+    "Los agentes que inicia {member}. Una personal sustituye a la de toda la oficina con el mismo nombre.",
+  "integrations.memberTitle": "Integraciones de {member}",
+  "integrations.backToYours": "Volver a las tuyas",
+  "integrations.picker": "De quién son las integraciones",
+  "integrations.applies":
+    "Los agentes reciben un cambio cuando inician una conversación nueva.",
+  "integrations.helpTip": "¿Qué significa esto?",
+  "integrations.show": "Mostrar",
+  "integrations.hide": "Ocultar",
+  "integrations.remove": "Quitar",
+  "integrations.moreOptions": "Más opciones",
+  "integrations.actionFailed": "No se pudo hacer. Vuelve a intentarlo.",
+  "integrations.dialog.edit.self": "Editar {name}",
+  "integrations.dialog.edit.member": "Editar {name} de {member}",
+  "integrations.dialog.edit.office": "Editar {name} de toda la oficina",
+  "integrations.dialog.remove.self": "¿Quitar {name}?",
+  "integrations.dialog.remove.member": "¿Quitar {name} de {member}?",
+  "integrations.dialog.remove.office": "¿Quitar {name} de toda la oficina?",
+  "integrations.providers.apiKeys":
+    "¿Prefieres una clave de API? Añade <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> u <code>OPENCODE_API_KEY</code> en <link>Variables</link>.",
+  "integrations.providers.memberSignsIn":
+    "Los miembros inician sesión en sus propias cuentas.",
+  "integrations.status.connected": "Conectado",
+  "integrations.status.pending": "Pendiente",
+  "integrations.status.needsAuth": "Requiere inicio de sesión",
+  "integrations.status.failed": "Error",
+  "integrations.status.off": "Desactivado",
+  "integrations.connectors.title":
+    "De claude.ai, para los agentes de Claude en {account}",
+  "integrations.connectors.titleNoAccount":
+    "De claude.ai, para los agentes de Claude con este inicio de sesión",
+  "integrations.connectors.hint":
+    "Los agentes de Claude con esta cuenta también los reciben. <link>Gestiónalos en claude.ai</link>.",
+  "integrations.connectors.unknown":
+    "Isomux los muestra después de que un agente de Claude con esta cuenta haga un turno.",
+  "integrations.connectors.pendingHelp":
+    "Claude informa de sus conectores cuando empieza un turno, mientras algunos aún se conectan. Isomux vuelve a comprobarlo 10 segundos después.",
+  "integrations.engineMcp.title": "Configurados en los archivos de Claude",
+  "integrations.mcp.empty": "No hay servidores MCP.",
+  "integrations.mcp.nameHint":
+    "Los agentes ven este nombre, por ejemplo linear.",
+  "integrations.mcp.url": "Dirección del servidor (URL)",
+  "integrations.mcp.urlHint":
+    "La documentación del servicio da esta dirección. Pon un token en Inicio de sesión, no en la dirección.",
+  "integrations.mcp.auth": "Inicio de sesión",
+  "integrations.mcp.authOauth": "Iniciar sesión con el servicio",
+  "integrations.mcp.authToken": "Pegar un token",
+  "integrations.mcp.authSaved": "Usar un secreto guardado",
+  "integrations.mcp.authNone": "Ninguno",
+  "integrations.mcp.token": "Token",
+  "integrations.mcp.tokenGoesTo": "Isomux envía el token solo a {host}.",
+  "integrations.mcp.tokenNoHost":
+    "Escribe primero la dirección: Isomux envía el token solo a su host.",
+  "integrations.mcp.tokenName": "Se guarda como",
+  "integrations.mcp.tokenNameHint":
+    "El token se guarda en la pestaña Secretos con este nombre.",
+  "integrations.mcp.savedSecret": "Secreto",
+  "integrations.mcp.pickSecret": "Elige un secreto",
+  "integrations.mcp.oauthHint":
+    "Al guardar, se abre una página de inicio de sesión del servicio. Los agentes de Claude, Codex y OpenCode reciben el acceso.",
+  "integrations.mcp.clientHint":
+    "Déjalos vacíos salvo que el servidor necesite un cliente que registraste en él.",
+  "integrations.mcp.saveAndSignIn": "Guardar e iniciar sesión",
+  "integrations.mcp.status.signedIn": "Sesión iniciada",
+  "integrations.mcp.status.needsSignIn": "Requiere inicio de sesión",
+  "integrations.mcp.status.token": "Token guardado",
+  "integrations.mcp.status.none": "Sin inicio de sesión",
+  "integrations.mcp.addHeading.self": "Añadir un servidor MCP",
+  "integrations.mcp.addHeading.member": "Añadir un servidor MCP para {member}",
+  "integrations.mcp.addHeading.office":
+    "Añadir un servidor MCP para toda la oficina",
+  "integrations.mcp.signedInTo.self": "Sesión iniciada en {name}.",
+  "integrations.mcp.signedInTo.member":
+    "Sesión iniciada en {name} de {member}.",
+  "integrations.mcp.signedInTo.office":
+    "Sesión iniciada en {name} de toda la oficina.",
+  "integrations.providers.noPersonal": "Sin inicio de sesión personal",
+  "integrations.connectionsFailed":
+    "No se pudieron cargar los conectores de claude.ai ni los servidores configurados en los archivos de Claude.",
+  "integrations.memberGone": "{member} ya no está en esta oficina.",
+  "integrations.mcp.signInFailedFor.self":
+    "El inicio de sesión en {name} no terminó.",
+  "integrations.mcp.signInFailedFor.member":
+    "El inicio de sesión en {name} de {member} no terminó.",
+  "integrations.mcp.signInFailedFor.office":
+    "El inicio de sesión en {name} de toda la oficina no terminó.",
+  "integrations.secrets.empty": "No hay secretos.",
+  "integrations.secrets.add": "Añadir un secreto",
+  "integrations.secrets.value": "Clave o token",
+  "integrations.secrets.valuePlaceholder": "Pégalo aquí",
+  "integrations.secrets.newValuePlaceholder": "Pega el valor nuevo",
+  "integrations.secrets.nameHint":
+    "Los agentes ven este nombre, por ejemplo MY_API_KEY.",
+  "integrations.secrets.addresses": "Direcciones que pueden recibirlo",
+  "integrations.secrets.addressesHint":
+    "Las direcciones web del servicio, una por línea, como api.example.com. Isomux no envía la clave a ninguna otra dirección. Añade solo direcciones que sean del servicio.",
+  "integrations.secrets.presetGoesTo": "Isomux lo envía solo a {service}.",
+  "integrations.secrets.showAddresses": "Mostrar las direcciones",
+  "integrations.secrets.hideAddresses": "Ocultar las direcciones",
+  "integrations.secrets.howSent": "Cómo lo espera el servicio",
+  "integrations.secrets.bearer": "Como token bearer (la mayoría de servicios)",
+  "integrations.secrets.customHeader": "En una cabecera con otro nombre",
+  "integrations.secrets.headerPlaceholder":
+    "Nombre de la cabecera, como x-api-key",
+  "integrations.secrets.presetSet": "{service} · guardado el {date}",
+  "integrations.secrets.goesToSet": "Va a {hosts} · guardado el {date}",
+  "integrations.secrets.goesTo": "Va a {hosts}",
+  "integrations.secrets.showFailed": "No se pudo mostrar el valor.",
+  "integrations.secrets.reissueHint":
+    "Los agentes reciben un sustituto nuevo y el anterior deja de funcionar.",
+  "integrations.secrets.addHeading.self": "Añadir un secreto",
+  "integrations.secrets.addHeading.member": "Añadir un secreto para {member}",
+  "integrations.secrets.addHeading.office":
+    "Añadir un secreto para toda la oficina",
+  "integrations.secrets.replaceHeading.self": "Reemplazar el valor de {name}",
+  "integrations.secrets.replaceHeading.member":
+    "Reemplazar el valor de {name} de {member}",
+  "integrations.secrets.replaceHeading.office":
+    "Reemplazar el valor de {name} de toda la oficina",
+  "integrations.secrets.reissueHeading.self": "Nuevo sustituto para {name}",
+  "integrations.secrets.reissueHeading.member":
+    "Nuevo sustituto para {name} de {member}",
+  "integrations.secrets.reissueHeading.office":
+    "Nuevo sustituto para {name} de toda la oficina",
+  "integrations.variables.empty": "No hay variables.",
+  "integrations.variables.modelKeys":
+    "Las claves de API de modelos, como <code>ANTHROPIC_API_KEY</code>, van aquí, no en Secretos: Isomux nunca envía un secreto a un proveedor de modelos.",
+  "integrations.variables.looksLikeKey":
+    "Parece una clave. Guárdala como secreto para que los agentes nunca vean el valor.",
+  "integrations.variables.exists": "Ya existe una variable con este nombre.",
+  "integrations.variables.addHeading.self": "Añadir una variable",
+  "integrations.variables.addHeading.member":
+    "Añadir una variable para {member}",
+  "integrations.variables.addHeading.office":
+    "Añadir una variable para toda la oficina",
+  "integrations.variables.replaceHeading.self": "Reemplazar el valor de {name}",
+  "integrations.variables.replaceHeading.member":
+    "Reemplazar el valor de {name} de {member}",
+  "integrations.variables.replaceHeading.office":
+    "Reemplazar el valor de {name} de toda la oficina",
+  "settings.memberIntegrations.hint":
+    "Gestiona los secretos, las variables y los servidores MCP de {member} en la página <link>Integraciones</link>.",
 
   "settings.signIn.apiKeyNote":
-    "¿Quieres usar un token de API? Mira Ajustes → Tú → Conexiones individuales.",
+    "¿Quieres usar un token de API? Mira Integraciones → Variables.",
   "settings.signIn.scopeOffice":
     "Toda la oficina: inicia sesión para cada agente de esta oficina",
   "settings.signIn.scopePersonal":
-    "Individual: inicia sesión para los agentes que creo",
+    "Personal: inicia sesión para los agentes que creo",
   "settings.signIn.officeHint":
-    "Esta suscripción se usa para cada agente de la oficina salvo los que crea un miembro que haya configurado sus <link>Conexiones individuales</link>.",
+    "Esta suscripción se usa para cada agente de la oficina salvo los que crea un miembro con su propio <link>inicio de sesión personal</link>.",
   "settings.signIn.personalHint": "Usa una cuenta aparte para tus agentes.",
   "settings.signIn.status": "Estado:",
   "settings.signIn.checking": "Comprobando la conexión…",
@@ -1091,20 +1164,10 @@ Cosas que puedes hacer por él:
   "settings.env.valuePlaceholder": "Valor",
   "settings.env.remove": "Quitar",
   "settings.env.add": "Añadir una variable",
-  "settings.env.hideValues": "Ocultar los valores",
-  "settings.env.showValues": "Mostrar los valores",
-  "settings.env.save": "Guardar las variables",
-  "settings.env.saved": "Variables guardadas",
-  "settings.env.duplicate":
-    "Los nombres de las variables no se pueden repetir.",
 
-  "settings.memberConnections.title": "Conexiones individuales",
-  "settings.memberConnections.hint":
-    "Estado de los proveedores personales y nombres de variables para los agentes de esta persona.",
   "settings.memberConnections.loadFailed":
     "No se han podido cargar las conexiones.",
   "settings.memberConnections.unknown": "No se pudo comprobar el estado.",
-  "settings.memberConnections.empty": "No hay variables.",
   "settings.memberApiTokens.title": "Tokens de API",
   "settings.memberApiTokens.hint":
     "Revoca un token para detenerlo en su próxima solicitud.",
@@ -1261,7 +1324,7 @@ Cosas que puedes hacer por él:
   "dialogs.agent.managerNoUser": "(sin miembro asignado)",
   "dialogs.agent.managerUnowned": "(sin propietario)",
   "dialogs.agent.managerHint":
-    "El agente usa las conexiones a proveedores y las variables personales de este miembro. Consulta Ajustes → Tú → Conexiones individuales.",
+    "El agente usa las conexiones a proveedores y las variables personales de este miembro. Consulta la página Integraciones.",
   "dialogs.agent.privileged": "Acceso de operador con privilegios",
   "dialogs.agent.privilegedHint":
     "Permite a este agente dirigir las sesiones de otros agentes (reanudar, conversación nueva, enviar ahora) y gestionar sus propios cronjobs, con los permisos por sala del miembro que lo creó. Sigue actuando como el agente, nunca como el miembro.",
@@ -2646,9 +2709,9 @@ Cosas que puedes hacer por él:
   "systemEntries.claudeAuth.checking":
     "Claude rechazó las credenciales. Comprobando la conexión…",
   "systemEntries.claudeAuth.officeLocation":
-    "Ajustes → Oficina → Conexiones de toda la oficina",
+    "Integraciones → Proveedores de modelos (De toda la oficina)",
   "systemEntries.claudeAuth.personalLocation":
-    "Ajustes → Tú → Conexiones individuales",
+    "Integraciones → Proveedores de modelos (Personales)",
   "systemEntries.claudeAuth.disconnected":
     "Claude rechazó las credenciales. Inicia sesión en Claude en {location}.",
   "systemEntries.claudeAuth.accessUnavailable":

@@ -20,7 +20,7 @@ When you need a credential you do not have, ask for it as a secret. Never ask a 
 
 The route answers `{requestId}`. End your turn and wait. When the member saves, you get a message with the placeholder, and the variable holds it from your next start. When the member declines, you get a message that says so.
 
-Errors: 422 `host_not_allowed` for a model or package registry host, which never gets a secret; 409 `secret_exists` when the secret exists (tell the member, who can replace its value in the settings); 409 `no_member` for a personal secret when you have no manager; 409 `request_open` when a request for this secret is open (wait for the member's answer).
+Errors: 422 `host_not_allowed` for a model or package registry host, which never gets a secret; 409 `secret_exists` when the secret exists (tell the member, who can replace its value on the Integrations page); 409 `no_member` for a personal secret when you have no manager; 409 `request_open` when a request for this secret is open (wait for the member's answer).
 
 ## Route contract
 

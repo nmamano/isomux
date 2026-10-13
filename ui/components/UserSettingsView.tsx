@@ -34,7 +34,6 @@ import type {
   MemberPromptRes,
   ApiTokenListRes,
   ApiTokenWire,
-  UserEnvNamesRes,
 } from "../../shared/contract-shapes.ts";
 import { type UserView, isFullUserView } from "../user-merge.ts";
 import {
@@ -69,12 +68,15 @@ import { BrowserPane } from "./BrowserPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
 import { PagerSettingsPane } from "./PagerSettingsPane.tsx";
 import { ApiTokenCards, ApiTokensPane } from "./ApiTokensPane.tsx";
-import { ConnectionsPane } from "./ConnectionsPane.tsx";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
-import { formatSince, useAccessListsSeed } from "./access-shared.tsx";
+import {
+  formatSince,
+  SettingsLink,
+  useAccessListsSeed,
+} from "./access-shared.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 
@@ -84,8 +86,8 @@ import { noTranslate } from "../no-translate.ts";
 //
 // "signInLinks" is the pane formerly labelled "My devices": it holds invite
 // links and sessions for signing in elsewhere, not devices, and the label now
-// says so. "connections" split in two because one pane held both the office's
-// sign-ins and variables and the caller's own.
+// says so. The connections panes moved to their own page, Integrations, which
+// the Office group links to.
 export type SettingsSection =
   | "audit"
   | "office"
@@ -94,10 +96,8 @@ export type SettingsSection =
   | "access"
   | "invites"
   | "sessions"
-  | "connectionsOffice"
   | "prefs"
   | "browser"
-  | "connectionsPersonal"
   | "pager"
   | "apiTokens"
   | "signInLinks"
@@ -106,15 +106,15 @@ export type SettingsSection =
   | "theme";
 
 // One sidebar entry. A row either moves the detail pane to `target`, or opens
-// a dialog through `open` - never both. The row holds the target as DATA
-// rather than a closure over select(), because select() routes through the
+// another page (`page`) - never both. The row holds both as DATA rather than
+// a closure over select(), because select() routes through the
 // unsaved-changes guard and must not be captured during render.
 type SidebarRow = {
   key: string;
   label: string;
   selected: boolean;
   target?: Selection;
-  open?: () => void;
+  page?: "integrations";
 };
 
 // A labelled group of sidebar entries. The Members group carries no rows: it
@@ -164,6 +164,7 @@ export type Selection =
 export function UserSettingsView({
   initialUserId,
   onSwitchUser,
+  onOpenIntegrations,
   onClose,
   initialTarget,
 }: {
@@ -179,6 +180,9 @@ export function UserSettingsView({
   // reader meant to go. Read once on mount, like initialUserId.
   initialTarget?: Selection | null;
   onSwitchUser: (name: string | null) => void;
+  // Opens the Integrations page, on a member's personal card when `member`
+  // is set (the member profile's link). Absent in fixtures without it.
+  onOpenIntegrations?: (member: string | null) => void;
   onClose: () => void;
 }) {
   const {
@@ -386,10 +390,18 @@ export function UserSettingsView({
                   sectionRow("audit", t("audit.title")),
                 ]
               : []),
-            sectionRow(
-              "connectionsOffice",
-              t("settings.sidebar.connectionsOffice"),
-            ),
+            // Integrations is its own page (task 911c9bbb); this row is its
+            // door from Settings.
+            ...(onOpenIntegrations
+              ? [
+                  {
+                    key: "integrations",
+                    label: t("common.integrations"),
+                    selected: false,
+                    page: "integrations" as const,
+                  },
+                ]
+              : []),
             sectionRow("usage", t("settings.sidebar.usage")),
             // Storage is owner-only, matching the server: prune is gated on
             // officeOwner and the usage read strips paths for anyone else.
@@ -420,10 +432,6 @@ export function UserSettingsView({
               : []),
             sectionRow("prefs", t("common.preferences")),
             sectionRow("browser", t("browser.title")),
-            sectionRow(
-              "connectionsPersonal",
-              t("settings.sidebar.connectionsPersonal"),
-            ),
             sectionRow("pager", t("settings.sidebar.pager")),
             sectionRow("apiTokens", t("settings.sidebar.apiTokens")),
             sectionRow("signInLinks", t("settings.sidebar.signInLinks")),
@@ -573,6 +581,7 @@ export function UserSettingsView({
                 group={group}
                 first={i === 0}
                 onSelect={(target) => select(target)}
+                onOpenPage={() => leaveEdit(() => onOpenIntegrations?.(null))}
               />
             ))}
 
@@ -752,6 +761,7 @@ export function UserSettingsView({
                 group={group}
                 first={false}
                 onSelect={(target) => select(target)}
+                onOpenPage={() => leaveEdit(() => onOpenIntegrations?.(null))}
               />
             ))}
 
@@ -866,29 +876,6 @@ export function UserSettingsView({
                   <BrowserPane />
                 ) : selection.section === "prefs" && sessionContext ? (
                   <PreferencesPane />
-                ) : selection.section === "connectionsOffice" &&
-                  sessionContext ? (
-                  <ConnectionsPane
-                    half="office"
-                    username={sessionContext.username}
-                    role={sessionContext.role}
-                    onGoToOtherHalf={() =>
-                      select({
-                        kind: "section",
-                        section: "connectionsPersonal",
-                      })
-                    }
-                  />
-                ) : selection.section === "connectionsPersonal" &&
-                  sessionContext ? (
-                  <ConnectionsPane
-                    half="personal"
-                    username={sessionContext.username}
-                    role={sessionContext.role}
-                    onGoToOtherHalf={() =>
-                      select({ kind: "section", section: "connectionsOffice" })
-                    }
-                  />
                 ) : selection.section === "office" ? (
                   <OfficePane closeRef={detailCloseRef} />
                 ) : selection.section === "usage" ? (
@@ -941,6 +928,11 @@ export function UserSettingsView({
                 user={selectedUser}
                 isMobile={isMobile}
                 closeRef={detailCloseRef}
+                onOpenIntegrations={
+                  onOpenIntegrations
+                    ? (member) => leaveEdit(() => onOpenIntegrations(member))
+                    : undefined
+                }
                 onClose={() => setSelection(null)}
                 onRenamed={(newName) => {
                   // Selection is id-keyed, so a rename never dangles it.
@@ -1065,94 +1057,6 @@ function summarizeRoster(
   });
 }
 
-// Owners see managed variable names and personal provider status, never
-// variable values or account metadata. The route enforces the same owner guard.
-function MemberVariableNames({ username }: { username: string }) {
-  const { t } = useI18n();
-  const [connections, setConnections] = useState<UserEnvNamesRes | null>(null);
-  const names = connections?.names ?? null;
-  const [failed, setFailed] = useState(false);
-  // Keyed on the username at the call site, so a different profile remounts
-  // this with empty state instead of showing the previous user's names while
-  // the next read is in flight.
-  useEffect(() => {
-    let live = true;
-    apiFetch<UserEnvNamesRes>(
-      "GET",
-      `/api/users/${encodeURIComponent(username)}/env/names`,
-    )
-      .then((res) => {
-        if (!live) return;
-        // A body without a names array is a broken read, not an empty file:
-        // "No variables." must mean the server said none, never that the pane
-        // could not tell.
-        if (Array.isArray(res.names) && Array.isArray(res.providers))
-          setConnections(res);
-        else setFailed(true);
-      })
-      .catch(() => {
-        if (live) setFailed(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, [username]);
-
-  return (
-    <>
-      <h5 style={sectionTitleStyle}>{t("settings.memberConnections.title")}</h5>
-      <p style={sectionHintStyle}>{t("settings.memberConnections.hint")}</p>
-      {connections?.providers.map(({ provider, status }) => (
-        <p key={provider} style={sectionHintStyle}>
-          {provider === "claude" ? "Claude" : "Codex"}:{" "}
-          {t(
-            status === "connected"
-              ? "settings.signIn.connected"
-              : status === "not_connected"
-                ? "settings.signIn.notConnected"
-                : "settings.memberConnections.unknown",
-          )}
-        </p>
-      ))}
-      {failed ? (
-        <p style={sectionHintStyle}>
-          {t("settings.memberConnections.loadFailed")}
-        </p>
-      ) : names === null ? (
-        <p style={sectionHintStyle}>{t("common.loading")}</p>
-      ) : names.length === 0 ? (
-        <p style={sectionHintStyle}>{t("settings.memberConnections.empty")}</p>
-      ) : (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 6,
-            marginTop: 10,
-          }}
-        >
-          {names.map((name) => (
-            <span
-              key={name}
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                background: "var(--bg-base)",
-                padding: "3px 8px",
-                fontSize: 12,
-                fontFamily: "'JetBrains Mono',monospace",
-                color: "var(--text-primary)",
-              }}
-            >
-              {name}
-            </span>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
 // An office owner's view of one member's API tokens. Revoke has the effect of
 // the member's own revoke. Keyed on the username at the call site, like
 // MemberVariableNames.
@@ -1228,6 +1132,7 @@ function UserEditPanel({
   onDeleted,
   onCreated,
   closeRef,
+  onOpenIntegrations,
 }: {
   user: UserRecord;
   // Create mode: `user` is a blank draft, Save creates the member
@@ -1239,6 +1144,8 @@ function UserEditPanel({
   onRenamed?: (newName: string) => void;
   onDeleted?: () => void;
   onCreated?: (id: string) => void;
+  // The profile's Integrations link: opens the page on this member.
+  onOpenIntegrations?: (member: string) => void;
   // Parent (UserSettingsView) calls `closeRef.current(after?)` when it wants
   // to navigate away from the currently-edited user (switch selection, close
   // the page, ESC, mobile back). The panel decides whether to gate on a
@@ -1248,7 +1155,7 @@ function UserEditPanel({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { rooms, allRooms, sessionContext } = useAppState();
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   // Owner-only fields: role and allowedRooms. The server rejects
   // changes to those fields from non-owner sessions even on self-edit,
   // but we also hide the editor here so members don't see disabled
@@ -2061,11 +1968,26 @@ function UserEditPanel({
           </>
         )}
 
-        {/* Owners inspect other members here; their own connections have a
-            dedicated sidebar pane. */}
+        {/* Owners manage a member's integrations on the Integrations
+            page; this link opens it on the member (Lead, ruling 2). */}
         {isOwner && !isMe && !creating && (
           <>
-            <MemberVariableNames key={user.name} username={user.name} />
+            <h5 style={sectionTitleStyle}>{t("common.integrations")}</h5>
+            <p data-member-integrations-link style={sectionHintStyle}>
+              {rich("settings.memberIntegrations.hint", {
+                member: user.name,
+                link: (chunk) => (
+                  <SettingsLink
+                    label={chunk}
+                    onGo={
+                      onOpenIntegrations
+                        ? () => onOpenIntegrations(user.name)
+                        : undefined
+                    }
+                  />
+                ),
+              })}
+            </p>
             <MemberApiTokens key={`tokens:${user.name}`} username={user.name} />
           </>
         )}
@@ -2393,7 +2315,7 @@ const onlineDotStyle: React.CSSProperties = {
   border: "1.5px solid var(--bg-base)",
 };
 
-// One labelled group of sidebar rows. A row that only opens a dialog never
+// One labelled group of sidebar rows. A row that opens another page never
 // paints as selected, because nothing of it is showing in the detail pane.
 // A dynamic group (Rooms) borrows the roster's row shape - glyph on the left,
 // name beside it, no extra indent - so a row that stands for a live thing
@@ -2402,10 +2324,12 @@ function SidebarGroupRows({
   group,
   first,
   onSelect,
+  onOpenPage,
 }: {
   group: SidebarGroup;
   first: boolean;
   onSelect: (target: Selection) => void;
+  onOpenPage: (page: "integrations") => void;
 }) {
   if (group.rows.length === 0) return null;
   const dynamic = !!group.dynamic;
@@ -2423,7 +2347,13 @@ function SidebarGroupRows({
       {group.rows.map((row) => (
         <button
           key={row.key}
-          onClick={() => (row.target ? onSelect(row.target) : row.open?.())}
+          onClick={() =>
+            row.target
+              ? onSelect(row.target)
+              : row.page
+                ? onOpenPage(row.page)
+                : undefined
+          }
           aria-current={row.selected ? "true" : undefined}
           style={{
             display: dynamic ? "flex" : undefined,

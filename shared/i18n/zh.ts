@@ -125,7 +125,7 @@ export const zh: Catalog = {
 - 回答对方提出的问题。除非对方要求列出功能，否则不要罗列功能。
 - 绝不编造功能、房间、智能体或人物。如果不知道，就直说，并引导对方查阅文档或询问所有者。
 
-绝不索要或复述机密信息（API 密钥、token、密码）。引导大家前往设置 → 你 → 个人连接。`,
+绝不索要或复述机密信息（API 密钥、token、密码）。引导大家前往「集成」页面的「密钥」标签页。`,
   "templates.moneyPlanner.instructions": `帮助成员就支出、储蓄、债务、税务、投资和财务表格做出切实可行的决定。
 
 如果某份记录会有帮助，询问成员是否愿意分享。告诉成员你可以阅读 PDF 和截图，但你看到的任何内容都会根据你所用的后端分享给 OpenAI 或 Anthropic。在成员分享任何敏感内容之前，告诉他们提供方通常有一项设置，可以选择不将自己的数据用于训练，并鼓励他们使用这项设置。
@@ -386,12 +386,10 @@ App 的一些原则：
   "settings.sidebar.access": "访问权限",
   "settings.sidebar.invites": "邀请",
   "settings.sidebar.sessions": "会话",
-  "settings.sidebar.connectionsOffice": "办公室通用连接",
   "settings.sidebar.usage": "用量",
   "settings.sidebar.storage": "存储",
   "settings.sidebar.updates": "更新",
   "settings.sidebar.profile": "个人资料",
-  "settings.sidebar.connectionsPersonal": "个人连接",
   "settings.sidebar.apiTokens": "API 令牌",
   "settings.sidebar.signInLinks": "登录链接",
   "settings.sidebar.deviceLabel": "设备标签",
@@ -494,7 +492,7 @@ App 的一些原则：
   "settings.room.promptPlaceholder":
     "例如：你在营销房间中。请使用我们的品牌语气。",
   "settings.room.promptNote":
-    "更改将在下一次对话中生效。请在「办公室通用连接」或「个人连接」中设置环境变量。",
+    "更改将在下一次对话中生效。请在「集成」页面设置环境变量。",
   "settings.room.memoryHint": "（此房间的长期信息；原始行；{size} / {cap}）",
   "settings.room.memoryTitle": "{room} · 记忆",
   "settings.room.memoryPlaceholder": "与此房间相关的记忆",
@@ -739,36 +737,19 @@ App 的一些原则：
   "settings.apiTokens.loadFailed": "加载 API 令牌失败",
   "settings.apiTokens.createFailed": "创建 API 令牌失败",
   "settings.apiTokens.revokeFailed": "撤销 API 令牌失败",
-  "settings.connections.officeIntro":
-    "此办公室中所有智能体使用的账户和变量。凭据由提供方存储，我们不存储。",
-  "settings.connections.personalIntro":
-    "你创建的智能体使用的账户和变量。这些设置会覆盖办公室设置。凭据由提供方存储，我们不存储。",
   "settings.connections.refresh": "刷新",
   "settings.connections.refreshing": "正在刷新…",
   "settings.connections.checkFailed": "无法检查提供方账户。",
-  "settings.connections.envTitle": "环境变量",
-  "settings.secrets.title": "密钥",
-  "settings.secrets.hint":
-    "保存的值不会再次显示。它只会发往与它一同列出的主机。智能体拿到的是占位值，而不是真实值，但有意读取本办公室文件的智能体仍能找到它。",
-  "settings.secrets.proxyNote":
-    "拥有密钥的智能体会通过办公室的密钥代理发送流量，因此 <code>HTTPS_PROXY</code> 变量对它们不起作用。",
-  "settings.secrets.ownerManaged": "办公室密钥由办公室所有者管理。",
   "settings.secrets.loadFailed": "无法加载密钥。",
   "settings.secrets.saveFailed": "无法保存密钥。",
-  "settings.secrets.empty": "还没有密钥。",
-  "settings.secrets.setOn": "设置于 {date}",
   "settings.secrets.formAuthorization": "Authorization 请求头",
-  "settings.secrets.formHeader": "其他请求头",
   "settings.secrets.formHeaderNamed": "{header} 请求头",
   "settings.secrets.rotate": "替换值",
   "settings.secrets.saveValue": "保存值",
   "settings.secrets.edit": "编辑",
-  "settings.secrets.delete": "删除",
-  "settings.secrets.deleteConfirm": "删除 {name}？",
   "settings.secrets.reissue": "新占位值",
   "settings.secrets.reissueConfirm":
     "{name} 的当前占位值会立即失效。智能体下次启动时会拿到新的占位值。",
-  "settings.secrets.add": "添加密钥",
   "settings.secrets.preset": "服务",
   "settings.secrets.presetCustom": "其他",
   "settings.secrets.name": "名称",
@@ -780,7 +761,6 @@ App 的一些原则：
   "settings.connections.error.note": "备注最多 1000 个字符，且只能是纯文本。",
   "settings.secrets.vouch":
     "只列出你信任的主机：保存即表示你担保它们绝不会把凭据发回。",
-  "settings.secrets.form": "发送位置",
   "settings.secrets.headerName": "请求头名称",
   "settings.secrets.error.name":
     "名称只能使用字母、数字和下划线，且不能以数字开头。",
@@ -794,62 +774,16 @@ App 的一些原则：
   "settings.secrets.error.neverListed":
     "{host} 永远不会收到密钥：模型主机和软件包注册表主机在禁止列表中。",
   "settings.secrets.error.exists": "已存在同名密钥。",
-  "settings.connections.officeVars": "此办公室中所有智能体的变量",
-  "settings.connections.officeVarsHint":
-    "这些变量会为所有智能体加载，除非被成员变量覆盖。",
-  "settings.connections.ownerManaged": "办公室通用变量由办公室所有者管理。",
-  "settings.connections.personalVars": "我创建的智能体的变量",
-  "settings.connections.personalVarsHint":
-    "这些变量会为你创建的智能体加载，并覆盖办公室通用变量。",
-  "settings.connections.providerKeyNote":
-    "添加 <code>ANTHROPIC_API_KEY</code>、<code>OPENAI_API_KEY</code> 或 <code>OPENCODE_API_KEY</code> 以使用提供方 API 密钥。其他凭据（例如 <code>GH_TOKEN</code>）请放在密钥中：智能体拿到的是占位值，而不是真实值。然后对智能体执行 <code>/clear</code> 以应用更改。",
-  "settings.connections.crossLinkFromOffice":
-    "个人登录和变量位于<link>你 → 个人连接</link>，会覆盖这些设置。",
-  "settings.connections.crossLinkFromPersonal":
-    "这些设置所覆盖的办公室通用登录和变量位于<link>办公室 → 办公室通用连接</link>。",
   "settings.connections.bedrockHint":
     "想连接 Bedrock？请阅读<link>此处</link>。",
-  "settings.connections.list.title": "所有连接",
-  "settings.connections.list.legend":
-    "办公室通用：每个智能体都会获得。个人：默认由你的智能体获得，但并不限定于它们。",
-  "settings.connections.list.empty": "还没有连接。",
-  "settings.connections.list.loadFailed": "无法加载连接。",
-  "settings.connections.list.kindVariable": "变量",
-  "settings.connections.list.kindSignIn": "登录",
-  "settings.connections.list.kindManagedInClaude": "在 Claude 中管理",
-  "settings.connections.list.accountUnknown": "账户未知",
-  "settings.connections.list.scopeOffice": "办公室通用",
-  "settings.connections.list.scopePersonal": "个人",
-  "settings.connections.list.setIn": "设置位置：<link>{place}</link>",
-  "settings.connections.list.placeSignIn": "{provider} 登录",
-  "settings.connections.list.everyClaudeAgent":
-    "办公室中的每个 Claude 智能体都可以使用它们。",
-  "settings.connections.list.claudeConnectors": "Claude 连接器",
-  "settings.connections.list.connectorsPendingHint":
-    "此登录下一次 Claude 轮次后列出。",
-  "settings.mcpServers.title": "MCP 服务器",
-  "settings.mcpServers.hint":
-    "供 Claude、Codex 和 OpenCode 智能体使用的远程 MCP 服务器。智能体在下次会话开始时获得更改：对智能体执行 <code>/clear</code> 可立即应用。",
-  "settings.mcpServers.ownerManaged": "办公室 MCP 服务器由办公室所有者管理。",
   "settings.mcpServers.loadFailed": "无法加载 MCP 服务器。",
   "settings.mcpServers.saveFailed": "无法保存 MCP 服务器。",
-  "settings.mcpServers.empty": "还没有 MCP 服务器。",
   "settings.mcpServers.add": "添加 MCP 服务器",
   "settings.mcpServers.name": "名称",
-  "settings.mcpServers.url": "URL",
-  "settings.mcpServers.urlNote": "请把凭据填在凭据字段中，不要放在 URL 里。",
-  "settings.mcpServers.credential": "凭据",
-  "settings.mcpServers.credentialNone": "无",
-  "settings.mcpServers.credentialNew": "新密钥",
-  "settings.mcpServers.credentialOAuth": "登录（OAuth）",
-  "settings.mcpServers.oauthHint":
-    "你只需登录一次，Claude、Codex 和 OpenCode 智能体都会获得访问权限。除非服务器需要你在其上注册的客户端，否则请将客户端字段留空。",
   "settings.mcpServers.clientId": "客户端 ID（可选）",
   "settings.mcpServers.clientSecret": "客户端密钥（可选）",
   "settings.mcpServers.signIn": "登录",
   "settings.mcpServers.signInAgain": "重新登录",
-  "settings.mcpServers.signedIn": "已登录",
-  "settings.mcpServers.notSignedIn": "未登录",
   "settings.mcpServers.signInDone": "已登录 MCP 服务器。",
   "settings.mcpServers.signInFailed": "登录失败。请重试。",
   "settings.mcpServers.signInError.clientNeeded":
@@ -865,13 +799,7 @@ App 的一些原则：
   "settings.mcpServers.signInError.denied": "登录已取消。",
   "settings.connections.list.mcpSignIn": "已排除：未登录",
   "settings.connections.list.mcpSignInAgain": "已排除：请重新登录",
-  "settings.connections.list.mcpOAuth": "已通过 OAuth 登录",
-  "settings.mcpServers.secretName": "密钥名称",
   "settings.mcpServers.tokenPlaceholder": '只填令牌，不带 "Bearer"',
-  "settings.mcpServers.formBearer": "Authorization: Bearer",
-  "settings.mcpServers.newSecretHost": "该密钥只发送到 {host}。",
-  "settings.mcpServers.newSecretNoHost":
-    "请先填写 URL：该密钥只发送到它的主机。",
   "settings.mcpServers.error.name":
     "最多 24 个小写字母、数字和连字符，首尾须为字母或数字。",
   "settings.mcpServers.error.url":
@@ -880,14 +808,10 @@ App 的一些原则：
   "settings.mcpServers.error.secretNotFound": "该密钥不存在。",
   "settings.mcpServers.error.secretHost":
     "该密钥未列出 {host}。请把该主机添加到密钥，或选择其他密钥。",
-  "settings.connections.list.kindMcpServer": "MCP 服务器",
-  "settings.connections.list.kindMcpInClaude": "在 Claude 中设置的 MCP 服务器",
   "settings.connections.list.engineMcpUser":
     "使用同一 Claude 登录的所有 Claude 智能体",
   "settings.connections.list.engineMcpFolder":
     "在 {folder} 中工作的所有 Claude 智能体",
-  "settings.connections.list.mcpNoCredential": "无凭据",
-  "settings.connections.list.mcpCredential": "已设置凭据",
   "settings.connections.list.mcpCredentialNamed": "凭据：{name}",
   "settings.connections.list.mcpSecretMissing": "已排除：缺少其密钥",
   "settings.connections.list.mcpSecretHost": "已排除：其密钥未列出 {host}",
@@ -897,24 +821,12 @@ App 的一些原则：
   "settings.connections.list.setInClaudeLocal":
     "在 Claude 针对 {folder} 的本地设置中设置",
   "settings.connections.list.setInProject": "在 {file} 中设置",
-  "settings.connections.list.kindSecret": "密钥",
-  "settings.connections.list.nameStatus": "{name}（{status}）",
-  "settings.connections.status.connected": "已连接",
-  "settings.connections.status.failed": "失败",
-  "settings.connections.status.needsAuth": "需要登录",
-  "settings.connections.status.pending": "等待中",
-  "settings.connections.status.disabled": "已关闭",
   "settings.connections.test.button": "测试",
   "settings.connections.test.running": "正在测试…",
-  "settings.connections.test.none": "无测试",
   "settings.connections.test.noHostTest": "这些主机没有测试",
-  "settings.connections.test.ownersOnly": "只有所有者可以测试",
-  "settings.connections.test.variablesHint":
-    "变量没有测试：Isomux 不知道它们用于哪个服务。",
   "settings.connections.test.works": "可用",
   "settings.connections.test.tools.one": "{count} 个工具",
   "settings.connections.test.tools.other": "{count} 个工具",
-  "settings.connections.test.signedOut": "未登录。",
   "settings.connections.test.refused": "{host} 拒绝了该凭据。请检查或轮换它。",
   "settings.connections.test.forbidden":
     "{host} 接受该凭据，但它无法读取账户。",
@@ -928,12 +840,160 @@ App 的一些原则：
   "settings.connections.test.needsOauth":
     "{host} 要求 OAuth 登录，Isomux 目前还不支持。",
   "settings.connections.test.requestFailed": "无法运行测试。",
-  "settings.signIn.apiKeyNote":
-    "想使用 API 令牌？请查看「设置 → 你 → 个人连接」。",
+  "common.integrations": "集成",
+  "integrations.ownerIntro": "为办公室和每位成员设置智能体可以使用的内容。",
+  "integrations.memberIntro":
+    "所有者设置智能体使用的内容。你可以为自己启动的智能体添加自己的内容。",
+  "integrations.tabs.providers": "模型提供商",
+  "integrations.tabs.mcp": "MCP 服务器",
+  "integrations.tabs.secrets": "密钥",
+  "integrations.tabs.variables": "变量",
+  "integrations.tabIntro.providers": "智能体运行所用的 Claude 和 Codex 账号。",
+  "integrations.tabIntro.mcp": "智能体可以调用的工具，例如 Linear 或 Sentry。",
+  "integrations.tabIntro.secrets": "GitHub 等服务的 API 密钥和令牌。",
+  "integrations.tabIntro.variables":
+    "智能体可以读取的普通设置，例如时区。请把密钥放在“密钥”中。",
+  "integrations.secretsHonesty":
+    "Isomux 会阻止智能体读取已保存的密钥，但本办公室在智能体与其文件之间没有严格隔离。",
+  "integrations.office": "办公室通用",
+  "integrations.officeWho": "办公室中的所有智能体",
+  "integrations.officeWhoMember":
+    "办公室中的所有智能体。只有所有者可以更改办公室通用的集成。",
+  "integrations.personal": "个人",
+  "integrations.personalWhoSelf":
+    "你启动的智能体。同名的个人集成会替代办公室通用的集成。",
+  "integrations.personalWhoMember":
+    "{member} 启动的智能体。同名的个人集成会替代办公室通用的集成。",
+  "integrations.memberTitle": "{member} 的集成",
+  "integrations.backToYours": "返回你的集成",
+  "integrations.picker": "查看谁的集成",
+  "integrations.applies": "智能体在开始新对话时获得更改。",
+  "integrations.helpTip": "这是什么意思？",
+  "integrations.show": "显示",
+  "integrations.hide": "隐藏",
+  "integrations.remove": "移除",
+  "integrations.moreOptions": "更多选项",
+  "integrations.actionFailed": "操作未完成，请重试。",
+  "integrations.dialog.edit.self": "编辑 {name}",
+  "integrations.dialog.edit.member": "编辑 {member} 的 {name}",
+  "integrations.dialog.edit.office": "编辑办公室通用的 {name}",
+  "integrations.dialog.remove.self": "移除 {name}？",
+  "integrations.dialog.remove.member": "移除 {member} 的 {name}？",
+  "integrations.dialog.remove.office": "移除办公室通用的 {name}？",
+  "integrations.providers.apiKeys":
+    "想改用 API 密钥？请在<link>变量</link>中添加 <code>ANTHROPIC_API_KEY</code>、<code>OPENAI_API_KEY</code> 或 <code>OPENCODE_API_KEY</code>。",
+  "integrations.providers.memberSignsIn": "成员登录自己的账号。",
+  "integrations.status.connected": "已连接",
+  "integrations.status.pending": "等待中",
+  "integrations.status.needsAuth": "需要登录",
+  "integrations.status.failed": "失败",
+  "integrations.status.off": "已关闭",
+  "integrations.connectors.title":
+    "来自 claude.ai，供 {account} 上的 Claude 智能体使用",
+  "integrations.connectors.titleNoAccount":
+    "来自 claude.ai，供此登录下的 Claude 智能体使用",
+  "integrations.connectors.hint":
+    "此账号上的 Claude 智能体也会获得这些。<link>在 claude.ai 中管理</link>。",
+  "integrations.connectors.unknown":
+    "此账号上的 Claude 智能体完成一个轮次后，Isomux 会显示它们。",
+  "integrations.connectors.pendingHelp":
+    "Claude 在轮次开始时报告其连接器，此时有些仍在连接。Isomux 会在 10 秒后再次检查。",
+  "integrations.engineMcp.title": "在 Claude 自己的文件中设置",
+  "integrations.mcp.empty": "没有 MCP 服务器。",
+  "integrations.mcp.nameHint": "智能体看到的名称，例如 linear。",
+  "integrations.mcp.url": "服务器地址（URL）",
+  "integrations.mcp.urlHint":
+    "服务的文档会给出此地址。请把令牌放在“登录”中，不要放在地址里。",
+  "integrations.mcp.auth": "登录",
+  "integrations.mcp.authOauth": "通过该服务登录",
+  "integrations.mcp.authToken": "粘贴令牌",
+  "integrations.mcp.authSaved": "使用已保存的密钥",
+  "integrations.mcp.authNone": "无",
+  "integrations.mcp.token": "令牌",
+  "integrations.mcp.tokenGoesTo": "Isomux 只把令牌发送到 {host}。",
+  "integrations.mcp.tokenNoHost":
+    "请先输入地址：Isomux 只把令牌发送到它的主机。",
+  "integrations.mcp.tokenName": "保存为",
+  "integrations.mcp.tokenNameHint": "令牌以此名称保存在“密钥”标签页中。",
+  "integrations.mcp.savedSecret": "密钥",
+  "integrations.mcp.pickSecret": "选择一个密钥",
+  "integrations.mcp.oauthHint":
+    "保存后会打开该服务的登录页面。Claude、Codex 和 OpenCode 智能体都会获得访问权限。",
+  "integrations.mcp.clientHint":
+    "除非服务器需要你在其上注册的客户端，否则请留空。",
+  "integrations.mcp.saveAndSignIn": "保存并登录",
+  "integrations.mcp.status.signedIn": "已登录",
+  "integrations.mcp.status.needsSignIn": "需要登录",
+  "integrations.mcp.status.token": "已保存令牌",
+  "integrations.mcp.status.none": "无需登录",
+  "integrations.mcp.addHeading.self": "添加 MCP 服务器",
+  "integrations.mcp.addHeading.member": "为 {member} 添加 MCP 服务器",
+  "integrations.mcp.addHeading.office": "添加办公室通用的 MCP 服务器",
+  "integrations.mcp.signedInTo.self": "已登录 {name}。",
+  "integrations.mcp.signedInTo.member": "已登录 {member} 的 {name}。",
+  "integrations.mcp.signedInTo.office": "已登录办公室通用的 {name}。",
+  "integrations.providers.noPersonal": "没有个人登录",
+  "integrations.connectionsFailed":
+    "无法加载 claude.ai 连接器和在 Claude 文件中设置的服务器。",
+  "integrations.memberGone": "{member} 已不在此办公室。",
+  "integrations.mcp.signInFailedFor.self": "{name} 的登录未完成。",
+  "integrations.mcp.signInFailedFor.member":
+    "{member} 的 {name} 的登录未完成。",
+  "integrations.mcp.signInFailedFor.office":
+    "办公室通用的 {name} 的登录未完成。",
+  "integrations.secrets.empty": "没有密钥。",
+  "integrations.secrets.add": "添加密钥",
+  "integrations.secrets.value": "密钥或令牌",
+  "integrations.secrets.valuePlaceholder": "粘贴到这里",
+  "integrations.secrets.newValuePlaceholder": "粘贴新值",
+  "integrations.secrets.nameHint": "智能体看到的名称，例如 MY_API_KEY。",
+  "integrations.secrets.addresses": "可以接收它的地址",
+  "integrations.secrets.addressesHint":
+    "该服务的网址，每行一个，例如 api.example.com。Isomux 不会把密钥发送到其他地址。只添加属于该服务的地址。",
+  "integrations.secrets.presetGoesTo": "Isomux 只把它发送到 {service}。",
+  "integrations.secrets.showAddresses": "显示地址",
+  "integrations.secrets.hideAddresses": "隐藏地址",
+  "integrations.secrets.howSent": "服务期望的发送方式",
+  "integrations.secrets.bearer": "作为 Bearer 令牌（大多数服务）",
+  "integrations.secrets.customHeader": "放在另一个名称的请求头中",
+  "integrations.secrets.headerPlaceholder": "请求头名称，例如 x-api-key",
+  "integrations.secrets.presetSet": "{service} · {date} 设置",
+  "integrations.secrets.goesToSet": "发往 {hosts} · {date} 设置",
+  "integrations.secrets.goesTo": "发往 {hosts}",
+  "integrations.secrets.showFailed": "无法显示该值。",
+  "integrations.secrets.reissueHint": "智能体获得新的占位值，旧的占位值失效。",
+  "integrations.secrets.addHeading.self": "添加密钥",
+  "integrations.secrets.addHeading.member": "为 {member} 添加密钥",
+  "integrations.secrets.addHeading.office": "添加办公室通用的密钥",
+  "integrations.secrets.replaceHeading.self": "替换 {name} 的值",
+  "integrations.secrets.replaceHeading.member": "替换 {member} 的 {name} 的值",
+  "integrations.secrets.replaceHeading.office": "替换办公室通用的 {name} 的值",
+  "integrations.secrets.reissueHeading.self": "为 {name} 生成新占位值",
+  "integrations.secrets.reissueHeading.member":
+    "为 {member} 的 {name} 生成新占位值",
+  "integrations.secrets.reissueHeading.office":
+    "为办公室通用的 {name} 生成新占位值",
+  "integrations.variables.empty": "没有变量。",
+  "integrations.variables.modelKeys":
+    "<code>ANTHROPIC_API_KEY</code> 等模型 API 密钥放在这里，而不是“密钥”中：Isomux 从不把密钥发送给模型提供商。",
+  "integrations.variables.looksLikeKey":
+    "这看起来像密钥。请将其保存为密钥，这样智能体永远看不到它的值。",
+  "integrations.variables.exists": "已有同名变量。",
+  "integrations.variables.addHeading.self": "添加变量",
+  "integrations.variables.addHeading.member": "为 {member} 添加变量",
+  "integrations.variables.addHeading.office": "添加办公室通用的变量",
+  "integrations.variables.replaceHeading.self": "替换 {name} 的值",
+  "integrations.variables.replaceHeading.member":
+    "替换 {member} 的 {name} 的值",
+  "integrations.variables.replaceHeading.office":
+    "替换办公室通用的 {name} 的值",
+  "settings.memberIntegrations.hint":
+    "在<link>集成</link>页面管理 {member} 的密钥、变量和 MCP 服务器。",
+  "settings.signIn.apiKeyNote": "想使用 API 令牌？请查看「集成 → 变量」。",
   "settings.signIn.scopeOffice": "办公室通用：为此办公室中的所有智能体登录",
   "settings.signIn.scopePersonal": "个人：为我创建的智能体登录",
   "settings.signIn.officeHint":
-    "办公室中的所有智能体都会使用此订阅，但已设置<link>个人连接</link>的成员所创建的智能体除外。",
+    "办公室中的所有智能体都会使用此订阅，但拥有自己<link>个人登录</link>的成员所创建的智能体除外。",
   "settings.signIn.personalHint": "为你的智能体使用独立账户。",
   "settings.signIn.status": "状态：",
   "settings.signIn.checking": "正在检查连接…",
@@ -983,17 +1043,8 @@ App 的一些原则：
   "settings.env.valuePlaceholder": "值",
   "settings.env.remove": "移除",
   "settings.env.add": "添加变量",
-  "settings.env.hideValues": "隐藏值",
-  "settings.env.showValues": "显示值",
-  "settings.env.save": "保存变量",
-  "settings.env.saved": "变量已保存",
-  "settings.env.duplicate": "变量名必须唯一。",
-  "settings.memberConnections.title": "个人连接",
-  "settings.memberConnections.hint":
-    "此成员的智能体所用的个人提供方状态和变量名。",
   "settings.memberConnections.loadFailed": "无法加载连接。",
   "settings.memberConnections.unknown": "无法检查状态。",
-  "settings.memberConnections.empty": "没有变量。",
   "settings.memberApiTokens.title": "API 令牌",
   "settings.memberApiTokens.hint": "撤销令牌后，它的下一个请求即被拒绝。",
   "dialogs.textarea.expand": "展开 {title}",
@@ -1129,7 +1180,7 @@ App 的一些原则：
   "dialogs.agent.managerNoUser": "（未指定成员）",
   "dialogs.agent.managerUnowned": "（无所有者）",
   "dialogs.agent.managerHint":
-    "智能体使用此成员的提供方连接和个人变量。请查看「设置 → 你 → 个人连接」。",
+    "智能体使用此成员的提供方连接和个人变量。请查看「集成」页面。",
   "dialogs.agent.privileged": "特权操作权限",
   "dialogs.agent.privilegedHint":
     "允许此智能体使用创建成员的房间范围权限，操作其他智能体的会话（继续、新对话、立即发送），并管理自己的定时任务。它仍以智能体身份操作，绝不以成员身份操作。",
@@ -2373,8 +2424,8 @@ App 的一些原则：
   "systemEntries.diffBadDir": "无法比较 `{path}`：{message}。",
   "systemEntries.diffClean": "`{path}` 中的工作树干净，没有未提交的更改。",
   "systemEntries.claudeAuth.checking": "Claude 拒绝了凭据。正在检查连接…",
-  "systemEntries.claudeAuth.officeLocation": "设置 → 办公室 → 办公室通用连接",
-  "systemEntries.claudeAuth.personalLocation": "设置 → 你 → 个人连接",
+  "systemEntries.claudeAuth.officeLocation": "集成 → 模型提供商（办公室通用）",
+  "systemEntries.claudeAuth.personalLocation": "集成 → 模型提供商（个人）",
   "systemEntries.claudeAuth.disconnected":
     "Claude 拒绝了凭据。请在 {location} 中登录 Claude。",
   "systemEntries.claudeAuth.accessUnavailable":

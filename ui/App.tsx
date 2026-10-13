@@ -22,6 +22,10 @@ import { TaskView, type TaskOpenRequest } from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
 import { AppsView } from "./components/AppsView.tsx";
 import { SkillsView } from "./components/SkillsView.tsx";
+import {
+  IntegrationsView,
+  type IntegrationsRequest,
+} from "./integrations/IntegrationsView.tsx";
 import { PagerView, type PagerSelectRequest } from "./components/PagerView.tsx";
 import { usePagerSync } from "./pager-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
@@ -40,6 +44,7 @@ import {
   pageForLocation,
   pageForPath,
   pagerIdForSearch,
+  mcpSignInForSearch,
   pathForPage,
   pageForFlags,
   pageShortcut,
@@ -92,6 +97,7 @@ function pageFromEntry(state: unknown): Page | null | undefined {
     entry.page === "cronjobs" ||
     entry.page === "apps" ||
     entry.page === "skills" ||
+    entry.page === "integrations" ||
     entry.page === "settings" ||
     entry.page === "pager"
     ? entry.page
@@ -166,6 +172,22 @@ export function App({ routing = true }: { routing?: boolean }) {
   const [cronjobsOpen, setCronjobsOpen] = useState(bootPage === "cronjobs");
   const [appsOpen, setAppsOpen] = useState(bootPage === "apps");
   const [skillsOpen, setSkillsOpen] = useState(bootPage === "skills");
+  const [integrationsOpen, setIntegrationsOpen] = useState(
+    bootPage === "integrations",
+  );
+  // One-shot: what the Integrations page opens on, beyond its defaults. A
+  // member's profile link names that member, and an MCP sign-in that came
+  // back carries its result (read once, like the pager id below). The page
+  // takes it on mount and clears it, so the next open starts on You.
+  const [integrationsRequest, setIntegrationsRequest] =
+    useState<IntegrationsRequest | null>(() => {
+      const signIn = mcpSignInForSearch(window.location.search);
+      return signIn === null ? null : { signIn };
+    });
+  const clearIntegrationsRequest = useCallback(
+    () => setIntegrationsRequest(null),
+    [],
+  );
   const [pagerOpen, setPagerOpen] = useState(bootPage === "pager");
   // Read once, like bootPage. The sync effect below rewrites the URL to
   // /pager, so the id lives here until the view has shown it.
@@ -248,6 +270,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     else if (saved.panel === "cronjobs") setCronjobsOpen(true);
     else if (saved.panel === "apps") setAppsOpen(true);
     else if (saved.panel === "skills") setSkillsOpen(true);
+    else if (saved.panel === "integrations") setIntegrationsOpen(true);
     else if (saved.panel === "pager") setPagerOpen(true);
     // "users" is the old name for the same page; a spot saved by an earlier
     // build still reopens it.
@@ -281,9 +304,11 @@ export function App({ routing = true }: { routing?: boolean }) {
               ? "apps"
               : skillsOpen
                 ? "skills"
-                : pagerOpen
-                  ? "pager"
-                  : null,
+                : integrationsOpen
+                  ? "integrations"
+                  : pagerOpen
+                    ? "pager"
+                    : null,
     });
   }, [
     persistEnabled,
@@ -295,6 +320,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     cronjobsOpen,
     appsOpen,
     skillsOpen,
+    integrationsOpen,
     pagerOpen,
     usersOpen,
     lobbyOpen,
@@ -421,6 +447,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     cronjobsOpen ||
     appsOpen ||
     skillsOpen ||
+    integrationsOpen ||
     pagerOpen ||
     usersOpen
       ? "away"
@@ -481,10 +508,12 @@ export function App({ routing = true }: { routing?: boolean }) {
     setCronjobsOpen(page === "cronjobs");
     setAppsOpen(page === "apps");
     setSkillsOpen(page === "skills");
+    setIntegrationsOpen(page === "integrations");
     setPagerOpen(page === "pager");
     setUsersOpen(page === "settings");
     setEditingUserId(null);
     setSettingsTarget(null);
+    setIntegrationsRequest(null);
   }, []);
 
   // Open the settings page, optionally on a named row. Passing null is the
@@ -493,6 +522,15 @@ export function App({ routing = true }: { routing?: boolean }) {
   const openSettings = useCallback((target: SettingsTarget | null) => {
     setSettingsTarget(target);
     setUsersOpen(true);
+  }, []);
+
+  // Open the Integrations page, on a member's view when `member` is set (the
+  // Settings member profile's link). Settings closes under it, like the
+  // pager's settings door in reverse.
+  const openIntegrations = useCallback((member: string | null) => {
+    setIntegrationsRequest(member === null ? null : { member });
+    setUsersOpen(false);
+    setIntegrationsOpen(true);
   }, []);
 
   const goHome = useCallback(() => {
@@ -567,6 +605,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           cronjobsOpen,
           appsOpen,
           skillsOpen,
+          integrationsOpen,
           pagerOpen,
         },
       );
@@ -582,6 +621,8 @@ export function App({ routing = true }: { routing?: boolean }) {
             setAppsOpen(pageUpdate.appsOpen);
           if (pageUpdate.skillsOpen !== undefined)
             setSkillsOpen(pageUpdate.skillsOpen);
+          if (pageUpdate.integrationsOpen !== undefined)
+            setIntegrationsOpen(pageUpdate.integrationsOpen);
           if (pageUpdate.pagerOpen !== undefined)
             setPagerOpen(pageUpdate.pagerOpen);
           // "s" opens the settings of the room you are standing in; the lobby
@@ -686,6 +727,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     usersOpen,
     appsOpen,
     skillsOpen,
+    integrationsOpen,
     tasksOpen,
     cronjobsOpen,
     pagerOpen,
@@ -702,6 +744,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     cronjobsOpen,
     appsOpen,
     skillsOpen,
+    integrationsOpen,
     pagerOpen,
   });
   const isDeep = page !== null || focusedAgentId !== null;
@@ -780,6 +823,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           initialUserId={editingUserId}
           initialTarget={settingsTarget}
           onSwitchUser={(name) => setUsername(name)}
+          onOpenIntegrations={openIntegrations}
           onClose={goHome}
         />
       ) : page === "tasks" ? (
@@ -810,6 +854,12 @@ export function App({ routing = true }: { routing?: boolean }) {
         />
       ) : page === "skills" ? (
         <SkillsView onClose={goHome} />
+      ) : page === "integrations" ? (
+        <IntegrationsView
+          onClose={goHome}
+          request={integrationsRequest}
+          onRequestHandled={clearIntegrationsRequest}
+        />
       ) : page === "pager" ? (
         <PagerView
           onClose={goHome}
@@ -858,6 +908,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           onOpenCronjobs={() => setCronjobsOpen(true)}
           onOpenApps={() => setAppsOpen(true)}
           onOpenSkills={() => setSkillsOpen(true)}
+          onOpenIntegrations={() => openIntegrations(null)}
           onOpenPager={() => setPagerOpen(true)}
           onOpenUpdate={() =>
             openSettings({ kind: "section", section: "updates" })

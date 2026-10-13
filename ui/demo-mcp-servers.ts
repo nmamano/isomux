@@ -14,7 +14,7 @@ import type {
   McpServerWire,
 } from "../shared/contract-shapes.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
-import { demoSecretHosts } from "./demo-secrets.ts";
+import { demoSecretHosts, type DemoViewer } from "./demo-secrets.ts";
 
 const scopes = new Map<string, McpServerWire[]>();
 
@@ -65,6 +65,7 @@ export function demoMcpServersRoute(
   pathname: string,
   body: unknown,
   userId: (username: string) => string | null,
+  viewer: DemoViewer = { userId: null, owner: true },
 ): { handled: true; result: unknown } | undefined {
   const match =
     pathname.match(/^\/api\/office\/mcp-servers(?:\/([^/]+))?$/) ??
@@ -86,7 +87,21 @@ export function demoMcpServersRoute(
   const now = Date.now();
 
   if (name === undefined) {
-    if (method === "GET") return { handled: true, result: { servers: list } };
+    // A member reads the office's servers as names, hosts and notes.
+    if (method === "GET")
+      return {
+        handled: true,
+        result: {
+          servers:
+            office && !viewer.owner
+              ? list.map(({ name, url, note }) => ({
+                  name,
+                  host: mcpServerHost(url),
+                  note,
+                }))
+              : list,
+        },
+      };
     if (method !== "POST") return undefined;
     const nameError = checkMcpServerName(b.name);
     if (nameError) refuse(nameError);

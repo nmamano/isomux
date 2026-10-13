@@ -73,6 +73,7 @@ export type SavedPanel =
   | "cronjobs"
   | "apps"
   | "skills"
+  | "integrations"
   | "settings"
   | "users"
   | "pager";
@@ -100,6 +101,7 @@ function readPanel(x: unknown): SavedPanel | null | undefined {
     x === "cronjobs" ||
     x === "apps" ||
     x === "skills" ||
+    x === "integrations" ||
     x === "settings" ||
     x === "users" ||
     x === "pager"

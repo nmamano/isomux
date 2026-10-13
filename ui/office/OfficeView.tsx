@@ -49,6 +49,7 @@ import {
   ClockIcon,
   AppsIcon,
   SkillsIcon,
+  PlugIcon,
   PagerIcon,
   SettingsIcon,
 } from "../components/NavIcons.tsx";
@@ -161,6 +162,8 @@ interface OfficeViewProps {
   onOpenSkills?: () => void;
   // Absent in fixtures that render the office without the pager.
   onOpenPager?: () => void;
+  // Absent in fixtures that render the office without the Integrations page.
+  onOpenIntegrations?: () => void;
   onOpenUpdate: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
@@ -180,6 +183,7 @@ export function OfficeView({
   onOpenApps,
   onOpenSkills,
   onOpenPager,
+  onOpenIntegrations,
   onOpenUpdate,
   onSwipeLeft,
   onSwipeRight,
@@ -401,6 +405,16 @@ export function OfficeView({
             icon: SkillsIcon,
             label: t("common.skills"),
             onClick: onOpenSkills,
+          },
+        ]
+      : []),
+    ...(onOpenIntegrations
+      ? [
+          {
+            id: "integrations",
+            icon: PlugIcon,
+            label: t("common.integrations"),
+            onClick: onOpenIntegrations,
           },
         ]
       : []),

@@ -241,11 +241,18 @@ describe("OpenCode deterministic tracer", () => {
       status: "failed",
       error: "OpenCode authentication is not configured.",
     });
-    expect(await backend.getLoginInstructions()).toEqual({
+    const instructions = await backend.getLoginInstructions();
+    expect(instructions).toEqual({
       kind: "login",
       cardEligible: false,
-      text: "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.",
+      text: expect.any(String),
     });
+    // The guidance names the variable and points at the Integrations page,
+    // not at the Settings panes it replaced.
+    const text = (instructions as { text: string }).text;
+    expect(text).toContain("OPENCODE_API_KEY");
+    expect(text).toContain("Integrations");
+    expect(text).not.toContain("Settings →");
     const modelFailure = openCodeModelUnavailableFailure(
       "opencode-go/deepseek-v4-pro",
     );

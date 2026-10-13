@@ -1,6 +1,6 @@
 // The demo's secrets routes (secrets.* and officeSecrets.*). The demo keeps
 // no value at all: it validates the value and drops it, so nothing in the
-// browser can return one.
+// browser can return one. Show answers with a fixed stand-in that says so.
 
 import {
   checkSecretForm,
@@ -14,6 +14,11 @@ import type { SecretWire } from "../shared/contract-shapes.ts";
 import { ApiError, type ApiMethod } from "./api.ts";
 
 const scopes = new Map<string, SecretWire[]>();
+
+export const DEMO_SHOWN_VALUE = "the-demo-keeps-no-values";
+
+// Who is asking: the demo session's user id and whether they own the office.
+export type DemoViewer = { userId: string | null; owner: boolean };
 
 // The same codes and detail fields as server/routes/handlers/secrets.ts.
 function refuse(error: SecretFieldError): never {
@@ -39,6 +44,7 @@ export function demoSecretsRoute(
   pathname: string,
   body: unknown,
   userId: (username: string) => string | null,
+  viewer: DemoViewer = { userId: null, owner: true },
 ): { handled: true; result: unknown } | undefined {
   const match =
     pathname.match(
@@ -66,7 +72,17 @@ export function demoSecretsRoute(
   const now = Date.now();
 
   if (name === undefined) {
-    if (method === "GET") return { handled: true, result: { secrets: list } };
+    // A member reads the office's secrets as names, hosts and notes.
+    if (method === "GET")
+      return {
+        handled: true,
+        result: {
+          secrets:
+            office && !viewer.owner
+              ? list.map(({ name, hosts, note }) => ({ name, hosts, note }))
+              : list,
+        },
+      };
     if (method !== "POST") return undefined;
     const fieldError = checkSecretName(b.name) ?? checkSecretValue(b.value);
     if (fieldError) refuse(fieldError);
@@ -103,6 +119,12 @@ export function demoSecretsRoute(
     if (method !== "POST") return undefined;
     secret.updatedAt = now;
     return { handled: true, result: { secret } };
+  }
+  // Show: the secret's own member, or an owner on an office secret.
+  if (value === "/value" && method === "GET") {
+    const allowed = office ? viewer.owner : key === viewer.userId;
+    if (!allowed) throw new ApiError(403, "forbidden", "Forbidden");
+    return { handled: true, result: { value: DEMO_SHOWN_VALUE } };
   }
   if (value) {
     if (method !== "PUT") return undefined;

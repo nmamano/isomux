@@ -230,7 +230,7 @@ The pod gets the role when it starts, so restart it:
 kubectl -n isomux rollout restart deployment/isomux
 ```
 
-In **Settings → Office → Office-wide connections → Environment variables**, add only
+In **Integrations → Variables**, on the Office-wide card, add only
 these, with no keys, and then `/clear` Claude agents:
 
 ```text

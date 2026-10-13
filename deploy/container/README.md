@@ -224,14 +224,14 @@ that the server allows inbound ports 80 and 443. DNS changes can take time to ap
 
 ## 9. Connect an AI provider
 
-**Your browser → Settings → You → Individual connections**
+**Your browser → Integrations → Model providers**
 
 - For Claude or Codex, select its sign-in control and complete the instructions.
   If Isomux asks to install the Claude CLI, complete that step first. Codex is
   bundled. For OpenCode, open or create an OpenCode agent and choose a Free
   model in its model picker, or configure a paid provider connection.
-- If you use a provider API key, add its environment variable in Individual
-  connections: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENCODE_API_KEY`.
+- If you use a provider API key, add its environment variable on the Variables
+  tab: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENCODE_API_KEY`.
   Provider charges and subscription limits are separate from AWS hosting.
 - For Claude through Amazon Bedrock, use the
   [Bedrock setup instructions](https://isomux.com/docs/llm-providers#claude-on-amazon-bedrock).

@@ -11,6 +11,7 @@ export type Page =
   | "cronjobs"
   | "apps"
   | "skills"
+  | "integrations"
   | "settings"
   | "pager";
 
@@ -35,6 +36,8 @@ export function pageForPath(pathname: string): Page | null {
       return "apps";
     case "/skills":
       return "skills";
+    case "/integrations":
+      return "integrations";
     case "/settings":
       return "settings";
     case "/pager":
@@ -65,7 +68,22 @@ export function pagerIdForSearch(search: string): string | null {
 
 /** The page the URL opens at boot: the pager link first, then the path. */
 export function pageForLocation(pathname: string, search: string): Page | null {
-  return pagerIdForSearch(search) !== null ? "pager" : pageForPath(pathname);
+  if (pagerIdForSearch(search) !== null) return "pager";
+  const page = pageForPath(pathname);
+  // An MCP sign-in started before the Integrations page came back to
+  // /settings; its result belongs on the Integrations page.
+  if (page === "settings" && mcpSignInForSearch(search) !== null)
+    return "integrations";
+  return page;
+}
+
+/**
+ * The result code of an MCP server sign-in that came back to the office
+ * (`?mcpSignIn=<code>`, from server/routes/handlers/mcp-servers.ts), or null.
+ */
+export function mcpSignInForSearch(search: string): string | null {
+  const code = new URLSearchParams(search).get("mcpSignIn")?.trim() ?? "";
+  return code.length > 0 && code.length <= 64 ? code : null;
 }
 
 /** The canonical path for a page, or "/" for the office. */
@@ -79,6 +97,7 @@ export interface PageFlags {
   cronjobsOpen: boolean;
   appsOpen: boolean;
   skillsOpen: boolean;
+  integrationsOpen: boolean;
   pagerOpen: boolean;
 }
 
@@ -94,9 +113,11 @@ export function pageForFlags(flags: PageFlags): Page | null {
           ? "apps"
           : flags.skillsOpen
             ? "skills"
-            : flags.pagerOpen
-              ? "pager"
-              : null;
+            : flags.integrationsOpen
+              ? "integrations"
+              : flags.pagerOpen
+                ? "pager"
+                : null;
 }
 
 export interface PageShortcutInput {
@@ -112,6 +133,7 @@ export interface PageShortcutUpdate {
   cronjobsOpen?: boolean;
   appsOpen?: boolean;
   skillsOpen?: boolean;
+  integrationsOpen?: boolean;
   pagerOpen?: boolean;
   usersOpen?: true;
 }
@@ -142,6 +164,7 @@ export function pageShortcut(
       cronjobsOpen: false,
       appsOpen: true,
       skillsOpen: false,
+      integrationsOpen: false,
       pagerOpen: false,
     };
   }

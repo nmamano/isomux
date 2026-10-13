@@ -18,7 +18,6 @@ import {
   signOutButtonLabel,
 } from "./components/ProviderSignInCard.tsx";
 import { translatorFor } from "../shared/i18n/translate.ts";
-import { ConnectionsPane } from "./components/ConnectionsPane.tsx";
 import { UpdatePane } from "./components/UpdatePane.tsx";
 import { UserSettingsView } from "./components/UserSettingsView.tsx";
 import { RoomTabBar } from "./office/RoomTabBar.tsx";
@@ -127,63 +126,6 @@ describe("ProviderSignInCard", () => {
     expect(html).toContain(en.t("settings.signIn.scopePersonal"));
     expect(html).toContain(en.t("settings.signIn.personalHint"));
     expect(html).toContain(en.t("settings.signIn.signIn"));
-  });
-
-  // The pane is split by owner: the office half holds what every agent uses,
-  // the personal half what the caller's own agents use. Each half must mount
-  // ONLY its own editor - the whole point of the split is that a member is no
-  // longer met by a paragraph about variables they cannot edit.
-  it("office half: mounts only the office editor for an owner", () => {
-    const html = renderToStaticMarkup(
-      createElement(ConnectionsPane, {
-        username: "Boss",
-        role: "owner",
-        half: "office",
-      }),
-    );
-    expect(html).toContain('data-managed-env-path="/api/office/env"');
-    expect(html).not.toContain('data-managed-env-path="/api/users/Boss/env"');
-    // The provider-key paragraph belongs under whichever editor the viewer
-    // just saw, so an owner gets it on this half too.
-    expect(html).toContain("ANTHROPIC_API_KEY");
-    expect(html).toContain("GH_TOKEN");
-  });
-
-  it("office half: shows a member the placeholder and mounts no editor", () => {
-    const html = renderToStaticMarkup(
-      createElement(ConnectionsPane, {
-        username: "Member",
-        role: "member",
-        half: "office",
-      }),
-    );
-    expect(html).toContain(en.t("settings.connections.ownerManaged"));
-    expect(html).not.toContain('data-managed-env-path="/api/office/env"');
-    expect(html).not.toContain('data-managed-env-path="/api/users/Member/env"');
-    expect(html).not.toContain("owner-secret-value");
-    // The paragraph closes the half for both roles: a member cannot edit the
-    // office variables, but the per-user half of what it says is theirs to
-    // act on.
-    expect(html).toContain("ANTHROPIC_API_KEY");
-    expect(html).toContain("GH_TOKEN");
-  });
-
-  it("personal half: mounts only the caller's editor, for either role", () => {
-    for (const role of ["owner", "member"] as const) {
-      const html = renderToStaticMarkup(
-        createElement(ConnectionsPane, {
-          username: "Member",
-          role,
-          half: "personal",
-        }),
-      );
-      expect(html).toContain("ANTHROPIC_API_KEY");
-      expect(html).toContain("OPENAI_API_KEY");
-      expect(html).toContain("OPENCODE_API_KEY");
-      expect(html).toContain("GH_TOKEN");
-      expect(html).toContain('data-managed-env-path="/api/users/Member/env"');
-      expect(html).not.toContain('data-managed-env-path="/api/office/env"');
-    }
   });
 
   it("uses the generic waiting copy for the Claude code step", () => {

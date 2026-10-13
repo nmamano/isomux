@@ -1,9 +1,9 @@
-// S3 of the office i18n loop (internal-docs/i18n-loop.md): the access and
-// connections panes - Invites, Sessions, External access, both Connections
-// halves, API tokens, the provider sign-in card, the managed-variables editor,
-// the shared tables and empty states in access-shared.tsx, and an owner's view
-// of a member's individual connections - render in the language the signed-in
-// user is on.
+// S3 of the office i18n loop (internal-docs/i18n-loop.md): the access panes -
+// Invites, Sessions, External access, API tokens, the shared tables and empty
+// states in access-shared.tsx, and the Integrations link on a member's profile
+// - render in the language the signed-in user is on. The Integrations page,
+// which took over the connections panes, has its own file
+// (ui/integrations/IntegrationsView.i18n.dom.test.tsx).
 //
 // Every sidebar click is proven by aria-current before its pane is read.
 //
@@ -67,8 +67,8 @@ const ROOM = {
   canCloseWhenEmpty: true,
 };
 
-// A member for the owner to open from the roster: the individual-connections
-// section only mounts on someone else's profile.
+// A member for the owner to open from the roster: the Integrations link only
+// mounts on someone else's profile.
 const MEMBER = {
   ...selfUserRecord(null),
   id: "u2",
@@ -117,8 +117,6 @@ const SIDEBAR = {
   invites: translationsFor("settings.sidebar.invites"),
   sessions: translationsFor("settings.sidebar.sessions"),
   access: translationsFor("settings.sidebar.access"),
-  officeConnections: translationsFor("settings.sidebar.connectionsOffice"),
-  personalConnections: translationsFor("settings.sidebar.connectionsPersonal"),
   apiTokens: translationsFor("settings.sidebar.apiTokens"),
 } as const;
 
@@ -139,18 +137,15 @@ const ANCHOR = {
   emptyList: translationsFor("settings.access.none"),
   externalAccess: translationsFor("settings.externalAccess.title"),
   enableExternal: translationsFor("settings.externalAccess.enable"),
-  envTitle: translationsFor("settings.connections.envTitle"),
-  // ProviderSignInCard.
-  status: translationsFor("settings.signIn.status"),
-  // ManagedEnvEditor.
-  addVariable: translationsFor("settings.env.add"),
-  personalVars: translationsFor("settings.connections.personalVars"),
   howToUse: translationsFor("settings.apiTokens.howToUse"),
   noTokens: translationsFor("settings.apiTokens.empty"),
-  // MemberVariableNames, on the member's profile.
-  memberConnections: translationsFor("settings.memberConnections.title"),
-  memberUnknown: translationsFrom(
-    ({ t }) => `Claude: ${t("settings.memberConnections.unknown")}`,
+  // The Integrations link, on the member's profile.
+  integrations: translationsFor("common.integrations"),
+  memberIntegrations: translationsFrom(({ t }) =>
+    t("settings.memberIntegrations.hint", { member: MEMBER.name }).replace(
+      /<\/?link>/g,
+      "",
+    ),
   ),
 } as const;
 
@@ -219,26 +214,14 @@ describe("the access and connections panes", () => {
     shows(view, ANCHOR.externalAccess.ca);
     shows(view, ANCHOR.enableExternal.ca);
 
-    // The office half: the sign-in card and the managed-variable editor are
-    // inside it, so all three read together.
-    open(view, SIDEBAR.officeConnections.ca);
-    await settle();
-    shows(view, ANCHOR.envTitle.ca);
-    shows(view, ANCHOR.status.ca);
-    shows(view, ANCHOR.addVariable.ca);
-
-    open(view, SIDEBAR.personalConnections.ca);
-    await settle();
-    shows(view, ANCHOR.personalVars.ca);
-
     open(view, SIDEBAR.apiTokens.ca);
     await settle();
     shows(view, ANCHOR.howToUse.ca);
     shows(view, ANCHOR.noTokens.ca);
 
-    // The member's profile, for the owner-only individual-connections section.
-    // Its heading repeats the sidebar row's words in Catalan, so it is read by
-    // role rather than by text.
+    // The member's profile, for the owner-only Integrations link. Its heading
+    // repeats the sidebar row's words, so it is read by role rather than by
+    // text.
     const memberRow = view
       .getAllByRole("button")
       .find((el) => (el.textContent ?? "").startsWith(MEMBER.name));
@@ -247,25 +230,26 @@ describe("the access and connections panes", () => {
     await settle();
     expect(
       view.queryByRole("heading", {
-        name: ANCHOR.memberConnections.ca,
+        name: ANCHOR.integrations.ca,
         level: 5,
       }),
     ).not.toBeNull();
-
-    shows(view, ANCHOR.memberUnknown.ca);
+    const link = () =>
+      view.container.querySelector("[data-member-integrations-link]")
+        ?.textContent;
+    expect(link()).toBe(ANCHOR.memberIntegrations.ca);
 
     // Spanish: the open pane follows, and every fresh pane reads it too.
     view.rerender(page("es"));
     expect(
       view.queryByRole("heading", {
-        name: ANCHOR.memberConnections.es,
+        name: ANCHOR.integrations.es,
         level: 5,
       }),
     ).not.toBeNull();
-
-    shows(view, ANCHOR.memberUnknown.es);
+    expect(link()).toBe(ANCHOR.memberIntegrations.es);
     view.rerender(page(null));
-    shows(view, ANCHOR.memberUnknown.en);
+    expect(link()).toBe(ANCHOR.memberIntegrations.en);
     view.rerender(page("es"));
 
     open(view, SIDEBAR.invites.es);
@@ -274,19 +258,8 @@ describe("the access and connections panes", () => {
     shows(view, ANCHOR.expiresIn.es);
     expect(view.queryByText(ANCHOR.outstanding.ca)).toBeNull();
 
-    open(view, SIDEBAR.officeConnections.es);
-    await settle();
-    shows(view, ANCHOR.envTitle.es);
-    shows(view, ANCHOR.status.es);
-    shows(view, ANCHOR.addVariable.es);
-
     // English for one who never chose a language.
     view.rerender(page(null));
-    shows(view, ANCHOR.envTitle.en);
-    shows(view, ANCHOR.status.en);
-    shows(view, ANCHOR.addVariable.en);
-    expect(view.queryByText(ANCHOR.envTitle.es)).toBeNull();
-
     open(view, SIDEBAR.sessions.en);
     shows(view, ANCHOR.emptyList.en);
     await settle();

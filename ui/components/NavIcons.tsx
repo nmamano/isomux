@@ -291,6 +291,25 @@ export const SkillsIcon = (
   </svg>
 );
 
+// A plug: the Integrations page.
+export const PlugIcon = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinejoin="round"
+    strokeLinecap="round"
+    style={{ display: "block" }}
+  >
+    <path d="M6 1.75v3M10 1.75v3" />
+    <path d="M4 4.75h8v2.5a4 4 0 0 1-8 0z" />
+    <path d="M8 11.25v3" />
+  </svg>
+);
+
 // The single settings entry point. Sliders, not a gear: Nil kept the Theme
 // button in the bar, and a gear's ring-and-spokes reads as the sun/moon theme
 // icon at 15px - the two sat side by side and looked like the same control.

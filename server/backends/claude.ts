@@ -137,7 +137,7 @@ function loginInstructions(command: string): string {
 
 Once complete, it takes effect immediately for all Isomux agents.
 
-Alternative: add \`ANTHROPIC_API_KEY\` under Settings → You → Individual connections, then \`/clear\`.`;
+Alternative: add \`ANTHROPIC_API_KEY\` on the Integrations page (Variables tab), then \`/clear\`.`;
 }
 
 // Surfaced when an auth-error fires (or the user types /login) but the

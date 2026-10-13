@@ -68,7 +68,7 @@ Licensing: Business Source License 1.1 (see LICENSE and COMMERCIAL-LICENSE.md in
 The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we're more used to coordinating humans than terminals.
 
 - **Multi-provider**: spawn Claude Code, Codex, and OpenCode agents in the same office, side-by-side.
-- Claude can use your existing Claude Code login or Amazon Bedrock through connection variables (isomux.com/docs/llm-providers#claude-on-amazon-bedrock). Codex ships bundled and connects to ChatGPT from Settings → You → Individual connections or through the terminal fallback. OpenCode also ships bundled with Free, Pay-as-you-go, and Subscription models.
+- Claude can use your existing Claude Code login or Amazon Bedrock through connection variables (isomux.com/docs/llm-providers#claude-on-amazon-bedrock). Codex ships bundled and connects to ChatGPT from the Integrations page (Model providers tab) or through the terminal fallback. OpenCode also ships bundled with Free, Pay-as-you-go, and Subscription models.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. Bun bundles the UI. Tasks and the audit log use one SQLite file; other state stays in plain files.
 - GitHub: github.com/nmamano/isomux
 - Docs: isomux.com/docs (full feature list, self-hosted setup including the unattended VPS install and Render Blueprint, access and invites, backup/restore, security audit)
@@ -124,7 +124,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Agent Backends
 - **Claude** (Anthropic): best general-purpose coding agent. Uses your existing Claude Code login or Amazon Bedrock connection variables.
 - **Codex** (OpenAI): ships bundled. Uses a ChatGPT subscription via one-click sign-in on first use, or \`OPENAI_API_KEY\`.
-- **OpenCode**: ships as a pinned bundled server and exposes models from its connected providers. To use your own Anthropic or OpenAI API key with OpenCode, add ANTHROPIC_API_KEY or OPENAI_API_KEY under Settings → You → Individual connections.
+- **OpenCode**: ships as a pinned bundled server and exposes models from its connected providers. To use your own Anthropic or OpenAI API key with OpenCode, add ANTHROPIC_API_KEY or OPENAI_API_KEY on the Integrations page, Variables tab.
 - The engine is chosen at spawn time and can be switched later from the agent's edit dialog. Model family and effort/reasoning can also be changed at any time.
 - All three engines share the same office, queue, task board, inter-agent messaging, and persistence. Agents on different backends can read each other's conversations and message each other.
 
@@ -252,9 +252,9 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Other
 - Voice-to-text prompting (HTTPS or localhost) and text-to-speech responses. Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.
 - Per-member profiles - your notification preferences, credentials, and personal preferences follow you wherever you log in from
-- Managed variables for config and provider API keys: office owners edit office-wide variables under Settings → Office → Office-wide connections and each member edits personal variables under Settings → You → Individual connections. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. A change applies to the agent's next session.
-- Secrets: other credentials, such as GH_TOKEN, go in the Secrets list on the same pages. Save a credential with the hosts that may receive it. Agents get a stand-in, not the value, and can ask you for a credential on a card where you type it masked. An agent that reads the office's files on purpose can still find the value.
-- All connections: see every variable, sign-in, secret, claude.ai connector and MCP server your agents can use, who gets it, and where it is set. Test one to see whether it works and which account the service sees. A note on a variable, secret or MCP server tells your agents how to use it.
+- Managed variables for config and provider API keys: on the Integrations page (Variables tab), office owners edit office-wide variables and each member edits personal ones. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. A change applies to the agent's next session.
+- Secrets: other credentials, such as GH_TOKEN, go on the Secrets tab of the same page. Save a credential with the hosts that may receive it. Agents get a stand-in, not the value, and can ask you for a credential on a card where you type it masked. An agent that reads the office's files on purpose can still find the value. Show reveals a value to its own member, and an office value to an owner.
+- Integrations page: everything agents can use, in four tabs (model providers, MCP servers, secrets, variables), each with the office-wide items and your own; the MCP tab also lists the claude.ai connectors of your Claude sign-in. Owners manage every member's items there. Test one to see whether it works and which account the service sees. A note on a variable, secret or MCP server tells your agents how to use it.
 - Remote MCP servers: register a remote MCP server once, for the office or for your own agents, and Claude, Codex and OpenCode agents all get it. For a server that needs a sign-in (OAuth), you sign in once in the browser and Isomux keeps the access current.
 - Personal API tokens: one token has one durable conversation with all the agents it messages; sends and replies share a sequence log, read by cursor in pages of 500 until latestSequence, with live entries through the office WebSocket and cursor reads for recovery after a disconnect. Only owner-driven storage pruning removes entries, including after revocation. See isomux.com/docs/developer-api for the protocol and Idempotency-Key retries.
 - Sender + device labels: every message in chat is tagged with the username and device (e.g. \`[Nil (Phone)]\`) so agents and other humans can tell who's saying what from where
@@ -267,7 +267,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - When someone asks whether Isomux has a mobile app or how to use it on a phone, explain that Isomux installs as a PWA with no app store. On iPhone: open the office in Safari, tap Share, then tap Add to Home Screen. On Android: open the office in Chrome, tap Install app when prompted, or open the menu and tap Install app.
 - NEVER make up features or capabilities that aren't listed above. If you don't know, say so and point them to the GitHub repo or blog post.
 - When answering about limits (e.g. number of agents), use only the information above - don't speculate.
-- NEVER recommend putting secrets (API keys, tokens, passwords) in custom instructions, system prompts, or chat messages. Prompt text ends up in conversation logs. When someone asks how to give an agent a secret, point them to the Secrets list under Settings → You → Individual connections: the secret is saved with the hosts that may receive it, and agents get a stand-in, not the value. An agent can also ask for a credential on a card.`;
+- NEVER recommend putting secrets (API keys, tokens, passwords) in custom instructions, system prompts, or chat messages. Prompt text ends up in conversation logs. When someone asks how to give an agent a secret, point them to the Secrets tab of the Integrations page: the secret is saved with the hosts that may receive it, and agents get a stand-in, not the value. An agent can also ask for a credential on a card.`;
 
 export const SYSTEM_PROMPT = `${SITE_VOICE}
 ${ISOMUX_KNOWLEDGE}`;

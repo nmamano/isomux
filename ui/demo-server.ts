@@ -2650,6 +2650,16 @@ export async function demoApi(
     case "PUT /api/office/env":
       demoManagedOfficeEnv = saveDemoEnv("office", body);
       return undefined;
+    // officeEnv.names - every member reads the office's names and notes.
+    case "GET /api/office/env/names":
+      return {
+        variables: Object.keys(demoManagedOfficeEnv)
+          .sort((a, b) => a.localeCompare(b))
+          .map((name) => ({
+            name,
+            note: demoEnvNotes.office?.[name] ?? null,
+          })),
+      };
     case "GET /api/usage":
       return demoUsageReport();
     case "GET /api/storage/usage":
@@ -3159,11 +3169,16 @@ export async function demoApi(
     }
     return { ...demoPagerSettings };
   }
+  const viewer = {
+    userId: sessionContext?.userId ?? null,
+    owner: sessionContext?.role === "owner",
+  };
   const secretsRoute = demoSecretsRoute(
     method,
     pathname,
     body,
     (username) => users.get(username.toLowerCase())?.id ?? null,
+    viewer,
   );
   if (secretsRoute) return secretsRoute.result;
   const mcpServersRoute = demoMcpServersRoute(
@@ -3171,6 +3186,7 @@ export async function demoApi(
     pathname,
     body,
     (username) => users.get(username.toLowerCase())?.id ?? null,
+    viewer,
   );
   if (mcpServersRoute) return mcpServersRoute.result;
   const userEnvMatch = pathname.match(/^\/api\/users\/([^/]+)\/env$/);
@@ -3191,6 +3207,38 @@ export async function demoApi(
       return undefined;
     }
   }
+  // One variable set or removed (Lead, 2026-10-13, option B): the member's
+  // own, or an owner on a member's. Only the server checks who may.
+  const userEnvOneMatch = pathname.match(
+    /^\/api\/users\/([^/]+)\/env\/([^/]+)$/,
+  );
+  if (
+    userEnvOneMatch &&
+    userEnvOneMatch[2] !== "names" &&
+    (method === "PUT" || method === "DELETE")
+  ) {
+    const uname = decodeURIComponent(userEnvOneMatch[1]);
+    const existing = users.get(uname.toLowerCase());
+    if (!existing)
+      throw new ApiError(404, "not_found", `User ${uname} not found`);
+    const name = decodeURIComponent(userEnvOneMatch[2]);
+    const values = { ...(demoManagedEnv[existing.id] ?? {}) };
+    const notes = { ...(demoEnvNotes[existing.id] ?? {}) };
+    if (method === "DELETE") {
+      if (!(name in values)) throw new ApiError(404, "not_found", "Not found");
+      delete values[name];
+      delete notes[name];
+    } else {
+      const b = (body ?? {}) as { value?: unknown; note?: unknown };
+      if (typeof b.value !== "string")
+        throw new ApiError(400, "invalid_env", "the value is not valid");
+      values[name] = b.value;
+      if (typeof b.note === "string" && b.note.trim()) notes[name] = b.note;
+      else delete notes[name];
+    }
+    demoManagedEnv[existing.id] = saveDemoEnv(existing.id, { values, notes });
+    return undefined;
+  }
   // userEnv.names - the office owner's name-only read of another user's managed
   // variables. Listed after the bare /env route (different segment count, so the
   // order is for readers, not for the matcher). Names only: the demo drops the
@@ -3205,6 +3253,7 @@ export async function demoApi(
       throw new ApiError(404, "not_found", `User ${uname} not found`);
     return {
       names: Object.keys(demoManagedEnv[existing.id] ?? {}).sort(),
+      notes: { ...(demoEnvNotes[existing.id] ?? {}) },
       providers: [
         { provider: "claude", status: "connected" },
         { provider: "codex", status: "not_connected" },

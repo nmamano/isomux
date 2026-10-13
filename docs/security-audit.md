@@ -297,7 +297,7 @@ An agent can page its manager, and an app can page its owner. Isomux takes the s
 
 ### 8.6 Connection tests
 
-The Test button of the connections page makes the server itself send a secret. A member's browser session or API token can start a test of their own connections, and an owner's can start a test of any member's. Only an owner can test an office secret or an office MCP server. Each test writes an audit row.
+The Test button of the Integrations page makes the server itself send a secret. A member's browser session or API token can start a test of their own connections, and an owner's can start a test of any member's. Only an owner can test an office secret or an office MCP server. Each test writes an audit row.
 
 - **Where the secret goes.** For a secret of the GitHub, Stripe or Fly preset, the server sends it to one fixed identity endpoint (`api.github.com/user`, `api.stripe.com/v1/account`, or Fly's GraphQL `viewer` query). For a registered MCP server, it sends the server's secret to the registered URL. The secret goes only to a host that it lists. A secret on any other host gets no test.
 - **Outbound requests.** Isomux does not follow redirects. A test stops after 10 seconds, and Isomux reads at most 1 MiB of each answer. The request goes out from the server process, not through the agents' secret proxy.

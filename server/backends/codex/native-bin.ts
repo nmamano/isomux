@@ -148,7 +148,7 @@ export function withIsomuxCodexHome(
 //
 // This used to only consult process.env, which created a footgun: a user
 // who put OPENAI_API_KEY in their managed environment (the supported way to set
-// per-agent secrets - see Settings → You → Individual connections) would still get
+// per-agent secrets - see the Integrations page) would still get
 // the full sign-in walkthrough on any auth-error, because the helper
 // couldn't see their managed key. Threading the merged env in closes
 // that gap.

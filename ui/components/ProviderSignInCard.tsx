@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
   ProviderAccountProvider,
@@ -40,9 +40,9 @@ export function sharedLoginQueueMessage(
 }
 
 // `scopes` picks which of the two sign-in scopes this card shows. The
-// settings page renders one scope per pane (office sign-ins under Office,
-// personal ones under You), while the log view's inline card still shows
-// both, so the default stays the full pair.
+// Integrations page renders one scope per card (office sign-ins on the
+// Office-wide card, the viewer's own on the Personal card), while the log
+// view's inline card still shows both, so the default stays the full pair.
 export function ProviderSignInCard({
   provider,
   accounts,
@@ -54,6 +54,7 @@ export function ProviderSignInCard({
   apiKeyNote = false,
   scopes = ["office", "personal"],
   onGoToOtherHalf,
+  style,
 }: {
   provider: ProviderAccountProvider;
   accounts: ProviderAccountWire[];
@@ -64,17 +65,19 @@ export function ProviderSignInCard({
   showTitle?: boolean;
   apiKeyNote?: boolean;
   scopes?: readonly ProviderAccountScope[];
-  // Moves the settings page to the other Connections section. Absent
-  // wherever the card is mounted outside that page (the log view), where the
-  // pointer stays plain text.
+  // Moves the Integrations page to the other scope's card. Absent wherever
+  // the card is mounted outside that page (the log view), where the pointer
+  // stays plain text.
   onGoToOtherHalf?: () => void;
+  // The Integrations page lays the card flat inside its own card.
+  style?: CSSProperties;
 }) {
   const { t } = useI18n();
   const title = provider === "codex" ? "Codex" : "Claude";
   return (
     <section
       data-provider-card={provider}
-      style={{ ...cardStyle, marginTop: 14 }}
+      style={{ ...cardStyle, marginTop: 14, ...style }}
     >
       {showTitle && <h5 style={{ margin: "0 0 12px" }}>{title}</h5>}
       {scopes.map((scope, index) => (

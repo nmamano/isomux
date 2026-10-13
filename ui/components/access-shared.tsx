@@ -470,6 +470,7 @@ export function SettingsLink({
   if (!onGo) return <strong>{label}</strong>;
   return (
     <button
+      data-settings-link
       onClick={onGo}
       style={{
         font: "inherit",

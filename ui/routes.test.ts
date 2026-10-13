@@ -6,6 +6,7 @@ import {
   pageShortcut,
   pagerIdForSearch,
   pageForLocation,
+  mcpSignInForSearch,
   type Page,
   type PageFlags,
   type PageShortcutInput,
@@ -16,6 +17,7 @@ const PAGES: Page[] = [
   "cronjobs",
   "apps",
   "skills",
+  "integrations",
   "settings",
   "pager",
 ];
@@ -80,6 +82,29 @@ describe("the pager link", () => {
   });
 });
 
+describe("the MCP sign-in return", () => {
+  it("reads the result code from the query", () => {
+    expect(mcpSignInForSearch("?mcpSignIn=ok")).toBe("ok");
+    expect(mcpSignInForSearch("?mcpSignIn=denied&x=1")).toBe("denied");
+    for (const search of ["", "?mcpSignIn=", "?mcpSignIn=%20", "?other=ok"])
+      expect(mcpSignInForSearch(search)).toBeNull();
+    expect(mcpSignInForSearch(`?mcpSignIn=${"a".repeat(65)}`)).toBeNull();
+  });
+
+  it("opens the Integrations page at its own path and at the old /settings one", () => {
+    expect(pageForLocation("/integrations", "?mcpSignIn=ok")).toBe(
+      "integrations",
+    );
+    expect(pageForLocation("/settings", "?mcpSignIn=ok")).toBe("integrations");
+    // Settings without a sign-in result stays Settings.
+    expect(pageForLocation("/settings", "")).toBe("settings");
+    // The pager link still wins.
+    expect(pageForLocation("/settings", "?mcpSignIn=ok&pager=1a2b3c4d")).toBe(
+      "pager",
+    );
+  });
+});
+
 describe("pathForPage", () => {
   it("formats each page and the office", () => {
     expect(pathForPage(null)).toBe("/");
@@ -102,6 +127,7 @@ const office: PageFlags = {
   cronjobsOpen: false,
   appsOpen: false,
   skillsOpen: false,
+  integrationsOpen: false,
   pagerOpen: false,
 };
 
@@ -171,6 +197,21 @@ describe("page shortcuts and rendered-page precedence", () => {
     expect(shown.skillsOpen).toBe(false);
   });
 
+  it("leaves the Integrations page for Apps on a", () => {
+    const shown = pressPageKey({ ...office, integrationsOpen: true }, "a");
+    expect(pageForFlags(shown)).toBe("apps");
+    expect(shown.integrationsOpen).toBe(false);
+  });
+
+  it("shows Integrations over the pager and under Skills", () => {
+    expect(
+      pageForFlags({ ...office, integrationsOpen: true, pagerOpen: true }),
+    ).toBe("integrations");
+    expect(
+      pageForFlags({ ...office, integrationsOpen: true, skillsOpen: true }),
+    ).toBe("skills");
+  });
+
   it("shows Skills over the pager and under Apps", () => {
     expect(pageForFlags({ ...office, skillsOpen: true, pagerOpen: true })).toBe(
       "skills",
@@ -215,6 +256,7 @@ describe("page shortcuts and rendered-page precedence", () => {
         cronjobsOpen: true,
         appsOpen: true,
         skillsOpen: true,
+        integrationsOpen: true,
         pagerOpen: true,
       }),
     ).toBe("settings");

@@ -294,7 +294,7 @@ Things you can do for them:
 - Answer the question asked. Do not inventory features unless asked for the inventory.
 - Never invent a feature, a room, an agent or a person. If you do not know, say so and point at the docs or at an owner.
 
-Never ask for or repeat secrets (API keys, tokens, passwords). Point people to Settings → You → Individual connections.`,
+Never ask for or repeat secrets (API keys, tokens, passwords). Point people to the Secrets tab of the Integrations page.`,
   "templates.receptionist.label": "Isomux Receptionist",
   "templates.receptionist.description": "Help with Isomux and this office.",
   "lobby.receptionistName": "Receptionist",
@@ -417,12 +417,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.sidebar.access": "Access",
   "settings.sidebar.invites": "Invites",
   "settings.sidebar.sessions": "Sessions",
-  "settings.sidebar.connectionsOffice": "Office-wide connections",
   "settings.sidebar.usage": "Usage",
   "settings.sidebar.storage": "Storage",
   "settings.sidebar.updates": "Updates",
   "settings.sidebar.profile": "Profile",
-  "settings.sidebar.connectionsPersonal": "Individual connections",
   "settings.sidebar.apiTokens": "API tokens",
   "settings.sidebar.signInLinks": "Sign-in links",
   "settings.sidebar.deviceLabel": "Device label",
@@ -533,7 +531,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.room.promptPlaceholder":
     "e.g. You're in the Marketing room. Match our brand voice.",
   "settings.room.promptNote":
-    "Changes take effect on next conversation. Set environment variables under Office-wide or Individual connections.",
+    "Changes take effect on next conversation. Set environment variables on the Integrations page.",
   "settings.room.memoryHint":
     "(durable facts for this room; raw lines; {size} / {cap})",
   "settings.room.memoryTitle": "{room} · Memory",
@@ -813,37 +811,19 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.apiTokens.createFailed": "Failed to create API token",
   "settings.apiTokens.revokeFailed": "Failed to revoke API token",
 
-  "settings.connections.officeIntro":
-    "The accounts and variables that every agent in this office uses. The provider stores the credentials, not us.",
-  "settings.connections.personalIntro":
-    "The accounts and variables that the agents you spawn use. They override the office ones. The provider stores the credentials, not us.",
   "settings.connections.refresh": "Refresh",
   "settings.connections.refreshing": "Refreshing…",
   "settings.connections.checkFailed": "Could not check provider accounts.",
-  "settings.connections.envTitle": "Environment variables",
-  "settings.secrets.title": "Secrets",
-  "settings.secrets.hint":
-    "A saved value is never shown again. It may go only to the hosts listed with it. Agents get a stand-in, not the value, but an agent that reads this office's files on purpose can find it.",
-  "settings.secrets.proxyNote":
-    "Agents with a secret send their traffic through the office's secret proxy, so an <code>HTTPS_PROXY</code> variable does not apply to them.",
-  "settings.secrets.ownerManaged":
-    "Office secrets are managed by an office owner.",
   "settings.secrets.loadFailed": "Could not load secrets.",
   "settings.secrets.saveFailed": "Could not save the secret.",
-  "settings.secrets.empty": "No secrets yet.",
-  "settings.secrets.setOn": "Set {date}",
   "settings.secrets.formAuthorization": "Authorization header",
-  "settings.secrets.formHeader": "Another header",
   "settings.secrets.formHeaderNamed": "{header} header",
   "settings.secrets.rotate": "Replace value",
   "settings.secrets.saveValue": "Save value",
   "settings.secrets.edit": "Edit",
-  "settings.secrets.delete": "Delete",
-  "settings.secrets.deleteConfirm": "Delete {name}?",
   "settings.secrets.reissue": "New stand-in",
   "settings.secrets.reissueConfirm":
     "The current stand-in for {name} stops working now. Agents get the new one at their next start.",
-  "settings.secrets.add": "Add a secret",
   "settings.secrets.preset": "Service",
   "settings.secrets.presetCustom": "Other",
   "settings.secrets.name": "Name",
@@ -856,7 +836,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "Keep the note to 1,000 characters of plain text.",
   "settings.secrets.vouch":
     "List only hosts you trust: by saving, you vouch that they never send the credential back.",
-  "settings.secrets.form": "Sent in",
   "settings.secrets.headerName": "Header name",
   "settings.secrets.error.name":
     "Use letters, digits and underscores for the name, and do not start with a digit.",
@@ -870,65 +849,16 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.secrets.error.neverListed":
     "{host} never receives a secret: model and package registry hosts are on the never-list.",
   "settings.secrets.error.exists": "A secret with this name exists.",
-  "settings.connections.officeVars": "Variables for every agent in this office",
-  "settings.connections.officeVarsHint":
-    "These variables load for every agent unless a member variable overrides them.",
-  "settings.connections.ownerManaged":
-    "Office-wide variables are managed by an office owner.",
-  "settings.connections.personalVars": "Variables for agents I spawn",
-  "settings.connections.personalVarsHint":
-    "These variables load for agents you spawn and override office-wide variables.",
-  "settings.connections.providerKeyNote":
-    "Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or <code>OPENCODE_API_KEY</code> to use provider API keys. Put other credentials, such as <code>GH_TOKEN</code>, in Secrets: agents get a stand-in, not the value. Then <code>/clear</code> agents to apply changes.",
-  "settings.connections.crossLinkFromOffice":
-    "Your own sign-ins and variables, which override these, are under <link>You → Individual connections</link>.",
-  "settings.connections.crossLinkFromPersonal":
-    "The office-wide sign-ins and variables these override are under <link>Office → Office-wide connections</link>.",
   "settings.connections.bedrockHint":
     "Want to connect Bedrock? Read <link>here</link>.",
-  "settings.connections.list.title": "All connections",
-  "settings.connections.list.legend":
-    "Office-wide: every agent gets it. Individual: your agents get it by default, but it is not locked to them.",
-  "settings.connections.list.empty": "No connections yet.",
-  "settings.connections.list.loadFailed": "Could not load the connections.",
-  "settings.connections.list.kindVariable": "Variable",
-  "settings.connections.list.kindSignIn": "Sign-in",
-  "settings.connections.list.kindManagedInClaude": "Managed in Claude",
-  "settings.connections.list.accountUnknown": "Account unknown",
-  "settings.connections.list.scopeOffice": "Office-wide",
-  "settings.connections.list.scopePersonal": "Individual",
-  "settings.connections.list.setIn": "Set in <link>{place}</link>",
-  "settings.connections.list.placeSignIn": "{provider} sign-in",
-  "settings.connections.list.everyClaudeAgent":
-    "Every Claude agent in the office can use them.",
-  "settings.connections.list.claudeConnectors": "Claude connectors",
-  "settings.connections.list.connectorsPendingHint":
-    "Listed after the next Claude turn on this sign-in.",
-  "settings.mcpServers.title": "MCP servers",
-  "settings.mcpServers.hint":
-    "Remote MCP servers for Claude, Codex and OpenCode agents. Agents get a change when their next session starts: <code>/clear</code> an agent to apply it now.",
-  "settings.mcpServers.ownerManaged":
-    "Office MCP servers are managed by an office owner.",
   "settings.mcpServers.loadFailed": "Could not load MCP servers.",
   "settings.mcpServers.saveFailed": "Could not save the MCP server.",
-  "settings.mcpServers.empty": "No MCP servers yet.",
   "settings.mcpServers.add": "Add an MCP server",
   "settings.mcpServers.name": "Name",
-  "settings.mcpServers.url": "URL",
-  "settings.mcpServers.urlNote":
-    "Put the credential in the credential field, not in the URL.",
-  "settings.mcpServers.credential": "Credential",
-  "settings.mcpServers.credentialNone": "None",
-  "settings.mcpServers.credentialNew": "New secret",
-  "settings.mcpServers.credentialOAuth": "Sign in (OAuth)",
-  "settings.mcpServers.oauthHint":
-    "You sign in once, and Claude, Codex and OpenCode agents all get the access. Leave the client fields empty unless the server needs a client you registered with it.",
   "settings.mcpServers.clientId": "Client ID (optional)",
   "settings.mcpServers.clientSecret": "Client secret (optional)",
   "settings.mcpServers.signIn": "Sign in",
   "settings.mcpServers.signInAgain": "Sign in again",
-  "settings.mcpServers.signedIn": "Signed in",
-  "settings.mcpServers.notSignedIn": "Not signed in",
   "settings.mcpServers.signInDone": "Signed in to the MCP server.",
   "settings.mcpServers.signInFailed": "The sign-in failed. Try again.",
   "settings.mcpServers.signInError.clientNeeded":
@@ -946,13 +876,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.mcpServers.signInError.denied": "The sign-in was cancelled.",
   "settings.connections.list.mcpSignIn": "Left out: not signed in",
   "settings.connections.list.mcpSignInAgain": "Left out: sign in again",
-  "settings.connections.list.mcpOAuth": "Signed in with OAuth",
-  "settings.mcpServers.secretName": "Secret name",
   "settings.mcpServers.tokenPlaceholder": 'The token alone, without "Bearer"',
-  "settings.mcpServers.formBearer": "Authorization: Bearer",
-  "settings.mcpServers.newSecretHost": "The secret goes only to {host}.",
-  "settings.mcpServers.newSecretNoHost":
-    "Enter the URL first: the secret goes only to its host.",
   "settings.mcpServers.error.name":
     "Use up to 24 lowercase letters, digits and hyphens, with a letter or digit at each end.",
   "settings.mcpServers.error.url":
@@ -961,14 +885,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.mcpServers.error.secretNotFound": "That secret does not exist.",
   "settings.mcpServers.error.secretHost":
     "The secret does not list {host}. Add the host to the secret, or pick another one.",
-  "settings.connections.list.kindMcpServer": "MCP server",
-  "settings.connections.list.kindMcpInClaude": "MCP server set in Claude",
   "settings.connections.list.engineMcpUser":
     "Every Claude agent on the same Claude sign-in",
   "settings.connections.list.engineMcpFolder":
     "Every Claude agent that works in {folder}",
-  "settings.connections.list.mcpNoCredential": "No credential",
-  "settings.connections.list.mcpCredential": "Credential set",
   "settings.connections.list.mcpCredentialNamed": "Credential: {name}",
   "settings.connections.list.mcpSecretMissing":
     "Left out: its secret is missing",
@@ -980,24 +900,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.connections.list.setInClaudeLocal":
     "Set in Claude local settings for {folder}",
   "settings.connections.list.setInProject": "Set in {file}",
-  "settings.connections.list.kindSecret": "Secret",
-  "settings.connections.list.nameStatus": "{name} ({status})",
-  "settings.connections.status.connected": "connected",
-  "settings.connections.status.failed": "failed",
-  "settings.connections.status.needsAuth": "needs sign-in",
-  "settings.connections.status.pending": "pending",
-  "settings.connections.status.disabled": "off",
   "settings.connections.test.button": "Test",
   "settings.connections.test.running": "Testing…",
-  "settings.connections.test.none": "No test",
   "settings.connections.test.noHostTest": "No test for its hosts",
-  "settings.connections.test.ownersOnly": "Only owners can test",
-  "settings.connections.test.variablesHint":
-    "Variables have no test: Isomux does not know which service they are for.",
   "settings.connections.test.works": "Works",
   "settings.connections.test.tools.one": "{count} tool",
   "settings.connections.test.tools.other": "{count} tools",
-  "settings.connections.test.signedOut": "Not signed in.",
   "settings.connections.test.refused":
     "{host} refused the credential. Check or rotate it.",
   "settings.connections.test.forbidden":
@@ -1015,13 +923,174 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "{host} asks for an OAuth sign-in, which Isomux does not support yet.",
   "settings.connections.test.requestFailed": "Could not run the test.",
 
+  "common.integrations": "Integrations",
+  "integrations.ownerIntro":
+    "Set up what agents can use, for the office and for each member.",
+  "integrations.memberIntro":
+    "Owners set up what agents use. You can add your own for the agents you start.",
+  "integrations.tabs.providers": "Model providers",
+  "integrations.tabs.mcp": "MCP servers",
+  "integrations.tabs.secrets": "Secrets",
+  "integrations.tabs.variables": "Variables",
+  "integrations.tabIntro.providers":
+    "The Claude and Codex accounts that agents run on.",
+  "integrations.tabIntro.mcp":
+    "Tools that agents can call, such as Linear or Sentry.",
+  "integrations.tabIntro.secrets":
+    "API keys and tokens for services such as GitHub.",
+  "integrations.tabIntro.variables":
+    "Plain settings that agents can read, such as a time zone. Put keys in Secrets.",
+  "integrations.secretsHonesty":
+    "Isomux blocks agents from reading saved secrets, but this office has no hard wall between agents and its files.",
+  "integrations.office": "Office-wide",
+  "integrations.officeWho": "Every agent in the office",
+  "integrations.officeWhoMember":
+    "Every agent in the office. Only owners can change office-wide integrations.",
+  "integrations.personal": "Personal",
+  "integrations.personalWhoSelf":
+    "Agents you start. A personal one replaces the office-wide one with the same name.",
+  "integrations.personalWhoMember":
+    "Agents {member} starts. A personal one replaces the office-wide one with the same name.",
+  "integrations.memberTitle": "{member}'s integrations",
+  "integrations.backToYours": "Back to yours",
+  "integrations.picker": "Whose integrations",
+  "integrations.applies":
+    "Agents get a change when they start a new conversation.",
+  "integrations.helpTip": "What does this mean?",
+  "integrations.show": "Show",
+  "integrations.hide": "Hide",
+  "integrations.remove": "Remove",
+  "integrations.moreOptions": "More options",
+  "integrations.actionFailed": "Could not do that. Try again.",
+  "integrations.dialog.edit.self": "Edit {name}",
+  "integrations.dialog.edit.member": "Edit {member}'s {name}",
+  "integrations.dialog.edit.office": "Edit the office-wide {name}",
+  "integrations.dialog.remove.self": "Remove {name}?",
+  "integrations.dialog.remove.member": "Remove {member}'s {name}?",
+  "integrations.dialog.remove.office": "Remove the office-wide {name}?",
+  "integrations.providers.apiKeys":
+    "Using an API key instead? Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> or <code>OPENCODE_API_KEY</code> in <link>Variables</link>.",
+  "integrations.providers.memberSignsIn":
+    "Members sign in to their own accounts.",
+  "integrations.status.connected": "Connected",
+  "integrations.status.pending": "Pending",
+  "integrations.status.needsAuth": "Needs sign-in",
+  "integrations.status.failed": "Failed",
+  "integrations.status.off": "Off",
+  "integrations.connectors.title":
+    "From claude.ai, for Claude agents on {account}",
+  "integrations.connectors.titleNoAccount":
+    "From claude.ai, for Claude agents on this sign-in",
+  "integrations.connectors.hint":
+    "Claude agents on this account also get these. <link>Manage them in claude.ai</link>.",
+  "integrations.connectors.unknown":
+    "Isomux shows them after a Claude agent on this account takes a turn.",
+  "integrations.connectors.pendingHelp":
+    "Claude reports its connectors when a turn starts, while some are still connecting. Isomux checks again 10 seconds later.",
+  "integrations.engineMcp.title": "Set in Claude's own files",
+  "integrations.mcp.empty": "No MCP servers.",
+  "integrations.mcp.nameHint": "Agents see this name, such as linear.",
+  "integrations.mcp.url": "Server address (URL)",
+  "integrations.mcp.urlHint":
+    "The service's docs give this address. Put a token under Sign-in, not in the address.",
+  "integrations.mcp.auth": "Sign-in",
+  "integrations.mcp.authOauth": "Sign in with the service",
+  "integrations.mcp.authToken": "Paste a token",
+  "integrations.mcp.authSaved": "Use a saved secret",
+  "integrations.mcp.authNone": "None",
+  "integrations.mcp.token": "Token",
+  "integrations.mcp.tokenGoesTo": "Isomux sends the token only to {host}.",
+  "integrations.mcp.tokenNoHost":
+    "Enter the address first: Isomux sends the token only to its host.",
+  "integrations.mcp.tokenName": "Saved as",
+  "integrations.mcp.tokenNameHint":
+    "The token is saved on the Secrets tab under this name.",
+  "integrations.mcp.savedSecret": "Secret",
+  "integrations.mcp.pickSecret": "Pick a secret",
+  "integrations.mcp.oauthHint":
+    "After you save, a sign-in page for the service opens. Claude, Codex and OpenCode agents all get the access.",
+  "integrations.mcp.clientHint":
+    "Leave these empty unless the server needs a client you registered with it.",
+  "integrations.mcp.saveAndSignIn": "Save and sign in",
+  "integrations.mcp.status.signedIn": "Signed in",
+  "integrations.mcp.status.needsSignIn": "Needs sign-in",
+  "integrations.mcp.status.token": "Token saved",
+  "integrations.mcp.status.none": "No sign-in",
+  "integrations.mcp.addHeading.self": "Add an MCP server",
+  "integrations.mcp.addHeading.member": "Add an MCP server for {member}",
+  "integrations.mcp.addHeading.office": "Add an office-wide MCP server",
+  "integrations.mcp.signedInTo.self": "Signed in to {name}.",
+  "integrations.mcp.signedInTo.member": "Signed in to {member}'s {name}.",
+  "integrations.mcp.signedInTo.office": "Signed in to the office-wide {name}.",
+  "integrations.providers.noPersonal": "No personal sign-in",
+  "integrations.connectionsFailed":
+    "Could not load the claude.ai connectors and the servers set in Claude's files.",
+  "integrations.memberGone": "{member} is no longer in this office.",
+  "integrations.mcp.signInFailedFor.self": "Sign-in to {name} did not finish.",
+  "integrations.mcp.signInFailedFor.member":
+    "Sign-in to {member}'s {name} did not finish.",
+  "integrations.mcp.signInFailedFor.office":
+    "Sign-in to the office-wide {name} did not finish.",
+  "integrations.secrets.empty": "No secrets.",
+  "integrations.secrets.add": "Add a secret",
+  "integrations.secrets.value": "Key or token",
+  "integrations.secrets.valuePlaceholder": "Paste it here",
+  "integrations.secrets.newValuePlaceholder": "Paste the new value",
+  "integrations.secrets.nameHint":
+    "Agents see this name, for example MY_API_KEY.",
+  "integrations.secrets.addresses": "Addresses that may receive it",
+  "integrations.secrets.addressesHint":
+    "The web addresses of the service, one per line, such as api.example.com. Isomux sends the key to no other address. Add only addresses that belong to the service.",
+  "integrations.secrets.presetGoesTo": "Isomux sends it only to {service}.",
+  "integrations.secrets.showAddresses": "Show addresses",
+  "integrations.secrets.hideAddresses": "Hide addresses",
+  "integrations.secrets.howSent": "How the service expects it",
+  "integrations.secrets.bearer": "As a bearer token (most services)",
+  "integrations.secrets.customHeader": "In a header with another name",
+  "integrations.secrets.headerPlaceholder": "Header name, such as x-api-key",
+  "integrations.secrets.presetSet": "{service} · set {date}",
+  "integrations.secrets.goesToSet": "Goes to {hosts} · set {date}",
+  "integrations.secrets.goesTo": "Goes to {hosts}",
+  "integrations.secrets.showFailed": "Could not show the value.",
+  "integrations.secrets.reissueHint":
+    "Agents get a new stand-in, and the old one stops working.",
+  "integrations.secrets.addHeading.self": "Add a secret",
+  "integrations.secrets.addHeading.member": "Add a secret for {member}",
+  "integrations.secrets.addHeading.office": "Add an office-wide secret",
+  "integrations.secrets.replaceHeading.self": "Replace the value of {name}",
+  "integrations.secrets.replaceHeading.member":
+    "Replace the value of {member}'s {name}",
+  "integrations.secrets.replaceHeading.office":
+    "Replace the value of the office-wide {name}",
+  "integrations.secrets.reissueHeading.self": "New stand-in for {name}",
+  "integrations.secrets.reissueHeading.member":
+    "New stand-in for {member}'s {name}",
+  "integrations.secrets.reissueHeading.office":
+    "New stand-in for the office-wide {name}",
+  "integrations.variables.empty": "No variables.",
+  "integrations.variables.modelKeys":
+    "Model API keys such as <code>ANTHROPIC_API_KEY</code> go here, not in Secrets: Isomux never sends a secret to a model provider.",
+  "integrations.variables.looksLikeKey":
+    "This looks like a key. Save it as a secret so agents never see the value.",
+  "integrations.variables.exists": "A variable with this name exists.",
+  "integrations.variables.addHeading.self": "Add a variable",
+  "integrations.variables.addHeading.member": "Add a variable for {member}",
+  "integrations.variables.addHeading.office": "Add an office-wide variable",
+  "integrations.variables.replaceHeading.self": "Replace the value of {name}",
+  "integrations.variables.replaceHeading.member":
+    "Replace the value of {member}'s {name}",
+  "integrations.variables.replaceHeading.office":
+    "Replace the value of the office-wide {name}",
+  "settings.memberIntegrations.hint":
+    "Manage {member}'s secrets, variables and MCP servers on the <link>Integrations</link> page.",
+
   "settings.signIn.apiKeyNote":
-    "Do you want to use an API token? See Settings → You → Individual connections.",
+    "Do you want to use an API token? See Integrations → Variables.",
   "settings.signIn.scopeOffice":
     "Office-wide: sign in for every agent in this office",
-  "settings.signIn.scopePersonal": "Individual: sign in for agents I spawn",
+  "settings.signIn.scopePersonal": "Personal: sign in for agents I spawn",
   "settings.signIn.officeHint":
-    "This subscription is used for every agent in the office except for agents spawned by an office member who has set up <link>Individual connections</link>.",
+    "This subscription is used for every agent in the office except for agents spawned by an office member who has their own <link>personal sign-in</link>.",
   "settings.signIn.personalHint": "Use a separate account for your agents.",
   "settings.signIn.status": "Status:",
   "settings.signIn.checking": "Checking connection…",
@@ -1074,18 +1143,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.env.valuePlaceholder": "Value",
   "settings.env.remove": "Remove",
   "settings.env.add": "Add variable",
-  "settings.env.hideValues": "Hide values",
-  "settings.env.showValues": "Show values",
-  "settings.env.save": "Save variables",
-  "settings.env.saved": "Variables saved",
-  "settings.env.duplicate": "Variable names must be unique.",
 
-  "settings.memberConnections.title": "Individual Connections",
-  "settings.memberConnections.hint":
-    "Personal provider status and variable names for this member's agents.",
   "settings.memberConnections.loadFailed": "Could not load connections.",
   "settings.memberConnections.unknown": "Could not check status.",
-  "settings.memberConnections.empty": "No variables.",
   "settings.memberApiTokens.title": "API Tokens",
   "settings.memberApiTokens.hint":
     "Revoke a token to stop it on its next request.",
@@ -1248,7 +1308,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "dialogs.agent.managerNoUser": "(no member assigned)",
   "dialogs.agent.managerUnowned": "(unowned)",
   "dialogs.agent.managerHint":
-    "The agent uses this member’s provider connections and personal variables. See Settings → You → Individual connections.",
+    "The agent uses this member’s provider connections and personal variables. See the Integrations page.",
   "dialogs.agent.privileged": "Privileged operator access",
   "dialogs.agent.privilegedHint":
     "Lets this agent drive other agents' sessions (resume, new conversation, send-now) and manage its own cronjobs, with the spawning member's room-scoped permissions. It still acts as the agent, never as the member.",
@@ -2620,9 +2680,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "systemEntries.claudeAuth.checking":
     "Claude rejected the credentials. Checking the connection…",
   "systemEntries.claudeAuth.officeLocation":
-    "Settings → Office → Office-wide connections",
+    "Integrations → Model providers (Office-wide)",
   "systemEntries.claudeAuth.personalLocation":
-    "Settings → You → Individual connections",
+    "Integrations → Model providers (Personal)",
   "systemEntries.claudeAuth.disconnected":
     "Claude rejected the credentials. Sign in to Claude in {location}.",
   "systemEntries.claudeAuth.accessUnavailable":

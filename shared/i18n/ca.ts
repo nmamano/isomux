@@ -137,7 +137,7 @@ export const ca: Catalog = {
 - Respon la pregunta que et facin. No enumeris funcions tret que et demanin la llista.
 - No inventis mai una funció, una sala, un agent o una persona. Si no ho saps, digues-ho i remet a la documentació o a un propietari.
 
-No demanis ni repeteixis mai secrets (claus API, tokens, contrasenyes). Dirigeix la gent a Configuració → Tu → Connexions individuals.`,
+No demanis ni repeteixis mai secrets (claus API, tokens, contrasenyes). Dirigeix la gent a la pestanya Secrets de la pàgina Integracions.`,
   "templates.moneyPlanner.instructions": `Ajuda el membre a prendre decisions pràctiques sobre despeses, estalvi, deutes, impostos, inversions i formularis financers.
 
 Si tenir un document fos útil, pregunta al membre si se sent còmode compartint-lo. Explica-li que pots llegir PDFs i captures de pantalla, però que tot el que vegis es comparteix amb OpenAI o Anthropic, segons el teu backend. Abans que comparteixi res sensible, explica-li que els proveïdors sovint tenen una opció per excloure les seves dades de l'entrenament i anima'l a fer-la servir.
@@ -404,12 +404,10 @@ Coses que pots fer per ell:
   "settings.sidebar.access": "Accés",
   "settings.sidebar.invites": "Invitacions",
   "settings.sidebar.sessions": "Sessions",
-  "settings.sidebar.connectionsOffice": "Connexions de tota l'oficina",
   "settings.sidebar.usage": "Ús",
   "settings.sidebar.storage": "Emmagatzematge",
   "settings.sidebar.updates": "Actualitzacions",
   "settings.sidebar.profile": "Perfil",
-  "settings.sidebar.connectionsPersonal": "Connexions individuals",
   "settings.sidebar.apiTokens": "Tokens d'API",
   "settings.sidebar.signInLinks": "Enllaços d'inici de sessió",
   "settings.sidebar.deviceLabel": "Etiqueta del dispositiu",
@@ -522,7 +520,7 @@ Coses que pots fer per ell:
   "settings.room.promptPlaceholder":
     "p. ex. Ets a la sala de Màrqueting. Segueix la veu de la nostra marca.",
   "settings.room.promptNote":
-    "Els canvis s'apliquen a la conversa següent. Defineix les variables d'entorn a Connexions de tota l'oficina o Connexions individuals.",
+    "Els canvis s'apliquen a la conversa següent. Defineix les variables d'entorn a la pàgina Integracions.",
   "settings.room.memoryHint":
     "(fets duradors d'aquesta sala; línies en brut; {size} / {cap})",
   "settings.room.memoryTitle": "{room} · Memòria",
@@ -812,38 +810,20 @@ Coses que pots fer per ell:
   "settings.apiTokens.createFailed": "No s'ha pogut crear el token d'API",
   "settings.apiTokens.revokeFailed": "No s'ha pogut revocar el token d'API",
 
-  "settings.connections.officeIntro":
-    "Els comptes i les variables que fa servir cada agent d'aquesta oficina. Les credencials les guarda el proveïdor, no pas nosaltres.",
-  "settings.connections.personalIntro":
-    "Els comptes i les variables que fan servir els agents que crees tu. Tenen prioritat sobre els de l'oficina. Les credencials les guarda el proveïdor, no pas nosaltres.",
   "settings.connections.refresh": "Actualitza",
   "settings.connections.refreshing": "Actualitzant…",
   "settings.connections.checkFailed":
     "No s'han pogut comprovar els comptes de proveïdor.",
-  "settings.connections.envTitle": "Variables d'entorn",
-  "settings.secrets.title": "Secrets",
-  "settings.secrets.hint":
-    "Un valor desat no es torna a mostrar. Només pot anar als hosts que hi consten. Els agents reben un substitut, no el valor, però un agent que llegeixi a propòsit els fitxers d'aquesta oficina el pot trobar.",
-  "settings.secrets.proxyNote":
-    "Els agents amb un secret envien el trànsit pel proxy de secrets de l'oficina, així que una variable <code>HTTPS_PROXY</code> no els s'aplica.",
-  "settings.secrets.ownerManaged":
-    "Els secrets de l'oficina els gestiona un propietari de l'oficina.",
   "settings.secrets.loadFailed": "No s'han pogut carregar els secrets.",
   "settings.secrets.saveFailed": "No s'ha pogut desar el secret.",
-  "settings.secrets.empty": "Encara no hi ha secrets.",
-  "settings.secrets.setOn": "Definit el {date}",
   "settings.secrets.formAuthorization": "Capçalera Authorization",
-  "settings.secrets.formHeader": "Una altra capçalera",
   "settings.secrets.formHeaderNamed": "Capçalera {header}",
   "settings.secrets.rotate": "Substituir el valor",
   "settings.secrets.saveValue": "Desar el valor",
   "settings.secrets.edit": "Editar",
-  "settings.secrets.delete": "Suprimir",
-  "settings.secrets.deleteConfirm": "Vols suprimir {name}?",
   "settings.secrets.reissue": "Nou substitut",
   "settings.secrets.reissueConfirm":
     "El substitut actual de {name} deixa de funcionar ara. Els agents reben el nou en el proper inici.",
-  "settings.secrets.add": "Afegir un secret",
   "settings.secrets.preset": "Servei",
   "settings.secrets.presetCustom": "Un altre",
   "settings.secrets.name": "Nom",
@@ -857,7 +837,6 @@ Coses que pots fer per ell:
     "La nota ha de tenir com a màxim 1000 caràcters de text pla.",
   "settings.secrets.vouch":
     "Indica només hosts de confiança: en desar, garanteixes que mai no retornen la credencial.",
-  "settings.secrets.form": "S'envia a",
   "settings.secrets.headerName": "Nom de la capçalera",
   "settings.secrets.error.name":
     "Fes servir lletres, dígits i guions baixos al nom, i no comencis amb un dígit.",
@@ -871,68 +850,17 @@ Coses que pots fer per ell:
   "settings.secrets.error.neverListed":
     "{host} mai no rep un secret: els hosts de models i de registres de paquets són a la llista d'exclusió.",
   "settings.secrets.error.exists": "Ja existeix un secret amb aquest nom.",
-  "settings.connections.officeVars":
-    "Variables per a cada agent d'aquesta oficina",
-  "settings.connections.officeVarsHint":
-    "Aquestes variables es carreguen per a cada agent tret que una variable d'membre tingui prioritat.",
-  "settings.connections.ownerManaged":
-    "Les variables de tota l'oficina les gestiona una persona propietària.",
-  "settings.connections.personalVars": "Variables per als agents que creo",
-  "settings.connections.personalVarsHint":
-    "Aquestes variables es carreguen per als agents que crees i tenen prioritat sobre les de tota l'oficina.",
-  "settings.connections.providerKeyNote":
-    "Afegeix <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> o <code>OPENCODE_API_KEY</code> per fer servir claus d'API del proveïdor. Posa la resta de credencials, com <code>GH_TOKEN</code>, a Secrets: els agents reben un substitut, no el valor. Després fes <code>/clear</code> als agents per aplicar els canvis.",
-  "settings.connections.crossLinkFromOffice":
-    "Les teves pròpies sessions i variables, que tenen prioritat sobre aquestes, són a <link>Tu → Connexions individuals</link>.",
-  "settings.connections.crossLinkFromPersonal":
-    "Les sessions i variables de tota l'oficina sobre les quals aquestes tenen prioritat són a <link>Oficina → Connexions de tota l'oficina</link>.",
   "settings.connections.bedrockHint":
     "Vols connectar Bedrock? Llegeix <link>aquí</link>.",
-  "settings.connections.list.title": "Totes les connexions",
-  "settings.connections.list.legend":
-    "De tota l'oficina: la rep cada agent. Individual: la reben els teus agents per defecte, però no hi està limitada.",
-  "settings.connections.list.empty": "Encara no hi ha connexions.",
-  "settings.connections.list.loadFailed":
-    "No s'han pogut carregar les connexions.",
-  "settings.connections.list.kindVariable": "Variable",
-  "settings.connections.list.kindSignIn": "Inici de sessió",
-  "settings.connections.list.kindManagedInClaude": "Gestionat a Claude",
-  "settings.connections.list.accountUnknown": "Compte desconegut",
-  "settings.connections.list.scopeOffice": "De tota l'oficina",
-  "settings.connections.list.scopePersonal": "Individual",
-  "settings.connections.list.setIn": "Es configura a <link>{place}</link>",
-  "settings.connections.list.placeSignIn": "Inici de sessió de {provider}",
-  "settings.connections.list.everyClaudeAgent":
-    "Tots els agents de Claude de l'oficina els poden fer servir.",
-  "settings.connections.list.claudeConnectors": "Connectors de Claude",
-  "settings.connections.list.connectorsPendingHint":
-    "Apareixen després del proper torn de Claude amb aquest inici de sessió.",
-  "settings.mcpServers.title": "Servidors MCP",
-  "settings.mcpServers.hint":
-    "Servidors MCP remots per a agents de Claude, Codex i OpenCode. Els agents reben un canvi quan comença la seva sessió següent: fes <code>/clear</code> a un agent per aplicar-lo ara.",
-  "settings.mcpServers.ownerManaged":
-    "Els servidors MCP de l'oficina els gestiona un propietari de l'oficina.",
   "settings.mcpServers.loadFailed":
     "No s'han pogut carregar els servidors MCP.",
   "settings.mcpServers.saveFailed": "No s'ha pogut desar el servidor MCP.",
-  "settings.mcpServers.empty": "Encara no hi ha servidors MCP.",
   "settings.mcpServers.add": "Afegeix un servidor MCP",
   "settings.mcpServers.name": "Nom",
-  "settings.mcpServers.url": "URL",
-  "settings.mcpServers.urlNote":
-    "Posa la credencial al camp de credencial, no a l'URL.",
-  "settings.mcpServers.credential": "Credencial",
-  "settings.mcpServers.credentialNone": "Cap",
-  "settings.mcpServers.credentialNew": "Secret nou",
-  "settings.mcpServers.credentialOAuth": "Inicia la sessió (OAuth)",
-  "settings.mcpServers.oauthHint":
-    "Inicies la sessió una vegada i els agents de Claude, Codex i OpenCode reben l'accés. Deixa buits els camps del client tret que el servidor necessiti un client que hi vas registrar.",
   "settings.mcpServers.clientId": "ID de client (opcional)",
   "settings.mcpServers.clientSecret": "Secret de client (opcional)",
   "settings.mcpServers.signIn": "Inicia la sessió",
   "settings.mcpServers.signInAgain": "Torna a iniciar la sessió",
-  "settings.mcpServers.signedIn": "Sessió iniciada",
-  "settings.mcpServers.notSignedIn": "Sense sessió iniciada",
   "settings.mcpServers.signInDone": "Sessió iniciada al servidor MCP.",
   "settings.mcpServers.signInFailed":
     "No s'ha pogut iniciar la sessió. Torna-ho a provar.",
@@ -953,13 +881,7 @@ Coses que pots fer per ell:
   "settings.connections.list.mcpSignIn": "Exclòs: sense sessió iniciada",
   "settings.connections.list.mcpSignInAgain":
     "Exclòs: torna a iniciar la sessió",
-  "settings.connections.list.mcpOAuth": "Sessió iniciada amb OAuth",
-  "settings.mcpServers.secretName": "Nom del secret",
   "settings.mcpServers.tokenPlaceholder": 'Només el token, sense "Bearer"',
-  "settings.mcpServers.formBearer": "Authorization: Bearer",
-  "settings.mcpServers.newSecretHost": "El secret només va a {host}.",
-  "settings.mcpServers.newSecretNoHost":
-    "Escriu primer l'URL: el secret només va al seu host.",
   "settings.mcpServers.error.name":
     "Fes servir fins a 24 lletres minúscules, dígits i guions, amb una lletra o un dígit a cada extrem.",
   "settings.mcpServers.error.url":
@@ -969,14 +891,10 @@ Coses que pots fer per ell:
   "settings.mcpServers.error.secretNotFound": "Aquest secret no existeix.",
   "settings.mcpServers.error.secretHost":
     "El secret no inclou {host}. Afegeix el host al secret o tria'n un altre.",
-  "settings.connections.list.kindMcpServer": "Servidor MCP",
-  "settings.connections.list.kindMcpInClaude": "Servidor MCP definit a Claude",
   "settings.connections.list.engineMcpUser":
     "Tots els agents de Claude amb el mateix inici de sessió de Claude",
   "settings.connections.list.engineMcpFolder":
     "Tots els agents de Claude que treballen a {folder}",
-  "settings.connections.list.mcpNoCredential": "Sense credencial",
-  "settings.connections.list.mcpCredential": "Credencial definida",
   "settings.connections.list.mcpCredentialNamed": "Credencial: {name}",
   "settings.connections.list.mcpSecretMissing": "Exclòs: falta el seu secret",
   "settings.connections.list.mcpSecretHost":
@@ -988,25 +906,12 @@ Coses que pots fer per ell:
   "settings.connections.list.setInClaudeLocal":
     "Definit a la configuració local de Claude per a {folder}",
   "settings.connections.list.setInProject": "Definit a {file}",
-  "settings.connections.list.kindSecret": "Secret",
-  "settings.connections.list.nameStatus": "{name} ({status})",
-  "settings.connections.status.connected": "connectat",
-  "settings.connections.status.failed": "amb error",
-  "settings.connections.status.needsAuth": "cal iniciar sessió",
-  "settings.connections.status.pending": "pendent",
-  "settings.connections.status.disabled": "desactivat",
   "settings.connections.test.button": "Prova",
   "settings.connections.test.running": "S'està provant…",
-  "settings.connections.test.none": "Sense prova",
   "settings.connections.test.noHostTest": "Sense prova per als seus hosts",
-  "settings.connections.test.ownersOnly":
-    "Només els propietaris ho poden provar",
-  "settings.connections.test.variablesHint":
-    "Les variables no tenen prova: Isomux no sap per a quin servei són.",
   "settings.connections.test.works": "Funciona",
   "settings.connections.test.tools.one": "{count} eina",
   "settings.connections.test.tools.other": "{count} eines",
-  "settings.connections.test.signedOut": "No hi ha cap sessió iniciada.",
   "settings.connections.test.refused":
     "{host} ha rebutjat la credencial. Revisa-la o rota-la.",
   "settings.connections.test.forbidden":
@@ -1024,15 +929,185 @@ Coses que pots fer per ell:
   "settings.connections.test.needsOauth":
     "{host} demana iniciar sessió amb OAuth, que Isomux encara no admet.",
   "settings.connections.test.requestFailed": "No s'ha pogut fer la prova.",
+  "common.integrations": "Integracions",
+  "integrations.ownerIntro":
+    "Configura el que poden fer servir els agents, per a l'oficina i per a cada membre.",
+  "integrations.memberIntro":
+    "Els propietaris configuren el que fan servir els agents. Pots afegir-hi el teu per als agents que inicies.",
+  "integrations.tabs.providers": "Proveïdors de models",
+  "integrations.tabs.mcp": "Servidors MCP",
+  "integrations.tabs.secrets": "Secrets",
+  "integrations.tabs.variables": "Variables",
+  "integrations.tabIntro.providers":
+    "Els comptes de Claude i Codex amb què funcionen els agents.",
+  "integrations.tabIntro.mcp":
+    "Eines que els agents poden cridar, com Linear o Sentry.",
+  "integrations.tabIntro.secrets":
+    "Claus d'API i tokens de serveis com GitHub.",
+  "integrations.tabIntro.variables":
+    "Paràmetres simples que els agents poden llegir, com una zona horària. Posa les claus a Secrets.",
+  "integrations.secretsHonesty":
+    "Isomux impedeix que els agents llegeixin els secrets desats, però aquesta oficina no té cap mur ferm entre els agents i els seus fitxers.",
+  "integrations.office": "De tota l'oficina",
+  "integrations.officeWho": "Tots els agents de l'oficina",
+  "integrations.officeWhoMember":
+    "Tots els agents de l'oficina. Només els propietaris poden canviar les integracions de tota l'oficina.",
+  "integrations.personal": "Personals",
+  "integrations.personalWhoSelf":
+    "Els agents que inicies. Una de personal substitueix la de tota l'oficina amb el mateix nom.",
+  "integrations.personalWhoMember":
+    "Els agents que inicia {member}. Una de personal substitueix la de tota l'oficina amb el mateix nom.",
+  "integrations.memberTitle": "Integracions de {member}",
+  "integrations.backToYours": "Torna a les teves",
+  "integrations.picker": "De qui són les integracions",
+  "integrations.applies":
+    "Els agents reben un canvi quan inicien una conversa nova.",
+  "integrations.helpTip": "Què vol dir això?",
+  "integrations.show": "Mostra",
+  "integrations.hide": "Amaga",
+  "integrations.remove": "Treu",
+  "integrations.moreOptions": "Més opcions",
+  "integrations.actionFailed": "No s'ha pogut fer. Torna-ho a provar.",
+  "integrations.dialog.edit.self": "Edita {name}",
+  "integrations.dialog.edit.member": "Edita {name} de {member}",
+  "integrations.dialog.edit.office": "Edita {name} de tota l'oficina",
+  "integrations.dialog.remove.self": "Vols treure {name}?",
+  "integrations.dialog.remove.member": "Vols treure {name} de {member}?",
+  "integrations.dialog.remove.office": "Vols treure {name} de tota l'oficina?",
+  "integrations.providers.apiKeys":
+    "Prefereixes una clau d'API? Afegeix <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> o <code>OPENCODE_API_KEY</code> a <link>Variables</link>.",
+  "integrations.providers.memberSignsIn":
+    "Els membres inicien la sessió als seus propis comptes.",
+  "integrations.status.connected": "Connectat",
+  "integrations.status.pending": "Pendent",
+  "integrations.status.needsAuth": "Cal iniciar la sessió",
+  "integrations.status.failed": "Error",
+  "integrations.status.off": "Desactivat",
+  "integrations.connectors.title":
+    "De claude.ai, per als agents de Claude a {account}",
+  "integrations.connectors.titleNoAccount":
+    "De claude.ai, per als agents de Claude amb aquest inici de sessió",
+  "integrations.connectors.hint":
+    "Els agents de Claude amb aquest compte també els reben. <link>Gestiona'ls a claude.ai</link>.",
+  "integrations.connectors.unknown":
+    "Isomux els mostra després que un agent de Claude amb aquest compte faci un torn.",
+  "integrations.connectors.pendingHelp":
+    "Claude informa dels seus connectors quan comença un torn, mentre alguns encara s'estan connectant. Isomux ho torna a comprovar 10 segons després.",
+  "integrations.engineMcp.title": "Configurats als fitxers de Claude",
+  "integrations.mcp.empty": "No hi ha servidors MCP.",
+  "integrations.mcp.nameHint":
+    "Els agents veuen aquest nom, per exemple linear.",
+  "integrations.mcp.url": "Adreça del servidor (URL)",
+  "integrations.mcp.urlHint":
+    "La documentació del servei dona aquesta adreça. Posa un token a Inici de sessió, no a l'adreça.",
+  "integrations.mcp.auth": "Inici de sessió",
+  "integrations.mcp.authOauth": "Inicia la sessió amb el servei",
+  "integrations.mcp.authToken": "Enganxa un token",
+  "integrations.mcp.authSaved": "Fes servir un secret desat",
+  "integrations.mcp.authNone": "Cap",
+  "integrations.mcp.token": "Token",
+  "integrations.mcp.tokenGoesTo": "Isomux envia el token només a {host}.",
+  "integrations.mcp.tokenNoHost":
+    "Escriu primer l'adreça: Isomux envia el token només al seu host.",
+  "integrations.mcp.tokenName": "Es desa com a",
+  "integrations.mcp.tokenNameHint":
+    "El token es desa a la pestanya Secrets amb aquest nom.",
+  "integrations.mcp.savedSecret": "Secret",
+  "integrations.mcp.pickSecret": "Tria un secret",
+  "integrations.mcp.oauthHint":
+    "En desar, s'obre una pàgina d'inici de sessió del servei. Els agents de Claude, Codex i OpenCode reben l'accés.",
+  "integrations.mcp.clientHint":
+    "Deixa'ls buits tret que el servidor necessiti un client que hi vas registrar.",
+  "integrations.mcp.saveAndSignIn": "Desa i inicia la sessió",
+  "integrations.mcp.status.signedIn": "Sessió iniciada",
+  "integrations.mcp.status.needsSignIn": "Cal iniciar la sessió",
+  "integrations.mcp.status.token": "Token desat",
+  "integrations.mcp.status.none": "Sense inici de sessió",
+  "integrations.mcp.addHeading.self": "Afegeix un servidor MCP",
+  "integrations.mcp.addHeading.member":
+    "Afegeix un servidor MCP per a {member}",
+  "integrations.mcp.addHeading.office":
+    "Afegeix un servidor MCP per a tota l'oficina",
+  "integrations.mcp.signedInTo.self": "Sessió iniciada a {name}.",
+  "integrations.mcp.signedInTo.member": "Sessió iniciada a {name} de {member}.",
+  "integrations.mcp.signedInTo.office":
+    "Sessió iniciada a {name} de tota l'oficina.",
+  "integrations.providers.noPersonal": "Sense inici de sessió personal",
+  "integrations.connectionsFailed":
+    "No s'han pogut carregar els connectors de claude.ai ni els servidors configurats als fitxers de Claude.",
+  "integrations.memberGone": "{member} ja no és en aquesta oficina.",
+  "integrations.mcp.signInFailedFor.self":
+    "L'inici de sessió a {name} no ha acabat.",
+  "integrations.mcp.signInFailedFor.member":
+    "L'inici de sessió a {name} de {member} no ha acabat.",
+  "integrations.mcp.signInFailedFor.office":
+    "L'inici de sessió a {name} de tota l'oficina no ha acabat.",
+  "integrations.secrets.empty": "No hi ha secrets.",
+  "integrations.secrets.add": "Afegeix un secret",
+  "integrations.secrets.value": "Clau o token",
+  "integrations.secrets.valuePlaceholder": "Enganxa'l aquí",
+  "integrations.secrets.newValuePlaceholder": "Enganxa el valor nou",
+  "integrations.secrets.nameHint":
+    "Els agents veuen aquest nom, per exemple MY_API_KEY.",
+  "integrations.secrets.addresses": "Adreces que el poden rebre",
+  "integrations.secrets.addressesHint":
+    "Les adreces web del servei, una per línia, com api.example.com. Isomux no envia la clau a cap altra adreça. Afegeix només adreces que siguin del servei.",
+  "integrations.secrets.presetGoesTo": "Isomux l'envia només a {service}.",
+  "integrations.secrets.showAddresses": "Mostra les adreces",
+  "integrations.secrets.hideAddresses": "Amaga les adreces",
+  "integrations.secrets.howSent": "Com l'espera el servei",
+  "integrations.secrets.bearer": "Com a token bearer (la majoria de serveis)",
+  "integrations.secrets.customHeader": "En una capçalera amb un altre nom",
+  "integrations.secrets.headerPlaceholder":
+    "Nom de la capçalera, com x-api-key",
+  "integrations.secrets.presetSet": "{service} · desat el {date}",
+  "integrations.secrets.goesToSet": "Va a {hosts} · desat el {date}",
+  "integrations.secrets.goesTo": "Va a {hosts}",
+  "integrations.secrets.showFailed": "No s'ha pogut mostrar el valor.",
+  "integrations.secrets.reissueHint":
+    "Els agents reben un substitut nou i l'anterior deixa de funcionar.",
+  "integrations.secrets.addHeading.self": "Afegeix un secret",
+  "integrations.secrets.addHeading.member": "Afegeix un secret per a {member}",
+  "integrations.secrets.addHeading.office":
+    "Afegeix un secret per a tota l'oficina",
+  "integrations.secrets.replaceHeading.self": "Substitueix el valor de {name}",
+  "integrations.secrets.replaceHeading.member":
+    "Substitueix el valor de {name} de {member}",
+  "integrations.secrets.replaceHeading.office":
+    "Substitueix el valor de {name} de tota l'oficina",
+  "integrations.secrets.reissueHeading.self": "Nou substitut per a {name}",
+  "integrations.secrets.reissueHeading.member":
+    "Nou substitut per a {name} de {member}",
+  "integrations.secrets.reissueHeading.office":
+    "Nou substitut per a {name} de tota l'oficina",
+  "integrations.variables.empty": "No hi ha variables.",
+  "integrations.variables.modelKeys":
+    "Les claus d'API de models, com <code>ANTHROPIC_API_KEY</code>, van aquí, no a Secrets: Isomux mai no envia un secret a un proveïdor de models.",
+  "integrations.variables.looksLikeKey":
+    "Sembla una clau. Desa-la com a secret perquè els agents no en vegin mai el valor.",
+  "integrations.variables.exists": "Ja hi ha una variable amb aquest nom.",
+  "integrations.variables.addHeading.self": "Afegeix una variable",
+  "integrations.variables.addHeading.member":
+    "Afegeix una variable per a {member}",
+  "integrations.variables.addHeading.office":
+    "Afegeix una variable per a tota l'oficina",
+  "integrations.variables.replaceHeading.self":
+    "Substitueix el valor de {name}",
+  "integrations.variables.replaceHeading.member":
+    "Substitueix el valor de {name} de {member}",
+  "integrations.variables.replaceHeading.office":
+    "Substitueix el valor de {name} de tota l'oficina",
+  "settings.memberIntegrations.hint":
+    "Gestiona els secrets, les variables i els servidors MCP de {member} a la pàgina <link>Integracions</link>.",
 
   "settings.signIn.apiKeyNote":
-    "Vols fer servir un token d'API? Mira Configuració → Tu → Connexions individuals.",
+    "Vols fer servir un token d'API? Mira Integracions → Variables.",
   "settings.signIn.scopeOffice":
     "Tota l'oficina: inicia la sessió per a cada agent d'aquesta oficina",
   "settings.signIn.scopePersonal":
-    "Individual: inicia la sessió per als agents que creo",
+    "Personal: inicia la sessió per als agents que creo",
   "settings.signIn.officeHint":
-    "Aquesta subscripció es fa servir per a cada agent de l'oficina tret dels que crea un membre que hagi configurat les seves <link>Connexions individuals</link>.",
+    "Aquesta subscripció es fa servir per a cada agent de l'oficina tret dels que crea un membre amb el seu propi <link>inici de sessió personal</link>.",
   "settings.signIn.personalHint":
     "Fes servir un compte a part per als teus agents.",
   "settings.signIn.status": "Estat:",
@@ -1089,19 +1164,10 @@ Coses que pots fer per ell:
   "settings.env.valuePlaceholder": "Valor",
   "settings.env.remove": "Treu",
   "settings.env.add": "Afegeix una variable",
-  "settings.env.hideValues": "Amaga els valors",
-  "settings.env.showValues": "Mostra els valors",
-  "settings.env.save": "Desa les variables",
-  "settings.env.saved": "Variables desades",
-  "settings.env.duplicate": "Els noms de les variables no es poden repetir.",
 
-  "settings.memberConnections.title": "Connexions individuals",
-  "settings.memberConnections.hint":
-    "Estat dels proveïdors personals i noms de variables per als agents d'aquesta persona.",
   "settings.memberConnections.loadFailed":
     "No s'han pogut carregar les connexions.",
   "settings.memberConnections.unknown": "No s'ha pogut comprovar l'estat.",
-  "settings.memberConnections.empty": "No hi ha variables.",
   "settings.memberApiTokens.title": "Tokens d'API",
   "settings.memberApiTokens.hint":
     "Revoca un token per aturar-lo a la seva propera sol·licitud.",
@@ -1259,7 +1325,7 @@ Coses que pots fer per ell:
   "dialogs.agent.managerNoUser": "(cap membre assignat)",
   "dialogs.agent.managerUnowned": "(sense propietari)",
   "dialogs.agent.managerHint":
-    "L’agent fa servir les connexions a proveïdors i les variables personals d’aquest membre. Consulta Configuració → Tu → Connexions individuals.",
+    "L’agent fa servir les connexions a proveïdors i les variables personals d’aquest membre. Consulta la pàgina Integracions.",
   "dialogs.agent.privileged": "Accés d'operador amb privilegis",
   "dialogs.agent.privilegedHint":
     "Permet a aquest agent dirigir les sessions d'altres agents (reprendre, conversa nova, enviar ara) i gestionar els seus propis cronjobs, amb els permisos per sala de l'membre que el va crear. Continua actuant com l'agent, mai com l'membre.",
@@ -2644,9 +2710,9 @@ Coses que pots fer per ell:
   "systemEntries.claudeAuth.checking":
     "Claude ha rebutjat les credencials. Comprovant la connexió…",
   "systemEntries.claudeAuth.officeLocation":
-    "Configuració → Oficina → Connexions de tota l’oficina",
+    "Integracions → Proveïdors de models (De tota l’oficina)",
   "systemEntries.claudeAuth.personalLocation":
-    "Configuració → Tu → Connexions individuals",
+    "Integracions → Proveïdors de models (Personals)",
   "systemEntries.claudeAuth.disconnected":
     "Claude ha rebutjat les credencials. Inicia sessió a Claude a {location}.",
   "systemEntries.claudeAuth.accessUnavailable":

@@ -835,17 +835,20 @@ describe("AgentManager DI (temp-state isolated)", () => {
       sender: { kind: "user", username: "tester" },
       text: "hello",
     });
-    const guidance =
-      "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
+    // The guidance names the key and the Integrations page that holds it.
+    const guidance = (content: string) =>
+      content.includes("OPENCODE_API_KEY") &&
+      content.includes("Integrations") &&
+      !content.includes("Settings →");
     const deadline = Date.now() + 2000;
     while (
-      !mgr.getAgentLogs(info!.id).some((entry) => entry.content === guidance) &&
+      !mgr.getAgentLogs(info!.id).some((entry) => guidance(entry.content)) &&
       Date.now() < deadline
     ) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     const logs = mgr.getAgentLogs(info!.id);
-    expect(logs.some((entry) => entry.content === guidance)).toBe(true);
+    expect(logs.some((entry) => guidance(entry.content))).toBe(true);
     expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(false);
     expect(await mgr.demoteToLazy(info!.id)).toBe(true);
   });

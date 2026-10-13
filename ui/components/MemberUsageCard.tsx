@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
   OfficeSettingsReq,
@@ -18,13 +18,18 @@ import {
 } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 
-// The member usage cap, on the office half of Connections beside the office
-// sign-ins it limits. It shares the office settings blob (and its version)
+// The member usage cap, on the Integrations page's Model providers tab beside
+// the office sign-ins it limits. It shares the office settings blob (and its version)
 // with the Office pane's name and prompt, so the PUT sends back the prompt it
 // read and omits the name: the server treats an absent prompt as a clear and
 // an absent name as keep. Owners only; a server from before the switch
 // omits it, and then the card does not render.
-export function MemberUsageCard() {
+export function MemberUsageCard({
+  style,
+}: {
+  // The Integrations page lays the card flat inside its own card.
+  style?: CSSProperties;
+} = {}) {
   const { t, language } = useI18n();
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<OfficeSettingsRes | null>(null);
@@ -97,7 +102,11 @@ export function MemberUsageCard() {
   }
 
   return (
-    <section aria-busy={loading} style={{ ...cardStyle, marginTop: 14 }}>
+    <section
+      data-member-usage-card
+      aria-busy={loading}
+      style={{ ...cardStyle, marginTop: 14, ...style }}
+    >
       <label
         style={{
           display: "flex",
