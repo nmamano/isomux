@@ -32,7 +32,7 @@ A connection is anything that lets an agent act on an outside service: an API to
 
 ## Gates (every hand-off)
 
-The room prompt gates: `bun run build:ui` (plus `bun run build:demo` when the diff touches ui/demo-server.ts or shared/storage-labels.ts), scoped tests on the touched area, eslint on touched files, `bunx tsc --noEmit` (inside a MemoryMax=2G scope: `NODE_OPTIONS=--max-old-space-size=1700`). Add server/test-support/routes-table.test.ts and routes-agents-manifest.test.ts when a route changes, server/test-support/identity-tokens.test.ts when a scope's capabilities change, and server/backends/opencode/authority-broker.prompt-routes.test.ts when an agent-reference page or the system prompt names a route. A new agent-facing route also goes in ROUTE_LABELS in ui/log-view/isomux-curl.ts. Update the doc surfaces in internal-docs/documentation.md that the slice makes stale.
+The room prompt gates: `bun run build:ui` (plus `bun run build:demo` when the diff touches ui/demo-server.ts or shared/storage-labels.ts), scoped tests on the touched area, eslint on touched files, `bunx tsc --noEmit` (inside a MemoryMax=2G scope: `NODE_OPTIONS=--max-old-space-size=1700`). Add server/test-support/routes-table.test.ts and routes-agents-manifest.test.ts when a route changes, server/test-support/identity-tokens.test.ts when a scope's capabilities change, and server/backends/opencode/authority-broker.prompt-routes.test.ts when an agent-reference page or the system prompt names a route. A new agent-facing route also goes in ROUTE_LABELS in ui/log-view/isomux-curl.ts. A new audited write route also goes in ui/audit-operations.ts, and ui/audit-operations.test.ts joins the scoped tests (B1 missed it, 2026-10-13). Update the doc surfaces in internal-docs/documentation.md that the slice makes stale.
 
 UI slices show the page in headless Chrome (internal-docs/ui-verification.md), desktop and mobile width, in the report.
 
@@ -44,7 +44,7 @@ UI slices show the page in headless Chrome (internal-docs/ui-verification.md), d
 
 ## Slices
 
-- [ ] A1: the page lists every connection, read-only
+- [x] A1: the page lists every connection, read-only. Approved by Reviewer 1 at 6b529a7c, merged as 0122b4d3. GET /api/me/connections; claude.ai connectors kept in memory per sign-in (init message + status read after each turn, source "claudeai" only). With streaming input the init message comes on every turn (Worker 1, 2026-10-13). Codex Apps and OpenCode: none shown.
 - [ ] A2: remote MCP servers registered once for every engine (after A1 and secrets B1)
 - [ ] A2b: OAuth MCP servers (only if A2 splits it out)
 - [ ] A3: Test button and diagnostics per connection
