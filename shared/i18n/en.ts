@@ -876,6 +876,24 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "The office-wide sign-ins and variables these override are under <link>Office → Office-wide connections</link>.",
   "settings.connections.bedrockHint":
     "Want to connect Bedrock? Read <link>here</link>.",
+  "settings.connections.list.title": "All connections",
+  "settings.connections.list.legend":
+    "Office-wide: every agent gets it. Individual: your agents get it by default, but it is not locked to them.",
+  "settings.connections.list.empty": "No connections yet.",
+  "settings.connections.list.loadFailed": "Could not load the connections.",
+  "settings.connections.list.kindVariable": "Variable",
+  "settings.connections.list.kindSignIn": "Sign-in",
+  "settings.connections.list.kindManagedInClaude": "Managed in Claude",
+  "settings.connections.list.accountUnknown": "Account unknown",
+  "settings.connections.list.scopeOffice": "Office-wide",
+  "settings.connections.list.scopePersonal": "Individual",
+  "settings.connections.list.setIn": "Set in <link>{place}</link>",
+  "settings.connections.list.placeSignIn": "{provider} sign-in",
+  "settings.connections.list.everyClaudeAgent":
+    "Every Claude agent in the office can use them.",
+  "settings.connections.list.claudeConnectors": "Claude connectors",
+  "settings.connections.list.connectorsPendingHint":
+    "Listed after the next Claude turn on this sign-in.",
 
   "settings.signIn.apiKeyNote":
     "Do you want to use an API token? See Settings → You → Individual connections.",

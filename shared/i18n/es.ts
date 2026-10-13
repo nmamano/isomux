@@ -882,6 +882,25 @@ Cosas que puedes hacer por él:
     "Las sesiones y variables de toda la oficina sobre las que estas tienen prioridad están en <link>Oficina → Conexiones de toda la oficina</link>.",
   "settings.connections.bedrockHint":
     "¿Quieres conectar Bedrock? Lee <link>aquí</link>.",
+  "settings.connections.list.title": "Todas las conexiones",
+  "settings.connections.list.legend":
+    "De toda la oficina: la recibe cada agente. Individual: la reciben tus agentes por defecto, pero no está limitada a ellos.",
+  "settings.connections.list.empty": "Aún no hay conexiones.",
+  "settings.connections.list.loadFailed":
+    "No se pudieron cargar las conexiones.",
+  "settings.connections.list.kindVariable": "Variable",
+  "settings.connections.list.kindSignIn": "Inicio de sesión",
+  "settings.connections.list.kindManagedInClaude": "Gestionado en Claude",
+  "settings.connections.list.accountUnknown": "Cuenta desconocida",
+  "settings.connections.list.scopeOffice": "De toda la oficina",
+  "settings.connections.list.scopePersonal": "Individual",
+  "settings.connections.list.setIn": "Se configura en <link>{place}</link>",
+  "settings.connections.list.placeSignIn": "Inicio de sesión de {provider}",
+  "settings.connections.list.everyClaudeAgent":
+    "Todos los agentes de Claude de la oficina pueden usarlos.",
+  "settings.connections.list.claudeConnectors": "Conectores de Claude",
+  "settings.connections.list.connectorsPendingHint":
+    "Aparecen tras el próximo turno de Claude con este inicio de sesión.",
 
   "settings.signIn.apiKeyNote":
     "¿Quieres usar un token de API? Mira Ajustes → Tú → Conexiones individuales.",

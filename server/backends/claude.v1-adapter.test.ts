@@ -167,6 +167,8 @@ class FakeQuery implements V1QueryLike {
 
   // Declared as an own property so a test can delete it, standing in for an
   // SDK release that renames or drops the experimental method.
+  mcpServerStatus?: () => Promise<unknown>;
+
   usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> =
     async () => {
       this.usageCalls++;
@@ -186,6 +188,25 @@ class FakeQuery implements V1QueryLike {
 }
 
 describe("wrapV1Query", () => {
+  it("getMcpServers() reads the session's MCP status, origin under source", async () => {
+    const q = new FakeQuery();
+    const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>());
+    // No status method: an SDK without it reads as unavailable.
+    expect(await conv.getMcpServers?.()).toBeNull();
+    q.mcpServerStatus = async () => [
+      { name: "claude.ai Gmail", status: "connected", scope: "claudeai" },
+      { name: "local", status: "failed" },
+    ];
+    expect(await conv.getMcpServers?.()).toEqual([
+      { name: "claude.ai Gmail", status: "connected", source: "claudeai" },
+      { name: "local", status: "failed" },
+    ]);
+    q.mcpServerStatus = async () => {
+      throw new Error("control request failed");
+    };
+    expect(await conv.getMcpServers?.()).toBeNull();
+  });
+
   it("messages() yields the underlying query", async () => {
     const q = new FakeQuery();
     const input = makePushableInput<SDKUserMessage>();

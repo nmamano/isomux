@@ -217,8 +217,11 @@ export const hasOwningUser: Guard = ({ identity }) =>
 // can never be authorized via role - role is an inert "member" filler for AGENT
 // and CRON-RUN scope (see Identity.role). Stage-1 capabilities already block
 // non-users from owner routes; this is defense-in-depth.
+export const isOfficeOwnerIdentity = (identity: Identity): boolean =>
+  identity.scope === "user" && identity.role === "owner";
+
 export const officeOwner: Guard = ({ identity }) =>
-  identity.scope === "user" && identity.role === "owner" ? ALLOW : FORBIDDEN;
+  isOfficeOwnerIdentity(identity) ? ALLOW : FORBIDDEN;
 
 // Owner-only managed-env reads - the office variables, and the name-only read of
 // another user's - but an API token has its issuing user's reach. Keep this

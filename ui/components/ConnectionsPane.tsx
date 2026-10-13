@@ -16,6 +16,7 @@ import { ProviderSignInCard } from "./ProviderSignInCard.tsx";
 import { ManagedEnvEditor } from "./ManagedEnvEditor.tsx";
 import { SecretsList } from "./SecretsList.tsx";
 import { MemberUsageCard } from "./MemberUsageCard.tsx";
+import { ConnectionsList } from "./ConnectionsList.tsx";
 import { useI18n } from "../i18n.tsx";
 
 // One pane per owner, not one pane for both. The office half holds the
@@ -139,6 +140,11 @@ export function ConnectionsPane({
           {error}
         </p>
       )}
+      <ConnectionsList
+        username={username}
+        half={half}
+        onGoToOtherHalf={onGoToOtherHalf}
+      />
       <ProviderSignInCard
         provider="codex"
         accounts={accounts}

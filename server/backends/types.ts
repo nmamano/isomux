@@ -116,6 +116,11 @@ export type NormalizedEvent =
       sessionId?: string;
       slashCommands?: string[];
       model?: string;
+      // Claude only: the session's MCP servers and where its API credential
+      // came from ("none" = a claude.ai login). Feeds the claude.ai connector
+      // list on the integrations page (server/claude-connectors.ts).
+      mcpServers?: { name: string; status?: string; source?: string }[];
+      apiKeySource?: string;
     }
   // Final or streamed assistant text. Backends may emit multiple per turn.
   | { kind: "assistant_text"; text: string }
@@ -401,6 +406,13 @@ export interface BackendSession {
   getSubscriptionUsage(options?: {
     forceRefresh?: boolean;
   }): Promise<SubscriptionUsageResult>;
+
+  // Claude only: the session's MCP servers as the engine reports them now,
+  // with no model turn, or null when unavailable. Never rejects. Feeds the
+  // claude.ai connector list (server/claude-connectors.ts).
+  getMcpServers?(): Promise<
+    { name: string; status?: string; source?: string }[] | null
+  >;
 
   // Send a user turn. Attachments are never inlined: each becomes one
   // path-notice text line (shared convention in server/attachment-prompt.ts)

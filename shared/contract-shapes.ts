@@ -785,6 +785,27 @@ export type UserEnvNamesRes = {
   providers: MemberProviderStatus[];
 };
 
+// The integrations list (GET /api/me/connections): every connection the
+// caller's agents can use, names only. A variable never carries its value.
+// Office variables are owner-only, like GET /api/office/env, so a member gets
+// none. claudeConnectors has one entry per Claude sign-in with a claude.ai
+// login: seenAt null means no Claude turn on that sign-in since the server
+// started, names [] with a seenAt means it really has none.
+export type ConnectionScope = "office" | "personal";
+export type ConnectionsListRes = {
+  variables: { scope: ConnectionScope; name: string }[];
+  signIns: {
+    scope: ConnectionScope;
+    engine: "claude" | "codex";
+    account: string | null;
+  }[];
+  claudeConnectors: {
+    scope: ConnectionScope;
+    seenAt: number | null;
+    names: string[];
+  }[];
+};
+
 export interface UserEnvReplaceReq {
   values: Record<string, string>;
 }

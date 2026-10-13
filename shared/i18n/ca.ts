@@ -877,6 +877,25 @@ Coses que pots fer per ell:
     "Les sessions i variables de tota l'oficina sobre les quals aquestes tenen prioritat són a <link>Oficina → Connexions de tota l'oficina</link>.",
   "settings.connections.bedrockHint":
     "Vols connectar Bedrock? Llegeix <link>aquí</link>.",
+  "settings.connections.list.title": "Totes les connexions",
+  "settings.connections.list.legend":
+    "De tota l'oficina: la rep cada agent. Individual: la reben els teus agents per defecte, però no hi està limitada.",
+  "settings.connections.list.empty": "Encara no hi ha connexions.",
+  "settings.connections.list.loadFailed":
+    "No s'han pogut carregar les connexions.",
+  "settings.connections.list.kindVariable": "Variable",
+  "settings.connections.list.kindSignIn": "Inici de sessió",
+  "settings.connections.list.kindManagedInClaude": "Gestionat a Claude",
+  "settings.connections.list.accountUnknown": "Compte desconegut",
+  "settings.connections.list.scopeOffice": "De tota l'oficina",
+  "settings.connections.list.scopePersonal": "Individual",
+  "settings.connections.list.setIn": "Es configura a <link>{place}</link>",
+  "settings.connections.list.placeSignIn": "Inici de sessió de {provider}",
+  "settings.connections.list.everyClaudeAgent":
+    "Tots els agents de Claude de l'oficina els poden fer servir.",
+  "settings.connections.list.claudeConnectors": "Connectors de Claude",
+  "settings.connections.list.connectorsPendingHint":
+    "Apareixen després del proper torn de Claude amb aquest inici de sessió.",
 
   "settings.signIn.apiKeyNote":
     "Vols fer servir un token d'API? Mira Configuració → Tu → Connexions individuals.",

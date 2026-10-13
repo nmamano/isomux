@@ -458,6 +458,28 @@ describe("route table: managed env values are self-only", () => {
     }
   });
 
+  // The integrations list carries sign-in accounts and variable names, so it
+  // keeps providerAccounts.list's gate: a cookie user of either role, never an
+  // agent or an API token, even one whose user is an office owner.
+  it("opens connections.list to cookie users only", () => {
+    const route = API_ROUTES.find((r) => r.opId === "connections.list")!;
+    const ownerDeps: GuardDeps = { ...deps, isOfficeOwnerUserId: () => true };
+    for (const who of [
+      identities.user,
+      { ...identities.user, role: "owner" } as Identity,
+    ])
+      expect(runAuthorize(route.auth, who, {}, undefined, deps).ok).toBe(true);
+    for (const who of [
+      identities.api,
+      { ...identities.api, role: "owner" } as Identity,
+      identities.agent,
+      identities.privilegedAgent,
+    ])
+      expect(runAuthorize(route.auth, who, {}, undefined, ownerDeps).ok).toBe(
+        false,
+      );
+  });
+
   // The name-only read is the ONE managed-env route whose subject is somebody
   // else, so it swaps selfUserOrApi for officeEnvOwner: office owners only,
   // by cookie or by their own API token. Walked here at the guard level; the
@@ -1001,6 +1023,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apiTokens.adminList": { caps: ["user:admin"], emits: [] },
   "apiTokens.adminRevoke": { caps: ["user:admin"], emits: [] },
   "providerAccounts.list": { caps: ["user:self"], emits: [] },
+  "connections.list": { caps: ["user:self"], emits: [] },
   "providerAccounts.start": {
     caps: ["user:self"],
     emits: ["provider_accounts_updated"],

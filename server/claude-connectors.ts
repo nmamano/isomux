@@ -1,0 +1,133 @@
+// The claude.ai connectors each Claude sign-in carries (integrations page,
+// task 911c9bbb). A connector set up in claude.ai (Gmail, Drive, ...) belongs
+// to the claude.ai account, so it reaches every Claude session that runs on
+// that sign-in. Isomux cannot ask claude.ai for the list without starting a
+// session, so it records what the sessions it already runs report: the SDK's
+// init message lists the session's MCP servers at the start of every turn, and
+// claude.ai connectors carry source "claudeai". After each turn the server
+// also asks the running session for its MCP servers (no model turn), which is
+// the complete list.
+//
+// Keyed by the resolved CLAUDE_CONFIG_DIR, which holds one claude.ai login. In
+// memory only (Lead, 2026-10-13): after a restart a sign-in reads as not seen
+// until its next Claude turn.
+
+import { resolve } from "node:path";
+
+export interface InitMcpServer {
+  name: string;
+  status?: string;
+  source?: string;
+}
+
+export interface ClaudeConnectorRecord {
+  names: string[];
+  seenAt: number;
+}
+
+const CLAUDE_AI_PREFIX = "claude.ai ";
+
+const records = new Map<string, ClaudeConnectorRecord>();
+// Bumped by every clear, so a status read that started before a sign-in or
+// sign-out cannot put the old account's names back when it lands.
+const generations = new Map<string, number>();
+
+export function claudeConnectorGeneration(dir: string): number {
+  return generations.get(resolve(dir)) ?? 0;
+}
+
+// Only source "claudeai" counts: a server the member configured themselves
+// can carry any name, including one that starts with "claude.ai ". The status
+// at init is usually "pending" (connectors are still connecting), so it is not
+// kept; a connector turned off in claude.ai is not offered to agents.
+export function claudeAiConnectorNames(servers: InitMcpServer[]): string[] {
+  const names = servers
+    .filter(
+      (server) => server.source === "claudeai" && server.status !== "disabled",
+    )
+    .map((server) =>
+      server.name.startsWith(CLAUDE_AI_PREFIX)
+        ? server.name.slice(CLAUDE_AI_PREFIX.length)
+        : server.name,
+    )
+    .filter((name) => name.length > 0);
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+}
+
+export function recordClaudeConnectors(
+  dir: string,
+  servers: InitMcpServer[],
+  now = Date.now(),
+): void {
+  records.set(resolve(dir), {
+    names: claudeAiConnectorNames(servers),
+    seenAt: now,
+  });
+}
+
+// Record what a Claude session reports against the sign-in it was LAUNCHED
+// with (agent-manager captures the directory and the cloud flag at launch).
+// Only a claude.ai login reports claude.ai connectors: a Bedrock or Vertex
+// session, or one billed to an API key, would overwrite a real list with an
+// empty one.
+//
+// Two reports feed it. The init message starts every turn, but the connector
+// fetch can still be running then (seen 2026-10-13: a first init with no
+// claude.ai servers, the next with all five), so an init without any only
+// leaves the record as it was. The status read after each turn is complete,
+// so it may record a sign-in that really has none.
+export function recordClaudeConnectorsFromSession(
+  launch: {
+    agentType: string;
+    launchedClaudeConfigDir?: string;
+    launchedClaudeCloud?: boolean;
+  },
+  report: {
+    mcpServers?: InitMcpServer[] | null;
+    apiKeySource?: string;
+    from: "init" | "status";
+    // The directory's generation when the read started (status reads).
+    generation?: number;
+  },
+  now = Date.now(),
+): boolean {
+  if (launch.agentType !== "claude" || !launch.launchedClaudeConfigDir)
+    return false;
+  if (
+    report.generation !== undefined &&
+    report.generation !==
+      claudeConnectorGeneration(launch.launchedClaudeConfigDir)
+  )
+    return false;
+  if (launch.launchedClaudeCloud || report.apiKeySource !== "none")
+    return false;
+  if (!report.mcpServers) return false;
+  if (
+    report.from === "init" &&
+    !report.mcpServers.some((server) => server.source === "claudeai")
+  )
+    return false;
+  recordClaudeConnectors(
+    launch.launchedClaudeConfigDir,
+    report.mcpServers,
+    now,
+  );
+  return true;
+}
+
+export function claudeConnectorsFor(dir: string): ClaudeConnectorRecord | null {
+  return records.get(resolve(dir)) ?? null;
+}
+
+// A sign-in or sign-out can put a different claude.ai account in the
+// directory, so its list is unknown until the next turn.
+export function clearClaudeConnectors(dir: string): void {
+  const key = resolve(dir);
+  records.delete(key);
+  generations.set(key, (generations.get(key) ?? 0) + 1);
+}
+
+export function resetClaudeConnectorsForTests(): void {
+  records.clear();
+  generations.clear();
+}

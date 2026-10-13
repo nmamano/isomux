@@ -72,7 +72,10 @@ export function ProviderSignInCard({
   const { t } = useI18n();
   const title = provider === "codex" ? "Codex" : "Claude";
   return (
-    <section style={{ ...cardStyle, marginTop: 14 }}>
+    <section
+      data-provider-card={provider}
+      style={{ ...cardStyle, marginTop: 14 }}
+    >
       {showTitle && <h5 style={{ margin: "0 0 12px" }}>{title}</h5>}
       {scopes.map((scope, index) => (
         <ProviderScopeConnection

@@ -350,6 +350,9 @@ import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { providerAccountsHandlers } from "./routes/handlers/provider-accounts.ts";
+import { buildConnectionsList } from "./connections-list.ts";
+import { connectionsHandlers } from "./routes/handlers/connections.ts";
+import { claudeConnectorsFor } from "./claude-connectors.ts";
 import {
   ProviderAccountManager,
   type CreateClaudeAccountClient,
@@ -5003,6 +5006,21 @@ function buildExecutorDeps(
         providerAccountManager.cancel(userId, provider, scope, allowForeign),
       disconnect: (userId, provider, scope) =>
         providerAccountManager.disconnect(userId, provider, scope),
+    }),
+  );
+  register(
+    connectionsHandlers({
+      list: (userId, officeOwner) =>
+        buildConnectionsList({
+          officeOwner,
+          officeVariableNames: () => Object.keys(readManagedOfficeEnv() ?? {}),
+          personalVariableNames: () =>
+            Object.keys(readManagedUserEnv(userId) ?? {}),
+          accounts: () => providerAccountManager.list(userId),
+          claudeConnectorDir: (scope) =>
+            providerAccountManager.claudeConnectorDir(userId, scope),
+          claudeConnectorsFor,
+        }),
     }),
   );
   register(

@@ -45,6 +45,12 @@ export interface ManagedAgent {
   readonly sessionManager: SessionManager<ManagedAgent>;
   // Root captured from the actual Claude launch, before system_init assigns an id.
   launchedClaudeConfigDir?: string;
+  // True when that launch selected Bedrock or Vertex: the session has no
+  // claude.ai login, so its init must not overwrite the sign-in's connectors.
+  launchedClaudeCloud?: boolean;
+  // Where the running Claude session's API credential comes from, from its
+  // init ("none" = a claude.ai login). Unset until the first init.
+  claudeApiKeySource?: string;
   // The account the installed session bills, captured at its launch. The
   // member usage cap compares it with the office sign-in.
   billingAccount?: BillingAccount;

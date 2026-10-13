@@ -9,6 +9,7 @@ import {
   dialogSaveBtn,
 } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
+import { notifyManagedEnvSaved } from "../connections-events.ts";
 
 interface Entry {
   id: number;
@@ -75,6 +76,7 @@ export function ManagedEnvEditor({ path }: { path: string }) {
     try {
       await apiFetch("PUT", path, { values: current });
       setSaved(current);
+      notifyManagedEnvSaved();
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : t("settings.env.saveFailed"),

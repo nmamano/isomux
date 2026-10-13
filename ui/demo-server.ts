@@ -2746,6 +2746,31 @@ export async function demoApi(
     }
     case "GET /api/me/api-tokens":
       return { apiTokens: [...demoApiTokens] };
+    // The integrations list: names only, office variables for owners only,
+    // as the server builds it. Every demo sign-in is signed out, so there are
+    // no sign-in or connector rows.
+    case "GET /api/me/connections": {
+      const selfId = sessionContext?.userId ?? null;
+      const owner = sessionContext?.role === "owner";
+      const names = (values: Record<string, string>) =>
+        Object.keys(values).sort((a, b) => a.localeCompare(b));
+      return {
+        variables: [
+          ...(owner
+            ? names(demoManagedOfficeEnv).map((name) => ({
+                scope: "office",
+                name,
+              }))
+            : []),
+          ...names((selfId && demoManagedEnv[selfId]) || {}).map((name) => ({
+            scope: "personal",
+            name,
+          })),
+        ],
+        signIns: [],
+        claudeConnectors: [],
+      };
+    }
     case "GET /api/me/provider-accounts":
       return {
         accounts: [

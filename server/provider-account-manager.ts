@@ -32,6 +32,7 @@ import {
   personalProviderHome,
 } from "./provider-homes.ts";
 import { memberUsageCap } from "./member-usage-cap.ts";
+import { clearClaudeConnectors } from "./claude-connectors.ts";
 import { getAgentHost } from "./agent-host.ts";
 
 export const CLAUDE_CONFIG_INVALID =
@@ -193,6 +194,22 @@ export class ProviderAccountManager {
       scope: "personal",
       dir: effectiveDir,
     };
+  }
+
+  // The directory whose claude.ai connectors a scope's Claude sign-in carries,
+  // for the integrations list. Null when the scope cannot be resolved (a
+  // collision) or runs on Bedrock or Vertex, which has no claude.ai login.
+  claudeConnectorDir(
+    userId: string,
+    scope: ProviderAccountScope,
+  ): string | null {
+    let target: Target;
+    try {
+      target = this.target(userId, "claude", scope);
+    } catch {
+      return null;
+    }
+    return isClaudeCloudSelected(target.env) ? null : resolve(target.dir);
   }
 
   private normalizePersonal(
@@ -793,6 +810,8 @@ export class ProviderAccountManager {
       // The office may now be a different account: drop the cap's reading.
       if (active.target.scope === "office")
         memberUsageCap().invalidate(active.target.provider);
+      if (active.target.provider === "claude")
+        clearClaudeConnectors(active.target.dir);
       this.emit(active.userId, await this.list(active.userId));
     } catch (err) {
       if (this.active.get(key) === active) {
@@ -906,6 +925,7 @@ export class ProviderAccountManager {
     if (scope === "personal" && target.autoPersonal)
       this.deactivatePersonal(userId, provider);
     if (scope === "office") memberUsageCap().invalidate(provider);
+    if (provider === "claude") clearClaudeConnectors(target.dir);
 
     const affectedUsers = scope === "office" ? this.users() : [{ id: userId }];
     const prefix = `${target.key}:${scope}:`;

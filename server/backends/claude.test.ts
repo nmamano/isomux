@@ -75,6 +75,29 @@ describe("translateSDKMessage - system", () => {
     ]);
   });
 
+  it("init carries the MCP servers and the API key source", () => {
+    const [event] = translate({
+      type: "system",
+      subtype: "init",
+      session_id: "s-1",
+      slash_commands: [],
+      model: "x",
+      apiKeySource: "none",
+      mcp_servers: [
+        { name: "claude.ai Gmail", status: "pending", source: "claudeai" },
+        { name: "local", status: "connected" },
+      ],
+    });
+    expect(event).toMatchObject({
+      kind: "system_init",
+      apiKeySource: "none",
+      mcpServers: [
+        { name: "claude.ai Gmail", status: "pending", source: "claudeai" },
+        { name: "local", status: "connected" },
+      ],
+    });
+  });
+
   it("init without session_id emits with undefined sessionId", () => {
     const events = translate({
       type: "system",

@@ -4,6 +4,10 @@ import {
   claudeConfigRoot,
   resolveClaudeSessionRoot,
 } from "./claude-session-root.ts";
+import {
+  claudeConnectorGeneration,
+  recordClaudeConnectorsFromSession,
+} from "./claude-connectors.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
 import type { RoomDecorPatch } from "../shared/room-decor.ts";
@@ -4434,6 +4438,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           clearStaleAutoResumeState(agentId, managed);
           persistAll();
         }
+        if (managed) recordInitConnectors(managed, ev);
         // Capture available slash commands and skills from init.
         const sdkCommands = ev.slashCommands ?? [];
         // Filter out MCP internal command names (mcp__...) - they clutter autocomplete.
@@ -4656,6 +4661,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed) refreshContextUsage(managed, "turn_completed");
         // Subscription-allowance reading at the same boundary.
         if (managed) refreshSubscriptionUsage(managed, "turn_completed");
+        if (managed) refreshSessionConnectors(managed);
         if (ev.status === "completed")
           flushPendingFreshRecoveryNotice(agentId, managed);
         const isProviderCapacity = ev.causedByProviderCapacity === true;
@@ -5264,6 +5270,63 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return acted;
   }
 
+  // The integrations page lists each Claude sign-in's claude.ai connectors
+  // from sessions that already run: the init that starts a turn, then the
+  // session's own MCP status read after the turn. Neither can reach the turn.
+  function launchOf(managed: ManagedAgent) {
+    return {
+      agentType: managed.info.agentType,
+      launchedClaudeConfigDir: managed.launchedClaudeConfigDir,
+      launchedClaudeCloud: managed.launchedClaudeCloud,
+    };
+  }
+
+  function recordInitConnectors(
+    managed: ManagedAgent,
+    ev: Extract<NormalizedEvent, { kind: "system_init" }>,
+  ): void {
+    if (managed.info.agentType !== "claude") return;
+    managed.claudeApiKeySource = ev.apiKeySource;
+    try {
+      recordClaudeConnectorsFromSession(launchOf(managed), {
+        mcpServers: ev.mcpServers,
+        apiKeySource: ev.apiKeySource,
+        from: "init",
+      });
+    } catch (err) {
+      console.warn(
+        `[connectors] could not record ${managed.info.id}: ${errMessage(err)}`,
+      );
+    }
+  }
+
+  function refreshSessionConnectors(managed: ManagedAgent): void {
+    const session = managed.sessionManager.session;
+    if (managed.info.agentType !== "claude" || !session?.getMcpServers) return;
+    // Captured now: the read resolves later, maybe after a session swap or
+    // a sign-out that cleared this directory.
+    const launch = launchOf(managed);
+    const apiKeySource = managed.claudeApiKeySource;
+    const generation = launch.launchedClaudeConfigDir
+      ? claudeConnectorGeneration(launch.launchedClaudeConfigDir)
+      : undefined;
+    void (async () => {
+      try {
+        const servers = await session.getMcpServers!();
+        recordClaudeConnectorsFromSession(launch, {
+          mcpServers: servers,
+          apiKeySource,
+          from: "status",
+          generation,
+        });
+      } catch (err) {
+        console.warn(
+          `[connectors] could not read ${managed.info.id}: ${errMessage(err)}`,
+        );
+      }
+    })();
+  }
+
   // Merge process.env with office variables and the agent owner's managed personal variables.
   // User overrides office; office overrides process.env. Spawn-time failure
   // mode: if a configured env file is missing or fails to parse, throw - the
@@ -5666,6 +5729,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const backend = getBackend(managed.info.agentType);
     managed.launchedClaudeConfigDir =
       managed.info.agentType === "claude" ? claudeConfigRoot(env) : undefined;
+    managed.launchedClaudeCloud =
+      managed.info.agentType === "claude" &&
+      isClaudeCloudSelected(env ?? getAgentHost().baseEnv());
+    managed.claudeApiKeySource = undefined;
     managed.billingAccount = billingAccountFor(managed.info.agentType, env);
     // The boundary callback is bound to the session it is created with, so a
     // hook still firing in a closed or replaced session cannot claim the queue

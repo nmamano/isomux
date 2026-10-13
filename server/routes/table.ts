@@ -135,6 +135,7 @@ import type {
   UserUpdateReq,
   SetAccessReq,
   UserEnvNamesRes,
+  ConnectionsListRes,
   UserEnvReplaceReq,
   UserEnvRes,
   SecretCreateReq,
@@ -1234,6 +1235,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "providerAccounts.list",
     method: "GET",
     path: "/api/me/provider-accounts",
+    auth: cap("user:self", userScope),
+    emits: [],
+  }),
+  // The integrations list: names of variables, connected sign-ins and the
+  // claude.ai connectors each Claude sign-in carries. Never a variable value.
+  // Same gate as providerAccounts.list, whose data it includes; office
+  // variable names follow officeEnv.get's owner rule inside the handler.
+  defineRoute<void, ConnectionsListRes>({
+    opId: "connections.list",
+    method: "GET",
+    path: "/api/me/connections",
     auth: cap("user:self", userScope),
     emits: [],
   }),

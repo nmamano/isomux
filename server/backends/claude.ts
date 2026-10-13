@@ -196,6 +196,10 @@ export interface SdkConversation {
   getSubscriptionUsage(options?: {
     forceRefresh?: boolean;
   }): Promise<SubscriptionUsageResult>;
+  /** The session's MCP servers now (no model turn), or null when unavailable. */
+  getMcpServers?(): Promise<
+    { name: string; status?: string; source?: string }[] | null
+  >;
 }
 
 export interface SdkOneShotOptions {
@@ -340,6 +344,8 @@ export interface V1QueryLike extends AsyncIterable<SDKMessage> {
   // renames or drops it, the typeof check below turns the pill off instead of
   // failing the build or throwing at runtime.
   usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown>;
+  // Optional so test stubs need not carry it.
+  mcpServerStatus?: () => Promise<unknown>;
 }
 
 // Which claude.ai rate-limit windows isomux surfaces, in DISPLAY order (the
@@ -491,6 +497,9 @@ export function normalizeClaudeSubscriptionUsage(
   };
 }
 
+// How long the post-turn MCP status read may take (integrations list).
+const MCP_STATUS_TIMEOUT_MS = 5_000;
+
 export function wrapV1Query(
   q: V1QueryLike,
   input: PushableInput<SDKUserMessage>,
@@ -557,6 +566,41 @@ export function wrapV1Query(
         return (await q.getContextUsage()) as ContextUsage;
       } catch {
         return null;
+      }
+    },
+    async getMcpServers() {
+      if (typeof q.mcpServerStatus !== "function") return null;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        // A control request that never settles must not hold a closure per
+        // turn, so the read gives up and reports nothing.
+        const servers = (await Promise.race([
+          q.mcpServerStatus(),
+          new Promise<null>((resolve) => {
+            timer = setTimeout(() => resolve(null), MCP_STATUS_TIMEOUT_MS);
+          }),
+        ])) as
+          | {
+              name: string;
+              status?: string;
+              scope?: string;
+              source?: string;
+            }[]
+          | null;
+        if (!Array.isArray(servers)) return null;
+        // The status call names the origin `scope`; init names it `source`.
+        return servers.map((server) => {
+          const source = server.source ?? server.scope;
+          return {
+            name: server.name,
+            status: server.status,
+            ...(source ? { source } : {}),
+          };
+        });
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timer);
       }
     },
     async getSubscriptionUsage(options): Promise<SubscriptionUsageResult> {
@@ -938,6 +982,12 @@ export class ClaudeSession implements BackendSession {
     return this.conversation.getSubscriptionUsage(options);
   }
 
+  async getMcpServers(): Promise<
+    { name: string; status?: string; source?: string }[] | null
+  > {
+    return (await this.conversation.getMcpServers?.()) ?? null;
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -1011,6 +1061,16 @@ export function* translateSDKMessage(
           sessionId: sessionId || undefined,
           slashCommands: msg.slash_commands ?? [],
           model: msg.model,
+          ...(Array.isArray(msg.mcp_servers)
+            ? {
+                mcpServers: msg.mcp_servers.map((server) => ({
+                  name: server.name,
+                  status: server.status,
+                  ...(server.source ? { source: server.source } : {}),
+                })),
+              }
+            : {}),
+          ...(msg.apiKeySource ? { apiKeySource: msg.apiKeySource } : {}),
         };
       } else if (subtype === "local_command_output") {
         const { content } = msg;

@@ -800,6 +800,24 @@ App 的一些原则：
     "这些设置所覆盖的办公室通用登录和变量位于<link>办公室 → 办公室通用连接</link>。",
   "settings.connections.bedrockHint":
     "想连接 Bedrock？请阅读<link>此处</link>。",
+  "settings.connections.list.title": "所有连接",
+  "settings.connections.list.legend":
+    "办公室通用：每个智能体都会获得。个人：默认由你的智能体获得，但并不限定于它们。",
+  "settings.connections.list.empty": "还没有连接。",
+  "settings.connections.list.loadFailed": "无法加载连接。",
+  "settings.connections.list.kindVariable": "变量",
+  "settings.connections.list.kindSignIn": "登录",
+  "settings.connections.list.kindManagedInClaude": "在 Claude 中管理",
+  "settings.connections.list.accountUnknown": "账户未知",
+  "settings.connections.list.scopeOffice": "办公室通用",
+  "settings.connections.list.scopePersonal": "个人",
+  "settings.connections.list.setIn": "设置位置：<link>{place}</link>",
+  "settings.connections.list.placeSignIn": "{provider} 登录",
+  "settings.connections.list.everyClaudeAgent":
+    "办公室中的每个 Claude 智能体都可以使用它们。",
+  "settings.connections.list.claudeConnectors": "Claude 连接器",
+  "settings.connections.list.connectorsPendingHint":
+    "此登录下一次 Claude 轮次后列出。",
   "settings.signIn.apiKeyNote":
     "想使用 API 令牌？请查看「设置 → 你 → 个人连接」。",
   "settings.signIn.scopeOffice": "办公室通用：为此办公室中的所有智能体登录",
