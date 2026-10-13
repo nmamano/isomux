@@ -165,6 +165,7 @@ describe("when the release happens", () => {
       office: { OFFICE_KEY: "office-placeholder-0001" },
       member: {},
       fixed: { HTTPS_PROXY: "http://127.0.0.1:9" },
+      gitCredentials: [],
       revision: "first-secret",
     }));
     try {

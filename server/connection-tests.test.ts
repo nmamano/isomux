@@ -168,7 +168,9 @@ describe("secret tests", () => {
     let body: unknown = { data: { viewer: { email: "ops@example.com" } } };
     const { fetch, sent } = fakeFetch(() => json(body));
     const { sources, tester } = setup(fetch);
-    addSecret(sources, ALICE, "FLY_API_TOKEN", ["api.fly.io"]);
+    // A Fly token carries its scheme; it goes as flyctl sends it.
+    const FLY_VALUE = "FlyV1 fm2_fake-a3-fly-value-0001";
+    addSecret(sources, ALICE, "FLY_API_TOKEN", ["api.fly.io"], FLY_VALUE);
     expect(await tester.secret(ALICE, "FLY_API_TOKEN")).toMatchObject({
       ok: true,
       account: "ops@example.com",
@@ -177,6 +179,7 @@ describe("secret tests", () => {
       url: "https://api.fly.io/graphql",
       method: "POST",
     });
+    expect(sent[0].headers.authorization).toBe(FLY_VALUE);
     expect(JSON.parse(sent[0].body ?? "")).toEqual({
       query: "{ viewer { email } }",
     });

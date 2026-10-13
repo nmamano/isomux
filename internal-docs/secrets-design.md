@@ -7,7 +7,7 @@ Board task b38ddd02. Status: decided, 2026-10-13; the spec for slice loop B ([se
 - **A secret is a credential that the office never gives to an agent.** A member gives a name, a value, the hosts that may receive it and the form it is sent in. In the agent environment the name holds a placeholder.
 - **The server makes the call.** A secret proxy runs as the server user. Agents send HTTPS through it. In a request to a listed host, the proxy replaces the placeholder with the value. `echo`, `printenv`, transcripts and the model context show only the placeholder.
 - **The promise (single-user offices).** Values stay out of agent environments, transcripts, the model context and every route, export, backup and log. An agent that reads the office's files on purpose can read the store, and the Secrets list says so in one sentence (section 4). The design does not depend on the OS-user split, which is on hold.
-- **Coverage.** HTTPS APIs (curl, SDKs), git over HTTPS, and CLIs that send a token from the environment (gh, fly, stripe). Not covered: values that a tool uses locally (signing, database passwords, encryption keys), protocols other than HTTPS, and website logins.
+- **Coverage.** HTTPS APIs (curl, SDKs), git over HTTPS, and CLIs that send a token from the environment (gh, stripe). Not covered: flyctl (appendix F), values that a tool uses locally (signing, database passwords, encryption keys), protocols other than HTTPS, and website logins.
 - **Who may use a secret.** The two scopes of today's variables: the office (owner-only, as office variables) and a member (the agents that member spawned). No per-agent limits: those would need per-agent sandboxing. A placeholder is a bearer credential inside the office, and each use is logged.
 
 ## 1. What a member defines
@@ -83,8 +83,9 @@ Costs:
 |---|---|---|
 | HTTPS API with curl | `curl -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/...` | Yes |
 | SDKs (Python, Node, Go, Bun) | They read `NAME` and honor the proxy and trust variables | Yes, where they honor them (appendix B) |
-| git over HTTPS | git honors `https_proxy` and `GIT_SSL_CAINFO`. An office credential helper (set through `GIT_CONFIG_*`) answers the placeholder, which is safe to print. The proxy decodes Basic and swaps. | Yes |
-| CLIs with a token in the environment (gh, fly, stripe) | Go programs honor `HTTPS_PROXY` and `SSL_CERT_FILE`. `gh auth token` prints the placeholder. | Yes; B3 proves each preset |
+| git over HTTPS | git honors `https_proxy` and `GIT_SSL_CAINFO`. An office credential helper (set through `GIT_CONFIG_*`) answers the placeholder, which is safe to print. It replaces the host's other helpers, so git never sends the member's own token there or changes their credential store. The proxy decodes Basic and swaps. | Yes (B3) |
+| CLIs with a token in the environment (gh, stripe) | Go programs honor `HTTPS_PROXY` and `SSL_CERT_FILE`. `gh auth token` prints the placeholder. | Yes (B3) |
+| flyctl | It drops a token that is not a valid, unexpired macaroon before it sends anything (appendix F). curl and SDK calls to the Fly APIs work. | No |
 | CLIs with a token in a config file | Works if the file holds the placeholder. A CLI login that writes the real value defeats the design. | Partly |
 | Model API keys (an agent's app calling a model SDK) | The model APIs are on the never-list. | No |
 | The engines' sign-ins (Claude, Codex, OpenCode) | Each CLI reads and refreshes its own sign-in files. | No |
@@ -222,4 +223,10 @@ Measured or read in code, 2026-10-13.
 - **Company proxy.** The server's own `HTTPS_PROXY` is chained with CONNECT, for tunnels and listed hosts alike, and its `NO_PROXY` is honored without CIDR entries. An `https://` company proxy URL is dialled as plain TCP and fails closed (502). A member variable named `HTTPS_PROXY` is replaced, not chained.
 - **Restarts.** A conversation that cannot resume (a Codex thread that is not durable yet) keeps its process and its old environment until `/clear`. An open terminal keeps its environment until it is restarted, and the terminal panel says so.
 - **Protocols.** HTTP/1.1 only to listed hosts; upgrades (WebSocket) to a listed host get 501.
+
+Tools (B3, 2026-10-13, stub hosts; `server/secret-proxy/tools.test.ts`):
+
+- **flyctl.** It parses `FLY_API_TOKEN` into macaroons and, before its first request, deletes every token that does not decode or has expired (fly-go 9cd55520, `tokens/tokens.go:259-300`, called through flyctl 9068e6f4 `internal/command/command.go:616` and `internal/config/tokens.go:225,240`). A placeholder is not a macaroon, so flyctl sends an empty credential (read in code; what the member then sees is unchecked). Not run: flyctl is not installed on the box that ran B3.
+- **Fly header form.** flyctl sends `Authorization: FlyV1 fm2_...` (fly-go `tokens/tokens.go:235-245`, `flaps/flaps.go:273`); Fly's Machines API docs send `Authorization: Bearer <token>` with the same token. The proxy swaps both. The connection test sends a value that starts with its own scheme as it is.
+- **git.** The helpers are fixed when a process starts. A hosts or form edit changes the OpenCode revision, so an OpenCode server with the old helpers is not adopted again; a running Claude or Codex process and an open terminal keep the old helpers until they start again (a hosts edit marks no restart).
 

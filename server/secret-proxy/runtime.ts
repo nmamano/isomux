@@ -31,6 +31,10 @@ export interface SecretEnvironment {
   member: Record<string, string>;
   // The proxy and trust variables. They go last, over every variable.
   fixed: Record<string, string>;
+  // The git credential helper's answers (design 2.4): for each host of a
+  // secret in the authorization form, the placeholder that git sends as the
+  // Basic password. env-loader appends them as GIT_CONFIG_* entries.
+  gitCredentials: { host: string; placeholder: string }[];
   // Non-value secret state for the OpenCode revision: each secret's scope,
   // name, generation and placeholder, and the proxy port.
   revision: string;
@@ -262,7 +266,9 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       const office: Record<string, string> = {};
       const member: Record<string, string> = {};
       const state: [string, string, number, string][] = [];
-      for (const scope of scopes) {
+      const git = new Map<string, string>();
+      // Member scope first, so a member secret wins a host over an office one.
+      for (const scope of [...scopes].reverse()) {
         for (const secret of readScope(scope)) {
           const placeholder = placeholderFor(
             key,
@@ -273,6 +279,9 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
           );
           (scope.kind === "office" ? office : member)[secret.name] =
             placeholder;
+          if (secret.form.kind === "authorization")
+            for (const host of secret.hosts)
+              if (!git.has(host)) git.set(host, placeholder);
           state.push([
             scopeId(scope),
             secret.name,
@@ -290,6 +299,9 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
       }
       const proxyUrl = `http://127.0.0.1:${proxyPort}`;
       const bundle = material.bundlePath;
+      const gitCredentials = [...git]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([host, placeholder]) => ({ host, placeholder }));
       return {
         office,
         member,
@@ -307,7 +319,16 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
           CARGO_HTTP_CAINFO: bundle,
           NODE_USE_ENV_PROXY: "1",
         },
-        revision: JSON.stringify({ secrets: state.sort(), port: proxyPort }),
+        gitCredentials,
+        // The git helpers too: they follow the hosts and forms.
+        revision: JSON.stringify({
+          secrets: state.sort(),
+          port: proxyPort,
+          git: gitCredentials.map(({ host, placeholder }) => [
+            host,
+            placeholder,
+          ]),
+        }),
       };
     },
 

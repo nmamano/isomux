@@ -3,9 +3,11 @@
 // The proxy child is the test child, reached through no network.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { rootCertificates } from "node:tls";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { STATE_ROOT } from "../config.ts";
@@ -148,6 +150,114 @@ describe("an office without secrets", () => {
 });
 
 describe("an office with secrets", () => {
+  test("git asks the office credential helper and gets the placeholder for each authorization-form host", async () => {
+    await runtime.enable();
+    const create = (
+      scope: SecretScope,
+      name: string,
+      value: string,
+      hosts: string[],
+      form: { kind: "authorization" } | { kind: "header"; header: string },
+    ) => {
+      const result = store.create(scope, { name, value, hosts, form });
+      if (!result.ok) throw new Error(`create failed: ${result.kind}`);
+    };
+    // Fly's prefix has a space: the helper's quoting must keep it.
+    const FLY_VALUE = `FlyV1 fm2_${"FAKEhelper".repeat(7)}`;
+    create(
+      OFFICE,
+      "OFFICE_GIT",
+      FLY_VALUE,
+      ["git.example-stub.test", "both.example-stub.test"],
+      { kind: "authorization" },
+    );
+    create(AT_ALICE, "GH_TOKEN", ALICE_VALUE, ["both.example-stub.test"], {
+      kind: "authorization",
+    });
+    create(AT_ALICE, "HEADER_KEY", BOB_VALUE, ["header.example-stub.test"], {
+      kind: "header",
+      header: "x-api-key",
+    });
+    await runtime.changed();
+    const secrets = runtime.environmentFor(ALICE)!;
+    // A member secret wins a host over an office one; a header-form secret
+    // has no git helper.
+    expect(secrets.gitCredentials).toEqual([
+      { host: "both.example-stub.test", placeholder: secrets.member.GH_TOKEN },
+      { host: "git.example-stub.test", placeholder: secrets.office.OFFICE_GIT },
+    ]);
+
+    // Entries go after the ones the base environment already has.
+    const base = {
+      PATH: process.env.PATH ?? "",
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "user.name",
+      GIT_CONFIG_VALUE_0: "Base Entry",
+    };
+    const env = buildEnvForUserId(ALICE, base)!;
+    // Per host: an empty helper that resets the list, then ours.
+    expect(env.GIT_CONFIG_COUNT).toBe("5");
+    expect(env.GIT_CONFIG_KEY_0).toBe("user.name");
+    expect(env.GIT_CONFIG_VALUE_0).toBe("Base Entry");
+    expect(env.GIT_CONFIG_KEY_1).toBe(
+      "credential.https://both.example-stub.test.helper",
+    );
+    expect(env.GIT_CONFIG_VALUE_1).toBe("");
+
+    // The helper itself, as git runs it (a "!" helper goes to the shell).
+    const helper = (index: number, action: string) =>
+      spawnSync(
+        "sh",
+        ["-c", `${env[`GIT_CONFIG_VALUE_${index}`]!.slice(1)} ${action}`],
+        {
+          encoding: "utf8",
+        },
+      ).stdout;
+    expect(helper(4, "get")).toBe(
+      `username=x-access-token\npassword=${secrets.office.OFFICE_GIT}\n`,
+    );
+    expect(secrets.office.OFFICE_GIT).toStartWith("FlyV1 fm2_");
+    expect(helper(4, "store")).toBe("");
+    expect(helper(4, "erase")).toBe("");
+
+    const home = mkdtempSync(join(tmpdir(), "b3-git-helper-"));
+    const fill = (host: string) =>
+      spawnSync("git", ["credential", "fill"], {
+        input: `protocol=https\nhost=${host}\n\n`,
+        env: { ...env, HOME: home, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" },
+        encoding: "utf8",
+      });
+    const both = fill("both.example-stub.test");
+    expect(both.status).toBe(0);
+    expect(both.stdout).toContain(`password=${secrets.member.GH_TOKEN}\n`);
+    expect(both.stdout).toContain("username=x-access-token\n");
+    expect(fill("git.example-stub.test").stdout).toContain(
+      `password=${secrets.office.OFFICE_GIT}\n`,
+    );
+    // No helper answers another host: git finds no credential.
+    expect(fill("header.example-stub.test").status).not.toBe(0);
+    expect(envText(env)).not.toContain(ALICE_VALUE);
+    expect(envText(env)).not.toContain(FLY_VALUE);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("a scope whose secrets are all in a named header gets no git configuration", async () => {
+    await runtime.enable();
+    const result = store.create(AT_BOB, {
+      name: "HEADER_KEY",
+      value: BOB_VALUE,
+      hosts: ["header.example-stub.test"],
+      form: { kind: "header", header: "x-api-key" },
+    });
+    if (!result.ok) throw new Error(`create failed: ${result.kind}`);
+    await runtime.changed();
+    const env = buildEnvForUserId(BOB, { PATH: "/usr/bin" })!;
+    expect(env.HTTPS_PROXY).toBeDefined();
+    expect(Object.keys(env).filter((k) => k.startsWith("GIT_CONFIG"))).toEqual(
+      [],
+    );
+  });
+
   test("agents get placeholders and the proxy, never a value", async () => {
     await runtime.enable();
     add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);
@@ -226,7 +336,7 @@ describe("an office with secrets", () => {
 });
 
 describe("restarts", () => {
-  test("add and delete mark the scope and move the revision; a rotation in one prefix and a hosts edit do neither", async () => {
+  test("add and delete mark the scope and move the revision; a rotation in one prefix does neither; a hosts edit moves the revision only", async () => {
     await runtime.enable();
     add(AT_ALICE, "GH_TOKEN", ALICE_VALUE);
     await runtime.changed();
@@ -240,16 +350,29 @@ describe("restarts", () => {
       "ghp_FAKErotatedFAKErotatedFAKErotate01",
     );
     await runtime.changed();
+    expect(changes).toEqual([]);
+    expect(environmentSourceRevisionForUserId(ALICE)).toBe(revision);
+
+    // A hosts edit changes the git helpers: an OpenCode server with the old
+    // ones must not be adopted. No restart is marked.
     store.update(AT_ALICE, "GH_TOKEN", { hosts: ["api.other-stub.test"] });
     await runtime.changed();
     expect(changes).toEqual([]);
-    expect(environmentSourceRevisionForUserId(ALICE)).toBe(revision);
+    const hostsRevision = environmentSourceRevisionForUserId(ALICE);
+    expect(hostsRevision).not.toBe(revision);
+    store.rotate(
+      AT_ALICE,
+      "GH_TOKEN",
+      "ghp_FAKErotatedFAKErotatedFAKErotate02",
+    );
+    await runtime.changed();
+    expect(environmentSourceRevisionForUserId(ALICE)).toBe(hostsRevision);
 
     store.rotate(AT_ALICE, "GH_TOKEN", `github_pat_${"F".repeat(82)}`);
     await runtime.changed();
     expect(changes).toEqual([[AT_ALICE]]);
     const rotatedRevision = environmentSourceRevisionForUserId(ALICE);
-    expect(rotatedRevision).not.toBe(revision);
+    expect(rotatedRevision).not.toBe(hostsRevision);
 
     changes = [];
     store.remove(AT_ALICE, "GH_TOKEN");

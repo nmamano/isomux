@@ -185,6 +185,10 @@ describe("credentialHeader", () => {
     expect(credentialHeader({ kind: "authorization" }, "t")).toEqual({
       Authorization: "Bearer t",
     });
+    // A value with its own scheme, as a Fly token has, keeps it.
+    expect(
+      credentialHeader({ kind: "authorization" }, "FlyV1 fm2_fake"),
+    ).toEqual({ Authorization: "FlyV1 fm2_fake" });
     expect(credentialHeader({ kind: "header", header: "x-key" }, "t")).toEqual({
       "x-key": "t",
     });

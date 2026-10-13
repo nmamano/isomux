@@ -57,14 +57,19 @@ export function createMcpServerSources(root?: string): McpServerSources & {
   return { servers, secrets };
 }
 
-// The token alone is stored; MCP servers take it as a Bearer token.
+// Usually the token alone is stored, and goes as a Bearer token. A value
+// that already starts with its scheme goes as it is: a Fly token is
+// "FlyV1 fm2_...", and flyctl sends it so, without Bearer.
 export function credentialHeader(
   form: SecretForm,
   value: string,
 ): Record<string, string> {
-  return form.kind === "authorization"
-    ? { Authorization: `Bearer ${value}` }
-    : { [form.header]: value };
+  if (form.kind === "header") return { [form.header]: value };
+  return {
+    Authorization: /^[A-Za-z][A-Za-z0-9-]* \S/.test(value)
+      ? value
+      : `Bearer ${value}`,
+  };
 }
 
 function listOrNothing(

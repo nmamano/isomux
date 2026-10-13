@@ -39,6 +39,7 @@ export function secretAgentEnvironment(): Record<string, string | undefined> {
     office: { OFFICE_KEY: PLACEHOLDERS.OFFICE_KEY },
     member: { GH_TOKEN: PLACEHOLDERS.GH_TOKEN },
     fixed: FIXED,
+    gitCredentials: [],
     revision: "spawn-test",
   };
   const previous = setSecretEnvironmentProvider(() => environment);

@@ -161,8 +161,37 @@ export function buildEnvForUserId(
   if (userId && personalCodex && !userEnv.CODEX_HOME?.trim()) {
     merged.CODEX_HOME = personalProviderHome(userId, "codex");
   }
-  if (secrets) Object.assign(merged, secrets.fixed);
+  if (secrets) {
+    Object.assign(merged, secrets.fixed);
+    appendGitCredentialHelpers(merged, secrets.gitCredentials);
+  }
   return merged;
+}
+
+// The office git credential helper (secrets design 2.4): for each listed
+// host, git asks it and gets the placeholder as the Basic password, which the
+// proxy swaps. The entries go after any GIT_CONFIG_* already set. An empty
+// helper first resets the host's helper list: else the system and global
+// helpers answer first (with the member's own token), and git's store and
+// erase calls would reach them with the placeholder.
+function appendGitCredentialHelpers(
+  env: { [key: string]: string | undefined },
+  hosts: { host: string; placeholder: string }[],
+) {
+  if (hosts.length === 0) return;
+  const count = Number(env.GIT_CONFIG_COUNT ?? "0");
+  let next = Number.isSafeInteger(count) && count > 0 ? count : 0;
+  for (const { host, placeholder } of hosts) {
+    env[`GIT_CONFIG_KEY_${next}`] = `credential.https://${host}.helper`;
+    env[`GIT_CONFIG_VALUE_${next}`] = "";
+    next++;
+    env[`GIT_CONFIG_KEY_${next}`] = `credential.https://${host}.helper`;
+    // A placeholder is base62 after a known prefix: no quote can occur.
+    env[`GIT_CONFIG_VALUE_${next}`] =
+      `!f() { test "$1" = get && printf 'username=x-access-token\\npassword=%s\\n' '${placeholder}'; }; f`;
+    next++;
+  }
+  env.GIT_CONFIG_COUNT = String(next);
 }
 
 // A member's effective env (office plus personal variables) for the Claude
@@ -258,9 +287,10 @@ export function environmentSourceRevisionForUserId(
     a.localeCompare(b),
   );
   const hash = createHash("sha256").update(JSON.stringify(entries));
-  // The non-value secret state and the proxy port: an add, a delete, a new
-  // placeholder or a new port replaces the server; a value rotation or a
-  // hosts or form edit does not. No secret in scope: the hash is as before.
+  // The non-value secret state, the proxy port and the git helper hosts: an
+  // add, a delete, a new placeholder, a new port, or a hosts or form edit
+  // that changes the git helpers replaces the server; a value rotation does
+  // not. No secret in scope: the hash is as before.
   const secrets = getSecretEnvironment(userId);
   if (secrets) hash.update(`\0secrets\0${secrets.revision}`);
   return hash.digest("hex");
