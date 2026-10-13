@@ -62,12 +62,14 @@ export function readManagedOfficeEnv(): ManagedEnvValues | null {
   return parseDotenv(readFileSync(OFFICE_ENV_FILE, "utf8"));
 }
 
+// The rule for a variable's name, in a body or in a path.
+export function isManagedEnvKey(key: string): boolean {
+  return SAFE_KEY.test(key) && key !== "__proto__";
+}
+
 function validate(values: ManagedEnvValues): void {
   for (const [key, value] of Object.entries(values)) {
-    if (!SAFE_KEY.test(key)) {
-      throw new ManagedEnvValidationError(`invalid environment key: ${key}`);
-    }
-    if (key === "__proto__") {
+    if (!isManagedEnvKey(key)) {
       throw new ManagedEnvValidationError(`invalid environment key: ${key}`);
     }
     if (typeof value !== "string") {

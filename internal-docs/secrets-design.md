@@ -33,17 +33,18 @@ Secrets have their own list next to the variables list, on the office and the pe
 
 **A removed member.** Removal keeps `secrets/users/<userId>.json`, as it keeps `user-env/<userId>.env` today; no route reads it and no agent uses it. Whether removal should delete both files is parked for Nil (B1 report).
 
-**Routes.** Gated as the variables are: `cap("user:env")`, which no agent scope holds; member secrets are self-only (`selfUserOrApi`), office secrets owner-only (`officeEnvOwner`). No response carries a value.
+**Routes.** Gated as the variables are: `cap("user:env")`, which no agent scope holds. A member's secrets reach the member and an office owner (`selfOrEnvOwner`, Nil, 2026-10-13); office secrets reach owners (`officeEnvOwner`), and members read the office list as names, hosts and notes (`officeEnvReader`). Show is the only response with a value: `cap("secret:show")`, held by humans and their API tokens and by no agent scope, for the secret's own member (`selfUserOrApi`) or an owner on an office secret. An owner never reads a member's secret.
 
 | Operation | Member | Office |
 |---|---|---|
 | list | `GET /api/users/:username/secrets` | `GET /api/office/secrets` |
 | create | `POST /api/users/:username/secrets` | `POST /api/office/secrets` |
+| show the value | `GET /api/users/:username/secrets/:name/value` | `GET /api/office/secrets/:name/value` |
 | rotate the value | `PUT /api/users/:username/secrets/:name/value` | `PUT /api/office/secrets/:name/value` |
 | edit hosts and form | `PATCH /api/users/:username/secrets/:name` | `PATCH /api/office/secrets/:name` |
 | delete | `DELETE /api/users/:username/secrets/:name` | `DELETE /api/office/secrets/:name` |
 
-Each change writes an audit row with the secret name as target and the body's field names, never their values.
+Each change and each Show writes an audit row with the secret name as target and the body's field names, never their values. A row on a member's secret also names the member.
 
 ## 2. How an agent uses a secret
 

@@ -1,8 +1,9 @@
-// The secret store (internal-docs/secrets-design.md, section 1). Values are
-// write-only: nothing in this module returns one except readSecretValues.
-// Its callers: the MCP server headers (server/mcp-servers.ts, integrations
-// A2) and, through readForProxy, the secret proxy (B2). Neither sends a
-// value to a client.
+// The secret store (internal-docs/secrets-design.md, section 1). Nothing in
+// this module returns a value except readSecretValues and readForProxy.
+// Their callers: the MCP server headers (server/mcp-servers.ts, integrations
+// A2), the secret proxy (B2), and Show (routes/handlers/secrets.ts), the one
+// route that sends a value to a client: to the secret's own member, or to an
+// owner for an office secret.
 //
 // STATE_ROOT/secrets/office.json and STATE_ROOT/secrets/users/<userId>.json,
 // 0600 files in 0700 directories, written like the env files. Every change is
@@ -161,7 +162,9 @@ export function createSecretStore(root: string = STATE_ROOT) {
   }
 
   // The only way a value leaves this module: a copy of a stored secret's
-  // value, hosts and form. Never for a response or a log line.
+  // value, hosts and form. Never for a log line; the one response is Show
+  // (secrets.reveal and officeSecrets.reveal), for the secret's own member or
+  // an owner on an office secret.
   function valuesOf(secret: StoredSecret): {
     value: string;
     hosts: string[];

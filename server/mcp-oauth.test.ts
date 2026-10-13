@@ -491,12 +491,15 @@ describe("the callback route", () => {
     userId: string,
     query: URLSearchParams,
     audits: string[][],
+    owners: string[] = [],
   ): Promise<string> {
     const handlers = mcpServersHandlers({
       store: context.sources.servers,
       oauth: context.oauth,
       auditSignIn: (_ctx, targets) => audits.push(targets),
-      isOfficeOwnerUserId: () => false,
+      isOfficeOwnerUserId: (id) => owners.includes(id),
+      userIdForUsername: () => null,
+      usernameForUserId: (id) => ({ u1: "alice", u2: "boss" })[id] ?? null,
     });
     const result = await handlers["mcpOAuth.callback"](
       callbackCtx(userId, query),
@@ -519,7 +522,7 @@ describe("the callback route", () => {
         new URLSearchParams({ code, state: "x" }),
         audits,
       ),
-    ).toContain("/settings?mcpSignIn=state_unknown");
+    ).toContain("/integrations?mcpSignIn=state_unknown");
     expect(
       await landing(
         context,
@@ -527,7 +530,7 @@ describe("the callback route", () => {
         new URLSearchParams({ code, state }),
         audits,
       ),
-    ).toContain("/settings?mcpSignIn=wrong_member");
+    ).toContain("/integrations?mcpSignIn=wrong_member");
     expect(audits).toEqual([]);
     const page = await landing(
       context,
@@ -535,9 +538,10 @@ describe("the callback route", () => {
       new URLSearchParams({ code, state }),
       audits,
     );
-    expect(page).toContain("/settings?mcpSignIn=ok");
+    expect(page).toContain("/integrations?mcpSignIn=ok");
     expect(page).not.toContain(LEAK);
-    expect(audits).toEqual([["mail"]]);
+    // The row names the member's scope by username.
+    expect(audits).toEqual([["mail", "alice"]]);
   });
 
   it("answers an expired state with its code", async () => {
@@ -549,7 +553,59 @@ describe("the callback route", () => {
     clock += 11 * 60_000;
     expect(
       await landing(context, "u1", new URLSearchParams({ code, state }), []),
-    ).toContain("/settings?mcpSignIn=state_expired");
+    ).toContain("/integrations?mcpSignIn=state_expired");
+  });
+
+  // Lead ruling, 2026-10-13: an owner starts the sign-in for a member's
+  // server and finishes it; the tokens land in the member's scope and the row
+  // names the member.
+  it("lets an owner sign in to a member's server, and refuses once demoted", async () => {
+    const context = setup();
+    register(context.oauth);
+    const first = await context.oauth.startSignIn(member, "mail", "u2");
+    if (!first.ok) throw new Error(first.reason);
+    const one = context.rig.authorize(first.authorizationUrl);
+    const audits: string[][] = [];
+    expect(
+      await landing(
+        context,
+        "u1",
+        new URLSearchParams({ code: one.code, state: one.state }),
+        audits,
+        ["u2"],
+      ),
+    ).toContain("/integrations?mcpSignIn=wrong_member");
+    expect(
+      await landing(
+        context,
+        "u2",
+        new URLSearchParams({ code: one.code, state: one.state }),
+        audits,
+        ["u2"],
+      ),
+    ).toContain("/integrations?mcpSignIn=ok");
+    expect(audits).toEqual([["mail", "alice"]]);
+    expect(
+      context.sources.secrets.readSecretValues(
+        member,
+        oauthSecretNames("mail").refreshToken,
+      ),
+    ).not.toBeNull();
+
+    const second = await context.oauth.startSignIn(member, "mail", "u2");
+    if (!second.ok) throw new Error(second.reason);
+    const two = context.rig.authorize(second.authorizationUrl);
+    const bodies = context.rig.tokenBodies.length;
+    expect(
+      await landing(
+        context,
+        "u2",
+        new URLSearchParams({ code: two.code, state: two.state }),
+        audits,
+      ),
+    ).toContain("/integrations?mcpSignIn=wrong_member");
+    expect(context.rig.tokenBodies.length).toBe(bodies);
+    expect(audits).toHaveLength(1);
   });
 
   it("refuses an office flow once the member is no longer an owner", async () => {
@@ -567,7 +623,7 @@ describe("the callback route", () => {
     const { code, state } = context.rig.authorize(started.authorizationUrl);
     expect(
       await landing(context, "u1", new URLSearchParams({ code, state }), []),
-    ).toContain("/settings?mcpSignIn=wrong_member");
+    ).toContain("/integrations?mcpSignIn=wrong_member");
     expect(context.rig.tokenBodies).toEqual([]);
   });
 });

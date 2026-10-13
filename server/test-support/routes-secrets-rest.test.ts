@@ -257,7 +257,9 @@ describe("member secrets", () => {
 });
 
 describe("office secrets", () => {
-  it("are owner-only, as the office variables are", async () => {
+  // Members read the list as a summary (Nil, 2026-10-13); see
+  // routes-integrations-owner.test.ts. Every change stays owner-only.
+  it("are owner-only to change, as the office variables are", async () => {
     server = await startTestServer();
     const srv = server;
     const owner = await srv.seedOwner("Boss");
@@ -292,12 +294,14 @@ describe("office secrets", () => {
     expect(ownerList.status).toBe(200);
     expect(ownerList.text).not.toContain(FAKE);
 
+    expect((await call(srv, "GET", base, { bearer: privileged })).status).toBe(
+      403,
+    );
     for (const who of [
       { session: member.rawSessionId },
       { bearer: memberApi.token },
       { bearer: privileged },
     ]) {
-      expect((await call(srv, "GET", base, who)).status).toBe(403);
       expect(
         (await call(srv, "POST", base, { ...who, body: github("x") })).status,
       ).toBe(403);

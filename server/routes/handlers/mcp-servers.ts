@@ -1,11 +1,13 @@
 // Remote MCP server handlers (opIds mcpServers.* and officeMcpServers.*;
 // integrations loop, slice A2). The route table gates them as the secrets:
-// cap user:env, which no agent scope holds; member servers self-only
-// (selfUserOrApi), office servers owner-only (officeEnvOwner).
+// cap user:env, which no agent scope holds; member servers for the member or
+// an office owner (selfOrEnvOwner), office servers owner-only
+// (officeEnvOwner), and the office list for members too (officeEnvReader), as
+// a summary.
 //
 // The URL of some hosted servers carries a token in its path, so no error
 // echoes it, and the log line is fixed text. The list here is the only
-// response with the whole URL.
+// response with the whole URL, and a member's office list has the host only.
 
 import {
   bytes,
@@ -26,6 +28,12 @@ import {
   type SecretScope,
 } from "../../secret-store.ts";
 import type { McpOAuth } from "../../mcp-oauth.ts";
+import type {
+  McpServerWire,
+  OfficeMcpServerSummaryWire,
+} from "../../../shared/contract-shapes.ts";
+import { mcpServerHost } from "../../../shared/mcp-servers.ts";
+import { callerIsEnvOwner, memberSubject } from "./member-subject.ts";
 
 export interface McpServersDeps {
   store: McpServerStore;
@@ -36,16 +44,24 @@ export interface McpServersDeps {
   // executor does not audit.
   auditSignIn: (ctx: Parameters<RouteHandler>[0], targets: string[]) => void;
   isOfficeOwnerUserId: (userId: string) => boolean;
+  userIdForUsername: (username: string) => string | null;
+  usernameForUserId: (userId: string) => string | null;
 }
 
 const CREATE_KEYS = ["name", "url", "secret", "note", "oauth"];
 const UPDATE_KEYS = ["url", "secret", "note", "oauth"];
 
-function memberScope(ctx: Parameters<RouteHandler>[0]): SecretScope | null {
-  return (ctx.identity.scope === "user" || ctx.identity.scope === "api") &&
-    ctx.identity.userId
-    ? { kind: "user", userId: ctx.identity.userId }
-    : null;
+// A member's view of an office server, by allowlist: the host, never the
+// URL's path or query (they can carry a token) or the credential's name.
+// mcpServerHost, as the integrations list (GET /api/me/connections) shows it.
+function officeServerSummary(
+  server: McpServerWire,
+): OfficeMcpServerSummaryWire {
+  return {
+    name: server.name,
+    host: mcpServerHost(server.url),
+    note: server.note,
+  };
 }
 
 function bodyWith(
@@ -129,12 +145,18 @@ function scopedHandlers(
   return {
     list: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
-      return ok({ servers: deps.store.list(scope) });
+      if (!scope) return fail(404, "not_found");
+      const servers = deps.store.list(scope);
+      if (
+        scope.kind === "office" &&
+        !callerIsEnvOwner(ctx, deps.isOfficeOwnerUserId)
+      )
+        return ok({ servers: servers.map(officeServerSummary) });
+      return ok({ servers });
     },
     create: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
+      if (!scope) return fail(404, "not_found");
       const body = bodyWith(ctx.body, CREATE_KEYS);
       if (!body) return invalidRequest();
       const result = deps.oauth.create(scope, body);
@@ -142,7 +164,7 @@ function scopedHandlers(
     },
     update: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
+      if (!scope) return fail(404, "not_found");
       const body = bodyWith(ctx.body, UPDATE_KEYS);
       if (!body || Object.keys(body).length === 0) return invalidRequest();
       const result = deps.oauth.update(scope, ctx.params.name ?? "", body);
@@ -150,15 +172,18 @@ function scopedHandlers(
     },
     remove: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
+      if (!scope) return fail(404, "not_found");
       return deps.oauth.remove(scope, ctx.params.name ?? "")
         ? noContent()
         : fail(404, "not_found");
     },
-    // The authorization URL for the member's browser; no token in it.
+    // The authorization URL for the browser of the person who starts the
+    // flow (the member, or an owner for a member's server); no token in it.
+    // That person, the caller, finishes it.
     signIn: async (ctx) => {
+      if (!ctx.identity.userId) return fail(403, "forbidden");
       const scope = scopeOf(ctx);
-      if (!scope || !ctx.identity.userId) return fail(403, "forbidden");
+      if (!scope) return fail(404, "not_found");
       const result = await deps.oauth.startSignIn(
         scope,
         ctx.params.name ?? "",
@@ -176,10 +201,10 @@ function scopedHandlers(
   };
 }
 
-// Where the callback sends the browser back: the settings page, with a fixed
-// code the page reads. Never the authorization server's own text.
-function backToSettings(flag: string): HandlerResult {
-  const target = `/settings?mcpSignIn=${encodeURIComponent(flag)}`;
+// Where the callback sends the browser back: the integrations page, with a
+// fixed code the page reads. Never the authorization server's own text.
+function backToIntegrations(flag: string): HandlerResult {
+  const target = `/integrations?mcpSignIn=${encodeURIComponent(flag)}`;
   const html = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${target}"><a href="${target}">Isomux</a>\n`;
   return bytes(new TextEncoder().encode(html), "text/html; charset=utf-8", {
     "Cache-Control": "no-store",
@@ -191,26 +216,30 @@ function callbackHandler(deps: McpServersDeps): RouteHandler {
   return async (ctx) => {
     const userId = ctx.identity.scope === "user" ? ctx.identity.userId : null;
     if (!userId) return fail(403, "forbidden");
-    // An office server: the member must still be an owner.
-    const result = await deps.oauth.finishSignIn(
-      userId,
-      ctx.query,
-      (scope) => scope.kind !== "office" || deps.isOfficeOwnerUserId(userId),
+    // The person who started the flow must still be allowed the scope: an
+    // office server, an owner; another member's server, an owner too.
+    const result = await deps.oauth.finishSignIn(userId, ctx.query, (scope) =>
+      scope.kind === "user" && scope.userId === userId
+        ? true
+        : deps.isOfficeOwnerUserId(userId),
     );
-    if (!result.ok) return backToSettings(result.reason);
-    deps.auditSignIn(ctx, [
-      result.name,
-      ...(result.scope.kind === "office" ? ["office"] : []),
-    ]);
-    return backToSettings("ok");
+    if (!result.ok) return backToIntegrations(result.reason);
+    // The row names the scope: "office", or the member's username, as the
+    // other member routes do.
+    const subject =
+      result.scope.kind === "office"
+        ? "office"
+        : deps.usernameForUserId(result.scope.userId);
+    deps.auditSignIn(ctx, [result.name, ...(subject ? [subject] : [])]);
+    return backToIntegrations("ok");
   };
 }
 
 export function mcpServersHandlers(
   deps: McpServersDeps,
 ): Record<string, RouteHandler> {
-  const member = scopedHandlers(deps, memberScope);
-  // The route has checked officeEnvOwner.
+  const member = scopedHandlers(deps, memberSubject(deps.userIdForUsername));
+  // The route has checked officeEnvOwner, or officeEnvReader for the list.
   const office = scopedHandlers(deps, () => ({ kind: "office" }));
   const handlers: Record<string, RouteHandler> = {
     "mcpServers.list": member.list,

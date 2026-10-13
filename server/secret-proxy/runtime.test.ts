@@ -479,6 +479,9 @@ describe("failure paths", () => {
     const handlers = secretsHandlers({
       store,
       onChanged: () => runtime.changed(),
+      userIdForUsername: () => ALICE,
+      isOfficeOwnerUserId: () => false,
+      auditReveal: () => {},
     });
     const routeStart = Date.now();
     const result = await handlers["secrets.create"]({

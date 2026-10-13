@@ -227,15 +227,26 @@ export const officeOwner: Guard = ({ identity }) =>
 // another user's - but an API token has its issuing user's reach. Keep this
 // separate from officeOwner: widening officeOwner to API scope would silently
 // widen every existing office-owner route.
-export const officeEnvOwner: Guard = (ctx) => {
-  if (officeOwner(ctx).ok) return ALLOW;
-  const { identity } = ctx;
-  return identity.scope === "api" &&
-    identity.userId !== null &&
-    ctx.deps.isOfficeOwnerUserId(identity.userId)
+export const officeEnvOwner: Guard = (ctx) =>
+  isEnvOwnerIdentity(ctx.identity, (userId) =>
+    ctx.deps.isOfficeOwnerUserId(userId),
+  )
     ? ALLOW
     : FORBIDDEN;
-};
+
+// officeEnvOwner's question, also asked by a handler that serves an owner and
+// a member differently on one route (routes/handlers/member-subject.ts).
+export function isEnvOwnerIdentity(
+  identity: Identity,
+  isOfficeOwnerUserId: GuardDeps["isOfficeOwnerUserId"],
+): boolean {
+  if (isOfficeOwnerIdentity(identity)) return true;
+  return (
+    identity.scope === "api" &&
+    identity.userId !== null &&
+    isOfficeOwnerUserId(identity.userId)
+  );
+}
 
 // users.create through an office owner's proxy: a privileged agent or an API
 // token whose user is an office owner, checked live. A proxy creates a member
@@ -289,6 +300,21 @@ export const selfUserOrApi: Guard = ({ identity, params, deps }) => {
     ? ALLOW
     : FORBIDDEN;
 };
+
+// A member's own integrations (variables, secrets, MCP servers): the member,
+// or an office owner for any member, by cookie or by their own API token
+// (Nil, 2026-10-13). No agent scope passes either branch. The handler resolves
+// :username; an unknown one is its 404.
+export const selfOrEnvOwner: Guard = (ctx) =>
+  selfUserOrApi(ctx).ok ? ALLOW : officeEnvOwner(ctx);
+
+// The office integrations, read-only: any human of either role, by cookie or
+// by their own API token. The handler gives a member names, hosts and notes
+// only (Nil, 2026-10-13).
+export const officeEnvReader: Guard = ({ identity }) =>
+  (identity.scope === "user" || identity.scope === "api") && identity.userId
+    ? ALLOW
+    : FORBIDDEN;
 
 // USER edit/delete: self OR office owner. Both branches are USER-gated (each of
 // officeOwner and selfUser requires scope === "user").

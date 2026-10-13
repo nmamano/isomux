@@ -1,6 +1,6 @@
 // GET /api/me/connections: the integrations list. Names only, never a value;
-// office variable names for office owners only (officeEnv.get's rule); the
-// caller's own personal entries only; no agent or API token.
+// the office items for every member (Nil, ruling 2, 2026-10-13); the caller's
+// own personal entries only; no agent or API token.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { mintApiToken } from "../api-tokens.ts";
@@ -50,6 +50,7 @@ async function putEnv(
 const OFFICE_VALUE = "office-value-must-not-leak";
 const OWNER_VALUE = "owner-value-must-not-leak";
 const MEMBER_VALUE = "member-value-must-not-leak";
+const OFFICE_SECRET_VALUE = "office-secret-value-must-not-leak";
 
 async function seeded() {
   const srv = await startTestServer();
@@ -60,6 +61,20 @@ async function seeded() {
   await putEnv(srv, "/api/office/env", owner.rawSessionId, {
     OFFICE_TOKEN: OFFICE_VALUE,
   });
+  expect(
+    (
+      await call(srv, "/api/office/secrets", {
+        method: "POST",
+        session: owner.rawSessionId,
+        body: {
+          name: "GH_TOKEN",
+          value: OFFICE_SECRET_VALUE,
+          hosts: ["api.github.com"],
+          form: { kind: "authorization" },
+        },
+      })
+    ).status,
+  ).toBe(201);
   await putEnv(srv, `/api/users/${owner.username}/env`, owner.rawSessionId, {
     OWNER_TOKEN: OWNER_VALUE,
   });
@@ -87,22 +102,36 @@ describe("GET /api/me/connections", () => {
       { scope: "office", name: "OFFICE_TOKEN", note: null },
       { scope: "personal", name: "OWNER_TOKEN", note: null },
     ]);
-    expect(result.text).not.toContain(OFFICE_VALUE);
-    expect(result.text).not.toContain(OWNER_VALUE);
+    expect(list(result.text).secrets?.map((s) => [s.scope, s.test])).toEqual([
+      ["office", "github"],
+    ]);
+    for (const value of [OFFICE_VALUE, OFFICE_SECRET_VALUE, OWNER_VALUE])
+      expect(result.text).not.toContain(value);
   });
 
-  it("gives a member only their own variable names", async () => {
+  it("gives a member the office names and their own, never a value", async () => {
     const { srv, member } = await seeded();
     const result = await call(srv, "/api/me/connections", {
       session: member.rawSessionId,
     });
     expect(result.status).toBe(200);
     expect(list(result.text).variables).toEqual([
+      { scope: "office", name: "OFFICE_TOKEN", note: null },
       { scope: "personal", name: "MEMBER_TOKEN", note: null },
     ]);
-    expect(result.text).not.toContain("OFFICE_TOKEN");
+    // Only an owner may test an office secret.
+    expect(list(result.text).secrets).toEqual([
+      {
+        scope: "office",
+        name: "GH_TOKEN",
+        hosts: ["api.github.com"],
+        test: null,
+        note: null,
+      },
+    ]);
     expect(result.text).not.toContain("OTHER_TOKEN");
-    expect(result.text).not.toContain(MEMBER_VALUE);
+    for (const value of [OFFICE_VALUE, OFFICE_SECRET_VALUE, MEMBER_VALUE])
+      expect(result.text).not.toContain(value);
   });
 
   it("refuses agent and API tokens", async () => {

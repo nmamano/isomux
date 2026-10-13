@@ -319,7 +319,9 @@ describe("member MCP servers", () => {
 });
 
 describe("office MCP servers", () => {
-  it("are owner-only to see and change, as the office secrets are", async () => {
+  // Members read the list as a summary (Nil, 2026-10-13); see
+  // routes-integrations-owner.test.ts. Every change stays owner-only.
+  it("are owner-only to change, as the office secrets are", async () => {
     server = await startTestServer();
     const srv = server;
     const owner = await srv.seedOwner("Boss");
@@ -334,9 +336,13 @@ describe("office MCP servers", () => {
       (await call(srv, "POST", base, { session: member.rawSessionId, body }))
         .status,
     ).toBe(403);
-    expect(
-      (await call(srv, "GET", base, { session: member.rawSessionId })).status,
-    ).toBe(403);
+    const memberList = await call(srv, "GET", base, {
+      session: member.rawSessionId,
+    });
+    expect([memberList.status, memberList.body]).toEqual([
+      200,
+      { servers: [] },
+    ]);
     expect(
       (await call(srv, "POST", base, { session: owner.rawSessionId, body }))
         .status,

@@ -21,6 +21,13 @@ const identity: Identity = {
   capabilities: USER_CAPABILITIES,
 };
 
+// "boss" is u1, the caller.
+const SUBJECT = {
+  userIdForUsername: (username: string) => (username === "boss" ? "u1" : null),
+  isOfficeOwnerUserId: () => true,
+  auditReveal: () => {},
+};
+
 function ctx(body: unknown, name = ""): RouteHandlerContext {
   return {
     identity,
@@ -41,7 +48,11 @@ afterEach(() => {
 function setup(onChanged: () => Promise<void>) {
   const root = mkdtempSync(join(tmpdir(), "isomux-secrets-handlers-"));
   roots.push(root);
-  return secretsHandlers({ store: createSecretStore(root), onChanged });
+  return secretsHandlers({
+    store: createSecretStore(root),
+    onChanged,
+    ...SUBJECT,
+  });
 }
 
 const BODY = {
@@ -121,6 +132,7 @@ describe("reissue", () => {
       onChanged: async () => {
         calls++;
       },
+      ...SUBJECT,
     });
     await handlers["secrets.create"](ctx(BODY));
     const scope = { kind: "user", userId: "u1" } as const;
@@ -158,5 +170,38 @@ describe("reissue", () => {
       ),
     ).toBe("error");
     expect(calls).toBe(1);
+  });
+});
+
+describe("Show", () => {
+  // The row comes first: a Show that cannot be recorded returns no value.
+  it("answers 500 with no value when the audit row fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "isomux-secrets-reveal-"));
+    roots.push(root);
+    const handlers = secretsHandlers({
+      store: createSecretStore(root),
+      onChanged: async () => {},
+      ...SUBJECT,
+      auditReveal: () => {
+        throw new Error("audit store down");
+      },
+    });
+    await handlers["secrets.create"](ctx(BODY));
+    await handlers["officeSecrets.create"](ctx(BODY));
+    for (const opId of ["secrets.reveal", "officeSecrets.reveal"]) {
+      const result = await handlers[opId](ctx(undefined, "GH_TOKEN"));
+      expect([
+        opId,
+        result.kind,
+        result.kind === "error" && result.status,
+      ]).toEqual([opId, "error", 500]);
+      expect(result).toEqual(expect.objectContaining({ code: "audit_failed" }));
+      // A bytes body is decoded, so a leaked value would show here.
+      const sent =
+        result.kind === "bytes"
+          ? new TextDecoder().decode(result.body)
+          : JSON.stringify(result);
+      expect(sent).not.toContain(BODY.value);
+    }
   });
 });

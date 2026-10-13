@@ -266,7 +266,10 @@ describe("managed user env names route", () => {
         await request(server, member.username, {
           method: "PUT",
           session: member.rawSessionId,
-          body: { values: { ZED_TOKEN: secret, ANTHROPIC_API_KEY: secret } },
+          body: {
+            values: { ZED_TOKEN: secret, ANTHROPIC_API_KEY: secret },
+            notes: { ZED_TOKEN: "For the Zed CLI." },
+          },
         })
       ).status,
     ).toBe(204);
@@ -336,6 +339,7 @@ describe("managed user env names route", () => {
     });
     expect(ownerRead.body).toEqual({
       names: ["ANTHROPIC_API_KEY", "ZED_TOKEN"],
+      notes: { ZED_TOKEN: "For the Zed CLI." },
       providers: [
         { provider: "claude", status: "connected" },
         { provider: "codex", status: "not_connected" },
@@ -379,6 +383,7 @@ describe("managed user env names route", () => {
       status: 200,
       body: {
         names: [],
+        notes: {},
         providers: [
           { provider: "claude", status: "not_connected" },
           { provider: "codex", status: "not_connected" },
@@ -408,6 +413,7 @@ describe("managed user env names route", () => {
       status: 200,
       body: {
         names: ["ZED_TOKEN"],
+        notes: {},
         providers: [
           { provider: "claude", status: "not_connected" },
           { provider: "codex", status: "unknown" },

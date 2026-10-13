@@ -3,6 +3,7 @@ import {
   noContent,
   ok,
   type HandlerErrorStatus,
+  type HandlerResult,
   type RouteHandler,
 } from "../executor.ts";
 import type {
@@ -10,7 +11,8 @@ import type {
   UserEnvReplaceReq,
   UserEnvRes,
 } from "../../../shared/contract-shapes.ts";
-import { ManagedEnvValidationError } from "../../user-env.ts";
+import { isManagedEnvKey, ManagedEnvValidationError } from "../../user-env.ts";
+import { memberSubject } from "./member-subject.ts";
 
 type Outcome =
   | { ok: true }
@@ -18,7 +20,8 @@ type Outcome =
 
 export interface UserEnvDeps {
   get(userId: string): UserEnvRes;
-  // Variable names and personal provider status, or null for an unknown user.
+  // Variable names, their notes and personal provider status, or null for an
+  // unknown user.
   // Takes the username rather than a userId because the officeOwner guard on
   // userEnv.names never resolves the path param - it only asks who is calling.
   names(username: string): Promise<UserEnvNamesRes | null>;
@@ -29,6 +32,12 @@ export interface UserEnvDeps {
     values: Record<string, string>,
     notes: unknown,
   ): Outcome;
+  // One variable, for the member or an office owner (Nil, 2026-10-13): the
+  // same checks, writes and after-effects as replace. `note` undefined keeps
+  // the saved note, null or "" clears it. False from remove: not set.
+  setOne(userId: string, name: string, value: string, note: unknown): Outcome;
+  removeOne(userId: string, name: string): Outcome | false;
+  userIdForUsername(username: string): string | null;
   getOffice(): UserEnvRes;
   replaceOffice(values: Record<string, string>, notes: unknown): Outcome;
 }
@@ -54,9 +63,47 @@ function notesFromBody(body: unknown): unknown {
   return (body as Partial<UserEnvReplaceReq>).notes;
 }
 
+const SET_KEYS = ["value", "note"];
+
+function setBody(body: unknown): { value: string; note: unknown } | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  if (!Object.keys(body).every((key) => SET_KEYS.includes(key))) return null;
+  const { value, note } = body as { value?: unknown; note?: unknown };
+  return typeof value === "string" ? { value, note } : null;
+}
+
+function writeOutcome(run: () => Outcome | false): HandlerResult {
+  try {
+    const result = run();
+    if (result === false) return fail(404, "not_found");
+    return result.ok
+      ? noContent()
+      : fail(result.status, result.code, result.message);
+  } catch (error) {
+    return error instanceof ManagedEnvValidationError
+      ? fail(400, "invalid_env", error.message)
+      : fail(500, "write_failed", "could not save the managed env file");
+  }
+}
+
 export function userEnvHandlers(
   deps: UserEnvDeps,
 ): Record<string, RouteHandler> {
+  const subjectOf = memberSubject((username) =>
+    deps.userIdForUsername(username),
+  );
+  // The guard (selfOrEnvOwner) admitted the caller for :username. The name is
+  // checked before anything is read; no message echoes it or the value.
+  const variable = (
+    ctx: Parameters<RouteHandler>[0],
+  ): { userId: string; name: string } | HandlerResult => {
+    const subject = subjectOf(ctx);
+    if (!subject || subject.kind !== "user") return fail(404, "not_found");
+    const name = ctx.params.name ?? "";
+    if (!isManagedEnvKey(name))
+      return fail(400, "invalid_env", "the variable name is not valid");
+    return { userId: subject.userId, name };
+  };
   return {
     "userEnv.get": (ctx) => {
       const userId = subjectUserId(ctx);
@@ -67,7 +114,8 @@ export function userEnvHandlers(
         return fail(500, "read_failed", "could not read the managed env file");
       }
     },
-    // Owner-only: variable names and provider status, with no values or metadata.
+    // Owner-only: variable names, their notes and provider status, with no
+    // values or account metadata.
     "userEnv.names": async (ctx) => {
       const username = ctx.params.username;
       if (!username) return fail(404, "not_found");
@@ -94,6 +142,36 @@ export function userEnvHandlers(
         return error instanceof ManagedEnvValidationError
           ? fail(400, "invalid_env", error.message)
           : fail(500, "write_failed", "could not save the managed env file");
+      }
+    },
+    "userEnv.set": (ctx) => {
+      const target = variable(ctx);
+      if ("kind" in target) return target;
+      const body = setBody(ctx.body);
+      if (!body)
+        return fail(400, "invalid_request", "the body is { value, note? }");
+      return writeOutcome(() =>
+        deps.setOne(target.userId, target.name, body.value, body.note),
+      );
+    },
+    "userEnv.remove": (ctx) => {
+      const target = variable(ctx);
+      if ("kind" in target) return target;
+      return writeOutcome(() => deps.removeOne(target.userId, target.name));
+    },
+    "officeEnv.names": () => {
+      try {
+        const { values, notes = {} } = deps.getOffice();
+        return ok({
+          variables: Object.keys(values)
+            .sort()
+            .map((name) => ({
+              name,
+              note: Object.hasOwn(notes, name) ? notes[name] : null,
+            })),
+        });
+      } catch {
+        return fail(500, "read_failed", "could not read the managed env file");
       }
     },
     "officeEnv.get": () => {

@@ -50,6 +50,10 @@ export type Capability =
   | "user:prompt"
   | "office:admin"
   | "invite:manage"
+  // Show a saved secret's value: the member's own, or an office one for an
+  // owner. Held by USER and API only; no agent, run or app set holds it, so
+  // the value never reaches an agent token (Nil, 2026-10-13).
+  | "secret:show"
   | "session:manage"
   | "cron:read"
   | "cron:manage"
@@ -169,6 +173,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "user:admin",
   "office:admin",
   "invite:manage",
+  "secret:show",
   "session:manage",
   "cron:read",
   "cron:manage",
@@ -226,7 +231,8 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // This is a CURATED allowlist, NOT union(AGENT, USER): the literal union exposes
 // capability-only owner routes - invites.mintSelf (mints a durable owner LOGIN),
 // sessions.revoke (kills the human's browser session). So invite:manage,
-// session:manage, user:self and user:admin (user records / access),
+// secret:show (a saved secret's value), session:manage, user:self and
+// user:admin (user records / access),
 // office:admin (office settings + access), view:manage, terminal:use, and
 // agent:privilege (the toggle itself) are DELIBERATELY excluded. Scope stays
 // "agent" regardless, so every scope==="user" guard (officeOwner/selfUser/the
@@ -318,7 +324,9 @@ export const APP_CAPABILITIES: readonly Capability[] = [
 // session:manage, user:self, user:admin, office:admin, view:manage and
 // agent:privilege. user:env is the explicit exception for the issuing user's
 // managed environment routes: their own values, and - when that user is an
-// office owner - the name-only read of another user's variables. user:create
+// office owner - every member's variables, secrets and MCP servers.
+// secret:show goes with it: a token shows its user's own secret values, and an
+// owner's token the office ones. user:create
 // is the other exception, with the privileged agent's member-only limits. The
 // agent/cron/app sender and self-affordance capabilities are also absent: an API
 // token is its issuing user, not an office participant. Its `log:read` covers
@@ -328,6 +336,7 @@ export const APP_CAPABILITIES: readonly Capability[] = [
 export const API_CAPABILITIES: readonly Capability[] = [
   "audit:read",
   "user:env",
+  "secret:show",
   "api:discover-agents",
   "api:send-message",
   "api:drain-inbox",

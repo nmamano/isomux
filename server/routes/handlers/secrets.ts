@@ -2,14 +2,18 @@
 // internal-docs/secrets-design.md, section 1.
 //
 // The route table gates them as the variables are: cap user:env, which no
-// agent scope holds; member secrets self-only (selfUserOrApi), office secrets
-// owner-only (officeEnvOwner). No response carries a value, and no error
-// echoes any input: a value pasted into the wrong field does not come back.
+// agent scope holds; member secrets for the member or an office owner
+// (selfOrEnvOwner), office secrets owner-only (officeEnvOwner), and the office
+// list for members too (officeEnvReader), as a summary. Only Show returns a
+// value: cap secret:show, the member's own (selfUserOrApi) or an office one
+// for an owner. No error echoes any input: a value pasted into the wrong field
+// does not come back.
 //
 // Every failure is answered here, never rethrown: the executor logs a thrown
 // error in full. The log line is fixed text.
 
 import {
+  bytes,
   created,
   fail,
   noContent,
@@ -24,9 +28,24 @@ import {
   type SecretStore,
 } from "../../secret-store.ts";
 import { hasCredentialShape } from "../../log-redaction.ts";
+import type {
+  OfficeSecretSummaryWire,
+  SecretWire,
+} from "../../../shared/contract-shapes.ts";
+import { callerIsEnvOwner, memberSubject } from "./member-subject.ts";
 
 export interface SecretsDeps {
   store: SecretStore;
+  userIdForUsername: (username: string) => string | null;
+  isOfficeOwnerUserId: (userId: string) => boolean;
+  // The audit row of a Show: a GET, which the executor does not audit.
+  // Targets are names only, never the value. It throws when the row is not
+  // written, and the Show then fails.
+  auditReveal: (
+    ctx: Parameters<RouteHandler>[0],
+    operation: "secrets.reveal" | "officeSecrets.reveal",
+    targets: string[],
+  ) => void;
   // After a change is stored: the secrets runtime pushes it to the proxy
   // and marks the agents that must restart. The store write is the commit
   // point, so a failure here is logged and the route still answers success;
@@ -38,13 +57,6 @@ const CREATE_KEYS = ["name", "value", "hosts", "form", "note"];
 const ROTATE_KEYS = ["value"];
 const UPDATE_KEYS = ["hosts", "form", "note"];
 
-function memberScope(ctx: Parameters<RouteHandler>[0]): SecretScope | null {
-  return (ctx.identity.scope === "user" || ctx.identity.scope === "api") &&
-    ctx.identity.userId
-    ? { kind: "user", userId: ctx.identity.userId }
-    : null;
-}
-
 // The body as an object with only the allowed keys, or null.
 function bodyWith(
   body: unknown,
@@ -54,6 +66,12 @@ function bodyWith(
   const keys = Object.keys(body);
   if (!keys.every((key) => allowed.includes(key))) return null;
   return body as Record<string, unknown>;
+}
+
+// A member's view of an office secret, by allowlist: a field added to
+// SecretWire later does not reach members.
+function officeSecretSummary(secret: SecretWire): OfficeSecretSummaryWire {
+  return { name: secret.name, hosts: [...secret.hosts], note: secret.note };
 }
 
 const invalidRequest = () =>
@@ -118,18 +136,51 @@ function scopedHandlers(
   deps: SecretsDeps,
   scopeOf: (ctx: Parameters<RouteHandler>[0]) => SecretScope | null,
 ): Record<
-  "list" | "create" | "rotate" | "update" | "reissue" | "remove",
+  "list" | "create" | "rotate" | "update" | "reissue" | "remove" | "reveal",
   RouteHandler
 > {
   return {
     list: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
-      return ok({ secrets: deps.store.list(scope) });
+      if (!scope) return fail(404, "not_found");
+      const secrets = deps.store.list(scope);
+      // A member reads the office secrets as a summary only.
+      if (
+        scope.kind === "office" &&
+        !callerIsEnvOwner(ctx, deps.isOfficeOwnerUserId)
+      )
+        return ok({ secrets: secrets.map(officeSecretSummary) });
+      return ok({ secrets });
+    },
+    reveal: (ctx) => {
+      const scope = scopeOf(ctx);
+      if (!scope) return fail(404, "not_found");
+      const name = ctx.params.name ?? "";
+      const value = deps.store.readSecretValues(scope, name)?.value;
+      if (value === undefined) return fail(404, "not_found");
+      // The row first: a read that cannot be recorded returns no value.
+      try {
+        if (scope.kind === "office")
+          deps.auditReveal(ctx, "officeSecrets.reveal", ["office", name]);
+        else
+          deps.auditReveal(ctx, "secrets.reveal", [
+            ctx.params.username ?? "",
+            name,
+          ]);
+      } catch {
+        console.error("[secrets] a Show could not be recorded");
+        return fail(500, "audit_failed");
+      }
+      // Bytes rather than ok(), for the no-store header: no cache keeps it.
+      return bytes(
+        new TextEncoder().encode(JSON.stringify({ value })),
+        "application/json; charset=utf-8",
+        { "Cache-Control": "no-store" },
+      );
     },
     create: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
+      if (!scope) return fail(404, "not_found");
       const body = bodyWith(ctx.body, CREATE_KEYS);
       if (!body) return invalidRequest();
       // A name that looks like a credential is most likely the value in the
@@ -144,7 +195,7 @@ function scopedHandlers(
     },
     rotate: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
+      if (!scope) return fail(404, "not_found");
       const body = bodyWith(ctx.body, ROTATE_KEYS);
       if (!body) return invalidRequest();
       return committed(
@@ -154,7 +205,7 @@ function scopedHandlers(
     },
     update: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
+      if (!scope) return fail(404, "not_found");
       const body = bodyWith(ctx.body, UPDATE_KEYS);
       if (!body || Object.keys(body).length === 0) return invalidRequest();
       return committed(
@@ -164,7 +215,7 @@ function scopedHandlers(
     },
     reissue: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
+      if (!scope) return fail(404, "not_found");
       if (ctx.body !== undefined && bodyWith(ctx.body, []) === null)
         return invalidRequest();
       return committed(
@@ -174,7 +225,7 @@ function scopedHandlers(
     },
     remove: (ctx) => {
       const scope = scopeOf(ctx);
-      if (!scope) return fail(403, "forbidden");
+      if (!scope) return fail(404, "not_found");
       return deps.store.remove(scope, ctx.params.name ?? "")
         ? committed(deps, noContent())
         : fail(404, "not_found");
@@ -185,8 +236,8 @@ function scopedHandlers(
 export function secretsHandlers(
   deps: SecretsDeps,
 ): Record<string, RouteHandler> {
-  const member = scopedHandlers(deps, memberScope);
-  // The route has checked officeEnvOwner.
+  const member = scopedHandlers(deps, memberSubject(deps.userIdForUsername));
+  // The route has checked officeEnvOwner, or officeEnvReader for the list.
   const office = scopedHandlers(deps, () => ({ kind: "office" }));
   const handlers: Record<string, RouteHandler> = {
     "secrets.list": member.list,
@@ -195,12 +246,14 @@ export function secretsHandlers(
     "secrets.update": member.update,
     "secrets.reissue": member.reissue,
     "secrets.delete": member.remove,
+    "secrets.reveal": member.reveal,
     "officeSecrets.list": office.list,
     "officeSecrets.create": office.create,
     "officeSecrets.rotate": office.rotate,
     "officeSecrets.update": office.update,
     "officeSecrets.reissue": office.reissue,
     "officeSecrets.delete": office.remove,
+    "officeSecrets.reveal": office.reveal,
   };
   return Object.fromEntries(
     Object.entries(handlers).map(([opId, h]) => [opId, guarded(h)]),

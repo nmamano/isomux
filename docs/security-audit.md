@@ -26,15 +26,15 @@ Thus, give office access only to persons you trust with a shell on the server. A
 
 ## 2. Identities
 
-| Identity           | How it signs in                               | What it can do                                                                                                                                       |
-| ------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Owner              | Browser session cookie                        | Everything a member can do. Also: create members, mint sign-in links, change room access, change office settings, revoke the sessions of any member. |
-| Member             | Browser session cookie                        | Use the rooms the owner gives them: agents, terminal panels, tasks, files, apps, schedules. Mint their own device links and API tokens.              |
-| Personal API token | `Authorization: Bearer isomux_pat_…`          | The reach of the member who minted it, with some exclusions. See section 5.                                                                          |
-| Agent              | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs, apps, webhooks, and pages to its manager.                          |
-| Privileged agent   | The same agent token, with more capabilities  | Also: drive other agents, manage rooms and schedules, all inside the reach of the member who spawned it. See section 6.2.                            |
-| Scheduled run      | A run token in the run environment            | Its own run affordances, messages that show the schedule as sender, and office-wide tasks.                                                           |
-| App                | `ISOMUX_APP_TOKEN` in the app environment     | Send messages to the agent that built it, and raise and resolve its own pages to its owner. Nothing else.                                            |
+| Identity           | How it signs in                               | What it can do                                                                                                                                                                              |
+| ------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner              | Browser session cookie                        | Everything a member can do. Also: create members, mint sign-in links, change room access, change office settings, revoke the sessions of any member, manage the integrations of any member. |
+| Member             | Browser session cookie                        | Use the rooms the owner gives them: agents, terminal panels, tasks, files, apps, schedules. Mint their own device links and API tokens.                                                     |
+| Personal API token | `Authorization: Bearer isomux_pat_…`          | The reach of the member who minted it, with some exclusions. See section 5.                                                                                                                 |
+| Agent              | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs, apps, webhooks, and pages to its manager.                                                                 |
+| Privileged agent   | The same agent token, with more capabilities  | Also: drive other agents, manage rooms and schedules, all inside the reach of the member who spawned it. See section 6.2.                                                                   |
+| Scheduled run      | A run token in the run environment            | Its own run affordances, messages that show the schedule as sender, and office-wide tasks.                                                                                                  |
+| App                | `ISOMUX_APP_TOKEN` in the app environment     | Send messages to the agent that built it, and raise and resolve its own pages to its owner. Nothing else.                                                                                   |
 
 Isomux reads the role and the room access of a member from the live state on each request. A change to a role, to room access or to a member record has an effect on the next request.
 
@@ -153,7 +153,7 @@ A webhook lets an outside service, such as GitHub, send a message to an agent or
 
 ### 5.1 Reach
 
-A personal API token acts as the member who minted it. It has that member's live role and room access. It can drive agents, rooms, tasks, apps, schedules, memory and files, and read logs. It can read and replace its member's managed environment variables. It can replace its member's pager settings, which hold the Discord webhook URL, but it reads only the masked URL. It can manage its member's webhooks. An owner's token can also create a member and give that member room access. The new member cannot sign in until a human owner mints a sign-in link.
+A personal API token acts as the member who minted it. It has that member's live role and room access. It can drive agents, rooms, tasks, apps, schedules, memory and files, and read logs. It can read and replace its member's managed environment variables, and show its member's saved secrets. An owner's token can also manage the integrations of any member and show the office secrets (section 7). It can replace its member's pager settings, which hold the Discord webhook URL, but it reads only the masked URL. It can manage its member's webhooks. An owner's token can also create a member and give that member room access. The new member cannot sign in until a human owner mints a sign-in link.
 
 A token cannot:
 
@@ -256,6 +256,7 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 - **Rooms.** A member sees only the agents, files and tasks of their rooms, plus the lobby and office-wide tasks. Any member can create a room. A member with access to a room can rename it or close it.
 - **Files.** Upload and file routes check room access. A denial gets the same 404 as a missing file. The files of a stopped agent follow its last room. When that room is gone, only owners can read them.
 - **Schedules.** A schedule belongs to a room, or to no room. The members of its room see the schedule, its runs and their transcripts. A run uses the environment of the maker, so a transcript can show their secrets. Only the maker and owners can change, delete or run it. A schedule with no room, or whose room was closed, is visible only to the maker and owners.
+- **Integrations.** An owner manages the variables, secrets and MCP servers of every member, but never reads the value of a member's variable or secret: an owner sets or removes one variable at a time, and replaces or removes a secret. A member reads the names, hosts and notes of the office's variables, secrets and MCP servers, never a value, an MCP server's URL path or the name of its credential. Show returns a saved secret's value to the member who owns it, or an office secret's value to an owner. No agent token, privileged or not, can call Show, and each Show writes an audit row with the secret's name. An agent with a shell can still read the secret files (section 3.2). An audit row of an owner's change to a member's integration names that member.
 - **Shared devices.** A session cookie lasts up to one year. A member who does not sign out on a shared computer leaves access open. Revoke it in Settings → You → Sign-in links, or an owner revokes it in Settings → Office → Sessions: an open tab closes in about one second.
 
 ---
@@ -296,7 +297,7 @@ An agent can page its manager, and an app can page its owner. Isomux takes the s
 
 ### 8.6 Connection tests
 
-The Test button of the connections page makes the server itself send a secret. Only a member's browser session or API token can start a test of their own connections, and only an owner can test an office secret or an office MCP server. Each test writes an audit row.
+The Test button of the connections page makes the server itself send a secret. A member's browser session or API token can start a test of their own connections, and an owner's can start a test of any member's. Only an owner can test an office secret or an office MCP server. Each test writes an audit row.
 
 - **Where the secret goes.** For a secret of the GitHub, Stripe or Fly preset, the server sends it to one fixed identity endpoint (`api.github.com/user`, `api.stripe.com/v1/account`, or Fly's GraphQL `viewer` query). For a registered MCP server, it sends the server's secret to the registered URL. The secret goes only to a host that it lists. A secret on any other host gets no test.
 - **Outbound requests.** Isomux does not follow redirects. A test stops after 10 seconds, and Isomux reads at most 1 MiB of each answer. The request goes out from the server process, not through the agents' secret proxy.
@@ -304,15 +305,15 @@ The Test button of the connections page makes the server itself send a secret. O
 
 ### 8.7 OAuth MCP servers
 
-For a registered MCP server that needs the MCP authorization flow, Isomux is the OAuth client. The member who registered it, or an owner for an office server, starts the sign-in; the authorization server sends the browser back to `/api/mcp-oauth/callback` on the office's public origin.
+For a registered MCP server that needs the MCP authorization flow, Isomux is the OAuth client. The member, or an owner for an office server or a member's server, starts the sign-in; the authorization server sends the browser back to `/api/mcp-oauth/callback` on the office's public origin.
 
-- **Checks.** Every endpoint is `https`. The protected-resource metadata must name the registered URL, and the authorization-server metadata must name the issuer it was fetched for. The flow uses PKCE (S256) and a random state that expires after 10 minutes. Only the member who started the flow can finish it, with a browser session. Isomux does not follow redirects, stops each step after 10 seconds, and reads at most 1 MiB of each answer.
+- **Checks.** Every endpoint is `https`. The protected-resource metadata must name the registered URL, and the authorization-server metadata must name the issuer it was fetched for. The flow uses PKCE (S256) and a random state that expires after 10 minutes. Only the person who started the flow can finish it, with a browser session, and only while they still have access to the server: their own, or any as an owner. Isomux does not follow redirects, stops each step after 10 seconds, and reads at most 1 MiB of each answer.
 - **Where the tokens are.** The refresh token, and a client secret if there is one, are secrets of the server's scope (`MCP_<NAME>_OAUTH` and `MCP_<NAME>_OAUTH_CLIENT`). They go only to the authorization server's token endpoint: agents get no placeholder for them, and the secret proxy does not hold them. The access token is in the server's memory only. Agents get it as the value of the server's header, through the same channels as a static credential's placeholder (never argv or the environment). A change of the server's URL, a switch away from OAuth, or a delete removes the tokens.
-- **What is recorded.** A finished sign-in writes an audit row with the server's name. No log line, response or audit row holds a token, a code or the state.
+- **What is recorded.** A finished sign-in writes an audit row with the server's name and its scope: the office, or the member. No log line, response or audit row holds a token, a code or the state.
 
 ### 8.8 Usage notes for agents
 
-A member can write a note for agents on a variable, a secret or an MCP server. An agent reads, through `GET /api/agent-connections`, the kind, name, hosts and note of each connection it gets: the office's and its member's, never another member's. The answer holds no value, URL path or query. Thus a member can see, through their agent, the names, hosts and notes of the office secrets, which the connections page shows to owners only. The agent reference tells agents that a note never overrides a chat message or the system prompt.
+A member can write a note for agents on a variable, a secret or an MCP server. An agent reads, through `GET /api/agent-connections`, the kind, name, hosts and note of each connection it gets: the office's and its member's, never another member's. The answer holds no value, URL path or query. The agent reference tells agents that a note never overrides a chat message or the system prompt.
 
 ---
 
@@ -426,7 +427,8 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 4.7, targets: `webhookTargetPrecondition` in `routes/handlers/webhooks.ts`; `webhookAgentReachable` and `webhookCronjobRunnable` in `isomux-office.ts`; `cronjobOwnerOrOfficeOwner` in `identity/guards.ts`; `dispatch` in `webhooks/ingress.ts`; `runCronjobFromWebhook` in `cronjob-manager.ts`.
 - Section 4.7, who sees a hook: `webhookVisibleTo` and `webhookViewerForIdentity` in `webhook-visibility.ts`; `webhookDeltaFor` in `events/webhook-delta.ts`; `webhookOwnerOrOfficeOwner` in `identity/guards.ts`; `webhooks.list` in `routes/handlers/webhooks.ts`.
 - Section 4.7, the secret: the `webhooks.readSecret` and `webhooks.rotateSecret` routes in `routes/table.ts`; `userScope` in `identity/guards.ts`; `SENSITIVE_EXACT` and `SENSITIVE_PATTERNS` in `safety-policy.ts`.
-- Section 5.1: `API_CAPABILITIES` in `identity/index.ts`; `selfUserOrApi` and `webhookOwnerOrOfficeOwner` in `identity/guards.ts`; `toPagerSettingsRes` in `pager-settings.ts`.
+- Section 5.1: `API_CAPABILITIES` in `identity/index.ts`; `selfUserOrApi`, `selfOrEnvOwner` and `webhookOwnerOrOfficeOwner` in `identity/guards.ts`; `toPagerSettingsRes` in `pager-settings.ts`.
+- Section 7, integrations: `selfOrEnvOwner`, `officeEnvReader` and `officeEnvOwner` in `identity/guards.ts`; `secret:show` in `identity/index.ts`; the `secrets.*`, `officeSecrets.*`, `userEnv.*`, `officeEnv.names`, `mcpServers.*` and `officeMcpServers.list` routes in `routes/table.ts`; `memberSubject` in `routes/handlers/member-subject.ts`; `officeSecretSummary` in `routes/handlers/secrets.ts`; `officeServerSummary` in `routes/handlers/mcp-servers.ts`.
 - Section 8.2: `BACKUP_EXCLUSIONS` in `backup.ts`.
 - Section 8.5, raise: `pager.raise` and `pager.appRaise` in `routes/handlers/pager.ts`; `parseRaiseFields`, `PAGER_TITLE_MAX`, `PAGER_BODY_MAX` and `PAGER_MAX_ACTIVE_PER_SOURCE` in `pager-store.ts`.
 - Section 8.5, who sees a page: `pagerEntryVisible` in `pager-store.ts`; `pager.ack` and `pager.resolve` in `routes/handlers/pager.ts`; `onTransitioned` in `pager-delivery.ts`.

@@ -398,6 +398,9 @@ describe("route table: managed env values are self-only", () => {
       "secrets.delete",
       "secrets.reissue",
       "secrets.test",
+      "secrets.reveal",
+      "userEnv.set",
+      "userEnv.remove",
       "mcpServers.list",
       "mcpServers.create",
       "mcpServers.update",
@@ -464,6 +467,60 @@ describe("route table: managed env values are self-only", () => {
         ).ok,
       ).toBe(false);
     }
+  });
+
+  // Nil, 2026-10-13: an office owner manages every member's integrations, by
+  // cookie or by their own API token, but never reads a member's variable
+  // values (Lead's option B) or secret values (ruling 1). No agent token of
+  // the owner passes either way.
+  const OWNER_MANAGES = [
+    "userEnv.set",
+    "userEnv.remove",
+    "secrets.list",
+    "secrets.create",
+    "secrets.rotate",
+    "secrets.update",
+    "secrets.delete",
+    "secrets.reissue",
+    "secrets.test",
+    "mcpServers.list",
+    "mcpServers.create",
+    "mcpServers.update",
+    "mcpServers.delete",
+    "mcpServers.test",
+    "mcpServers.signIn",
+  ];
+  const SELF_ONLY = [
+    "userEnv.get",
+    "userEnv.replace",
+    "secrets.reveal",
+    "pagerSettings.get",
+    "pagerSettings.update",
+    "pagerSettings.test",
+  ];
+  it("admits an office owner on another member's items, except their values", () => {
+    const ownerDeps: GuardDeps = { ...deps, isOfficeOwnerUserId: () => true };
+    const ownerCookie: Identity = { ...identities.user, role: "owner" };
+    const ownerApi: Identity = { ...identities.api, role: "owner" };
+    const allowed = (opId: string, who: Identity) =>
+      runAuthorize(
+        API_ROUTES.find((r) => r.opId === opId)!.auth,
+        who,
+        { username: "other" },
+        undefined,
+        ownerDeps,
+      ).ok;
+    for (const opId of OWNER_MANAGES) {
+      expect([opId, allowed(opId, ownerCookie)]).toEqual([opId, true]);
+      expect([opId, allowed(opId, ownerApi)]).toEqual([opId, true]);
+    }
+    for (const opId of SELF_ONLY) {
+      expect([opId, allowed(opId, ownerCookie)]).toEqual([opId, false]);
+      expect([opId, allowed(opId, ownerApi)]).toEqual([opId, false]);
+    }
+    for (const opId of [...OWNER_MANAGES, ...SELF_ONLY])
+      for (const who of [identities.agent, identities.privilegedAgent])
+        expect([opId, allowed(opId, who)]).toEqual([opId, false]);
   });
 
   // The integrations list carries sign-in accounts and variable names, so it
@@ -592,14 +649,14 @@ describe("route table: managed office env is owner-only", () => {
     // Office secrets have the office variables' gate (ruling 10).
     for (const opId of [
       "officeEnv.get",
-      "officeSecrets.list",
+      "officeEnv.replace",
+      "officeSecrets.reveal",
       "officeSecrets.create",
       "officeSecrets.rotate",
       "officeSecrets.update",
       "officeSecrets.delete",
       "officeSecrets.reissue",
       "officeSecrets.test",
-      "officeMcpServers.list",
       "officeMcpServers.create",
       "officeMcpServers.update",
       "officeMcpServers.delete",
@@ -635,6 +692,43 @@ describe("route table: managed office env is owner-only", () => {
       expect(
         allowed(identity("cron-run", "owner", "member", RUN_CAPABILITIES)),
       ).toBe(false);
+    }
+  });
+
+  // Members read the office integrations as names, hosts and notes (Nil,
+  // 2026-10-13); the handlers pick the shape. Still no agent, app or run.
+  it("lets every human and their API token read the office lists", () => {
+    for (const opId of [
+      "officeEnv.names",
+      "officeSecrets.list",
+      "officeMcpServers.list",
+    ]) {
+      const route = API_ROUTES.find((r) => r.opId === opId)!;
+      const allowed = (candidate: Identity) =>
+        runAuthorize(route.auth, candidate, {}, undefined, deps).ok;
+      for (const who of [
+        identity("user", "owner", "owner", USER_CAPABILITIES),
+        identity("user", "member", "member", USER_CAPABILITIES),
+        identity("api", "owner", "owner", API_CAPABILITIES),
+        identity("api", "member", "member", API_CAPABILITIES),
+      ])
+        expect([opId, who.scope, who.role, allowed(who)]).toEqual([
+          opId,
+          who.scope,
+          who.role,
+          true,
+        ]);
+      for (const who of [
+        identity("agent", "owner", "member", AGENT_CAPABILITIES),
+        identity("agent", "owner", "member", PRIVILEGED_AGENT_CAPABILITIES),
+        identity("app", "owner", "member", APP_CAPABILITIES),
+        identity("cron-run", "owner", "member", RUN_CAPABILITIES),
+      ])
+        expect([opId, who.scope, allowed(who)]).toEqual([
+          opId,
+          who.scope,
+          false,
+        ]);
     }
   });
 });
@@ -1036,6 +1130,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   "userEnv.get": { caps: ["user:env"], emits: [] },
   "userEnv.replace": { caps: ["user:env"], emits: [] },
   "userEnv.names": { caps: ["user:env"], emits: [] },
+  "userEnv.set": { caps: ["user:env"], emits: [] },
+  "userEnv.remove": { caps: ["user:env"], emits: [] },
+  "officeEnv.names": { caps: ["user:env"], emits: [] },
   "officeEnv.get": { caps: ["user:env"], emits: [] },
   "officeEnv.replace": { caps: ["user:env"], emits: [] },
   "secrets.list": { caps: ["user:env"], emits: [] },
@@ -1045,6 +1142,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "secrets.delete": { caps: ["user:env"], emits: [] },
   "secrets.test": { caps: ["user:env"], emits: [] },
   "secrets.reissue": { caps: ["user:env"], emits: [] },
+  "secrets.reveal": { caps: ["secret:show"], emits: [] },
   "officeSecrets.list": { caps: ["user:env"], emits: [] },
   "officeSecrets.create": { caps: ["user:env"], emits: [] },
   "officeSecrets.rotate": { caps: ["user:env"], emits: [] },
@@ -1052,6 +1150,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "officeSecrets.delete": { caps: ["user:env"], emits: [] },
   "officeSecrets.test": { caps: ["user:env"], emits: [] },
   "officeSecrets.reissue": { caps: ["user:env"], emits: [] },
+  "officeSecrets.reveal": { caps: ["secret:show"], emits: [] },
   "mcpServers.list": { caps: ["user:env"], emits: [] },
   "mcpServers.create": { caps: ["user:env"], emits: [] },
   "mcpServers.update": { caps: ["user:env"], emits: [] },
@@ -1574,12 +1673,16 @@ const API_REACHABLE_OPIDS = [
   "rooms.setSettings",
   "userEnv.get",
   "userEnv.replace",
+  "userEnv.set",
+  "userEnv.remove",
   "userEnv.names",
+  "officeEnv.names",
   "officeEnv.get",
   "officeEnv.replace",
   "secrets.list",
   "secrets.create",
   "secrets.rotate",
+  "secrets.reveal",
   "secrets.update",
   "secrets.delete",
   "secrets.reissue",
@@ -1587,6 +1690,7 @@ const API_REACHABLE_OPIDS = [
   "officeSecrets.list",
   "officeSecrets.create",
   "officeSecrets.rotate",
+  "officeSecrets.reveal",
   "officeSecrets.update",
   "officeSecrets.delete",
   "officeSecrets.reissue",

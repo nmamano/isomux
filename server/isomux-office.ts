@@ -3671,6 +3671,31 @@ function buildExecutorDeps(
   // event sink): the seam runs updateUserById/deleteUser + the fanout, mirroring
   // the retired WS arms. Role/self authz is the route guard's (selfOrOwner /
   // officeOwner); the two delete preconditions add owner!=self + not-last-owner.
+  // The one write path for a member's variables: the whole-map PUT and the
+  // per-variable routes.
+  const replaceUserEnv = (
+    userId: string,
+    values: Record<string, string>,
+    notes: unknown,
+  ) => {
+    const user = getUserById(userId);
+    if (!user)
+      return { ok: false as const, status: 404 as const, code: "not_found" };
+    // Checked before either write; the env first, since a read filters
+    // the notes to its names.
+    const nextNotes = nextManagedEnvNotes(
+      values,
+      notes,
+      readManagedUserEnvNotes(userId),
+    );
+    writeManagedUserEnv(userId, values);
+    writeManagedUserEnvNotes(userId, nextNotes);
+    // Agents first: a client that sees the new session_context has the
+    // agent records that go with it.
+    agentManager.refreshLimitedClaudeFamilies(userId);
+    resendSessionContexts(userId);
+    return { ok: true as const };
+  };
   register(
     userEnvHandlers({
       get: (userId) => {
@@ -3689,27 +3714,31 @@ function buildExecutorDeps(
         if (!user) return null;
         return {
           names: Object.keys(readManagedUserEnv(user.id) ?? {}).sort(),
+          notes: { ...readManagedUserEnvNotes(user.id) },
           providers: await providerAccountManager.memberStatuses(user.id),
         };
       },
-      replace: (userId, values, notes) => {
-        const user = getUserById(userId);
-        if (!user) return { ok: false, status: 404, code: "not_found" };
-        // Checked before either write; the env first, since a read filters
-        // the notes to its names.
-        const nextNotes = nextManagedEnvNotes(
+      replace: replaceUserEnv,
+      // Read, change one name, and write through replace, with no await in
+      // between, so it cannot interleave with a whole-map PUT.
+      setOne: (userId, name, value, note) => {
+        const values = { ...readManagedUserEnv(userId), [name]: value };
+        return replaceUserEnv(
+          userId,
           values,
-          notes,
-          readManagedUserEnvNotes(userId),
+          note === undefined
+            ? undefined
+            : { ...readManagedUserEnvNotes(userId), [name]: note },
         );
-        writeManagedUserEnv(userId, values);
-        writeManagedUserEnvNotes(userId, nextNotes);
-        // Agents first: a client that sees the new session_context has the
-        // agent records that go with it.
-        agentManager.refreshLimitedClaudeFamilies(userId);
-        resendSessionContexts(userId);
-        return { ok: true };
       },
+      removeOne: (userId, name) => {
+        const values = { ...readManagedUserEnv(userId) };
+        if (!Object.hasOwn(values, name)) return false;
+        delete values[name];
+        return replaceUserEnv(userId, values, undefined);
+      },
+      userIdForUsername: (username) =>
+        buildLiveGuardDeps().userIdForUsername(username),
       getOffice: () => ({
         mode: "managed",
         values: readManagedOfficeEnv() ?? {},
@@ -3733,13 +3762,29 @@ function buildExecutorDeps(
       },
     }),
   );
-  // Secrets: write-only routes. The runtime pushes each change to the proxy.
+  // Secrets: no route returns a value but Show. The runtime pushes each
+  // change to the proxy.
   // MCP servers name a secret in the same scope.
   const mcpSources = createMcpServerSources();
   register(
     secretsHandlers({
       store: mcpSources.secrets,
       onChanged: () => secretsRuntime.changed(),
+      userIdForUsername: (username) =>
+        buildLiveGuardDeps().userIdForUsername(username),
+      isOfficeOwnerUserId: (userId) =>
+        buildLiveGuardDeps().isOfficeOwnerUserId(userId),
+      // append, not recordAudit: a Show that cannot be recorded must fail.
+      auditReveal: (ctx, operation, targets) =>
+        officeAuditStore().append({
+          actor: auditActor(
+            ctx.identity,
+            attributionFor(ctx.identity).createdBy,
+          ),
+          operation,
+          targets,
+          fields: [],
+        }),
     }),
   );
   // Secret requests: an agent asks, the member types the value on a card.
@@ -3804,6 +3849,9 @@ function buildExecutorDeps(
         }),
       isOfficeOwnerUserId: (userId) =>
         buildLiveGuardDeps().isOfficeOwnerUserId(userId),
+      userIdForUsername: (username) =>
+        buildLiveGuardDeps().userIdForUsername(username),
+      usernameForUserId: (userId) => getUserById(userId)?.name ?? null,
     }),
   );
   register(
@@ -3812,6 +3860,8 @@ function buildExecutorDeps(
         sources: mcpSources,
         fetch: connectionTestFetch,
       }),
+      userIdForUsername: (username) =>
+        buildLiveGuardDeps().userIdForUsername(username),
     }),
   );
   register(

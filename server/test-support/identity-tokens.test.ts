@@ -157,6 +157,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
     // was added by Nil-approved expansion - it is now INCLUDED above.)
     for (const c of [
       "invite:manage",
+      "secret:show",
       "session:manage",
       "user:self",
       "user:admin",
@@ -166,6 +167,25 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "agent:privilege",
     ] as Capability[]) {
       expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain(c);
+    }
+  });
+
+  // Show a saved secret (Nil, 2026-10-13): humans and their API tokens only.
+  it("secret:show is held by USER and API scope only, never an agent, run or app", () => {
+    expect(USER_CAPABILITIES).toContain("secret:show" as Capability);
+    expect(API_CAPABILITIES).toContain("secret:show" as Capability);
+    for (const set of [
+      AGENT_CAPABILITIES,
+      PRIVILEGED_AGENT_CAPABILITIES,
+      RUN_CAPABILITIES,
+      APP_CAPABILITIES,
+    ])
+      expect(set).not.toContain("secret:show" as Capability);
+    for (const privileged of [false, true]) {
+      const id = resolveToken(
+        mintAgentToken(`agent-show-${privileged}`, "user-1", privileged),
+      )!;
+      expect(identityHasCapability(id, "secret:show")).toBe(false);
     }
   });
 
@@ -221,6 +241,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect([...API_CAPABILITIES]).toEqual([
       "audit:read",
       "user:env",
+      "secret:show",
       "api:discover-agents",
       "api:send-message",
       "api:drain-inbox",

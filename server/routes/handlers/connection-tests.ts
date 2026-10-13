@@ -1,8 +1,8 @@
 // The Test button's routes (opIds secrets.test, officeSecrets.test,
 // mcpServers.test, officeMcpServers.test; integrations loop, slice A3). The
 // route table gates them as the routes that edit the same connection: cap
-// user:env, which no agent scope holds; member connections self-only
-// (selfUserOrApi), office ones owner-only (officeEnvOwner).
+// user:env, which no agent scope holds; member connections for the member or
+// an office owner (selfOrEnvOwner), office ones owner-only (officeEnvOwner).
 //
 // The tester answers every outside failure with a code, so the only errors
 // here are the stores' own, with fixed text.
@@ -19,19 +19,14 @@ import {
   SecretStoreUnreadableError,
   type SecretScope,
 } from "../../secret-store.ts";
+import { memberSubject } from "./member-subject.ts";
 
 export interface ConnectionTestsDeps {
   tester: ConnectionTester;
+  userIdForUsername: (username: string) => string | null;
 }
 
 type Ctx = Parameters<RouteHandler>[0];
-
-function memberScope(ctx: Ctx): SecretScope | null {
-  return (ctx.identity.scope === "user" || ctx.identity.scope === "api") &&
-    ctx.identity.userId
-    ? { kind: "user", userId: ctx.identity.userId }
-    : null;
-}
 
 // The route has checked officeEnvOwner.
 const officeScope = (): SecretScope => ({ kind: "office" });
@@ -42,7 +37,7 @@ function testRoute(
 ): RouteHandler {
   return async (ctx): Promise<HandlerResult> => {
     const scope = scopeOf(ctx);
-    if (!scope) return fail(403, "forbidden");
+    if (!scope) return fail(404, "not_found");
     try {
       const tested = run(scope, ctx.params.name ?? "");
       if (!tested) return fail(404, "not_found");
@@ -62,6 +57,7 @@ export function connectionTestsHandlers(
   deps: ConnectionTestsDeps,
 ): Record<string, RouteHandler> {
   const { tester } = deps;
+  const memberScope = memberSubject(deps.userIdForUsername);
   return {
     "secrets.test": testRoute(memberScope, tester.secret),
     "officeSecrets.test": testRoute(officeScope, tester.secret),

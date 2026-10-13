@@ -787,15 +787,23 @@ export type MemberProviderStatus = {
 };
 export type UserEnvNamesRes = {
   names: string[];
+  // A name with no note has no key.
+  notes: Record<string, string>;
   providers: MemberProviderStatus[];
+};
+
+// GET /api/office/env/names: the office variables' names and notes, for
+// members too. Never a value.
+export type OfficeEnvNamesRes = {
+  variables: { name: string; note: string | null }[];
 };
 
 // The integrations list (GET /api/me/connections): every connection the
 // caller's agents can use, names only. A variable never carries its value.
-// Office variables are owner-only, like GET /api/office/env, so a member gets
-// none. claudeConnectors has one entry per Claude sign-in with a claude.ai
-// login: seenAt null means no Claude turn on that sign-in since the server
-// started, names [] with a seenAt means it really has none.
+// Office variables reach every member, names and notes only (Nil, ruling 2,
+// 2026-10-13). claudeConnectors has one entry per Claude sign-in with a
+// claude.ai login: seenAt null means no Claude turn on that sign-in since the
+// server started, names [] with a seenAt means it really has none.
 export type ConnectionScope = "office" | "personal";
 export type ConnectionsListRes = {
   // `note` on variables, MCP servers and secrets: the member's usage note for
@@ -840,8 +848,9 @@ export type ConnectionsListRes = {
     // Null until an after-turn status read; absent from servers before A3.
     status?: McpServerStatus | null;
   }[];
-  // Secrets, names and hosts only; office ones for owners only. `test` names
-  // the identity check a Test runs, null when there is none. Absent from
+  // Secrets, names and hosts only, office ones for every member. `test` names
+  // the identity check a Test runs, null when there is none or when the
+  // caller may not run it (an office secret, for a member). Absent from
   // servers before A3.
   secrets?: {
     scope: ConnectionScope;
@@ -944,9 +953,15 @@ export interface UserEnvReplaceReq {
   values: Record<string, string>;
   notes?: Record<string, string>;
 }
+// PUT /api/users/:username/env/:name. `note` absent keeps the saved note;
+// null or "" clears it.
+export interface UserEnvSetReq {
+  value: string;
+  note?: string | null;
+}
 
-// Secrets (internal-docs/secrets-design.md, section 1). No response carries a
-// value: the value is write-only.
+// Secrets (internal-docs/secrets-design.md, section 1). Only Show
+// (SecretValueRes) carries a value.
 export interface SecretWire {
   name: string;
   hosts: string[];
@@ -976,6 +991,21 @@ export interface SecretUpdateReq {
 }
 export interface SecretRes {
   secret: SecretWire;
+}
+// Show (GET .../secrets/:name/value): the one response with a value. Only the
+// secret's own member, or an owner for an office secret.
+export interface SecretValueRes {
+  value: string;
+}
+// GET /api/office/secrets: an owner gets SecretWire rows, a member this
+// summary only (Nil, 2026-10-13).
+export interface OfficeSecretSummaryWire {
+  name: string;
+  hosts: string[];
+  note: string | null;
+}
+export interface OfficeSecretListRes {
+  secrets: SecretWire[] | OfficeSecretSummaryWire[];
 }
 
 // Secret requests (secrets loop, B4). The agent proposes; the member saves
@@ -1019,6 +1049,17 @@ export interface McpServerOAuthReq {
 }
 export interface McpServerListRes {
   servers: McpServerWire[];
+}
+// GET /api/office/mcp-servers: an owner gets McpServerWire rows, a member
+// this summary only: the host, never the URL path (it can carry a token) or
+// the credential's secret name.
+export interface OfficeMcpServerSummaryWire {
+  name: string;
+  host: string;
+  note: string | null;
+}
+export interface OfficeMcpServerListRes {
+  servers: McpServerWire[] | OfficeMcpServerSummaryWire[];
 }
 export interface McpServerCreateReq {
   name: string;

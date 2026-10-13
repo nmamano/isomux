@@ -78,21 +78,15 @@ describe("buildConnectionsList", () => {
     });
   });
 
-  it("gives a member no office variable names and never reads them", async () => {
-    let officeRead = false;
+  // Nil, ruling 2 (2026-10-13): members see the office items' names.
+  it("gives a member the office variable names", async () => {
     const list = await buildConnectionsList(
-      sources({
-        officeOwner: false,
-        officeVariableNames: () => {
-          officeRead = true;
-          return ["OFFICE_A"];
-        },
-      }),
+      sources({ officeOwner: false, officeVariableNames: () => ["OFFICE_A"] }),
     );
     expect(list.variables).toEqual([
+      { scope: "office", name: "OFFICE_A", note: null },
       { scope: "personal", name: "MINE", note: null },
     ]);
-    expect(officeRead).toBe(false);
     // The office sign-in and its connectors are already visible to members.
     expect(list.signIns.some((signIn) => signIn.scope === "office")).toBe(true);
     expect(list.claudeConnectors[0]).toMatchObject({ scope: "office" });
@@ -208,7 +202,6 @@ describe("buildConnectionsList", () => {
   });
 
   it("puts each variable's and secret's usage note on its row", async () => {
-    let officeNotesRead = false;
     const secretWire = (note: string | null): SecretWire => ({
       name: "GH_TOKEN",
       hosts: ["api.github.com"],
@@ -232,35 +225,54 @@ describe("buildConnectionsList", () => {
       ["MINE", "my note"],
     ]);
     expect(owner.secrets?.[0]?.note).toBe("secret note");
-    // A member reads no office variable notes either.
+    // A member reads the office variable notes too.
     const member = await buildConnectionsList(
       sources({
         officeOwner: false,
-        officeVariableNotes: () => {
-          officeNotesRead = true;
-          return { OFFICE_B: "office note" };
-        },
+        officeVariableNotes: () => ({ OFFICE_B: "office note" }),
       }),
     );
-    expect(member.variables).toEqual([
-      { scope: "personal", name: "MINE", note: null },
+    expect(member.variables.map((v) => [v.scope, v.name, v.note])).toEqual([
+      ["office", "OFFICE_A", null],
+      ["office", "OFFICE_B", "office note"],
+      ["personal", "MINE", null],
     ]);
-    expect(officeNotesRead).toBe(false);
   });
 
-  it("gives a member no office secrets and never reads them", async () => {
-    const read: string[] = [];
-    const list = await buildConnectionsList(
-      sources({
-        officeOwner: false,
-        secrets: (scope) => {
-          read.push(scope);
-          return [];
-        },
-      }),
-    );
-    expect(read).toEqual(["personal"]);
-    expect(list.secrets).toEqual([]);
+  // A member's office rows carry test null: only an owner may run a test
+  // on an office secret. Their own secrets keep their test.
+  it("gives a member the office secrets, with no test", async () => {
+    const github: SecretWire = {
+      name: "GH_TOKEN",
+      hosts: ["api.github.com"],
+      form: { kind: "authorization" },
+      createdAt: 1,
+      valueSetAt: 1,
+      updatedAt: 1,
+      note: "office note",
+    };
+    const build = (officeOwner: boolean) =>
+      buildConnectionsList(sources({ officeOwner, secrets: () => [github] }));
+    expect((await build(false)).secrets).toEqual([
+      {
+        scope: "office",
+        name: "GH_TOKEN",
+        hosts: ["api.github.com"],
+        test: null,
+        note: "office note",
+      },
+      {
+        scope: "personal",
+        name: "GH_TOKEN",
+        hosts: ["api.github.com"],
+        test: "github",
+        note: "office note",
+      },
+    ]);
+    expect((await build(true)).secrets?.map((s) => s.test)).toEqual([
+      "github",
+      "github",
+    ]);
   });
 
   it("drops only the secrets of a store that cannot be read", async () => {

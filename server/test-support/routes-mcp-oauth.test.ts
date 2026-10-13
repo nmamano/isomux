@@ -99,7 +99,7 @@ describe("OAuth MCP server routes", () => {
         `/api/mcp-oauth/callback?code=${code}&state=${state}`,
         { session: owner.rawSessionId },
       );
-      expect(other.text).toContain("mcpSignIn=wrong_member");
+      expect(other.text).toContain("/integrations?mcpSignIn=wrong_member");
       expect(rig.tokenBodies).toEqual([]);
 
       const back = await call(
@@ -109,7 +109,7 @@ describe("OAuth MCP server routes", () => {
         { session },
       );
       expect(back.status).toBe(200);
-      expect(back.text).toContain("mcpSignIn=ok");
+      expect(back.text).toContain("/integrations?mcpSignIn=ok");
       texts.push(back.text);
 
       const list = await call(srv, "GET", "/api/me/connections", { session });
@@ -156,7 +156,8 @@ describe("OAuth MCP server routes", () => {
       ).toEqual(
         expect.arrayContaining([
           ["mcpServers.signIn", expect.arrayContaining(["mail"])],
-          ["mcpOAuth.callback", ["mail"]],
+          // The row names the member's scope by username.
+          ["mcpOAuth.callback", ["mail", "Ann"]],
         ]),
       );
     });

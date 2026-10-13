@@ -12,7 +12,8 @@ import type { ClaudeConnectorRecord } from "./claude-connectors.ts";
 import { secretTestKind } from "./connection-tests.ts";
 
 export interface ConnectionsListSources {
-  // officeEnv.get's rule: office variables reach office owners only.
+  // Office items reach every member as names, hosts and notes (Nil, ruling 2,
+  // 2026-10-13); only an owner may test an office secret.
   officeOwner: boolean;
   officeVariableNames: () => string[];
   personalVariableNames: () => string[];
@@ -43,16 +44,14 @@ function sortedNames(names: string[]): string[] {
 export async function buildConnectionsList(
   sources: ConnectionsListSources,
 ): Promise<ConnectionsListRes> {
-  const officeNotes = sources.officeOwner ? sources.officeVariableNotes() : {};
+  const officeNotes = sources.officeVariableNotes();
   const personalNotes = sources.personalVariableNotes();
   const variables: ConnectionsListRes["variables"] = [
-    ...(sources.officeOwner
-      ? sortedNames(sources.officeVariableNames()).map((name) => ({
-          scope: "office" as const,
-          name,
-          note: officeNotes[name] ?? null,
-        }))
-      : []),
+    ...sortedNames(sources.officeVariableNames()).map((name) => ({
+      scope: "office" as const,
+      name,
+      note: officeNotes[name] ?? null,
+    })),
     ...sortedNames(sources.personalVariableNames()).map((name) => ({
       scope: "personal" as const,
       name,
@@ -103,11 +102,11 @@ export async function buildConnectionsList(
     mcpServers = [];
   }
 
-  // Office secrets reach office owners only (ruling 12). A store that cannot
+  // Office secrets reach every member (ruling 2); a member's office rows
+  // carry test null, since only an owner may test one. A store that cannot
   // be read drops its own rows.
   const secrets: NonNullable<ConnectionsListRes["secrets"]> = [];
   for (const scope of SCOPES) {
-    if (scope === "office" && !sources.officeOwner) continue;
     let listed: SecretWire[] = [];
     try {
       listed = sources.secrets(scope);
@@ -119,7 +118,10 @@ export async function buildConnectionsList(
         scope,
         name: secret.name,
         hosts: [...secret.hosts],
-        test: secretTestKind(secret),
+        test:
+          scope === "office" && !sources.officeOwner
+            ? null
+            : secretTestKind(secret),
         note: secret.note,
       });
   }
