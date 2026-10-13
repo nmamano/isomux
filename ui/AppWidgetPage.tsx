@@ -28,6 +28,7 @@ const WIDGET_CSS = `
 .app-widget button { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }
 .app-widget button:disabled { cursor:default; opacity:.55; }
 .app-widget-launcher { display:flex; align-items:center; gap:8px; position:fixed; right:20px; bottom:max(20px,env(safe-area-inset-bottom)); z-index:3; box-shadow:0 3px 18px #0004; }
+.app-widget-launcher[aria-expanded="true"] { border-color:var(--accent); color:var(--accent-text); box-shadow:inset 0 0 0 1px var(--accent),0 3px 18px #0004; }
 .app-widget-direct { position:fixed; top:10px; right:12px; z-index:2; background:var(--bg-surface-solid); color:var(--text-primary); padding:6px 10px; border-radius:7px; font-size:12px!important; }
 .app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
 .app-widget-header { padding:14px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); }
@@ -292,7 +293,6 @@ export function AppWidgetPage({
                 stateChangedAt={state.stateChangedAt.get(agent.id)}
                 connected={state.connected}
                 open={open}
-                onClose={close}
                 onRecheck={() => {
                   void refresh();
                 }}
@@ -358,7 +358,6 @@ export function WidgetChat({
   logs,
   connected,
   open,
-  onClose,
   onRecheck,
   stateChangedAt,
 }: {
@@ -367,7 +366,6 @@ export function WidgetChat({
   logs: LogEntry[];
   connected: boolean;
   open: boolean;
-  onClose?: () => void;
   onRecheck: () => void;
   stateChangedAt?: number;
 }) {
@@ -560,7 +558,6 @@ export function WidgetChat({
           <LiveCharacter agent={agent} height={44} />
         </span>
         <h1>{t("appWidget.title", { agentName: agent.name })}</h1>
-        {onClose && <button onClick={onClose}>{t("appWidget.close")}</button>}
       </header>
       <p className="app-widget-notice">{t("appWidget.notice")}</p>
       <div className="app-widget-log" role="log">

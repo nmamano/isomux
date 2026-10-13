@@ -18,7 +18,7 @@ These are proposals, not settled policy. PM must take access, shared conversatio
 
 ## What the member sees
 
-Desktop: the app fills the page. A bottom-right chat button opens a compact overlay with the target agent's name, shared-chat notice, transcript, composer, and image previews. Closing it restores space without discarding a draft. New replies mark the closed button as unread. Normal busy, queued, error, and reconnect states use the existing chat behavior.
+Desktop: the app fills the page. A bottom-right chat button opens a compact overlay with the target agent's name, shared-chat notice, transcript, composer, and image previews. The same button closes it (Escape too), which restores space without discarding a draft. New replies mark the closed button as unread. Normal busy, queued, error, and reconnect states use the existing chat behavior.
 
 Paste or drop images into the open widget, or select an image file. Show each image before sending and let the member remove it. The widget never captures the page. On mobile, the file picker accepts an OS screenshot; closing chat lets the member capture the app first. Focus returns to the launcher when chat closes. The member can always open the app directly if an app's own login or page behavior requires a top-level tab; that tab has no widget.
 
@@ -31,7 +31,6 @@ Proposed new copy, for review (placeholders in braces):
 - macOS hint: “Press Shift+Command+4, then drag the screenshot here.”
 - Other desktop/mobile hint: “Take a screenshot, then paste or attach it here.”
 - File button: “Attach image”
-- Close button: “Close chat”
 - Direct link: “Open app directly”
 - Unavailable state: “Chat is unavailable.”
 

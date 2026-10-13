@@ -496,3 +496,58 @@ it("folds a settled tool group, expands results on demand, and updates the offic
     log.querySelector('button[title="' + en["logView.abortTitle"] + '"]'),
   ).toBeNull();
 });
+
+it("toggles the desktop chat with its launcher, and Escape closes it", async () => {
+  sessionStorage.clear();
+  const { StateCtx, initialState } = await import("./store.tsx");
+  const settings = (
+    window as unknown as {
+      happyDOM: { settings: { disableIframePageLoading: boolean } };
+    }
+  ).happyDOM.settings;
+  const iframeLoading = settings.disableIframePageLoading;
+  settings.disableIframePageLoading = true;
+  setApiShim(async () => ({
+    ...boot,
+    appUrl: "https://hello.office.example",
+    sessionExpiresAt: Date.now() + 1000000,
+    chat: { agentId: agent.id, agentName: agent.name },
+  }));
+  let view: ReturnType<typeof render> | undefined;
+  try {
+    await act(async () => {
+      view = render(
+        <StateCtx.Provider
+          value={{ ...initialState, agents: [agent], connected: true }}
+        >
+          <AppWidgetPage boot={boot} />
+        </StateCtx.Provider>,
+      );
+    });
+    const launcher = view!.container.querySelector<HTMLButtonElement>(
+      ".app-widget-launcher",
+    )!;
+    const panel = view!.container.querySelector<HTMLElement>(
+      "#" + launcher.getAttribute("aria-controls"),
+    )!;
+    const isOpen = () => {
+      const expanded = launcher.getAttribute("aria-expanded");
+      expect(panel.style.display).toBe(expanded === "true" ? "flex" : "none");
+      return expanded === "true";
+    };
+    expect(isOpen()).toBe(false);
+    fireEvent.click(launcher);
+    expect(isOpen()).toBe(true);
+    // The launcher is the only close control: the chat header holds none.
+    expect(panel.querySelector("header button")).toBeNull();
+    fireEvent.click(launcher);
+    expect(isOpen()).toBe(false);
+    fireEvent.click(launcher);
+    fireEvent.keyDown(panel.querySelector("textarea")!, { key: "Escape" });
+    expect(isOpen()).toBe(false);
+    expect(document.activeElement).toBe(launcher);
+  } finally {
+    view?.unmount();
+    settings.disableIframePageLoading = iframeLoading;
+  }
+});

@@ -2982,7 +2982,6 @@ Cosas que puedes hacer por él:
   "appWidget.genericHint":
     "Haz una captura de pantalla y luego pégala o adjúntala aquí.",
   "appWidget.attach": "Adjuntar imagen",
-  "appWidget.close": "Cerrar chat",
   "appWidget.direct": "Abrir la app directamente",
   "appWidget.unavailable": "El chat no está disponible.",
 };

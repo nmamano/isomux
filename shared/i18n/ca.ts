@@ -2981,7 +2981,6 @@ Coses que pots fer per ell:
   "appWidget.genericHint":
     "Fes una captura de pantalla i després enganxa-la o adjunta-la aquí.",
   "appWidget.attach": "Adjunta una imatge",
-  "appWidget.close": "Tanca el xat",
   "appWidget.direct": "Obre l'app directament",
   "appWidget.unavailable": "El xat no està disponible.",
 };

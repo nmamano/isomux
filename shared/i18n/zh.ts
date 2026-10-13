@@ -2671,7 +2671,6 @@ App 的一些原则：
   "appWidget.macHint": "按 Shift+Command+4，然后将截图拖到此处。",
   "appWidget.genericHint": "截屏后，将图片粘贴或附加到此处。",
   "appWidget.attach": "附加图片",
-  "appWidget.close": "关闭聊天",
   "appWidget.direct": "直接打开应用",
   "appWidget.unavailable": "聊天不可用。",
 };
