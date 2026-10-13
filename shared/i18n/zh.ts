@@ -863,6 +863,37 @@ App 的一些原则：
   "settings.connections.list.setInClaudeLocal":
     "在 Claude 针对 {folder} 的本地设置中设置",
   "settings.connections.list.setInProject": "在 {file} 中设置",
+  "settings.connections.list.kindSecret": "密钥",
+  "settings.connections.list.nameStatus": "{name}（{status}）",
+  "settings.connections.status.connected": "已连接",
+  "settings.connections.status.failed": "失败",
+  "settings.connections.status.needsAuth": "需要登录",
+  "settings.connections.status.pending": "等待中",
+  "settings.connections.status.disabled": "已关闭",
+  "settings.connections.test.button": "测试",
+  "settings.connections.test.running": "正在测试…",
+  "settings.connections.test.none": "无测试",
+  "settings.connections.test.noHostTest": "这些主机没有测试",
+  "settings.connections.test.ownersOnly": "只有所有者可以测试",
+  "settings.connections.test.variablesHint":
+    "变量没有测试：Isomux 不知道它们用于哪个服务。",
+  "settings.connections.test.works": "可用",
+  "settings.connections.test.tools.one": "{count} 个工具",
+  "settings.connections.test.tools.other": "{count} 个工具",
+  "settings.connections.test.signedOut": "未登录。",
+  "settings.connections.test.refused": "{host} 拒绝了该凭据。请检查或轮换它。",
+  "settings.connections.test.forbidden":
+    "{host} 接受该凭据，但它无法读取账户。",
+  "settings.connections.test.noCredential":
+    "{host} 需要凭据。请为该 MCP 服务器添加一个。",
+  "settings.connections.test.status": "{host} 返回了 {status}。",
+  "settings.connections.test.redirect": "{host} 返回了重定向。测试不会跟随它。",
+  "settings.connections.test.timeout": "{host} 没有及时回应。",
+  "settings.connections.test.unreachable": "无法连接到 {host}。",
+  "settings.connections.test.unexpected": "{host} 返回了测试无法读取的回应。",
+  "settings.connections.test.needsOauth":
+    "{host} 要求 OAuth 登录，Isomux 目前还不支持。",
+  "settings.connections.test.requestFailed": "无法运行测试。",
   "settings.signIn.apiKeyNote":
     "想使用 API 令牌？请查看「设置 → 你 → 个人连接」。",
   "settings.signIn.scopeOffice": "办公室通用：为此办公室中的所有智能体登录",

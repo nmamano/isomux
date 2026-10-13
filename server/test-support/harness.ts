@@ -274,6 +274,13 @@ async function bootTestServer(
       pagerFetch: async () => {
         throw new Error("test harness: pager send without a pagerFetch stub");
       },
+      // Nor does a Test button call a real service: a test that presses one
+      // passes its own stub through opts.startServer.connectionTestFetch.
+      connectionTestFetch: async () => {
+        throw new Error(
+          "test harness: connection test without a connectionTestFetch stub",
+        );
+      },
       quiet: true,
       awaitRestore: true,
       getBackupStatus: () => ({

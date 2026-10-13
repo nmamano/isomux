@@ -97,16 +97,19 @@ function registrationsFor(
   ];
 }
 
-type Credential =
-  | { ok: true; headers: Record<string, string> }
-  | { ok: false; problem: McpServerProblem | "unreadable" };
+type CredentialProblem = McpServerProblem | "unreadable";
 
-function credentialFor(
+// The one rule for a registration's secret: it exists in the same scope and
+// lists the server's host. The agents' headers and the Test button (A3) both
+// use it.
+export function mcpServerSecret(
   sources: McpServerSources,
   scope: SecretScope,
   server: McpServerWire,
-): Credential {
-  if (server.secret === null) return { ok: true, headers: {} };
+):
+  | { ok: true; secret: { value: string; form: SecretForm } | null }
+  | { ok: false; problem: CredentialProblem } {
+  if (server.secret === null) return { ok: true, secret: null };
   let secret: ReturnType<SecretStore["readSecretValues"]>;
   try {
     secret = sources.secrets.readSecretValues(scope, server.secret);
@@ -116,7 +119,25 @@ function credentialFor(
   if (!secret) return { ok: false, problem: "secret_missing" };
   if (!secret.hosts.includes(mcpServerHost(server.url)))
     return { ok: false, problem: "secret_host" };
-  return { ok: true, headers: credentialHeader(secret.form, secret.value) };
+  return { ok: true, secret: { value: secret.value, form: secret.form } };
+}
+
+type Credential =
+  | { ok: true; headers: Record<string, string> }
+  | { ok: false; problem: CredentialProblem };
+
+function credentialFor(
+  sources: McpServerSources,
+  scope: SecretScope,
+  server: McpServerWire,
+): Credential {
+  const resolved = mcpServerSecret(sources, scope, server);
+  if (!resolved.ok) return resolved;
+  const { secret } = resolved;
+  return {
+    ok: true,
+    headers: secret ? credentialHeader(secret.form, secret.value) : {},
+  };
 }
 
 export function mcpServersForUserId(

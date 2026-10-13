@@ -159,13 +159,21 @@ it("lists the servers set in Claude from the member's own sessions, by name and 
     return { text, body: JSON.parse(text) as { engineMcpServers: unknown[] } };
   };
   const forAnn = await list(ann.rawSessionId);
+  // An init report is not a status read: the status stays null (A3).
   expect(forAnn.body.engineMcpServers).toEqual([
-    { engine: "claude", name: "notes", source: "user", folder: null },
+    {
+      engine: "claude",
+      name: "notes",
+      source: "user",
+      folder: null,
+      status: null,
+    },
     {
       engine: "claude",
       name: "repo-tools",
       source: "project",
       folder: STATE_ROOT,
+      status: null,
     },
   ]);
   expect(forAnn.text).not.toContain("secret-path");

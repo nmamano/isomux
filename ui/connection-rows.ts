@@ -3,9 +3,13 @@
 // Every row says what it is, the account where Isomux knows it, who gets it
 // and where it is set.
 
-import type {
-  ConnectionScope,
-  ConnectionsListRes,
+import {
+  SECRET_TEST_KINDS,
+  knownMcpStatus,
+  type ConnectionScope,
+  type ConnectionsListRes,
+  type McpServerStatus,
+  type SecretTestKind,
 } from "../shared/contract-shapes.ts";
 
 export const CLAUDE_CONNECTORS_URL = "https://claude.ai/settings/connectors";
@@ -16,7 +20,7 @@ export type ConnectionRowWhere =
   | {
       kind: "page";
       half: ConnectionScope;
-      place: "variables" | "signIn" | "mcpServers";
+      place: "variables" | "signIn" | "mcpServers" | "secrets";
       engine?: "claude" | "codex";
       selector: string;
     }
@@ -51,6 +55,8 @@ export type ConnectionRow =
       key: string;
       scope: ConnectionScope;
       names: string[];
+      // From the last after-turn status read; a name with none is pending.
+      statuses: { name: string; status: McpServerStatus }[];
       where: ConnectionRowWhere;
     }
   // A remote MCP server Isomux gives every engine.
@@ -72,6 +78,17 @@ export type ConnectionRow =
       key: string;
       scope: ConnectionScope;
       name: string;
+      status: McpServerStatus | null;
+      where: ConnectionRowWhere;
+    }
+  // A secret: the Test button runs `test`, the identity check of its hosts.
+  | {
+      kind: "secret";
+      key: string;
+      scope: ConnectionScope;
+      name: string;
+      hosts: string[];
+      test: SecretTestKind | null;
       where: ConnectionRowWhere;
     }
   // A connected Claude sign-in with no turn seen since the server started:
@@ -105,14 +122,81 @@ export function mcpServersSelector(
   return `[data-mcp-servers-path="${path}"]`;
 }
 
+export function secretsSelector(
+  scope: ConnectionScope,
+  username: string,
+): string {
+  const path =
+    scope === "office"
+      ? "/api/office/secrets"
+      : `/api/users/${encodeURIComponent(username)}/secrets`;
+  return `[data-secrets-path="${path}"]`;
+}
+
 export function signInSelector(engine: "claude" | "codex"): string {
   return `[data-provider-card="${engine}"]`;
 }
 
 const SCOPES: ConnectionScope[] = ["office", "personal"];
 
+// The answer of GET /api/me/connections as the list reads it, or null when
+// it is not that shape (a server without the route, or a stub). Fields that
+// came later (A2, A3) may be missing from an older server, and one of another
+// shape loses only its own rows: a missing status is pending, a missing test
+// is none.
+export function normalizeConnectionsList(
+  result: unknown,
+): ConnectionsListRes | null {
+  const list = result as Partial<ConnectionsListRes> | null;
+  if (
+    !list ||
+    !Array.isArray(list.variables) ||
+    !Array.isArray(list.signIns) ||
+    !Array.isArray(list.claudeConnectors)
+  )
+    return null;
+  return {
+    ...list,
+    variables: list.variables,
+    signIns: list.signIns,
+    claudeConnectors: list.claudeConnectors.map((connectors) => ({
+      ...connectors,
+      statuses: Array.isArray(connectors.statuses)
+        ? connectors.statuses.flatMap((entry) => {
+            const status = knownMcpStatus(entry?.status);
+            return status && typeof entry.name === "string"
+              ? [{ name: entry.name, status }]
+              : [];
+          })
+        : [],
+    })),
+    mcpServers: Array.isArray(list.mcpServers) ? list.mcpServers : [],
+    engineMcpServers: Array.isArray(list.engineMcpServers)
+      ? list.engineMcpServers.map((server) => ({
+          ...server,
+          status: knownMcpStatus(server.status),
+        }))
+      : [],
+    secrets: Array.isArray(list.secrets)
+      ? list.secrets
+          .filter(
+            (secret) =>
+              typeof secret?.name === "string" && Array.isArray(secret.hosts),
+          )
+          .map((secret) => ({
+            ...secret,
+            test: (SECRET_TEST_KINDS as readonly unknown[]).includes(
+              secret.test,
+            )
+              ? secret.test
+              : null,
+          }))
+      : [],
+  };
+}
+
 // Office rows first, then the caller's own; inside a scope, sign-ins, then
-// what Claude manages, then MCP servers, then variables. The servers set in
+// what Claude manages, then MCP servers, then secrets, then variables. The servers set in
 // Claude itself are listed with the caller's rows because the caller's own
 // sessions reported them; they carry no scope tag (who gets one depends on its
 // Claude file, not on an Isomux scope).
@@ -160,6 +244,7 @@ export function connectionRows(
           key: `connectors:${scope}`,
           scope,
           names: connectors.names,
+          statuses: connectors.statuses ?? [],
           where: claude,
         });
     }
@@ -190,12 +275,30 @@ export function connectionRows(
           key: `engineMcp:${server.source}:${server.folder ?? ""}:${server.name}`,
           scope,
           name: server.name,
+          status: server.status ?? null,
           where: {
             kind: "claudeFile",
             source: server.source,
             folder: server.folder,
           },
         });
+    for (const secret of list.secrets ?? []) {
+      if (secret.scope !== scope) continue;
+      rows.push({
+        kind: "secret",
+        key: `secret:${scope}:${secret.name}`,
+        scope,
+        name: secret.name,
+        hosts: secret.hosts,
+        test: secret.test,
+        where: {
+          kind: "page",
+          half: scope,
+          place: "secrets",
+          selector: secretsSelector(scope, username),
+        },
+      });
+    }
     for (const variable of list.variables) {
       if (variable.scope !== scope) continue;
       rows.push({

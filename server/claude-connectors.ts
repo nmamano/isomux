@@ -14,6 +14,11 @@
 
 import { resolve } from "node:path";
 
+import {
+  knownMcpStatus,
+  type McpServerStatus,
+} from "../shared/contract-shapes.ts";
+
 export interface InitMcpServer {
   name: string;
   status?: string;
@@ -28,6 +33,19 @@ export interface ClaudeConnectorRecord {
 const CLAUDE_AI_PREFIX = "claude.ai ";
 
 const records = new Map<string, ClaudeConnectorRecord>();
+// Each connector's status from the last after-turn status read (A3), per
+// directory. Kept apart from the record: an init report replaces the names
+// but says only "pending", so it leaves these as they were.
+const statusRecords = new Map<
+  string,
+  { name: string; status: McpServerStatus }[]
+>();
+
+function connectorName(server: InitMcpServer): string {
+  return server.name.startsWith(CLAUDE_AI_PREFIX)
+    ? server.name.slice(CLAUDE_AI_PREFIX.length)
+    : server.name;
+}
 // Bumped by every clear, so a status read that started before a sign-in or
 // sign-out cannot put the old account's names back when it lands.
 const generations = new Map<string, number>();
@@ -45,11 +63,7 @@ export function claudeAiConnectorNames(servers: InitMcpServer[]): string[] {
     .filter(
       (server) => server.source === "claudeai" && server.status !== "disabled",
     )
-    .map((server) =>
-      server.name.startsWith(CLAUDE_AI_PREFIX)
-        ? server.name.slice(CLAUDE_AI_PREFIX.length)
-        : server.name,
-    )
+    .map(connectorName)
     .filter((name) => name.length > 0);
   return [...new Set(names)].sort((a, b) => a.localeCompare(b));
 }
@@ -112,7 +126,41 @@ export function recordClaudeConnectorsFromSession(
     report.mcpServers,
     now,
   );
+  if (report.from === "status")
+    recordClaudeConnectorStatuses(
+      launch.launchedClaudeConfigDir,
+      report.mcpServers,
+    );
   return true;
+}
+
+export function recordClaudeConnectorStatuses(
+  dir: string,
+  servers: InitMcpServer[],
+): void {
+  const names = new Set(claudeAiConnectorNames(servers));
+  const statuses = new Map<string, McpServerStatus>();
+  for (const server of servers) {
+    if (server.source !== "claudeai") continue;
+    const name = connectorName(server);
+    const status = knownMcpStatus(server.status);
+    if (names.has(name) && status) statuses.set(name, status);
+  }
+  statusRecords.set(
+    resolve(dir),
+    [...statuses]
+      .map(([name, status]) => ({ name, status }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  );
+}
+
+// Empty until a status read; a name with no entry is not read yet.
+export function claudeConnectorStatusesFor(
+  dir: string,
+): { name: string; status: McpServerStatus }[] {
+  return (statusRecords.get(resolve(dir)) ?? []).map((entry) => ({
+    ...entry,
+  }));
 }
 
 export function claudeConnectorsFor(dir: string): ClaudeConnectorRecord | null {
@@ -124,11 +172,13 @@ export function claudeConnectorsFor(dir: string): ClaudeConnectorRecord | null {
 export function clearClaudeConnectors(dir: string): void {
   const key = resolve(dir);
   records.delete(key);
+  statusRecords.delete(key);
   generations.set(key, (generations.get(key) ?? 0) + 1);
 }
 
 export function resetClaudeConnectorsForTests(): void {
   records.clear();
+  statusRecords.clear();
   generations.clear();
 }
 
@@ -141,28 +191,49 @@ export type ClaudeEngineServerSource = "user" | "project" | "local";
 
 const ENGINE_SOURCES: readonly string[] = ["user", "project", "local"];
 
+interface EngineServer {
+  name: string;
+  source: ClaudeEngineServerSource;
+  // Null until an after-turn status read (A3).
+  status: McpServerStatus | null;
+}
+
 const engineRecords = new Map<
   string,
-  { cwd: string; servers: { name: string; source: ClaudeEngineServerSource }[] }
+  { cwd: string; servers: EngineServer[] }
 >();
 
 export function recordClaudeEngineServers(
   agentId: string,
   cwd: string,
   servers: InitMcpServer[] | null | undefined,
+  from: "init" | "status",
 ): void {
   if (!servers) return;
-  const kept = servers
+  // An init report says "pending" for every server: it keeps the status of
+  // the last status read for a server it still lists.
+  const before = engineRecords.get(agentId)?.servers ?? [];
+  const kept: EngineServer[] = servers
     .filter(
       (server) =>
         typeof server.name === "string" &&
         server.name.length > 0 &&
         ENGINE_SOURCES.includes(server.source ?? ""),
     )
-    .map((server) => ({
-      name: server.name,
-      source: server.source as ClaudeEngineServerSource,
-    }));
+    .map((server) => {
+      const source = server.source as ClaudeEngineServerSource;
+      return {
+        name: server.name,
+        source,
+        status:
+          from === "status"
+            ? knownMcpStatus(server.status)
+            : (before.find(
+                (entry) =>
+                  entry.name === server.name && entry.source === source,
+              )?.status ?? null),
+      };
+    });
   engineRecords.set(agentId, { cwd: resolve(cwd), servers: kept });
 }
 
@@ -177,6 +248,7 @@ export function claudeEngineServersFor(agentIds: string[]): {
   name: string;
   source: ClaudeEngineServerSource;
   folder: string | null;
+  status: McpServerStatus | null;
 }[] {
   const rows = new Map<
     string,
@@ -185,6 +257,7 @@ export function claudeEngineServersFor(agentIds: string[]): {
       name: string;
       source: ClaudeEngineServerSource;
       folder: string | null;
+      status: McpServerStatus | null;
     }
   >();
   for (const agentId of agentIds) {
@@ -192,11 +265,14 @@ export function claudeEngineServersFor(agentIds: string[]): {
     if (!record) continue;
     for (const server of record.servers) {
       const folder = server.source === "user" ? null : record.cwd;
-      rows.set(JSON.stringify([server.name, server.source, folder]), {
+      const key = JSON.stringify([server.name, server.source, folder]);
+      // Several agents can report one server: a status read beats none.
+      rows.set(key, {
         engine: "claude",
         name: server.name,
         source: server.source,
         folder,
+        status: server.status ?? rows.get(key)?.status ?? null,
       });
     }
   }

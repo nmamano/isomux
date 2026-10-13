@@ -344,6 +344,11 @@ import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import { createMcpServerSources, mcpServerRows } from "./mcp-servers.ts";
 import {
+  createConnectionTester,
+  type ConnectionTestFetch,
+} from "./connection-tests.ts";
+import { connectionTestsHandlers } from "./routes/handlers/connection-tests.ts";
+import {
   claudeFamilyModelsForUserId,
   limitedClaudeFamiliesForUserId,
 } from "./env-loader.ts";
@@ -355,6 +360,7 @@ import { buildConnectionsList } from "./connections-list.ts";
 import { connectionsHandlers } from "./routes/handlers/connections.ts";
 import {
   claudeConnectorsFor,
+  claudeConnectorStatusesFor,
   claudeEngineServersFor,
 } from "./claude-connectors.ts";
 import {
@@ -2768,6 +2774,7 @@ function announceAppAudienceChanges(
 function buildExecutorDeps(
   backupStatus: () => BackupStatus = getBackupStatus,
   installKind: InstallKind = INSTALL_KIND,
+  connectionTestFetch: ConnectionTestFetch = (url, init) => fetch(url, init),
 ): ExecutorDeps {
   const handlers = new Map<string, RouteHandler>();
   const preconditions = new Map<RoutePrecondition, PreconditionFn>();
@@ -3633,6 +3640,14 @@ function buildExecutorDeps(
   const mcpSources = createMcpServerSources();
   register(secretsHandlers({ store: mcpSources.secrets }));
   register(mcpServersHandlers({ store: mcpSources.servers }));
+  register(
+    connectionTestsHandlers({
+      tester: createConnectionTester({
+        sources: mcpSources,
+        fetch: connectionTestFetch,
+      }),
+    }),
+  );
   register(
     usersHandlers({
       readMemberPrompt: (username) => {
@@ -5027,9 +5042,16 @@ function buildExecutorDeps(
           claudeConnectorDir: (scope) =>
             providerAccountManager.claudeConnectorDir(userId, scope),
           claudeConnectorsFor,
+          claudeConnectorStatusesFor,
           mcpServers: () => mcpServerRows(mcpSources, userId, officeOwner),
           engineMcpServers: () =>
             claudeEngineServersFor(agentManager.agentIdsOfUser(userId)),
+          secrets: (scope) =>
+            mcpSources.secrets.list(
+              scope === "office"
+                ? { kind: "office" }
+                : { kind: "user", userId },
+            ),
         }),
     }),
   );
@@ -7848,6 +7870,8 @@ export interface StartServerOpts {
   appSupervisor?: AppSupervisor;
   // Inject the pager's HTTP send. Tests pass a stub: no test sends to Discord.
   pagerFetch?: (url: string, init: RequestInit) => Promise<Response>;
+  // Inject the Test button's HTTP calls (integrations A3). Tests pass a stub.
+  connectionTestFetch?: ConnectionTestFetch;
   // Background-job skips. Tests set these so `bun test` does no timers, no
   // network (update checker), no daily backup, and no admin socket.
   skipSchedulers?: boolean;
@@ -7999,7 +8023,11 @@ export async function startServer(
     },
   });
   webhookIngress.recover();
-  executorDeps = buildExecutorDeps(opts.getBackupStatus, opts.installKind);
+  executorDeps = buildExecutorDeps(
+    opts.getBackupStatus,
+    opts.installKind,
+    opts.connectionTestFetch,
+  );
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The
   // `| undefined` in the type is for unix-socket servers, which we never create.

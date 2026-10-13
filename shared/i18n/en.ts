@@ -943,6 +943,40 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.connections.list.setInClaudeLocal":
     "Set in Claude local settings for {folder}",
   "settings.connections.list.setInProject": "Set in {file}",
+  "settings.connections.list.kindSecret": "Secret",
+  "settings.connections.list.nameStatus": "{name} ({status})",
+  "settings.connections.status.connected": "connected",
+  "settings.connections.status.failed": "failed",
+  "settings.connections.status.needsAuth": "needs sign-in",
+  "settings.connections.status.pending": "pending",
+  "settings.connections.status.disabled": "off",
+  "settings.connections.test.button": "Test",
+  "settings.connections.test.running": "Testing…",
+  "settings.connections.test.none": "No test",
+  "settings.connections.test.noHostTest": "No test for its hosts",
+  "settings.connections.test.ownersOnly": "Only owners can test",
+  "settings.connections.test.variablesHint":
+    "Variables have no test: Isomux does not know which service they are for.",
+  "settings.connections.test.works": "Works",
+  "settings.connections.test.tools.one": "{count} tool",
+  "settings.connections.test.tools.other": "{count} tools",
+  "settings.connections.test.signedOut": "Not signed in.",
+  "settings.connections.test.refused":
+    "{host} refused the credential. Check or rotate it.",
+  "settings.connections.test.forbidden":
+    "{host} accepts the credential, but it cannot read the account.",
+  "settings.connections.test.noCredential":
+    "{host} asks for a credential. Add one to the MCP server.",
+  "settings.connections.test.status": "{host} answered {status}.",
+  "settings.connections.test.redirect":
+    "{host} answered with a redirect. The test does not follow it.",
+  "settings.connections.test.timeout": "{host} did not answer in time.",
+  "settings.connections.test.unreachable": "Could not reach {host}.",
+  "settings.connections.test.unexpected":
+    "{host} gave an answer the test cannot read.",
+  "settings.connections.test.needsOauth":
+    "{host} asks for an OAuth sign-in, which Isomux does not support yet.",
+  "settings.connections.test.requestFailed": "Could not run the test.",
 
   "settings.signIn.apiKeyNote":
     "Do you want to use an API token? See Settings → You → Individual connections.",

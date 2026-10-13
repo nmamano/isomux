@@ -4,15 +4,22 @@ import { resolve } from "node:path";
 import {
   claudeAiConnectorNames,
   claudeConnectorGeneration,
+  claudeConnectorStatusesFor,
   claudeConnectorsFor,
+  claudeEngineServersFor,
   clearClaudeConnectors,
   recordClaudeConnectors,
   recordClaudeConnectorsFromSession,
+  recordClaudeEngineServers,
   resetClaudeConnectorsForTests,
+  resetClaudeEngineServersForTests,
 } from "./claude-connectors.ts";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
 
-afterEach(() => resetClaudeConnectorsForTests());
+afterEach(() => {
+  resetClaudeConnectorsForTests();
+  resetClaudeEngineServersForTests();
+});
 
 const gmail = {
   name: "claude.ai Gmail",
@@ -286,5 +293,100 @@ describe("a status read that started before a clear", () => {
         generation: claudeConnectorGeneration(dir),
       }),
     ).toBe(true);
+  });
+});
+
+describe("MCP statuses (A3)", () => {
+  const dir = "/tmp/connectors-status";
+  const launch = {
+    agentType: "claude",
+    launchedClaudeConfigDir: dir,
+    launchedClaudeCloud: false,
+  };
+  const report = (
+    mcpServers: { name: string; status: string; source: string }[],
+    from: "init" | "status",
+  ) =>
+    recordClaudeConnectorsFromSession(launch, {
+      mcpServers,
+      apiKeySource: "none",
+      from,
+    });
+
+  it("keeps a connector's status from the status read only", () => {
+    report([gmail, drive], "init");
+    // The init's "pending" is not a status read.
+    expect(claudeConnectorStatusesFor(dir)).toEqual([]);
+    report(
+      [
+        { ...gmail, status: "failed" },
+        { ...drive, status: "connected" },
+      ],
+      "status",
+    );
+    const read = [
+      { name: "Gmail", status: "failed" as const },
+      { name: "Google Drive", status: "connected" as const },
+    ];
+    expect(claudeConnectorStatusesFor(dir)).toEqual(read);
+    // The next turn's init leaves the read statuses as they were.
+    report([gmail, drive], "init");
+    expect(claudeConnectorStatusesFor(dir)).toEqual(read);
+    clearClaudeConnectors(dir);
+    expect(claudeConnectorStatusesFor(dir)).toEqual([]);
+  });
+
+  it("keeps only the SDK's own status values", () => {
+    report(
+      [
+        { ...gmail, status: "needs-auth" },
+        { ...drive, status: "something-new" },
+      ],
+      "status",
+    );
+    expect(claudeConnectorStatusesFor(dir)).toEqual([
+      { name: "Gmail", status: "needs-auth" },
+    ]);
+  });
+
+  it("gives a server set in Claude its status from the status read, null before", () => {
+    const user = { name: "linear", status: "pending", source: "user" };
+    recordClaudeEngineServers("agent-1", "/work", [user], "init");
+    expect(claudeEngineServersFor(["agent-1"])).toEqual([
+      {
+        engine: "claude",
+        name: "linear",
+        source: "user",
+        folder: null,
+        status: null,
+      },
+    ]);
+    recordClaudeEngineServers(
+      "agent-1",
+      "/work",
+      [{ ...user, status: "failed" }],
+      "status",
+    );
+    recordClaudeEngineServers("agent-1", "/work", [user], "init");
+    expect(claudeEngineServersFor(["agent-1"])[0]?.status).toBe("failed");
+    recordClaudeEngineServers(
+      "agent-1",
+      "/work",
+      [{ ...user, status: "bogus" }],
+      "status",
+    );
+    expect(claudeEngineServersFor(["agent-1"])[0]?.status).toBeNull();
+  });
+
+  it("prefers a read status when two agents report one server", () => {
+    const user = { name: "linear", status: "connected", source: "user" };
+    recordClaudeEngineServers("agent-1", "/a", [user], "status");
+    recordClaudeEngineServers("agent-2", "/b", [user], "init");
+    expect(
+      claudeEngineServersFor(["agent-1", "agent-2"]).map((row) => row.status),
+    ).toEqual(["connected"]);
+    expect(
+      claudeEngineServersFor(["agent-2", "agent-1"]).map((row) => row.status),
+    ).toEqual(["connected"]);
   });
 });

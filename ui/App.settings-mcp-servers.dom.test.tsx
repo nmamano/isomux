@@ -128,11 +128,12 @@ it("an A1 server's connections answer, with no MCP fields, still lists its rows"
   view.unmount();
 });
 
-it("an MCP field of another shape loses only its own rows", async () => {
+it("an MCP or secrets field of another shape loses only its own rows", async () => {
   connectionsResponse = () => ({
     ...A1_SHAPE,
     mcpServers: "nope",
     engineMcpServers: {},
+    secrets: "nope",
   });
   const view = await openOfficeConnections();
   const list = view.container.querySelector("[data-connections-list]")!;

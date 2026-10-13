@@ -4,7 +4,7 @@ navTitle: Security audit
 
 # Isomux security audit
 
-**Date:** 2026-10-03, last updated 2026-10-10. This audit replaces the audit of 2026-05-17.
+**Date:** 2026-10-03, last updated 2026-10-13. This audit replaces the audit of 2026-05-17.
 
 **Method:** Static review of the Isomux source. No live attack tests were done.
 
@@ -287,6 +287,14 @@ An agent can page its manager, and an app can page its owner. Isomux takes the s
 - **Mentions.** Each message sets `allowed_mentions` with no `parse` types. Thus `@everyone`, `@here` and role mentions in a title or body ping nobody. Only the Discord user ID saved in the member's settings, if there is one, gets a ping. The "resolved" message pings nobody.
 - **What leaves the office.** The title, the body, the source name, the room name and a link to the page go to Discord. The source writes the title and the body, so they can hold text that an agent read in a file or in a webhook delivery.
 
+### 8.6 Connection tests
+
+The Test button of the connections page makes the server itself send a secret. Only a member's browser session or API token can start a test of their own connections, and only an owner can test an office secret or an office MCP server. Each test writes an audit row.
+
+- **Where the secret goes.** For a secret of the GitHub, Stripe or Fly preset, the server sends it to one fixed identity endpoint (`api.github.com/user`, `api.stripe.com/v1/account`, or Fly's GraphQL `viewer` query). For a registered MCP server, it sends the server's secret to the registered URL. The secret goes only to a host that it lists. A secret on any other host gets no test.
+- **Outbound requests.** Isomux does not follow redirects. A test stops after 10 seconds, and Isomux reads at most 1 MiB of each answer. The request goes out from the server process, not through the agents' secret proxy.
+- **What comes back.** The answer holds only the host, a reason code, and an account or server name. Isomux drops a name that contains the secret or a part of the URL path or query. No log line holds the URL or the secret.
+
 ---
 
 ## 9. Findings
@@ -384,7 +392,7 @@ A same-host reverse proxy or tunnel configured **before** an owner claims forwar
 - Other: `server/preview-capture.ts`, `server/browser-extension-service.ts`, `server/office-usage.ts`
 - Hosting: `deploy/install.sh`, `deploy/container/`, `deploy/kubernetes/`
 
-## Appendix: sources for the webhook and pager statements
+## Appendix: sources for the webhook, pager and connection test statements
 
 Paths are under `server/`, except those that start with `shared/`.
 
@@ -406,3 +414,5 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 8.5, the Discord webhook URL: `createPagerSettingsFilePersistence` and `maskWebhookUrl` in `pager-settings.ts`; `pagerSettingsHandlers` in `routes/handlers/pager-settings.ts`; the `pagerSettings.*` routes in `routes/table.ts`.
 - Section 8.5, outbound requests: `parseDiscordWebhookUrl` in `pager-settings.ts`; `post`, `retryAfterMs` and `PAGER_SEND_TIMEOUT_MS` in `pager-delivery.ts`.
 - Section 8.5, mentions and what leaves the office: `buildPageMessage` and `mentions` in `pager-delivery.ts`; `parsePagerSettingsPatch` in `pager-settings.ts`.
+- Section 8.6, who can test and where the secret goes: the `secrets.test`, `officeSecrets.test`, `mcpServers.test` and `officeMcpServers.test` routes in `routes/table.ts`; `IDENTITY_CHECKS` and `secretTestKind` in `connection-tests.ts`; `mcpServerSecret` in `mcp-servers.ts`.
+- Section 8.6, outbound requests and what comes back: `send`, `readBody`, `cleanName` and `CONNECTION_TEST_TIMEOUT_MS` in `connection-tests.ts`.

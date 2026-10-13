@@ -6,8 +6,10 @@ import type {
   ConnectionScope,
   ConnectionsListRes,
 } from "../shared/contract-shapes.ts";
+import type { McpServerStatus, SecretWire } from "../shared/contract-shapes.ts";
 import type { ProviderAccountWire } from "../shared/types.ts";
 import type { ClaudeConnectorRecord } from "./claude-connectors.ts";
+import { secretTestKind } from "./connection-tests.ts";
 
 export interface ConnectionsListSources {
   // officeEnv.get's rule: office variables reach office owners only.
@@ -18,10 +20,15 @@ export interface ConnectionsListSources {
   // Null when the scope's Claude sign-in has no claude.ai login to read.
   claudeConnectorDir: (scope: ConnectionScope) => string | null;
   claudeConnectorsFor: (dir: string) => ClaudeConnectorRecord | null;
+  claudeConnectorStatusesFor: (
+    dir: string,
+  ) => { name: string; status: McpServerStatus }[];
   // Isomux's remote MCP servers, hosts only (server/mcp-servers.ts), and the
   // ones set in Claude itself as the caller's agents last reported them.
   mcpServers: () => ConnectionsListRes["mcpServers"];
   engineMcpServers: () => ConnectionsListRes["engineMcpServers"];
+  // The secret store's list for a scope (names, hosts and form; no value).
+  secrets: (scope: ConnectionScope) => SecretWire[];
 }
 
 const SCOPES: ConnectionScope[] = ["office", "personal"];
@@ -77,6 +84,7 @@ export async function buildConnectionsList(
       scope,
       seenAt: record?.seenAt ?? null,
       names: record ? [...record.names] : [],
+      statuses: record ? sources.claudeConnectorStatusesFor(dir) : [],
     });
   }
 
@@ -88,11 +96,32 @@ export async function buildConnectionsList(
     mcpServers = [];
   }
 
+  // Office secrets reach office owners only (ruling 12). A store that cannot
+  // be read drops its own rows.
+  const secrets: NonNullable<ConnectionsListRes["secrets"]> = [];
+  for (const scope of SCOPES) {
+    if (scope === "office" && !sources.officeOwner) continue;
+    let listed: SecretWire[] = [];
+    try {
+      listed = sources.secrets(scope);
+    } catch {
+      listed = [];
+    }
+    for (const secret of listed)
+      secrets.push({
+        scope,
+        name: secret.name,
+        hosts: [...secret.hosts],
+        test: secretTestKind(secret),
+      });
+  }
+
   return {
     variables,
     signIns,
     claudeConnectors,
     mcpServers,
     engineMcpServers: sources.engineMcpServers(),
+    secrets,
   };
 }

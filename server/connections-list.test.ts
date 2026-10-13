@@ -4,6 +4,7 @@ import {
   type ConnectionsListSources,
 } from "./connections-list.ts";
 import type { ProviderAccountWire } from "../shared/types.ts";
+import type { SecretWire } from "../shared/contract-shapes.ts";
 
 function account(
   provider: "claude" | "codex",
@@ -37,8 +38,11 @@ function sources(
     claudeConnectorDir: (scope) => `/claude/${scope}`,
     claudeConnectorsFor: (dir) =>
       dir === "/claude/office" ? { names: ["Gmail"], seenAt: 10 } : null,
+    claudeConnectorStatusesFor: (dir) =>
+      dir === "/claude/office" ? [{ name: "Gmail", status: "connected" }] : [],
     mcpServers: () => [],
     engineMcpServers: () => [],
+    secrets: () => [],
     ...overrides,
   };
 }
@@ -57,12 +61,18 @@ describe("buildConnectionsList", () => {
         { scope: "personal", engine: "claude", account: null },
       ],
       claudeConnectors: [
-        { scope: "office", seenAt: 10, names: ["Gmail"] },
+        {
+          scope: "office",
+          seenAt: 10,
+          names: ["Gmail"],
+          statuses: [{ name: "Gmail", status: "connected" }],
+        },
         // Connected, but no Claude turn seen since the server started.
-        { scope: "personal", seenAt: null, names: [] },
+        { scope: "personal", seenAt: null, names: [], statuses: [] },
       ],
       mcpServers: [],
       engineMcpServers: [],
+      secrets: [],
     });
   });
 
@@ -111,5 +121,100 @@ describe("buildConnectionsList", () => {
     expect(list.variables).toHaveLength(3);
     expect(list.signIns).toEqual([]);
     expect(list.claudeConnectors).toEqual([]);
+  });
+
+  it("lists secrets by name and hosts, with the identity check a Test runs", async () => {
+    const secret = (
+      name: string,
+      hosts: string[],
+      form: SecretWire["form"] = { kind: "authorization" },
+    ): SecretWire => ({
+      name,
+      hosts,
+      form,
+      createdAt: 1,
+      valueSetAt: 1,
+      updatedAt: 1,
+    });
+    const list = await buildConnectionsList(
+      sources({
+        secrets: (scope) =>
+          scope === "office"
+            ? [secret("STRIPE_API_KEY", ["api.stripe.com", "files.stripe.com"])]
+            : [
+                secret("GH_TOKEN", ["api.github.com", "github.com"]),
+                secret("CUSTOM", ["api.example.com"]),
+                // The identity check sends an Authorization header only.
+                secret("GH_HEADER", ["api.github.com"], {
+                  kind: "header",
+                  header: "x-token",
+                }),
+                // The check's host is not on the list.
+                secret("GH_WEB", ["github.com"]),
+              ],
+      }),
+    );
+    expect(list.secrets).toEqual([
+      {
+        scope: "office",
+        name: "STRIPE_API_KEY",
+        hosts: ["api.stripe.com", "files.stripe.com"],
+        test: "stripe",
+      },
+      {
+        scope: "personal",
+        name: "GH_TOKEN",
+        hosts: ["api.github.com", "github.com"],
+        test: "github",
+      },
+      {
+        scope: "personal",
+        name: "CUSTOM",
+        hosts: ["api.example.com"],
+        test: null,
+      },
+      {
+        scope: "personal",
+        name: "GH_HEADER",
+        hosts: ["api.github.com"],
+        test: null,
+      },
+      { scope: "personal", name: "GH_WEB", hosts: ["github.com"], test: null },
+    ]);
+    // Names and hosts only: no field carries more of the store's record.
+    for (const row of list.secrets ?? [])
+      expect(Object.keys(row).sort()).toEqual([
+        "hosts",
+        "name",
+        "scope",
+        "test",
+      ]);
+  });
+
+  it("gives a member no office secrets and never reads them", async () => {
+    const read: string[] = [];
+    const list = await buildConnectionsList(
+      sources({
+        officeOwner: false,
+        secrets: (scope) => {
+          read.push(scope);
+          return [];
+        },
+      }),
+    );
+    expect(read).toEqual(["personal"]);
+    expect(list.secrets).toEqual([]);
+  });
+
+  it("drops only the secrets of a store that cannot be read", async () => {
+    const list = await buildConnectionsList(
+      sources({
+        secrets: () => {
+          throw new Error("unreadable");
+        },
+      }),
+    );
+    expect(list.secrets).toEqual([]);
+    expect(list.variables).toHaveLength(3);
   });
 });

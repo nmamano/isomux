@@ -33,6 +33,7 @@ let connectionsResponse: () => unknown = () => ({
   claudeConnectors: [],
   mcpServers: [],
   engineMcpServers: [],
+  secrets: [],
 });
 setApiShim(async (_method, path) => {
   if (path.startsWith("/api/memory"))

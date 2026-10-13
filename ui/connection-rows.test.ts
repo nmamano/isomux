@@ -3,6 +3,7 @@ import {
   CLAUDE_CONNECTORS_URL,
   mcpServersSelector,
   connectionRows,
+  secretsSelector,
   signInSelector,
   variablesSelector,
 } from "./connection-rows.ts";
@@ -162,5 +163,51 @@ describe("connectionRows: MCP servers", () => {
       source: "user",
       folder: null,
     });
+  });
+});
+
+describe("connectionRows: secrets (A3)", () => {
+  const withSecrets: ConnectionsListRes = {
+    ...list,
+    secrets: [
+      {
+        scope: "personal",
+        name: "GH_TOKEN",
+        hosts: ["api.github.com"],
+        test: "github",
+      },
+      { scope: "office", name: "CUSTOM", hosts: ["a.example"], test: null },
+    ],
+  };
+
+  it("puts secrets before variables in their scope, pointed at the Secrets list", () => {
+    const rows = connectionRows(withSecrets, "Ann").filter(
+      (row) => row.kind === "secret" || row.kind === "variable",
+    );
+    expect(rows.map((row) => row.key)).toEqual([
+      "secret:office:CUSTOM",
+      "variable:office:GH_TOKEN",
+      "secret:personal:GH_TOKEN",
+      "variable:personal:MINE",
+    ]);
+    expect(rows[2]).toMatchObject({
+      test: "github",
+      hosts: ["api.github.com"],
+      where: {
+        kind: "page",
+        half: "personal",
+        place: "secrets",
+        selector: secretsSelector("personal", "Ann"),
+      },
+    });
+    expect(secretsSelector("office", "Ann")).toBe(
+      '[data-secrets-path="/api/office/secrets"]',
+    );
+  });
+
+  it("lists no secret rows for a server from before them", () => {
+    expect(
+      connectionRows(list, "Ann").some((row) => row.kind === "secret"),
+    ).toBe(false);
   });
 });

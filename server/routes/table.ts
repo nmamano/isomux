@@ -144,6 +144,7 @@ import type {
   McpServerCreateReq,
   McpServerListRes,
   McpServerRes,
+  ConnectionTestRes,
   McpServerUpdateReq,
   SecretRotateReq,
   SecretUpdateReq,
@@ -1155,6 +1156,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:env", selfUserOrApi),
     emits: [],
   }),
+  // The Test button (integrations A3): the server checks the secret against
+  // its service's identity endpoint. Audited like pagerSettings.test.
+  defineRoute<void, ConnectionTestRes>({
+    opId: "secrets.test",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/users/:username/secrets/:name/test",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
   defineRoute<void, SecretListRes>({
     opId: "officeSecrets.list",
     method: "GET",
@@ -1197,6 +1208,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:env", officeEnvOwner),
     emits: [],
   }),
+  defineRoute<void, ConnectionTestRes>({
+    opId: "officeSecrets.test",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/secrets/:name/test",
+    auth: cap("user:env", officeEnvOwner),
+    emits: [],
+  }),
   // Remote MCP servers (integrations loop, A2). The same gates as the
   // secrets above. Audit rows name the server and the body's field names,
   // never the URL, whose path can carry a token.
@@ -1231,6 +1250,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:env", selfUserOrApi),
     emits: [],
   }),
+  // The Test button (integrations A3): initialize, then tools/list.
+  defineRoute<void, ConnectionTestRes>({
+    opId: "mcpServers.test",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/users/:username/mcp-servers/:name/test",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
   defineRoute<void, McpServerListRes>({
     opId: "officeMcpServers.list",
     method: "GET",
@@ -1262,6 +1290,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "DELETE",
     path: "/api/office/mcp-servers/:name",
+    auth: cap("user:env", officeEnvOwner),
+    emits: [],
+  }),
+  defineRoute<void, ConnectionTestRes>({
+    opId: "officeMcpServers.test",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/mcp-servers/:name/test",
     auth: cap("user:env", officeEnvOwner),
     emits: [],
   }),

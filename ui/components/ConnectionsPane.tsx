@@ -144,6 +144,7 @@ export function ConnectionsPane({
       <ConnectionsList
         username={username}
         half={half}
+        canTestOffice={role === "owner"}
         onGoToOtherHalf={onGoToOtherHalf}
       />
       <ProviderSignInCard

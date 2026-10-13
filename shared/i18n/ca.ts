@@ -947,6 +947,42 @@ Coses que pots fer per ell:
   "settings.connections.list.setInClaudeLocal":
     "Definit a la configuració local de Claude per a {folder}",
   "settings.connections.list.setInProject": "Definit a {file}",
+  "settings.connections.list.kindSecret": "Secret",
+  "settings.connections.list.nameStatus": "{name} ({status})",
+  "settings.connections.status.connected": "connectat",
+  "settings.connections.status.failed": "amb error",
+  "settings.connections.status.needsAuth": "cal iniciar sessió",
+  "settings.connections.status.pending": "pendent",
+  "settings.connections.status.disabled": "desactivat",
+  "settings.connections.test.button": "Prova",
+  "settings.connections.test.running": "S'està provant…",
+  "settings.connections.test.none": "Sense prova",
+  "settings.connections.test.noHostTest": "Sense prova per als seus hosts",
+  "settings.connections.test.ownersOnly":
+    "Només els propietaris ho poden provar",
+  "settings.connections.test.variablesHint":
+    "Les variables no tenen prova: Isomux no sap per a quin servei són.",
+  "settings.connections.test.works": "Funciona",
+  "settings.connections.test.tools.one": "{count} eina",
+  "settings.connections.test.tools.other": "{count} eines",
+  "settings.connections.test.signedOut": "No hi ha cap sessió iniciada.",
+  "settings.connections.test.refused":
+    "{host} ha rebutjat la credencial. Revisa-la o rota-la.",
+  "settings.connections.test.forbidden":
+    "{host} accepta la credencial, però no pot llegir el compte.",
+  "settings.connections.test.noCredential":
+    "{host} demana una credencial. Afegeix-ne una al servidor MCP.",
+  "settings.connections.test.status": "{host} ha respost {status}.",
+  "settings.connections.test.redirect":
+    "{host} ha respost amb una redirecció. La prova no la segueix.",
+  "settings.connections.test.timeout": "{host} no ha respost a temps.",
+  "settings.connections.test.unreachable":
+    "No s'ha pogut connectar amb {host}.",
+  "settings.connections.test.unexpected":
+    "{host} ha donat una resposta que la prova no pot llegir.",
+  "settings.connections.test.needsOauth":
+    "{host} demana iniciar sessió amb OAuth, que Isomux encara no admet.",
+  "settings.connections.test.requestFailed": "No s'ha pogut fer la prova.",
 
   "settings.signIn.apiKeyNote":
     "Vols fer servir un token d'API? Mira Configuració → Tu → Connexions individuals.",

@@ -5310,6 +5310,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.info.id,
         managed.info.cwd,
         ev.mcpServers,
+        "init",
       );
       recordClaudeConnectorsFromSession(launchOf(managed), {
         mcpServers: ev.mcpServers,
@@ -5336,7 +5337,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     void (async () => {
       try {
         const servers = await session.getMcpServers!();
-        recordClaudeEngineServers(managed.info.id, managed.info.cwd, servers);
+        recordClaudeEngineServers(
+          managed.info.id,
+          managed.info.cwd,
+          servers,
+          "status",
+        );
         recordClaudeConnectorsFromSession(launch, {
           mcpServers: servers,
           apiKeySource,

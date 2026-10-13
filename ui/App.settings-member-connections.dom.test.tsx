@@ -36,6 +36,7 @@ setApiShim(async (_method, path) => {
       claudeConnectors: [],
       mcpServers: [],
       engineMcpServers: [],
+      secrets: [],
     };
   if (path.endsWith("/mcp-servers")) return { servers: [] };
   if (path.endsWith("/secrets")) return { secrets: [] };

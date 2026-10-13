@@ -803,6 +803,9 @@ export type ConnectionsListRes = {
     scope: ConnectionScope;
     seenAt: number | null;
     names: string[];
+    // Each name's status from the last after-turn status read; a name with
+    // no entry has not been read yet. Absent from servers before A3.
+    statuses?: { name: string; status: McpServerStatus }[];
   }[];
   // Remote MCP servers Isomux gives every engine. The host only: the path of
   // some hosted servers carries the token. `secret` is the credential's name,
@@ -824,8 +827,81 @@ export type ConnectionsListRes = {
     name: string;
     source: "user" | "project" | "local";
     folder: string | null;
+    // Null until an after-turn status read; absent from servers before A3.
+    status?: McpServerStatus | null;
+  }[];
+  // Secrets, names and hosts only; office ones for owners only. `test` names
+  // the identity check a Test runs, null when there is none. Absent from
+  // servers before A3.
+  secrets?: {
+    scope: ConnectionScope;
+    name: string;
+    hosts: string[];
+    test: SecretTestKind | null;
   }[];
 };
+
+// An MCP server's status as Claude reports it (the SDK's closed set).
+export const MCP_SERVER_STATUSES = [
+  "connected",
+  "failed",
+  "needs-auth",
+  "pending",
+  "disabled",
+] as const;
+export type McpServerStatus = (typeof MCP_SERVER_STATUSES)[number];
+
+// One of the set above, or null for any other value.
+export function knownMcpStatus(value: unknown): McpServerStatus | null {
+  return (MCP_SERVER_STATUSES as readonly unknown[]).includes(value)
+    ? (value as McpServerStatus)
+    : null;
+}
+
+// Connection tests (integrations A3). A result names hosts only: never a
+// credential, a URL path or a query, and no text the service wrote except the
+// account or server name, which the server checks first.
+export const SECRET_TEST_KINDS = ["github", "stripe", "fly"] as const;
+export type SecretTestKind = (typeof SECRET_TEST_KINDS)[number];
+export type ConnectionTestReason =
+  // 401: the service does not accept the credential.
+  | "refused"
+  // 401 from an MCP server registered with no credential.
+  | "no_credential"
+  // 403: the service knows the credential, but it cannot read the account.
+  | "forbidden"
+  // Another status that is not 2xx (in `status`).
+  | "status"
+  // 3xx: the test does not follow redirects.
+  | "redirect"
+  | "timeout"
+  // No connection: DNS, TCP or TLS.
+  | "unreachable"
+  // An answer the test cannot read.
+  | "unexpected"
+  // The MCP server asks for an OAuth sign-in.
+  | "needs_oauth"
+  // Nothing to test: no identity check for the secret's hosts, or the MCP
+  // server's secret is missing or does not list its host.
+  | "not_testable";
+export type ConnectionTestResult =
+  | { ok: true; kind: "secret"; host: string; account: string | null }
+  | {
+      ok: true;
+      kind: "mcp";
+      host: string;
+      server: string | null;
+      tools: number;
+    }
+  | {
+      ok: false;
+      host: string | null;
+      reason: ConnectionTestReason;
+      status?: number;
+    };
+export interface ConnectionTestRes {
+  result: ConnectionTestResult;
+}
 
 // Why a registered server is left out of agent sessions.
 export type McpServerProblem = "secret_missing" | "secret_host";
