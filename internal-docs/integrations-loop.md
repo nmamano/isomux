@@ -49,7 +49,7 @@ UI slices show the page in headless Chrome (internal-docs/ui-verification.md), d
   - For B2: `credentialFor` in server/mcp-servers.ts is where the header gets the placeholder instead of the value.
 - [ ] A2b: OAuth MCP servers (after A4, if time allows)
 - [x] A3: Test button and diagnostics per connection. Approved by Reviewer 1 at 1dfa1c0a, merged as d697f585. Sign-ins rerun the account check; preset secrets one read-only identity call; MCP servers initialize + tools/list. The list gains secret rows and statuses for Claude connectors and Claude-set MCP servers.
-- [ ] A4: a usage note per connection that agents read
+- [x] A4: a usage note per connection that agents read. Approved by Reviewer 2 at c7be2c99, merged as b7fe627d. GET /api/agent-connections and the agent-reference page `connections` (B4 extends it). Notes on variables (sidecar files), secrets and MCP servers; sign-ins and claude.ai connectors take none.
 
 ## SLICE-A1 PICKUP: the page lists every connection
 
