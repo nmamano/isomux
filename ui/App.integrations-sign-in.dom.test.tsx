@@ -178,7 +178,7 @@ describe("back from an MCP sign-in", () => {
       view.getByRole("button", { name: t("settings.backToOffice") }).click();
     });
     await act(async () => {
-      view.getByTitle(t("common.integrations")).click();
+      view.getByTitle(t("nav.integrationsShortcut")).click();
     });
     await act(async () => {
       (

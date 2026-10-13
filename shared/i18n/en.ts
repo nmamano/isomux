@@ -374,6 +374,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.confirmQuestion": "Confirm?",
   "nav.tasksShortcut": "Tasks (t)",
   "nav.appsShortcut": "Apps (a)",
+  "nav.integrationsShortcut": "Integrations (i)",
   "nav.settingsShortcut": "Settings (s)",
   "common.moreActions": "More actions",
   "common.settings": "Settings",
@@ -887,8 +888,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The secret does not list {host}. Add the host to the secret, or pick another one.",
   "settings.connections.list.engineMcpUser":
     "Every Claude agent on the same Claude sign-in",
-  "settings.connections.list.engineMcpFolder":
-    "Every Claude agent that works in {folder}",
   "settings.connections.list.mcpCredentialNamed": "Credential: {name}",
   "settings.connections.list.mcpSecretMissing":
     "Left out: its secret is missing",
@@ -933,7 +932,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
   "integrations.tabIntro.providers":
-    "The Claude and Codex accounts that agents run on.",
+    "The accounts and keys that Claude, Codex and OpenCode agents run on.",
   "integrations.tabIntro.mcp":
     "Tools that agents can call, such as Linear or Sentry.",
   "integrations.tabIntro.secrets":
@@ -942,6 +941,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Plain settings that agents can read, such as a time zone. Put keys in Secrets.",
   "integrations.secretsHonesty":
     "Isomux blocks agents from reading saved secrets, but this office has no hard wall between agents and its files.",
+  "integrations.secrets.modelKeys":
+    "Model API keys such as <code>ANTHROPIC_API_KEY</code> go in <link>Variables</link>, not here: Isomux never sends a secret to a model provider.",
   "integrations.office": "Office-wide",
   "integrations.officeWho": "Every agent in the office",
   "integrations.officeWhoMember":
@@ -988,6 +989,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.connectors.pendingHelp":
     "Claude reports its connectors when a turn starts, while some are still connecting. Isomux checks again 10 seconds later.",
   "integrations.engineMcp.title": "Set in Claude's own files",
+  "integrations.engineMcp.source":
+    "What your Claude agents reported, only in folders where one has run.",
   "integrations.mcp.empty": "No MCP servers.",
   "integrations.mcp.nameHint": "Agents see this name, such as linear.",
   "integrations.mcp.url": "Server address (URL)",
@@ -1023,6 +1026,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.mcp.signedInTo.member": "Signed in to {member}'s {name}.",
   "integrations.mcp.signedInTo.office": "Signed in to the office-wide {name}.",
   "integrations.providers.noPersonal": "No personal sign-in",
+  "integrations.providers.opencode.bundled":
+    "Ships with Isomux. Free models need no account or key.",
+  "integrations.providers.opencode.keySet":
+    "<code>OPENCODE_API_KEY</code> is set, for paid models.",
+  "integrations.providers.opencode.noKeyOffice":
+    "No <code>OPENCODE_API_KEY</code>. Paid models need one in <link>Variables</link>.",
+  "integrations.providers.opencode.noKeyPersonal":
+    "No personal <code>OPENCODE_API_KEY</code>. To add one, go to <link>Variables</link>.",
+  "integrations.providers.testSignedOut": "Not signed in.",
   "integrations.connectionsFailed":
     "Could not load the claude.ai connectors and the servers set in Claude's files.",
   "integrations.memberGone": "{member} is no longer in this office.",

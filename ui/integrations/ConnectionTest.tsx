@@ -2,14 +2,14 @@
 // its result (integrations A3). The server runs the test; a result names hosts
 // only, and the service-authored account or server name renders as text.
 
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type {
   ConnectionTestRes,
   ConnectionTestResult,
 } from "../../shared/contract-shapes.ts";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
-import { Btn } from "./kit.tsx";
+import { Btn, Data } from "./kit.tsx";
 
 export type TestState =
   | { state: "idle" }
@@ -66,7 +66,7 @@ const resultStyle = (ok: boolean): CSSProperties => ({
 });
 
 export function TestResult({ test }: { test: TestState }) {
-  const { t, tn } = useI18n();
+  const { t, tn, rich } = useI18n();
   if (test.state === "idle" || test.state === "running") return null;
   if (test.state === "failed")
     return (
@@ -76,41 +76,41 @@ export function TestResult({ test }: { test: TestState }) {
     );
   const { result } = test;
   if (!result.ok) {
-    const host = result.host ?? "";
-    let text: string;
+    const host = <Data>{result.host ?? ""}</Data>;
+    let text: ReactNode;
     switch (result.reason) {
       case "refused":
-        text = t("settings.connections.test.refused", { host });
+        text = rich("settings.connections.test.refused", { host });
         break;
       case "forbidden":
-        text = t("settings.connections.test.forbidden", { host });
+        text = rich("settings.connections.test.forbidden", { host });
         break;
       case "no_credential":
-        text = t("settings.connections.test.noCredential", { host });
+        text = rich("settings.connections.test.noCredential", { host });
         break;
       case "status":
-        text = t("settings.connections.test.status", {
+        text = rich("settings.connections.test.status", {
           host,
           status: String(result.status ?? ""),
         });
         break;
       case "redirect":
-        text = t("settings.connections.test.redirect", { host });
+        text = rich("settings.connections.test.redirect", { host });
         break;
       case "timeout":
-        text = t("settings.connections.test.timeout", { host });
+        text = rich("settings.connections.test.timeout", { host });
         break;
       case "unreachable":
-        text = t("settings.connections.test.unreachable", { host });
+        text = rich("settings.connections.test.unreachable", { host });
         break;
       case "needs_oauth":
-        text = t("settings.connections.test.needsOauth", { host });
+        text = rich("settings.connections.test.needsOauth", { host });
         break;
       case "not_testable":
         text = t("settings.connections.test.noHostTest");
         break;
       default:
-        text = t("settings.connections.test.unexpected", { host });
+        text = rich("settings.connections.test.unexpected", { host });
     }
     return (
       <div data-connection-test-result="failed" style={resultStyle(false)}>
@@ -118,14 +118,20 @@ export function TestResult({ test }: { test: TestState }) {
       </div>
     );
   }
-  const parts = [t("settings.connections.test.works")];
-  if (result.kind === "mcp") {
-    if (result.server) parts.push(result.server);
-    parts.push(tn("settings.connections.test.tools", result.tools));
-  } else if (result.account) parts.push(result.account);
+  // Service-authored names: rendered as text only.
+  const named =
+    result.kind === "mcp" ? (result.server ?? null) : (result.account ?? null);
   return (
     <div data-connection-test-result="ok" style={resultStyle(true)}>
-      {parts.join(" · ")}
+      {t("settings.connections.test.works")}
+      {named && (
+        <>
+          {" · "}
+          <Data>{named}</Data>
+        </>
+      )}
+      {result.kind === "mcp" &&
+        ` · ${tn("settings.connections.test.tools", result.tools)}`}
     </div>
   );
 }

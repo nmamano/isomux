@@ -151,6 +151,27 @@ async function runSession(opts: {
   };
 }
 
+// A server set in Claude user settings lives in the config directory the
+// session launched with, so it is recorded with that directory, not the
+// member's current one.
+describe("a server set in Claude, by sign-in", () => {
+  it("is recorded with the directory the session launched with", async () => {
+    writeManagedUserEnv(USER, {
+      CLAUDE_CONFIG_DIR: "/tmp/connectors-launch-claude",
+    });
+    const { agentId } = await runSession({
+      envAfterLaunch: { CLAUDE_CONFIG_DIR: "/tmp/connectors-later-claude" },
+      init: { mcpServers: [] },
+      afterTurn: [{ name: "notes", status: "connected", source: "user" }],
+    });
+    expect(
+      claudeEngineServersFor([agentId], (dir) =>
+        dir === "/tmp/connectors-launch-claude" ? "personal" : null,
+      ).map((row) => row.signIn),
+    ).toEqual(["personal"]);
+  });
+});
+
 describe("claude.ai connectors from a running session", () => {
   it("records a Claude session's connectors against its launched sign-in", async () => {
     const { launchDir } = await runSession({});

@@ -4,7 +4,7 @@
 // A service preset fills and hides the name, the addresses and how the value
 // is sent; Other starts every field empty.
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type {
   SecretListRes,
   SecretValueRes,
@@ -21,6 +21,7 @@ import {
 import { ConnectionNoteField } from "../components/ConnectionNoteField.tsx";
 import {
   AddRow,
+  ListLoading,
   Btn,
   Choice,
   Empty,
@@ -34,6 +35,9 @@ import {
   hintText,
   input,
   mono,
+  type Heading,
+  Data,
+  useWhose,
 } from "./kit.tsx";
 import {
   TestButton,
@@ -48,7 +52,6 @@ import {
   canShowSecret,
   isGone,
   summaryOnly,
-  whose,
   type Role,
   type Target,
 } from "./target.ts";
@@ -186,7 +189,12 @@ export function SecretsSection({
           {t("settings.secrets.loadFailed")}
         </p>
       ) : secrets === null ? (
-        <Empty>{t("common.loading")}</Empty>
+        <ListLoading
+          text={t("common.loading")}
+          addLabel={
+            editable && !summary ? t("integrations.secrets.add") : undefined
+          }
+        />
       ) : secrets.length === 0 ? (
         <Empty>{t("integrations.secrets.empty")}</Empty>
       ) : (
@@ -255,7 +263,8 @@ function SecretItem({
   onChanged: () => Promise<void>;
   setOn: string | null;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
+  const whoseHeading = useWhose();
   const errorFor = useSecretErrorText();
   const preset = presetOf(secret);
   const { test, run } = useConnectionTest(path);
@@ -263,7 +272,12 @@ function SecretItem({
     setMode({ kind, name: secret.name });
   const here =
     mode.kind !== "idle" && mode.kind !== "add" && mode.name === secret.name;
-  const hosts = secret.hosts.join(", ");
+  const hosts = secret.hosts.map((host, index) => (
+    <Fragment key={host}>
+      {index > 0 && ", "}
+      <Data>{host}</Data>
+    </Fragment>
+  ));
   const where = preset
     ? setOn
       ? t("integrations.secrets.presetSet", {
@@ -272,12 +286,17 @@ function SecretItem({
         })
       : preset.label
     : setOn
-      ? t("integrations.secrets.goesToSet", { hosts, date: setOn })
-      : t("integrations.secrets.goesTo", { hosts });
+      ? rich("integrations.secrets.goesToSet", { hosts, date: setOn })
+      : rich("integrations.secrets.goesTo", { hosts });
   const form =
-    secret.form?.kind === "header"
-      ? ` · ${t("settings.secrets.formHeaderNamed", { header: secret.form.header })}`
-      : "";
+    secret.form?.kind === "header" ? (
+      <>
+        {" · "}
+        {rich("settings.secrets.formHeaderNamed", {
+          header: <Data>{secret.form.header}</Data>,
+        })}
+      </>
+    ) : null;
   return (
     <ItemRow
       data-secret-name={secret.name}
@@ -320,7 +339,7 @@ function SecretItem({
       {here && mode.kind === "replace" && (
         <ReplaceValue
           path={path}
-          heading={whose(t, "integrations.secrets.replaceHeading", target, {
+          heading={whoseHeading("integrations.secrets.replaceHeading", target, {
             name: secret.name,
           })}
           onCancel={() => setMode({ kind: "idle" })}
@@ -331,7 +350,7 @@ function SecretItem({
         <EditSecret
           path={path}
           secret={{ ...secret, form: secret.form }}
-          heading={whose(t, "integrations.dialog.edit", target, {
+          heading={whoseHeading("integrations.dialog.edit", target, {
             name: secret.name,
           })}
           onCancel={() => setMode({ kind: "idle" })}
@@ -342,7 +361,7 @@ function SecretItem({
       {here && mode.kind === "reissue" && (
         <Confirm
           data-secret-reissue-panel=""
-          heading={whose(t, "integrations.secrets.reissueHeading", target, {
+          heading={whoseHeading("integrations.secrets.reissueHeading", target, {
             name: secret.name,
           })}
           text={t("settings.secrets.reissueConfirm", { name: secret.name })}
@@ -356,7 +375,7 @@ function SecretItem({
       {here && mode.kind === "remove" && (
         <Confirm
           data-secret-remove-panel=""
-          heading={whose(t, "integrations.dialog.remove", target, {
+          heading={whoseHeading("integrations.dialog.remove", target, {
             name: secret.name,
           })}
           action={t("integrations.remove")}
@@ -463,7 +482,7 @@ export function Confirm({
   errorFor,
   ...data
 }: {
-  heading: string;
+  heading: Heading;
   text?: string;
   action: string;
   danger?: boolean;
@@ -518,7 +537,7 @@ function ReplaceValue({
   onSaved,
 }: {
   path: string;
-  heading: string;
+  heading: Heading;
   onCancel: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -669,6 +688,7 @@ function AddSecret({
   onSaved: () => Promise<void>;
 }) {
   const { t } = useI18n();
+  const whoseHeading = useWhose();
   const alive = useAlive();
   const errorFor = useSecretErrorText();
   const first = SECRET_PRESETS[0];
@@ -730,7 +750,7 @@ function AddSecret({
 
   return (
     <Panel
-      heading={whose(t, "integrations.secrets.addHeading", target)}
+      heading={whoseHeading("integrations.secrets.addHeading", target)}
       data-secret-add=""
     >
       <Field label={t("settings.secrets.preset")}>
@@ -835,7 +855,7 @@ function EditSecret({
 }: {
   path: string;
   secret: SecretRow & { form: SecretForm };
-  heading: string;
+  heading: Heading;
   onCancel: () => void;
   onReissue: () => void;
   onSaved: () => Promise<void>;

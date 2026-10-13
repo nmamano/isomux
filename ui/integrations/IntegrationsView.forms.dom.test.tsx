@@ -143,13 +143,19 @@ describe("the office variables save only what they read", () => {
     expect(fake.requests("PUT", "/api/office/env")).toHaveLength(0);
   });
 
-  it("offers no Add while the office read is out", async () => {
+  // The Add row stands in while the read is out, so the card keeps its
+  // height, but it cannot be used.
+  it("offers no usable Add while the office read is out", async () => {
     fake.hold("/api/office/env");
     const view = await open();
     await tab(view, "variables");
-    expect(
-      card(view, "office").querySelector("[data-integrations-add]"),
-    ).toBeNull();
+    const office = card(view, "office");
+    const add = office.querySelector<HTMLButtonElement>(
+      "[data-integrations-add]",
+    );
+    expect(add?.disabled).toBe(true);
+    await click(add);
+    expect(office.querySelector("[data-panel-heading]")).toBeNull();
   });
 });
 

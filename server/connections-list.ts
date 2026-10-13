@@ -26,7 +26,7 @@ export interface ConnectionsListSources {
   claudeConnectorsFor: (dir: string) => ClaudeConnectorRecord | null;
   claudeConnectorStatusesFor: (
     dir: string,
-  ) => { name: string; status: McpServerStatus }[];
+  ) => { name: string; status: McpServerStatus; tools?: number }[];
   // Isomux's remote MCP servers, hosts only (server/mcp-servers.ts), and the
   // ones set in Claude itself as the caller's agents last reported them.
   mcpServers: () => ConnectionsListRes["mcpServers"];

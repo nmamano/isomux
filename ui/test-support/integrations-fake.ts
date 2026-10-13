@@ -124,7 +124,9 @@ export class IntegrationsFake {
     };
   }
 
+  // A fresh office on a fresh device: no tab remembered from another test.
   install(): this {
+    window.localStorage.removeItem("isomux-integrations-tab");
     setApiShim((method, path, body) => this.handle(method, path, body));
     return this;
   }

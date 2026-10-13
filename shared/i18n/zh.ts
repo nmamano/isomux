@@ -346,6 +346,7 @@ App 的一些原则：
   "common.confirmQuestion": "确认？",
   "nav.tasksShortcut": "任务 (t)",
   "nav.appsShortcut": "App (a)",
+  "nav.integrationsShortcut": "集成 (i)",
   "nav.settingsShortcut": "设置 (s)",
   "common.moreActions": "更多操作",
   "common.settings": "设置",
@@ -810,8 +811,6 @@ App 的一些原则：
     "该密钥未列出 {host}。请把该主机添加到密钥，或选择其他密钥。",
   "settings.connections.list.engineMcpUser":
     "使用同一 Claude 登录的所有 Claude 智能体",
-  "settings.connections.list.engineMcpFolder":
-    "在 {folder} 中工作的所有 Claude 智能体",
   "settings.connections.list.mcpCredentialNamed": "凭据：{name}",
   "settings.connections.list.mcpSecretMissing": "已排除：缺少其密钥",
   "settings.connections.list.mcpSecretHost": "已排除：其密钥未列出 {host}",
@@ -848,13 +847,16 @@ App 的一些原则：
   "integrations.tabs.mcp": "MCP 服务器",
   "integrations.tabs.secrets": "密钥",
   "integrations.tabs.variables": "变量",
-  "integrations.tabIntro.providers": "智能体运行所用的 Claude 和 Codex 账号。",
+  "integrations.tabIntro.providers":
+    "Claude、Codex 和 OpenCode 智能体运行所用的账号和密钥。",
   "integrations.tabIntro.mcp": "智能体可以调用的工具，例如 Linear 或 Sentry。",
   "integrations.tabIntro.secrets": "GitHub 等服务的 API 密钥和令牌。",
   "integrations.tabIntro.variables":
     "智能体可以读取的普通设置，例如时区。请把密钥放在“密钥”中。",
   "integrations.secretsHonesty":
     "Isomux 会阻止智能体读取已保存的密钥，但本办公室在智能体与其文件之间没有严格隔离。",
+  "integrations.secrets.modelKeys":
+    "<code>ANTHROPIC_API_KEY</code> 等模型 API 密钥放在<link>变量</link>中，而不是这里：Isomux 从不把密钥发送给模型提供商。",
   "integrations.office": "办公室通用",
   "integrations.officeWho": "办公室中的所有智能体",
   "integrations.officeWhoMember":
@@ -899,6 +901,8 @@ App 的一些原则：
   "integrations.connectors.pendingHelp":
     "Claude 在轮次开始时报告其连接器，此时有些仍在连接。Isomux 会在 10 秒后再次检查。",
   "integrations.engineMcp.title": "在 Claude 自己的文件中设置",
+  "integrations.engineMcp.source":
+    "你的 Claude 智能体报告的内容，只包括有智能体运行过的文件夹。",
   "integrations.mcp.empty": "没有 MCP 服务器。",
   "integrations.mcp.nameHint": "智能体看到的名称，例如 linear。",
   "integrations.mcp.url": "服务器地址（URL）",
@@ -933,6 +937,15 @@ App 的一些原则：
   "integrations.mcp.signedInTo.member": "已登录 {member} 的 {name}。",
   "integrations.mcp.signedInTo.office": "已登录办公室通用的 {name}。",
   "integrations.providers.noPersonal": "没有个人登录",
+  "integrations.providers.opencode.bundled":
+    "随 Isomux 一起提供。免费模型不需要账号或密钥。",
+  "integrations.providers.opencode.keySet":
+    "已设置 <code>OPENCODE_API_KEY</code>，用于付费模型。",
+  "integrations.providers.opencode.noKeyOffice":
+    "没有 <code>OPENCODE_API_KEY</code>。付费模型需要在<link>变量</link>中添加一个。",
+  "integrations.providers.opencode.noKeyPersonal":
+    "没有个人 <code>OPENCODE_API_KEY</code>。要添加，请前往<link>变量</link>。",
+  "integrations.providers.testSignedOut": "未登录。",
   "integrations.connectionsFailed":
     "无法加载 claude.ai 连接器和在 Claude 文件中设置的服务器。",
   "integrations.memberGone": "{member} 已不在此办公室。",

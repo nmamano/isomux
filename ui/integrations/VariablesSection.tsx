@@ -24,6 +24,7 @@ import { notifyManagedEnvSaved } from "../connections-events.ts";
 import { ConnectionNoteField } from "../components/ConnectionNoteField.tsx";
 import {
   AddRow,
+  ListLoading,
   Btn,
   Empty,
   Field,
@@ -35,17 +36,12 @@ import {
   hintText,
   input,
   mono,
+  type Heading,
+  useWhose,
 } from "./kit.tsx";
 import { Confirm } from "./SecretsSection.tsx";
 import { useAlive } from "./use-alive.ts";
-import {
-  basePath,
-  canEdit,
-  isGone,
-  whose,
-  type Role,
-  type Target,
-} from "./target.ts";
+import { basePath, canEdit, isGone, type Role, type Target } from "./target.ts";
 
 type Variable = { name: string; value: string | null; note: string };
 
@@ -122,6 +118,7 @@ export function VariablesSection({
   onGone?: () => void;
 }) {
   const { t } = useI18n();
+  const whoseHeading = useWhose();
   const alive = useAlive();
   const base = basePath(target);
   const editable = canEdit(target, role);
@@ -211,7 +208,10 @@ export function VariablesSection({
           {t("settings.env.loadFailed")}
         </p>
       ) : variables === null ? (
-        <Empty>{t("settings.env.loadingVariables")}</Empty>
+        <ListLoading
+          text={t("settings.env.loadingVariables")}
+          addLabel={editable ? t("settings.env.add") : undefined}
+        />
       ) : variables.length === 0 ? (
         <Empty>{t("integrations.variables.empty")}</Empty>
       ) : (
@@ -235,7 +235,7 @@ export function VariablesSection({
         ready &&
         (mode.kind === "add" ? (
           <VariableEditor
-            heading={whose(t, "integrations.variables.addHeading", target)}
+            heading={whoseHeading("integrations.variables.addHeading", target)}
             taken={variables.map((v) => v.name)}
             onCancel={close}
             onSave={async (name, value, note) => {
@@ -279,6 +279,7 @@ function VariableItem({
   onChanged: () => Promise<void>;
 }) {
   const { t } = useI18n();
+  const whoseHeading = useWhose();
   const [shown, setShown] = useState(false);
   const here =
     (mode.kind === "edit" || mode.kind === "remove") &&
@@ -337,8 +338,7 @@ function VariableItem({
       <NoteLine note={variable.note} />
       {here && mode.kind === "edit" && (
         <VariableEditor
-          heading={whose(
-            t,
+          heading={whoseHeading(
             replaceOnly
               ? "integrations.variables.replaceHeading"
               : "integrations.dialog.edit",
@@ -361,7 +361,7 @@ function VariableItem({
       {here && mode.kind === "remove" && (
         <Confirm
           data-env-remove-panel=""
-          heading={whose(t, "integrations.dialog.remove", target, {
+          heading={whoseHeading("integrations.dialog.remove", target, {
             name: variable.name,
           })}
           action={t("integrations.remove")}
@@ -389,7 +389,7 @@ function VariableEditor({
   onCancel,
   onSave,
 }: {
-  heading: string;
+  heading: Heading;
   // Shown, not editable: an owner replacing a member's value.
   fixedName?: string;
   initialName?: string;

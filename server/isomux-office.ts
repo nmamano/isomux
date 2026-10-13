@@ -5281,8 +5281,25 @@ function buildExecutorDeps(
           claudeConnectorsFor,
           claudeConnectorStatusesFor,
           mcpServers: () => mcpServerRows(mcpSources, userId, officeOwner),
-          engineMcpServers: () =>
-            claudeEngineServersFor(agentManager.agentIdsOfUser(userId)),
+          engineMcpServers: () => {
+            const officeDir = providerAccountManager.claudeConfigDir(
+              userId,
+              "office",
+            );
+            const personalDir = providerAccountManager.claudeConfigDir(
+              userId,
+              "personal",
+            );
+            return claudeEngineServersFor(
+              agentManager.agentIdsOfUser(userId),
+              (dir) =>
+                dir === officeDir
+                  ? "office"
+                  : dir === personalDir
+                    ? "personal"
+                    : null,
+            );
+          },
           secrets: (scope) => {
             const secretScope: SecretScope =
               scope === "office"

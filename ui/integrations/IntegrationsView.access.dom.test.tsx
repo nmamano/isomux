@@ -234,8 +234,17 @@ describe("an owner on another member's card", () => {
     expect(
       theirs.querySelector('[data-member-provider="codex"]')!.textContent,
     ).toContain(t("integrations.providers.noPersonal"));
-    expect(theirs.querySelectorAll("button")).toHaveLength(1);
-    expect(theirs.querySelector("[data-back-to-yours]")).not.toBeNull();
+    // No sign-in control: the only buttons go back to yours and, from the
+    // OpenCode block, to the member's variables.
+    expect(
+      [...theirs.querySelectorAll("button")].map((button) =>
+        button.hasAttribute("data-back-to-yours")
+          ? "back"
+          : button.hasAttribute("data-go-variables")
+            ? "variables"
+            : button.outerHTML,
+      ),
+    ).toEqual(["back", "variables"]);
     expect(fake.requests("GET", "/api/users/Stephen/env/names")).toHaveLength(
       1,
     );
@@ -256,6 +265,7 @@ describe("an owner on another member's card", () => {
           name: "local-tool",
           source: "user",
           folder: null,
+          signIn: "personal",
           status: "connected",
         },
       ],

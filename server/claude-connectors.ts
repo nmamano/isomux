@@ -23,6 +23,24 @@ export interface InitMcpServer {
   name: string;
   status?: string;
   source?: string;
+  // The server's tool count, from a status read only.
+  tools?: number;
+}
+
+// A status read entry: the status, and the tool count when the server was
+// connected and reported its tools.
+export interface McpStatusEntry {
+  name: string;
+  status: McpServerStatus;
+  tools?: number;
+}
+
+function toolCount(server: InitMcpServer): number | undefined {
+  return typeof server.tools === "number" &&
+    Number.isInteger(server.tools) &&
+    server.tools >= 0
+    ? server.tools
+    : undefined;
 }
 
 export interface ClaudeConnectorRecord {
@@ -36,10 +54,7 @@ const records = new Map<string, ClaudeConnectorRecord>();
 // Each connector's status from the last after-turn status read (A3), per
 // directory. Kept apart from the record: an init report replaces the names
 // but says only "pending", so it leaves these as they were.
-const statusRecords = new Map<
-  string,
-  { name: string; status: McpServerStatus }[]
->();
+const statusRecords = new Map<string, McpStatusEntry[]>();
 
 function connectorName(server: InitMcpServer): string {
   return server.name.startsWith(CLAUDE_AI_PREFIX)
@@ -141,9 +156,9 @@ export function recordClaudeConnectorStatuses(
   const key = resolve(dir);
   const names = new Set(claudeAiConnectorNames(servers));
   const known = new Map(
-    (statusRecords.get(key) ?? []).map((entry) => [entry.name, entry.status]),
+    (statusRecords.get(key) ?? []).map((entry) => [entry.name, entry]),
   );
-  const statuses = new Map<string, McpServerStatus>();
+  const statuses = new Map<string, McpStatusEntry>();
   for (const server of servers) {
     if (server.source !== "claudeai") continue;
     const name = connectorName(server);
@@ -151,24 +166,28 @@ export function recordClaudeConnectorStatuses(
     if (!names.has(name) || !status) continue;
     // Connectors are still connecting for some seconds after a session
     // starts, so a read after a short turn, or from another agent's new
-    // session, can say "pending" for one an earlier read saw connect.
-    statuses.set(
+    // session, can say "pending" for one an earlier read saw connect. Such a
+    // read keeps the earlier entry, its tool count included.
+    const earlier = known.get(name);
+    if (status === "pending" && earlier) {
+      statuses.set(name, { ...earlier });
+      continue;
+    }
+    const tools = toolCount(server);
+    statuses.set(name, {
       name,
-      status === "pending" ? (known.get(name) ?? status) : status,
-    );
+      status,
+      ...(tools !== undefined ? { tools } : {}),
+    });
   }
   statusRecords.set(
     key,
-    [...statuses]
-      .map(([name, status]) => ({ name, status }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    [...statuses.values()].sort((a, b) => a.name.localeCompare(b.name)),
   );
 }
 
 // Empty until a status read; a name with no entry is not read yet.
-export function claudeConnectorStatusesFor(
-  dir: string,
-): { name: string; status: McpServerStatus }[] {
+export function claudeConnectorStatusesFor(dir: string): McpStatusEntry[] {
   return (statusRecords.get(resolve(dir)) ?? []).map((entry) => ({
     ...entry,
   }));
@@ -195,9 +214,12 @@ export function resetClaudeConnectorsForTests(): void {
 
 // The MCP servers set in Claude itself (integrations A2): user settings, a
 // project's .mcp.json, or a local entry in the user settings for one folder.
-// Kept per agent, with the folder it ran in, from the same init and status
-// reports, whatever the sign-in: they do not come from claude.ai. Only the
-// name and the source are kept, never a URL, a header or an error text.
+// Kept per agent, with the folder it ran in and the Claude config directory
+// it launched with, from the same init and status reports, whatever the
+// sign-in: they do not come from claude.ai. User and local servers live in
+// that directory, so they belong to its sign-in; project servers belong to
+// the folder. Only the name, the source and the tool count are kept, never a
+// URL, a header or an error text.
 export type ClaudeEngineServerSource = "user" | "project" | "local";
 
 const ENGINE_SOURCES: readonly string[] = ["user", "project", "local"];
@@ -207,11 +229,13 @@ interface EngineServer {
   source: ClaudeEngineServerSource;
   // Null until an after-turn status read (A3).
   status: McpServerStatus | null;
+  // From a status read only.
+  tools?: number;
 }
 
 const engineRecords = new Map<
   string,
-  { cwd: string; servers: EngineServer[] }
+  { cwd: string; configDir: string | null; servers: EngineServer[] }
 >();
 
 export function recordClaudeEngineServers(
@@ -219,10 +243,14 @@ export function recordClaudeEngineServers(
   cwd: string,
   servers: InitMcpServer[] | null | undefined,
   from: "init" | "status",
+  // The Claude config directory the session launched with, captured with
+  // the report (a status read captures it when the read starts).
+  configDir?: string | null,
 ): void {
   if (!servers) return;
-  // An init report says "pending" for every server: it keeps the status of
-  // the last status read for a server it still lists.
+  // An init report says "pending" for every server and has no tools: it
+  // keeps the status and the tool count of the last status read for a
+  // server it still lists. So does a status read that says "pending".
   const before = engineRecords.get(agentId)?.servers ?? [];
   const kept: EngineServer[] = servers
     .filter(
@@ -233,57 +261,73 @@ export function recordClaudeEngineServers(
     )
     .map((server) => {
       const source = server.source as ClaudeEngineServerSource;
+      const earlier = before.find(
+        (entry) => entry.name === server.name && entry.source === source,
+      );
+      const status = from === "status" ? knownMcpStatus(server.status) : null;
+      if ((from === "init" || status === "pending") && earlier?.status)
+        return { ...earlier };
+      const tools = from === "status" ? toolCount(server) : undefined;
       return {
         name: server.name,
         source,
-        status:
-          from === "status"
-            ? knownMcpStatus(server.status)
-            : (before.find(
-                (entry) =>
-                  entry.name === server.name && entry.source === source,
-              )?.status ?? null),
+        status: from === "status" ? status : null,
+        ...(tools !== undefined ? { tools } : {}),
       };
     });
-  engineRecords.set(agentId, { cwd: resolve(cwd), servers: kept });
+  engineRecords.set(agentId, {
+    cwd: resolve(cwd),
+    configDir: configDir ? resolve(configDir) : null,
+    servers: kept,
+  });
 }
 
 export function forgetClaudeEngineServers(agentId: string): void {
   engineRecords.delete(agentId);
 }
 
-// One row per server across the given agents; the folder only for project and
-// local servers, which belong to it.
-export function claudeEngineServersFor(agentIds: string[]): {
+export interface ClaudeEngineServerRow {
   engine: "claude";
   name: string;
   source: ClaudeEngineServerSource;
   folder: string | null;
+  // The sign-in whose config directory holds a user or local server; null
+  // for a directory that is neither current sign-in's (and for project
+  // servers, which belong to the folder).
+  signIn: "office" | "personal" | null;
   status: McpServerStatus | null;
-}[] {
-  const rows = new Map<
-    string,
-    {
-      engine: "claude";
-      name: string;
-      source: ClaudeEngineServerSource;
-      folder: string | null;
-      status: McpServerStatus | null;
-    }
-  >();
+  tools?: number;
+}
+
+// One row per server across the given agents; the folder only for project and
+// local servers, which belong to it. `signInOf` maps a launch directory to
+// the caller's sign-in that uses it now.
+export function claudeEngineServersFor(
+  agentIds: string[],
+  signInOf: (configDir: string) => "office" | "personal" | null = () => null,
+): ClaudeEngineServerRow[] {
+  const rows = new Map<string, ClaudeEngineServerRow>();
   for (const agentId of agentIds) {
     const record = engineRecords.get(agentId);
     if (!record) continue;
     for (const server of record.servers) {
       const folder = server.source === "user" ? null : record.cwd;
-      const key = JSON.stringify([server.name, server.source, folder]);
+      const signIn =
+        server.source === "project" || record.configDir === null
+          ? null
+          : signInOf(record.configDir);
+      const key = JSON.stringify([server.name, server.source, folder, signIn]);
       // Several agents can report one server: a status read beats none.
+      const earlier = rows.get(key);
+      const read = server.status !== null ? server : earlier;
       rows.set(key, {
         engine: "claude",
         name: server.name,
         source: server.source,
         folder,
-        status: server.status ?? rows.get(key)?.status ?? null,
+        signIn,
+        status: read?.status ?? null,
+        ...(read?.tools !== undefined ? { tools: read.tools } : {}),
       });
     }
   }
@@ -291,7 +335,8 @@ export function claudeEngineServersFor(agentIds: string[]): {
     (a, b) =>
       a.name.localeCompare(b.name) ||
       a.source.localeCompare(b.source) ||
-      (a.folder ?? "").localeCompare(b.folder ?? ""),
+      (a.folder ?? "").localeCompare(b.folder ?? "") ||
+      (a.signIn ?? "").localeCompare(b.signIn ?? ""),
   );
 }
 

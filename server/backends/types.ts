@@ -417,9 +417,10 @@ export interface BackendSession {
 
   // Claude only: the session's MCP servers as the engine reports them now,
   // with no model turn, or null when unavailable. Never rejects. Feeds the
-  // claude.ai connector list (server/claude-connectors.ts).
+  // claude.ai connector list (server/claude-connectors.ts). `tools` is the
+  // server's tool count, when it reported its tools.
   getMcpServers?(): Promise<
-    { name: string; status?: string; source?: string }[] | null
+    { name: string; status?: string; source?: string; tools?: number }[] | null
   >;
 
   // Send a user turn. Attachments are never inlined: each becomes one

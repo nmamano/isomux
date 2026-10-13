@@ -5,7 +5,7 @@
 // authorization flow (A2b). Rows show the host only: the path of some hosted
 // servers carries a token.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type {
   ConnectionScope,
   McpServerListRes,
@@ -18,7 +18,7 @@ import type {
 import { mcpServerHost, oauthSecretNames } from "../../shared/mcp-servers.ts";
 import type { SecretForm } from "../../shared/secret-hosts.ts";
 import { apiFetch, ApiError } from "../api.ts";
-import { useI18n } from "../i18n.tsx";
+import { useI18n, type UiTranslator } from "../i18n.tsx";
 import {
   notifyConnectionsChanged,
   onConnectionsChanged,
@@ -26,6 +26,7 @@ import {
 import { ConnectionNoteField } from "../components/ConnectionNoteField.tsx";
 import {
   AddRow,
+  ListLoading,
   Btn,
   Choice,
   Empty,
@@ -41,6 +42,8 @@ import {
   input,
   mono,
   type Tone,
+  Data,
+  useWhose,
 } from "./kit.tsx";
 import {
   TestButton,
@@ -61,7 +64,6 @@ import {
   canEdit,
   isGone,
   summaryOnly,
-  whose,
   type Role,
   type Target,
 } from "./target.ts";
@@ -125,15 +127,17 @@ function problemOf(
 }
 
 function problemText(
-  t: Translator["t"],
+  { t, rich }: Pick<UiTranslator, "t" | "rich">,
   problem: McpServerProblem,
   host: string,
-): string {
+): ReactNode {
   switch (problem) {
     case "secret_missing":
       return t("settings.connections.list.mcpSecretMissing");
     case "secret_host":
-      return t("settings.connections.list.mcpSecretHost", { host });
+      return rich("settings.connections.list.mcpSecretHost", {
+        host: <Data>{host}</Data>,
+      });
     case "sign_in":
       return t("settings.connections.list.mcpSignIn");
     default:
@@ -323,7 +327,12 @@ export function McpSection({
           {t("settings.mcpServers.loadFailed")}
         </p>
       ) : rows === null ? (
-        <Empty>{t("common.loading")}</Empty>
+        <ListLoading
+          text={t("common.loading")}
+          addLabel={
+            editable && !summary ? t("settings.mcpServers.add") : undefined
+          }
+        />
       ) : rows.length === 0 ? (
         <Empty>{t("integrations.mcp.empty")}</Empty>
       ) : (
@@ -442,7 +451,8 @@ function McpItem({
   secretsPath: string;
   onChanged: () => Promise<void>;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
+  const whoseHeading = useWhose();
   const errorFor = useMcpErrorText(row.host);
   const { test, run } = useConnectionTest(path);
   const server = row.server;
@@ -454,8 +464,8 @@ function McpItem({
     ? server.oauth
       ? null
       : server.secret
-        ? t("settings.connections.list.mcpCredentialNamed", {
-            name: server.secret,
+        ? rich("settings.connections.list.mcpCredentialNamed", {
+            name: <Data>{server.secret}</Data>,
           })
         : null
     : null;
@@ -464,7 +474,15 @@ function McpItem({
       data-mcp-server-name={row.name}
       logo={<Logo label={row.name} />}
       title={<span style={mono}>{row.name}</span>}
-      detail={[row.host, credential].filter(Boolean).join(" · ")}
+      detail={
+        row.host || credential ? (
+          <>
+            {row.host && <Data>{row.host}</Data>}
+            {row.host && credential && " · "}
+            {credential}
+          </>
+        ) : undefined
+      }
       status={status && <Pill tone={status.tone}>{t(status.key)}</Pill>}
       actions={
         editable && mode.kind === "idle" ? (
@@ -504,7 +522,7 @@ function McpItem({
       <NoteLine note={row.note} />
       {problem && (
         <div data-mcp-problem={problem} style={errorText}>
-          {problemText(t, problem, row.host)}
+          {problemText({ t, rich }, problem, row.host)}
         </div>
       )}
       {overridden && (
@@ -528,7 +546,7 @@ function McpItem({
       {here && mode.kind === "remove" && (
         <Confirm
           data-mcp-remove-panel=""
-          heading={whose(t, "integrations.dialog.remove", target, {
+          heading={whoseHeading("integrations.dialog.remove", target, {
             name: row.name,
           })}
           action={t("integrations.remove")}
@@ -563,7 +581,8 @@ function McpEditor({
   onSaved: () => Promise<void>;
   onSignIn: (name: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
+  const whoseHeading = useWhose();
   const alive = useAlive();
   const [name, setName] = useState(editing?.name ?? "");
   const [url, setUrl] = useState(editing?.url ?? "");
@@ -680,8 +699,8 @@ function McpEditor({
   ];
 
   const heading = editing
-    ? whose(t, "integrations.dialog.edit", target, { name: editing.name })
-    : whose(t, "integrations.mcp.addHeading", target);
+    ? whoseHeading("integrations.dialog.edit", target, { name: editing.name })
+    : whoseHeading("integrations.mcp.addHeading", target);
 
   return (
     <Panel
@@ -732,7 +751,9 @@ function McpEditor({
             label={t("integrations.mcp.token")}
             hint={
               host
-                ? t("integrations.mcp.tokenGoesTo", { host })
+                ? rich("integrations.mcp.tokenGoesTo", {
+                    host: <Data>{host}</Data>,
+                  })
                 : t("integrations.mcp.tokenNoHost")
             }
           >

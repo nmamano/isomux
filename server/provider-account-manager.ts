@@ -212,6 +212,16 @@ export class ProviderAccountManager {
     return isClaudeCloudSelected(target.env) ? null : resolve(target.dir);
   }
 
+  // The Claude config directory of a scope's sign-in for this member, cloud
+  // or not: Claude's own settings live there. Null when the scope has none.
+  claudeConfigDir(userId: string, scope: ProviderAccountScope): string | null {
+    try {
+      return resolve(this.target(userId, "claude", scope).dir);
+    } catch {
+      return null;
+    }
+  }
+
   private normalizePersonal(
     value: string | undefined,
     invalid: string,

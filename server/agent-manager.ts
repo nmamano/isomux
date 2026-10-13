@@ -5441,6 +5441,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.info.cwd,
         ev.mcpServers,
         "init",
+        managed.launchedClaudeConfigDir,
       );
       recordClaudeConnectorsFromSession(launchOf(managed), {
         mcpServers: ev.mcpServers,
@@ -5497,7 +5498,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // A kill or a new session while the read ran: these servers are no
         // longer the agent's.
         if (!current()) return;
-        recordClaudeEngineServers(agentId, managed.info.cwd, servers, "status");
+        recordClaudeEngineServers(
+          agentId,
+          managed.info.cwd,
+          servers,
+          "status",
+          launch.launchedClaudeConfigDir,
+        );
         recordClaudeConnectorsFromSession(launch, {
           mcpServers: servers,
           apiKeySource,

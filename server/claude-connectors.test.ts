@@ -263,6 +263,20 @@ describe("ProviderAccountManager.claudeConnectorDir", () => {
       }).claudeConnectorDir("user-a", "office"),
     ).toBeNull();
   });
+
+  // Claude's own settings live in the directory on Bedrock or Vertex too.
+  it("names the config directory of each scope, cloud or not", () => {
+    const accounts = manager({
+      CLAUDE_CONFIG_DIR: "/tmp/connectors-office",
+      CLAUDE_CODE_USE_BEDROCK: "1",
+    });
+    expect(accounts.claudeConfigDir("user-a", "office")).toBe(
+      "/tmp/connectors-office",
+    );
+    expect(accounts.claudeConfigDir("user-a", "personal")).toBe(
+      "/tmp/connectors-homes/user-a/claude",
+    );
+  });
 });
 
 describe("a status read that started before a clear", () => {
@@ -410,6 +424,7 @@ describe("MCP statuses (A3)", () => {
         name: "linear",
         source: "user",
         folder: null,
+        signIn: null,
         status: null,
       },
     ]);
@@ -430,6 +445,116 @@ describe("MCP statuses (A3)", () => {
     expect(claudeEngineServersFor(["agent-1"])[0]?.status).toBeNull();
   });
 
+  describe("tool counts", () => {
+    const connected = { ...gmail, status: "connected", tools: 12 };
+    const reportTools = (
+      mcpServers: {
+        name: string;
+        status: string;
+        source: string;
+        tools?: number;
+      }[],
+      from: "init" | "status",
+    ) =>
+      recordClaudeConnectorsFromSession(launch, {
+        mcpServers,
+        apiKeySource: "none",
+        from,
+      });
+
+    it("keeps a connector's tool count from a status read", () => {
+      reportTools([connected, { ...drive, tools: 1.5 }], "status");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Gmail", status: "connected", tools: 12 },
+        { name: "Google Drive", status: "connected" },
+      ]);
+    });
+
+    it("keeps the count past a pending read", () => {
+      reportTools([connected], "status");
+      reportTools([{ ...gmail, status: "pending" }], "status");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Gmail", status: "connected", tools: 12 },
+      ]);
+    });
+
+    it("keeps the count past an init report", () => {
+      reportTools([connected], "status");
+      reportTools([gmail], "init");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Gmail", status: "connected", tools: 12 },
+      ]);
+    });
+
+    it("loses the count with a sign-in or sign-out", () => {
+      reportTools([connected], "status");
+      clearClaudeConnectors(dir);
+      reportTools([gmail], "status");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Gmail", status: "pending" },
+      ]);
+    });
+
+    const linear = { name: "linear", source: "user" };
+
+    it("keeps a server set in Claude its count from a status read", () => {
+      recordClaudeEngineServers(
+        "agent-1",
+        "/work",
+        [{ ...linear, status: "connected", tools: 7 }],
+        "status",
+      );
+      expect(claudeEngineServersFor(["agent-1"])[0]?.tools).toBe(7);
+    });
+
+    it("keeps a server's count past an init report and a pending read", () => {
+      recordClaudeEngineServers(
+        "agent-1",
+        "/work",
+        [{ ...linear, status: "connected", tools: 7 }],
+        "status",
+      );
+      recordClaudeEngineServers(
+        "agent-1",
+        "/work",
+        [{ ...linear, status: "pending" }],
+        "init",
+      );
+      expect(claudeEngineServersFor(["agent-1"])[0]).toMatchObject({
+        status: "connected",
+        tools: 7,
+      });
+      recordClaudeEngineServers(
+        "agent-1",
+        "/work",
+        [{ ...linear, status: "pending" }],
+        "status",
+      );
+      expect(claudeEngineServersFor(["agent-1"])[0]).toMatchObject({
+        status: "connected",
+        tools: 7,
+      });
+    });
+
+    it("drops the count when a read says failed", () => {
+      recordClaudeEngineServers(
+        "agent-1",
+        "/work",
+        [{ ...linear, status: "connected", tools: 7 }],
+        "status",
+      );
+      recordClaudeEngineServers(
+        "agent-1",
+        "/work",
+        [{ ...linear, status: "failed" }],
+        "status",
+      );
+      expect(claudeEngineServersFor(["agent-1"])[0]).toEqual(
+        expect.not.objectContaining({ tools: 7 }),
+      );
+    });
+  });
+
   it("prefers a read status when two agents report one server", () => {
     const user = { name: "linear", status: "connected", source: "user" };
     recordClaudeEngineServers("agent-1", "/a", [user], "status");
@@ -440,5 +565,70 @@ describe("MCP statuses (A3)", () => {
     expect(
       claudeEngineServersFor(["agent-2", "agent-1"]).map((row) => row.status),
     ).toEqual(["connected"]);
+  });
+});
+
+// User and local servers live in the Claude config directory of the sign-in
+// the agent launched with; project servers belong to the folder (Lead,
+// 2026-10-13).
+describe("servers set in Claude, by sign-in", () => {
+  const signInOf = (dir: string) =>
+    dir === resolve("/cfg/office")
+      ? ("office" as const)
+      : dir === resolve("/cfg/personal")
+        ? ("personal" as const)
+        : null;
+  const servers = [
+    { name: "linear", status: "connected", source: "user" },
+    { name: "notes", status: "connected", source: "local" },
+    { name: "stripe", status: "connected", source: "project" },
+  ];
+
+  it("names the sign-in of a user or local server, none for a project one", () => {
+    recordClaudeEngineServers(
+      "agent-1",
+      "/work",
+      servers,
+      "status",
+      "/cfg/office",
+    );
+    expect(
+      claudeEngineServersFor(["agent-1"], signInOf).map((row) => [
+        row.name,
+        row.folder,
+        row.signIn,
+      ]),
+    ).toEqual([
+      ["linear", null, "office"],
+      ["notes", resolve("/work"), "office"],
+      ["stripe", resolve("/work"), null],
+    ]);
+  });
+
+  it("keeps one user server from two sign-ins as two rows", () => {
+    const user = [servers[0]];
+    recordClaudeEngineServers("agent-1", "/a", user, "status", "/cfg/office");
+    recordClaudeEngineServers("agent-2", "/b", user, "status", "/cfg/personal");
+    expect(
+      claudeEngineServersFor(["agent-1", "agent-2"], signInOf).map(
+        (row) => row.signIn,
+      ),
+    ).toEqual(["office", "personal"]);
+  });
+
+  it("names no sign-in for a directory neither sign-in uses now", () => {
+    recordClaudeEngineServers(
+      "agent-1",
+      "/work",
+      servers,
+      "status",
+      "/cfg/old",
+    );
+    recordClaudeEngineServers("agent-2", "/work", servers, "status");
+    expect(
+      claudeEngineServersFor(["agent-1", "agent-2"], signInOf).map(
+        (row) => row.signIn,
+      ),
+    ).toEqual([null, null, null]);
   });
 });

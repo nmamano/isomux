@@ -168,6 +168,20 @@ export function pageShortcut(
       pagerOpen: false,
     };
   }
+  // Integrations sets every page flag in one update, unlike "t" (task
+  // f55581c3), and closes only when it is the page shown: over Tasks it
+  // comes to the front.
+  if (input.key === "i") {
+    if (pageForFlags(flags) === "integrations") return "home";
+    return {
+      tasksOpen: false,
+      cronjobsOpen: false,
+      appsOpen: false,
+      skillsOpen: false,
+      integrationsOpen: true,
+      pagerOpen: false,
+    };
+  }
   // Settings only opens; leaving it must pass its own unsaved-edit guard.
   if (input.key === "s") return { usersOpen: true };
   return null;

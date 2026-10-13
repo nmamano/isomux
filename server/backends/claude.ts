@@ -199,7 +199,7 @@ export interface SdkConversation {
   }): Promise<SubscriptionUsageResult>;
   /** The session's MCP servers now (no model turn), or null when unavailable. */
   getMcpServers?(): Promise<
-    { name: string; status?: string; source?: string }[] | null
+    { name: string; status?: string; source?: string; tools?: number }[] | null
   >;
 }
 
@@ -690,16 +690,22 @@ export function wrapV1Query(
               status?: string;
               scope?: string;
               source?: string;
+              tools?: unknown;
             }[]
           | null;
         if (!Array.isArray(servers)) return null;
         // The status call names the origin `scope`; init names it `source`.
+        // Of the tools only the count is kept: each entry carries
+        // server-written descriptions and MCP Apps data.
         return servers.map((server) => {
           const source = server.source ?? server.scope;
           return {
             name: server.name,
             status: server.status,
             ...(source ? { source } : {}),
+            ...(Array.isArray(server.tools)
+              ? { tools: server.tools.length }
+              : {}),
           };
         });
       } catch {
@@ -1111,7 +1117,7 @@ export class ClaudeSession implements BackendSession {
   }
 
   async getMcpServers(): Promise<
-    { name: string; status?: string; source?: string }[] | null
+    { name: string; status?: string; source?: string; tools?: number }[] | null
   > {
     return (await this.conversation.getMcpServers?.()) ?? null;
   }

@@ -5,10 +5,34 @@ import { useState, type CSSProperties, type ReactNode } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { disabledLook } from "../components/dialog-styles.ts";
+import { whose, type Target, type WhoseKey } from "./target.ts";
 
 export const mono: CSSProperties = {
   fontFamily: "'JetBrains Mono',monospace",
 };
+
+// Data inside the page's prose (an email, a member's name, a path, a host,
+// a server or variable name) looks unlike the words around it (Nil,
+// 2026-10-13): one style for all of it, the Data component below.
+export const dataStyle: CSSProperties = {
+  fontFamily: "'JetBrains Mono',monospace",
+  fontSize: "0.92em",
+  fontWeight: 500,
+  color: "var(--text-primary)",
+  background: "var(--bg-code)",
+  padding: "1px 5px",
+  borderRadius: 4,
+  overflowWrap: "anywhere",
+};
+
+// Service-authored and member-authored text: rendered as text only.
+export function Data({ children }: { children: ReactNode }) {
+  return (
+    <span data-integrations-data="" style={dataStyle}>
+      {children}
+    </span>
+  );
+}
 
 export const hintText: CSSProperties = {
   fontSize: 12,
@@ -381,6 +405,40 @@ export function Choice<T extends string>({
   );
 }
 
+// A heading as words (for an aria-label) and as shown, its data (the item's
+// name, the member) in the data style.
+export type Heading = { text: string; node: ReactNode };
+
+// whose() for a heading: the same sentence, also as nodes.
+export function useWhose() {
+  const { t, rich } = useI18n();
+  return (
+    base: WhoseKey,
+    target: Target,
+    vars: Record<string, string> = {},
+  ): Heading => {
+    const all =
+      target.kind === "member" ? { ...vars, member: target.username } : vars;
+    // The key is built at run time, as in whose().
+    const richAny = rich as unknown as (
+      key: string,
+      parts: Record<string, ReactNode>,
+    ) => ReactNode;
+    return {
+      text: whose(t, base, target, vars),
+      node: richAny(
+        `${base}.${target.kind}`,
+        Object.fromEntries(
+          Object.entries(all).map(([key, value]) => [
+            key,
+            <Data key={key}>{value}</Data>,
+          ]),
+        ),
+      ),
+    };
+  };
+}
+
 // The panel a row opens for an add, a change or a removal. Its heading names
 // whose item it is (Nil, 2026-10-13: "Remove Stephen's GH_TOKEN?").
 export function Panel({
@@ -388,7 +446,7 @@ export function Panel({
   children,
   ...data
 }: {
-  heading: string;
+  heading: Heading;
   children: ReactNode;
   [data: `data-${string}`]: string | undefined;
 }) {
@@ -396,11 +454,11 @@ export function Panel({
     <div
       {...data}
       role="group"
-      aria-label={heading}
+      aria-label={heading.text}
       style={{ ...card, marginTop: 8 }}
     >
       <div data-panel-heading style={{ fontSize: 12.5, fontWeight: 650 }}>
-        {heading}
+        {heading.node}
       </div>
       {children}
     </div>
@@ -506,6 +564,25 @@ export function HelpTip({ text }: { text: string }) {
   );
 }
 
+// A list that is still loading: the Loading line, and the Add row the
+// loaded list will have, disabled, so the card keeps its height when the
+// answer comes (Nil, 2026-10-13). `addLabel` is set when the loaded list
+// shows an Add row to this viewer.
+export function ListLoading({
+  text,
+  addLabel,
+}: {
+  text: string;
+  addLabel?: string;
+}) {
+  return (
+    <div data-integrations-loading="">
+      <Empty>{text}</Empty>
+      {addLabel !== undefined && <AddRow label={addLabel} disabled />}
+    </div>
+  );
+}
+
 export function Empty({ children }: { children: ReactNode }) {
   return (
     <div
@@ -524,15 +601,17 @@ export function Empty({ children }: { children: ReactNode }) {
 export function AddRow({
   label,
   onClick,
+  disabled,
 }: {
   label: string;
-  onClick: () => void;
+  onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div
       style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 10 }}
     >
-      <Btn small onClick={onClick} data-integrations-add>
+      <Btn small onClick={onClick} disabled={disabled} data-integrations-add>
         + {label}
       </Btn>
     </div>

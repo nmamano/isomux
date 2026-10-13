@@ -92,7 +92,7 @@ async function clickTitle(view: ReturnType<typeof render>, title: string) {
 describe("the Integrations page in the office", () => {
   it("opens from the office bar at its own path, in one pushed entry, and closes back to the office", async () => {
     const view = await app();
-    await clickTitle(view, t("common.integrations"));
+    await clickTitle(view, t("nav.integrationsShortcut"));
     expect(page(view)).not.toBeNull();
     expect(window.location.pathname).toBe("/integrations");
     expect(pushState).toHaveBeenCalledTimes(1);
@@ -155,7 +155,7 @@ describe("the Integrations page in the office", () => {
     await act(async () => {
       view.getByRole("button", { name: t("settings.backToOffice") }).click();
     });
-    await clickTitle(view, t("common.integrations"));
+    await clickTitle(view, t("nav.integrationsShortcut"));
     expect(page(view)).not.toBeNull();
     expect(member(view)).toBeNull();
   });

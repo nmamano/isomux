@@ -172,13 +172,16 @@ it("lists the servers set in Claude from the member's own sessions, by name and 
     return { text, body: JSON.parse(text) as { engineMcpServers: unknown[] } };
   };
   const forAnn = await list(ann.rawSessionId);
-  // An init report is not a status read: the status stays null (A3).
+  // An init report is not a status read: the status stays null (A3). Ann
+  // has no personal sign-in, so her agent launched on the office one, which
+  // holds the user server; the project server belongs to the folder.
   expect(forAnn.body.engineMcpServers).toEqual([
     {
       engine: "claude",
       name: "notes",
       source: "user",
       folder: null,
+      signIn: "office",
       status: null,
     },
     {
@@ -186,6 +189,7 @@ it("lists the servers set in Claude from the member's own sessions, by name and 
       name: "repo-tools",
       source: "project",
       folder: STATE_ROOT,
+      signIn: null,
       status: null,
     },
   ]);

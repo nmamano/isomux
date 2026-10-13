@@ -235,8 +235,42 @@ describe("page shortcuts and rendered-page precedence", () => {
     }
   });
 
+  // "i" sets every page flag in one update, never the lone flip of "t"
+  // (task f55581c3).
+  it("opens Integrations on i over any page, and clears the others", () => {
+    const every = {
+      ...office,
+      tasksOpen: true,
+      cronjobsOpen: true,
+      appsOpen: true,
+      skillsOpen: true,
+      pagerOpen: true,
+    };
+    expect(pressPageKey(every, "i")).toEqual({
+      ...office,
+      integrationsOpen: true,
+    });
+    // Tasks over Apps: Integrations comes up and Apps closes.
+    const shown = pressPageKey(
+      { ...office, tasksOpen: true, appsOpen: true },
+      "i",
+    );
+    expect(shown).toEqual({ ...office, integrationsOpen: true });
+    expect(pageForFlags(shown)).toBe("integrations");
+  });
+
+  it("closes Integrations on i only when it is the page shown", () => {
+    const open = pressPageKey(office, "i");
+    expect(pageShortcut({ key: "i" }, open)).toBe("home");
+    // Integrations, then t: Tasks is on top, so i brings Integrations back.
+    const underTasks = pressPageKey(open, "t");
+    expect(pageForFlags(underTasks)).toBe("tasks");
+    const back = pressPageKey(underTasks, "i");
+    expect(back).toEqual({ ...office, integrationsOpen: true });
+  });
+
   it("keeps shortcuts out of inputs, modified keys, and Settings", () => {
-    for (const key of ["t", "a", "s"]) {
+    for (const key of ["t", "a", "i", "s"]) {
       for (const guard of [
         "isInput",
         "metaKey",

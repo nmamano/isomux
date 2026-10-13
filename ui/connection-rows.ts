@@ -13,6 +13,13 @@ export const CLAUDE_CONNECTORS_URL = "https://claude.ai/settings/connectors";
 export const BEDROCK_GUIDE =
   "https://isomux.com/docs/llm-providers#claude-on-amazon-bedrock";
 
+// A tool count from the server, or undefined for anything else.
+function toolCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
 // The answer of GET /api/me/connections as the page reads it, or null when
 // it is not that shape (a server without the route, or a stub). Fields that
 // came later (A2, A3) may be missing from an older server, and one of another
@@ -38,18 +45,34 @@ export function normalizeConnectionsList(
       statuses: Array.isArray(connectors.statuses)
         ? connectors.statuses.flatMap((entry) => {
             const status = knownMcpStatus(entry?.status);
+            const tools = toolCount(entry?.tools);
             return status && typeof entry.name === "string"
-              ? [{ name: entry.name, status }]
+              ? [
+                  {
+                    name: entry.name,
+                    status,
+                    ...(tools !== undefined ? { tools } : {}),
+                  },
+                ]
               : [];
           })
         : [],
     })),
     mcpServers: Array.isArray(list.mcpServers) ? list.mcpServers : [],
     engineMcpServers: Array.isArray(list.engineMcpServers)
-      ? list.engineMcpServers.map((server) => ({
-          ...server,
-          status: knownMcpStatus(server.status),
-        }))
+      ? list.engineMcpServers.map((server) => {
+          const tools = toolCount(server.tools);
+          const { tools: _tools, ...rest } = server;
+          return {
+            ...rest,
+            signIn:
+              server.signIn === "office" || server.signIn === "personal"
+                ? server.signIn
+                : null,
+            status: knownMcpStatus(server.status),
+            ...(tools !== undefined ? { tools } : {}),
+          };
+        })
       : [],
     secrets: Array.isArray(list.secrets)
       ? list.secrets

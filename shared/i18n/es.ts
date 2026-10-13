@@ -362,6 +362,7 @@ Cosas que puedes hacer por él:
   "common.confirmQuestion": "¿Confirmar?",
   "nav.tasksShortcut": "Tareas (t)",
   "nav.appsShortcut": "Apps (a)",
+  "nav.integrationsShortcut": "Integraciones (i)",
   "nav.settingsShortcut": "Ajustes (s)",
   "common.moreActions": "Más acciones",
   "common.settings": "Ajustes",
@@ -895,8 +896,6 @@ Cosas que puedes hacer por él:
     "El secreto no incluye {host}. Añade el host al secreto o elige otro.",
   "settings.connections.list.engineMcpUser":
     "Todos los agentes de Claude con el mismo inicio de sesión de Claude",
-  "settings.connections.list.engineMcpFolder":
-    "Todos los agentes de Claude que trabajan en {folder}",
   "settings.connections.list.mcpCredentialNamed": "Credencial: {name}",
   "settings.connections.list.mcpSecretMissing": "Excluido: falta su secreto",
   "settings.connections.list.mcpSecretHost":
@@ -940,7 +939,7 @@ Cosas que puedes hacer por él:
   "integrations.tabs.secrets": "Secretos",
   "integrations.tabs.variables": "Variables",
   "integrations.tabIntro.providers":
-    "Las cuentas de Claude y Codex con las que funcionan los agentes.",
+    "Las cuentas y claves con las que funcionan los agentes de Claude, Codex y OpenCode.",
   "integrations.tabIntro.mcp":
     "Herramientas que los agentes pueden llamar, como Linear o Sentry.",
   "integrations.tabIntro.secrets":
@@ -949,6 +948,8 @@ Cosas que puedes hacer por él:
     "Ajustes simples que los agentes pueden leer, como una zona horaria. Pon las claves en Secretos.",
   "integrations.secretsHonesty":
     "Isomux impide que los agentes lean los secretos guardados, pero esta oficina no tiene un muro firme entre los agentes y sus archivos.",
+  "integrations.secrets.modelKeys":
+    "Las claves de API de modelos, como <code>ANTHROPIC_API_KEY</code>, van en <link>Variables</link>, no aquí: Isomux nunca envía un secreto a un proveedor de modelos.",
   "integrations.office": "De toda la oficina",
   "integrations.officeWho": "Todos los agentes de la oficina",
   "integrations.officeWhoMember":
@@ -995,6 +996,8 @@ Cosas que puedes hacer por él:
   "integrations.connectors.pendingHelp":
     "Claude informa de sus conectores cuando empieza un turno, mientras algunos aún se conectan. Isomux vuelve a comprobarlo 10 segundos después.",
   "integrations.engineMcp.title": "Configurados en los archivos de Claude",
+  "integrations.engineMcp.source":
+    "Lo que informaron tus agentes de Claude, solo en las carpetas donde ha trabajado alguno.",
   "integrations.mcp.empty": "No hay servidores MCP.",
   "integrations.mcp.nameHint":
     "Los agentes ven este nombre, por ejemplo linear.",
@@ -1034,6 +1037,15 @@ Cosas que puedes hacer por él:
   "integrations.mcp.signedInTo.office":
     "Sesión iniciada en {name} de toda la oficina.",
   "integrations.providers.noPersonal": "Sin inicio de sesión personal",
+  "integrations.providers.opencode.bundled":
+    "Viene con Isomux. Los modelos gratuitos no necesitan cuenta ni clave.",
+  "integrations.providers.opencode.keySet":
+    "<code>OPENCODE_API_KEY</code> está configurada, para los modelos de pago.",
+  "integrations.providers.opencode.noKeyOffice":
+    "No hay <code>OPENCODE_API_KEY</code>. Los modelos de pago necesitan una en <link>Variables</link>.",
+  "integrations.providers.opencode.noKeyPersonal":
+    "No hay <code>OPENCODE_API_KEY</code> personal. Para añadir una, ve a <link>Variables</link>.",
+  "integrations.providers.testSignedOut": "No hay sesión iniciada.",
   "integrations.connectionsFailed":
     "No se pudieron cargar los conectores de claude.ai ni los servidores configurados en los archivos de Claude.",
   "integrations.memberGone": "{member} ya no está en esta oficina.",

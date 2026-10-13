@@ -362,6 +362,7 @@ Coses que pots fer per ell:
   "common.confirmQuestion": "Ho confirmes?",
   "nav.tasksShortcut": "Tasques (t)",
   "nav.appsShortcut": "Apps (a)",
+  "nav.integrationsShortcut": "Integracions (i)",
   "nav.settingsShortcut": "Configuració (s)",
   "common.moreActions": "Més accions",
   "common.settings": "Configuració",
@@ -893,8 +894,6 @@ Coses que pots fer per ell:
     "El secret no inclou {host}. Afegeix el host al secret o tria'n un altre.",
   "settings.connections.list.engineMcpUser":
     "Tots els agents de Claude amb el mateix inici de sessió de Claude",
-  "settings.connections.list.engineMcpFolder":
-    "Tots els agents de Claude que treballen a {folder}",
   "settings.connections.list.mcpCredentialNamed": "Credencial: {name}",
   "settings.connections.list.mcpSecretMissing": "Exclòs: falta el seu secret",
   "settings.connections.list.mcpSecretHost":
@@ -939,7 +938,7 @@ Coses que pots fer per ell:
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
   "integrations.tabIntro.providers":
-    "Els comptes de Claude i Codex amb què funcionen els agents.",
+    "Els comptes i les claus amb què funcionen els agents de Claude, Codex i OpenCode.",
   "integrations.tabIntro.mcp":
     "Eines que els agents poden cridar, com Linear o Sentry.",
   "integrations.tabIntro.secrets":
@@ -948,6 +947,8 @@ Coses que pots fer per ell:
     "Paràmetres simples que els agents poden llegir, com una zona horària. Posa les claus a Secrets.",
   "integrations.secretsHonesty":
     "Isomux impedeix que els agents llegeixin els secrets desats, però aquesta oficina no té cap mur ferm entre els agents i els seus fitxers.",
+  "integrations.secrets.modelKeys":
+    "Les claus d'API de models, com <code>ANTHROPIC_API_KEY</code>, van a <link>Variables</link>, no aquí: Isomux mai no envia un secret a un proveïdor de models.",
   "integrations.office": "De tota l'oficina",
   "integrations.officeWho": "Tots els agents de l'oficina",
   "integrations.officeWhoMember":
@@ -994,6 +995,8 @@ Coses que pots fer per ell:
   "integrations.connectors.pendingHelp":
     "Claude informa dels seus connectors quan comença un torn, mentre alguns encara s'estan connectant. Isomux ho torna a comprovar 10 segons després.",
   "integrations.engineMcp.title": "Configurats als fitxers de Claude",
+  "integrations.engineMcp.source":
+    "El que han informat els teus agents de Claude, només a les carpetes on n'ha treballat algun.",
   "integrations.mcp.empty": "No hi ha servidors MCP.",
   "integrations.mcp.nameHint":
     "Els agents veuen aquest nom, per exemple linear.",
@@ -1033,6 +1036,15 @@ Coses que pots fer per ell:
   "integrations.mcp.signedInTo.office":
     "Sessió iniciada a {name} de tota l'oficina.",
   "integrations.providers.noPersonal": "Sense inici de sessió personal",
+  "integrations.providers.opencode.bundled":
+    "Ve amb Isomux. Els models gratuïts no necessiten compte ni clau.",
+  "integrations.providers.opencode.keySet":
+    "<code>OPENCODE_API_KEY</code> està configurada, per als models de pagament.",
+  "integrations.providers.opencode.noKeyOffice":
+    "No hi ha <code>OPENCODE_API_KEY</code>. Els models de pagament en necessiten una a <link>Variables</link>.",
+  "integrations.providers.opencode.noKeyPersonal":
+    "No hi ha cap <code>OPENCODE_API_KEY</code> personal. Per afegir-ne una, ves a <link>Variables</link>.",
+  "integrations.providers.testSignedOut": "No hi ha cap sessió iniciada.",
   "integrations.connectionsFailed":
     "No s'han pogut carregar els connectors de claude.ai ni els servidors configurats als fitxers de Claude.",
   "integrations.memberGone": "{member} ja no és en aquesta oficina.",

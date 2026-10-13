@@ -212,3 +212,25 @@ export function shouldNotifyRoom(
 }
 
 export type { NotifRoomsSetting };
+
+// The Integrations page's last tab, remembered on this device (Nil,
+// 2026-10-13). Read against the tabs the viewer has now: a stored value that
+// is none of them (an older build's tab, junk) reads as no choice.
+const KEY_INTEGRATIONS_TAB = "isomux-integrations-tab";
+
+export function getIntegrationsTab<T extends string>(
+  tabs: readonly T[],
+): T | null {
+  try {
+    const raw = localStorage.getItem(KEY_INTEGRATIONS_TAB);
+    return tabs.find((tab) => tab === raw) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function setIntegrationsTab(tab: string): void {
+  try {
+    localStorage.setItem(KEY_INTEGRATIONS_TAB, tab);
+  } catch {}
+}

@@ -78,6 +78,33 @@ describe("buildConnectionsList", () => {
     });
   });
 
+  it("passes on tool counts and the sign-in of a server set in Claude", async () => {
+    const list = await buildConnectionsList(
+      sources({
+        claudeConnectorStatusesFor: () => [
+          { name: "Gmail", status: "connected", tools: 12 },
+        ],
+        engineMcpServers: () => [
+          {
+            engine: "claude",
+            name: "linear",
+            source: "user",
+            folder: null,
+            signIn: "office",
+            status: "connected",
+            tools: 7,
+          },
+        ],
+      }),
+    );
+    expect(list.claudeConnectors[0]?.statuses).toEqual([
+      { name: "Gmail", status: "connected", tools: 12 },
+    ]);
+    expect(list.engineMcpServers).toEqual([
+      expect.objectContaining({ signIn: "office", tools: 7 }),
+    ]);
+  });
+
   // Nil, ruling 2 (2026-10-13): members see the office items' names.
   it("gives a member the office variable names", async () => {
     const list = await buildConnectionsList(

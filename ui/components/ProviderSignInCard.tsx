@@ -12,6 +12,9 @@ import { cardStyle, hint, SettingsLink } from "./access-shared.tsx";
 import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
+import { ProviderMark } from "./ProviderMark.tsx";
+import { BuildingIcon, PersonIcon } from "./NavIcons.tsx";
+import { Data } from "../integrations/kit.tsx";
 
 // Not a component (it labels a button inside one), so it takes the translator
 // rather than reaching for the hook.
@@ -55,6 +58,7 @@ export function ProviderSignInCard({
   scopes = ["office", "personal"],
   onGoToOtherHalf,
   style,
+  pageLook = false,
 }: {
   provider: ProviderAccountProvider;
   accounts: ProviderAccountWire[];
@@ -71,6 +75,10 @@ export function ProviderSignInCard({
   onGoToOtherHalf?: () => void;
   // The Integrations page lays the card flat inside its own card.
   style?: CSSProperties;
+  // The Integrations page's look: the provider's mark, an icon per scope,
+  // the account as data, and a Test per sign-in. The log view's card keeps
+  // its plain look.
+  pageLook?: boolean;
 }) {
   const { t } = useI18n();
   const title = provider === "codex" ? "Codex" : "Claude";
@@ -79,7 +87,19 @@ export function ProviderSignInCard({
       data-provider-card={provider}
       style={{ ...cardStyle, marginTop: 14, ...style }}
     >
-      {showTitle && <h5 style={{ margin: "0 0 12px" }}>{title}</h5>}
+      {showTitle && (
+        <h5
+          style={{
+            margin: "0 0 12px",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          {pageLook && <ProviderMark provider={provider} />}
+          {title}
+        </h5>
+      )}
       {scopes.map((scope, index) => (
         <ProviderScopeConnection
           key={scope}
@@ -95,6 +115,7 @@ export function ProviderSignInCard({
           onAccounts={onAccounts}
           onStartNewConversation={onStartNewConversation}
           onGoToOtherHalf={onGoToOtherHalf}
+          pageLook={pageLook}
         />
       ))}
       {apiKeyNote && (
@@ -123,6 +144,7 @@ function ProviderScopeConnection({
   onStartNewConversation,
   onGoToOtherHalf,
   hideTopBorder = false,
+  pageLook,
 }: {
   provider: ProviderAccountProvider;
   scope: ProviderAccountScope;
@@ -133,6 +155,7 @@ function ProviderScopeConnection({
   onStartNewConversation?: () => Promise<void>;
   onGoToOtherHalf?: () => void;
   hideTopBorder?: boolean;
+  pageLook: boolean;
 }) {
   const i18n = useI18n();
   const { t, rich } = i18n;
@@ -150,6 +173,10 @@ function ProviderScopeConnection({
   const waitingConfirmedByWire = useRef(false);
   const [claudeCode, setClaudeCode] = useState("");
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [test, setTest] = useState<SignInTest>({ state: "idle" });
+  // A second click in the same tick still sees the old state: the ref
+  // holds a running test back.
+  const testing = useRef(false);
   // The one-time code renders from local state the moment the login POST
   // returns - gating it on the pushed account status hid it whenever that
   // update lagged. Once the account reports connected, retire the code so
@@ -205,6 +232,36 @@ function ProviderScopeConnection({
       "/api/me/provider-accounts/refresh",
     );
     onAccounts?.(result.accounts);
+  }
+
+  // Test: the account check Refresh runs, for this sign-in only, with its
+  // result stated (the account the provider sees, or that it is signed out).
+  async function runTest() {
+    if (testing.current) return;
+    testing.current = true;
+    setTest({ state: "running" });
+    try {
+      const result = await apiFetch<ProviderAccountsWire>(
+        "POST",
+        "/api/me/provider-accounts/refresh",
+      );
+      onAccounts?.(result.accounts);
+      const tested = result.accounts?.find(
+        (entry) => entry.provider === provider && entry.scope === scope,
+      );
+      setTest(
+        tested?.accountStatus === "connected"
+          ? {
+              state: "works",
+              account: tested.accountLabel?.trim() || null,
+            }
+          : { state: "signedOut" },
+      );
+    } catch {
+      setTest({ state: "failed" });
+    } finally {
+      testing.current = false;
+    }
   }
 
   async function connect(method: "browser" | "device") {
@@ -331,9 +388,13 @@ function ProviderScopeConnection({
         ? t("settings.signIn.waiting")
         : statusState === "connected"
           ? account?.accountLabel
-            ? t("settings.signIn.connectedAs", {
-                account: account.accountLabel,
-              })
+            ? pageLook
+              ? i18n.rich("settings.signIn.connectedAs", {
+                  account: <Data>{account.accountLabel}</Data>,
+                })
+              : t("settings.signIn.connectedAs", {
+                  account: account.accountLabel,
+                })
             : t("settings.signIn.connected")
           : statusState === "unavailable"
             ? t("settings.signIn.unavailable")
@@ -356,7 +417,23 @@ function ProviderScopeConnection({
             }
       }
     >
-      <div style={{ fontSize: 12, fontWeight: 650 }}>{scopeTitle}</div>
+      <div
+        data-sign-in-scope={scope}
+        style={{
+          fontSize: 12,
+          fontWeight: 650,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        {pageLook && (
+          <span aria-hidden style={{ color: "var(--text-muted)" }}>
+            {scope === "office" ? BuildingIcon : PersonIcon}
+          </span>
+        )}
+        {scopeTitle}
+      </div>
       <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
       <p
         data-provider-account-state={statusState}
@@ -557,6 +634,18 @@ function ProviderScopeConnection({
               </button>
             </div>
           )}
+          {pageLook && !confirmingSignOut && (
+            <button
+              style={{ ...dialogCancelBtn, flexShrink: 0 }}
+              disabled={test.state === "running"}
+              onClick={() => void runTest()}
+              data-sign-in-test
+            >
+              {test.state === "running"
+                ? t("settings.connections.test.running")
+                : t("settings.connections.test.button")}
+            </button>
+          )}
           {externalWarning && (
             <p
               style={{
@@ -572,6 +661,10 @@ function ProviderScopeConnection({
           )}
         </div>
       )}
+      {/* A "Works" from before a sign-out no longer holds. */}
+      {pageLook && (connected || test.state !== "works") && (
+        <SignInTestResult test={test} />
+      )}
       {onStartNewConversation &&
         (account?.loginStatus === "succeeded" || connected) && (
           <div style={{ margin: "12px 0" }}>
@@ -584,6 +677,46 @@ function ProviderScopeConnection({
             </button>
           </div>
         )}
+    </div>
+  );
+}
+
+type SignInTest =
+  | { state: "idle" }
+  | { state: "running" }
+  | { state: "works"; account: string | null }
+  | { state: "signedOut" }
+  | { state: "failed" };
+
+function SignInTestResult({ test }: { test: SignInTest }) {
+  const { t } = useI18n();
+  if (test.state === "idle" || test.state === "running") return null;
+  const ok = test.state === "works";
+  return (
+    <div
+      data-sign-in-test-result={test.state}
+      style={{
+        fontSize: 12,
+        margin: "8px 0 0",
+        color: ok ? "var(--green-text)" : "var(--red-text)",
+        overflowWrap: "anywhere",
+      }}
+    >
+      {test.state === "works" ? (
+        <>
+          {t("settings.connections.test.works")}
+          {test.account && (
+            <>
+              {" · "}
+              <Data>{test.account}</Data>
+            </>
+          )}
+        </>
+      ) : test.state === "signedOut" ? (
+        t("integrations.providers.testSignedOut")
+      ) : (
+        t("settings.connections.test.requestFailed")
+      )}
     </div>
   );
 }

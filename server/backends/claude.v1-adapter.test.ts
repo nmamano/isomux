@@ -203,6 +203,27 @@ describe("wrapV1Query", () => {
       { name: "claude.ai Gmail", status: "connected", source: "claudeai" },
       { name: "local", status: "failed" },
     ]);
+    // Of the tools only the count is kept: never a description or _meta.
+    q.mcpServerStatus = async () => [
+      {
+        name: "claude.ai Gmail",
+        status: "connected",
+        scope: "claudeai",
+        serverInfo: { name: "gmail", version: "1.0" },
+        tools: [
+          { name: "search", description: "Search mail", _meta: { ui: {} } },
+          { name: "send" },
+        ],
+      },
+    ];
+    expect(await conv.getMcpServers?.()).toEqual([
+      {
+        name: "claude.ai Gmail",
+        status: "connected",
+        source: "claudeai",
+        tools: 2,
+      },
+    ]);
     q.mcpServerStatus = async () => {
       throw new Error("control request failed");
     };

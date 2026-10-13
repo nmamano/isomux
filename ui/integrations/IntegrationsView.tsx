@@ -7,6 +7,8 @@
 //
 // The member choice lives in this component only. Each open starts on You,
 // except the Settings member profile's link, which opens on that member once.
+// The tab is remembered on the device: an open starts on the last one, except
+// an MCP sign-in that came back, which opens MCP servers.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAppState } from "../store.tsx";
@@ -22,8 +24,10 @@ import { SecretsSection } from "./SecretsSection.tsx";
 import { VariablesSection } from "./VariablesSection.tsx";
 import { ConnectorList, EngineMcpList } from "./ClaudeLists.tsx";
 import { takeSignIn } from "./sign-in-return.ts";
-import { Btn, card, hintText, input } from "./kit.tsx";
-import { targetKey, whose, type Role, type Target } from "./target.ts";
+import { Btn, Data, card, hintText, input, useWhose } from "./kit.tsx";
+import { targetKey, type Role, type Target } from "./target.ts";
+import { BuildingIcon, PersonIcon } from "../components/NavIcons.tsx";
+import { getIntegrationsTab, setIntegrationsTab } from "../device-settings.ts";
 
 export type IntegrationsRequest = {
   // Open on this member's personal card (an owner, from their profile).
@@ -71,14 +75,19 @@ function IntegrationsPage({
 }: IntegrationsProps) {
   const { isMobile, sessionContext, users } = useAppState();
   const { t, rich } = useI18n();
+  const whoseHeading = useWhose();
   const role: Role = sessionContext?.role === "owner" ? "owner" : "member";
   const self = sessionContext?.username ?? "";
 
   // Read once: the request is one-shot, and App clears it below.
   const [initial] = useState(() => request);
-  const [tab, setTab] = useState<IntegrationsTab>(
-    initial?.signIn ? "mcp" : "providers",
+  const [tab, setTabState] = useState<IntegrationsTab>(() =>
+    initial?.signIn ? "mcp" : (getIntegrationsTab(TABS) ?? "providers"),
   );
+  const setTab = (next: IntegrationsTab) => {
+    setTabState(next);
+    setIntegrationsTab(next);
+  };
   const others = [...users.values()]
     .filter((user) => user.id !== sessionContext?.userId)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -101,17 +110,17 @@ function IntegrationsPage({
         ok: true,
         whose: null,
         text: note
-          ? whose(t, "integrations.mcp.signedInTo", note.target, {
+          ? whoseHeading("integrations.mcp.signedInTo", note.target, {
               name: note.server,
-            })
+            }).node
           : t("settings.mcpServers.signInDone"),
       };
     return {
       ok: false,
       whose: note
-        ? whose(t, "integrations.mcp.signInFailedFor", note.target, {
+        ? whoseHeading("integrations.mcp.signInFailedFor", note.target, {
             name: note.server,
-          })
+          }).node
         : null,
       text: signInErrorText(t, code, note?.server ?? null),
     };
@@ -162,6 +171,7 @@ function IntegrationsPage({
             role={role}
             accounts={accounts}
             onGone={memberGone}
+            onVariables={() => setTab("variables")}
             onGoToOtherCard={
               target.kind === "office"
                 ? () =>
@@ -182,7 +192,11 @@ function IntegrationsPage({
                 scope={target.kind === "office" ? "office" : "personal"}
               />
             )}
-            {target.kind === "self" && <EngineMcpList />}
+            {target.kind !== "member" && (
+              <EngineMcpList
+                scope={target.kind === "office" ? "office" : "personal"}
+              />
+            )}
           </div>
         );
       case "secrets":
@@ -319,13 +333,28 @@ function IntegrationsPage({
                 <>
                   <br />
                   {t("integrations.secretsHonesty")}
+                  <br />
+                  <span data-secrets-model-keys="">
+                    {rich("integrations.secrets.modelKeys", {
+                      code: (chunk) => <Data>{chunk}</Data>,
+                      link: (chunk) => (
+                        <Btn
+                          kind="link"
+                          onClick={() => setTab("variables")}
+                          data-go-variables
+                        >
+                          {chunk}
+                        </Btn>
+                      ),
+                    })}
+                  </span>
                 </>
               )}
               {tab === "variables" && (
                 <>
                   <br />
                   {rich("integrations.variables.modelKeys", {
-                    code: (chunk) => <code>{chunk}</code>,
+                    code: (chunk) => <Data>{chunk}</Data>,
                   })}
                 </>
               )}
@@ -365,6 +394,7 @@ function IntegrationsPage({
 
             <section data-integrations-card="office" style={card}>
               <CardHead
+                icon={BuildingIcon}
                 title={t("integrations.office")}
                 sub={
                   role === "owner"
@@ -414,11 +444,15 @@ function IntegrationsPage({
 }
 
 function CardHead({
+  icon,
   title,
   sub,
   action,
   accent,
 }: {
+  // The card's scope at a glance: a building for Office-wide, a person for
+  // Personal (Nil, 2026-10-13).
+  icon: ReactNode;
   title: ReactNode;
   sub?: ReactNode;
   action?: ReactNode;
@@ -448,6 +482,15 @@ function CardHead({
             flexWrap: "wrap",
           }}
         >
+          <span
+            aria-hidden
+            data-card-icon=""
+            style={{
+              color: accent ? "var(--orange-text)" : "var(--text-muted)",
+            }}
+          >
+            {icon}
+          </span>
           {title}
         </h2>
         {sub && <div style={{ ...hintText, marginTop: 2 }}>{sub}</div>}
@@ -477,7 +520,7 @@ function PersonalCard({
   gone: string | null;
   children: ReactNode;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const other = target.kind === "member";
   const picker =
     role === "owner" && others.length > 0 ? (
@@ -521,18 +564,26 @@ function PersonalCard({
       }}
     >
       <CardHead
+        icon={PersonIcon}
         accent={other}
         title={
           <>
-            {other
-              ? t("integrations.memberTitle", { member: target.username })
-              : t("integrations.personal")}
+            {/* One flex item, so the name chip stays inside its sentence. */}
+            <span>
+              {other
+                ? rich("integrations.memberTitle", {
+                    member: <Data>{target.username}</Data>,
+                  })
+                : t("integrations.personal")}
+            </span>
             {picker}
           </>
         }
         sub={
           other
-            ? t("integrations.personalWhoMember", { member: target.username })
+            ? rich("integrations.personalWhoMember", {
+                member: <Data>{target.username}</Data>,
+              })
             : t("integrations.personalWhoSelf")
         }
         action={
@@ -553,7 +604,7 @@ function PersonalCard({
             margin: "0 0 8px",
           }}
         >
-          {t("integrations.memberGone", { member: gone })}
+          {rich("integrations.memberGone", { member: <Data>{gone}</Data> })}
         </p>
       )}
       {children}
@@ -567,7 +618,7 @@ function ProvidersFooter({ onVariables }: { onVariables: () => void }) {
     <>
       <p data-api-keys-hint style={{ ...hintText, marginTop: 14 }}>
         {rich("integrations.providers.apiKeys", {
-          code: (chunk) => <code>{chunk}</code>,
+          code: (chunk) => <Data>{chunk}</Data>,
           link: (chunk) => (
             <Btn kind="link" onClick={onVariables} data-go-variables>
               {chunk}

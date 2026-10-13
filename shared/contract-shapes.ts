@@ -819,8 +819,9 @@ export type ConnectionsListRes = {
     seenAt: number | null;
     names: string[];
     // Each name's status from the last after-turn status read; a name with
-    // no entry has not been read yet. Absent from servers before A3.
-    statuses?: { name: string; status: McpServerStatus }[];
+    // no entry has not been read yet. Absent from servers before A3. `tools`
+    // is the tool count the read saw, absent when it reported none.
+    statuses?: { name: string; status: McpServerStatus; tools?: number }[];
   }[];
   // Remote MCP servers Isomux gives every engine. The host only: the path of
   // some hosted servers carries the token. `secret` is the credential's name,
@@ -840,13 +841,19 @@ export type ConnectionsListRes = {
   }[];
   // MCP servers set in Claude itself, as the caller's Claude sessions last
   // reported them: user settings, or a project's .mcp.json in `folder`.
+  // `signIn`: for a user or local server, the caller's sign-in whose Claude
+  // config directory holds it; null for a project server (it belongs to the
+  // folder) and for a directory neither sign-in uses now. Absent from older
+  // servers.
   engineMcpServers: {
     engine: "claude";
     name: string;
     source: "user" | "project" | "local";
     folder: string | null;
+    signIn?: ConnectionScope | null;
     // Null until an after-turn status read; absent from servers before A3.
     status?: McpServerStatus | null;
+    tools?: number;
   }[];
   // Secrets, names and hosts only, office ones for every member. `test` names
   // the identity check a Test runs, null when there is none or when the
