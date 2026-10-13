@@ -6,7 +6,7 @@
 // init message lists the session's MCP servers at the start of every turn, and
 // claude.ai connectors carry source "claudeai". After each turn the server
 // also asks the running session for its MCP servers (no model turn), which is
-// the complete list.
+// the complete list, and asks again while one is still "pending".
 //
 // Keyed by the resolved CLAUDE_CONFIG_DIR, which holds one claude.ai login. In
 // memory only (Lead, 2026-10-13): after a restart a sign-in reads as not seen
@@ -138,16 +138,27 @@ export function recordClaudeConnectorStatuses(
   dir: string,
   servers: InitMcpServer[],
 ): void {
+  const key = resolve(dir);
   const names = new Set(claudeAiConnectorNames(servers));
+  const known = new Map(
+    (statusRecords.get(key) ?? []).map((entry) => [entry.name, entry.status]),
+  );
   const statuses = new Map<string, McpServerStatus>();
   for (const server of servers) {
     if (server.source !== "claudeai") continue;
     const name = connectorName(server);
     const status = knownMcpStatus(server.status);
-    if (names.has(name) && status) statuses.set(name, status);
+    if (!names.has(name) || !status) continue;
+    // Connectors are still connecting for some seconds after a session
+    // starts, so a read after a short turn, or from another agent's new
+    // session, can say "pending" for one an earlier read saw connect.
+    statuses.set(
+      name,
+      status === "pending" ? (known.get(name) ?? status) : status,
+    );
   }
   statusRecords.set(
-    resolve(dir),
+    key,
     [...statuses]
       .map(([name, status]) => ({ name, status }))
       .sort((a, b) => a.name.localeCompare(b.name)),

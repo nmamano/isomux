@@ -186,3 +186,39 @@ it("drops an open form and its value when the scope changes", async () => {
     expect.objectContaining({ name: "OFFICE_TOKEN", value: `${FAKE}-office` }),
   );
 });
+
+it("clears the preset's name and hosts when the member picks Other", async () => {
+  shim();
+  const view = render(<SecretsList path="/api/users/alice/secrets" canEdit />);
+  await act(async () => {});
+  fireEvent.click(
+    view.getByRole("button", { name: t("settings.secrets.add") }),
+  );
+  const preset = view.getByLabelText(
+    t("settings.secrets.preset"),
+  ) as HTMLSelectElement;
+  const name = view.getByLabelText(
+    t("settings.secrets.name"),
+  ) as HTMLInputElement;
+  const hosts = view.getByLabelText(
+    t("settings.secrets.hosts"),
+  ) as HTMLTextAreaElement;
+  const note = view.getByLabelText(
+    t("settings.connections.note"),
+  ) as HTMLTextAreaElement;
+  fireEvent.change(preset, { target: { value: "github" } });
+  fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+  fireEvent.change(note, { target: { value: "for the CI bot" } });
+  // The preset really filled both fields.
+  expect(name.value).not.toBe("");
+  expect(hosts.value).not.toBe("");
+
+  // The custom choice is the select's empty option.
+  fireEvent.change(preset, { target: { value: "" } });
+  expect(preset.value).toBe("");
+  expect(name.value).toBe("");
+  expect(hosts.value).toBe("");
+  // What the member typed stays.
+  expect(valueInput(view)!.value).toBe(FAKE);
+  expect(note.value).toBe("for the CI bot");
+});

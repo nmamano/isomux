@@ -454,7 +454,8 @@ function ScopeSecrets({ path, canEdit }: SecretsListProps) {
                                 ? preset.form.header
                                 : "",
                           }
-                        : { ...d, preset: "" },
+                        : // "Other" drops what a preset filled in.
+                          { ...d, preset: "", name: "", hosts: "" },
                     );
                   }}
                 >

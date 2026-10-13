@@ -307,6 +307,8 @@ export interface ManagerDeps {
   // closure references broadcast helpers defined later in isomux-office.ts.
   eventSink?: EventHandler;
   claudeAuthCheckTimeoutMs?: number;
+  // Wait before an MCP status read that saw "pending" reads again.
+  connectorRereadMs?: number;
   listProviderAccounts?: (
     userId: string,
     options?: ProviderAccountReadOptions,
@@ -3013,6 +3015,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function beginTurn(agentId: string, opts: { humanInput: boolean }) {
     const managed = agents.get(agentId);
     if (!managed) return;
+    stopConnectorRereads(agentId);
     managed.lastActiveAt = Date.now();
     managed.authNoticeEmittedThisWake = false;
     if (managed.info.turnHadHumanInput !== opts.humanInput) {
@@ -5451,9 +5454,33 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
+  // MCP servers are still connecting for some seconds after a session starts
+  // (claude.ai connectors about 8 s, measured 2026-10-13), so the read after a
+  // short turn can see "pending". Such a read reads again later, up to
+  // CONNECTOR_READS reads per turn end, until the agent's next turn starts.
+  const CONNECTOR_READS = 3;
+  const connectorRereadMs = deps.connectorRereadMs ?? 10_000;
+  // Per agent: bumped at each turn start, turn end and kill, so a chain from
+  // an earlier turn end stops.
+  const connectorReadChains = new Map<string, number>();
+  const connectorRereadTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+
+  function stopConnectorRereads(agentId: string): number {
+    clearTimeout(connectorRereadTimers.get(agentId));
+    connectorRereadTimers.delete(agentId);
+    const chain = (connectorReadChains.get(agentId) ?? 0) + 1;
+    connectorReadChains.set(agentId, chain);
+    return chain;
+  }
+
   function refreshSessionConnectors(managed: ManagedAgent): void {
     const session = managed.sessionManager.session;
     if (managed.info.agentType !== "claude" || !session?.getMcpServers) return;
+    const agentId = managed.info.id;
+    const chain = stopConnectorRereads(agentId);
     // Captured now: the read resolves later, maybe after a session swap or
     // a sign-out that cleared this directory.
     const launch = launchOf(managed);
@@ -5461,27 +5488,42 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const generation = launch.launchedClaudeConfigDir
       ? claudeConnectorGeneration(launch.launchedClaudeConfigDir)
       : undefined;
-    void (async () => {
+    const current = () =>
+      agents.get(agentId) === managed &&
+      managed.sessionManager.session === session;
+    const read = async (count: number): Promise<void> => {
       try {
         const servers = await session.getMcpServers!();
-        recordClaudeEngineServers(
-          managed.info.id,
-          managed.info.cwd,
-          servers,
-          "status",
-        );
+        // A kill or a new session while the read ran: these servers are no
+        // longer the agent's.
+        if (!current()) return;
+        recordClaudeEngineServers(agentId, managed.info.cwd, servers, "status");
         recordClaudeConnectorsFromSession(launch, {
           mcpServers: servers,
           apiKeySource,
           from: "status",
           generation,
         });
+        if (
+          count < CONNECTOR_READS &&
+          connectorReadChains.get(agentId) === chain &&
+          servers?.some((server) => server.status === "pending")
+        ) {
+          const timer = setTimeout(() => {
+            connectorRereadTimers.delete(agentId);
+            if (connectorReadChains.get(agentId) === chain && current())
+              void read(count + 1);
+          }, connectorRereadMs);
+          timer.unref?.();
+          connectorRereadTimers.set(agentId, timer);
+        }
       } catch (err) {
         console.warn(
-          `[connectors] could not read ${managed.info.id}: ${errMessage(err)}`,
+          `[connectors] could not read ${agentId}: ${errMessage(err)}`,
         );
       }
-    })();
+    };
+    void read(1);
   }
 
   // Merge process.env with office variables and the agent owner's managed personal variables.
@@ -8902,6 +8944,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agents.delete(agentId);
     dropSettledChoiceInteractions(agentId);
     userSendDedupe.forgetAgent(agentId);
+    stopConnectorRereads(agentId);
+    connectorReadChains.delete(agentId);
     forgetClaudeEngineServers(agentId);
     // The agent left the live map; revoke its bearer token (mirrors the mint at
     // spawn/restore). A killed agent has no subprocess and no valid token.

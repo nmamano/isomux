@@ -349,6 +349,58 @@ describe("MCP statuses (A3)", () => {
     ]);
   });
 
+  // A read right after a short turn can see "pending" for a connector an
+  // earlier read saw connect (probe, 2026-10-13).
+  describe("a pending read", () => {
+    const connected = { ...gmail, status: "connected" };
+
+    it("keeps a status an earlier read knew", () => {
+      report([connected], "status");
+      report([gmail], "status");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Gmail", status: "connected" },
+      ]);
+    });
+
+    it("shows pending for a name with no earlier status", () => {
+      report([connected], "status");
+      report([connected, { ...drive, status: "pending" }], "status");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Gmail", status: "connected" },
+        { name: "Google Drive", status: "pending" },
+      ]);
+    });
+
+    it("drops a name the read no longer lists", () => {
+      report([connected, drive], "status");
+      report([{ ...drive, status: "pending" }], "status");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Google Drive", status: "connected" },
+      ]);
+    });
+
+    it("does not keep a status past a sign-in or sign-out", () => {
+      report([connected], "status");
+      clearClaudeConnectors(dir);
+      report([gmail], "status");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Gmail", status: "pending" },
+      ]);
+    });
+
+    it("leaves any other read status in place of a known one", () => {
+      report([connected], "status");
+      report([{ ...gmail, status: "failed" }], "status");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Gmail", status: "failed" },
+      ]);
+      report([{ ...gmail, status: "needs-auth" }], "status");
+      expect(claudeConnectorStatusesFor(dir)).toEqual([
+        { name: "Gmail", status: "needs-auth" },
+      ]);
+    });
+  });
+
   it("gives a server set in Claude its status from the status read, null before", () => {
     const user = { name: "linear", status: "pending", source: "user" };
     recordClaudeEngineServers("agent-1", "/work", [user], "init");

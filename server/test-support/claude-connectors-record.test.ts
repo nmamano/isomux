@@ -12,8 +12,11 @@ import { getAgentHost } from "../agent-host.ts";
 import { claudeConfigRoot } from "../claude-session-root.ts";
 import { removeManagedUserEnv, writeManagedUserEnv } from "../user-env.ts";
 import {
+  claudeConnectorStatusesFor,
   claudeConnectorsFor,
+  claudeEngineServersFor,
   resetClaudeConnectorsForTests,
+  resetClaudeEngineServersForTests,
 } from "../claude-connectors.ts";
 import { FakeBackend } from "./fake-backend.ts";
 
@@ -21,6 +24,7 @@ const USER = "user-connectors";
 
 afterEach(() => {
   resetClaudeConnectorsForTests();
+  resetClaudeEngineServersForTests();
   removeManagedUserEnv(USER);
 });
 
@@ -57,20 +61,29 @@ const MARKER = "init handled";
 const currentDir = () =>
   claudeConfigRoot(buildEnvForUserId(USER) ?? getAgentHost().baseEnv());
 
+// What one status read answers: a list, or a function that answers it later.
+type Read = Server[] | (() => Promise<Server[]>);
+
+const REREAD_MS = 30;
+
 // Spawn an agent, let it launch its session, then (optionally) change the
 // member's env, deliver an init, and (optionally) finish the turn with a
-// status read. Returns the directory the session launched with.
+// status read. Returns the directory the session launched with. With
+// `reads`, the status reads answer each in turn (the last one repeats).
 async function runSession(opts: {
   agentType?: AgentBackendType;
   init?: { mcpServers?: Server[]; apiKeySource?: string };
   envAfterLaunch?: Record<string, string>;
   afterTurn?: Server[];
-}): Promise<{ launchDir: string; statusReads: number }> {
+  reads?: Read[];
+  rereadMs?: number;
+}) {
   const fake = new FakeBackend();
   const mgr = createAgentManager({
     resolveBackend: () => fake,
     officeState: new OfficeState({ rooms: room() }),
     initialRooms: [],
+    connectorRereadMs: opts.rereadMs ?? REREAD_MS,
   });
   mgr.configureAgentTurnDeps();
   const info = await mgr.spawn(
@@ -114,20 +127,28 @@ async function runSession(opts: {
     "events handled",
   );
   let statusReads = 0;
-  if (opts.afterTurn) {
-    const servers = opts.afterTurn;
+  const reads = opts.reads ?? (opts.afterTurn ? [opts.afterTurn] : null);
+  if (reads) {
     (
       session as unknown as { getMcpServers: () => Promise<Server[]> }
     ).getMcpServers = async () => {
+      const read = reads[Math.min(statusReads, reads.length - 1)];
       statusReads++;
-      return servers;
+      return typeof read === "function" ? read() : read;
     };
     session.completeTurn({ text: "done" });
     await waitUntil(() => statusReads > 0, "status read");
     // Let the read's continuation run.
     await sleep(20);
   }
-  return { launchDir, statusReads };
+  return {
+    launchDir,
+    statusReads,
+    readCount: () => statusReads,
+    mgr,
+    agentId: info.id,
+    session,
+  };
 }
 
 describe("claude.ai connectors from a running session", () => {
@@ -180,5 +201,141 @@ describe("claude.ai connectors from a running session", () => {
   it("records nothing for another engine", async () => {
     const { launchDir } = await runSession({ agentType: "codex" });
     expect(claudeConnectorsFor(launchDir)).toBeNull();
+  });
+});
+
+// A read right after a short turn can see "pending": MCP servers are still
+// connecting for some seconds after a session starts (probe, 2026-10-13).
+describe("a status read that sees pending", () => {
+  const connected: Server = { ...gmail, status: "connected" };
+  const notes: Server = { name: "notes", status: "pending", source: "user" };
+  const notesConnected: Server = { ...notes, status: "connected" };
+  // Long enough for a chain that did not stop to read again.
+  const settle = () => sleep(REREAD_MS * 6);
+
+  // A read that waits until the test releases it.
+  function heldRead(servers: Server[]) {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    return {
+      read: async () => {
+        await held;
+        return servers;
+      },
+      release,
+    };
+  }
+
+  it("reads again and records the later status", async () => {
+    const { launchDir, readCount } = await runSession({
+      reads: [[gmail], [connected]],
+    });
+    await waitUntil(() => readCount() === 2, "second read");
+    await settle();
+    expect(readCount()).toBe(2);
+    expect(claudeConnectorStatusesFor(launchDir)).toEqual([
+      { name: "Gmail", status: "connected" },
+    ]);
+  });
+
+  it("reads again for a server set in Claude", async () => {
+    const { agentId, readCount } = await runSession({
+      reads: [[notes], [notesConnected]],
+    });
+    await waitUntil(() => readCount() === 2, "second read");
+    await settle();
+    expect(readCount()).toBe(2);
+    expect(claudeEngineServersFor([agentId])).toEqual([
+      expect.objectContaining({ name: "notes", status: "connected" }),
+    ]);
+  });
+
+  it("reads once when nothing is pending", async () => {
+    const { launchDir, readCount } = await runSession({ reads: [[connected]] });
+    await settle();
+    expect(readCount()).toBe(1);
+    expect(claudeConnectorStatusesFor(launchDir)).toEqual([
+      { name: "Gmail", status: "connected" },
+    ]);
+  });
+
+  it("stops after three reads", async () => {
+    const { launchDir, readCount } = await runSession({ reads: [[gmail]] });
+    await waitUntil(() => readCount() === 3, "third read");
+    await settle();
+    expect(readCount()).toBe(3);
+    expect(claudeConnectorStatusesFor(launchDir)).toEqual([
+      { name: "Gmail", status: "pending" },
+    ]);
+  });
+
+  it("stops when the agent's next turn starts", async () => {
+    // Slow enough that the next turn starts before the re-read is due.
+    const rereadMs = 400;
+    const { readCount, mgr, agentId } = await runSession({
+      reads: [[gmail], [connected]],
+      rereadMs,
+    });
+    mgr.enqueueMessage(agentId, {
+      sender: { kind: "user", username: "Boss" },
+      text: "next",
+    });
+    await waitUntil(
+      () => mgr.getAgent(agentId)?.state === "thinking",
+      "next turn started",
+    );
+    await sleep(rereadMs * 3);
+    expect(readCount()).toBe(1);
+  });
+
+  it("does not read a session that ended while a re-read was due", async () => {
+    // Slow enough that the new conversation comes before the re-read is due.
+    const rereadMs = 400;
+    const { launchDir, readCount, mgr, agentId, session } = await runSession({
+      reads: [[gmail], [connected]],
+      rereadMs,
+    });
+    // Read 1 saw pending, so a re-read is due.
+    expect(readCount()).toBe(1);
+    expect(claudeConnectorStatusesFor(launchDir)).toEqual([
+      { name: "Gmail", status: "pending" },
+    ]);
+    await mgr.newConversation(agentId);
+    // The session the re-read would ask has ended.
+    expect(session.closed).toBe(true);
+    await sleep(rereadMs * 3);
+    expect(readCount()).toBe(1);
+  });
+
+  it("records nothing from a read that lands after a new conversation", async () => {
+    const second = heldRead([connected]);
+    const { launchDir, readCount, mgr, agentId } = await runSession({
+      reads: [[gmail], second.read],
+    });
+    await waitUntil(() => readCount() === 2, "second read started");
+    await mgr.newConversation(agentId);
+    second.release();
+    await settle();
+    expect(readCount()).toBe(2);
+    expect(claudeConnectorStatusesFor(launchDir)).toEqual([
+      { name: "Gmail", status: "pending" },
+    ]);
+  });
+
+  it("does not put a killed agent's servers back", async () => {
+    const second = heldRead([connected, notesConnected]);
+    const { launchDir, readCount, mgr, agentId } = await runSession({
+      reads: [[gmail, notes], second.read],
+    });
+    expect(claudeEngineServersFor([agentId])).toHaveLength(1);
+    await waitUntil(() => readCount() === 2, "second read started");
+    await mgr.kill(agentId);
+    second.release();
+    await settle();
+    expect(readCount()).toBe(2);
+    expect(claudeEngineServersFor([agentId])).toEqual([]);
+    expect(claudeConnectorStatusesFor(launchDir)).toEqual([
+      { name: "Gmail", status: "pending" },
+    ]);
   });
 });
