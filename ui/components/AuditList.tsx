@@ -114,6 +114,9 @@ function AuditRows({
           {entry.memoryContent !== undefined && (
             <pre style={{ whiteSpace: "pre-wrap" }}>{entry.memoryContent}</pre>
           )}
+          {entry.promptContent !== undefined && (
+            <pre style={{ whiteSpace: "pre-wrap" }}>{entry.promptContent}</pre>
+          )}
           {restore && entry.deletedTask && (
             <button
               style={dialogCancelBtn}

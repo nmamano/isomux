@@ -1,5 +1,6 @@
 // Phase 3a slice 3a.5 - office.{getSettings,setSettings} on the unified REST
-// surface. Owner-only (office:admin + officeOwner).
+// surface. Owner-only for humans (office:settings + officeSettingsOwner); the
+// privileged-agent cases are in routes-office-settings-agents.test.ts.
 //
 // What this freezes:
 //   - getSettings returns the editable settings without legacy envFile plus the

@@ -6,6 +6,7 @@ import { appWidgetHandlers } from "./routes/handlers/app-widget.ts";
 import { auditHandlers } from "./routes/handlers/audit.ts";
 import { auditActor } from "./audit-actor.ts";
 import { officeAuditStore, recordAudit } from "./audit-store.ts";
+import { noteAuditTarget, notePromptContent } from "./audit-context.ts";
 import { BrowserExtensionStore } from "./browser-extension-store";
 import {
   BrowserExtensionService,
@@ -1772,11 +1773,12 @@ function officeSettingsVersion(): string {
 
 // office.setSettings core. The version guard runs FIRST (a stale writer is told
 // to re-read before hearing about field validation), then validates the name
-// before it mutates/emits. Omitted fields PRESERVE their current values for
-// stale clients. A null or empty name CLEARS it. setOfficeSettings emits
+// before it mutates/emits. Omitted fields PRESERVE their current values, for
+// stale clients and for an agent that changes one field. A null prompt CLEARS
+// it, and so does a null or empty name. setOfficeSettings emits
 // office_settings_updated via the sink.
 function applyOfficeSettings(input: {
-  prompt: string | null;
+  prompt?: string | null;
   name?: string | null;
   memberUsageCap?: boolean;
   memberUsageShare?: number;
@@ -1803,10 +1805,13 @@ function applyOfficeSettings(input: {
     };
   }
   agentManager.setOfficeSettings(
-    input.prompt,
+    input.prompt === undefined
+      ? agentManager.getOfficeSettings().prompt
+      : input.prompt,
     agentManager.getOfficeSettings().envFile,
     rawName,
   );
+  notePromptContent(agentManager.getOfficeSettings().prompt);
   if (
     input.memberUsageCap !== undefined &&
     input.memberUsageCap !== memberUsageCap().isEnabled()
@@ -3944,6 +3949,8 @@ function buildExecutorDeps(
             error: r.error,
           };
         }
+        if (r.user.memberPrompt !== null)
+          notePromptContent(r.user.memberPrompt);
         // No full_state/presence push: the member has no session yet.
         emitUsersList();
         return { ok: true, user: r.user };
@@ -4024,6 +4031,11 @@ function buildExecutorDeps(
             error: result.error,
           };
         }
+        // An agent's answer has no user record, so createdResource cannot
+        // find the id: every caller's row names the member by id here.
+        noteAuditTarget(result.user.id);
+        if (changes.memberPrompt !== undefined)
+          notePromptContent(result.user.memberPrompt);
         if (roleChanged) {
           for (const ws of browsers) {
             if (ws.data.session.userId !== result.user.id) continue;
@@ -4406,9 +4418,12 @@ function buildExecutorDeps(
             version: currentVersion,
           };
         }
-        return agentManager.setRoomSettings(roomId, prompt)
-          ? { ok: true }
-          : { ok: false, reason: "room_not_found" };
+        if (!agentManager.setRoomSettings(roomId, prompt))
+          return { ok: false, reason: "room_not_found" };
+        notePromptContent(
+          agentManager.getRooms().find((r) => r.id === roomId)?.prompt ?? null,
+        );
+        return { ok: true };
       },
     }),
   );
@@ -4574,7 +4589,10 @@ function buildExecutorDeps(
             input.codexSandbox,
             input.userId,
           );
-          if (spawned) return { ok: true, agent: spawned };
+          if (spawned) {
+            notePromptContent(spawned.customInstructions);
+            return { ok: true, agent: spawned };
+          }
           // null = duplicate name, unknown target room, or full room (none
           // throw). Disambiguate AFTER the null, in OfficeState.spawn's check
           // order (dup name -> room existence -> desk scan), so the dialog
@@ -4720,6 +4738,8 @@ function buildExecutorDeps(
             customInstructions: changes.customInstructions ?? undefined,
           });
           const agent = agentManager.getAgent(agentId);
+          if (agent && changes.customInstructions !== undefined)
+            notePromptContent(agent.customInstructions);
           return agent
             ? { ok: true, agent }
             : {

@@ -1,4 +1,8 @@
-import { withAuditContext } from "../audit-context.ts";
+import {
+  notedAuditTargets,
+  notedPromptContent,
+  withAuditContext,
+} from "../audit-context.ts";
 import type { ExecutorAudit } from "./audit.ts";
 // HTTP executor. The single pipeline that consumes the typed route
 // table for the migrated /api surface. Given a matched route + a resolved
@@ -349,13 +353,20 @@ export async function executeRoute(
           // Non-GET/HEAD routes declare write ownership or a read/bookkeeping exclusion.
           // Keep the row INSIDE the
           // idempotency callback: replay, conflict and errors must add no row.
-          // Values never enter the row. Multipart/binary have no field names.
+          // Values never enter the row, except a prompt's text after the write
+          // (notePromptContent). Multipart/binary have no field names.
           if (!isGet && deps.audit && route.audit?.owner === "executor") {
+            const promptContent = notedPromptContent();
             try {
               deps.audit.write({
                 actor: actor!,
                 operation: route.opId,
-                targets: route.audit.targets(ctx, result),
+                targets: [
+                  ...new Set([
+                    ...route.audit.targets(ctx, result),
+                    ...notedAuditTargets(),
+                  ]),
+                ],
                 fields:
                   !isMultipart &&
                   !isBinary &&
@@ -364,6 +375,7 @@ export async function executeRoute(
                   !Array.isArray(body)
                     ? Object.keys(body)
                     : [],
+                ...(promptContent !== undefined ? { promptContent } : {}),
               });
             } catch (error) {
               console.error("[audit] could not record completed write", error);

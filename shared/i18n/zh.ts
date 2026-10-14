@@ -1375,6 +1375,8 @@ App 的一些原则：
   "apiCall.providerAccounts.signInCode": "提交提供方登录验证码",
   "apiCall.users.readMemberPrompt": "读取成员特别指令",
   "apiCall.users.updatePrompt": "编辑成员特别指令",
+  "apiCall.office.readSettings": "读取办公室设置",
+  "apiCall.office.saveSettings": "更改办公室设置",
   "apiCall.users.create": "创建成员",
   "apiCall.users.createNamed": "创建成员 {name}",
   "apiCall.env.readUser": "读取托管环境",

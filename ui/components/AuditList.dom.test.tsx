@@ -222,3 +222,23 @@ it("shows the request of a secret use, and survives a wrong-shaped one", async (
   expect(rows[1].textContent).toContain("OTHER");
   expect(rows[1].textContent).not.toContain("null");
 });
+it("shows the prompt text that a prompt row keeps", async () => {
+  setApiShim(async () => ({
+    items: [
+      {
+        sequence: 1,
+        time: 1,
+        actor: { kind: "agent", id: "a1", name: "Helper", ownerId: "u" },
+        operation: "office.setSettings",
+        targets: ["office"],
+        fields: ["prompt", "version"],
+        promptContent: "Line one\nLine two",
+      },
+    ],
+    nextBefore: null,
+  }));
+  const view = render(<AuditPane />);
+  await act(async () => {});
+  const text = view.container.querySelector("li pre");
+  expect(text?.textContent).toBe("Line one\nLine two");
+});

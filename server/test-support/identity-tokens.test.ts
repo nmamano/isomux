@@ -239,11 +239,22 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect(capabilitiesForScope("api")).toBe(API_CAPABILITIES);
   });
 
+  it("office:settings is held by USER, API and PRIVILEGED agents, and by no other set", () => {
+    const cap = "office:settings" as Capability;
+    expect(USER_CAPABILITIES).toContain(cap);
+    expect(API_CAPABILITIES).toContain(cap);
+    expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(cap);
+    expect(AGENT_CAPABILITIES).not.toContain(cap);
+    expect(RUN_CAPABILITIES).not.toContain(cap);
+    expect(APP_CAPABILITIES).not.toContain(cap);
+  });
+
   it("API scope holds the explicit remote-boss operational capabilities", () => {
     expect([...API_CAPABILITIES]).toEqual([
       "audit:read",
       "user:env",
       "integration:manage",
+      "office:settings",
       "secret:show",
       "api:discover-agents",
       "api:send-message",

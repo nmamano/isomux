@@ -1359,9 +1359,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   "office.updateInfo": { caps: ["office:admin"], emits: [] },
   "office.triggerUpdate": { caps: ["office:admin"], emits: [] },
   // Office settings, validation, backends
-  "office.getSettings": { caps: ["office:admin"], emits: [] },
+  "office.getSettings": { caps: ["office:settings"], emits: [] },
   "office.setSettings": {
-    caps: ["office:admin"],
+    caps: ["office:settings"],
     emits: ["office_settings_updated"],
   },
   "validate.cwd": { caps: ["agent:manage"], emits: [] },
@@ -1826,6 +1826,8 @@ const API_REACHABLE_OPIDS = [
   "pagerSettings.update",
   "pagerSettings.test",
   "apiTokenInbox.drain",
+  "office.getSettings",
+  "office.setSettings",
   "validate.cwd",
   "backends.listModels",
   "tasks.list",

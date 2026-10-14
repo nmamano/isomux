@@ -317,8 +317,19 @@ describe("parseIsomuxCurl", () => {
     expect(req!.actionKey).toBe("apiCall.agents.scheduledCancel");
   });
 
+  test("office settings read and change", () => {
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/office/settings")!.actionKey,
+    ).toBe("apiCall.office.readSettings");
+    expect(
+      parseIsomuxCurl(
+        `curl -s -X PUT localhost:4000/api/office/settings -d '{"prompt":null,"version":"v"}'`,
+      )!.actionKey,
+    ).toBe("apiCall.office.saveSettings");
+  });
+
   test("unknown isomux route still parses, without action label", () => {
-    const req = parseIsomuxCurl("curl -s localhost:4000/api/office/settings");
+    const req = parseIsomuxCurl("curl -s localhost:4000/api/office/access");
     expect(req).not.toBeNull();
     expect(req!.actionKey).toBeNull();
     expect(req!.method).toBe("GET");

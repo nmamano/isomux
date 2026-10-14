@@ -39,6 +39,7 @@ import {
   selfUserOrApi,
   selfOrEnvOwner,
   officeOwner,
+  officeSettingsOwner,
   auditOwner,
   officeEnvOwner,
   integrationOfficeOwner,
@@ -1831,7 +1832,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "office.getSettings",
     method: "GET",
     path: "/api/office/settings",
-    auth: cap("office:admin", officeOwner),
+    auth: cap("office:settings", officeSettingsOwner),
     emits: [],
   }),
   defineRoute<OfficeSettingsReq, NoContent>({
@@ -1839,7 +1840,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "PUT",
     path: "/api/office/settings",
-    auth: cap("office:admin", officeOwner),
+    auth: cap("office:settings", officeSettingsOwner),
     emits: ["office_settings_updated"],
   }),
   defineRoute<ValidateCwdReq, { ok: boolean; error?: string }>({

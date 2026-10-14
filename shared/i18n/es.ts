@@ -1555,6 +1555,8 @@ Cosas que puedes hacer por él:
     "Enviar el código de inicio de sesión del proveedor",
   "apiCall.users.readMemberPrompt": "Leer instrucciones especiales del miembro",
   "apiCall.users.updatePrompt": "Editar instrucciones especiales del miembro",
+  "apiCall.office.readSettings": "Leer la configuración de la oficina",
+  "apiCall.office.saveSettings": "Cambiar la configuración de la oficina",
   "apiCall.users.create": "Crear un miembro",
   "apiCall.users.createNamed": "Crear el miembro {name}",
   "apiCall.env.readUser": "Leer el entorno gestionado",

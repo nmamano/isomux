@@ -1557,6 +1557,8 @@ Coses que pots fer per ell:
   "apiCall.users.readMemberPrompt":
     "Llegeix les instruccions especials del membre",
   "apiCall.users.updatePrompt": "Edita les instruccions especials del membre",
+  "apiCall.office.readSettings": "Llegir la configuració de l'oficina",
+  "apiCall.office.saveSettings": "Canviar la configuració de l'oficina",
   "apiCall.users.create": "Crear un membre",
   "apiCall.users.createNamed": "Crear el membre {name}",
   "apiCall.env.readUser": "Llegir l'entorn gestionat",

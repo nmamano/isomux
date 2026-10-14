@@ -56,6 +56,13 @@ export type Capability =
   | "user:create"
   | "user:prompt"
   | "office:admin"
+  // Read and change the office prompt, the office name, the member usage cap
+  // switch and the members' share of the weekly limit (office.getSettings and
+  // office.setSettings). Held by USER, API and the PRIVILEGED agent set (Nil,
+  // 2026-10-14); absent from the AGENT baseline, RUN and APP. Its guard admits
+  // an owner, or a token or agent whose user is an office owner. office:admin
+  // keeps the other owner routes (access, update, storage).
+  | "office:settings"
   | "invite:manage"
   // Show a saved secret's value: the member's own, or an office one for an
   // owner. Held by USER and API only; no agent, run or app set holds it, so
@@ -180,6 +187,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "integration:manage",
   "user:admin",
   "office:admin",
+  "office:settings",
   "invite:manage",
   "secret:show",
   "session:manage",
@@ -241,7 +249,7 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // sessions.revoke (kills the human's browser session). So invite:manage,
 // secret:show (a saved secret's value), session:manage, user:self and
 // user:admin (user records / access),
-// office:admin (office settings + access), view:manage, terminal:use, and
+// office:admin (office access, update and storage), view:manage, terminal:use, and
 // agent:privilege (the toggle itself) are DELIBERATELY excluded. Scope stays
 // "agent" regardless, so every scope==="user" guard (officeOwner/selfUser/the
 // messageSend user-path) still blocks a privileged agent - those exclusions are
@@ -252,6 +260,8 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // integration:manage changes its manager's variables, secrets and MCP servers
 // (and the office's and other members' while the manager is an owner); user:env
 // and secret:show stay out, so no value comes back.
+// office:settings reaches only office.getSettings and office.setSettings, and
+// only while the manager is an office owner; office:admin stays out.
 // user:create reaches member creation: it reaches only users.create,
 // whose guard allows a member (room grants allowed), and only while the
 // spawning user is an office owner. It mints no sign-in link.
@@ -272,6 +282,7 @@ export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
   "user:create",
   "user:prompt",
   "integration:manage",
+  "office:settings",
 ];
 
 // The capability set an AGENT-scope token resolves to, by its privileged flag.
@@ -338,7 +349,8 @@ export const APP_CAPABILITIES: readonly Capability[] = [
 // managed environment routes: their own values, and - when that user is an
 // office owner - every member's variables, secrets and MCP servers, with
 // integration:manage for the writes. secret:show goes with it: a token shows its user's own secret values, and an
-// owner's token the office ones. user:create
+// owner's token the office ones. office:settings gives an owner's token the
+// office prompt, name and member usage cap, as a privileged agent. user:create
 // is the other exception, with the privileged agent's member-only limits. The
 // agent/cron/app sender and self-affordance capabilities are also absent: an API
 // token is its issuing user, not an office participant. Its `log:read` covers
@@ -349,6 +361,7 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "audit:read",
   "user:env",
   "integration:manage",
+  "office:settings",
   "secret:show",
   "api:discover-agents",
   "api:send-message",

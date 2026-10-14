@@ -756,7 +756,9 @@ export interface AccessSettingsReq {
 }
 
 export interface OfficeSettingsReq {
-  prompt: string | null;
+  // Optional like `name`: omitted preserves the stored office prompt, explicit
+  // null clears it.
+  prompt?: string | null;
   // Optional: omitted preserves the current office name (a stale client tab),
   // explicit null/empty clears it, a string sets it. The handler keys on the
   // undefined-vs-null distinction, so null must be representable in the contract.

@@ -2697,7 +2697,8 @@ export async function demoApi(
           : b.name && b.name.trim()
             ? b.name.trim()
             : null;
-      emitEvents(state.setOfficeSettings(b.prompt, state.office.envFile, name));
+      const prompt = b.prompt === undefined ? state.office.prompt : b.prompt;
+      emitEvents(state.setOfficeSettings(prompt, state.office.envFile, name));
       return undefined;
     }
     // tasks.create - push + broadcast the `tasks` event; return the created task

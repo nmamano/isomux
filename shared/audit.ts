@@ -34,6 +34,8 @@ export interface AuditEntry {
   taskChanges?: Record<string, { old: unknown; new: unknown }>;
   deletedTask?: Omit<TaskItem, "version">;
   memoryContent?: string;
+  // The office, room, agent or member prompt after the write; "" when cleared.
+  promptContent?: string;
   // secrets.use: the request that got the value. The path has no query.
   secretUse?: { host: string; method: string; path: string };
 }

@@ -153,7 +153,7 @@ A webhook lets an outside service, such as GitHub, send a message to an agent or
 
 ### 5.1 Reach
 
-A personal API token acts as the member who minted it. It has that member's live role and room access. It can drive agents, rooms, tasks, apps, schedules, memory and files, and read logs. It can read and replace its member's managed environment variables, and show its member's saved secrets. An owner's token can also manage the integrations of any member and show the office secrets (section 7). It can replace its member's pager settings, which hold the Discord webhook URL, but it reads only the masked URL. It can manage its member's webhooks. An owner's token can also create a member and give that member room access. The new member cannot sign in until a human owner mints a sign-in link.
+A personal API token acts as the member who minted it. It has that member's live role and room access. It can drive agents, rooms, tasks, apps, schedules, memory and files, and read logs. It can read and replace its member's managed environment variables, and show its member's saved secrets. An owner's token can also manage the integrations of any member and show the office secrets (section 7). It can replace its member's pager settings, which hold the Discord webhook URL, but it reads only the masked URL. It can manage its member's webhooks. An owner's token can also create a member and give that member room access. The new member cannot sign in until a human owner mints a sign-in link. An owner's token can change the office prompt, the office name and the member usage cap.
 
 A token cannot:
 
@@ -161,7 +161,7 @@ A token cannot:
 - mint sign-in links,
 - list or revoke browser sessions,
 - change member records or room access,
-- change office settings,
+- change other office settings,
 - make an agent privileged,
 - read or rotate a webhook secret,
 - open a terminal panel.
@@ -201,7 +201,7 @@ A terminal panel does not get an agent token.
 
 An owner can make any agent privileged. A member can make privileged only the agents that they spawned. No agent can set the flag.
 
-A privileged agent gets a part of its member's capabilities: it can drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1). It cannot mint sign-in links, revoke sessions, change room access or office settings, or open a terminal panel.
+A privileged agent gets a part of its member's capabilities: it can drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1), and change the office prompt, the office name and the member usage cap. It cannot mint sign-in links, revoke sessions, change room access or other office settings, or open a terminal panel.
 
 A privileged agent can read and edit its manager's special instructions, or any member's when its manager is an office owner. This does not grant other user-record edits. Prompt writes from agents and humans require the version from the read; stale writes return 409.
 

@@ -149,9 +149,10 @@ You act as yourself with your manager's room access. These actions are attribute
 - The member asks you to tell all the humans in the office something: post in members chat. Page: \`members-chat\`.
 - The member asks you to add a person to the office, and your manager is an office owner: create a member. Page: \`members\`.
 - The member asks you to edit member special instructions: read and update the prompt. Page: \`members\`.
-- The member asks who changed something in the office, or to restore a deleted task, and your manager is an office owner: read the audit log. Page: \`audit\`.
+- The member asks you to change the office prompt, the office name or the member usage cap, and your manager is an office owner: read and update the office settings. Page: \`office-settings\`.
+- The member asks who changed something in the office, or to restore a deleted task or an earlier prompt, and your manager is an office owner: read the audit log. Page: \`audit\`.
 
-You cannot create owners, mint sign-in links, revoke human login sessions, change office settings, other per-user settings or access, or set any agent's privileged flag. Ask a member when one of those human-only actions is required.`;
+You cannot create owners, mint sign-in links, revoke human login sessions, change other office settings, per-user settings or access, or set any agent's privileged flag. Ask a member when one of those human-only actions is required.`;
 
   if (agentType === "opencode")
     systemPrompt = rewriteOpenCodeOfficeCommands(systemPrompt);

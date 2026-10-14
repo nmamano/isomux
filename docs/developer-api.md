@@ -17,7 +17,7 @@ Self-hosted and hosted Isomux offices also expose a room-scoped REST API for age
 
 A signed-in member can create a named personal API token in **Settings → You → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
 
-A token has the issuing member's operational reach: agents and their conversations, rooms, tasks, the pager, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot manage API tokens or other durable identity access, revoke browser sessions, change user access or office settings, or grant the privileged-agent flag. An office owner's token can create a member with `POST /api/users`, but not mint the member's sign-in link. These exclusions are defense in depth: a token can spawn an agent that runs commands.
+A token has the issuing member's operational reach: agents and their conversations, rooms, tasks, the pager, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot manage API tokens or other durable identity access, revoke browser sessions, change user access, or grant the privileged-agent flag. An office owner's token can create a member with `POST /api/users`, but not mint the member's sign-in link, and can change the office prompt, name and member usage cap (see Office settings). These exclusions are defense in depth: a token can spawn an agent that runs commands.
 
 The server reads the issuing member and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 
@@ -285,6 +285,10 @@ with fixed guidance. Errors never echo selector text or browser exceptions.
 A privileged agent can read `GET /api/users/:username/member-prompt` and send `PATCH /api/users/:username` with only `{memberPrompt,memberPromptVersion}`. The target is its manager, or any member when its manager is an office owner. Both return `{memberPrompt,memberPromptVersion}` to the agent. API tokens cannot use these routes.
 
 Every prompt PATCH, including a human save, requires the version from the read. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. Human PATCH responses remain `{user}`; edits to other fields need no prompt version.
+
+### Office settings
+
+`GET /api/office/settings` returns `{prompt,name,version,memberUsageCap,memberUsageShare,memberUsageStatus}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value and a null `prompt` clears the office prompt. Owners, their API tokens and privileged agents whose manager is an owner can call both.
 
 ## App page readiness
 

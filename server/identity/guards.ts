@@ -371,6 +371,20 @@ export const integrationSelfOrOwner: Guard = (ctx) => {
 export const integrationOfficeReader: Guard = ({ identity }) =>
   isIntegrationCaller(identity) ? ALLOW : FORBIDDEN;
 
+// The office.getSettings and office.setSettings routes (cap office:settings):
+// an owner, the owner's API token, or an agent whose manager is an office
+// owner, checked live on each request (Nil, 2026-10-14). Stage 1 checks the
+// privileged flag: of the agent sets, only PRIVILEGED holds office:settings.
+// Separate from officeOwner, which stays USER-only for the other owner routes.
+export const officeSettingsOwner: Guard = ({ identity, deps }) => {
+  if (isOfficeOwnerIdentity(identity)) return ALLOW;
+  return (identity.scope === "agent" || identity.scope === "api") &&
+    identity.userId !== null &&
+    deps.isOfficeOwnerUserId(identity.userId)
+    ? ALLOW
+    : FORBIDDEN;
+};
+
 // USER edit/delete: self OR office owner. Both branches are USER-gated (each of
 // officeOwner and selfUser requires scope === "user").
 export const selfOrOwner: Guard = (ctx) =>

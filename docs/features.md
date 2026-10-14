@@ -24,7 +24,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Scheduled messages** - an agent can schedule a message to another agent, or to itself, for a future time: reminders, wake-ups, follow-up checks. Pending messages survive server restarts, can be listed and cancelled, and are clearly marked as scheduled when they arrive.
 - **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
 - **Room-scoped task board** - humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room, or to an office-wide global board shared across everyone; you see the tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API. Task details show who changed each field and its old and new values.
-- **Privileged agents** run the office for you: they spawn and drive other agents, create and manage rooms, set room and agent prompts, manage their own schedules, and add and change integrations without reading their values. They cannot change office settings, invite people or create sign-in links.
+- **Privileged agents** run the office for you: they spawn and drive other agents, create and manage rooms, set room and agent prompts, manage their own schedules, and add and change integrations without reading their values. They cannot invite people or create sign-in links.
 
 ### Prompts, skills, and commands
 
@@ -180,7 +180,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Kill** removes agent and frees desk.
 - **Office address** - self-hosted owners can set the public URL and external access in Settings → Office → Access. Hosted offices show the Isomux-managed address read-only.
 - **Survives a memory spike** - the office biases the out-of-memory kill toward the runaway agent or build, not itself. [One root command](hosting-reference.md#running-out-of-memory) adds box-wide protection and keeps SSH reachable. Linux only.
-- **Office audit log:** Filter logs by actor, target, operation, or time. The log keeps task history and memory snapshots. Owners can restore deleted tasks from their audit rows.
+- **Office audit log:** Filter logs by actor, target, operation, or time. The log keeps task history and memory and prompt snapshots. Owners can restore deleted tasks from their audit rows.
 - **Daily local backups:** Isomux keeps seven daily office backups.
 - **Disk-usage breakdown and manual pruning** - `/isomux-storage` in any conversation, or `GET /api/storage/usage`, splits the office footprint by conversation transcripts, attachments, codex home, cron history, backups, and update snapshots, with per-agent detail for the owner. Office owners also get Settings → Office → Storage to see a breakdown of isomux disk storage and manage it. `POST /api/storage/prune` removes old transcripts, and attachments once no surviving transcript references them: a dry run unless you ask it to apply, never scheduled, and it always spares live sessions, each agent's newest sessions, and any session another was branched from.
 - **Update notice** - the header shows when a new release is out. On installer-managed hosts and AWS containers the owner applies it from there, and a failed direct-host update rolls back. On Render and Kubernetes the owner deploys the new image. A source checkout shows how far main is ahead.

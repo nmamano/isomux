@@ -1522,6 +1522,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.providerAccounts.signInCode": "Submit provider sign-in code",
   "apiCall.users.readMemberPrompt": "Read member special instructions",
   "apiCall.users.updatePrompt": "Edit member special instructions",
+  "apiCall.office.readSettings": "Read office settings",
+  "apiCall.office.saveSettings": "Change office settings",
   "apiCall.users.create": "Create a member",
   "apiCall.users.createNamed": "Create member {name}",
   "apiCall.env.readUser": "Read managed environment",

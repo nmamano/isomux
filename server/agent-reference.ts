@@ -24,6 +24,7 @@ export const AGENT_REFERENCE_TOPICS = {
   "cronjob-management": "Privileged cronjob management",
   "members-chat": "Privileged members-chat use",
   members: "Member creation and special instructions",
+  "office-settings": "Office prompt, name and member usage cap",
   pager: "Pages to your manager",
   skills: "Skills: list, read, edit and create",
   connections: "Your connections and their usage notes",
@@ -40,6 +41,7 @@ export const PRIVILEGED_REFERENCE_TOPICS: ReadonlySet<AgentReferenceTopic> =
     "cronjob-management",
     "members-chat",
     "members",
+    "office-settings",
   ]);
 
 // Every office route that the prompt teaches an agent is tied to one topic.
@@ -93,6 +95,8 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "users.create": "members",
   "users.readMemberPrompt": "members",
   "users.update": "members",
+  "office.getSettings": "office-settings",
+  "office.setSettings": "office-settings",
   "rooms.setSettings": "rooms",
   "apiTokenInbox.send": "messaging",
   "audit.list": "audit",
