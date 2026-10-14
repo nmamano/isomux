@@ -30,6 +30,7 @@ import {
   type RouteHandler,
   type HandlerErrorStatus,
 } from "../executor.ts";
+import type { Identity } from "../../identity/index.ts";
 import type {
   AffordanceReadFileReq,
   AffordanceEditFileReq,
@@ -79,9 +80,12 @@ export interface AgentAffordanceDeps {
   ): Promise<AffordanceResult>;
   emitAgentEditRequest(agentId: string, path: string): AffordanceResult;
   emitAgentTerminalCommand(agentId: string, command: string): AffordanceResult;
+  // `identity` is the calling agent's own: it decides which apps the capture
+  // may open (see preview-capture.ts appGrant).
   emitAgentPreviewUrl(
     agentId: string,
     body: unknown,
+    identity: Identity,
   ): Promise<PreviewAffordanceResult>;
   runAgentBrowserAction(
     agentId: string,
@@ -165,7 +169,11 @@ export function agentAffordanceHandlers(
       // rejections are pinned to a structured 500 here rather than falling
       // through to the executor's generic internal-error path.
       try {
-        const r = await deps.emitAgentPreviewUrl(ctx.params.id, ctx.body);
+        const r = await deps.emitAgentPreviewUrl(
+          ctx.params.id,
+          ctx.body,
+          ctx.identity,
+        );
         return r.ok
           ? ok({ ok: true })
           : fail(r.status as HandlerErrorStatus, r.code, r.error);

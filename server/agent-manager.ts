@@ -136,7 +136,7 @@ import { buildSystemPrompt } from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { randomOutfit } from "../shared/outfit-options.ts";
 import { getAgentHost } from "./agent-host.ts";
-import { capturePreview } from "./preview-capture.ts";
+import { capturePreview, type PreviewCaptureDeps } from "./preview-capture.ts";
 import type { BrowserResult } from "./browser-actions.ts";
 import {
   resolveEditorPath,
@@ -3003,6 +3003,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   async function emitAgentPreviewUrl(
     agentId: string,
     body: unknown,
+    appGrant?: PreviewCaptureDeps["appGrant"],
   ): Promise<
     { ok: true } | { ok: false; status: number; code: string; error: string }
   > {
@@ -3014,7 +3015,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         code: "not_found",
         error: "agent not found",
       };
-    const result = await capturePreview(body);
+    const result = await capturePreview(body, { appGrant });
     if (!result.ok) return result;
     const att = savePersistedFile(
       agentId,

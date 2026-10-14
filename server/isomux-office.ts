@@ -295,6 +295,7 @@ import {
   invalidateAppRegistration,
 } from "./app-auth.ts";
 import { retireAppRegistration } from "./app-lifecycle.ts";
+import { previewAppGrant } from "./app-preview-grant.ts";
 import { TLS_ASK_PATH, handleTlsAsk } from "./tls-ask.ts";
 import { recheckOpenAppSockets, type AppRelayWsData } from "./app-ws-relay.ts";
 import {
@@ -2748,6 +2749,19 @@ function mayReachAgentFiles(identity: Identity, agentId: string): boolean {
   );
 }
 
+// The app routes' answer for this agent (projectForList), asked live, and only
+// while the agent is alive. Screenshot grants revalidate with it on every
+// request.
+function agentMayOpenApp(
+  identity: Identity,
+  agentId: string,
+  app: AppRecord,
+): boolean {
+  if (!agentManager.getAgent(agentId)) return false;
+  const visibility = appVisibilityFacts(app);
+  return appVisibleTo(visibility, appViewerFacts(identity, visibility));
+}
+
 function canUserAccessApp(app: AppRecord, userId: string): boolean {
   const user = getUserById(userId);
   if (!user) return false;
@@ -3329,8 +3343,15 @@ function buildExecutorDeps(
         agentManager.emitAgentEditRequest(agentId, path),
       emitAgentTerminalCommand: (agentId, command) =>
         agentManager.emitAgentTerminalCommand(agentId, command),
-      emitAgentPreviewUrl: (agentId, body) =>
-        agentManager.emitAgentPreviewUrl(agentId, body),
+      emitAgentPreviewUrl: (agentId, body, identity) =>
+        agentManager.emitAgentPreviewUrl(agentId, body, (url, expiresAt) =>
+          previewAppGrant(url, expiresAt, {
+            domain: appHostDomain(),
+            apps: () => appRegistry.list(),
+            agentId,
+            mayOpen: (app) => agentMayOpenApp(identity, agentId, app),
+          }),
+        ),
       runAgentBrowserAction: (agentId, body) =>
         agentManager.runAgentBrowserAction(agentId, body),
       getAgentContextUsage: (agentId) =>

@@ -562,11 +562,21 @@ export function _testPendingCodeCount(): number {
   return pendingCodes.size;
 }
 
+// Minted screenshot codes not yet redeemed or released. Test-only: "this URL
+// minted nothing" is not visible from the URL Chrome was given alone.
+export function _testPreviewCodeCount(): number {
+  return previewCodes.size;
+}
+
 export function _testResetAppAuth(): void {
   pendingCodes.clear();
   appSessions.clear();
   mintLimiter.reset();
   redeemLimiter.reset();
+  previewCodes.clear();
+  previewSessions.clear();
+  previewMintLimiter.reset();
+  previewRedeemLimiter.reset();
 }
 
 /** Synchronous by construction: delete cannot free a name across an await. */
@@ -581,6 +591,12 @@ export function invalidateAppRegistration(
   for (const [key, row] of appSessions) {
     if (row.label === label && row.registrationGen === registrationGen)
       appSessions.delete(key);
+  }
+  for (const table of [previewCodes, previewSessions] as const) {
+    for (const [key, row] of table) {
+      if (row.label === label && row.registrationGen === registrationGen)
+        table.delete(key);
+    }
   }
 }
 
@@ -813,6 +829,9 @@ export function appHostAuthGate(
   if (session && ctx.canAccess(ctx.app, session.userId)) {
     return null;
   }
+  if (previewSessionAllows(rawCookie, ctx.app, ctx.now ?? Date.now())) {
+    return null;
+  }
   return noAppSessionAnswer(req, {
     label: ctx.app.hostLabel,
     rawCookie,
@@ -876,4 +895,182 @@ function noAppSessionAnswer(
     `?app=${encodeURIComponent(opts.label)}` +
     `&r=${encodeURIComponent(`${url.pathname}${url.search}`)}`;
   return handshakeRedirect(target, clear);
+}
+
+// SCREENSHOT GRANTS. The server's screenshot browser (preview-capture.ts)
+// starts every capture with an empty profile, so it holds no office session,
+// and the gate above sends it to the office sign-in page. A grant lets an
+// agent's capture open an app that the agent may open, with no office session:
+//
+//   1. the office mints a single-use code for ONE app host, bound to the app's
+//      issuance tuple and to a revalidate() that asks the agent's own access
+//      question again, on the live app record;
+//   2. Chrome navigates to APP_PREVIEW_AUTH_PATH with that code, and the redeem
+//      sets the usual host-only app cookie in the capture's throwaway profile;
+//   3. the HTTP gate accepts the session it starts, with revalidate() in
+//      place of revalidateByHash on every request. The WebSocket gate does
+//      not: the relay revalidates an office session for the socket's whole
+//      life (app-ws-relay.ts), so a capture's page loads without its sockets.
+//
+// Separate tables, limiters and redeem path: a capture never spends a member's
+// mint or redeem budget and never touches a member's rows. Both rows expire at
+// the capture deadline, and the capture deletes them when it ends.
+export const APP_PREVIEW_AUTH_PATH = "/__isomux/preview";
+export const APP_PREVIEW_MINT_MAX_PER_WINDOW = 20;
+
+const previewMintLimiter = new FixedWindowLimiter(
+  APP_MINT_WINDOW_MS,
+  APP_PREVIEW_MINT_MAX_PER_WINDOW,
+  false,
+);
+const previewRedeemLimiter = new FixedWindowLimiter(
+  APP_REDEEM_WINDOW_MS,
+  APP_REDEEM_MAX_PER_WINDOW,
+  true,
+);
+
+// May the agent that holds this grant open this app record now?
+export type PreviewRevalidate = (app: AppRecord) => boolean;
+
+interface PreviewRow {
+  grantId: number;
+  label: string;
+  hostGen: number;
+  registrationGen: number;
+  revalidate: PreviewRevalidate;
+  expiresAt: number;
+}
+
+interface PreviewCode extends PreviewRow {
+  codeHash: string;
+  appHost: string;
+  returnPath: string;
+}
+
+interface PreviewSession extends PreviewRow {
+  tokenHash: string;
+}
+
+const previewCodes = new Map<string, PreviewCode>();
+const previewSessions = new Map<string, PreviewSession>();
+let nextPreviewGrantId = 1;
+
+function previewRowMatches(row: PreviewRow, app: AppRecord): boolean {
+  return (
+    row.label === app.hostLabel &&
+    row.hostGen === app.hostGen &&
+    row.registrationGen === appRegistrationGeneration(app)
+  );
+}
+
+function wellFormedToken(raw: string | null | undefined): raw is string {
+  return (
+    typeof raw === "string" &&
+    raw.length > 0 &&
+    raw.length <= MAX_TOKEN_LENGTH &&
+    TOKEN_PATTERN.test(raw)
+  );
+}
+
+// The caller has already decided that the agent may open `app` and that
+// `appHost` and `returnPath` are the registry's host and a valid return path.
+// Null when the agent's mint budget or the table is spent, or the capture
+// deadline has passed.
+export function mintPreviewGrant(
+  input: {
+    agentId: string;
+    app: AppRecord;
+    appHost: string;
+    returnPath: string;
+    revalidate: PreviewRevalidate;
+    expiresAt: number;
+  },
+  now: number = Date.now(),
+): { code: string; release: () => void } | null {
+  if (input.expiresAt <= now) return null;
+  if (!previewMintLimiter.allow(input.agentId, now)) return null;
+  pruneExpired(previewCodes, now);
+  if (previewCodes.size >= MAX_PENDING_CODES) return null;
+  const code = randomTokenValue();
+  const codeHash = hashOf(code);
+  const grantId = nextPreviewGrantId++;
+  previewCodes.set(codeHash, {
+    codeHash,
+    grantId,
+    label: input.app.hostLabel,
+    hostGen: input.app.hostGen,
+    registrationGen: appRegistrationGeneration(input.app),
+    appHost: input.appHost,
+    returnPath: input.returnPath,
+    revalidate: input.revalidate,
+    expiresAt: input.expiresAt,
+  });
+  const release = () => {
+    for (const table of [previewCodes, previewSessions] as const) {
+      for (const [key, row] of table) {
+        if (row.grantId === grantId) table.delete(key);
+      }
+    }
+  };
+  return { code, release };
+}
+
+// GET /__isomux/preview?code=... on an app host. Same order as redeemAppCode,
+// so every presentation consumes the code, refused or not.
+export function handleAppPreviewRedeem(
+  req: Request,
+  ctx: { host: string; app: AppRecord; client: string; now?: number },
+): Response {
+  const now = ctx.now ?? Date.now();
+  const raw = singleParam(new URL(req.url), "code");
+  if (!wellFormedToken(raw)) return handshake(400, SIGN_IN_FAILED_BODY);
+  const codeHash = hashOf(raw);
+  const record = previewCodes.get(codeHash);
+  previewCodes.delete(codeHash);
+  if (!previewRedeemLimiter.allow(`${ctx.app.hostLabel} ${ctx.client}`, now))
+    return handshake(400, SIGN_IN_FAILED_BODY);
+  if (
+    !record ||
+    !safeHashEq(record.codeHash, codeHash) ||
+    record.expiresAt <= now ||
+    record.appHost !== ctx.host ||
+    !previewRowMatches(record, ctx.app) ||
+    !record.revalidate(ctx.app)
+  ) {
+    return handshake(400, SIGN_IN_FAILED_BODY);
+  }
+  const maxAgeSec = Math.floor((record.expiresAt - now) / 1000);
+  pruneExpired(previewSessions, now);
+  if (maxAgeSec <= 0 || previewSessions.size >= MAX_PENDING_CODES)
+    return handshake(400, SIGN_IN_FAILED_BODY);
+  const token = randomTokenValue();
+  const tokenHash = hashOf(token);
+  previewSessions.set(tokenHash, {
+    tokenHash,
+    grantId: record.grantId,
+    label: record.label,
+    hostGen: record.hostGen,
+    registrationGen: record.registrationGen,
+    revalidate: record.revalidate,
+    expiresAt: record.expiresAt,
+  });
+  return handshakeRedirect(record.returnPath, [
+    appCookieLine(token, maxAgeSec),
+  ]);
+}
+
+function previewSessionAllows(
+  rawCookie: string | null,
+  app: AppRecord,
+  now: number,
+): boolean {
+  if (!wellFormedToken(rawCookie)) return false;
+  const tokenHash = hashOf(rawCookie);
+  const row = previewSessions.get(tokenHash);
+  if (!row || !safeHashEq(row.tokenHash, tokenHash)) return false;
+  if (row.expiresAt <= now) {
+    previewSessions.delete(tokenHash);
+    return false;
+  }
+  return previewRowMatches(row, app) && row.revalidate(app);
 }

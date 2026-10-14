@@ -130,7 +130,7 @@ The sign-in link page (`/i/<token>`) and the accept form have no rate limit. Wit
 
 ### 4.6 App hosts
 
-Each app has its own host name (`<label>.<app domain>`), which is a different origin from the office. The relay removes the office cookies before it sends a request to the app. An app session lasts 12 hours at most. A host name that has no live app gets the same answer as a live app, so an attacker cannot list app names.
+Each app has its own host name (`<label>.<app domain>`), which is a different origin from the office. The relay removes the office cookies before it sends a request to the app. An app session lasts 12 hours at most. A host name that has no live app gets the same answer as a live app, so an attacker cannot list app names. A `preview-url` capture of an app the agent's manager may open signs in to that one app with a single-use code; the session ends with the capture and does not open WebSockets.
 
 Every app-host response permits framing only by the app itself and the configured office origin. Isomux replaces upstream frame-ancestors and removes X-Frame-Options; it preserves other CSP directives and report-only policies. A framed request with no live app session sends a fixed, origin-bound sign-in signal. The signal reveals no app or member data.
 

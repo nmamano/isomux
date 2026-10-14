@@ -41,9 +41,11 @@ import { relayToApp } from "./app-proxy.ts";
 import { withAppFraming } from "./app-framing.ts";
 import {
   APP_AUTH_PATH,
+  APP_PREVIEW_AUTH_PATH,
   appHostAuthGate,
   appHostWsAuthGate,
   handleAppAuthRedeem,
+  handleAppPreviewRedeem,
   unknownLabelAnswer,
 } from "./app-auth.ts";
 import { relayWsToApp, type AppRelayWsData } from "./app-ws-relay.ts";
@@ -190,7 +192,8 @@ export interface AppHostDeps {
 //   3. /favicon.ico                   -> the app's Isomux-family tab icon. It
 //      sits behind the gate in step 6, so it does not show that a label is
 //      live.
-//   4. the handshake's own path       -> redeem a sign-in code. Everything
+//   4. the handshake's own paths      -> redeem a sign-in code (a member's,
+//      or a screenshot grant's). Everything
 //      else under the reserved prefix, including any other method or protocol
 //      on this path, is the 404: an app never sees a reserved path, and both
 //      relays plug in below this branch.
@@ -281,6 +284,16 @@ function dispatchAppHostRequest(
         canAccess: deps.canAccess,
         client: deps.client(),
       });
+    }
+    // The screenshot browser's own handshake (see app-auth.ts, SCREENSHOT
+    // GRANTS). Same answer as above for a label with no live app.
+    if (
+      !upgrade &&
+      pathname === APP_PREVIEW_AUTH_PATH &&
+      req.method === "GET"
+    ) {
+      if (app === null) return handshake(400, SIGN_IN_FAILED_BODY);
+      return handleAppPreviewRedeem(req, { host, app, client: deps.client() });
     }
     return neutralNotFound();
   }

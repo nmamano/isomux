@@ -305,6 +305,15 @@ Invariants, all of them load-bearing:
 - Host matching happens ahead of the ordinary office dispatch, against an exact
   allowlist, after normalizing port, trailing dot and IDNA.
 
+Screenshot grants (as built): the `preview-url` browser starts with an empty
+profile, so it has no office session. When the URL is exactly an app's origin
+and the agent's manager may open that app, the office mints a single-use code
+bound to the agent's access answer instead of an office session, and Chrome
+loads `/__isomux/preview?code=<code>`. The session it starts ends with the
+capture, is revalidated against the agent on every request, and is not
+accepted by the WebSocket gate. Separate tables and limiters from the member
+flow (`server/app-auth.ts`, SCREENSHOT GRANTS; `server/app-preview-grant.ts`).
+
 ### Relay requirements
 
 Not a `fetch` passthrough. Stream request and response bodies with cancellation

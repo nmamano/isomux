@@ -80,6 +80,24 @@ export interface PreviewCaptureDeps {
    * their own so "the temp dir was removed" is assertable without scanning
    * the shared system tmpdir. */
   tmpBase?: string;
+  /**
+   * Called after the pre-flight. For a URL on a registered app's host that the
+   * agent may open, returns the URL Chrome navigates to instead (a single-use
+   * sign-in for this capture) and a release() the capture calls when it ends.
+   * Null keeps the plain URL. "refused" means the agent may open the app but
+   * no grant could be minted: the capture fails rather than load the sign-in
+   * page in the app's place. `expiresAt` is the latest time the capture can
+   * still be loading.
+   */
+  appGrant?: (
+    url: URL,
+    expiresAt: number,
+  ) => PreviewAppGrant | "refused" | null;
+}
+
+export interface PreviewAppGrant {
+  navigateUrl: string;
+  release: () => void;
 }
 
 const MAX_URL_LEN = 2048;
@@ -169,7 +187,8 @@ export function parsePreviewParams(
     return invalid("only http:// and https:// URLs are supported");
   if (url.username || url.password)
     return invalid("URLs with embedded credentials are not allowed");
-  url.hash = ""; // fragments are meaningless to a fresh page load
+  // The fragment stays: Chrome loads it, and hash-routed pages render from it.
+  // The caption and filename drop it, with the query.
 
   let width = DEFAULT_WIDTH;
   let height = DEFAULT_HEIGHT;
@@ -448,6 +467,7 @@ export async function capturePreview(
 
   const fetchFn = deps.fetchFn ?? fetch;
   let tmpDir: string | null = null;
+  let grant: PreviewAppGrant | null = null;
   try {
     // Pre-flight: any HTTP response (any status) counts as reachable; only
     // network-level failure is an error. Costs the target a duplicate GET -
@@ -469,6 +489,17 @@ export async function capturePreview(
         `\`${url}\` is not responding (${err instanceof Error ? err.message : String(err)}) - is the server running?`,
       );
     }
+
+    // After the pre-flight, so the pre-flight never carries the grant.
+    const granted = deps.appGrant?.(url, deadline + KILL_GRACE_MS) ?? null;
+    if (granted === "refused") {
+      return fail(
+        429,
+        "capture_busy",
+        "too many app screenshots from this agent; retry in a minute",
+      );
+    }
+    grant = granted;
 
     tmpDir = await mkdtemp(join(deps.tmpBase ?? tmpdir(), "isomux-preview-"));
     const outPath = join(tmpDir, "shot.png");
@@ -516,8 +547,11 @@ export async function capturePreview(
       `--user-data-dir=${tmpDir}`,
       ...(wait > 0 ? [`--virtual-time-budget=${wait}`] : []),
       // Always last, and always scheme-prefixed (URL.toString()), so it can
-      // never be parsed as a flag.
-      url.toString(),
+      // never be parsed as a flag. A grant's URL carries a sign-in code, and
+      // argv is visible in ps to the box's user. That is acceptable: the code
+      // is single-use, dies with the capture, and opens only what the agent
+      // may already open.
+      grant?.navigateUrl ?? url.toString(),
     ];
 
     const remaining = deadline - Date.now();
@@ -591,6 +625,7 @@ export async function capturePreview(
     };
   } finally {
     activeCaptures--;
+    grant?.release();
     if (tmpDir) {
       // A cleanup failure must not fail an already-emitted card, but leaked
       // Chrome profiles eat disk - make it observable. tmpDir carries no URL.
