@@ -207,7 +207,10 @@ describe("connection test routes", () => {
       name: "Member API",
       expiresInDays: null,
     });
+    // An owner's privileged agent tests with its owner's reach; an
+    // ordinary agent never does (Nil, 2026-10-14).
     const privilegedAgent = mintAgentToken("privileged-a3", ownerId, true);
+    const ordinaryAgent = mintAgentToken("ordinary-a3", ownerId, false);
     await call(srv, "POST", `/api/users/${owner.username}/secrets`, {
       session: owner.rawSessionId,
       body: secret("GH_TOKEN", ["api.github.com"]),
@@ -234,6 +237,7 @@ describe("connection test routes", () => {
       otherCookie: await status(own, { session: member.rawSessionId }),
       otherApi: await status(own, { bearer: memberApi.token }),
       agent: await status(own, { bearer: privilegedAgent }),
+      ordinaryAgent: await status(own, { bearer: ordinaryAgent }),
       officeSecretOwner: await status(officeSecret, {
         session: owner.rawSessionId,
       }),
@@ -242,6 +246,9 @@ describe("connection test routes", () => {
       }),
       officeSecretAgent: await status(officeSecret, {
         bearer: privilegedAgent,
+      }),
+      officeSecretOrdinaryAgent: await status(officeSecret, {
+        bearer: ordinaryAgent,
       }),
       officeMcpOwner: await status(officeMcp, { session: owner.rawSessionId }),
       officeMcpMember: await status(officeMcp, {
@@ -253,10 +260,12 @@ describe("connection test routes", () => {
       ownApi: 200,
       otherCookie: 403,
       otherApi: 403,
-      agent: 403,
+      agent: 200,
+      ordinaryAgent: 403,
       officeSecretOwner: 200,
       officeSecretMember: 403,
-      officeSecretAgent: 403,
+      officeSecretAgent: 200,
+      officeSecretOrdinaryAgent: 403,
       officeMcpOwner: 200,
       officeMcpMember: 403,
       officeMcpMemberApi: 403,
