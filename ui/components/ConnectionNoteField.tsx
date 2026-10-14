@@ -13,7 +13,7 @@ export function ConnectionNoteField({
 }) {
   const { t } = useI18n();
   return (
-    <label style={{ display: "block", marginBottom: 8 }}>
+    <label style={{ display: "block", marginTop: 16, marginBottom: 8 }}>
       <span style={dialogLabel}>{t("settings.connections.note")}</span>
       <textarea
         rows={2}

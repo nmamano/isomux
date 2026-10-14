@@ -1005,7 +1005,7 @@ Coses que pots fer per ell:
   "integrations.mcp.urlHint":
     "La documentació del servei dona aquesta adreça. Posa un token a Inici de sessió, no a l'adreça.",
   "integrations.mcp.auth": "Inici de sessió",
-  "integrations.mcp.authOauth": "Inicia la sessió amb el servei",
+  "integrations.mcp.authOauth": "Inicia la sessió al servidor (OAuth)",
   "integrations.mcp.authToken": "Enganxa un token",
   "integrations.mcp.authSaved": "Fes servir un secret desat",
   "integrations.mcp.authNone": "Cap",

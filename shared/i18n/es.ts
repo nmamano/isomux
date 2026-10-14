@@ -1006,7 +1006,7 @@ Cosas que puedes hacer por él:
   "integrations.mcp.urlHint":
     "La documentación del servicio da esta dirección. Pon un token en Inicio de sesión, no en la dirección.",
   "integrations.mcp.auth": "Inicio de sesión",
-  "integrations.mcp.authOauth": "Iniciar sesión con el servicio",
+  "integrations.mcp.authOauth": "Iniciar sesión en el servidor (OAuth)",
   "integrations.mcp.authToken": "Pegar un token",
   "integrations.mcp.authSaved": "Usar un secreto guardado",
   "integrations.mcp.authNone": "Ninguno",

@@ -998,7 +998,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.mcp.urlHint":
     "The service's docs give this address. Put a token under Sign-in, not in the address.",
   "integrations.mcp.auth": "Sign-in",
-  "integrations.mcp.authOauth": "Sign in with the service",
+  "integrations.mcp.authOauth": "Sign in to the server (OAuth)",
   "integrations.mcp.authToken": "Paste a token",
   "integrations.mcp.authSaved": "Use a saved secret",
   "integrations.mcp.authNone": "None",

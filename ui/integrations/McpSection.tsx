@@ -1,7 +1,7 @@
 // The remote MCP servers of one card on the MCP servers tab (integrations
 // loop, A2): Isomux gives them to Claude, Codex and OpenCode agents. A token
 // is a secret of the same scope that lists the server's host: one pasted
-// here, or one already saved. Sign in with the service runs the MCP
+// here, or one already saved. Sign in to the server (OAuth) runs the MCP
 // authorization flow (A2b). Rows show the host only: the path of some hosted
 // servers carries a token.
 

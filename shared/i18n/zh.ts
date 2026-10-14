@@ -910,7 +910,7 @@ App 的一些原则：
   "integrations.mcp.urlHint":
     "服务的文档会给出此地址。请把令牌放在“登录”中，不要放在地址里。",
   "integrations.mcp.auth": "登录",
-  "integrations.mcp.authOauth": "通过该服务登录",
+  "integrations.mcp.authOauth": "登录到该服务器（OAuth）",
   "integrations.mcp.authToken": "粘贴令牌",
   "integrations.mcp.authSaved": "使用已保存的密钥",
   "integrations.mcp.authNone": "无",
