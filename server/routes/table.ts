@@ -41,7 +41,9 @@ import {
   officeOwner,
   auditOwner,
   officeEnvOwner,
-  officeEnvReader,
+  integrationOfficeOwner,
+  integrationOfficeReader,
+  integrationSelfOrOwner,
   ownerProxyMemberCreate,
   userScope,
   memberScope,
@@ -152,6 +154,8 @@ import type {
   McpServerListRes,
   OfficeMcpServerListRes,
   McpServerRes,
+  AgentMcpServerListRes,
+  AgentMcpServerRes,
   McpServerSignInRes,
   ConnectionTestRes,
   McpServerUpdateReq,
@@ -1128,7 +1132,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
   // One variable at a time, for the member or an office owner for any member
-  // (Nil, 2026-10-13). The owner manages a member's variables without reading
+  // (Nil, 2026-10-13), by cookie, API token or privileged agent (Nil,
+  // 2026-10-14). The owner manages a member's variables without reading
   // them: the values stay with userEnv.get, self-only, because members kept
   // tokens there before Secrets. Creates or replaces; 204, no body.
   defineRoute<UserEnvSetReq, NoContent>({
@@ -1136,7 +1141,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/users/:username/env/:name",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1144,19 +1149,19 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/users/:username/env/:name",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   // Names and notes without values: an office owner reads WHICH managed
-  // variables a user has set, so they can see who is still unconfigured. officeEnvOwner rather
-  // than selfUserOrApi - the subject is someone else, and the caller must be an
-  // office owner, by cookie or by their own API token. A member's cookie and
-  // every agent token get the uniform 403.
+  // variables a user has set, so they can see who is still unconfigured. The
+  // subject is someone else, and the caller must be an office owner, by
+  // cookie, API token or privileged agent. A member's cookie, token and
+  // agents get the uniform 403, and so does every non-privileged agent.
   defineRoute<void, UserEnvNamesRes>({
     opId: "userEnv.names",
     method: "GET",
     path: "/api/users/:username/env/names",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   // The office variables' names and notes, read-only, for members too (Nil,
@@ -1165,7 +1170,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "officeEnv.names",
     method: "GET",
     path: "/api/office/env/names",
-    auth: cap("user:env", officeEnvReader),
+    auth: cap("integration:manage", integrationOfficeReader),
     emits: [],
   }),
   defineRoute<void, UserEnvRes>({
@@ -1183,6 +1188,25 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:env", officeEnvOwner),
     emits: [],
   }),
+  // One office variable at a time, as userEnv.set and userEnv.remove: an
+  // owner, or an owner's API token or privileged agent, sets or removes it
+  // without reading the other values.
+  defineRoute<UserEnvSetReq, NoContent>({
+    opId: "officeEnv.set",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "PUT",
+    path: "/api/office/env/:name",
+    auth: cap("integration:manage", integrationOfficeOwner),
+    emits: [],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "officeEnv.remove",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "DELETE",
+    path: "/api/office/env/:name",
+    auth: cap("integration:manage", integrationOfficeOwner),
+    emits: [],
+  }),
   // Secrets (internal-docs/secrets-design.md, section 1). The same gates as
   // the variables above; no response but Show carries a value, and the audit
   // rows name the secret and the body's field names only. No events: the list
@@ -1191,7 +1215,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "secrets.list",
     method: "GET",
     path: "/api/users/:username/secrets",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   defineRoute<SecretCreateReq, SecretRes>({
@@ -1199,7 +1223,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ body: ["name"] }) },
     method: "POST",
     path: "/api/users/:username/secrets",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   defineRoute<SecretRotateReq, SecretRes>({
@@ -1207,12 +1231,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/users/:username/secrets/:name/value",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   // Show: the value, to the secret's own member only. An office owner manages
   // a member's secrets but never reads one (Nil, 2026-10-13), so the guard is
-  // selfUserOrApi, not selfOrEnvOwner. secret:show is held by no agent scope.
+  // selfUserOrApi, not integrationSelfOrOwner. secret:show is held by no
+  // agent scope.
   // A GET, so the handler writes the audit row: the secret's name, never the
   // value.
   defineRoute<void, SecretValueRes>({
@@ -1227,7 +1252,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/users/:username/secrets/:name",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1235,7 +1260,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/users/:username/secrets/:name",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   // A new placeholder for a secret (the generation goes up).
@@ -1244,7 +1269,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/users/:username/secrets/:name/reissue",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   // The Test button (integrations A3): the server checks the secret against
@@ -1254,7 +1279,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/users/:username/secrets/:name/test",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   // Members read the office secrets too, as names, hosts and notes only
@@ -1263,7 +1288,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "officeSecrets.list",
     method: "GET",
     path: "/api/office/secrets",
-    auth: cap("user:env", officeEnvReader),
+    auth: cap("integration:manage", integrationOfficeReader),
     emits: [],
   }),
   defineRoute<SecretCreateReq, SecretRes>({
@@ -1274,7 +1299,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     },
     method: "POST",
     path: "/api/office/secrets",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   defineRoute<SecretRotateReq, SecretRes>({
@@ -1282,7 +1307,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "PUT",
     path: "/api/office/secrets/:name/value",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   defineRoute<void, SecretValueRes>({
@@ -1297,7 +1322,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "PATCH",
     path: "/api/office/secrets/:name",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1305,7 +1330,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "DELETE",
     path: "/api/office/secrets/:name",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   defineRoute<void, SecretRes>({
@@ -1313,7 +1338,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
     path: "/api/office/secrets/:name/reissue",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   defineRoute<void, ConnectionTestRes>({
@@ -1321,33 +1346,34 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
     path: "/api/office/secrets/:name/test",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   // Remote MCP servers (integrations loop, A2). The same gates as the
   // secrets above. Audit rows name the server and the body's field names,
   // never the URL, whose path can carry a token.
-  defineRoute<void, McpServerListRes>({
+  // An agent caller gets the host in place of the URL (AgentMcpServerWire).
+  defineRoute<void, McpServerListRes | AgentMcpServerListRes>({
     opId: "mcpServers.list",
     method: "GET",
     path: "/api/users/:username/mcp-servers",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
-  defineRoute<McpServerCreateReq, McpServerRes>({
+  defineRoute<McpServerCreateReq, McpServerRes | AgentMcpServerRes>({
     opId: "mcpServers.create",
     audit: { owner: "executor", targets: selectedTargets({ body: ["name"] }) },
     method: "POST",
     path: "/api/users/:username/mcp-servers",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
-  defineRoute<McpServerUpdateReq, McpServerRes>({
+  defineRoute<McpServerUpdateReq, McpServerRes | AgentMcpServerRes>({
     opId: "mcpServers.update",
     audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/users/:username/mcp-servers/:name",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1355,7 +1381,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/users/:username/mcp-servers/:name",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   // The Test button (integrations A3): initialize, then tools/list.
@@ -1364,11 +1390,11 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/users/:username/mcp-servers/:name/test",
-    auth: cap("user:env", selfOrEnvOwner),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     emits: [],
   }),
   // The MCP authorization flow (integrations A2b): the authorization URL
-  // for the member's browser.
+  // for the member's browser. user:env, so no agent starts it.
   defineRoute<void, McpServerSignInRes>({
     opId: "mcpServers.signIn",
     audit: { owner: "executor", targets: resourceTargets },
@@ -1383,10 +1409,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "officeMcpServers.list",
     method: "GET",
     path: "/api/office/mcp-servers",
-    auth: cap("user:env", officeEnvReader),
+    auth: cap("integration:manage", integrationOfficeReader),
     emits: [],
   }),
-  defineRoute<McpServerCreateReq, McpServerRes>({
+  defineRoute<McpServerCreateReq, McpServerRes | AgentMcpServerRes>({
     opId: "officeMcpServers.create",
     audit: {
       owner: "executor",
@@ -1394,15 +1420,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     },
     method: "POST",
     path: "/api/office/mcp-servers",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
-  defineRoute<McpServerUpdateReq, McpServerRes>({
+  defineRoute<McpServerUpdateReq, McpServerRes | AgentMcpServerRes>({
     opId: "officeMcpServers.update",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "PATCH",
     path: "/api/office/mcp-servers/:name",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1410,7 +1436,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "DELETE",
     path: "/api/office/mcp-servers/:name",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   defineRoute<void, ConnectionTestRes>({
@@ -1418,7 +1444,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
     path: "/api/office/mcp-servers/:name/test",
-    auth: cap("user:env", officeEnvOwner),
+    auth: cap("integration:manage", integrationOfficeOwner),
     emits: [],
   }),
   defineRoute<void, McpServerSignInRes>({

@@ -1,13 +1,14 @@
 // Remote MCP server handlers (opIds mcpServers.* and officeMcpServers.*;
 // integrations loop, slice A2). The route table gates them as the secrets:
-// cap user:env, which no agent scope holds; member servers for the member or
-// an office owner (selfOrEnvOwner), office servers owner-only
-// (officeEnvOwner), and the office list for members too (officeEnvReader), as
-// a summary.
+// cap integration:manage; member servers for the member or an office owner
+// (integrationSelfOrOwner), office servers owner-only (integrationOfficeOwner),
+// and the office list for members too (integrationOfficeReader), as a summary.
+// The sign-in stays on user:env, which no agent holds.
 //
 // The URL of some hosted servers carries a token in its path, so no error
-// echoes it, and the log line is fixed text. The list here is the only
-// response with the whole URL, and a member's office list has the host only.
+// echoes it, and the log line is fixed text. The list, create and update
+// answers carry the whole URL to a human or an API token only: an agent gets
+// the host (agentServerRow), and a member's office list has the host only.
 
 import {
   bytes,
@@ -29,11 +30,12 @@ import {
 } from "../../secret-store.ts";
 import type { McpOAuth } from "../../mcp-oauth.ts";
 import type {
+  AgentMcpServerWire,
   McpServerWire,
   OfficeMcpServerSummaryWire,
 } from "../../../shared/contract-shapes.ts";
 import { mcpServerHost } from "../../../shared/mcp-servers.ts";
-import { callerIsEnvOwner, memberSubject } from "./member-subject.ts";
+import { callerIsIntegrationOwner, memberSubject } from "./member-subject.ts";
 
 export interface McpServersDeps {
   store: McpServerStore;
@@ -64,6 +66,27 @@ function officeServerSummary(
   };
 }
 
+// An agent's view of a server, on every route that returns one (Lead,
+// 2026-10-14): the host in place of the URL, by allowlist. The one serializer
+// for agent callers; a human or an API token gets the whole row.
+export function agentServerRow(server: McpServerWire): AgentMcpServerWire {
+  return {
+    name: server.name,
+    host: mcpServerHost(server.url),
+    secret: server.secret,
+    createdAt: server.createdAt,
+    updatedAt: server.updatedAt,
+    note: server.note,
+    oauth: server.oauth,
+  };
+}
+
+type Row = McpServerWire | AgentMcpServerWire;
+
+function rowFor(ctx: Parameters<RouteHandler>[0]): (s: McpServerWire) => Row {
+  return ctx.identity.scope === "agent" ? agentServerRow : (server) => server;
+}
+
 function bodyWith(
   body: unknown,
   allowed: string[],
@@ -79,11 +102,15 @@ const invalidRequest = () =>
 
 type Change = McpServerChange | { ok: false; kind: "secret_exists" };
 
-function answer(change: Change, status: "ok" | "created" = "ok") {
+function answer(
+  change: Change,
+  row: (server: McpServerWire) => Row,
+  status: "ok" | "created" = "ok",
+) {
   if (change.ok)
     return status === "created"
-      ? created({ server: change.server })
-      : ok({ server: change.server });
+      ? created({ server: row(change.server) })
+      : ok({ server: row(change.server) });
   switch (change.kind) {
     case "invalid": {
       const { field, reason } = change.error;
@@ -149,10 +176,10 @@ function scopedHandlers(
       const servers = deps.store.list(scope);
       if (
         scope.kind === "office" &&
-        !callerIsEnvOwner(ctx, deps.isOfficeOwnerUserId)
+        !callerIsIntegrationOwner(ctx, deps.isOfficeOwnerUserId)
       )
         return ok({ servers: servers.map(officeServerSummary) });
-      return ok({ servers });
+      return ok({ servers: servers.map(rowFor(ctx)) });
     },
     create: (ctx) => {
       const scope = scopeOf(ctx);
@@ -160,7 +187,9 @@ function scopedHandlers(
       const body = bodyWith(ctx.body, CREATE_KEYS);
       if (!body) return invalidRequest();
       const result = deps.oauth.create(scope, body);
-      return result.ok ? answer(result.change, "created") : invalidRequest();
+      return result.ok
+        ? answer(result.change, rowFor(ctx), "created")
+        : invalidRequest();
     },
     update: (ctx) => {
       const scope = scopeOf(ctx);
@@ -168,7 +197,7 @@ function scopedHandlers(
       const body = bodyWith(ctx.body, UPDATE_KEYS);
       if (!body || Object.keys(body).length === 0) return invalidRequest();
       const result = deps.oauth.update(scope, ctx.params.name ?? "", body);
-      return result.ok ? answer(result.change) : invalidRequest();
+      return result.ok ? answer(result.change, rowFor(ctx)) : invalidRequest();
     },
     remove: (ctx) => {
       const scope = scopeOf(ctx);
@@ -239,7 +268,8 @@ export function mcpServersHandlers(
   deps: McpServersDeps,
 ): Record<string, RouteHandler> {
   const member = scopedHandlers(deps, memberSubject(deps.userIdForUsername));
-  // The route has checked officeEnvOwner, or officeEnvReader for the list.
+  // The route has checked integrationOfficeOwner, or integrationOfficeReader
+  // for the list.
   const office = scopedHandlers(deps, () => ({ kind: "office" }));
   const handlers: Record<string, RouteHandler> = {
     "mcpServers.list": member.list,

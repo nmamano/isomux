@@ -305,8 +305,8 @@ describe("managed user env names route", () => {
           bearer: memberApi.token,
         })
       ).status,
-      // An agent spawned by the OWNER still fails: officeEnvOwner gates on
-      // scope, not on whose userId the token carries.
+      // An agent spawned by the OWNER: the ordinary one fails at stage 1,
+      // the privileged one has its owner's reach (Nil, 2026-10-14).
       plainAgent: (
         await request(server, member.username, {
           suffix: "/names",
@@ -334,7 +334,7 @@ describe("managed user env names route", () => {
       memberCookieOnOwner: 403,
       memberApi: 403,
       plainAgent: 403,
-      privilegedAgent: 403,
+      privilegedAgent: 200,
       unknownUser: 404,
     });
     expect(ownerRead.body).toEqual({
@@ -354,11 +354,20 @@ describe("managed user env names route", () => {
     );
     expect(ownerApiRead.body).toEqual(ownerRead.body);
     expect(JSON.stringify(ownerRead.body)).not.toContain(secret);
+    // The owner's privileged agent reads the same names, never a value.
+    const agentRead = await request(server, member.username, {
+      suffix: "/names",
+      bearer: privilegedAgent,
+    });
+    expect(agentRead.body).toEqual(ownerRead.body);
+    expect(
+      (await request(server, member.username, { bearer: privilegedAgent }))
+        .status,
+    ).toBe(403);
     for (const auth of [
       { session: member.rawSessionId },
       { bearer: memberApi.token },
       { bearer: plainAgent },
-      { bearer: privilegedAgent },
     ]) {
       const denied = await request(server, member.username, {
         suffix: "/names",

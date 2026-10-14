@@ -40,6 +40,10 @@ export interface UserEnvDeps {
   userIdForUsername(username: string): string | null;
   getOffice(): UserEnvRes;
   replaceOffice(values: Record<string, string>, notes: unknown): Outcome;
+  // One office variable, as setOne and removeOne: the owner sets or removes
+  // it without reading the others' values.
+  setOfficeOne(name: string, value: string, note: unknown): Outcome;
+  removeOfficeOne(name: string): Outcome | false;
 }
 
 function subjectUserId(ctx: Parameters<RouteHandler>[0]): string | null {
@@ -92,8 +96,17 @@ export function userEnvHandlers(
   const subjectOf = memberSubject((username) =>
     deps.userIdForUsername(username),
   );
-  // The guard (selfOrEnvOwner) admitted the caller for :username. The name is
-  // checked before anything is read; no message echoes it or the value.
+  const officeVariable = (
+    ctx: Parameters<RouteHandler>[0],
+  ): { name: string } | HandlerResult => {
+    const name = ctx.params.name ?? "";
+    return isManagedEnvKey(name)
+      ? { name }
+      : fail(400, "invalid_env", "the variable name is not valid");
+  };
+  // The guard (integrationSelfOrOwner) admitted the caller for :username. The
+  // name is checked before anything is read; no message echoes it or the
+  // value.
   const variable = (
     ctx: Parameters<RouteHandler>[0],
   ): { userId: string; name: string } | HandlerResult => {
@@ -195,6 +208,21 @@ export function userEnvHandlers(
           ? fail(400, "invalid_env", error.message)
           : fail(500, "write_failed", "could not save the managed env file");
       }
+    },
+    "officeEnv.set": (ctx) => {
+      const target = officeVariable(ctx);
+      if ("kind" in target) return target;
+      const body = setBody(ctx.body);
+      if (!body)
+        return fail(400, "invalid_request", "the body is { value, note? }");
+      return writeOutcome(() =>
+        deps.setOfficeOne(target.name, body.value, body.note),
+      );
+    },
+    "officeEnv.remove": (ctx) => {
+      const target = officeVariable(ctx);
+      if ("kind" in target) return target;
+      return writeOutcome(() => deps.removeOfficeOne(target.name));
     },
   };
 }

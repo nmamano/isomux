@@ -2,8 +2,10 @@
 // an office owner manages every member's variables, secrets and MCP servers,
 // but never reads a member's variable or secret values; Show returns a
 // secret's value to its own member, or an office one to an owner; members
-// read the office items as names, hosts and notes. No agent token reaches
-// any of it. A fake value is checked against every response and audit row.
+// read the office items as names, hosts and notes. No ordinary agent token
+// reaches any of it; a privileged agent's reach is in
+// routes-integrations-agents.test.ts. A fake value is checked against every
+// response and audit row.
 
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -81,10 +83,12 @@ async function office() {
     ownerApi: await api(ownerId),
     memberApi: await api(memberId),
     otherApi: await api(otherId),
-    // Agents of the owner: the owner's reach never rides on an agent token.
+    // Agents of the owner: the owner's reach rides on a privileged agent
+    // only, never on an ordinary one, and never to a value.
     plainAgent: mintAgentToken("integrations-plain", ownerId, false),
     privilegedAgent: mintAgentToken("integrations-privileged", ownerId, true),
     memberAgent: mintAgentToken("integrations-member", memberId, true),
+    otherAgent: mintAgentToken("integrations-other", otherId, true),
   };
 }
 
@@ -310,7 +314,7 @@ describe("an office owner on a member's integrations", () => {
     });
   }
 
-  it("refuses a member on another member, and every agent token", async () => {
+  it("refuses a member on another member and an agent outside its reach, and every agent on a value", async () => {
     const o = await office();
     await seedMember(o);
     const base = `/api/users/${o.member.username}`;
@@ -351,10 +355,31 @@ describe("an office owner on a member's integrations", () => {
       { session: o.other.rawSessionId },
       { bearer: o.otherApi },
       { bearer: o.plainAgent },
+      { bearer: o.otherAgent },
+    ])
+      for (const [method, path, body] of routes) {
+        const res = await call(o.srv, method, `${base}${path}`, {
+          ...auth,
+          body,
+        });
+        expect([method, path, res.status]).toEqual([method, path, 403]);
+      }
+    // The owner's and the member's own privileged agents: the value reads,
+    // the whole-map write and the sign-in stay closed.
+    const valueRoutes = routes.filter(([method, path]) =>
+      [
+        "GET /secrets/M_TOKEN/value",
+        "POST /mcp-servers/docs/sign-in",
+        "GET /env",
+        "PUT /env",
+      ].includes(`${method} ${path}`),
+    );
+    expect(valueRoutes).toHaveLength(4);
+    for (const auth of [
       { bearer: o.privilegedAgent },
       { bearer: o.memberAgent },
     ])
-      for (const [method, path, body] of routes) {
+      for (const [method, path, body] of valueRoutes) {
         const res = await call(o.srv, method, `${base}${path}`, {
           ...auth,
           body,
@@ -612,10 +637,7 @@ describe("members reading the office integrations", () => {
         expect(res.text).not.toContain(FAKE);
     }
 
-    for (const auth of [
-      { bearer: o.plainAgent },
-      { bearer: o.privilegedAgent },
-    ])
+    for (const auth of [{ bearer: o.plainAgent }])
       for (const path of [
         "/api/office/secrets",
         "/api/office/mcp-servers",

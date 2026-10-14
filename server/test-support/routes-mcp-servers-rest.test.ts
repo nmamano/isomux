@@ -131,7 +131,7 @@ describe("member MCP servers", () => {
     expect(existsSync(file)).toBe(true);
   });
 
-  it("admits the owning cookie and API identity only, never an agent", async () => {
+  it("admits the owning cookie and API identity, never an ordinary agent or one outside its reach", async () => {
     server = await startTestServer();
     const srv = server;
     const owner = await srv.seedOwner("Boss");
@@ -149,9 +149,11 @@ describe("member MCP servers", () => {
       expiresInDays: null,
     });
     const plainAgent = mintAgentToken("plain-mcp-agent", ownerId, false);
+    // A privileged agent of another member: outside its manager's reach.
+    // An owner's privileged agent: routes-integrations-agents.test.ts.
     const privilegedAgent = mintAgentToken(
       "privileged-mcp-agent",
-      ownerId,
+      otherId,
       true,
     );
     const base = `/api/users/${owner.username}/mcp-servers`;

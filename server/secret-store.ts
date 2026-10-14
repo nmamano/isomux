@@ -70,6 +70,10 @@ export type SecretChange =
   | { ok: false; kind: "invalid"; error: SecretFieldError }
   | { ok: false; kind: "exists" }
   | { ok: false; kind: "not_found" };
+// An update that would add a host the caller may not add.
+export type SecretUpdateChange =
+  | SecretChange
+  | { ok: false; kind: "host_added" };
 
 const SAFE_USER_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -293,11 +297,16 @@ export function createSecretStore(root: string = STATE_ROOT) {
       return { ok: true, secret: toWire(secret) };
     },
 
+    // `addHosts: false` (an agent caller, Lead 2026-10-14): the new hosts must
+    // be stored hosts already. Otherwise the agent could send the stand-in it
+    // holds to a host it controls and read the value back. Checked against
+    // the stored list in the same read as the write.
     update(
       scope: SecretScope,
       name: string,
       patch: Record<string, unknown>,
-    ): SecretChange {
+      options: { addHosts: boolean } = { addHosts: true },
+    ): SecretUpdateChange {
       let hosts: string[] | undefined;
       let form: SecretForm | undefined;
       if (patch.hosts !== undefined) {
@@ -326,6 +335,12 @@ export function createSecretStore(root: string = STATE_ROOT) {
       const secrets = read(scope);
       const secret = secrets.find((s) => s.name === name);
       if (!secret) return { ok: false, kind: "not_found" };
+      if (
+        hosts &&
+        !options.addHosts &&
+        !hosts.every((host) => secret.hosts.includes(host))
+      )
+        return { ok: false, kind: "host_added" };
       if (hosts) secret.hosts = hosts;
       if (form) secret.form = form;
       if (note === null) delete secret.note;

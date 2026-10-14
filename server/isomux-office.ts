@@ -3698,6 +3698,24 @@ function buildExecutorDeps(
     resendSessionContexts(userId);
     return { ok: true as const };
   };
+  // The one write path for the office variables, as replaceUserEnv is for a
+  // member's.
+  const replaceOfficeEnv = (values: Record<string, string>, notes: unknown) => {
+    const nextNotes = nextManagedEnvNotes(
+      values,
+      notes,
+      readManagedOfficeEnvNotes(),
+    );
+    writeManagedOfficeEnv(values);
+    writeManagedOfficeEnvNotes(nextNotes);
+    // The office variables can change which account (or billing) the
+    // office sign-in is: drop the usage cap's readings for both.
+    memberUsageCap().invalidate("claude");
+    memberUsageCap().invalidate("codex");
+    agentManager.refreshLimitedClaudeFamilies();
+    resendSessionContexts();
+    return { ok: true as const };
+  };
   register(
     userEnvHandlers({
       get: (userId) => {
@@ -3709,8 +3727,8 @@ function buildExecutorDeps(
           notes: { ...readManagedUserEnvNotes(userId) },
         };
       },
-      // The route has checked officeEnvOwner. Drop values and account metadata
-      // before the member's connections leave this closure.
+      // The route has checked integrationOfficeOwner. Drop values and account
+      // metadata before the member's connections leave this closure.
       names: async (username) => {
         const user = getUserByName(username);
         if (!user) return null;
@@ -3746,21 +3764,20 @@ function buildExecutorDeps(
         values: readManagedOfficeEnv() ?? {},
         notes: { ...readManagedOfficeEnvNotes() },
       }),
-      replaceOffice: (values, notes) => {
-        const nextNotes = nextManagedEnvNotes(
-          values,
-          notes,
-          readManagedOfficeEnvNotes(),
-        );
-        writeManagedOfficeEnv(values);
-        writeManagedOfficeEnvNotes(nextNotes);
-        // The office variables can change which account (or billing) the
-        // office sign-in is: drop the usage cap's readings for both.
-        memberUsageCap().invalidate("claude");
-        memberUsageCap().invalidate("codex");
-        agentManager.refreshLimitedClaudeFamilies();
-        resendSessionContexts();
-        return { ok: true };
+      replaceOffice: replaceOfficeEnv,
+      // As setOne and removeOne: no await between the read and the write.
+      setOfficeOne: (name, value, note) =>
+        replaceOfficeEnv(
+          { ...readManagedOfficeEnv(), [name]: value },
+          note === undefined
+            ? undefined
+            : { ...readManagedOfficeEnvNotes(), [name]: note },
+        ),
+      removeOfficeOne: (name) => {
+        const values = { ...readManagedOfficeEnv() };
+        if (!Object.hasOwn(values, name)) return false;
+        delete values[name];
+        return replaceOfficeEnv(values, undefined);
       },
     }),
   );

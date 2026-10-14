@@ -181,7 +181,7 @@ describe("member secrets", () => {
     for (const res of responses) expect(res.text).not.toContain(FAKE);
   });
 
-  it("admits the owning cookie and API identity only, never an agent", async () => {
+  it("admits the owning cookie and API identity, never an ordinary agent or one outside its reach", async () => {
     server = await startTestServer();
     const srv = server;
     const owner = await srv.seedOwner("Boss");
@@ -199,9 +199,11 @@ describe("member secrets", () => {
       expiresInDays: null,
     });
     const plainAgent = mintAgentToken("plain-secrets-agent", ownerId, false);
+    // A privileged agent of another member: outside its manager's reach.
+    // An owner's privileged agent: routes-integrations-agents.test.ts.
     const privilegedAgent = mintAgentToken(
       "privileged-secrets-agent",
-      ownerId,
+      otherId,
       true,
     );
     const base = `/api/users/${owner.username}/secrets`;
@@ -277,7 +279,9 @@ describe("office secrets", () => {
       name: "Member API",
       expiresInDays: null,
     });
-    const privileged = mintAgentToken("office-secrets-agent", ownerId, true);
+    // A member's privileged agent reads the summary, as the member does, and
+    // changes nothing.
+    const privileged = mintAgentToken("office-secrets-agent", memberId, true);
     const base = "/api/office/secrets";
 
     expect(
@@ -296,7 +300,7 @@ describe("office secrets", () => {
     expect(ownerList.text).not.toContain(FAKE);
 
     expect((await call(srv, "GET", base, { bearer: privileged })).status).toBe(
-      403,
+      200,
     );
     for (const who of [
       { session: member.rawSessionId },

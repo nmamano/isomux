@@ -4,7 +4,7 @@ navTitle: Security audit
 
 # Isomux security audit
 
-**Date:** 2026-10-03, last updated 2026-10-13. This audit replaces the audit of 2026-05-17.
+**Date:** 2026-10-03, last updated 2026-10-14. This audit replaces the audit of 2026-05-17.
 
 **Method:** Static review of the Isomux source. No live attack tests were done.
 
@@ -205,6 +205,8 @@ A privileged agent gets a part of its member's capabilities: it can drive other 
 
 A privileged agent can read and edit its manager's special instructions, or any member's when its manager is an office owner. This does not grant other user-record edits. Prompt writes from agents and humans require the version from the read; stale writes return 409.
 
+A privileged agent can add, change, remove and test its manager's variables, secrets and MCP servers, and the office's and every member's when its manager is an owner. It never reads a value: no variable values, no Show, no MCP sign-in, and the MCP server routes give it the host in place of the URL. It cannot add a host to a saved secret: it holds the secret's placeholder and could send it to a host it controls. An ordinary agent only reads its connections and asks for a secret.
+
 A privileged agent has the destructive reach of its member. For example, it can close a shared room. Give the flag as you give your own seat.
 
 ### 6.3 Safety hooks
@@ -256,7 +258,7 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 - **Rooms.** A member sees only the agents, files and tasks of their rooms, plus the lobby and office-wide tasks. Any member can create a room. A member with access to a room can rename it or close it.
 - **Files.** Upload and file routes check room access. A denial gets the same 404 as a missing file. The files of a stopped agent follow its last room. When that room is gone, only owners can read them.
 - **Schedules.** A schedule belongs to a room, or to no room. The members of its room see the schedule, its runs and their transcripts. A run uses the environment of the maker, so a transcript can show their secrets. Only the maker and owners can change, delete or run it. A schedule with no room, or whose room was closed, is visible only to the maker and owners.
-- **Integrations.** An owner manages the variables, secrets and MCP servers of every member, but never reads the value of a member's variable or secret: an owner sets or removes one variable at a time, and replaces or removes a secret. A member reads the names, hosts and notes of the office's variables, secrets and MCP servers, never a value, an MCP server's URL path or the name of its credential. Show returns a saved secret's value to the member who owns it, or an office secret's value to an owner. No agent token, privileged or not, can call Show, and each Show writes an audit row with the secret's name. An agent with a shell can still read the secret files (section 3.2). An audit row of an owner's change to a member's integration names that member. Removing a member deletes their variables, secrets and MCP servers.
+- **Integrations.** An owner manages the variables, secrets and MCP servers of every member, but never reads the value of a member's variable or secret: an owner sets or removes one variable at a time, and replaces or removes a secret. A member reads the names, hosts and notes of the office's variables, secrets and MCP servers, never a value, an MCP server's URL path or the name of its credential. Show returns a saved secret's value to the member who owns it, or an office secret's value to an owner. No agent token, privileged or not, can call Show, and each Show writes an audit row with the secret's name. A privileged agent changes integrations with its manager's reach (section 6.2); the audit row names the agent. An agent with a shell can still read the secret files (section 3.2). An audit row of an owner's change to a member's integration names that member. Removing a member deletes their variables, secrets and MCP servers.
 - **Shared devices.** A session cookie lasts up to one year. A member who does not sign out on a shared computer leaves access open. Revoke it in Settings → You → Sign-in links, or an owner revokes it in Settings → Office → Sessions: an open tab closes in about one second.
 
 ---

@@ -1,8 +1,8 @@
 // The Test button's routes (opIds secrets.test, officeSecrets.test,
 // mcpServers.test, officeMcpServers.test; integrations loop, slice A3). The
 // route table gates them as the routes that edit the same connection: cap
-// user:env, which no agent scope holds; member connections for the member or
-// an office owner (selfOrEnvOwner), office ones owner-only (officeEnvOwner).
+// integration:manage; member connections for the member or an office owner
+// (integrationSelfOrOwner), office ones owner-only (integrationOfficeOwner).
 //
 // The tester answers every outside failure with a code, so the only errors
 // here are the stores' own, with fixed text.
@@ -28,7 +28,7 @@ export interface ConnectionTestsDeps {
 
 type Ctx = Parameters<RouteHandler>[0];
 
-// The route has checked officeEnvOwner.
+// The route has checked integrationOfficeOwner.
 const officeScope = (): SecretScope => ({ kind: "office" });
 
 function testRoute(

@@ -41,6 +41,13 @@ export type Capability =
   | "view:manage"
   | "user:self"
   | "user:env"
+  // Change the variables, secrets and MCP servers, with their notes, and read
+  // their lists, names and Test results: never a value. Held by USER, API and
+  // the PRIVILEGED agent set (Nil, 2026-10-14); absent from the AGENT baseline,
+  // RUN and APP. The value reads stay with user:env and secret:show, which no
+  // agent set holds. Its guards give each caller its user's reach: the user's
+  // own items, and the office's and every member's when the user is an owner.
+  | "integration:manage"
   | "user:admin"
   // users.create through an office owner's proxy: a privileged agent or an API
   // token. Held by the PRIVILEGED agent and API sets only. A human creates
@@ -170,6 +177,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "view:manage",
   "user:self",
   "user:env",
+  "integration:manage",
   "user:admin",
   "office:admin",
   "invite:manage",
@@ -241,6 +249,9 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // explicitly whether a privileged agent should hold it; do NOT let it ride in by
 // default.
 // user:prompt grants only member-prompt reads and edits through its guards.
+// integration:manage changes its manager's variables, secrets and MCP servers
+// (and the office's and other members' while the manager is an owner); user:env
+// and secret:show stay out, so no value comes back.
 // user:create reaches member creation: it reaches only users.create,
 // whose guard allows a member (room grants allowed), and only while the
 // spawning user is an office owner. It mints no sign-in link.
@@ -260,6 +271,7 @@ export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
   "cron:manage",
   "user:create",
   "user:prompt",
+  "integration:manage",
 ];
 
 // The capability set an AGENT-scope token resolves to, by its privileged flag.
@@ -324,8 +336,8 @@ export const APP_CAPABILITIES: readonly Capability[] = [
 // session:manage, user:self, user:admin, office:admin, view:manage and
 // agent:privilege. user:env is the explicit exception for the issuing user's
 // managed environment routes: their own values, and - when that user is an
-// office owner - every member's variables, secrets and MCP servers.
-// secret:show goes with it: a token shows its user's own secret values, and an
+// office owner - every member's variables, secrets and MCP servers, with
+// integration:manage for the writes. secret:show goes with it: a token shows its user's own secret values, and an
 // owner's token the office ones. user:create
 // is the other exception, with the privileged agent's member-only limits. The
 // agent/cron/app sender and self-affordance capabilities are also absent: an API
@@ -336,6 +348,7 @@ export const APP_CAPABILITIES: readonly Capability[] = [
 export const API_CAPABILITIES: readonly Capability[] = [
   "audit:read",
   "user:env",
+  "integration:manage",
   "secret:show",
   "api:discover-agents",
   "api:send-message",

@@ -316,6 +316,61 @@ export const officeEnvReader: Guard = ({ identity }) =>
     ? ALLOW
     : FORBIDDEN;
 
+// The integration:manage routes: changes, lists, names and Test, never a
+// value. They admit an agent too, with its manager's reach (Nil, 2026-10-14).
+// These guards do not check the privileged flag: stage 1 does, because only
+// the PRIVILEGED agent set holds integration:manage. They are separate from
+// the env guards above, which also guard the value routes and admit no agent.
+
+// The one owner question of the integration guards: an owner by cookie or by
+// their API token (isEnvOwnerIdentity), or an agent whose manager is an office
+// owner, checked live on each request, never by role.
+export function isIntegrationOwnerIdentity(
+  identity: Identity,
+  isOfficeOwnerUserId: GuardDeps["isOfficeOwnerUserId"],
+): boolean {
+  if (isEnvOwnerIdentity(identity, isOfficeOwnerUserId)) return true;
+  return (
+    identity.scope === "agent" &&
+    identity.userId !== null &&
+    isOfficeOwnerUserId(identity.userId)
+  );
+}
+
+// A human, their API token or their agent, with an owning user.
+function isIntegrationCaller(identity: Identity): boolean {
+  return (
+    (identity.scope === "user" ||
+      identity.scope === "api" ||
+      identity.scope === "agent") &&
+    !!identity.userId
+  );
+}
+
+// Office changes, and another member's variable names: an owner.
+export const integrationOfficeOwner: Guard = ({ identity, deps }) =>
+  isIntegrationOwnerIdentity(identity, (userId) =>
+    deps.isOfficeOwnerUserId(userId),
+  )
+    ? ALLOW
+    : FORBIDDEN;
+
+// A member's items: the member (or their agent), or an owner for any member.
+// The handler resolves :username; an unknown one is its 404.
+export const integrationSelfOrOwner: Guard = (ctx) => {
+  const { identity, params, deps } = ctx;
+  if (!isIntegrationCaller(identity)) return FORBIDDEN;
+  const username = params.username;
+  if (username && deps.userIdForUsername(username) === identity.userId)
+    return ALLOW;
+  return integrationOfficeOwner(ctx);
+};
+
+// The office lists: any member. The handler gives a non-owner names, hosts
+// and notes only.
+export const integrationOfficeReader: Guard = ({ identity }) =>
+  isIntegrationCaller(identity) ? ALLOW : FORBIDDEN;
+
 // USER edit/delete: self OR office owner. Both branches are USER-gated (each of
 // officeOwner and selfUser requires scope === "user").
 export const selfOrOwner: Guard = (ctx) =>

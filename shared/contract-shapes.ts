@@ -1066,7 +1066,20 @@ export interface OfficeMcpServerSummaryWire {
   note: string | null;
 }
 export interface OfficeMcpServerListRes {
-  servers: McpServerWire[] | OfficeMcpServerSummaryWire[];
+  servers:
+    | McpServerWire[]
+    | OfficeMcpServerSummaryWire[]
+    | AgentMcpServerWire[];
+}
+// A server as an agent reads it from the MCP server routes (Lead, 2026-10-14):
+// the host in place of the URL, whose path or query can carry a token. An
+// agent never receives a URL path; it can still set a whole URL.
+export type AgentMcpServerWire = Omit<McpServerWire, "url"> & { host: string };
+export interface AgentMcpServerListRes {
+  servers: AgentMcpServerWire[];
+}
+export interface AgentMcpServerRes {
+  server: AgentMcpServerWire;
 }
 export interface McpServerCreateReq {
   name: string;

@@ -1,12 +1,14 @@
 // Secret handlers (opIds secrets.* and officeSecrets.*). Design:
 // internal-docs/secrets-design.md, section 1.
 //
-// The route table gates them as the variables are: cap user:env, which no
-// agent scope holds; member secrets for the member or an office owner
-// (selfOrEnvOwner), office secrets owner-only (officeEnvOwner), and the office
-// list for members too (officeEnvReader), as a summary. Only Show returns a
-// value: cap secret:show, the member's own (selfUserOrApi) or an office one
-// for an owner. No error echoes any input: a value pasted into the wrong field
+// The route table gates them as the variables are: cap integration:manage,
+// which a human, an API token and a privileged agent hold; member secrets for
+// the member or an office owner (integrationSelfOrOwner), office secrets
+// owner-only (integrationOfficeOwner), and the office list for members too
+// (integrationOfficeReader), as a summary. An agent caller may not add a host
+// to a saved secret. Only Show returns a value: cap secret:show, which no
+// agent holds, the member's own (selfUserOrApi) or an office one for an
+// owner. No error echoes any input: a value pasted into the wrong field
 // does not come back.
 //
 // Every failure is answered here, never rethrown: the executor logs a thrown
@@ -24,6 +26,7 @@ import {
 import {
   SecretStoreUnreadableError,
   type SecretChange,
+  type SecretUpdateChange,
   type SecretScope,
   type SecretStore,
 } from "../../secret-store.ts";
@@ -33,7 +36,7 @@ import type {
   OfficeSecretSummaryWire,
   SecretWire,
 } from "../../../shared/contract-shapes.ts";
-import { callerIsEnvOwner, memberSubject } from "./member-subject.ts";
+import { callerIsIntegrationOwner, memberSubject } from "./member-subject.ts";
 
 export interface SecretsDeps {
   store: SecretStore;
@@ -78,7 +81,10 @@ function officeSecretSummary(secret: SecretWire): OfficeSecretSummaryWire {
 const invalidRequest = () =>
   fail(400, "invalid_request", "the request body has the wrong shape");
 
-function answer(change: SecretChange, status: "ok" | "created" = "ok") {
+function answer(
+  change: SecretChange | SecretUpdateChange,
+  status: "ok" | "created" = "ok",
+) {
   if (change.ok)
     return status === "created"
       ? created({ secret: change.secret })
@@ -106,6 +112,12 @@ function answer(change: SecretChange, status: "ok" | "created" = "ok") {
       return fail(409, "secret_exists", "a secret with this name exists");
     case "not_found":
       return fail(404, "not_found");
+    case "host_added":
+      return fail(
+        403,
+        "secret_host_add_refused",
+        "an agent cannot add a host to a saved secret; it can remove hosts",
+      );
   }
 }
 
@@ -152,7 +164,7 @@ function scopedHandlers(
       // A member reads the office secrets as a summary only.
       if (
         scope.kind === "office" &&
-        !callerIsEnvOwner(ctx, deps.isOfficeOwnerUserId)
+        !callerIsIntegrationOwner(ctx, deps.isOfficeOwnerUserId)
       )
         return ok({ secrets: secrets.map(officeSecretSummary) });
       return ok({ secrets });
@@ -215,7 +227,11 @@ function scopedHandlers(
       if (!body || Object.keys(body).length === 0) return invalidRequest();
       return committed(
         deps,
-        answer(deps.store.update(scope, ctx.params.name ?? "", body)),
+        answer(
+          deps.store.update(scope, ctx.params.name ?? "", body, {
+            addHosts: ctx.identity.scope !== "agent",
+          }),
+        ),
       );
     },
     reissue: (ctx) => {
@@ -242,7 +258,8 @@ export function secretsHandlers(
   deps: SecretsDeps,
 ): Record<string, RouteHandler> {
   const member = scopedHandlers(deps, memberSubject(deps.userIdForUsername));
-  // The route has checked officeEnvOwner, or officeEnvReader for the list.
+  // The route has checked integrationOfficeOwner, or integrationOfficeReader
+  // for the list.
   const office = scopedHandlers(deps, () => ({ kind: "office" }));
   const handlers: Record<string, RouteHandler> = {
     "secrets.list": member.list,

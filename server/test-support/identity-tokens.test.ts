@@ -147,6 +147,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "cron:manage",
       "user:create",
       "user:prompt",
+      "integration:manage",
     ] as Capability[]) {
       expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(c);
     }
@@ -158,6 +159,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
     for (const c of [
       "invite:manage",
       "secret:show",
+      "user:env",
       "session:manage",
       "user:self",
       "user:admin",
@@ -241,6 +243,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect([...API_CAPABILITIES]).toEqual([
       "audit:read",
       "user:env",
+      "integration:manage",
       "secret:show",
       "api:discover-agents",
       "api:send-message",
