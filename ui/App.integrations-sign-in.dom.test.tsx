@@ -1,6 +1,7 @@
 // The way back to the Integrations page from an MCP sign-in, at the new path
 // (/integrations?mcpSignIn=<code>) and at the old one an in-flight sign-in
-// still uses (/settings?mcpSignIn=<code>; Lead, ruling 1).
+// still uses (/settings?mcpSignIn=<code>; Lead, ruling 1). The result shows on
+// the server's row, in the card it belongs to (b1035).
 
 import {
   afterAll,
@@ -20,7 +21,7 @@ const { App } = await import("./App.tsx");
 const { StateCtx, initialState } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
 const { rememberSignIn } = await import("./integrations/sign-in-return.ts");
-const { IntegrationsFake } =
+const { IntegrationsFake, server } =
   await import("./test-support/integrations-fake.ts");
 const { translatorFor } = await import("../shared/i18n/translate.ts");
 const { createElement } = await import("react");
@@ -56,11 +57,16 @@ const OWNER = {
 } as unknown as typeof initialState;
 
 let pushState: ReturnType<typeof spyOn<History, "pushState">>;
+let fake: InstanceType<typeof IntegrationsFake>;
 beforeEach(() => {
-  new IntegrationsFake({ username: "Ricky", owner: true }, [
+  fake = new IntegrationsFake({ username: "Ricky", owner: true }, [
     "Ricky",
     "Beth",
   ]).install();
+  const signedIn = { oauth: { clientId: null, signedIn: true } };
+  fake.scope("office").servers.push(server("linear", signedIn));
+  fake.scope("Ricky").servers.push(server("notes", signedIn));
+  fake.scope("Beth").servers.push(server("linear", signedIn));
   window.history.replaceState(null, "", "/");
   sessionStorage.clear();
   pushState = spyOn(window.history, "pushState");
@@ -75,16 +81,38 @@ async function app() {
   return view;
 }
 
-const page = (view: ReturnType<typeof render>) =>
+type View = ReturnType<typeof render>;
+const page = (view: View) =>
   view.baseElement.querySelector("[data-integrations-page]");
-const member = (view: ReturnType<typeof render>) =>
+const member = (view: View) =>
   view.baseElement
     .querySelector('[data-integrations-card="personal"]')
     ?.getAttribute("data-integrations-member") ?? null;
+const notices = (view: View) => [
+  ...view.baseElement.querySelectorAll("[data-mcp-sign-in-notice]"),
+];
+// The notice's place: the card and the row it sits in, or "top".
+const placeOf = (notice: Element) => ({
+  card:
+    notice
+      .closest("[data-integrations-card]")
+      ?.getAttribute("data-integrations-card") ?? "top",
+  row:
+    notice
+      .closest("[data-mcp-server-name]")
+      ?.getAttribute("data-mcp-server-name") ?? null,
+  kind: notice.getAttribute("data-mcp-sign-in-notice"),
+  text: notice.textContent,
+});
+const only = (view: View) => {
+  const all = notices(view);
+  expect(all).toHaveLength(1);
+  return placeOf(all[0]);
+};
 
 describe("back from an MCP sign-in", () => {
   for (const path of ["/integrations", "/settings"])
-    it(`lands on the MCP servers tab from ${path}, naming whose server it was`, async () => {
+    it(`lands on the MCP servers tab from ${path}, on the member's row`, async () => {
       rememberSignIn({
         server: "linear",
         target: { kind: "member", username: "Beth" },
@@ -99,55 +127,77 @@ describe("back from an MCP sign-in", () => {
           .querySelector('[data-integrations-tab="mcp"]')!
           .getAttribute("aria-selected"),
       ).toBe("true");
-      expect(
-        view.baseElement.querySelector('[data-mcp-sign-in-notice="ok"]')!
-          .textContent,
-      ).toBe(
-        t("integrations.mcp.signedInTo.member", {
-          member: "Beth",
-          name: "linear",
-        }),
-      );
-      // Read once: the page on You, and the note is gone.
-      expect(member(view)).toBeNull();
+      // The card shows whose server it was; the row, which one.
+      expect(member(view)).toBe("Beth");
+      expect(only(view)).toEqual({
+        card: "personal",
+        row: "linear",
+        kind: "ok",
+        text: t("integrations.mcp.signedIn"),
+      });
+      // Read once: the note is gone.
       expect(sessionStorage.length).toBe(0);
     });
 
-  it("explains a failed sign-in by its code, naming no one without a note", async () => {
-    window.history.replaceState(null, "", "/integrations?mcpSignIn=denied");
-    const view = await app();
-    expect(
-      view.baseElement.querySelector('[data-mcp-sign-in-notice="error"]')!
-        .textContent,
-    ).toBe(t("settings.mcpServers.signInError.denied"));
+  it("puts an office sign-in on the office row, and your own on yours", async () => {
+    rememberSignIn({ server: "linear", target: { kind: "office" } });
+    window.history.replaceState(null, "", "/integrations?mcpSignIn=ok");
+    const office = await app();
+    expect(only(office)).toMatchObject({ card: "office", row: "linear" });
+    expect(member(office)).toBeNull();
+    office.unmount();
+
+    rememberSignIn({
+      server: "notes",
+      target: { kind: "self", username: "Ricky" },
+    });
+    window.history.replaceState(null, "", "/integrations?mcpSignIn=ok");
+    const own = await app();
+    expect(only(own)).toMatchObject({ card: "personal", row: "notes" });
+    expect(member(own)).toBeNull();
   });
 
-  it("names the member on a failed sign-in, as on a success", async () => {
+  it("explains a failed sign-in by its code at the top without a note", async () => {
+    window.history.replaceState(null, "", "/integrations?mcpSignIn=denied");
+    const view = await app();
+    expect(only(view)).toEqual({
+      card: "top",
+      row: null,
+      kind: "error",
+      text: t("settings.mcpServers.signInError.denied"),
+    });
+  });
+
+  it("puts a failed sign-in on its row, as a success", async () => {
     rememberSignIn({
       server: "linear",
       target: { kind: "member", username: "Beth" },
     });
     window.history.replaceState(null, "", "/integrations?mcpSignIn=denied");
     const view = await app();
-    const notice = view.baseElement.querySelector(
-      '[data-mcp-sign-in-notice="error"]',
-    )!.textContent;
-    expect(notice).toContain(
-      t("integrations.mcp.signInFailedFor.member", {
-        member: "Beth",
-        name: "linear",
-      }),
-    );
-    expect(notice).toContain(t("settings.mcpServers.signInError.denied"));
+    expect(member(view)).toBe("Beth");
+    expect(only(view)).toEqual({
+      card: "personal",
+      row: "linear",
+      kind: "error",
+      text: t("settings.mcpServers.signInError.denied"),
+    });
   });
 
-  it("names no one with no note, and a later sign-in replaces an abandoned one", async () => {
+  it("puts the result under the card's list when its row is gone", async () => {
+    rememberSignIn({ server: "gone", target: { kind: "office" } });
+    window.history.replaceState(null, "", "/integrations?mcpSignIn=ok");
+    const view = await app();
+    expect(only(view)).toMatchObject({ card: "office", row: null });
+  });
+
+  it("names no server with no note, and a later sign-in replaces an abandoned one", async () => {
     window.history.replaceState(null, "", "/integrations?mcpSignIn=ok");
     const generic = await app();
-    expect(
-      generic.baseElement.querySelector('[data-mcp-sign-in-notice="ok"]')!
-        .textContent,
-    ).toBe(t("settings.mcpServers.signInDone"));
+    expect(only(generic)).toMatchObject({
+      card: "top",
+      text: t("settings.mcpServers.signInDone"),
+    });
     generic.unmount();
 
     // A start for Beth that never came back, then your own.
@@ -161,19 +211,40 @@ describe("back from an MCP sign-in", () => {
     });
     window.history.replaceState(null, "", "/integrations?mcpSignIn=ok");
     const view = await app();
-    const text = view.baseElement.querySelector(
-      '[data-mcp-sign-in-notice="ok"]',
-    )!.textContent;
-    expect(text).toBe(t("integrations.mcp.signedInTo.self", { name: "notes" }));
-    expect(text).not.toContain("Beth");
+    expect(member(view)).toBeNull();
+    expect(only(view)).toMatchObject({ card: "personal", row: "notes" });
+  });
+
+  it("clears the row notice on the next action on its card only", async () => {
+    rememberSignIn({ server: "linear", target: { kind: "office" } });
+    window.history.replaceState(null, "", "/integrations?mcpSignIn=ok");
+    const view = await app();
+    const card = (kind: string) =>
+      view.baseElement.querySelector(`[data-integrations-card="${kind}"]`)!;
+    // An action on the other card leaves it.
+    await act(async () => {
+      (
+        card("personal").querySelector("[data-mcp-edit]") as HTMLElement
+      ).click();
+    });
+    expect(notices(view)).toHaveLength(1);
+    // A click on its card that is not an action leaves it too.
+    await act(async () => {
+      (
+        card("office").querySelector("[data-card-title]") as HTMLElement
+      ).click();
+    });
+    expect(notices(view)).toHaveLength(1);
+    await act(async () => {
+      (card("office").querySelector("[data-mcp-edit]") as HTMLElement).click();
+    });
+    expect(notices(view)).toHaveLength(0);
   });
 
   it("shows the notice once: the next open has none", async () => {
     window.history.replaceState(null, "", "/integrations?mcpSignIn=ok");
     const view = await app();
-    expect(
-      view.baseElement.querySelector("[data-mcp-sign-in-notice]"),
-    ).not.toBeNull();
+    expect(notices(view)).toHaveLength(1);
     await act(async () => {
       view.getByRole("button", { name: t("settings.backToOffice") }).click();
     });
@@ -187,11 +258,7 @@ describe("back from an MCP sign-in", () => {
         ) as HTMLElement
       ).click();
     });
-    expect(
-      view.baseElement.querySelector("[data-integrations-page]"),
-    ).not.toBeNull();
-    expect(
-      view.baseElement.querySelector("[data-mcp-sign-in-notice]"),
-    ).toBeNull();
+    expect(page(view)).not.toBeNull();
+    expect(notices(view)).toHaveLength(0);
   });
 });

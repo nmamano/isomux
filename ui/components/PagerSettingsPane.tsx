@@ -24,6 +24,7 @@ import {
   disabledLook,
 } from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
+import { MaskedInput } from "./MaskedInput.tsx";
 
 const REPEAT_CHOICES = [1, 5, 15, 30, 60, 480, 1440];
 const ISSUES_URL = "https://github.com/nmamano/isomux/issues";
@@ -169,12 +170,9 @@ export function PagerSettingsPane({ username }: { username: string }) {
             >
               {t("pager.settings.webhook")}
             </label>
-            <input
+            <MaskedInput
               id="pager-webhook"
               data-testid="pager-webhook"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
               value={url}
               placeholder="https://discord.com/api/webhooks/…"
               onChange={(e) => {

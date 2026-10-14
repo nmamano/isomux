@@ -1,5 +1,6 @@
 import { afterAll, test, expect } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom";
+import { expectMasked } from "../test-support/masked";
 setUpDomTestFile();
 const { render, fireEvent, act } = await import("@testing-library/react");
 const { PagerSettingsPane } = await import("./PagerSettingsPane");
@@ -67,7 +68,7 @@ test("the pane saves only what changed, never shows the saved URL, and runs the 
   // The field empties after the save; only the mask is shown.
   const field = view.getByTestId("pager-webhook") as HTMLInputElement;
   expect(field.value).toBe("");
-  expect(field.type).toBe("password");
+  expectMasked(field);
   expect(view.getByTestId("pager-webhook-current").textContent).toContain(
     "…WXYZ",
   );

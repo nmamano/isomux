@@ -4,6 +4,7 @@
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { expectMasked } from "../test-support/masked.ts";
 
 setUpDomTestFile();
 
@@ -35,7 +36,7 @@ async function mount(target: object = SELF, role = "owner") {
 }
 
 const valueInput = (view: ReturnType<typeof render>) =>
-  view.container.querySelector<HTMLInputElement>('input[type="password"]');
+  view.container.querySelector<HTMLInputElement>("[data-masked-credential]");
 
 async function click(el: Element | null) {
   expect(el).not.toBeNull();
@@ -62,7 +63,7 @@ it("saves a preset secret, lists it without a value, and clears the value field"
     view.container.querySelector("[data-preset-hosts]")!.textContent,
   ).toContain("api.github.com");
   const input = valueInput(view)!;
-  expect(input.autocomplete).toBe("new-password");
+  expectMasked(input);
   await act(async () => {
     fireEvent.change(input, { target: { value: FAKE } });
   });

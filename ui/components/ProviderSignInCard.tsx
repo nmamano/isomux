@@ -14,7 +14,7 @@ import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { ProviderMark } from "./ProviderMark.tsx";
 import { BuildingIcon, PersonIcon } from "./NavIcons.tsx";
-import { Data } from "../integrations/kit.tsx";
+import { Data, HelpTip } from "../integrations/kit.tsx";
 
 // Not a component (it labels a button inside one), so it takes the translator
 // rather than reaching for the hook.
@@ -707,7 +707,7 @@ function ProviderScopeConnection({
       )}
       {/* A "Works" from before a sign-out no longer holds. */}
       {pageLook && (connected || test.state !== "works") && (
-        <SignInTestResult test={test} />
+        <SignInTestResult test={test} provider={provider} />
       )}
       {onStartNewConversation &&
         (account?.loginStatus === "succeeded" || connected) && (
@@ -732,7 +732,13 @@ type SignInTest =
   | { state: "signedOut" }
   | { state: "failed" };
 
-function SignInTestResult({ test }: { test: SignInTest }) {
+function SignInTestResult({
+  test,
+  provider,
+}: {
+  test: SignInTest;
+  provider: ProviderAccountProvider;
+}) {
   const { t } = useI18n();
   if (test.state === "idle" || test.state === "running") return null;
   const ok = test.state === "works";
@@ -755,6 +761,14 @@ function SignInTestResult({ test }: { test: SignInTest }) {
               <Data>{test.account}</Data>
             </>
           )}
+          {/* What Works means: the check the test ran (Nil, 2026-10-14). */}
+          <HelpTip
+            text={t(
+              provider === "claude"
+                ? "settings.connections.test.help.claude"
+                : "settings.connections.test.help.codex",
+            )}
+          />
         </>
       ) : test.state === "signedOut" ? (
         t("integrations.providers.testSignedOut")

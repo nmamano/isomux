@@ -6,6 +6,7 @@
 
 import { afterAll, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { expectMasked } from "../test-support/masked.ts";
 
 setUpDomTestFile();
 
@@ -80,7 +81,7 @@ it("adds a server with a pasted token saved as a secret bound to the address's h
   );
   const token =
     view.container.querySelector<HTMLInputElement>("[data-mcp-token]")!;
-  expect(token.autocomplete).toBe("new-password");
+  expectMasked(token);
   await type(view, "[data-mcp-token]", FAKE);
   // The secret's name follows the server's, under More options.
   await click(view.container.querySelector("[data-more-options]"));
@@ -263,9 +264,12 @@ it("shows why a server is left out, and a Test only when it can run", async () =
   );
   expect(row("lost").querySelector("[data-connection-test]")).toBeNull();
   await click(row("ok").querySelector("[data-connection-test]"));
-  expect(
-    row("ok").querySelector('[data-connection-test-result="ok"]')!.textContent,
-  ).toBe(
+  // The words of the result, without its (?).
+  const result = row("ok")
+    .querySelector('[data-connection-test-result="ok"]')!
+    .cloneNode(true) as HTMLElement;
+  result.querySelector("[data-help-tip]")?.remove();
+  expect(result.textContent).toBe(
     `${t("settings.connections.test.works")} · ${translatorFor("en").tn("settings.connections.test.tools", 3)}`,
   );
 });

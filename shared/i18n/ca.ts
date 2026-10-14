@@ -910,6 +910,18 @@ Coses que pots fer per ell:
   "settings.connections.test.running": "S'està provant…",
   "settings.connections.test.noHostTest": "Sense prova per als seus hosts",
   "settings.connections.test.works": "Funciona",
+  "settings.connections.test.help.github":
+    "Isomux ha cridat l'API /user de GitHub amb aquest secret, i GitHub l'ha acceptat com el compte que es mostra.",
+  "settings.connections.test.help.stripe":
+    "Isomux ha cridat l'API /v1/account de Stripe amb aquest secret, i Stripe l'ha acceptat com el compte que es mostra.",
+  "settings.connections.test.help.fly":
+    "Isomux ha enviat aquest secret amb una consulta viewer a l'API GraphQL de Fly.io, i Fly.io l'ha acceptat com el compte que es mostra.",
+  "settings.connections.test.help.mcp":
+    "Isomux s'ha connectat a aquest servidor com ho fa un agent i n'ha llistat les eines.",
+  "settings.connections.test.help.claude":
+    "Isomux ha iniciat Claude Code amb aquest inici de sessió, i Claude Code ha indicat que la sessió està iniciada.",
+  "settings.connections.test.help.codex":
+    "Isomux ha iniciat Codex amb aquest inici de sessió, i Codex ha indicat que la sessió està iniciada.",
   "settings.connections.test.tools.one": "{count} eina",
   "settings.connections.test.tools.other": "{count} eines",
   "settings.connections.test.refused":
@@ -1032,10 +1044,7 @@ Coses que pots fer per ell:
     "Afegeix un servidor MCP per a {member}",
   "integrations.mcp.addHeading.office":
     "Afegeix un servidor MCP per a tota l'oficina",
-  "integrations.mcp.signedInTo.self": "Sessió iniciada a {name}.",
-  "integrations.mcp.signedInTo.member": "Sessió iniciada a {name} de {member}.",
-  "integrations.mcp.signedInTo.office":
-    "Sessió iniciada a {name} de tota l'oficina.",
+  "integrations.mcp.signedIn": "Sessió iniciada.",
   "integrations.providers.noPersonal": "Sense inici de sessió personal",
   "integrations.signIn.office":
     "Inicia la sessió per a cada agent d'aquesta oficina",
@@ -1052,12 +1061,6 @@ Coses que pots fer per ell:
   "integrations.connectionsFailed":
     "No s'han pogut carregar els connectors de claude.ai ni els servidors configurats als fitxers de Claude.",
   "integrations.memberGone": "{member} ja no és en aquesta oficina.",
-  "integrations.mcp.signInFailedFor.self":
-    "L'inici de sessió a {name} no ha acabat.",
-  "integrations.mcp.signInFailedFor.member":
-    "L'inici de sessió a {name} de {member} no ha acabat.",
-  "integrations.mcp.signInFailedFor.office":
-    "L'inici de sessió a {name} de tota l'oficina no ha acabat.",
   "integrations.secrets.empty": "No hi ha secrets.",
   "integrations.secrets.add": "Afegeix un secret",
   "integrations.secrets.value": "Clau o token",

@@ -912,6 +912,18 @@ Cosas que puedes hacer por él:
   "settings.connections.test.running": "Probando…",
   "settings.connections.test.noHostTest": "Sin prueba para sus hosts",
   "settings.connections.test.works": "Funciona",
+  "settings.connections.test.help.github":
+    "Isomux llamó a la API /user de GitHub con este secreto, y GitHub lo aceptó como la cuenta que se muestra.",
+  "settings.connections.test.help.stripe":
+    "Isomux llamó a la API /v1/account de Stripe con este secreto, y Stripe lo aceptó como la cuenta que se muestra.",
+  "settings.connections.test.help.fly":
+    "Isomux envió este secreto con una consulta viewer a la API GraphQL de Fly.io, y Fly.io lo aceptó como la cuenta que se muestra.",
+  "settings.connections.test.help.mcp":
+    "Isomux se conectó a este servidor como lo hace un agente y listó sus herramientas.",
+  "settings.connections.test.help.claude":
+    "Isomux inició Claude Code con este inicio de sesión, y Claude Code indicó que la sesión está iniciada.",
+  "settings.connections.test.help.codex":
+    "Isomux inició Codex con este inicio de sesión, y Codex indicó que la sesión está iniciada.",
   "settings.connections.test.tools.one": "{count} herramienta",
   "settings.connections.test.tools.other": "{count} herramientas",
   "settings.connections.test.refused":
@@ -1032,11 +1044,7 @@ Cosas que puedes hacer por él:
   "integrations.mcp.addHeading.member": "Añadir un servidor MCP para {member}",
   "integrations.mcp.addHeading.office":
     "Añadir un servidor MCP para toda la oficina",
-  "integrations.mcp.signedInTo.self": "Sesión iniciada en {name}.",
-  "integrations.mcp.signedInTo.member":
-    "Sesión iniciada en {name} de {member}.",
-  "integrations.mcp.signedInTo.office":
-    "Sesión iniciada en {name} de toda la oficina.",
+  "integrations.mcp.signedIn": "Sesión iniciada.",
   "integrations.providers.noPersonal": "Sin inicio de sesión personal",
   "integrations.signIn.office":
     "Inicia sesión para cada agente de esta oficina",
@@ -1053,12 +1061,6 @@ Cosas que puedes hacer por él:
   "integrations.connectionsFailed":
     "No se pudieron cargar los conectores de claude.ai ni los servidores configurados en los archivos de Claude.",
   "integrations.memberGone": "{member} ya no está en esta oficina.",
-  "integrations.mcp.signInFailedFor.self":
-    "El inicio de sesión en {name} no terminó.",
-  "integrations.mcp.signInFailedFor.member":
-    "El inicio de sesión en {name} de {member} no terminó.",
-  "integrations.mcp.signInFailedFor.office":
-    "El inicio de sesión en {name} de toda la oficina no terminó.",
   "integrations.secrets.empty": "No hay secretos.",
   "integrations.secrets.add": "Añadir un secreto",
   "integrations.secrets.value": "Clave o token",

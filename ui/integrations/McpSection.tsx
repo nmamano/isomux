@@ -5,7 +5,13 @@
 // authorization flow (A2b). Rows show the host only: the path of some hosted
 // servers carries a token.
 
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import type {
   ConnectionScope,
   McpServerListRes,
@@ -68,6 +74,7 @@ import {
   type Target,
 } from "./target.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
+import { MaskedInput } from "../components/MaskedInput.tsx";
 
 // A row as the list shows it. A member reading the office's servers gets the
 // name, the host and the note only.
@@ -178,6 +185,71 @@ export function signInErrorText(
   return t("settings.mcpServers.signInFailed");
 }
 
+// The result of an MCP sign-in that came back. With the note the page left
+// before it went, it shows on the server's row, where the card and the row
+// say whose server it was (b1035); without one, at the top of the tab.
+export function SignInNotice({
+  code,
+  server,
+  scroll,
+  style,
+}: {
+  code: string;
+  server: string | null;
+  // Bring the row into view: the card can be below the fold.
+  scroll?: boolean;
+  style?: CSSProperties;
+}) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!scroll || !el) return;
+    const show = () => el.scrollIntoView?.({ block: "nearest" });
+    show();
+    // Lists above it can still be loading and push it down: follow it for
+    // a moment, until the member scrolls, taps or types.
+    let pane = el.parentElement;
+    while (pane && !/auto|scroll/.test(getComputedStyle(pane).overflowY))
+      pane = pane.parentElement;
+    const content = pane?.firstElementChild;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(show);
+    observer.observe(content);
+    const inputs = ["wheel", "touchstart", "pointerdown", "keydown"];
+    const stop = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      for (const kind of inputs) window.removeEventListener(kind, stop, true);
+    };
+    const timer = setTimeout(stop, 2000);
+    for (const kind of inputs) window.addEventListener(kind, stop, true);
+    return stop;
+    // Once, when the notice first shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const ok = code === "ok";
+  return (
+    <p
+      ref={ref}
+      role={ok ? "status" : "alert"}
+      data-mcp-sign-in-notice={ok ? "ok" : "error"}
+      style={{
+        fontSize: 12.5,
+        color: ok ? "var(--green-text)" : "var(--red-text)",
+        overflowWrap: "anywhere",
+        ...style,
+      }}
+    >
+      {ok
+        ? server
+          ? t("integrations.mcp.signedIn")
+          : t("settings.mcpServers.signInDone")
+        : signInErrorText(t, code, server)}
+    </p>
+  );
+}
+
 // The secret a pasted token is saved as: LINEAR_TOKEN for "linear".
 export function tokenSecretName(server: string): string {
   const base = server.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
@@ -230,11 +302,14 @@ export function McpSection({
   target,
   role,
   onGone,
+  signIn = null,
 }: {
   target: Target;
   role: Role;
   // The member left the office while the card showed them.
   onGone?: () => void;
+  // A sign-in to one of this card's servers that came back.
+  signIn?: { code: string; server: string } | null;
 }) {
   const { t } = useI18n();
   const alive = useAlive();
@@ -299,7 +374,7 @@ export function McpSection({
   };
 
   // The browser goes to the authorization server and comes back to the page.
-  async function signIn(name: string) {
+  async function startSignIn(name: string) {
     setBusy(true);
     setError(null);
     try {
@@ -362,7 +437,8 @@ export function McpSection({
                 setError(null);
                 setMode(next);
               }}
-              onSignIn={() => void signIn(row.name)}
+              onSignIn={() => void startSignIn(row.name)}
+              signedIn={signIn?.server === row.name ? signIn.code : null}
               secrets={secrets}
               secretsPath={secretsPath}
               onChanged={changed}
@@ -370,6 +446,17 @@ export function McpSection({
           );
         })
       )}
+      {/* The server is no longer on the card: the result goes under it. */}
+      {signIn &&
+        rows !== null &&
+        !rows.some((row) => row.name === signIn.server) && (
+          <SignInNotice
+            code={signIn.code}
+            server={signIn.server}
+            scroll
+            style={{ fontSize: 12, margin: "6px 0 10px" }}
+          />
+        )}
       {editable &&
         !summary &&
         rows !== null &&
@@ -382,7 +469,7 @@ export function McpSection({
             secrets={secrets}
             onCancel={close}
             onSaved={changed}
-            onSignIn={(name) => void signIn(name)}
+            onSignIn={(name) => void startSignIn(name)}
           />
         ) : (
           // One open form per card: a click elsewhere never drops a typed
@@ -433,6 +520,7 @@ function McpItem({
   mode,
   setMode,
   onSignIn,
+  signedIn,
   secrets,
   secretsPath,
   onChanged,
@@ -447,6 +535,8 @@ function McpItem({
   mode: Mode;
   setMode: (mode: Mode) => void;
   onSignIn: () => void;
+  // The code of a sign-in to this server that came back.
+  signedIn: string | null;
   secrets: SecretWire[];
   secretsPath: string;
   onChanged: () => Promise<void>;
@@ -520,6 +610,14 @@ function McpItem({
       }
     >
       <NoteLine note={row.note} />
+      {signedIn && (
+        <SignInNotice
+          code={signedIn}
+          server={row.name}
+          scroll
+          style={{ fontSize: 12, margin: "6px 0 0" }}
+        />
+      )}
       {problem && (
         <div data-mcp-problem={problem} style={errorText}>
           {problemText({ t, rich }, problem, row.host)}
@@ -757,11 +855,8 @@ function McpEditor({
                 : t("integrations.mcp.tokenNoHost")
             }
           >
-            <input
+            <MaskedInput
               data-mcp-token
-              type="password"
-              autoComplete="new-password"
-              spellCheck={false}
               style={{ ...input, ...mono }}
               value={token}
               placeholder={t("settings.mcpServers.tokenPlaceholder")}
@@ -842,10 +937,7 @@ function McpEditor({
               />
             </Field>
             <Field label={t("settings.mcpServers.clientSecret")}>
-              <input
-                type="password"
-                autoComplete="new-password"
-                spellCheck={false}
+              <MaskedInput
                 style={{ ...input, ...mono }}
                 value={clientSecret}
                 onChange={(e) => setClientSecret(e.target.value)}

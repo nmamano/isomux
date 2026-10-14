@@ -94,6 +94,11 @@ describe("a Test on each sign-in", () => {
     expect(result.querySelector("[data-integrations-data]")!.textContent).toBe(
       "boss@example.com",
     );
+    // What Works means for a Claude sign-in, behind its (?).
+    await click(result.querySelector("[data-help-tip]"));
+    expect(result.querySelector('[role="note"]')!.textContent).toBe(
+      t("settings.connections.test.help.claude"),
+    );
     expect(
       fake.requests("POST", "/api/me/provider-accounts/refresh"),
     ).toHaveLength(1);

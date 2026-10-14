@@ -904,6 +904,18 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.connections.test.running": "Testing…",
   "settings.connections.test.noHostTest": "No test for its hosts",
   "settings.connections.test.works": "Works",
+  "settings.connections.test.help.github":
+    "Isomux called GitHub's /user API with this secret, and GitHub accepted it as the account shown.",
+  "settings.connections.test.help.stripe":
+    "Isomux called Stripe's /v1/account API with this secret, and Stripe accepted it as the account shown.",
+  "settings.connections.test.help.fly":
+    "Isomux sent this secret with a viewer query to the Fly.io GraphQL API, and Fly.io accepted it as the account shown.",
+  "settings.connections.test.help.mcp":
+    "Isomux connected to this server as an agent does and listed its tools.",
+  "settings.connections.test.help.claude":
+    "Isomux started Claude Code with this sign-in, and Claude Code reported it signed in.",
+  "settings.connections.test.help.codex":
+    "Isomux started Codex with this sign-in, and Codex reported it signed in.",
   "settings.connections.test.tools.one": "{count} tool",
   "settings.connections.test.tools.other": "{count} tools",
   "settings.connections.test.refused":
@@ -1023,9 +1035,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.mcp.addHeading.self": "Add an MCP server",
   "integrations.mcp.addHeading.member": "Add an MCP server for {member}",
   "integrations.mcp.addHeading.office": "Add an office-wide MCP server",
-  "integrations.mcp.signedInTo.self": "Signed in to {name}.",
-  "integrations.mcp.signedInTo.member": "Signed in to {member}'s {name}.",
-  "integrations.mcp.signedInTo.office": "Signed in to the office-wide {name}.",
+  "integrations.mcp.signedIn": "Signed in.",
   "integrations.providers.noPersonal": "No personal sign-in",
   "integrations.signIn.office": "Sign in for every agent in this office",
   "integrations.signIn.personal": "Sign in for agents I spawn",
@@ -1041,11 +1051,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.connectionsFailed":
     "Could not load the claude.ai connectors and the servers set in Claude's files.",
   "integrations.memberGone": "{member} is no longer in this office.",
-  "integrations.mcp.signInFailedFor.self": "Sign-in to {name} did not finish.",
-  "integrations.mcp.signInFailedFor.member":
-    "Sign-in to {member}'s {name} did not finish.",
-  "integrations.mcp.signInFailedFor.office":
-    "Sign-in to the office-wide {name} did not finish.",
   "integrations.secrets.empty": "No secrets.",
   "integrations.secrets.add": "Add a secret",
   "integrations.secrets.value": "Key or token",

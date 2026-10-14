@@ -9,7 +9,23 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
-import { Btn, Data } from "./kit.tsx";
+import { Btn, Data, HelpTip } from "./kit.tsx";
+
+// What a secret's test called, by the host of its identity check
+// (IDENTITY_CHECKS in server/connection-tests.ts; ConnectionTest.dom.test.tsx
+// holds the two to the same hosts).
+export const SECRET_TEST_HELP = {
+  "api.github.com": "settings.connections.test.help.github",
+  "api.stripe.com": "settings.connections.test.help.stripe",
+  "api.fly.io": "settings.connections.test.help.fly",
+} as const;
+
+function helpFor(result: Extract<ConnectionTestResult, { ok: true }>) {
+  if (result.kind === "mcp") return "settings.connections.test.help.mcp";
+  return Object.hasOwn(SECRET_TEST_HELP, result.host)
+    ? SECRET_TEST_HELP[result.host as keyof typeof SECRET_TEST_HELP]
+    : null;
+}
 
 export type TestState =
   | { state: "idle" }
@@ -121,6 +137,7 @@ export function TestResult({ test }: { test: TestState }) {
   // Service-authored names: rendered as text only.
   const named =
     result.kind === "mcp" ? (result.server ?? null) : (result.account ?? null);
+  const help = helpFor(result);
   return (
     <div data-connection-test-result="ok" style={resultStyle(true)}>
       {t("settings.connections.test.works")}
@@ -132,6 +149,8 @@ export function TestResult({ test }: { test: TestState }) {
       )}
       {result.kind === "mcp" &&
         ` · ${tn("settings.connections.test.tools", result.tools)}`}
+      {/* What Works means: the call the test made (Nil, 2026-10-14). */}
+      {help && <HelpTip text={t(help)} />}
     </div>
   );
 }

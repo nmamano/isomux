@@ -825,6 +825,18 @@ App 的一些原则：
   "settings.connections.test.running": "正在测试…",
   "settings.connections.test.noHostTest": "这些主机没有测试",
   "settings.connections.test.works": "可用",
+  "settings.connections.test.help.github":
+    "Isomux 用此密钥调用了 GitHub 的 /user API，GitHub 已接受，账号即所示账号。",
+  "settings.connections.test.help.stripe":
+    "Isomux 用此密钥调用了 Stripe 的 /v1/account API，Stripe 已接受，账号即所示账号。",
+  "settings.connections.test.help.fly":
+    "Isomux 用此密钥向 Fly.io GraphQL API 发送了 viewer 查询，Fly.io 已接受，账号即所示账号。",
+  "settings.connections.test.help.mcp":
+    "Isomux 像智能体一样连接到此服务器，并列出了它的工具。",
+  "settings.connections.test.help.claude":
+    "Isomux 用此登录启动了 Claude Code，Claude Code 报告已登录。",
+  "settings.connections.test.help.codex":
+    "Isomux 用此登录启动了 Codex，Codex 报告已登录。",
   "settings.connections.test.tools.one": "{count} 个工具",
   "settings.connections.test.tools.other": "{count} 个工具",
   "settings.connections.test.refused": "{host} 拒绝了该凭据。请检查或轮换它。",
@@ -934,9 +946,7 @@ App 的一些原则：
   "integrations.mcp.addHeading.self": "添加 MCP 服务器",
   "integrations.mcp.addHeading.member": "为 {member} 添加 MCP 服务器",
   "integrations.mcp.addHeading.office": "添加办公室通用的 MCP 服务器",
-  "integrations.mcp.signedInTo.self": "已登录 {name}。",
-  "integrations.mcp.signedInTo.member": "已登录 {member} 的 {name}。",
-  "integrations.mcp.signedInTo.office": "已登录办公室通用的 {name}。",
+  "integrations.mcp.signedIn": "已登录。",
   "integrations.providers.noPersonal": "没有个人登录",
   "integrations.signIn.office": "为此办公室中的所有智能体登录",
   "integrations.signIn.personal": "为我创建的智能体登录",
@@ -952,11 +962,6 @@ App 的一些原则：
   "integrations.connectionsFailed":
     "无法加载 claude.ai 连接器和在 Claude 文件中设置的服务器。",
   "integrations.memberGone": "{member} 已不在此办公室。",
-  "integrations.mcp.signInFailedFor.self": "{name} 的登录未完成。",
-  "integrations.mcp.signInFailedFor.member":
-    "{member} 的 {name} 的登录未完成。",
-  "integrations.mcp.signInFailedFor.office":
-    "办公室通用的 {name} 的登录未完成。",
   "integrations.secrets.empty": "没有密钥。",
   "integrations.secrets.add": "添加密钥",
   "integrations.secrets.value": "密钥或令牌",

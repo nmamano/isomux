@@ -10,6 +10,7 @@ import {
   dialogLabel,
   dialogSaveBtn,
 } from "../components/dialog-styles.ts";
+import { MaskedInput } from "../components/MaskedInput.tsx";
 
 // The outcome of each settled secret request in the transcript, keyed by
 // request id. ChatTranscript reads it from the system entries that close a
@@ -166,10 +167,7 @@ export function SecretRequestCard({
           <p style={hintStyle}>{t("settings.secrets.vouch")}</p>
           <label style={{ display: "block", marginBottom: 8 }}>
             <span style={dialogLabel}>{t("settings.secrets.value")}</span>
-            <input
-              type="password"
-              autoComplete="new-password"
-              spellCheck={false}
+            <MaskedInput
               value={value}
               placeholder={t("settings.secrets.valuePlaceholder")}
               style={dialogInput}

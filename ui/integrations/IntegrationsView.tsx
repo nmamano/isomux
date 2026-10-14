@@ -8,9 +8,16 @@
 // The member choice lives in this component only. Each open starts on You,
 // except the Settings member profile's link, which opens on that member once.
 // The tab is remembered on the device: an open starts on the last one, except
-// an MCP sign-in that came back, which opens MCP servers.
+// an MCP sign-in that came back, which opens MCP servers on the card of the
+// server it signed in to.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { BEDROCK_GUIDE } from "../connection-rows.ts";
@@ -19,12 +26,12 @@ import {
   useMyConnectionsFailed,
 } from "./my-connections.tsx";
 import { ProvidersSection, useProviderAccounts } from "./ProvidersSection.tsx";
-import { McpSection, signInErrorText } from "./McpSection.tsx";
+import { McpSection, SignInNotice } from "./McpSection.tsx";
 import { SecretsSection } from "./SecretsSection.tsx";
 import { VariablesSection } from "./VariablesSection.tsx";
 import { ConnectorList, EngineMcpList } from "./ClaudeLists.tsx";
-import { takeSignIn } from "./sign-in-return.ts";
-import { Btn, Data, card, hintText, input, useWhose } from "./kit.tsx";
+import { takeSignIn, type SignInNote } from "./sign-in-return.ts";
+import { Btn, Data, card, hintText, input } from "./kit.tsx";
 import { targetKey, type Role, type Target } from "./target.ts";
 import { BuildingIcon, PersonIcon } from "../components/NavIcons.tsx";
 import { getIntegrationsTab, setIntegrationsTab } from "../device-settings.ts";
@@ -75,7 +82,6 @@ function IntegrationsPage({
 }: IntegrationsProps) {
   const { isMobile, sessionContext, users } = useAppState();
   const { t, rich } = useI18n();
-  const whoseHeading = useWhose();
   const role: Role = sessionContext?.role === "owner" ? "owner" : "member";
   const self = sessionContext?.username ?? "";
 
@@ -91,40 +97,27 @@ function IntegrationsPage({
   const others = [...users.values()]
     .filter((user) => user.id !== sessionContext?.userId)
     .sort((a, b) => a.name.localeCompare(b.name));
+  // The result of an MCP sign-in that came back, with the note the page left
+  // before it went: which server, on whose card. With the note it shows on
+  // the server's row until the next action on that card; without one, at
+  // the top of the tab.
+  const [signIn, setSignIn] = useState<{
+    code: string;
+    note: SignInNote | null;
+  } | null>(() =>
+    initial?.signIn ? { code: initial.signIn, note: takeSignIn() } : null,
+  );
+  // A sign-in for another member opens on that member's card.
+  const opensOn =
+    initial?.member ??
+    (signIn?.note?.target.kind === "member"
+      ? signIn.note.target.username
+      : undefined);
   const [member, setMember] = useState<string | null>(() =>
-    role === "owner" &&
-    initial?.member &&
-    initial.member.toLowerCase() !== self.toLowerCase()
-      ? initial.member
+    role === "owner" && opensOn && opensOn.toLowerCase() !== self.toLowerCase()
+      ? opensOn
       : null,
   );
-  // The result of an MCP sign-in that came back. Whose server it was comes
-  // from the note the page left before it went (Reviewer 1: a missing note
-  // names no one, and a failure names the member as a success does).
-  const [notice] = useState(() => {
-    const code = initial?.signIn;
-    if (!code) return null;
-    const note = takeSignIn();
-    if (code === "ok")
-      return {
-        ok: true,
-        whose: null,
-        text: note
-          ? whoseHeading("integrations.mcp.signedInTo", note.target, {
-              name: note.server,
-            }).node
-          : t("settings.mcpServers.signInDone"),
-      };
-    return {
-      ok: false,
-      whose: note
-        ? whoseHeading("integrations.mcp.signInFailedFor", note.target, {
-            name: note.server,
-          }).node
-        : null,
-      text: signInErrorText(t, code, note?.server ?? null),
-    };
-  });
   // A member who left the office while picked: the card goes back to You and
   // says so, never an empty card under their name.
   const [gone, setGone] = useState<string | null>(null);
@@ -157,6 +150,21 @@ function IntegrationsPage({
   };
   const office: Target = { kind: "office" };
 
+  // The sign-in result for this card's servers, if any.
+  const signInFor = (target: Target) =>
+    signIn?.note && targetKey(signIn.note.target) === targetKey(target)
+      ? { code: signIn.code, server: signIn.note.server }
+      : null;
+  // The next action on that card (a button, a link, a field) clears it.
+  const actOn = (target: Target) => (e: MouseEvent) => {
+    if (
+      signInFor(target) &&
+      e.target instanceof Element &&
+      e.target.closest("button, a, input, select, textarea, label, summary")
+    )
+      setSignIn(null);
+  };
+
   const accounts = useProviderAccounts();
   const personalRef = useRef<HTMLElement>(null);
 
@@ -186,7 +194,12 @@ function IntegrationsPage({
       case "mcp":
         return (
           <div key={key}>
-            <McpSection target={target} role={role} onGone={memberGone} />
+            <McpSection
+              target={target}
+              role={role}
+              onGone={memberGone}
+              signIn={signInFor(target)}
+            />
             {target.kind !== "member" && (
               <ConnectorList
                 scope={target.kind === "office" ? "office" : "personal"}
@@ -359,25 +372,17 @@ function IntegrationsPage({
                 </>
               )}
             </p>
-            {notice && tab === "mcp" && (
-              <p
-                role={notice.ok ? "status" : "alert"}
-                data-mcp-sign-in-notice={notice.ok ? "ok" : "error"}
-                style={{
-                  fontSize: 12.5,
-                  margin: "0 0 14px",
-                  color: notice.ok ? "var(--green-text)" : "var(--red-text)",
-                }}
-              >
-                {notice.whose && (
-                  <>
-                    {notice.whose}
-                    <br />
-                  </>
-                )}
-                {notice.text}
-              </p>
-            )}
+            {/* No note, or none for a card on this page. */}
+            {signIn &&
+              !signInFor(office) &&
+              !signInFor(personal) &&
+              tab === "mcp" && (
+                <SignInNotice
+                  code={signIn.code}
+                  server={null}
+                  style={{ margin: "0 0 14px" }}
+                />
+              )}
             {connectionsFailed && tab === "mcp" && (
               <p
                 role="alert"
@@ -392,7 +397,11 @@ function IntegrationsPage({
               </p>
             )}
 
-            <section data-integrations-card="office" style={card}>
+            <section
+              data-integrations-card="office"
+              style={card}
+              onClickCapture={actOn(office)}
+            >
               <CardHead
                 icon={BuildingIcon}
                 title={t("integrations.office")}
@@ -426,6 +435,7 @@ function IntegrationsPage({
               others={others.map((user) => user.name)}
               onPick={pick}
               gone={goneMember}
+              onClickCapture={actOn(personal)}
             >
               {section(personal)}
             </PersonalCard>
@@ -521,6 +531,7 @@ function PersonalCard({
   others,
   onPick,
   gone,
+  onClickCapture,
   children,
 }: {
   cardRef: React.RefObject<HTMLElement | null>;
@@ -530,6 +541,7 @@ function PersonalCard({
   onPick: (member: string | null) => void;
   // A member who left while picked.
   gone: string | null;
+  onClickCapture: (e: MouseEvent) => void;
   children: ReactNode;
 }) {
   const { t, rich } = useI18n();
@@ -561,6 +573,7 @@ function PersonalCard({
   return (
     <section
       ref={cardRef}
+      onClickCapture={onClickCapture}
       data-integrations-card="personal"
       data-integrations-member={other ? target.username : undefined}
       style={{

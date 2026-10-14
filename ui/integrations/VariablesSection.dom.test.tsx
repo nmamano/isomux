@@ -5,6 +5,7 @@
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { expectMasked } from "../test-support/masked.ts";
 
 setUpDomTestFile();
 
@@ -72,7 +73,7 @@ it("masks your values until Show, and saves one variable at a time", async () =>
     "[data-env-value-input]",
   )!;
   expect(value.value).toBe("secret-a");
-  expect(value.type).toBe("password");
+  expectMasked(value);
   const note = view.container.querySelector<HTMLTextAreaElement>(
     "[data-env-edit-panel] textarea",
   )!;

@@ -55,6 +55,7 @@ import {
   type Role,
   type Target,
 } from "./target.ts";
+import { MaskedInput } from "../components/MaskedInput.tsx";
 
 // A row as the list shows it. A member reading the office's secrets gets the
 // name, the hosts and the note only.
@@ -550,10 +551,7 @@ function ReplaceValue({
   return (
     <Panel heading={heading} data-secret-replace-panel="">
       <Field label={t("integrations.secrets.value")}>
-        <input
-          type="password"
-          autoComplete="new-password"
-          spellCheck={false}
+        <MaskedInput
           style={{ ...input, ...mono }}
           value={value}
           placeholder={t("integrations.secrets.newValuePlaceholder")}
@@ -781,11 +779,8 @@ function AddSecret({
         </Field>
       )}
       <Field label={t("integrations.secrets.value")}>
-        <input
+        <MaskedInput
           data-secret-value-input
-          type="password"
-          autoComplete="new-password"
-          spellCheck={false}
           style={{ ...input, ...mono }}
           value={value}
           placeholder={t("integrations.secrets.valuePlaceholder")}

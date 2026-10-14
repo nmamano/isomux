@@ -42,6 +42,7 @@ import {
 import { Confirm } from "./SecretsSection.tsx";
 import { useAlive } from "./use-alive.ts";
 import { basePath, canEdit, isGone, type Role, type Target } from "./target.ts";
+import { MaskedInput } from "../components/MaskedInput.tsx";
 
 type Variable = { name: string; value: string | null; note: string };
 
@@ -444,14 +445,11 @@ function VariableEditor({
           </Field>
         )}
         <Field label={t("settings.secrets.value")}>
-          <input
+          <MaskedInput
             aria-label={t("settings.env.valueLabel", {
               name: trimmed || t("settings.env.variable"),
             })}
             data-env-value-input
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
             style={{ ...input, ...mono }}
             value={value}
             placeholder={t("settings.env.valuePlaceholder")}

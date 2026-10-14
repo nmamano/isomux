@@ -1,5 +1,6 @@
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { expectMasked } from "../test-support/masked.ts";
 import type { SecretRequestPayload } from "../../shared/types.ts";
 setUpDomTestFile();
 const { render, fireEvent, act } = await import("@testing-library/react");
@@ -66,14 +67,14 @@ function card(
 }
 
 const valueInput = (view: ReturnType<typeof render>) =>
-  view.container.querySelector<HTMLInputElement>('input[type="password"]');
+  view.container.querySelector<HTMLInputElement>("[data-masked-credential]");
 
 it("saves the typed value with the edited hosts, then shows it saved without the value", async () => {
   const calls = shim();
   const view = card(PAYLOAD, "a 1");
   expect(view.container.textContent).toContain(PAYLOAD.reason);
   const input = valueInput(view)!;
-  expect(input.autocomplete).toBe("new-password");
+  expectMasked(input);
   const save = view.getByRole("button", {
     name: t("cards.secretRequest.save"),
   }) as HTMLButtonElement;

@@ -10,12 +10,29 @@ setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { setApiShim } = await import("../api.ts");
-const { TestButton, TestResult, useConnectionTest } =
+const { SECRET_TEST_HELP, TestButton, TestResult, useConnectionTest } =
   await import("./ConnectionTest.tsx");
+const { IDENTITY_CHECKS } = await import("../../server/connection-tests.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 afterAll(() => setApiShim(null));
 
 const { t, tn } = translatorFor("en");
+
+// The result's words, without its (?).
+function words(el: HTMLElement | null): string | null {
+  if (!el) return null;
+  const copy = el.cloneNode(true) as HTMLElement;
+  copy.querySelector("[data-help-tip]")?.parentElement?.remove();
+  return copy.textContent;
+}
+
+// The (?)'s text, opened by a click, or null when the result has none.
+async function helpText(el: HTMLElement | null): Promise<string | null> {
+  const tip = el?.querySelector<HTMLButtonElement>("[data-help-tip]");
+  if (!tip) return null;
+  await act(async () => fireEvent.click(tip));
+  return el!.querySelector('[role="note"]')?.textContent ?? null;
+}
 
 function Harness({ path }: { path: string }) {
   const { test, run } = useConnectionTest(path);
@@ -61,8 +78,12 @@ it("runs one test at a time and reports each answer", async () => {
   await act(async () => release());
   expect(sent).toEqual(["POST /api/office/secrets/GH_TOKEN/test"]);
   expect(result()?.dataset.connectionTestResult).toBe("ok");
-  expect(result()?.textContent).toBe(
+  expect(words(result())).toBe(
     `${t("settings.connections.test.works")} · octocat`,
+  );
+  // What Works means, as the call the test made.
+  expect(await helpText(result())).toBe(
+    t("settings.connections.test.help.github"),
   );
 
   answer = {
@@ -76,8 +97,11 @@ it("runs one test at a time and reports each answer", async () => {
   };
   await act(async () => fireEvent.click(button));
   await act(async () => release());
-  expect(result()?.textContent).toBe(
+  expect(words(result())).toBe(
     `${t("settings.connections.test.works")} · Wiki · ${tn("settings.connections.test.tools", 3)}`,
+  );
+  expect(await helpText(result())).toBe(
+    t("settings.connections.test.help.mcp"),
   );
 
   for (const [reason, key] of [
@@ -91,6 +115,7 @@ it("runs one test at a time and reports each answer", async () => {
     await act(async () => release());
     expect(result()?.dataset.connectionTestResult).toBe("failed");
     expect(result()?.textContent).toBe(t(key, { host: "api.github.com" }));
+    expect(await helpText(result())).toBeNull();
   }
 
   answer = {
@@ -118,4 +143,27 @@ it("runs one test at a time and reports each answer", async () => {
   expect(result()?.textContent).toBe(
     t("settings.connections.test.requestFailed"),
   );
+});
+
+it("explains Works for every secret the server can test, by its host", async () => {
+  expect(Object.keys(SECRET_TEST_HELP).sort()).toEqual(
+    Object.values(IDENTITY_CHECKS)
+      .map((check) => check.host)
+      .sort(),
+  );
+  // A host with no test of its own: no (?), rather than a wrong one.
+  setApiShim(async () => ({
+    result: { ok: true, kind: "secret", host: "api.other.com", account: null },
+  }));
+  const view = render(
+    createElement(Harness, { path: "/api/office/secrets/X" }),
+  );
+  await act(async () =>
+    fireEvent.click(view.container.querySelector("[data-connection-test]")!),
+  );
+  const result = view.container.querySelector<HTMLElement>(
+    "[data-connection-test-result]",
+  );
+  expect(result?.dataset.connectionTestResult).toBe("ok");
+  expect(await helpText(result)).toBeNull();
 });
