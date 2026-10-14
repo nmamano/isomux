@@ -23,6 +23,17 @@ import {
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
 
+// An office agent running this suite has its own GH_TOKEN stand-in and proxy
+// variables in the host env; the manager would hand them to the fake session.
+for (const name of [
+  "GH_TOKEN",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "HTTP_PROXY",
+  "http_proxy",
+])
+  delete process.env[name];
+
 const VALUE = "ghp_FAKEdiaskFAKEdiaskFAKEdiaskFAKEdiask0";
 const KEY = Buffer.alloc(32, 9);
 const USER = "u-alice";
