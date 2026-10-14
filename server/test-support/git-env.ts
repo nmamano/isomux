@@ -27,5 +27,27 @@ export const GIT_REPO_ENV_VARS = [
 export function inheritedGitRepoEnv(
   env: Record<string, string | undefined>,
 ): string[] {
-  return GIT_REPO_ENV_VARS.filter((name) => env[name] !== undefined);
+  return GIT_REPO_ENV_VARS.filter(
+    (name) =>
+      env[name] !== undefined &&
+      !(name === "GIT_CONFIG_COUNT" && onlyCredentialHelpers(env)),
+  );
+}
+
+// An office agent whose member saved a secret for a git host gets that host's
+// credential helper through GIT_CONFIG_COUNT/KEY/VALUE (server/env-loader.ts).
+// Those entries point no git command at another repository, and they act only
+// on an https remote of that host, so they do not block the tests.
+function onlyCredentialHelpers(env: Record<string, string | undefined>) {
+  const count = Number(env.GIT_CONFIG_COUNT);
+  if (!Number.isSafeInteger(count) || count < 0) return false;
+  for (let i = 0; i < count; i++) {
+    if (
+      !/^credential\.https:\/\/[^\s/]+\.helper$/.test(
+        env[`GIT_CONFIG_KEY_${i}`] ?? "",
+      )
+    )
+      return false;
+  }
+  return true;
 }

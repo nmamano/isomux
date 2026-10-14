@@ -19,7 +19,7 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { GIT_REPO_ENV_VARS } from "./git-env.ts";
+import { GIT_REPO_ENV_VARS, inheritedGitRepoEnv } from "./git-env.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const FIXTURE = join(import.meta.dir, "git-env.fixture.ts");
@@ -88,6 +88,34 @@ function childEnv(extra: Record<string, string>): Record<string, string> {
   }
   return { ...env, ...extra };
 }
+
+describe("inheritedGitRepoEnv", () => {
+  it("lets through the git credential helpers an office agent gets for its secrets", () => {
+    expect(
+      inheritedGitRepoEnv({
+        GIT_CONFIG_COUNT: "2",
+        GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
+        GIT_CONFIG_VALUE_0: "",
+        GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
+        GIT_CONFIG_VALUE_1: "!f() { :; }; f",
+      }),
+    ).toEqual([]);
+  });
+
+  it("still refuses any other GIT_CONFIG_COUNT entry", () => {
+    expect(
+      inheritedGitRepoEnv({
+        GIT_CONFIG_COUNT: "2",
+        GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
+        GIT_CONFIG_KEY_1: "core.worktree",
+        GIT_CONFIG_VALUE_1: "/elsewhere",
+      }),
+    ).toEqual(["GIT_CONFIG_COUNT"]);
+    expect(
+      inheritedGitRepoEnv({ GIT_CONFIG_COUNT: "1", GIT_DIR: "/x/.git" }),
+    ).toEqual(["GIT_CONFIG_COUNT", "GIT_DIR"]);
+  });
+});
 
 describe("git variables inherited from a hook", () => {
   it("the list covers every variable the installed git names", () => {
