@@ -11,9 +11,9 @@ import {
 import { openCodeAutoCompactTokens } from "./backends/opencode/adapter.ts";
 
 describe("autoHandoffTrigger", () => {
-  it("is 90% of a window under 555k", () => {
+  it("is 85% of a window under 588k", () => {
     expect(autoHandoffTrigger({ maxTokens: 200_000 })).toEqual({
-      tokens: 180_000,
+      tokens: 170_000,
       measure: "percent",
       maxTokens: 200_000,
     });
@@ -39,7 +39,7 @@ describe("autoHandoffTrigger", () => {
     ).toMatchObject({ tokens: 500_000, measure: "tokens" });
     expect(
       autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 199_000 }),
-    ).toMatchObject({ tokens: 180_000, measure: "percent" });
+    ).toMatchObject({ tokens: 170_000, measure: "percent" });
   });
 
   it("reports the earlier limit on a tie: tokens, then percent, then compaction", () => {
@@ -47,10 +47,10 @@ describe("autoHandoffTrigger", () => {
     expect(
       autoHandoffTrigger({ maxTokens: 1_000_000, compactAtTokens: 550_000 }),
     ).toMatchObject({ tokens: 500_000, measure: "tokens" });
-    // The guard ties the 90% limit on a 200k window.
+    // The guard ties the 85% limit on a 200k window.
     expect(
-      autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 190_000 }),
-    ).toMatchObject({ tokens: 180_000, measure: "percent" });
+      autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 180_000 }),
+    ).toMatchObject({ tokens: 170_000, measure: "percent" });
   });
 
   it("names the limit that fired, not the measured value", () => {

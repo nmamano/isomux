@@ -169,19 +169,27 @@ export function EngineMcpList({ scope }: { scope: ConnectionScope }) {
   if (servers.length === 0) return null;
   return (
     <div data-engine-mcp-servers={scope}>
+      {/* Title and subtitle on one line, the subtitle under it when it
+          does not fit. */}
       <div
         style={{
           borderTop: "1px solid var(--border-subtle)",
           padding: "10px 2px 0",
-          fontSize: 12,
-          fontWeight: 600,
-          color: "var(--text-dim)",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "baseline",
+          columnGap: 10,
+          rowGap: 2,
         }}
       >
-        {t("integrations.engineMcp.title")}
-      </div>
-      <div style={{ ...hintText, fontSize: 11.5, padding: "2px 2px 0" }}>
-        {t("integrations.engineMcp.source")}
+        <div
+          style={{ fontSize: 12, fontWeight: 600, color: "var(--text-dim)" }}
+        >
+          {t("integrations.engineMcp.title")}
+        </div>
+        <div style={{ ...hintText, fontSize: 11.5 }}>
+          {t("integrations.engineMcp.source")}
+        </div>
       </div>
       {servers.map((server) => (
         <ItemRow

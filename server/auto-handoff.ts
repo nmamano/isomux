@@ -6,10 +6,10 @@
 
 import type { ManagedAgent } from "./internal-types.ts";
 
-// Nil, 2026-10-13: hand off at 500k tokens or at 90% of the window, whichever
-// comes first.
+// Nil, 2026-10-13 and 2026-10-14: hand off at 500k tokens or at 85% of the
+// window, whichever comes first.
 export const AUTO_HANDOFF_MAX_TOKENS = 500_000;
-export const AUTO_HANDOFF_MAX_PERCENT = 90;
+export const AUTO_HANDOFF_MAX_PERCENT = 85;
 // An engine that compacts on its own before that point would compact first and
 // the handoff would never fire, so the trigger moves this many points of the
 // window ahead of the engine's compaction point. The room is for the brief

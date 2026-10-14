@@ -954,12 +954,12 @@ Cosas que puedes hacer por él:
   "integrations.office": "De toda la oficina",
   "integrations.officeWho": "Todos los agentes de la oficina",
   "integrations.officeWhoMember":
-    "Todos los agentes de la oficina. Solo los propietarios pueden cambiar las integraciones de toda la oficina.",
+    "Todos los agentes de la oficina. Solo los propietarios pueden cambiar estas integraciones.",
   "integrations.personal": "Personales",
   "integrations.personalWhoSelf":
-    "Los agentes que inicias. Una personal sustituye a la de toda la oficina con el mismo nombre.",
+    "Los agentes que inicias. Una de aquí sustituye a la de toda la oficina con el mismo nombre.",
   "integrations.personalWhoMember":
-    "Los agentes que inicia {member}. Una personal sustituye a la de toda la oficina con el mismo nombre.",
+    "Los agentes que inicia {member}. Una de aquí sustituye a la de toda la oficina con el mismo nombre.",
   "integrations.memberTitle": "Integraciones de {member}",
   "integrations.backToYours": "Volver a las tuyas",
   "integrations.picker": "De quién son las integraciones",
@@ -1038,6 +1038,9 @@ Cosas que puedes hacer por él:
   "integrations.mcp.signedInTo.office":
     "Sesión iniciada en {name} de toda la oficina.",
   "integrations.providers.noPersonal": "Sin inicio de sesión personal",
+  "integrations.signIn.office":
+    "Inicia sesión para cada agente de esta oficina",
+  "integrations.signIn.personal": "Inicia sesión para los agentes que creo",
   "integrations.providers.opencode.bundled":
     "Viene con Isomux. Los modelos gratuitos no necesitan cuenta ni clave.",
   "integrations.providers.opencode.keySet":
@@ -1045,7 +1048,7 @@ Cosas que puedes hacer por él:
   "integrations.providers.opencode.noKeyOffice":
     "No hay <code>OPENCODE_API_KEY</code>. Los modelos de pago necesitan una en <link>Variables</link>.",
   "integrations.providers.opencode.noKeyPersonal":
-    "No hay <code>OPENCODE_API_KEY</code> personal. Para añadir una, ve a <link>Variables</link>.",
+    "No hay <code>OPENCODE_API_KEY</code>. Para añadir una, ve a <link>Variables</link>.",
   "integrations.providers.testSignedOut": "No hay sesión iniciada.",
   "integrations.connectionsFailed":
     "No se pudieron cargar los conectores de claude.ai ni los servidores configurados en los archivos de Claude.",

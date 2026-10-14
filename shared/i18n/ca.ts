@@ -953,12 +953,12 @@ Coses que pots fer per ell:
   "integrations.office": "De tota l'oficina",
   "integrations.officeWho": "Tots els agents de l'oficina",
   "integrations.officeWhoMember":
-    "Tots els agents de l'oficina. Només els propietaris poden canviar les integracions de tota l'oficina.",
+    "Tots els agents de l'oficina. Només els propietaris poden canviar aquestes integracions.",
   "integrations.personal": "Personals",
   "integrations.personalWhoSelf":
-    "Els agents que inicies. Una de personal substitueix la de tota l'oficina amb el mateix nom.",
+    "Els agents que inicies. Una d'aquí substitueix la de tota l'oficina amb el mateix nom.",
   "integrations.personalWhoMember":
-    "Els agents que inicia {member}. Una de personal substitueix la de tota l'oficina amb el mateix nom.",
+    "Els agents que inicia {member}. Una d'aquí substitueix la de tota l'oficina amb el mateix nom.",
   "integrations.memberTitle": "Integracions de {member}",
   "integrations.backToYours": "Torna a les teves",
   "integrations.picker": "De qui són les integracions",
@@ -1037,6 +1037,9 @@ Coses que pots fer per ell:
   "integrations.mcp.signedInTo.office":
     "Sessió iniciada a {name} de tota l'oficina.",
   "integrations.providers.noPersonal": "Sense inici de sessió personal",
+  "integrations.signIn.office":
+    "Inicia la sessió per a cada agent d'aquesta oficina",
+  "integrations.signIn.personal": "Inicia la sessió per als agents que creo",
   "integrations.providers.opencode.bundled":
     "Ve amb Isomux. Els models gratuïts no necessiten compte ni clau.",
   "integrations.providers.opencode.keySet":
@@ -1044,7 +1047,7 @@ Coses que pots fer per ell:
   "integrations.providers.opencode.noKeyOffice":
     "No hi ha <code>OPENCODE_API_KEY</code>. Els models de pagament en necessiten una a <link>Variables</link>.",
   "integrations.providers.opencode.noKeyPersonal":
-    "No hi ha cap <code>OPENCODE_API_KEY</code> personal. Per afegir-ne una, ves a <link>Variables</link>.",
+    "No hi ha cap <code>OPENCODE_API_KEY</code>. Per afegir-ne una, ves a <link>Variables</link>.",
   "integrations.providers.testSignedOut": "No hi ha cap sessió iniciada.",
   "integrations.connectionsFailed":
     "No s'han pogut carregar els connectors de claude.ai ni els servidors configurats als fitxers de Claude.",

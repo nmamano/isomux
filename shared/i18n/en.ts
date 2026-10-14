@@ -947,12 +947,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.office": "Office-wide",
   "integrations.officeWho": "Every agent in the office",
   "integrations.officeWhoMember":
-    "Every agent in the office. Only owners can change office-wide integrations.",
+    "Every agent in the office. Only owners can change these integrations.",
   "integrations.personal": "Personal",
   "integrations.personalWhoSelf":
-    "Agents you start. A personal one replaces the office-wide one with the same name.",
+    "Agents you start. One set here replaces the office-wide one with the same name.",
   "integrations.personalWhoMember":
-    "Agents {member} starts. A personal one replaces the office-wide one with the same name.",
+    "Agents {member} starts. One set here replaces the office-wide one with the same name.",
   "integrations.memberTitle": "{member}'s integrations",
   "integrations.backToYours": "Back to yours",
   "integrations.picker": "Whose integrations",
@@ -1027,6 +1027,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.mcp.signedInTo.member": "Signed in to {member}'s {name}.",
   "integrations.mcp.signedInTo.office": "Signed in to the office-wide {name}.",
   "integrations.providers.noPersonal": "No personal sign-in",
+  "integrations.signIn.office": "Sign in for every agent in this office",
+  "integrations.signIn.personal": "Sign in for agents I spawn",
   "integrations.providers.opencode.bundled":
     "Ships with Isomux. Free models need no account or key.",
   "integrations.providers.opencode.keySet":
@@ -1034,7 +1036,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.providers.opencode.noKeyOffice":
     "No <code>OPENCODE_API_KEY</code>. Paid models need one in <link>Variables</link>.",
   "integrations.providers.opencode.noKeyPersonal":
-    "No personal <code>OPENCODE_API_KEY</code>. To add one, go to <link>Variables</link>.",
+    "No <code>OPENCODE_API_KEY</code>. To add one, go to <link>Variables</link>.",
   "integrations.providers.testSignedOut": "Not signed in.",
   "integrations.connectionsFailed":
     "Could not load the claude.ai connectors and the servers set in Claude's files.",

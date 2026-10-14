@@ -462,13 +462,25 @@ function CardHead({
     <div
       style={{
         display: "flex",
-        alignItems: "flex-end",
+        alignItems: "center",
         gap: 12,
         margin: "0 0 8px",
         flexWrap: "wrap",
       }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Title and subtitle share a line; the subtitle wraps under the
+          title when it does not fit (Nil, 2026-10-14). */}
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          columnGap: 10,
+          rowGap: 2,
+        }}
+      >
         <h2
           data-card-title
           style={{
@@ -493,7 +505,7 @@ function CardHead({
           </span>
           {title}
         </h2>
-        {sub && <div style={{ ...hintText, marginTop: 2 }}>{sub}</div>}
+        {sub && <div style={hintText}>{sub}</div>}
       </div>
       {action}
     </div>

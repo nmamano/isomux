@@ -138,6 +138,14 @@ export function ProviderSignInCard({
   );
 }
 
+const scopeLineStyle: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 650,
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+};
+
 function ProviderScopeConnection({
   provider,
   scope,
@@ -217,8 +225,13 @@ function ProviderScopeConnection({
   const queueMessage = account?.loginQueue
     ? sharedLoginQueueMessage(i18n, title, account.loginQueue)
     : null;
-  const scopeTitle =
-    scope === "office"
+  // On the Integrations page the card sits under a header that names the
+  // scope, so the line drops the scope word; the chat card keeps it.
+  const scopeTitle = pageLook
+    ? scope === "office"
+      ? t("integrations.signIn.office")
+      : t("integrations.signIn.personal")
+    : scope === "office"
       ? t("settings.signIn.scopeOffice")
       : t("settings.signIn.scopePersonal");
   // The office scope's sentence names the other section, so it carries the
@@ -424,24 +437,35 @@ function ProviderScopeConnection({
             }
       }
     >
-      <div
-        data-sign-in-scope={scope}
-        style={{
-          fontSize: 12,
-          fontWeight: 650,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        {pageLook && (
-          <span aria-hidden style={{ color: "var(--text-muted)" }}>
-            {scope === "office" ? BuildingIcon : PersonIcon}
-          </span>
-        )}
-        {scopeTitle}
-      </div>
-      <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
+      {pageLook ? (
+        // The page puts the hint beside the scope line, under it when it
+        // does not fit.
+        <div
+          data-sign-in-scope={scope}
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            columnGap: 10,
+            rowGap: 8,
+          }}
+        >
+          <div style={scopeLineStyle}>
+            <span aria-hidden style={{ color: "var(--text-muted)" }}>
+              {scope === "office" ? BuildingIcon : PersonIcon}
+            </span>
+            {scopeTitle}
+          </div>
+          <p style={{ ...hint, margin: 0 }}>{scopeHint}</p>
+        </div>
+      ) : (
+        <>
+          <div data-sign-in-scope={scope} style={scopeLineStyle}>
+            {scopeTitle}
+          </div>
+          <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
+        </>
+      )}
       <p
         data-provider-account-state={statusState}
         style={{ ...hint, margin: "8px 0 0" }}

@@ -861,12 +861,12 @@ App 的一些原则：
   "integrations.office": "办公室通用",
   "integrations.officeWho": "办公室中的所有智能体",
   "integrations.officeWhoMember":
-    "办公室中的所有智能体。只有所有者可以更改办公室通用的集成。",
+    "办公室中的所有智能体。只有所有者可以更改这些集成。",
   "integrations.personal": "个人",
   "integrations.personalWhoSelf":
-    "你启动的智能体。同名的个人集成会替代办公室通用的集成。",
+    "你启动的智能体。这里的同名集成会替代办公室通用的集成。",
   "integrations.personalWhoMember":
-    "{member} 启动的智能体。同名的个人集成会替代办公室通用的集成。",
+    "{member} 启动的智能体。这里的同名集成会替代办公室通用的集成。",
   "integrations.memberTitle": "{member} 的集成",
   "integrations.backToYours": "返回你的集成",
   "integrations.picker": "查看谁的集成",
@@ -938,6 +938,8 @@ App 的一些原则：
   "integrations.mcp.signedInTo.member": "已登录 {member} 的 {name}。",
   "integrations.mcp.signedInTo.office": "已登录办公室通用的 {name}。",
   "integrations.providers.noPersonal": "没有个人登录",
+  "integrations.signIn.office": "为此办公室中的所有智能体登录",
+  "integrations.signIn.personal": "为我创建的智能体登录",
   "integrations.providers.opencode.bundled":
     "随 Isomux 一起提供。免费模型不需要账号或密钥。",
   "integrations.providers.opencode.keySet":
@@ -945,7 +947,7 @@ App 的一些原则：
   "integrations.providers.opencode.noKeyOffice":
     "没有 <code>OPENCODE_API_KEY</code>。付费模型需要在<link>变量</link>中添加一个。",
   "integrations.providers.opencode.noKeyPersonal":
-    "没有个人 <code>OPENCODE_API_KEY</code>。要添加，请前往<link>变量</link>。",
+    "没有 <code>OPENCODE_API_KEY</code>。要添加，请前往<link>变量</link>。",
   "integrations.providers.testSignedOut": "未登录。",
   "integrations.connectionsFailed":
     "无法加载 claude.ai 连接器和在 Claude 文件中设置的服务器。",

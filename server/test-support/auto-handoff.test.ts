@@ -230,7 +230,7 @@ function expectInOrder(text: string, needles: string[]) {
 
 describe("automatic handoff: arming", () => {
   for (const agentType of ["claude", "codex", "opencode"] as const) {
-    it(`${agentType}: 90% of a small window hands off, with the brief captured after the last tool call`, async () => {
+    it(`${agentType}: 85% of a small window hands off, with the brief captured after the last tool call`, async () => {
       const h = makeHarness();
       // OpenCode streams deltas; the other engines send whole blocks.
       const chunks =
@@ -254,12 +254,12 @@ describe("automatic handoff: arming", () => {
         s.completeTurn();
       };
       const info = await spawn(h, { agentType });
-      const old = await turnEndingAt(h, info.id, ctx(182_000, 200_000));
+      const old = await turnEndingAt(h, info.id, ctx(172_000, 200_000));
 
       const fresh = await freshSession(h, info.id, old);
       // The brief turn ran in the old session, with nothing else.
       expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
-      expect(texts(old).at(-1)).toContain("182,000 tokens (91% full)");
+      expect(texts(old).at(-1)).toContain("172,000 tokens (86% full)");
       // The fresh session got the notice, then the brief from the old one.
       const first = fresh.sent[0].text;
       expectInOrder(first, [
@@ -269,12 +269,12 @@ describe("automatic handoff: arming", () => {
         captured,
       ]);
       expect(first).not.toContain("Checking first.");
-      // Both lines name the 90% limit, not the 91% measured.
+      // Both lines name the 85% limit, not the 86% measured.
       expect(systemLines(h)).toContain(
-        en.t("systemEntries.autoHandoff.writingPercent", { percent: 90 }),
+        en.t("systemEntries.autoHandoff.writingPercent", { percent: 85 }),
       );
       expect(systemLines(h)).toContain(
-        en.t("systemEntries.autoHandoff.donePercent", { percent: 90 }),
+        en.t("systemEntries.autoHandoff.donePercent", { percent: 85 }),
       );
       // The brief turn's own sample, still above the trigger, does not start
       // a second attempt in either session.
@@ -289,7 +289,7 @@ describe("automatic handoff: arming", () => {
     });
   }
 
-  it("500k tokens of a 1M window hands off before 90%, with no 50% notice to either audience", async () => {
+  it("500k tokens of a 1M window hands off before 85%, with no 50% notice to either audience", async () => {
     const h = makeHarness();
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(510_000, 1_000_000));
@@ -312,7 +312,7 @@ describe("automatic handoff: arming", () => {
     ["claude", "sdk"],
     ["opencode", "adapter"],
   ] as const) {
-    it(`${agentType}: an engine that compacts before 90% hands off 5 points ahead of its compaction point`, async () => {
+    it(`${agentType}: an engine that compacts before 85% hands off 5 points ahead of its compaction point`, async () => {
       // Compacts at 160k of 200k (80%): the trigger is 75%, 150k.
       expect(
         autoHandoffTrigger({ maxTokens: 200_000, compactAtTokens: 160_000 }),
@@ -402,9 +402,9 @@ describe("automatic handoff: arming", () => {
     h.measure.now = ctx(190_000, 200_000);
     usageUpdate(s);
     await waitUntil(() => committed(190_000), "mid-turn sample committed");
-    h.measure.now = ctx(170_000, 200_000);
+    h.measure.now = ctx(160_000, 200_000);
     s.completeTurn({ text: "done" });
-    await waitUntil(() => committed(170_000), "turn-end sample committed");
+    await waitUntil(() => committed(160_000), "turn-end sample committed");
     await settle();
     expect(texts(s).some(isBriefPrompt)).toBe(false);
 
@@ -880,7 +880,7 @@ describe("automatic handoff: wrap-up notices", () => {
   it("stay quiet for both audiences while an attempt is still possible", async () => {
     const h = makeHarness();
     const info = await spawn(h);
-    // 80% is past the 75 band and below the 90% trigger.
+    // 80% is past the 75 band and below the 85% trigger.
     await turnEndingAt(h, info.id, ctx(160_000, 200_000));
     await waitUntil(
       () => stateOf(h, info.id) === "waiting_for_response",

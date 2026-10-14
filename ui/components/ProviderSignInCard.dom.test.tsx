@@ -6,6 +6,7 @@ const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { ProviderSignInCard } = await import("./ProviderSignInCard.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
+const { en } = await import("../../shared/i18n/en.ts");
 afterAll(() => setApiShim(null));
 
 it("keeps browser sign-in available when the account check is unavailable", () => {
@@ -406,4 +407,31 @@ it("leaves a member only the status and Test of an office sign-in", () => {
     test: true,
     askOwner: false,
   });
+});
+
+it("drops the scope word under the page's scope header and keeps it in chat", () => {
+  const card = (pageLook: boolean) =>
+    createElement(ProviderSignInCard, {
+      provider: "claude",
+      accounts: [],
+      loaded: true,
+      pageLook,
+    });
+  const line = (view: ReturnType<typeof render>, scope: string) =>
+    view.container.querySelector(`[data-sign-in-scope="${scope}"]`)!
+      .firstElementChild!.textContent;
+  const scopeWords = {
+    office: en["integrations.office"],
+    personal: en["integrations.personal"],
+  };
+  const chat = render(card(false));
+  for (const scope of ["office", "personal"] as const)
+    expect(
+      chat.container.querySelector(`[data-sign-in-scope="${scope}"]`)!
+        .textContent,
+    ).toContain(scopeWords[scope]);
+  chat.unmount();
+  const page = render(card(true));
+  for (const scope of ["office", "personal"] as const)
+    expect(line(page, scope)).not.toContain(scopeWords[scope]);
 });

@@ -1153,7 +1153,7 @@ describe("CodexSession token usage", () => {
     expect(ctx!.maxTokens).toBe(200000);
     expect(ctx!.categories?.length).toBe(4);
     // Where Codex compacts is not knowable at runtime: no compaction point,
-    // so the automatic handoff uses its 500k/90% limits alone.
+    // so the automatic handoff uses its 500k/85% limits alone.
     expect(ctx!.compactAtTokens).toBeUndefined();
     expect(ctx!.autoCompactThreshold).toBeUndefined();
 

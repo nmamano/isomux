@@ -8,7 +8,8 @@ import {
   type ConnectionsListRes,
 } from "../shared/contract-shapes.ts";
 
-export const CLAUDE_CONNECTORS_URL = "https://claude.ai/settings/connectors";
+export const CLAUDE_CONNECTORS_URL =
+  "https://claude.ai/new#customize/connectors";
 
 export const BEDROCK_GUIDE =
   "https://isomux.com/docs/llm-providers#claude-on-amazon-bedrock";

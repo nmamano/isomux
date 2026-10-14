@@ -1433,12 +1433,12 @@ export class CodexSession implements BackendSession {
       percentage,
       categories,
       // No compactAtTokens: where Codex compacts is not knowable at runtime,
-      // so the automatic handoff uses its 500k/90% limits alone. With the
+      // so the automatic handoff uses its 500k/85% limits alone. With the
       // upstream defaults (codex-rs 0.153.4: openai_models.rs
       // auto_compact_token_limit = min(configured limit, 90% of the raw
       // window); turn_context.rs reports the usable window, 95% of the raw
-      // one), Codex compacts at 0.9 raw and the 90% limit fires at 0.855 raw,
-      // about 12k tokens earlier on a 272k model. But the model catalog can
+      // one), Codex compacts at 0.9 raw and the 85% limit fires at 0.8075 raw,
+      // about 25k tokens earlier on a 272k model. But the model catalog can
       // come from the backend, config.toml can set
       // model_auto_compact_token_limit, and app-server reports neither
       // (config/read gives only a configured limit; Model has no such field).

@@ -17,14 +17,14 @@ A per-agent switch, off by default. When it is on and a completed turn leaves th
 
 ## 2. Trigger and measurement
 
-**Hand off at 500k tokens or at 90% of the window, whichever comes first (Nil, 2026-10-13). An engine that compacts on its own before that point gets a trigger 5 points of the window ahead of its compaction point.** In tokens: `min(500_000, 0.9 x window, compactAt - 0.05 x window)`, the last term only when the engine's compaction point is knowable. On a tie the earlier term in that order is the one reported. Constants, not settings: `server/auto-handoff.ts`. The 5 points leave room for the brief turn, which runs in the old context.
+**Hand off at 500k tokens or at 85% of the window, whichever comes first (Nil, 2026-10-13; 85% since 2026-10-14). An engine that compacts on its own before that point gets a trigger 5 points of the window ahead of its compaction point.** In tokens: `min(500_000, 0.85 x window, compactAt - 0.05 x window)`, the last term only when the engine's compaction point is knowable. On a tie the earlier term in that order is the one reported. Constants, not settings: `server/auto-handoff.ts`. The 5 points leave room for the brief turn, which runs in the old context.
 
 Each engine feeds `ManagedAgent.contextUsage`. Claude reports its compaction point through the SDK's `autoCompactThreshold`; an adapter reports its own in the internal `ContextUsage.compactAtTokens`, which `/context` does not show. The snapshot keeps the point as `compactAtTokens`; it is not on the wire.
 
 | engine | context use | compaction point (source checked 2026-10-14) |
 |---|---|---|
 | Claude | SDK `getContextUsage()`, passed through. Sampled after every `turn_completed`. | The SDK's own `autoCompactThreshold` when `isAutoCompactEnabled`. |
-| Codex | The `last.*` counts of the latest `thread/tokenUsage/updated` against `modelContextWindow`. Null until the first notification. | Not knowable at runtime, so Codex uses 500k/90% alone. With upstream defaults (codex-rs 0.153.4: `auto_compact_token_limit` is `min(configured limit, 90% of the raw window)`; app-server reports the usable window, 95% of the raw one), Codex compacts at 0.9 raw and the 90% limit fires at 0.855 raw, about 12k tokens earlier on a 272k model. But the model catalog can come from the backend, `config.toml` can set `model_auto_compact_token_limit`, and app-server reports neither value. |
+| Codex | The `last.*` counts of the latest `thread/tokenUsage/updated` against `modelContextWindow`. Null until the first notification. | Not knowable at runtime, so Codex uses 500k/85% alone. With upstream defaults (codex-rs 0.153.4: `auto_compact_token_limit` is `min(configured limit, 90% of the raw window)`; app-server reports the usable window, 95% of the raw one), Codex compacts at 0.9 raw and the 85% limit fires at 0.8075 raw, about 25k tokens earlier on a 272k model. But the model catalog can come from the backend, `config.toml` can set `model_auto_compact_token_limit`, and app-server reports neither value. |
 | OpenCode | The latest step's `total` against the catalog's `limit.context`. Null when the catalog has no limit. | The default path of `SessionCompaction.isOverflow` in the JavaScript bundled with 1.18.35: a step at or above `limit.input - min(20000, maxOut)` when the model has an input limit, else `limit.context - maxOut`, where `maxOut = min(limit.output, 32000)`, or 32000 when there is no output limit. A member's own OpenCode config (`compaction.auto`, `compaction.reserved`) or `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` can move it; the config Isomux writes sets none of them, and Isomux does not read the others. |
 
 A null sample commits nothing, so nothing arms.
@@ -51,10 +51,10 @@ A null sample commits nothing, so nothing arms.
 
 ## 5. What members see
 
-- **Old chat, as the brief turn starts:** `Context is at 500k tokens. Writing a handoff brief for a fresh session.`, `Context is 90% full. ...`, or `Context is NN% full, close to auto-compaction. ...`, by the limit that fired. The brief then appears as normal agent text.
+- **Old chat, as the brief turn starts:** `Context is at 500k tokens. Writing a handoff brief for a fresh session.`, `Context is 85% full. ...`, or `Context is NN% full, close to auto-compaction. ...`, by the limit that fired. The brief then appears as normal agent text.
 - **Wrap-up notices.** While an automatic attempt is still possible (switch on, attempt not spent, not paused), both audiences skip every band: the member notice and the agent's `[context check: ...]` block. All bands, because the 50 band only applies to windows of 500k or more, where the 500k trigger fires at or before 50%, and the member copy at every band points at `/handoff`. Nothing is marked fired while they are quiet, so after a failed or paused attempt the highest band fires as before. Codex and OpenCode never get these notices.
 - **The reset** clears the chat, as a manual `/handoff` does (Nil, 2026-10-13: no chat that spans handoffs).
-- **Fresh chat, first entry** (in place of "New conversation started."): `Handed off automatically at 500k tokens.`, `Handed off automatically at 90% context.`, or `Handed off automatically at NN% context, before auto-compaction.` Both lines name the limit that fired, not the measured value, so they give one reason. Then the brief and the agent's first reply.
+- **Fresh chat, first entry** (in place of "New conversation started."): `Handed off automatically at 500k tokens.`, `Handed off automatically at 85% context.`, or `Handed off automatically at NN% context, before auto-compaction.` Both lines name the limit that fired, not the measured value, so they give one reason. Then the brief and the agent's first reply.
 - **An audit row**: operation `agents.handoff`, actor kind `auto_handoff`, the agent as target.
 - Member-facing strings are in `shared/i18n` (en, es, ca, zh).
 
@@ -71,7 +71,7 @@ A null sample commits nothing, so nothing arms.
 
 ## Rulings
 
-Nil, 2026-10-13 and 2026-10-14: the 500k/90% trigger with the compaction guard; all three engines; the chat clears; the fresh-session notice and history pointer; no brief rules beyond `/handoff` step 1; the per-conversation summary is a separate task (ac41c60e). Defaults where Nil has not ruled (reversible): the per-agent switch, off for new agents; no room or office default; eager timing.
+Nil, 2026-10-13 and 2026-10-14: the 500k/85% trigger with the compaction guard; all three engines; the chat clears; the fresh-session notice and history pointer; no brief rules beyond `/handoff` step 1; the per-conversation summary is a separate task (ac41c60e). Defaults where Nil has not ruled (reversible): the per-agent switch, off for new agents; no room or office default; eager timing.
 
 ## For the Lead (route, wire and state-layout proposals)
 
