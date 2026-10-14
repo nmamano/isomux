@@ -231,4 +231,24 @@ describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
       true,
     );
   });
+
+  it("automatic handoff survives kill -> revive, and stays off when it was off", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
+    });
+    server = srv;
+    const on = await spawnAgent(srv, "AutoOn");
+    const off = await spawnAgent(srv, "AutoOff");
+    await srv.agentManager.editAgent(on.info.id, { autoHandoff: true });
+
+    for (const { info, roomId } of [on, off]) {
+      await srv.agentManager.kill(info.id);
+      const res = await srv.agentManager.revive(info.id, roomId, info.desk);
+      expect(res.ok).toBe(true);
+    }
+    expect(srv.agentManager.getAgent(on.info.id)?.autoHandoff).toBe(true);
+    expect(srv.agentManager.getAgent(off.info.id)?.autoHandoff ?? false).toBe(
+      false,
+    );
+  });
 });

@@ -121,6 +121,9 @@ export interface AgentCapabilities {
   topicGen: boolean;
   edit: boolean;
   mcp: boolean;
+  // The engine reports context use and a compaction point the automatic
+  // handoff can act on (internal-docs/auto-handoff-design.md).
+  autoHandoff: boolean;
 }
 
 // All-capabilities-on default. Real server-spawned agents pull capabilities
@@ -135,6 +138,7 @@ export const DEFAULT_AGENT_CAPABILITIES: AgentCapabilities = {
   topicGen: true,
   edit: true,
   mcp: true,
+  autoHandoff: true,
 };
 
 // Model families - what users pick ("I want Opus"). Exact versions are an
@@ -749,6 +753,10 @@ export interface AgentInfo {
   // agents.setPrivileged route; never by an agent. Absent/false on normal
   // agents.
   privileged?: boolean;
+  // Automatic handoff: when the context crosses the trigger after a completed
+  // turn, the server has the agent write a brief and hands off to a fresh
+  // session (internal-docs/auto-handoff-design.md). Absent reads as false.
+  autoHandoff?: boolean;
 
   // Mirrored to ~/.isomux/message-queues.json and replayed on boot (task
   // 9870b472) - a restart no longer empties it. Live source of truth is the

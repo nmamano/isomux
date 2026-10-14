@@ -47,6 +47,7 @@ export const en = {
   "audit.kind.setup": "Setup",
   "audit.kind.app": "App",
   "audit.kind.secretProxy": "Secret proxy",
+  "audit.kind.autoHandoff": "Automatic handoff",
   "audit.memory.office": "Office memory",
   "audit.memory.room": "Room memory",
   "audit.memory.agent": "Agent memory",
@@ -1326,6 +1327,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.privilegedHint":
     "Lets this agent drive other agents' sessions (resume, new conversation, send-now) and manage its own cronjobs, with the spawning member's room-scoped permissions. It still acts as the agent, never as the member.",
   "dialogs.agent.privilegedRestart": "Saving restarts the agent's session.",
+  "dialogs.agent.autoHandoff": "Automatic handoff",
+  "dialogs.agent.autoHandoffHint":
+    "When the context gets full, the agent writes a brief and continues in a fresh session. The chat clears.",
   "dialogs.agent.permission.ask": "Ask",
   "dialogs.agent.permission.bypassAll": "Bypass all permissions",
   "dialogs.agent.permission.codexUntrusted": "Untrusted (ask on every tool)",
@@ -2547,6 +2551,22 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // for the agent's owner (internal-docs/i18n-loop.md, S7).
   "systemEntries.conversationCleared": "Conversation cleared.",
   "systemEntries.newConversation": "New conversation started.",
+  "systemEntries.autoHandoff.writingTokens":
+    "Context is at {thousands}k tokens. Writing a handoff brief for a fresh session.",
+  "systemEntries.autoHandoff.writingPercent":
+    "Context is {percent}% full. Writing a handoff brief for a fresh session.",
+  "systemEntries.autoHandoff.writingCompaction":
+    "Context is {percent}% full, close to auto-compaction. Writing a handoff brief for a fresh session.",
+  "systemEntries.autoHandoff.doneTokens":
+    "Handed off automatically at {thousands}k tokens.",
+  "systemEntries.autoHandoff.donePercent":
+    "Handed off automatically at {percent}% context.",
+  "systemEntries.autoHandoff.doneCompaction":
+    "Handed off automatically at {percent}% context, before auto-compaction.",
+  "systemEntries.autoHandoff.failed":
+    "Automatic handoff did not complete. This conversation continues.",
+  "systemEntries.autoHandoff.paused":
+    "Automatic handoff is paused for this conversation: it started above the handoff threshold.",
   "systemEntries.usageCap.pace":
     "Member turns are paused: office usage has reached today's member limit. They resume {when}.",
   "systemEntries.agentStopped": "Agent stopped: {status}.",

@@ -29,6 +29,7 @@ export const zh: Catalog = {
   "audit.kind.setup": "初始设置",
   "audit.kind.app": "应用",
   "audit.kind.secretProxy": "密钥代理",
+  "audit.kind.autoHandoff": "自动交接",
   "audit.memory.office": "办公室记忆",
   "audit.memory.room": "房间记忆",
   "audit.memory.agent": "智能体记忆",
@@ -1199,6 +1200,9 @@ App 的一些原则：
   "dialogs.agent.privilegedHint":
     "允许此智能体使用创建成员的房间范围权限，操作其他智能体的会话（继续、新对话、立即发送），并管理自己的定时任务。它仍以智能体身份操作，绝不以成员身份操作。",
   "dialogs.agent.privilegedRestart": "保存会重启智能体的会话。",
+  "dialogs.agent.autoHandoff": "自动交接",
+  "dialogs.agent.autoHandoffHint":
+    "上下文快满时，智能体会写一份简报并在新会话中继续。聊天记录会清空。",
   "dialogs.agent.permission.ask": "询问",
   "dialogs.agent.permission.bypassAll": "跳过所有权限检查",
   "dialogs.agent.permission.codexUntrusted": "不受信任（每次使用工具都询问）",
@@ -2316,6 +2320,21 @@ App 的一些原则：
     "也可以输入其他消息，以该消息作为拒绝理由。",
   "systemEntries.conversationCleared": "对话已清除。",
   "systemEntries.newConversation": "新对话已开始。",
+  "systemEntries.autoHandoff.writingTokens":
+    "上下文已达 {thousands}k 个 token。正在为新会话撰写交接简报。",
+  "systemEntries.autoHandoff.writingPercent":
+    "上下文已用 {percent}%。正在为新会话撰写交接简报。",
+  "systemEntries.autoHandoff.writingCompaction":
+    "上下文已用 {percent}%，接近自动压缩。正在为新会话撰写交接简报。",
+  "systemEntries.autoHandoff.doneTokens":
+    "已在 {thousands}k 个 token 时自动交接。",
+  "systemEntries.autoHandoff.donePercent":
+    "已在上下文用到 {percent}% 时自动交接。",
+  "systemEntries.autoHandoff.doneCompaction":
+    "已在上下文用到 {percent}% 时自动交接，早于自动压缩。",
+  "systemEntries.autoHandoff.failed": "自动交接未完成。本对话继续。",
+  "systemEntries.autoHandoff.paused":
+    "本对话的自动交接已暂停：它开始时已超过交接阈值。",
   "systemEntries.usageCap.pace":
     "成员轮次已暂停：办公室用量已达到成员今天的上限。将于{when}恢复。",
   "systemEntries.agentStopped": "智能体已停止：{status}。",

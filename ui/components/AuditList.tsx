@@ -27,6 +27,7 @@ const ACTOR_KIND_LABEL: Record<AuditActorKind, PlainMessageKey> = {
   setup: "audit.kind.setup",
   app: "audit.kind.app",
   secret_proxy: "audit.kind.secretProxy",
+  auto_handoff: "audit.kind.autoHandoff",
 };
 const MEMORY_LABEL: Record<MemoryScope, PlainMessageKey> = {
   office: "audit.memory.office",

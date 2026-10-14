@@ -179,6 +179,15 @@ import { measureStorageCached } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { pushStopArm, settleStopArm } from "./stop-notice-arms.ts";
 import {
+  AUTO_HANDOFF_FRESH_NOTICE,
+  autoHandoffBriefPrompt,
+  autoHandoffMeasureParams,
+  autoHandoffPossible,
+  autoHandoffTrigger,
+  joinBriefChunks,
+} from "./auto-handoff.ts";
+import { recordAudit } from "./audit-store.ts";
+import {
   BackendNotConfiguredError,
   BackendSignedOutError,
   ProviderCapacityError,
@@ -187,6 +196,7 @@ import {
   inMultiStepFlow,
   pendingPromptOf,
   type ManagedAgent,
+  type AutoHandoffPhase,
   type ContextUsageSnapshot,
   type AgentEvent,
   type EventHandler,
@@ -515,11 +525,17 @@ export function createAgentManager(deps: ManagerDeps) {
     (room) => room.id === LOBBY_ROOM_ID && room.defaultAgentPending === true,
   );
 
+  // flushQueue's wait for an in-flight sample that may arm the automatic
+  // handoff; the same bound as the context notice's.
+  let sampleWaitMs = CONTEXT_NOTICE_SAMPLE_WAIT_MS;
+  // Flushes that reached the automatic-handoff gate, per agent (tests only).
+  const autoHandoffGateHits = new Map<string, number>();
   // Wire the turn runner to agent-manager's module-private pieces. Called once
   // at boot from server/isomux-office.ts.
   function configureAgentTurnDeps(
     contextNoticeSampleWaitMs = CONTEXT_NOTICE_SAMPLE_WAIT_MS,
   ): void {
+    sampleWaitMs = contextNoticeSampleWaitMs;
     configureAgentTurn({
       beginTurn,
       createTurnDeferred: (managed) =>
@@ -1401,6 +1417,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       permissionMode?: AgentInfo["permissionMode"];
       codexSandbox?: AgentInfo["codexSandbox"];
       agentType?: AgentInfo["agentType"];
+      autoHandoff?: boolean;
     },
   ) {
     const managed = agents.get(agentId);
@@ -1443,6 +1460,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       if (changes.outfit) meta.outfit = changes.outfit;
       if (changes.customInstructions !== undefined)
         meta.customInstructions = changes.customInstructions;
+      if (typeof changes.autoHandoff === "boolean")
+        meta.autoHandoff = changes.autoHandoff;
       if (Object.keys(meta).length > 0) {
         for (const event of officeState.editAgent(agentId, meta)) emit(event);
       }
@@ -1467,6 +1486,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (changes.outfit) validated.outfit = changes.outfit;
     if (changes.customInstructions !== undefined)
       validated.customInstructions = changes.customInstructions;
+    if (typeof changes.autoHandoff === "boolean")
+      validated.autoHandoff = changes.autoHandoff;
     if (changes.modelFamily) {
       validated.modelFamily = validateModelFamily(
         managed.info.agentType,
@@ -1552,6 +1573,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       modelFamily: managed.info.modelFamily,
       effort: managed.info.effort,
       codexSandbox: managed.info.codexSandbox,
+      autoHandoff: managed.info.autoHandoff,
     };
 
     // Funnel through OfficeState.editAgent - single source of truth for
@@ -1560,6 +1582,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // held until after the session-recreate side effect succeeds.
     const events = officeState.editAgent(agentId, validated);
     if (events.length === 0) return;
+    // Switched off before its brief turn started: the armed handoff does not
+    // happen. A brief turn already running finishes and hands off.
+    if (
+      managed.info.autoHandoff !== true &&
+      managed.autoHandoffPhase &&
+      !managed.autoHandoffPhase.briefStarted
+    ) {
+      managed.autoHandoffPhase = null;
+      releaseAutoHandoffQueue(agentId, managed);
+    }
 
     // After editAgent, managed.info has the new values, so createSession reads
     // them correctly. On failure we revert via officeState.updateAgent - that
@@ -1995,6 +2027,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       username: a.info.username,
       roomId: a.info.roomId,
       privileged: a.info.privileged ?? false,
+      ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
     };
   }
 
@@ -2054,6 +2087,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         userId: a.info.userId,
         username: a.info.username,
         privileged: a.info.privileged ?? false,
+        ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
       };
     }
     saveAgentHistory(history);
@@ -2317,6 +2351,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       userId,
       username: p.username ?? null,
       privileged: p.privileged ?? false,
+      ...(p.autoHandoff === true ? { autoHandoff: true } : {}),
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
@@ -2372,6 +2407,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryNoticeFired: false,
       wakeNotice: null,
       stopNotice: null,
+      autoHandoffPhase: null,
+      autoHandoffSpent: false,
+      autoHandoffCapture: null,
+      autoHandoffOpened: false,
+      autoHandoffNotice: null,
       pendingFreshRecoveryNotice: false,
       authNoticeEmittedThisWake: false,
       subscriptionUsage: null,
@@ -3955,6 +3995,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       fired: Set<number>;
       firedUi: Set<number>;
       memoryFired: boolean;
+      autoHandoffSpent: boolean;
     } | null = null,
   ): void {
     managed.contextGen++;
@@ -3983,6 +4024,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.wakeNotice = null;
     // Same for the stop notice: the stop it explains is in the old transcript.
     managed.stopNotice = null;
+    // Automatic handoff: a running attempt belongs to the old conversation.
+    // Its brief turn, if any, ends with the session swap; its owner sees the
+    // phase gone and leaves quietly. The rollback restores whether the
+    // conversation spent its attempt, like the fired-notice sets.
+    managed.autoHandoffPhase = null;
+    managed.autoHandoffSpent = restore ? restore.autoHandoffSpent : false;
+    managed.autoHandoffOpened = false;
+    managed.autoHandoffNotice = null;
     managed.pendingFreshRecoveryNotice = false;
     managed.authNoticeEmittedThisWake = false;
     // Null the slot so nothing ever waits on an orphaned old-conversation
@@ -4052,6 +4101,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       eventHandler(event);
   }
 
+  // The engine's own compaction point, for the automatic handoff: an
+  // adapter's internal compactAtTokens, else Claude's SDK threshold while its
+  // auto-compact is on.
+  function engineCompactAt(ctx: ContextUsage): number | undefined {
+    if (ctx.compactAtTokens !== undefined && ctx.compactAtTokens > 0)
+      return ctx.compactAtTokens;
+    if (
+      ctx.isAutoCompactEnabled === true &&
+      typeof ctx.autoCompactThreshold === "number" &&
+      ctx.autoCompactThreshold > 0
+    )
+      return ctx.autoCompactThreshold;
+    return undefined;
+  }
+
   // Commit an async sample iff it still belongs to the current conversation
   // (gen), the session object that produced it (identity), and nothing newer
   // has landed (seq). Returns whether it committed.
@@ -4060,6 +4124,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     token: { gen: number; session: BackendSession; seq: number },
     ctx: ContextUsage,
     source: ContextUsageSnapshot["source"],
+    // The status of the turn whose end took this sample (turn_completed
+    // samples only). Only a completed turn arms the automatic handoff.
+    turnStatus?: "completed" | "interrupted" | "failed",
   ): boolean {
     if (managed.contextGen !== token.gen) return false;
     if (managed.sessionManager.session !== token.session) return false;
@@ -4072,6 +4139,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       percentage: ctx.percentage,
       sampledAtMs: Date.now(),
       source,
+      ...(engineCompactAt(ctx) !== undefined
+        ? { compactAtTokens: engineCompactAt(ctx) }
+        : {}),
     };
     // turn_completed / on_demand broadcast every commit (turn-boundary cadence
     // is already low). Only the Codex usage_update path is throttled, and on
@@ -4082,6 +4152,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       displayedContextChanged(managed.info.contextUsage, snapshot);
     managed.contextUsage = snapshot;
     if (shouldBroadcast) broadcastContextUsage(managed);
+    // Before the member notice, which stays quiet while an automatic attempt
+    // is still possible (a pause makes it possible no more).
+    evaluateAutoHandoff(managed, turnStatus);
     // Commit side effects, per the design doc: store → broadcast → evaluate
     // the MEMBER-facing threshold notice. Independent of the broadcast throttle
     // (uses the raw float, and the fired-set already dedups). The agent-facing
@@ -4110,6 +4183,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.agentType === "opencode"
     )
       return;
+    // The automatic handoff stands in for this advice while it can still run.
+    // Nothing is marked fired, so a failed or paused attempt brings it back.
+    if (autoHandoffPossible(managed)) return;
     const snap = managed.contextUsage;
     if (!snap) return;
     let chosen: number | null = null;
@@ -4141,6 +4217,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function refreshContextUsage(
     managed: ManagedAgent,
     source: ContextUsageSnapshot["source"],
+    turnStatus?: "completed" | "interrupted" | "failed",
   ): void {
     const session = managed.sessionManager.session;
     if (!session) return;
@@ -4152,7 +4229,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const inFlight: Promise<void> = (async () => {
       try {
         const ctx = await session.getContextUsage();
-        if (ctx) commitContextSample(managed, token, ctx, source);
+        if (ctx) commitContextSample(managed, token, ctx, source, turnStatus);
       } catch {
         // Best-effort: an unavailable reading is represented by the absence
         // of a fresher snapshot, never by an error state.
@@ -4604,10 +4681,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         });
         break;
       }
-      case "assistant_text":
-        flushPendingFreshRecoveryNotice(agentId, agents.get(agentId));
+      case "assistant_text": {
+        const managed = agents.get(agentId);
+        flushPendingFreshRecoveryNotice(agentId, managed);
         addLogEntry(agentId, "text", ev.text);
+        managed?.autoHandoffCapture?.chunks.push(ev.text);
         break;
+      }
       case "system_text": {
         // Claude's SDK emits its "Not logged in · Please run /login" notice as
         // a synthetic assistant message that the claude adapter routes here as
@@ -4727,6 +4807,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             startedAt: Date.now(),
           });
         }
+        // The brief is the text after the brief turn's last own tool call.
+        if (managed?.autoHandoffCapture && !ev.subagent)
+          managed.autoHandoffCapture.chunks = [];
         // metadata.subagent marks a call the agent's SUBAGENT made rather than
         // the agent itself - set by the backends that expose subagents (Claude:
         // Agent/Task tool; Codex: collab child threads). Absent
@@ -4768,6 +4851,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         {
           const m = agents.get(agentId);
           if (m) drainBoundaryClaim(agentId, m);
+          if (m?.autoHandoffCapture) m.autoHandoffCapture.status = ev.status;
         }
         // Backends report token totals per turn. We accumulate cumulative
         // totals into sessions.json (`usage`) and append a snapshot anchored
@@ -4797,7 +4881,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // the transcript). Fire-and-forget: pendingTurn below still resolves
         // synchronously, so turn semantics don't change; the commit protocol
         // inside makes the late resolution safe.
-        if (managed) refreshContextUsage(managed, "turn_completed");
+        if (managed) refreshContextUsage(managed, "turn_completed", ev.status);
         // Subscription-allowance reading at the same boundary.
         if (managed) refreshSubscriptionUsage(managed, "turn_completed");
         if (managed) refreshSessionConnectors(managed);
@@ -6156,6 +6240,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryNoticeFired: false,
       wakeNotice: null,
       stopNotice: null,
+      autoHandoffPhase: null,
+      autoHandoffSpent: false,
+      autoHandoffCapture: null,
+      autoHandoffOpened: false,
+      autoHandoffNotice: null,
       pendingFreshRecoveryNotice: false,
       authNoticeEmittedThisWake: false,
       subscriptionUsage: null,
@@ -6559,7 +6648,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.sessionSwapping ||
       (managed.info.state !== "thinking" &&
         managed.info.state !== "tool_executing") ||
-      inMultiStepFlow(managed)
+      inMultiStepFlow(managed) ||
+      // The brief turn must not take the queue the fresh session gets.
+      managed.autoHandoffPhase
     )
       return null;
     const items = unclaimedQueue(managed);
@@ -6867,6 +6958,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       opts?.steer === true &&
       queuedDuringBusyTurn &&
       !inMultiStepFlow(managed) &&
+      !managed.autoHandoffPhase &&
       getBackend(managed.info.agentType).toolBoundaryDelivery === true;
     managed.messageQueue.push({
       id,
@@ -6958,6 +7050,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           steerDeclined: "multi_step_flow",
         };
       }
+      // An automatic handoff is under way: the message goes to the fresh
+      // session, and interrupting the brief turn would only cancel it.
+      if (managed.autoHandoffPhase) {
+        return {
+          ok: true,
+          queued: true,
+          messageId: id,
+          steered: false,
+          steerDeclined: "auto_handoff",
+        };
+      }
       // Nothing is interrupted, so the rate limit (which protects the
       // receiver's ability to finish a turn) neither applies nor counts it.
       // The next main-thread tool batch delivers it, or the turn-end flush.
@@ -7010,6 +7113,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       {
         const pending = managed.sessionManager.pendingTurn;
         if (pending) await pending.promise.catch(() => {});
+      }
+      // The sample of the turn that just ended may arm the automatic handoff.
+      // Give it the same bounded wait the context notice gets, so a batch that
+      // should go to the fresh session does not go to the old one.
+      {
+        const inFlight = managed.contextSampleInFlight;
+        if (
+          inFlight &&
+          autoHandoffPossible(managed) &&
+          !managed.autoHandoffPhase
+        )
+          await Promise.race([
+            inFlight,
+            new Promise<void>((res) => setTimeout(res, sampleWaitMs)),
+          ]);
       }
       // Re-check post-wait - state and queue can change while we waited. The
       // agents.has() guard catches a kill() during the wait: kill settles the
@@ -7106,6 +7224,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           updateState(agentId, "error");
           return;
         }
+      }
+
+      // Automatic handoff armed: the queue waits for the fresh session. The
+      // brief turn starts here unless it already runs.
+      if (managed.autoHandoffPhase) {
+        autoHandoffGateHits.set(
+          agentId,
+          (autoHandoffGateHits.get(agentId) ?? 0) + 1,
+        );
+        startAutoHandoffBrief(agentId, managed);
+        return;
       }
 
       // Snapshot the items to send. We DON'T drain yet: a session swap during
@@ -7307,11 +7436,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // flush bailing on a mid-drain swap would re-fire itself from here in
         // a tight async loop for the whole drain window; the post-swap kick in
         // replaceSession owns the retry instead.
+        // Not while an automatic handoff holds the queue: the gate returns at
+        // once and this would spin until the reset. Every exit from the phase
+        // flushes on its own (releaseAutoHandoffQueue, or newConversation's
+        // held-queue flush).
         if (
           managed.messageQueue.length > 0 &&
           isQueueIdleState(managed.info.state) &&
           !inMultiStepFlow(managed) &&
-          !managed.info.sessionSwapping
+          !managed.info.sessionSwapping &&
+          !managed.autoHandoffPhase
         ) {
           flushQueue(agentId).catch(() => {});
         }
@@ -7677,10 +7811,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // is interpreted as a pick. Slash commands also pass through so /clear,
     // /new etc. can preempt rather than queue.
     const state = managed.info.state;
+    // An armed automatic handoff counts as busy: the message waits in the
+    // queue for the fresh session.
     const busy =
       state === "thinking" ||
       state === "tool_executing" ||
-      managed.sessionManager.pendingTurn !== null;
+      managed.sessionManager.pendingTurn !== null ||
+      managed.autoHandoffPhase !== null;
     const isSlash = text.startsWith("/");
     if (busy && !claimedChoice && !inMultiStepFlow(managed) && !isSlash) {
       const result = enqueueMessage(agentId, {
@@ -8989,6 +9126,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // kill-time entry is authoritative - updateAgentHistory skips killed
           // agents, and revive reads entry.privileged).
           privileged: managed.info.privileged ?? false,
+          ...(managed.info.autoHandoff ? { autoHandoff: true } : {}),
         };
         saveAgentHistory(history);
       }
@@ -9179,6 +9317,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       userId: entry.userId,
       username: entry.username,
       privileged: entry.privileged ?? false,
+      ...(entry.autoHandoff ? { autoHandoff: true } : {}),
     };
 
     const installResult = restoreOrReviveAgent({
@@ -9238,7 +9377,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       codexSandbox?: AgentInfo["codexSandbox"];
     },
     // Handoff only: the queue (brief at its head) goes to the fresh session.
-    opts?: { keepQueue?: boolean },
+    // `autoHandoff` marks a reset the automatic handoff runs: the fresh
+    // conversation gets its notice, its member line and the loop guard.
+    opts?: { keepQueue?: boolean; autoHandoff?: AutoHandoffPhase },
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -9249,6 +9390,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // in memory only (disk keeps it), until the old session is closed below:
     // the idle transition in this reset must not flush it into that session.
     const heldQueue = opts?.keepQueue ? managed.messageQueue.splice(0) : [];
+    // The automatic phase ends with the queue held aside: from here no flush
+    // may start another brief turn in the old session.
+    if (opts?.autoHandoff && managed.autoHandoffPhase === opts.autoHandoff)
+      managed.autoHandoffPhase = null;
     let drained: Promise<void>;
     try {
       const clearedCount = managed.messageQueue.length;
@@ -9310,6 +9455,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // fullness measurement. Runs before the drain await per the order contract
       // above, so a late sample from the old session self-discards on gen.
       resetContextUsage(managed);
+      // Set after the reset, which clears them; before the drain, because the
+      // held queue's flush may start during it.
+      if (opts?.autoHandoff) {
+        managed.autoHandoffOpened = true;
+        managed.autoHandoffNotice = AUTO_HANDOFF_FRESH_NOTICE;
+      }
       // Match /clear's behavior: wipe the chat. Without this, the timeline
       // continues across session boundaries and editing an old entry hits the
       // cross-session dead-end.
@@ -9322,7 +9473,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId)("systemEntries.newConversation"),
+        opts?.autoHandoff
+          ? autoHandoffLine(agentId, opts.autoHandoff, "done")
+          : logWords(agentId)("systemEntries.newConversation"),
       );
       if (clearedCount > 0) {
         addLogEntry(
@@ -9375,6 +9528,231 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // told to retry.
   const handoffInProgress = new Set<string>();
 
+  // ---- Automatic handoff (internal-docs/auto-handoff-design.md) ----------
+  //
+  // Arms from a committed sample (evaluateAutoHandoff), runs one brief turn in
+  // the old session (runAutoHandoff), then hands off through handoffBody. While
+  // the phase is set, flushQueue starts the brief turn instead of sending, so
+  // queued messages wait for the fresh session. Every exit clears the phase and
+  // lets the queue flush.
+
+  // Called on every committed sample. Pauses a conversation an automatic
+  // handoff opened above the trigger (the loop guard), and arms on a sample
+  // from the end of a completed turn.
+  function evaluateAutoHandoff(
+    managed: ManagedAgent,
+    turnStatus: "completed" | "interrupted" | "failed" | undefined,
+  ): void {
+    const snap = managed.contextUsage;
+    if (!snap) return;
+    const opened = managed.autoHandoffOpened;
+    managed.autoHandoffOpened = false;
+    if (
+      managed.info.autoHandoff !== true ||
+      !managed.info.capabilities.autoHandoff
+    )
+      return;
+    const trigger = autoHandoffTrigger(snap);
+    const above = snap.totalTokens >= trigger.tokens;
+    if (!above || managed.autoHandoffSpent || managed.autoHandoffPhase) return;
+    const agentId = managed.info.id;
+    if (opened) {
+      managed.autoHandoffSpent = true;
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId)("systemEntries.autoHandoff.paused"),
+      );
+      return;
+    }
+    // A member who pressed Stop wants attention, not a reset.
+    if (turnStatus !== "completed") return;
+    managed.autoHandoffPhase = {
+      briefStarted: false,
+      trigger,
+      totalTokens: snap.totalTokens,
+      percentage: snap.percentage,
+    };
+    void kickAutoHandoff(agentId);
+  }
+
+  // Start the brief turn for an armed agent that is idle, when no flush will:
+  // the queue is empty, or the sample landed after the idle-transition flush.
+  // Waits out the turn that just ended first, as flushQueue does.
+  async function kickAutoHandoff(agentId: string): Promise<void> {
+    const managed = agents.get(agentId);
+    const phase = managed?.autoHandoffPhase;
+    if (!managed || !phase || phase.briefStarted) return;
+    const pending = managed.sessionManager.pendingTurn;
+    if (pending) await pending.promise.catch(() => {});
+    if (
+      !agents.has(agentId) ||
+      managed.autoHandoffPhase !== phase ||
+      !isQueueIdleState(managed.info.state) ||
+      inMultiStepFlow(managed) ||
+      managed.flushInProgress ||
+      managed.sessionManager.pendingTurn ||
+      managed.sessionManager.abortPromise ||
+      managed.info.sessionSwapping ||
+      // A dormant agent starts the brief turn when its next message wakes
+      // it (flushQueue).
+      !managed.sessionManager.session
+    )
+      return;
+    startAutoHandoffBrief(agentId, managed);
+  }
+
+  // Check-and-set with no await before it, so only one caller starts the
+  // brief turn. briefStarted stays true until the phase goes.
+  function startAutoHandoffBrief(agentId: string, managed: ManagedAgent): void {
+    const phase = managed.autoHandoffPhase;
+    if (!phase || phase.briefStarted) return;
+    phase.briefStarted = true;
+    void runAutoHandoff(agentId, managed, phase);
+  }
+
+  async function runAutoHandoff(
+    agentId: string,
+    managed: ManagedAgent,
+    phase: AutoHandoffPhase,
+  ): Promise<void> {
+    addLogEntry(agentId, "system", autoHandoffLine(agentId, phase, "writing"));
+    const capture: NonNullable<ManagedAgent["autoHandoffCapture"]> = {
+      chunks: [],
+      status: null,
+    };
+    managed.autoHandoffCapture = capture;
+    let threw = false;
+    try {
+      // runAgentTurn calls beginTurn before its first await, so the agent is
+      // busy before this function yields.
+      await runAgentTurn({
+        managed,
+        sdkText: autoHandoffBriefPrompt(phase),
+        humanInput: false,
+        usageCapped: true,
+      });
+    } catch (err) {
+      threw = true;
+      if (agents.has(agentId)) briefTurnFailure(agentId, managed, err);
+    } finally {
+      if (managed.autoHandoffCapture === capture)
+        managed.autoHandoffCapture = null;
+    }
+    // A conversation boundary (/clear, resume, fork), a stop or a kill took
+    // the phase: the member's action explains it.
+    if (!agents.has(agentId) || managed.autoHandoffPhase !== phase) return;
+    const brief = joinBriefChunks(managed.info.agentType, capture.chunks);
+    if (threw || capture.status !== "completed" || !brief) {
+      failAutoHandoff(agentId, managed);
+      return;
+    }
+    const result = await handoffBody(agentId, brief, phase);
+    if (!agents.has(agentId)) return;
+    if (!result.ok) {
+      if (managed.autoHandoffPhase === phase) failAutoHandoff(agentId, managed);
+      return;
+    }
+    recordAudit({
+      actor: {
+        kind: "auto_handoff",
+        id: "auto-handoff",
+        name: "auto-handoff",
+        ...(managed.info.userId ? { ownerId: managed.info.userId } : {}),
+      },
+      operation: "agents.handoff",
+      targets: [agentId],
+      fields: [],
+    });
+  }
+
+  // The brief turn's own errors, worded and stated as on a member's send.
+  function briefTurnFailure(
+    agentId: string,
+    managed: ManagedAgent,
+    err: unknown,
+  ): void {
+    // The swapper (stop, send-now, a settings change, a reset) owns the state.
+    if (err instanceof SessionSwappedError) return;
+    if (err instanceof UsageCapError) {
+      refuseForUsageCap(agentId, managed, err);
+      return;
+    }
+    if (err instanceof BackendNotConfiguredError) {
+      surfaceBackendNotConfigured(agentId, managed, err);
+      return;
+    }
+    if (err instanceof ProviderCapacityError) {
+      updateState(agentId, "waiting_for_response");
+      return;
+    }
+    console.error(
+      `Agent ${agentId} auto-handoff brief error:`,
+      errMessage(err),
+    );
+    addCallerFailureEntry(agentId, managed, err, (raw) =>
+      logWords(agentId)("systemEntries.genericError", { error: raw }),
+    );
+    updateState(agentId, "error");
+  }
+
+  // The member's two lines, the old chat's ("writing") and the fresh chat's
+  // first ("done"). Both name the limit that fired, so they give one reason.
+  function autoHandoffLine(
+    agentId: string,
+    phase: AutoHandoffPhase,
+    which: "writing" | "done",
+  ): string {
+    const words = logWords(agentId);
+    const params = autoHandoffMeasureParams(phase.trigger);
+    switch (phase.trigger.measure) {
+      case "tokens":
+        return which === "writing"
+          ? words("systemEntries.autoHandoff.writingTokens", params)
+          : words("systemEntries.autoHandoff.doneTokens", params);
+      case "percent":
+        return which === "writing"
+          ? words("systemEntries.autoHandoff.writingPercent", params)
+          : words("systemEntries.autoHandoff.donePercent", params);
+      case "compaction":
+        return which === "writing"
+          ? words("systemEntries.autoHandoff.writingCompaction", params)
+          : words("systemEntries.autoHandoff.doneCompaction", params);
+    }
+  }
+
+  // No handoff: the conversation continues and has used its attempt, so the
+  // fullness notices come back. The queue flushes to the old session.
+  function failAutoHandoff(agentId: string, managed: ManagedAgent): void {
+    managed.autoHandoffPhase = null;
+    managed.autoHandoffSpent = true;
+    addLogEntry(
+      agentId,
+      "system",
+      logWords(agentId)("systemEntries.autoHandoff.failed"),
+    );
+    maybeEmitUiContextNotice(managed);
+    releaseAutoHandoffQueue(agentId, managed);
+  }
+
+  // After the phase goes, nothing else may be waiting for it: flush what
+  // queued up behind it.
+  function releaseAutoHandoffQueue(agentId: string, managed: ManagedAgent) {
+    if (
+      managed.messageQueue.length > 0 &&
+      isQueueIdleState(managed.info.state) &&
+      !inMultiStepFlow(managed) &&
+      !managed.flushInProgress
+    ) {
+      flushQueue(agentId).catch((err: unknown) => {
+        console.error(
+          `flushQueue (auto-handoff release) failed for ${agentId}:`,
+          errMessage(err),
+        );
+      });
+    }
+  }
+
   // Self-handoff: put `text` at the head of the agent's queue as a
   // self-addressed brief, THEN reset the session (newConversation with
   // keepQueue). The fresh session gets the brief first and then every message
@@ -9389,6 +9767,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   async function handoff(
     agentId: string,
     text: string,
+  ): Promise<EnqueueResult> {
+    // An automatic handoff holds the agent from arming to its reset; a manual
+    // one (the agent's own call included) would race it.
+    if (agents.get(agentId)?.autoHandoffPhase)
+      return { ok: false, error: "handoff_in_progress", status: 409 };
+    return handoffBody(agentId, text);
+  }
+
+  // The handoff itself. The automatic path calls it directly with its phase,
+  // so the guard above does not refuse it.
+  async function handoffBody(
+    agentId: string,
+    text: string,
+    auto?: AutoHandoffPhase,
   ): Promise<EnqueueResult> {
     if (!agents.has(agentId))
       return { ok: false, error: "agent not found", status: 404 };
@@ -9441,6 +9833,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       emitQueueUpdate(agentId, managed);
       await newConversation(agentId, undefined, undefined, {
         keepQueue: true,
+        ...(auto ? { autoHandoff: auto } : {}),
       });
       // The agent may have been killed during the drain, and its queue with it.
       if (!agents.has(agentId))
@@ -9785,6 +10178,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // SAME conversation - so an already-delivered notice must stay delivered.
     // Only the FLAG is stashed; resetContextUsage re-arms the slot from it.
     const oldMemoryNoticeFired = managed.memoryNoticeFired;
+    const oldAutoHandoffSpent = managed.autoHandoffSpent;
 
     // Find target up front so the ephemeral short-circuit and the not-found
     // error can return before the fork pipeline runs.
@@ -10196,6 +10590,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
                 fired: oldFiredAgentThresholds,
                 firedUi: oldFiredUiThresholds,
                 memoryFired: oldMemoryNoticeFired,
+                autoHandoffSpent: oldAutoHandoffSpent,
               }
             : null,
         );
@@ -10335,6 +10730,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (!managed) return;
     managed.sessionManager.aborting = blocked;
     managed.sessionManager.abortPromise = blocked ? Promise.resolve() : null;
+  }
+
+  // Test-only: how many flushes reached the automatic-handoff gate.
+  function _testAutoHandoffGateHits(agentId: string): number {
+    return autoHandoffGateHits.get(agentId) ?? 0;
   }
 
   function _testLastForcedRecoveryAt(agentId: string): number | undefined {
@@ -10510,6 +10910,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     _testSetBusyTurnWatchdogStuckMs,
     _testSetAbortInProgress,
     _testLastForcedRecoveryAt,
+    _testAutoHandoffGateHits,
     _testActiveToolCount,
     _testDormantReason,
     _testWedgeFlush,

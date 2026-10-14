@@ -12,6 +12,7 @@ import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import type { DormantReason, SessionManager } from "./session-manager.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import type { BillingAccount } from "./member-usage-cap.ts";
+import type { AutoHandoffTrigger } from "./auto-handoff.ts";
 
 // A committed context-fullness sample (design: internal-docs/
 // context-fullness-visibility.md). Window occupancy of the CURRENT
@@ -28,6 +29,22 @@ export interface ContextUsageSnapshot {
   percentage: number;
   sampledAtMs: number;
   source: "turn_completed" | "usage_update" | "on_demand";
+  // The engine's own compaction point in tokens (ContextUsage.
+  // autoCompactThreshold), when it compacts by itself and says where. Feeds the
+  // automatic-handoff trigger only; not on the wire.
+  compactAtTokens?: number;
+}
+
+// An automatic handoff from the moment it arms until the reset (or an exit).
+// In memory only. See internal-docs/auto-handoff-design.md, Appendix C.
+export interface AutoHandoffPhase {
+  // Set synchronously when the brief turn starts and never cleared on this
+  // object: the brief turn's own idle transition must not start a second one.
+  briefStarted: boolean;
+  trigger: AutoHandoffTrigger;
+  // The sample that armed it, for the prompt and the member's lines.
+  totalTokens: number;
+  percentage: number;
 }
 
 export interface ManagedAgent {
@@ -159,6 +176,24 @@ export interface ManagedAgent {
   // can tell the arm it sent from a later one; consumed on the same
   // never-before-send rule, and dropped at a conversation boundary.
   stopNotice: StopNoticeArm | null;
+  // Automatic handoff (internal-docs/auto-handoff-design.md). All in memory
+  // and all per conversation: resetContextUsage clears them, except that
+  // newConversation sets the last two for a conversation an automatic
+  // handoff opened.
+  // The running attempt, or null.
+  autoHandoffPhase: AutoHandoffPhase | null;
+  // This conversation used its attempt (it failed) or paused the mode. The
+  // fullness notices fire as before once this is set.
+  autoHandoffSpent: boolean;
+  // While the brief turn runs: its text after the last tool call, and its
+  // turn status. Filled by the normalized-event handler.
+  autoHandoffCapture: { chunks: string[]; status: string | null } | null;
+  // Opened by an automatic handoff and not yet sampled. A first sample at or
+  // above the trigger pauses the mode for this conversation (the loop guard).
+  autoHandoffOpened: boolean;
+  // The fresh session's one-shot notice; consumed by runAgentTurn on the
+  // never-before-send rule, like wakeNotice.
+  autoHandoffNotice: string | null;
   // Recovery copy held until the first event proves whether this wake failed
   // only because its provider needs sign-in. That auth path has one notice.
   pendingFreshRecoveryNotice: boolean;
@@ -491,7 +526,12 @@ export type AbortResult =
 //     in a multi-step flow).
 //   rate_limited - too many interruptions of this receiver in the recent
 //     window; letting them through would keep it from ever finishing a turn.
-export type SteerDeclineReason = "multi_step_flow" | "rate_limited";
+//   auto_handoff - an automatic handoff is under way; the message waits for
+//     the fresh session.
+export type SteerDeclineReason =
+  | "multi_step_flow"
+  | "rate_limited"
+  | "auto_handoff";
 
 // Result of enqueueMessage. `status` is the HTTP status the WS/HTTP layer
 // should forward for the failure case. `steered` / `steerDeclined` are present

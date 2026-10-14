@@ -782,6 +782,8 @@ export interface PersistedAgent {
   // backfill (which keeps the saveAgents→loadAgents round-trip lossless - see
   // migratePersistedAgent).
   privileged?: boolean;
+  // Automatic handoff switch. Written only when on; absent reads as false.
+  autoHandoff?: boolean;
 }
 
 export interface PersistedUsage {
@@ -1382,6 +1384,8 @@ export interface AgentHistoryEntry {
   // Privileged-token flag, snapshotted so a killed agent revives with the
   // same privilege it had. Absent ⇒ false (legacy/normal agents).
   privileged?: boolean;
+  // Automatic handoff switch, snapshotted like privileged. Absent ⇒ off.
+  autoHandoff?: boolean;
 }
 export type AgentHistory = Record<string, AgentHistoryEntry>;
 

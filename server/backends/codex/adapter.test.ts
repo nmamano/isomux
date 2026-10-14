@@ -1152,6 +1152,10 @@ describe("CodexSession token usage", () => {
     expect(ctx!.totalTokens).toBe(130); // last.input(90) + last.output(40)
     expect(ctx!.maxTokens).toBe(200000);
     expect(ctx!.categories?.length).toBe(4);
+    // Where Codex compacts is not knowable at runtime: no compaction point,
+    // so the automatic handoff uses its 500k/90% limits alone.
+    expect(ctx!.compactAtTokens).toBeUndefined();
+    expect(ctx!.autoCompactThreshold).toBeUndefined();
 
     // Second cumulative -> delta against the first.
     fake.fireNotification("thread/tokenUsage/updated", {

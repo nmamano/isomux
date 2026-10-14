@@ -1194,10 +1194,12 @@ export function createCommandHandling(deps: HandlerDeps) {
     // model. Multi-step pending flows still take the immediate path: the
     // user's reply during /resume etc. is a pick, not a skill.
     const state = managed.info.state;
+    // An armed automatic handoff counts as busy, as in sendMessage.
     const busy =
       state === "thinking" ||
       state === "tool_executing" ||
-      managed.sessionManager.pendingTurn !== null;
+      managed.sessionManager.pendingTurn !== null ||
+      managed.autoHandoffPhase !== null;
     if (busy && !inMultiStepFlow(managed)) {
       const result = deps.enqueueMessage(agentId, {
         sender: { kind: "user", username, device },

@@ -37,6 +37,7 @@ const BASE: AgentFormSnapshot = {
   permissionMode: "auto",
   codexSandbox: "workspace-write",
   privileged: false,
+  autoHandoff: false,
 };
 
 describe("agentFormDirty", () => {
@@ -56,6 +57,7 @@ describe("agentFormDirty", () => {
       { permissionMode: "default" },
       { codexSandbox: "read-only" },
       { privileged: true },
+      { autoHandoff: true },
     ];
     for (const edit of edits) {
       expect(agentFormDirty({ ...BASE, ...edit }, BASE, false)).toBe(true);

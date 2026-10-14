@@ -430,6 +430,7 @@ describe("Blank template dirty state", () => {
     permissionMode: "on-request",
     codexSandbox: "workspace-write",
     privileged: false,
+    autoHandoff: false,
   };
 
   // Both authored fields use the language of the card at pick time.

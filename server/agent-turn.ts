@@ -5,7 +5,7 @@
  * path: sendMessage, flushQueue, executeSkill, editMessage. It owns:
  *
  *   1. Assembling the outbound envelope from the built-in blocks (the wake,
- *      context-fullness and memory-size notices), prepended to the outgoing
+ *      automatic-handoff, context-fullness and memory-size notices), prepended to the outgoing
  *      text with a `User message:` separator.
  *      stripOutboundEnvelope is the exact inverse (used by edit-to-fork
  *      matching).
@@ -27,6 +27,7 @@ import {
   type ManagedAgent,
 } from "./internal-types.ts";
 import { memberUsageCap, UsageCapError } from "./member-usage-cap.ts";
+import { autoHandoffPossible } from "./auto-handoff.ts";
 
 export interface RunAgentTurnOpts {
   managed: ManagedAgent;
@@ -140,6 +141,11 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   const wakeNotice = managed.wakeNotice
     ? { block: managed.wakeNotice, gen: managed.contextGen }
     : null;
+  // Armed by newConversation for a conversation an automatic handoff opened;
+  // read here for the same reason.
+  const autoHandoffNotice = managed.autoHandoffNotice
+    ? { block: managed.autoHandoffNotice, gen: managed.contextGen }
+    : null;
   // Armed by an agent's abort; read here for the same reason.
   const stopNotice = managed.stopNotice
     ? { arm: managed.stopNotice, gen: managed.contextGen }
@@ -154,6 +160,12 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   if (wakeNotice) {
     envelopeBlocks.push(
       `--- begin isomux: wake-notice ---\n${wakeNotice.block}\n--- end isomux: wake-notice ---`,
+    );
+  }
+  // It says the brief that follows comes from the old session.
+  if (autoHandoffNotice) {
+    envelopeBlocks.push(
+      `--- begin isomux: auto-handoff ---\n${autoHandoffNotice.block}\n--- end isomux: auto-handoff ---`,
     );
   }
   if (stopNotice) {
@@ -232,6 +244,9 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     // slot we would clear may already hold the NEW conversation's wake note.
     if (wakeNotice && managed.contextGen === wakeNotice.gen) {
       managed.wakeNotice = null;
+    }
+    if (autoHandoffNotice && managed.contextGen === autoHandoffNotice.gen) {
+      managed.autoHandoffNotice = null;
     }
     // Compared by identity as well: an agent's abort during the send re-arms
     // the slot for a stop this turn never explained.
@@ -451,6 +466,9 @@ async function buildContextNoticeBlock(
     managed.info.agentType === "opencode"
   )
     return null;
+  // The automatic handoff stands in for the wrap-up advice while it can still
+  // run; nothing is marked fired, so a failed or paused attempt brings it back.
+  if (autoHandoffPossible(managed)) return null;
   const inFlight = managed.contextSampleInFlight;
   if (inFlight) {
     await Promise.race([

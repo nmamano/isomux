@@ -100,6 +100,7 @@ export type EditAgentReq = Partial<
     | "effort"
     | "permissionMode"
     | "codexSandbox"
+    | "autoHandoff"
     // Changing the engine starts a fresh conversation on the new engine (the old
     // one is preserved in the resume history). Model/effort/permission sent in
     // the same edit are validated against the NEW engine and applied; omitted

@@ -166,6 +166,7 @@ const CAPABILITIES: BackendCapabilities = {
   topicGen: true,
   edit: true,
   mcp: true,
+  autoHandoff: true,
 };
 
 const PERMISSION_MODES: PermissionModeOption[] = [

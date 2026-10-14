@@ -348,6 +348,7 @@ export class OfficeState {
       modelFamily?: AgentInfo["modelFamily"];
       effort?: AgentInfo["effort"];
       codexSandbox?: AgentInfo["codexSandbox"];
+      autoHandoff?: boolean;
     },
   ): OfficeEvent[] {
     const agent = this.agents.get(agentId);
@@ -405,6 +406,13 @@ export class OfficeState {
     if (changes.codexSandbox && changes.codexSandbox !== agent.codexSandbox) {
       agent.codexSandbox = changes.codexSandbox;
       updated.codexSandbox = changes.codexSandbox;
+    }
+    if (
+      typeof changes.autoHandoff === "boolean" &&
+      changes.autoHandoff !== (agent.autoHandoff ?? false)
+    ) {
+      agent.autoHandoff = changes.autoHandoff;
+      updated.autoHandoff = changes.autoHandoff;
     }
 
     if (Object.keys(updated).length === 0) return [];

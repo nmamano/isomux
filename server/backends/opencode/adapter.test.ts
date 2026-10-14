@@ -203,6 +203,7 @@ describe("OpenCode deterministic tracer", () => {
       topicGen: true,
       edit: true,
       mcp: false,
+      autoHandoff: true,
     });
     expect(() => backend.inspectStoredSession("stored", opts)).toThrow(
       "environment identity is required",
@@ -645,6 +646,9 @@ describe("OpenCode pinned transport", () => {
         { name: "Output", tokens: 79 },
         { name: "Reasoning", tokens: 0 },
       ],
+      // The catalog's 10k output limit: OpenCode compacts at context - 10k.
+      // Internal to the automatic handoff; /context does not show it.
+      compactAtTokens: 190_000,
     });
     session.close();
   });

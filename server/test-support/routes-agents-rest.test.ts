@@ -21,7 +21,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import { loadRecentCwds } from "../persistence.ts";
+import { loadAgents, loadRecentCwds } from "../persistence.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { DESK_COUNT } from "../../shared/desks.ts";
@@ -805,6 +805,44 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
       "Renamed",
     );
     expect(srv.agentManager.getAgent(x.id)?.name).toBe("Renamed");
+  });
+
+  it("PATCH sets the automatic handoff switch, which persists; a non-boolean is 422", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const x = await spawnAt(srv, "Auto", srv.agentManager.getRooms()[0].id, 0);
+    expect(srv.agentManager.getAgent(x.id)?.autoHandoff ?? false).toBe(false);
+    const persisted = () =>
+      loadAgents()
+        .flatMap((r) => r.agents)
+        .find((a) => a.id === x.id);
+    expect(persisted()).not.toHaveProperty("autoHandoff");
+
+    const on = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { autoHandoff: true },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(on.status).toBe(200);
+    expect(
+      (on.body as { agent: { autoHandoff?: boolean } }).agent.autoHandoff,
+    ).toBe(true);
+    expect(persisted()?.autoHandoff).toBe(true);
+
+    const bad = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { autoHandoff: "yes" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(bad.status).toBe(422);
+    expect(srv.agentManager.getAgent(x.id)?.autoHandoff).toBe(true);
+
+    const off = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { autoHandoff: false },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(off.status).toBe(200);
+    expect(srv.agentManager.getAgent(x.id)?.autoHandoff).toBe(false);
+    expect(persisted()).not.toHaveProperty("autoHandoff");
   });
 
   it("PATCH carries costume through the existing outfit update", async () => {

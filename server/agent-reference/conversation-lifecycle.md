@@ -2,7 +2,7 @@
 
 `POST /api/agents/:id/new-conversation` with `{}` clears the current conversation and its queued messages, and starts fresh. `POST /api/agents/:id/handoff` with `{text}` resets the conversation and immediately delivers a forward-looking brief to the fresh session, followed by the messages queued for the agent.
 
-Use handoff when context is filling during unfinished work. The brief states only what remains. Do not use a scheduled message as a handoff substitute. Follow the built-in `/handoff` skill, including its member-approval step. A privileged operator can target another accessible agent; an ordinary agent targets itself.
+Use handoff when context is filling during unfinished work. The brief states only what remains. Do not use a scheduled message as a handoff substitute. Follow the built-in `/handoff` skill, including its member-approval step. An agent with automatic handoff on is handed off by Isomux: when a completed turn leaves its context full, Isomux asks it for the brief and then resets; meanwhile a handoff call returns 409 `handoff_in_progress`. A privileged operator can target another accessible agent; an ordinary agent targets itself.
 
 Safe example: `POST /api/agents/:id/new-conversation` with `{}`.
 

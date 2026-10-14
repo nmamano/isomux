@@ -33,6 +33,7 @@ export const ca: Catalog = {
   "audit.kind.setup": "Configuració",
   "audit.kind.app": "App",
   "audit.kind.secretProxy": "Proxy de secrets",
+  "audit.kind.autoHandoff": "Traspàs automàtic",
   "audit.memory.office": "Memòria de l’oficina",
   "audit.memory.room": "Memòria de la sala",
   "audit.memory.agent": "Memòria de l’agent",
@@ -1345,6 +1346,9 @@ Coses que pots fer per ell:
     "Permet a aquest agent dirigir les sessions d'altres agents (reprendre, conversa nova, enviar ara) i gestionar els seus propis cronjobs, amb els permisos per sala de l'membre que el va crear. Continua actuant com l'agent, mai com l'membre.",
   "dialogs.agent.privilegedRestart":
     "En desar es reinicia la sessió de l'agent.",
+  "dialogs.agent.autoHandoff": "Traspàs automàtic",
+  "dialogs.agent.autoHandoffHint":
+    "Quan el context s'omple, l'agent escriu un resum i continua en una sessió nova. El xat es buida.",
   "dialogs.agent.permission.ask": "Preguntar",
   "dialogs.agent.permission.bypassAll": "Ometre tots els permisos",
   "dialogs.agent.permission.codexUntrusted":
@@ -2571,6 +2575,22 @@ Coses que pots fer per ell:
     "O escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
   "systemEntries.conversationCleared": "Conversa esborrada.",
   "systemEntries.newConversation": "Conversa nova iniciada.",
+  "systemEntries.autoHandoff.writingTokens":
+    "El context és a {thousands}k tokens. S'està escrivint un resum de traspàs per a una sessió nova.",
+  "systemEntries.autoHandoff.writingPercent":
+    "El context és al {percent}%. S'està escrivint un resum de traspàs per a una sessió nova.",
+  "systemEntries.autoHandoff.writingCompaction":
+    "El context és al {percent}%, a prop de la compactació automàtica. S'està escrivint un resum de traspàs per a una sessió nova.",
+  "systemEntries.autoHandoff.doneTokens":
+    "Traspassat automàticament a {thousands}k tokens.",
+  "systemEntries.autoHandoff.donePercent":
+    "Traspassat automàticament amb el context al {percent}%.",
+  "systemEntries.autoHandoff.doneCompaction":
+    "Traspassat automàticament amb el context al {percent}%, abans de la compactació automàtica.",
+  "systemEntries.autoHandoff.failed":
+    "El traspàs automàtic no s'ha completat. Aquesta conversa continua.",
+  "systemEntries.autoHandoff.paused":
+    "El traspàs automàtic està en pausa en aquesta conversa: ha començat per sobre del llindar de traspàs.",
   "systemEntries.usageCap.pace":
     "Els torns dels membres estan en pausa: l'ús de l'oficina ha arribat al límit d'avui per als membres. Es reprenen {when}.",
   "systemEntries.agentStopped": "L'agent s'ha aturat: {status}.",

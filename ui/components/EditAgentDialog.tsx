@@ -181,6 +181,7 @@ export interface AgentFormSnapshot {
   permissionMode: AgentInfo["permissionMode"];
   codexSandbox: CodexSandboxMode;
   privileged: boolean;
+  autoHandoff: boolean;
 }
 
 // Does the form hold edits that closing would throw away? Agent memory is
@@ -206,6 +207,7 @@ export function agentFormDirty(
     "permissionMode",
     "codexSandbox",
     "privileged",
+    "autoHandoff",
   ] as const;
   for (const k of exact) {
     if (current[k] !== baseline[k]) return true;
@@ -273,6 +275,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     isSpawn ||
     sessionContext?.role === "owner" ||
     (sessionContext?.userId != null && agent?.userId === sessionContext.userId);
+  // Every engine reports the measure; an agent whose engine stays put follows
+  // its own capability flag.
+  const showAutoHandoff =
+    isSpawn ||
+    targetEngine !== agentType ||
+    agent?.capabilities.autoHandoff === true;
   const roomCount = rooms.length;
   // Room of the agent being edited, resolved by stable id. The index is used
   // only for ordinal fallbacks; name is "" when the room isn't visible.
@@ -337,6 +345,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // PUT /api/agents/:id/privileged route (never the spawn/edit PATCH), so an
   // agent can't self-confer. At spawn we two-step: create, then toggle.
   const [privileged, setPrivileged] = useState(agent?.privileged ?? false);
+  const [autoHandoff, setAutoHandoff] = useState(agent?.autoHandoff ?? false);
   const [saving, setSaving] = useState(false);
   const [reviving, setReviving] = useState<string | null>(null);
   const [reviveError, setReviveError] = useState<string | null>(null);
@@ -413,6 +422,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     permissionMode,
     codexSandbox,
     privileged,
+    autoHandoff,
   };
   // Copied, not aliased: the effects below re-stamp individual baseline entries
   // in place, and sharing the object with this render's snapshot would make
@@ -894,13 +904,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         agentType: targetEngine,
         ...(isCodex ? { codexSandbox } : {}),
       } satisfies SpawnReq)
-        .then((res) =>
-          privileged
-            ? apiFetch("PUT", `/api/agents/${res.agent.id}/privileged`, {
-                privileged: true,
-              } satisfies SetPrivilegedReq)
-            : undefined,
-        )
+        .then(async (res) => {
+          // Spawn takes no autoHandoff field: switch it on with an edit.
+          if (autoHandoff)
+            await apiFetch("PATCH", `/api/agents/${res.agent.id}`, {
+              autoHandoff: true,
+            } satisfies EditAgentReq);
+          if (privileged)
+            await apiFetch("PUT", `/api/agents/${res.agent.id}/privileged`, {
+              privileged: true,
+            } satisfies SetPrivilegedReq);
+        })
         .then(() => onClose())
         .catch(showError)
         .finally(() => setSaving(false));
@@ -958,6 +972,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         )
           changes.codexSandbox = codexSandbox;
       }
+      if (autoHandoff !== (agent!.autoHandoff ?? false))
+        changes.autoHandoff = autoHandoff;
       const hasChanges = !!(
         changes.name ||
         changes.cwd ||
@@ -967,7 +983,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.effort ||
         changes.permissionMode ||
         changes.codexSandbox ||
-        changes.agentType
+        changes.agentType ||
+        changes.autoHandoff !== undefined
       );
       // Privilege is its OWN user-gated route (PUT /privileged), never part of
       // the PATCH - it re-mints the token and restarts the session like a model
@@ -1765,6 +1782,31 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 </div>
               )}
               {engineSettingsBlock}
+              {showAutoHandoff && (
+                <div className="agent-auto-handoff-field">
+                  <label
+                    htmlFor="agent-auto-handoff"
+                    style={{ ...labelStyle, marginTop: 14 }}
+                  >
+                    {t("dialogs.agent.autoHandoff")}
+                  </label>
+                  <label
+                    className="agent-auto-handoff-control"
+                    htmlFor="agent-auto-handoff"
+                  >
+                    <input
+                      id="agent-auto-handoff"
+                      type="checkbox"
+                      checked={autoHandoff}
+                      onChange={(e) => setAutoHandoff(e.target.checked)}
+                      style={{ cursor: "pointer", margin: 0 }}
+                    />
+                  </label>
+                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>
+                    {t("dialogs.agent.autoHandoffHint")}
+                  </p>
+                </div>
+              )}
             </section>
             <section className="agent-settings-group agent-instructions-section">
               <h4 className="agent-settings-group-title">

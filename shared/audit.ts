@@ -12,6 +12,9 @@ export const AUDIT_ACTOR_KINDS = [
   // The secret proxy, for each use of a secret (operation secrets.use). It
   // knows the secret's scope, never the agent.
   "secret_proxy",
+  // The server's automatic handoff, which resets an agent's conversation
+  // (operation agents.handoff, the agent as target).
+  "auto_handoff",
 ] as const;
 export type AuditActorKind = (typeof AUDIT_ACTOR_KINDS)[number];
 export interface AuditActor {

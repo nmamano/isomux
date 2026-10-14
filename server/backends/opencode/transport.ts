@@ -92,6 +92,10 @@ export interface DiscoveredOpenCodeModel {
   id: string;
   label: string;
   contextLimit?: number;
+  // The catalog's input and output limits, for the compaction point
+  // (openCodeAutoCompactTokens). Server-internal, like the rest of this type.
+  inputLimit?: number;
+  outputLimit?: number;
   isFree?: boolean;
   supportedEfforts: { level: EffortLevel }[];
 }
@@ -417,11 +421,25 @@ export class OpenCodeTransport {
   }
 
   async getModelContextLimit(): Promise<number | null> {
+    return (await this.getModelLimits())?.context ?? null;
+  }
+
+  // The chosen model's limits from the kept catalog, or null when the
+  // catalog gives it no context limit.
+  async getModelLimits(): Promise<{
+    context: number;
+    input?: number;
+    output?: number;
+  } | null> {
     await this.initialize(() => undefined);
     const models = await this.catalog().catch(() => []);
-    return (
-      models.find((model) => model.id === this.model)?.contextLimit ?? null
-    );
+    const model = models.find((entry) => entry.id === this.model);
+    if (model?.contextLimit === undefined) return null;
+    return {
+      context: model.contextLimit,
+      ...(model.inputLimit !== undefined ? { input: model.inputLimit } : {}),
+      ...(model.outputLimit !== undefined ? { output: model.outputLimit } : {}),
+    };
   }
 
   modelId(): string {
@@ -1254,6 +1272,8 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
       const model = asRecord(rawModel);
       const modelLabel = safeCatalogLabel(model.name, modelId);
       const contextLimit = positiveNumber(asRecord(model.limit), "context");
+      const inputLimit = positiveNumber(asRecord(model.limit), "input");
+      const outputLimit = positiveNumber(asRecord(model.limit), "output");
       const variants = asRecord(model.variants);
       const supportedEfforts = EFFORT_LEVELS.filter(({ level }) =>
         Object.hasOwn(variants, level),
@@ -1270,6 +1290,8 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
               ? modelLabel
               : `${providerLabel} - ${modelLabel}`,
           ...(contextLimit !== null ? { contextLimit } : {}),
+          ...(inputLimit !== null ? { inputLimit } : {}),
+          ...(outputLimit !== null ? { outputLimit } : {}),
           ...(openCodeModelIsFree(model.cost) ? { isFree: true } : {}),
           supportedEfforts,
         });

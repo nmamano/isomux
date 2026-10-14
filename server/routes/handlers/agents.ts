@@ -215,7 +215,10 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
     badStr(b.effort) ||
     badStr(b.permissionMode) ||
     badStr(b.codexSandbox) ||
-    badStr(b.agentType)
+    badStr(b.agentType) ||
+    (b.autoHandoff !== undefined &&
+      b.autoHandoff !== null &&
+      typeof b.autoHandoff !== "boolean")
   ) {
     return true;
   }

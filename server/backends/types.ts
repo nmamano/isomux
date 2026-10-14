@@ -343,6 +343,11 @@ export interface ContextUsage {
   systemPromptSections?: { name: string; tokens: number }[];
   isAutoCompactEnabled?: boolean;
   autoCompactThreshold?: number;
+  // An engine's own compaction point in tokens, for the automatic handoff
+  // only (server/auto-handoff.ts). Not shown by /context: for OpenCode it is
+  // the default-path point, which member config can move. Claude reports its
+  // point through autoCompactThreshold above instead.
+  compactAtTokens?: number;
 }
 
 // Backend-agnostic subscription-allowance reading. Same shape as

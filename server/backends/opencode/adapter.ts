@@ -48,6 +48,35 @@ import {
 const AUTH_GUIDANCE =
   "Add `OPENCODE_API_KEY` on the Integrations page (Variables tab), then `/clear`, or use an agent with the Claude or Codex backend.";
 
+// Where OpenCode compacts a session on its own, on its default path:
+// SessionCompaction.isOverflow fires when a step's total tokens reach the
+// usable window, which is limit.input - min(20000, maxOutput) when the model
+// has an input limit and limit.context - maxOutput otherwise, with maxOutput =
+// min(limit.output, 32000) or 32000 when the output limit is 0. Off that path:
+// config compaction.auto = false turns it off, compaction.reserved replaces
+// the 20000 buffer, and the env var OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX
+// replaces 32000. The config Isomux writes (supervisor.ts) sets none of them;
+// Isomux does not read a member's own OpenCode config or that env var.
+// Source checked: vn() and yy() in the JavaScript bundled in OpenCode 1.18.35
+// (2026-10-14). The window the sample's percentage uses is limit.context.
+const OPENCODE_COMPACTION_BUFFER = 20_000;
+const OPENCODE_OUTPUT_TOKEN_MAX = 32_000;
+export function openCodeAutoCompactTokens(limits: {
+  context: number;
+  input?: number;
+  output?: number;
+}): number {
+  const maxOutput =
+    Math.min(limits.output ?? 0, OPENCODE_OUTPUT_TOKEN_MAX) ||
+    OPENCODE_OUTPUT_TOKEN_MAX;
+  if (limits.input)
+    return Math.max(
+      0,
+      limits.input - Math.min(OPENCODE_COMPACTION_BUFFER, maxOutput),
+    );
+  return Math.max(0, limits.context - maxOutput);
+}
+
 const CAPABILITIES: BackendCapabilities = {
   fork: true,
   hooks: false,
@@ -57,6 +86,7 @@ const CAPABILITIES: BackendCapabilities = {
   topicGen: true,
   edit: true,
   mcp: false,
+  autoHandoff: true,
 };
 const TRACER_CAPABILITIES: BackendCapabilities = {
   ...CAPABILITIES,
@@ -64,6 +94,7 @@ const TRACER_CAPABILITIES: BackendCapabilities = {
   edit: false,
   canUseTool: false,
   topicGen: false,
+  autoHandoff: false,
 };
 
 const TRACER_MODELS: ModelOption[] = [
@@ -171,13 +202,14 @@ class OpenCodeServerSession implements BackendSession {
   async getContextUsage(): Promise<ContextUsage | null> {
     const breakdown = this.latestContextBreakdown;
     if (!breakdown) return null;
-    let maxTokens: number | null;
+    let limits: Awaited<ReturnType<OpenCodeTransport["getModelLimits"]>>;
     try {
-      maxTokens = await this.transport.getModelContextLimit();
+      limits = await this.transport.getModelLimits();
     } catch {
       return null;
     }
-    if (maxTokens === null) return null;
+    if (limits === null) return null;
+    const maxTokens = limits.context;
     return {
       model: this.transport.modelId(),
       totalTokens: breakdown.totalTokens,
@@ -193,6 +225,7 @@ class OpenCodeServerSession implements BackendSession {
         { name: "Output", tokens: breakdown.outputTokens },
         { name: "Reasoning", tokens: breakdown.reasoningTokens },
       ],
+      compactAtTokens: openCodeAutoCompactTokens(limits),
     };
   }
 

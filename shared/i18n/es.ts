@@ -33,6 +33,7 @@ export const es: Catalog = {
   "audit.kind.setup": "Configuración",
   "audit.kind.app": "App",
   "audit.kind.secretProxy": "Proxy de secretos",
+  "audit.kind.autoHandoff": "Traspaso automático",
   "audit.memory.office": "Memoria de la oficina",
   "audit.memory.room": "Memoria de la sala",
   "audit.memory.agent": "Memoria del agente",
@@ -1344,6 +1345,9 @@ Cosas que puedes hacer por él:
     "Permite a este agente dirigir las sesiones de otros agentes (reanudar, conversación nueva, enviar ahora) y gestionar sus propios cronjobs, con los permisos por sala del miembro que lo creó. Sigue actuando como el agente, nunca como el miembro.",
   "dialogs.agent.privilegedRestart":
     "Al guardar se reinicia la sesión del agente.",
+  "dialogs.agent.autoHandoff": "Traspaso automático",
+  "dialogs.agent.autoHandoffHint":
+    "Cuando el contexto se llena, el agente escribe un resumen y continúa en una sesión nueva. El chat se vacía.",
   "dialogs.agent.permission.ask": "Preguntar",
   "dialogs.agent.permission.bypassAll": "Omitir todos los permisos",
   "dialogs.agent.permission.codexUntrusted":
@@ -2574,6 +2578,22 @@ Cosas que puedes hacer por él:
     "O escribe cualquier otro mensaje para denegar con ese motivo.",
   "systemEntries.conversationCleared": "Conversación borrada.",
   "systemEntries.newConversation": "Conversación nueva iniciada.",
+  "systemEntries.autoHandoff.writingTokens":
+    "El contexto está en {thousands}k tokens. Escribiendo un resumen de traspaso para una sesión nueva.",
+  "systemEntries.autoHandoff.writingPercent":
+    "El contexto está al {percent}%. Escribiendo un resumen de traspaso para una sesión nueva.",
+  "systemEntries.autoHandoff.writingCompaction":
+    "El contexto está al {percent}%, cerca de la compactación automática. Escribiendo un resumen de traspaso para una sesión nueva.",
+  "systemEntries.autoHandoff.doneTokens":
+    "Traspasado automáticamente a {thousands}k tokens.",
+  "systemEntries.autoHandoff.donePercent":
+    "Traspasado automáticamente con el contexto al {percent}%.",
+  "systemEntries.autoHandoff.doneCompaction":
+    "Traspasado automáticamente con el contexto al {percent}%, antes de la compactación automática.",
+  "systemEntries.autoHandoff.failed":
+    "El traspaso automático no se completó. Esta conversación continúa.",
+  "systemEntries.autoHandoff.paused":
+    "El traspaso automático está en pausa en esta conversación: empezó por encima del umbral de traspaso.",
   "systemEntries.usageCap.pace":
     "Los turnos de los miembros están en pausa: el uso de la oficina ha llegado al límite de hoy para los miembros. Se reanudan {when}.",
   "systemEntries.agentStopped": "El agente se detuvo: {status}.",

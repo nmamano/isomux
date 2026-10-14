@@ -269,7 +269,8 @@ ${emitThemesCss()}
   .outfit-colors { display: flex; flex-wrap: wrap; gap: 4px; }
   .outfit-colors button { display: grid; place-items: center; width: 36px; height: 36px; padding: 3px; border: 2px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; }
   .outfit-colors button span { display: block; width: 24px; height: 24px; border-radius: 4px; }
-  .agent-privileged-control {
+  .agent-privileged-control,
+  .agent-auto-handoff-control {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -282,7 +283,8 @@ ${emitThemesCss()}
     color: var(--text-primary);
     cursor: pointer;
   }
-  .agent-privileged-control input { width: 18px; height: 18px; }
+  .agent-privileged-control input,
+  .agent-auto-handoff-control input { width: 18px; height: 18px; }
   @media (min-width: 1000px) {
     .edit-agent-dialog-desktop,
     .spawn-agent-dialog-desktop { width: min(1040px, 94vw); }
