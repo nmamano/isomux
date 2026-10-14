@@ -218,8 +218,9 @@ async function expectConfirmedOnNewProcess(
 it("idle: the agent asks, the member saves in the masked form, and the confirmation runs on a new process with the placeholder and the proxy", async () => {
   const w = await world();
   const firstSession = w.fake.sessionForAgent(w.id)!;
-  expect(firstSession.opts.env?.GH_TOKEN).toBeUndefined();
-  expect(firstSession.opts.env?.HTTPS_PROXY).toBeUndefined();
+  // Presence only: a failure must never print a token value.
+  expect(firstSession.opts.env?.GH_TOKEN === undefined).toBe(true);
+  expect(firstSession.opts.env?.HTTPS_PROXY === undefined).toBe(true);
   const requestId = ask(w);
   const card = w.mgr
     .getAgentLogs(w.id)
