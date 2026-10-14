@@ -1122,6 +1122,8 @@ Coses que pots fer per ell:
     "Aquesta subscripció es fa servir per a cada agent de l'oficina tret dels que crea un membre amb el seu propi <link>inici de sessió personal</link>.",
   "settings.signIn.personalHint":
     "Fes servir un compte a part per als teus agents.",
+  "settings.signIn.askOfficeOwner":
+    "Demana a un propietari de l'oficina que iniciï la sessió.",
   "settings.signIn.status": "Estat:",
   "settings.signIn.checking": "Comprovant la connexió…",
   "settings.signIn.waiting": "Esperant el proveïdor…",
@@ -2727,6 +2729,8 @@ Coses que pots fer per ell:
     "Integracions → Proveïdors de models (Personals)",
   "systemEntries.claudeAuth.disconnected":
     "Claude ha rebutjat les credencials. Inicia sessió a Claude a {location}.",
+  "systemEntries.claudeAuth.disconnectedAskOwner":
+    "Claude ha rebutjat les credencials. Demana a un propietari de l'oficina que iniciï la sessió.",
   "systemEntries.claudeAuth.accessUnavailable":
     "L'accés a Claude Code no està disponible per a aquest compte. Revisa'n la subscripció o inicia la sessió amb un altre compte.",
   "systemEntries.claudeAuth.pinned":

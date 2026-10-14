@@ -25,6 +25,8 @@ import {
 } from "../provider-homes.ts";
 import { STATE_ROOT } from "../config.ts";
 import { english } from "../i18n.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+import { SUPPORTED_LANGUAGES } from "../../shared/languages.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { loadAgents } from "../persistence.ts";
 import { claudeBackend } from "../backends/claude.ts";
@@ -131,6 +133,7 @@ async function harness(opts: {
   timeoutMs?: number;
   target?: () => EffectiveProviderAccountTarget;
   eventSink?: ManagerDeps["eventSink"];
+  findUser?: ManagerDeps["findUser"];
 }) {
   const roomId = `auth-${crypto.randomUUID()}`;
   const mgr = createAgentManager({
@@ -143,6 +146,17 @@ async function harness(opts: {
     effectiveProviderAccountTarget: opts.target
       ? () => opts.target!()
       : undefined,
+    // By default "tester" types and is "user-a", the agent's member manager.
+    findUser:
+      opts.findUser ??
+      ((person) =>
+        (
+          "username" in person
+            ? person.username === "tester"
+            : person.userId === "user-a"
+        )
+          ? { id: "user-a", role: "member" }
+          : undefined),
   });
   mgr.configureAgentTurnDeps();
   const info = await mgr.spawn(
@@ -1083,6 +1097,172 @@ describe("provider auth affordances", () => {
         .some((entry) => entry.kind === "terminal-command"),
     ).toBe(false);
   });
+
+  // Only an owner gets the office login or logout command (Nil,
+  // 2026-10-14). The person who typed the command decides; with no typist,
+  // the agent's manager does. The card renders only for the manager, so a
+  // typist who is someone else gets the terminal path. "tester" types;
+  // "user-a" manages.
+  describe("an agent on the office account", () => {
+    const askOwner = english.t("settings.signIn.askOfficeOwner");
+    async function officeAgent(opts: {
+      typist: "owner" | "member" | "manager";
+      manager: "owner" | "member";
+      provider?: "claude" | "codex";
+      scope?: "office" | "personal";
+      canBrowserLogin?: boolean;
+    }) {
+      const provider = opts.provider ?? "claude";
+      const scope = opts.scope ?? "office";
+      const manager = { id: "user-a", role: opts.manager };
+      const typist =
+        opts.typist === "manager"
+          ? manager
+          : { id: "user-b", role: opts.typist };
+      const fake = new FakeBackend({
+        signedOut: () => true,
+        loginInstructions: {
+          kind: "login",
+          text: "terminal fallback",
+          commands: [`${provider} login`],
+        },
+      });
+      const h = await harness({
+        backendType: provider,
+        fake,
+        findUser: (person) =>
+          "username" in person
+            ? person.username === "tester"
+              ? typist
+              : undefined
+            : person.userId === "user-a"
+              ? manager
+              : undefined,
+        accounts: async () => [
+          {
+            ...claudeWire(scope, {
+              canBrowserLogin: opts.canBrowserLogin ?? true,
+            }),
+            provider,
+          },
+        ],
+        target: () => ({
+          provider,
+          scope,
+          dir: `/accounts/${scope} ${provider}`,
+        }),
+      });
+      const logs = () => h.mgr.getAgentLogs(h.agentId);
+      const commands = () =>
+        logs()
+          .filter((entry) => entry.kind === "terminal-command")
+          .map((entry) => entry.terminal?.command);
+      const asked = () => logs().some((entry) => entry.content === askOwner);
+      const card = () =>
+        logs().some((entry) => entry.metadata?.providerLogin === provider);
+      // Bounded inside the per-test cap and asserts nothing: the expects
+      // after it name what failed.
+      const settled = () =>
+        settle(() => asked() || commands().length > 0 || card());
+      return { ...h, commands, asked, card, settled };
+    }
+
+    it("gives an owner who types /login on a member's agent the command, not the card", async () => {
+      const h = await officeAgent({ typist: "owner", manager: "member" });
+      await h.mgr.sendMessage(h.agentId, "/login", "tester");
+      await h.settled();
+      expect(h.commands()).toEqual(["claude login"]);
+      expect(h.card()).toBe(false);
+      expect(h.asked()).toBe(false);
+    });
+
+    it("gives a member who types /login on an owner's agent the owner line", async () => {
+      const h = await officeAgent({ typist: "member", manager: "owner" });
+      await h.mgr.sendMessage(h.agentId, "/login", "tester");
+      await h.settled();
+      expect(h.commands()).toEqual([]);
+      expect(h.card()).toBe(false);
+      expect(h.asked()).toBe(true);
+    });
+
+    it("gives a member who types /logout on an owner's agent the owner line", async () => {
+      const h = await officeAgent({ typist: "member", manager: "owner" });
+      await h.mgr.sendMessage(h.agentId, "/logout", "tester");
+      await h.settled();
+      expect(h.commands()).toEqual([]);
+      expect(h.card()).toBe(false);
+      expect(h.asked()).toBe(true);
+    });
+
+    it("gives an owner who types /logout on a member's agent the command, not the card", async () => {
+      const h = await officeAgent({ typist: "owner", manager: "member" });
+      await h.mgr.sendMessage(h.agentId, "/logout", "tester");
+      await h.settled();
+      expect(h.commands()).toEqual([
+        "CLAUDE_CONFIG_DIR='/accounts/office claude' claude auth logout",
+      ]);
+      expect(h.card()).toBe(false);
+      expect(h.asked()).toBe(false);
+    });
+
+    it("keeps the card for a member manager who types /login", async () => {
+      const h = await officeAgent({ typist: "manager", manager: "member" });
+      await h.mgr.sendMessage(h.agentId, "/login", "tester");
+      await h.settled();
+      expect(h.card()).toBe(true);
+      expect(h.commands()).toEqual([]);
+      expect(h.asked()).toBe(false);
+    });
+
+    it("keeps the card when someone else types /login on a personal-account agent", async () => {
+      const h = await officeAgent({
+        typist: "member",
+        manager: "owner",
+        scope: "personal",
+      });
+      await h.mgr.sendMessage(h.agentId, "/login", "tester");
+      await h.settled();
+      expect(h.card()).toBe(true);
+      expect(h.commands()).toEqual([]);
+      expect(h.asked()).toBe(false);
+    });
+
+    for (const manager of ["member", "owner"] as const) {
+      // The typist is the opposite role, so a gate that read the typist
+      // would fail here.
+      const typist = manager === "owner" ? "member" : "owner";
+      const failTurn = async (canBrowserLogin: boolean) => {
+        const h = await officeAgent({
+          typist,
+          manager,
+          provider: "codex",
+          canBrowserLogin,
+        });
+        h.mgr.enqueueMessage(h.agentId, {
+          sender: { kind: "user", username: "tester" },
+          text: "hello",
+        });
+        await h.settled();
+        return h;
+      };
+
+      it(`keeps the card on a sign-in failure for a ${manager} manager`, async () => {
+        const h = await failTurn(true);
+        expect(h.card()).toBe(true);
+        expect(h.commands()).toEqual([]);
+        expect(h.asked()).toBe(false);
+      });
+
+      it(`lets a ${manager} manager's role decide the fallback on a sign-in failure`, async () => {
+        const h = await failTurn(false);
+        expect(h.card()).toBe(false);
+        expect(h.commands()).toEqual(
+          manager === "owner" ? ["codex login"] : [],
+        );
+        expect(h.asked()).toBe(manager === "member");
+      });
+    }
+  });
 });
 
 describe("Claude auth-error status checks", () => {
@@ -1122,6 +1302,53 @@ describe("Claude auth-error status checks", () => {
     });
   }
 
+  // Only an owner signs the office account in (Nil, 2026-10-14): a member
+  // manager is told to ask one, and the card still follows.
+  for (const role of ["member", "owner"] as const) {
+    it(`tells a ${role} manager of an office Claude agent what to do`, async () => {
+      const { mgr, agentId } = await harness({
+        backendType: "claude",
+        fake: rejected(),
+        target: () => ({
+          provider: "claude",
+          scope: "office",
+          dir: "/accounts/office-claude",
+        }),
+        findUser: () => ({ id: "user-a", role }),
+        accounts: async () => [claudeWire("office")],
+      });
+      mgr.enqueueMessage(agentId, {
+        sender: { kind: "user", username: "tester" },
+        text: "hello",
+      });
+      const entry = () =>
+        mgr
+          .getAgentLogs(agentId)
+          .find((e) => e.metadata?.providerLogin === "claude");
+      await settle(() => !!entry());
+      expect(entry()?.content).toBe(
+        role === "member"
+          ? english.t("systemEntries.claudeAuth.disconnectedAskOwner")
+          : english.t("systemEntries.claudeAuth.disconnected", {
+              location: english.t("systemEntries.claudeAuth.officeLocation"),
+            }),
+      );
+    });
+  }
+
+  it("has the member sentence in every language", () => {
+    const sentences = SUPPORTED_LANGUAGES.map(({ code }) =>
+      translatorFor(code).t("systemEntries.claudeAuth.disconnectedAskOwner"),
+    );
+    for (const sentence of sentences) {
+      expect(sentence).not.toBe(
+        "systemEntries.claudeAuth.disconnectedAskOwner",
+      );
+      expect(sentence).not.toContain("{");
+    }
+    expect(new Set(sentences).size).toBe(sentences.length);
+  });
+
   for (const scope of ["office", "personal"] as const) {
     it(`ignores credential-file presence and requests a fresh ${scope} Claude read once`, async () => {
       const dir = join(STATE_ROOT, `present-invalid-${scope}`);
@@ -1133,6 +1360,8 @@ describe("Claude auth-error status checks", () => {
         backendType: "claude",
         fake: rejected(true),
         target: () => ({ provider: "claude", scope, dir }),
+        // An owner manager: a member's office text is the next test's.
+        findUser: () => ({ id: "user-a", role: "owner" }),
         accounts: async (_userId, options) => {
           calls++;
           expect(options).toMatchObject({

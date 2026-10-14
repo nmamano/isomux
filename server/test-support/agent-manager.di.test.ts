@@ -1064,6 +1064,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
         officeState: new OfficeState({ rooms: rooms(room) }),
         initialRooms: [],
         listProviderAccounts,
+        // The fallback target is the office account, whose commands only an
+        // owner gets.
+        findUser: () => ({ id: "user-a", role: "owner" }),
       });
       mgr.configureAgentTurnDeps();
       const info = await mgr.spawn(

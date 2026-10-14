@@ -158,6 +158,7 @@ export function ProvidersSection({
           accounts={accounts.accounts}
           loaded={accounts.loaded}
           canCancelSharedLogin={role === "owner"}
+          canChangeOffice={role === "owner"}
           onAccounts={accounts.update}
           scopes={scopes}
           onGoToOtherHalf={onGoToOtherCard}

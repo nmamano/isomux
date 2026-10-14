@@ -37,6 +37,7 @@ import type {
   SubscriptionUsageWire,
   SubscriptionWindowWire,
   TaskItem,
+  UserRole,
 } from "../shared/types.ts";
 import {
   claudeModelFor,
@@ -239,7 +240,7 @@ import {
   revokeAgentToken,
   getAgentTokenRaw,
 } from "./identity/tokens.ts";
-import { getUserByName } from "./users.ts";
+import { getUserById, getUserByName } from "./users.ts";
 // Backend-option validators live in agent-validators.ts so cron handlers can
 // share them. UI shouldn't send mismatched values, but a stale tab or hand-
 // crafted client could; each validator falls back to a safe default when the
@@ -317,6 +318,10 @@ export interface ManagerDeps {
     userId: string,
     provider: ProviderAccountProvider,
   ) => EffectiveProviderAccountTarget;
+  // Defaults to the live user records.
+  findUser?: (
+    person: { userId: string } | { username: string },
+  ) => { id: string; role: UserRole } | undefined;
   runBrowserAction?: (
     agentId: string,
     body: unknown,
@@ -488,6 +493,12 @@ export const TOOL_BOUNDARY_NOTE =
 
 export function createAgentManager(deps: ManagerDeps) {
   const getBackend = deps.resolveBackend;
+  const findUser =
+    deps.findUser ??
+    ((person: { userId: string } | { username: string }) =>
+      "userId" in person
+        ? getUserById(person.userId)
+        : getUserByName(person.username));
   const officeState = deps.officeState;
   const taskStore = createTaskStore();
   officeState.beforeTaskChange = taskStore.change;
@@ -671,6 +682,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const provider = managed.info.agentType;
         const target = fallbackProviderTarget(managed);
         if (!target) throw new Error("Provider account scope is unavailable.");
+        if (cardHiddenFromTypist(managed, target, username))
+          throw new Error("The typist cannot see the sign-in card.");
         const accounts = await deps.listProviderAccounts(managed.info.userId);
         const cardIsActionable = accounts.some(
           (account) =>
@@ -695,10 +708,51 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }
       } catch {}
     }
+    if (
+      managed &&
+      instructions.kind === "login" &&
+      officeSignInWithheld(managed, fallbackProviderTarget(managed), username)
+    ) {
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId, username)("settings.signIn.askOfficeOwner"),
+      );
+      return;
+    }
     addLogEntry(agentId, "system", instructions.text);
     for (const command of instructions.commands ?? []) {
       emitAgentTerminalCommand(agentId, command);
     }
+  }
+
+  // Only an owner signs the office account in or out (Nil, 2026-10-14), so
+  // a member never gets the office login or logout command in the terminal.
+  // The person who typed the command decides; with no typist, the agent's
+  // manager does.
+  function officeSignInWithheld(
+    managed: ManagedAgent,
+    target: EffectiveProviderAccountTarget | null,
+    username: string | undefined,
+  ): boolean {
+    const userId = managed.info.userId;
+    if (!userId || target?.scope !== "office") return false;
+    return findUser(username ? { username } : { userId })?.role !== "owner";
+  }
+
+  // The sign-in card renders only for the agent's manager. Another person
+  // who types /login or /logout on an office-account agent gets the terminal
+  // path, which officeSignInWithheld gates by their own role.
+  function cardHiddenFromTypist(
+    managed: ManagedAgent,
+    target: EffectiveProviderAccountTarget | null,
+    username: string | undefined,
+  ): boolean {
+    return (
+      !!username &&
+      target?.scope === "office" &&
+      findUser({ username })?.id !== managed.info.userId
+    );
   }
 
   function emitDetectedAuthInstructions(
@@ -767,7 +821,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         addLogEntry(
           agentId,
           "system",
-          t("systemEntries.claudeAuth.disconnected", { location }),
+          officeSignInWithheld(managed, target, undefined)
+            ? t("systemEntries.claudeAuth.disconnectedAskOwner")
+            : t("systemEntries.claudeAuth.disconnected", { location }),
           { providerLogin: "claude" },
         );
       } else if (account.accountStatus === "connected") {
@@ -866,7 +922,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (
       managed.info.userId &&
       deps.listProviderAccounts &&
-      deps.effectiveProviderAccountTarget
+      deps.effectiveProviderAccountTarget &&
+      !cardHiddenFromTypist(managed, target, username)
     ) {
       try {
         const accounts = await deps.listProviderAccounts(managed.info.userId);
@@ -888,6 +945,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           return;
         }
       } catch {}
+    }
+    if (officeSignInWithheld(managed, target, username)) {
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId, username)("settings.signIn.askOfficeOwner"),
+      );
+      return;
     }
     const baseCommand =
       provider === "claude"
@@ -921,7 +986,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       deps.effectiveProviderAccountTarget
     ) {
       const target = fallbackProviderTarget(managed);
-      if (target) {
+      if (target && !cardHiddenFromTypist(managed, target, username)) {
         try {
           const accounts = await deps.listProviderAccounts(managed.info.userId);
           const cardIsAvailable = accounts.some(

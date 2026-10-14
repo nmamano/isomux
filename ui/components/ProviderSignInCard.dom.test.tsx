@@ -13,6 +13,7 @@ it("keeps browser sign-in available when the account check is unavailable", () =
     createElement(ProviderSignInCard, {
       provider: "codex",
       scopes: ["office"],
+      canChangeOffice: true,
       accounts: [
         {
           provider: "codex",
@@ -93,6 +94,7 @@ it("composes a provider-aware queue explanation from structured 409 data", async
     createElement(ProviderSignInCard, {
       provider: "claude",
       scopes: ["office"],
+      canChangeOffice: true,
       accounts: [
         {
           provider: "claude",
@@ -144,6 +146,7 @@ it("clears local waiting controls when a confirmed server slot disappears", asyn
       createElement(ProviderSignInCard, {
         provider: "claude",
         scopes: ["office"],
+        canChangeOffice: true,
         accounts: [account],
       });
     const view = render(card(idle));
@@ -199,6 +202,7 @@ it("keeps local waiting controls when the server never confirms the slot", async
       createElement(ProviderSignInCard, {
         provider: "claude",
         scopes: ["office"],
+        canChangeOffice: true,
         accounts: [account],
       });
     const view = render(card(interrupted));
@@ -294,3 +298,112 @@ for (const late of [false, true]) {
     expect(view.queryByText(rejection) === null).toBe(true);
   });
 }
+
+it("leaves a member only the status and Test of an office sign-in", () => {
+  const account = (
+    scope: "office" | "personal",
+    accountStatus: "connected" | "not_connected",
+  ) => ({
+    provider: "codex" as const,
+    scope,
+    accountStatus,
+    accountLabel: accountStatus === "connected" ? "ana@example.com" : undefined,
+    loginStatus: "idle" as const,
+    canBrowserLogin: true,
+  });
+  const card = (
+    canChangeOffice: boolean,
+    accountStatus: "connected" | "not_connected",
+    pageLook: boolean,
+  ) =>
+    createElement(ProviderSignInCard, {
+      provider: "codex",
+      accounts: [
+        account("office", accountStatus),
+        account("personal", accountStatus),
+      ],
+      canChangeOffice,
+      pageLook,
+    });
+  const half = (
+    view: ReturnType<typeof render>,
+    scope: "office" | "personal",
+  ) =>
+    view.container.querySelector(`[data-sign-in-scope="${scope}"]`)!
+      .parentElement!;
+  const controls = (root: Element) => ({
+    signIn: !!root.querySelector("[data-start-provider-login]"),
+    signOut: !!root.querySelector("[data-provider-sign-out]"),
+    test: !!root.querySelector("[data-sign-in-test]"),
+    askOwner: !!root.querySelector("[data-ask-office-owner]"),
+  });
+
+  // The chat card: signed out.
+  const member = render(card(false, "not_connected", false));
+  expect(controls(half(member, "office"))).toEqual({
+    signIn: false,
+    signOut: false,
+    test: false,
+    askOwner: true,
+  });
+  expect(controls(half(member, "personal"))).toEqual({
+    signIn: true,
+    signOut: false,
+    test: false,
+    askOwner: false,
+  });
+  member.rerender(card(true, "not_connected", false));
+  expect(controls(half(member, "office"))).toEqual({
+    signIn: true,
+    signOut: false,
+    test: false,
+    askOwner: false,
+  });
+
+  // An owner's sign-in in progress: the queue speaks, not the line.
+  member.rerender(
+    createElement(ProviderSignInCard, {
+      provider: "codex",
+      scopes: ["office"],
+      accounts: [
+        {
+          ...account("office", "not_connected"),
+          loginStatus: "waiting_external" as const,
+          loginQueue: { holderName: "Ana", startedAt: Date.now() },
+        },
+      ],
+    }),
+  );
+  expect(controls(half(member, "office"))).toEqual({
+    signIn: false,
+    signOut: false,
+    test: false,
+    askOwner: false,
+  });
+  expect(
+    member.container.querySelector("[data-provider-login-queue]"),
+  ).not.toBeNull();
+
+  // The Integrations page: signed in.
+  member.rerender(card(false, "connected", true));
+  expect(controls(half(member, "office"))).toEqual({
+    signIn: false,
+    signOut: false,
+    test: true,
+    askOwner: false,
+  });
+  expect(half(member, "office").textContent).toContain("ana@example.com");
+  expect(controls(half(member, "personal"))).toEqual({
+    signIn: false,
+    signOut: true,
+    test: true,
+    askOwner: false,
+  });
+  member.rerender(card(true, "connected", true));
+  expect(controls(half(member, "office"))).toEqual({
+    signIn: false,
+    signOut: true,
+    test: true,
+    askOwner: false,
+  });
+});

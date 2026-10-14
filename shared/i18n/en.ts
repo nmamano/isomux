@@ -1104,6 +1104,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.signIn.officeHint":
     "This subscription is used for every agent in the office except for agents spawned by an office member who has their own <link>personal sign-in</link>.",
   "settings.signIn.personalHint": "Use a separate account for your agents.",
+  "settings.signIn.askOfficeOwner": "Ask an office owner to sign in.",
   "settings.signIn.status": "Status:",
   "settings.signIn.checking": "Checking connection…",
   "settings.signIn.waiting": "Waiting for provider…",
@@ -2697,6 +2698,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Integrations → Model providers (Personal)",
   "systemEntries.claudeAuth.disconnected":
     "Claude rejected the credentials. Sign in to Claude in {location}.",
+  "systemEntries.claudeAuth.disconnectedAskOwner":
+    "Claude rejected the credentials. Ask an office owner to sign in.",
   "systemEntries.claudeAuth.accessUnavailable":
     "Claude Code access is not available for this account. Check its subscription, or sign in with another account.",
   "systemEntries.claudeAuth.pinned":

@@ -1121,6 +1121,8 @@ Cosas que puedes hacer por él:
   "settings.signIn.officeHint":
     "Esta suscripción se usa para cada agente de la oficina salvo los que crea un miembro con su propio <link>inicio de sesión personal</link>.",
   "settings.signIn.personalHint": "Usa una cuenta aparte para tus agentes.",
+  "settings.signIn.askOfficeOwner":
+    "Pide a un propietario de la oficina que inicie sesión.",
   "settings.signIn.status": "Estado:",
   "settings.signIn.checking": "Comprobando la conexión…",
   "settings.signIn.waiting": "Esperando al proveedor…",
@@ -2726,6 +2728,8 @@ Cosas que puedes hacer por él:
     "Integraciones → Proveedores de modelos (Personales)",
   "systemEntries.claudeAuth.disconnected":
     "Claude rechazó las credenciales. Inicia sesión en Claude en {location}.",
+  "systemEntries.claudeAuth.disconnectedAskOwner":
+    "Claude rechazó las credenciales. Pide a un propietario de la oficina que inicie sesión.",
   "systemEntries.claudeAuth.accessUnavailable":
     "El acceso a Claude Code no está disponible para esta cuenta. Revisa su suscripción o inicia sesión con otra cuenta.",
   "systemEntries.claudeAuth.pinned":

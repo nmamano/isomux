@@ -2442,6 +2442,7 @@ export function LogView({
                           accounts={providerAccounts}
                           showTitle={false}
                           apiKeyNote
+                          canChangeOffice={sessionContext?.role === "owner"}
                           onStartNewConversation={async () => {
                             await apiFetch(
                               "POST",

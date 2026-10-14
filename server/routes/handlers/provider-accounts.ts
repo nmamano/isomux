@@ -4,6 +4,7 @@ import {
   type HandlerErrorStatus,
   type RouteHandler,
 } from "../executor.ts";
+import { isOfficeOwnerIdentity } from "../../identity/guards.ts";
 import type {
   ProviderAccountProvider,
   ProviderAccountScope,
@@ -61,6 +62,11 @@ export function providerAccountsHandlers(
 ): Record<string, RouteHandler> {
   const userId = (ctx: Parameters<RouteHandler>[0]): string | null =>
     ctx.identity.scope === "user" ? ctx.identity.userId : null;
+  // Only an owner signs the office account in or out (Nil, 2026-10-14).
+  const officeDenied = (
+    ctx: Parameters<RouteHandler>[0],
+    selected: ProviderAccountScope,
+  ): boolean => selected === "office" && !isOfficeOwnerIdentity(ctx.identity);
   return {
     "providerAccounts.list": async (ctx) => {
       const id = userId(ctx);
@@ -75,6 +81,7 @@ export function providerAccountsHandlers(
       const body = (ctx.body ?? {}) as { method?: unknown; scope?: unknown };
       const selectedScope = scope(body.scope);
       if (!selectedScope) return fail(422, "invalid_scope");
+      if (officeDenied(ctx, selectedScope)) return fail(403, "forbidden");
       if (
         body.method !== undefined &&
         body.method !== "browser" &&
@@ -100,6 +107,7 @@ export function providerAccountsHandlers(
       const selectedScope = scope(body.scope);
       if (!selectedScope || typeof body.code !== "string" || !body.code.trim())
         return fail(422, "invalid_callback");
+      if (officeDenied(ctx, selectedScope)) return fail(403, "forbidden");
       const result = await deps.callback(
         id,
         selectedProvider,
@@ -142,6 +150,7 @@ export function providerAccountsHandlers(
         (ctx.body as { scope?: unknown } | undefined)?.scope,
       );
       if (!selectedScope) return fail(422, "invalid_scope");
+      if (officeDenied(ctx, selectedScope)) return fail(403, "forbidden");
       const result = await deps.disconnect(id, selectedProvider, selectedScope);
       return result.ok
         ? ok(result.value)

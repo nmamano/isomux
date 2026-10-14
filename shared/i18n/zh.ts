@@ -1008,6 +1008,7 @@ App 的一些原则：
   "settings.signIn.officeHint":
     "办公室中的所有智能体都会使用此订阅，但拥有自己<link>个人登录</link>的成员所创建的智能体除外。",
   "settings.signIn.personalHint": "为你的智能体使用独立账户。",
+  "settings.signIn.askOfficeOwner": "请让办公室所有者登录。",
   "settings.signIn.status": "状态：",
   "settings.signIn.checking": "正在检查连接…",
   "settings.signIn.waiting": "正在等待提供方…",
@@ -2441,6 +2442,8 @@ App 的一些原则：
   "systemEntries.claudeAuth.personalLocation": "集成 → 模型提供商（个人）",
   "systemEntries.claudeAuth.disconnected":
     "Claude 拒绝了凭据。请在 {location} 中登录 Claude。",
+  "systemEntries.claudeAuth.disconnectedAskOwner":
+    "Claude 拒绝了凭据。请让办公室所有者登录。",
   "systemEntries.claudeAuth.accessUnavailable":
     "此账户无法使用 Claude Code。请检查其订阅，或使用其他账户登录。",
   "systemEntries.claudeAuth.pinned":

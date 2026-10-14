@@ -8,7 +8,7 @@ The office owner can set up office-wide connections for each LLM provider; invit
 
 ## Use your own provider account
 
-Sign in to a provider on the `Integrations` page, `Model providers` tab: on the Office-wide card for every agent in the office, or on the Personal card for the agents you spawn. Claude and Codex support browser sign-in in either scope. Isomux creates a separate personal provider home when needed.
+Sign in to a provider on the `Integrations` page, `Model providers` tab: on the Office-wide card for every agent in the office (owners only), or on the Personal card for the agents you spawn. Claude and Codex support browser sign-in in either scope. Isomux creates a separate personal provider home when needed.
 
 For CLI sign-in, the personal provider directory takes precedence. Provider selection variables still apply; a personal login does not disable office-wide Bedrock or Vertex settings.
 

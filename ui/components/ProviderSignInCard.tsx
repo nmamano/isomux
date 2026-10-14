@@ -51,6 +51,7 @@ export function ProviderSignInCard({
   accounts,
   loaded = accounts.length > 0,
   canCancelSharedLogin = false,
+  canChangeOffice = false,
   onAccounts,
   onStartNewConversation,
   showTitle = true,
@@ -64,6 +65,8 @@ export function ProviderSignInCard({
   accounts: ProviderAccountWire[];
   loaded?: boolean;
   canCancelSharedLogin?: boolean;
+  // Only an owner signs the office account in or out (Nil, 2026-10-14).
+  canChangeOffice?: boolean;
   onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
   showTitle?: boolean;
@@ -112,6 +115,7 @@ export function ProviderSignInCard({
           )}
           loaded={loaded}
           canCancelSharedLogin={canCancelSharedLogin}
+          readOnly={scope === "office" && !canChangeOffice}
           onAccounts={onAccounts}
           onStartNewConversation={onStartNewConversation}
           onGoToOtherHalf={onGoToOtherHalf}
@@ -140,6 +144,7 @@ function ProviderScopeConnection({
   account,
   loaded,
   canCancelSharedLogin,
+  readOnly,
   onAccounts,
   onStartNewConversation,
   onGoToOtherHalf,
@@ -151,6 +156,8 @@ function ProviderScopeConnection({
   account?: ProviderAccountWire;
   loaded: boolean;
   canCancelSharedLogin: boolean;
+  // Status and Test only: no sign-in, no sign-out.
+  readOnly: boolean;
   onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
   onGoToOtherHalf?: () => void;
@@ -473,8 +480,20 @@ function ProviderScopeConnection({
         </div>
       )}
 
-      {(!account?.loginQueue && account?.loginStatus === "waiting_external") ||
-      (localWaiting && !connected) ? (
+      {readOnly ? (
+        // The Integrations page already says only owners change it, and an
+        // owner's sign-in in progress shows its own status.
+        !pageLook &&
+        !connected &&
+        !account?.loginQueue &&
+        account?.loginStatus !== "waiting_external" && (
+          <p data-ask-office-owner style={{ ...hint, margin: "12px 0 0" }}>
+            {t("settings.signIn.askOfficeOwner")}
+          </p>
+        )
+      ) : (!account?.loginQueue &&
+          account?.loginStatus === "waiting_external") ||
+        (localWaiting && !connected) ? (
         <div data-own-login-controls style={{ margin: "12px 0" }}>
           {provider === "claude" && (
             <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
@@ -597,8 +616,9 @@ function ProviderScopeConnection({
             flexWrap: "wrap",
           }}
         >
-          {!confirmingSignOut ? (
+          {readOnly ? null : !confirmingSignOut ? (
             <button
+              data-provider-sign-out
               style={{
                 ...dialogCancelBtn,
                 color: "var(--red-text)",

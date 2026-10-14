@@ -172,6 +172,65 @@ describe("provider account routes", () => {
     expect(allowForeign).toEqual([false, true]);
   });
 
+  it("lets only an owner sign the office account in or out", async () => {
+    const calls: string[] = [];
+    const handlers = providerAccountsHandlers({
+      list: async () => [],
+      refresh: async () => [],
+      start: async (_userId, _provider, scope) => {
+        calls.push(`start:${scope}`);
+        return { ok: true, value: {} };
+      },
+      callback: async (_userId, _provider, scope) => {
+        calls.push(`callback:${scope}`);
+        return { ok: true, value: { submitted: true } };
+      },
+      cancel: async () => true,
+      disconnect: async (_userId, _provider, scope) => {
+        calls.push(`disconnect:${scope}`);
+        return { ok: true, value: { accounts: [] } };
+      },
+    });
+    const bodies = {
+      "providerAccounts.start": { method: "browser" },
+      "providerAccounts.callback": { code: "code#state" },
+      "providerAccounts.disconnect": {},
+    } as const;
+    const request = (
+      opId: keyof typeof bodies,
+      role: "owner" | "member",
+      scope: "office" | "personal",
+    ) =>
+      handlers[opId]({
+        identity: {
+          scope: "user",
+          role,
+          userId: "u1",
+          capabilities: USER_CAPABILITIES,
+        },
+        params: { provider: "claude" },
+        body: { ...bodies[opId], scope },
+      } as never);
+
+    for (const opId of Object.keys(bodies) as (keyof typeof bodies)[]) {
+      calls.length = 0;
+      expect(await request(opId, "member", "office")).toMatchObject({
+        kind: "error",
+        status: 403,
+        code: "forbidden",
+      });
+      expect(calls).toEqual([]);
+      expect(await request(opId, "owner", "office")).toMatchObject({
+        kind: "json",
+      });
+      expect(await request(opId, "member", "personal")).toMatchObject({
+        kind: "json",
+      });
+      const act = opId.split(".")[1];
+      expect(calls).toEqual([`${act}:office`, `${act}:personal`]);
+    }
+  });
+
   it("keeps shared-login holder data structured in a 409", async () => {
     const handlers = providerAccountsHandlers({
       list: async () => [],
@@ -189,7 +248,7 @@ describe("provider account routes", () => {
     const result = await handlers["providerAccounts.start"]({
       identity: {
         scope: "user",
-        role: "member",
+        role: "owner",
         userId: "u2",
         capabilities: USER_CAPABILITIES,
       },
