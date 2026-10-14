@@ -390,10 +390,15 @@ export const officeSettingsOwner: Guard = ({ identity, deps }) => {
 export const selfOrOwner: Guard = (ctx) =>
   officeOwner(ctx).ok ? ALLOW : selfUser(ctx);
 
-// A privileged agent reads or edits only its manager's member prompt, or any
-// member prompt while its manager is an office owner. Stage 1 checks user:prompt.
-export const agentMemberPrompt: Guard = ({ identity, params, deps }) => {
-  if (identity.scope !== "agent" || !identity.userId || !params.username)
+// A privileged agent reads or edits its manager's member prompt, and an API
+// token its user's; either one any member's while that user is an office owner,
+// checked live on each request. Stage 1 checks user:prompt.
+export const proxyMemberPrompt: Guard = ({ identity, params, deps }) => {
+  if (
+    (identity.scope !== "agent" && identity.scope !== "api") ||
+    !identity.userId ||
+    !params.username
+  )
     return FORBIDDEN;
   const target = deps.userIdForUsername(params.username);
   return target !== null &&
@@ -402,8 +407,10 @@ export const agentMemberPrompt: Guard = ({ identity, params, deps }) => {
     : FORBIDDEN;
 };
 
-export const agentMemberPromptUpdate: Guard = (ctx) => {
-  if (!agentMemberPrompt(ctx).ok) return FORBIDDEN;
+// The same callers send only the prompt fields: the executor's role check
+// reads the caller's user, so any other key would act with that user's role.
+export const proxyMemberPromptUpdate: Guard = (ctx) => {
+  if (!proxyMemberPrompt(ctx).ok) return FORBIDDEN;
   if (!ctx.body || typeof ctx.body !== "object" || Array.isArray(ctx.body))
     return FORBIDDEN;
   return Object.keys(ctx.body).every(

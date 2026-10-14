@@ -183,7 +183,9 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
           r.error,
           r.version === undefined ? undefined : { version: r.version },
         );
-      if (ctx.identity.scope === "agent")
+      // Only a human gets the record; every other caller wrote through the
+      // prompt-only guard and gets the prompt-only answer.
+      if (ctx.identity.scope !== "user")
         return ok({
           memberPrompt: r.user.memberPrompt,
           memberPromptVersion: versionOf(r.user.memberPrompt ?? ""),

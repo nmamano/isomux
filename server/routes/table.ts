@@ -34,8 +34,8 @@ import {
   agentTokenSender,
   apiTokenInboxSelf,
   selfOrOwner,
-  agentMemberPrompt,
-  agentMemberPromptUpdate,
+  proxyMemberPrompt,
+  proxyMemberPromptUpdate,
   selfUserOrApi,
   selfOrEnvOwner,
   officeOwner,
@@ -1633,12 +1633,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/users/:username/member-prompt",
     auth: cap(
       ["user:self", "user:admin", "user:prompt"],
-      or(selfOrOwner, agentMemberPrompt),
+      or(selfOrOwner, proxyMemberPrompt),
     ),
     emits: [],
   }),
   // Humans receive { user: UserSelfWire | UserAdminWire } (same UserRecord
-  // shape); agents receive only MemberPromptRes. The handler shapes the response.
+  // shape); agents and API tokens receive only MemberPromptRes. The handler
+  // shapes the response.
   defineRoute<UserUpdateReq, { user: UserSelfWire } | MemberPromptRes>({
     opId: "users.update",
     audit: { owner: "executor", targets: createdResource("user", "id") },
@@ -1646,7 +1647,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/users/:username",
     auth: cap(
       ["user:self", "user:admin", "user:prompt"],
-      or(selfOrOwner, agentMemberPromptUpdate),
+      or(selfOrOwner, proxyMemberPromptUpdate),
     ),
     // Record fields only (name/env/prompt/avatar).
     // emitUserUpdated + emitUsersList; NO full_state - access/view prefs are not

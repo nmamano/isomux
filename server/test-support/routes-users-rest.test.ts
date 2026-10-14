@@ -15,7 +15,8 @@
 //     editing/deleting another's is a uniform 403 (no existence oracle).
 //   - The two delete preconditions: owner!=self (403 owner_self_delete) and
 //     not-last-owner; missing target is an idempotent 204.
-//   - Only privileged agents reach memberPrompt reads and version-guarded edits.
+//   - Only privileged agents and API tokens reach memberPrompt reads and
+//     version-guarded edits beside the humans.
 //
 // (users.list - built recipient-scoped in 9b - was removed as callerless in the
 // Phase 4 close-out: the UI hydrates the roster from the users_list broadcasts.)
@@ -30,7 +31,8 @@ import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { _testMintLegacyInvite, acceptInvite, peekInvite } from "../auth.ts";
-import { getUserByName } from "../users.ts";
+import { getUserByName, setUserRoleById } from "../users.ts";
+import { mintApiToken } from "../api-tokens.ts";
 import { managedUserEnvNotesPath, managedUserEnvPath } from "../user-env.ts";
 import { getAgentTokenRaw, mintAgentToken } from "../identity/tokens.ts";
 import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
@@ -690,21 +692,6 @@ describe("routes/users member prompt", () => {
       api(srv, `/api/users/${name}/member-prompt`, { bearer });
     const patch = (bearer: string, body: unknown, name = "Boss") =>
       api(srv, `/api/users/${name}`, { bearer, method: "PATCH", body });
-    const tokenRes = await api(srv, "/api/me/api-tokens", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: { name: "Prompt exclusion", expiresInDays: 30 },
-    });
-    const apiToken = (tokenRes.body as ApiTokenCreateRes).token;
-    expect((await read(apiToken)).status).toBe(403);
-    expect(
-      (
-        await patch(apiToken, {
-          memberPrompt: "denied",
-          memberPromptVersion: versionOf(""),
-        })
-      ).status,
-    ).toBe(403);
     const ordinary = mintAgentToken(agent.id, bossId, false);
     expect((await read(ordinary)).status).toBe(403);
     expect(
@@ -859,5 +846,173 @@ describe("routes/users member prompt", () => {
       body: { avatarColor: "#000000" },
     });
     expect(scalar.status).toBe(200);
+  });
+});
+
+// A personal API token has its user's reach on member prompts (Nil,
+// 2026-09-01): its user's own, and every member's while that user is an office
+// owner, checked live on each request.
+describe("routes/users member prompt by API token", () => {
+  async function office() {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Boss");
+    await srv.seedMember("Mia");
+    const bossId = getUserByName("Boss")!.id;
+    const miaId = getUserByName("Mia")!.id;
+    const ownerToken = (
+      await mintApiToken({ userId: bossId, name: "Boss", expiresInDays: null })
+    ).token;
+    const memberToken = (
+      await mintApiToken({ userId: miaId, name: "Mia", expiresInDays: null })
+    ).token;
+    const read = (bearer: string, name: string) =>
+      api(srv, `/api/users/${name}/member-prompt`, { bearer });
+    const patch = (bearer: string, name: string, body: unknown) =>
+      api(srv, `/api/users/${name}`, { bearer, method: "PATCH", body });
+    return {
+      srv,
+      owner,
+      bossId,
+      miaId,
+      ownerToken,
+      memberToken,
+      read,
+      patch,
+    };
+  }
+
+  it("an owner's token reads and edits another member's prompt and gets the prompt-only answer", async () => {
+    const o = await office();
+    const before = await o.read(o.ownerToken, "Mia");
+    expect(before.status).toBe(200);
+    expect(before.body).toEqual({
+      memberPrompt: null,
+      memberPromptVersion: versionOf(""),
+    });
+    const saved = await o.patch(o.ownerToken, "Mia", {
+      memberPrompt: "Short answers.",
+      memberPromptVersion: versionOf(""),
+    });
+    expect(saved.status).toBe(200);
+    expect(Object.keys(saved.body as object)).not.toContain("user");
+    expect(getUserByName("Mia")!.memberPrompt).toBe("Short answers.");
+    const after = await o.read(o.ownerToken, "Mia");
+    expect(saved.body).toEqual(after.body);
+    expect(
+      (after.body as { memberPromptVersion: string }).memberPromptVersion,
+    ).toBe(versionOf("Short answers."));
+  });
+
+  it("a member's token reads and edits only its own prompt", async () => {
+    const o = await office();
+    expect((await o.read(o.memberToken, "Mia")).status).toBe(200);
+    expect(
+      (
+        await o.patch(o.memberToken, "Mia", {
+          memberPrompt: "mine",
+          memberPromptVersion: versionOf(""),
+        })
+      ).status,
+    ).toBe(200);
+    expect(getUserByName("Mia")!.memberPrompt).toBe("mine");
+    const boss = structuredClone(getUserByName("Boss"));
+    expect((await o.read(o.memberToken, "Boss")).status).toBe(403);
+    expect((await o.read(o.memberToken, "Unknown")).status).toBe(403);
+    expect(
+      (
+        await o.patch(o.memberToken, "Boss", {
+          memberPrompt: "denied",
+          memberPromptVersion: versionOf(""),
+        })
+      ).status,
+    ).toBe(403);
+    expect(getUserByName("Boss")).toEqual(boss);
+  });
+
+  it("a demoted owner's token is refused on the next request", async () => {
+    const o = await office();
+    expect((await o.read(o.ownerToken, "Mia")).status).toBe(200);
+    expect(
+      (
+        await o.patch(o.ownerToken, "Mia", {
+          memberPrompt: "before",
+          memberPromptVersion: versionOf(""),
+        })
+      ).status,
+    ).toBe(200);
+    expect(setUserRoleById(o.bossId, "member")).toBe(true);
+    expect((await o.read(o.ownerToken, "Mia")).status).toBe(403);
+    expect(
+      (
+        await o.patch(o.ownerToken, "Mia", {
+          memberPrompt: "after",
+          memberPromptVersion: versionOf("before"),
+        })
+      ).status,
+    ).toBe(403);
+    expect(getUserByName("Mia")!.memberPrompt).toBe("before");
+  });
+
+  it("a stale version gets 409 with the current version", async () => {
+    const o = await office();
+    const r = await o.patch(o.ownerToken, "Mia", {
+      memberPrompt: "stale",
+      memberPromptVersion: versionOf("other"),
+    });
+    expect(r.status).toBe(409);
+    expect(r.body).toMatchObject({
+      error: { code: "version_conflict", version: versionOf("") },
+    });
+    expect(getUserByName("Mia")!.memberPrompt).toBeNull();
+  });
+
+  it("a token edits only the prompt fields", async () => {
+    const o = await office();
+    for (const [name, body] of [
+      [
+        "Mia",
+        {
+          memberPrompt: "denied",
+          memberPromptVersion: versionOf(""),
+          role: "owner",
+        },
+      ],
+      ["Mia", { name: "Renamed" }],
+      ["Boss", { name: "Renamed" }],
+    ] as const) {
+      const before = structuredClone(getUserByName(name));
+      const r = await o.patch(o.ownerToken, name, body);
+      expect([name, r.status]).toEqual([name, 403]);
+      expect(getUserByName(name)).toEqual(before);
+    }
+  });
+
+  it("the audit row names the token's user and the member's id, with the prompt text", async () => {
+    const o = await office();
+    expect(
+      (
+        await o.patch(o.ownerToken, "Mia", {
+          memberPrompt: "Audit me.",
+          memberPromptVersion: versionOf(""),
+        })
+      ).status,
+    ).toBe(200);
+    const audit = await api(o.srv, "/api/audit-log?operation=users.update", {
+      rawSessionId: o.owner.rawSessionId,
+    });
+    const row = (
+      audit.body as {
+        items: {
+          actor: { kind: string; ownerId?: string };
+          targets: string[];
+          promptContent?: string;
+        }[];
+      }
+    ).items[0];
+    expect(row.actor).toEqual(
+      expect.objectContaining({ kind: "api_token", ownerId: o.bossId }),
+    );
+    expect(row.targets).toContain(o.miaId);
+    expect(row.promptContent).toBe("Audit me.");
   });
 });

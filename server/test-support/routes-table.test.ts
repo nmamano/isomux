@@ -1826,6 +1826,9 @@ const API_REACHABLE_OPIDS = [
   "pagerSettings.update",
   "pagerSettings.test",
   "apiTokenInbox.drain",
+  // users.update is absent only because this body carries keys other than the
+  // prompt fields; routes-users-rest.test.ts covers a token's prompt edit.
+  "users.readMemberPrompt",
   "office.getSettings",
   "office.setSettings",
   "validate.cwd",

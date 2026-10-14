@@ -255,6 +255,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "user:env",
       "integration:manage",
       "office:settings",
+      "user:prompt",
       "secret:show",
       "api:discover-agents",
       "api:send-message",
@@ -487,14 +488,10 @@ describe("identity: redactTokens (Phase 2.1)", () => {
   });
 });
 
-it("member prompt capability belongs only to privileged agents", () => {
+it("member prompt capability belongs only to privileged agents and API tokens", () => {
   expect(PRIVILEGED_AGENT_CAPABILITIES).toContain("user:prompt");
-  for (const caps of [
-    AGENT_CAPABILITIES,
-    API_CAPABILITIES,
-    RUN_CAPABILITIES,
-    APP_CAPABILITIES,
-  ]) {
+  expect(API_CAPABILITIES).toContain("user:prompt");
+  for (const caps of [AGENT_CAPABILITIES, RUN_CAPABILITIES, APP_CAPABILITIES]) {
     expect(caps).not.toContain("user:prompt");
   }
 });

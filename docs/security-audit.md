@@ -153,14 +153,14 @@ A webhook lets an outside service, such as GitHub, send a message to an agent or
 
 ### 5.1 Reach
 
-A personal API token acts as the member who minted it. It has that member's live role and room access. It can drive agents, rooms, tasks, apps, schedules, memory and files, and read logs. It can read and replace its member's managed environment variables, and show its member's saved secrets. An owner's token can also manage the integrations of any member and show the office secrets (section 7). It can replace its member's pager settings, which hold the Discord webhook URL, but it reads only the masked URL. It can manage its member's webhooks. An owner's token can also create a member and give that member room access. The new member cannot sign in until a human owner mints a sign-in link. An owner's token can change the office prompt, the office name and the member usage cap.
+A personal API token acts as the member who minted it. It has that member's live role and room access. It can drive agents, rooms, tasks, apps, schedules, memory and files, and read logs. It can read and replace its member's managed environment variables, and show its member's saved secrets. An owner's token can also manage the integrations of any member and show the office secrets (section 7). It can replace its member's pager settings, which hold the Discord webhook URL, but it reads only the masked URL. It can manage its member's webhooks. An owner's token can also create a member and give that member room access. The new member cannot sign in until a human owner mints a sign-in link. An owner's token can change the office prompt, the office name and the member usage cap. A token can read and edit its member's special instructions, and an owner's token any member's.
 
 A token cannot:
 
 - mint, list or revoke API tokens, including itself,
 - mint sign-in links,
 - list or revoke browser sessions,
-- change member records or room access,
+- change other member record fields or room access,
 - change other office settings,
 - make an agent privileged,
 - read or rotate a webhook secret,

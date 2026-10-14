@@ -350,7 +350,9 @@ export const APP_CAPABILITIES: readonly Capability[] = [
 // office owner - every member's variables, secrets and MCP servers, with
 // integration:manage for the writes. secret:show goes with it: a token shows its user's own secret values, and an
 // owner's token the office ones. office:settings gives an owner's token the
-// office prompt, name and member usage cap, as a privileged agent. user:create
+// office prompt, name and member usage cap, as a privileged agent. user:prompt
+// gives a token its user's special instructions, and an owner's token every
+// member's, as a privileged agent. user:create
 // is the other exception, with the privileged agent's member-only limits. The
 // agent/cron/app sender and self-affordance capabilities are also absent: an API
 // token is its issuing user, not an office participant. Its `log:read` covers
@@ -362,6 +364,7 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "user:env",
   "integration:manage",
   "office:settings",
+  "user:prompt",
   "secret:show",
   "api:discover-agents",
   "api:send-message",

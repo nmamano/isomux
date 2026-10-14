@@ -282,7 +282,7 @@ with fixed guidance. Errors never echo selector text or browser exceptions.
 
 ### Member special instructions
 
-A privileged agent can read `GET /api/users/:username/member-prompt` and send `PATCH /api/users/:username` with only `{memberPrompt,memberPromptVersion}`. The target is its manager, or any member when its manager is an office owner. Both return `{memberPrompt,memberPromptVersion}` to the agent. API tokens cannot use these routes.
+A privileged agent can read `GET /api/users/:username/member-prompt` and send `PATCH /api/users/:username` with only `{memberPrompt,memberPromptVersion}`. The target is its manager, or any member when its manager is an office owner. A personal API token can do the same for its member, or for any member when its member is an office owner. Both routes return `{memberPrompt,memberPromptVersion}` to the agent and the token.
 
 Every prompt PATCH, including a human save, requires the version from the read. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. Human PATCH responses remain `{user}`; edits to other fields need no prompt version.
 
