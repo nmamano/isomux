@@ -77,22 +77,14 @@ RUN payload_sha256="$(find /app -type f -print0 | sort -z | xargs -0 sha256sum |
 # revoke our own access with it.
 ENV HOME=/data
 
-# ENV above reaches only processes fly's init starts. `fly ssh console` builds
-# its session from root's passwd entry instead (measured 2026-08-12: sessions
-# resolved /root and wrote state to the ephemeral disk), so the passwd entry
-# must agree with ENV or the machine has two state roots. sed rather than
-# usermod: usermod refuses while root runs a process, and the build shell is
-# one. The grep asserts the edit landed.
+# ENV above reaches only the processes the container starts. A login session
+# builds its environment from root's passwd entry instead (measured on Fly,
+# 2026-08-12: sessions resolved /root and wrote state to the ephemeral disk), so
+# the passwd entry must agree with ENV or the container has two state roots. sed
+# rather than usermod: usermod refuses while root runs a process, and the build
+# shell is one. The grep asserts the edit landed.
 RUN sed -i 's|^\(root:.*:\)/root:\(.*\)$|\1/data:\2|' /etc/passwd \
     && grep -q '^root:.*:/data:' /etc/passwd
 
-# --bind, because the default is loopback and fly's proxy is not on it. The
-# address is `::` rather than `0.0.0.0`: fly reaches a machine over its private
-# IPv6 network, and measured 2026-08-11, a Bun server bound to 0.0.0.0 answers
-# IPv4 only while one bound to `::` answers both.
-#
-# --deployment carries fly's release id, which is what lets the state marker
-# tell "the volume survived a deploy" from "a directory was recreated". The
-# shell form is deliberate: the value is an environment variable of the machine,
-# and there is nothing secret in it.
-CMD ["sh", "-c", "exec bun control-plane/cli.ts run --bind :: --deployment \"${FLY_MACHINE_VERSION:-}\""]
+# No CMD: vps/compose.yaml gives every service its command, including the
+# provisioner's --bind and the --deployment id that deploy.sh generates.

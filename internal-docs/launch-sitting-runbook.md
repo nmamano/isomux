@@ -85,6 +85,9 @@ blockers were found and fixed during the run:
 - The live account had NO webhook endpoint (payments confirmed nowhere;
   billing has no polling fallback). Created: we_1U7UTSAU22RWBcwcnmpkLdZI
   -> https://isomux-provisioner.fly.dev/stripe/webhook, five event types.
+  (Since the move, the live endpoint is
+  https://provisioner.isomux.com/stripe/webhook; the Fly endpoint is
+  disabled. Read from the Stripe API 2026-10-14.)
   Provisioner staged with live key + signing secret and STRIPE_MODE=live;
   note the staging tool uses flyctl secrets import --stage, so secrets go
   live only on `flyctl secrets deploy` or the next deploy - run it.

@@ -6,7 +6,7 @@ import { redactCredentialShapes } from "./report.ts";
 export const CERTIFICATE_RENEW_PATH = "/internal/certificates/renew";
 export const CERTIFICATE_STATUS_PATH = "/internal/certificates/status";
 export const MAX_CSR_BYTES = 32 * 1024;
-/** Set by the certificate forwarder (deploy/forwarder/forwarder.ts). */
+/** Set by the certificate forwarder, retired with the Fly app. */
 export const CERTIFICATE_FORWARDED_HEADER = "isomux-forwarded";
 const FAILURE_REASON = "the hosted office certificate could not be renewed";
 const LOCAL_FAILURE_REASON =
@@ -26,8 +26,8 @@ function failureCause(error: unknown): string {
     : line;
 }
 
-/** Where a call came from, for the operator's log. The forwarder that serves
- * the old provisioner hostname marks its calls; the mark is not a credential. */
+/** Where a call came from, for the operator's log. The retired forwarder on the
+ * old provisioner hostname marked its calls; the mark is not a credential. */
 export type CertificateCallRoute = "direct" | "forwarder";
 
 /**
@@ -89,8 +89,9 @@ export class CertificateService {
   }
 
   /** One line per call: the outcome, the office once it is known, and the
-   * route. The operator reads these to see when no office needs the old
-   * hostname (control-plane/README.md, "The certificate forwarder"). */
+   * route. The operator reads these to see when no office needs an old
+   * renewal URL (control-plane/README.md, "Moving offices to a new renewal
+   * URL"). */
   private line(
     call: "renewal" | "status",
     outcome: string,

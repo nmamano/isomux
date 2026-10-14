@@ -121,11 +121,11 @@ export function headPathsFrom(output: string): Set<string> {
 /**
  * The whole source question, as one decision over two git readings.
  *
- * `fly deploy .` ships the WORKING DIRECTORY, so a dirty tree produces a live
- * artifact nobody can reconstruct from a commit. Two programs need that answer
- * now - the credential move and D4's activation - and the second one asking it
- * differently from the first is how two guards drift into disagreeing about
- * what "clean" means. So the decision lives here and both call it.
+ * A deploy that ships the WORKING DIRECTORY turns a dirty tree into a live
+ * artifact nobody can reconstruct from a commit. More than one deploy program
+ * needs that answer, and a second one asking it differently from the first is
+ * how two guards drift into disagreeing about what "clean" means. So the
+ * decision lives here and each one calls it.
  *
  * THE RULES FILE IS A BUILD INPUT LIKE ANY OTHER, and it is judged first in
  * meaning: `/.dockerignore` sits outside the copied path, so the shipped-path

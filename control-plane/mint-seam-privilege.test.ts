@@ -157,9 +157,9 @@ async function ask(
 }
 
 suite("the seam works under the role the provisioner authenticates as", () => {
-  // THE PROBE'S OWN REQUEST, byte for byte the shape `deploy/probe.ts` sends:
-  // three ids that name nothing, expecting the verb's fixed refusal. This is
-  // the case that failed live on 2026-08-12.
+  // THE PROBE'S OWN REQUEST, byte for byte the shape the retired
+  // `deploy/probe.ts` sent: three ids that name nothing, expecting the verb's
+  // fixed refusal. This is the case that failed live on 2026-08-12.
   test("a request naming nothing earns the fixed forbidden answer", async () => {
     const b = await bed();
     const answer = await ask(b, {

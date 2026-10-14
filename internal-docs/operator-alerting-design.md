@@ -99,12 +99,12 @@ The database layer already supplies the safe probe rules. Runtime opening does
 not create or migrate schema (`control-plane/store.ts:999-1041`). Connection and
 query failures are converted to fixed text plus allowlisted structured fields;
 the driver's free-text message and cause are never forwarded
-(`control-plane/store.ts:857-934`). The production preflight is the established
-read-only example: it proves the production target, opens with `openRuntime`,
-prints only fixed labels and counts, closes the store, and discards every caught
-API or driver error (`control-plane/deploy/preflight.ts:157-218`). Its existing
-attention observation is already a count of uncleared reasons
-(`control-plane/deploy/preflight.ts:127-147`).
+(`control-plane/store.ts:857-934`). The production preflight was the
+established read-only example: it proved the production target, opened with
+`openRuntime`, printed only fixed labels and counts, closed the store, and
+discarded every caught API or driver error. Its attention observation was a
+count of uncleared reasons. It was `control-plane/deploy/preflight.ts`, removed
+with the Fly deploy programs in 2026-10; git history keeps it.
 
 ## Channels available without a new service
 

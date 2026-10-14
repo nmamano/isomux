@@ -236,7 +236,7 @@ async function main(): Promise<void> {
   seen.push(await ops.text(), headerText(ops));
   console.log(`ops_fake_account_status: ${ops.status}`);
 
-  // 6. THE ROUND TRIP. This reaches the provisioner on fly through the
+  // 6. THE ROUND TRIP. This reaches the provisioner through the
   //    DEPLOYMENT's own credentials: the route calls the seam with the bearer
   //    Vercel injected, and the provisioner refuses a fabricated triple with
   //    `forbidden`. It reads; it writes nothing, here or there.

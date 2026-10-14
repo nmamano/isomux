@@ -3,28 +3,16 @@
 ## Hosted certificate configuration
 
 The provisioner refuses hosted certificate work unless its target is complete.
-Fly supplies the pinned production CA, Cloudflare API, and renewal endpoint from
-`deploy/fly.toml`. The deployment must also supply these secrets:
+On the Docker host, `provisioner.env` (template:
+`deploy/vps/provisioner.env.example`) supplies the pinned production CA,
+Cloudflare API, and renewal endpoint, and also these secrets:
 
 - `ISOMUX_CF_ZONE_ID`: the one production zone that the token can edit
 - `ISOMUX_CF_TOKEN`: a token limited to DNS records in that zone; it writes
   ephemeral ACME TXT records and permanent office A records
 - `ISOMUX_ACME_EMAIL`: the ACME account contact
 
-Stage and verify only these values with
-`bun control-plane/deploy/certificate-secrets.ts` and
-`bun control-plane/deploy/certificate-secrets.ts --verify`. The importer reads
-`~/.config/isomux/control-plane-certificate.env` as a strict 0600 file and cannot
-touch database, invite-seam, or provider credentials.
-
-The provisioner's Stripe credentials have the same isolated route:
-`bun control-plane/deploy/stripe-secrets.ts` stages them and
-`bun control-plane/deploy/stripe-secrets.ts --verify` checks their names. The
-importer reads `~/.config/isomux/control-plane-stripe.env`, a strict 0600 file
-built from the human-facing `~/nil/secrets/stripe-test.env` source on auntie.
-Do not edit the control-plane copy as an independent source. It accepts only
-`STRIPE_TEST_SECRET_KEY` with a test-mode `sk_test_` or `rk_test_` value and
-`STRIPE_WEBHOOK_SECRET` with a `whsec_` value.
+The same file carries the provisioner's Stripe credentials.
 
 Automated tests use loopback ACME and DNS fakes. The target validator rejects
 the production CA, Cloudflare API, or production zone in a test process even if
@@ -132,13 +120,12 @@ that path, but no flag reaches it: creating one is latched durably by
 `intents.ts` and is a thing a human does on purpose.
 
 `run`'s two deployment flags default to the operator's shape and are set by the
-image, not by a person: `--bind` moves the invite seam off loopback (`::` there,
-because fly reaches a machine over IPv6 and a Bun server bound to `0.0.0.0`
-answers IPv4 only - measured 2026-08-11), and
+Compose file, not by a person: `--bind` moves the invite seam off loopback
+(`0.0.0.0`, so the storefront reaches it on the Compose network), and
 `--deployment` carries an opaque release id that the state marker uses. Neither
 has an environment variable, because both are properties of how this process was
-started rather than of the machine it runs on. See "Deployed: the provisioner on
-fly.io".
+started rather than of the machine it runs on. See "Deployed: Hosted Isomux on
+one Docker host".
 
 ## Contabo: what the API actually does
 
@@ -1260,17 +1247,18 @@ bun install
 (cd control-plane/web && bun install)
 ```
 
-Then use one of three commands. The difference matters more than the flag
-suggests: the default one WRITES the environment.
+Then use one of two commands:
 
 ```
-bun control-plane/deploy/production-phase.ts             # FIRST deploy: creates the eleven Production entries
 bun control-plane/deploy/production-phase.ts --redeploy  # ships new code, writes nothing
 bun control-plane/deploy/production-phase.ts --stage-live-env # creates only the four live Stripe entries, then stops
 ```
 
-Anything else - a typo, an extra argument, `--redeploy=true` - refuses before
-the token file is opened rather than falling through to the writing mode.
+Anything else - no argument, a typo, an extra argument, `--redeploy=true` -
+refuses before the token file is opened. The first-deploy mode, which wrote
+all eleven Production entries, was removed with the Fly app: its
+`CONTROL_PLANE_MINT_URL` was the Fly provisioner's origin, and no public seam
+origin exists now.
 
 **Live-environment staging is a separate operator action.** It starts only
 when Preview carries its exact two entries and Production carries its exact
@@ -1423,113 +1411,13 @@ production site. The tooling never runs the CLI in the repository root, never
 reads that link, keeps `isomux` on a refusal list checked by name AND by id, and
 deploys from a copy that has no link file for a fallback to find.
 
-## Deployed: the provisioner on fly.io
+## Deployed: the provisioner
 
-The design calls the provisioner the one component we operate, and the reason is
-what it holds: the provider credentials, the key master and the tick loop, none
-of which belong in a public web app. Deployed, that is one always-on machine in
-Frankfurt, beside the database, in Nil's `personal` organisation.
-
-```
-bun control-plane/deploy/name-check.ts               # is the app name free?
-bun control-plane/deploy/secrets.ts --canary         # does flyctl echo what it is given?
-bun control-plane/deploy/secrets.ts --unset-canary   # remove that one fixed name
-bun control-plane/deploy/secrets.ts                  # the FIRST-DEPLOY three, over stdin
-bun control-plane/deploy/secrets.ts --verify         # are all boot-required names set?
-bun control-plane/deploy/provider-secrets.ts         # the provider four, over stdin
-bun control-plane/deploy/provider-secrets.ts --verify
-bun control-plane/deploy/stripe-secrets.ts           # the Stripe key and webhook secret, over stdin
-bun control-plane/deploy/stripe-secrets.ts --verify
-bun control-plane/deploy/certificate-secrets.ts      # the certificate three, over stdin
-bun control-plane/deploy/certificate-secrets.ts --verify
-bun control-plane/deploy/preflight.ts                # may production be armed at all?
-bun control-plane/deploy/activate.ts --plan          # what the arming deploy would run
-bun control-plane/deploy/activate.ts --execute       # the one deploy that arms it
-bun control-plane/deploy/provider-account.ts         # the provider account, read from the machine
-bun control-plane/deploy/probe.ts                    # does the surface refuse everyone else?
-```
-
-### Activating the deployed Stripe listener
-
-This is the real deployed endpoint, in Stripe TEST mode, with an `rk_test_`
-restricted key. The provisioner rejects a live key, live event, or live fetched
-object. Opening live mode is separate pre-launch work; see the task titled
-"Open the hosted billing path from Stripe test mode to live mode."
-
-Apply these steps in order. Keep steps 4-6 in one sitting. In test mode Stripe
-retries a failed delivery three times over a few hours; after that, retry the
-event by hand from Workbench or re-query the Events list and reconcile the
-window. This retry budget was confirmed in Stripe's documentation on
-2026-08-20. The product cannot take money before the separate live-mode work, so
-a missed event in this activation window carries no real payment; re-run the
-test-mode operation.
-
-1. Create the restricted `rk_test_` key with Subscriptions read, Invoices read,
-   and Checkout Sessions read and write. Set `STRIPE_TEST_SECRET_KEY` to it.
-   Success means the Fly secret name is present and the old provisioner image
-   remains healthy: these permissions cover its reads and its one
-   `expire_checkout` write. Roll back by restoring the prior test key.
-2. Merge the listener into `~/nil/isomux`. Success means the merged source
-   contains `POST /stripe/webhook` and its tests. The matrix command reads its
-   destination from the current source; running it before this step applies the
-   old matrix and can report success while the webhook grants stay absent. Roll
-   back by reverting the source change before any deploy.
-3. From that merged tree, run
-   `bun control-plane/exercises/neon.ts regovern --branch production`.
-   A catalog read on 2026-08-21 found `PRIOR_WEB_GRANTS` and
-   `PRIOR_PROVISIONER_GRANTS` exactly. The success report must say both
-   runtime-role matrices and effective privileges are exact and user tables are
-   unchanged. This command prepares the web role with three
-   `reinstatement_attempts` verbs and lands seven pending provisioner verbs for
-   subscriptions, Stripe events, accounts, and schema metadata. The deployed
-   web build was created 2026-08-13T07:06:12Z. Commit `c8e543c` added the web
-   reinstatement grants on 2026-08-16, so production was never re-governed for
-   them and the running build predates the code that needs them. They are
-   preparation for a later deploy, not a live failure. If the catalog, role budget, bounds,
-   login state, or membership differs from the expected prior posture, the
-   command refuses before its transaction opens and writes nothing. Roll back
-   before deployment with the same command plus `--reverse`; reverse revokes
-   the web role's three prepared reinstatement verbs and restores both rosters
-   measured on 2026-08-21.
-4. Register `https://isomux-provisioner.fly.dev/stripe/webhook` for
-   `checkout.session.completed`, `customer.subscription.created`,
-   `customer.subscription.updated`, `customer.subscription.deleted`, and
-   `invoice.payment_failed`, and then read its signing secret. Success means the
-   URL and exact five-event allowlist read back correctly. Do not disable the
-   endpoint while waiting: Stripe drops events generated while a destination is
-   disabled instead of retrying them. Roll back by disabling the endpoint.
-5. Set `STRIPE_WEBHOOK_SECRET` to that signing secret. Success means both Stripe
-   Fly secret names read back as present and the old provisioner image remains
-   healthy; it ignores the new name. Deploying first makes `cmdRun` refuse to
-   start and the machine crash-loop. Roll back by disabling the endpoint and
-   restoring the prior secret inventory.
-6. Deploy the merged provisioner. Success means the process and its authenticated
-   health route are healthy. Deploying before step 3 makes valid deliveries hit
-   database error 42501 and return HTTP 500; the cache stays stale until the
-   matrix moves and Stripe retries. Registering the endpoint long before this
-   step spends the test-mode retry budget on 404 responses. Roll back by
-   disabling the endpoint and restoring the previous provisioner image.
-7. Generate a real test-mode event for a known test subscription, and verify its
-   delivery. Success requires HTTP 2xx, a `stripe_events` row for that exact
-   event id with `outcome='applied'`, and the matching `subscriptions` row
-   updated to the state fetched from Stripe. A 2xx alone is insufficient: an
-   unknown subscription is legitimately recorded as ignored. Roll back the
-   listener by disabling the endpoint; the system then returns to operator-held
-   delivery, and any test fixture created for this check is cleaned up through
-   the existing test-account procedure.
-
-Every one of those prints fixed names and booleans: no connection string, no
-token, no digest, no branch id, no app name other than this one, and nothing a
-child process wrote. Every operation that HANDLES A SECRET or reads a listing -
-the import, the canary and its cleanup, the name check, the external probe -
-goes through one of them, which is why the canary's cleanup is a wrapper rather
-than a bare `flyctl secrets unset` in the steps below.
-
-The three account and deploy commands - `apps create`, `volumes create` and
-`deploy` - are plain flyctl. The app-create command names `isomux-provisioner`
-positionally; volume creation and deploy name it with `-a`. All three receive
-`FLY_API_TOKEN` only in the child environment. Their argv and stdin carry no
-secret value, and no argument is derived from one.
+The provisioner ran on Fly.io as the app `isomux-provisioner` until the move to
+the Docker host (see "Deployed: Hosted Isomux on one Docker host"). The Fly app
+was destroyed in 2026-10, and its deploy programs, `deploy/fly.toml` and the
+certificate forwarder were removed from the repository. Git history keeps them.
+The subsections below hold for the provisioner on any host.
 
 ### The image, and why it has a manifest of its own
 
@@ -1556,112 +1444,6 @@ Next.js app into the machine holding the keys. The same test holds the intent of
 those rules, and a build whose reported context is not about 2 MB means they
 stopped working.
 
-### The secrets, which program sets which
-
-`CONTROL_PLANE_DB` (the direct-endpoint DSN), `CONTROL_PLANE_DB_BRANCH` (the
-branch id that DSN must turn out to be; only the Fly release reads it) and `CONTROL_PLANE_MINT_TOKEN` (the seam
-bearer) are the FIRST-DEPLOY three, set by `deploy/secrets.ts`. The four
-provider credentials - `CONTABO_CLIENT_ID`, `CONTABO_CLIENT_SECRET`,
-`CONTABO_API_USER`, `CONTABO_API_PASSWORD` - are set by `deploy/provider-secrets.ts`
-and by nothing else. All seven are fly secrets; nothing secret is in `fly.toml`,
-because this repository is public.
-
-The lifecycle loop also requires `STRIPE_TEST_SECRET_KEY`, and the public Stripe
-listener requires `STRIPE_WEBHOOK_SECRET`; their dedicated importer accepts only
-a test-mode key and a webhook-signing-secret shape. Certificate work requires
-`ISOMUX_CF_ZONE_ID`, `ISOMUX_CF_TOKEN` and `ISOMUX_ACME_EMAIL`; its importer is
-separate too. `deploy/secrets.ts --verify` checks all twelve boot-required names
-in one discarded listing, but the import path in that file remains limited to
-the first-deploy three. Each narrow importer also has its own name check.
-
-**The split is structural, and it is there because the tidy version was a
-live-reachable defect** (2026-08-12). D4 first added the provider names to
-`deploy/secrets.ts`'s allowlist - one importer, one procedure, obviously right.
-But that program builds `CONTROL_PLANE_DB` from the operator's own env file, and
-since D3.5's cutover that file holds the BREAK-GLASS OWNER string, deployed
-nowhere. So an import run for provider credentials would ALSO have staged the
-owner DSN, and the deploy that followed would have moved the provisioner off its
-capped `cp_provisioner` role and back onto the owner - undoing
-R-2026-08-11-1's closure as a side effect of a step about something else.
-
-The lesson generalises past this bug: `deploy/secrets.ts` was CORRECT when it
-was written, because at D2 the owner string WAS the deployed one. What moved
-underneath it was D3.5's credential cutover, and nothing in the program said so.
-A procedure that is merely no-longer-mentioned is one somebody follows from an
-old transcript, so the two allowlists are now disjoint, `validatePairs` refuses
-the other program's names before any child exists, and
-`provider-secrets.test.ts` pins the disjointness - widening either list fails
-the suite.
-
-```
-bun control-plane/deploy/provider-secrets.ts            stage the four
-bun control-plane/deploy/provider-secrets.ts --verify   are the four set?
-```
-
-`deploy/secrets.ts` is one fail-closed process, and the shape is the point:
-
-- It reads every source file INSIDE the process. No env file is ever sourced by
-  a shell, and no value is ever expanded into a command line.
-- **It re-establishes the credential file's shape itself**, because a check
-  somebody ran earlier is a statement about a file that has since had time to
-  change. `inspectMintFile` opens the file ONCE with `O_NOFOLLOW` and does
-  everything through that descriptor: a symlink cannot be opened at all, and a
-  path swapped between the check and the read cannot be reached, because after
-  the open there is no path left to swap. From that descriptor it requires a
-  regular file, the EXACT mode `0600` (compared, not sampled - a "no group or
-  world bits" test passes `0400`), and CONTENTS that are exactly
-  `CONTROL_PLANE_MINT_TOKEN='<40 lowercase hex>'` with at most the usual final
-  newline. Not "one line after trimming": a leading space, a trailing space or a
-  blank line are bytes nobody ruled, and this is the seam where a promised shape
-  is enforced. The token is returned only when all four hold and is empty
-  otherwise, so a caller that ignores the booleans still cannot use a file that
-  failed them. What it prints is four booleans.
-- **The provider file gets the same treatment through the same reader.**
-  `inspectContaboFile` shares the descriptor-level checks exactly - one file
-  inspector cannot be given a weaker version of the same guarantee by being
-  written later - and differs only in the SHAPE it requires: the whole file is
-  exactly the four ruled assignments, each name once, in any order, single
-  quoted, with no export prefix, no comment, no blank line and no fifth line. A
-  value carrying a single quote is refused rather than parsed, because this is
-  not a shell. Four more booleans, and the values go to the child's stdin with
-  the rest. Three of four is a REFUSAL, not a partial import: a machine holding
-  some of the credentials authenticates to nothing and reports no reason.
-- It proves the branch before it emits anything: the project must show exactly
-  one default branch with no parent, that branch must be `production`, and
-  `targetFor` must have taken the endpoint host from the API rather than from
-  the fallback. A deployment pointed at a scratch branch is the failure this
-  refuses, and it is the mirror image of what `testing/target.ts` refuses for
-  the suites.
-- It validates every line before any child exists - allowlisted name, no line
-  break, no NUL - because a value carrying a newline could set a name nobody
-  asked for.
-- It spawns `flyctl secrets import --stage` with the API token in the CHILD
-  ENVIRONMENT and the values on STDIN. Neither reaches argv, which the process
-  table shows to everyone on the box.
-- **It never hands the child's bytes back.** flyctl's stdout and stderr are
-  captured, scanned, and dropped. That is stronger than "scan and forward if
-  clean", deliberately: an exact-value scan cannot see a fragment, a
-  re-encoding, or a truncation. `deploy/secrets.test.ts` plants leaks of all
-  those shapes, including one the scanner is not expected to catch, and requires
-  that nothing a caller could print contains them.
-
-Diagnosing flyctl therefore means re-running it with a PUBLIC value, which is
-what `--canary` is: `PROBE_CANARY=isomux-d2-public-canary`, published here so a
-leak of it is an observation instead of an incident. It runs BEFORE the real
-import, and if flyctl echoes it, nothing real goes near it.
-
-The canary is an operation with NO ARGUMENTS, and `--unset-canary` removes that
-one constant name through the same captured-output spawn. A mode that took a
-name and a value would be a mode that could set any name, running at the moment
-when nothing real has been imported yet; and a procedure with a hand-typed
-secret name in it is one typo away from removing something the machine needs.
-The cleanup has to SUCCEED before the real import runs - a probe left staged on
-the app is a secret nobody meant to keep.
-
-`--verify` answers `required_secret_names_present` for the full boot-required
-set from a listing it parses and discards, because `flyctl secrets list` prints
-a digest beside each name and a digest is derived from the value.
-
 ### What the machine proves about itself
 
 At boot, before it serves or ticks:
@@ -1685,33 +1467,27 @@ At boot, before it serves or ticks:
 Neither identity value is ever printed. The boot line is booleans.
 
 `GET /internal/health` answers the same booleans and the running release's
-identity, behind the SAME bearer as the invite verb, and is the reason
-`deploy/probe.ts` exists:
+identity, behind the SAME bearer as the invite verb. `deploy/vps/deploy.sh`
+reads it inside the container after each deploy:
 
 ```
 ok  bounds_governed  database_identity  database_reachable  tick_recent  state_persisted  provider_configured
 ```
 
 The release identity has three independent arms. `release_source` names the
-40-hex commit and the deploy-start time when the guarded activation program
-built the image. `release_payload` names a SHA-256 that every image computes
+40-hex commit and the deploy-start time that `deploy.sh` passes as build
+arguments. `release_payload` names a SHA-256 that every image computes
 inside the Dockerfile from the files actually installed in `/app`.
-`release_deployment` names the Fly machine version carried by the existing
-`--deployment` path. Measured 2026-08-20 at 11:09 UTC against the deployed
-provisioner, then running a build older than `1a3613e`: `state_persisted` was
-true, which `state-marker.ts` can report only when it received a non-empty
-deployment id. The Dockerfile CMD has passed `--deployment` since `dcef44f`,
-unchanged, so that reading carries to this build. Each arm is
+`release_deployment` names the id that `deploy.sh` generates and the
+`--deployment` flag carries. Each arm is
 either `{ known: true, ... }` with a strictly validated value or
 `{ known: false }` with no placeholder value. A missing or damaged identity
 file therefore makes no claim rather than returning an empty or default-looking
 string.
 
-None of the three identity arms enters `ok` or the probe's gating booleans. An
-unknown identity does not stop the process from provisioning an office; it
-stops an operator from claiming which build is running. The probe reports that
-distinction separately and validates the exact nested shape before it prints
-any value.
+None of the three identity arms enters `ok`. An unknown identity does not stop
+the process from provisioning an office; it stops an operator from claiming
+which build is running.
 
 `ok` is the conjunction of the five readiness properties - not of every
 reported field, because
@@ -1751,358 +1527,34 @@ liveness still carries its existing instance scan and certificate-contact
 reads.
 
 The route ALWAYS answers 200 while the process is serving. A database that
-blinked is a boolean, not a dead machine: fly's check is TCP precisely so that
-health is behind a credential and cannot be turned into a restart loop by an
-outage upstream.
+blinked is a boolean, not a dead process, so an outage upstream cannot turn
+health into a restart loop.
 
-`deploy/probe.ts` sends the real bearer, so the origin it sends it to is a
-CONSTANT in the file and there is no flag that can move it. An origin taken from
-a command line is a way to hand a credential to whatever host somebody typed,
-and every check in the output would still pass; there is one deployed
-provisioner, so there is nothing an override could be for.
+### The state marker
 
-**And a 200 is not acceptance.** The probe requires the EXACT key set above - a missing key, an extra one, or a value that is not a boolean
-all fail - and then requires `ok`, `bounds_governed`, `database_identity`,
-`database_reachable` and `tick_recent` to be true. `state_persisted` is
-deliberately outside that set, because on a first deploy there is nothing for it
-to have survived, and `provider_configured` is outside it for the reason above. The keys are printed in a fixed order from that fixed list,
-and a field nobody designed is COUNTED rather than named: the answer comes from
-a machine, and a probe that echoes whatever it is sent is a way for that machine
-to write into our transcript.
+Proving the volume works needs more than a directory: a fresh filesystem
+recreates the state root the moment the store opens it. So `state-marker.ts`
+writes a file naming the deployment that wrote it, and `state_persisted` means
+THE MARKER was there - something no image can recreate. The boot line also
+reports `marker-crossed-release`, which is true only when the marker named a
+different release, and that is the one that discriminates a redeploy from a
+restart.
 
-### Moving the provisioner onto its own role (G3), and getting back
+Two rules about that write, and both are about not lying:
 
-The posture exists in the catalog from the migration above, but nothing
-authenticates as `cp_provisioner` until this step: it is created NOLOGIN
-precisely so a credential is only ever minted by a run that has somewhere to put
-it. `deploy/provisioner-role.ts` holds the decisions and
-`deploy/provisioner-move.ts` is the coordinator that follows them, with every
-provider effect behind a seam so the orchestration is tested before it is
-authorized.
-
-**It is NOT `deploy/secrets.ts`, and the difference matters.** That program
-stages the OWNER DSN - it resolves `targetFor(production)` and pushes all three
-secrets - which is the opposite operation from this one. What G3 reuses is its
-stdin boundary (`pushSecrets` and `fly-cli.ts`), not its command: the
-coordinator builds the `cp_provisioner` DIRECT DSN in memory and stages that one
-existing secret name. `secrets.ts --verify` is also not acceptance here - it
-proves every boot-required NAME is present, not which value is staged or live.
-The move coordinator uses that full name set as a guard against replacing a
-machine with one that cannot boot. What says the deployment works is the probe
-and the engine's own backend count.
-
-FOUR PHASES, and the order is the whole procedure:
-
-```
-P0  preflight: the phase-defining catalog read FIRST (a read that fails
-    there escalates - it is the only thing that can tell a fresh G2 state
-    from an interrupted G3 one), then branch proved, owner DSN opens, owner
-    bounds exact, role governed exactly, ONE STARTED MACHINE, source
-    committed, tree clean
-P1  alter role cp_provisioner with login password '<generated here>'
-P2  the coordinator stages the new DSN over stdin (one secret name)
-P3  flyctl deploy ... --ha=false --now, with the backend counter running
-    THROUGH it (the staged secret goes live here)
-P4  secret names present, the probe's whole transcript typed and its verdict
-    recomputed green (waiting only for a machine that is up and not yet
-    ticking), machine replaced per fly's own state, every sampled count <= 12
-    and the settled count 1..5
-```
-
-No password exists until P0 passed: a refused run generates nothing. The
-machine topology is read again immediately before the deploy - as its own step,
-not inside it - because a machine added, stopped or destroyed between P0 and P3
-breaks the arithmetic that makes the deploy safe, and a listing that cannot be
-parsed refuses rather than deploying into evidence nobody can produce
-afterwards. That read is separate so the sampled window contains the deploy
-CHILD and nothing else: with the listing inside the deploy, a reading taken
-beside it counted as overlap while proving nothing.
-
-**Every child this program starts is bounded, and the unit of lifetime is the
-PROCESS GROUP.** There is no unbounded spawn left on any path a run can reach
-after the credential exists: a hung `secrets import`, machine listing, probe or
-deploy would each hold a live credential open forever, and forever has no
-recovery path. Two deadlines, both measured:
-
-| child                          | deadline | basis (all 2026-08-11)                                                                   |
-| ------------------------------ | -------- | ---------------------------------------------------------------------------------------- |
-| `flyctl deploy`                | 20 min   | this app's own deploys ran 64.8s and 72.6s, so ~16x the slower                           |
-| listings, staged import, probe | 2 min    | read-only flyctl commands answered in 2.6s and 4.3s; the probe is five HTTPS round trips |
-
-A probe run inside the readiness wait gets the SMALLER of that two-minute
-deadline and what is left of the wait's own three-minute budget, so the last
-attempt cannot run past it.
-
-At a deadline the whole GROUP gets SIGTERM, twenty seconds, then SIGKILL; the
-leader's exit is awaited (bounded - a leader a failed SIGKILL left running must
-not restore an unbounded wait) and then `kill(-pgid, 0)` must report the group
-EMPTY before the answer comes back. Children are spawned detached, which
-measured 2026-08-12 puts each in a new group of its own - a plain spawn shares
-the office's group, and signalling that would kill the session doing the deploy.
-
-**What the emptiness proof actually claims, stated narrowly.** It is _the
-original process group is empty_, not _nothing the child started remains_: a
-process that calls `setsid` leaves the group and is outside both the kill and
-the probe. The recovery's safety therefore rests on an executable assumption
-that is written down rather than implied - the two children this program runs,
-`flyctl` and the probe, do not daemonise or start new sessions (true of both as
-of 2026-08-12). A future flyctl that daemonised would break it, and the fix
-would be a non-escapable boundary - a cgroup or a transient systemd scope per
-child - rather than a process group. The probe itself fails closed: only ESRCH
-counts as empty, and EPERM (a process that exists and cannot be signalled),
-EINVAL or any unexpected error all read as ALIVE, so `group_empty: false` is
-reported rather than assumed.
-
-Two things this replaced, both measured rather than reasoned:
-
-- **Reaping the leader is not enough.** Killing a shell does not kill what it
-  started, and a surviving descendant can still hold credentials and talk to the
-  provider after the coordinator has begun recovering on the strength of "the
-  child is gone". The test drives a descendant that would write a file a second
-  after the leader dies and proves it never writes it.
-- **A leader that exits 0 while its group lives is not a success.** Its exit
-  code says what it thought, not what its children are doing - and the inherited
-  pipe means waiting for end-of-stream waits for a process nobody is tracking.
-  That case returns the same fixed ambiguous answer, and end-of-stream is never
-  waited on unboundedly.
-
-**A failed backend reading does not end the deploy either.** The sampler owns
-the deploy's lifetime: a database hiccup mid-flight marks the measurement failed
-and then waits for the child, because returning early would let the recovery
-stage the owner DSN and start a second deploy over the first one.
-
-P4 is the coordinator's own evidence, not a pair of commands. `secrets.ts
---verify` proves NAMES and would pass an app carrying the wrong value, and a
-probe run by hand proves the surface at a moment nobody recorded.
-
-**What runs it.** `deploy/provisioner-move-run.ts` is the executable: it binds
-the coordinator's seams to git, the Neon API, the driver, flyctl and the probe,
-and it is the only file in this pair that can touch a provider.
-
-```
-bun control-plane/deploy/provisioner-move-run.ts --plan           # prints the steps and the deploy argv
-bun control-plane/deploy/provisioner-move-run.ts --source-state   # git only; no provider
-bun control-plane/deploy/provisioner-move-run.ts --machine-state  # one read-only flyctl listing
-bun control-plane/deploy/provisioner-move-run.ts --execute        # the move
-```
-
-Exit codes are the report a runbook step reads: `0` only for a completed move,
-`2` refused before anything was written, `3` rolled back (a successful recovery
-and still a failed move), `4` escalate - something is left for a person -, `5`
-an unexpected failure whose text is deliberately not printed. Run
-`--machine-state` before `--execute`: replacement is proved as a DIFFERENCE
-between two listings, so the run refuses to deploy at all if fly's listing
-cannot be parsed, and finding that out beforehand costs nothing.
-
-`--machine-state` is operator reconnaissance, not the guard: the same topology
-is enforced inside `--execute`, before the credential and again at the deploy,
-because a command somebody ran earlier is a statement about a world that has had
-time to change.
-
-`--source-state` answers the question the guard asks, which is not the archive
-question. `deploy/tree-state.ts` classifies for `git archive HEAD`, where an
-untracked file cannot ship and a changed document cannot change behaviour; a fly
-deploy sends the working DIRECTORY, so both of those ship. The guard therefore
-counts every path `/.dockerignore` lets into the image - through the same
-matcher `deploy/image.test.ts` asserts the rules with (`deploy/build-context.ts`)
-
-- and ignores everything the rules drop, `control-plane/web` and the test files
-  included. `/.dockerignore` itself must be tracked and untouched before its rules
-  are trusted at all: it sits outside the copied path, so the count can never see
-  it, while its working-tree bytes decide what that count is allowed to ignore.
-  Expect the guard to refuse while a slice's own work is uncommitted; that is the
-  check working.
-
-`--stage` is load bearing. An unstaged import restarts the machine on the spot,
-which would mean two restarts and a window where the machine runs a new
-credential against old code; staged, the secret arrives with the one deploy.
-
-The owner's bounds are required before the forward run as well as before a
-rollback: the rollback deploys the owner DSN and the committed runtime opens it
-through `openRuntime`, which refuses a managed session whose role configuration
-is not exactly the governed pair. Starting a move you cannot reverse is the
-thing this gate exists to prevent. A run also refuses unless the source is a
-readable commit and the runtime tree is clean - a fly deploy ships the working
-DIRECTORY, so an uncommitted tree is a machine nobody can reconstruct from git.
-
-**Nothing is remembered between phases, so a resumed run reads the world.**
-Process memory does not survive an interrupt and a lock file would be a second
-thing that can be wrong, so the phase is derived from two facts that outlive any
-process - whether the role can log in, and whether anything is connected as it:
-
-| role can log in | backends | phase             | what it means                                                |
-| --------------- | -------- | ----------------- | ------------------------------------------------------------ |
-| no              | 0        | `clean`           | nothing done, or a completed rollback                        |
-| yes             | 0        | `credential_set`  | P1 ran; P2 and P3 unknown - NOT evidence they did not happen |
-| yes             | >0       | `credential_live` | the deploy took effect, whatever was reported                |
-| no              | >0       | `contradictory`   | a session outlived its NOLOGIN - stop                        |
-
-The recoveries follow from the reading, and they share one rule: **the
-credential is disabled LAST**. Closing it while a machine is still pointed at it
-turns a rollback into an outage.
-
-- `credential_set` and `credential_live` - THE SAME PATH. Zero backends is not
-  evidence that the staged value never went live: a deploy can apply it and
-  leave the machine stopped, crash-looping or between boots, which reads
-  identically to a stage that never landed. So every credential that exists is
-  recovered as though it may be in a machine's configuration - stage the owner
-  DSN, DEPLOY it, prove fly REPLACED the machine, probe the owner path green,
-  watch a bounded series in which EVERY reading is zero, and only then `alter
-role ... nologin password null`. Skipping the deploy would leave the next
-  machine start pointed at a role it cannot authenticate as. The replacement
-  check is there because a zero exit says flyctl finished, not that the machine
-  running now is the one it deployed; the series is there because ONE zero is
-  the same one-way evidence this design refuses everywhere else - a machine
-  still configured for the role reads zero between two opens, through a restart
-  and while it crash-loops. If any of that cannot be proved, LEAVE THE
-  CREDENTIAL ENABLED and escalate: a disabled credential under a live machine is
-  worse than a live credential nobody wanted.
-- `contradictory` - stop and escalate. Postgres checks LOGIN at connect, so this
-  is a session that predates the change, and it is not a state to reason out of.
-
-**A deploy's exit code is not evidence about what changed.** A non-zero deploy
-may have replaced the machine, may have applied the staged secret, or may have
-done neither. So every outcome after the deploy is INVOKED - success, failure,
-thrown error, timeout - goes down the same path: measure, classify, recover from
-what is there. There is one forward attempt and no retry.
-
-**The overlap arithmetic, and what actually bounds it.** The engine cap of 12 is
-the hard bound; the machine's pool is capped at 5, so two overlapping process
-pools is 10. `deploy/provisioner-role.test.ts` pins the two configuration facts
-that keep that true: fly.toml names no strategy that stands a second machine up
-beside the first, and the deploy argv carries `--ha=false`. The third fact is
-checked at runtime rather than pinned - the app must be ONE STARTED MACHINE
-before a password is generated and again at the deploy, because two machines
-already running would make a replacement three pools, fifteen requested against
-a cap of twelve.
-
-Sampled backend counts are supporting evidence, not the bound - and they are
-taken THROUGH the deploy rather than after it. The overlap the arithmetic is
-about exists only while the deploy is in flight, so a series that starts when
-the deploy returns can only ever prove a steady state; the run requires at least
-one reading taken while the deploy was pending, every reading inside the cap of
-12, and a settled count of 1..5.
-
-**What G3 does NOT claim.** Both deployments authenticate as the owner today, so
-a before-and-after count of owner backends moves with web traffic and cannot be
-split into a provisioner share. G3's acceptance is about the new role: the
-machine healthy under `cp_provisioner`, its backend count inside the budget, and
-the old machine replaced per fly's own evidence. Legacy owner sessions stay
-explicitly unresolved until the web tier moves too.
-
-### What the 2026-08-12 G3 run measured, and what it did not
-
-**G3 IS NOT COMPLETE.** The live run ended `rolled_back`, exit 3: the forward
-probe refused, and the reviewed recovery then ran green on production - the
-replacement proved from fly's own state, the owner-path probe green, six
-consecutive zero backend readings, and the credential closed last, in that
-order. The deployment is back on the owner string and R-2026-08-11-1 remains
-OPEN.
-
-Three claims, and they are deliberately not the same kind of claim:
-
-- **MEASURED, 2026-08-12.** The probe refused; the run rolled back with exit 3;
-  the recovery completed with every one of its own predicates true.
-- **STATICALLY ESTABLISHED, not measured live.** The mechanism is the missing
-  grant: the probe's authenticated POST (`deploy/probe.ts`) reaches
-  `mint-seam.ts` `fetchInvite` -> `signup.ts` `instanceOwnedBy` ->
-  `reservationForInstance`, which selects from `name_reservations` - a table
-  `PROVISIONER_GRANTS` withheld. Nobody ran the failing statement again on the
-  live machine to watch it; the path is read from committed code, and
-  `mint-seam-privilege.test.ts` now executes that decision under a role holding
-  exactly the matrix, which is as close as a test gets to the live identity.
-  THE SAME READ IS ON THE REAL INVITE PATH, so D4's first genuine invite would
-  have failed identically. That is the reason the fix is a matrix change rather
-  than a probe change.
-- **INDEPENDENT HARDENING, not the live cause.** The tick-readiness window
-  below was added in the same remediation because a machine fly has just
-  replaced is healthy and NOT YET TICKING for a few seconds. Nothing shows it
-  contributed to the 2026-08-12 refusal, and it is not offered as an
-  explanation of it.
-
-**The probe is now read as a whole transcript.** The coordinator used to scan
-the child's output for `accepted: true` and require exit 0, which is a substring
-search over text it does not control: a probe printing that line and nothing
-else passed, and so did one whose own statuses contradicted its verdict.
-`deploy/probe-transcript.ts` parses every field the probe prints - each exactly
-once, each correctly typed - and RECOMPUTES bearer enforcement, the surface
-answer, the health shape and acceptance from the readings. A reported verdict
-that does not equal the derived one is a hard failure. Nothing the child printed
-leaves the parser: what comes back is typed fields and labels from a closed
-vocabulary.
-
-**And there are three answers, not two.** `tick_recent` is false until the
-provisioner's first pass completes, so a freshly replaced machine correctly
-earns a refusal for a few seconds. That one state - everything else exactly
-right, `tick_recent` and the machine's own `ok` false - is `readiness_pending`
-and is waited on; every other refusal fails on the first reading, because
-retrying a machine that cannot reach its database only delays the rollback.
-
-The wait is bounded twice, and the two bounds fail differently:
-
-| bound           | value | what it is                                             |
-| --------------- | ----- | ------------------------------------------------------ |
-| absolute budget | 3 min | a ROLLOUT-READINESS POLICY, not a measured upper bound |
-| attempt cap     | 18    | independent of any clock                               |
-
-Three minutes is a CHOICE about what to do when a machine is slow: after it,
-this run prefers rolling back to waiting longer. It is NOT a proved bound on
-`Ticker.once` - that would be a claim about the provider too - and it must not
-be read as one later. Each child gets the smaller of the ordinary two-minute
-deadline and what is left of the budget, each sleep is capped the same way, no
-child starts at or after expiry, and one child is awaited to its group-empty
-proof before the next begins.
-
-The budget is measured on a MONOTONIC clock, and clamped on top of one.
-`Date.now` can step backwards - an NTP correction, an operator setting the
-clock - and a backward step INCREASES what a subtraction reports as remaining,
-which would let a three-minute wait run as long as the attempt cap allowed. The
-real primitive is `performance.now`, and the wait discards any reading below the
-highest it has seen, so neither a wrong clock nor a wrong primitive can extend
-the aggregate. A clock that runs backwards then ends the wait on the COUNT.
-
-### What the 2026-08-12 moves completed
-
-Both deployed tiers left the owner string on 2026-08-12, by two different
-routes, and the difference is worth recording.
-
-**The provisioner (G3 retry) moved by the reviewed executable.** After the
-matrix remediation above reached production, the same credential-move run that
-had rolled back the day before completed forward: the fly machine authenticates
-as `cp_provisioner` on the direct endpoint, the probe was accepted on its first
-attempt, every backend sample through the deploy stayed inside the cap of 12,
-and the count settled at 1.
-
-**The web (G4) moved by a supervised manual run**, Nil at the keyboard, after
-the reviewed plan's own finding made the case: the G4 tooling would have run
-once, for one account, with a one-paste revert - so the tooling was cancelled
-and the same sequence ran by hand under review-agreed evidence rules. Three
-facts from that run outlive it:
-
-- **No anonymous request ever opens the database** - every store caller sits
-  behind `auth()` - so no anonymous probe can prove which role serves. The only
-  causal proof is an authenticated page load observed from the engine, and that
-  is how it was proved: a signed-in GET produced a `cp_web` backend while the
-  owner held zero.
-- **The first cutover attempt failed on the pooled endpoint (08P01)** because
-  the artifact then deployed predated the role posture and still sent `options`
-  on startup. The second failed on the direct endpoint (42501) because that same
-  old artifact ran the schema-writing `Store.open`, which a least-privileged
-  role must refuse; `openRuntime` existed in the repository and had never been
-  shipped. A cutover to a restricted role REQUIRES an artifact whose code
-  expects restriction: the deploy is part of the migration, not an afterthought.
-- **The fresh production deploy came from the committed tree** via
-  `production-phase.ts --redeploy` (build evidence held, full anonymous probe
-  suite green, rows 1/0/0/0 before and after), and only then did the signed-in
-  load succeed and the engine reading close the finding.
-
-The owner DSN now lives only in the operator's secrets file, used for
-migrations, bootstrap and operator tooling - the break-glass posture the
-aggregate section states.
+- **A failed refresh REFUSES TO BOOT**, with a fixed sentence that quotes
+  nothing it read. Reporting "the state survived" from a marker this release
+  could not rewrite would be evidence about the LAST deployment presented as
+  evidence about this one - and a state root that cannot be written is not a key
+  master at all, it is a machine that will fail the first time a run needs to
+  store a private key.
+- **The rewrite is atomic**: temp file, then rename, with the temp removed if
+  the rename fails. A write interrupted halfway would otherwise destroy the
+  proof of the last deploy in the act of recording the current one.
 
 ### Re-applying the matrix on a database that is already governed
 
-The matrix change above has to reach production, and `govern` is not the program
+A matrix change has to reach production, and `govern` is not the program
 that can take it there. `govern` requires the owner to carry NOTHING before it
 writes - the baseline that makes `ungovern` an exact reverse - and production
 has carried the governed pair since G2, so `owner_config_empty_before` cannot
@@ -2165,300 +1617,15 @@ answered by measurement rather than argument:
   42501 where refusal was expected - so the schema-check change holds on the
   provider it was written for.
 - `regovern` was rehearsed against the Neon suites branch, forward and reverse,
-  with digest-proved exact restoration, and then applied to production (the G3
-  record below). The rehearsal-then-production ordering was a gate, and it was
-  kept.
-
-### Landing the provider credentials, and the order that is enforced rather than written down
-
-Eight steps, run one at a time by an operator, and dangerous only OUT OF ORDER:
-a deploy before the preflight arms a loop that may act on a box nobody checked
-for, and a provider listing before the health reading sends a credential to a
-machine whose state is unknown.
-
-```
-preflight -> canary -> unset canary -> stage the four -> verify the four
-          -> activate -> probe -> read the provider account
-```
-
-`deploy/landing.ts` holds that order as a decision, and the three steps that can
-change something or send a credential ask it for permission. **Every precondition
-is an OBSERVATION, never a memory.** There is no ledger file and no flag saying
-step 1 went fine: `activate.ts` re-runs the production preflight and re-lists the
-app's secret names in its own process, moments before it deploys. So "not
-observed" is its own answer and it REFUSES - a check nobody ran is not a check
-that passed, which is the shape of every incident where a step was skipped
-rather than failed.
-
-**What the preflight asks, and what it deliberately does not.** The moment
-provider credentials reach the machine, the tick loop can reboot, power off,
-power on and cancel a real asset - and every one of those handlers is driven by
-a ROW. So the question is not whether we intend to touch a box; it is whether
-anything in production would make the loop touch one the moment it can. Two
-predicates: no asset already carries a provider id, and no operation of any
-provider-dependent kind is unfinished. The kinds come from
-`PROVIDER_DEPENDENT_KINDS`, the same constant the deployed process asks its
-ticker about, so a handler added later widens the preflight automatically. The
-account count and open attention reasons are printed as OBSERVATIONS and decide
-nothing - a gate that refused for reasons unrelated to whether a box can be
-touched is a gate operators learn to route around.
-
-**The arming deploy is a program, not a flyctl line.** A shell `flyctl deploy`
-either uses whatever ambient identity `~/.fly` holds - which on this box belongs
-to another project - or needs `FLY_API_TOKEN` expanded by a shell, which the
-secrets ruling forbids. `activate.ts` reads the token in-process, spawns the
-COMMITTED `DEPLOY_ARGV`, and takes no app, config, dockerfile or flag from
-outside this repository. It is not `provisioner-move --execute`, which rotates
-`CONTROL_PLANE_DB` - the one thing this step must not do.
-
-It has FOUR preconditions, not two, and the last two were missing from the first
-version of this protocol (reviewer finding, 2026-08-12). Production and the
-staged names are the order's business; the other two are this deploy's own:
-
-- **the source it would ship.** `fly deploy .` sends the WORKING DIRECTORY, so a
-  dirty tree produces a live artifact nobody can rebuild from a commit. The
-  decision is `judgeSource` in `tree-state.ts`, SHARED with the credential move
-  rather than restated - two guards deciding what "clean" means separately is
-  two chances to disagree. The rules file is judged first in meaning, for the
-  reason the move already documents.
-- **the topology.** `--ha=false` reasons about replacing ONE machine; a second
-  makes that assumption false. The reading is `readMachineListing`, again the
-  move's own, and anything but one started machine refuses.
-
-**A throw is an outcome, not an escape.** Every seam is called inside a catch:
-a throw before the spawn is a refusal, a throw AT the spawn is ambiguous -
-because the child may well have run - and the error object is discarded rather
-than printed, since a driver or CLI error can carry a host, a path or a fragment
-of a credential.
-
-**Every post-spawn outcome is AMBIGUOUS, and the type says so.** A deploy that
-returns non-zero may still have replaced the machine; a zero exit whose process
-group survived says what the leader thought, not what its children are still
-doing. The classification is two-valued on purpose - a three-valued one with a
-"failed" arm invites a retry, and a failed deploy is exactly the case where
-nobody knows what the machine holds. So the program never retries and never
-deploys a rollback: it reports and stops, and the next action is a human reading
-the machine's own state through `deploy/probe.ts`. Even a completed deploy is
-reported as a completed deploy COMMAND rather than a proved deployment.
-
-**The provider account is read from the provider, not from us.** Ruling 7 as
-restated by R-2026-08-12-D4-2 (Nil, 2026-08-12) is one box THIS LOOP MAY TOUCH,
-id 203474835 - and our database only says what we think we have. `cli.ts list` prints a page for a human and cannot say whether the page
-was the whole account; a listing that silently truncated would look identical to
-a clean one while hiding the second box the ruling exists to prevent. So
-`deploy/provider-account.ts` pages until the rows it holds equal the total the
-provider reports, and refuses on an unreadable response, a shape we did not
-expect, or a total that disagrees with the rows. A missing total is NOT "one
-page is everything" - it is a completeness nobody established.
-
-**The predicate changed the night it first ran, and why is worth keeping.** It
-began as "exactly one instance on the account", and the first live reading found
-TWO on a listing proved complete: ours, plus a cancelled `latency-test` box of
-Nil's expiring the same day. The count was never the property that mattered -
-the account is Nil's and may hold anything - so the ruling was restated and the
-predicate with it: the expected id must be present EXACTLY ONCE in a complete
-listing, its own fields must validate, and every other row is counted and
-reported as A NUMBER ONLY. One stranger passes as an observation; more than one
-fails closed to a manager and Nil decision, printing the count and nothing else.
-
-That boundary is the point. Row identifiers are used on the box for three
-things - is our box there, is it there once, how many rows are not it - and no
-id, name, state or date of any stranger crosses back, nor is any per-instance
-request made for one. A loop that may not touch them has no business learning
-about them, and a transcript that carried their details would be a place for
-that knowledge to leak into a later decision.
-
-It runs ON the fly machine, because that is where the provider credentials are
-and this box has none - and the local half re-validates everything that comes
-back. The machine ran the same checks; that is not a reason to skip them, because
-a boundary whose receiving side depends on the sending side having behaved is not
-a boundary. So counts must be digits, the booleans exactly `true` or `false`, the
-states inside a closed list of ones this loop has actually observed, and the
-cancel date the provider's full shape - validated WHOLE and only then reduced to
-its day, since checking a ten-character slice accepts
-`2026-08-29T99:99:99-garbage` on the strength of its prefix. Anything
-`unexpected` fails acceptance rather than being printed as a curiosity.
-
-The remote run itself must be clean before a single line of it is read: exit 0,
-no deadline, no surviving process group, the group proved empty. A leader that
-exits 0 while something it started is still running produced a fragment, and a
-fragment that happens to parse is the worst kind of answer to "is there exactly
-one box".
-
-And the listing has three outcomes rather than two - complete, malformed,
-exhausted - because they mean different things to an operator: a provider or
-transport that is not what we think, an account bigger than this reader expects,
-and a clean account with two boxes in it are three different problems.
-
-### The volume, and one thing it deliberately does not have
-
-`/data` is a 1 GB volume in `fra`, and `HOME=/data` in the image is what puts
-the state root (`~/.isomux-control-plane`) on it: the per-run private keys, the
-run records, the intent journal and the audit log. A deploy replaces a machine's
-filesystem, and the key it would have destroyed is the only thing that can
-revoke our own access to a customer's box.
-
-**Scheduled snapshots are off, explicitly.** `flyctl volumes create` turns them
-on by default with five-day retention, and `keys.ts` destroys a private key as
-soon as revocation is proven - a snapshot would keep copies of that material for
-five days after we destroyed it, which is the guarantee working in reverse.
-Nothing here is therefore backed up, and this document does not claim otherwise:
-what a provisioner's durable state deserves in the way of backup is an ops-floor
-question, alongside the restore procedure the design already owes.
-
-Proving the volume works needs more than a directory: a fresh filesystem
-recreates the state root the moment the store opens it. So `state-marker.ts`
-writes a file naming the deployment that wrote it, and `state_persisted` means
-THE MARKER was there - something no image can recreate. The boot line also
-reports `marker-crossed-release`, which is true only when the marker named a
-different release, and that is the one that discriminates a redeploy from a
-restart.
-
-Two rules about that write, and both are about not lying:
-
-- **A failed refresh REFUSES TO BOOT**, with a fixed sentence that quotes
-  nothing it read. Reporting "the state survived" from a marker this release
-  could not rewrite would be evidence about the LAST deployment presented as
-  evidence about this one - and a state root that cannot be written is not a key
-  master at all, it is a machine that will fail the first time a run needs to
-  store a private key.
-- **The rewrite is atomic**: temp file, then rename, with the temp removed if
-  the rename fails. A write interrupted halfway would otherwise destroy the
-  proof of the last deploy in the act of recording the current one.
-
-### Deploying it
-
-First deploy, in this order, with the token read per command and never echoed:
-
-```
-bun control-plane/deploy/name-check.ts
-FLY_API_TOKEN="$(cat ~/nil/secrets/fly.token)" ~/.fly/bin/flyctl apps create isomux-provisioner --org personal
-FLY_API_TOKEN="$(cat ~/nil/secrets/fly.token)" ~/.fly/bin/flyctl volumes create provisioner_state \
-    -a isomux-provisioner -r fra -s 1 --scheduled-snapshots=false -y
-bun control-plane/deploy/secrets.ts --canary
-bun control-plane/deploy/secrets.ts --unset-canary
-bun control-plane/deploy/secrets.ts
-FLY_API_TOKEN="$(cat ~/nil/secrets/fly.token)" ~/.fly/bin/flyctl deploy . \
-    --config control-plane/deploy/fly.toml --dockerfile control-plane/deploy/Dockerfile \
-    -a isomux-provisioner --depot=true --depot-scope app --ha=false --now
-bun control-plane/deploy/secrets.ts --verify
-bun control-plane/deploy/probe.ts
-```
-
-That raw first deploy correctly reports `release_source: { known: false }`:
-there is no guarded activation observation from which to claim a commit. It
-still reports the Dockerfile-computed payload digest and Fly deployment id.
-Later guarded activations add the comparable commit without weakening what the
-first image can prove.
-
-Deploy the new image before running `provider-account.ts` or the recycle
-ladder against it. Those gates require the new exact health shape and therefore
-refuse, by design, while the old image still serves the seven-field response.
-
-A lifecycle-cadence redeploy adds one required step before those lines:
-
-```
-bun control-plane/exercises/neon.ts regovern --branch production
-```
-
-Run the grant re-application first and prove its exact read-back. Then deploy
-the image, verify its secrets, and run the authenticated probe. Deploying the
-image first leaves `tick_recent` false because the lifecycle scan cannot read
-`subscriptions`.
-
-A routine redeploy is the last three lines, and nothing else. Measured
-2026-08-11: the image and the machine's configuration are updated IN PLACE -
-the same machine id came back started, with its event counts unchanged - and
-the volume stays attached throughout.
-
-**The first deploy, measured 2026-08-11.** Build on Depot ("Building image with
-Depot"; no `fly-builder-*` app was created or reused). Context 940.20 kB, which
-is 96 files and matches the 911.8 kB those files hold plus archive overhead - so
-the ignore rules did what `deploy/image.test.ts` says they do. Image 61 MB. One
-machine, `shared-cpu-1x` 256 MB in `fra`, started in 4.7s, with a dedicated IPv6
-and a SHARED IPv4 (a dedicated v4 is the one that costs, and nothing here asks
-for it). The volume was initialised, encrypted and mounted at `/data` on first
-boot. First boot line:
-
-```
-boot: bounds-governed true, branch-pinned true, state-persisted false,
-      marker-crossed-release false, marker-supported true
-```
-
-`branch-pinned true` is the machine proving from its own session that it is
-talking to the Neon production branch; `state-persisted false` is the correct
-answer on a first deploy, and `marker-supported true` says fly supplied the
-release id the marker needs. Beside it, `no provider credentials in the
-environment: reconcile is off for this run` - the loop idles rather than
-crashing without provider credentials, which is what this slice deliberately
-does not give it.
-
-**The idle window and the redeploy, measured 2026-08-11.** From 05:39:37Z to
-06:16:49Z the machine stayed `started` with its event counts unchanged
-(`start: 1, launch: 2`, no restart of any kind), the log carried no exit, crash
-or out-of-memory line, and the external probe answered `accepted: true` at both
-ends. Neon production, re-checked after the provisioner had been attached to it
-for that whole window, still reported `schema-ready: true`, `zero-user-data:
-true`, `operations: 0 rows` and `instances: 0 rows`.
-
-The redeploy at 06:18Z then updated the same machine in place and printed:
-
-```
-boot: bounds-governed true, branch-pinned true, state-persisted true,
-      marker-crossed-release true, marker-supported true
-```
-
-Both booleans flipped, and the second one is the one that means something: the
-marker named a DIFFERENT release, so the state root survived a deploy rather
-than a restart. fly's own log agrees from the other side - the first boot said
-`Uninitialized volume 'provisioner_state', initializing... Formatting volume`
-and the second only said `Setting up volume 'provisioner_state'`.
-
-One line in the log is expected and is not a fault: the TCP check fires when the
-machine starts and fails once, about four seconds before Bun binds the port. The
-declared grace period does not suppress that first probe. It passes on the next
-one, and no restart follows.
-
-Two honest limits on the redeploy evidence. It proves the PROCEDURE is
-repeatable and that the volume outlives a release; it is not a byte-identical
-rebuild, because `control-plane/README.md` is inside the build context and this
-paragraph changed it (context 120.09 kB on the second build, against 940.20 kB
-cold, the rest being cache). And a 37-minute window says the loop is stable over
-37 minutes, not over a month.
-
-Three flags are load bearing rather than stylistic:
-
-- `--depot=true`. At the default (`auto`) flyctl may choose its classic remote
-  builder, which creates or REUSES a builder app in the organisation -
-  `--recreate-builder` exists precisely because reuse is the normal case - and
-  this token's organisation holds unrelated apps. Depot builds on fly's managed
-  service and creates no app here. If it is ever refused, the answer is to stop,
-  not to fall back.
-- `--depot-scope app`, so this build's cache is not the organisation-wide one
-  other projects share.
-- `--ha=false`. The default creates a spare machine, which is a second machine
-  nobody asked for and a second thing to pay for.
-
-No `flyctl auth` command is run: the token travels as `FLY_API_TOKEN` in one
-child's environment, and every call names `-a isomux-provisioner`.
-
-**That does not mean flyctl leaves its own configuration alone**, and the
-difference is worth stating because the obvious check reads as an incident.
-Measured 2026-08-11: the first deploy sequence rewrote `~/.fly/config.yml` at
-05:36:50Z, adding one `app_secrets_minvers` line for the new app to a list that
-already held eleven others (1917 -> 1948 bytes). The org token from
-`~/nil/secrets/fly.token` was NOT written into that file - checked as a boolean,
-with neither value printed. So a changed md5 on that file is ordinary flyctl
-bookkeeping, and by itself it says nothing about the login credential either
-way. An earlier draft of this file claimed `~/.fly` is never written to, which
-the first deploy disproved.
+  with digest-proved exact restoration, and then applied to production. The
+  rehearsal-then-production ordering was a gate, and it was kept.
 
 ## Deployed: Hosted Isomux on one Docker host
 
 `deploy/vps/` runs the storefront, the provisioner and their PostgreSQL 18.6 as
 one Compose project on a plain Linux host with Docker. The project shares no
-network, volume or env file with other projects on the host. The Vercel and Fly
-paths above stay as they are.
+network, volume or env file with other projects on the host. The Vercel path
+above stays only for a rollback.
 
 ```
 control-plane/deploy/vps/deploy.sh <commit>            # on the host, from a clone that has the commit
@@ -2472,7 +1639,7 @@ control-plane/deploy/vps/auto-deploy.sh                # one run of the deploy f
 a BuildKit builder capped at 3 GiB and 2 CPUs (a scope around `docker build`
 does not cap it: the daemon does the build). Both images carry the commit as
 their `org.opencontainers.image.revision` label, and the provisioner also bakes
-it into `release-identity.json`, so `/internal/health` reports it as on Fly. The
+it into `release-identity.json`, so `/internal/health` reports it. The
 script then runs every owner migration with the new image, starts the services
 and proves: each running container's image is
 the one it built, with the commit's label; health is `ok` with
@@ -2493,8 +1660,8 @@ The `db` network is internal. The storefront reaches the seam at
 `http://provisioner:4311` on the project network. `owner` runs only as
 `docker compose ... run --rm owner bun control-plane/cli.ts <command>` and gets
 only the owner's DSN: no provider or Stripe values and no state volume. The
-provisioner state root is the named volume `provisioner-state` at `/data`, as on
-the Fly volume. Containers restart with the Docker daemon, so the host needs no
+provisioner state root is the named volume `provisioner-state` at `/data`.
+Containers restart with the Docker daemon, so the host needs no
 unit of its own.
 
 The provisioner and web use Docker's `journald` log driver. The tags are
@@ -2570,9 +1737,9 @@ Every deploy unpacks the commit again into `releases/<commit>`, so a tree
 changed on the host after an earlier deploy never reaches a build labelled with
 the commit.
 
-**Live Stripe.** `stripe/mode.ts` accepts live mode in three production
-runtimes: Vercel production, the `isomux-provisioner` Fly app, and
-`ISOMUX_PRODUCTION_RUNTIME=vps`, which only `deploy/vps/compose.yaml` sets.
+**Live Stripe.** `stripe/mode.ts` accepts live mode in two production
+runtimes: Vercel production and `ISOMUX_PRODUCTION_RUNTIME=vps`, which only
+`deploy/vps/compose.yaml` sets.
 
 **Caddy.** `deploy/vps/hosted.caddy.example` holds the two site blocks with
 example hostnames, to drop beside the host's Caddyfile. The storefront block
@@ -2583,8 +1750,8 @@ ranges, or every visitor shares the CDN's addresses. The provisioner block
 passes only `/stripe/webhook` and the two `/internal/certificates/*` paths that
 customer offices call. Set `ISOMUX_CERTIFICATE_ENDPOINT` in `provisioner.env` to
 the public renew URL. New offices are enrolled with it, and every renew answer
-carries it, which moves an office enrolled with an older URL (see "The
-certificate forwarder").
+carries it, which moves an office enrolled with an older URL (see "Moving
+offices to a new renewal URL").
 
 **The local proof** (`local-proof.sh`) deploys the commit with synthetic
 values: Stripe test mode, the staging certificate target, no provider account.
@@ -2700,7 +1867,8 @@ change ships like code.
 
 ### Moving Hosted Isomux to a Docker host
 
-No app starts on the new host before the database is restored and the
+Hosted Isomux moved from Fly.io and Vercel to its Docker host this way in
+2026-10. No app starts on the new host before the database is restored and the
 provisioner state is imported: a provisioner that starts with live provider
 credentials before the create latches arrive can pay for a box twice. In order:
 
@@ -2711,22 +1879,22 @@ credentials before the create latches arrive can pay for a box twice. In order:
    endpoint's events and put its signing secret in `provisioner.env`. Stripe
    retries deliveries there until the provisioner starts, and the provisioner
    claims each event id once, so an event that both endpoints get applies once.
-2. Stop every writer on the old database: the Fly machine (autostart off, then
-   stop, and read both back in one `fly machine status`) and the storefront
-   (pause the Vercel project). The provisioner writes a row on every tick, so a
+2. Stop every writer on the old database: the old provisioner (with no
+   automatic restart) and the old storefront. The provisioner writes a row on every tick, so a
    fingerprint matches a dump only when both come from a stopped source.
 3. Fingerprint the old database and then dump it:
    `restore-check.ts fingerprint > source.json` with the old owner's string, and
    `pg_dump -Fc` 18.6 from its direct endpoint, not a pooler, with the password
    in `PGPASSWORD` and not on the command line.
 4. On the host: `deploy/vps/restore.sh <dump> source.json` (below).
-5. Export the provisioner state from the old Fly machine (below).
+5. Export the provisioner state from the old provisioner (below).
 6. On the host, into the empty state volume:
    `docker compose ... run --rm --no-deps -T provisioner bun control-plane/state-move.ts import < state.json`
 7. `deploy.sh <commit>`, which starts the apps.
 8. Point the storefront hostname at the host, and only then add its Caddy block:
-   Caddy backs off for minutes after a certificate order fails. Run the Fly app
-   as the certificate forwarder (below), and disable the old Stripe endpoint.
+   Caddy backs off for minutes after a certificate order fails. Disable the old
+   Stripe endpoint. Keep the old renewal URL reaching the new provisioner until
+   every office has moved (see "Moving offices to a new renewal URL").
 
 `restore.sh` runs only on an install that `--prepare` left and whose apps have
 never started. A fresh bootstrap can order a table's columns differently from
@@ -2758,71 +1926,16 @@ path it reads and refuses a symlink or a file that is not regular. The import
 re-validates the document field by field and refuses a volume that holds
 anything.
 
-The old machine has no exporter, so the script travels on stdin: it imports
-only node built-ins. It is read-only, so it can run on the live machine first to
-show what would refuse. At the cutover, with the machine stopped and autostart
-off, boot it idle (no provisioner process), export, and stop it. The idle
-machine serves nothing on 4311, so the update skips the TCP check from
-`fly.toml`. These commands and the rollback below have not been run yet:
+An old provisioner without the exporter takes the script on stdin: it imports
+only node built-ins. It is read-only, so it can run on the live provisioner
+first to show what would refuse. At the cutover, with the old provisioner
+stopped, start its container idle (no provisioner process), run
+`bun run - export < control-plane/state-move.ts > state.json` in it, and stop
+it.
 
-```
-fly machine update <machine> -a <app> --command "sleep infinity" --autostart=false --restart no --skip-health-checks --yes
-fly ssh console -a <app> --machine <machine> -C "bun run - export" < control-plane/state-move.ts > state.json
-fly machine stop <machine> -a <app>
-```
+### Moving offices to a new renewal URL
 
-A rollback to the old provisioner gives the machine the image's own command
-again (the `CMD` in `deploy/Dockerfile`).
-
-### The certificate forwarder
-
-A customer office renews its certificate and reports its status at the URL in
-`/etc/isomux/renewal/enrollment.json`. Offices enrolled before the move hold
-the Fly hostname, and DNS cannot repoint it. After the move the Fly app runs
-`deploy/forwarder/forwarder.ts` in place of the provisioner:
-
-- It passes a POST to exactly `/internal/certificates/renew` or
-  `/internal/certificates/status`, with the office's `Authorization` header,
-  `Content-Type` and body unchanged, to `ISOMUX_FORWARD_TO`, the new
-  provisioner's `https://` origin. The new provisioner checks the bearer. Any
-  other path, method or query gets 404, a body over 36 KiB gets 413, and a
-  redirect is not followed.
-- It bounds renew at 570 s and status at 50 s, under the helper's own 600 s and
-  60 s, and turns off Bun's built-in 300 s fetch limit.
-  `bun control-plane/deploy/forwarder/long-call-proof.ts` (about 5.5 minutes)
-  shows a 310 s answer arriving through it; measured 2026-10-06 on Bun 1.3.11.
-  When the new provisioner cannot be reached, or its answer stalls, it answers
-  503 or 504 with `Retry-After`, and the helper's curl retries.
-- It logs one line at start and nothing per call, reads no state and mounts no
-  volume.
-- It refuses to start while its environment holds a provisioner credential
-  name (`CONTROL_PLANE_*`, `STRIPE_*`, `CONTABO_*`, `ISOMUX_CF_*`,
-  `ISOMUX_ACME_*`, `PROBE_CANARY`). Fly gives app secrets to every machine of
-  the app, so they are unset first. A rollback to the old provisioner stages
-  them again with the programs in "Hosted certificate configuration" and
-  `deploy/secrets.ts`.
-
-After the state export, with the old machine stopped and autostart off, and
-the new provisioner serving. `--stage` matters: without it, `secrets unset`
-deploys to the app's machines, which can start the old one. These commands have
-not been run yet:
-
-```
-fly machine status <machine> -a <app>     # stopped, autostart off
-fly secrets list -a <app>                 # names only
-fly secrets unset --stage -a <app> <every credential name from the list>
-fly machine status <machine> -a <app>     # still stopped, autostart off
-fly machine run . --dockerfile control-plane/deploy/forwarder/Dockerfile \
-  -a <app> -r <region> --name certificate-forwarder \
-  --port 443:8080/tcp:tls:http --autostop=off --restart always \
-  --vm-memory 256 --env ISOMUX_FORWARD_TO=https://<new provisioner host>
-fly machine status <machine> -a <app>     # the old machine is still stopped
-```
-
-The new forwarder machine has no volume. The old machine and its volume stay
-for a rollback until Nil retires the app.
-
-**Moving the offices.** The provisioner's renew answer carries
+The provisioner's renew answer carries
 `ISOMUX_CERTIFICATE_ENDPOINT` as `endpoint`. The renewal helper in
 `deploy/install.sh` sends its ok report to that URL's status path after a good
 install, and only when that answers 200 does it write the new URL into the
@@ -2830,10 +1943,10 @@ enrollment, atomically and with the same bearer. A failed report there, a
 redirect, a URL that is not `https://<host>[:port]/internal/certificates/renew`
 or a failed write leaves the enrollment as it was. An office gets this helper
 from an update its owner starts (`isomux-update`, which refreshes the helper),
-or from a new install. An office that never updates keeps calling the Fly
-hostname.
+or from a new install. An office that never updates keeps calling its old
+URL.
 
-**When Fly can go.** The provisioner logs every renew and status call as
+**When the old URL can go.** The provisioner logs every renew and status call as
 `certificate renewal|status: <outcome> office=<instance id> via=direct|forwarder`,
 with no office id when the bearer did not authenticate:
 
@@ -2844,9 +1957,10 @@ journalctl -t isomux-hosted-provisioner --since '2 days ago' --no-pager | grep -
 A failed renewal line ends with `cause="..."`: the last lines of lego's
 stderr, with credentials replaced.
 
-Fly can go when every office with an active certificate credential has a
-`certificate status: ok office=<id> via=direct` line and no `via=forwarder`
-line after it. A silent office proves nothing: the helper runs daily, so read
+The old URL can go when every office with an active certificate credential
+has a `certificate status: ok office=<id> via=direct` line and no
+`via=forwarder` line after it (a forwarder on the old URL marks its calls with
+the `isomux-forwarded` header). A silent office proves nothing: the helper runs daily, so read
 the log over at least two days. That window no longer needs a period without
 a deploy. Use the configured Compose project name in the tag if it differs
 from `isomux-hosted`, and confirm the journal retained the full window.
@@ -3113,8 +2227,8 @@ the code never learns its path, and nothing prints, logs or echoes the value.
 `StripeClient` refuses to issue a single request unless the key is an
 `sk_test_`/`rk_test_` one, and a live prefix gets its own named error.
 
-The deployed provisioner also serves `POST /stripe/webhook` on Fly's published
-internal port 4311. It reads the durable Dashboard endpoint secret from
+The deployed provisioner also serves `POST /stripe/webhook` on port 4311, and
+Caddy publishes that path. It reads the durable Dashboard endpoint secret from
 `STRIPE_WEBHOOK_SECRET`; this replaces the temporary secret printed by a
 hand-run `stripe listen` session. Its restricted Stripe key has Subscriptions
 read, Invoices read, and Checkout Sessions read and write. The write permission
@@ -3817,7 +2931,7 @@ bun control-plane/exercises/adopt-run.ts [--db <dsn>] --instance inst-<id> --run
 
 `--db` is optional since D4 (2026-08-12), and its absence is the deployed shape:
 the run record and its key live on the provisioner's own volume, so the linking
-runs THERE, and there the database string is a fly secret in the environment
+runs THERE, and there the database string is a secret in the environment
 that must not be re-typed into an argv the process table shows to anybody.
 Without the flag it comes from `CONTROL_PLANE_DB`, through the same reader every
 other command uses, which still has no default. The store is opened with
@@ -4189,9 +3303,10 @@ status as authority.
 The deployed provisioner schedules `lifecycleTick` as its own work class. It
 runs on startup and when the one-row schedule finds lifecycle work due, not
 after unrelated provider reconciliation or liveness. The classes stay
-sequential in one process, so they cannot overlap. Fly keeps one machine running
-and restarts the same command; durable operation rows make a restart resume
-rather than duplicate work. A failed lifecycle pass goes to the machine journal
+sequential in one process, so they cannot overlap. Compose keeps one provisioner
+container running and restarts the same command; durable operation rows make a
+restart resume rather than duplicate work. A failed lifecycle pass goes to the
+journal
 and does not refresh `tick_recent`. A per-subscription failure is counted and
 reported as a problem while the next subscription and the next pass continue.
 
@@ -4199,8 +3314,8 @@ reported as a problem while the next subscription and the next pass continue.
 authenticated probe reported `provider_configured: true`, so opened
 `power_off` operations have a registered handler. A direct lifecycle scan under
 `cp_provisioner` failed with PostgreSQL 42501 on `subscriptions`; the widened
-grant in `roles.ts` must be applied with the deployment. After deployment, run
-`deploy/probe.ts`: `tick_recent: true` then proves both the operation and
+grant in `roles.ts` must be applied with the deployment. After deployment,
+`tick_recent: true` in `/internal/health` proves both the operation and
 lifecycle passes completed under the deployed role.
 
 ### Cancel and un-cancel
@@ -4359,12 +3474,12 @@ Delete the two provider-side SSH secrets after teardown:
 - `isomux-cp-run-20260812130101-hc5b`
 - `isomux-cp-run-20260812133231-c73w`
 
-The Fly provisioner volume has scheduled snapshots off. That is deliberate
+The provisioner state volume has no snapshots. That is deliberate
 because snapshots would retain destroyed temporary private keys. The operator
 restore procedure and the decision about what non-key state deserves backup
 remain coupled: never enable volume snapshots as an ad hoc substitute.
 
-No control-plane state is backed up. Keep Fly scheduled snapshots disabled.
+No control-plane state is backed up. Keep snapshots of the state volume off.
 The volume can contain a temporary provisioning private key, and restoring a
 volume snapshot could resurrect a key after revocation proved it destroyed.
 A control-plane recovery design is a separate follow-up with its own threat
@@ -4512,17 +3627,11 @@ against a fake installer in a temp tree - which is how generation isolation,
 exit capture, single-flight and crash detection are proven, since a live run
 cannot be made to violate them on demand.
 
-`deploy/secrets.test.ts` is the same move for the deployment: it drives the
-secrets wrapper against a FLYCTL THAT MISBEHAVES - echoing its own stdin on
-stdout, on stderr, and as a fragment no exact-value scan can see - because a
-real flyctl cannot be asked to leak on demand, and the property being proved is
-that nothing it writes can reach a caller either way.
-
 ## Stripe mode boundary
 
 `CONTROL_PLANE_STRIPE_MODE` is the only mode decision. An absent value means
 `test`; the other accepted value is `live`. Live mode is valid only on the
-production Vercel deployment or the pinned `isomux-provisioner` Fly app. An
+production Vercel deployment or the VPS production runtime. An
 unknown value or an unidentified runtime stops before a Stripe client or
 webhook processor is constructed. A key prefix confirms the configured mode;
 it never selects it.

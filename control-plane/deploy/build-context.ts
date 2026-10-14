@@ -1,20 +1,20 @@
 // Which repository paths end up inside the provisioner's image.
 //
-// `fly deploy .` sends the working DIRECTORY as the build context, and
-// /.dockerignore decides what of it travels. Two things need that answer and
-// they must not answer it differently:
+// The build context is the repository root, and /.dockerignore decides what of
+// it travels. Two tests read rules through this one matcher, so they cannot
+// answer differently:
 //
-//   deploy/image.test.ts   asserts the intent - the UI, the tests and 1.2 GB of
-//                          node_modules stay out, the provisioner goes in.
-//   provisioner-move-run   refuses to deploy while a SHIPPED path differs from
-//                          HEAD, because the image would then carry code that
-//                          is in no commit.
+//   deploy/image.test.ts       asserts the intent - the UI, the tests and
+//                              1.2 GB of node_modules stay out, the provisioner
+//                              goes in.
+//   deploy/vps-target.test.ts  asserts the same for the storefront image's own
+//                              rules (vps/web.Dockerfile.dockerignore).
 //
 // The matcher lived in the test until now. It is here instead because the test
 // says of it, correctly, that it is "the part that broke silently once": a
 // second copy of a rule set with `**`, negation and last-match-wins is a copy
 // that will disagree with the first one eventually, and the disagreement would
-// show up as a deploy guard that passes on a file the image actually carries.
+// show up as a check that passes on a file the image actually carries.
 //
 // This is INTENT, not an emulation of Docker. It implements the rules these
 // patterns use - deny-all, re-include, `**` at any depth, last match wins - and
@@ -24,7 +24,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-/** The repository root, which is also the build context `fly deploy .` sends. */
+/** The repository root, which is also the provisioner image's build context. */
 export const REPO_ROOT = path.join(import.meta.dir, "..", "..");
 
 /**

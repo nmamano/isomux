@@ -19,7 +19,7 @@ describe("Stripe mode configuration", () => {
   test("live refuses when the production runtime cannot be identified", () => {
     for (const env of [
       { CONTROL_PLANE_STRIPE_MODE: "live" },
-      { CONTROL_PLANE_STRIPE_MODE: "live", FLY_APP_NAME: "other-app" },
+      { CONTROL_PLANE_STRIPE_MODE: "live", FLY_APP_NAME: "isomux-provisioner" },
       { CONTROL_PLANE_STRIPE_MODE: "live", VERCEL_ENV: "preview" },
       { CONTROL_PLANE_STRIPE_MODE: "live", ISOMUX_PRODUCTION_RUNTIME: "" },
       { CONTROL_PLANE_STRIPE_MODE: "live", ISOMUX_PRODUCTION_RUNTIME: "local" },

@@ -184,7 +184,7 @@ export function deploymentIsOurs(
 /**
  * Spawn IN A DIRECTORY, with the child's bytes captured and never forwarded.
  *
- * `fly-cli.ts`'s `realSpawn` is the same contract without a working directory,
+ * `spawn-capture.ts`'s `realSpawn` is the same contract without a working directory,
  * and a working directory is not optional here: the repository root is linked
  * to the landing page, so a child that starts in the wrong directory is the
  * one failure this whole file is built to prevent. Setting `PWD` does not do

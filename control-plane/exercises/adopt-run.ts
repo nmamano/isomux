@@ -76,7 +76,7 @@ async function enqueueIn(
 async function main(): Promise<void> {
   // --db stays for the local and suites runs that name a database on the
   // command line. It is OPTIONAL because of where D4 runs this: on the
-  // provisioner's own machine, whose database string is a fly secret in its
+  // provisioner's own machine, whose database string is a secret in its
   // environment and must not be re-typed into an argv the process table shows
   // to anybody (loop ruling 8). `databaseUrl()` is the same reader every other
   // command uses, and it still has no default.

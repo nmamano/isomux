@@ -14,9 +14,9 @@
 //
 // The context check is INTENT, not an emulation of Docker. The matcher it
 // implements the rules with - deny-all, re-include, `**` at any depth, last
-// match wins - moved to build-context.ts, because the deploy guard in
-// provisioner-move-run.ts asks the same question about the same rules and two
-// copies of it would eventually answer differently. What stays here is the
+// match wins - lives in build-context.ts, because vps-target.test.ts asks the
+// same question about the same rules and two copies of it would eventually
+// answer differently. What stays here is the
 // decision for named paths. Docker's own answer is checked once more against
 // reality when a build reports its context size, which control-plane/README.md
 // records.

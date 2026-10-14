@@ -2,8 +2,7 @@
 // it fails.
 //
 // The canaries here are SHAPED like the real values and are published in this
-// file, so a leak of one is an observation rather than an incident - the same
-// move `deploy/secrets.ts` makes with PROBE_CANARY.
+// file, so a leak of one is an observation rather than an incident.
 
 import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -32,7 +31,7 @@ const GOOD = [
   { name: "AUTH_URL", value: "https://cloud.isomux.com" },
   {
     name: "CONTROL_PLANE_MINT_URL",
-    value: "https://isomux-provisioner.fly.dev",
+    value: "https://provisioner.example.com",
   },
   { name: "CONTROL_PLANE_MINT_TOKEN", value: CANARY_TOKEN },
 ];

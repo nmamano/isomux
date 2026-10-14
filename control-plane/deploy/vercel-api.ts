@@ -5,9 +5,9 @@
 // for. The repository root is ALREADY linked to `isomux` - the landing page -
 // through a gitignored `.vercel/project.json`, and the root `vercel.json` is
 // that project's build configuration. So the Vercel CLI's default target in
-// this tree is somebody else's production site. D2's rule was "every flyctl
-// call names -a isomux-provisioner"; here the same rule is stricter, because
-// the wrong target is the DEFAULT rather than a possibility:
+// this tree is somebody else's production site. So every call names its
+// target, and the rule is strict, because the wrong target is the DEFAULT
+// rather than a possibility:
 //
 //   - the project name is a CONSTANT, and the landing page's name is on a
 //     refusal list that every entry point checks;
@@ -22,7 +22,7 @@
 // everyone on the box, and never through a shell. Environment VALUES travel in
 // a JSON request body for the same reason. The one child process this
 // deployment needs is the CLI, and it gets the token in its ENVIRONMENT with
-// its output captured and dropped, exactly as `fly-cli.ts` does.
+// its output captured and dropped, exactly as `spawn-capture.ts` does.
 //
 // WHAT MAY BE PRINTED: fixed names, booleans, counts, and HTTP status codes. A
 // Vercel error body quotes back what was asked for, so no response body reaches
@@ -31,7 +31,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { readSecretFile } from "./fly-cli.ts";
+import { readSecretFile } from "./spawn-capture.ts";
 
 /** The only project this slice may create or touch. */
 export const PROJECT_NAME = "isomux-control-plane";
@@ -134,14 +134,11 @@ export interface EnvPair {
 /**
  * Everything that must hold before a value may leave this process.
  *
- * This is deliberately NOT `secrets.ts`'s validator. That one guards a stdin
- * LINE PROTOCOL, where a newline in a value ends one assignment and begins
- * another; these values travel in a JSON body, where a newline is merely
- * encoded. What they share is the reason: a value is checked before anything
- * that could carry it exists. What differs is the threat, so the rules differ -
- * Vercel's name grammar and its size ceiling are checked here, and control
- * characters are refused because a value that renders as something else in a
- * dashboard is a value somebody will mis-read later.
+ * These values travel in a JSON body, where a newline is merely encoded. A
+ * value is checked before anything that could carry it exists: Vercel's name
+ * grammar and its size ceiling are checked here, and control characters are
+ * refused because a value that renders as something else in a dashboard is a
+ * value somebody will mis-read later.
  */
 export function validateEnvPairs(
   pairs: EnvPair[],
@@ -308,8 +305,7 @@ export async function vercelApiText(
  *
  * Used against a child's captured output before it is DROPPED - the scan is a
  * diagnostic, never the guarantee, because an exact-value scan cannot see a
- * fragment, a re-encoding or a truncation. `deploy/secrets.test.ts` makes that
- * argument for the fly side and it is the same argument here.
+ * fragment, a re-encoding or a truncation.
  */
 export function anyValueAppears(haystack: string, values: string[]): boolean {
   return values.some((v) => v.length > 0 && haystack.includes(v));

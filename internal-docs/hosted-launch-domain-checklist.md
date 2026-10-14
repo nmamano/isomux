@@ -14,11 +14,9 @@ test offices need separate checks.
 - Recheck Cloudflare. On 2026-08-20, `isomux.app` was active in Cloudflare,
   its public nameservers were `arturo.ns.cloudflare.com` and
   `kristina.ns.cloudflare.com`, and the staged `ISOMUX_CF_ZONE_ID` named that
-  same apex zone. Nil owns
-  `~/.config/isomux/control-plane-certificate.env` on auntie and stages its
-  allowlisted values with
-  `bun control-plane/deploy/certificate-secrets.ts`. Change the zone ID there
-  and restage it only if this check no longer names `isomux.app`.
+  same apex zone. The provisioner reads it from `provisioner.env` on the Docker
+  host. Change the zone ID there and redeploy only if this check no longer
+  names `isomux.app`.
 - Recheck DNS and certificate issuance. On 2026-08-20,
   `*.test.isomux.app` resolved to `116.203.73.126`, while
   `cp2.test.isomux.app` had its own `169.58.97.2` record and a Let's Encrypt
@@ -58,7 +56,7 @@ it is retired or migrate it as a separate operation.
 
 The hardcoded `cp1`, `cp2`, and `cp5` names are control-plane infrastructure,
 not customer naming. They stay under `test.isomux.app` at launch. This includes
-`control-plane/deploy/recycle-run.ts`, the defaults in
+the defaults in
 `control-plane/exercises/`, the liveness warning, the three e2e fixtures, and
 the dated operational evidence in `control-plane/README.md` and
 `internal-docs/control-plane-design.md`. Move them only through a separate

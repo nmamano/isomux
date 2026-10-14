@@ -1,6 +1,11 @@
 // The Production phase, as ONE process, because the secret cannot outlive it.
 //
-//   bun control-plane/deploy/production-phase.ts
+//   bun control-plane/deploy/production-phase.ts --redeploy
+//   bun control-plane/deploy/production-phase.ts --stage-live-env
+//
+// The first-deploy mode is gone. It wrote CONTROL_PLANE_MINT_URL as the Fly
+// provisioner's origin, and no public seam origin exists since that app was
+// destroyed. A redeploy reads the existing value back and writes nothing.
 //
 // A `sensitive` value cannot be read back from Vercel - that is the point of it
 // - so the only process that can ever mint a session cookie for this deployment
@@ -113,7 +118,6 @@ const TERMINAL = ["READY", "ERROR", "CANCELED"] as const;
 const STATE_SHAPE = /^[A-Z_]+$/;
 
 export const PUBLIC_ORIGIN = `https://${TARGET_DOMAIN}`;
-export const PROVISIONER_ORIGIN = "https://isomux-provisioner.fly.dev";
 
 /** The exact target the attach phase derived and handed to Nil on 2026-08-11.
  * The hostname must still resolve to THIS and nothing else. */
@@ -122,7 +126,7 @@ export const EXPECTED_CNAME_TARGET = "7f093b64d7196cf5.vercel-dns-017.com";
 // ------------------------------------------------------------- the mode
 
 /**
- * FIRST DEPLOY, REDEPLOY or LIVE STAGING, distinguished by what may be written.
+ * REDEPLOY or LIVE STAGING, distinguished by what may be written.
  *
  * A redeploy exists because the application changed, not the environment.
  * Production already carries the complete approved shape. `AUTH_SECRET` is
@@ -131,7 +135,7 @@ export const EXPECTED_CNAME_TARGET = "7f093b64d7196cf5.vercel-dns-017.com";
  * rewrite the environment to get one back. It therefore writes NOTHING and
  * proves less, and says so rather than implying it proved the same.
  */
-export type PhaseMode = "first" | "redeploy" | "stage-live";
+export type PhaseMode = "redeploy" | "stage-live";
 
 function impossibleMode(mode: never): never {
   throw new Error(`unhandled phase mode: ${String(mode)}`);
@@ -141,14 +145,13 @@ function impossibleMode(mode: never): never {
  * The mode, or NOTHING.
  *
  * CLOSED, not permissive. `--redeply` is a typo that used to select the
- * first-deploy path silently - the one that WRITES the environment - so an
- * unrecognised argument now refuses the run rather than choosing the more
- * destructive default. `argv` here is the full process argv; the first two
- * entries are the runtime and the script.
+ * first-deploy path silently - the one that WROTE the environment - so an
+ * unrecognised argument, or none, refuses the run rather than choosing a
+ * default. `argv` here is the full process argv; the first two entries are the
+ * runtime and the script.
  */
 export function modeFrom(argv: readonly string[]): PhaseMode | null {
   const args = argv.slice(2);
-  if (args.length === 0) return "first";
   if (args.length === 1 && args[0] === "--redeploy") return "redeploy";
   if (args.length === 1 && args[0] === "--stage-live-env") {
     return "stage-live";
@@ -163,8 +166,6 @@ export function modeFrom(argv: readonly string[]): PhaseMode | null {
  */
 export function envWritesFor(mode: PhaseMode): readonly EnvShape[] {
   switch (mode) {
-    case "first":
-      return PRODUCTION_SHAPES;
     case "redeploy":
       return [];
     case "stage-live":
@@ -179,8 +180,6 @@ export function envWritesFor(mode: PhaseMode): readonly EnvShape[] {
 /** What Production must ALREADY carry when the phase starts. */
 export function expectedProductionBefore(mode: PhaseMode): readonly EnvShape[] {
   switch (mode) {
-    case "first":
-      return [];
     case "redeploy":
       return PRODUCTION_SHAPES;
     case "stage-live":
@@ -195,7 +194,6 @@ export function expectedProductionBefore(mode: PhaseMode): readonly EnvShape[] {
 /** The single boundary between environment work and every deploy-side seam. */
 export function shouldContinueToDeploy(mode: PhaseMode): boolean {
   switch (mode) {
-    case "first":
     case "redeploy":
       return true;
     case "stage-live":
@@ -207,20 +205,8 @@ export function shouldContinueToDeploy(mode: PhaseMode): boolean {
   }
 }
 
-/** What a FIRST deploy demands of the database it is pointed at. */
-export const EMPTY_ROWS: Record<string, number> = {
-  accounts: 0,
-  name_reservations: 0,
-  instances: 0,
-  operations: 0,
-};
-
 /**
  * Whether the reading taken BEFORE the phase lets it proceed.
- *
- * The first deploy demands an empty database, and that number is fixed forever:
- * a first deploy against a database that already holds product rows is pointed
- * at the wrong one.
  *
  * A redeploy has no fixed numbers, and the version that had them was a bug
  * (task f5ed4b60, fixed 2026-08-12). `{accounts: 1, ...zeros}` was true only
@@ -236,8 +222,6 @@ export function beforeRowsAcceptable(
   counts: Record<string, number>,
 ): boolean {
   switch (mode) {
-    case "first":
-      return rowsMatch(counts, EMPTY_ROWS);
     case "redeploy":
     case "stage-live":
       break;
@@ -262,10 +246,9 @@ export function beforeRowsAcceptable(
  * What every reading AFTER the deploy must equal: the reading this run started
  * with.
  *
- * Both modes make the same claim - a deploy changes no user data - and stating
- * it as a comparison rather than as constants is what makes it survive the
- * product being used. The first deploy's `before` is the empty database it
- * demanded, so the comparison is exactly as strict as the constants were.
+ * The claim is that a deploy changes no user data, and stating it as a
+ * comparison rather than as constants is what makes it survive the product
+ * being used.
  *
  * It says nothing about WHO changed a row: a customer signing up while the
  * deploy runs would trip it too. That is accepted rather than worked around -
@@ -649,8 +632,6 @@ export function probeExpectationsFor(
   mode: PhaseMode,
 ): Readonly<Record<string, boolean | number>> {
   switch (mode) {
-    case "first":
-      return PROBE_EXPECTATIONS;
     case "redeploy":
     case "stage-live":
       return UNAUTH_PROBE_EXPECTATIONS;
@@ -797,11 +778,7 @@ export interface SecretHolders {
 export function buildHolders(
   mode: PhaseMode,
   deps: {
-    readOauth: () => Map<string, string>;
-    readMint: () => Map<string, string>;
     readStripe: () => Map<string, string>;
-    generate: () => string;
-    dsn: string;
   },
 ): SecretHolders | null {
   switch (mode) {
@@ -815,43 +792,6 @@ export function buildHolders(
         mint: new Map(),
         stripe,
         values: new Map<string, string>([
-          ["CONTROL_PLANE_STRIPE_MODE", "live"],
-          [
-            "STRIPE_LIVE_SECRET_KEY",
-            stripe.get("STRIPE_LIVE_SECRET_KEY") ?? "",
-          ],
-          [
-            "CONTROL_PLANE_ENTRY_PRICE_ID",
-            stripe.get("CONTROL_PLANE_ENTRY_PRICE_ID") ?? "",
-          ],
-          [
-            "CONTROL_PLANE_POWERUSER_PRICE_ID",
-            stripe.get("CONTROL_PLANE_POWERUSER_PRICE_ID") ?? "",
-          ],
-        ]),
-      };
-    }
-    case "first": {
-      const oauth = deps.readOauth();
-      const mint = deps.readMint();
-      const stripe = deps.readStripe();
-      const authSecret = deps.generate();
-      return {
-        authSecret,
-        oauth,
-        mint,
-        stripe,
-        values: new Map<string, string>([
-          ["CONTROL_PLANE_DB", deps.dsn],
-          ["AUTH_SECRET", authSecret],
-          [
-            "CONTROL_PLANE_MINT_TOKEN",
-            mint.get("CONTROL_PLANE_MINT_TOKEN") ?? "",
-          ],
-          ["AUTH_GOOGLE_SECRET", oauth.get("GOOGLE_CLIENT_SECRET") ?? ""],
-          ["AUTH_URL", PUBLIC_ORIGIN],
-          ["CONTROL_PLANE_MINT_URL", PROVISIONER_ORIGIN],
-          ["AUTH_GOOGLE_ID", oauth.get("GOOGLE_CLIENT_ID") ?? ""],
           ["CONTROL_PLANE_STRIPE_MODE", "live"],
           [
             "STRIPE_LIVE_SECRET_KEY",
@@ -886,47 +826,19 @@ export interface ProbeInput {
 }
 
 /**
- * What the probe child is told. An EMPTY secret is the switch that keeps a
- * redeploy on the anonymous path, so it is derived here from the holders rather
- * than from a flag the caller could forget.
+ * What the probe child is told. The secret is EMPTY in every mode, which keeps
+ * the child on its anonymous path: no remaining mode generates an AUTH_SECRET.
  */
-export function probeInputFor(
-  mode: PhaseMode,
-  holders: SecretHolders | null,
-  ids: {
-    accountId: string;
-    email: string;
-    instanceId: string;
-    operationId: string;
-  },
-): ProbeInput {
-  let secret = "";
-  let secrets: string[] = [];
-  switch (mode) {
-    case "first": {
-      if (holders === null) break;
-      secret = holders.authSecret;
-      secrets = [
-        holders.authSecret,
-        holders.values.get("CONTROL_PLANE_DB") ?? "",
-        holders.mint.get("CONTROL_PLANE_MINT_TOKEN") ?? "",
-        holders.oauth.get("GOOGLE_CLIENT_SECRET") ?? "",
-        holders.stripe.get("STRIPE_LIVE_SECRET_KEY") ?? "",
-      ];
-      break;
-    }
-    case "redeploy":
-    case "stage-live":
-      break;
-    default: {
-      const impossible: never = mode;
-      return impossibleMode(impossible);
-    }
-  }
+export function probeInputFor(ids: {
+  accountId: string;
+  email: string;
+  instanceId: string;
+  operationId: string;
+}): ProbeInput {
   return {
     baseUrl: PUBLIC_ORIGIN,
-    secret,
-    secrets,
+    secret: "",
+    secrets: [],
     ...ids,
   };
 }
@@ -1067,9 +979,7 @@ async function main(): Promise<void> {
     // BEFORE the token file is opened, before any API call, before Neon: an
     // argument we do not recognise must not fall through to the mode that
     // writes the environment.
-    console.log(
-      "refusing: use no arguments, exactly --redeploy, or exactly --stage-live-env",
-    );
+    console.log("refusing: use exactly --redeploy or exactly --stage-live-env");
     process.exitCode = 2;
     return;
   }
@@ -1325,16 +1235,6 @@ async function main(): Promise<void> {
   // then refuse. `buildHolders` returns null for a redeploy and touches
   // neither reader.
   const holders = buildHolders(mode, {
-    readOauth: () =>
-      readEnvFileStrict(
-        path.join(os.homedir(), "nil", "secrets", "control-plane-oauth.env"),
-        ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
-      ),
-    readMint: () =>
-      readEnvFileStrict(
-        path.join(os.homedir(), "nil", "secrets", "control-plane-mint.env"),
-        ["CONTROL_PLANE_MINT_TOKEN"],
-      ),
     readStripe: () =>
       readEnvFileStrict(
         path.join(
@@ -1349,13 +1249,10 @@ async function main(): Promise<void> {
           "CONTROL_PLANE_POWERUSER_PRICE_ID",
         ],
       ),
-    generate: () => crypto.randomBytes(32).toString("base64"),
-    dsn: target.dsn,
   });
   console.log(`credentials_read: ${holders !== null}`);
   if (holders) {
     console.log(`secret_files_strict: true`);
-    if (mode === "first") console.log(`auth_secret_bytes: 32`);
     CLEANUP.push(() =>
       dropHolders(
         [holders.oauth, holders.mint, holders.stripe, holders.values],
@@ -1626,12 +1523,10 @@ async function main(): Promise<void> {
           path.join(workspace, "control-plane", "web"),
           ["bun", "e2e/production-probe.ts"],
           {},
-          // Every secret this coordinator holds goes down the same stdin-only
-          // channel, so the child can scan for ALL of them rather than only the
-          // one it needed. The OAuth CLIENT ID is deliberately absent: it is
-          // public and appears in the sign-in page by design.
+          // The input goes down a stdin-only channel. It carries no secret in
+          // any remaining mode (see probeInputFor).
           `${JSON.stringify(
-            probeInputFor(mode, holders, {
+            probeInputFor({
               accountId: crypto.randomUUID(),
               email: `absent-${crypto.randomUUID()}@example.invalid`,
               instanceId: crypto.randomUUID(),

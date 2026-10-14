@@ -33,7 +33,7 @@ import {
   VERCEL_TOKEN_FILE,
   vercelApi,
 } from "./vercel-api.ts";
-import { realSpawn } from "./fly-cli.ts";
+import { realSpawn } from "./spawn-capture.ts";
 
 /** Vercel's Hobby ceilings on a CLI source upload (docs read 2026-08-11). */
 export const HOBBY_UPLOAD_BYTES = 100 * 1024 * 1024;

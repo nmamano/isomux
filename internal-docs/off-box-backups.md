@@ -26,8 +26,8 @@ There are two backup layers.
 Neither layer in this historical design backed up control-plane state. The
 provisioner state can contain a
 temporary private key until revocation. A snapshot could restore a key after
-the control plane proved that it was destroyed. The Fly volume therefore keeps
-scheduled snapshots off. A separate control-plane recovery design needs its own
+the control plane proved that it was destroyed. The provisioner state volume
+therefore has no snapshots. A separate control-plane recovery design needs its own
 threat model and must preserve key destruction structurally.
 
 Historical promise, superseded on 2026-08-15: box loss only. The control-plane
@@ -136,7 +136,8 @@ one, the provider whole-disk rollback is the available box-loss path.
 - Local: seven finalized, verified archive-marker pairs.
 - Hosted off-box: removed on 2026-08-15. Customers are responsible for external
   backups.
-- Control plane: no backup. Scheduled Fly volume snapshots remain disabled.
+- Control plane: no backup. Snapshots of the provisioner state volume remain
+  off.
 
 ## Closed by Nil
 

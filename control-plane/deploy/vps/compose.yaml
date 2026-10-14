@@ -74,8 +74,8 @@ services:
       - 0.0.0.0
       - --deployment
       - ${ISOMUX_DEPLOYMENT_ID:?}
-    # The state root ($HOME/.isomux-control-plane) and the DNS intents, as on
-    # the Fly volume. Never copied and never backed up as a whole.
+    # The state root ($HOME/.isomux-control-plane) and the DNS intents. Never
+    # copied and never backed up as a whole.
     volumes:
       - provisioner-state:/data
     networks: [db, edge]

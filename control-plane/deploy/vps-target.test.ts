@@ -10,10 +10,10 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { shipsToImage } from "./build-context.ts";
-import { CONTABO_SECRET_NAMES } from "./fly-cli.ts";
 import { PRODUCTION_SHAPES } from "./production-phase.ts";
 import {
   CERTIFICATE_SECRET_NAMES,
+  CONTABO_SECRET_NAMES,
   STRIPE_CONFIGURATION_NAMES,
 } from "./secret-names.ts";
 
@@ -164,9 +164,6 @@ describe("the compose project", () => {
       expect(Object.keys(service.environment ?? {})).not.toContain(
         "VERCEL_ENV",
       );
-      expect(Object.keys(service.environment ?? {})).not.toContain(
-        "FLY_APP_NAME",
-      );
     }
   });
 });
@@ -188,21 +185,22 @@ describe("the committed templates", () => {
     }
   });
 
-  test("the provisioner template names every value the Fly release carries", () => {
+  test("the provisioner template names every secret and certificate setting", () => {
     const names = [...envTemplate("provisioner.env.example").keys()].sort();
-    const fly = [
-      ...fs
-        .readFileSync(path.join(import.meta.dir, "fly.toml"), "utf8")
-        .matchAll(/^\s+(ISOMUX_[A-Z_]+) = /gm),
-    ].map((m) => m[1]);
+    // The public certificate settings that control-plane/cli.ts reads.
+    const certificateSettings = [
+      "ISOMUX_CERT_TARGET",
+      "ISOMUX_ACME_DIRECTORY",
+      "ISOMUX_CF_API",
+      "ISOMUX_CERTIFICATE_ENDPOINT",
+      "ISOMUX_CERTIFICATE_LIVE",
+    ];
     expect(names).toEqual(
       [
-        ...new Set([
-          ...STRIPE_CONFIGURATION_NAMES,
-          ...CONTABO_SECRET_NAMES,
-          ...CERTIFICATE_SECRET_NAMES,
-          ...fly,
-        ]),
+        ...STRIPE_CONFIGURATION_NAMES,
+        ...CONTABO_SECRET_NAMES,
+        ...CERTIFICATE_SECRET_NAMES,
+        ...certificateSettings,
       ].sort(),
     );
   });

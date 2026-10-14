@@ -23,7 +23,6 @@ import {
   dropHolders,
   envWritesFor,
   expectedProductionBefore,
-  EMPTY_ROWS,
   USER_TABLES,
   afterRowsExpected,
   beforeRowsAcceptable,
@@ -1301,7 +1300,8 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
   test("ARGUMENT PARSING IS CLOSED: an unrecognised argument refuses", () => {
     // Failing open here chose the ENVIRONMENT-WRITING path, so a typo was one
     // keystroke away from rewriting ten production values.
-    expect(modeFrom(["bun", "production-phase.ts"])).toBe("first");
+    // No arguments selected the retired first-deploy mode; now it refuses.
+    expect(modeFrom(["bun", "production-phase.ts"])).toBeNull();
     expect(modeFrom(["bun", "production-phase.ts", "--redeploy"])).toBe(
       "redeploy",
     );
@@ -1331,14 +1331,11 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
     // createEnv iterates this list, and in redeploy mode it is empty, so no
     // create/PATCH/delete call is reached at all.
     expect(envWritesFor("redeploy")).toEqual([]);
-    expect(envWritesFor("first").length).toBe(11);
     expect(envWritesFor("stage-live")).toEqual(LIVE_STRIPE_SHAPES);
   });
 
   test("a redeploy requires the environment ALREADY complete, not empty", () => {
-    // The first deploy demanded preview-only; a redeploy demands the full 2+11,
-    // which is why the unchanged coordinator refuses to run twice.
-    expect(expectedProductionBefore("first")).toEqual([]);
+    // A redeploy demands the full 2+11.
     expect(expectedProductionBefore("redeploy").length).toBe(11);
     expect(expectedProductionBefore("stage-live")).toEqual(
       LEGACY_PRODUCTION_SHAPES,
@@ -1347,21 +1344,7 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
 
   test("stage-live is the hard stop before every deployment seam", () => {
     expect(shouldContinueToDeploy("stage-live")).toBe(false);
-    expect(shouldContinueToDeploy("first")).toBe(true);
     expect(shouldContinueToDeploy("redeploy")).toBe(true);
-  });
-
-  test("a first deploy demands an empty database, exactly", () => {
-    expect(EMPTY_ROWS).toEqual({
-      accounts: 0,
-      name_reservations: 0,
-      instances: 0,
-      operations: 0,
-    });
-    expect(beforeRowsAcceptable("first", { ...EMPTY_ROWS })).toBe(true);
-    expect(beforeRowsAcceptable("first", { ...EMPTY_ROWS, accounts: 1 })).toBe(
-      false,
-    );
   });
 
   test("A REDEPLOY ACCEPTS A PRODUCTION THAT HAS BEEN USED (task f5ed4b60)", () => {
@@ -1375,12 +1358,18 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
       operations: 12,
     };
     expect(beforeRowsAcceptable("redeploy", used)).toBe(true);
-    expect(beforeRowsAcceptable("first", used)).toBe(false);
   });
 
   test("a redeploy still refuses an empty or unreadable database", () => {
     // Empty is not production: the account bound on 2026-08-11 is still there.
-    expect(beforeRowsAcceptable("redeploy", { ...EMPTY_ROWS })).toBe(false);
+    expect(
+      beforeRowsAcceptable("redeploy", {
+        accounts: 0,
+        name_reservations: 0,
+        instances: 0,
+        operations: 0,
+      }),
+    ).toBe(false);
     // rowCounts reports -1 for a count it could not read, and a reading nobody
     // could take is not a reading that passed.
     expect(
@@ -1556,17 +1545,6 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
     return {
       called,
       deps: {
-        readOauth: () => {
-          called.push("readOauth");
-          return new Map([
-            ["GOOGLE_CLIENT_ID", "id.apps.googleusercontent.com"],
-            ["GOOGLE_CLIENT_SECRET", "GOCSPX-secret"],
-          ]);
-        },
-        readMint: () => {
-          called.push("readMint");
-          return new Map([["CONTROL_PLANE_MINT_TOKEN", "a".repeat(40)]]);
-        },
         readStripe: () => {
           called.push("readStripe");
           return new Map([
@@ -1575,11 +1553,6 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
             ["CONTROL_PLANE_POWERUSER_PRICE_ID", "price_poweruser_shape"],
           ]);
         },
-        generate: () => {
-          called.push("generate");
-          return "generated-secret";
-        },
-        dsn: "postgres://user:pw@host/db",
       },
     };
   }
@@ -1604,43 +1577,11 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
     expect(holders!.stripe.size).toBe(3);
   });
 
-  test("the first deploy reads all files, generates once, and builds the eleven", () => {
-    const s = spies();
-    const holders = buildHolders("first", s.deps);
-    expect(s.called.sort()).toEqual([
-      "generate",
-      "readMint",
-      "readOauth",
-      "readStripe",
-    ]);
-    expect(holders?.values.size).toBe(11);
-    expect(holders?.values.get("AUTH_SECRET")).toBe("generated-secret");
-  });
-
-  test("THE PROBE CHILD IS SENT NO SECRET IN REDEPLOY MODE", () => {
+  test("THE PROBE CHILD IS SENT NO SECRET", () => {
     // The empty secret is what keeps the child on the anonymous path. A
     // non-empty one would run the authenticated branch, whose extra lines the
     // parent refuses as unexpected - and then detaches a healthy domain.
-    const ids = {
-      accountId: "a",
-      email: "e@example.invalid",
-      instanceId: "i",
-      operationId: "o",
-    };
-    const input = probeInputFor("redeploy", null, ids);
-    expect(input.secret).toBe("");
-    expect(input.secrets).toEqual([]);
-    // Even if holders somehow existed, redeploy still sends nothing.
-    const s = spies();
-    const holders = buildHolders("first", s.deps);
-    expect(probeInputFor("redeploy", holders, ids).secret).toBe("");
-    expect(probeInputFor("redeploy", holders, ids).secrets).toEqual([]);
-  });
-
-  test("THE PROBE CHILD IS SENT NO SECRET IN STAGE-LIVE MODE", () => {
-    const s = spies();
-    const holders = buildHolders("stage-live", s.deps);
-    const input = probeInputFor("stage-live", holders, {
+    const input = probeInputFor({
       accountId: "a",
       email: "e@example.invalid",
       instanceId: "i",
@@ -1648,26 +1589,11 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
     });
     expect(input.secret).toBe("");
     expect(input.secrets).toEqual([]);
-  });
-
-  test("the first deploy sends the secret and all five classes to scan", () => {
-    const s = spies();
-    const holders = buildHolders("first", s.deps);
-    const input = probeInputFor("first", holders, {
-      accountId: "a",
-      email: "e@example.invalid",
-      instanceId: "i",
-      operationId: "o",
-    });
-    expect(input.secret).toBe("generated-secret");
-    expect(input.secrets.length).toBe(5);
-    // The OAuth CLIENT ID is public and deliberately absent from the scan set.
-    expect(input.secrets).not.toContain("id.apps.googleusercontent.com");
   });
 });
 
 describe("post-deploy row checks compare against the run's own before reading", () => {
-  test("ONE ACCOUNT PASSES A REDEPLOY AND FAILS A FIRST DEPLOY", () => {
+  test("ONE ACCOUNT PASSES A REDEPLOY", () => {
     // The bug this pins: post-deploy checks that demanded zero would have
     // detached a healthy production the moment a real account existed.
     const live = {
@@ -1677,7 +1603,6 @@ describe("post-deploy row checks compare against the run's own before reading", 
       operations: 0,
     };
     expect(beforeRowsAcceptable("redeploy", live)).toBe(true);
-    expect(beforeRowsAcceptable("first", live)).toBe(false);
     expect(rowsMatch(live, afterRowsExpected(live))).toBe(true);
   });
 
@@ -1689,7 +1614,6 @@ describe("post-deploy row checks compare against the run's own before reading", 
       operations: 0,
     };
     expect(beforeRowsAcceptable("redeploy", empty)).toBe(false);
-    expect(beforeRowsAcceptable("first", empty)).toBe(true);
   });
 
   test("ANY table growing DURING a deploy is an acceptance failure", () => {
