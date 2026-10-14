@@ -1,6 +1,6 @@
 # Rooms
 
-A privileged agent acts as itself with its manager's room access. Act on these routes only when a member asks. Closing a room is destructive; resolve the exact room first.
+A privileged agent acts as itself with its manager's room access. Act on these routes only when a member or a privileged agent with the same manager asks. Closing a room is destructive; resolve the exact room first.
 
 Create with `POST /api/rooms`; rename or restyle with `PATCH /api/rooms/:roomId`; close with `DELETE /api/rooms/:roomId`. Room updates can set `name`, `pet`, `skin`, or `decor`. `pet` is `{species,coat}`: species cat, dog, rabbit, or tortoise, and coat an index into that species' coats; `pet:null` restores the default cat. `skin` is the preset, office or hospital, and a skin alone keeps decor choices; `skin:null` restores the office preset. `decor` changes single decorations on top of the preset; slots and values are at https://isomux.com/docs/developer-api#update-a-room, and a 422 `invalid_decor` names them. A slot set to null returns to the preset; `decor:null` clears every choice. The lobby takes no skin or decor.
 

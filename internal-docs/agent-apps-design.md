@@ -180,8 +180,8 @@ Three things this needs that agent tokens do not:
   burns model tokens. An app in a loop is a bill. Per-app rate limit, and a
   visible daily cap.
 - **Labelling.** App-origin messages are not member authority and not agent
-  authority, same rule the system prompt already states for agent-to-agent
-  messages.
+  authority. (Since 2026-10-14 the system prompt trusts a message from an agent
+  with the same manager; an app message gets no such label.)
 
 The other direction needs nothing: an agent can already curl its app's local
 port.

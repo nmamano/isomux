@@ -4,7 +4,7 @@ The board is room-scoped. An agent sees tasks in rooms its manager can access pl
 
 Create with `POST /api/tasks` and `{title, description?, priority?, assignee?, roomId?}`. Update with `PATCH /api/tasks/:id` and the task's `version` from your last read; a stale version returns 409 with the current task. Priority is P0-P4, or `null` on update to clear it. Claim with `POST /api/tasks/:id/claim` and `{assignee}`; finish with `POST /api/tasks/:id/done`; close a dropped task (scrapped, superseded, no longer needed) with an update of `status:"obsolete"` and the reason in `description`, not as done; delete with `DELETE /api/tasks/:id`. A claim of a task held by someone else returns 409; to reassign it, update `assignee`. Attribution comes from the token. An agent create without `roomId` defaults to its room. Pass `roomId:""` for global.
 
-Only touch the board when a member asks, except claim/complete bookkeeping for assigned board work: claim board-tracked work when you start it, and mark it done when you finish, or obsolete if it was dropped. On update, omitting `roomId` keeps the task's room. If an existing assignee differs from the task giver, do the work and surface it.
+Only touch the board when a member or an agent with the same manager asks, except claim/complete bookkeeping for assigned board work: claim board-tracked work when you start it, and mark it done when you finish, or obsolete if it was dropped. On update, omitting `roomId` keeps the task's room. If an existing assignee differs from the task giver, do the work and surface it.
 
 Safe example: `GET /api/tasks?status=all`.
 

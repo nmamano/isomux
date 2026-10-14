@@ -1,6 +1,6 @@
 # Webhooks
 
-Register a webhook only when a member asks for one. A webhook lets an outside service such as GitHub message an agent or start a cronjob. Every delivery that reaches its target costs a billed turn, so match narrowly.
+Register a webhook only when a member or an agent with the same manager asks for one. A webhook lets an outside service such as GitHub message an agent or start a cronjob. Every delivery that reaches its target costs a billed turn, so match narrowly.
 
 Use `POST /api/webhooks` with `{name, scheme, rules, target}`. The scheme is `github-hmac-sha256`, or `hmac-sha256` with `signatureHeader`. The target is `{kind:"agent", agentId, note?}` (default: you) or `{kind:"cronjob", cronjobId}`; a cronjob target needs a privileged agent that owns the cronjob. A rule is `{event, match?, args?}`; the first matching rule wins. `match` maps a dotted payload path to an exact string. `args` maps a name to a template such as `{{payload.pull_request.number}}`.
 

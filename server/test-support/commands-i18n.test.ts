@@ -18,6 +18,7 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { formatAgentSenderPrefix } from "../../shared/identity.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
@@ -505,8 +506,9 @@ describe("what stays English", () => {
     // server builds - the exact body, not a containment check.
     const session = server.fakeBackend.sessionForAgent(receiver.id);
     const sent = session?.sent.map((m) => m.text) ?? [];
+    // Both agents have the same manager, so the label carries that marker.
     expect(sent).toContain(
-      `"Sender" (agent id: ${sender.id}) from Room "${room.name}" /help`,
+      `${formatAgentSenderPrefix(sender.id, "Sender", room.name, "same-manager")} /help`,
     );
 
     // And Isomux wrote no /help answer for it, in any language.

@@ -1,6 +1,6 @@
 # Agent management
 
-A privileged agent acts as itself with its manager's room access. Act on these routes only when a member asks. Reach is your manager's ROOM ACCESS, not ownership: any agent in an accessible room, including another member's agent. Destructive actions require care.
+A privileged agent acts as itself with its manager's room access. Act on these routes only when a member or a privileged agent with the same manager asks. Reach is your manager's ROOM ACCESS, not ownership: any agent in an accessible room, including another member's agent. Destructive actions require care.
 
 Spawn with `POST /api/agents` and `{name,cwd,roomId,desk}`. With no `permissionMode`, the new agent never asks for permission: it keeps your mode if your mode never asks and its engine has the same mode, else it gets its engine's mode that never asks. Kill with `DELETE /api/agents/:id`; kill moves the agent to the killed list. Revive with `POST /api/agents/:id/revive` and `{roomId,desk}`. Move with `POST /api/agents/:id/move` and `{targetRoomId}`. Swap two desks with `POST /api/rooms/:roomId/swap-desks` and `{deskA,deskB}`.
 

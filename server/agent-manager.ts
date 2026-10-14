@@ -54,6 +54,8 @@ import {
 import {
   formatPrefix,
   formatAgentSenderPrefix,
+  defuseAgentSenderLabels,
+  type AgentSenderTrust,
   formatAppSenderPrefix,
   formatCronjobSenderPrefix,
   formatApiTokenName,
@@ -254,6 +256,7 @@ import {
   mintAgentToken,
   revokeAgentToken,
   getAgentTokenRaw,
+  getAgentTokenIdentity,
 } from "./identity/tokens.ts";
 import { getUserById, getUserByName } from "./users.ts";
 // Backend-option validators live in agent-validators.ts so cron handlers can
@@ -6552,7 +6555,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
-  function senderPrefixText(sender: QueuedMessage["sender"]): string {
+  // The label marker for an agent sender, from the sender's live token and the
+  // receiver's manager at delivery. A sender with no live token (killed, or gone
+  // before its scheduled message fired) and a side with no manager get none.
+  function agentSenderTrust(
+    senderAgentId: string,
+    receiverAgentId: string,
+  ): AgentSenderTrust | undefined {
+    const sender = getAgentTokenIdentity(senderAgentId);
+    const receiverUserId = agents.get(receiverAgentId)?.info.userId;
+    if (!sender?.userId || sender.userId !== receiverUserId) return undefined;
+    return sender.privileged ? "same-manager-privileged" : "same-manager";
+  }
+
+  function senderPrefixText(
+    sender: QueuedMessage["sender"],
+    receiverAgentId: string,
+  ): string {
     switch (sender.kind) {
       case "user":
         return formatPrefix({
@@ -6560,7 +6579,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           device: sender.device,
         });
       case "agent":
-        return `${formatAgentSenderPrefix(sender.agentId, sender.agentName, sender.roomName)} `;
+        return `${formatAgentSenderPrefix(
+          sender.agentId,
+          sender.agentName,
+          sender.roomName,
+          agentSenderTrust(sender.agentId, receiverAgentId),
+        )} `;
       case "cronjob":
         return `${formatCronjobSenderPrefix(sender.cronjobName)} `;
       // An app the receiving agent registered, speaking with its own token. The
@@ -6602,7 +6626,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return `[Handoff from your previous session] `;
     }
     if (m.scheduledFor === undefined || m.sender.kind !== "agent") {
-      return senderPrefixText(m.sender);
+      return senderPrefixText(m.sender, receiverAgentId);
     }
     const when = new Date(m.scheduledFor).toISOString();
     if (m.sender.agentId === receiverAgentId) {
@@ -6611,7 +6635,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const gone = m.scheduledSenderGone
       ? " The sender agent no longer exists, so it will not see a reply."
       : "";
-    return `${senderPrefixText(m.sender)}[This message was scheduled by the sender for delivery at ${when}.${gone}] `;
+    return `${senderPrefixText(m.sender, receiverAgentId)}[This message was scheduled by the sender for delivery at ${when}.${gone}] `;
   }
 
   // What the receiver's model reads for one queued item. Shared by the flush
@@ -6619,8 +6643,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function queuedItemText(m: QueuedMessage, receiverAgentId: string): string {
     // sdkText is set for pre-expanded slash commands (e.g. an /subagent-review
     // queued while the agent was mid-turn): chat shows m.text "/subagent-review",
-    // but the SDK needs the full skill prompt.
-    return `${queuedItemPrefix(m, receiverAgentId)}${m.sdkText ?? m.text}`;
+    // but the SDK needs the full skill prompt. A body from anyone but a member
+    // or the receiver itself is defused, so no line of it reads as a
+    // server-written agent label. A member already has member authority, and
+    // keeps the bytes the immediate path sends; the receiver's own handoff
+    // brief or scheduled note is its own text.
+    const body = m.sdkText ?? m.text;
+    const own =
+      m.sender.kind === "user" ||
+      (m.sender.kind === "agent" && m.sender.agentId === receiverAgentId);
+    return `${queuedItemPrefix(m, receiverAgentId)}${own ? body : defuseAgentSenderLabels(body)}`;
   }
 
   // Delivered items become chat entries. Shared by the flush (after the backend

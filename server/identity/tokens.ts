@@ -110,6 +110,16 @@ export function getAgentTokenRaw(agentId: string): string | null {
   return byKey.get(agentKey(agentId))?.raw ?? null;
 }
 
+// The manager and privileged flag an agent's live token carries, or null if
+// none is live. Labels the agent's messages to another agent: the label comes
+// from the token, never from the message text.
+export function getAgentTokenIdentity(
+  agentId: string,
+): { userId: string | null; privileged: boolean } | null {
+  const token = byKey.get(agentKey(agentId));
+  return token ? { userId: token.userId, privileged: token.privileged } : null;
+}
+
 export function revokeAgentToken(agentId: string): void {
   remove(agentKey(agentId));
 }
