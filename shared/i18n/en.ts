@@ -2635,6 +2635,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Cannot start session to flush queue: {error}",
   "systemEntries.restartingForSettings":
     "Restarting session to apply settings; queued messages will send after the restart.",
+  "systemEntries.settingsNotice.changed":
+    "{names} changed your settings and your session restarted.",
+  "systemEntries.settingsNotice.change": "{setting}: {from} → {to}",
+  "systemEntries.settingsNotice.interrupted":
+    "The restart stopped your previous turn.",
   "systemEntries.flushError": "Error flushing queue: {error}",
   "systemEntries.genericError": "Error: {error}",
   "systemEntries.restoreOnStartupFailed":

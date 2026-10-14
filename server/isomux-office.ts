@@ -4644,7 +4644,7 @@ function buildExecutorDeps(
         }
         return result;
       },
-      edit: async (agentId, changes) => {
+      edit: async (agentId, changes, changedBy) => {
         // Version guard FIRST, before any field validation - a
         // stale writer is told to re-read before hearing about a bad cwd. Only
         // blob-bearing edits carry a version (the handler enforces presence);
@@ -4732,11 +4732,15 @@ function buildExecutorDeps(
             model: _model,
             ...fields
           } = changes;
-          await agentManager.editAgent(agentId, {
-            ...fields,
-            modelFamily: resolvedModelFamily,
-            customInstructions: changes.customInstructions ?? undefined,
-          });
+          await agentManager.editAgent(
+            agentId,
+            {
+              ...fields,
+              modelFamily: resolvedModelFamily,
+              customInstructions: changes.customInstructions ?? undefined,
+            },
+            changedBy,
+          );
           const agent = agentManager.getAgent(agentId);
           if (agent && changes.customInstructions !== undefined)
             notePromptContent(agent.customInstructions);

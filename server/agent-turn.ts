@@ -4,7 +4,7 @@
  * `runAgentTurn` is the single entry point for every send-and-await-turn
  * path: sendMessage, flushQueue, executeSkill, editMessage. It owns:
  *
- *   1. Assembling the outbound envelope from the built-in blocks (the wake,
+ *   1. Assembling the outbound envelope from the built-in blocks (the wake and settings,
  *      automatic-handoff, context-fullness and memory-size notices), prepended to the outgoing
  *      text with a `User message:` separator.
  *      stripOutboundEnvelope is the exact inverse (used by edit-to-fork
@@ -28,6 +28,7 @@ import {
 } from "./internal-types.ts";
 import { memberUsageCap, UsageCapError } from "./member-usage-cap.ts";
 import { autoHandoffPossible } from "./auto-handoff.ts";
+import type { SettingsNoticeArm } from "./settings-notice.ts";
 
 export interface RunAgentTurnOpts {
   managed: ManagedAgent;
@@ -56,6 +57,13 @@ type AgentTurnDeps = {
    *  out, else null. See BackendSignedOutError. */
   signedOutProvider: (managed: ManagedAgent) => string | null;
   contextNoticeSampleWaitMs: number;
+  /** The agent's English text for a pending settings notice. */
+  renderSettingsNotice: (
+    managed: ManagedAgent,
+    arm: SettingsNoticeArm,
+  ) => string;
+  /** Shows a delivered settings notice to members in the chat. */
+  logSettingsNotice: (managed: ManagedAgent, arm: SettingsNoticeArm) => void;
 };
 
 let deps: AgentTurnDeps | null = null;
@@ -141,6 +149,15 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   const wakeNotice = managed.wakeNotice
     ? { block: managed.wakeNotice, gen: managed.contextGen }
     : null;
+  // Armed by a settings change (server/settings-notice.ts); read here for the
+  // same reason.
+  const settingsNotice = managed.settingsNotice
+    ? {
+        arm: managed.settingsNotice,
+        gen: managed.contextGen,
+        block: deps.renderSettingsNotice(managed, managed.settingsNotice),
+      }
+    : null;
   // Armed by newConversation for a conversation an automatic handoff opened;
   // read here for the same reason.
   const autoHandoffNotice = managed.autoHandoffNotice
@@ -160,6 +177,12 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   if (wakeNotice) {
     envelopeBlocks.push(
       `--- begin isomux: wake-notice ---\n${wakeNotice.block}\n--- end isomux: wake-notice ---`,
+    );
+  }
+  // Next: it explains the same transcript's restart.
+  if (settingsNotice) {
+    envelopeBlocks.push(
+      `--- begin isomux: settings-notice ---\n${settingsNotice.block}\n--- end isomux: settings-notice ---`,
     );
   }
   // It says the brief that follows comes from the old session.
@@ -244,6 +267,14 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     // slot we would clear may already hold the NEW conversation's wake note.
     if (wakeNotice && managed.contextGen === wakeNotice.gen) {
       managed.wakeNotice = null;
+    }
+    // The chat entry goes with the delivery, ahead of the delivered messages.
+    // The slot is cleared only for the arm we sent: a merge during the send
+    // made a new arm, which still has to go out.
+    if (settingsNotice && managed.contextGen === settingsNotice.gen) {
+      if (managed.settingsNotice === settingsNotice.arm)
+        managed.settingsNotice = null;
+      deps.logSettingsNotice(managed, settingsNotice.arm);
     }
     if (autoHandoffNotice && managed.contextGen === autoHandoffNotice.gen) {
       managed.autoHandoffNotice = null;

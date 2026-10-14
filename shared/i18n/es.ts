@@ -2662,6 +2662,11 @@ Cosas que puedes hacer por él:
     "No se pudo iniciar la sesión para vaciar la cola: {error}",
   "systemEntries.restartingForSettings":
     "Se reinicia la sesión para aplicar los ajustes; los mensajes en cola saldrán después del reinicio.",
+  "systemEntries.settingsNotice.changed":
+    "{names} cambió tus ajustes y tu sesión se reinició.",
+  "systemEntries.settingsNotice.change": "{setting}: {from} → {to}",
+  "systemEntries.settingsNotice.interrupted":
+    "El reinicio detuvo tu turno anterior.",
   "systemEntries.flushError": "Error al vaciar la cola: {error}",
   "systemEntries.genericError": "Error: {error}",
   "systemEntries.restoreOnStartupFailed":

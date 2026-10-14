@@ -109,6 +109,11 @@ import { mimeTypeForFilename } from "./mime-types.ts";
 import { autocompleteCommands } from "./commands.ts";
 import { english, translatorForUserId, translatorForUsername } from "./i18n.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
+import {
+  mergeSettingsNotice,
+  renderSettingsNotice,
+  type SettingsNoticeArm,
+} from "./settings-notice.ts";
 import { formatDecimal } from "../shared/i18n/number.ts";
 import { join, basename, resolve } from "path";
 import { homedir } from "os";
@@ -542,6 +547,14 @@ export function createAgentManager(deps: ManagerDeps) {
         managed.sessionManager.createTurnDeferred(),
       signedOutProvider: (managed) => signedOutProvider(managed),
       contextNoticeSampleWaitMs,
+      renderSettingsNotice: (managed, arm) =>
+        settingsNoticeText(english.t, managed, arm),
+      logSettingsNotice: (managed, arm) =>
+        addLogEntry(
+          managed.info.id,
+          "system",
+          settingsNoticeText(logWords(managed.info.id), managed, arm),
+        ),
     });
   }
 
@@ -1419,6 +1432,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       agentType?: AgentInfo["agentType"];
       autoHandoff?: boolean;
     },
+    // Who made the edit, for the settings notice. An edit without one (an
+    // internal caller) arms no notice.
+    changedBy?: string,
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -1642,6 +1658,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       clearStaleAutoResumeState(agentId, managed);
     }
 
+    // What the settings notice names: the applied delta, so a value a
+    // validator changed (an effort the new model lacks) shows as applied.
+    const noticeChanges: SettingsNoticeArm["changes"] = {};
+    for (const field of [
+      "modelFamily",
+      "effort",
+      "permissionMode",
+      "codexSandbox",
+    ] as const) {
+      const to = updated[field];
+      const from = snapshot[field];
+      if (to !== undefined && from !== undefined)
+        noticeChanges[field] = { from, to };
+    }
+    if (cwdChanging && targetCwd)
+      noticeChanges.cwd = { from: oldCwd, to: targetCwd, typedTo: changes.cwd };
+
     if (needReplace || needClaudeFileMove) {
       const activeSessionId = managed.sessionManager.sessionId;
       let claudeFileMoved = false;
@@ -1723,6 +1756,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           : pickAutoResumeSessionId(managed);
         if (managed.sessionManager.sessionId && !sessionId && !fixedCwdChange)
           clearStaleAutoResumeState(agentId, managed);
+        // The resumed conversation hears what changed on its next turn; a
+        // fresh one has nothing the change could explain. Armed before the
+        // swap: the swap flushes queued messages before it returns, and the
+        // first of them must carry the notice. Restored if the swap fails.
+        const priorNotice = managed.settingsNotice;
+        if (changedBy && sessionId)
+          armSettingsNotice(
+            managed,
+            noticeChanges,
+            changedBy,
+            managed.sessionManager.pendingTurn !== null,
+          );
         try {
           await managed.sessionManager.replaceWith(
             managed,
@@ -1737,6 +1782,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // replaceSession failed before installing the fresh session: the old
           // session still stands, so there's no abandoned thread to reconcile.
           pendingFixedCwdReset.delete(agentId);
+          managed.settingsNotice = priorNotice;
           officeState.updateAgent(agentId, snapshot);
           // Roll the Claude file move back so the on-disk session location stays
           // consistent with the rolled-back mirror. Surface a reverse failure -
@@ -1779,6 +1825,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         targetCwd
       ) {
         persistSessionCwd(agentId, managed.sessionManager.sessionId, targetCwd);
+        // No process to swap, but the next wake resumes this conversation in
+        // the new folder, so the agent hears of it too.
+        if (!needReplace && changedBy)
+          armSettingsNotice(managed, noticeChanges, changedBy, false);
       }
     }
 
@@ -2407,6 +2457,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryNoticeFired: false,
       wakeNotice: null,
       stopNotice: null,
+      settingsNotice: null,
       autoHandoffPhase: null,
       autoHandoffSpent: false,
       autoHandoffCapture: null,
@@ -4024,6 +4075,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.wakeNotice = null;
     // Same for the stop notice: the stop it explains is in the old transcript.
     managed.stopNotice = null;
+    // And the settings notice: the restart it explains is in the old transcript.
+    managed.settingsNotice = null;
     // Automatic handoff: a running attempt belongs to the old conversation.
     // Its brief turn, if any, ends with the session swap; its owner sees the
     // phase gone and leaves quietly. The rollback restores whether the
@@ -5269,6 +5322,37 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { log: build(t), note: build(english.t) };
   }
 
+  // A settings restart's notice in one reader's words. The rejection sentence
+  // has the same proof rule as the dormant wake's.
+  function settingsNoticeText(
+    t: Translator["t"],
+    managed: ManagedAgent,
+    arm: SettingsNoticeArm,
+  ): string {
+    const sessionId = managed.sessionManager.sessionId;
+    const rejectionProven =
+      arm.interrupted &&
+      !!sessionId &&
+      shutdownRejectionClause(managed, sessionId) !== "";
+    return renderSettingsNotice(arm, t, managed.info, rejectionProven);
+  }
+
+  // Arms (or merges into) the settings notice for a settings change the
+  // same conversation continues with. `interrupted`: the change restarts the
+  // process while a turn is in flight.
+  function armSettingsNotice(
+    managed: ManagedAgent,
+    changes: SettingsNoticeArm["changes"],
+    by: string,
+    interrupted: boolean,
+  ): void {
+    managed.settingsNotice = mergeSettingsNotice(managed.settingsNotice, {
+      changes,
+      by: [by],
+      interrupted,
+    });
+  }
+
   // The rejection half of the wake-up message above. Present only when the
   // agent's own transcript proves the shutdown forged a rejection result -
   // explaining a rejection that may not exist reads as noise. Empty for every
@@ -6240,6 +6324,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryNoticeFired: false,
       wakeNotice: null,
       stopNotice: null,
+      settingsNotice: null,
       autoHandoffPhase: null,
       autoHandoffSpent: false,
       autoHandoffCapture: null,
@@ -8324,17 +8409,31 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionManager.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
-          await withAgentRollback(
-            managed,
-            { modelFamily: picked },
-            async () => {
-              await managed.sessionManager.replaceWith(
-                managed,
-                sessionId,
-                "settings",
-              );
-            },
-          );
+          // Armed before the swap, as in editAgent; restored if it fails.
+          const priorNotice = managed.settingsNotice;
+          if (sessionId && username)
+            armSettingsNotice(
+              managed,
+              { modelFamily: { from: managed.info.modelFamily, to: picked } },
+              username,
+              managed.sessionManager.pendingTurn !== null,
+            );
+          try {
+            await withAgentRollback(
+              managed,
+              { modelFamily: picked },
+              async () => {
+                await managed.sessionManager.replaceWith(
+                  managed,
+                  sessionId,
+                  "settings",
+                );
+              },
+            );
+          } catch (err) {
+            managed.settingsNotice = priorNotice;
+            throw err;
+          }
           for (const event of officeState.updateAgent(agentId, {
             modelFamily: picked,
           }))
@@ -8405,17 +8504,31 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionManager.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
-          await withAgentRollback(
-            managed,
-            { effort: picked.level },
-            async () => {
-              await managed.sessionManager.replaceWith(
-                managed,
-                sessionId,
-                "settings",
-              );
-            },
-          );
+          // Armed before the swap, as in editAgent; restored if it fails.
+          const priorNotice = managed.settingsNotice;
+          if (sessionId && username)
+            armSettingsNotice(
+              managed,
+              { effort: { from: managed.info.effort, to: picked.level } },
+              username,
+              managed.sessionManager.pendingTurn !== null,
+            );
+          try {
+            await withAgentRollback(
+              managed,
+              { effort: picked.level },
+              async () => {
+                await managed.sessionManager.replaceWith(
+                  managed,
+                  sessionId,
+                  "settings",
+                );
+              },
+            );
+          } catch (err) {
+            managed.settingsNotice = priorNotice;
+            throw err;
+          }
           for (const event of officeState.updateAgent(agentId, {
             effort: picked.level,
           }))

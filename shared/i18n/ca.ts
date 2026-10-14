@@ -2661,6 +2661,11 @@ Coses que pots fer per ell:
     "No s'ha pogut iniciar la sessió per buidar la cua: {error}",
   "systemEntries.restartingForSettings":
     "Es reinicia la sessió per aplicar la configuració; els missatges en cua sortiran després del reinici.",
+  "systemEntries.settingsNotice.changed":
+    "{names} ha canviat la teva configuració i la sessió s'ha reiniciat.",
+  "systemEntries.settingsNotice.change": "{setting}: {from} → {to}",
+  "systemEntries.settingsNotice.interrupted":
+    "El reinici ha aturat el teu torn anterior.",
   "systemEntries.flushError": "Error en buidar la cua: {error}",
   "systemEntries.genericError": "Error: {error}",
   "systemEntries.restoreOnStartupFailed":

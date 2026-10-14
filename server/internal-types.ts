@@ -8,6 +8,7 @@ import type {
   SkillInfo,
   SubscriptionUsageWire,
 } from "../shared/types.ts";
+import type { SettingsNoticeArm } from "./settings-notice.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import type { DormantReason, SessionManager } from "./session-manager.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
@@ -176,6 +177,11 @@ export interface ManagedAgent {
   // can tell the arm it sent from a later one; consumed on the same
   // never-before-send rule, and dropped at a conversation boundary.
   stopNotice: StopNoticeArm | null;
+  // Set while a settings restart waits to be explained on the next turn, else
+  // null (server/settings-notice.ts). A later edit replaces it with a merged
+  // object, so runAgentTurn can tell the arm it sent from a later one; consumed
+  // on the same never-before-send rule, and dropped at a conversation boundary.
+  settingsNotice: SettingsNoticeArm | null;
   // Automatic handoff (internal-docs/auto-handoff-design.md). All in memory
   // and all per conversation: resetContextUsage clears them, except that
   // newConversation sets the last two for a conversation an automatic

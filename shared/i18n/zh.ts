@@ -2396,6 +2396,10 @@ App 的一些原则：
   "systemEntries.flushStartFailed": "无法启动会话以发送队列消息：{error}",
   "systemEntries.restartingForSettings":
     "正在重启会话以应用设置；队列消息将在重启后发送。",
+  "systemEntries.settingsNotice.changed":
+    "{names} 更改了你的设置，会话已重启。",
+  "systemEntries.settingsNotice.change": "{setting}：{from} → {to}",
+  "systemEntries.settingsNotice.interrupted": "重启中断了你的上一个轮次。",
   "systemEntries.flushError": "发送队列消息时出错：{error}",
   "systemEntries.genericError": "错误：{error}",
   "systemEntries.restoreOnStartupFailed":

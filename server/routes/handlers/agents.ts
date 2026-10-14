@@ -171,7 +171,12 @@ export interface AgentsDeps {
   // against the agentType the edit lands on (-> invalid_model_family), applies
   // the edit, returns the updated agent. A no-op edit (no effective change)
   // still returns the current agent (200), never a failure.
-  edit(agentId: string, changes: EditAgentReq): Promise<EditResult>;
+  // changedBy: the caller's display name, for the agent's settings notice.
+  edit(
+    agentId: string,
+    changes: EditAgentReq,
+    changedBy: string,
+  ): Promise<EditResult>;
   // Toggles the agent's privileged flag: persists it, re-mints the bearer token
   // with the new capability set, and session-swaps a LIVE agent onto it (see
   // agent-manager.setPrivileged). Authorization (a USER with room access, never
@@ -486,7 +491,11 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
           "customInstructionsVersion is required when customInstructions is present (read it via GET /api/agents/:id/instructions first)",
         );
       }
-      const r = await deps.edit(ctx.params.id, b);
+      const r = await deps.edit(
+        ctx.params.id,
+        b,
+        deps.attributionFor(ctx.identity).createdBy,
+      );
       if (!r.ok) {
         if (r.reason === "version_conflict") {
           return fail(
