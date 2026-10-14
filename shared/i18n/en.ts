@@ -2715,6 +2715,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.signInRequired":
     "{provider} could not run this message because it is not signed in. Sign in below to continue.",
   "systemEntries.signInPrompt": "Sign in to {provider} below.",
+  "systemEntries.notSignedIn": "{provider} is not signed in.",
+  "systemEntries.signInRequiredOffice":
+    "{provider} could not run this message because it is not signed in.",
   "systemEntries.manageSignIn": "Manage your {provider} sign-in below.",
   "systemEntries.alreadySignedIn":
     "You are already signed in. Manage your {provider} sign-in below.",

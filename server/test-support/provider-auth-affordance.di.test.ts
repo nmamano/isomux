@@ -674,8 +674,9 @@ describe("provider auth affordances", () => {
       .getAgentLogs(agentId)
       .filter((entry) => entry.metadata?.providerLogin === "codex");
     expect(notices).toHaveLength(1);
+    // The default manager is a member on the office account: no "below".
     expect(notices[0].content).toBe(
-      english.t("systemEntries.signInPrompt", { provider: "Codex" }),
+      english.t("systemEntries.notSignedIn", { provider: "Codex" }),
     );
   });
 
@@ -724,7 +725,7 @@ describe("provider auth affordances", () => {
     function expectOneSignInNotice(notices: { content: string }[]) {
       expect(notices).toHaveLength(1);
       expect(notices[0].content).toBe(
-        english.t("systemEntries.signInRequired", { provider: "Codex" }),
+        english.t("systemEntries.signInRequiredOffice", { provider: "Codex" }),
       );
     }
 
@@ -1160,11 +1161,14 @@ describe("provider auth affordances", () => {
       const asked = () => logs().some((entry) => entry.content === askOwner);
       const card = () =>
         logs().some((entry) => entry.metadata?.providerLogin === provider);
+      const cardText = () =>
+        logs().find((entry) => entry.metadata?.providerLogin === provider)
+          ?.content;
       // Bounded inside the per-test cap and asserts nothing: the expects
       // after it name what failed.
       const settled = () =>
         settle(() => asked() || commands().length > 0 || card());
-      return { ...h, commands, asked, card, settled };
+      return { ...h, commands, asked, card, cardText, settled };
     }
 
     it("gives an owner who types /login on a member's agent the command, not the card", async () => {
@@ -1205,14 +1209,24 @@ describe("provider auth affordances", () => {
       expect(h.asked()).toBe(false);
     });
 
-    it("keeps the card for a member manager who types /login", async () => {
-      const h = await officeAgent({ typist: "manager", manager: "member" });
-      await h.mgr.sendMessage(h.agentId, "/login", "tester");
-      await h.settled();
-      expect(h.card()).toBe(true);
-      expect(h.commands()).toEqual([]);
-      expect(h.asked()).toBe(false);
-    });
+    for (const manager of ["member", "owner"] as const) {
+      it(`keeps the card for a ${manager} manager who types /login`, async () => {
+        const h = await officeAgent({ typist: "manager", manager });
+        await h.mgr.sendMessage(h.agentId, "/login", "tester");
+        await h.settled();
+        expect(h.card()).toBe(true);
+        expect(h.cardText()).toBe(
+          english.t(
+            manager === "owner"
+              ? "systemEntries.signInPrompt"
+              : "systemEntries.notSignedIn",
+            { provider: "Claude" },
+          ),
+        );
+        expect(h.commands()).toEqual([]);
+        expect(h.asked()).toBe(false);
+      });
+    }
 
     it("keeps the card when someone else types /login on a personal-account agent", async () => {
       const h = await officeAgent({
@@ -1249,6 +1263,14 @@ describe("provider auth affordances", () => {
       it(`keeps the card on a sign-in failure for a ${manager} manager`, async () => {
         const h = await failTurn(true);
         expect(h.card()).toBe(true);
+        expect(h.cardText()).toBe(
+          english.t(
+            manager === "owner"
+              ? "systemEntries.signInRequired"
+              : "systemEntries.signInRequiredOffice",
+            { provider: "Codex" },
+          ),
+        );
         expect(h.commands()).toEqual([]);
         expect(h.asked()).toBe(false);
       });

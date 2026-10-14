@@ -2746,6 +2746,9 @@ Coses que pots fer per ell:
   "systemEntries.signInRequired":
     "{provider} no ha pogut executar aquest missatge perquè no ha iniciat sessió. Inicia sessió a sota per continuar.",
   "systemEntries.signInPrompt": "Inicia sessió a {provider} a sota.",
+  "systemEntries.notSignedIn": "{provider} no ha iniciat sessió.",
+  "systemEntries.signInRequiredOffice":
+    "{provider} no ha pogut executar aquest missatge perquè no ha iniciat sessió.",
   "systemEntries.manageSignIn": "Gestiona la teva sessió de {provider} a sota.",
   "systemEntries.alreadySignedIn":
     "Ja has iniciat sessió. Gestiona la teva sessió de {provider} a sota.",

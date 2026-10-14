@@ -2745,6 +2745,9 @@ Cosas que puedes hacer por él:
   "systemEntries.signInRequired":
     "{provider} no pudo ejecutar este mensaje porque no ha iniciado sesión. Inicia sesión abajo para continuar.",
   "systemEntries.signInPrompt": "Inicia sesión en {provider} abajo.",
+  "systemEntries.notSignedIn": "{provider} no ha iniciado sesión.",
+  "systemEntries.signInRequiredOffice":
+    "{provider} no pudo ejecutar este mensaje porque no ha iniciado sesión.",
   "systemEntries.manageSignIn": "Gestiona tu sesión de {provider} abajo.",
   "systemEntries.alreadySignedIn":
     "Ya has iniciado sesión. Gestiona tu sesión de {provider} abajo.",

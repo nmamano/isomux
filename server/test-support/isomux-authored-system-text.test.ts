@@ -67,6 +67,8 @@ async function emitSystemText(
       scope: "office",
       dir: "/accounts/office-codex",
     }),
+    // An owner manager: a member's office card says to ask an owner.
+    findUser: () => ({ id: "user-a", role: "owner" }),
   });
   mgr.configureAgentTurnDeps();
   const info = await mgr.spawn(

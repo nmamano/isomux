@@ -693,13 +693,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             account.canBrowserLogin,
         );
         if (cardIsActionable) {
+          // A member's card has no Sign in on the office half; it says to
+          // ask an owner, so the entry does not say "sign in below".
+          const withheld = officeSignInWithheld(managed, target, username);
           addLogEntry(
             agentId,
             "system",
             logWords(agentId, username)(
               trigger === "login_command"
-                ? "systemEntries.signInPrompt"
-                : "systemEntries.signInRequired",
+                ? withheld
+                  ? "systemEntries.notSignedIn"
+                  : "systemEntries.signInPrompt"
+                : withheld
+                  ? "systemEntries.signInRequiredOffice"
+                  : "systemEntries.signInRequired",
               { provider: providerDisplayName(provider) },
             ),
             { providerLogin: provider },

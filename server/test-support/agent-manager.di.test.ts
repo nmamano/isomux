@@ -884,6 +884,8 @@ describe("AgentManager DI (temp-state isolated)", () => {
       resolveBackend: () => fake,
       officeState: new OfficeState({ rooms: rooms("room-codex-auth") }),
       initialRooms: [],
+      // An owner manager: a member's office card says to ask an owner.
+      findUser: () => ({ id: "user-a", role: "owner" }),
       listProviderAccounts: async () => [
         {
           provider: "codex",
