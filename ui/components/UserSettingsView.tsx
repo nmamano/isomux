@@ -72,11 +72,7 @@ import {
   ExpandableTextarea,
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
-import {
-  formatSince,
-  SettingsLink,
-  useAccessListsSeed,
-} from "./access-shared.tsx";
+import { formatSince, useAccessListsSeed } from "./access-shared.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 
@@ -86,8 +82,9 @@ import { noTranslate } from "../no-translate.ts";
 //
 // "signInLinks" is the pane formerly labelled "My devices": it holds invite
 // links and sessions for signing in elsewhere, not devices, and the label now
-// says so. The connections panes moved to their own page, Integrations, which
-// the Office group links to.
+// says so. The connections panes moved to their own page, Integrations; the
+// office bar, the phone menu and the i key open it, never Settings (Nil,
+// 2026-10-14: two ways in read as two places).
 export type SettingsSection =
   | "audit"
   | "office"
@@ -105,16 +102,14 @@ export type SettingsSection =
   | "deviceLabel"
   | "theme";
 
-// One sidebar entry. A row either moves the detail pane to `target`, or opens
-// another page (`page`) - never both. The row holds both as DATA rather than
-// a closure over select(), because select() routes through the
-// unsaved-changes guard and must not be captured during render.
+// One sidebar entry: it moves the detail pane to `target`. The row holds the
+// target as DATA rather than a closure over select(), because select() routes
+// through the unsaved-changes guard and must not be captured during render.
 type SidebarRow = {
   key: string;
   label: string;
   selected: boolean;
-  target?: Selection;
-  page?: "integrations";
+  target: Selection;
 };
 
 // A labelled group of sidebar entries. The Members group carries no rows: it
@@ -164,7 +159,6 @@ export type Selection =
 export function UserSettingsView({
   initialUserId,
   onSwitchUser,
-  onOpenIntegrations,
   onClose,
   initialTarget,
 }: {
@@ -180,9 +174,6 @@ export function UserSettingsView({
   // reader meant to go. Read once on mount, like initialUserId.
   initialTarget?: Selection | null;
   onSwitchUser: (name: string | null) => void;
-  // Opens the Integrations page, on a member's personal card when `member`
-  // is set (the member profile's link). Absent in fixtures without it.
-  onOpenIntegrations?: (member: string | null) => void;
   onClose: () => void;
 }) {
   const {
@@ -390,18 +381,6 @@ export function UserSettingsView({
                   sectionRow("audit", t("audit.title")),
                 ]
               : []),
-            // Integrations is its own page (task 911c9bbb); this row is its
-            // door from Settings.
-            ...(onOpenIntegrations
-              ? [
-                  {
-                    key: "integrations",
-                    label: t("common.integrations"),
-                    selected: false,
-                    page: "integrations" as const,
-                  },
-                ]
-              : []),
             sectionRow("usage", t("settings.sidebar.usage")),
             // Storage is owner-only, matching the server: prune is gated on
             // officeOwner and the usage read strips paths for anyone else.
@@ -581,7 +560,6 @@ export function UserSettingsView({
                 group={group}
                 first={i === 0}
                 onSelect={(target) => select(target)}
-                onOpenPage={() => leaveEdit(() => onOpenIntegrations?.(null))}
               />
             ))}
 
@@ -761,7 +739,6 @@ export function UserSettingsView({
                 group={group}
                 first={false}
                 onSelect={(target) => select(target)}
-                onOpenPage={() => leaveEdit(() => onOpenIntegrations?.(null))}
               />
             ))}
 
@@ -928,11 +905,6 @@ export function UserSettingsView({
                 user={selectedUser}
                 isMobile={isMobile}
                 closeRef={detailCloseRef}
-                onOpenIntegrations={
-                  onOpenIntegrations
-                    ? (member) => leaveEdit(() => onOpenIntegrations(member))
-                    : undefined
-                }
                 onClose={() => setSelection(null)}
                 onRenamed={(newName) => {
                   // Selection is id-keyed, so a rename never dangles it.
@@ -1132,7 +1104,6 @@ function UserEditPanel({
   onDeleted,
   onCreated,
   closeRef,
-  onOpenIntegrations,
 }: {
   user: UserRecord;
   // Create mode: `user` is a blank draft, Save creates the member
@@ -1144,8 +1115,6 @@ function UserEditPanel({
   onRenamed?: (newName: string) => void;
   onDeleted?: () => void;
   onCreated?: (id: string) => void;
-  // The profile's Integrations link: opens the page on this member.
-  onOpenIntegrations?: (member: string) => void;
   // Parent (UserSettingsView) calls `closeRef.current(after?)` when it wants
   // to navigate away from the currently-edited user (switch selection, close
   // the page, ESC, mobile back). The panel decides whether to gate on a
@@ -1155,7 +1124,7 @@ function UserEditPanel({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { rooms, allRooms, sessionContext } = useAppState();
-  const { t, rich } = useI18n();
+  const { t } = useI18n();
   // Owner-only fields: role and allowedRooms. The server rejects
   // changes to those fields from non-owner sessions even on self-edit,
   // but we also hide the editor here so members don't see disabled
@@ -1940,7 +1909,7 @@ function UserEditPanel({
               {t("common.memory")}{" "}
               <span style={hintStyle}>
                 {t("settings.profile.memoryHint", {
-                  size: mem.size,
+                  size: mem.loaded ? mem.size : "…",
                   cap: mem.cap ?? "…",
                 })}
               </span>
@@ -1968,28 +1937,8 @@ function UserEditPanel({
           </>
         )}
 
-        {/* Owners manage a member's integrations on the Integrations
-            page; this link opens it on the member (Lead, ruling 2). */}
         {isOwner && !isMe && !creating && (
-          <>
-            <h5 style={sectionTitleStyle}>{t("common.integrations")}</h5>
-            <p data-member-integrations-link style={sectionHintStyle}>
-              {rich("settings.memberIntegrations.hint", {
-                member: user.name,
-                link: (chunk) => (
-                  <SettingsLink
-                    label={chunk}
-                    onGo={
-                      onOpenIntegrations
-                        ? () => onOpenIntegrations(user.name)
-                        : undefined
-                    }
-                  />
-                ),
-              })}
-            </p>
-            <MemberApiTokens key={`tokens:${user.name}`} username={user.name} />
-          </>
+          <MemberApiTokens key={`tokens:${user.name}`} username={user.name} />
         )}
 
         {/* Aesthetics last: looks are secondary to the
@@ -2324,12 +2273,10 @@ function SidebarGroupRows({
   group,
   first,
   onSelect,
-  onOpenPage,
 }: {
   group: SidebarGroup;
   first: boolean;
   onSelect: (target: Selection) => void;
-  onOpenPage: (page: "integrations") => void;
 }) {
   if (group.rows.length === 0) return null;
   const dynamic = !!group.dynamic;
@@ -2347,13 +2294,7 @@ function SidebarGroupRows({
       {group.rows.map((row) => (
         <button
           key={row.key}
-          onClick={() =>
-            row.target
-              ? onSelect(row.target)
-              : row.page
-                ? onOpenPage(row.page)
-                : undefined
-          }
+          onClick={() => onSelect(row.target)}
           aria-current={row.selected ? "true" : undefined}
           style={{
             display: dynamic ? "flex" : undefined,

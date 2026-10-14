@@ -1115,8 +1115,6 @@ Cosas que puedes hacer por él:
     "Reemplazar el valor de {name} de {member}",
   "integrations.variables.replaceHeading.office":
     "Reemplazar el valor de {name} de toda la oficina",
-  "settings.memberIntegrations.hint":
-    "Gestiona los secretos, las variables y los servidores MCP de {member} en la página <link>Integraciones</link>.",
 
   "settings.signIn.apiKeyNote":
     "¿Quieres usar un token de API? Mira Integraciones → Variables.",

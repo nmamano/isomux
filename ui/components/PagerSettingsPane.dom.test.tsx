@@ -98,3 +98,50 @@ test("the pane saves only what changed, never shows the saved URL, and runs the 
   expect(view.queryByTestId("pager-webhook-remove")).toBeNull();
   view.unmount();
 });
+
+test("while the settings load, the pane shows its form with nothing to act on, and holds the webhook row it last showed", async () => {
+  let resolve!: (value: unknown) => void;
+  setApiShim(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const mount = () => render(<PagerSettingsPane username="boss" />);
+  const busy = (view: ReturnType<typeof mount>) =>
+    view.container.querySelector('[aria-busy="true"]');
+  const heldRemove = (view: ReturnType<typeof mount>) =>
+    view.container.querySelectorAll("[data-reserved] button").length;
+
+  // A device that never loaded the pane holds a saved webhook's row.
+  window.localStorage.clear();
+  let view = mount();
+  expect(busy(view)?.hasAttribute("inert")).toBe(true);
+  expect(heldRemove(view)).toBe(1);
+  // The held row is not the real one, and no repeat choice shows yet.
+  expect(view.queryByTestId("pager-webhook-current")).toBeNull();
+  expect((view.getByTestId("pager-repeat") as HTMLSelectElement).value).toBe(
+    "",
+  );
+  expect((view.getByTestId("pager-save") as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  await act(async () =>
+    resolve({ webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 }),
+  );
+  expect(busy(view)).toBeNull();
+  expect(view.container.querySelector("[data-reserved]")).toBeNull();
+  expect((view.getByTestId("pager-repeat") as HTMLSelectElement).value).toBe(
+    "5",
+  );
+  view.unmount();
+
+  // No webhook saved: the next load holds the shorter "none" line.
+  view = mount();
+  expect(heldRemove(view)).toBe(0);
+  expect(view.container.querySelector("[data-reserved]")).not.toBeNull();
+  await act(async () =>
+    resolve({ webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 }),
+  );
+  view.unmount();
+});

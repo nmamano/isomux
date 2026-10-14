@@ -1,7 +1,7 @@
 // S3 of the office i18n loop (internal-docs/i18n-loop.md): the access panes -
 // Invites, Sessions, External access, API tokens, the shared tables and empty
-// states in access-shared.tsx, and the Integrations link on a member's profile
-// - render in the language the signed-in user is on. The Integrations page,
+// states in access-shared.tsx - render in the language the signed-in user is
+// on. The Integrations page,
 // which took over the connections panes, has its own file
 // (ui/integrations/IntegrationsView.i18n.dom.test.tsx).
 //
@@ -67,8 +67,7 @@ const ROOM = {
   canCloseWhenEmpty: true,
 };
 
-// A member for the owner to open from the roster: the Integrations link only
-// mounts on someone else's profile.
+// A member in the roster, beside the owner.
 const MEMBER = {
   ...selfUserRecord(null),
   id: "u2",
@@ -139,14 +138,6 @@ const ANCHOR = {
   enableExternal: translationsFor("settings.externalAccess.enable"),
   howToUse: translationsFor("settings.apiTokens.howToUse"),
   noTokens: translationsFor("settings.apiTokens.empty"),
-  // The Integrations link, on the member's profile.
-  integrations: translationsFor("common.integrations"),
-  memberIntegrations: translationsFrom(({ t }) =>
-    t("settings.memberIntegrations.hint", { member: MEMBER.name }).replace(
-      /<\/?link>/g,
-      "",
-    ),
-  ),
 } as const;
 
 /**
@@ -219,37 +210,7 @@ describe("the access and connections panes", () => {
     shows(view, ANCHOR.howToUse.ca);
     shows(view, ANCHOR.noTokens.ca);
 
-    // The member's profile, for the owner-only Integrations link. Its heading
-    // repeats the sidebar row's words, so it is read by role rather than by
-    // text.
-    const memberRow = view
-      .getAllByRole("button")
-      .find((el) => (el.textContent ?? "").startsWith(MEMBER.name));
-    expect(memberRow).toBeDefined();
-    fireEvent.click(memberRow!);
-    await settle();
-    expect(
-      view.queryByRole("heading", {
-        name: ANCHOR.integrations.ca,
-        level: 5,
-      }),
-    ).not.toBeNull();
-    const link = () =>
-      view.container.querySelector("[data-member-integrations-link]")
-        ?.textContent;
-    expect(link()).toBe(ANCHOR.memberIntegrations.ca);
-
-    // Spanish: the open pane follows, and every fresh pane reads it too.
-    view.rerender(page("es"));
-    expect(
-      view.queryByRole("heading", {
-        name: ANCHOR.integrations.es,
-        level: 5,
-      }),
-    ).not.toBeNull();
-    expect(link()).toBe(ANCHOR.memberIntegrations.es);
-    view.rerender(page(null));
-    expect(link()).toBe(ANCHOR.memberIntegrations.en);
+    // Spanish: every fresh pane reads it.
     view.rerender(page("es"));
 
     open(view, SIDEBAR.invites.es);

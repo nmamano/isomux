@@ -11,6 +11,11 @@ import {
   MEMBER_SHARE_OPTIONS,
 } from "../../shared/member-usage-share.ts";
 import { cardStyle } from "./access-shared.tsx";
+import { Reserved } from "./Reserved.tsx";
+import {
+  getMemberUsageLayout,
+  setMemberUsageLayout,
+} from "../device-settings.ts";
 import {
   dialogCancelBtn,
   dialogInput,
@@ -24,6 +29,11 @@ import { useI18n } from "../i18n.tsx";
 // read and omits the name: the server treats an absent prompt as a clear and
 // an absent name as keep. Owners only; a server from before the switch
 // omits it, and then the card does not render.
+//
+// While the settings load, the switch is neither on nor off, and the card
+// holds the space of the share row and status lines it showed last on this
+// device: the read waits on the providers while the cap is on, so it can take
+// a second.
 export function MemberUsageCard({
   style,
 }: {
@@ -38,11 +48,17 @@ export function MemberUsageCard({
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reserve] = useState(getMemberUsageLayout);
 
   function adopt(next: OfficeSettingsRes) {
     setSettings(next);
     setUsageCap(next.memberUsageCap ?? false);
     setUsageShare(next.memberUsageShare ?? DEFAULT_MEMBER_SHARE);
+    if (next.memberUsageCap !== undefined)
+      setMemberUsageLayout({
+        share: next.memberUsageCap && next.memberUsageShare !== undefined,
+        status: next.memberUsageCap ? (next.memberUsageStatus ?? []).length : 0,
+      });
   }
 
   useEffect(() => {
@@ -69,6 +85,39 @@ export function MemberUsageCard({
   const baselineShare = settings?.memberUsageShare ?? DEFAULT_MEMBER_SHARE;
   const shareKnown = settings?.memberUsageShare !== undefined;
   const dirty = usageCap !== baselineCap || usageShare !== baselineShare;
+
+  const shareRow = (
+    <label
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        marginTop: 8,
+        fontSize: 11,
+        color: "var(--text-muted)",
+      }}
+    >
+      <span>{t("settings.office.memberUsageShare")}</span>
+      <select
+        value={usageShare}
+        onChange={(e) => setUsageShare(Number(e.target.value))}
+        style={{
+          ...dialogInput,
+          width: "auto",
+          padding: "2px 6px",
+          cursor: "pointer",
+        }}
+      >
+        {MEMBER_SHARE_OPTIONS.map((share) => (
+          <option key={share} value={share}>
+            {t("settings.office.memberUsageShareOption", {
+              share: formatNumber(language, share),
+            })}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 
   async function handleSave() {
     if (!settings) return;
@@ -118,6 +167,10 @@ export function MemberUsageCard({
       >
         <input
           type="checkbox"
+          // Unknown until the settings arrive: never a real "off".
+          ref={(box) => {
+            if (box) box.indeterminate = loading;
+          }}
           disabled={loading}
           checked={usageCap}
           onChange={(e) => setUsageCap(e.target.checked)}
@@ -134,49 +187,28 @@ export function MemberUsageCard({
       >
         {t("settings.office.memberUsageCapHint")}
       </p>
-      {usageCap && shareKnown && (
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            marginTop: 8,
-            fontSize: 11,
-            color: "var(--text-muted)",
-          }}
-        >
-          <span>{t("settings.office.memberUsageShare")}</span>
-          <select
-            value={usageShare}
-            onChange={(e) => setUsageShare(Number(e.target.value))}
-            style={{
-              ...dialogInput,
-              width: "auto",
-              padding: "2px 6px",
-              cursor: "pointer",
-            }}
-          >
-            {MEMBER_SHARE_OPTIONS.map((share) => (
-              <option key={share} value={share}>
-                {t("settings.office.memberUsageShareOption", {
-                  share: formatNumber(language, share),
-                })}
-              </option>
-            ))}
-          </select>
-        </label>
+      {loading
+        ? reserve.share && <Reserved>{shareRow}</Reserved>
+        : usageCap && shareKnown && shareRow}
+      {loading && reserve.status > 0 && (
+        <Reserved>
+          {Array.from({ length: reserve.status }, (_, i) => (
+            <p key={i} style={statusLineStyle}>
+              {"\u00a0"}
+            </p>
+          ))}
+        </Reserved>
       )}
       {baselineCap &&
         (settings?.memberUsageStatus ?? []).map((row) => (
           <p
             key={row.provider}
             style={{
-              fontSize: 10,
+              ...statusLineStyle,
               color:
                 row.state === "failed"
                   ? "var(--red-text)"
                   : "var(--text-muted)",
-              margin: "3px 0 0",
             }}
           >
             {usageStatusLine(row, t, language)}
@@ -224,6 +256,8 @@ export function MemberUsageCard({
     </section>
   );
 }
+
+const statusLineStyle: CSSProperties = { fontSize: 10, margin: "3px 0 0" };
 
 // One status line of the member usage cap. Provider names are proper nouns.
 function usageStatusLine(

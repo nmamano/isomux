@@ -24,6 +24,7 @@ import { useI18n } from "../i18n.tsx";
 import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
 import { ProviderMark } from "../components/ProviderMark.tsx";
 import { MemberUsageCard } from "../components/MemberUsageCard.tsx";
+import { Reserved } from "../components/Reserved.tsx";
 import {
   Btn,
   Data,
@@ -235,10 +236,17 @@ function MemberProviders({
         {t("settings.memberConnections.loadFailed")}
       </p>
     );
-  if (!providers) return <Empty>{t("common.loading")}</Empty>;
+  // Until the read answers, the rows hold their places and say so.
+  const rows: {
+    provider: MemberProviderStatus["provider"];
+    status: MemberProviderStatus["status"] | null;
+  }[] = providers ?? [
+    { provider: "claude", status: null },
+    { provider: "codex", status: null },
+  ];
   return (
-    <div data-member-providers>
-      {providers.map(({ provider, status }) => {
+    <div data-member-providers aria-busy={!providers}>
+      {rows.map(({ provider, status }) => {
         const label = provider === "claude" ? "Claude" : "Codex";
         return (
           <ItemRow
@@ -247,23 +255,27 @@ function MemberProviders({
             logo={<ProviderMark provider={provider} size={28} />}
             title={label}
             status={
-              <Pill
-                tone={
-                  status === "connected"
-                    ? "green"
-                    : status === "not_connected"
-                      ? "neutral"
-                      : "orange"
-                }
-              >
-                {t(
-                  status === "connected"
-                    ? "settings.signIn.connected"
-                    : status === "not_connected"
-                      ? "integrations.providers.noPersonal"
-                      : "settings.memberConnections.unknown",
-                )}
-              </Pill>
+              status === null ? (
+                <Pill tone="neutral">{t("common.loading")}</Pill>
+              ) : (
+                <Pill
+                  tone={
+                    status === "connected"
+                      ? "green"
+                      : status === "not_connected"
+                        ? "neutral"
+                        : "orange"
+                  }
+                >
+                  {t(
+                    status === "connected"
+                      ? "settings.signIn.connected"
+                      : status === "not_connected"
+                        ? "integrations.providers.noPersonal"
+                        : "settings.memberConnections.unknown",
+                  )}
+                </Pill>
+              )
             }
           />
         );
@@ -271,7 +283,7 @@ function MemberProviders({
       <Empty>{t("integrations.providers.memberSignsIn")}</Empty>
       <OpenCodeBlock
         office={false}
-        keySet={names.includes(OPENCODE_KEY)}
+        keySet={providers ? names.includes(OPENCODE_KEY) : null}
         onVariables={onVariables}
       />
     </div>
@@ -280,7 +292,8 @@ function MemberProviders({
 
 // OpenCode on one card: that it ships with Isomux (the office card), and
 // whether the card's OPENCODE_API_KEY is set. `keySet` null: the names are
-// not read (yet), so the block says nothing about the key.
+// not read (yet), so the block says nothing about the key and holds the
+// space of the line.
 function OpenCodeBlock({
   office,
   keySet,
@@ -297,6 +310,26 @@ function OpenCodeBlock({
     <Btn kind="link" onClick={onVariables} data-go-variables>
       {chunk}
     </Btn>
+  );
+  const keyLine = (set: boolean | null) => (
+    <p
+      data-opencode-key={set === null ? undefined : set ? "set" : "none"}
+      style={{ ...hintText, margin: 0 }}
+    >
+      {set
+        ? rich("integrations.providers.opencode.keySet", {
+            code: (chunk) => <Data>{chunk}</Data>,
+          })
+        : office
+          ? rich("integrations.providers.opencode.noKeyOffice", {
+              code: (chunk) => <Data>{chunk}</Data>,
+              link: variablesLink,
+            })
+          : rich("integrations.providers.opencode.noKeyPersonal", {
+              code: (chunk) => <Data>{chunk}</Data>,
+              link: variablesLink,
+            })}
+    </p>
   );
   return (
     <section data-provider-block="opencode" style={{ ...flat, marginTop: 14 }}>
@@ -321,25 +354,11 @@ function OpenCodeBlock({
           {t("integrations.providers.opencode.bundled")}
         </p>
       )}
-      {keySet !== null && (
-        <p
-          data-opencode-key={keySet ? "set" : "none"}
-          style={{ ...hintText, margin: 0 }}
-        >
-          {keySet
-            ? rich("integrations.providers.opencode.keySet", {
-                code: (chunk) => <Data>{chunk}</Data>,
-              })
-            : office
-              ? rich("integrations.providers.opencode.noKeyOffice", {
-                  code: (chunk) => <Data>{chunk}</Data>,
-                  link: variablesLink,
-                })
-              : rich("integrations.providers.opencode.noKeyPersonal", {
-                  code: (chunk) => <Data>{chunk}</Data>,
-                  link: variablesLink,
-                })}
-        </p>
+      {keySet === null ? (
+        // The no-key line, the usual one.
+        <Reserved>{keyLine(null)}</Reserved>
+      ) : (
+        keyLine(keySet)
       )}
     </section>
   );

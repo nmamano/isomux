@@ -1,6 +1,7 @@
-// The Integrations link on a member's profile in Settings is an owner's, on
-// someone else's profile (Lead, ruling 2). Your own profile has none, for an
-// owner or a member, and asks the server for no member's names.
+// No profile in Settings has an Integrations section (Nil, 2026-10-14: the
+// Integrations page is the one place): not yours, for an owner or a member,
+// and not a member's under an owner. None asks the server for a member's
+// names.
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -14,7 +15,10 @@ const { setApiShim } = await import("./api.ts");
 const { IntegrationsFake } =
   await import("./test-support/integrations-fake.ts");
 const { createElement } = await import("react");
+const { translatorFor } = await import("../shared/i18n/translate.ts");
 afterAll(() => setApiShim(null));
+
+const { t } = translatorFor("en");
 
 function user(over: Record<string, unknown>) {
   return {
@@ -68,19 +72,18 @@ async function openProfile(state: typeof initialState, name: string) {
   return view;
 }
 
-for (const [who, id, role, rowName] of [
-  ["an owner", "u1", "owner", "Profile"],
-  ["a member", "u2", "member", "Beth"],
+for (const [who, viewer, id, role, rowName] of [
+  ["an owner's own profile", "Ricky", "u1", "owner", "Profile"],
+  ["a member's own profile", "Beth", "u2", "member", "Beth"],
+  ["a member's profile under an owner", "Ricky", "u1", "owner", "Beth"],
 ] as const)
-  it(`gives ${who} no Integrations link on their own profile, and asks for no names`, async () => {
-    const view = await openProfile(
-      signedInAs(who === "an owner" ? "Ricky" : "Beth", id, role),
-      rowName,
+  it(`gives ${who} no Integrations section, and asks for no names`, async () => {
+    const view = await openProfile(signedInAs(viewer, id, role), rowName);
+    // The profile pane is up: the absence below is about the section.
+    const headings = [...view.container.querySelectorAll("h5")].map(
+      (h) => h.textContent,
     );
-    // The profile pane is up: the absence below is about the link.
-    expect(view.container.querySelectorAll("h5").length).toBeGreaterThan(0);
-    expect(
-      view.container.querySelector("[data-member-integrations-link]"),
-    ).toBeNull();
+    expect(headings.length).toBeGreaterThan(0);
+    expect(headings).not.toContain(t("common.integrations"));
     expect(fake.requests("GET", /\/env\/names$/)).toHaveLength(0);
   });

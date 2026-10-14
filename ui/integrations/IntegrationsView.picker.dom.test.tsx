@@ -146,33 +146,6 @@ describe("the member picker", () => {
     expect(personal(again).getAttribute("data-integrations-member")).toBeNull();
   });
 
-  it("opens once on the member the profile link names, and tells App it took the request", async () => {
-    let handled = 0;
-    const view = await open(OWNER, {
-      request: { member: "Lena" },
-      onRequestHandled: () => handled++,
-    });
-    expect(personal(view).getAttribute("data-integrations-member")).toBe(
-      "Lena",
-    );
-    expect(handled).toBe(1);
-  });
-
-  it("ignores a member request for a member viewer, and for the owner's own name", async () => {
-    const member = await open(stateFor("Stephen", "u2", "member"), {
-      request: { member: "Lena" },
-    });
-    expect(
-      personal(member).getAttribute("data-integrations-member"),
-    ).toBeNull();
-    expect(
-      member.container.querySelector("[data-integrations-picker]"),
-    ).toBeNull();
-    member.unmount();
-    const self = await open(OWNER, { request: { member: "Ricky" } });
-    expect(personal(self).getAttribute("data-integrations-member")).toBeNull();
-  });
-
   it("never shows an answer for the member left behind under the next one", async () => {
     fake.scope("Stephen").secrets.push(secret("STEPHEN_ONLY"));
     fake.scope("Lena").secrets.push(secret("LENA_ONLY"));

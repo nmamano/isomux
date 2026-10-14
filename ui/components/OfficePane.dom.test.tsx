@@ -41,3 +41,21 @@ it("ignores retired panel settings and saves only current office fields", async 
   expect(savedBody).toEqual({ prompt: null, name: null, version: "1" });
   view.unmount();
 });
+
+it("states the memory cap while the memory loads", async () => {
+  const { MEMORY_CAPS } = await import("../../shared/memory-caps.ts");
+  const { translatorFor } = await import("../../shared/i18n/translate.ts");
+  const { t } = translatorFor("en");
+  setApiShim(async (method, path) => {
+    if (path.startsWith("/api/memory")) return new Promise(() => {});
+    if (path === "/api/office/settings" && method === "GET")
+      return { prompt: null, name: null, version: "1" };
+    throw new Error(`no shim for ${method} ${path}`);
+  });
+  const view = render(onLanguage(null, createElement(OfficePane)));
+  await act(async () => {});
+  expect(view.container.textContent).toContain(
+    t("settings.office.memoryHint", { size: "…", cap: MEMORY_CAPS.office }),
+  );
+  view.unmount();
+});

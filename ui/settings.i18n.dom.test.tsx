@@ -83,7 +83,6 @@ const page = (language: "ca" | "es" | null) =>
     language,
     createElement(UserSettingsView, {
       onSwitchUser: () => {},
-      onOpenIntegrations: () => {},
       onClose: () => {},
     }),
     { rooms: [ROOM], hasReceivedInitialState: true },
@@ -97,7 +96,6 @@ const CA = {
   access: translationsFor("settings.sidebar.access").ca,
   invites: translationsFor("settings.sidebar.invites").ca,
   sessions: translationsFor("settings.sidebar.sessions").ca,
-  integrations: translationsFor("common.integrations").ca,
   usage: translationsFor("settings.sidebar.usage").ca,
   updates: translationsFor("settings.sidebar.updates").ca,
   you: translationsFor("common.you").ca,
@@ -190,7 +188,6 @@ describe("the settings page", () => {
       CA.access,
       CA.invites,
       CA.sessions,
-      CA.integrations,
       CA.usage,
       STORAGE.ca,
       CA.updates,

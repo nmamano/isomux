@@ -234,3 +234,91 @@ export function setIntegrationsTab(tab: string): void {
     localStorage.setItem(KEY_INTEGRATIONS_TAB, tab);
   } catch {}
 }
+
+// What a pane showed when it last loaded on this device. While it loads
+// again, it holds that layout, so it keeps its height when the answer arrives
+// (task 0eab60fd). Before a pane's first load on a device it holds its fuller
+// layout (`fallback`). `read` returns null for a stored value it cannot use.
+function getHeldLayout<T>(
+  key: string,
+  read: (raw: Record<string, unknown>) => T | null,
+  fallback: T,
+): T {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+    if (raw && typeof raw === "object" && !Array.isArray(raw))
+      return read(raw as Record<string, unknown>) ?? fallback;
+  } catch {}
+  return fallback;
+}
+
+function setHeldLayout(key: string, layout: object): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(layout));
+  } catch {}
+}
+
+// The member usage card: the share row, and how many status lines. Its read
+// waits on the providers only while the cap is on, so the fuller layout is
+// also the load long enough to see.
+const KEY_MEMBER_USAGE_LAYOUT = "isomux-member-usage-layout";
+
+export type MemberUsageLayout = { share: boolean; status: number };
+
+export function getMemberUsageLayout(): MemberUsageLayout {
+  return getHeldLayout(
+    KEY_MEMBER_USAGE_LAYOUT,
+    ({ share, status }) =>
+      typeof share === "boolean" &&
+      typeof status === "number" &&
+      Number.isInteger(status) &&
+      status >= 0 &&
+      status <= 4
+        ? { share, status }
+        : null,
+    { share: true, status: 2 },
+  );
+}
+
+export function setMemberUsageLayout(layout: MemberUsageLayout): void {
+  setHeldLayout(KEY_MEMBER_USAGE_LAYOUT, layout);
+}
+
+// Settings → Access: a hosted office's card, or the switch and, when it is
+// on, the public URL field.
+const KEY_EXTERNAL_ACCESS_LAYOUT = "isomux-external-access-layout";
+
+export type ExternalAccessLayout = { hosted: boolean; enabled: boolean };
+
+export function getExternalAccessLayout(): ExternalAccessLayout {
+  return getHeldLayout(
+    KEY_EXTERNAL_ACCESS_LAYOUT,
+    ({ hosted, enabled }) =>
+      typeof hosted === "boolean" && typeof enabled === "boolean"
+        ? { hosted, enabled }
+        : null,
+    { hosted: false, enabled: true },
+  );
+}
+
+export function setExternalAccessLayout(layout: ExternalAccessLayout): void {
+  setHeldLayout(KEY_EXTERNAL_ACCESS_LAYOUT, layout);
+}
+
+// Settings → You → Pager: whether a webhook was saved (its row is taller than
+// the "not set" line).
+const KEY_PAGER_LAYOUT = "isomux-pager-layout";
+
+export type PagerLayout = { webhook: boolean };
+
+export function getPagerLayout(): PagerLayout {
+  return getHeldLayout(
+    KEY_PAGER_LAYOUT,
+    ({ webhook }) => (typeof webhook === "boolean" ? { webhook } : null),
+    { webhook: true },
+  );
+}
+
+export function setPagerLayout(layout: PagerLayout): void {
+  setHeldLayout(KEY_PAGER_LAYOUT, layout);
+}

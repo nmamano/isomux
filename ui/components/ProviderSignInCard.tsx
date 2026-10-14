@@ -13,6 +13,7 @@ import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { ProviderMark } from "./ProviderMark.tsx";
+import { Reserved } from "./Reserved.tsx";
 import { BuildingIcon, PersonIcon } from "./NavIcons.tsx";
 import { Data, HelpTip } from "../integrations/kit.tsx";
 
@@ -144,6 +145,14 @@ const scopeLineStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 6,
+};
+
+const connectedRowStyle: CSSProperties = {
+  marginTop: 12,
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
 };
 
 function ProviderScopeConnection({
@@ -425,6 +434,37 @@ function ProviderScopeConnection({
       ? t("settings.signIn.directoryWarning")
       : null;
 
+  // `live` false: the held space of the row, with nothing to act on.
+  const signInRow = (live: boolean) => (
+    <div
+      style={{
+        margin: "12px 0",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        flexWrap: "wrap",
+      }}
+    >
+      <button
+        data-start-provider-login={live ? "" : undefined}
+        style={{ ...dialogSaveBtn, flexShrink: 0 }}
+        onClick={
+          live
+            ? () => void connect(provider === "codex" ? "device" : "browser")
+            : undefined
+        }
+        disabled={pending}
+      >
+        {pending ? t("settings.signIn.signingIn") : t("settings.signIn.signIn")}
+      </button>
+      <p style={{ ...hint, margin: 0, flex: 1, minWidth: 180 }}>
+        {provider === "codex"
+          ? t("settings.signIn.codexHint")
+          : t("settings.signIn.claudeHint")}
+      </p>
+    </div>
+  );
+
   return (
     <div
       style={
@@ -549,35 +589,8 @@ function ProviderScopeConnection({
       ) : (
         !account?.loginQueue &&
         account?.canBrowserLogin &&
-        account.accountStatus !== "connected" && (
-          <div
-            style={{
-              margin: "12px 0",
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              data-start-provider-login
-              style={{ ...dialogSaveBtn, flexShrink: 0 }}
-              onClick={() =>
-                void connect(provider === "codex" ? "device" : "browser")
-              }
-              disabled={pending}
-            >
-              {pending
-                ? t("settings.signIn.signingIn")
-                : t("settings.signIn.signIn")}
-            </button>
-            <p style={{ ...hint, margin: 0, flex: 1, minWidth: 180 }}>
-              {provider === "codex"
-                ? t("settings.signIn.codexHint")
-                : t("settings.signIn.claudeHint")}
-            </p>
-          </div>
-        )
+        account.accountStatus !== "connected" &&
+        signInRow(true)
       )}
       {authUrl && !connected && (
         <p style={{ ...hint, margin: "12px 0 0" }}>
@@ -630,16 +643,21 @@ function ProviderScopeConnection({
           </div>
         </div>
       )}
+      {/* While the status loads, the page holds the space of the usual
+          buttons: the office is mostly signed in, a member mostly not. */}
+      {pageLook && statusState === "checking" && (
+        <Reserved>
+          {scope === "office" ? (
+            <div style={connectedRowStyle}>
+              <button style={dialogCancelBtn}>{t("common.signOut")}</button>
+            </div>
+          ) : (
+            signInRow(false)
+          )}
+        </Reserved>
+      )}
       {account?.accountStatus === "connected" && (
-        <div
-          style={{
-            marginTop: 12,
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
+        <div style={connectedRowStyle}>
           {readOnly ? null : !confirmingSignOut ? (
             <button
               data-provider-sign-out

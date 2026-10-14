@@ -175,10 +175,9 @@ export function App({ routing = true }: { routing?: boolean }) {
   const [integrationsOpen, setIntegrationsOpen] = useState(
     bootPage === "integrations",
   );
-  // One-shot: what the Integrations page opens on, beyond its defaults. A
-  // member's profile link names that member, and an MCP sign-in that came
-  // back carries its result (read once, like the pager id below). The page
-  // takes it on mount and clears it, so the next open starts on You.
+  // One-shot: what the Integrations page opens on, beyond its defaults: an
+  // MCP sign-in that came back carries its result (read once, like the pager
+  // id below). The page takes it on mount and clears it.
   const [integrationsRequest, setIntegrationsRequest] =
     useState<IntegrationsRequest | null>(() => {
       const signIn = mcpSignInForSearch(window.location.search);
@@ -524,12 +523,8 @@ export function App({ routing = true }: { routing?: boolean }) {
     setUsersOpen(true);
   }, []);
 
-  // Open the Integrations page, on a member's view when `member` is set (the
-  // Settings member profile's link). Settings closes under it, like the
-  // pager's settings door in reverse.
-  const openIntegrations = useCallback((member: string | null) => {
-    setIntegrationsRequest(member === null ? null : { member });
-    setUsersOpen(false);
+  const openIntegrations = useCallback(() => {
+    setIntegrationsRequest(null);
     setIntegrationsOpen(true);
   }, []);
 
@@ -823,7 +818,6 @@ export function App({ routing = true }: { routing?: boolean }) {
           initialUserId={editingUserId}
           initialTarget={settingsTarget}
           onSwitchUser={(name) => setUsername(name)}
-          onOpenIntegrations={openIntegrations}
           onClose={goHome}
         />
       ) : page === "tasks" ? (
@@ -908,7 +902,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           onOpenCronjobs={() => setCronjobsOpen(true)}
           onOpenApps={() => setAppsOpen(true)}
           onOpenSkills={() => setSkillsOpen(true)}
-          onOpenIntegrations={() => openIntegrations(null)}
+          onOpenIntegrations={openIntegrations}
           onOpenPager={() => setPagerOpen(true)}
           onOpenUpdate={() =>
             openSettings({ kind: "section", section: "updates" })

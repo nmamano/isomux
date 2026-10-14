@@ -58,3 +58,47 @@ it("keeps self-hosted controls and the restart instructions after a save", async
   expect(view.getByText("sudo systemctl restart isomux")).toBeTruthy();
   expect(view.getAllByText("systemctl --user restart isomux")).toHaveLength(1);
 });
+
+it("shows the form it last loaded on this device while the settings load, with nothing to act on", async () => {
+  const answers = {
+    hosted: false,
+    externalAccess: false,
+    publicOrigin: null,
+    envOriginSet: false,
+    envOrigin: null,
+    boundLoopback: true,
+  };
+  let resolve!: (value: unknown) => void;
+  setApiShim(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const mount = () => render(onLanguage(null, <ExternalAccessPane />));
+
+  // A device that never loaded the pane holds the switched-on form.
+  window.localStorage.clear();
+  let view = mount();
+  let box = view.getByRole("checkbox") as HTMLInputElement;
+  expect(box.indeterminate).toBe(true);
+  expect(box.disabled).toBe(true);
+  expect((view.getByRole("textbox") as HTMLInputElement).disabled).toBe(true);
+  expect(
+    view.container.querySelector<HTMLButtonElement>(
+      '[aria-busy="true"] button',
+    )!.disabled,
+  ).toBe(true);
+  await act(async () => resolve(answers));
+  box = view.getByRole("checkbox") as HTMLInputElement;
+  expect(box.indeterminate).toBe(false);
+  expect(box.checked).toBe(false);
+  expect(view.queryByRole("textbox")).toBeNull();
+  view.unmount();
+
+  // The next load holds what this one showed: switched off, no URL field.
+  view = mount();
+  expect(view.queryByRole("textbox")).toBeNull();
+  await act(async () => resolve(answers));
+  view.unmount();
+});

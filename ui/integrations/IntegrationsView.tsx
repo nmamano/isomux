@@ -37,8 +37,6 @@ import { BuildingIcon, PersonIcon } from "../components/NavIcons.tsx";
 import { getIntegrationsTab, setIntegrationsTab } from "../device-settings.ts";
 
 export type IntegrationsRequest = {
-  // Open on this member's personal card (an owner, from their profile).
-  member?: string;
   // The result code of an MCP sign-in that came back (?mcpSignIn=<code>).
   signIn?: string;
 };
@@ -109,10 +107,9 @@ function IntegrationsPage({
   );
   // A sign-in for another member opens on that member's card.
   const opensOn =
-    initial?.member ??
-    (signIn?.note?.target.kind === "member"
+    signIn?.note?.target.kind === "member"
       ? signIn.note.target.username
-      : undefined);
+      : undefined;
   const [member, setMember] = useState<string | null>(() =>
     role === "owner" && opensOn && opensOn.toLowerCase() !== self.toLowerCase()
       ? opensOn

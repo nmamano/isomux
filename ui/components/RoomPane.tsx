@@ -431,7 +431,7 @@ export function RoomPane({
               {t("common.memory")}{" "}
               <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
                 {t("settings.room.memoryHint", {
-                  size: mem.size,
+                  size: mem.loaded ? mem.size : "…",
                   cap: mem.cap ?? "…",
                 })}
               </span>

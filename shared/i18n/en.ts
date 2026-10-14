@@ -1101,8 +1101,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Replace the value of {member}'s {name}",
   "integrations.variables.replaceHeading.office":
     "Replace the value of the office-wide {name}",
-  "settings.memberIntegrations.hint":
-    "Manage {member}'s secrets, variables and MCP servers on the <link>Integrations</link> page.",
 
   "settings.signIn.apiKeyNote":
     "Do you want to use an API token? See Integrations → Variables.",

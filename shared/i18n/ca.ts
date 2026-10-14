@@ -1116,8 +1116,6 @@ Coses que pots fer per ell:
     "Substitueix el valor de {name} de {member}",
   "integrations.variables.replaceHeading.office":
     "Substitueix el valor de {name} de tota l'oficina",
-  "settings.memberIntegrations.hint":
-    "Gestiona els secrets, les variables i els servidors MCP de {member} a la pàgina <link>Integracions</link>.",
 
   "settings.signIn.apiKeyNote":
     "Vols fer servir un token d'API? Mira Integracions → Variables.",

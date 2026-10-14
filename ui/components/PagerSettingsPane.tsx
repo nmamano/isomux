@@ -25,6 +25,8 @@ import {
 } from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 import { MaskedInput } from "./MaskedInput.tsx";
+import { Reserved } from "./Reserved.tsx";
+import { getPagerLayout, setPagerLayout } from "../device-settings.ts";
 
 const REPEAT_CHOICES = [1, 5, 15, 30, 60, 480, 1440];
 const ISSUES_URL = "https://github.com/nmamano/isomux/issues";
@@ -38,6 +40,9 @@ export const PAGER_FAILURE_KEYS = {
   network: "pager.failure.network",
 } as const satisfies Record<PagerDeliveryFailure, MessageKey>;
 const NEVER = "never";
+// The space a saved webhook's row takes while the settings load: the shape of
+// a masked URL (server/pager-settings.ts maskWebhookUrl).
+const HELD_WEBHOOK = "https://discord.com/api/webhooks/…0000";
 
 export function PagerSettingsPane({ username }: { username: string }) {
   const { t, tn, rich } = useI18n();
@@ -55,9 +60,14 @@ export function PagerSettingsPane({ username }: { username: string }) {
     null,
   );
   const mounted = useRef(true);
+  // While the settings load, the pane shows the form it showed last on this
+  // device with nothing to act on, so it keeps its height when they arrive.
+  const [held] = useState(getPagerLayout);
+  const loading = !saved && !loadFailed;
 
   function adopt(next: PagerSettingsRes) {
     setSaved(next);
+    setPagerLayout({ webhook: !!next.webhookUrlMasked });
     setUrl("");
     setUserId(next.discordUserId ?? "");
     setRepeat(next.repeatMinutes === null ? NEVER : String(next.repeatMinutes));
@@ -137,6 +147,65 @@ export function PagerSettingsPane({ username }: { username: string }) {
     repeatOptions.sort((a, b) => a - b);
   }
 
+  // The saved webhook, or the line that says there is none. `masked` null:
+  // none. The held copy, while loading, carries no test ids.
+  const webhookCurrent = (masked: string | null, live = true) =>
+    masked ? (
+      <div
+        data-testid={live ? "pager-webhook-current" : undefined}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          marginTop: 8,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--green-text)",
+          }}
+        >
+          {t("pager.settings.webhookSaved")}
+        </span>
+        <code
+          style={{
+            fontSize: 11,
+            padding: "2px 6px",
+            borderRadius: 4,
+            background: "var(--bg-code)",
+            color: "var(--text-secondary)",
+            wordBreak: "break-all",
+          }}
+        >
+          {masked}
+        </code>
+        <button
+          data-testid={live ? "pager-webhook-remove" : undefined}
+          onClick={() => void save({ webhookUrl: null })}
+          disabled={busy}
+          style={{
+            ...secondaryBtn,
+            ...(busy ? disabledLook : null),
+          }}
+        >
+          {t("pager.settings.webhookRemove")}
+        </button>
+        <span style={{ ...dialogHint, flexBasis: "100%" }}>
+          {t("pager.settings.webhookReplace")}
+        </span>
+      </div>
+    ) : (
+      <p
+        style={{ ...dialogHint, margin: "6px 0 0" }}
+        data-testid={live ? "pager-webhook-current" : undefined}
+      >
+        {t("pager.settings.webhookNone")}
+      </p>
+    );
+
   return (
     <div style={{ marginTop: 24 }} data-testid="pager-settings">
       <h4 style={sectionHeader}>{t("settings.sidebar.pager")}</h4>
@@ -159,10 +228,8 @@ export function PagerSettingsPane({ username }: { username: string }) {
         <p role="alert" style={hint}>
           {t("pager.settings.loadFailed")}
         </p>
-      ) : !saved ? (
-        <p style={hint}>{t("common.loading")}</p>
       ) : (
-        <>
+        <div inert={loading} aria-busy={loading}>
           <div style={cardStyle}>
             <label
               style={{ ...dialogLabel, marginTop: 0 }}
@@ -181,60 +248,12 @@ export function PagerSettingsPane({ username }: { username: string }) {
               }}
               style={dialogInput}
             />
-            {saved.webhookUrlMasked ? (
-              <div
-                data-testid="pager-webhook-current"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: 8,
-                  marginTop: 8,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: "var(--green-text)",
-                  }}
-                >
-                  {t("pager.settings.webhookSaved")}
-                </span>
-                <code
-                  style={{
-                    fontSize: 11,
-                    padding: "2px 6px",
-                    borderRadius: 4,
-                    background: "var(--bg-code)",
-                    color: "var(--text-secondary)",
-                    wordBreak: "break-all",
-                  }}
-                >
-                  {saved.webhookUrlMasked}
-                </code>
-                <button
-                  data-testid="pager-webhook-remove"
-                  onClick={() => void save({ webhookUrl: null })}
-                  disabled={busy}
-                  style={{
-                    ...secondaryBtn,
-                    ...(busy ? disabledLook : null),
-                  }}
-                >
-                  {t("pager.settings.webhookRemove")}
-                </button>
-                <span style={{ ...dialogHint, flexBasis: "100%" }}>
-                  {t("pager.settings.webhookReplace")}
-                </span>
-              </div>
+            {loading ? (
+              <Reserved>
+                {webhookCurrent(held.webhook ? HELD_WEBHOOK : null, false)}
+              </Reserved>
             ) : (
-              <p
-                style={{ ...dialogHint, margin: "6px 0 0" }}
-                data-testid="pager-webhook-current"
-              >
-                {t("pager.settings.webhookNone")}
-              </p>
+              webhookCurrent(saved?.webhookUrlMasked ?? null)
             )}
             <p style={{ ...dialogHint, margin: "8px 0 0" }}>
               {rich("pager.settings.webhookHint", { b: bold })}
@@ -265,13 +284,15 @@ export function PagerSettingsPane({ username }: { username: string }) {
             <select
               id="pager-repeat"
               data-testid="pager-repeat"
-              value={repeat}
+              value={loading ? "" : repeat}
               onChange={(e) => {
                 setRepeat(e.target.value);
                 setStatus(null);
               }}
               style={selectStyle}
             >
+              {/* Nothing chosen until the settings arrive. */}
+              {loading && <option value="" />}
               <option value={NEVER}>{t("pager.settings.repeatNever")}</option>
               {repeatOptions.map((m) => (
                 <option key={m} value={String(m)}>
@@ -306,16 +327,17 @@ export function PagerSettingsPane({ username }: { username: string }) {
             <button
               data-testid="pager-test"
               onClick={() => void test()}
-              disabled={busy || dirty || !saved.webhookUrlMasked}
+              disabled={busy || dirty || !saved?.webhookUrlMasked}
               style={{
                 ...cardActionBtn,
-                ...(busy || dirty || !saved.webhookUrlMasked
+                ...(busy || dirty || !saved?.webhookUrlMasked
                   ? disabledLook
                   : null),
               }}
             >
               {t("pager.settings.test")}
             </button>
+            {loading && <span style={hint}>{t("common.loading")}</span>}
             {status && (
               <span
                 role="status"
@@ -333,7 +355,7 @@ export function PagerSettingsPane({ username }: { username: string }) {
           <p style={{ ...hint, marginTop: 12 }}>
             {rich("pager.settings.phoneHint", { b: bold })}
           </p>
-        </>
+        </div>
       )}
     </div>
   );

@@ -27,6 +27,11 @@ import {
   hint,
   cardStyle,
 } from "./access-shared.tsx";
+import { Reserved } from "./Reserved.tsx";
+import {
+  getExternalAccessLayout,
+  setExternalAccessLayout,
+} from "../device-settings.ts";
 
 const ORIGIN_PATTERN = "https://<host>";
 const LOCALHOST_ORIGIN = "http://localhost";
@@ -70,6 +75,9 @@ function ExternalAccessSection({
   const [error, setError] = useState<string | null>(null);
   const [signInUrl, setSignInUrl] = useState<string | null>(null);
   const [restartRequired, setRestartRequired] = useState(false);
+  // While the settings load, the card shows the form it showed last on this
+  // device with nothing to act on, so it keeps its height when they arrive.
+  const [held] = useState(getExternalAccessLayout);
 
   // Snapshot of the last-saved state. Compared against the form during
   // render to drive the Save-button enabled/disabled state, so kept as
@@ -94,6 +102,7 @@ function ExternalAccessSection({
         setEnvOrigin(typeof s.envOrigin === "string" ? s.envOrigin : null);
         setBoundLoopback(!!s.boundLoopback);
         setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
+        setExternalAccessLayout({ hosted: s.hosted, enabled: nextEnabled });
         setLoaded(true);
       })
       .catch(() => {});
@@ -122,6 +131,7 @@ function ExternalAccessSection({
         setEnabled(nextEnabled);
         setUrlInput(nextUrl);
         setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
+        setExternalAccessLayout({ hosted, enabled: nextEnabled });
         setSignInUrl(typeof r.signInUrl === "string" ? r.signInUrl : null);
         setRestartRequired(!!r.restartRequired);
       })
@@ -205,53 +215,58 @@ function ExternalAccessSection({
   // in which case neither the match nor the conflict note renders.
   const normalizedInput = normalizePublicOrigin(urlInput);
 
-  if (!loaded) {
+  if (loaded ? hosted : held.hosted) {
     return (
-      <div style={cardStyle}>
-        <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
-          {t("settings.externalAccess.title")}
-        </h5>
-        <p style={hint}>{t("common.loading")}</p>
-      </div>
-    );
-  }
-
-  if (hosted) {
-    return (
-      <div style={cardStyle}>
+      <div style={cardStyle} aria-busy={!loaded}>
         <div style={subLabel}>{t("settings.externalAccess.publicUrl")}</div>
-        <p>{envOrigin ?? urlInput}</p>
+        <p>
+          {loaded ? (
+            (envOrigin ?? urlInput)
+          ) : (
+            <span style={hint}>{t("common.loading")}</span>
+          )}
+        </p>
         <p style={hint}>{t("settings.externalAccess.managed")}</p>
       </div>
     );
   }
 
+  const showUrl = loaded ? enabled : held.enabled;
+  const reachLine = (
+    <p style={hint}>
+      {boundLoopback
+        ? t("settings.externalAccess.loopback")
+        : t("settings.externalAccess.external")}
+    </p>
+  );
   return (
-    <div style={cardStyle}>
+    <div style={cardStyle} aria-busy={!loaded}>
       <p style={hint}>{t("settings.externalAccess.intro")}</p>
       <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
         {t("settings.externalAccess.title")}
       </h5>
-      <p style={hint}>
-        {boundLoopback
-          ? t("settings.externalAccess.loopback")
-          : t("settings.externalAccess.external")}
-      </p>
+      {loaded ? reachLine : <Reserved>{reachLine}</Reserved>}
       <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>
         <input
           type="checkbox"
+          // Unknown until the settings arrive: never a real "off".
+          ref={(box) => {
+            if (box) box.indeterminate = !loaded;
+          }}
+          disabled={!loaded}
           checked={enabled}
           onChange={(e) => setEnabled(e.target.checked)}
         />
         <span>{t("settings.externalAccess.enable")}</span>
       </label>
-      {enabled && (
+      {showUrl && (
         <>
           <div style={subLabel}>{t("settings.externalAccess.publicUrl")}</div>
           <input
             value={urlInput}
+            disabled={!loaded}
             onChange={(e) => setUrlInput(e.target.value)}
-            placeholder="https://auntie.tailnet.ts.net"
+            placeholder={loaded ? "https://auntie.tailnet.ts.net" : undefined}
             style={dialogInput}
           />
           <p style={hint}>
@@ -343,21 +358,24 @@ function ExternalAccessSection({
           </button>
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}
+      >
         <button
           onClick={submit}
-          disabled={pending || !dirty}
+          disabled={!loaded || pending || !dirty}
           style={{
             ...dialogSaveBtn,
-            ...(pending || !dirty ? disabledLook : null),
+            ...(!loaded || pending || !dirty ? disabledLook : null),
           }}
         >
           {pending
             ? t("common.saving")
-            : dirty
+            : dirty || !loaded
               ? t("common.save")
               : t("common.saved")}
         </button>
+        {!loaded && <span style={hint}>{t("common.loading")}</span>}
       </div>
       {restartRequired && (
         <div style={restartBoxStyle}>

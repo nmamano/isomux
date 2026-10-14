@@ -134,3 +134,67 @@ for (const outcome of ["failed", "unsupported"] as const) {
     view.unmount();
   });
 }
+
+it("shows the switch as neither on nor off until settings arrive", async () => {
+  let resolve!: (value: unknown) => void;
+  setApiShim(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const view = render(onLanguage(null, createElement(MemberUsageCard)));
+  const box = view.getByRole("checkbox") as HTMLInputElement;
+  expect(box.indeterminate).toBe(true);
+  await act(async () =>
+    resolve({ version: "1", memberUsageCap: true, memberUsageShare: 80 }),
+  );
+  expect(box.indeterminate).toBe(false);
+  expect(box.checked).toBe(true);
+  view.unmount();
+});
+
+it("holds the share row and status lines it last showed on this device while settings load", async () => {
+  const mount = () => render(onLanguage(null, createElement(MemberUsageCard)));
+  const held = (view: ReturnType<typeof mount>) => ({
+    shares: view.container.querySelectorAll("[data-reserved] select").length,
+    lines: view.container.querySelectorAll("[data-reserved] p").length,
+  });
+  let resolve!: (value: unknown) => void;
+  setApiShim(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+
+  // A device that never loaded the card holds the switched-on layout.
+  window.localStorage.clear();
+  let view = mount();
+  expect(held(view)).toEqual({ shares: 1, lines: 2 });
+  for (const node of view.container.querySelectorAll("[data-reserved]"))
+    expect(node.getAttribute("aria-hidden")).toBe("true");
+  await act(async () =>
+    resolve({
+      version: "1",
+      memberUsageCap: true,
+      memberUsageShare: 80,
+      memberUsageStatus: [{ provider: "claude", state: "no_limit" }],
+    }),
+  );
+  expect(view.container.querySelector("[data-reserved]")).toBeNull();
+  view.unmount();
+
+  // The next load holds what this one showed: the share row and one line.
+  view = mount();
+  expect(held(view)).toEqual({ shares: 1, lines: 1 });
+  await act(async () =>
+    resolve({ version: "1", memberUsageCap: false, memberUsageShare: 80 }),
+  );
+  view.unmount();
+
+  // Switched off, the card showed neither.
+  view = mount();
+  expect(view.container.querySelector("[data-reserved]")).toBeNull();
+  view.unmount();
+});

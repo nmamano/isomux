@@ -1008,8 +1008,6 @@ App 的一些原则：
     "替换 {member} 的 {name} 的值",
   "integrations.variables.replaceHeading.office":
     "替换办公室通用的 {name} 的值",
-  "settings.memberIntegrations.hint":
-    "在<link>集成</link>页面管理 {member} 的密钥、变量和 MCP 服务器。",
   "settings.signIn.apiKeyNote": "想使用 API 令牌？请查看「集成 → 变量」。",
   "settings.signIn.scopeOffice": "办公室通用：为此办公室中的所有智能体登录",
   "settings.signIn.scopePersonal": "个人：为我创建的智能体登录",

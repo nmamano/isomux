@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { injectedMemorySize } from "../../shared/memory-size.ts";
+import { MEMORY_CAPS } from "../../shared/memory-caps.ts";
 
 export type MemoryScope = "office" | "room" | "agent" | "boss";
 
@@ -121,7 +122,9 @@ export function useMemoryEditor(
     loaded,
     dirty,
     size: injectedMemorySize(memory),
-    cap,
+    // The cap the server sends is this constant: known before the load, so
+    // the line that shows it keeps its length.
+    cap: cap ?? MEMORY_CAPS[scope],
     save,
     // Throw away unsaved edits and go back to what the last load or save
     // returned. Panes need this because their Cancel button reverts in place

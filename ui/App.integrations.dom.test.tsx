@@ -1,6 +1,5 @@
-// The Integrations page in App (task 911c9bbb): its door in the office bar,
-// its own path, its row in Settings that replaced the two connections panes,
-// and the member profile's one-shot link (Lead, ruling 2). The way back from
+// The Integrations page in App (task 911c9bbb): its door in the office bar
+// and its own path. Settings has no way in (Nil, 2026-10-14). The way back from
 // an MCP sign-in is in ui/App.integrations-sign-in.dom.test.tsx (the 5 s
 // budget is per file).
 
@@ -114,7 +113,7 @@ describe("the Integrations page in the office", () => {
     expect(member(view)).toBeNull();
   });
 
-  it("replaces the two connections rows in Settings with one row that opens the page", async () => {
+  it("leaves Integrations out of Settings: no sidebar row, no section on a member's profile", async () => {
     window.history.replaceState(null, "", "/settings");
     const view = await app();
     expect(
@@ -123,40 +122,21 @@ describe("the Integrations page in the office", () => {
     expect(
       view.queryByRole("button", { name: /Individual connections/ }),
     ).toBeNull();
-    await act(async () => {
-      fireEvent.click(
-        view.getByRole("button", { name: t("common.integrations") }),
-      );
-    });
-    expect(page(view)).not.toBeNull();
-    expect(window.location.pathname).toBe("/integrations");
-    expect(member(view)).toBeNull();
-  });
-
-  it("opens on the member from their profile once; the next open is on You", async () => {
-    window.history.replaceState(null, "", "/settings");
-    const view = await app();
+    expect(
+      view.queryByRole("button", { name: t("common.integrations") }),
+    ).toBeNull();
     const row = view
       .getAllByRole("button")
       .find((el) => (el.textContent ?? "").startsWith("Beth"));
     await act(async () => {
       fireEvent.click(row!);
     });
-    const link = view.baseElement.querySelector(
-      "[data-member-integrations-link]",
-    )!;
-    expect(link.textContent).toContain("Beth");
-    await act(async () => {
-      fireEvent.click(link.querySelector("button")!);
-    });
-    expect(page(view)).not.toBeNull();
-    expect(member(view)).toBe("Beth");
-
-    await act(async () => {
-      view.getByRole("button", { name: t("settings.backToOffice") }).click();
-    });
-    await clickTitle(view, t("nav.integrationsShortcut"));
-    expect(page(view)).not.toBeNull();
-    expect(member(view)).toBeNull();
+    // The profile pane is up: the absences below are about Integrations.
+    const headings = [...view.baseElement.querySelectorAll("h5")].map(
+      (h) => h.textContent,
+    );
+    expect(headings).toContain(t("settings.memberApiTokens.title"));
+    expect(headings).not.toContain(t("common.integrations"));
+    expect(page(view)).toBeNull();
   });
 });
