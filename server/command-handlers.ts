@@ -1,6 +1,5 @@
 import type {
   Attachment,
-  AgentBackendType,
   AgentInfo,
   AgentChoiceInteractionKind,
   AgentState,
