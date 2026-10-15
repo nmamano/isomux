@@ -1,3 +1,4 @@
+import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
 import { afterEach, describe, expect, it } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -43,6 +44,8 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
       },
     }), { headers: { "content-type": "text/event-stream" } });
   }
+  if (url.pathname === "/experimental/tool/ids")
+    return Response.json(${JSON.stringify([OPENCODE_SAFETY_TOOL])});
   if (url.pathname.endsWith("/prompt_async")) {
     const sessionID = url.pathname.split("/")[2];
     const body = await request.json();
@@ -105,7 +108,9 @@ await new Promise(() => {});
       Bun.spawn([process.execPath, "run", harness], {
         env: {
           ...process.env,
-          ISOMUX_HOME: join(root, `isomux-${phase}`),
+          // One state root, as a restarted office keeps: the safety plugin
+          // is built with it, and another root's server is not adopted.
+          ISOMUX_HOME: join(root, "isomux"),
           S4_PHASE: phase,
           S4_ROOT: root,
           S4_RESULT: resultPath,

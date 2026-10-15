@@ -5,10 +5,14 @@ import {
   mkdtemp,
   open,
   readFile,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import {
   processIdentityMatches,
@@ -17,6 +21,12 @@ import {
 } from "./process-identity.ts";
 import { lockDarwinFileUntilExit } from "./darwin-libsystem.ts";
 import { openCodeServerHealth } from "./server-health.ts";
+import {
+  markPluginSdkInstalled,
+  openCodeConfigOverride,
+  openCodeUserConfigDir,
+} from "./config-layers.ts";
+import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
 import {
   OPENCODE_SERVER_USERNAME as username,
   waitHealthy,
@@ -31,6 +41,7 @@ interface ServerRecord {
   environmentRevision: string;
   configRevision: string;
   startTicks?: string;
+  safetyPlugin?: string;
 }
 
 const profileDir = required("OPENCODE_PROFILE_DIR");
@@ -61,6 +72,16 @@ const keepDebugOutput = process.env.ISOMUX_OPENCODE_DEBUG === "1";
 // A server whose turn saw no event-stream frame within the deadline. It may
 // still answer health late, but it is never adopted again.
 const unresponsivePid = Number(process.env.OPENCODE_SERVER_UNRESPONSIVE_PID);
+// The office safety policy as an OpenCode plugin (safety-plugin.ts), built
+// with the Isomux server's roots: this helper's HOME and environment carry the
+// member's variables. A server that loaded another build is not adopted.
+const safetyPluginText = await buildOpenCodeSafetyPlugin(
+  JSON.parse(required("OPENCODE_SAFETY_ROOTS")),
+);
+const safetyPlugin = createHash("sha256")
+  .update(safetyPluginText)
+  .digest("hex");
+const safetyPluginPath = join(profileDir, "isomux-safety-plugin.js");
 
 function required(name: string): string {
   const value = process.env[name];
@@ -79,6 +100,7 @@ async function adoptable(record: ServerRecord): Promise<boolean> {
     record.profileDir !== profileDir ||
     record.environmentRevision !== environmentRevision ||
     record.configRevision !== configRevision ||
+    record.safetyPlugin !== safetyPlugin ||
     record.pid === unresponsivePid
   )
     return false;
@@ -139,6 +161,17 @@ function sanitizedChildEnvironment(): NodeJS.ProcessEnv {
 }
 
 await mkdir(profileDir, { recursive: true });
+// An adopted server can be importing the file for a new folder: a changed
+// build replaces it in one rename, never by truncation.
+if (
+  (await readFile(safetyPluginPath, "utf8").catch(() => null)) !==
+  safetyPluginText
+) {
+  const next = `${safetyPluginPath}.${process.pid}`;
+  await writeFile(next, safetyPluginText, { mode: 0o600 });
+  await chmod(next, 0o600);
+  await rename(next, safetyPluginPath);
+}
 if (prior && (await adoptable(prior))) {
   const startTicks = readProcessStartTicks(prior.pid);
   if (startTicks) {
@@ -157,6 +190,21 @@ if (prior && (await adoptable(prior))) {
 }
 if (prior) await stop(prior);
 
+// User and project plugins and config load as in a stock install; Isomux's
+// own config is the file layer and, without its MCP headers, the top layer,
+// which also loads the safety plugin last. OpenCode creates and installs into
+// every config folder it is given, so a missing user folder is left out.
+const userConfigDir = openCodeUserConfigDir(process.env);
+const configOverride = JSON.stringify(
+  openCodeConfigOverride(
+    JSON.parse(await readFile(configPath, "utf8")),
+    pathToFileURL(safetyPluginPath).href,
+  ),
+);
+// Before it loads a plugin, OpenCode installs its plugin SDK from npm into
+// every config folder without one. Nothing in the profile's own folder uses
+// it, and the safety plugin imports nothing, so the profile skips the install.
+await markPluginSdkInstalled(join(profileDir, "config", "opencode"));
 let started: ServerRecord | null = null;
 // Retry only when a healthy child exits before its identity can be captured.
 for (let attempt = 0; attempt < 40; attempt++) {
@@ -169,7 +217,6 @@ for (let attempt = 0; attempt < 40; attempt++) {
     binary,
     [
       "serve",
-      "--pure",
       "--hostname",
       "127.0.0.1",
       "--port",
@@ -195,11 +242,13 @@ for (let attempt = 0; attempt < 40; attempt++) {
         XDG_STATE_HOME: join(profileDir, "state"),
         XDG_CACHE_HOME: join(profileDir, "cache"),
         OPENCODE_CONFIG: configPath,
+        OPENCODE_CONFIG_CONTENT: configOverride,
+        OPENCODE_CONFIG_DIR: existsSync(userConfigDir)
+          ? userConfigDir
+          : undefined,
         OPENCODE_DISABLE_AUTOUPDATE: "1",
         // share: "disabled" blocks new shares; this also stops existing-share sync.
         OPENCODE_DISABLE_SHARE: "1",
-        OPENCODE_DISABLE_PROJECT_CONFIG: "1",
-        OPENCODE_DISABLE_CLAUDE_CODE: "1",
         OPENCODE_SERVER_USERNAME: username,
         OPENCODE_SERVER_PASSWORD: password,
       },
@@ -224,6 +273,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
         environmentRevision,
         configRevision,
         startTicks,
+        safetyPlugin,
       };
       if (!keepDebugOutput)
         await rm(debugDir, { recursive: true, force: true });

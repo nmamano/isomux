@@ -266,6 +266,11 @@ choice.
 OpenCode can load project and global configuration, plugins, MCP servers, and
 compatibility files. That is a larger startup surface than an inference API.
 
+Superseded in part on 2026-10-15 (Nil, 2026-10-11: OpenCode should match
+Claude): user and project plugins and config load, and `--pure` is not used.
+The launch contract is in the Security boundaries section of
+[`opencode-oc1-scope.md`](opencode-oc1-scope.md).
+
 The spike must determine what `--pure` disables. The production launch must:
 
 - use `--pure` if it prevents unapproved plugin execution while retaining the

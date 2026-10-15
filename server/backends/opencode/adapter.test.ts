@@ -1,3 +1,4 @@
+import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
 import { afterAll, afterEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,10 +10,12 @@ import {
   createOpenCodeBackend,
   createOpenCodeTracerBackend,
   permissionAgent,
+  OPENCODE_ONE_SHOT_DIR,
 } from "./adapter.ts";
 import { OpenCodeSupervisor } from "./supervisor.ts";
 import { openCodeModelUnavailableFailure } from "./transport.ts";
 import { STATE_ROOT } from "../../config.ts";
+import { AGENT_ROOT } from "../../split/roots.ts";
 import permissionRejectMessage from "./fixtures/permission-reject-message.json";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
@@ -324,7 +327,11 @@ describe("OpenCode pinned transport", () => {
     providerLookupFails = false,
     holdFrames = false,
   ) {
-    const requests: Array<{ path: string; body: string }> = [];
+    const requests: Array<{
+      path: string;
+      body: string;
+      directory: string | null;
+    }> = [];
     const permissionReplies: unknown[] = [];
     let receivedPermissionReply!: () => void;
     const permissionReplyReceived = new Promise<void>((resolve) => {
@@ -347,6 +354,7 @@ describe("OpenCode pinned transport", () => {
         requests.push({
           path: url.pathname,
           body: await request.clone().text(),
+          directory: url.searchParams.get("directory"),
         });
         if (url.pathname === "/provider") {
           if (providerLookupFails)
@@ -411,6 +419,8 @@ describe("OpenCode pinned transport", () => {
             { headers: { "content-type": "text/event-stream" } },
           );
         }
+        if (url.pathname === "/experimental/tool/ids")
+          return Response.json([OPENCODE_SAFETY_TOOL]);
         if (url.pathname.endsWith("/prompt_async")) return Response.json(true);
         if (url.pathname.includes("/permission/") && request.body) {
           permissionReplies.push(await request.json());
@@ -564,6 +574,26 @@ describe("OpenCode pinned transport", () => {
       expect(result).toBe("Topic label");
     });
   }
+
+  it("runs a topic label in the neutral one-shot folder, never the agent's folder", async () => {
+    const harness = oneShotHarness(topicFrames, 2_000);
+    const agentFolder = "/srv/member-project";
+    expect(
+      await harness.backend.oneShotPrompt("label", {
+        cwd: agentFolder,
+        modelFamily: "gate/free",
+      }),
+    ).toBe("Topic label");
+    const folders = new Set(
+      harness.requests.map((request) => request.directory),
+    );
+    expect(folders.has(agentFolder)).toBe(false);
+    expect([...folders]).toEqual([OPENCODE_ONE_SHOT_DIR]);
+    expect(
+      OPENCODE_ONE_SHOT_DIR.startsWith(`${AGENT_ROOT}/`),
+      "in agent space",
+    ).toBe(true);
+  });
 
   for (const modelFamily of ["retired/preference", ""]) {
     it(`skips one-shot marker for unavailable selection ${JSON.stringify(modelFamily)}`, async () => {
@@ -955,6 +985,8 @@ describe("OpenCode pinned transport", () => {
             ],
           });
         }
+        if (url.pathname === "/experimental/tool/ids")
+          return Response.json([OPENCODE_SAFETY_TOOL]);
         if (url.pathname.endsWith("/prompt_async")) {
           const body = (await request.json()) as {
             model?: unknown;

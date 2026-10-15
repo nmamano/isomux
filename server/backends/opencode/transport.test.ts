@@ -1,3 +1,4 @@
+import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
 import { describe, expect, it } from "bun:test";
 import {
   interruptedToolResults,
@@ -55,6 +56,8 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         }
         if (url.pathname === "/provider")
           return Response.json({ connected: [], all: [] });
+        if (url.pathname === "/experimental/tool/ids")
+          return Response.json([OPENCODE_SAFETY_TOOL]);
         if (url.pathname.endsWith("/prompt_async")) {
           const body = (await request.json()) as { system: string };
           systemPayloads.push(body.system);
@@ -295,6 +298,8 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
             ],
           });
         }
+        if (url.pathname === "/experimental/tool/ids")
+          return Response.json([OPENCODE_SAFETY_TOOL]);
         if (url.pathname.endsWith("/prompt_async")) {
           promptBodies.push((await request.json()) as Record<string, unknown>);
           const sessionID = decodeURIComponent(url.pathname.split("/")[2]);
@@ -1291,6 +1296,8 @@ describe("OpenCode permission event integration", () => {
         }
         if (url.pathname === "/provider")
           return Response.json({ connected: connectedProviders });
+        if (url.pathname === "/experimental/tool/ids")
+          return Response.json([OPENCODE_SAFETY_TOOL]);
         if (url.pathname.endsWith("/prompt_async")) return new Response(null);
         if (url.pathname.startsWith("/permission/") && request.body) {
           replies.push(await request.json());
@@ -1771,6 +1778,8 @@ describe("OpenCode permission event integration", () => {
         }
         if (url.pathname === "/provider")
           return Response.json({ connected: [] });
+        if (url.pathname === "/experimental/tool/ids")
+          return Response.json([OPENCODE_SAFETY_TOOL]);
         if (url.pathname.endsWith("/prompt_async")) return new Response(null);
         if (url.pathname.startsWith("/permission/") && request.body) {
           const reply = ((await request.json()) as { reply: unknown }).reply;
@@ -2011,6 +2020,8 @@ describe("OpenCode kept model catalog", () => {
             { headers: { "content-type": "text/event-stream" } },
           );
         }
+        if (url.pathname === "/experimental/tool/ids")
+          return Response.json([OPENCODE_SAFETY_TOOL]);
         if (url.pathname.endsWith("/prompt_async")) {
           promptBodies.push((await request.json()) as Record<string, unknown>);
           const sessionID = decodeURIComponent(url.pathname.split("/")[2]);

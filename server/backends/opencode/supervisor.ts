@@ -1,9 +1,12 @@
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
 import { getAgentHost } from "../../agent-host.ts";
+import { ADMIN_SOCKET_PATH, STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
+import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
 import {
   processIdentityMatches,
@@ -32,11 +35,24 @@ interface ServerRecord {
 export const OPENCODE_CRON_AGENT = "isomux-cron";
 export const OPENCODE_INTERACTIVE_BYPASS_AGENT = "isomux-interactive-bypass";
 
+// OpenCode asks before bash and edit, so Isomux can apply the office policy
+// and the member's approval mode. Every agent Isomux starts sessions with
+// carries the rules: an agent's own block applies after the top-level one, and
+// a user or project default_agent would otherwise pick the agent.
 const DEFAULT_OPENCODE_CONFIG: Record<string, unknown> = {
   autoupdate: false,
   share: "disabled",
-  permission: { bash: "ask", edit: "ask", question: "deny" },
+  default_agent: "build",
+  permission: {
+    bash: "ask",
+    edit: "ask",
+    question: "deny",
+    [OPENCODE_SAFETY_TOOL]: "deny",
+  },
   agent: {
+    build: {
+      permission: { bash: "ask", edit: "ask", question: "deny" },
+    },
     [OPENCODE_INTERACTIVE_BYPASS_AGENT]: {
       description: "Isomux interactive non-asking agent",
       mode: "primary",
@@ -374,6 +390,15 @@ export class OpenCodeSupervisor {
         OPENCODE_SERVER_PASSWORD: password,
         OPENCODE_SERVER_CWD: this.serverCwd,
         OPENCODE_CONFIG: configPath,
+        // After the launch env, which holds the member's variables: the
+        // safety plugin uses this process's roots, as Claude's hook does.
+        OPENCODE_SAFETY_ROOTS: JSON.stringify({
+          home: homedir(),
+          env: {
+            ISOMUX_HOME: STATE_ROOT,
+            ISOMUX_ADMIN_SOCKET: ADMIN_SOCKET_PATH,
+          },
+        }),
         OPENCODE_ENVIRONMENT_REVISION: this.environmentRevision,
         OPENCODE_CONFIG_REVISION: this.configRevision,
         OPENCODE_SERVER_UNRESPONSIVE_PID:
@@ -434,6 +459,9 @@ export class OpenCodeSupervisor {
         // This literal is the NAME=value start-server.ts puts in the child
         // environment (the helper runs as a script, so no import); change both.
         .update("OPENCODE_DISABLE_SHARE=1")
+        // Do not adopt a server launched with --pure, before user and project
+        // config loaded. Names the variable start-server.ts added with them.
+        .update("OPENCODE_CONFIG_CONTENT")
         .digest("hex")
     );
   }
@@ -488,9 +516,10 @@ const environmentSupervisors = new Map<string, OpenCodeSupervisor>();
 // The config file of a profile's server: the defaults and the remote MCP
 // servers Isomux registers (server/mcp-servers.ts). The file is the only
 // channel for their headers: never the server's argv or environment. OpenCode
-// merges config layers deeply, so this is safe only while start-server.ts
-// keeps every other layer out (--pure, OPENCODE_DISABLE_PROJECT_CONFIG and the
-// per-profile HOME and XDG directories); supervisor.test.ts pins them.
+// merges config layers deeply, and user and project config load above this
+// file, so start-server.ts repeats it without the headers in
+// OPENCODE_CONFIG_CONTENT, the top layer (config-layers.ts);
+// supervisor.test.ts pins both.
 export function openCodeConfigFor(
   mcpServers: AgentMcpServer[],
 ): Record<string, unknown> {

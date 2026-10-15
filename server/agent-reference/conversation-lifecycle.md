@@ -6,6 +6,8 @@ Use handoff when context is filling during unfinished work. The brief states onl
 
 Safe example: `POST /api/agents/:id/new-conversation` with `{}`.
 
+A new conversation does not reload OpenCode plugins or config. The member's OpenCode server loads them once per folder, and loads changes after it restarts: when Isomux restarts normally, or when the member's variables change on the Integrations page.
+
 ## Route contract
 
 `POST /api/agents/:id/new-conversation` accepts `{}` or `{"agentType":"claude"|"codex"|"opencode"}` and returns 204 No Content. An unknown `agentType` is ignored and the current/default engine is used. `POST /api/agents/:id/handoff` accepts `{"text":"brief"}` and returns `{"ok":true}` after reset and delivery. Ordinary agents target themselves; privileged/user callers need conversation access. Invalid handoff text returns 422, inaccessible targets return 403, and active/prompt/backend conflicts can return 409/429/500.

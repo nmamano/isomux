@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { logOpenCodeError } from "./errors.ts";
 // OpenCode backend boundary. The production singleton uses the pinned OC1
 // server transport. createOpenCodeTracerBackend remains as the deterministic
@@ -40,6 +41,15 @@ import {
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
 import { inspectOpenCodeStoredSession } from "./storage.ts";
+import { getAgentHost } from "../../agent-host.ts";
+import { AGENT_ROOT } from "../../split/roots.ts";
+
+// The folder topic labels run in. The agent's folder would apply its project
+// config, plugins and AGENTS.md to a labelling call; Claude's one-shot uses a
+// neutral cwd and no settings layers too. It is in agent space: in the default
+// install that is the state root, which the office safety policy keeps agents
+// from writing; in split mode the policy does not cover it.
+export const OPENCODE_ONE_SHOT_DIR = join(AGENT_ROOT, "opencode", "one-shot");
 import {
   formatAttachmentLines,
   resolveAttachmentNotices,
@@ -634,9 +644,10 @@ export function createOpenCodeBackend(
         );
       }
       const supervisor = supervisorFor(opts);
+      await getAgentHost().fs.mkdir(OPENCODE_ONE_SHOT_DIR, 0o777);
       const models = await discoverOpenCodeModels(
         supervisor,
-        opts.cwd ?? "/tmp",
+        OPENCODE_ONE_SHOT_DIR,
       );
       // Topic text must use the same selection as a live session. Never pick
       // a default or another discovered model when that selection is missing.
@@ -648,7 +659,7 @@ export function createOpenCodeBackend(
       const session = new OpenCodeServerSession(
         {
           agentId: "isomux-opencode-one-shot",
-          cwd: opts.cwd ?? "/tmp",
+          cwd: OPENCODE_ONE_SHOT_DIR,
           systemPrompt: opts.systemPrompt ?? "",
           modelFamily: model,
           effort: "high",

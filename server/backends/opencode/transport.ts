@@ -18,6 +18,8 @@ import {
 } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
 import { OpenCodeUnsupportedHostError } from "./runtime.ts";
+import { OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS } from "./server-health.ts";
+import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 import {
   evaluateOpenCodePermission,
@@ -44,6 +46,21 @@ export const OPENCODE_SERVER_STOPPED_FAILURE =
 export const OPENCODE_SERVER_UNRESPONSIVE_FAILURE =
   "The OpenCode server stopped responding during this turn. Send your message again.";
 
+export const OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE =
+  "OpenCode did not load the Isomux safety checks for this folder, so this turn did not run. Tell the office owner and check the isomux service logs.";
+
+export const OPENCODE_FOLDER_SETUP_NOTICE =
+  "OpenCode is installing plugins for this folder. The first turn can take a few minutes.";
+
+export const OPENCODE_FOLDER_SETUP_FAILURE =
+  "OpenCode did not finish setting up this folder in 3 minutes. Send your message again to keep waiting.";
+
+// Before OpenCode loads a plugin it installs its plugin SDK into each config
+// folder that lacks one: 50-83 s for a new project folder, measured
+// 2026-10-15. A server that still answers health during that wait is setting
+// up the folder, not frozen, so the turn waits up to this bound.
+export const OPENCODE_FOLDER_SETUP_LIMIT_MS = 3 * 60_000;
+
 // OpenCode 1.18.35 sends server.heartbeat on /event every 10 s. Local silent
 // provider timeout and 35 s compaction controls measured gaps of 10.000-10.040 s
 // on 2026-10-10. 30 s is three missed heartbeats. The same
@@ -69,6 +86,16 @@ const realDeadlineScheduler: OpenCodeDeadlineScheduler = {
 
 // A failure whose message is already member-facing copy.
 class OpenCodeTurnFailure extends Error {}
+
+// The folder setup bound passed on a server that answers health. The server
+// is not marked: other agents' turns on it are fine, and a replacement would
+// start the setup again.
+class OpenCodeFolderSetupFailure extends OpenCodeTurnFailure {}
+
+// The member stopped the turn before its prompt went out.
+class OpenCodeTurnStopped extends Error {}
+
+type OpenCodeServerProbe = "healthy" | "unhealthy" | "refused" | "silent";
 
 export function openCodeModelUnavailableFailure(model: string): string {
   return `OpenCode cannot use model \`${model}\`: the provider refused this model. Pick another model with \`/model\`.`;
@@ -378,6 +405,8 @@ export class OpenCodeTransport {
   private abortController: AbortController | null = null;
   private activeTurn = false;
   private abortRequested = false;
+  private stopPreStreamWait: (() => void) | null = null;
+  private folderSetupNoticeShown = false;
   // Set when this turn's prompt request starts; a later missed stream
   // deadline then replaces the server even while other turns run on it.
   private promptSent = false;
@@ -520,10 +549,12 @@ export class OpenCodeTransport {
       };
       const body = allowSession(
         withinTurn
-          ? await this.withinDeadline((signal) =>
-              this.request("/session", { ...init, signal }).then((r) =>
-                r.json(),
-              ),
+          ? await this.withinDeadline(
+              (signal) =>
+                this.request("/session", { ...init, signal }).then((r) =>
+                  r.json(),
+                ),
+              { notice: sink },
             )
           : await this.request("/session", init).then((r) => r.json()),
       );
@@ -634,6 +665,7 @@ export class OpenCodeTransport {
       );
       return;
     }
+    this.folderSetupNoticeShown = false;
     try {
       const sessionId = await this.initialize(emit, true);
       await this.lease!.beginTurn();
@@ -653,7 +685,12 @@ export class OpenCodeTransport {
           billedSteps,
         );
       } catch (error) {
-        if (controller.signal.aborted) throw error;
+        if (
+          controller.signal.aborted ||
+          error instanceof OpenCodeTurnStopped ||
+          error instanceof OpenCodeFolderSetupFailure
+        )
+          throw error;
         // No prompt is out yet, so recovery replays nothing. When the guard
         // keeps a live server another turn uses, a missed deadline fails the
         // turn in member words.
@@ -671,6 +708,8 @@ export class OpenCodeTransport {
           billedSteps,
         );
       }
+      if (settled) return;
+      await this.requireSafetyPlugin(controller.signal, emit);
       if (settled) return;
       // After beginTurn and recovery, which can each replace the server.
       const { variant, notice } = await this.resolveEffort();
@@ -700,11 +739,21 @@ export class OpenCodeTransport {
       );
       this.contractShapeSink?.("http:prompt_async:success");
     } catch (error) {
+      if (error instanceof OpenCodeTurnStopped) {
+        emit({ kind: "turn_completed", status: "interrupted" });
+        return;
+      }
       fail(error, "OpenCode turn failed");
     }
   }
 
   async abort(): Promise<void> {
+    // No prompt is out during a pre-stream wait, so OpenCode has nothing to
+    // abort, and a request to this folder would wait on its setup too.
+    if (this.stopPreStreamWait) {
+      this.stopPreStreamWait();
+      return;
+    }
     if (!this.sessionId) return;
     this.abortRequested = true;
     await this.rejectPendingPermission();
@@ -804,7 +853,7 @@ export class OpenCodeTransport {
     const serverPid = lease.pid;
     const response = await this.withinDeadline(
       (bounded) => this.request("/event", { signal: bounded }),
-      { signal },
+      { signal, notice: sink },
     );
     if (!response.body) throw new Error("OpenCode event stream has no body.");
     const reader = response.body.getReader();
@@ -846,8 +895,8 @@ export class OpenCodeTransport {
         void reader.cancel().catch(() => undefined);
       }, this.eventStreamDeadlineMs);
     };
-    const streamFailure = (error: unknown): unknown =>
-      lease.serverStopped(serverPid)
+    const streamFailure = async (error: unknown): Promise<unknown> =>
+      (await this.serverGone(lease, serverPid))
         ? new OpenCodeTurnFailure(OPENCODE_SERVER_STOPPED_FAILURE, {
             cause: error,
           })
@@ -1089,14 +1138,16 @@ export class OpenCodeTransport {
           }
         }
         if (!signal.aborted) {
-          fail(
-            streamFailure(new Error()),
-            "OpenCode event stream ended before turn completion",
-          );
+          this.deadlineScheduler.clearTimeout(deadline);
+          const failure = await streamFailure(new Error());
+          if (!signal.aborted)
+            fail(failure, "OpenCode event stream ended before turn completion");
         }
       } catch (error) {
         if (!signal.aborted) {
-          fail(streamFailure(error), "OpenCode event stream failed");
+          this.deadlineScheduler.clearTimeout(deadline);
+          const failure = await streamFailure(error);
+          if (!signal.aborted) fail(failure, "OpenCode event stream failed");
         }
       } finally {
         this.deadlineScheduler.clearTimeout(deadline);
@@ -1106,6 +1157,18 @@ export class OpenCodeTransport {
     // lets the loop settle what the stream already holds (an early failure)
     // before the caller submits the prompt.
     await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  // A killed server resets its streams before the kernel reaps its process,
+  // so the process check alone can still find it running (task e68394c4). A
+  // server that refuses a new connection has stopped too.
+  private async serverGone(
+    lease: OpenCodeLease,
+    pid: number,
+  ): Promise<boolean> {
+    if (lease.serverStopped(pid)) return true;
+    if ((await this.probeServer(lease)) === "refused") return true;
+    return lease.serverStopped(pid);
   }
 
   private async replyPermission(
@@ -1159,10 +1222,12 @@ export class OpenCodeTransport {
 
   // A request a turn makes before its stream reads. A frozen server accepts
   // the connection and never answers, so only this bound reaches the mark.
-  // The bounded signal follows the turn's signal for the response lifetime.
+  // At the bound, a server that answers health is setting up the folder: the
+  // same request keeps waiting, up to the folder setup bound. The bounded
+  // signal follows the turn's signal for the response lifetime.
   private async withinDeadline<T>(
     work: (signal: AbortSignal) => Promise<T>,
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; notice?: EventSink } = {},
   ): Promise<T> {
     const lease = this.lease!;
     const serverPid = lease.pid;
@@ -1171,19 +1236,107 @@ export class OpenCodeTransport {
     options.signal?.addEventListener("abort", () => bounded.abort(), {
       once: true,
     });
-    let timedOut = false;
-    const timer = this.deadlineScheduler.setTimeout(() => {
-      timedOut = true;
+    let expired: "unresponsive" | "setup" | null = null;
+    let stopped = false;
+    let waiting = true;
+    const stop = () => {
+      stopped = true;
       bounded.abort();
+    };
+    this.stopPreStreamWait = stop;
+    const expire = (reason: "unresponsive" | "setup") => {
+      if (!waiting) return;
+      expired = reason;
+      bounded.abort();
+    };
+    let timer = this.deadlineScheduler.setTimeout(() => {
+      void this.probeServer(lease)
+        .then((probe) => {
+          if (!waiting) return;
+          if (probe !== "healthy") {
+            expire("unresponsive");
+            return;
+          }
+          if (!this.folderSetupNoticeShown) {
+            this.folderSetupNoticeShown = true;
+            try {
+              options.notice?.({
+                kind: "system_text",
+                text: OPENCODE_FOLDER_SETUP_NOTICE,
+                isomuxAuthored: true,
+              });
+            } catch {
+              /* A notice cannot end the wait. */
+            }
+          }
+          timer = this.deadlineScheduler.setTimeout(
+            () => expire("setup"),
+            OPENCODE_FOLDER_SETUP_LIMIT_MS - this.eventStreamDeadlineMs,
+          );
+        })
+        // Not expected: the wait then ends as at a server that is not healthy.
+        .catch(() => expire("unresponsive"));
     }, this.eventStreamDeadlineMs);
     try {
-      return await work(bounded.signal);
+      const result = await work(bounded.signal);
+      // A stop that landed after the answer and before this line.
+      if (stopped) throw new OpenCodeTurnStopped();
+      return result;
     } catch (error) {
-      if (!timedOut) throw error;
+      if (stopped) throw new OpenCodeTurnStopped();
+      if (expired === "setup")
+        throw new OpenCodeFolderSetupFailure(OPENCODE_FOLDER_SETUP_FAILURE, {
+          cause: error,
+        });
+      if (expired !== "unresponsive") throw error;
       lease.markUnresponsive(serverPid, false);
       throw new OpenCodeTurnFailure(OPENCODE_SERVER_UNRESPONSIVE_FAILURE, {
         cause: error,
       });
+    } finally {
+      waiting = false;
+      if (this.stopPreStreamWait === stop) this.stopPreStreamWait = null;
+      this.deadlineScheduler.clearTimeout(timer);
+    }
+  }
+
+  // OpenCode only logs a plugin that fails to load. A folder whose tools lack
+  // the safety plugin's tool runs no prompt.
+  private async requireSafetyPlugin(
+    signal: AbortSignal,
+    notice: EventSink,
+  ): Promise<void> {
+    const ids: unknown = await this.withinDeadline(
+      (bounded) =>
+        this.request("/experimental/tool/ids", { signal: bounded }).then((r) =>
+          r.json(),
+        ),
+      { signal, notice },
+    );
+    if (!Array.isArray(ids) || !ids.includes(OPENCODE_SAFETY_TOOL))
+      throw new OpenCodeTurnFailure(OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE);
+  }
+
+  // One health request, bounded by the adoption health timeout on the
+  // deadline scheduler. "refused" is a failed connection: a killed server
+  // closes its listener with its streams.
+  private async probeServer(
+    lease: OpenCodeLease,
+  ): Promise<OpenCodeServerProbe> {
+    const probe = new AbortController();
+    const timer = this.deadlineScheduler.setTimeout(
+      () => probe.abort(),
+      OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS,
+    );
+    try {
+      const response = await fetch(new URL("/global/health", lease.baseUrl), {
+        headers: { authorization: lease.authHeader },
+        signal: probe.signal,
+      });
+      await response.body?.cancel().catch(() => undefined);
+      return response.ok ? "healthy" : "unhealthy";
+    } catch {
+      return probe.signal.aborted ? "silent" : "refused";
     } finally {
       this.deadlineScheduler.clearTimeout(timer);
     }

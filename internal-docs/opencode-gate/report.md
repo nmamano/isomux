@@ -99,7 +99,10 @@ mock received no real credential.
 - Change the launch contract to require all three startup controls:
   `--pure`, `OPENCODE_DISABLE_PROJECT_CONFIG=1`, and
   `OPENCODE_DISABLE_CLAUDE_CODE=1`. An allowlisted global config can then add
-  only Isomux-approved providers and MCP servers.
+  only Isomux-approved providers and MCP servers. Reversed on 2026-10-15
+  (Nil, 2026-10-11: OpenCode should match Claude): the launch sets none of the
+  three, and user and project plugins and config load. See the Security
+  boundaries section of `../opencode-oc1-scope.md`.
 - Redact structured provider errors before they reach Isomux JSONL or LogView.
   OpenCode passes arbitrary response headers through unchanged.
 - Put the durable OpenCode profile below Isomux `STATE_ROOT`, or extend the

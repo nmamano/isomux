@@ -51,4 +51,7 @@ An explicit absolute provider directory in the managed variables still overrides
 ```text
 CLAUDE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/.claude
 CODEX_HOME=/home/<linux-user>/.isomux-users/<user>/.codex
+OPENCODE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/opencode
 ```
+
+OpenCode agents load user-level plugins and config from `OPENCODE_CONFIG_DIR`, else from `~/.config/opencode` of the OS user that runs the agents. Isomux's own OpenCode settings take precedence. Your OpenCode server loads plugins and config once per folder, and loads changes after it restarts: when Isomux restarts normally, or when your variables change on the Integrations page.

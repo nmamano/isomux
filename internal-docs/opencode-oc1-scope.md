@@ -124,12 +124,69 @@ The security requirements in
 [`opencode-backend-scope.md`](opencode-backend-scope.md) apply in full. This
 section adds the boundaries the gate forced.
 
-All OpenCode launches go through one supervisor-owned spawn builder. It always
-sets the three code-loading controls together:
+All OpenCode launches go through one supervisor-owned spawn builder. Since
+2026-10-15 it loads user and project plugins and config, as Claude agents do
+(Nil, 2026-10-11: OpenCode should match Claude). It no longer sets `--pure`,
+`OPENCODE_DISABLE_PROJECT_CONFIG=1` or `OPENCODE_DISABLE_CLAUDE_CODE=1`. The
+config layers in OpenCode 1.18.35, lowest first:
 
-- `--pure`
-- `OPENCODE_DISABLE_PROJECT_CONFIG=1`
-- `OPENCODE_DISABLE_CLAUDE_CODE=1`
+1. The profile's own XDG config directory.
+2. `OPENCODE_CONFIG`: Isomux's per-profile file. It is the only layer that
+   holds the MCP header values.
+3. Project `opencode.json` and `opencode.jsonc`, from the agent's directory up
+   to the worktree root.
+4. `.opencode` directories in the project, and then the member's user config
+   directory as `OPENCODE_CONFIG_DIR`: the member's `OPENCODE_CONFIG_DIR`
+   variable when it is an absolute path, else `$XDG_CONFIG_HOME/opencode` or
+   `~/.config/opencode` of the agents' OS user. A directory that does not
+   exist is left out, because OpenCode would create it and install into it.
+5. `OPENCODE_CONFIG_CONTENT`: Isomux's file again, without the MCP headers,
+   plus the Isomux safety plugin as the last plugin.
+
+The profile keeps its own HOME and XDG directories, so credentials and data
+stay per member. The user config directory merges above project config, not
+below it as in a stock install. Isomux's top layer wins key by key: its
+permission blocks (top level, `build` and the `isomux-*` agents) and
+`default_agent: "build"` set when OpenCode asks the member. User and project
+config can still relax that (a `"*"` rule after `bash`, a `mode` block, which
+OpenCode merges into the agents after the top layer). They cannot turn off the
+safety policy.
+
+The office safety policy does not depend on the asks. The Isomux safety plugin
+(`safety-plugin.ts`) runs the policy in `tool.execute.before` on every bash,
+read, grep, edit, write and apply_patch call and throws on a deny, as Claude's
+PreToolUse hook denies. OpenCode runs plugin hooks in load order, and the top
+layer puts this one last, so it checks the arguments after any user or project
+plugin changed them. Config cannot remove it: plugin lists from all layers are
+joined, and a duplicate entry keeps its last position. A project config that
+OpenCode rejects fails the whole folder with HTTP 400. `start-server.ts`
+bundles the plugin at each server start into the profile, with the Isomux
+server's home, state root and admin socket baked in: OpenCode runs with the
+profile's HOME, and its environment holds the member's variables. A server
+that loaded another build is not adopted. OpenCode only logs a plugin that
+fails to load, so the plugin registers a tool (`isomux_safety_active`, denied
+to the model), and the transport runs no prompt in a folder whose
+`/experimental/tool/ids` lacks it. 1.18.35 declares a `permission.ask` plugin hook but never
+calls it. Plugins are code with the member's trust, as Claude hooks are: a
+plugin that runs a command itself is outside any policy.
+
+OpenCode reads plugins and config once per folder per server. A change takes
+effect when the member's server restarts: when Isomux stops normally (an
+unclean stop leaves it running, and the next boot adopts it), 10 minutes
+after its last session lease is released, or when the member's environment
+revision changes. A new conversation does not reload it,
+and Isomux never disposes a folder instance (`POST /instance/dispose`) under
+other agents (Lead, 2026-10-15). Topic labels run in a neutral folder in agent
+space, so project config and plugins do not apply to them; user-level plugins
+still do, because the server loads them for every folder.
+
+Before it loads any plugin, OpenCode installs its plugin SDK from npm into
+every config folder without one: 50-83 s for a new project `.opencode` folder,
+measured 2026-10-15. The safety plugin makes that wait apply to every server,
+so `start-server.ts` marks the SDK installed in the profile's own folder, which
+holds no plugin that needs it. A turn whose pre-stream request passes the 30 s
+deadline while the server answers health keeps waiting up to 3 minutes, with
+one notice, and the server is not replaced.
 
 Automatic updates are a separate control. The builder also sets
 `OPENCODE_DISABLE_AUTOUPDATE=1` and writes `autoupdate=false` in the approved

@@ -1,9 +1,14 @@
+import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
 import { afterEach, expect, it, spyOn } from "bun:test";
 import { createOpenCodeBackend } from "./adapter.ts";
 import {
   discoverOpenCodeModels,
   OPENCODE_CATALOG_LOAD_LIMIT_MS,
   OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
+  OPENCODE_FOLDER_SETUP_FAILURE,
+  OPENCODE_FOLDER_SETUP_LIMIT_MS,
+  OPENCODE_FOLDER_SETUP_NOTICE,
+  OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE,
   OPENCODE_SERVER_STOPPED_FAILURE,
   OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
   openCodeEffortUnavailableNotice,
@@ -11,6 +16,7 @@ import {
   type SafeOpenCodeError,
 } from "./transport.ts";
 import type { OpenCodeSupervisor } from "./supervisor.ts";
+import { OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS as PROBE_MS } from "./server-health.ts";
 import type { NormalizedEvent } from "../types.ts";
 import { createAgentManager } from "../../agent-manager.ts";
 import { OfficeState } from "../../../shared/office-state.ts";
@@ -91,6 +97,8 @@ function fixture(stage: Stage, onPrompt = () => {}) {
         }),
       );
     }
+    if (url.pathname === "/experimental/tool/ids")
+      return Response.json([OPENCODE_SAFETY_TOOL]);
     if (url.pathname.endsWith("/prompt_async")) {
       prompts++;
       if (stage === "late-permission") {
@@ -316,6 +324,8 @@ it("retries one refused event subscription before submitting one prompt, then re
         }),
       );
     }
+    if (url.pathname === "/experimental/tool/ids")
+      return Response.json([OPENCODE_SAFETY_TOOL]);
     if (url.pathname.endsWith("/prompt_async")) {
       prompts++;
       stream!.enqueue(
@@ -615,6 +625,16 @@ async function settleUntil(condition: () => boolean): Promise<void> {
 }
 
 const DEADLINE_MS = 1_000;
+
+// The pre-stream deadline on a frozen server: the bound, and then the bound of
+// the health probe it sends.
+async function missPreStreamDeadline(
+  clock: ReturnType<typeof drivenClock>,
+): Promise<void> {
+  clock.advance(DEADLINE_MS);
+  await settleUntil(() => false);
+  clock.advance(PROBE_MS);
+}
 const frame = (event: object) =>
   new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
 const heartbeat = () => frame({ type: "server.heartbeat", properties: {} });
@@ -628,15 +648,26 @@ function drivenServer(
     holdEvent?: "first" | "always";
     holdReply?: boolean;
     failStreamAtPrompt?: boolean;
+    // How /global/health answers. A frozen server (a held session or event
+    // request) accepts the connection and never answers; a killed one that
+    // is not reaped yet refuses it.
+    health?: "healthy" | "silent" | "refused";
+    // false: the safety plugin did not load, so its tool is missing.
+    safetyPlugin?: boolean;
     variants?: () => Record<string, unknown>;
   } = {},
 ) {
+  const health =
+    options.health ??
+    (options.holdSession || options.holdEvent ? "silent" : "healthy");
+  const heldEvents: (() => void)[] = [];
   const heldProviders: (() => void)[] = [];
   let providerAborts = 0;
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
   let releaseReply: (() => void) | undefined;
   let providerRequests = 0;
   let eventRequests = 0;
+  let healthRequests = 0;
   const requested = new Set<string>();
   const promptBodies: Record<string, unknown>[] = [];
   const hold = (init?: RequestInit) =>
@@ -687,33 +718,47 @@ function drivenServer(
     }
     if (url.pathname === "/event") {
       eventRequests++;
+      const respond = () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              stream = controller;
+              controller.enqueue(
+                frame({ type: "server.connected", properties: {} }),
+              );
+              init?.signal?.addEventListener(
+                "abort",
+                () => {
+                  try {
+                    controller.close();
+                  } catch {
+                    /* Already failed or closed. */
+                  }
+                },
+                { once: true },
+              );
+            },
+          }),
+        );
       if (
         options.holdEvent === "always" ||
         (options.holdEvent === "first" && eventRequests === 1)
       )
-        return hold(init);
-      return new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            stream = controller;
-            controller.enqueue(
-              frame({ type: "server.connected", properties: {} }),
-            );
-            init?.signal?.addEventListener(
-              "abort",
-              () => {
-                try {
-                  controller.close();
-                } catch {
-                  /* Already failed or closed. */
-                }
-              },
-              { once: true },
-            );
-          },
-        }),
-      );
+        // Held until aborted, or answered late by releaseEvent.
+        return new Promise<Response>((resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+          heldEvents.push(() => resolve(respond()));
+        });
+      return respond();
     }
+    if (url.pathname === "/experimental/tool/ids")
+      return Response.json(
+        options.safetyPlugin === false ? ["bash"] : [OPENCODE_SAFETY_TOOL],
+      );
     if (url.pathname.endsWith("/prompt_async")) {
       promptBodies.push(JSON.parse(init?.body as string));
       if (options.failStreamAtPrompt) stream!.error(failure);
@@ -736,11 +781,21 @@ function drivenServer(
       await new Promise<void>((resolve) => (releaseReply = resolve));
       return Response.json(true);
     }
+    if (url.pathname === "/global/health") {
+      healthRequests++;
+      if (health === "silent") return hold(init);
+      if (health === "refused")
+        throw Object.assign(new TypeError("Unable to connect."), {
+          code: "ConnectionRefused",
+        });
+    }
     return Response.json(true);
   }) as typeof fetch);
   return {
     requested: (path: string) => requested.has(path),
     eventRequests: () => eventRequests,
+    healthRequests: () => healthRequests,
+    releaseEvent: () => heldEvents.splice(0).forEach((answer) => answer()),
     providerRequests: () => providerRequests,
     providerAborts: () => providerAborts,
     releaseProvider: () =>
@@ -915,7 +970,7 @@ it("recovers once before the prompt when the event stream headers miss the deadl
     await settleUntil(() => server.requested("/event"));
     expect(server.eventRequests(), "the subscription is pending").toBe(1);
     expect(turn.completions).toEqual([]);
-    clock.advance(DEADLINE_MS);
+    await missPreStreamDeadline(clock);
     await settleUntil(() => server.promptBodies.length > 0);
     expect(turn.marked).toEqual([{ pid: 4242, afterPrompt: false }]);
     expect(turn.recoveries()).toBe(1);
@@ -939,11 +994,11 @@ it("fails in member words when the recovered subscription also misses the deadli
   try {
     void turn.send();
     await settleUntil(() => server.eventRequests() === 1);
-    clock.advance(DEADLINE_MS);
+    await missPreStreamDeadline(clock);
     await settleUntil(() => server.eventRequests() === 2);
     expect(server.eventRequests(), "one retry after recovery").toBe(2);
     expect(turn.completions).toEqual([]);
-    clock.advance(DEADLINE_MS);
+    await missPreStreamDeadline(clock);
     await settleUntil(() => turn.completions.length > 0);
     expect(turn.completions).toEqual([unresponsive]);
     expect(turn.recoveries()).toBe(1);
@@ -969,7 +1024,7 @@ it("fails in member words when the guard blocks recovery after a missed subscrip
     void turn.send();
     await settleUntil(() => server.requested("/event"));
     expect(server.eventRequests(), "the subscription is pending").toBe(1);
-    clock.advance(DEADLINE_MS);
+    await missPreStreamDeadline(clock);
     await settleUntil(() => turn.completions.length > 0);
     expect(turn.recoveries(), "recovery was attempted").toBe(1);
     expect(turn.completions).toEqual([unresponsive]);
@@ -994,9 +1049,16 @@ it("fails a turn whose new session request never answers and marks its server", 
     );
     expect(turn.completions).toEqual([]);
     clock.advance(DEADLINE_MS);
+    await settleUntil(() => server.healthRequests() > 0);
+    expect(server.healthRequests(), "one health probe at the bound").toBe(1);
+    clock.advance(PROBE_MS - 1);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions, "waits for the probe bound").toEqual([]);
+    clock.advance(1);
     await settleUntil(() => turn.completions.length > 0);
     expect(turn.completions).toEqual([unresponsive]);
     expect(turn.marked).toEqual([{ pid: 4242, afterPrompt: false }]);
+    expect(turn.notices, "no setup notice on a frozen server").toEqual([]);
     expect(server.requested("/event"), "no subscription").toBe(false);
   } finally {
     turn.transport.close();
@@ -1171,7 +1233,7 @@ it("resolves the effort on the server that pre-prompt recovery replaced", async 
   try {
     void turn.send();
     await settleUntil(() => server.requested("/event"));
-    clock.advance(DEADLINE_MS);
+    await missPreStreamDeadline(clock);
     await settleUntil(() => server.promptBodies.length > 0);
     expect(turn.recoveries()).toBe(1);
     expect(catalogReads.at(-1), "the prompt's server was read").toBe("new");
@@ -1200,6 +1262,178 @@ it("sends no prompt when the member stops the turn during the catalog wait", asy
       { kind: "turn_completed", status: "interrupted" },
     ]);
     expect(server.promptBodies, "no prompt").toHaveLength(0);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("keeps waiting on the same request past the deadline while the server answers health, and completes", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdEvent: "first", health: "healthy" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    void turn.send();
+    await settleUntil(() => server.requested("/event"));
+    clock.advance(DEADLINE_MS);
+    await settleUntil(() => turn.notices.length > 0);
+    clock.advance(60_000);
+    await settleUntil(() => false);
+    expect(turn.completions, "still waiting a minute later").toEqual([]);
+    server.releaseEvent();
+    await settleUntil(() => server.promptBodies.length > 0);
+    server.complete();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toMatchObject([{ status: "completed" }]);
+    expect(turn.marked, "the server is not marked").toEqual([]);
+    expect(turn.recoveries(), "no recovery").toBe(0);
+    expect(server.eventRequests(), "the request is never sent again").toBe(1);
+    expect(turn.notices, "one notice").toEqual([OPENCODE_FOLDER_SETUP_NOTICE]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("fails at the folder setup bound without marking the server or recovering", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdEvent: "always", health: "healthy" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    void turn.send();
+    await settleUntil(() => server.requested("/event"));
+    clock.advance(DEADLINE_MS);
+    await settleUntil(() => turn.notices.length > 0);
+    clock.advance(OPENCODE_FOLDER_SETUP_LIMIT_MS - DEADLINE_MS - 1);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions, "still waiting before the bound").toEqual([]);
+    clock.advance(1);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([
+      {
+        kind: "turn_completed",
+        status: "failed",
+        error: OPENCODE_FOLDER_SETUP_FAILURE,
+      },
+    ]);
+    expect(turn.marked).toEqual([]);
+    expect(turn.recoveries()).toBe(0);
+    expect(server.eventRequests()).toBe(1);
+    expect(server.promptBodies, "no prompt").toEqual([]);
+    expect(turn.notices).toEqual([OPENCODE_FOLDER_SETUP_NOTICE]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("ends the turn as stopped when the member stops it during a folder setup wait", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdEvent: "always", health: "healthy" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    void turn.send();
+    await settleUntil(() => server.requested("/event"));
+    clock.advance(DEADLINE_MS);
+    await settleUntil(() => turn.notices.length > 0);
+    clock.advance(60_000);
+    await turn.transport.abort();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([
+      { kind: "turn_completed", status: "interrupted" },
+    ]);
+    expect(turn.marked).toEqual([]);
+    expect(turn.recoveries()).toBe(0);
+    expect(server.requested("/session/driven/abort"), "no abort request").toBe(
+      false,
+    );
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("fails the turn before its prompt when the folder's tools lack the safety plugin", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ safetyPlugin: false });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([
+      {
+        kind: "turn_completed",
+        status: "failed",
+        error: OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE,
+      },
+    ]);
+    expect(server.promptBodies, "no prompt").toEqual([]);
+    expect(turn.marked).toEqual([]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("keeps the transport text for a stream failure while the server answers health", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ failStreamAtPrompt: true, health: "healthy" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toMatchObject([
+      { status: "failed", error: expect.stringContaining("event stream") },
+    ]);
+    expect(turn.completions[0]?.error).not.toBe(
+      OPENCODE_SERVER_STOPPED_FAILURE,
+    );
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("keeps the transport text for a stream failure when the health probe times out", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ failStreamAtPrompt: true, health: "silent" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await settleUntil(() => server.healthRequests() > 0);
+    expect(turn.completions, "waits for the probe").toEqual([]);
+    clock.advance(PROBE_MS);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toMatchObject([
+      { status: "failed", error: expect.stringContaining("event stream") },
+    ]);
+    expect(turn.completions[0]?.error).not.toBe(
+      OPENCODE_SERVER_STOPPED_FAILURE,
+    );
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("reports a stream failure in member words when the server is dying but its process is not reaped yet", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    failStreamAtPrompt: true,
+    health: "refused",
+  });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([
+      {
+        kind: "turn_completed",
+        status: "failed",
+        error: OPENCODE_SERVER_STOPPED_FAILURE,
+      },
+    ]);
+    expect(turn.errors).toEqual([{ name: "Error", code: "ConnectionRefused" }]);
   } finally {
     turn.transport.close();
     server.restore();
