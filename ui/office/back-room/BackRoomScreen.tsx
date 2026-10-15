@@ -62,8 +62,8 @@ const LADDER_FROM_END = 1.6;
 // The board: its smallest width, its fonts, and its span on the right wall in
 // tiles (from near the back corner to short of the ladder).
 const BOARD_W = 120;
-const BOARD_TITLE_FONT = 13;
-const BOARD_COUNT_FONT = 18;
+const BOARD_TITLE_FONT = 10;
+const BOARD_COUNT_FONT = 13;
 const BOARD_C0 = 0.45;
 const BOARD_LADDER_GAP = 0.35;
 
@@ -749,7 +749,7 @@ export function BackRoomScreen({
                 />
                 <text
                   x={boardW / 2}
-                  y={22}
+                  y={25}
                   textAnchor="middle"
                   fontSize={BOARD_TITLE_FONT}
                   fill="rgba(255,255,255,0.85)"
@@ -759,7 +759,7 @@ export function BackRoomScreen({
                 </text>
                 <text
                   x={boardW / 2}
-                  y={48}
+                  y={45}
                   textAnchor="middle"
                   fontSize={BOARD_COUNT_FONT}
                   fontWeight={700}
