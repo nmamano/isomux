@@ -58,7 +58,9 @@ import { useI18n } from "../i18n.tsx";
 import { useViewport } from "./useViewport.ts";
 import { ZoomControls } from "./ZoomControls.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
-import { DESK_COUNT } from "../../shared/desks.ts";
+import { DESK_COUNT, BACK_ROOM_SEATS, isBackSeat } from "../../shared/desks.ts";
+import { TrapDoor, type BackRoomAttention } from "./TrapDoor.tsx";
+import { BackRoomScreen } from "./back-room/BackRoomScreen.tsx";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
 import { inDefaultTaskList } from "../../shared/task-board.ts";
 
@@ -142,6 +144,14 @@ export interface ViewportControls {
 interface OfficeViewProps {
   onSpawn: (deskIndex: number) => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
+  /** Opens the current room's back room screen (the trap door). */
+  onOpenBackRoom?: () => void;
+  /** True while the current room's back room screen shows in place of the
+   *  front scene. */
+  backRoomOpen?: boolean;
+  onCloseBackRoom?: () => void;
+  /** Opens the spawn dialog for a back room seat. */
+  onSpawnBack?: () => void;
   // The single settings door in the bar.
   onOpenSettings: () => void;
   // Click on a ghost: open user settings preopened to that user. Distinct
@@ -173,6 +183,10 @@ interface OfficeViewProps {
 export function OfficeView({
   onSpawn,
   onContextMenu,
+  onOpenBackRoom,
+  backRoomOpen,
+  onCloseBackRoom,
+  onSpawnBack,
   onOpenSettings,
   onOpenUserSettingsForUser,
   onEditOfficePrompt,
@@ -353,6 +367,25 @@ export function OfficeView({
   ]);
 
   const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
+  // The back room is drawn on its own screen; the front view shows only the
+  // desks, and its counts are the front's (task 5b503e32).
+  const frontAgents = roomAgents.filter((a) => !isBackSeat(a.desk));
+  const backAgents = roomAgents.filter((a) => isBackSeat(a.desk));
+  const backAttention: BackRoomAttention = {
+    agents: backAgents.length,
+    working: backAgents.filter(
+      (a) => a.state === "thinking" || a.state === "tool_executing",
+    ).length,
+    unread: backAgents.filter((a) => needsAttention.has(a.id)).length,
+    asking: backAgents.filter((a) => a.pendingPrompt != null).length,
+    error: backAgents.filter((a) => a.state === "error").length,
+  };
+  // A room takes no more agents only when its front and back room are full.
+  const roomIsFull = (roomId: string) => {
+    const inRoom = agents.filter((x) => x.roomId === roomId);
+    const back = inRoom.filter((x) => isBackSeat(x.desk)).length;
+    return inRoom.length - back >= DESK_COUNT && back >= BACK_ROOM_SEATS;
+  };
   // Final ghost placement list - natural desk / lobby positions, plus
   // door-slide overrides for ghosts whose presence just crossed into / out
   // of our current room. The hook owns all per-ghost coordinate state;
@@ -374,7 +407,10 @@ export function OfficeView({
   const [rightDoorDragOver, setRightDoorDragOver] = useState(false);
   const [leftDoorReject, setLeftDoorReject] = useState(false);
   const [rightDoorReject, setRightDoorReject] = useState(false);
-  const counts = getRoomCounts(roomAgents);
+  // The header counts what the screen draws: the back room's agents on its
+  // screen, the front's otherwise.
+  const showBackRoom = !!backRoomOpen && !lobbyOpen && !!currentRoomId;
+  const counts = getRoomCounts(showBackRoom ? backAgents : frontAgents);
 
   const officeActions: NavAction[] = [
     {
@@ -591,262 +627,239 @@ export function OfficeView({
       <div
         style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}
       >
-        {/* touch-action: none keeps iOS from turning one-finger drags into page scroll.
-          Room-swipe still works because that hook reads touch coordinates directly. */}
-        <div
-          ref={attachContainer}
-          style={{
-            flex: 1,
-            position: "relative",
-            overflow: "hidden",
-            touchAction: "none",
-          }}
-        >
-          {/* Ambient gradients */}
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background:
-                "radial-gradient(ellipse at 50% 30%, var(--ambient-1) 0%, transparent 50%), radial-gradient(ellipse at 25% 65%, var(--ambient-2) 0%, transparent 35%), radial-gradient(ellipse at 75% 65%, var(--ambient-3) 0%, transparent 35%)",
-              pointerEvents: "none",
-            }}
+        {showBackRoom ? (
+          <BackRoomScreen
+            roomName={rooms.find((r) => r.id === currentRoomId)?.name ?? ""}
+            agents={backAgents}
+            needsAttention={needsAttention}
+            isMobile={isMobile}
+            onBack={() => onCloseBackRoom?.()}
+            onSpawn={() => onSpawnBack?.()}
+            onOpenAgent={(agentId) => dispatch({ type: "focus", agentId })}
+            onContextMenu={onContextMenu}
           />
-
-          {/* Viewport layer - zoom/pan transform applies here, wrapping the centered scene */}
+        ) : (
+          /* touch-action: none keeps iOS from turning one-finger drags into page scroll.
+          Room-swipe still works because that hook reads touch coordinates directly. */
           <div
-            // viewport.setScene is a stable callback from useViewport.
-            // eslint-disable-next-line react-hooks/refs
-            ref={viewport.setScene}
+            ref={attachContainer}
             style={{
-              position: "absolute",
-              inset: 0,
-              transformOrigin: "0 0",
+              flex: 1,
+              position: "relative",
+              overflow: "hidden",
+              touchAction: "none",
             }}
           >
-            {/* Centered scene container - static centering transform */}
+            {/* Ambient gradients */}
             <div
-              // viewport.setContent: same stable-callback pattern as setScene above.
-              // eslint-disable-next-line react-hooks/refs
-              ref={viewport.setContent}
               style={{
-                // Custom properties are legal in an inline style but absent
-                // from CSSProperties, the same cast Ghost.tsx makes.
-                ...(skinVars as React.CSSProperties),
                 position: "absolute",
-                left: "50%",
-                top: embed
-                  ? isMobile
-                    ? "55%"
-                    : "64%"
-                  : isMobile
-                    ? "45%"
-                    : "50%",
-                transform: embed
-                  ? `translate(-50%, -50%) scale(${isMobile ? mobileScale * 0.85 : 0.9})`
-                  : isMobile
-                    ? `translate(-50%, -50%) scale(${mobileScale})`
-                    : "translate(-50%, -50%)",
-                transformOrigin: "center center",
-                width: SCENE_W,
-                height: SCENE_H,
+                inset: 0,
+                background:
+                  "radial-gradient(ellipse at 50% 30%, var(--ambient-1) 0%, transparent 50%), radial-gradient(ellipse at 25% 65%, var(--ambient-2) 0%, transparent 35%), radial-gradient(ellipse at 75% 65%, var(--ambient-3) 0%, transparent 35%)",
+                pointerEvents: "none",
+              }}
+            />
+
+            {/* Viewport layer - zoom/pan transform applies here, wrapping the centered scene */}
+            <div
+              // viewport.setScene is a stable callback from useViewport.
+              // eslint-disable-next-line react-hooks/refs
+              ref={viewport.setScene}
+              style={{
+                position: "absolute",
+                inset: 0,
+                transformOrigin: "0 0",
               }}
             >
-              {lobbyOpen ? (
-                <LobbyScene
-                  ownConnectionId={sessionContext?.connectionId ?? null}
-                  presences={presences}
-                  onMoveGhost={
-                    sessionContext &&
-                    presences.some(
-                      (p) =>
-                        p.connectionId === sessionContext.connectionId &&
-                        p.currentRoomId === LOBBY_ROOM_ID,
-                    )
-                      ? (spotId) => send({ type: "lobby_move", spotId })
-                      : undefined
-                  }
-                  onOpenUser={onOpenUserSettingsForUser}
-                  rooms={rooms.map((r) => ({ id: r.id, name: r.name }))}
-                  officeName={office.name}
-                  star={lobbyStar}
-                  mode={mode}
-                  layout="nilo"
-                  receptionist={
-                    /* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */
-                    receptionist ? (
-                      <ReceptionistFigure
-                        agent={receptionist}
-                        needsAttention={needsAttention.has(receptionist.id)}
-                        onClick={viewport.wrapClick(() =>
-                          dispatch({ type: "focus", agentId: receptionist.id }),
-                        )}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          onContextMenu(e.clientX, e.clientY, receptionist);
-                        }}
-                      />
-                    ) : undefined
-                    /* eslint-enable react-hooks/refs */
-                  }
-                  rightDoor={
-                    rooms[0]
-                      ? {
-                          label: rooms[0].name,
-                          onClick: () =>
-                            dispatch({
-                              type: "set_current_room",
-                              roomId: rooms[0].id,
-                            }),
-                        }
-                      : newRoomDoor
-                  }
-                  onToggleTheme={cycleTheme}
-                  onOpenApps={embed ? undefined : onOpenApps}
-                  onOpenCronjobs={onOpenCronjobs}
-                />
-              ) : (
-                <>
-                  <Walls
-                    onToggleTheme={cycleTheme}
-                    onOpenSettings={
-                      embed
-                        ? undefined
-                        : () =>
-                            onEditRoomSettings && currentRoomId
-                              ? onEditRoomSettings(currentRoomId)
-                              : onEditOfficePrompt()
+              {/* Centered scene container - static centering transform */}
+              <div
+                // viewport.setContent: same stable-callback pattern as setScene above.
+                // eslint-disable-next-line react-hooks/refs
+                ref={viewport.setContent}
+                style={{
+                  // Custom properties are legal in an inline style but absent
+                  // from CSSProperties, the same cast Ghost.tsx makes.
+                  ...(skinVars as React.CSSProperties),
+                  position: "absolute",
+                  left: "50%",
+                  top: embed
+                    ? isMobile
+                      ? "55%"
+                      : "64%"
+                    : isMobile
+                      ? "45%"
+                      : "50%",
+                  transform: embed
+                    ? `translate(-50%, -50%) scale(${isMobile ? mobileScale * 0.85 : 0.9})`
+                    : isMobile
+                      ? `translate(-50%, -50%) scale(${mobileScale})`
+                      : "translate(-50%, -50%)",
+                  transformOrigin: "center center",
+                  width: SCENE_W,
+                  height: SCENE_H,
+                }}
+              >
+                {lobbyOpen ? (
+                  <LobbyScene
+                    ownConnectionId={sessionContext?.connectionId ?? null}
+                    presences={presences}
+                    onMoveGhost={
+                      sessionContext &&
+                      presences.some(
+                        (p) =>
+                          p.connectionId === sessionContext.connectionId &&
+                          p.currentRoomId === LOBBY_ROOM_ID,
+                      )
+                        ? (spotId) => send({ type: "lobby_move", spotId })
+                        : undefined
                     }
-                    onOpenApps={embed ? undefined : onOpenApps}
-                    onOpenTasks={onOpenTasks}
-                    onOpenCronjobs={onOpenCronjobs}
-                    taskCount={tasks.filter(inDefaultTaskList).length}
-                  />
-                  {decorateScene && (
-                    <Floor desk8Cable={roomAgents.some((a) => a.desk === 7)} />
-                  )}
-                  {decorateScene && <GroundShadows />}
-                  <WallDoors
-                    leftDoor={
-                      currentRoomIndex > 0
-                        ? {
-                            label:
-                              roomNames[currentRoomIndex - 1] ??
-                              t("common.roomFallback", {
-                                number: currentRoomIndex,
-                              }),
-                            onClick: () =>
-                              dispatch({
-                                type: "set_current_room",
-                                roomId: rooms[currentRoomIndex - 1].id,
-                              }),
-                            dragOver: leftDoorDragOver,
-                            reject: leftDoorReject,
-                            passCount: leftDoorUses,
-                          }
-                        : currentRoomIndex === 0
-                          ? {
-                              label: t("common.lobby"),
-                              passCount: leftDoorUses,
-                              onClick: () =>
-                                dispatch({
-                                  type: "set_lobby_open",
-                                  open: true,
-                                }),
-                            }
-                          : null
+                    onOpenUser={onOpenUserSettingsForUser}
+                    rooms={rooms.map((r) => ({ id: r.id, name: r.name }))}
+                    officeName={office.name}
+                    star={lobbyStar}
+                    mode={mode}
+                    layout="nilo"
+                    receptionist={
+                      /* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */
+                      receptionist ? (
+                        <ReceptionistFigure
+                          agent={receptionist}
+                          needsAttention={needsAttention.has(receptionist.id)}
+                          onClick={viewport.wrapClick(() =>
+                            dispatch({
+                              type: "focus",
+                              agentId: receptionist.id,
+                            }),
+                          )}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            onContextMenu(e.clientX, e.clientY, receptionist);
+                          }}
+                        />
+                      ) : undefined
+                      /* eslint-enable react-hooks/refs */
                     }
                     rightDoor={
-                      currentRoomIndex >= 0 && currentRoomIndex < roomCount - 1
+                      rooms[0]
                         ? {
-                            label:
-                              roomNames[currentRoomIndex + 1] ??
-                              t("common.roomFallback", {
-                                number: currentRoomIndex + 2,
-                              }),
+                            label: rooms[0].name,
                             onClick: () =>
                               dispatch({
                                 type: "set_current_room",
-                                roomId: rooms[currentRoomIndex + 1].id,
+                                roomId: rooms[0].id,
                               }),
-                            dragOver: rightDoorDragOver,
-                            reject: rightDoorReject,
-                            passCount: rightDoorUses,
                           }
-                        : currentRoomIndex === roomCount - 1
-                          ? newRoomDoor
-                          : null
+                        : newRoomDoor
                     }
+                    onToggleTheme={cycleTheme}
+                    onOpenApps={embed ? undefined : onOpenApps}
+                    onOpenCronjobs={onOpenCronjobs}
                   />
-                  <RoomProps />
-                  {decorateScene && <Seasonal />}
-                  {currentRoomIndex > 0 && (
-                    <DoorDropZone
-                      side="left"
-                      // viewport.wrapClick is a stable callback that wraps a click
-                      // handler to suppress clicks during pan-drag.
-                      // eslint-disable-next-line react-hooks/refs
-                      onClick={viewport.wrapClick(() =>
-                        dispatch({
-                          type: "set_current_room",
-                          roomId: rooms[currentRoomIndex - 1].id,
-                        }),
-                      )}
-                      onDragOverChange={(over) => setLeftDoorDragOver(over)}
-                      onDrop={(deskIndex) => {
-                        const a = roomAgents.find((a) => a.desk === deskIndex);
-                        if (!a) {
-                          setLeftDoorReject(true);
-                          setTimeout(() => setLeftDoorReject(false), 400);
-                          return false;
-                        }
-                        const targetRoomId = rooms[currentRoomIndex - 1]?.id;
-                        if (
-                          !targetRoomId ||
-                          agents.filter((x) => x.roomId === targetRoomId)
-                            .length >= DESK_COUNT
-                        ) {
-                          setLeftDoorReject(true);
-                          setTimeout(() => setLeftDoorReject(false), 400);
-                          return false;
-                        }
-                        apiFetch("POST", `/api/agents/${a.id}/move`, {
-                          targetRoomId,
-                        } satisfies MoveAgentReq).catch(() => {});
-                        return true;
-                      }}
+                ) : (
+                  <>
+                    <Walls
+                      onToggleTheme={cycleTheme}
+                      onOpenSettings={
+                        embed
+                          ? undefined
+                          : () =>
+                              onEditRoomSettings && currentRoomId
+                                ? onEditRoomSettings(currentRoomId)
+                                : onEditOfficePrompt()
+                      }
+                      onOpenApps={embed ? undefined : onOpenApps}
+                      onOpenTasks={onOpenTasks}
+                      onOpenCronjobs={onOpenCronjobs}
+                      taskCount={tasks.filter(inDefaultTaskList).length}
                     />
-                  )}
-                  {currentRoomIndex >= 0 &&
-                    currentRoomIndex < roomCount - 1 && (
+                    {decorateScene && (
+                      <Floor
+                        desk8Cable={roomAgents.some((a) => a.desk === 7)}
+                      />
+                    )}
+                    {decorateScene && <GroundShadows />}
+                    <WallDoors
+                      leftDoor={
+                        currentRoomIndex > 0
+                          ? {
+                              label:
+                                roomNames[currentRoomIndex - 1] ??
+                                t("common.roomFallback", {
+                                  number: currentRoomIndex,
+                                }),
+                              onClick: () =>
+                                dispatch({
+                                  type: "set_current_room",
+                                  roomId: rooms[currentRoomIndex - 1].id,
+                                }),
+                              dragOver: leftDoorDragOver,
+                              reject: leftDoorReject,
+                              passCount: leftDoorUses,
+                            }
+                          : currentRoomIndex === 0
+                            ? {
+                                label: t("common.lobby"),
+                                passCount: leftDoorUses,
+                                onClick: () =>
+                                  dispatch({
+                                    type: "set_lobby_open",
+                                    open: true,
+                                  }),
+                              }
+                            : null
+                      }
+                      rightDoor={
+                        currentRoomIndex >= 0 &&
+                        currentRoomIndex < roomCount - 1
+                          ? {
+                              label:
+                                roomNames[currentRoomIndex + 1] ??
+                                t("common.roomFallback", {
+                                  number: currentRoomIndex + 2,
+                                }),
+                              onClick: () =>
+                                dispatch({
+                                  type: "set_current_room",
+                                  roomId: rooms[currentRoomIndex + 1].id,
+                                }),
+                              dragOver: rightDoorDragOver,
+                              reject: rightDoorReject,
+                              passCount: rightDoorUses,
+                            }
+                          : currentRoomIndex === roomCount - 1
+                            ? newRoomDoor
+                            : null
+                      }
+                    />
+                    <RoomProps />
+                    {decorateScene && <Seasonal />}
+                    {currentRoomIndex > 0 && (
                       <DoorDropZone
-                        side="right"
-                        // viewport.wrapClick: same stable-callback pattern as left door.
+                        side="left"
+                        // viewport.wrapClick is a stable callback that wraps a click
+                        // handler to suppress clicks during pan-drag.
                         // eslint-disable-next-line react-hooks/refs
                         onClick={viewport.wrapClick(() =>
                           dispatch({
                             type: "set_current_room",
-                            roomId: rooms[currentRoomIndex + 1].id,
+                            roomId: rooms[currentRoomIndex - 1].id,
                           }),
                         )}
-                        onDragOverChange={(over) => setRightDoorDragOver(over)}
+                        onDragOverChange={(over) => setLeftDoorDragOver(over)}
                         onDrop={(deskIndex) => {
                           const a = roomAgents.find(
                             (a) => a.desk === deskIndex,
                           );
                           if (!a) {
-                            setRightDoorReject(true);
-                            setTimeout(() => setRightDoorReject(false), 400);
+                            setLeftDoorReject(true);
+                            setTimeout(() => setLeftDoorReject(false), 400);
                             return false;
                           }
-                          const targetRoomId = rooms[currentRoomIndex + 1]?.id;
-                          if (
-                            !targetRoomId ||
-                            agents.filter((x) => x.roomId === targetRoomId)
-                              .length >= DESK_COUNT
-                          ) {
-                            setRightDoorReject(true);
-                            setTimeout(() => setRightDoorReject(false), 400);
+                          const targetRoomId = rooms[currentRoomIndex - 1]?.id;
+                          if (!targetRoomId || roomIsFull(targetRoomId)) {
+                            setLeftDoorReject(true);
+                            setTimeout(() => setLeftDoorReject(false), 400);
                             return false;
                           }
                           apiFetch("POST", `/api/agents/${a.id}/move`, {
@@ -856,21 +869,95 @@ export function OfficeView({
                         }}
                       />
                     )}
-                  {/* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */}
-                  {Array.from({ length: DESK_COUNT }, (_, i) => {
-                    const agent = roomAgents.find((a) => a.desk === i);
-                    if (agent) {
-                      return (
-                        <DeskUnit
-                          key={agent.id}
-                          agent={agent}
+                    {currentRoomIndex >= 0 &&
+                      currentRoomIndex < roomCount - 1 && (
+                        <DoorDropZone
+                          side="right"
+                          // viewport.wrapClick: same stable-callback pattern as left door.
+                          // eslint-disable-next-line react-hooks/refs
                           onClick={viewport.wrapClick(() =>
-                            dispatch({ type: "focus", agentId: agent.id }),
+                            dispatch({
+                              type: "set_current_room",
+                              roomId: rooms[currentRoomIndex + 1].id,
+                            }),
                           )}
-                          onContextMenu={(e) =>
-                            onContextMenu(e.clientX, e.clientY, agent)
+                          onDragOverChange={(over) =>
+                            setRightDoorDragOver(over)
                           }
-                          needsAttention={needsAttention.has(agent.id)}
+                          onDrop={(deskIndex) => {
+                            const a = roomAgents.find(
+                              (a) => a.desk === deskIndex,
+                            );
+                            if (!a) {
+                              setRightDoorReject(true);
+                              setTimeout(() => setRightDoorReject(false), 400);
+                              return false;
+                            }
+                            const targetRoomId =
+                              rooms[currentRoomIndex + 1]?.id;
+                            if (!targetRoomId || roomIsFull(targetRoomId)) {
+                              setRightDoorReject(true);
+                              setTimeout(() => setRightDoorReject(false), 400);
+                              return false;
+                            }
+                            apiFetch("POST", `/api/agents/${a.id}/move`, {
+                              targetRoomId,
+                            } satisfies MoveAgentReq).catch(() => {});
+                            return true;
+                          }}
+                        />
+                      )}
+                    <TrapDoor
+                      attention={backAttention}
+                      frontFull={frontAgents.length >= DESK_COUNT}
+                      backFull={backAgents.length >= BACK_ROOM_SEATS}
+                      onOpen={() => onOpenBackRoom?.()}
+                      onDropDesk={(desk) => {
+                        const a = frontAgents.find((x) => x.desk === desk);
+                        if (!a || !currentRoomId) return;
+                        apiFetch("POST", `/api/agents/${a.id}/move`, {
+                          targetRoomId: currentRoomId,
+                          desk: null,
+                        } satisfies MoveAgentReq).catch(() => {});
+                      }}
+                    />
+                    {/* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */}
+                    {Array.from({ length: DESK_COUNT }, (_, i) => {
+                      const agent = roomAgents.find((a) => a.desk === i);
+                      if (agent) {
+                        return (
+                          <DeskUnit
+                            key={agent.id}
+                            agent={agent}
+                            onClick={viewport.wrapClick(() =>
+                              dispatch({ type: "focus", agentId: agent.id }),
+                            )}
+                            onContextMenu={(e) =>
+                              onContextMenu(e.clientX, e.clientY, agent)
+                            }
+                            needsAttention={needsAttention.has(agent.id)}
+                            onSwap={(a, b) => {
+                              const rid = currentRoomId;
+                              if (rid)
+                                apiFetch(
+                                  "POST",
+                                  `/api/rooms/${rid}/swap-desks`,
+                                  {
+                                    deskA: a,
+                                    deskB: b,
+                                  } satisfies SwapDesksReq,
+                                ).catch(() => {});
+                            }}
+                            stateChangedAt={stateChangedAt.get(agent.id)}
+                            workingSince={workingSince.get(agent.id)}
+                          />
+                        );
+                      }
+                      return (
+                        <EmptySlot
+                          key={`empty-${i}`}
+                          deskIndex={i}
+                          onClick={viewport.wrapClick(() => onSpawn(i))}
                           onSwap={(a, b) => {
                             const rid = currentRoomId;
                             if (rid)
@@ -879,33 +966,15 @@ export function OfficeView({
                                 deskB: b,
                               } satisfies SwapDesksReq).catch(() => {});
                           }}
-                          stateChangedAt={stateChangedAt.get(agent.id)}
-                          workingSince={workingSince.get(agent.id)}
                         />
                       );
-                    }
-                    return (
-                      <EmptySlot
-                        key={`empty-${i}`}
-                        deskIndex={i}
-                        onClick={viewport.wrapClick(() => onSpawn(i))}
-                        onSwap={(a, b) => {
-                          const rid = currentRoomId;
-                          if (rid)
-                            apiFetch("POST", `/api/rooms/${rid}/swap-desks`, {
-                              deskA: a,
-                              deskB: b,
-                            } satisfies SwapDesksReq).catch(() => {});
-                        }}
-                      />
-                    );
-                  })}
-                  {/* eslint-enable react-hooks/refs */}
-                  {/* Live-avatars: floating ghost per active presence whose
+                    })}
+                    {/* eslint-enable react-hooks/refs */}
+                    {/* Live-avatars: floating ghost per active presence whose
                 currentRoomId matches the viewer's currentRoomId. Rendered
                 last (and with high z-index) so they sit above desks,
                 walls, and props per Q20 in the design memo. */}
-                  {/* Two layers, two stable per-connection keys per layer. The
+                    {/* Two layers, two stable per-connection keys per layer. The
                 body and tag layers are independent React siblings, each
                 iterating placements in connectionId order. Body/tag never
                 interleave in the DOM, so a new arrival's body insertion
@@ -914,65 +983,66 @@ export function OfficeView({
                 no existing ghost's DOM node moves when an unrelated anchor
                 changes - which keeps CSS transitions intact and prevents
                 browsers from re-attach-restarting any inline animations. */}
-                  {ghostPlacements.map((p) => (
-                    <GhostBody
-                      key={p.presence.connectionId}
-                      left={p.left}
-                      top={p.top}
-                      size={GHOST_SIZE}
-                      variant={p.presence.avatarVariant}
-                      color={p.presence.avatarColor}
-                      username={p.presence.username}
-                      device={p.presence.device}
-                      userId={p.presence.userId}
-                      dimmed={p.dimmed}
-                      onClick={onOpenUserSettingsForUser}
-                    />
-                  ))}
-                  {ghostPlacements.map((p) => (
-                    <GhostTag
-                      key={p.presence.connectionId}
-                      left={p.left}
-                      top={p.top}
-                      size={GHOST_SIZE}
-                      variant={p.presence.avatarVariant}
-                      color={p.presence.avatarColor}
-                      username={p.presence.username}
-                      device={p.presence.device}
-                      userId={p.presence.userId}
-                      dimmed={p.dimmed}
-                      onClick={onOpenUserSettingsForUser}
-                    />
-                  ))}
-                </>
-              )}
+                    {ghostPlacements.map((p) => (
+                      <GhostBody
+                        key={p.presence.connectionId}
+                        left={p.left}
+                        top={p.top}
+                        size={GHOST_SIZE}
+                        variant={p.presence.avatarVariant}
+                        color={p.presence.avatarColor}
+                        username={p.presence.username}
+                        device={p.presence.device}
+                        userId={p.presence.userId}
+                        dimmed={p.dimmed}
+                        onClick={onOpenUserSettingsForUser}
+                      />
+                    ))}
+                    {ghostPlacements.map((p) => (
+                      <GhostTag
+                        key={p.presence.connectionId}
+                        left={p.left}
+                        top={p.top}
+                        size={GHOST_SIZE}
+                        variant={p.presence.avatarVariant}
+                        color={p.presence.avatarColor}
+                        username={p.presence.username}
+                        device={p.presence.device}
+                        userId={p.presence.userId}
+                        dimmed={p.dimmed}
+                        onClick={onOpenUserSettingsForUser}
+                      />
+                    ))}
+                  </>
+                )}
+              </div>
             </div>
+
+            {/* Zoom controls */}
+            {!embed && (
+              /* eslint-disable react-hooks/refs -- stable callbacks from useViewport */
+              <ZoomControls
+                onZoomIn={viewport.zoomIn}
+                onZoomOut={viewport.zoomOut}
+                onReset={viewport.resetView}
+                rightInset={desktopChatVisible ? chatWidth : 0}
+              />
+              /* eslint-enable react-hooks/refs */
+            )}
+
+            {/* Vignette */}
+            {!embed && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  pointerEvents: "none",
+                  boxShadow: "inset 0 0 120px var(--vignette)",
+                }}
+              />
+            )}
           </div>
-
-          {/* Zoom controls */}
-          {!embed && (
-            /* eslint-disable react-hooks/refs -- stable callbacks from useViewport */
-            <ZoomControls
-              onZoomIn={viewport.zoomIn}
-              onZoomOut={viewport.zoomOut}
-              onReset={viewport.resetView}
-              rightInset={desktopChatVisible ? chatWidth : 0}
-            />
-            /* eslint-enable react-hooks/refs */
-          )}
-
-          {/* Vignette */}
-          {!embed && (
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                pointerEvents: "none",
-                boxShadow: "inset 0 0 120px var(--vignette)",
-              }}
-            />
-          )}
-        </div>
+        )}
         {!embed && lobbyOpen && isMobile && (
           <LobbyChat
             loadFailed={membersChatLoadFailed}
@@ -1029,21 +1099,29 @@ export function OfficeView({
             zIndex: 500,
           }}
         >
-          {(isMobile
-            ? ([
-                "office.hints.tap",
-                "office.hints.longPress",
-                "office.hints.pinch",
-                "office.hints.dragZoomed",
-              ] as const)
-            : ([
-                "office.hints.click",
-                "office.hints.dragSwap",
-                "office.hints.wheel",
-                "office.hints.drag",
-                "office.hints.rightClick",
-                "office.hints.resetView",
-              ] as const)
+          {(showBackRoom
+            ? isMobile
+              ? (["office.hints.tap", "office.hints.longPress"] as const)
+              : ([
+                  "office.hints.click",
+                  "office.hints.drag",
+                  "office.hints.rightClick",
+                ] as const)
+            : isMobile
+              ? ([
+                  "office.hints.tap",
+                  "office.hints.longPress",
+                  "office.hints.pinch",
+                  "office.hints.dragZoomed",
+                ] as const)
+              : ([
+                  "office.hints.click",
+                  "office.hints.dragSwap",
+                  "office.hints.wheel",
+                  "office.hints.drag",
+                  "office.hints.rightClick",
+                  "office.hints.resetView",
+                ] as const)
           ).map((key, i) => (
             <span
               key={i}

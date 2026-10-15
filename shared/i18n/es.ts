@@ -1284,6 +1284,7 @@ Cosas que puedes hacer por él:
   "dialogs.agent.titleSpawn": "Crear un agente nuevo",
   "dialogs.agent.titleEdit": "Editar el agente",
   "dialogs.agent.desk": "Escritorio #{desk}",
+  "dialogs.agent.backRoom": "Trastienda",
   "dialogs.agent.engineBlurb.claude": "Funciona con tu cuenta de Claude Code.",
   "dialogs.agent.engineBlurb.codex": "Funciona con tu cuenta de ChatGPT.",
   "dialogs.agent.engineBlurb.opencode":
@@ -1486,6 +1487,10 @@ Cosas que puedes hacer por él:
   "apiCall.tasks.markDone": "Marcar la tarea {task} como hecha",
   "apiCall.agents.list": "Listar los agentes de la oficina",
   "apiCall.agents.listKilled": "Listar los agentes eliminados",
+  "apiCall.agents.listWithBackRooms":
+    "Listar los agentes de la oficina, trastiendas incluidas",
+  "apiCall.agents.listInvalidBack":
+    "Listar agentes (filtro de trastienda no válido)",
   "apiCall.agents.listInvalidFilter":
     "Listar agentes (filtro de eliminados no válido)",
   "apiCall.agents.sendMessage": "Enviar un mensaje a un agente",
@@ -1791,6 +1796,10 @@ Cosas que puedes hacer por él:
     "Terminar la conversación. Puedes reanudarla más tarde con /resume.",
   "logView.backToOffice": "← Volver a la oficina",
   "logView.backToOfficeTitle": "Volver a la oficina (Esc)",
+  "logView.backToBackRoom": "← Trastienda",
+  "logView.backToBackRoomTitle": "Volver a la trastienda (Esc)",
+  "logView.backRoomStrip":
+    "En la trastienda de {room}. La gente habla con el frente:",
   "logView.editTopic": "Haz clic para editar el tema",
   "logView.regenerateTopic": "Regenerar el tema a partir de la conversación",
   "logView.noHistoryToSummarize":
@@ -1991,6 +2000,20 @@ Cosas que puedes hacer por él:
   "office.status.waiting": "esperando",
   "office.status.error": "con error",
   "office.status.idle": "inactivos",
+  "office.backRoom.tooltip.one": "Trastienda · {count} agente",
+  "office.backRoom.tooltip.other": "Trastienda · {count} agentes",
+  "office.backRoom.unread": "{count} sin leer",
+  "office.backRoom.asking": "{count} preguntando",
+  "office.backRoom.error": "{count} con error",
+  "office.backRoom.dropBadge": "Mover a la trastienda",
+  "office.backRoom.fullBadge": "La trastienda está llena",
+  "office.backRoom.title": "Trastienda",
+  "office.backRoom.backTo": "← {room}",
+  "office.backRoom.backToTitle": "Volver a {room} (Esc)",
+  "office.backRoom.newAgent": "+ Nuevo agente",
+  "office.backRoom.sign": "TRASTIENDA",
+  "office.backRoom.boardTitle": "HOY",
+  "office.backRoom.boardCount": "{count} EN TURNO",
   "office.status.errShort": "error",
   "office.hints.tap": "TOCAR → abrir",
   "office.hints.longPress": "MANTENER PULSADO → acciones",
@@ -1998,7 +2021,7 @@ Cosas que puedes hacer por él:
   "office.hints.dragZoomed": "ARRASTRAR (con zoom) → desplazar",
   "office.hints.click": "CLIC → abrir el agente",
   "office.hints.dragSwap":
-    "ARRASTRAR → intercambiar escritorios o mover a la puerta",
+    "ARRASTRAR → intercambiar escritorios, mover a una puerta o a la trampilla",
   "office.hints.wheel": "RUEDA / +- → zoom",
   "office.hints.drag": "ARRASTRAR → desplazar",
   "office.hints.rightClick": "CLIC DERECHO → acciones",
@@ -2016,6 +2039,10 @@ Cosas que puedes hacer por él:
   "common.current": "(actual)",
   "contextMenu.branched": "(ramificada)",
   "contextMenu.killAgent": "Eliminar el agente",
+  "contextMenu.moveToBackRoom": "Mover a la trastienda",
+  "contextMenu.moveToBackRoomFull": "Mover a la trastienda (llena)",
+  "contextMenu.moveToFront": "Mover al frente",
+  "contextMenu.moveToFrontFull": "Mover al frente (lleno)",
   "app.reconnecting": "Reconectando…",
   "themes.dark": "Oscuro",
   "themes.light": "Claro",
@@ -2516,6 +2543,7 @@ Cosas que puedes hacer por él:
   "commands.isomuxAllHands.me": "**(yo)**",
   "commands.isomuxAllHands.desk": "escritorio {number}",
   "commands.isomuxAllHands.topic": "Tema: {topic}",
+  "commands.isomuxAllHands.backRoom": "{count} en la trastienda",
   "commands.isomuxAllHands.footer":
     "Pregunta a tu agente si quieres saber más sobre cualquier agente o conversación.",
   "commands.isomuxSystemPrompt.header":

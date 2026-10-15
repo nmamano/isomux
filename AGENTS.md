@@ -44,7 +44,7 @@ Run ESLint during development. A good time to do it is right before human review
 
 - Single Bun process. No Node or separate API server. Tasks and the office audit log use one SQLite file through bun:sqlite; all other state stays in plain files.
 - Agent = persistent identity. Conversation = resumable session.
-- 8 desks per room.
+- 8 front desks per room, plus a back room of up to 100 seats (internal-docs/back-room-design.md).
 - Subscription auth via the provider's own CLI - Isomux never handles API keys.
 - Browser auth: invite-link cookie sessions. The first owner claims with the setup key (`server/setup-key.ts`: `ISOMUX_SETUP_KEY`, else a key file the server makes and prints in a setup link; the server binds 127.0.0.1 pre-claim); once an owner exists, only owners can mint further invites. By default agents inherit no special auth privileges; an opt-in per-agent `privileged` flag grants a curated subset of the spawning user's room-scoped operator capabilities (drive other agents' sessions + cron over its own jobs) while keeping agent scope (never impersonates the user, never reaches owner/user administration). See `docs/access-and-invites.md` for the owner flows and `docs/security-audit.md` section 6.2 for privileged agents.
 - REST API to give agents extra affordances (like messaging other agents or showing a diff).

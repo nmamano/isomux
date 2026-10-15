@@ -1093,6 +1093,13 @@ export function humanizeIsomuxRequest(
     // just as wrong as "List killed agents", since neither came back.
     if (segs.length === 1 && m === "GET") {
       const killed = query.get("killed");
+      // ?back=1 lists back room agents one by one; like killed, only the
+      // exact value is a list, and back is never combined with killed.
+      const back = query.get("back");
+      if (back !== null)
+        return back === "1" && killed === null
+          ? t("apiCall.agents.listWithBackRooms")
+          : t("apiCall.agents.listInvalidBack");
       if (killed === null) return t("apiCall.agents.list");
       return killed === "1"
         ? t("apiCall.agents.listKilled")

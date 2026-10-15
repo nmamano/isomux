@@ -39,7 +39,7 @@ for (const broadcastFirst of [true, false]) {
     expect(fixture.snapshot.lobbyOpen).toBe(false);
     expect(view.queryByRole("dialog") === null).toBe(true);
     expect(
-      view.getAllByRole("button", { hidden: true, name: "Room 2 0/8" }),
+      view.getAllByRole("button", { hidden: true, name: "Room 2" }),
     ).toHaveLength(1);
     if (broadcastFirst)
       expect(

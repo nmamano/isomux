@@ -74,6 +74,7 @@ describe("demo fixture data", () => {
         "Kevin",
         "Angela",
         "Kelly",
+        "Creed",
         "Receptionist",
       ].sort(),
     );

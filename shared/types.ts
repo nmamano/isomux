@@ -689,7 +689,7 @@ export interface SubscriptionUsageWire {
 export interface AgentInfo {
   id: string;
   name: string;
-  desk: number; // 0-7
+  desk: number; // 0-7 a front desk; 8-107 a back room seat (shared/desks.ts)
   // Stable global room id (matches RoomWire.id) - the SOLE room reference on the
   // wire and the authority for all room logic. This replaced the
   // legacy dense per-recipient `room` index; clients match agents to rooms by id.

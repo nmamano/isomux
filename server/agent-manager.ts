@@ -67,7 +67,11 @@ import {
   SessionManager,
   type SessionManagerDeps,
 } from "./session-manager.ts";
-import { isValidDesk } from "../shared/desks.ts";
+import {
+  isValidDesk,
+  firstFreeBackSeat,
+  BACK_ROOM_FULL_MESSAGE,
+} from "../shared/desks.ts";
 import {
   appendLog,
   appendLogOrThrow,
@@ -1935,6 +1939,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (events.length === 0) return false;
     for (const event of events) eventHandler(event);
     return true;
+  }
+
+  // moveAgent with a place: a front desk, null for a back seat, or omitted to
+  // keep the agent's area (OfficeState.placeAgent).
+  function placeAgent(
+    agentId: string,
+    targetRoomId: string,
+    desk?: number | null,
+  ): ReturnType<OfficeState["placeAgent"]> {
+    const r = officeState.placeAgent(agentId, targetRoomId, desk);
+    if (r.ok) for (const event of r.events) eventHandler(event);
+    return r;
   }
 
   function getAllAgents(): AgentInfo[] {
@@ -6231,7 +6247,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     name: string,
     cwd: string,
     permissionMode: AgentInfo["permissionMode"] | undefined,
-    desk?: number,
+    // A front desk, null for the back room, or omitted for the first free
+    // front desk and then the back room (OfficeState.spawn).
+    desk?: number | null,
     customInstructions?: string,
     roomId?: string,
     outfit?: AgentOutfit,
@@ -9419,10 +9437,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   async function revive(
     agentId: string,
     roomId: string,
-    desk: number,
+    // A front desk, or null / omitted for the first free back room seat.
+    requestedDesk?: number | null,
   ): Promise<
     | { ok: true; agent: AgentInfo }
-    | { ok: false; error: string; field?: "name" | "desk" | "room" }
+    | {
+        ok: false;
+        error: string;
+        field?: "name" | "desk" | "room" | "back_room";
+      }
   > {
     // 1. Must be currently killed (not in live map).
     if (agents.has(agentId)) {
@@ -9452,19 +9475,50 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return { ok: false, error: "Target room not found.", field: "room" };
     }
 
-    // 4. Desk free at command time (chip list may be stale across tabs).
+    // 4. Desk free at command time (chip list may be stale across tabs). A
+    // named desk that is taken stays an error: the member picked it, and it
+    // must not silently become a back room seat.
     const taken = new Set(
       officeState
         .getAllAgents()
         .filter((a) => a.roomId === roomId)
         .map((a) => a.desk),
     );
-    if (!isValidDesk(desk, officeState.rooms[roomIdx]) || taken.has(desk)) {
-      return {
-        ok: false,
-        error: "That desk is no longer free.",
-        field: "desk",
-      };
+    let desk: number;
+    if (typeof requestedDesk === "number") {
+      if (
+        !isValidDesk(requestedDesk, officeState.rooms[roomIdx]) ||
+        taken.has(requestedDesk)
+      ) {
+        return {
+          ok: false,
+          error: "That desk is no longer free.",
+          field: "desk",
+        };
+      }
+      desk = requestedDesk;
+    } else {
+      // The lobby has no back room: no desk there is its one desk.
+      if (officeState.rooms[roomIdx].type === "lobby") {
+        if (taken.has(0)) {
+          return {
+            ok: false,
+            error: "The target room has no free desks.",
+            field: "desk",
+          };
+        }
+        desk = 0;
+      } else {
+        const seat = firstFreeBackSeat(taken);
+        if (seat === null) {
+          return {
+            ok: false,
+            error: BACK_ROOM_FULL_MESSAGE,
+            field: "back_room",
+          };
+        }
+        desk = seat;
+      }
     }
 
     // 5. Name collision against LIVE agents only (history keeps dead names).
@@ -11171,6 +11225,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     setRoomSkin,
     setRoomDecor,
     moveAgent,
+    placeAgent,
     getAllAgents,
     getUsageReportData,
     getManifest,

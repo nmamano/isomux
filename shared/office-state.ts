@@ -22,7 +22,12 @@ import {
 } from "./types.ts";
 import { generateTaskId, generateRoomId } from "./types.ts";
 import { versionOf } from "./blob-version.ts";
-import { roomSlotCount, isValidDesk } from "./desks.ts";
+import {
+  roomSlotCount,
+  isValidDesk,
+  isBackSeat,
+  firstFreeBackSeat,
+} from "./desks.ts";
 import { taskVersion } from "./task-board.ts";
 import { randomOutfit } from "./outfit-options.ts";
 
@@ -202,7 +207,11 @@ export class OfficeState {
     name: string;
     cwd: string;
     permissionMode: AgentInfo["permissionMode"];
-    desk?: number;
+    // A front desk number, null for the back room, or omitted for the first
+    // free front desk and then the back room. A taken front desk falls
+    // through to the same order. Back seats are always assigned here, never
+    // named by the caller.
+    desk?: number | null;
     roomId?: string;
     customInstructions?: string;
     outfit?: AgentOutfit;
@@ -255,21 +264,21 @@ export class OfficeState {
       // doubly invalid - it is also the "no free desk" sentinel below.
       // An explicit desk that is merely TAKEN still falls through to
       // auto-assign, which is the long-standing behavior.
-      if (opts.desk !== undefined && !isValidDesk(opts.desk, targetRoom))
+      if (typeof opts.desk === "number" && !isValidDesk(opts.desk, targetRoom))
         return null;
+      // The lobby has no back room.
+      if (opts.desk === null && targetRoom?.type === "lobby") return null;
 
-      if (opts.desk !== undefined && !taken.has(opts.desk)) {
-        desk = opts.desk;
-      } else {
-        desk = -1;
-        for (let i = 0; i < roomSlotCount(targetRoom); i++) {
-          if (!taken.has(i)) {
-            desk = i;
-            break;
-          }
-        }
-      }
-      if (desk === -1) return null; // room full
+      const placed =
+        typeof opts.desk === "number" && !taken.has(opts.desk)
+          ? opts.desk
+          : this.freePlacement(
+              targetRoom,
+              taken,
+              opts.desk === null ? "back" : "front",
+            );
+      if (placed === null) return null; // room full
+      desk = placed;
     }
 
     const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -527,26 +536,89 @@ export class OfficeState {
     return events;
   }
 
-  moveAgent(agentId: string, targetRoomId: string): OfficeEvent[] {
-    const agent = this.agents.get(agentId);
-    if (!agent) return [];
-    if (!this._rooms.some((r) => r.id === targetRoomId)) return [];
-    if (agent.roomId === targetRoomId) return [];
-
-    const targetAgents = [...this.agents.values()].filter(
-      (a) => a.roomId === targetRoomId,
-    );
-    const targetRoom = this._rooms.find((r) => r.id === targetRoomId);
-    if (targetAgents.length >= roomSlotCount(targetRoom)) return [];
-    const taken = new Set(targetAgents.map((a) => a.desk));
-    let newDesk = -1;
-    for (let i = 0; i < roomSlotCount(targetRoom); i++) {
-      if (!taken.has(i)) {
-        newDesk = i;
-        break;
+  // The first free place in a room: a front desk, then a back seat ("front"),
+  // or a back seat only ("back"). The lobby has one desk and no back room, so
+  // there both areas mean its desk.
+  private freePlacement(
+    room: RoomWire | undefined,
+    taken: Set<number>,
+    area: "front" | "back",
+  ): number | null {
+    if (area === "front" || room?.type === "lobby") {
+      for (let i = 0; i < roomSlotCount(room); i++) {
+        if (!taken.has(i)) return i;
       }
     }
-    if (newDesk === -1) return [];
+    if (room?.type === "lobby") return null;
+    return firstFreeBackSeat(taken);
+  }
+
+  moveAgent(agentId: string, targetRoomId: string): OfficeEvent[] {
+    const r = this.placeAgent(agentId, targetRoomId);
+    return r.ok ? r.events : [];
+  }
+
+  // Moves an agent to a room and a place in it. `desk` names a free front
+  // desk, null asks for a back seat, and omitted keeps the agent's area: a
+  // front agent takes the first free front desk and then a back seat, a back
+  // agent takes a back seat. Without a desk, a move to the agent's own room
+  // does nothing (reason "same_place"). A taken desk is refused, not swapped.
+  placeAgent(
+    agentId: string,
+    targetRoomId: string,
+    desk?: number | null,
+  ):
+    | { ok: true; events: OfficeEvent[] }
+    | {
+        ok: false;
+        reason:
+          | "agent_not_found"
+          | "room_not_found"
+          | "same_place"
+          | "invalid_desk"
+          | "desk_taken"
+          | "no_free_desk"
+          | "back_room_full";
+      } {
+    const agent = this.agents.get(agentId);
+    if (!agent) return { ok: false, reason: "agent_not_found" };
+    const targetRoom = this._rooms.find((r) => r.id === targetRoomId);
+    if (!targetRoom) return { ok: false, reason: "room_not_found" };
+    const sameRoom = agent.roomId === targetRoomId;
+    if (sameRoom && desk === undefined)
+      return { ok: false, reason: "same_place" };
+    if (typeof desk === "number" && !isValidDesk(desk, targetRoom))
+      return { ok: false, reason: "invalid_desk" };
+    if (desk === null && targetRoom.type === "lobby")
+      return { ok: false, reason: "invalid_desk" };
+
+    const taken = new Set(
+      [...this.agents.values()]
+        .filter((a) => a.roomId === targetRoomId && a.id !== agentId)
+        .map((a) => a.desk),
+    );
+    let newDesk: number | null;
+    if (typeof desk === "number") {
+      if (taken.has(desk)) return { ok: false, reason: "desk_taken" };
+      newDesk = desk;
+    } else if (desk === null) {
+      if (sameRoom && isBackSeat(agent.desk))
+        return { ok: false, reason: "same_place" };
+      newDesk = firstFreeBackSeat(taken);
+    } else {
+      newDesk = this.freePlacement(
+        targetRoom,
+        taken,
+        isBackSeat(agent.desk) ? "back" : "front",
+      );
+    }
+    if (newDesk === null)
+      return {
+        ok: false,
+        reason: targetRoom.type === "lobby" ? "no_free_desk" : "back_room_full",
+      };
+    if (sameRoom && newDesk === agent.desk)
+      return { ok: false, reason: "same_place" };
 
     agent.roomId = targetRoomId;
     agent.desk = newDesk;
@@ -557,12 +629,15 @@ export class OfficeState {
         // The stable roomId IS the move on the wire. A present
         // `roomId` in `changes` is the move discriminator the server keys on to
         // route the old∪new audience (full-access sessions get this delta
-        // verbatim; restricted sessions get a full_state refresh).
-        changes: { roomId: targetRoomId, desk: newDesk },
+        // verbatim; restricted sessions get a full_state refresh). A move
+        // within the room changes the desk only, as a desk swap does.
+        changes: sameRoom
+          ? { desk: newDesk }
+          : { roomId: targetRoomId, desk: newDesk },
       },
     ];
     this.emitEvents(events);
-    return events;
+    return { ok: true, events };
   }
 
   setOfficeSettings(

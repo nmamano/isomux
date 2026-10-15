@@ -13,6 +13,12 @@ import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { noTranslate } from "../no-translate.ts";
+import {
+  BACK_ROOM_SEATS,
+  isBackSeat,
+  isFrontDesk,
+  roomSlotCount,
+} from "../../shared/desks.ts";
 
 interface ContextMenuProps {
   x: number;
@@ -31,7 +37,7 @@ export function ContextMenu({
 }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const { t, language } = useI18n();
-  const { sessionsList, unavailableEngines } = useAppState();
+  const { sessionsList, unavailableEngines, agents, rooms } = useAppState();
   const dispatch = useDispatch();
   const features = useFeatures();
   const sessionsData = sessionsList.get(agent.id);
@@ -40,6 +46,18 @@ export function ContextMenu({
   // Engines in which a fresh conversation can start without changing the
   // current one. Switching engine always starts a new conversation.
   const alternateEngines = alternateEngineOptions(agent.agentType);
+  const room = rooms.find((r) => r.id === agent.roomId);
+  // The first free front desk of the agent's room, for "Move to front".
+  const takenDesks = new Set(
+    agents.filter((a) => a.roomId === agent.roomId).map((a) => a.desk),
+  );
+  const firstFreeDesk =
+    Array.from({ length: roomSlotCount(room) }, (_, i) => i).find(
+      (i) => !takenDesks.has(i),
+    ) ?? null;
+  const backFull =
+    agents.filter((a) => a.roomId === agent.roomId && isBackSeat(a.desk))
+      .length >= BACK_ROOM_SEATS;
 
   useEffect(() => {
     function handleDismiss(e: Event) {
@@ -147,6 +165,42 @@ export function ContextMenu({
           onClose();
         }}
       />
+      {room && isBackSeat(agent.desk) && (
+        <MenuItem
+          label={
+            firstFreeDesk === null
+              ? t("contextMenu.moveToFrontFull")
+              : t("contextMenu.moveToFront")
+          }
+          disabled={firstFreeDesk === null}
+          onClick={() => {
+            // A desk taken since the menu opened comes back as 409
+            // desk_taken; the office state updates from the server.
+            apiFetch("POST", `/api/agents/${agent.id}/move`, {
+              targetRoomId: agent.roomId,
+              desk: firstFreeDesk,
+            }).catch(() => {});
+            onClose();
+          }}
+        />
+      )}
+      {room && room.type !== "lobby" && isFrontDesk(agent.desk, room) && (
+        <MenuItem
+          label={
+            backFull
+              ? t("contextMenu.moveToBackRoomFull")
+              : t("contextMenu.moveToBackRoom")
+          }
+          disabled={backFull}
+          onClick={() => {
+            apiFetch("POST", `/api/agents/${agent.id}/move`, {
+              targetRoomId: agent.roomId,
+              desk: null,
+            }).catch(() => {});
+            onClose();
+          }}
+        />
+      )}
       {features.sessions && (
         <MenuItem
           label={t("contextMenu.newConversation")}

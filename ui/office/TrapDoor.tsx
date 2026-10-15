@@ -1,0 +1,265 @@
+// The trap door to the back room (task 5b503e32): a wooden hatch on the front
+// floor. It shows only when the back room has agents, when the front is full
+// (so the back room is the way to spawn), or while a desk is dragged (as the
+// drop target). Light comes through the planks while a back agent works, and
+// badges above it count back agents that need a person.
+
+import { useEffect, useState } from "react";
+import { useI18n } from "../i18n.tsx";
+import { getDraggedDesk } from "./drag-state.ts";
+import { VB_X, VB_Y } from "./grid.ts";
+
+// The hatch's centre on the floor, in scene SVG units. One spot in every skin:
+// clear of the desk slots, the right door's drop zone and the hospital props
+// (ui/office/skins/hospital/layout.test.ts holds the check).
+export const TRAP_DOOR_CENTER = { x: 445, y: 310 };
+// Half-axes of the hatch along the two floor directions, in SVG units.
+const U = { x: 25.2, y: 12.6 };
+const V = { x: -20.4, y: 10.2 };
+// The hit box: wider than the drawing so a phone tap (the scene is drawn at
+// about half size there) still gets about 60 x 44 px.
+export const TRAP_DOOR_HIT = { w: 120, h: 86 };
+
+export interface BackRoomAttention {
+  agents: number;
+  working: number;
+  unread: number;
+  asking: number;
+  error: number;
+}
+
+const pt = (a: number, b: number) => ({
+  x: TRAP_DOOR_HIT.w / 2 + U.x * a + V.x * b,
+  y: TRAP_DOOR_HIT.h / 2 + U.y * a + V.y * b,
+});
+const poly = (s: number) =>
+  "M" +
+  [pt(-s, -s), pt(s, -s), pt(s, s), pt(-s, s)]
+    .map((p) => `${p.x} ${p.y}`)
+    .join(" L") +
+  " Z";
+
+/** True while a desk is being dragged anywhere in the office. HTML5 drag
+ *  events bubble to the document, and DeskUnit records the dragged desk. */
+function useDeskDrag(): boolean {
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    const start = () =>
+      // DeskUnit sets the dragged desk in its own dragstart handler, which
+      // runs before this document listener.
+      setDragging(getDraggedDesk() !== null);
+    const end = () => setDragging(false);
+    document.addEventListener("dragstart", start);
+    document.addEventListener("dragend", end);
+    document.addEventListener("drop", end);
+    return () => {
+      document.removeEventListener("dragstart", start);
+      document.removeEventListener("dragend", end);
+      document.removeEventListener("drop", end);
+    };
+  }, []);
+  return dragging;
+}
+
+export function TrapDoor({
+  attention,
+  frontFull,
+  backFull,
+  onOpen,
+  onDropDesk,
+}: {
+  attention: BackRoomAttention;
+  frontFull: boolean;
+  backFull: boolean;
+  onOpen: () => void;
+  /** Moves the dragged desk's agent to the back room. */
+  onDropDesk: (desk: number) => void;
+}) {
+  const { t, tn } = useI18n();
+  const dragging = useDeskDrag();
+  const [over, setOver] = useState(false);
+  if (attention.agents === 0 && !frontFull && !dragging) return null;
+
+  const lit = attention.working > 0;
+  const left = TRAP_DOOR_CENTER.x - VB_X - TRAP_DOOR_HIT.w / 2;
+  const top = TRAP_DOOR_CENTER.y - VB_Y - TRAP_DOOR_HIT.h / 2;
+  const badges: Array<{ text: string; bg: string; fg: string }> = [];
+  if (attention.unread)
+    badges.push({
+      text: t("office.backRoom.unread", { count: attention.unread }),
+      bg: "var(--purple-text)",
+      fg: "var(--bg-base)",
+    });
+  if (attention.asking)
+    badges.push({
+      text: t("office.backRoom.asking", { count: attention.asking }),
+      bg: "var(--orange-text)",
+      fg: "var(--bg-base)",
+    });
+  if (attention.error)
+    badges.push({
+      text: t("office.backRoom.error", { count: attention.error }),
+      bg: "var(--red)",
+      fg: "#fff",
+    });
+
+  return (
+    <>
+      <div
+        data-no-pan
+        data-trap-door
+        role="button"
+        tabIndex={0}
+        aria-label={tn("office.backRoom.tooltip", attention.agents)}
+        title={tn("office.backRoom.tooltip", attention.agents)}
+        onClick={onOpen}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpen();
+          }
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = backFull ? "none" : "move";
+        }}
+        onDragEnter={() => setOver(true)}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          const desk = parseInt(e.dataTransfer.getData("text/plain"), 10);
+          if (!isNaN(desk) && !backFull) onDropDesk(desk);
+        }}
+        style={{
+          position: "absolute",
+          left,
+          top,
+          width: TRAP_DOOR_HIT.w,
+          height: TRAP_DOOR_HIT.h,
+          // On the floor: above the floor drawing, below every desk unit.
+          zIndex: 5,
+          cursor: "pointer",
+        }}
+      >
+        <svg
+          width={TRAP_DOOR_HIT.w}
+          height={TRAP_DOOR_HIT.h}
+          style={{ position: "absolute", inset: 0, overflow: "visible" }}
+          aria-hidden="true"
+        >
+          <defs>
+            <filter
+              id="trap-door-glow"
+              x="-50%"
+              y="-50%"
+              width="200%"
+              height="200%"
+            >
+              <feGaussianBlur stdDeviation="2.2" />
+            </filter>
+          </defs>
+          <path d={poly(1.12)} fill="rgba(0,0,0,0.10)" />
+          <path d={poly(1)} fill="#4a3527" />
+          <path d={poly(0.86)} fill="#8b6a4c" />
+          {[-0.43, 0, 0.43].map((b) => {
+            const a0 = pt(-0.86, b);
+            const a1 = pt(0.86, b);
+            const d = `M${a0.x} ${a0.y} L${a1.x} ${a1.y}`;
+            return (
+              <g key={b}>
+                {lit && (
+                  <path
+                    d={d}
+                    stroke="#ffcf6b"
+                    strokeWidth={3}
+                    filter="url(#trap-door-glow)"
+                    opacity={0.9}
+                  />
+                )}
+                <path
+                  d={d}
+                  stroke={lit ? "#ffe2a0" : "#5a4330"}
+                  strokeWidth={1.2}
+                />
+              </g>
+            );
+          })}
+          <ellipse
+            cx={pt(0.62, 0.55).x}
+            cy={pt(0.62, 0.55).y}
+            rx={5}
+            ry={2.6}
+            fill="none"
+            stroke="#3a3a3a"
+            strokeWidth={1.6}
+          />
+          {(over || dragging) && (
+            <path
+              d={poly(1.35)}
+              fill={
+                backFull ? "rgba(255,60,60,0.12)" : "rgba(126,184,255,0.18)"
+              }
+              stroke={backFull ? "var(--red)" : "var(--accent)"}
+              strokeWidth={2.5}
+              strokeDasharray="6 4"
+            />
+          )}
+        </svg>
+      </div>
+      {(dragging || badges.length > 0) && (
+        // A sibling of the hatch, not a child: the hatch sits under the desks,
+        // and the badges must sit above them.
+        <div
+          style={{
+            position: "absolute",
+            left: left + TRAP_DOOR_HIT.w / 2 + 20,
+            top: top + 2,
+            transform: "translate(-100%, -100%)",
+            display: "flex",
+            gap: 4,
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+            zIndex: 9000,
+          }}
+        >
+          {dragging ? (
+            <span
+              style={{
+                padding: "5px 10px",
+                borderRadius: 14,
+                background: backFull ? "var(--red)" : "var(--accent-text)",
+                color: "var(--bg-base)",
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              {backFull
+                ? t("office.backRoom.fullBadge")
+                : t("office.backRoom.dropBadge")}
+            </span>
+          ) : (
+            badges.map((b) => (
+              <span
+                key={b.text}
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: b.fg,
+                  background: b.bg,
+                  padding: "1px 6px",
+                  borderRadius: 8,
+                  boxShadow: "0 1px 4px rgba(0,0,0,.2)",
+                }}
+              >
+                {b.text}
+              </span>
+            ))
+          )}
+        </div>
+      )}
+    </>
+  );
+}

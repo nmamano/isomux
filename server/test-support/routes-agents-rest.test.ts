@@ -24,7 +24,7 @@ import { FakeBackend } from "./fake-backend.ts";
 import { loadAgents, loadRecentCwds } from "../persistence.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
-import { DESK_COUNT } from "../../shared/desks.ts";
+import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
 import type { AgentPermissionMode } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -224,7 +224,9 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
     expect(srv.agentManager.getAgent(x.id)?.roomId).toBe(r1); // untouched
   });
 
-  it("full target room -> 409 no_free_desk (not a false agent_not_found)", async () => {
+  // Task 5b503e32: a full front no longer refuses a move; the agent takes a
+  // back room seat. (This used to assert 409 no_free_desk.)
+  it("target room with a full front -> 200, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -236,9 +238,10 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
       body: { targetRoomId: r2 },
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(409);
-    expect(errCode(res.body)).toBe("no_free_desk");
-    expect(srv.agentManager.getAgent(x.id)?.roomId).toBe(r1); // untouched
+    expect(res.status).toBe(200);
+    const moved = srv.agentManager.getAgent(x.id);
+    expect(moved?.roomId).toBe(r2);
+    expect(isBackSeat(moved?.desk ?? -1)).toBe(true);
   });
 });
 
@@ -440,7 +443,9 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     expect(errCode(res.body)).toBe("name_taken");
   });
 
-  it("full target room -> 409 no_free_desk", async () => {
+  // Task 5b503e32: a full front no longer refuses a spawn; the agent takes a
+  // back room seat. (This used to assert 409 no_free_desk.)
+  it("full front -> 201, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -450,8 +455,9 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
       body: spawnBody(srv, "Extra", r1, 0),
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(409);
-    expect(errCode(res.body)).toBe("no_free_desk");
+    expect(res.status).toBe(201);
+    const desk = (res.body as { agent: { desk: number } }).agent.desk;
+    expect(isBackSeat(desk)).toBe(true);
   });
 
   // Task e87d9c7d: an explicit desk used to be accepted whenever the slot was

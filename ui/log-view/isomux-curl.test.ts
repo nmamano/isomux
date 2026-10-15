@@ -1474,6 +1474,22 @@ describe("agent discovery route label", () => {
       ),
     ).toBe("List office agents");
   });
+
+  // Task 5b503e32: ?back=1 lists back room agents one by one. Like killed, a
+  // value other than 1 (or back with killed) is a 400, so it is labelled
+  // invalid rather than as a listing.
+  test("?back=1 has its own label; other back values are invalid", () => {
+    const back = parseIsomuxCurl(`curl -s "localhost:4000/agents?back=1"`)!;
+    expect(humanizeIsomuxRequest(EN, back)).toBe(
+      EN.t("apiCall.agents.listWithBackRooms"),
+    );
+    for (const q of ["?back=0", "?back", "?back=1&killed=1"]) {
+      const req = parseIsomuxCurl(`curl -s "localhost:4000/agents${q}"`);
+      expect(humanizeIsomuxRequest(EN, req!)).toBe(
+        EN.t("apiCall.agents.listInvalidBack"),
+      );
+    }
+  });
 });
 
 describe("parseIsomuxCurl output-to-file", () => {

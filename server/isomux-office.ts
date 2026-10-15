@@ -103,6 +103,8 @@ import {
 } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { KILLED_AGENT_CHIP_CAP, MAX_UPLOAD_BYTES } from "../shared/types.ts";
+import { BACK_ROOM_FULL_MESSAGE } from "../shared/desks.ts";
+import { projectBackRooms } from "./discovery-back-room.ts";
 import type { Attachment, InviteWire, SessionWire } from "../shared/types.ts";
 import {
   startUpdateChecker,
@@ -4516,7 +4518,7 @@ function buildExecutorDeps(
           existing ? input.memory : "",
         );
       },
-      move: (agentId, targetRoomId) => {
+      move: (agentId, targetRoomId, desk) => {
         const before = snapshotAppVisibility(
           (app) => app.createdByAgentId === agentId,
         );
@@ -4526,11 +4528,8 @@ function buildExecutorDeps(
         const current = agentManager.getAgent(agentId);
         // agentParam proved the agent existed; a miss here is a post-guard race.
         if (!current) return { ok: false, reason: "agent_not_found" };
-        // Same-room move is an idempotent no-op (the core returns no events);
-        // return the unchanged agent, not a false failure.
-        if (current.roomId === targetRoomId)
-          return { ok: true, agent: current };
-        if (agentManager.moveAgent(agentId, targetRoomId)) {
+        const r = agentManager.placeAgent(agentId, targetRoomId, desk);
+        if (r.ok) {
           announceAppAudienceChanges(before);
           announceWebhookAudienceChanges(hooksBefore);
           const moved = agentManager.getAgent(agentId);
@@ -4538,11 +4537,16 @@ function buildExecutorDeps(
             ? { ok: true, agent: moved }
             : { ok: false, reason: "agent_not_found" };
         }
-        // Move didn't apply, agent exists, not same-room: the target room is
-        // FULL, or (for an owner whose rule-based access passed bodyRoom) ABSENT.
-        return agentManager.getRooms().some((r) => r.id === targetRoomId)
-          ? { ok: false, reason: "no_free_desk" }
-          : { ok: false, reason: "room_not_found" };
+        // A move to the place the agent already holds (its own room with no
+        // desk, or its own seat) is an idempotent no-op: return the
+        // unchanged agent, not a false failure.
+        if (r.reason === "same_place") return { ok: true, agent: current };
+        // invalid_desk cannot reach here (the handler range-checks the desk);
+        // treat it like a taken desk rather than inventing a status.
+        return {
+          ok: false,
+          reason: r.reason === "invalid_desk" ? "desk_taken" : r.reason,
+        };
       },
       // agent-manager.swapDesks is (deskA, deskB, roomId); the dep takes
       // (roomId, deskA, deskB) so the handler reads room from the path param.
@@ -4639,11 +4643,22 @@ function buildExecutorDeps(
               message: "Room not found",
             };
           }
-          return {
-            ok: false,
-            reason: "no_free_desk",
-            message: "The target room has no free desks.",
-          };
+          // The room is full: the lobby has one desk, every other room fills
+          // its back room last.
+          const lobby =
+            agentManager.getRooms().find((r) => r.id === input.roomId)?.type ===
+            "lobby";
+          return lobby
+            ? {
+                ok: false,
+                reason: "no_free_desk",
+                message: "The target room has no free desks.",
+              }
+            : {
+                ok: false,
+                reason: "back_room_full",
+                message: BACK_ROOM_FULL_MESSAGE,
+              };
         } catch (err) {
           return {
             ok: false,
@@ -7319,7 +7334,9 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           req.method === "GET" &&
           url.pathname === "/agents" &&
           (!url.searchParams.has("killed") ||
-            url.searchParams.get("killed") === "1");
+            url.searchParams.get("killed") === "1") &&
+          (!url.searchParams.has("back") ||
+            url.searchParams.get("back") === "1");
         if (
           auth.identity.scope === "app" ||
           (auth.identity.scope === "api" && !apiManifestAllowed)
@@ -7441,6 +7458,25 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           // and would otherwise be answered with the killed list, while a typo'd
           // value would be answered with live agents - both are the quietly-wrong
           // answer this surface is being hardened against.
+          // ?back=1 lists back room agents one by one; without it, an agent
+          // (or cron run) sees each back room as one summary entry. EXACTLY
+          // "1", and only on the live list, for the same reason as killed.
+          const backParam = url.searchParams.get("back");
+          if (
+            backParam !== null &&
+            (backParam !== "1" || url.searchParams.has("killed"))
+          ) {
+            return new Response(
+              JSON.stringify({
+                error:
+                  "back must be 1, and only without killed (omit it for front agents and one entry per back room)",
+              }),
+              {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          }
           const killedParam = url.searchParams.get("killed");
           if (killedParam !== null) {
             if (killedParam !== "1") {
@@ -7539,9 +7575,18 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               opId: "agents.discovery",
             });
           }
-          return new Response(JSON.stringify(manifest, null, 2), {
-            headers: { "Content-Type": "application/json" },
-          });
+          const collapseBackRooms =
+            (auth.identity.scope === "agent" ||
+              auth.identity.scope === "cron-run") &&
+            backParam !== "1";
+          return new Response(
+            JSON.stringify(
+              projectBackRooms(manifest, collapseBackRooms),
+              null,
+              2,
+            ),
+            { headers: { "Content-Type": "application/json" } },
+          );
         }
 
         // Retired legacy surfaces: /tasks*, /cronjobs* and /backup/status. These

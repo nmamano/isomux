@@ -1285,6 +1285,7 @@ Coses que pots fer per ell:
   "dialogs.agent.titleSpawn": "Crear un agent nou",
   "dialogs.agent.titleEdit": "Editar l'agent",
   "dialogs.agent.desk": "Escriptori #{desk}",
+  "dialogs.agent.backRoom": "Rebotiga",
   "dialogs.agent.engineBlurb.claude":
     "Funciona amb el teu compte de Claude Code.",
   "dialogs.agent.engineBlurb.codex": "Funciona amb el teu compte de ChatGPT.",
@@ -1488,6 +1489,10 @@ Coses que pots fer per ell:
   "apiCall.tasks.markDone": "Marcar la tasca {task} com a feta",
   "apiCall.agents.list": "Llistar els agents de l'oficina",
   "apiCall.agents.listKilled": "Llistar els agents eliminats",
+  "apiCall.agents.listWithBackRooms":
+    "Llistar els agents de l'oficina, rebotigues incloses",
+  "apiCall.agents.listInvalidBack":
+    "Llistar agents (filtre de rebotiga no vàlid)",
   "apiCall.agents.listInvalidFilter":
     "Llistar agents (filtre d'eliminats no vàlid)",
   "apiCall.agents.sendMessage": "Enviar un missatge a un agent",
@@ -1793,6 +1798,10 @@ Coses que pots fer per ell:
     "Finalitza la conversa. La pots reprendre més tard amb /resume.",
   "logView.backToOffice": "← Torna a l'oficina",
   "logView.backToOfficeTitle": "Torna a l'oficina (Esc)",
+  "logView.backToBackRoom": "← Rebotiga",
+  "logView.backToBackRoomTitle": "Torna a la rebotiga (Esc)",
+  "logView.backRoomStrip":
+    "A la rebotiga de {room}. La gent parla amb el davant:",
   "logView.editTopic": "Fes clic per editar el tema",
   "logView.regenerateTopic": "Regenera el tema a partir de la conversa",
   "logView.noHistoryToSummarize": "No hi ha historial de conversa per resumir",
@@ -1992,6 +2001,20 @@ Coses que pots fer per ell:
   "office.status.waiting": "esperant",
   "office.status.error": "amb error",
   "office.status.idle": "inactius",
+  "office.backRoom.tooltip.one": "Rebotiga · {count} agent",
+  "office.backRoom.tooltip.other": "Rebotiga · {count} agents",
+  "office.backRoom.unread": "{count} sense llegir",
+  "office.backRoom.asking": "{count} preguntant",
+  "office.backRoom.error": "{count} amb error",
+  "office.backRoom.dropBadge": "Mou a la rebotiga",
+  "office.backRoom.fullBadge": "La rebotiga és plena",
+  "office.backRoom.title": "Rebotiga",
+  "office.backRoom.backTo": "← {room}",
+  "office.backRoom.backToTitle": "Torna a {room} (Esc)",
+  "office.backRoom.newAgent": "+ Agent nou",
+  "office.backRoom.sign": "REBOTIGA",
+  "office.backRoom.boardTitle": "AVUI",
+  "office.backRoom.boardCount": "{count} DE TORN",
   "office.status.errShort": "error",
   "office.hints.tap": "TOCA → obre",
   "office.hints.longPress": "MANTÉN PREMUT → accions",
@@ -1999,7 +2022,7 @@ Coses que pots fer per ell:
   "office.hints.dragZoomed": "ARROSSEGA (amb zoom) → desplaça",
   "office.hints.click": "CLIC → obre l'agent",
   "office.hints.dragSwap":
-    "ARROSSEGA → intercanvia escriptoris o mou a la porta",
+    "ARROSSEGA → intercanvia escriptoris, mou a una porta o a la trapa",
   "office.hints.wheel": "RODA / +- → zoom",
   "office.hints.drag": "ARROSSEGA → desplaça",
   "office.hints.rightClick": "CLIC DRET → accions",
@@ -2017,6 +2040,10 @@ Coses que pots fer per ell:
   "common.current": "(actual)",
   "contextMenu.branched": "(ramificada)",
   "contextMenu.killAgent": "Elimina l'agent",
+  "contextMenu.moveToBackRoom": "Mou a la rebotiga",
+  "contextMenu.moveToBackRoomFull": "Mou a la rebotiga (plena)",
+  "contextMenu.moveToFront": "Mou al davant",
+  "contextMenu.moveToFrontFull": "Mou al davant (ple)",
   "app.reconnecting": "S'està reconnectant…",
   "themes.dark": "Fosc",
   "themes.light": "Clar",
@@ -2513,6 +2540,7 @@ Coses que pots fer per ell:
   "commands.isomuxAllHands.me": "**(jo)**",
   "commands.isomuxAllHands.desk": "escriptori {number}",
   "commands.isomuxAllHands.topic": "Tema: {topic}",
+  "commands.isomuxAllHands.backRoom": "{count} a la rebotiga",
   "commands.isomuxAllHands.footer":
     "Pregunta-ho al teu agent si vols saber més sobre qualsevol agent o conversa.",
   "commands.isomuxSystemPrompt.header":

@@ -97,7 +97,8 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Office View
 - Lobby: a room always open to every member, where members without access to any room land. It has the receptionist, the members chat, an Employee of the Minute portrait, an Apps screen that opens Apps and a clock that opens Automations.
 - Isometric office with 8 desks - see all your agents at a glance
-- Multiple rooms - click doors to switch rooms, each room has 8 desks, no hard limit on total agents
+- Back room: each room has a basement behind a trap door in the floor, a sweatshop of long tables for up to 100 agents. The front keeps the agents people talk to; the back room holds the team behind them. Back agents are normal agents, one click from their log. Agent lists show a back room as one line
+- Multiple rooms - click doors to switch rooms, each room has 8 front desks and a back room, no hard limit on total agents
 - Tab/Shift+Tab cycles between agents within a room; rooms keep things organized (e.g., main project agents in room 1, side projects in room 2)
 - Name your agents - each gets a nametag on their desk
 - Unique character per agent - customize hat, shirt, hair, accessory, or randomize. Choose a doctor, police officer, firefighter, chef, construction worker or astronaut costume.
@@ -185,7 +186,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Resume past conversations from session files (via /resume or right-click menu)
 - Conversations are persisted in append-only JSONL logs. Owners can prune old history from the storage panel.
 - Isomux masks recognized secret patterns before they reach the logs or the chat, to prevent leaks.
-- Kill removes agent and frees desk
+- Kill removes agent and frees its desk or back room seat
 - Context check: every agent can ask how full its own context window is, or check another agent in a room its manager can access. A reading is the latest backend sample and may lag the in-flight turn (roughly the last turn boundary); humans get the same view with /context, plus a battery-style meter in the conversation header that drains and shifts from dim to orange to red as the window fills. The server also nudges the agent as its window fills - a one-line notice on its next message the first time the conversation passes roughly 50% and then 75% - so wrap-up suggestions fire even when the agent never thinks to check
 - Plan usage at a glance: for subscriptions, a ring next to the context meter shows how much of the plan allowance the agent's account has burned. Hovering or tapping it lists every limit that can gate the agent, with when each resets and how old the reading is. Agents can ask for the same data for any agent in a room their manager can access; with a live session, the check asks the provider each time.
 - Survives a memory spike: the office biases the out-of-memory kill toward the runaway agent or build, not itself. One root command (see isomux.com/docs/hosting) adds box-wide protection and keeps SSH reachable. Linux only.

@@ -278,9 +278,6 @@ export function TuckedRoomsChip({
                     }}
                   >
                     {room.name}
-                    <span style={{ color: "var(--text-hint)", fontSize: 10 }}>
-                      {roomAgents.length}/8
-                    </span>
                     <ActivityDot color={dot} />
                   </span>
                   {names.length > 0 && (

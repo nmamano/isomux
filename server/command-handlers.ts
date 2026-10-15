@@ -9,6 +9,7 @@ import type {
   RoomWire,
 } from "../shared/types.ts";
 import { sessionResumeLabel } from "../shared/session-label.ts";
+import { isBackSeat } from "../shared/desks.ts";
 import { translatorForUsername } from "./i18n.ts";
 import { getUserByName } from "./users.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
@@ -687,8 +688,11 @@ export function createCommandHandling(deps: HandlerDeps) {
       const sortedRooms = [...roomMap.keys()].sort((a, b) => a - b);
 
       for (const room of sortedRooms) {
-        const roomAgents = roomMap
-          .get(room)!
+        // A back room shows as one line, not one per agent: it can hold 100.
+        const inRoom = roomMap.get(room)!;
+        const backCount = inRoom.filter((a) => isBackSeat(a.info.desk)).length;
+        const roomAgents = inRoom
+          .filter((a) => !isBackSeat(a.info.desk))
           .sort((a, b) => a.info.desk - b.info.desk);
         lines.push(t("commands.isomuxAllHands.room", { number: room + 1 }));
         lines.push("");
@@ -713,6 +717,12 @@ export function createCommandHandling(deps: HandlerDeps) {
           } else {
             lines.push(`<span style="color: var(--text-dim)">${header}</span>`);
           }
+          lines.push("");
+        }
+        if (backCount > 0) {
+          lines.push(
+            t("commands.isomuxAllHands.backRoom", { count: backCount }),
+          );
           lines.push("");
         }
       }

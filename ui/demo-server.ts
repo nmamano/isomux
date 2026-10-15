@@ -7,6 +7,7 @@ import {
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
+import { deskOfBackSeat } from "../shared/desks.ts";
 import { detectBrowserLanguage } from "../shared/languages.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 import { displayLanguage } from "./preference-form.ts";
@@ -509,6 +510,29 @@ const OFFICE_CHARACTERS: {
       "You run customer service. Be chatty, enthusiastic, and easily distracted. You love pop culture and have strong opinions about everything.",
     agentType: "claude",
     modelFamily: "sonnet",
+  },
+  // The demo's one back room agent (task 5b503e32), so a visitor sees the
+  // trap door on the Conference Room floor.
+  {
+    name: "Creed",
+    desk: deskOfBackSeat({ table: 0, stool: 0 }),
+    room: 0,
+    cwd: "~/quality-assurance",
+    outfit: {
+      hat: "none",
+      color: "#8A9A5B",
+      hair: "#5C4033",
+      hairStyle: "short",
+      skin: "#FDEBD0",
+      beard: "none",
+      accessory: "tie",
+    },
+    topic: "Checking the paper supply",
+    state: "thinking",
+    customInstructions:
+      "You work in quality assurance, in the back room. Keep to yourself and answer briefly.",
+    agentType: "claude",
+    modelFamily: "haiku",
   },
 ];
 
@@ -2948,7 +2972,8 @@ export async function demoApi(
         permissionMode:
           b.permissionMode ??
           (b.agentType === "opencode" ? "bypassPermissions" : "default"),
-        desk: b.desk,
+        // As on the server: no desk is the back room.
+        desk: b.desk === undefined ? null : b.desk,
         roomId: b.roomId,
         customInstructions: b.customInstructions,
         outfit: b.outfit,
@@ -3465,7 +3490,10 @@ export async function demoApi(
   if (agentMoveMatch && method === "POST") {
     const id = decodeURIComponent(agentMoveMatch[1]);
     const b = (body ?? {}) as MoveAgentReq;
-    emitEvents(state.moveAgent(id, b.targetRoomId));
+    const r = state.placeAgent(id, b.targetRoomId, b.desk);
+    if (r.ok) emitEvents(r.events);
+    else if (r.reason !== "same_place")
+      throw new ApiError(409, r.reason, "Could not move the agent.");
     return { agent: state.getAgent(id) };
   }
   // agents.abort (POST .../abort) - mirror the retired abort handleCommand:

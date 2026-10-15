@@ -588,15 +588,6 @@ export function RoomTabBar({
                     title={t("office.tabs.roomSettings")}
                   >
                     {displayName}
-                    <span
-                      style={{
-                        color: "var(--text-hint)",
-                        fontSize: 10,
-                        marginLeft: 4,
-                      }}
-                    >
-                      {roomAgents.length}/8
-                    </span>
                     {activityDotColor && (
                       <span
                         style={{

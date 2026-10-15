@@ -65,7 +65,10 @@ export interface SpawnReq {
   name: string;
   cwd: string;
   roomId: string;
-  desk: number;
+  // A front desk (0-7). null or omitted puts the agent in the room's back
+  // room; a taken front desk falls through to the first free one, then the
+  // back room.
+  desk?: number | null;
   permissionMode?: AgentInfo["permissionMode"];
   customInstructions?: string;
   outfit?: AgentInfo["outfit"];
@@ -123,7 +126,8 @@ export type EditAgentReq = Partial<
 
 export interface ReviveReq {
   roomId: string;
-  desk: number;
+  // A free front desk. null or omitted takes the first free back room seat.
+  desk?: number | null;
 }
 
 // Body for agents.setPrivileged (PUT /api/agents/:id/privileged). Deliberately
@@ -137,6 +141,9 @@ export interface SetPrivilegedReq {
 
 export interface MoveAgentReq {
   targetRoomId: string;
+  // A free front desk, null for a back room seat, or omitted to keep the
+  // agent's area (front: first free desk, then the back room).
+  desk?: number | null;
 }
 
 export interface SwapDesksReq {

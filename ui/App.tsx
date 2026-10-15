@@ -39,7 +39,8 @@ import type { PreferencesReq } from "../shared/contract-shapes.ts";
 import { agentTabLabel } from "./agent-face.ts";
 import { LOBBY_ROOM_ID, type AgentInfo } from "../shared/types.ts";
 import { swipeTarget } from "./office/room-cycle.ts";
-import { isValidDesk } from "../shared/desks.ts";
+import { isValidDesk, isBackSeat } from "../shared/desks.ts";
+import { cycleAgent } from "./agent-cycle.ts";
 import {
   pageForLocation,
   pageForPath,
@@ -50,36 +51,6 @@ import {
   pageShortcut,
   type Page,
 } from "./routes.ts";
-
-/** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
-function cycleAgent(
-  agents: AgentInfo[],
-  drafts: Map<string, string>,
-  currentRoomId: string | null,
-  focusedAgentId: string | null,
-  direction: "next" | "prev",
-): string | null {
-  const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
-  const sorted = [...roomAgents].sort((a, b) => a.desk - b.desk);
-  const nonIdle = sorted.filter(
-    (a) =>
-      (a.state !== "idle" && a.state !== "stopped") ||
-      (drafts.get(a.id) ?? "").length > 0,
-  );
-  const pool = nonIdle.length > 0 ? nonIdle : sorted;
-  if (pool.length === 0) return null;
-  const idx = pool.findIndex((a) => a.id === focusedAgentId);
-  if (idx !== -1 && pool.length <= 1) return null;
-  const next =
-    idx === -1
-      ? direction === "prev"
-        ? pool[pool.length - 1]
-        : pool[0]
-      : direction === "prev"
-        ? pool[(idx - 1 + pool.length) % pool.length]
-        : pool[(idx + 1) % pool.length];
-  return next.id;
-}
 
 /**
  * The page a history entry names, `null` for an entry that means the office,
@@ -134,6 +105,11 @@ export function App({ routing = true }: { routing?: boolean }) {
   // Clicking an empty slot opens the complete spawn form. Engine is one of its
   // fields, so the user can configure the agent in either order.
   const [spawnPickerDesk, setSpawnPickerDesk] = useState<number | null>(null);
+  // The spawn dialog for a back room seat (the back screen's "+ New agent").
+  const [spawnBackOpen, setSpawnBackOpen] = useState(false);
+  // The current room's back room screen (task 5b503e32). Not a route: like a
+  // chat it is one level deep, and a reload lands on the front.
+  const [backRoomOpen, setBackRoomOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -371,6 +347,12 @@ export function App({ routing = true }: { routing?: boolean }) {
   const focusedAgent = focusedAgentId
     ? agents.find((a) => a.id === focusedAgentId)
     : null;
+  // A back agent's log, however it was opened (the back screen, search, the
+  // pager, the task board, Next/Prev), steps back to its room's back screen.
+  // Render-phase derived state: the render that sees a focused back agent
+  // opens the back screen, and React re-renders once with it.
+  const focusedInBack = !!focusedAgent && isBackSeat(focusedAgent.desk);
+  if (focusedInBack && !backRoomOpen) setBackRoomOpen(true);
 
   // Keep the browser tab title in sync with what's open - the focused agent,
   // else the current room, else the office name - so tabs on different agents
@@ -542,7 +524,29 @@ export function App({ routing = true }: { routing?: boolean }) {
     entryRef.current = "none";
     applyPage(null);
     dispatch({ type: "focus", agentId: null });
+    setBackRoomOpen(false);
   }, [applyPage, dispatch]);
+
+  // Which page is showing, in the same precedence as the view switch below. A
+  // chat is not a page: agent chats are not routes (ruling 3), so a chat and
+  // the office share the path "/".
+  const page = pageForFlags({
+    usersOpen,
+    tasksOpen,
+    cronjobsOpen,
+    appsOpen,
+    skillsOpen,
+    integrationsOpen,
+    pagerOpen,
+  });
+  // A back agent's log sits over the back screen, the way tasks sit over a
+  // chat: closing it returns to the back screen, not the front. A page open
+  // over the log (Apps, Settings, Tasks...) closes the normal way instead.
+  const logOverBackRoom = backRoomOpen && !!focusedAgent && page === null;
+  const closeLog = useCallback(() => {
+    if (logOverBackRoom) dispatch({ type: "focus", agentId: null });
+    else goHome();
+  }, [logOverBackRoom, dispatch, goHome]);
 
   // Tasks opened over a chat: the focused agent stays set while TaskView
   // renders on top of it (render priority: tasks > log), so "return to the
@@ -581,7 +585,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         tag === "TEXTAREA" ||
         (e.target as HTMLElement)?.isContentEditable;
       if (e.key === "Escape") {
-        goHome();
+        closeLog();
         setSpawnPickerDesk(null);
         setCtxMenu(null);
         setEditAgent(null);
@@ -712,6 +716,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   }, [
     dispatch,
     goHome,
+    closeLog,
     focusedAgentId,
     agents,
     drafts,
@@ -730,19 +735,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     lobbyOpen,
   ]);
 
-  // Which page is showing, in the same precedence as the view switch below. A
-  // chat is not a page: agent chats are not routes (ruling 3), so a chat and
-  // the office share the path "/".
-  const page = pageForFlags({
-    usersOpen,
-    tasksOpen,
-    cronjobsOpen,
-    appsOpen,
-    skillsOpen,
-    integrationsOpen,
-    pagerOpen,
-  });
-  const isDeep = page !== null || focusedAgentId !== null;
+  const isDeep = page !== null || focusedAgentId !== null || backRoomOpen;
   useEffect(() => {
     const write = (method: "pushState" | "replaceState") => {
       const entry = { isomux: true, page };
@@ -801,12 +794,19 @@ export function App({ routing = true }: { routing?: boolean }) {
         setTasksOpen(false);
         return;
       }
+      if (logOverBackRoom) {
+        // Back from a back agent's log steps to the back screen; the sync
+        // effect re-pushes the entry, as for tasks over a chat.
+        dispatch({ type: "focus", agentId: null });
+        return;
+      }
       applyPage(null);
       dispatch({ type: "focus", agentId: null });
+      setBackRoomOpen(false);
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [applyPage, dispatch, tasksOverChat]);
+  }, [applyPage, dispatch, tasksOverChat, logOverBackRoom]);
 
   return (
     <>
@@ -873,7 +873,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           key={focusedAgent.id}
           agent={focusedAgent}
           logs={logs.get(focusedAgent.id) ?? []}
-          onBack={goHome}
+          onBack={closeLog}
           onEditAgent={() => setEditAgent(focusedAgent)}
           onOpenTasks={openTasks}
           onOpenTask={openTask}
@@ -884,6 +884,10 @@ export function App({ routing = true }: { routing?: boolean }) {
         <OfficeView
           onSpawn={(desk) => setSpawnPickerDesk(desk)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
+          onOpenBackRoom={() => setBackRoomOpen(true)}
+          backRoomOpen={backRoomOpen}
+          onCloseBackRoom={goHome}
+          onSpawnBack={() => setSpawnBackOpen(true)}
           onOpenSettings={() => openSettings(null)}
           onOpenUserSettingsForUser={(userId) => {
             setEditingUserId(userId);
@@ -910,6 +914,15 @@ export function App({ routing = true }: { routing?: boolean }) {
           onSwipeLeft={swipeRoomNext}
           onSwipeRight={swipeRoomPrev}
           viewportControlsRef={viewportControlsRef}
+        />
+      )}
+      {spawnBackOpen && currentRoomId && (
+        <EditAgentDialog
+          deskIndex={null}
+          defaultCwd="~"
+          spawnAgentType="claude"
+          roomId={currentRoomId}
+          onClose={() => setSpawnBackOpen(false)}
         />
       )}
       {spawnPickerDesk !== null && currentRoomId && (

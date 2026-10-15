@@ -1,3 +1,5 @@
+import { isBackSeat } from "../../shared/desks.ts";
+import { BackRoomStrip } from "./BackRoomStrip.tsx";
 import {
   STATE_LABEL_KEYS,
   escalationColor,
@@ -616,6 +618,8 @@ export function LogView({
     interactions,
     providerAccounts,
     tasks,
+    agents: allAgents,
+    rooms: allRooms,
   } = useAppState();
   const taskMap: TaskMap = useMemo(
     () => new Map(tasks.map((task) => [task.id, task])),
@@ -1810,7 +1814,11 @@ export function LogView({
         >
           <button
             onClick={onBack}
-            title={i18n.t("logView.backToOfficeTitle")}
+            title={
+              isBackSeat(agent.desk)
+                ? i18n.t("logView.backToBackRoomTitle")
+                : i18n.t("logView.backToOfficeTitle")
+            }
             style={{
               display: "flex",
               alignItems: "center",
@@ -1825,7 +1833,9 @@ export function LogView({
               flexShrink: 0,
             }}
           >
-            {i18n.t("logView.backToOffice")}
+            {isBackSeat(agent.desk)
+              ? i18n.t("logView.backToBackRoom")
+              : i18n.t("logView.backToOffice")}
           </button>
           <div
             style={{
@@ -2223,6 +2233,12 @@ export function LogView({
               </div>
             </div>
           )}
+          <BackRoomStrip
+            agent={agent}
+            agents={allAgents}
+            rooms={allRooms}
+            onOpenAgent={(agentId) => dispatch({ type: "focus", agentId })}
+          />
 
           {/* Pinned line + messages share one positioned box so the portrait
           can float over both. */}

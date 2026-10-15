@@ -19,7 +19,11 @@ import {
   claudePermissionModeFor,
   familyDisplayLabel,
 } from "../../shared/types.ts";
-import { roomSlotCount } from "../../shared/desks.ts";
+import {
+  roomSlotCount,
+  isBackSeat,
+  BACK_ROOM_SEATS,
+} from "../../shared/desks.ts";
 import { randomOutfit } from "../../shared/outfit-options.ts";
 import { OutfitPicker } from "./OutfitPicker.tsx";
 import { Character } from "../office/Character.tsx";
@@ -227,7 +231,9 @@ type EditAgentDialogProps = {
     }
   | {
       agent?: undefined;
-      deskIndex: number;
+      // A front desk, or null for a back room seat (the back screen's
+      // "+ New agent").
+      deskIndex: number | null;
       roomId: string;
       defaultCwd: string;
       spawnAgentType: AgentBackendType;
@@ -262,6 +268,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     killedAgents,
     unavailableEngines,
   } = useAppState();
+  // The name a spawn gets when the member leaves it empty.
+  const defaultSpawnName =
+    spawnProps === null
+      ? undefined
+      : spawnProps.deskIndex === null
+        ? `Agent ${agents.filter((a) => a.roomId === spawnProps.roomId).length + 1}`
+        : `Agent ${spawnProps.deskIndex + 1}`;
   // The office host cannot run this engine: no model discovery, and a new
   // agent or an engine switch cannot pick it.
   const engineUnavailable = unavailableEngines[targetEngine] !== undefined;
@@ -891,7 +904,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // to get its id for the privileged two-step (privilege is its own
       // user-gated route, never a spawn field - so no agent can self-confer).
       apiFetch<{ agent: AgentInfo }>("POST", "/api/agents", {
-        name: name || `Agent ${props.deskIndex + 1}`,
+        name: name || defaultSpawnName!,
         cwd,
         roomId: props.roomId,
         desk: props.deskIndex,
@@ -1394,10 +1407,15 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
         {Array.from({ length: roomCount }, (_, i) => {
           if (rooms[i]?.id === agent!.roomId) return null;
-          const roomAgentCount = agents.filter(
+          // Full only when the front and the back room are both full: a
+          // move with no desk takes a back seat when the front is full.
+          const inRoom = agents.filter(
             (candidate) => candidate.roomId === rooms[i]?.id,
-          ).length;
-          const isFull = roomAgentCount >= roomSlotCount(rooms[i]);
+          );
+          const backCount = inRoom.filter((a) => isBackSeat(a.desk)).length;
+          const isFull =
+            inRoom.length - backCount >= roomSlotCount(rooms[i]) &&
+            (rooms[i]?.type === "lobby" || backCount >= BACK_ROOM_SEATS);
           return (
             <button
               key={i}
@@ -1422,8 +1440,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 fontFamily: "'JetBrains Mono',monospace",
               }}
             >
-              {rooms[i]?.name ?? t("common.roomFallback", { number: i + 1 })} (
-              {roomAgentCount}/8)
+              {rooms[i]?.name ?? t("common.roomFallback", { number: i + 1 })}
             </button>
           );
         })}
@@ -1535,7 +1552,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             </h3>
             {isSpawn && (
               <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                {t("dialogs.agent.desk", { desk: props.deskIndex + 1 })}
+                {props.deskIndex === null
+                  ? t("dialogs.agent.backRoom")
+                  : t("dialogs.agent.desk", { desk: props.deskIndex + 1 })}
               </span>
             )}
           </div>
@@ -1549,10 +1568,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             >
               {agent!.roomId === "lobby"
                 ? t("common.lobby")
-                : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${t(
-                    "dialogs.agent.desk",
-                    { desk: agent!.desk + 1 },
-                  )}`}
+                : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${
+                    isBackSeat(agent!.desk)
+                      ? t("dialogs.agent.backRoom")
+                      : t("dialogs.agent.desk", { desk: agent!.desk + 1 })
+                  }`}
             </p>
           )}
 
@@ -1644,9 +1664,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   setName(e.target.value);
                   if (nameError) setNameError(null);
                 }}
-                placeholder={
-                  isSpawn ? `Agent ${props.deskIndex + 1}` : undefined
-                }
+                placeholder={defaultSpawnName}
                 style={
                   nameError
                     ? { ...inputStyle, borderColor: "#ff6b6b" }
@@ -1845,8 +1863,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   ...(isSpawn ? {} : { agentId: agent!.id }),
                   roomId: isSpawn ? props.roomId : agent!.roomId,
                   name:
-                    name.trim() ||
-                    (isSpawn ? `Agent ${props.deskIndex + 1}` : agent!.name),
+                    name.trim() || (isSpawn ? defaultSpawnName! : agent!.name),
                   agentType: targetEngine,
                   customInstructions,
                   privileged,
