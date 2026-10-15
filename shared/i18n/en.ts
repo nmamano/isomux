@@ -2493,6 +2493,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Open agent settings to select a connected OpenCode model.",
   "commands.model.header": "Switch model (current: **{current}**):",
 
+  // /plan
+  "commands.plan.on": "Plan mode is on. Send /plan again to turn it off.",
+  "commands.plan.off": "Plan mode is off.",
+  "commands.plan.unavailable":
+    "Plan mode is not available for {engine} agents.",
+
   // /effort
   "commands.effort.openCodeSettings":
     "OpenCode effort choices are available in agent settings for models that expose them.",

@@ -2537,6 +2537,11 @@ Coses que pots fer per ell:
   "commands.resume.header": "Reprèn una conversa anterior:",
   "commands.resume.noOthers": "No hi ha altres sessions per reprendre.",
   "commands.resume.branched": "(ramificada)",
+  "commands.plan.on":
+    "El mode de planificació està activat. Envia /plan de nou per desactivar-lo.",
+  "commands.plan.off": "El mode de planificació està desactivat.",
+  "commands.plan.unavailable":
+    "El mode de planificació no està disponible per als agents amb {engine}.",
   "commands.model.openCodeUnsupported":
     "Obre la configuració de l'agent per triar un model d'OpenCode connectat.",
   "commands.model.header": "Canviar de model (actual: **{current}**):",

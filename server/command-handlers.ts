@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  AgentBackendType,
   AgentInfo,
   AgentChoiceInteractionKind,
   AgentState,
@@ -66,6 +67,13 @@ export const DOCS_URL = "https://isomux.com/docs";
 // the reader is on.
 export const SKILLS_PAGE_PATH = "/skills";
 const EDIT_USAGE = "`/isomux-edit <path>`";
+// Engine names are proper nouns and stay untranslated (as in
+// ui/engine-options.ts).
+const ENGINE_NAMES: Record<AgentBackendType, string> = {
+  claude: "Claude",
+  codex: "Codex",
+  opencode: "OpenCode",
+};
 
 type HandlerFn = (
   agentId: string,
@@ -249,6 +257,12 @@ interface HandlerDeps {
   // The Claude families limited in the agent owner's env (env-loader
   // limitedClaudeFamiliesForUserId).
   limitedClaudeFamiliesFor: (managed: ManagedAgent) => string[];
+  // Whether the agent's engine has a native plan mode.
+  planModeAvailable: (managed: ManagedAgent) => boolean;
+  // Turns the engine's plan mode on or off: the live session now, and every
+  // later session through ManagedAgent.planMode. Rejects when the engine
+  // refuses, leaving the flag as it was.
+  setPlanMode: (managed: ManagedAgent, on: boolean) => Promise<void>;
   // Defer-to-queue path for slash commands that arrive while the agent is busy.
   enqueueMessage: (
     agentId: string,
@@ -667,6 +681,57 @@ export function createCommandHandling(deps: HandlerDeps) {
       );
       deps.updateState(agentId, "waiting_for_response");
       return true;
+    },
+
+    // Toggles the engine's own plan mode. `/plan <text>` turns it on and sends
+    // the text, as in Claude Code.
+    async plan(agentId, managed, _args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
+      const userMeta = buildMeta(username, device);
+      const text = rawText.replace(/^\s*\/\S+/, "").trim();
+      if (!deps.planModeAvailable(managed)) {
+        deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          t("commands.plan.unavailable", {
+            engine: ENGINE_NAMES[managed.info.agentType],
+          }),
+        );
+        return true;
+      }
+      const on = text ? true : !managed.planMode;
+      if (!text) deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+      // `/plan <text>` while plan mode is on only sends the text.
+      if (on !== (managed.planMode ?? false)) {
+        try {
+          await deps.setPlanMode(managed, on);
+        } catch (err) {
+          if (text)
+            deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+          deps.addLogEntry(
+            agentId,
+            "error",
+            t("systemEntries.genericError", { error: errMessage(err) }),
+          );
+          return true;
+        }
+        deps.addLogEntry(
+          agentId,
+          "system",
+          t(on ? "commands.plan.on" : "commands.plan.off"),
+        );
+      }
+      if (!text) return true;
+      return runCommandTurn(
+        agentId,
+        managed,
+        text,
+        rawText,
+        "systemEntries.genericError",
+        username,
+        device,
+      );
     },
 
     async isomuxAllHands(agentId, _managed, _args, rawText, username, device) {
@@ -1132,7 +1197,28 @@ export function createCommandHandling(deps: HandlerDeps) {
     const fullPrompt = userArgs
       ? `${skillPrompt}\n\nUser context: ${userArgs}`
       : skillPrompt;
+    return runCommandTurn(
+      agentId,
+      managed,
+      fullPrompt,
+      rawText,
+      "commands.skill.error",
+      username,
+      device,
+    );
+  }
 
+  // Runs `fullPrompt` as a turn on behalf of a typed command, logged as the
+  // command the member typed.
+  async function runCommandTurn(
+    agentId: string,
+    managed: ManagedAgent,
+    fullPrompt: string,
+    rawText: string,
+    errorKey: "commands.skill.error" | "systemEntries.genericError",
+    username?: string,
+    device?: string,
+  ): Promise<boolean> {
     // If the agent is mid-turn, defer the skill via the queue instead of
     // calling session.send now. Otherwise createTurnDeferred below would
     // supersede the in-flight turn and reject it with "Superseded by a new
@@ -1227,7 +1313,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.addLogEntry(
         agentId,
         "error",
-        translatorForUsername(username).t("commands.skill.error", {
+        translatorForUsername(username).t(errorKey, {
           error: errMessage(err),
         }),
       );

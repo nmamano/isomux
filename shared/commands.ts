@@ -197,7 +197,15 @@ export const commands: Record<string, CommandConfig> = {
   export: {
     ...UNSUPPORTED_HARDCODED,
   },
-  plan: { ...UNSUPPORTED_HARDCODED },
+  plan: {
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "plan",
+    // Bare /plan toggles plan mode; /plan <text> is the optional form.
+    autoRun: true,
+  },
   rename: { ...UNSUPPORTED_HARDCODED },
   reset: {
     type: "hardcoded",

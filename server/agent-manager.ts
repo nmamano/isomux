@@ -5143,6 +5143,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }
         break;
       }
+      case "plan_mode": {
+        // The engine's report wins over the flag. A change /plan made is
+        // already in the flag and in the chat, so only a change the engine
+        // made itself (an approved Claude plan, a Codex thread resumed in plan
+        // mode, a failed switch) gets a notice here.
+        const managed = agents.get(agentId);
+        if (!managed || (managed.planMode ?? false) === ev.on) break;
+        managed.planMode = ev.on;
+        addLogEntry(
+          agentId,
+          "system",
+          logWords(agentId)(ev.on ? "commands.plan.on" : "commands.plan.off"),
+        );
+        break;
+      }
       case "compacted":
         addLogEntry(
           agentId,
@@ -6123,6 +6138,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         : formatMemoryNotice(memoryStore.measureForPromptMulti(refs));
   }
 
+  // The flag changes first, so the engine's own plan_mode report of this
+  // change finds it set and adds no second notice.
+  async function setPlanMode(managed: ManagedAgent, on: boolean) {
+    const previous = managed.planMode;
+    managed.planMode = on;
+    try {
+      await managed.sessionManager.session?.setPlanMode?.(on);
+    } catch (err) {
+      managed.planMode = previous;
+      throw err;
+    }
+  }
+
   function createSession(
     managed: ManagedAgent,
     resumeSessionId?: string,
@@ -6216,7 +6244,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // prior-runs accumulator so lifetime cost survives the reset.
       rollSessionUsageOnResume(managed.info.id, resumeSessionId);
     }
-    const opts = {
+    const opts: CreateSessionOptions = {
       agentId: managed.info.id,
       cwd: managed.info.cwd,
       systemPrompt,
@@ -6236,6 +6264,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       mcpServers: agentMcpServers(managed.info.userId),
     };
     const backend = getBackend(managed.info.agentType);
+    // Plan mode is session state the engine may not keep (a resumed Claude
+    // session does not), so every new session is asked to start in it.
+    if (backend.planMode) opts.planMode = managed.planMode;
     managed.launchedClaudeConfigDir =
       managed.info.agentType === "claude" ? claudeConfigRoot(env) : undefined;
     managed.launchedClaudeCloud =
@@ -6552,6 +6583,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     claudeConfigDirFor,
     limitedClaudeFamiliesFor: (managed) =>
       limitedClaudeFamiliesForUserId(managed.info.userId),
+    planModeAvailable: (managed) =>
+      getBackend(managed.info.agentType).planMode === true,
+    setPlanMode,
   });
 
   // === Message queue ===

@@ -2540,6 +2540,11 @@ Cosas que puedes hacer por él:
   "commands.resume.header": "Retoma una conversación anterior:",
   "commands.resume.noOthers": "No hay otras sesiones que retomar.",
   "commands.resume.branched": "(ramificada)",
+  "commands.plan.on":
+    "El modo de planificación está activado. Envía /plan de nuevo para desactivarlo.",
+  "commands.plan.off": "El modo de planificación está desactivado.",
+  "commands.plan.unavailable":
+    "El modo de planificación no está disponible para los agentes de {engine}.",
   "commands.model.openCodeUnsupported":
     "Abre los ajustes del agente para elegir un modelo de OpenCode conectado.",
   "commands.model.header": "Cambiar de modelo (actual: **{current}**):",

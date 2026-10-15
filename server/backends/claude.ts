@@ -169,6 +169,9 @@ const CAPABILITIES: BackendCapabilities = {
   autoHandoff: true,
 };
 
+// The SDK tool that asks the member to approve a plan and leave plan mode.
+export const EXIT_PLAN_MODE_TOOL = "ExitPlanMode";
+
 const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "default", label: "Default - prompt for each tool" },
   { value: "acceptEdits", label: "Accept edits automatically" },
@@ -202,6 +205,8 @@ export interface SdkConversation {
   getMcpServers?(): Promise<
     { name: string; status?: string; source?: string; tools?: number }[] | null
   >;
+  /** Switch the live session's permission mode (Query.setPermissionMode). */
+  setPermissionMode(mode: PermissionMode): Promise<void>;
 }
 
 export interface SdkOneShotOptions {
@@ -367,6 +372,7 @@ export interface V1QueryLike extends AsyncIterable<SDKMessage> {
   usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown>;
   // Optional so test stubs need not carry it.
   mcpServerStatus?: () => Promise<unknown>;
+  setPermissionMode?: (mode: PermissionMode) => Promise<unknown>;
   setMcpServers?: (servers: SdkMcpRegistration["servers"]) => Promise<unknown>;
 }
 
@@ -663,6 +669,11 @@ export function wrapV1Query(
         abortController?.abort();
       } catch {}
     },
+    async setPermissionMode(mode) {
+      if (typeof q.setPermissionMode !== "function")
+        throw new Error("This Claude SDK cannot change the permission mode.");
+      await q.setPermissionMode(mode);
+    },
     async getContextUsage(): Promise<ContextUsage | null> {
       try {
         // The single ingestion point for Claude fullness readings: the per-turn
@@ -896,6 +907,18 @@ export class ClaudeSession implements BackendSession {
     }
   >();
   private readonly bypassPermissions: boolean;
+  // The mode the session leaves plan mode to on /plan. Approving ExitPlanMode
+  // needs no help: the CLI itself returns to the mode it was in before plan.
+  private readonly baseMode: PermissionMode;
+  // Last plan state the CLI reported (init/status permissionMode).
+  private reportedPlanMode = false;
+  // The member turned plan mode on (start planMode or setPlanMode). The
+  // model can also enter plan mode itself (EnterPlanMode); that plan is not
+  // the member's, so it gets main's handling and no plan_mode report.
+  private memberPlanMode = false;
+  // Set while the start-in-plan-mode request runs; send() waits for it so the
+  // first message cannot reach the CLI before the mode change.
+  private planModeReady: Promise<void> | null = null;
 
   constructor(
     private readonly agentId: string,
@@ -903,8 +926,10 @@ export class ClaudeSession implements BackendSession {
     sdkOpts: SdkSessionOptions,
     resumeSessionId?: string,
     mcpServers?: AgentMcpServer[],
+    planMode?: boolean,
   ) {
     this.bypassPermissions = sdkOpts.permissionMode === "bypassPermissions";
+    this.baseMode = sdkOpts.permissionMode ?? "default";
     this.imageSink = ({ data, mediaType, suggestedName }) =>
       saveFile(this.agentId, data, mediaType, suggestedName);
     const optsWithApproval: SdkSessionOptions = {
@@ -917,6 +942,48 @@ export class ClaudeSession implements BackendSession {
       ? sdkClient.resumeSession(resumeSessionId, optsWithApproval, mcp)
       : sdkClient.createSession(optsWithApproval, mcp);
     void this.feedSDKMessages();
+    // Entered after launch rather than through options.permissionMode, so
+    // the CLI records the configured mode to return to on approval. A resumed
+    // session does not keep plan mode; the orchestrator asks again.
+    if (planMode) {
+      this.memberPlanMode = true;
+      this.planModeReady = this.conversation
+        .setPermissionMode("plan")
+        .catch((err) => {
+          this.memberPlanMode = false;
+          this.enqueue({ kind: "system_text", text: errMessage(err) });
+          this.enqueue({ kind: "plan_mode", on: false });
+        })
+        .finally(() => {
+          this.planModeReady = null;
+        });
+    }
+  }
+
+  async setPlanMode(on: boolean): Promise<void> {
+    // Set before the request: the CLI's status report can arrive first.
+    const previous = this.memberPlanMode;
+    this.memberPlanMode = on;
+    try {
+      await this.conversation.setPermissionMode(on ? "plan" : this.baseMode);
+    } catch (err) {
+      this.memberPlanMode = previous;
+      throw err;
+    }
+  }
+
+  private observePlanMode(msg: SDKMessage) {
+    if (msg.type !== "system") return;
+    if (msg.subtype !== "init" && msg.subtype !== "status") return;
+    const mode = (msg as { permissionMode?: unknown }).permissionMode;
+    if (typeof mode !== "string") return;
+    const on = mode === "plan";
+    if (on === this.reportedPlanMode) return;
+    this.reportedPlanMode = on;
+    if (!this.memberPlanMode) return;
+    // Leaving plan mode (an approved plan) ends the member's plan too.
+    if (!on) this.memberPlanMode = false;
+    this.enqueue({ kind: "plan_mode", on });
   }
 
   private async feedSDKMessages() {
@@ -931,6 +998,7 @@ export class ClaudeSession implements BackendSession {
       // `void this.feedSDKMessages()`, so an uncaught rejection becomes
       // unhandled and crashes the whole Bun process.
       for await (const msg of this.conversation.messages()) {
+        this.observePlanMode(msg);
         for (const ev of translateSDKMessage(msg, this.imageSink)) {
           this.enqueue(ev);
         }
@@ -972,7 +1040,12 @@ export class ClaudeSession implements BackendSession {
     input: Record<string, unknown>,
     callOpts: Parameters<CanUseTool>[2],
   ): Promise<PermissionResult> {
-    if (this.bypassPermissions) {
+    // ExitPlanMode in a plan the member asked for is the member's approval,
+    // so it is asked even under bypassPermissions: allowing it here would run
+    // the plan unseen.
+    const memberApproval =
+      toolName === EXIT_PLAN_MODE_TOOL && this.memberPlanMode;
+    if (this.bypassPermissions && !memberApproval) {
       this.enqueue({
         kind: "system_text",
         text:
@@ -1003,6 +1076,10 @@ export class ClaudeSession implements BackendSession {
         input,
         suggestions: callOpts.suggestions,
       });
+      // The prompt shows no tool input, so the plan goes into the chat as an
+      // agent message just before its approval request.
+      if (toolName === EXIT_PLAN_MODE_TOOL && typeof input.plan === "string")
+        this.enqueue({ kind: "assistant_text", text: input.plan });
       this.enqueue({
         kind: "approval_request",
         approvalId,
@@ -1044,6 +1121,7 @@ export class ClaudeSession implements BackendSession {
   }
 
   async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
+    if (this.planModeReady) await this.planModeReady;
     if (attachments && attachments.length > 0) {
       const message = buildClaudeUserMessage(this.agentId, text, attachments);
       await this.conversation.send(message);
@@ -1708,6 +1786,7 @@ export function createClaudeBackend(
   return {
     capabilities: CAPABILITIES,
     toolBoundaryDelivery: true,
+    planMode: true,
 
     getModelOptions(): ModelOption[] {
       return MODEL_FAMILIES.map((m) => ({ value: m.family, label: m.label }));
@@ -1741,6 +1820,7 @@ export function createClaudeBackend(
         buildSdkOpts(opts),
         undefined,
         opts.mcpServers,
+        opts.planMode,
       );
     },
 
@@ -1754,6 +1834,7 @@ export function createClaudeBackend(
         buildSdkOpts(opts),
         sessionId,
         opts.mcpServers,
+        opts.planMode,
       );
     },
 

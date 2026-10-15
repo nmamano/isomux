@@ -78,6 +78,8 @@ export interface FakeSessionConfig {
   // whose send RPC is in flight (queue-reliability tests hold a turn in the
   // send window and inject send failures).
   manualSend?: boolean;
+  // When set, setPlanMode() rejects with it.
+  planModeError?: Error;
   // When true, close() marks the session closed (pushes ignored, closed
   // observable) but does NOT end the stream - a parked stream() stays parked
   // until the test calls endStream() explicitly. Models a wedged subprocess
@@ -94,6 +96,8 @@ export class FakeSession implements BackendSession {
   readonly isResume: boolean;
   readonly sent: FakeSentMessage[] = [];
   readonly approvals: { approvalId: string; decision: ApprovalDecision }[] = [];
+  // Every setPlanMode() call, in order.
+  readonly planModeCalls: boolean[] = [];
   abortCount = 0;
   closed = false;
 
@@ -107,6 +111,7 @@ export class FakeSession implements BackendSession {
   private readonly onSend?: FakeSessionConfig["onSend"];
   private readonly manualSend: boolean;
   private readonly hangOnClose: boolean;
+  private readonly planModeError?: Error;
   private sendWaiters: {
     resolve: () => void;
     reject: (err: unknown) => void;
@@ -127,6 +132,7 @@ export class FakeSession implements BackendSession {
     this.onSend = cfg.onSend;
     this.manualSend = cfg.manualSend ?? false;
     this.hangOnClose = cfg.hangOnClose ?? false;
+    this.planModeError = cfg.planModeError;
     if (cfg.autoSystemInit ?? true) {
       this.push({
         kind: "system_init",
@@ -249,6 +255,13 @@ export class FakeSession implements BackendSession {
   onApprove: ((approvalId: string, decision: ApprovalDecision) => void) | null =
     null;
 
+  setPlanMode(on: boolean): Promise<void> {
+    this.planModeCalls.push(on);
+    return this.planModeError
+      ? Promise.reject(this.planModeError)
+      : Promise.resolve();
+  }
+
   approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
     if (this.approveError) return Promise.reject(this.approveError);
     this.approvals.push({ approvalId, decision });
@@ -296,6 +309,8 @@ export interface FakeBackendConfig {
   // Declare Backend.toolBoundaryDelivery. The session then carries the
   // orchestrator's callback in opts; toolBoundary() plays the SDK hook.
   toolBoundaryDelivery?: boolean;
+  // Declare Backend.planMode (a native plan mode the session can switch).
+  planMode?: boolean;
   modelOptions?: ModelOption[];
   permissionModes?: PermissionModeOption[];
   models?: BackendModel[];
@@ -329,6 +344,7 @@ export interface FakeBackendConfig {
 export class FakeBackend implements Backend {
   readonly capabilities: BackendCapabilities;
   readonly toolBoundaryDelivery: boolean;
+  readonly planMode: boolean;
 
   readonly sessions: FakeSession[] = [];
   createSessionCount = 0;
@@ -357,6 +373,7 @@ export class FakeBackend implements Backend {
     this.cfg = cfg;
     this.capabilities = cfg.capabilities ?? { ...DEFAULT_AGENT_CAPABILITIES };
     this.toolBoundaryDelivery = cfg.toolBoundaryDelivery ?? false;
+    this.planMode = cfg.planMode ?? false;
     if (cfg.signedOut) this.isKnownSignedOut = cfg.signedOut;
   }
 

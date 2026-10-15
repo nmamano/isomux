@@ -72,6 +72,10 @@ export interface ManagedAgent {
   // The account the installed session bills, captured at its launch. The
   // member usage cap compares it with the office sign-in.
   billingAccount?: BillingAccount;
+  // The engine's native plan mode is on (/plan). In memory only: a server
+  // restart clears it. Every new session of the agent starts in plan mode
+  // while it is set.
+  planMode?: boolean;
   slashCommands: {
     name: string;
     description?: string;

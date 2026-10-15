@@ -2288,6 +2288,9 @@ App 的一些原则：
   "commands.resume.header": "继续过去的对话：",
   "commands.resume.noOthers": "没有其他可继续的会话。",
   "commands.resume.branched": "（已创建分支）",
+  "commands.plan.on": "计划模式已开启。再次发送 /plan 即可关闭。",
+  "commands.plan.off": "计划模式已关闭。",
+  "commands.plan.unavailable": "{engine} 智能体不支持计划模式。",
   "commands.model.openCodeUnsupported":
     "打开智能体设置，选择一个已连接的 OpenCode 模型。",
   "commands.model.header": "切换模型（当前：**{current}**）：",

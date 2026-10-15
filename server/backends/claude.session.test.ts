@@ -83,6 +83,15 @@ class FakeSdkConversation implements SdkConversation {
     return this.subscriptionUsage;
   }
 
+  permissionModeCalls: string[] = [];
+  // Settles every setPermissionMode call; FakeSdkClient sets it before the
+  // session constructor makes its first call.
+  permissionModeResult: Promise<void> = Promise.resolve();
+  setPermissionMode(mode: string): Promise<void> {
+    this.permissionModeCalls.push(mode);
+    return this.permissionModeResult;
+  }
+
   // ----- Test driver helpers -----
   emit(msg: unknown): void {
     this.queue.push(msg as SDKMessage);
@@ -127,6 +136,8 @@ class FakeSdkClient implements SdkClient {
   forkCalls: { sessionId: string; opts: { upToMessageId: string } }[] = [];
   getMessagesCalls: string[] = [];
 
+  // Becomes permissionModeResult of the next conversation created.
+  nextPermissionModeResult: Promise<void> | null = null;
   oneShotResult = "default-topic";
   forkResult: { sessionId: string } = { sessionId: "forked-1" };
   sessionMessagesResult: SessionMessage[] = [];
@@ -137,6 +148,8 @@ class FakeSdkClient implements SdkClient {
   ): SdkConversation {
     this.createCalls.push({ opts, mcp });
     const conv = new FakeSdkConversation();
+    if (this.nextPermissionModeResult)
+      conv.permissionModeResult = this.nextPermissionModeResult;
     this.conversations.push(conv);
     return conv;
   }
@@ -1542,5 +1555,215 @@ describe("MCP servers with a secret (secrets B2)", () => {
     session.close();
     expect(text).toContain(placeholder);
     expect(text).not.toContain(MCP_SECRET_VALUE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeSession - native plan mode (permissionMode "plan")
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSession plan mode", () => {
+  const PLAN = "# Plan\n\n1. Write hello.txt";
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("asks for ExitPlanMode under bypassPermissions instead of allowing it", async () => {
+    const fake = new FakeSdkClient();
+    // The member turned plan mode on (/plan).
+    const session = new ClaudeSession(
+      "test-agent",
+      fake,
+      { ...minimalSdkOpts(), permissionMode: "bypassPermissions" },
+      undefined,
+      undefined,
+      true,
+    );
+    const canUseTool = fake.createCalls[0].opts.canUseTool!;
+    const it = session.stream()[Symbol.asyncIterator]();
+    let settled = false;
+    const result = canUseTool(
+      "ExitPlanMode",
+      { plan: PLAN },
+      fakeCallOpts("exit-1"),
+    ).then((r) => {
+      settled = true;
+      return r;
+    });
+    expect((await nextEvent(it))?.kind).toBe("assistant_text");
+    expect((await nextEvent(it))?.kind).toBe("approval_request");
+    await tick();
+    expect(settled).toBe(false);
+    await session.approve("exit-1", { kind: "deny" });
+    expect((await result)?.behavior).toBe("deny");
+  });
+
+  it("puts the plan into the chat just before its approval request", async () => {
+    const fake = new FakeSdkClient();
+    const { session, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    void canUseTool("ExitPlanMode", { plan: PLAN }, fakeCallOpts("exit-2"));
+    expect(await nextEvent(it)).toEqual({ kind: "assistant_text", text: PLAN });
+    expect(await nextEvent(it)).toMatchObject({
+      kind: "approval_request",
+      approvalId: "exit-2",
+      toolName: "ExitPlanMode",
+    });
+  });
+
+  it("planMode enters plan mode after launch, and the first send waits for it", async () => {
+    const fake = new FakeSdkClient();
+    let release!: () => void;
+    fake.nextPermissionModeResult = new Promise<void>((r) => (release = r));
+    const session = new ClaudeSession(
+      "test-agent",
+      fake,
+      minimalSdkOpts(),
+      undefined,
+      undefined,
+      true,
+    );
+    const conv = fake.conversations[0];
+    // The launch keeps the configured mode, so an approved plan returns to it.
+    expect(fake.createCalls[0].opts.permissionMode).toBe("default");
+    expect(conv.permissionModeCalls).toEqual(["plan"]);
+    const sent = session.send("go");
+    await tick();
+    expect(conv.sends).toEqual([]);
+    release();
+    await sent;
+    expect(conv.sends).toEqual(["go"]);
+  });
+
+  it("a refused start-in-plan request reports plan mode off", async () => {
+    const fake = new FakeSdkClient();
+    fake.nextPermissionModeResult = Promise.reject(new Error("no plan mode"));
+    const session = new ClaudeSession(
+      "test-agent",
+      fake,
+      minimalSdkOpts(),
+      undefined,
+      undefined,
+      true,
+    );
+    const it = session.stream()[Symbol.asyncIterator]();
+    expect(await nextEvent(it)).toEqual({
+      kind: "system_text",
+      text: "no plan mode",
+    });
+    expect(await nextEvent(it)).toEqual({ kind: "plan_mode", on: false });
+  });
+
+  // Drains the stream until the conversation finishes.
+  async function streamKinds(session: ClaudeSession): Promise<string[]> {
+    const it = session.stream()[Symbol.asyncIterator]();
+    const kinds: string[] = [];
+    for (;;) {
+      const ev = await nextEvent(it);
+      if (!ev) return kinds;
+      kinds.push(ev.kind === "plan_mode" ? `plan_mode:${ev.on}` : ev.kind);
+    }
+  }
+
+  it("a plan the model entered under bypassPermissions keeps the bypass allow", async () => {
+    const fake = new FakeSdkClient();
+    const session = new ClaudeSession("test-agent", fake, {
+      ...minimalSdkOpts(),
+      permissionMode: "bypassPermissions",
+    });
+    const conv = fake.conversations[0];
+    const canUseTool = fake.createCalls[0].opts.canUseTool!;
+    const kinds = streamKinds(session);
+    // EnterPlanMode: the CLI reports plan with no /plan from the member.
+    conv.emit({ type: "system", subtype: "status", permissionMode: "plan" });
+    await tick();
+    let result: Awaited<ReturnType<CanUseTool>> | null = null;
+    void canUseTool(
+      "ExitPlanMode",
+      { plan: PLAN },
+      fakeCallOpts("exit-model"),
+    ).then((r) => (result = r));
+    await tick();
+    // Settled with no member answer: nothing waits for an approval.
+    expect(result).toMatchObject({ behavior: "allow" });
+    conv.emit({
+      type: "system",
+      subtype: "status",
+      permissionMode: "bypassPermissions",
+    });
+    conv.finish();
+    expect(await kinds).toEqual(["system_text"]);
+  });
+
+  it("a plan the model entered is not reported as the member's plan mode", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const kinds = streamKinds(session);
+    conv.emit({ type: "system", subtype: "status", permissionMode: "plan" });
+    conv.emit({ type: "system", subtype: "status", permissionMode: "default" });
+    conv.finish();
+    expect(await kinds).toEqual([]);
+  });
+
+  it("reports the plan state the CLI announces, once per change", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    await session.setPlanMode(true);
+    const it = session.stream()[Symbol.asyncIterator]();
+    const modes: boolean[] = [];
+    const drain = (async () => {
+      for (;;) {
+        const ev = await nextEvent(it);
+        if (!ev) return;
+        if (ev.kind === "plan_mode") modes.push(ev.on);
+      }
+    })();
+    for (const [subtype, permissionMode] of [
+      ["init", "default"],
+      ["status", "plan"],
+      ["init", "plan"],
+      // Approving ExitPlanMode: the CLI returns to the mode before plan.
+      ["status", "default"],
+      // Later the model enters plan mode itself: not the member's plan.
+      ["status", "plan"],
+    ])
+      conv.emit({ type: "system", subtype, permissionMode, session_id: "s" });
+    conv.finish();
+    await drain;
+    expect(modes).toEqual([true, false]);
+  });
+
+  it("setPlanMode enters plan mode and leaves it to the configured mode", async () => {
+    const fake = new FakeSdkClient();
+    const session = new ClaudeSession("test-agent", fake, {
+      ...minimalSdkOpts(),
+      permissionMode: "acceptEdits",
+    });
+    await session.setPlanMode(true);
+    await session.setPlanMode(false);
+    expect(fake.conversations[0].permissionModeCalls).toEqual([
+      "plan",
+      "acceptEdits",
+    ]);
+  });
+
+  it("the backend passes planMode to the session", () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    expect(backend.planMode).toBe(true);
+    const opts = {
+      agentId: "agent-plan",
+      cwd: "/tmp",
+      systemPrompt: "sys",
+      modelFamily: "opus",
+      effort: "high",
+      permissionMode: "default",
+    };
+    backend.createSession({ ...opts, planMode: true });
+    backend.resumeSession("s-1", { ...opts, planMode: true });
+    backend.createSession(opts);
+    expect(fake.conversations.map((c) => c.permissionModeCalls)).toEqual([
+      ["plan"],
+      ["plan"],
+      [],
+    ]);
   });
 });

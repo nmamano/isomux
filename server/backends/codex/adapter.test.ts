@@ -83,6 +83,10 @@ class FakeCodexTransport implements CodexTransport {
   // When set, request("thread/start") rejects so we can exercise the
   // bootstrap-failure deferral path.
   bootstrapError: Error | null = null;
+  // thread/resume answers with this collaborationMode (the thread's stored
+  // mode); thread/settings/update rejects when the error is set.
+  resumeCollaborationMode: unknown = null;
+  settingsUpdateError: Error | null = null;
   // account/rateLimits/read: resolves with this payload, or rejects when the
   // error is set (unauthenticated / API-key-only logins).
   rateLimitsReadResponse: unknown = null;
@@ -131,8 +135,15 @@ class FakeCodexTransport implements CodexTransport {
     this.requests.push({ method, params });
     if (method === "thread/start" || method === "thread/resume") {
       if (this.bootstrapError) return Promise.reject(this.bootstrapError);
-      return Promise.resolve({ thread: { id: this.threadId } } as T);
+      return Promise.resolve({
+        thread: { id: this.threadId },
+        ...(method === "thread/resume"
+          ? { collaborationMode: this.resumeCollaborationMode }
+          : {}),
+      } as T);
     }
+    if (method === "thread/settings/update" && this.settingsUpdateError)
+      return Promise.reject(this.settingsUpdateError);
     if (method === "turn/start" && this.holdTurnStart) {
       this.turnStartPending = true;
       return new Promise<T>((resolve) => {
@@ -826,11 +837,134 @@ describe("CodexSession item translation - text & thinking", () => {
     expect(ev.text).toBe("short summary\n\nthe body");
   });
 
-  it("plan item -> thinking", async () => {
+  // The plan item is plan mode's proposed plan: the answer of the turn.
+  it("plan item -> assistant_text", async () => {
     const { fake, it } = await bootstrapped();
     fireItem(fake, { type: "plan", text: "1. do the thing" });
-    const ev = expectKind(await nextEvent(it, "thinking"), "thinking");
+    const ev = expectKind(
+      await nextEvent(it, "assistant_text"),
+      "assistant_text",
+    );
     expect(ev.text).toBe("1. do the thing");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Native plan mode (collaborationMode)
+// ---------------------------------------------------------------------------
+describe("CodexSession plan mode", () => {
+  const settingsUpdates = (fake: FakeCodexTransport) =>
+    fake.requests
+      .filter((r) => r.method === "thread/settings/update")
+      .map((r) => r.params);
+
+  it("planMode starts the thread in plan mode with the agent's model and effort", async () => {
+    const { fake, it } = await bootstrapped(undefined, {
+      planMode: true,
+      effort: "high",
+    });
+    expect(expectKind(await nextEvent(it, "plan_mode"), "plan_mode").on).toBe(
+      true,
+    );
+    expect(settingsUpdates(fake)).toEqual([
+      {
+        threadId: FIXTURE_THREAD_ID,
+        collaborationMode: {
+          mode: "plan",
+          settings: {
+            model: "gpt-5.5",
+            reasoning_effort: "high",
+            developer_instructions: null,
+          },
+        },
+      },
+    ]);
+  });
+
+  // send() waits for bootstrap, so the first turn already runs in plan mode.
+  it("the first turn starts after the plan-mode request", async () => {
+    const { session, fake } = start(undefined, { planMode: true });
+    await session.send("hi");
+    const methods = fake.requests.map((r) => r.method);
+    expect(methods.indexOf("thread/settings/update")).toBeGreaterThan(-1);
+    expect(methods.indexOf("thread/settings/update")).toBeLessThan(
+      methods.indexOf("turn/start"),
+    );
+  });
+
+  it("no planMode on a fresh thread sends no collaborationMode", async () => {
+    const { fake } = await bootstrapped();
+    expect(settingsUpdates(fake)).toEqual([]);
+  });
+
+  it("a resumed thread in plan mode stays in it and reports it", async () => {
+    const fake = new FakeCodexTransport();
+    fake.resumeCollaborationMode = { mode: "plan", settings: {} };
+    const { it } = await bootstrapped(fake, { resumeThreadId: "t-1" });
+    expect(expectKind(await nextEvent(it, "plan_mode"), "plan_mode").on).toBe(
+      true,
+    );
+    // Set again so the stored mode carries the current model.
+    expect(settingsUpdates(fake)).toMatchObject([
+      { collaborationMode: { mode: "plan", settings: { model: "gpt-5.5" } } },
+    ]);
+  });
+
+  it("planMode false clears the plan mode a resumed thread has", async () => {
+    const fake = new FakeCodexTransport();
+    fake.resumeCollaborationMode = { mode: "plan", settings: {} };
+    const { it } = await bootstrapped(fake, {
+      resumeThreadId: "t-1",
+      planMode: false,
+    });
+    expect(expectKind(await nextEvent(it, "plan_mode"), "plan_mode").on).toBe(
+      false,
+    );
+    expect(settingsUpdates(fake)).toMatchObject([
+      { collaborationMode: { mode: "default" } },
+    ]);
+  });
+
+  it("a refused start-in-plan request reports plan mode off", async () => {
+    const fake = new FakeCodexTransport();
+    fake.settingsUpdateError = new Error("unknown field collaborationMode");
+    const { it } = await bootstrapped(fake, { planMode: true });
+    expect(
+      expectKind(await nextEvent(it, "system_text"), "system_text").text,
+    ).toContain("collaborationMode");
+    expect(expectKind(await nextEvent(it, "plan_mode"), "plan_mode").on).toBe(
+      false,
+    );
+  });
+
+  it("setPlanMode switches the live thread both ways", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.setPlanMode(true);
+    expect(expectKind(await nextEvent(it, "plan_mode"), "plan_mode").on).toBe(
+      true,
+    );
+    await session.setPlanMode(false);
+    expect(expectKind(await nextEvent(it, "plan_mode"), "plan_mode").on).toBe(
+      false,
+    );
+    expect(
+      settingsUpdates(fake).map(
+        (p) =>
+          (p as { collaborationMode: { mode: string } }).collaborationMode.mode,
+      ),
+    ).toEqual(["plan", "default"]);
+  });
+
+  it("setPlanMode rejects when Codex refuses, with no plan_mode event", async () => {
+    const { session, fake, it } = await bootstrapped();
+    fake.settingsUpdateError = new Error("refused");
+    const err = await session.setPlanMode(true).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect((err as Error | null)?.message).toBe("refused");
+    fireItem(fake, { type: "agentMessage", text: "after" });
+    expect((await nextEvent(it, "next")).kind).toBe("assistant_text");
   });
 });
 

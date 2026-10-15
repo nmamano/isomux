@@ -764,6 +764,9 @@ export interface CodexSessionInitOpts {
   ephemeral?: boolean;
   // Remote MCP servers for the thread config (codexThreadConfig).
   mcpServers?: AgentMcpServer[];
+  // Codex's native plan collaboration mode: true sets it, false clears it,
+  // undefined keeps what a resumed thread has.
+  planMode?: boolean;
   // Test seam (T2 adapter contract): inject a fake transport to drive the real
   // translation with curated provider events. Undefined in production, where
   // the constructor builds a real JsonRpcLiteClient.
@@ -950,6 +953,9 @@ export class CodexSession implements BackendSession {
       const sandboxChoice = await effectiveCodexSandbox(
         this.opts.sandbox ?? DEFAULT_SANDBOX_MODE,
       );
+      // The thread stores its collaboration mode, so a resumed thread can
+      // already be in plan mode.
+      let threadInPlanMode = false;
       if (this.opts.resumeThreadId) {
         // Resume an existing thread. Pass current settings as overrides so
         // a UI-side change to permissionMode/sandbox/model/systemPrompt
@@ -959,6 +965,7 @@ export class CodexSession implements BackendSession {
         // silently keeps the original policy.
         const resumeResp = await this.client.request<{
           thread: { id: string };
+          collaborationMode?: { mode?: string } | null;
         }>("thread/resume", {
           threadId: this.opts.resumeThreadId,
           excludeTurns: true,
@@ -970,6 +977,7 @@ export class CodexSession implements BackendSession {
           config: codexThreadConfig(this.opts.mcpServers),
         });
         this.threadId = resumeResp.thread.id;
+        threadInPlanMode = resumeResp.collaborationMode?.mode === "plan";
       } else {
         const startParams = this.buildThreadStartParams(sandboxChoice.sandbox);
         const startResp = await this.client.request<{ thread: { id: string } }>(
@@ -985,6 +993,21 @@ export class CodexSession implements BackendSession {
         slashCommands: [],
         model: this.opts.modelFamily,
       });
+      // An unset planMode keeps the thread's stored mode. Plan mode is set
+      // again on a thread already in it: the stored mode carries the model
+      // and effort it was set with, and it outranks the thread/resume
+      // overrides.
+      const plan = this.opts.planMode ?? threadInPlanMode;
+      if (plan || threadInPlanMode) {
+        let on = plan;
+        try {
+          await this.setCollaborationMode(plan);
+        } catch (err) {
+          on = threadInPlanMode;
+          this.enqueue({ kind: "system_text", text: errMessage(err) });
+        }
+        this.enqueue({ kind: "plan_mode", on });
+      }
       if (safety.warning) {
         this.enqueue({ kind: "system_text", text: safety.warning });
       }
@@ -1016,6 +1039,34 @@ export class CodexSession implements BackendSession {
       }
       this.markEnded();
     }
+  }
+
+  // EXPERIMENTAL in the app-server schema. developer_instructions null keeps
+  // Codex's own instructions for the mode.
+  private async setCollaborationMode(plan: boolean): Promise<void> {
+    await this.client.request("thread/settings/update", {
+      threadId: this.threadId,
+      collaborationMode: {
+        mode: plan ? "plan" : "default",
+        settings: {
+          model: this.opts.modelFamily,
+          reasoning_effort: this.opts.effort || null,
+          developer_instructions: null,
+        },
+      },
+    });
+  }
+
+  async setPlanMode(on: boolean): Promise<void> {
+    await this.bootstrapPromise;
+    if (this.closed)
+      throw new Error("CodexSession.setPlanMode: session is closed");
+    if (!this.threadId)
+      throw new BackendNotConfiguredError(
+        this.bootstrapError?.message ?? "Codex bootstrap failed",
+      );
+    await this.setCollaborationMode(on);
+    this.enqueue({ kind: "plan_mode", on });
   }
 
   private buildThreadStartParams(sandbox: string): Record<string, unknown> {
@@ -2208,9 +2259,11 @@ export class CodexSession implements BackendSession {
         });
         break;
       }
+      // The proposed plan of plan mode. It is the answer of the turn, so it
+      // shows as an agent message.
       case "plan": {
         const text = item.text as string | undefined;
-        if (text) this.enqueue({ kind: "thinking", text });
+        if (text) this.enqueue({ kind: "assistant_text", text });
         break;
       }
       case "imageView": {
@@ -2911,6 +2964,7 @@ function toBackendModel(m: CodexProtocolModel): BackendModel {
 
 export const codexBackend: Backend = {
   capabilities: CAPABILITIES,
+  planMode: true,
 
   getModelOptions(): ModelOption[] {
     return MODEL_OPTIONS;
@@ -2979,6 +3033,7 @@ export const codexBackend: Backend = {
       env: opts.env,
       words: opts.words,
       mcpServers: opts.mcpServers,
+      planMode: opts.planMode,
     });
   },
 
@@ -2995,6 +3050,7 @@ export const codexBackend: Backend = {
       words: opts.words,
       resumeThreadId: sessionId,
       mcpServers: opts.mcpServers,
+      planMode: opts.planMode,
     });
   },
 

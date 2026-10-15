@@ -73,6 +73,10 @@ export interface CreateSessionOptions {
   // Their headers can carry a credential: a backend gives them to its engine
   // only through a channel that is neither argv nor the environment.
   mcpServers?: AgentMcpServer[];
+  // The engine's native plan mode for the new session: true starts in it,
+  // false leaves it, undefined keeps what a resumed session already has.
+  // Only backends that declare `planMode` read it.
+  planMode?: boolean;
 }
 
 export interface SessionEnvironmentOptions {
@@ -241,6 +245,10 @@ export type NormalizedEvent =
   | { kind: "compacted"; summary?: string }
   // Backend-level error (stream / RPC failure, etc.).
   | { kind: "error"; message: string; code?: string }
+  // Whether the engine's native plan mode is on, as the engine reports it.
+  // Backends emit it when the mode is known or changes (Claude also leaves
+  // plan mode by itself when the member approves ExitPlanMode).
+  | { kind: "plan_mode"; on: boolean }
   // Free-text system breadcrumb (e.g. Codex auto-decline notice for an
   // elicitation request). Renders as a system-kind log entry.
   //
@@ -453,6 +461,10 @@ export interface BackendSession {
   // returns true when both threadId and the active turnId are set.
   canAbortInPlace(): boolean;
 
+  // Turn the engine's native plan mode on or off. Present only on sessions
+  // of backends that declare `planMode`.
+  setPlanMode?(on: boolean): Promise<void>;
+
   // Close the session and release resources. Idempotent. Must unblock any
   // parked `stream()` generator.
   close(): void;
@@ -542,6 +554,9 @@ export interface Backend {
   // True when createSession/resumeSession honor `takeToolBoundaryMessage`, so
   // an agent steer can wait for the running tool batch instead of aborting.
   readonly toolBoundaryDelivery?: boolean;
+  // True when the engine has a native plan mode: sessions implement
+  // setPlanMode and createSession/resumeSession honor `planMode`.
+  readonly planMode?: boolean;
 
   getModelOptions(): ModelOption[];
   getPermissionModes(): PermissionModeOption[];
