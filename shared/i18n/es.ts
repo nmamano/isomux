@@ -2674,18 +2674,14 @@ Cosas que puedes hacer por él:
   "systemEntries.sessionStartFailed":
     "No se pudo iniciar la sesión: {error}\nEscribe /clear para empezar de cero, o /resume para elegir otra sesión.",
   "systemEntries.queueFailed": "No se pudo encolar el mensaje: {error}",
-  "systemEntries.queueCleared.notConfigured.one":
-    "Se descartó {count} mensaje en cola porque el backend no está configurado.",
-  "systemEntries.queueCleared.notConfigured.other":
-    "Se descartaron {count} mensajes en cola porque el backend no está configurado.",
-  "systemEntries.queueCleared.switching.one":
-    "Se descartó {count} mensaje en cola al cambiar a otra sesión.",
-  "systemEntries.queueCleared.switching.other":
-    "Se descartaron {count} mensajes en cola al cambiar a otra sesión.",
-  "systemEntries.queueCleared.newConversation.one":
-    "Se descartó {count} mensaje en cola.",
-  "systemEntries.queueCleared.newConversation.other":
-    "Se descartaron {count} mensajes en cola.",
+  "systemEntries.queueKept.notConfigured.one":
+    "Se conservó {count} mensaje en cola. Se envía con el próximo mensaje.",
+  "systemEntries.queueKept.notConfigured.other":
+    "Se conservaron {count} mensajes en cola. Se envían con el próximo mensaje.",
+  "systemEntries.queueCarried.one":
+    "Se movió {count} mensaje en cola a esta conversación.",
+  "systemEntries.queueCarried.other":
+    "Se movieron {count} mensajes en cola a esta conversación.",
   "systemEntries.contextCompacted": "Contexto compactado: {summary}",
   "systemEntries.contextCompactedNoSummary": "Contexto compactado.",
   "systemEntries.toolCallDenied": "Llamada a herramienta denegada: {tool}",

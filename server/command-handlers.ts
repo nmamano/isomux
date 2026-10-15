@@ -52,7 +52,6 @@ import {
   type AgentEvent,
   type EnqueueResult,
 } from "./internal-types.ts";
-import type { BackendSession } from "./backends/types.ts";
 import { runAgentTurn } from "./agent-turn.ts";
 import {
   directInputCapped,
@@ -190,7 +189,6 @@ interface HandlerDeps {
       current?: boolean;
     }[],
   ) => void;
-  cancelChoiceInteraction: (agentId: string) => void;
 
   // Login-instructions helper. Wraps agentLoginInstructions + per-backend
   // dispatch in agent-manager so the /login handler can render the same
@@ -208,23 +206,19 @@ interface HandlerDeps {
     username?: string,
   ) => Promise<void>;
 
-  // The typed /clear builds its session first and runs its own pending-control
-  // and queue bookkeeping before the swap, so it takes the create and the swap
-  // as two steps; it is the only caller that hands SessionManager a session it
-  // built. Every other swap goes through sessionManager.replaceWith.
-  createSession: (
-    managed: ManagedAgent,
-    resumeSessionId?: string,
-  ) => BackendSession;
-  replaceSession: (
-    agentId: string,
-    managed: ManagedAgent,
-    newSession: BackendSession,
-  ) => Promise<void>;
+  // POST new-conversation's reset, which the typed /clear (also /reset, /new)
+  // runs too. `typed` leaves out the "New conversation started." line: the
+  // empty chat is the confirmation (Nil, 2026-09-13).
+  newConversation: (agentId: string, opts: { typed: true }) => Promise<void>;
   persistAll: () => void;
-  persistCurrentSessionTopic: (agentId: string, managed: ManagedAgent) => void;
-  // Best-effort durable write of the agent's live queue (message-queues.json).
-  persistQueueState: (agentId: string, managed: ManagedAgent) => void;
+  // A skill turn a session swap cut before the backend took it goes back in
+  // the queue for the next session (agent-manager requeueSwappedSend).
+  // Returns whether `err` was that case.
+  requeueSwappedSend: (
+    agentId: string,
+    err: unknown,
+    msg: { text: string; sdkText: string; username?: string; device?: string },
+  ) => boolean;
   // Wake a DORMANT agent so a skill's turn has a live session to send on (lazy
   // restore). Returns true if a session is ready; false if starting one failed
   // (an error was already logged and the agent moved to "error"), in which case
@@ -243,12 +237,6 @@ interface HandlerDeps {
     managed: ManagedAgent,
     err: BackendSignedOutError,
   ) => void;
-  // Context-fullness reset (see resetContextUsage in agent-manager): the typed
-  // /clear (also /reset, /new) is a semantic conversation boundary, so it must
-  // clear the fullness snapshot + fired context-notice thresholds and
-  // broadcast the explicit-null pill clear, like every other boundary
-  // (newConversation, resume-to-different-session, edit-fork).
-  resetContextUsage: (managed: ManagedAgent) => void;
   // The office's disk-usage measurement, FULL (per-agent detail included) -
   // the same call GET /api/storage/usage makes, memoized for 30s. Injected
   // rather than imported so the /isomux-storage access-control branches can be
@@ -275,31 +263,14 @@ interface HandlerDeps {
 
 export function createCommandHandling(deps: HandlerDeps) {
   const commandHandlers: Record<string, HandlerFn> = {
-    async clear(agentId, managed, _args, rawText, username, device) {
-      const { t, tn } = translatorForUsername(username);
+    async clear(agentId, _managed, _args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      // Build the new session BEFORE destroying pending control state and
-      // the message queue. If createSession throws (bad cwd, broken env,
-      // etc.) the user sees a visible error and the prior pending/queue
-      // state stays intact - they can retry or pick another recovery path.
-      // Once createSession returns, the swap commits: pending/queue clear,
-      // topic persists, replaceSession installs. Queue must clear BEFORE
-      // replaceSession or the post-swap idle trigger flushes prior-context
-      // messages into the fresh session.
-      let clearedCount = 0;
+      // The same reset as POST new-conversation: the agent goes dormant until
+      // the next message, and the queue goes to the fresh session.
       try {
-        const newSession = deps.createSession(managed);
-        managed.pendingResumeSessions = [];
-        deps.cancelChoiceInteraction(agentId);
-        clearedCount = managed.messageQueue.length;
-        if (clearedCount > 0) {
-          managed.messageQueue.length = 0;
-          deps.emit({ type: "agent_updated", agentId, changes: { queue: [] } });
-          deps.persistQueueState(agentId, managed);
-        }
-        deps.persistCurrentSessionTopic(agentId, managed);
-        await deps.replaceSession(agentId, managed, newSession);
+        await deps.newConversation(agentId, { typed: true });
       } catch (err) {
         deps.emitEphemeralLog(
           agentId,
@@ -307,40 +278,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           t("commands.clear.failed", { error: errMessage(err) }),
         );
         deps.updateState(agentId, "error");
-        return true;
       }
-      managed.sessionManager.sessionId = null;
-      // Conversation boundary: reset context-fullness state and broadcast the
-      // pill clear. Runs AFTER the swap resolves (unlike newConversation's
-      // pre-await reset) - safe here because replaceSession already installed
-      // the new session, so every old-session in-flight sample is orphaned by
-      // the session-identity check regardless of gen. Missing this reset left
-      // the pill showing the PREVIOUS conversation's reading after a typed
-      // /clear, and carried its fired thresholds into the fresh conversation
-      // (the API /clear path resets via newConversation).
-      deps.resetContextUsage(managed);
-      managed.topicGenerating = false;
-      managed.topicMessageCount = 0;
-      managed.topicGenToken++;
-      deps.logCache.set(agentId, []);
-      deps.emit({ type: "clear_logs", agentId });
-      for (const event of deps.updateAgent(agentId, {
-        topic: null,
-        topicStale: false,
-      }))
-        deps.emit(event);
-      // No ephemeral "Conversation cleared." line either: the empty state's
-      // start-or-resume sentence is the confirmation (Nil, 2026-09-13). A
-      // cleared queue is not visible there, so it gets a line.
-      if (clearedCount > 0) {
-        deps.addLogEntry(
-          agentId,
-          "system",
-          tn("systemEntries.queueCleared.newConversation", clearedCount),
-        );
-      }
-      deps.updateState(agentId, "idle");
-      deps.persistAll();
       return true;
     },
 
@@ -1253,6 +1191,15 @@ export function createCommandHandling(deps: HandlerDeps) {
       // runAgentTurn re-throws whatever the underlying turn threw and has
       // already cleaned up the pendingTurn deferred if session.send fell
       // before await turn. Per-site error semantics remain here.
+      if (
+        deps.requeueSwappedSend(agentId, err, {
+          text: rawText,
+          sdkText: fullPrompt,
+          username,
+          device,
+        })
+      )
+        return true;
       if (err instanceof SessionSwappedError) return true;
       if (err instanceof BackendSignedOutError) {
         deps.surfaceSignedOut(agentId, managed, err);

@@ -598,6 +598,16 @@ export interface QueuedMessage {
   // item. The flush then names the cause, so the receiver does not read the
   // cut tool call's "rejected by the user" text as a human decision.
   interruptCause?: "agent_steer" | "member_send_now";
+  // Set when a conversation change (/clear, new-conversation, engine switch,
+  // resume to another session, edit-fork) carried this message to the next
+  // session. The flush then tells the receiver it was written for the
+  // context before the change.
+  carried?: boolean;
+  // Set when a direct send was queued again because a session swap cut it
+  // before the backend took it, and the chat already shows it: its delivery
+  // writes no second chat entry. A conversation change clears it, because it
+  // rewrites the chat.
+  echoed?: boolean;
   attachments?: Attachment[];
   queuedAt: number;
 }

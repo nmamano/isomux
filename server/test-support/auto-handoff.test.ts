@@ -3,6 +3,8 @@
 // turn and parks it until the test completes it; getContextUsage reports the
 // value the test sets, so the test decides what the crossing turn measured.
 // The brief turn is answered by the fake session as soon as it is sent.
+// The crossing turn only arms the mode: its reply stays on screen, and the
+// next message to arrive starts the brief turn (Nil, 2026-10-15).
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
@@ -107,7 +109,12 @@ interface Harness {
 }
 
 function makeHarness(
-  opts: { abortInPlace?: boolean; toolBoundaryDelivery?: boolean } = {},
+  opts: {
+    abortInPlace?: boolean;
+    toolBoundaryDelivery?: boolean;
+    // A transcript holding one member message "work", so it can be edited.
+    editable?: boolean;
+  } = {},
 ): Harness {
   const measure: Harness["measure"] = { now: null };
   const brief: Harness["brief"] = {
@@ -115,6 +122,19 @@ function makeHarness(
   };
   const fake = new FakeBackend({
     ...(opts.toolBoundaryDelivery ? { toolBoundaryDelivery: true } : {}),
+    ...(opts.editable
+      ? {
+          forkResult: {
+            kind: "fork" as const,
+            sessionId: "forked-1",
+            forkedFromSessionId: "fake-session-1",
+          },
+          sessionMessages: [
+            { uuid: "u-1", role: "user" as const, text: "work" },
+            { uuid: "a-1", role: "assistant" as const, text: "done" },
+          ],
+        }
+      : {}),
     session: {
       abortInPlace: opts.abortInPlace ?? false,
       contextUsage: async () => {
@@ -222,6 +242,25 @@ async function freshSession(
 // happen to have happened.
 const settle = () => sleep(150);
 
+const NEXT = "NEXT-MESSAGE";
+const sent = (s: FakeSession | undefined, needle: string) =>
+  texts(s).some((t) => t.includes(needle));
+
+// After a crossing turn: the agent rests armed, with no brief turn and no
+// reset, until a message arrives. Then a member's message arrives.
+async function nextMessage(h: Harness, id: string, text = NEXT) {
+  await waitUntil(
+    () => stateOf(h, id) === "waiting_for_response",
+    "at rest after the crossing turn",
+  );
+  await settle();
+  const s = h.fake.sessionForAgent(id);
+  expect(texts(s).some(isBriefPrompt)).toBe(false);
+  // No reset: the current session is still the newest one.
+  expect(h.fake.sessions.at(-1)).toBe(s);
+  void h.mgr.sendMessage(id, text);
+}
+
 function expectInOrder(text: string, needles: string[]) {
   const at = needles.map((n) => text.indexOf(n));
   for (const i of at) expect(i).toBeGreaterThanOrEqual(0);
@@ -255,18 +294,22 @@ describe("automatic handoff: arming", () => {
       };
       const info = await spawn(h, { agentType });
       const old = await turnEndingAt(h, info.id, ctx(172_000, 200_000));
+      await nextMessage(h, info.id);
 
       const fresh = await freshSession(h, info.id, old);
       // The brief turn ran in the old session, with nothing else.
       expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
       expect(texts(old).at(-1)).toContain("172,000 tokens (86% full)");
-      // The fresh session got the notice, then the brief from the old one.
+      expect(sent(old, NEXT)).toBe(false);
+      // The fresh session got the notice, then the brief from the old one,
+      // then the message that started the handoff.
       const first = fresh.sent[0].text;
       expectInOrder(first, [
         "--- begin isomux: auto-handoff ---",
         AUTO_HANDOFF_FRESH_NOTICE,
         "[Handoff from your previous session]",
         captured,
+        NEXT,
       ]);
       expect(first).not.toContain("Checking first.");
       // Both lines name the 85% limit, not the 86% measured.
@@ -293,6 +336,7 @@ describe("automatic handoff: arming", () => {
     const h = makeHarness();
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(510_000, 1_000_000));
+    await nextMessage(h, info.id);
     await freshSession(h, info.id, old);
     expect(systemLines(h)).toContain(
       en.t("systemEntries.autoHandoff.writingTokens", { thousands: 500 }),
@@ -330,6 +374,7 @@ describe("automatic handoff: arming", () => {
         "at rest",
       );
       await turnEndingAt(h, info.id, ctx(152_000, 200_000, 160_000, via));
+      await nextMessage(h, info.id);
       await freshSession(h, info.id, old);
       expect(systemLines(h)).toContain(
         en.t("systemEntries.autoHandoff.writingCompaction", { percent: 75 }),
@@ -413,13 +458,203 @@ describe("automatic handoff: arming", () => {
       () => stateOf(h, info.id) === "waiting_for_response",
       "at rest",
     );
+    // Not armed by the first half: this message runs in the same session.
     await startTurn(h, info.id);
+    expect(texts(s).some(isBriefPrompt)).toBe(false);
     h.measure.now = ctx(190_000, 200_000);
     usageUpdate(s);
     await waitUntil(() => committed(190_000), "second mid-turn sample");
     s.completeTurn({ text: "done" });
+    await nextMessage(h, info.id);
     await freshSession(h, info.id, s);
     expect(texts(s).filter(isBriefPrompt)).toHaveLength(1);
+  });
+});
+
+describe("automatic handoff: the next message starts it", () => {
+  const kinds: {
+    name: string;
+    send: (h: Harness, id: string) => void;
+    // What the fresh session's first prompt carries for that message.
+    marker: string;
+  }[] = [
+    {
+      name: "a member's message",
+      send: (h, id) => void h.mgr.sendMessage(id, "MEMBER-NEXT"),
+      marker: "MEMBER-NEXT",
+    },
+    {
+      name: "an agent's message",
+      send: (h, id) =>
+        void h.mgr.enqueueMessage(id, { sender: SENDER, text: "AGENT-NEXT" }),
+      marker: "AGENT-NEXT",
+    },
+    {
+      name: "a scheduled message",
+      send: (h, id) =>
+        void h.mgr.enqueueMessage(id, {
+          sender: SENDER,
+          text: "SCHEDULED-NEXT",
+          scheduledFor: Date.now(),
+        }),
+      marker: "SCHEDULED-NEXT",
+    },
+    {
+      name: "a cron message",
+      send: (h, id) =>
+        void h.mgr.enqueueMessage(id, {
+          sender: { kind: "cronjob", cronjobId: "c1", cronjobName: "nightly" },
+          text: "CRON-NEXT",
+        }),
+      marker: "CRON-NEXT",
+    },
+    {
+      name: "a member's skill",
+      send: (h, id) => void h.mgr.sendMessage(id, "/nextskill"),
+      marker: "NEXT-SKILL-BODY",
+    },
+  ];
+  for (const kind of kinds) {
+    it(`${kind.name} after the crossing turn starts the handoff and goes to the fresh session after the brief`, async () => {
+      const skillDir = join(STATE_ROOT, "skills", "nextskill");
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(join(skillDir, "SKILL.md"), "NEXT-SKILL-BODY");
+      const h = makeHarness();
+      const info = await spawn(h);
+      const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+      // Armed at rest: the reply stays, with no brief turn and no reset.
+      await waitUntil(
+        () => stateOf(h, info.id) === "waiting_for_response",
+        "at rest after the crossing turn",
+      );
+      await settle();
+      expect(texts(old).some(isBriefPrompt)).toBe(false);
+      expect(h.fake.sessions).toHaveLength(1);
+      expect(systemLines(h)).not.toContain(
+        en.t("systemEntries.autoHandoff.writingPercent", { percent: 85 }),
+      );
+
+      kind.send(h, info.id);
+      const fresh = await freshSession(h, info.id, old);
+      expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+      expect(sent(old, kind.marker)).toBe(false);
+      expectInOrder(fresh.sent[0].text, [BRIEF, kind.marker]);
+    });
+  }
+
+  it("a manual handoff on an armed agent at rest runs with the caller's brief, and no brief turn", async () => {
+    const h = makeHarness();
+    const info = await spawn(h);
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "at rest after the crossing turn",
+    );
+    await settle();
+    expect(await h.mgr.handoff(info.id, "MANUAL-BRIEF")).toMatchObject({
+      ok: true,
+    });
+    const fresh = await freshSession(h, info.id, old);
+    expect(fresh.sent[0].text).toContain("MANUAL-BRIEF");
+    expect(fresh.sent[0].text).not.toContain(AUTO_HANDOFF_FRESH_NOTICE);
+    expect(texts(old).some(isBriefPrompt)).toBe(false);
+    expect(
+      systemLines(h).some((l) => l.startsWith("Handed off automatically")),
+    ).toBe(false);
+  });
+
+  it("Ctrl+Enter on an armed agent at rest does not abort the brief turn it starts", async () => {
+    const h = makeHarness();
+    // The brief turn parks, so an abort of it would show.
+    let briefSession: FakeSession | null = null;
+    h.brief.answer = (s) => {
+      briefSession = s;
+    };
+    const info = await spawn(h);
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "at rest after the crossing turn",
+    );
+    await settle();
+    void h.mgr.sendMessage(
+      info.id,
+      "NOW-NEXT",
+      undefined,
+      undefined,
+      undefined,
+      {
+        sendNow: true,
+      },
+    );
+    await waitUntil(() => briefSession !== null, "brief turn sent");
+    await settle();
+    expect(stateOf(h, info.id)).toBe("thinking");
+    expect(systemLines(h)).not.toContain(
+      en.t("systemEntries.autoHandoff.failed"),
+    );
+    briefSession!.completeTurn({ text: BRIEF });
+    const fresh = await freshSession(h, info.id, old);
+    expectInOrder(fresh.sent[0].text, [BRIEF, "NOW-NEXT"]);
+    expect(sent(old, "NOW-NEXT")).toBe(false);
+  });
+
+  it("an armed agent released while idle runs the brief turn in its resumed session when a message wakes it", async () => {
+    const h = makeHarness();
+    const info = await spawn(h);
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "at rest after the crossing turn",
+    );
+    await settle();
+    expect(await h.mgr.sweepIdleAgents(0)).toBe(1);
+    expect(h.mgr.getAgent(info.id)?.dormant).toBe(true);
+
+    void h.mgr.sendMessage(info.id, "WAKE-NEXT");
+    await waitUntil(
+      () => h.fake.sessions.length >= 3 && h.fake.sessions[2].sent.length > 0,
+      "fresh session after the resumed one",
+    );
+    const [, resumed, fresh] = h.fake.sessions;
+    expect(resumed.isResume).toBe(true);
+    expect(texts(resumed).filter(isBriefPrompt)).toHaveLength(1);
+    expect(sent(resumed, "WAKE-NEXT")).toBe(false);
+    expect(texts(old).some(isBriefPrompt)).toBe(false);
+    expectInOrder(fresh.sent[0].text, [BRIEF, "WAKE-NEXT"]);
+  });
+});
+
+describe("automatic handoff: an edit", () => {
+  it("forks with no brief turn, and the fork does not stay armed", async () => {
+    const h = makeHarness({ editable: true });
+    const info = await spawn(h);
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "at rest after the crossing turn",
+    );
+    await settle();
+    const entry = h.mgr
+      .getAgentLogs(info.id)
+      .find((e) => e.kind === "user_message" && e.content === "work")!;
+    void h.mgr.editMessage(info.id, entry.id, "work, edited");
+    await waitUntil(() => {
+      const cur = h.fake.sessionForAgent(info.id);
+      return !!cur && cur !== old && sent(cur, "work, edited");
+    }, "edited turn runs in the fork");
+    const fork = h.fake.sessionForAgent(info.id)!;
+    expect(fork.sessionId).toBe("forked-1");
+    expect(texts(old).some(isBriefPrompt)).toBe(false);
+    expect(texts(fork).some(isBriefPrompt)).toBe(false);
+    // The fork's first turn ends below the trigger; the next message runs in
+    // the fork, with no brief turn.
+    h.measure.now = ctx(20_000, 200_000);
+    fork.completeTurn({ text: "edited done" });
+    await nextMessage(h, info.id);
+    await waitUntil(() => sent(fork, NEXT), "next message in the fork");
+    expect(texts(fork).some(isBriefPrompt)).toBe(false);
+    expect(h.fake.sessionForAgent(info.id)).toBe(fork);
   });
 });
 
@@ -566,6 +801,7 @@ describe("automatic handoff: the queue", () => {
     ))!;
     await h.mgr.editAgent(info.id, { autoHandoff: true });
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     await waitUntil(() => gate.release !== null, "handoff waits on the cap");
     expect(stateOf(h, info.id)).not.toBe("thinking");
 
@@ -579,6 +815,7 @@ describe("automatic handoff: the queue", () => {
     const fresh = await freshSession(h, info.id, old);
     expectInOrder(fresh.sent[0].text, [
       BRIEF,
+      NEXT,
       "MEMBER-IN-WINDOW",
       "SKILL-BODY",
     ]);
@@ -599,6 +836,7 @@ describe("automatic handoff: the queue", () => {
     };
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     const fresh = await freshSession(h, info.id, old);
     expect(fresh.sent[0].text).toContain(BRIEF);
     expect(fresh.sent[0].text).not.toContain("Checking git status");
@@ -608,6 +846,7 @@ describe("automatic handoff: the queue", () => {
     const h = makeHarness();
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     await freshSession(h, info.id, old);
     await waitUntil(
       () =>
@@ -646,7 +885,7 @@ describe("automatic handoff: a sample that lands late", () => {
     expect(h.fake.sessions).toHaveLength(1);
   });
 
-  it("with the switch left on, the brief turn starts when the batch turn ends", async () => {
+  it("with the switch left on, the brief turn starts at the next message after the batch turn", async () => {
     const h = makeHarness();
     const info = await spawn(h);
     const old = await startTurn(h, info.id);
@@ -661,8 +900,11 @@ describe("automatic handoff: a sample that lands late", () => {
     await sleep(800);
     h.measure.delayMs = 0;
     old.completeTurn({ text: "batch done" });
-    await freshSession(h, info.id, old);
+    await nextMessage(h, info.id);
+    const fresh = await freshSession(h, info.id, old);
     expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+    expect(sent(fresh, NEXT)).toBe(true);
+    expect(sent(old, NEXT)).toBe(false);
   });
 });
 
@@ -680,19 +922,10 @@ describe("automatic handoff: failures", () => {
     ).toBe(true);
   }
 
-  // The conversation continues in the old session, and the agent hears the
-  // wrap-up advice on the next message.
-  async function expectOldSessionContinues(
-    h: Harness,
-    id: string,
-    old: FakeSession,
-  ) {
-    await waitUntil(
-      () => stateOf(h, id) === "waiting_for_response",
-      "at rest after the failure",
-    );
-    void h.mgr.sendMessage(id, "AFTER");
-    await waitUntil(() => got(old, "AFTER"), "old session continues");
+  // The conversation continues in the old session: the message that started
+  // the attempt goes there, with the wrap-up advice.
+  async function expectOldSessionContinues(old: FakeSession) {
+    await waitUntil(() => sent(old, NEXT), "old session continues");
     expect(texts(old).at(-1)).toContain("--- begin isomux: context-check ---");
   }
 
@@ -701,9 +934,17 @@ describe("automatic handoff: failures", () => {
     h.brief.answer = (s) => s.completeTurn({ status: "failed", error: "boom" });
     const info = await spawn(h);
     await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     await expectFailed(h, info.id);
-    // A failed turn leaves the agent in error, as any failed turn does.
+    // A failed turn leaves the agent in error, as any failed turn does, and
+    // the message that started the attempt stays queued.
     expect(stateOf(h, info.id)).toBe("error");
+    expect(
+      h.mgr
+        .getAllAgents()
+        .find((a) => a.id === info.id)
+        ?.queue?.map((m) => m.text),
+    ).toEqual([NEXT]);
   });
 
   it("a brief turn with no text", async () => {
@@ -711,8 +952,9 @@ describe("automatic handoff: failures", () => {
     h.brief.answer = (s) => s.completeTurn({ text: "   " });
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     await expectFailed(h, info.id);
-    await expectOldSessionContinues(h, info.id, old);
+    await expectOldSessionContinues(old);
   });
 
   it("a brief turn the member stops", async () => {
@@ -723,17 +965,14 @@ describe("automatic handoff: failures", () => {
     };
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     await waitUntil(() => briefSession !== null, "brief turn sent");
     await h.mgr.abort(info.id);
     await waitUntil(() => systemLines(h).includes(failed), "failure line");
-    // The member's next message goes to the old session; the attempt is used.
+    // The message that started the attempt goes to the old conversation; the
+    // attempt is used.
     await waitUntil(
-      () => stateOf(h, info.id) === "waiting_for_response",
-      "at rest after the stop",
-    );
-    void h.mgr.sendMessage(info.id, "AFTER");
-    await waitUntil(
-      () => got(h.fake.sessionForAgent(info.id), "AFTER"),
+      () => sent(h.fake.sessionForAgent(info.id), NEXT),
       "conversation continues",
     );
     expect(texts(h.fake.sessionForAgent(info.id)).join("\n")).not.toContain(
@@ -769,6 +1008,7 @@ describe("automatic handoff: failures", () => {
     );
     h.measure.now = ctx(190_000, 200_000);
     old.completeTurn({ text: "done" });
+    await nextMessage(h, info.id);
     await waitUntil(() => systemLines(h).includes(failed), "failure line");
     expect(texts(old).some(isBriefPrompt)).toBe(false);
     expect(h.fake.sessions).toHaveLength(1);
@@ -782,6 +1022,7 @@ describe("automatic handoff: failures", () => {
     };
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     await waitUntil(() => briefSession !== null, "brief turn sent");
     // A queued message first, so the queue store is loaded before the write
     // that fails.
@@ -812,7 +1053,8 @@ describe("automatic handoff: failures", () => {
       briefSession = s;
     };
     const info = await spawn(h);
-    await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     await waitUntil(() => briefSession !== null, "brief turn sent");
     await h.mgr.newConversation(info.id);
     await settle();
@@ -820,12 +1062,11 @@ describe("automatic handoff: failures", () => {
     expect(
       systemLines(h).some((l) => l.startsWith("Handed off automatically")),
     ).toBe(false);
-    // The fresh conversation can arm again.
-    void h.mgr.sendMessage(info.id, "next");
-    await waitUntil(
-      () => got(h.fake.sessionForAgent(info.id), "next"),
-      "fresh conversation runs",
-    );
+    // The /clear carries the message to the fresh conversation, which runs
+    // it with no brief.
+    const fresh = await freshSession(h, info.id, old);
+    expect(sent(fresh, NEXT)).toBe(true);
+    expect(texts(fresh).join("\n")).not.toContain(BRIEF);
     expect(
       officeAuditStore().list({ actorKind: "auto_handoff" }).items,
     ).toHaveLength(0);
@@ -837,6 +1078,7 @@ describe("automatic handoff: loop guard", () => {
     const h = makeHarness();
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     // The fresh session's first turn (the brief) ends still above it.
     const fresh = await freshSession(h, info.id, old);
     h.measure.now = ctx(185_000, 200_000);
@@ -853,7 +1095,8 @@ describe("automatic handoff: loop guard", () => {
       "at rest",
     );
     await turnEndingAt(h, info.id, ctx(195_000, 200_000));
-    await settle();
+    await nextMessage(h, info.id, "AFTER-PAUSE");
+    await waitUntil(() => sent(fresh, "AFTER-PAUSE"), "message runs in place");
     expect(texts(fresh).some(isBriefPrompt)).toBe(false);
     expect(h.fake.sessions).toHaveLength(2);
     expect(systemLines(h).filter((l) => l === paused)).toHaveLength(1);
@@ -863,6 +1106,7 @@ describe("automatic handoff: loop guard", () => {
     const h = makeHarness();
     const info = await spawn(h);
     const old = await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     const fresh = await freshSession(h, info.id, old);
     h.measure.now = ctx(20_000, 200_000);
     fresh.completeTurn({ text: "resumed" });
@@ -871,6 +1115,7 @@ describe("automatic handoff: loop guard", () => {
       "at rest",
     );
     await turnEndingAt(h, info.id, ctx(190_000, 200_000));
+    await nextMessage(h, info.id);
     await freshSession(h, info.id, fresh);
     expect(h.fake.sessions).toHaveLength(3);
   });

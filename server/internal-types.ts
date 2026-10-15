@@ -301,6 +301,15 @@ export interface ManagedAgent {
   // a wedged flush by cancelling it (session replacement), not by force-
   // clearing this flag, so at most one flush can ever be sending.
   flushInProgress: boolean;
+  // Holds a conversation change puts on the queue while it swaps sessions
+  // and rewrites the chat, so nothing consumes the queue until the next
+  // session can take it. One token per change: a release clears only its own
+  // hold, so overlapping changes cannot release each other's. In memory only.
+  queueHolds: Set<symbol>;
+  // The hold a send that failed for a missing or signed-out backend put on
+  // the queue, so the flush does not retry in a loop. The next message
+  // releases it; a conversation change drops it and carries the queue.
+  backendHold: symbol | null;
   // Date.now() stamped when the current flush claimed flushInProgress. The
   // queue watchdog uses it to age an ACTIVE flush (an old queued item can
   // coexist with a fresh, healthy flush). Meaningless while !flushInProgress.
@@ -397,11 +406,12 @@ export type EventHandler = (event: AgentEvent) => void;
 // racing any external flag: "settings" marks a deliberate settings-driven
 // replace (model/effort/permission/sandbox/cwd edit) - flushQueue's handler
 // words its interrupt notice as expected behavior instead of a stall.
-// "handoff" marks a handoff's reset, which carries the queue to the fresh
-// session, so flushQueue's handler writes no notice at all.
-// Undefined for every other swap (abort slow path,
-// setPrivileged, watchdog forced recovery, /clear, /resume, ...).
-export type SwapReason = "settings" | "handoff";
+// "carry" marks a conversation change that carries the queue to the next
+// session (handoff, /clear, new-conversation, engine switch, resume to another
+// session, edit-fork), so flushQueue's handler writes no notice at all.
+// Undefined for every other swap (abort slow path, setPrivileged, watchdog
+// forced recovery, re-resume of the current session, ...).
+export type SwapReason = "settings" | "carry";
 export class SessionSwappedError extends Error {
   readonly reason?: SwapReason;
   constructor(message = "Session replaced.", reason?: SwapReason) {
@@ -418,6 +428,17 @@ export class TurnSupersededError extends Error {
   constructor(message = "Superseded by a new turn.") {
     super(message);
     this.name = "TurnSupersededError";
+  }
+}
+
+// A swap closed the session while its send() waited, so the backend never
+// took the message (task 8c15e93e: a woken Codex session still booting). Not
+// thrown for a member's Stop. A direct send queues its message again, and the
+// post-swap flush delivers it to the next session.
+export class SwappedBeforeSendError extends SessionSwappedError {
+  constructor(message: string, reason?: SwapReason) {
+    super(message, reason);
+    this.name = "SwappedBeforeSendError";
   }
 }
 

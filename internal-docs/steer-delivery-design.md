@@ -64,9 +64,9 @@ Probe scripts: `internal-docs/evidence/steer-delivery-0926/` (`probe.ts` for the
 "boundary" below means batch boundary: with parallel calls, the steer waits for the slowest one.
 
 **Marking.** A queued item accepted through the steer branch at a busy receiver gets `steer: true`. There is no
-agent-level flag: "a steer is pending" means "the queue holds a `steer` item". Cancelling that item, or any path
-that clears the queue (new conversation, resume, edit), removes the steer with it, so a later plain enqueue cannot
-inherit it. When the receiver's backend declares the capability, the steer branch marks the item and does not call
+agent-level flag: "a steer is pending" means "the queue holds a `steer` item". Cancelling that item removes the steer with
+it, and a conversation change that carries the queue to the next session (new conversation, resume, edit) drops the
+mark, so a later plain enqueue cannot inherit it. When the receiver's backend declares the capability, the steer branch marks the item and does not call
 `sendNow`. Guard rails and ack shape are unchanged (rate-limit counting: §5).
 
 **Eligible batch.** The hook takes the whole queue only when every item is machine traffic that the ordinary flush

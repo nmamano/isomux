@@ -2406,18 +2406,12 @@ App 的一些原则：
   "systemEntries.sessionStartFailed":
     "无法启动会话：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
   "systemEntries.queueFailed": "无法将消息加入队列：{error}",
-  "systemEntries.queueCleared.notConfigured.one":
-    "后端未配置，已清除 {count} 条队列消息。",
-  "systemEntries.queueCleared.notConfigured.other":
-    "后端未配置，已清除 {count} 条队列消息。",
-  "systemEntries.queueCleared.switching.one":
-    "切换到其他会话时，已清除 {count} 条队列消息。",
-  "systemEntries.queueCleared.switching.other":
-    "切换到其他会话时，已清除 {count} 条队列消息。",
-  "systemEntries.queueCleared.newConversation.one":
-    "已清除 {count} 条队列消息。",
-  "systemEntries.queueCleared.newConversation.other":
-    "已清除 {count} 条队列消息。",
+  "systemEntries.queueKept.notConfigured.one":
+    "已保留 {count} 条队列消息，将随下一条消息一起发送。",
+  "systemEntries.queueKept.notConfigured.other":
+    "已保留 {count} 条队列消息，将随下一条消息一起发送。",
+  "systemEntries.queueCarried.one": "已将 {count} 条队列消息移到此对话。",
+  "systemEntries.queueCarried.other": "已将 {count} 条队列消息移到此对话。",
   "systemEntries.contextCompacted": "上下文已压缩：{summary}",
   "systemEntries.contextCompactedNoSummary": "上下文已压缩。",
   "systemEntries.toolCallDenied": "工具调用被拒绝：{tool}",

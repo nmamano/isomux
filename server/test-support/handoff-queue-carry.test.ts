@@ -1,6 +1,6 @@
 // Task 6f6e8ed7: a handoff carries the receiver's queue to the fresh session,
-// behind the brief; the resets that still clear the queue say how many
-// messages they cleared.
+// behind the brief. Task df2c820b: every other conversation change carries it
+// too, and the next chat says how many messages it moved.
 //
 // Seam: the DI manager (createAgentManager + FakeBackend), as in
 // steer-boundary.test.ts. Every send parks its turn until the test calls
@@ -12,15 +12,27 @@ import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { blockAtomicFileReplacement, removeStateDir } from "./temp-state.ts";
 import { loadMessageQueuesRaw } from "../persistence.ts";
-import { createAgentManager } from "../agent-manager.ts";
+import {
+  CARRIED_NOTE_ONE,
+  CARRIED_NOTE_OTHER,
+  createAgentManager,
+} from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { translatorForLanguage } from "../i18n.ts";
 import {
   FakeBackend,
+  FakeSession,
   type FakeBackendConfig,
-  type FakeSession,
 } from "./fake-backend.ts";
-import type { EventHandler } from "../internal-types.ts";
+import type {
+  AttachmentSpec,
+  BackendSession,
+  CreateSessionOptions,
+} from "../backends/types.ts";
+import {
+  BackendNotConfiguredError,
+  type EventHandler,
+} from "../internal-types.ts";
 import type {
   AgentInfo,
   Attachment,
@@ -379,49 +391,121 @@ describe("handoff carries the queue to the fresh session", () => {
   });
 });
 
-describe("resets that clear the queue say how many messages they cleared", () => {
-  const cleared = (n: number) =>
-    en.tn("systemEntries.queueCleared.newConversation", n);
+describe("conversation changes carry the queue to the next session (df2c820b)", () => {
+  const moved = (n: number) => en.tn("systemEntries.queueCarried", n);
 
-  async function busyWithTwoQueued() {
-    const fake = fakeBackend();
+  async function busyWithTwoQueued(cfg: FakeBackendConfig = {}) {
+    const fake = fakeBackend(cfg);
     const made = makeManager(fake);
     const info = await spawn(made.mgr);
-    await startTurn(made.mgr, fake, info.id);
-    queueWhileBusy(made.mgr, info.id, "DROPPED-ONE");
-    queueWhileBusy(made.mgr, info.id, "DROPPED-TWO");
-    return { ...made, fake, info };
+    const old = await startTurn(made.mgr, fake, info.id);
+    queueWhileBusy(made.mgr, info.id, "CARRIED-ONE");
+    queueWhileBusy(made.mgr, info.id, "CARRIED-TWO");
+    return { ...made, fake, info, old };
+  }
+
+  // The next session's first prompt: the carried note, then both messages,
+  // and not the note for messages queued during a turn.
+  function expectCarriedPrompt(text: string) {
+    expectInOrder(text, [CARRIED_NOTE_OTHER, "CARRIED-ONE", "CARRIED-TWO"]);
+    expect(text).not.toContain("queued while you were processing");
   }
 
   it("new conversation", async () => {
-    const { mgr, logs, info } = await busyWithTwoQueued();
+    const { mgr, logs, info, fake, old } = await busyWithTwoQueued();
     await mgr.newConversation(info.id);
-    expect(visibleQueue(mgr, info.id)).toHaveLength(0);
-    expect(persistedQueue(info.id)).toHaveLength(0);
-    expect(logs.filter((e) => e.content === cleared(2))).toHaveLength(1);
+    const fresh = await freshSession(fake, info.id, old);
+    expectCarriedPrompt(fresh.sent[0].text);
+    expect(old.sent.some((m) => m.text.includes("CARRIED"))).toBe(false);
+    expect(logs.filter((e) => e.content === moved(2))).toHaveLength(1);
+    await waitUntil(
+      () => persistedQueue(info.id).length === 0,
+      "delivered queue leaves the disk copy",
+    );
   });
 
-  it("typed /clear, which also empties the disk copy", async () => {
-    const { mgr, logs, info } = await busyWithTwoQueued();
+  it("carried items keep their place on disk until delivered, marked carried", async () => {
+    const { mgr, info, old } = await busyWithTwoQueued({
+      session: { manualSend: true },
+    });
+    await mgr.newConversation(info.id);
+    // The fresh session's send is parked: nothing is drained yet.
+    await waitUntil(
+      () => persistedQueue(info.id).every((m) => m.carried === true),
+      "carried mark persisted",
+    );
     expect(persistedQueue(info.id).map((m) => m.text)).toEqual([
-      "DROPPED-ONE",
-      "DROPPED-TWO",
+      "CARRIED-ONE",
+      "CARRIED-TWO",
     ]);
+    expect(
+      persistedQueue(info.id).some((m) => m.queuedDuringBusyTurn === true),
+    ).toBe(false);
+    expect(old.closed).toBe(true);
+  });
+
+  it("typed /clear runs the same reset: dormant, no line of its own, the queue carried", async () => {
+    const { mgr, logs, info, fake, old } = await busyWithTwoQueued({
+      session: { manualSend: true },
+    });
+    const from = logs.length;
     await mgr.sendMessage(info.id, "/clear");
-    await waitUntil(() => stateOf(mgr, info.id) === "idle", "cleared");
-    expect(visibleQueue(mgr, info.id)).toHaveLength(0);
-    expect(persistedQueue(info.id)).toHaveLength(0);
-    expect(logs.filter((e) => e.content === cleared(2))).toHaveLength(1);
+    expect(old.closed).toBe(true);
+    const fresh = await freshSession(fake, info.id, old);
+    expectCarriedPrompt(fresh.sent[0].text);
+    expect(old.sent.some((m) => m.text.includes("CARRIED"))).toBe(false);
+    // The empty chat is the confirmation: the carried-queue line only.
+    expect(
+      logs
+        .slice(from)
+        .filter((e) => e.kind === "system")
+        .map((e) => e.content),
+    ).toEqual([moved(2)]);
+  });
+
+  it("typed /clear with no queue leaves the agent dormant until the next message", async () => {
+    const fake = fakeBackend();
+    const { mgr } = makeManager(fake);
+    const info = await spawn(mgr);
+    const old = await startTurn(mgr, fake, info.id);
+    old.completeTurn();
+    await waitUntil(
+      () => stateOf(mgr, info.id) === "waiting_for_response",
+      "at rest",
+    );
+    await mgr.sendMessage(info.id, "/clear");
+    expect(mgr.getAgent(info.id)?.dormant).toBe(true);
+    expect(fake.sessions).toHaveLength(1);
+    void mgr.sendMessage(info.id, "after clear");
+    const fresh = await freshSession(fake, info.id, old);
+    expect(fresh.isResume).toBe(false);
+  });
+
+  it("a typed /clear that fails shows the error to the member", async () => {
+    const fake = fakeBackend();
+    const { mgr, logs, fault } = makeManager(fake);
+    const info = await spawn(mgr);
+    await startTurn(mgr, fake, info.id);
+    fault.throwOnce = "clear_logs";
+    await mgr.sendMessage(info.id, "/clear");
+    const errors = logs.filter((e) => e.kind === "error").map((e) => e.content);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBe(
+      en.t("commands.clear.failed", { error: "injected sink fault" }),
+    );
+    expect(stateOf(mgr, info.id)).toBe("error");
   });
 
   it("engine switch", async () => {
-    const { mgr, logs, info } = await busyWithTwoQueued();
+    const { mgr, logs, info, fake, old } = await busyWithTwoQueued();
     await mgr.editAgent(info.id, { agentType: "codex" });
-    expect(visibleQueue(mgr, info.id)).toHaveLength(0);
-    expect(logs.filter((e) => e.content === cleared(2))).toHaveLength(1);
+    const fresh = await freshSession(fake, info.id, old);
+    expect(mgr.getAgent(info.id)?.agentType).toBe("codex");
+    expectCarriedPrompt(fresh.sent[0].text);
+    expect(logs.filter((e) => e.content === moved(2))).toHaveLength(1);
   });
 
-  it("an empty queue writes no count", async () => {
+  it("an empty queue writes no line", async () => {
     const fake = fakeBackend();
     const { mgr, logs } = makeManager(fake);
     const info = await spawn(mgr);
@@ -434,5 +518,276 @@ describe("resets that clear the queue say how many messages they cleared", () =>
         .filter((e) => e.kind === "system")
         .map((e) => e.content),
     ).toEqual([en.t("systemEntries.newConversation")]);
+  });
+
+  // A first conversation that ended, and a second one busy with two queued
+  // messages.
+  async function secondConversationBusy() {
+    const fake = fakeBackend();
+    const made = makeManager(fake);
+    const info = await spawn(made.mgr);
+    const first = await startTurn(made.mgr, fake, info.id);
+    first.completeTurn();
+    await waitUntil(
+      () => stateOf(made.mgr, info.id) === "waiting_for_response",
+      "first conversation at rest",
+    );
+    await made.mgr.newConversation(info.id);
+    const second = await startTurn(made.mgr, fake, info.id);
+    queueWhileBusy(made.mgr, info.id, "CARRIED-ONE");
+    queueWhileBusy(made.mgr, info.id, "CARRIED-TWO");
+    return { ...made, fake, info, first, second };
+  }
+
+  it("resume to another session, with the line after the replayed chat", async () => {
+    const { mgr, logs, info, fake, first, second } =
+      await secondConversationBusy();
+    await mgr.resume(info.id, first.sessionId);
+    const resumed = await freshSession(fake, info.id, second);
+    expect(resumed.isResume).toBe(true);
+    expect(resumed.sessionId).toBe(first.sessionId);
+    expectCarriedPrompt(resumed.sent[0].text);
+    expect(second.sent.some((m) => m.text.includes("CARRIED"))).toBe(false);
+    // The line survives the replay: it follows the resumed-session line in
+    // the chat the member sees.
+    const chat = mgr.getAgentLogs(info.id).map((e) => e.content);
+    const movedAt = chat.indexOf(moved(2));
+    expect(movedAt).toBeGreaterThan(
+      chat.findIndex((c) =>
+        c.startsWith(
+          en.t("systemEntries.resumedSession", { label: "" }).slice(0, 8),
+        ),
+      ),
+    );
+    expect(logs.filter((e) => e.content === moved(2))).toHaveLength(1);
+  });
+
+  it("resume of the current session keeps the queue as it is", async () => {
+    const fake = fakeBackend();
+    const { mgr, logs } = makeManager(fake);
+    const info = await spawn(mgr);
+    const old = await startTurn(mgr, fake, info.id);
+    queueWhileBusy(mgr, info.id, "KEPT-ONE");
+    await mgr.resume(info.id, old.sessionId);
+    const resumed = await freshSession(fake, info.id, old);
+    const prompt = resumed.sent.find((m) => m.text.includes("KEPT-ONE"))!;
+    expect(prompt.text).not.toContain(CARRIED_NOTE_ONE);
+    expect(logs.some((e) => e.content === moved(1))).toBe(false);
+    expect(visibleQueue(mgr, info.id).some((m) => m.carried)).toBe(false);
+  });
+
+  it("a message that arrives during the change waits for it and goes to the next session", async () => {
+    const { mgr, info, fake, first, second } = await secondConversationBusy();
+    const resuming = mgr.resume(info.id, first.sessionId);
+    // During the swap: no send-now abort, no steer, no delivery.
+    expect(mgr.sendNow(info.id, "member_send_now")).toMatchObject({ ok: true });
+    expect(
+      mgr.enqueueMessage(
+        info.id,
+        { sender: SENDER, text: "DURING-CHANGE" },
+        { steer: true },
+      ),
+    ).toMatchObject({ ok: true, steered: false });
+    await resuming;
+    const resumed = await freshSession(fake, info.id, second);
+    expect(second.abortCount).toBe(0);
+    expectInOrder(resumed.sent[0].text, [
+      "CARRIED-ONE",
+      "CARRIED-TWO",
+      "DURING-CHANGE",
+    ]);
+    expect(second.sent.some((m) => m.text.includes("DURING-CHANGE"))).toBe(
+      false,
+    );
+  });
+
+  it("a release clears only its own hold", async () => {
+    const { mgr, info, fake, first, second } = await secondConversationBusy();
+    const releaseOther = mgr._testHoldQueue(info.id);
+    await mgr.resume(info.id, first.sessionId);
+    await sleep(100);
+    const resumed = fake.sessionForAgent(info.id)!;
+    expect(resumed).not.toBe(second);
+    // The resume released its hold; the other one still holds the queue.
+    expect(resumed.sent).toHaveLength(0);
+    expect(visibleQueue(mgr, info.id)).toHaveLength(2);
+    releaseOther();
+    await waitUntil(() => resumed.sent.length > 0, "flushed on last release");
+    expectCarriedPrompt(resumed.sent[0].text);
+  });
+});
+
+describe("edit-fork carries the queue to the fork (df2c820b)", () => {
+  const PARENT_SID = "fake-session-1";
+  const FORK_SID = "forked-1";
+
+  async function editable(cfg: Partial<FakeBackendConfig> = {}) {
+    const fake = new FakeBackend({
+      session: {
+        onSend: (text, _a, s) => {
+          if (!text.includes("PARKED")) s.completeTurn({ text: "reply" });
+        },
+      },
+      forkResult: {
+        kind: "fork",
+        sessionId: FORK_SID,
+        forkedFromSessionId: PARENT_SID,
+      },
+      sessionMessages: [
+        { uuid: "u-1", role: "user", text: "first ask" },
+        { uuid: "a-1", role: "assistant", text: "reply" },
+      ],
+      ...cfg,
+    });
+    const made = makeManager(fake);
+    const info = await spawn(made.mgr);
+    await made.mgr.sendMessage(info.id, "first ask");
+    await waitUntil(
+      () => stateOf(made.mgr, info.id) === "waiting_for_response",
+      "first turn done",
+    );
+    const entry = made.mgr
+      .getAgentLogs(info.id)
+      .find((e) => e.kind === "user_message" && e.content === "first ask")!;
+    return { ...made, fake, info, entryId: entry.id };
+  }
+
+  it("a message that arrives during the edit goes to the fork after the edited message", async () => {
+    const { mgr, logs, fake, info, entryId } = await editable();
+    const parent = fake.sessionForAgent(info.id)!;
+    const editing = mgr.editMessage(info.id, entryId, "first ask, edited");
+    mgr.enqueueMessage(info.id, { sender: SENDER, text: "DURING-EDIT" });
+    await editing;
+    const fork = fake.sessionForAgent(info.id)!;
+    expect(fork.sessionId).toBe(FORK_SID);
+    await waitUntil(
+      () => fork.sent.some((m) => m.text.includes("DURING-EDIT")),
+      "queue flushed into the fork",
+    );
+    const sentTexts = fork.sent.map((m) => m.text);
+    expect(sentTexts.findIndex((t) => t.includes("first ask, edited"))).toBe(0);
+    expect(sentTexts.find((t) => t.includes("DURING-EDIT"))).toContain(
+      CARRIED_NOTE_ONE,
+    );
+    expect(parent.sent.some((m) => m.text.includes("DURING-EDIT"))).toBe(false);
+    expect(
+      logs.filter((e) => e.content === en.tn("systemEntries.queueCarried", 1)),
+    ).toHaveLength(1);
+  });
+
+  it("a fork that fails releases the hold and keeps the queue for the same conversation", async () => {
+    const { mgr, fake, info, entryId } = await editable({
+      forkError: new Error("fork refused"),
+    });
+    const parent = fake.sessionForAgent(info.id)!;
+    const editing = mgr.editMessage(info.id, entryId, "first ask, edited");
+    mgr.enqueueMessage(info.id, { sender: SENDER, text: "DURING-EDIT" });
+    await editing;
+    // A failed fork leaves the agent in error, as before, with the message
+    // still queued and not marked carried.
+    expect(stateOf(mgr, info.id)).toBe("error");
+    expect(visibleQueue(mgr, info.id).map((m) => m.text)).toEqual([
+      "DURING-EDIT",
+    ]);
+    expect(visibleQueue(mgr, info.id).some((m) => m.carried)).toBe(false);
+    // The next message resumes the same conversation, and the released queue
+    // flushes into it with that message.
+    mgr.enqueueMessage(info.id, { sender: SENDER, text: "AFTER-FAIL" });
+    await waitUntil(() => {
+      const cur = fake.sessionForAgent(info.id)!;
+      return cur.sent.some((m) => m.text.includes("AFTER-FAIL"));
+    }, "queue flushed after the failed fork");
+    const cur = fake.sessionForAgent(info.id)!;
+    expect(cur.sessionId).toBe(parent.sessionId);
+    const prompt = cur.sent.find((m) => m.text.includes("AFTER-FAIL"))!;
+    expectInOrder(prompt.text, ["DURING-EDIT", "AFTER-FAIL"]);
+    expect(prompt.text).not.toContain(CARRIED_NOTE_ONE);
+  });
+});
+
+// A backend whose sends fail as not configured while `broken` is set. The
+// refusal comes after a timer, as a real backend's does, so a retry loop
+// leaves the test's own timers able to fire and report it.
+function refusingBackend() {
+  const backend = { broken: false };
+  class RefusingSession extends FakeSession {
+    override async send(text: string, a?: AttachmentSpec[]): Promise<void> {
+      await super.send(text, a);
+      if (!backend.broken) return;
+      await sleep(0);
+      throw new BackendNotConfiguredError("Sign in to the backend.");
+    }
+  }
+  class RefusingBackend extends FakeBackend {
+    override createSession(opts: CreateSessionOptions): BackendSession {
+      const s = new RefusingSession(opts, "fake-session-1", false);
+      this.sessions.push(s);
+      return s;
+    }
+  }
+  return { backend, fake: new RefusingBackend() };
+}
+
+describe("a backend that is not configured keeps the queue (df2c820b)", () => {
+  it("keeps the queue and its disk copy, does not retry in a loop, and delivers it with the next message once the backend works", async () => {
+    const { backend, fake } = refusingBackend();
+    const { mgr, logs } = makeManager(fake);
+    const info = await spawn(mgr);
+    const session = await startTurn(mgr, fake, info.id);
+    const ids = [
+      queueWhileBusy(mgr, info.id, "KEPT-ONE"),
+      queueWhileBusy(mgr, info.id, "KEPT-TWO"),
+    ];
+    const diskBefore = persistedQueue(info.id);
+    backend.broken = true;
+    session.completeTurn();
+    const kept = en.tn("systemEntries.queueKept.notConfigured", 2);
+    await waitUntil(() => logs.some((e) => e.content === kept), "kept line");
+    await sleep(150);
+    // One failed attempt, not a loop; the queue and its disk copy as before.
+    const attempts = () =>
+      session.sent.filter((m) => m.text.includes("KEPT-ONE")).length;
+    expect(attempts()).toBe(1);
+    expect(stateOf(mgr, info.id)).toBe("waiting_for_response");
+    expect(visibleQueue(mgr, info.id).map((m) => m.id)).toEqual(ids);
+    expect(persistedQueue(info.id)).toEqual(diskBefore);
+
+    // Fixed: the next message sends the kept queue first, then itself.
+    backend.broken = false;
+    void mgr.sendMessage(info.id, "AFTER-FIX");
+    await waitUntil(() => attempts() === 2, "kept queue delivered");
+    const delivered = session.sent.filter((m) => m.text.includes("KEPT-ONE"));
+    expectInOrder(delivered[1].text, ["KEPT-ONE", "KEPT-TWO"]);
+    await waitUntil(
+      () => persistedQueue(info.id).every((m) => !ids.includes(m.id)),
+      "delivered items leave the disk copy",
+    );
+    session.completeTurn();
+    await waitUntil(
+      () => session.sent.some((m) => m.text.includes("AFTER-FIX")),
+      "the new message follows",
+    );
+  });
+
+  it("send-now retries the kept queue", async () => {
+    const { backend, fake } = refusingBackend();
+    const { mgr, logs } = makeManager(fake);
+    const info = await spawn(mgr);
+    const session = await startTurn(mgr, fake, info.id);
+    queueWhileBusy(mgr, info.id, "KEPT-ONE");
+    backend.broken = true;
+    session.completeTurn();
+    const kept = en.tn("systemEntries.queueKept.notConfigured", 1);
+    await waitUntil(() => logs.some((e) => e.content === kept), "kept line");
+    const attempts = () =>
+      session.sent.filter((m) => m.text.includes("KEPT-ONE")).length;
+    expect(attempts()).toBe(1);
+    backend.broken = false;
+    expect(mgr.sendNow(info.id, "member_send_now")).toMatchObject({ ok: true });
+    await waitUntil(() => attempts() === 2, "kept queue sent again");
+    await waitUntil(
+      () => visibleQueue(mgr, info.id).length === 0,
+      "delivered and drained",
+    );
   });
 });

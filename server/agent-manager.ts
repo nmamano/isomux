@@ -199,6 +199,7 @@ import {
   BackendSignedOutError,
   ProviderCapacityError,
   SessionSwappedError,
+  SwappedBeforeSendError,
   TurnSupersededError,
   inMultiStepFlow,
   pendingPromptOf,
@@ -506,6 +507,12 @@ export const AGENT_STOP_NOTE =
   "[Isomux: another agent stopped your previous turn. Any rejection or interruption text at the end of that turn came from that stop, not from an office member. A tool call cut short may have done partial work: check its effects before you continue.]";
 export const MEMBER_INTERRUPT_NOTE =
   "[Isomux: a member interrupted your turn to deliver this. A tool call cut short may have done partial work: check its effects before you continue.]";
+// Messages a conversation change carried to the next session (QueuedMessage.
+// carried) were written for the context before it.
+export const CARRIED_NOTE_ONE =
+  "[Note: this message was sent before a conversation change, so it may refer to context you do not have.]";
+export const CARRIED_NOTE_OTHER =
+  "[Note: these messages were sent before a conversation change, so they may refer to context you do not have.]";
 export const TOOL_BOUNDARY_NOTE =
   "[Isomux: delivered between your tool calls; nothing was interrupted.]";
 
@@ -1094,19 +1101,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         text: err.message,
         commands: err.command ? [err.command] : undefined,
       });
+    // The queue is kept (Nil, 2026-10-06: never delete), and held so the
+    // idle transition below does not retry the flush in a loop. The next
+    // message releases it.
     const queuedCount = managed.messageQueue.length;
     if (queuedCount > 0) {
-      managed.messageQueue.length = 0;
+      if (!managed.backendHold) managed.backendHold = holdQueue(managed);
       addLogEntry(
         agentId,
         "system",
         logTranslator(managed).tn(
-          "systemEntries.queueCleared.notConfigured",
+          "systemEntries.queueKept.notConfigured",
           queuedCount,
         ),
       );
-      emitQueueUpdate(agentId, managed);
-      persistQueueState(agentId, managed);
     }
     updateState(agentId, "waiting_for_response");
   }
@@ -2485,6 +2493,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       messageQueue: [],
       autoResumeInProgress: false,
       flushInProgress: false,
+      queueHolds: new Set(),
+      backendHold: null,
       flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
       recentSteers: [],
@@ -5616,8 +5626,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
       if (!isQueueIdleState(managed.info.state)) continue;
       if (inMultiStepFlow(managed)) continue;
-      // A swap owns its own retry via the post-swap kick.
-      if (managed.info.sessionSwapping) continue;
+      // A swap owns its own retry via the post-swap kick, and a held queue
+      // flushes when its hold is released.
+      if (managed.info.sessionSwapping || managed.queueHolds.size > 0) continue;
       if (!managed.flushInProgress) {
         const oldest = managed.messageQueue[0]?.queuedAt ?? now;
         if (now - oldest < stuckMs) continue;
@@ -6353,6 +6364,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       messageQueue: [],
       autoResumeInProgress: false,
       flushInProgress: false,
+      queueHolds: new Set(),
+      backendHold: null,
       flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
       recentSteers: [],
@@ -6444,7 +6457,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       officeState.updateAgent(agentId, changes),
     beginTurn,
     openChoiceInteraction,
-    cancelChoiceInteraction,
     emitLoginInstructionsFor: (agentId, managed, username) => {
       void agentLoginInstructions(managed).then((instructions) => {
         if (managed && agents.get(agentId) !== managed) return;
@@ -6466,15 +6478,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       });
     },
     emitLogoutAffordanceFor: emitLogoutAffordance,
-    createSession,
-    // The typed /clear is the only caller that hands the object a session it
-    // built itself: its pending-control and queue bookkeeping must run between
-    // create and swap. Every other swap goes through sessionManager.replaceWith.
-    replaceSession: (_agentId, managed, newSession) =>
-      managed.sessionManager.replaceSession(managed, newSession),
+    newConversation: (agentId, opts) =>
+      newConversation(agentId, undefined, undefined, opts),
     persistAll,
-    persistCurrentSessionTopic,
-    persistQueueState,
+    requeueSwappedSend,
     wakeDormantSession: (agentId, managed, rawText, username, device) =>
       wakeSessionForSend(agentId, managed, {
         // echoEarly:false - executeSkill echoes the user's command AFTER the
@@ -6488,7 +6495,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }),
     surfaceSignedOut: surfaceBackendNotConfigured,
     enqueueMessage,
-    resetContextUsage,
     // Same measurement, same roots, same 30s memo as GET /api/storage/usage -
     // productionStorageRoots() is the single answer to "what counts as isomux
     // storage", shared by the route and the /isomux-storage command.
@@ -6683,6 +6689,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // marker into the persisted log entry, matching the scheduled path.
       if (m.handoff) meta = { ...(meta ?? {}), handoff: true };
       if (extraMeta) meta = { ...(meta ?? {}), ...extraMeta };
+      // The chat already shows a direct send that a swap cut and that was
+      // queued again.
+      if (m.echoed) continue;
       addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
     }
     // Trigger topic generation only after the user_message log entries
@@ -6768,7 +6777,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.info.state !== "tool_executing") ||
       inMultiStepFlow(managed) ||
       // The brief turn must not take the queue the fresh session gets.
-      managed.autoHandoffPhase
+      managed.autoHandoffPhase ||
+      // Nor the old session's last tool batch a held queue.
+      managed.queueHolds.size > 0
     )
       return null;
     const items = unclaimedQueue(managed);
@@ -7027,6 +7038,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // the sender's own freshly-reset session. Copied below so the flush prefix
       // marks it as a handoff from the previous session (no reply-to-self).
       handoff?: boolean;
+      // A direct send a swap cut before the backend took it
+      // (requeueSwappedSend). Not marked as queued during a busy turn: it was
+      // sent before that turn. `echoed`: the chat already shows it.
+      resend?: { echoed: boolean };
     },
     // Agent-initiated steering. Set by the inter-agent send
     // route when the sender passed "steer":true. Deliberately an option on THIS
@@ -7066,7 +7081,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (capRefusal) return capRefusal;
 
     const id = generateQueuedId(managed.messageQueue);
-    const queuedDuringBusyTurn = state !== "error" && !isQueueIdleState(state);
+    const queuedDuringBusyTurn =
+      state !== "error" && !isQueueIdleState(state) && !msg.resend;
     // A steer at a busy receiver whose backend delivers at tool boundaries
     // waits for the running tool batch instead of aborting the turn
     // (internal-docs/steer-delivery-design.md). Decided here, against the same
@@ -7077,6 +7093,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       queuedDuringBusyTurn &&
       !inMultiStepFlow(managed) &&
       !managed.autoHandoffPhase &&
+      managed.queueHolds.size === 0 &&
       getBackend(managed.info.agentType).toolBoundaryDelivery === true;
     managed.messageQueue.push({
       id,
@@ -7089,6 +7106,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         : {}),
       ...(msg.scheduledSenderGone ? { scheduledSenderGone: true } : {}),
       ...(msg.handoff ? { handoff: true } : {}),
+      ...(msg.resend?.echoed ? { echoed: true } : {}),
       ...(boundarySteer ? { steer: true } : {}),
       attachments: msg.attachments,
       queuedAt: Date.now(),
@@ -7112,6 +7130,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return { ok: false, error: "persist_failed", status: 500 };
     }
     emitQueueUpdate(agentId, managed);
+    // A new message retries a queue kept after a backend failure.
+    releaseBackendHold(agentId, managed);
 
     const steerRequested = opts?.steer === true;
 
@@ -7168,6 +7188,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           steerDeclined: "multi_step_flow",
         };
       }
+      // A conversation change is under way: it ends the running turn itself,
+      // and the message goes to the next session when the hold is released.
+      if (managed.queueHolds.size > 0) {
+        return { ok: true, queued: true, messageId: id, steered: false };
+      }
       // An automatic handoff is under way: the message goes to the fresh
       // session, and interrupting the brief turn would only cancel it.
       if (managed.autoHandoffPhase) {
@@ -7213,6 +7238,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (!managed) return;
     if (managed.flushInProgress) return;
     if (managed.messageQueue.length === 0) return;
+    // A conversation change holds the queue; its release flushes.
+    if (managed.queueHolds.size > 0) return;
 
     managed.flushInProgress = true;
     managed.flushStartedAt = Date.now();
@@ -7414,13 +7441,22 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // When a send-now cut the turn to deliver them, the note names that
       // cause instead: the backend reports the cut tool call as rejected by
       // the user, and the receiver must not read it as a human decision.
-      // A batch with a handoff brief gets neither note: it goes to a fresh
-      // session, which has no previous turn for them to refer to.
+      // Items a conversation change carried get their own note first. A batch
+      // with a handoff brief gets none of these notes: the brief explains the
+      // change, and the fresh session has no previous turn to refer to.
       const noteItems = items.some((m) => m.handoff) ? [] : items;
       const busyCount = noteItems.reduce(
         (n, m) => (m.queuedDuringBusyTurn ? n + 1 : n),
         0,
       );
+      const carriedCount = noteItems.reduce(
+        (n, m) => (m.carried ? n + 1 : n),
+        0,
+      );
+      if (carriedCount > 0)
+        promptParts.push(
+          carriedCount === 1 ? CARRIED_NOTE_ONE : CARRIED_NOTE_OTHER,
+        );
       const causes = new Set(noteItems.map((m) => m.interruptCause));
       if (causes.has("member_send_now")) {
         promptParts.push(MEMBER_INTERRUPT_NOTE);
@@ -7501,7 +7537,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           if (
             managed.messageQueue.length > 0 &&
             !userInitiated &&
-            err.reason !== "handoff"
+            err.reason !== "carry"
           ) {
             addLogEntry(
               agentId,
@@ -7526,10 +7562,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }
         if (err instanceof BackendNotConfiguredError) {
           // Backend can't run at all (CLI missing, auth missing, etc.).
-          // surfaceBackendNotConfigured emits the hint+card, drains the queue
-          // (so messageQueue.length goes to zero - which prevents the
-          // updateState transition below from re-firing flushQueue and
-          // double-emitting the hint), and transitions state to
+          // surfaceBackendNotConfigured emits the hint+card, holds the kept
+          // queue (so the updateState transition it makes does not re-fire
+          // flushQueue and double-emit the hint), and transitions state to
           // waiting_for_response.
           surfaceBackendNotConfigured(agentId, managed, err);
           return;
@@ -7548,7 +7583,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       if (agents.has(agentId)) {
         managed.flushInProgress = false;
         // Re-flush if more arrived during the await, and we're still in an idle
-        // state. After a BackendNotConfiguredError catch the queue is empty,
+        // state. After a BackendNotConfiguredError catch the queue is held,
         // so this naturally no-ops on that path. The sessionSwapping exclusion
         // mirrors the early-return in the wake branch above - without it, a
         // flush bailing on a mid-drain swap would re-fire itself from here in
@@ -7563,7 +7598,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           isQueueIdleState(managed.info.state) &&
           !inMultiStepFlow(managed) &&
           !managed.info.sessionSwapping &&
-          !managed.autoHandoffPhase
+          !managed.autoHandoffPhase &&
+          managed.queueHolds.size === 0
         ) {
           flushQueue(agentId).catch(() => {});
         }
@@ -7634,6 +7670,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             : "The agent is stopped, so queued messages cannot be delivered.",
       };
     }
+    // Send-now is the member's retry of a queue kept after a backend failure.
+    releaseBackendHold(agentId, managed);
+    // A conversation change holds the queue and ends the running turn itself;
+    // its release delivers the queue to the next session.
+    if (managed.queueHolds.size > 0) return { ok: true };
     if (inMultiStepFlow(managed)) {
       return {
         ok: false,
@@ -7928,15 +7969,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // resume / model / effort) need the existing path because the user's reply
     // is interpreted as a pick. Slash commands also pass through so /clear,
     // /new etc. can preempt rather than queue.
+    const isSlash = text.startsWith("/");
+    // A new message retries a queue kept after a backend failure. The release
+    // starts that flush before this message is handled, so the queue goes
+    // first unless the flush waits (usage-cap read, in-flight sample); then
+    // this message goes first and the queue follows at its turn's end.
+    if (!claimedChoice && !isSlash) releaseBackendHold(agentId, managed);
     const state = managed.info.state;
-    // An armed automatic handoff counts as busy: the message waits in the
-    // queue for the fresh session.
-    const busy =
+    const turnRunning =
       state === "thinking" ||
       state === "tool_executing" ||
-      managed.sessionManager.pendingTurn !== null ||
-      managed.autoHandoffPhase !== null;
-    const isSlash = text.startsWith("/");
+      managed.sessionManager.pendingTurn !== null;
+    // An armed automatic handoff counts as busy: the message waits in the
+    // queue for the fresh session.
+    const busy = turnRunning || managed.autoHandoffPhase !== null;
     if (busy && !claimedChoice && !inMultiStepFlow(managed) && !isSlash) {
       const result = enqueueMessage(agentId, {
         sender: { kind: "user", username, device },
@@ -7957,13 +8003,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           code: result.error,
           message: result.error,
         });
-      } else if (opts.sendNow) {
+      } else if (opts.sendNow && turnRunning) {
         // Ctrl/Cmd+Enter "deliver now": the message just landed in the queue,
         // so trigger the same abort+flush the /send-now endpoint runs. The
         // flag is read ONLY inside this branch, so its guards (busy, no
         // multi-step flow, not a slash command) apply for free - everywhere
         // else a sendNow message takes the plain path. Fire-and-forget like
         // the endpoint's own wiring (sendNow handles its own state).
+        // Not when only an armed handoff made the agent busy: the enqueue
+        // above may have started the brief turn, and this would abort it.
         void sendNow(agentId, "member_send_now");
       }
       if (result.ok) accept();
@@ -8300,20 +8348,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         emitEphemeralLog(agentId, "user_message", text, userMeta);
         accept();
         managed.pendingResumeSessions = [];
-        // Resuming a different past session is a context switch; queued
-        // messages were addressed to the current session and shouldn't bleed
-        // into the resumed transcript. Must run BEFORE replaceSession so the
-        // post-swap idle trigger doesn't flush them.
-        if (managed.messageQueue.length > 0) {
-          managed.messageQueue.length = 0;
-          emitQueueUpdate(agentId, managed);
-          persistQueueState(agentId, managed);
-        }
         persistCurrentSessionTopic(agentId, managed);
         // Captured before the swap: picking a DIFFERENT session is a
         // conversation switch (reset below); re-picking the current one
         // continues it and keeps the fullness measurement.
         const prevResumeSessionId = managed.sessionManager.sessionId;
+        // A switch carries the queue to the picked session, as in resume();
+        // re-picking the current one keeps it as it is.
+        const switchedSession = picked.sessionId !== prevResumeSessionId;
+        dropBackendHold(managed);
+        const hold = switchedSession ? holdQueue(managed) : null;
         try {
           // cwd is a property of the session: restore the picked session's cwd
           // before spawning (transactional - rolled back if the resume fails).
@@ -8327,7 +8371,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             picked.sessionId,
           );
           try {
-            await managed.sessionManager.replaceWith(managed, picked.sessionId);
+            await managed.sessionManager.replaceWith(
+              managed,
+              picked.sessionId,
+              switchedSession ? "carry" : undefined,
+            );
           } catch (err) {
             if (switched) rollbackSessionCwd(agentId, prevCwd);
             if (engine.switched && engine.prevConfig)
@@ -8380,6 +8428,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               label: picked.topic || picked.sessionId.slice(0, 8) + "...",
             }),
           );
+          if (switchedSession)
+            addQueueCarriedLine(agentId, managed, carryQueue(agentId, managed));
           updateState(agentId, "waiting_for_response");
           // Regenerate immediately if there's no topic at all, or if the
           // resumed conversation has drifted enough since the topic was last
@@ -8398,6 +8448,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             }),
           );
           updateState(agentId, "error");
+        } finally {
+          if (hold) releaseQueueHold(agentId, managed, hold);
         }
         return;
       } else {
@@ -8701,6 +8753,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // handles the deferred-cleanup invariant (rejecting managed.sessionManager.pendingTurn
       // if session.send threw before await turn ran). The per-call-site catch
       // remains responsible for the distinct error semantics each path needs.
+      if (
+        requeueSwappedSend(agentId, err, {
+          text,
+          attachments,
+          username,
+          device,
+        })
+      )
+        return;
       if (err instanceof SessionSwappedError) return;
       if (err instanceof UsageCapError) {
         refuseForUsageCap(agentId, managed, err, username);
@@ -9522,32 +9583,33 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       permissionMode?: AgentInfo["permissionMode"];
       codexSandbox?: AgentInfo["codexSandbox"];
     },
-    // Handoff only: the queue (brief at its head) goes to the fresh session.
-    // `autoHandoff` marks a reset the automatic handoff runs: the fresh
-    // conversation gets its notice, its member line and the loop guard.
-    opts?: { keepQueue?: boolean; autoHandoff?: AutoHandoffPhase },
+    // `handoff` marks a handoff's reset (brief at the queue's head): the
+    // fresh chat gets no line for the carried queue. `autoHandoff` marks a
+    // reset the automatic handoff runs: the fresh conversation gets its
+    // notice, its member line and the loop guard.
+    // `typed` marks the typed /clear: no "New conversation started." line.
+    opts?: {
+      handoff?: boolean;
+      autoHandoff?: AutoHandoffPhase;
+      typed?: boolean;
+    },
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
     cancelChoiceInteraction(agentId);
     managed.pendingResumeSessions = [];
-    // /clear is a fresh start; queued messages from the prior context shouldn't
-    // bleed into the new conversation. A handoff instead holds its queue aside,
+    // The queue goes to the fresh session (task df2c820b). It is held aside,
     // in memory only (disk keeps it), until the old session is closed below:
     // the idle transition in this reset must not flush it into that session.
-    const heldQueue = opts?.keepQueue ? managed.messageQueue.splice(0) : [];
+    dropBackendHold(managed);
+    const carried = carryQueue(agentId, managed);
+    const heldQueue = managed.messageQueue.splice(0);
     // The automatic phase ends with the queue held aside: from here no flush
     // may start another brief turn in the old session.
     if (opts?.autoHandoff && managed.autoHandoffPhase === opts.autoHandoff)
       managed.autoHandoffPhase = null;
     let drained: Promise<void>;
     try {
-      const clearedCount = managed.messageQueue.length;
-      if (clearedCount > 0) {
-        managed.messageQueue.length = 0;
-        emitQueueUpdate(agentId, managed);
-        persistQueueState(agentId, managed);
-      }
       persistCurrentSessionTopic(agentId, managed);
 
       // Switching engine always starts a fresh conversation. Cross-engine model/
@@ -9616,31 +9678,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // onChange (capturing the null sessionId set above).
       for (const event of officeState.resetTopic(agentId)) emit(event);
       updateState(agentId, "idle");
-      addLogEntry(
-        agentId,
-        "system",
-        opts?.autoHandoff
-          ? autoHandoffLine(agentId, opts.autoHandoff, "done")
-          : logWords(agentId)("systemEntries.newConversation"),
-      );
-      if (clearedCount > 0) {
+      if (!opts?.typed)
         addLogEntry(
           agentId,
           "system",
-          logTranslator(managed).tn(
-            "systemEntries.queueCleared.newConversation",
-            clearedCount,
-          ),
+          opts?.autoHandoff
+            ? autoHandoffLine(agentId, opts.autoHandoff, "done")
+            : logWords(agentId)("systemEntries.newConversation"),
         );
-      }
+      if (!opts?.handoff) addQueueCarriedLine(agentId, managed, carried);
       // Last statement: close the live session and drain its consumer, leaving the
       // agent dormant (info.dormant=true). Rejects any in-flight turn with
       // SessionSwappedError; the consumer's catch returns early on the stale
       // session so the rejected turn can't touch state after this resolves.
-      drained = managed.sessionManager.closeAndDrainSession(
-        managed,
-        opts?.keepQueue ? "handoff" : undefined,
-      );
+      drained = managed.sessionManager.closeAndDrainSession(managed, "carry");
     } finally {
       // Back at the head even if the reset threw, so that no later persist
       // writes the queue without these items.
@@ -9658,7 +9709,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       ) {
         flushQueue(agentId).catch((err: unknown) => {
           console.error(
-            `flushQueue (handoff) failed for ${agentId}:`,
+            `flushQueue (carried queue) failed for ${agentId}:`,
             errMessage(err),
           );
         });
@@ -9676,11 +9727,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   // ---- Automatic handoff (internal-docs/auto-handoff-design.md) ----------
   //
-  // Arms from a committed sample (evaluateAutoHandoff), runs one brief turn in
-  // the old session (runAutoHandoff), then hands off through handoffBody. While
-  // the phase is set, flushQueue starts the brief turn instead of sending, so
-  // queued messages wait for the fresh session. Every exit clears the phase and
-  // lets the queue flush.
+  // Arms from a committed sample (evaluateAutoHandoff). The next message to
+  // arrive runs one brief turn in the old session (runAutoHandoff), then hands
+  // off through handoffBody. While the phase is set, every send path queues
+  // and flushQueue starts the brief turn instead of sending, so that message
+  // and the rest of the queue go to the fresh session. Every exit clears the
+  // phase and lets the queue flush.
 
   // Called on every committed sample. Pauses a conversation an automatic
   // handoff opened above the trigger (the loop guard), and arms on a sample
@@ -9719,33 +9771,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       totalTokens: snap.totalTokens,
       percentage: snap.percentage,
     };
-    void kickAutoHandoff(agentId);
-  }
-
-  // Start the brief turn for an armed agent that is idle, when no flush will:
-  // the queue is empty, or the sample landed after the idle-transition flush.
-  // Waits out the turn that just ended first, as flushQueue does.
-  async function kickAutoHandoff(agentId: string): Promise<void> {
-    const managed = agents.get(agentId);
-    const phase = managed?.autoHandoffPhase;
-    if (!managed || !phase || phase.briefStarted) return;
-    const pending = managed.sessionManager.pendingTurn;
-    if (pending) await pending.promise.catch(() => {});
-    if (
-      !agents.has(agentId) ||
-      managed.autoHandoffPhase !== phase ||
-      !isQueueIdleState(managed.info.state) ||
-      inMultiStepFlow(managed) ||
-      managed.flushInProgress ||
-      managed.sessionManager.pendingTurn ||
-      managed.sessionManager.abortPromise ||
-      managed.info.sessionSwapping ||
-      // A dormant agent starts the brief turn when its next message wakes
-      // it (flushQueue).
-      !managed.sessionManager.session
-    )
-      return;
-    startAutoHandoffBrief(agentId, managed);
+    // The reply that crossed the trigger stays on screen: the brief turn
+    // starts when the next message arrives (flushQueue).
   }
 
   // Check-and-set with no await before it, so only one caller starts the
@@ -9899,6 +9926,133 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
+  // ---- Queue across a conversation change (task df2c820b) -------------------
+  //
+  // No conversation change deletes queued messages (Nil, 2026-10-06): /clear,
+  // new-conversation, the engine switch, resume to another session and
+  // edit-fork carry the queue to the next session, as a handoff does.
+
+  // Held from the start of a change that awaits a session swap until the next
+  // session can take the queue (ManagedAgent.queueHolds).
+  function holdQueue(managed: ManagedAgent): symbol {
+    const hold = Symbol("queue-hold");
+    managed.queueHolds.add(hold);
+    return hold;
+  }
+
+  // Releases one hold. The last release flushes what waited behind it.
+  function releaseQueueHold(
+    agentId: string,
+    managed: ManagedAgent,
+    hold: symbol,
+  ): void {
+    if (!managed.queueHolds.delete(hold) || managed.queueHolds.size > 0) return;
+    if (
+      agents.get(agentId) === managed &&
+      managed.messageQueue.length > 0 &&
+      isQueueIdleState(managed.info.state) &&
+      !inMultiStepFlow(managed) &&
+      !managed.flushInProgress
+    ) {
+      flushQueue(agentId).catch((err: unknown) => {
+        console.error(
+          `flushQueue (queue hold release) failed for ${agentId}:`,
+          errMessage(err),
+        );
+      });
+    }
+  }
+
+  // The next message after a send failed for the backend: the queue goes out
+  // again (and is held again if the backend still fails).
+  function releaseBackendHold(agentId: string, managed: ManagedAgent): void {
+    const hold = managed.backendHold;
+    if (!hold) return;
+    managed.backendHold = null;
+    releaseQueueHold(agentId, managed, hold);
+  }
+
+  // A conversation change carries the queue itself, so it drops the backend
+  // hold with no flush into the old session.
+  function dropBackendHold(managed: ManagedAgent): void {
+    if (!managed.backendHold) return;
+    managed.queueHolds.delete(managed.backendHold);
+    managed.backendHold = null;
+  }
+
+  // Marks the queue as carried, so the flush tells the agent it was written
+  // for the context before the change, and drops what described the previous
+  // session's turn. A handoff brief is not marked: it explains the change
+  // itself. Returns the count for the member's line.
+  function carryQueue(agentId: string, managed: ManagedAgent): number {
+    let count = 0;
+    for (const m of managed.messageQueue) {
+      if (m.handoff) continue;
+      m.carried = true;
+      // The change rewrites the chat, so the delivery writes the entry.
+      delete m.echoed;
+      delete m.queuedDuringBusyTurn;
+      delete m.interruptCause;
+      delete m.steer;
+      count++;
+    }
+    if (count > 0) {
+      emitQueueUpdate(agentId, managed);
+      persistQueueState(agentId, managed);
+    }
+    return count;
+  }
+
+  function addQueueCarriedLine(
+    agentId: string,
+    managed: ManagedAgent,
+    count: number,
+  ): void {
+    if (count === 0) return;
+    addLogEntry(
+      agentId,
+      "system",
+      logTranslator(managed).tn("systemEntries.queueCarried", count),
+    );
+  }
+
+  // A direct send (member message, skill, edit) that a session swap cut
+  // before the backend took it goes back in the queue, and the post-swap flush
+  // (or enqueue's own idle flush) delivers it to the next session. Returns
+  // whether `err` was that case. A swap that rewrote the chat ("carry") left
+  // no entry for it, so the delivery writes one.
+  function requeueSwappedSend(
+    agentId: string,
+    err: unknown,
+    msg: {
+      text: string;
+      sdkText?: string;
+      attachments?: Attachment[];
+      username?: string;
+      device?: string;
+    },
+  ): boolean {
+    if (!(err instanceof SwappedBeforeSendError)) return false;
+    if (!agents.has(agentId)) return true;
+    const result = enqueueMessage(agentId, {
+      sender: { kind: "user", username: msg.username, device: msg.device },
+      text: msg.text,
+      ...(msg.sdkText ? { sdkText: msg.sdkText } : {}),
+      attachments: msg.attachments,
+      resend: { echoed: err.reason !== "carry" },
+    });
+    if (!result.ok) {
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId, msg.username)("systemEntries.queueFailed", {
+          error: result.error,
+        }),
+      );
+    }
+    return true;
+  }
+
   // Self-handoff: put `text` at the head of the agent's queue as a
   // self-addressed brief, THEN reset the session (newConversation with
   // keepQueue). The fresh session gets the brief first and then every message
@@ -9914,10 +10068,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agentId: string,
     text: string,
   ): Promise<EnqueueResult> {
-    // An automatic handoff holds the agent from arming to its reset; a manual
-    // one (the agent's own call included) would race it.
-    if (agents.get(agentId)?.autoHandoffPhase)
+    // A running brief turn holds the agent until its reset; a manual handoff
+    // (the agent's own call included) would race it. Armed with no brief turn
+    // yet, nothing runs: the caller's handoff replaces the automatic one.
+    const managed = agents.get(agentId);
+    if (managed?.autoHandoffPhase?.briefStarted)
       return { ok: false, error: "handoff_in_progress", status: 409 };
+    if (managed) managed.autoHandoffPhase = null;
     return handoffBody(agentId, text);
   }
 
@@ -9978,7 +10135,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
       emitQueueUpdate(agentId, managed);
       await newConversation(agentId, undefined, undefined, {
-        keepQueue: true,
+        handoff: true,
         ...(auto ? { autoHandoff: auto } : {}),
       });
       // The agent may have been killed during the drain, and its queue with it.
@@ -10157,6 +10314,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // switch (reset below); re-resuming the current one continues it (fullness
     // is a property of the transcript, so the measurement stays valid).
     const prevResumeSessionId = managed.sessionManager.sessionId;
+    // Switching to another session carries the queue to it. The hold keeps
+    // the post-swap flush from sending it before the chat is replayed.
+    const switchedSession = sessionId !== prevResumeSessionId;
+    dropBackendHold(managed);
+    const hold = switchedSession ? holdQueue(managed) : null;
 
     try {
       // cwd is a property of the session: restore the cwd this session ran in
@@ -10170,7 +10332,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // so the right backend is used (and rolled back below if the resume fails).
       const engine = applySessionEngineForResume(agentId, managed, sessionId);
       try {
-        await managed.sessionManager.replaceWith(managed, sessionId);
+        await managed.sessionManager.replaceWith(
+          managed,
+          sessionId,
+          switchedSession ? "carry" : undefined,
+        );
       } catch (err) {
         if (switched) rollbackSessionCwd(agentId, prevCwd);
         if (engine.switched && engine.prevConfig)
@@ -10218,38 +10384,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }))
         emit(event);
 
-      // Queued messages across a resume. Two different intents
-      // share this one entry point, and treating them alike destroyed messages:
-      //
-      //   - SWITCHING to a different session is a context switch. Queued
-      //     messages were addressed to the OLD conversation and shouldn't bleed
-      //     into the resumed transcript, so they are dropped - but now with a
-      //     persisted entry naming the count, because a message that vanishes
-      //     with no trace is indistinguishable from one that was delivered.
+      // Queued messages across a resume, only after it succeeded:
+      //   - SWITCHING to a different session carries them to it, marked so
+      //     the agent knows they were written for the other conversation.
+      //     The member's line comes after the replay, which would clear it.
       //   - RE-RESUMING THE CURRENT session is the documented dead-backend
       //     recovery. It is the same conversation, so the queue is exactly what
-      //     the operator ran /resume to rescue. Keeping it lets the
-      //     error -> waiting_for_response transition below fire updateState's
-      //     flush trigger and finally deliver.
-      //
-      // Both branches run only AFTER the resume succeeded: the clear used to
-      // happen before the attempt, so a resume that then threw ate the messages
-      // and left the agent errored with nothing to show for it.
-      const switchedSession = sessionId !== prevResumeSessionId;
-      const queuedCount = managed.messageQueue.length;
-      if (switchedSession && queuedCount > 0) {
-        managed.messageQueue.length = 0;
-        emitQueueUpdate(agentId, managed);
-        persistQueueState(agentId, managed);
-        addLogEntry(
-          agentId,
-          "system",
-          logTranslator(managed).tn(
-            "systemEntries.queueCleared.switching",
-            queuedCount,
-          ),
-        );
-      }
+      //     the operator ran /resume to rescue, and it stays as it is. The
+      //     error -> waiting_for_response transition below fires updateState's
+      //     flush trigger and delivers it.
+      const carried = switchedSession ? carryQueue(agentId, managed) : 0;
       updateState(agentId, "waiting_for_response");
       addLogEntry(
         agentId,
@@ -10258,6 +10402,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           label: restoredTopic || sessionId.slice(0, 8) + "...",
         }),
       );
+      addQueueCarriedLine(agentId, managed, carried);
 
       // Regenerate now (rather than waiting for the next user_message) if the
       // topic is missing or the replayed history has drifted past the
@@ -10274,6 +10419,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }),
       );
       updateState(agentId, "error");
+    } finally {
+      if (hold) releaseQueueHold(agentId, managed, hold);
     }
   }
 
@@ -10382,14 +10529,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return;
     }
 
-    // Editing forks the conversation; queued messages were addressed to the
-    // pre-edit context and shouldn't bleed into the new branch. Mirrors the
-    // behavior of /clear (newConversation) and /resume.
-    if (managed.messageQueue.length > 0) {
-      managed.messageQueue.length = 0;
-      emitQueueUpdate(agentId, managed);
-      persistQueueState(agentId, managed);
-    }
+    // Editing forks the conversation, and the queue goes to the fork after the
+    // edited message. The hold keeps every flush out until the edited turn has
+    // begun; a failed fork leaves the queue with the restored session.
+    dropBackendHold(managed);
+    const hold = holdQueue(managed);
 
     const oldSessionId = managed.sessionManager.sessionId;
     persistCurrentSessionTopic(agentId, managed);
@@ -10636,6 +10780,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           label: oldTopic || oldSessionId.slice(0, 8) + "...",
         }),
       );
+      addQueueCarriedLine(agentId, managed, carryQueue(agentId, managed));
 
       // 8. Inherit parent's topic, marked stale. The drift-aware trigger in
       //    the next user_message path will regenerate it once the fork has
@@ -10667,13 +10812,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const prefixedNew = editPrefix ? `${editPrefix}${newText}` : newText;
       managed.editTurnText = newText;
       try {
-        await runAgentTurn({
+        const turn = runAgentTurn({
           managed,
           sdkText: prefixedNew,
           attachments: targetEntry.attachments,
           humanInput: true,
           usageCapped: directInputCapped(username),
         });
+        // runAgentTurn has called beginTurn, so the agent is busy and this
+        // release does not flush: the queue follows at the edited turn's end.
+        releaseQueueHold(agentId, managed, hold);
+        await turn;
       } finally {
         delete managed.editTurnText;
       }
@@ -10688,6 +10837,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // User aborted (or another explicit session swap) after the fork was
       // installed - the fork and its partial turn are a legitimate result,
       // not a failure. The triggering swap's own persistAll covered state.
+      // An edited message the swap cut before the backend took it goes to
+      // the next session through the queue.
+      if (
+        requeueSwappedSend(agentId, err, {
+          text: newText,
+          attachments: targetEntry.attachments,
+          username,
+          device,
+        })
+      )
+        return;
       if (err instanceof SessionSwappedError) {
         return;
       }
@@ -10762,6 +10922,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
       failEdit(branchFailed);
       updateState(agentId, "error");
+    } finally {
+      // Every exit before the edited turn began (a failed history read or
+      // fork, a rollback) releases here; a second release is a no-op.
+      releaseQueueHold(agentId, managed, hold);
     }
   }
 
@@ -10881,6 +11045,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Test-only: how many flushes reached the automatic-handoff gate.
   function _testAutoHandoffGateHits(agentId: string): number {
     return autoHandoffGateHits.get(agentId) ?? 0;
+  }
+
+  // Test-only: put a hold on the queue, as a conversation change does, and
+  // get back its release.
+  function _testHoldQueue(agentId: string): () => void {
+    const managed = agents.get(agentId);
+    if (!managed) throw new Error(`no agent ${agentId}`);
+    const hold = holdQueue(managed);
+    return () => releaseQueueHold(agentId, managed, hold);
   }
 
   function _testLastForcedRecoveryAt(agentId: string): number | undefined {
@@ -11057,6 +11230,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     _testSetAbortInProgress,
     _testLastForcedRecoveryAt,
     _testAutoHandoffGateHits,
+    _testHoldQueue,
     _testActiveToolCount,
     _testDormantReason,
     _testWedgeFlush,

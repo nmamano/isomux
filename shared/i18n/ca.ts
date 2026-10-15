@@ -2674,18 +2674,14 @@ Coses que pots fer per ell:
     "No s'ha pogut iniciar la sessió: {error}\nEscriu /clear per començar de zero, o /resume per triar una altra sessió.",
   "systemEntries.queueFailed":
     "No s'ha pogut posar el missatge a la cua: {error}",
-  "systemEntries.queueCleared.notConfigured.one":
-    "S'ha descartat {count} missatge en cua perquè el backend no està configurat.",
-  "systemEntries.queueCleared.notConfigured.other":
-    "S'han descartat {count} missatges en cua perquè el backend no està configurat.",
-  "systemEntries.queueCleared.switching.one":
-    "S'ha descartat {count} missatge en cua en canviar a una altra sessió.",
-  "systemEntries.queueCleared.switching.other":
-    "S'han descartat {count} missatges en cua en canviar a una altra sessió.",
-  "systemEntries.queueCleared.newConversation.one":
-    "S'ha descartat {count} missatge en cua.",
-  "systemEntries.queueCleared.newConversation.other":
-    "S'han descartat {count} missatges en cua.",
+  "systemEntries.queueKept.notConfigured.one":
+    "S'ha conservat {count} missatge en cua. S'envia amb el pròxim missatge.",
+  "systemEntries.queueKept.notConfigured.other":
+    "S'han conservat {count} missatges en cua. S'envien amb el pròxim missatge.",
+  "systemEntries.queueCarried.one":
+    "S'ha mogut {count} missatge en cua a aquesta conversa.",
+  "systemEntries.queueCarried.other":
+    "S'han mogut {count} missatges en cua a aquesta conversa.",
   "systemEntries.contextCompacted": "Context compactat: {summary}",
   "systemEntries.contextCompactedNoSummary": "Context compactat.",
   "systemEntries.toolCallDenied": "Crida a l'eina denegada: {tool}",

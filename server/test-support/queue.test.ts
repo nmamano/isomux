@@ -44,6 +44,7 @@ import {
 } from "../../shared/identity.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import { blockAtomicFileReplacement } from "./temp-state.ts";
+import { CARRIED_NOTE_ONE } from "../agent-manager.ts";
 
 let server: TestServer | null = null;
 const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -615,10 +616,8 @@ describe("structured choice interactions", () => {
 
       setSystemTime(new Date(baseTime + 2_000));
       await sendHuman(server, owner.rawSessionId, agent.id, "/clear");
-      const currentSessionId = server.agentManager.getCurrentSessionId(
-        agent.id,
-      );
-      if (!currentSessionId) throw new Error("current session missing");
+      // A typed /clear leaves the agent dormant: the next message starts the
+      // session, and only then does it have an id.
       await sendHuman(
         server,
         owner.rawSessionId,
@@ -629,6 +628,10 @@ describe("structured choice interactions", () => {
       await waitUntil(
         () => stateOf(server!, agent.id) === "waiting_for_response",
       );
+      const currentSessionId = server.agentManager.getCurrentSessionId(
+        agent.id,
+      );
+      if (!currentSessionId) throw new Error("current session missing");
       const sessionsMap = loadSessionsMap(agent.id);
       const otherSessionIds = Object.keys(sessionsMap).filter(
         (sessionId) => sessionId !== currentSessionId,
@@ -1350,14 +1353,12 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
     expect(reached).toBe(true);
   });
 
-  it("new_conversation (REST) clears the queue and no queued prompt bleeds into the new session", async () => {
+  it("new_conversation (REST) carries the queue to the new session, never the old one (df2c820b)", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Boss");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
-    const sock = await server.connectWs(owner.rawSessionId);
-    await sock.waitFor("full_state");
 
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     await waitUntil(
@@ -1365,12 +1366,9 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
       2000,
       "busy",
     );
-    await postAgentMessage(server, recv.id, sender.id, "will-be-dropped");
+    const old = server.fakeBackend.sessionForAgent(recv.id)!;
+    await postAgentMessage(server, recv.id, sender.id, "carried-over");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
-
-    const beforeSends = server.fakeBackend.sessions
-      .filter((s) => s.opts.agentId === recv.id)
-      .reduce((n, s) => n + s.sent.length, 0);
 
     await userMut(
       server,
@@ -1379,45 +1377,28 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
       `/api/agents/${recv.id}/new-conversation`,
     );
 
-    // Queue cleared (and emitted as such), state reset to idle.
+    // The new session gets it once, with the carried note; the old never does.
     await waitUntil(
-      () => queueOf(server!, recv.id).length === 0,
+      () => {
+        const cur = server!.fakeBackend.sessionForAgent(recv.id);
+        return (
+          !!cur &&
+          cur !== old &&
+          cur.sent.some((m) => m.text.includes("carried-over"))
+        );
+      },
       2000,
-      "cleared",
+      "delivered to the new session",
     );
-    // Wait for the cleared-queue event to arrive on the wire (the in-memory
-    // queue empties before the WS delivery).
-    await waitUntil(
-      () =>
-        sock.messages.some((m) => {
-          const u = m as {
-            type?: string;
-            agentId?: string;
-            changes?: { queue?: unknown[] };
-          };
-          return (
-            u.type === "agent_updated" &&
-            u.agentId === recv.id &&
-            Array.isArray(u.changes?.queue) &&
-            u.changes.queue.length === 0
-          );
-        }),
-      2000,
-      "wire queue cleared",
-    );
-
-    // Give any (erroneous) bleed-through flush a chance to fire, then assert the
-    // dropped message never reached a backend session.
     await sleep(100);
-    const allSends = server.fakeBackend.sessions
+    const sends = server.fakeBackend.sessions
       .filter((s) => s.opts.agentId === recv.id)
-      .flatMap((s) => s.sent.map((m) => m.text));
-    expect(allSends.some((t) => t.includes("will-be-dropped"))).toBe(false);
-    // No NEW coalesced send was produced by the clear itself beyond what existed.
-    const afterSends = server.fakeBackend.sessions
-      .filter((s) => s.opts.agentId === recv.id)
-      .reduce((n, s) => n + s.sent.length, 0);
-    expect(afterSends).toBe(beforeSends);
+      .flatMap((s) => s.sent.map((m) => m.text))
+      .filter((t) => t.includes("carried-over"));
+    expect(sends).toHaveLength(1);
+    expect(sends[0]).toContain(CARRIED_NOTE_ONE);
+    expect(old.sent.some((m) => m.text.includes("carried-over"))).toBe(false);
+    expect(queueOf(server, recv.id)).toHaveLength(0);
   });
 });
 

@@ -46,6 +46,8 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { translatorForLanguage } from "../i18n.ts";
+import { CARRIED_NOTE_ONE } from "../agent-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
@@ -471,7 +473,7 @@ describe("dead-backend recovery delivers the queue (5dcb0a02)", () => {
     );
   });
 
-  it("still clears the queue when resuming a DIFFERENT session, and says so", async () => {
+  it("carries the queue to a DIFFERENT session it resumes, and says so (df2c820b)", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner();
     const roomId = firstRoomId(server);
@@ -505,7 +507,8 @@ describe("dead-backend recovery delivers the queue (5dcb0a02)", () => {
     // Left BUSY on purpose: letting the turn finish would flush the queue
     // before the resume, and there would be nothing left to observe.
 
-    // Switching conversations: the queued message belonged to the old one.
+    // Switching conversations: the queued message goes to the resumed one.
+    const busySession = server.fakeBackend.sessionForAgent(target.id)!;
     stubClaudeSession(server, target.cwd, firstSessionId);
     await server.http(`/api/agents/${target.id}/resume`, {
       method: "POST",
@@ -515,11 +518,34 @@ describe("dead-backend recovery delivers the queue (5dcb0a02)", () => {
     });
     await sleep(400);
 
-    // Dropped - but never silently. Asserted from the .jsonl on disk, not the
-    // in-memory cache: "persisted" is the actual requirement, and an ephemeral
-    // entry would satisfy a cache-only check while still vanishing on restart.
-    expect(persistedEntries(server, target.id).map((e) => e.content)).toContain(
-      "Cleared 1 queued message when switching to another session.",
+    // Delivered to the resumed session, with the note that it was written
+    // for the other conversation; never to the session it was queued in.
+    const resumed = server.fakeBackend.sessionForAgent(target.id)!;
+    expect(resumed).not.toBe(busySession);
+    await waitUntil(() =>
+      resumed.sent.some((m) => m.text.includes("stale context")),
+    );
+    const prompt = resumed.sent.find((m) => m.text.includes("stale context"))!;
+    expect(prompt.text).toContain(CARRIED_NOTE_ONE);
+    expect(busySession.sent.some((m) => m.text.includes("stale context"))).toBe(
+      false,
+    );
+    // Said in the chat, after the replayed transcript, and before the
+    // delivered message. Asserted from the .jsonl on disk, not the in-memory
+    // cache: an ephemeral entry would vanish on restart.
+    const moved = translatorForLanguage("en").tn(
+      "systemEntries.queueCarried",
+      1,
+    );
+    const contents = persistedEntries(server, target.id).map((e) => e.content);
+    expect(contents).toContain(moved);
+    const live = server.agentManager
+      .getAgentLogs(target.id)
+      .map((e) => e.content);
+    const movedAt = live.lastIndexOf(moved);
+    expect(movedAt).toBeGreaterThan(live.indexOf("first"));
+    expect(movedAt).toBeLessThan(
+      live.findIndex((c) => c.includes("stale context")),
     );
   });
 

@@ -268,7 +268,8 @@ session AND mis-normalize its state. Fix, four parts:
 
 No-op paths: abort's slow path (state already waiting_for_response;
 kick no-ops on empty/being-flushed queues), /clear / resume / editMessage
-(queue cleared pre-swap; at most the state gets fixed).
+(since df2c820b these hold the queue across the swap and carry it to the
+next session; at most the state gets fixed).
 
 Contract change: the pinned test "an unexpected session swap in the same window
 still surfaces the 'will retry' message" (queue.test.ts ~925) currently asserts

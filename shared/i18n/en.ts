@@ -2647,18 +2647,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.sessionStartFailed":
     "Cannot start session: {error}\nType /clear to start fresh, or /resume to pick another session.",
   "systemEntries.queueFailed": "Could not queue message: {error}",
-  "systemEntries.queueCleared.notConfigured.one":
-    "Cleared {count} queued message because the backend is not configured.",
-  "systemEntries.queueCleared.notConfigured.other":
-    "Cleared {count} queued messages because the backend is not configured.",
-  "systemEntries.queueCleared.switching.one":
-    "Cleared {count} queued message when switching to another session.",
-  "systemEntries.queueCleared.switching.other":
-    "Cleared {count} queued messages when switching to another session.",
-  "systemEntries.queueCleared.newConversation.one":
-    "Cleared {count} queued message.",
-  "systemEntries.queueCleared.newConversation.other":
-    "Cleared {count} queued messages.",
+  "systemEntries.queueKept.notConfigured.one":
+    "Kept {count} queued message. It goes out with the next message.",
+  "systemEntries.queueKept.notConfigured.other":
+    "Kept {count} queued messages. They go out with the next message.",
+  "systemEntries.queueCarried.one":
+    "Moved {count} queued message to this conversation.",
+  "systemEntries.queueCarried.other":
+    "Moved {count} queued messages to this conversation.",
   "systemEntries.contextCompacted": "Context compacted: {summary}",
   "systemEntries.contextCompactedNoSummary": "Context compacted.",
   "systemEntries.toolCallDenied": "Tool call denied: {tool}",

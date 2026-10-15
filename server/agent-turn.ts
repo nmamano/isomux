@@ -24,6 +24,7 @@ import type { Attachment } from "../shared/types.ts";
 import {
   BackendSignedOutError,
   SessionSwappedError,
+  SwappedBeforeSendError,
   type ManagedAgent,
 } from "./internal-types.ts";
 import { memberUsageCap, UsageCapError } from "./member-usage-cap.ts";
@@ -317,6 +318,32 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     // SessionSwappedError = user-initiated swap (abort, /resume, /model,
     // /effort, /clear, editMessage fork install) OR a pre-send cancel
     // detected by checkCancelled above.
+    //
+    // A swap while session.send waits closes the session it sends to, and
+    // the send then throws its own error (Codex: "session is closed" while a
+    // woken session still boots, task 8c15e93e). The swap already rejected
+    // this turn: throw a swap error that also says the backend never took the
+    // message, so the caller keeps it for the next session instead of putting
+    // the agent in error. A member's Stop stays a plain swap: the member
+    // asked for the turn to end.
+    if (
+      !(err instanceof SessionSwappedError) &&
+      ownPending &&
+      managed.sessionManager.pendingTurn !== ownPending &&
+      managed.sessionManager.turnCancelToken !== cancelTokenAtEntry
+    ) {
+      const settled = await turn.then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      const sm = managed.sessionManager;
+      const userStop =
+        sm.aborting || sm.turnCancelToken === sm.abortCancelToken;
+      if (settled instanceof SessionSwappedError)
+        thrown = userStop
+          ? settled
+          : new SwappedBeforeSendError(settled.message, settled.reason);
+    }
   }
 
   if (thrown !== undefined) {

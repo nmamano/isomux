@@ -1,10 +1,10 @@
 # Automatic Handoff Mode
 
-Design for task b7e88135 (P0): "A mode where the user doesn't need to worry about hand offs. When context crosses a threshold, it hands itself off to a new session automatically." Written 2026-10-13 as a design; built 2026-10-14 with Nil's rulings of 2026-10-13 and 2026-10-14, which replaced the first draft's 75% threshold and its Claude-only scope. Line numbers are from main at 5747e770 and have moved since; the code is in `server/auto-handoff.ts` and the automatic-handoff block of `server/agent-manager.ts`. The mechanism details are in Appendix C.
+Design for task b7e88135 (P0): "A mode where the user doesn't need to worry about hand offs. When context crosses a threshold, it hands itself off to a new session automatically." Written 2026-10-13 as a design; built 2026-10-14 with Nil's rulings of 2026-10-13 and 2026-10-14, which replaced the first draft's 75% threshold and its Claude-only scope. Nil's call of 2026-10-15 moved the handoff from the end of the crossing turn to the next message (section 3). Line numbers are from main at 5747e770 and have moved since; the code is in `server/auto-handoff.ts` and the automatic-handoff block of `server/agent-manager.ts`. The mechanism details are in Appendix C.
 
 ## Summary
 
-A per-agent switch, off by default. When it is on and a completed turn leaves the agent's context at or above the trigger (section 2), the server runs one more turn, the **brief turn**: it asks the agent for a forward-looking brief and takes the reply as that brief. Then it runs the existing handoff logic, which resets the session and delivers the brief, followed by every queued message, to the fresh session. All three engines take part. If a step fails, the conversation continues, and the mode does not try again in that conversation.
+A per-agent switch, off by default. When it is on and a completed turn leaves the agent's context at or above the trigger (section 2), the mode arms, and that turn's reply stays on screen. When the next message arrives, the server first runs one more turn in the old session, the **brief turn**: it asks the agent for a forward-looking brief and takes the reply as that brief. Then it runs the existing handoff logic, which resets the session and delivers the brief, followed by that message and every other queued message, to the fresh session. All three engines take part. If a step fails, the conversation continues, and the mode does not try again in that conversation.
 
 ## 1. Turning it on
 
@@ -31,12 +31,18 @@ A null sample commits nothing, so nothing arms.
 
 ## 3. Trigger
 
-**Between turns only, right after the crossing turn ends (eager). Never mid-turn.**
+**Armed at the end of the crossing turn; the handoff runs when the next message arrives (Nil, 2026-10-15). Never mid-turn.**
 
-- **Arming.** A sample from a `turn_completed` of status `completed` arms the mode when it is at or above the trigger, the switch is on, the conversation has not spent its attempt, and the loop guard (section 6) has not paused it. An interrupted or failed turn does not arm it: a member who presses Stop wants attention, not a reset.
-- **One phase.** From arming to the reset, an in-memory phase holds the queue back from the old session. While it is set, every `flushQueue` call starts the brief turn instead of sending a batch, so every existing flush trigger is a start site. The other start site is the arming itself, which waits out the turn in flight and starts the brief turn when the agent is idle, for the case with an empty queue. While the phase is set, a member's message or skill counts the agent as busy and queues, and `flushQueue` does not call itself again (the phase's exits flush). Every exit releases the phase and lets the queue flush. Appendix C has the gates and the release list.
+Nil, 2026-10-15: "one issue with the automatic handoff -- i didn't see the last agent response before the hand off until i resumed the previous session. i wonder if handoff point should happen when a message arrives to the agent past the threshold, and then that message lands after the handoff."
+
+- **Arming.** A sample from a `turn_completed` of status `completed` arms the mode when it is at or above the trigger, the switch is on, the conversation has not spent its attempt, and the loop guard (section 6) has not paused it. An interrupted or failed turn does not arm it: a member who presses Stop wants attention, not a reset. Arming starts nothing: the agent rests with the crossing turn's reply on screen.
+- **One phase.** From arming to the reset, an in-memory phase holds the queue back from the old session. While it is set, every send path queues: a member's message or skill counts the agent as busy, and an agent, scheduled or cron message already goes through the queue. Every `flushQueue` call starts the brief turn instead of sending a batch, so the next message to arrive is the start. `flushQueue` does not call itself again while the phase is set (the phase's exits flush). Every exit releases the phase and lets the queue flush. Appendix C has the gates and the release list.
+- **The next message.** It waits for the whole brief turn and the reset, and then goes to the fresh session after the brief, through `handoff`'s queue carry. A member's Ctrl/Cmd+Enter on an armed agent at rest does not abort the brief turn that the message starts.
+- **A message queued during the crossing turn** reaches the agent when that turn ends, which is past the threshold, so it starts the handoff at once. The reply then stays on screen only for the length of the brief turn.
+- **An edit** forks the conversation at the member's chosen message, with no brief turn. The fork is a conversation boundary, so the phase ends; the fork arms again if its own turn ends above the trigger.
 - **Turn in flight.** It always finishes. Mid-turn the number is stale, and a reset would kill running tool calls.
-- **Queued messages.** They go to the fresh session after the brief, through `handoff`'s `keepQueue`. A member's message during the phase waits in the queue (the phase counts as busy). A new steer is declined with `steerDeclined: "auto_handoff"`. A member's send-now still aborts the brief turn: the member's explicit action wins, the attempt fails (section 6), and the queue flushes to the old session.
+- **During the brief turn.** A member's message waits in the queue (the phase counts as busy). A new steer is declined with `steerDeclined: "auto_handoff"`. A member's send-now still aborts the brief turn: the member's explicit action wins, the attempt fails (section 6), and the queue flushes to the old session.
+- **Cost of in-memory arming.** A restart, or nothing arriving, leaves the agent armed with no handoff. After a restart the next message goes to the old session and runs one more turn above the trigger, which can reach the engine's own compaction before the mode arms again.
 
 ## 4. What the new session gets, and who writes it
 
@@ -45,12 +51,13 @@ A null sample commits nothing, so nothing arms.
 - **Brief turn.** One isomux-authored prompt through `runAgentTurn`, with `humanInput: false` and `usageCapped: true`. The prompt keeps the content rules of `/handoff` step 1 and no more (Nil, 2026-10-13). The text is `autoHandoffBriefPrompt` in `server/auto-handoff.ts`.
 - **In the old chat** the prompt is not shown. The section 5 system entry stands for it.
 - **Capture.** The brief is all `assistant_text` after the brief turn's last own tool call (OpenCode's deltas join with nothing, other engines' blocks with a blank line). Tools are allowed, so the agent can check `git status` first.
-- **Delivery.** Today's `handoff` body: transactional, keeps the queue, and marks the brief as `[Handoff from your previous session]`. A manual `POST /api/agents/:id/handoff` during the phase gets 409 `handoff_in_progress`, the agent's own call included.
+- **Delivery.** Today's `handoff` body: transactional, keeps the queue, and marks the brief as `[Handoff from your previous session]`. A manual `POST /api/agents/:id/handoff` during the brief turn gets 409 `handoff_in_progress`, the agent's own call included. On an armed agent before the brief turn starts, the manual handoff ends the phase and runs with the caller's brief.
 - **Fresh-session notice.** The first prompt of the fresh session carries a one-shot `auto-handoff` envelope block (`AUTO_HANDOFF_FRESH_NOTICE`): it says the session was handed off automatically, and names `GET /api/agent-reference/conversation-history` for earlier work the brief does not cover, before an action that depends on it.
 - **No brief, no handoff.** The server does not write a fallback brief from the transcript.
 
 ## 5. What members see
 
+- **Old chat, after the crossing turn:** the reply, as for any turn. Nothing says the mode armed.
 - **Old chat, as the brief turn starts:** `Context is at 500k tokens. Writing a handoff brief for a fresh session.`, `Context is 85% full. ...`, or `Context is NN% full, close to auto-compaction. ...`, by the limit that fired. The brief then appears as normal agent text.
 - **Wrap-up notices.** While an automatic attempt is still possible (switch on, attempt not spent, not paused), both audiences skip every band: the member notice and the agent's `[context check: ...]` block. All bands, because the 50 band only applies to windows of 500k or more, where the 500k trigger fires at or before 50%, and the member copy at every band points at `/handoff`. Nothing is marked fired while they are quiet, so after a failed or paused attempt the highest band fires as before. Codex and OpenCode never get these notices.
 - **The reset** clears the chat, as a manual `/handoff` does (Nil, 2026-10-13: no chat that spans handoffs).
@@ -62,16 +69,17 @@ A null sample commits nothing, so nothing arms.
 
 | case | behaviour |
 |---|---|
-| Brief turn errors, is aborted, is refused by the usage cap, or gives no brief; or `handoff` fails | No handoff. A system entry: `Automatic handoff did not complete. This conversation continues.` The attempt is spent, the wrap-up notices come back, and the queue flushes to the old session. A failed write loses nothing: `handoff` takes the brief out again. |
-| `/clear`, resume or fork during the brief turn | The phase goes with the conversation; the brief turn's text is discarded. No entry: the member's action explains it. |
+| Brief turn errors, is aborted, is refused by the usage cap, or gives no brief; or `handoff` fails | No handoff. A system entry: `Automatic handoff did not complete. This conversation continues.` The attempt is spent, the wrap-up notices come back, and the queue, including the message that started the attempt, flushes to the old session. A brief turn that errors leaves the agent in `error`, as any failed turn does, with that message queued. A failed write loses nothing: `handoff` takes the brief out again. |
+| `/clear`, resume or fork while armed or during the brief turn | The phase goes with the conversation; the brief turn's text is discarded. No entry: the member's action explains it. The queue, including the message that started the attempt, goes to the next session. |
 | Handoff loop (the fresh session starts at or above the trigger, for example because of a huge brief) | A conversation opened by an automatic handoff carries an in-memory flag. If its first sample is at or above the trigger, the mode pauses for that conversation, with one entry: `Automatic handoff is paused for this conversation: it started above the handoff threshold.` A restart loses the flag, so a conversation can hand off once more per restart. |
 | Engine without a usable measure | A null sample commits nothing, so nothing arms. After a restart nothing arms until the first completed turn. |
 | Cron run | Not applicable: a cron run is a separate one-turn session with no `ManagedAgent`. A cron message to an agent is ordinary input. |
 | Agent on a permission prompt | It is mid-turn, so nothing arms. The brief turn never starts in a multi-step flow; the phase waits for the next flush. |
+| Armed agent released while idle | The next message wakes it: `flushQueue` resumes the old session, and the brief turn runs there. |
 
 ## Rulings
 
-Nil, 2026-10-13 and 2026-10-14: the 500k/85% trigger with the compaction guard; all three engines; the chat clears; the fresh-session notice and history pointer; no brief rules beyond `/handoff` step 1; the per-conversation summary is a separate task (ac41c60e). Defaults where Nil has not ruled (reversible): the per-agent switch, off for new agents; no room or office default; eager timing.
+Nil, 2026-10-13 and 2026-10-14: the 500k/85% trigger with the compaction guard; all three engines; the chat clears; the fresh-session notice and history pointer; no brief rules beyond `/handoff` step 1; the per-conversation summary is a separate task (ac41c60e). Nil, 2026-10-15: the handoff runs when the next message arrives after the crossing turn, and that message goes to the fresh session after the brief (section 3). Defaults where Nil has not ruled (reversible): the per-agent switch, off for new agents; no room or office default. Lead rulings (2026-10-15, reversible): an edit forks with no brief turn; a message queued during the crossing turn starts the handoff when that turn ends.
 
 ## For the Lead (route, wire and state-layout proposals)
 
@@ -95,7 +103,7 @@ Lead rulings (2026-10-13), for implementation after Nil's go:
 
 ## Appendix A: Alternatives not chosen
 
-- **Lazy trigger (hand off at the next inbound message).** This keeps the last reply on screen until the member answers. But that message then waits for a whole brief turn, and every send path needs the check: `flushQueue`, direct `sendMessage` (`server/agent-manager.ts:8288`), skill expansion (`server/command-handlers.ts:1244`) and edit (`server/agent-manager.ts:10007`). Eager needs only `flushQueue` and `commitContextSample`.
+- **Eager trigger (hand off as soon as the crossing turn ends).** The build of 2026-10-14. It needed only `flushQueue` and `commitContextSample` as start sites, and the next message did not wait for a brief turn. But the chat cleared right after the crossing turn, so a member who was not watching never saw its reply (Nil, 2026-10-15).
 - **The agent calls `POST /handoff` itself (the `/handoff` skill without step 2).** No capture code is needed. But it depends on curl and JSON quoting of a long brief, and the server sees a failure only as "the turn ended with no handoff".
 - **The server writes the brief from the transcript tail.** That is a recap, not a forward-looking brief. Not used even as a fallback.
 - **Mid-turn trigger through a steer.** In-flight work is in an unknown state, and the Claude number is stale until the turn ends.
@@ -116,13 +124,14 @@ Lead rulings (2026-10-13), for implementation after Nil's go:
 
 **Gates while the phase is set:**
 
-- `flushQueue` (`:6869`): after its existing waits and guards (`:6898-6900`), if the phase is set it starts the brief turn when `briefStarted` is false, and it returns without sending a batch. Its empty-queue early return stays. An empty queue means no message waits. An agent that armed while busy and then went idle with an empty queue starts the brief turn at its next message.
+- `flushQueue` (`:6869`): after its existing waits and guards (`:6898-6900`) and its wake branch, if the phase is set it starts the brief turn when `briefStarted` is false, and it returns without sending a batch. Its empty-queue early return stays: an empty queue means no message waits, so the armed agent rests.
+- `sendMessage` and the skill path count the phase as busy, so a member's message or skill queues and reaches `flushQueue`. `sendMessage` calls `sendNow` for a Ctrl/Cmd+Enter only when a real turn was running before the enqueue: the enqueue can start the brief turn with no await on its path, and `sendNow` would abort it.
 - The idle-transition trigger in `updateState` (`:3496-3512`) needs no change: it calls `flushQueue`.
 - `takeToolBoundaryMessage` (`:6426-6475`) returns null. Without this gate, a `steer: true` item already in the queue would take the whole eligible queue into the brief turn at its first tool boundary (`:6445`), and `drainBoundaryClaim` would remove those items before the handoff (`:4690-4696`, `:6478-6482`).
 - `enqueueMessage` declines a new steer with `steerDeclined: "auto_handoff"` (next to the existing reasons at `:6826-6855`). The item stays queued.
-- The route's `handoff` is split. The outer guard answers 409 `handoff_in_progress` when `handoffInProgress` (`:9253`) or the phase holds the agent. The auto path calls the inner body, today's `handoff`, directly, so it does not block itself.
+- The route's `handoff` is split. The outer guard answers 409 `handoff_in_progress` when `handoffInProgress` (`:9253`) holds the agent or the brief turn has started (`briefStarted`); an armed phase with no brief turn is cleared and the caller's handoff runs. The auto path calls the inner body, today's `handoff`, directly, so it does not block itself.
 
-**Start sites.** (1) `flushQueue`: every caller, including enqueue's idle branch (`:6806-6815`), the idle transition, the watchdog (`:5370-5386`), boot replay and the post-turn kick. Like the notice step (`server/agent-turn.ts:453-462`), `flushQueue` first waits up to 500 ms for the in-flight sample, so a sample that lands in time arms the phase before the batch goes out. A later sample means the batch goes to the old session, the phase arms during that turn, and the arming's own start (2) waits for that turn to end. (2) `commitContextSample` (`:3983`), when it arms: it waits out the turn in flight, then starts the brief turn if the agent is idle, live and not in a multi-step flow. Otherwise the next message, which queues while the phase is set, starts it through `flushQueue`.
+**Start site.** `flushQueue` only: every caller, including enqueue's idle branch (`:6806-6815`), the idle transition, the watchdog (`:5370-5386`), boot replay and the post-turn kick. Arming (`commitContextSample`, `:3983`) starts nothing. Like the notice step (`server/agent-turn.ts:453-462`), `flushQueue` first waits up to 500 ms for the in-flight sample, so a sample that lands in time arms the phase before a batch queued during the crossing turn goes out. A later sample means the batch goes to the old session, the phase arms during that turn, and the next message after it starts the brief turn.
 
 **Second-start guard.** The start function checks and sets `briefStarted` synchronously, before any await. `beginTurn` then puts the agent in a busy state, which `flushQueue`'s idle check also refuses. `briefStarted` stays true from the start of the brief turn until the phase is released (at the splice on success, or by the owner on failure). It is never cleared at turn end: the brief turn's own idle transition calls `flushQueue` (`:3499-3505`) before the owner captures the text and before `handoff` reaches the splice (it first awaits `prepareEnqueue`, `:9276`). In that window the agent is idle, and `briefStarted` alone stops a second brief turn in the old session. The brief turn does not hold `flushInProgress`, because `newConversation`'s held-queue flush (`:9228-9244`) skips when that flag is set.
 
@@ -137,4 +146,4 @@ Lead rulings (2026-10-13), for implementation after Nil's go:
 - switch off before the brief turn starts: cleared in `editAgent`.
 - kill: removed with the agent.
 
-**Provenance flag.** The auto path passes `autoHandoff: true` to `newConversation` in the opts next to `keepQueue`. `newConversation` sets the new conversation's provenance flag right after `resetContextUsage` (`:9189`). It cannot be set before the call, because the reset clears it. It cannot be set after `await newConversation`, because the held-queue flush may already be running.
+**Provenance flag.** The auto path passes `autoHandoff: true` to `newConversation` in the opts next to `handoff`. `newConversation` sets the new conversation's provenance flag right after `resetContextUsage` (`:9189`). It cannot be set before the call, because the reset clears it. It cannot be set after `await newConversation`, because the held-queue flush may already be running.
