@@ -2025,6 +2025,8 @@ Coses que pots fer per ell:
   "office.hints.click": "CLIC → obre l'agent",
   "office.hints.dragSwap":
     "ARROSSEGA → intercanvia escriptoris, mou a una porta o a la trapa",
+  "office.hints.dragSwapDoor":
+    "ARROSSEGA → intercanvia escriptoris o mou a la porta",
   "office.hints.wheel": "RODA / +- → zoom",
   "office.hints.drag": "ARROSSEGA → desplaça",
   "office.hints.rightClick": "CLIC DRET → accions",

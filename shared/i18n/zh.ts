@@ -1813,6 +1813,7 @@ App 的一些原则：
   "office.hints.dragZoomed": "拖动（放大后）→ 平移",
   "office.hints.click": "点击 → 打开智能体",
   "office.hints.dragSwap": "拖动 → 交换工位、移到门口或活板门",
+  "office.hints.dragSwapDoor": "拖动 → 交换工位或移到门口",
   "office.hints.wheel": "滚轮 / +- → 缩放",
   "office.hints.drag": "拖动 → 平移",
   "office.hints.rightClick": "右键点击 → 操作",

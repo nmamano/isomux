@@ -98,6 +98,13 @@ it("draws no trap door in a room with the back room setting off", async () => {
   );
   expect(view.container.textContent).toContain("Front");
   expect(view.container.querySelector("[data-trap-door]")).toBeNull();
+  // The footer drag hint names no trap door either.
+  expect(view.container.textContent).toContain(
+    EN.t("office.hints.dragSwapDoor"),
+  );
+  expect(view.container.textContent).not.toContain(
+    EN.t("office.hints.dragSwap"),
+  );
   // The same room with the setting on draws it.
   await act(async () =>
     shimEmit({
@@ -107,6 +114,7 @@ it("draws no trap door in a room with the back room setting off", async () => {
     } as never),
   );
   expect(view.container.querySelector("[data-trap-door]")).not.toBeNull();
+  expect(view.container.textContent).toContain(EN.t("office.hints.dragSwap"));
 });
 
 // A door refuses a room it cannot take at once, rather than accepting the

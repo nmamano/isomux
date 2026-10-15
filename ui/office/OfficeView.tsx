@@ -1141,7 +1141,9 @@ export function OfficeView({
                 ] as const)
               : ([
                   "office.hints.click",
-                  "office.hints.dragSwap",
+                  !lobbyOpen && currentHasBackRoom
+                    ? "office.hints.dragSwap"
+                    : "office.hints.dragSwapDoor",
                   "office.hints.wheel",
                   "office.hints.drag",
                   "office.hints.rightClick",

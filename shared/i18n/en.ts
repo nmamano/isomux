@@ -1979,6 +1979,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "office.hints.dragZoomed": "DRAG (zoomed) → pan",
   "office.hints.click": "CLICK → open agent",
   "office.hints.dragSwap": "DRAG → swap desks, move to a door or the trap door",
+  "office.hints.dragSwapDoor": "DRAG → swap desks or move to door",
   "office.hints.wheel": "WHEEL / +- → zoom",
   "office.hints.drag": "DRAG → pan",
   "office.hints.rightClick": "RIGHT-CLICK → actions",

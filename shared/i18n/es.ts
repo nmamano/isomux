@@ -2024,6 +2024,8 @@ Cosas que puedes hacer por él:
   "office.hints.click": "CLIC → abrir el agente",
   "office.hints.dragSwap":
     "ARRASTRAR → intercambiar escritorios, mover a una puerta o a la trampilla",
+  "office.hints.dragSwapDoor":
+    "ARRASTRAR → intercambiar escritorios o mover a la puerta",
   "office.hints.wheel": "RUEDA / +- → zoom",
   "office.hints.drag": "ARRASTRAR → desplazar",
   "office.hints.rightClick": "CLIC DERECHO → acciones",
