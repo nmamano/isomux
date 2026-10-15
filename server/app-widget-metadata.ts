@@ -1,5 +1,6 @@
 import { decodeHTML, decodeHTMLAttribute } from "entities";
 import type { AppRecord } from "../shared/types.ts";
+import { appFaviconSvg } from "./app-favicon.ts";
 import { relayToApp, type RelayContext } from "./app-proxy.ts";
 
 export const WIDGET_METADATA_TIMEOUT_MS = 2000;
@@ -9,17 +10,21 @@ export interface WidgetMetadata {
   icons: { href: string; type?: string; sizes?: string; media?: string }[];
 }
 
+// The icon the app host serves at /favicon.ico; it never relays that path.
+// The full app shows it when its HTML declares no usable icon link, and it
+// does not depend on whether the app runs. Inline, so the browser fetches
+// nothing.
+function hostIcon(app: AppRecord): WidgetMetadata["icons"][number] {
+  return {
+    href: "data:image/svg+xml," + encodeURIComponent(appFaviconSvg(app)),
+    type: "image/svg+xml",
+  };
+}
+
 function fallback(app: AppRecord): WidgetMetadata {
   return {
     title: app.name,
-    icons:
-      app.thumbnailUpdatedAt === undefined
-        ? []
-        : [
-            {
-              href: `/api/apps/${encodeURIComponent(app.name)}/thumbnail?v=${app.thumbnailUpdatedAt}`,
-            },
-          ],
+    icons: [hostIcon(app)],
   };
 }
 
@@ -48,10 +53,9 @@ export async function readWidgetMetadata(
     WIDGET_METADATA_TIMEOUT_MS,
   );
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  const request = (path: string, method = "GET") =>
+  const request = (path: string) =>
     relayToApp(
       new Request(origin + path, {
-        method,
         headers: { "Accept-Encoding": "identity" },
         signal: controller.signal,
       }),
@@ -147,20 +151,6 @@ export async function readWidgetMetadata(
       const href = iconUrl(link.href, base);
       return href ? [{ ...link, href }] : [];
     });
-    if (links.length === 0) {
-      // Browser favicon-link errors are not reliable across engines. Probe
-      // only our own upstream, inside the original deadline, without identity.
-      const icon = await request("/favicon.ico");
-      if (
-        icon.ok &&
-        /^(?:image\/|application\/octet-stream)/i.test(
-          icon.headers.get("content-type") ?? "",
-        )
-      ) {
-        icons.push({ href: origin + "/favicon.ico" });
-      }
-      await icon.body?.cancel();
-    }
     if (controller.signal.aborted) return initial;
     return {
       title: decodeHTML(title).trim() || initial.title,

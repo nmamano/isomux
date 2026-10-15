@@ -535,13 +535,25 @@ it("toggles the desktop chat with its launcher, and Escape closes it", async () 
       expect(panel.style.display).toBe(expanded === "true" ? "flex" : "none");
       return expanded === "true";
     };
+    // The direct link rides on the launcher's dock while the panel is
+    // closed, and moves into the panel header while it is open.
+    const direct = "https://hello.office.example/" + window.location.search;
+    const dockLink = () =>
+      view!.container.querySelector<HTMLAnchorElement>(".app-widget-dock a");
+    const headerLink = () => panel.querySelector<HTMLAnchorElement>("header a");
     expect(isOpen()).toBe(false);
+    expect(dockLink()?.href).toBe(direct);
+    expect(dockLink()?.target).toBe("_blank");
     fireEvent.click(launcher);
     expect(isOpen()).toBe(true);
+    expect(dockLink()).toBeNull();
+    expect(headerLink()?.href).toBe(direct);
+    expect(headerLink()?.target).toBe("_blank");
     // The launcher is the only close control: the chat header holds none.
     expect(panel.querySelector("header button")).toBeNull();
     fireEvent.click(launcher);
     expect(isOpen()).toBe(false);
+    expect(dockLink()?.href).toBe(direct);
     fireEvent.click(launcher);
     fireEvent.keyDown(panel.querySelector("textarea")!, { key: "Escape" });
     expect(isOpen()).toBe(false);
@@ -551,3 +563,58 @@ it("toggles the desktop chat with its launcher, and Escape closes it", async () 
     settings.disableIframePageLoading = iframeLoading;
   }
 });
+
+for (const variant of ["phone", "no chat target"] as const) {
+  it(`keeps the direct link in the bottom dock with no chat panel (${variant})`, async () => {
+    sessionStorage.clear();
+    const { StateCtx, initialState } = await import("./store.tsx");
+    const settings = (
+      window as unknown as {
+        happyDOM: { settings: { disableIframePageLoading: boolean } };
+      }
+    ).happyDOM.settings;
+    const iframeLoading = settings.disableIframePageLoading;
+    settings.disableIframePageLoading = true;
+    setApiShim(async () => ({
+      ...boot,
+      appUrl: "https://hello.office.example",
+      sessionExpiresAt: Date.now() + 1000000,
+      chat:
+        variant === "phone"
+          ? { agentId: agent.id, agentName: agent.name }
+          : null,
+    }));
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      await act(async () => {
+        view = render(
+          <StateCtx.Provider
+            value={{
+              ...initialState,
+              agents: [agent],
+              connected: true,
+              isMobile: variant === "phone",
+            }}
+          >
+            <AppWidgetPage boot={boot} />
+          </StateCtx.Provider>,
+        );
+      });
+      const dock = view!.container.querySelector(".app-widget-dock")!;
+      const links = view!.container.querySelectorAll<HTMLAnchorElement>("a");
+      expect(links).toHaveLength(1);
+      expect(dock.contains(links[0])).toBe(true);
+      expect(links[0].href).toBe(
+        "https://hello.office.example/" + window.location.search,
+      );
+      expect(links[0].getAttribute("aria-label")).toBeTruthy();
+      expect(view!.container.querySelector("#app-widget-chat")).toBeNull();
+      expect(dock.querySelector(".app-widget-launcher") !== null).toBe(
+        variant === "phone",
+      );
+    } finally {
+      view?.unmount();
+      settings.disableIframePageLoading = iframeLoading;
+    }
+  });
+}

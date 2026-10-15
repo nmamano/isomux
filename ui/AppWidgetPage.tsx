@@ -11,6 +11,7 @@ import {
   useChatTranscript,
 } from "./log-view/ChatTranscript.tsx";
 import { LiveCharacter } from "./office/LiveCharacter.tsx";
+import { OpenIcon } from "./components/AppsView.tsx";
 import {
   APP_WIDGET_RECHECK_MS,
   APP_WIDGET_SANDBOX,
@@ -27,9 +28,15 @@ const WIDGET_CSS = `
 .app-widget button,.app-widget a { font:inherit; }
 .app-widget button { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }
 .app-widget button:disabled { cursor:default; opacity:.55; }
-.app-widget-launcher { display:flex; align-items:center; gap:8px; position:fixed; right:20px; bottom:max(20px,env(safe-area-inset-bottom)); z-index:3; box-shadow:0 3px 18px #0004; }
-.app-widget-launcher[aria-expanded="true"] { border-color:var(--accent); color:var(--accent-text); box-shadow:inset 0 0 0 1px var(--accent),0 3px 18px #0004; }
-.app-widget-direct { position:fixed; top:10px; right:12px; z-index:2; background:var(--bg-surface-solid); color:var(--text-primary); padding:6px 10px; border-radius:7px; font-size:12px!important; }
+.app-widget-dock { display:flex; position:fixed; right:20px; bottom:max(20px,env(safe-area-inset-bottom)); z-index:3; border-radius:9px; box-shadow:0 3px 18px #0004; }
+.app-widget-launcher { display:flex; align-items:center; gap:8px; }
+.app-widget-launcher[aria-expanded="true"] { border-color:var(--accent); color:var(--accent-text); box-shadow:inset 0 0 0 1px var(--accent); }
+.app-widget-dock-direct { display:flex; align-items:center; justify-content:center; min-width:40px; min-height:40px; border:1px solid var(--border); border-radius:9px; background:var(--bg-surface-solid); color:var(--text-secondary); }
+.app-widget-dock-direct:hover { color:var(--text-primary); }
+.app-widget-dock-direct:has(+ .app-widget-launcher) { border-right:0; border-radius:9px 0 0 9px; }
+.app-widget-dock-direct + .app-widget-launcher { border-radius:0 9px 9px 0; }
+.app-widget .app-widget-direct { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-secondary); white-space:nowrap; }
+.app-widget-direct:hover { color:var(--text-primary); }
 .app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
 .app-widget-header { padding:14px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); }
 .app-widget-header h1 { flex:1; font-size:16px; margin:0; }
@@ -204,6 +211,10 @@ export function AppWidgetPage({
     setOpen(false);
     launcher.current?.focus();
   };
+  const directHref = appUrl ? appUrl + "/" + window.location.search : null;
+  const chatReady = !!target && !!agent;
+  // The open panel's header holds the direct link; otherwise the dock does.
+  const panelShown = chatReady && open && !state.isMobile;
   return (
     <main
       className="app-widget"
@@ -220,60 +231,68 @@ export function AppWidgetPage({
           sandbox={APP_WIDGET_SANDBOX}
         />
       )}
-      {appUrl && (
-        <a
-          className="app-widget-direct"
-          href={appUrl + "/" + window.location.search}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {t("appWidget.direct")}
-        </a>
-      )}
       {unavailable && (
         <p role="status" className="app-widget-unavailable">
           {t("appWidget.unavailable")}
         </p>
       )}
-      {target && agent && (
-        <>
-          <button
-            ref={launcher}
-            className="app-widget-launcher"
-            aria-expanded={state.isMobile ? undefined : open}
-            aria-controls={state.isMobile ? undefined : "app-widget-chat"}
-            onClick={() => {
-              if (state.isMobile) {
-                onOpenOffice?.(agent);
-                return;
-              }
-              setOpen(!open);
-              setReadMark({ agent: target?.agentId, latest });
-            }}
-          >
-            <span
-              aria-hidden="true"
-              className="app-widget-avatar"
-              data-agent-id={agent.id}
-              data-agent-state={agent.state}
+      {((directHref && !panelShown) || chatReady) && (
+        <div className="app-widget-dock">
+          {directHref && !panelShown && (
+            <a
+              className="app-widget-dock-direct"
+              href={directHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t("appWidget.direct")}
+              title={t("appWidget.direct")}
             >
-              <LiveCharacter agent={agent} height={36} />
-            </span>
-            {t("appWidget.launcher")}
-            {unread && (
+              <OpenIcon size={16} />
+            </a>
+          )}
+          {target && agent && (
+            <button
+              ref={launcher}
+              className="app-widget-launcher"
+              aria-expanded={state.isMobile ? undefined : open}
+              aria-controls={state.isMobile ? undefined : "app-widget-chat"}
+              onClick={() => {
+                if (state.isMobile) {
+                  onOpenOffice?.(agent);
+                  return;
+                }
+                setOpen(!open);
+                setReadMark({ agent: target?.agentId, latest });
+              }}
+            >
               <span
                 aria-hidden="true"
-                style={{
-                  display: "inline-block",
-                  width: 8,
-                  height: 8,
-                  marginLeft: 8,
-                  borderRadius: "50%",
-                  background: "currentColor",
-                }}
-              />
-            )}
-          </button>
+                className="app-widget-avatar"
+                data-agent-id={agent.id}
+                data-agent-state={agent.state}
+              >
+                <LiveCharacter agent={agent} height={36} />
+              </span>
+              {t("appWidget.launcher")}
+              {unread && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-block",
+                    width: 8,
+                    height: 8,
+                    marginLeft: 8,
+                    borderRadius: "50%",
+                    background: "currentColor",
+                  }}
+                />
+              )}
+            </button>
+          )}
+        </div>
+      )}
+      {target && agent && (
+        <>
           {!state.isMobile && (
             <section
               id="app-widget-chat"
@@ -293,6 +312,7 @@ export function AppWidgetPage({
                 stateChangedAt={state.stateChangedAt.get(agent.id)}
                 connected={state.connected}
                 open={open}
+                directHref={directHref}
                 onRecheck={() => {
                   void refresh();
                 }}
@@ -358,6 +378,7 @@ export function WidgetChat({
   logs,
   connected,
   open,
+  directHref,
   onRecheck,
   stateChangedAt,
 }: {
@@ -366,6 +387,7 @@ export function WidgetChat({
   logs: LogEntry[];
   connected: boolean;
   open: boolean;
+  directHref?: string | null;
   onRecheck: () => void;
   stateChangedAt?: number;
 }) {
@@ -558,6 +580,17 @@ export function WidgetChat({
           <LiveCharacter agent={agent} height={44} />
         </span>
         <h1>{t("appWidget.title", { agentName: agent.name })}</h1>
+        {directHref && (
+          <a
+            className="app-widget-direct"
+            href={directHref}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <OpenIcon />
+            {t("appWidget.direct")}
+          </a>
+        )}
       </header>
       <p className="app-widget-notice">{t("appWidget.notice")}</p>
       <div className="app-widget-log" role="log">

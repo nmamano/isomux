@@ -180,13 +180,13 @@ function StateDot({ state }: { state: AppState }) {
 
 // Drawn paths stay monochrome on iOS. The text character this replaces can be
 // promoted to a colorful emoji even when CSS asks for an ordinary glyph.
-function OpenIcon() {
+export function OpenIcon({ size = 13 }: { size?: number }) {
   return (
     <svg
       aria-hidden="true"
       viewBox="0 0 16 16"
-      width="13"
-      height="13"
+      width={size}
+      height={size}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.6"

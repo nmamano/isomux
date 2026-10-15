@@ -5,6 +5,7 @@ import {
   WIDGET_METADATA_MAX_BYTES,
 } from "./app-widget-metadata.ts";
 import type { RelayContext } from "./app-proxy.ts";
+import { appFavicon } from "./app-favicon.ts";
 
 let upstream: ReturnType<typeof Bun.serve> | undefined;
 afterEach(async () => {
@@ -37,7 +38,14 @@ const html = (body: string) =>
   new Response(body, { headers: { "Content-Type": "text/html" } });
 const fallback = {
   title: "sample",
-  icons: [{ href: "/api/apps/sample/thumbnail?v=12" }],
+  icons: [
+    {
+      href:
+        "data:image/svg+xml," +
+        encodeURIComponent(await appFavicon({ name: "sample" }).text()),
+      type: "image/svg+xml",
+    },
+  ],
 };
 
 it("reads the root without member identity and resolves base and icon attributes", async () => {
@@ -101,24 +109,35 @@ it("escapes hostile title and icon attributes and removes office identity", asyn
   expect(result.includes("apple-touch-icon")).toBe(false);
 });
 
-it("checks the default favicon on the same upstream and falls back on failure", async () => {
-  let iconWorks = false;
+// The icon must be the bytes the app host serves at /favicon.ico.
+async function hostIconBody(icons: { href: string; type?: string }[]) {
+  expect(icons).toHaveLength(1);
+  const [prefix, body] = icons[0].href.split(",");
+  expect(prefix).toBe("data:image/svg+xml");
+  expect(icons[0].type).toBe("image/svg+xml");
+  return decodeURIComponent(body);
+}
+
+it("uses the app host's favicon when the app declares no icon link, without asking upstream", async () => {
   const paths: string[] = [];
   const ctx = context((req) => {
     paths.push(new URL(req.url).pathname);
-    if (new URL(req.url).pathname === "/") return html("<title>App</title>");
-    expect(req.method).toBe("GET");
-    return new Response(null, {
-      status: iconWorks ? 200 : 404,
-      headers: { "Content-Type": "image/x-icon" },
-    });
+    return html("<title>App</title>");
   });
-  expect((await readWidgetMetadata(ctx)).icons).toEqual(fallback.icons);
-  iconWorks = true;
-  expect((await readWidgetMetadata(ctx)).icons).toEqual([
-    { href: "https://sample.office.example/favicon.ico" },
-  ]);
-  expect(paths).toEqual(["/", "/favicon.ico", "/", "/favicon.ico"]);
+  expect(await hostIconBody((await readWidgetMetadata(ctx)).icons)).toBe(
+    await appFavicon(ctx.app).text(),
+  );
+  expect(paths).toEqual(["/"]);
+});
+
+it("falls back to the app host's favicon, not the thumbnail, when the read fails", async () => {
+  const ctx = context(() => new Response("plain"));
+  expect(ctx.app.thumbnailUpdatedAt).toBeDefined();
+  const metadata = await readWidgetMetadata(ctx);
+  expect(metadata.title).toBe("sample");
+  expect(await hostIconBody(metadata.icons)).toBe(
+    await appFavicon(ctx.app).text(),
+  );
 });
 
 it("does not follow redirects or read a stopped app", async () => {
@@ -165,12 +184,10 @@ it("bounds a stalled body by the two-second deadline", async () => {
   expect(Date.now() - start).toBeLessThan(3500);
 });
 
-for (const limit of ["bytes", "deadline", "favicon"] as const) {
+for (const limit of ["bytes", "deadline"] as const) {
   it(`cancels the upstream stream at the ${limit} boundary`, async () => {
     let cancelled = false;
-    const ctx = context((req) => {
-      if (limit === "favicon" && new URL(req.url).pathname === "/")
-        return html("<title>App</title>");
+    const ctx = context(() => {
       return new Response(
         new ReadableStream({
           start(controller) {
@@ -186,11 +203,7 @@ for (const limit of ["bytes", "deadline", "favicon"] as const) {
             cancelled = true;
           },
         }),
-        {
-          headers: {
-            "Content-Type": limit === "favicon" ? "image/x-icon" : "text/html",
-          },
-        },
+        { headers: { "Content-Type": "text/html" } },
       );
     });
     await readWidgetMetadata(ctx);
