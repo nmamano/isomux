@@ -46,11 +46,16 @@ const SLAB_RIGHT = ["#7d7a75", "#76736e"];
 const WALL_T = 8;
 const BRICK_LEN = 26;
 const LONG_PRESS_MS = 500;
-// A bulb's height over the floor, and its cord's length above it: long
-// enough to run off the top of the screen at any pan and zoom (Nil: "the lamp
-// cables should always reach the very top of the screen").
-const BULB_H = 168;
+// A cord's length above its bulb: long enough to run off the top of the
+// screen at any pan and zoom (Nil: "the lamp cables should always reach the
+// very top of the screen").
 const CORD_H = 20000;
+// The bulbs hang above the wall title and the board (Nil, 2026-10-15), at
+// these steps up from that line, so that no two line up.
+const BULB_STAGGER = [0, 34, 14, 46, 6, 26, 40, 18, 30, 10];
+const BULB_GAP = 24;
+const SIGN_FONT = 30;
+const SIGN_SPACING = 4;
 // The ladder's foot, in tiles from the right wall's end: it stands at the
 // right, under the trap door, which is on the right of the front floor.
 const LADDER_FROM_END = 1.6;
@@ -499,13 +504,22 @@ export function BackRoomScreen({
     BOARD_C0 + (boardSpan - boardW * boardScale) / 2 / TILE_A,
     0,
   );
-  // Bare bulbs on cords over the aisles, one per two tables on each side.
-  const bulbs: Point[] = [];
-  for (let j = 0; j < side; j += 2)
-    for (const c of [layout.nc * 0.25, layout.nc * 0.75]) {
-      const p = layout.at(c, layout.table(j).r + 0.9);
-      bulbs.push({ x: p.x, y: p.y - BULB_H });
-    }
+  // Bare bulbs on cords, two per two tables, spaced evenly from the floor's
+  // left corner to the ladder and staggered in height above the title and
+  // the board. The title slants up to its right end.
+  const signText = t("office.backRoom.sign");
+  const signW =
+    textWidth(signText, SIGN_FONT) + SIGN_SPACING * [...signText].length;
+  const signTop = sign.y - WALL_H * 0.6 - signW / 4 - SIGN_FONT;
+  const boardTop = board.y - WALL_H * 0.78 - 4;
+  const bulbLine = Math.min(signTop, boardTop) - BULB_GAP;
+  const bulbCount = 2 * Math.ceil(side / 2);
+  const bulbX0 = layout.at(0, layout.nr).x;
+  const bulbStep = (ladderFoot.x - 30 - bulbX0) / bulbCount;
+  const bulbs: Point[] = Array.from({ length: bulbCount }, (_, k) => ({
+    x: bulbX0 + (k + 0.5) * bulbStep,
+    y: bulbLine - BULB_STAGGER[k % BULB_STAGGER.length],
+  }));
 
   // Back to front: tables in order, each with its figures and empty stools
   // behind it.
@@ -695,7 +709,7 @@ export function BackRoomScreen({
               transform: "translate(-50%, -50%)",
             }}
           >
-            <style>{`.back-room-still *, .back-room-still *::before, .back-room-still *::after { animation: none !important; transition: none !important; }`}</style>
+            <style>{`.back-room-still *, .back-room-still *::before, .back-room-still *::after { animation: none !important; transition: none !important; } .back-room-still [data-back-ladder]:focus:not(:focus-visible) { outline: none; }`}</style>
             <svg
               width={layout.width}
               height={layout.height}
@@ -706,19 +720,20 @@ export function BackRoomScreen({
               {floor}
               {slabs}
               <g
+                data-back-sign
                 transform={`matrix(1 -0.5 0 1 ${sign.x} ${sign.y - WALL_H * 0.6})`}
               >
                 <text
                   x={0}
                   y={0}
                   textAnchor="middle"
-                  fontSize={30}
+                  fontSize={SIGN_FONT}
                   fontWeight={800}
-                  letterSpacing={4}
+                  letterSpacing={SIGN_SPACING}
                   fill="rgba(255,245,230,0.75)"
                   fontFamily="'JetBrains Mono',monospace"
                 >
-                  {t("office.backRoom.sign")}
+                  {signText}
                 </text>
               </g>
               <g
@@ -838,7 +853,7 @@ export function BackRoomScreen({
                 </radialGradient>
               </defs>
               {bulbs.map((p, k) => (
-                <g key={k}>
+                <g key={k} data-back-bulb>
                   <path
                     d={`M${p.x} ${p.y - CORD_H} L${p.x} ${p.y}`}
                     stroke="#3b3b3b"

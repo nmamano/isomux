@@ -1,7 +1,7 @@
 // The back room screen (task 5b503e32): one seated figure per back agent at
 // its stored seat, the room's n x n size, one click to a log, the attention
-// bubbles, the bar's buttons, the ladder up to the front, and the board's fit
-// on the wall (task f0af4677).
+// bubbles, the bar's buttons, the ladder up to the front, the board's fit
+// on the wall (task f0af4677), and the bulbs' place (task 79c967a8).
 import { afterEach, describe, expect, it } from "bun:test";
 import type { AgentInfo } from "../../../shared/types.ts";
 import { setUpDomTestFile } from "../../test-support/dom.ts";
@@ -130,6 +130,54 @@ describe("BackRoomScreen", () => {
       const w = Number(g.querySelector("rect")!.getAttribute("width"));
       expect(x).toBeGreaterThanOrEqual(backCorner);
       expect(x + k * w).toBeLessThanOrEqual(Math.min(...ladderXs));
+      cleanup();
+    }
+  });
+
+  it("hangs every bulb above the wall title and the board, none in line with another", () => {
+    for (const n of [1, 24, 100]) {
+      const { view } = show(backAgents(n));
+      const sign = view.container.querySelector("[data-back-sign]")!;
+      const [, , , , , sy] = /matrix\(([^)]+)\)/
+        .exec(sign.getAttribute("transform")!)![1]
+        .split(" ")
+        .map(Number);
+      const text = sign.querySelector("text")!;
+      const font = Number(text.getAttribute("font-size"));
+      const len = [...text.textContent].length;
+      const signW =
+        len * (0.6 * font + Number(text.getAttribute("letter-spacing")));
+      // The title slants up to its right end, by half its width.
+      const signTop = sy - signW / 4 - font;
+      const board = view.container.querySelector("[data-back-board]")!;
+      const boardTop = Number(
+        /matrix\(([^)]+)\)/
+          .exec(board.getAttribute("transform")!)![1]
+          .split(" ")[5],
+      );
+      const bulbs = [...view.container.querySelectorAll("[data-back-bulb]")];
+      expect(bulbs.length).toBeGreaterThanOrEqual(4);
+      const xs: number[] = [];
+      let glowR = 0;
+      for (const b of bulbs) {
+        const cord = /^M(-?[\d.]+) (-?[\d.]+) L(-?[\d.]+) (-?[\d.]+)$/.exec(
+          b.querySelector("path")!.getAttribute("d")!,
+        )!;
+        const [, x0, y0] = cord.map(Number);
+        // The cord runs up past the top of the screen.
+        expect(y0).toBeLessThan(-1000);
+        // The glow comes first, the bulb last.
+        const [glow, disc] = [...b.querySelectorAll("circle")];
+        glowR = Number(glow.getAttribute("r"));
+        const discBottom =
+          Number(disc.getAttribute("cy")) + Number(disc.getAttribute("r"));
+        expect(discBottom).toBeLessThan(Math.min(signTop, boardTop));
+        xs.push(x0);
+      }
+      // No two glows overlap, so no bulb or cord hides behind another.
+      xs.sort((a, b) => a - b);
+      for (let k = 1; k < xs.length; k++)
+        expect(xs[k] - xs[k - 1]).toBeGreaterThan(2 * glowR);
       cleanup();
     }
   });

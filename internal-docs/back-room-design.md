@@ -140,7 +140,11 @@ Approved by the Lead, 2026-10-15.
   of the right wall, under the trap door; the board hangs between the back
   corner and the ladder. The brick courses wrap over the walls' cut ends and
   the tops show joints; the floor's checkerboard runs down the slab's sides,
-  which reach out under the walls (task f0af4677).
+  which reach out under the walls (task f0af4677). The bulbs hang above the
+  "BACK ROOM" title and the board, spaced evenly from the floor's left corner
+  to the ladder at staggered heights, so no bulb or cord is in line with
+  another; the ladder shows a focus ring for keyboard focus only (task
+  79c967a8).
 - n tables of n stools. Each agent is its own `Character`, seated, with a
   small nameplate above the head (status light and name, the front's style), a
   purple "•••" bubble when unread, an amber "?" bubble when asking, and the
