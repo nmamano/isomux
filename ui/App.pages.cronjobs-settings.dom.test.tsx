@@ -67,6 +67,10 @@ const PAGES: Array<{
   },
 ];
 
+// A page's path is its id, except the automations page (task b9981898).
+const pathOf = (page: string) =>
+  page === "cronjobs" ? "/automations" : `/${page}`;
+
 describe("opening a page from the office", () => {
   for (const { page, button, showing } of PAGES) {
     it(`shows ${page} at its own path, in one pushed entry`, async () => {
@@ -77,12 +81,12 @@ describe("opening a page from the office", () => {
       });
 
       expect(showing(view)).toBe(true);
-      expect(window.location.pathname).toBe(`/${page}`);
+      expect(window.location.pathname).toBe(pathOf(page));
       expect(pushState).toHaveBeenCalledTimes(1);
       expect(pushState.mock.calls[0]).toEqual([
         { isomux: true, page },
         "",
-        `/${page}`,
+        pathOf(page),
       ]);
     });
   }

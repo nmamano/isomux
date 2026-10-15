@@ -6,8 +6,7 @@ import { useSyncExternalStore } from "react";
 import { getDraggedDesk, subscribeDraggedDesk } from "./drag-state.ts";
 
 export function useDeskDrag(): boolean {
-  return useSyncExternalStore(
-    subscribeDraggedDesk,
-    () => getDraggedDesk() !== null,
-  );
+  const dragging = () => getDraggedDesk() !== null;
+  // The third argument serves renderToString (no drag on the server).
+  return useSyncExternalStore(subscribeDraggedDesk, dragging, () => false);
 }
