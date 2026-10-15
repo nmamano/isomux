@@ -233,9 +233,9 @@ export function OfficeView({
   // office-wide, with a hold so a streaming agent's restamps do not swap the
   // face every second (ui/office/lobby/employee.ts).
   // The receptionist stands in the lobby next to the plaque; the plaque is
-  // for the coworkers at the desks.
+  // for the coworkers at the front desks; a busy back room would hold it.
   const leader = employeeOfTheMinute(
-    agents.filter((a) => a.roomId !== "lobby"),
+    agents.filter((a) => a.roomId !== "lobby" && !isBackSeat(a.desk)),
     stateChangedAt,
     rooms.map((r) => r.id),
   );

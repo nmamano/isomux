@@ -59,7 +59,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 - **Lobby** - a room every member can open; members with no other room land there.
 - **Isometric rooms with 8 desks** - see all your agents at a glance.
-- **Back room** - each room has a basement behind a trap door in the floor, a sweatshop of long tables for up to 100 agents. The front keeps the agents people talk to; the back room holds the team behind them. Each back agent is a normal agent, one click from its log, with a status light and unread and question bubbles. Agent lists show a back room as one line.
+- **Back room** - a basement behind a trap door in each room holds up to 100 more agents. The front keeps the agents people talk to.
 - **Unique character per agent** - customize color, hat, shirt, hair, accessory, with live preview (or randomize).
 - **Animated characters** - sleeping when idle, typing when working, waving when waiting for you.
 - Desk monitors **glow based on agent state** (green / purple / red).
