@@ -6,7 +6,7 @@ Use handoff when context is filling during unfinished work. The brief states onl
 
 Safe example: `POST /api/agents/:id/new-conversation` with `{}`.
 
-A new conversation does not reload OpenCode plugins or config. The member's OpenCode server loads them once per folder, and loads changes after it restarts: when Isomux restarts normally, or when the member's variables change on the Integrations page.
+A new conversation does not reload OpenCode plugins or config. Changes load after Isomux restarts or the member's variables change on the Integrations page.
 
 ## Route contract
 

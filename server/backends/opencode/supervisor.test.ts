@@ -569,15 +569,16 @@ describe("OpenCode shared server supervisor", () => {
         }>;
       };
     };
-    const verdict = async (directory: string, filePath: string) =>
-      (await plugin.default.server({ directory }))
-        [
-          "tool.execute.before"
-        ]({ tool: "write" }, { args: { filePath, content: "" } })
-        .then(
-          () => "allow",
-          () => "deny",
-        );
+    const verdict = async (directory: string, filePath: string) => {
+      const hooks = await plugin.default.server({ directory });
+      return hooks["tool.execute.before"](
+        { tool: "write" },
+        { args: { filePath, content: "" } },
+      ).then(
+        () => "allow",
+        () => "deny",
+      );
+    };
     expect(await verdict(path, join(STATE_ROOT, "agents.json"))).toBe("deny");
     expect(await verdict(path, join(decoyState, "agents.json"))).toBe("allow");
     // <home>/.isomux reached by a relative path is the state root.
