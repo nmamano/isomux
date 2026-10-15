@@ -54,7 +54,7 @@ import {
 import {
   formatPrefix,
   formatAgentSenderPrefix,
-  defuseAgentSenderLabels,
+  defuseSenderLabels,
   type AgentSenderTrust,
   formatAppSenderPrefix,
   formatCronjobSenderPrefix,
@@ -6651,14 +6651,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // queued while the agent was mid-turn): chat shows m.text "/subagent-review",
     // but the SDK needs the full skill prompt. A body from anyone but a member
     // or the receiver itself is defused, so no line of it reads as a
-    // server-written agent label. A member already has member authority, and
-    // keeps the bytes the immediate path sends; the receiver's own handoff
-    // brief or scheduled note is its own text.
+    // server-written agent or member label. A member already has member
+    // authority, and keeps the bytes the immediate path sends; the receiver's
+    // own handoff brief or scheduled note is its own text.
     const body = m.sdkText ?? m.text;
     const own =
       m.sender.kind === "user" ||
       (m.sender.kind === "agent" && m.sender.agentId === receiverAgentId);
-    return `${queuedItemPrefix(m, receiverAgentId)}${own ? body : defuseAgentSenderLabels(body)}`;
+    return `${queuedItemPrefix(m, receiverAgentId)}${own ? body : defuseSenderLabels(body)}`;
   }
 
   // Delivered items become chat entries. Shared by the flush (after the backend

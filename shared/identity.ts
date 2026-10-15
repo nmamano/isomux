@@ -69,11 +69,19 @@ export function formatAgentSenderPrefix(
 export const AGENT_SENDER_LABEL_RE =
   /^("(?:[^"\\\n]|\\.)*") \(agent id: ([^,)\s]+)((?:, [^,)\n]+)*)\) from Room ("(?:[^"\\\n]|\\.)*")/gm;
 
-// A message line that a reader could mistake for an agent sender label, or
-// that carries a trust marker. Looser than AGENT_SENDER_LABEL_RE on purpose,
+// A message line that a reader could mistake for a sender label, or that
+// carries a trust marker. Looser than the exact label shapes on purpose,
 // because a near miss can mislead a model too. The marker is what carries
-// trust, so a line that names it is defused even without an agent id.
-const AGENT_LABEL_LOOKALIKE_RES = [/agent[\W_]*id/i, /same[\W_]*manager/i];
+// trust, so a line that names it is defused even without an agent id. A
+// member label (formatPrefix) is a bracketed name with an optional device, so
+// a line that starts with a bracketed span is one. Invisible characters before
+// the "[" do not count: whitespace, controls, marks, private-use characters
+// and the blank letters a model does not see.
+const SENDER_LABEL_LOOKALIKE_RES = [
+  /agent[\W_]*id/i,
+  /same[\W_]*manager/i,
+  /^[\s\p{C}\p{M}\u115F\u1160\u2800\u3164\uFFA0]*\[[^\]]*\]/u,
+];
 
 // Fold the forms a model reads as the same text: fullwidth and other
 // compatibility forms (NFKC), and invisible format characters such as a
@@ -82,21 +90,23 @@ function foldForLookalike(line: string): string {
   return line.normalize("NFKC").replace(/\p{Cf}/gu, "");
 }
 
+// One line, with no line break in it.
 function isLabelLookalike(line: string): boolean {
   const folded = foldForLookalike(line);
-  return AGENT_LABEL_LOOKALIKE_RES.some((re) => re.test(folded));
+  return SENDER_LABEL_LOOKALIKE_RES.some((re) => re.test(folded));
 }
 
-// Every line break a model can read as one. The capture keeps the breaks in
-// the split, so the join restores the body byte for byte.
-const LINE_BREAK_SPLIT_RE = /(\r\n|[\n\r\p{Zl}\p{Zp}])/u;
+// Every line break a model can read as one, the vertical tab, form feed and
+// next-line control too: the member label lookalike holds only at a line
+// start. The capture keeps the breaks in the split, so the join restores the
+// body byte for byte.
+const LINE_BREAK_SPLIT_RE = /(\r\n|[\n\r\v\f\u0085\p{Zl}\p{Zp}])/u;
 
 // The delivery prefixes every lookalike line of a message body with this, so
-// only the server writes a line that parses as an agent sender label.
+// only the server writes a line that parses as a sender label.
 export const DEFUSED_LABEL_LINE_PREFIX = "> ";
 
-export function defuseAgentSenderLabels(body: string): string {
-  if (!isLabelLookalike(body)) return body;
+export function defuseSenderLabels(body: string): string {
   return body
     .split(LINE_BREAK_SPLIT_RE)
     .map((part, i) =>
