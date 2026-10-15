@@ -26,12 +26,12 @@ setApiShim(async (method, path, body) => {
 });
 afterAll(() => setApiShim(null));
 
-function mount(room: RoomWire) {
+function mount(room: RoomWire, agents: unknown[] = []) {
   return render(
     onLanguage(
       null,
       createElement(RoomPane, { roomId: room.id, onDeleted() {} }),
-      { rooms: [room] },
+      { rooms: [room], agents: agents as never },
     ),
   );
 }
@@ -94,6 +94,31 @@ it("shows a refused turn-off and keeps it to save again", async () => {
   expect(patches()).toHaveLength(2);
   expect(patches()[1].body).toEqual({ backRoom: false });
   view.unmount();
+});
+
+it("keeps the switch on and locked while agents sit in the back room", async () => {
+  calls.length = 0;
+  const { deskOfBackSeat } = await import("../shared/desks.ts");
+  const { translatorFor } = await import("../shared/i18n/translate.ts");
+  const back = {
+    id: "b1",
+    name: "b1",
+    roomId: "r1",
+    desk: deskOfBackSeat({ table: 0, stool: 0 }),
+  };
+  const view = mount(room({ backRoom: true }), [back]);
+  await act(async () => {});
+  expect(toggle(view)?.checked).toBe(true);
+  expect(toggle(view)?.disabled).toBe(true);
+  expect(view.container.textContent).toContain(
+    translatorFor("en").tn("settings.room.backRoomInUse", 1),
+  );
+  view.unmount();
+  // A front agent does not lock it.
+  const front = mount(room({ backRoom: true }), [{ ...back, desk: 0 }]);
+  await act(async () => {});
+  expect(toggle(front)?.disabled).toBe(false);
+  front.unmount();
 });
 
 it("offers no back room switch for the lobby", async () => {

@@ -22,7 +22,7 @@ import {
   type RoomLook,
 } from "../room-look.ts";
 import { RoomDecorPicker } from "./RoomDecorPicker.tsx";
-import { DESK_COUNT } from "../../shared/desks.ts";
+import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
 import { isFullUserView } from "../user-merge.ts";
 import {
   followRecord,
@@ -51,7 +51,7 @@ export function RoomPane({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { agents, rooms, users, sessionContext } = useAppState();
-  const { t } = useI18n();
+  const { t, tn } = useI18n();
   const room = rooms.find((r) => r.id === roomId);
   // Protection is server-authoritative and carried explicitly on the wire:
   // room.canCloseWhenEmpty protects the lobby and the first ordinary room
@@ -83,6 +83,12 @@ export function RoomPane({
   // The back room switch, saved through the same PATCH. Turning it off while
   // agents sit there comes back as a 409 the error line shows.
   const [backRoom, setBackRoom] = useState(room?.backRoom === true);
+  // While agents sit in the back room, the switch stays on (Nil, 2026-10-15);
+  // the server's back_room_in_use refusal is the backstop.
+  const backAgents = agents.filter(
+    (a) => a.roomId === roomId && isBackSeat(a.desk),
+  ).length;
+  const backRoomLocked = backAgents > 0 && room?.backRoom === true;
   const [baselineBackRoom, setBaselineBackRoom] = useState(
     room?.backRoom === true,
   );
@@ -390,13 +396,16 @@ export function RoomPane({
               <input
                 type="checkbox"
                 data-room-setting="backRoom"
-                checked={backRoom}
+                checked={backRoom || backRoomLocked}
+                disabled={backRoomLocked}
                 onChange={() => setBackRoom(!backRoom)}
-                style={checkboxStyle(true)}
+                style={checkboxStyle(!backRoomLocked)}
               />
               {t("settings.room.backRoom")}
               <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-                {t("settings.room.backRoomHint", { count: DESK_COUNT })}
+                {backRoomLocked
+                  ? tn("settings.room.backRoomInUse", backAgents)
+                  : t("settings.room.backRoomHint", { count: DESK_COUNT })}
               </span>
             </label>
           </>

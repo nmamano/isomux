@@ -518,6 +518,10 @@ Cosas que puedes hacer por él:
   "settings.room.namePlaceholder": "Nombre de la sala",
   "settings.room.backRoom": "Trastienda",
   "settings.room.backRoomHint": "Más de {count} agentes, tras una trampilla.",
+  "settings.room.backRoomInUse.one":
+    "{count} agente está en la trastienda. Sácalo primero.",
+  "settings.room.backRoomInUse.other":
+    "{count} agentes están en la trastienda. Sácalos primero.",
   "settings.room.prompt": "Prompt de la sala",
   "settings.room.promptHint":
     "(opcional, se añade después del prompt de la oficina)",

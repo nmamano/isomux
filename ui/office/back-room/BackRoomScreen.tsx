@@ -23,6 +23,7 @@ import {
   TABLE_DEPTH,
   TABLE_H,
   TILE_A,
+  TILE_B,
   WALL_H,
   MIN_SCALE,
   backRoomLayout,
@@ -59,6 +60,7 @@ const SIGN_SPACING = 4;
 // The ladder's foot, in tiles from the right wall's end: it stands at the
 // right, under the trap door, which is on the right of the front floor.
 const LADDER_FROM_END = 1.6;
+const LADDER_SLOPE = TILE_B / TILE_A;
 // The board: its smallest width, its fonts, and its span on the right wall in
 // tiles (from near the back corner to short of the ladder).
 const BOARD_W = 120;
@@ -781,10 +783,12 @@ export function BackRoomScreen({
                 pointerEvents: "none",
               }}
             >
+              {/* Both rails stand on the floor along the right wall, which
+                  falls TILE_B per TILE_A: the right rail sits lower. */}
               {[0, 22].map((dx) => (
                 <path
                   key={dx}
-                  d={`M${ladderFoot.x + dx} ${ladderFoot.y} L${ladderTop.x + dx} ${ladderTop.y}`}
+                  d={`M${ladderFoot.x + dx} ${ladderFoot.y + dx * LADDER_SLOPE} L${ladderTop.x + dx} ${ladderTop.y + dx * LADDER_SLOPE}`}
                   stroke="#6b4a2f"
                   strokeWidth={4}
                 />
@@ -796,7 +800,7 @@ export function BackRoomScreen({
                 return (
                   <path
                     key={k}
-                    d={`M${x} ${y} L${x + 22} ${y}`}
+                    d={`M${x} ${y} L${x + 22} ${y + 22 * LADDER_SLOPE}`}
                     stroke="#7d5a3a"
                     strokeWidth={3}
                   />
@@ -814,8 +818,11 @@ export function BackRoomScreen({
                 d={poly([
                   { x: ladderFoot.x - 8, y: ladderFoot.y + 6 },
                   { x: ladderTop.x - 8, y: ladderTop.y },
-                  { x: ladderTop.x + 30, y: ladderTop.y },
-                  { x: ladderFoot.x + 30, y: ladderFoot.y + 6 },
+                  { x: ladderTop.x + 30, y: ladderTop.y + 22 * LADDER_SLOPE },
+                  {
+                    x: ladderFoot.x + 30,
+                    y: ladderFoot.y + 6 + 22 * LADDER_SLOPE,
+                  },
                 ])}
                 fill="transparent"
                 pointerEvents="all"

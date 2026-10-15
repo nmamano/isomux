@@ -517,6 +517,10 @@ Coses que pots fer per ell:
   "settings.room.namePlaceholder": "Nom de la sala",
   "settings.room.backRoom": "Rebotiga",
   "settings.room.backRoomHint": "Més de {count} agents, darrere d'una trapa.",
+  "settings.room.backRoomInUse.one":
+    "{count} agent és a la rebotiga. Treu-lo primer.",
+  "settings.room.backRoomInUse.other":
+    "{count} agents són a la rebotiga. Treu-los primer.",
   "settings.room.prompt": "Prompt de la sala",
   "settings.room.promptHint":
     "(opcional, s'afegeix després del prompt de l'oficina)",

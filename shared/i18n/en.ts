@@ -529,6 +529,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.room.namePlaceholder": "Room name",
   "settings.room.backRoom": "Back room",
   "settings.room.backRoomHint": "More than {count} agents, behind a trap door.",
+  "settings.room.backRoomInUse.one":
+    "{count} agent sits in the back room. Move it out first.",
+  "settings.room.backRoomInUse.other":
+    "{count} agents sit in the back room. Move them out first.",
   "settings.room.prompt": "Room Prompt",
   "settings.room.promptHint": "(optional, appended after office prompt)",
   "settings.room.promptTitle": "{room} · Room Prompt",
