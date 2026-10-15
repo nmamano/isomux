@@ -288,6 +288,8 @@ export function buildSystemPrompt(
 // --- Discord log ---
 // Discord refuses a post longer than this.
 const DISCORD_LIMIT = 2000;
+// A visitor who types @everyone or @here must not ping the log channel.
+const NO_MENTIONS = { parse: [] as string[] };
 const CONVERSATION_ID = /^[a-z0-9]{8,32}$/;
 
 // The tag goes in the first line of each log post, so a reader can group the
@@ -472,6 +474,7 @@ export default async function handler(req: Request) {
             0,
             DISCORD_LIMIT,
           ),
+        allowed_mentions: NO_MENTIONS,
       }),
     }).catch(() => {});
   }
@@ -542,7 +545,7 @@ export default async function handler(req: Request) {
             await fetch(webhookUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ content }),
+              body: JSON.stringify({ content, allowed_mentions: NO_MENTIONS }),
             }).catch(() => {});
           }
         }

@@ -17,18 +17,22 @@ const HEADER =
 const realFetch = globalThis.fetch;
 const realWebhook = process.env.DISCORD_WEBHOOK_URL;
 let posts: string[] = [];
+let mentionRules: unknown[] = [];
 let answer = "";
 let nextIp = 0;
 
 beforeEach(() => {
   posts = [];
+  mentionRules = [];
   process.env.DISCORD_WEBHOOK_URL = WEBHOOK;
   globalThis.fetch = (async (url: string, init: RequestInit) => {
     if (String(url) === WEBHOOK) {
       // A post is recorded when it lands, trimmed as Discord stores it. The
       // earlier parts of an answer take longer to land, so parts sent all at
       // once would land out of order.
-      const content: string = JSON.parse(init.body as string).content.trim();
+      const body = JSON.parse(init.body as string);
+      mentionRules.push(body.allowed_mentions);
+      const content: string = body.content.trim();
       const [, part, of] = content.match(/\*\*Bot \((\d+)\/(\d+)\)/u) ?? [];
       const lag = part ? (Number(of) - Number(part)) * 10 : 0;
       await new Promise((resolve) => setTimeout(resolve, lag));
@@ -101,6 +105,14 @@ describe("conversation id in the Discord log", () => {
     expect(parsed.map((p) => p.id)).toEqual(posts.map(() => "k3j9x0ab12cd"));
     expect(parsed[0].role).toBe("Visitor");
     expect(parsed.slice(1).every((p) => p.role === "Bot")).toBe(true);
+  });
+
+  it("lets no post ping anyone, whatever the visitor typed", async () => {
+    await chat(`@everyone @here ${prose(4500)}`);
+    expect(mentionRules.length).toBe(posts.length);
+    expect(
+      mentionRules.every((m) => JSON.stringify(m) === '{"parse":[]}'),
+    ).toBe(true);
   });
 
   it("keeps two conversations apart", async () => {
