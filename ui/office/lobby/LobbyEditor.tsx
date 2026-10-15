@@ -65,7 +65,7 @@ function exportTs(items: Item[], recep: { a: number; b: number }): string {
 
 const panelStyle: CSSProperties = {
   width: 360,
-  fontFamily: "DM Sans, sans-serif",
+  fontFamily: "var(--font-ui)",
   fontSize: 12,
   color: "var(--text-primary)",
   padding: 12,

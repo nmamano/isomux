@@ -346,7 +346,7 @@ export function MenuItem({
             : danger
               ? "var(--red-text)"
               : "var(--text-dim)",
-        fontFamily: small ? "'JetBrains Mono',monospace" : undefined,
+        fontFamily: small ? "var(--font-ui)" : undefined,
         fontSize: small ? 11 : 13,
         borderRadius: 6,
         cursor: disabled ? "default" : "pointer",

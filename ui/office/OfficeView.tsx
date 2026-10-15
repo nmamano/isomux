@@ -578,7 +578,7 @@ export function OfficeView({
                       fontSize: 10,
                       fontWeight: 600,
                       color: s.c,
-                      fontFamily: "'JetBrains Mono',monospace",
+                      fontFamily: "var(--font-ui)",
                       letterSpacing: "0.02em",
                     }}
                   >
@@ -607,7 +607,7 @@ export function OfficeView({
                   fontSize: 11,
                   fontWeight: 600,
                   color: "var(--accent-text)",
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                   letterSpacing: "0.02em",
                   cursor: "pointer",
                   display: "flex",
@@ -1161,7 +1161,7 @@ export function OfficeView({
               style={{
                 fontSize: 10,
                 color: "var(--text-hint)",
-                fontFamily: "'JetBrains Mono',monospace",
+                fontFamily: "var(--font-ui)",
                 letterSpacing: "0.04em",
               }}
             >

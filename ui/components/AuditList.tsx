@@ -437,7 +437,7 @@ function TaskHistoryContent({ id }: { id: string }) {
 const HINT = {
   fontSize: 11,
   color: "var(--text-hint)",
-  fontFamily: "'JetBrains Mono',monospace",
+  fontFamily: "var(--font-ui)",
 } as const;
 
 // Fields shown as "old -> new"; any other changed field shows as edited.

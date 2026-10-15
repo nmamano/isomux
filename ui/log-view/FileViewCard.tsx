@@ -91,7 +91,7 @@ export function FileViewCard({
                   border: "1px solid var(--green-border)",
                   background: "var(--green-bg)",
                   color: "var(--text-secondary)",
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                   fontSize: isMobile ? 13 : 12,
                   textDecoration: "none",
                   cursor: "pointer",
@@ -119,7 +119,7 @@ export function FileViewCard({
         <div
           style={{
             marginTop: 4,
-            fontFamily: "'JetBrains Mono',monospace",
+            fontFamily: "var(--font-ui)",
             fontSize: isMobile ? 12 : 11,
             color: "var(--text-ghost)",
             overflow: "hidden",

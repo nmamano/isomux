@@ -1423,7 +1423,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     color: disabled ? "var(--text-hint)" : "var(--text-dim)",
     fontSize: 12,
     cursor: disabled ? "not-allowed" : "pointer",
-    fontFamily: "'JetBrains Mono',monospace",
+    fontFamily: "var(--font-ui)",
   });
   const moveToRoomBlock = !isSpawn &&
     (roomCount > 1 || hasBackRoom(rooms[agentRoomIndex])) && (
@@ -2018,7 +2018,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       display: "flex",
                       alignItems: "center",
                       color: "var(--text-muted)",
-                      fontFamily: "'JetBrains Mono',monospace",
+                      fontFamily: "var(--font-ui)",
                       textTransform: "uppercase",
                       letterSpacing: 0.5,
                       fontWeight: 600,

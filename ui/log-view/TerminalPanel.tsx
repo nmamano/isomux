@@ -1003,7 +1003,7 @@ export function TerminalPanel({
               border: "1px solid var(--border-medium)",
               background: "var(--bg-overlay)",
               color: "var(--text-secondary)",
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: "var(--font-ui)",
               fontSize: 11,
               fontWeight: 600,
               cursor: "pointer",

@@ -1993,7 +1993,7 @@ Coses que pots fer per ell:
   "office.decor.floorPlant": "Planta de terra",
   "office.decor.floorPlant.plant": "Planta en test",
   "office.decor.ward": "Mobiliari hospitalari",
-  "office.decor.ward.beds": "Llits",
+  "office.decor.ward.beds": "Llit",
   "office.decor.none": "Cap",
   "office.decor.coat": "Pelatge",
   "office.pet.label": "Mascota de la sala",

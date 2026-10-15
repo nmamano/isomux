@@ -114,7 +114,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
             border: "1px solid var(--border)",
             borderRadius: 8,
             color: "var(--text-primary)",
-            fontFamily: "'JetBrains Mono',monospace",
+            fontFamily: "var(--font-ui)",
             fontSize: 12,
             outline: "none",
             boxSizing: "border-box",

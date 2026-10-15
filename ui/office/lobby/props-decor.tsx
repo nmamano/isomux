@@ -27,7 +27,7 @@ export function RugOval() {
         transform={`matrix(0.9 0.45 -0.9 0.45 ${cx} ${cy}) translate(0 4)`}
         textAnchor="middle"
         fontSize="12"
-        fontFamily="DM Sans, sans-serif"
+        style={{ fontFamily: "var(--font-ui)" }}
         fontWeight="700"
         fill="#7a3f1f"
         letterSpacing="2"
@@ -259,7 +259,7 @@ export function Bunting({
               textAnchor="middle"
               fontSize="7"
               fontWeight="700"
-              fontFamily="DM Sans, sans-serif"
+              style={{ fontFamily: "var(--font-ui)" }}
               fill="#fff"
             >
               {ch}
@@ -292,7 +292,7 @@ export function FramedPoster({ wall }: { wall: "left" | "right" }) {
         y="-11"
         textAnchor="middle"
         fontSize="5"
-        fontFamily="DM Sans, sans-serif"
+        style={{ fontFamily: "var(--font-ui)" }}
         fontWeight="700"
         fill="#3d405b"
         letterSpacing="1"
@@ -484,7 +484,7 @@ export function DirectoryBoard({
         textAnchor="middle"
         fontSize="6.5"
         fontWeight="700"
-        fontFamily="DM Sans, sans-serif"
+        style={{ fontFamily: "var(--font-ui)" }}
         fill="#7a5a3a"
         letterSpacing="1.5"
       >
@@ -495,7 +495,7 @@ export function DirectoryBoard({
         y={-h + 16}
         textAnchor="middle"
         fontSize="4.5"
-        fontFamily="DM Sans, sans-serif"
+        style={{ fontFamily: "var(--font-ui)" }}
         fill="#a08a6a"
       >
         {officeName}
@@ -515,7 +515,7 @@ export function DirectoryBoard({
             x="-25"
             y="0"
             fontSize="5.2"
-            fontFamily="DM Sans, sans-serif"
+            style={{ fontFamily: "var(--font-ui)" }}
             fill="#3a2818"
           >
             {r.name}
@@ -596,7 +596,11 @@ export function DirectorySign({
         ])}
         fill="#2f3a35"
       />
-      <g transform={inBoard} fill="#f6f1e6" fontFamily="DM Sans, sans-serif">
+      <g
+        transform={inBoard}
+        fill="#f6f1e6"
+        style={{ fontFamily: "var(--font-ui)" }}
+      >
         <text x="0" y="11" textAnchor="middle" fontSize="6" fontWeight="700">
           {officeName}
         </text>

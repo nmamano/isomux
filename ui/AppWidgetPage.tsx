@@ -23,7 +23,7 @@ import {
 } from "./app-widget-state.ts";
 
 const WIDGET_CSS = `
-.app-widget { position:fixed; inset:0; background:var(--bg-base); color:var(--text-primary); font-family:'DM Sans',sans-serif; }
+.app-widget { position:fixed; inset:0; background:var(--bg-base); color:var(--text-primary); font-family:var(--font-ui); }
 .app-widget-frame { border:0; width:100%; height:100%; display:block; }
 .app-widget button,.app-widget a { font:inherit; }
 .app-widget button { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }

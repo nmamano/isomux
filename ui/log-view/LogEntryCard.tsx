@@ -247,7 +247,7 @@ function FileChip({
         border: "1px solid var(--border)",
         color: "var(--text-secondary)",
         fontSize: isMobile ? 13 : 11,
-        fontFamily: "'JetBrains Mono',monospace",
+        fontFamily: "var(--font-ui)",
         textDecoration: "none",
         cursor: "pointer",
         maxWidth: "100%",
@@ -390,7 +390,7 @@ function DurationLabel({ ms, isMobile }: { ms: number; isMobile?: boolean }) {
       style={{
         marginLeft: "auto",
         fontSize: isMobile ? 12 : 10,
-        fontFamily: "'JetBrains Mono',monospace",
+        fontFamily: "var(--font-ui)",
         color: "var(--text-ghost)",
         flexShrink: 0,
       }}
@@ -1096,7 +1096,7 @@ export function UserMessage({
       title={title}
       data-members-chat-message={compact ? "" : undefined}
       style={{
-        fontFamily: compact ? "'DM Sans',sans-serif" : undefined,
+        fontFamily: compact ? "var(--font-ui)" : undefined,
         margin: compact
           ? hideAuthor
             ? "2px 0"
@@ -1160,9 +1160,7 @@ export function UserMessage({
             <div
               style={{
                 color: "var(--text-secondary)",
-                fontFamily: compact
-                  ? "'DM Sans',sans-serif"
-                  : "'JetBrains Mono',monospace",
+                fontFamily: "var(--font-ui)",
                 fontSize: messageFontSize,
                 lineHeight: messageLineHeight,
                 whiteSpace: "pre-wrap",
@@ -1232,7 +1230,6 @@ export function UserMessage({
 }
 
 export function EditableUserMessage({
-  variant,
   content,
   entryId,
   isMobile,
@@ -1242,7 +1239,6 @@ export function EditableUserMessage({
 }: {
   content: string;
   entryId: string;
-  variant?: "members-chat";
   isMobile?: boolean;
   username?: string;
   onCancel?: () => void;
@@ -1304,7 +1300,7 @@ export function EditableUserMessage({
           fontWeight: 600,
           color: "var(--accent-text)",
           marginBottom: 4,
-          fontFamily: "'DM Sans',sans-serif",
+          fontFamily: "var(--font-ui)",
           textTransform: "uppercase",
           letterSpacing: "0.05em",
         }}
@@ -1327,10 +1323,7 @@ export function EditableUserMessage({
           borderRadius: 6,
           padding: "8px 10px",
           fontSize: isMobile ? 15 : 13,
-          fontFamily:
-            variant === "members-chat"
-              ? "'DM Sans',sans-serif"
-              : "'JetBrains Mono',monospace",
+          fontFamily: "var(--font-ui)",
           lineHeight: 1.6,
           background: "var(--bg-base)",
           color: "var(--text-secondary)",
@@ -1356,7 +1349,7 @@ export function EditableUserMessage({
             background: "transparent",
             color: "var(--text-muted)",
             fontSize: isMobile ? 14 : 12,
-            fontFamily: "'DM Sans',sans-serif",
+            fontFamily: "var(--font-ui)",
             cursor: "pointer",
           }}
         >
@@ -1371,7 +1364,7 @@ export function EditableUserMessage({
             background: "var(--accent-text)",
             color: "var(--bg-base)",
             fontSize: isMobile ? 14 : 12,
-            fontFamily: "'DM Sans',sans-serif",
+            fontFamily: "var(--font-ui)",
             cursor: "pointer",
             fontWeight: 600,
           }}
@@ -1482,7 +1475,7 @@ function ThinkingBlock({
             borderLeft: "2px solid var(--thinking-border)",
             color: "var(--text-faint)",
             fontSize: isMobile ? 14 : 12,
-            fontFamily: "'JetBrains Mono',monospace",
+            fontFamily: "var(--font-ui)",
             lineHeight: 1.6,
             whiteSpace: "pre-wrap",
             maxHeight: 300,
@@ -2129,7 +2122,7 @@ function PermissionDeniedCard({
             background: "var(--green-bg)",
             color: "var(--green-text)",
             fontSize: 12,
-            fontFamily: "'JetBrains Mono',monospace",
+            fontFamily: "var(--font-ui)",
             cursor: "pointer",
             flexShrink: 0,
           }}

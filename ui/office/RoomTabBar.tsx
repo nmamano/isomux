@@ -28,15 +28,16 @@ import {
 } from "../../shared/desks.ts";
 import type { MoveAgentReq } from "../../shared/contract-shapes.ts";
 
-// Per-tab mini-ghost cluster sizing. Kept small so the bar height
-// stays at 32px (the tabs' existing height) - mini ghosts must read as
-// subordinate to the room name.
-const MINI_GHOST_SIZE = 12;
-const MAX_MINI_GHOSTS = 3;
-// Heavy stack - each additional ghost contributes only ~4px of visible
-// width past the previous one, keeping the cluster narrow. Color is
-// enough to distinguish individual ghosts.
-const MINI_GHOST_OVERLAP = -8;
+// Per-tab mini ghosts sit on the tab like stickers (Nil, task 90f655b0):
+// centered on the pill's bottom edge, over a little of the room name and
+// out below the bar, so they take no width in the row.
+const MINI_GHOST_SIZE = 16;
+const MAX_MINI_GHOSTS = 5;
+// Each ghost after the first shows 10px past the previous one.
+const MINI_GHOST_OVERLAP = -6;
+// How far the scroller reaches below the bar, so the stickers that stick out
+// below it are not clipped by its overflow.
+const GHOST_STICK_OUT = 8;
 
 export { roomActivityDotColor };
 
@@ -328,6 +329,9 @@ export function RoomTabBar({
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
+    // The scroller takes no pointer events (see its style), so the wheel
+    // listener sits on the box around it, which covers the gaps between tabs.
+    const wheelHost = el.parentElement ?? el;
     updateOverflow();
     el.addEventListener("scroll", updateOverflow, { passive: true });
     // Container resizes (window resize, side panel open/close) change
@@ -354,10 +358,10 @@ export function RoomTabBar({
       // scrollable view sits around it.
       if (el.scrollLeft !== before) e.preventDefault();
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
+    wheelHost.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("scroll", updateOverflow);
-      el.removeEventListener("wheel", onWheel);
+      wheelHost.removeEventListener("wheel", onWheel);
       ro.disconnect();
     };
   }, [updateOverflow]);
@@ -488,13 +492,18 @@ export function RoomTabBar({
       <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
         <div
           ref={scrollerRef}
-          className="hide-scrollbar"
+          className="hide-scrollbar room-tab-scroller"
           style={{
             display: "flex",
             alignItems: "center",
             gap: 2,
-            padding: "0 12px",
-            height: "100%",
+            // The scroller reaches GHOST_STICK_OUT below the bar and keeps its
+            // tabs centered in the bar. Only its children take pointer events
+            // (styles.ts), so the strip below the bar does not cover the
+            // office.
+            padding: `0 12px ${GHOST_STICK_OUT}px`,
+            height: `calc(100% + ${GHOST_STICK_OUT}px)`,
+            pointerEvents: "none",
             overflowX: "auto",
             overflowY: "hidden",
             scrollbarWidth: "none",
@@ -541,7 +550,7 @@ export function RoomTabBar({
                 fontSize: 11,
                 fontWeight: 600,
                 cursor: "pointer",
-                fontFamily: "'JetBrains Mono',monospace",
+                fontFamily: "var(--font-ui)",
                 letterSpacing: "0.02em",
                 outline: "none",
                 position: "relative",
@@ -616,11 +625,8 @@ export function RoomTabBar({
                     transition: "opacity 0.15s",
                   }}
                 >
-                  {/* Tab pill: room name + agent count + attention dot. The
-                active background hugs the room label; the presence
-                cluster sits OUTSIDE the pill as a sibling so an empty
-                cluster reads as inter-tab spacing instead of broken
-                trailing padding inside the selected tab. */}
+                  {/* Tab pill: room name, attention dot and the presence
+                stickers. */}
                   <button
                     {...noTranslate()}
                     onClick={(e) => {
@@ -646,7 +652,7 @@ export function RoomTabBar({
                       fontSize: 11,
                       fontWeight: 600,
                       cursor: "grab",
-                      fontFamily: "'JetBrains Mono',monospace",
+                      fontFamily: "var(--font-ui)",
                       letterSpacing: "0.02em",
                       outline: "none",
                       position: "relative",
@@ -667,6 +673,30 @@ export function RoomTabBar({
                     {...(deskDrag && deskDropProps(room.id, "front"))}
                   >
                     {displayName}
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: "50%",
+                        top: "100%",
+                        transform: "translate(-50%, -45%)",
+                        display: "flex",
+                        zIndex: 1,
+                      }}
+                    >
+                      <MiniGhostCluster
+                        presences={roomPresences}
+                        selfConnectionId={selfConnectionId}
+                        size={MINI_GHOST_SIZE}
+                        max={MAX_MINI_GHOSTS}
+                        overlap={MINI_GHOST_OVERLAP}
+                        // A thin light edge and a soft shadow make each ghost
+                        // read as a sticker on the tab.
+                        ghostStyle={{
+                          filter:
+                            "drop-shadow(0 0 0.6px #fff) drop-shadow(0 0 0.6px #fff) drop-shadow(0 1px 1px rgba(0,0,0,0.35))",
+                        }}
+                      />
+                    </span>
                     {activityDotColor && (
                       <span
                         style={{
@@ -692,23 +722,13 @@ export function RoomTabBar({
                         fontWeight: 600,
                         color: "var(--text-dim)",
                         whiteSpace: "nowrap",
-                        fontFamily: "'JetBrains Mono',monospace",
+                        fontFamily: "var(--font-ui)",
                         ...deskDropStyle(room.id, "back"),
                       }}
                     >
                       {t("office.backRoom.title")}
                     </span>
                   )}
-                  <MiniGhostCluster
-                    presences={roomPresences}
-                    selfConnectionId={selfConnectionId}
-                    size={MINI_GHOST_SIZE}
-                    max={MAX_MINI_GHOSTS}
-                    overlap={MINI_GHOST_OVERLAP}
-                    // The SVG body sits high inside its viewBox. This nudge aligns
-                    // the painted body with the room-name letters.
-                    ghostStyle={{ transform: "translateY(1px)" }}
-                  />
                   {/* Close button: closeable-when-empty rooms only.
                 room.canCloseWhenEmpty is the server-authoritative
                 protected-first-room signal (false only for the canonical first
@@ -761,7 +781,7 @@ export function RoomTabBar({
               color: "var(--text-hint)",
               fontSize: 12,
               cursor: "pointer",
-              fontFamily: "'JetBrains Mono',monospace",
+              fontFamily: "var(--font-ui)",
               marginLeft: 4,
               flexShrink: 0,
             }}

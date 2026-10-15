@@ -58,7 +58,7 @@ export function TerminalCommandCard({
             background: "var(--green-bg)",
             color: "var(--green-text)",
             fontSize: 12,
-            fontFamily: "'JetBrains Mono',monospace",
+            fontFamily: "var(--font-ui)",
             cursor: "pointer",
             flexShrink: 0,
           }}

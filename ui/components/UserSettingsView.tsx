@@ -685,7 +685,7 @@ export function UserSettingsView({
                         style={{
                           fontSize: 10,
                           color: "var(--text-muted)",
-                          fontFamily: "'JetBrains Mono',monospace",
+                          fontFamily: "var(--font-ui)",
                           marginTop: 2,
                           overflow: "hidden",
                           textOverflow: "ellipsis",

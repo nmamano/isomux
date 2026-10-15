@@ -116,7 +116,7 @@ function StatusBadge({ status }: { status: DiffFileSummary["status"] }) {
         background: p.bg,
         color: p.fg,
         fontSize: 10,
-        fontFamily: "'JetBrains Mono',monospace",
+        fontFamily: "var(--font-ui)",
         textTransform: "uppercase",
         letterSpacing: "0.04em",
         flexShrink: 0,
@@ -287,7 +287,7 @@ function DiffOverlay({
               borderRadius: 6,
               padding: "4px 10px",
               fontSize: 12,
-              fontFamily: "'DM Sans',sans-serif",
+              fontFamily: "var(--font-ui)",
               cursor: "pointer",
             }}
           >
@@ -300,7 +300,7 @@ function DiffOverlay({
               style={{
                 padding: "12px 16px",
                 color: "var(--text-dim)",
-                fontFamily: "'JetBrains Mono',monospace",
+                fontFamily: "var(--font-ui)",
                 fontSize: 13,
                 background: "var(--bg-subtle)",
                 border: "1px dashed var(--border-medium)",
@@ -560,7 +560,7 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
                   background: active ? "var(--accent-bg)" : "transparent",
                   color: active ? "var(--accent-text)" : "var(--text-muted)",
                   fontSize: 11,
-                  fontFamily: "'DM Sans',sans-serif",
+                  fontFamily: "var(--font-ui)",
                   fontWeight: 600,
                 }}
               >
@@ -581,7 +581,7 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
               color: "var(--text-dim)",
               borderRadius: 6,
               fontSize: 11,
-              fontFamily: "'DM Sans',sans-serif",
+              fontFamily: "var(--font-ui)",
               cursor: "pointer",
             }}
           >

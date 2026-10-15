@@ -734,7 +734,7 @@ const sectionLabelStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
   color: "var(--text-muted)",
-  fontFamily: "'JetBrains Mono',monospace",
+  fontFamily: "var(--font-ui)",
   letterSpacing: "0.05em",
   textTransform: "uppercase",
 };

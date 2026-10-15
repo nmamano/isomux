@@ -170,7 +170,7 @@ export function TuckedRoomsChip({
           fontSize: 11,
           fontWeight: 600,
           cursor: "pointer",
-          fontFamily: "'JetBrains Mono',monospace",
+          fontFamily: "var(--font-ui)",
           position: "relative",
           whiteSpace: "nowrap",
         }}
@@ -262,7 +262,7 @@ export function TuckedRoomsChip({
                     background: "transparent",
                     cursor: "pointer",
                     textAlign: "left",
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                   }}
                 >
                   <span

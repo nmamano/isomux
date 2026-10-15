@@ -317,7 +317,7 @@ function getMermaid() {
         startOnLoad: false,
         theme: mode,
         securityLevel: "strict",
-        fontFamily: "DM Sans, sans-serif",
+        fontFamily: "var(--font-ui)",
       });
       return m;
     });

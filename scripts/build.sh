@@ -21,6 +21,10 @@ fi
 cp ui/index.html ui/dist/index.html
 cp node_modules/@xterm/xterm/css/xterm.css ui/dist/xterm.css
 cp node_modules/diff2html/bundles/css/diff2html.min.css ui/dist/diff2html.css
+# Self-hosted UI fonts with their licenses (ui/fonts/fonts.css).
+rm -rf ui/dist/assets/fonts
+mkdir -p ui/dist/assets
+cp -r ui/fonts ui/dist/assets/fonts
 rm -rf ui/dist/katex
 mkdir -p ui/dist/katex/fonts
 cp node_modules/katex/dist/katex.min.css ui/dist/katex/katex.min.css

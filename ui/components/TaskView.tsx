@@ -825,7 +825,7 @@ function TaskDetailPanel({
                         : "var(--text-muted)",
                     fontSize: 10,
                     cursor: "pointer",
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                     whiteSpace: "nowrap",
                   }}
                 >
@@ -843,7 +843,7 @@ function TaskDetailPanel({
                     color: "var(--text-hint)",
                     fontSize: 10,
                     cursor: "pointer",
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                     whiteSpace: "nowrap",
                   }}
                   title={
@@ -866,7 +866,7 @@ function TaskDetailPanel({
             style={{
               fontSize: 11,
               color: "var(--text-hint)",
-              fontFamily: "'JetBrains Mono',monospace",
+              fontFamily: "var(--font-ui)",
             }}
           >
             {task.username && task.username !== task.createdBy
@@ -1359,7 +1359,7 @@ export function TaskView({
     fontSize: 10,
     fontWeight: 700,
     color: "var(--text-muted)",
-    fontFamily: "'JetBrains Mono',monospace",
+    fontFamily: "var(--font-ui)",
     letterSpacing: "0.05em",
     textAlign: "left",
     cursor: "pointer",
@@ -1460,7 +1460,7 @@ export function TaskView({
               style={{
                 fontSize: 11,
                 color: "var(--text-muted)",
-                fontFamily: "'JetBrains Mono',monospace",
+                fontFamily: "var(--font-ui)",
               }}
             >
               {t("tasks.shownCount", { count: filtered.length })}
@@ -1562,7 +1562,7 @@ export function TaskView({
               padding: isMobile ? "4px 12px 0" : "4px 20px 0",
               fontSize: 11,
               color: "var(--text-hint)",
-              fontFamily: "'JetBrains Mono',monospace",
+              fontFamily: "var(--font-ui)",
             }}
           >
             {t(isMobile ? "tasks.hintMobile" : "tasks.hintDesktop")}
@@ -1830,7 +1830,7 @@ export function TaskView({
                             style={{
                               fontSize: 10,
                               fontWeight: 700,
-                              fontFamily: "'JetBrains Mono',monospace",
+                              fontFamily: "var(--font-ui)",
                               color: PRIORITY_COLORS[task.priority],
                             }}
                           >
@@ -1857,7 +1857,7 @@ export function TaskView({
                             style={{
                               fontSize: 10,
                               fontWeight: 700,
-                              fontFamily: "'JetBrains Mono',monospace",
+                              fontFamily: "var(--font-ui)",
                               color: task.roomId
                                 ? "var(--text-dim)"
                                 : "var(--text-hint)",
@@ -1897,7 +1897,7 @@ export function TaskView({
                           padding: cellPad,
                           fontSize: 11,
                           color: "var(--text-dim)",
-                          fontFamily: "'JetBrains Mono',monospace",
+                          fontFamily: "var(--font-ui)",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
@@ -1911,7 +1911,7 @@ export function TaskView({
                             padding: cellPad,
                             fontSize: 11,
                             color: "var(--text-hint)",
-                            fontFamily: "'JetBrains Mono',monospace",
+                            fontFamily: "var(--font-ui)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
@@ -1930,7 +1930,7 @@ export function TaskView({
                           padding: cellPad,
                           fontSize: 10,
                           color: "var(--text-hint)",
-                          fontFamily: "'JetBrains Mono',monospace",
+                          fontFamily: "var(--font-ui)",
                           whiteSpace: "nowrap",
                         }}
                       >

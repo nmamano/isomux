@@ -47,9 +47,9 @@ is the theme's own palette. `clinic` is the hospital's: a green-white palette
 in light mode and a Dracula-derived one in dark mode, which also recolours the
 wall plates and the clock hands.
 
-`beds` is the set the hospital draws today: two beds, the IV stand, the bedside
-cabinet and the cubicle curtain. It is one choice because layout.test.ts holds
-the beds clear of the desks as a set.
+`beds` is the set the hospital draws today: one bed, the IV stand and the
+bedside cabinet, between the pet and the trap door. It is one choice because
+layout.test.ts holds the set clear of the desks, the pet and the trap door.
 
 The "rotates" defaults keep today's alternation by room index.
 

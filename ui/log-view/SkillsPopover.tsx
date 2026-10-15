@@ -242,7 +242,7 @@ export function SkillsPopover({
               borderRadius: 6,
               outline: "none",
               color: "var(--text-secondary)",
-              fontFamily: "'JetBrains Mono',monospace",
+              fontFamily: "var(--font-ui)",
               // 16px on mobile keeps iOS Safari from auto-zooming on focus.
               fontSize: isMobile ? 16 : 12,
               caretColor: "var(--green)",

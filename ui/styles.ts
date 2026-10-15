@@ -1,13 +1,15 @@
 import { emitThemesCss } from "./themes.ts";
 
 export const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&display=swap');
   * { margin:0; padding:0; box-sizing:border-box; }
   ::-webkit-scrollbar { width:6px; }
   ::-webkit-scrollbar-track { background:transparent; }
   ::-webkit-scrollbar-thumb { background:var(--bg-hover); border-radius:3px; }
   .hide-scrollbar::-webkit-scrollbar { display:none; }
   .hide-scrollbar { scrollbar-width:none; -ms-overflow-style:none; }
+  /* ui/office/RoomTabBar.tsx: the scroller reaches below the bar for the
+     ghost stickers; only its tabs and buttons take pointer events. */
+  .room-tab-scroller > * { pointer-events: auto; }
 
   @keyframes waitBounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
   @keyframes errShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-2px)} 75%{transform:translateX(2px)} }
@@ -46,7 +48,13 @@ ${emitThemesCss()}
     83% { opacity: 1; }
   }
 
-  body { background: var(--bg-base); overflow:hidden; font-family: 'DM Sans', sans-serif; }
+  /* Two font stacks. Code, tool output, terminals and diffs use --font-mono;
+     everything else uses --font-ui. ui/fonts/fonts.css declares both. */
+  :root {
+    --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  body { background: var(--bg-base); overflow:hidden; font-family: var(--font-ui); }
   html, body { max-width: 100vw; overflow-x: hidden; }
   /* Editable controls need one visible glyph per character. Disable calt too;
      select and button share this rule harmlessly so typography stays centralized. */
@@ -69,7 +77,7 @@ ${emitThemesCss()}
   .md-content h2 { font-size: 15px; }
   .md-content h3 { font-size: 14px; }
   .md-content code {
-    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    font-family: var(--font-mono); font-size: 12px;
     background: var(--bg-code); padding: 1px 5px; border-radius: 4px; color: var(--text-dim);
   }
   .code-block-wrapper {
@@ -171,7 +179,7 @@ ${emitThemesCss()}
     /* The words are catalog-fed: ui/log-view/Markdown.tsx puts them on the
        node as data-loading, because a stylesheet cannot read the catalog. */
     content: attr(data-loading);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     color: var(--text-dim);
   }
@@ -180,7 +188,7 @@ ${emitThemesCss()}
      failed (and we get diagnostic info from a screenshot) instead of a
      silently-blank wrapper. */
   .md-content .mermaid-wrapper[data-mermaid-error="true"] {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     color: var(--red-text);
     background: var(--red-bg);
@@ -311,7 +319,7 @@ ${emitThemesCss()}
     display: none;
   }
   .d2h-isomux-host .d2h-diff-table {
-    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    font-family: var(--font-mono); font-size: 12px;
   }
   /* Side-by-side shows a single line number per pane, so its gutter can be
      tightened. Line-by-line is intentionally left at diff2html's defaults: its

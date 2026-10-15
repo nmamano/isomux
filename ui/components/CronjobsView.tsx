@@ -480,7 +480,7 @@ export function CronjobsView({
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
-              fontFamily: "'JetBrains Mono',monospace",
+              fontFamily: "var(--font-ui)",
             }}
           >
             {runFilter.jobName}
@@ -624,7 +624,7 @@ function CronjobsTable({
     fontSize: 10,
     fontWeight: 700,
     color: "var(--text-muted)",
-    fontFamily: "'JetBrains Mono',monospace",
+    fontFamily: "var(--font-ui)",
     letterSpacing: "0.05em",
     textAlign: "left",
     whiteSpace: "nowrap",
@@ -730,7 +730,7 @@ function CronjobsTable({
                         color: "var(--green-text)",
                         fontSize: 10,
                         fontWeight: 600,
-                        fontFamily: "'JetBrains Mono',monospace",
+                        fontFamily: "var(--font-ui)",
                         verticalAlign: "middle",
                       }}
                     >
@@ -746,7 +746,7 @@ function CronjobsTable({
                     padding: cellPad,
                     fontSize: 12,
                     color: "var(--text-secondary)",
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                   }}
                 >
                   {scheduleText(language, t, c.schedule)}
@@ -758,7 +758,7 @@ function CronjobsTable({
                     padding: cellPad,
                     fontSize: 11,
                     color: "var(--text-muted)",
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                   }}
                   data-last-run={c.id}
                 >
@@ -772,7 +772,7 @@ function CronjobsTable({
                   color: c.enabled
                     ? "var(--text-secondary)"
                     : "var(--text-ghost)",
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                 }}
               >
                 {!c.enabled
@@ -786,7 +786,7 @@ function CronjobsTable({
                   padding: cellPad,
                   fontSize: 11,
                   color: "var(--text-muted)",
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                 }}
               >
                 {runs.length}
@@ -797,7 +797,7 @@ function CronjobsTable({
                     padding: cellPad,
                     fontSize: 11,
                     color: "var(--text-muted)",
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                   }}
                 >
                   {c.username && c.username !== c.createdBy
@@ -893,7 +893,7 @@ function RunsTable({
     fontSize: 10,
     fontWeight: 700,
     color: "var(--text-muted)",
-    fontFamily: "'JetBrains Mono',monospace",
+    fontFamily: "var(--font-ui)",
     letterSpacing: "0.05em",
     textAlign: "left",
     whiteSpace: "nowrap",
@@ -1013,7 +1013,7 @@ function RunsTable({
                   padding: cellPad,
                   fontSize: 11,
                   color: "var(--text-muted)",
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                   whiteSpace: "nowrap",
                 }}
               >
@@ -1040,7 +1040,7 @@ function RunsTable({
                     padding: cellPad,
                     fontSize: 11,
                     color: "var(--text-muted)",
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                   }}
                 >
                   {formatDuration(t, r.startedAt, r.endedAt)}
@@ -1071,7 +1071,7 @@ function RunsTable({
             style={{
               fontSize: 11,
               color: "var(--text-muted)",
-              fontFamily: "'JetBrains Mono',monospace",
+              fontFamily: "var(--font-ui)",
             }}
           >
             {page + 1} / {totalPages}

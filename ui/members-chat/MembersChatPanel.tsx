@@ -167,7 +167,7 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
         alignItems: "center",
         gap: 4,
         fontSize: 10,
-        fontFamily: "'DM Sans',sans-serif",
+        fontFamily: "var(--font-ui)",
         fontWeight: 600,
         transition: "color 0.15s",
       }}
@@ -545,7 +545,7 @@ export function MembersChatPanel({
             letterSpacing: "0.05em",
             textTransform: "uppercase",
             color: "var(--text-primary)",
-            fontFamily: "'DM Sans',sans-serif",
+            fontFamily: "var(--font-ui)",
           }}
         >
           {t("membersChat.title")}
@@ -678,7 +678,6 @@ export function MembersChatPanel({
                 <EditableUserMessage
                   content={m.content}
                   entryId={m.id}
-                  variant="members-chat"
                   isMobile={isMobile}
                   username={author.label}
                   onCancel={() => setEditingId(null)}
@@ -951,7 +950,7 @@ export function MembersChatPanel({
                   background: att.error ? "var(--red-bg)" : "var(--bg-hover)",
                   border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
                   fontSize: isMobile ? 13 : 11,
-                  fontFamily: "'DM Sans',sans-serif",
+                  fontFamily: "var(--font-ui)",
                   color: att.error
                     ? "var(--red-text)"
                     : "var(--text-secondary)",
@@ -1064,7 +1063,7 @@ export function MembersChatPanel({
                 border: "none",
                 outline: "none",
                 color: "var(--text-secondary)",
-                fontFamily: "'DM Sans',sans-serif",
+                fontFamily: "var(--font-ui)",
                 fontSize: isMobile ? 16 : 13,
                 caretColor: "var(--green)",
                 resize: "none",

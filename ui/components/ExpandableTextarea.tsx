@@ -290,7 +290,7 @@ function ExpandedEditor({
             background: "var(--bg-input)",
             color: "var(--text-primary)",
             fontSize: 13,
-            fontFamily: "'JetBrains Mono',monospace",
+            fontFamily: "var(--font-ui)",
             lineHeight: 1.6,
             resize: "none",
             outline: "none",

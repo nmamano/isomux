@@ -475,7 +475,7 @@ export function CronjobRunView({
                   style={{
                     fontSize: 11,
                     color: STATUS_COLOR[run.status],
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                     fontWeight: 600,
                     flexShrink: 0,
                   }}
@@ -490,7 +490,7 @@ export function CronjobRunView({
                   gap: 8,
                   fontSize: 11,
                   color: "var(--text-muted)",
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                 }}
               >
                 <span>
@@ -532,7 +532,7 @@ export function CronjobRunView({
                 style={{
                   fontSize: 11,
                   color: STATUS_COLOR[run.status],
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                   fontWeight: 600,
                 }}
               >
@@ -542,7 +542,7 @@ export function CronjobRunView({
                 style={{
                   fontSize: 11,
                   color: "var(--text-muted)",
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                 }}
               >
                 {formatDateTime(language, run.startedAt, "monthDayTime")}
@@ -551,7 +551,7 @@ export function CronjobRunView({
                 style={{
                   fontSize: 11,
                   color: "var(--text-ghost)",
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                 }}
               >
                 {triggerNode(run)}
@@ -591,7 +591,7 @@ export function CronjobRunView({
               border: "1px solid var(--border-subtle)",
               fontSize: 12,
               color: "var(--text-secondary)",
-              fontFamily: "'JetBrains Mono',monospace",
+              fontFamily: "var(--font-ui)",
             }}
           >
             <div
@@ -810,7 +810,7 @@ export function CronjobRunView({
                   color: editingLogEntryId
                     ? "var(--text-muted)"
                     : "var(--text-secondary)",
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "var(--font-ui)",
                   fontSize: isMobile ? 16 : 13,
                   caretColor: "var(--green)",
                   resize: "none",

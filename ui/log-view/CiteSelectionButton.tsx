@@ -94,7 +94,7 @@ export function CiteSelectionButton({
           borderRadius: 6,
           color: "var(--text-secondary)",
           cursor: "pointer",
-          fontFamily: "'JetBrains Mono',monospace",
+          fontFamily: "var(--font-ui)",
           fontSize: 11,
           fontWeight: 600,
           letterSpacing: "0.02em",

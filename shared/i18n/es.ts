@@ -1992,7 +1992,7 @@ Cosas que puedes hacer por él:
   "office.decor.floorPlant": "Planta de suelo",
   "office.decor.floorPlant.plant": "Planta en maceta",
   "office.decor.ward": "Mobiliario hospitalario",
-  "office.decor.ward.beds": "Camas",
+  "office.decor.ward.beds": "Cama",
   "office.decor.none": "Ninguno",
   "office.decor.coat": "Pelaje",
   "office.pet.label": "Mascota de la sala",

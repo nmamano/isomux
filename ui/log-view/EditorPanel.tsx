@@ -1132,7 +1132,7 @@ export function EditorPanel({
                 border: "1px solid var(--green-border)",
                 background: "var(--green-bg)",
                 color: "var(--green-text)",
-                fontFamily: "'JetBrains Mono', monospace",
+                fontFamily: "var(--font-ui)",
                 fontSize: 13,
                 fontWeight: 500,
                 cursor: "pointer",
@@ -1581,7 +1581,7 @@ export function EditorPanel({
             justifyContent: "center",
             color: "var(--text-ghost)",
             fontSize: 12,
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: "var(--font-ui)",
           }}
         >
           {i18n.t("panels.editor.noFileOpen")}
@@ -1663,7 +1663,7 @@ function bannerBtn(color: string): React.CSSProperties {
     background: "transparent",
     color,
     fontSize: 11,
-    fontFamily: "'JetBrains Mono',monospace",
+    fontFamily: "var(--font-ui)",
     cursor: "pointer",
   };
 }

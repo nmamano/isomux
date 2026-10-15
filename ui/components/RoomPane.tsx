@@ -675,15 +675,15 @@ const checkboxStyle = (enabled: boolean): React.CSSProperties => ({
 });
 const cancelBtnStyle: React.CSSProperties = {
   ...dialogCancelBtn,
-  fontFamily: "'DM Sans',sans-serif",
+  fontFamily: "var(--font-ui)",
 };
 const saveBtnStyle: React.CSSProperties = {
   ...dialogSaveBtn,
-  fontFamily: "'DM Sans',sans-serif",
+  fontFamily: "var(--font-ui)",
 };
 const deleteBtnStyle: React.CSSProperties = {
   ...dialogCancelBtn,
   borderColor: "rgba(255, 107, 107, 0.45)",
   color: "var(--red-text)",
-  fontFamily: "'DM Sans',sans-serif",
+  fontFamily: "var(--font-ui)",
 };

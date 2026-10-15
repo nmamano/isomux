@@ -324,7 +324,7 @@ function QueueChips({
                 background: isAgent ? "var(--bg-base)" : "var(--bg-hover)",
                 border: `1px ${isAgent ? "dashed" : "solid"} var(--border-medium)`,
                 fontSize: isMobile ? 13 : 12,
-                fontFamily: "'JetBrains Mono',monospace",
+                fontFamily: "var(--font-ui)",
                 color: "var(--text-secondary)",
               }}
             >
@@ -1886,7 +1886,7 @@ export function LogView({
                 <span
                   {...noTranslate()}
                   style={{
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                     color: "var(--text-ghost)",
                     fontSize: 11,
                     whiteSpace: "nowrap",
@@ -1908,7 +1908,7 @@ export function LogView({
                     <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
                     <span
                       style={{
-                        fontFamily: "'JetBrains Mono',monospace",
+                        fontFamily: "var(--font-ui)",
                         fontSize: 10,
                         fontWeight: 600,
                         letterSpacing: 0.5,
@@ -2645,7 +2645,7 @@ export function LogView({
                         : "var(--bg-hover)",
                       border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
                       fontSize: isMobile ? 13 : 11,
-                      fontFamily: "'JetBrains Mono',monospace",
+                      fontFamily: "var(--font-ui)",
                       color: att.error
                         ? "var(--red-text)"
                         : "var(--text-secondary)",
@@ -2887,7 +2887,7 @@ export function LogView({
                       isBusy || editingLogEntryId
                         ? "var(--text-muted)"
                         : "var(--text-secondary)",
-                    fontFamily: "'JetBrains Mono',monospace",
+                    fontFamily: "var(--font-ui)",
                     fontSize: isMobile ? 16 : 13,
                     caretColor: "var(--green)",
                     resize: "none",

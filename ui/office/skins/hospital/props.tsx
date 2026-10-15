@@ -117,19 +117,20 @@ const FOOT_RAIL = 16;
 // this whole layer, so a desk whose drawing overlaps a bed paints over it -
 // and the desks nearest these props stand FURTHER from the viewer than the
 // props do, which makes that overlap read as a hole rather than as depth. So
-// both beds stand clear of all eight desk footprints and in front of the desk
+// the bed stands clear of all eight desk footprints and in front of the desk
 // grid, along the room's front-right floor edge, where the ward is visible end
-// to end. layout.test.ts holds the numbers.
+// to end. It also stands between the pet and the trap door with a clear tile
+// to each, which is why the cabinet stands close in at the bed's head.
+// layout.test.ts holds the numbers.
 export const PLACEMENT = {
-  cabinet: { x: 384, y: 362 },
-  bedFar: { x: 300, y: 400 },
-  ivStand: { x: 246, y: 432 },
-  bedNear: { x: 180, y: 460 },
+  cabinet: { x: 354, y: 373 },
+  bed: { x: 288, y: 406 },
+  ivStand: { x: 234, y: 438 },
 } as const;
 
 /** Which of these places holds a bed. The layout test measures these against
  *  the desks; everything else here is thin enough to share a tile with one. */
-export const BED_SPOTS = ["bedFar", "bedNear"] as const;
+export const BED_SPOTS = ["bed"] as const;
 
 /** The box a bed paints, in scene coordinates: the floor rectangle widened to
  *  the frame corners and raised to the top of the head rail. */
@@ -174,7 +175,7 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
   return (
     <g aria-hidden="true">
       {/* Contact shadow. It is the bed's own FOOTPRINT softened, not an
-          ellipse drawn around it: both beds stand a few units inside the
+          ellipse drawn around it: the bed stands a few units inside the
           front-right floor edge, and an ellipse wide enough to read under a
           bed hangs over that edge and lands on the slab below it. */}
       <path
@@ -333,7 +334,7 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
   );
 }
 
-/** The drip stand standing between the two beds: a wheeled base, a pole, a
+/** The drip stand beside the bed: a wheeled base, a pole, a
  *  hook and a half-full bag with its line running down. */
 function IvStand({
   at,
@@ -415,7 +416,7 @@ function IvStand({
 const CURTAIN_RISE = 96;
 const CURTAIN_DROP = 88;
 
-/** The cubicle curtain, gathered against its rail beside the far bed's head -
+/** The cubicle curtain, gathered against its rail beside the bed's head -
  *  which is how a curtain stands when nobody has pulled it round. */
 function Curtain({
   at,
@@ -425,7 +426,7 @@ function Curtain({
   c: HospitalColors;
 }) {
   const top = at.y - CURTAIN_RISE;
-  // The rail runs along the floor axis the beds are laid on, so the curtain
+  // The rail runs along the floor axis the bed is laid on, so the curtain
   // hangs square to them rather than across the grid, and each fold hangs from
   // its own point on it - a flat top line reads as a board, not cloth.
   const width = 44;
@@ -485,9 +486,8 @@ export const FURNITURE: Record<
 > = {
   curtain: Curtain,
   cabinet: BedsideCabinet,
-  bedFar: Bed,
+  bed: Bed,
   ivStand: IvStand,
-  bedNear: Bed,
 };
 
 export function HospitalProps() {

@@ -1948,7 +1948,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "office.decor.floorPlant": "Floor plant",
   "office.decor.floorPlant.plant": "Potted plant",
   "office.decor.ward": "Ward furniture",
-  "office.decor.ward.beds": "Beds",
+  "office.decor.ward.beds": "Bed",
   "office.decor.none": "None",
   "office.decor.coat": "Coat",
   "office.pet.label": "Room pet",

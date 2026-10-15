@@ -1,6 +1,5 @@
 import { useTheme } from "../store.tsx";
 import { useCurrentRoomDecor } from "./skins/index.tsx";
-import { PET_SPOTS, petSpot } from "./RoomProps.tsx";
 import { FLOOR_CLIP, SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
 
 // Contact shadows for the props that stand on the floor: the pet bed, the
@@ -64,15 +63,7 @@ function Blob({
 
 export function GroundShadows() {
   const { mode } = useTheme();
-  const { pet, floorPlant, ward } = useCurrentRoomDecor();
-  // The bed's shadow stands where the bed does: CAT_BED is measured at the
-  // corner spot, so it moves by the same offset when the pet moves aside.
-  const spot = petSpot(ward);
-  const petShadow = {
-    ...CAT_BED,
-    cx: CAT_BED.cx + spot.x - PET_SPOTS.corner.x,
-    cy: CAT_BED.cy + spot.y - PET_SPOTS.corner.y,
-  };
+  const { pet, floorPlant } = useCurrentRoomDecor();
 
   // A near-black floor swallows a shadow, so the dark theme carries the
   // stronger one; the light theme seats the props at less.
@@ -110,7 +101,7 @@ export function GroundShadows() {
         </clipPath>
       </defs>
       <g clipPath="url(#gs-floor)">
-        {pet === "shown" && <Blob {...petShadow} />}
+        {pet === "shown" && <Blob {...CAT_BED} />}
         {floorPlant === "plant" && <Blob {...PLANT} />}
       </g>
     </svg>

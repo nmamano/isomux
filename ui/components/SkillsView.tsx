@@ -572,7 +572,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                 fontSize: 10,
                 fontWeight: 600,
                 color: "var(--text-muted)",
-                fontFamily: "'JetBrains Mono',monospace",
+                fontFamily: "var(--font-ui)",
                 flexShrink: 0,
               }}
             >

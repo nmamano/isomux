@@ -19,6 +19,8 @@ for (const entrypoint of ["ui/demo-entry.tsx", "ui/demo-app-entry.tsx"]) {
 copyFileSync("ui/demo.html", `${OUT_DIR}/index.html`);
 copyFileSync("ui/demo-app.html", `${OUT_DIR}/app.html`);
 copyFileSync("node_modules/@xterm/xterm/css/xterm.css", `${OUT_DIR}/xterm.css`);
+rmSync(`${OUT_DIR}/assets/fonts`, { recursive: true, force: true });
+cpSync("ui/fonts", `${OUT_DIR}/assets/fonts`, { recursive: true });
 rmSync(`${OUT_DIR}/katex`, { recursive: true, force: true });
 mkdirSync(`${OUT_DIR}/katex/fonts`, { recursive: true });
 copyFileSync(

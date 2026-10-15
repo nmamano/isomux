@@ -564,26 +564,16 @@ export function drawnPet(pet: RoomPet | null): RoomPet {
   return { species, coat };
 }
 
-/** Where the pet bed stands: the south corner, unless the ward's near bed
- *  stands there too, when it moves to the clear floor in front of desk 7.
- *  ui/office/skins/hospital/layout.test.ts holds both spots clear. */
-export const PET_SPOTS = {
-  corner: { x: 120, y: 460 },
-  besideWard: { x: -90, y: 360 },
-} as const;
-
-export function petSpot(ward: "none" | "beds"): { x: number; y: number } {
-  return ward === "beds" ? PET_SPOTS.besideWard : PET_SPOTS.corner;
-}
+/** Where the pet bed stands: the south corner, in every skin.
+ *  ui/office/skins/hospital/layout.test.ts holds it clear of the ward. */
+export const PET_SPOT = { x: 120, y: 460 } as const;
 
 /** The pet bed in the south corner, with whichever animal this room keeps. */
 export function PetCorner({
   pet,
-  at = PET_SPOTS.corner,
   onClick,
 }: {
   pet: RoomPet | null;
-  at?: { x: number; y: number };
   onClick?: (x: number, y: number) => void;
 }) {
   const shown = drawnPet(pet);
@@ -594,7 +584,7 @@ export function PetCorner({
   const snores = drawing.snores ?? true;
   return (
     <g
-      transform={`translate(${at.x}, ${at.y})`}
+      transform={`translate(${PET_SPOT.x}, ${PET_SPOT.y})`}
       // The props svg sets pointerEvents none, so the pet opts back in on its
       // own. data-no-pan keeps the click off the viewport's pan handler, the
       // same marker the wall panels use; the desks never see it because they
@@ -759,9 +749,7 @@ const PropsScene = memo(function PropsScene({
       )}
 
       {/* Sleepy office pet - south corner of office */}
-      {petShown === "shown" && (
-        <PetCorner pet={pet} at={petSpot(ward)} onClick={onPetClick} />
-      )}
+      {petShown === "shown" && <PetCorner pet={pet} onClick={onPetClick} />}
     </svg>
   );
 });

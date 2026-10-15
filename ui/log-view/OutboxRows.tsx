@@ -72,7 +72,7 @@ export function OutboxRows({
                 : "var(--bg-hover)",
               border: `1px solid ${failed ? "var(--red, #c0392b)" : "var(--border-medium)"}`,
               fontSize: isMobile ? 13 : 12,
-              fontFamily: "'JetBrains Mono',monospace",
+              fontFamily: "var(--font-ui)",
               color: "var(--text-secondary)",
             }}
           >

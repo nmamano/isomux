@@ -10,9 +10,10 @@
 
 import { expect, test } from "bun:test";
 import { DESK_SLOTS } from "../../../../shared/desks.ts";
-import { isoXY } from "../../grid.ts";
+import { FLOOR_COL_DX, FLOOR_COL_DY, isoXY } from "../../grid.ts";
 import { BED_SPOTS, BED_U, BED_V, PLACEMENT, bedBox } from "./props.tsx";
-import { PET_SPOTS, petSpot } from "../../RoomProps.tsx";
+import { PET_SPOT } from "../../RoomProps.tsx";
+import { TRAP_DOOR_CENTER, TRAP_DOOR_U, TRAP_DOOR_V } from "../../TrapDoor.tsx";
 
 // What one occupied desk PAINTS, as an offset from its floor point, measured
 // off a real browser render of all eight desks (2026-09-16, headless Chrome,
@@ -129,16 +130,10 @@ function petBox(at: { x: number; y: number }): Box {
   };
 }
 
-// A room can show the ward and a pet together. The pet's own corner is where
-// the near bed's foot stands, so with beds the pet moves aside - to a spot
-// clear of both beds and every desk, and wholly on the floor.
-test("with the ward, the pet stands clear of the beds and the desks", () => {
-  expect(overlaps(petBox(PET_SPOTS.corner), bedBox(PLACEMENT.bedNear))).toBe(
-    true,
-  );
-  const at = petSpot("beds");
-  expect(at).not.toEqual(PET_SPOTS.corner);
-  expect(petSpot("none")).toEqual(PET_SPOTS.corner);
+// A room can show the ward and a pet together. The pet keeps its own corner,
+// so the ward stands clear of it, as it does of every desk.
+test("the pet stands in its corner, clear of the bed and the desks", () => {
+  const at = PET_SPOT;
   const pet = petBox(at);
   for (const spot of BED_SPOTS) {
     expect({ spot, hit: overlaps(pet, bedBox(PLACEMENT[spot])) }).toEqual({
@@ -159,5 +154,110 @@ test("with the ward, the pet stands clear of the beds and the desks", () => {
     { x: pet.maxX, y: at.y },
   ]) {
     expect({ corner, on: onFloor(corner) }).toEqual({ corner, on: true });
+  }
+});
+
+// The ward stands between the pet and the trap door, and crowds neither (Nil,
+// task e01ca389). Distances are between floor footprints, the shapes each
+// piece covers on the floor plane, so a tall piece is not measured by its
+// height.
+type Point = { x: number; y: number };
+
+function footprint(spot: keyof typeof PLACEMENT): Point[] {
+  const at = PLACEMENT[spot];
+  const shapes: Record<keyof typeof PLACEMENT, Array<[number, number]>> = {
+    // The four castors (Bed in props.tsx).
+    bed: [
+      [1, 1],
+      [1, -1],
+      [-1, -1],
+      [-1, 1],
+    ].map(([u, v]): [number, number] => [
+      BED_U.x * u + BED_V.x * v,
+      BED_U.y * u + BED_V.y * v,
+    ]),
+    // The cabinet's base diamond (BedsideCabinet in decorations.tsx).
+    cabinet: [
+      [0, -18],
+      [23, -6],
+      [0, 6],
+      [-23, -6],
+    ],
+    // The three feet (IvStand in props.tsx).
+    ivStand: [
+      [-14, 7],
+      [14, 7],
+      [0, -7],
+    ],
+  };
+  return shapes[spot].map(([dx, dy]) => ({ x: at.x + dx, y: at.y + dy }));
+}
+
+// The hatch with its rim shadow, poly(1.12) in TrapDoor.tsx.
+const HATCH: Point[] = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+].map(([u, v]) => ({
+  x: TRAP_DOOR_CENTER.x + 1.12 * (TRAP_DOOR_U.x * u + TRAP_DOOR_V.x * v),
+  y: TRAP_DOOR_CENTER.y + 1.12 * (TRAP_DOOR_U.y * u + TRAP_DOOR_V.y * v),
+}));
+
+// The pet bed's base on the floor, an ellipse as wide as PET_INK.
+const PET_BASE: Point[] = Array.from({ length: 24 }, (_, i) => ({
+  x: PET_SPOT.x + PET_INK.left * Math.cos((i * Math.PI) / 12),
+  y: PET_SPOT.y + 4 + 15 * Math.sin((i * Math.PI) / 12),
+}));
+
+function segmentDistance(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const t = Math.max(
+    0,
+    Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)),
+  );
+  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+}
+
+/** The gap between two convex outlines that do not overlap. */
+function gap(a: Point[], b: Point[]): number {
+  let best = Infinity;
+  for (const [from, to] of [
+    [a, b],
+    [b, a],
+  ])
+    for (const p of from)
+      for (const [i, q] of to.entries())
+        best = Math.min(best, segmentDistance(p, q, to[(i + 1) % to.length]));
+  return best;
+}
+
+// One floor tile's edge: enough floor that neither the pet nor the hatch reads
+// as part of the ward.
+const MIN_CLEARANCE = Math.hypot(FLOOR_COL_DX, FLOOR_COL_DY);
+
+test("the ward keeps clear floor to the pet and to the trap door", () => {
+  // Between them: the bed's floor point projects onto the middle of the line
+  // from the pet to the hatch.
+  const bed = PLACEMENT.bed;
+  const dx = TRAP_DOOR_CENTER.x - PET_SPOT.x;
+  const dy = TRAP_DOOR_CENTER.y - PET_SPOT.y;
+  const along =
+    ((bed.x - PET_SPOT.x) * dx + (bed.y - PET_SPOT.y) * dy) /
+    (dx * dx + dy * dy);
+  expect({ along, between: along > 0.3 && along < 0.7 }).toMatchObject({
+    between: true,
+  });
+  for (const spot of Object.keys(PLACEMENT) as Array<keyof typeof PLACEMENT>) {
+    const piece = footprint(spot);
+    expect({ spot, pet: gap(piece, PET_BASE) >= MIN_CLEARANCE }).toEqual({
+      spot,
+      pet: true,
+    });
+    expect({ spot, hatch: gap(piece, HATCH) >= MIN_CLEARANCE }).toEqual({
+      spot,
+      hatch: true,
+    });
   }
 });

@@ -128,14 +128,14 @@ export function securityHeaders(opts?: {
     "default-src 'self'",
     "base-uri 'self'",
     "connect-src 'self' ws: wss:",
-    "font-src 'self' https://fonts.gstatic.com",
+    "font-src 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
     `frame-src ${frameSources.join(" ")}`,
     "img-src 'self' data: blob: https:",
     "object-src 'none'",
     "script-src 'self' 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "style-src 'self' 'unsafe-inline'",
     ...(isHttps ? ["upgrade-insecure-requests"] : []),
   ].join("; ");
   const h: Record<string, string> = {
