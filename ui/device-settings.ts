@@ -203,13 +203,7 @@ export function setUsagePin(
   } catch {}
 }
 
-export function shouldNotifyRoom(
-  roomId: string | null,
-  setting: NotifRoomsSetting,
-): boolean {
-  if (roomId == null) return false;
-  return setting.includes(roomId);
-}
+export { shouldNotifyRoom } from "../shared/notif-rooms.ts";
 
 export type { NotifRoomsSetting };
 

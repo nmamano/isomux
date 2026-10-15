@@ -27,6 +27,7 @@ import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 import { MaskedInput } from "./MaskedInput.tsx";
 import { Reserved } from "./Reserved.tsx";
 import { getPagerLayout, setPagerLayout } from "../device-settings.ts";
+import { PushDevicesBlock } from "./PushDevicesBlock.tsx";
 
 const REPEAT_CHOICES = [1, 5, 15, 30, 60, 480, 1440];
 const ISSUES_URL = "https://github.com/nmamano/isomux/issues";
@@ -357,6 +358,7 @@ export function PagerSettingsPane({ username }: { username: string }) {
           </p>
         </div>
       )}
+      <PushDevicesBlock username={username} />
     </div>
   );
 }

@@ -162,6 +162,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 
 - **Agents and apps page you** when a person must act: a blocked process, a failure they cannot fix, a decision only you can make.
 - **Pages reach your Discord**, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
+- **Device notifications**: pages also show as notifications on a phone or browser you turn on in Settings → You → Pager. On iPhone and iPad, add Isomux to the Home Screen first.
 - **Pager view**: every page you can see, open pages first, with ack and resolve. A badge on the Pager button counts your open pages.
 
 ## Safety

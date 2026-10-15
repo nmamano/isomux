@@ -21,6 +21,10 @@ test("the pane saves only what changed, never shows the saved URL, and runs the 
   let testRes: unknown = { delivered: true };
   setApiShim(async (method, path, body) => {
     if (method === "GET" && path === PATH) return res;
+    // The push devices block below the form reads its own route.
+    if (method === "GET" && path === "/api/users/boss/push-devices") {
+      return { publicKey: "", devices: [] };
+    }
     writes.push([method, path, body]);
     if (method === "PATCH") {
       const b = body as Record<string, unknown>;

@@ -19,7 +19,10 @@ import {
   type PagerEntry,
   type PagerState,
 } from "../../shared/types.ts";
-import type { PagerSettingsRes } from "../../shared/contract-shapes.ts";
+import type {
+  PagerSettingsRes,
+  PushDevicesRes,
+} from "../../shared/contract-shapes.ts";
 import {
   comparePagerEntries,
   resolvedCursor,
@@ -150,19 +153,23 @@ export function PagerView({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   const scrollToRef = useRef<string | null>(null);
-  // Whether this member's pages reach Discord: null until a settings read
-  // answers, so a load or a failed read never claims Discord is absent.
-  const [discordSet, setDiscordSet] = useState<boolean | null>(null);
+  // Whether this member's pages leave the office (Discord or a device with
+  // notifications on): null until the reads answer, so a load or a failed
+  // read never claims both are absent.
+  const [destinationSet, setDestinationSet] = useState<boolean | null>(null);
   const selfName = sessionContext?.username ?? null;
   useEffect(() => {
     if (selfName === null) return;
     let live = true;
-    apiFetch<PagerSettingsRes>(
-      "GET",
-      `/api/users/${encodeURIComponent(selfName)}/pager-settings`,
-    )
-      .then((res) => {
-        if (live) setDiscordSet(res.webhookUrlMasked !== null);
+    const base = `/api/users/${encodeURIComponent(selfName)}`;
+    Promise.all([
+      apiFetch<PagerSettingsRes>("GET", `${base}/pager-settings`),
+      apiFetch<PushDevicesRes>("GET", `${base}/push-devices`).catch(() => null),
+    ])
+      .then(([settings, push]) => {
+        if (!live) return;
+        if (settings.webhookUrlMasked !== null) setDestinationSet(true);
+        else if (push !== null) setDestinationSet(push.devices.length > 0);
       })
       .catch(() => {});
     return () => {
@@ -587,7 +594,7 @@ export function PagerView({
             {t("pager.view.unavailable")}
           </div>
         )}
-        {discordSet === false && onOpenPagerSettings && (
+        {destinationSet === false && onOpenPagerSettings && (
           <div
             role="status"
             data-pager-discord-unset=""
@@ -632,7 +639,7 @@ export function PagerView({
             {t("pager.view.empty")}
             {/* The notice above already links there when Discord is not
                 set up. */}
-            {discordSet !== false && onOpenPagerSettings && (
+            {destinationSet !== false && onOpenPagerSettings && (
               <div style={{ marginTop: 10 }}>
                 <button
                   type="button"

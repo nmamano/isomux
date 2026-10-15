@@ -3185,6 +3185,14 @@ export async function demoApi(
       pagerActMatch[2] as "ack" | "resolve",
     );
   }
+  // pushDevices.* - the demo has no push keys: an empty key tells the
+  // settings block that this office cannot send notifications.
+  if (/^\/api\/users\/[^/]+\/push-devices(\/.*)?$/.test(pathname)) {
+    if (method !== "GET" || !pathname.endsWith("/push-devices")) {
+      throw new ApiError(404, "not_found", "");
+    }
+    return { publicKey: "", devices: [] };
+  }
   // pagerSettings.* - the visitor's own pager settings round-trip in memory,
   // and the test send always "arrives": the demo has no Discord to reach.
   // Only the mask is kept, as the server returns nothing more.

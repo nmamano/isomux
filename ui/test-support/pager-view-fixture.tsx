@@ -26,6 +26,8 @@ export const shim = {
     | { webhookUrlMasked: string | null }
     | "fail"
     | "hold",
+  // The number of devices with notifications on, or "fail".
+  pushDevices: 0 as number | "fail",
 };
 
 // The reducer's latest state and dispatch, and the deep-link setter.
@@ -52,6 +54,17 @@ export function setupPagerViewTests() {
         ...shim.pagerSettings,
       };
     }
+    if (/^\/api\/users\/[^/]+\/push-devices$/.test(path)) {
+      if (shim.pushDevices === "fail") throw new Error("unavailable");
+      return {
+        publicKey: "",
+        devices: Array.from({ length: shim.pushDevices }, (_, i) => ({
+          id: `d${i}`,
+          label: "",
+          createdAt: 0,
+        })),
+      };
+    }
     const m = /^\/api\/pager\/([^/]+)\/(ack|resolve)$/.exec(path);
     if (m && method === "POST") {
       if (shim.failActions) throw new Error("refused");
@@ -70,6 +83,7 @@ export function setupPagerViewTests() {
     shim.failActions = false;
     shim.heldApps = null;
     shim.pagerSettings = { webhookUrlMasked: null };
+    shim.pushDevices = 0;
   });
 }
 

@@ -75,6 +75,7 @@ import {
 import { formatSince, useAccessListsSeed } from "./access-shared.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { forgetThisDevice } from "../push-subscription.ts";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
 // still open a dialog (office, room, device label, theme, updates); those are
@@ -459,8 +460,11 @@ export function UserSettingsView({
     rosterIndex === -1 ? [] : sidebarGroups.slice(rosterIndex + 1);
   const rosterGroup = rosterIndex === -1 ? null : sidebarGroups[rosterIndex];
 
-  function signOut() {
+  async function signOut() {
     setLogoutBlockedReason(null);
+    // First, while the session still works: this device stops getting the
+    // member's pages.
+    if (sessionContext) await forgetThisDevice(sessionContext.username);
     // DELETE /api/sessions/current revokes this session; the server core then
     // fans out session_expired and closes the socket, so the page reload lands
     // us on the login wall. A 409 means the lockout-prevention refused it
@@ -758,7 +762,7 @@ export function UserSettingsView({
             {sessionContext && (
               <div style={{ padding: "0 14px" }}>
                 <button
-                  onClick={signOut}
+                  onClick={() => void signOut()}
                   style={{
                     padding: "8px 14px",
                     borderRadius: 6,

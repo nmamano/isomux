@@ -2947,7 +2947,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // failure classes (server/pager-delivery.ts).
   "settings.sidebar.pager": "Pager",
   "pager.settings.intro":
-    "When an agent or app needs you and you may not be looking at the office, it raises a page. The page shows in the Pager view and goes to your Discord, where it mentions you so your phone notifies you. An open page repeats until you ack it (you saw it) or someone resolves it (the problem is over).",
+    "When an agent or app needs you and you may not be looking at the office, it raises a page. The page shows in the Pager view and goes to your Discord, where it mentions you so your phone notifies you, and to the devices where you turned on notifications. An open page repeats until you ack it (you saw it) or someone resolves it (the problem is over).",
   "pager.settings.webhook": "Discord webhook URL",
   "pager.settings.webhookHint":
     "<b>Where to find it:</b> in Discord, open the channel's settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.",
@@ -2966,7 +2966,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "pager.settings.webhookReplace": "Paste a new URL above to replace it.",
   "pager.settings.webhookSaved": "Saved",
   "pager.settings.onlyDiscord":
-    "Discord is the only pager destination supported for now. <link>File an issue on GitHub</link> if you'd like more integrations.",
+    "Discord and device notifications are the only pager destinations for now. <link>File an issue on GitHub</link> if you'd like more integrations.",
   "pager.settings.saved": "Saved.",
   "pager.settings.loadFailed": "Could not load the pager settings.",
   "pager.settings.test": "Send test page",
@@ -2994,7 +2994,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "pager.view.noRoom": "No room",
   "pager.view.empty": "No pages",
   "pager.view.discordUnset":
-    "Discord is not set up, so your pages stay in the office.",
+    "Neither Discord nor device notifications are set up, so your pages stay in the office.",
   "pager.view.settingsLink": "Pager settings",
   "pager.view.loadFailed": "Could not load pages.",
   "pager.view.retry": "Try again",
@@ -3021,6 +3021,31 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.pagerSettings.read": "Read pager settings",
   "apiCall.pagerSettings.save": "Save pager settings",
   "apiCall.pagerSettings.test": "Send test page",
+  "push.test": "Test notification from Isomux.",
+  "push.settings.title": "Notifications on this device",
+  "push.settings.hint":
+    "Pages from rooms with notifications on also show as notifications on this device.",
+  "push.settings.turnOn": "Turn on",
+  "push.settings.turnOff": "Turn off",
+  "push.settings.test": "Send test notification",
+  "push.settings.testSent": "Test notification sent.",
+  "push.settings.testFailed": "Test notification not sent: {reason}.",
+  "push.settings.iosInstall":
+    "On iPhone and iPad, add Isomux to the Home Screen and open it from there.",
+  "push.settings.unsupported": "This browser cannot show push notifications.",
+  "push.settings.blocked":
+    "Notifications for Isomux are blocked in this browser's settings.",
+  "push.settings.failed": "Could not change notifications on this device.",
+  "push.settings.otherDevices": "Other devices",
+  "push.settings.remove": "Remove",
+  "push.settings.unnamed": "Unnamed device",
+  "push.failure.gone": "subscription expired",
+  "push.failure.rejected": "the push service rejected it",
+  "push.failure.unreachable": "push service unreachable",
+  "apiCall.pushDevices.list": "List notification devices",
+  "apiCall.pushDevices.add": "Turn on device notifications",
+  "apiCall.pushDevices.remove": "Remove notification device",
+  "apiCall.pushDevices.test": "Send test notification",
   "common.skills": "Skills",
   "skills.engine": "Engine",
   "skills.search": "Search skills",

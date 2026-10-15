@@ -169,6 +169,10 @@ import type {
   PagerSettingsReq,
   PagerSettingsRes,
   PagerTestRes,
+  PushDevice,
+  PushDeviceReq,
+  PushDevicesRes,
+  PushTestRes,
   InviteMintReq,
   AccessSettingsReq,
   AccessSettings,
@@ -1492,6 +1496,41 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/users/:username/pager-settings/test",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
+
+  // The devices where the member turned on notifications for their pages
+  // (Web Push). Same self-only gate as pagerSettings: an endpoint is where
+  // the server sends, so no agent scope reaches these routes.
+  defineRoute<void, PushDevicesRes>({
+    opId: "pushDevices.list",
+    method: "GET",
+    path: "/api/users/:username/push-devices",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
+  defineRoute<PushDeviceReq, PushDevice>({
+    opId: "pushDevices.add",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/users/:username/push-devices",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
+  defineRoute<void, void>({
+    opId: "pushDevices.remove",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "DELETE",
+    path: "/api/users/:username/push-devices/:id",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
+  defineRoute<void, PushTestRes>({
+    opId: "pushDevices.test",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/users/:username/push-devices/:id/test",
     auth: cap("user:env", selfUserOrApi),
     emits: [],
   }),

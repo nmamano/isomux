@@ -224,6 +224,9 @@ describe("verified backup publication", () => {
       "pager-settings.json",
       "pager-settings.json.tmp",
       "pager-settings.json.corrupt-1789000000000",
+      "web-push.json",
+      "web-push.json.tmp",
+      "web-push.json.corrupt-1789000000000",
     ];
     const kept = [
       "pager.json",

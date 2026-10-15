@@ -2976,7 +2976,7 @@ Cosas que puedes hacer por él:
     "Bienvenidos al vestíbulo. En una oficina real respondo preguntas sobre Isomux y sobre esta oficina. Esto es una demo, así que no se ha enviado nada a un modelo.",
   "settings.sidebar.pager": "Avisos",
   "pager.settings.intro":
-    "Cuando un agente o una app te necesita y quizá no estás mirando la oficina, envía un aviso. El aviso aparece en la vista de Avisos y llega a tu Discord, donde te menciona para que tu móvil te avise. Un aviso abierto se repite hasta que lo confirmas (lo has visto) o alguien lo resuelve (el problema ha terminado).",
+    "Cuando un agente o una app te necesita y quizá no estás mirando la oficina, envía un aviso. El aviso aparece en la vista de Avisos y llega a tu Discord, donde te menciona para que tu móvil te avise, y a los dispositivos donde activaste las notificaciones. Un aviso abierto se repite hasta que lo confirmas (lo has visto) o alguien lo resuelve (el problema ha terminado).",
   "pager.settings.webhook": "URL del webhook de Discord",
   "pager.settings.webhookHint":
     "<b>Dónde encontrarla:</b> en Discord, abre los ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL del webhook.",
@@ -2997,7 +2997,7 @@ Cosas que puedes hacer por él:
     "Pega arriba una URL nueva para sustituirla.",
   "pager.settings.webhookSaved": "Guardada",
   "pager.settings.onlyDiscord":
-    "Por ahora, Discord es el único destino de avisos. <link>Abre una issue en GitHub</link> si quieres más integraciones.",
+    "Por ahora, Discord y las notificaciones del dispositivo son los únicos destinos de avisos. <link>Abre una issue en GitHub</link> si quieres más integraciones.",
   "pager.settings.saved": "Guardado.",
   "pager.settings.loadFailed": "No se pudieron cargar los ajustes de avisos.",
   "pager.settings.test": "Enviar aviso de prueba",
@@ -3023,7 +3023,7 @@ Cosas que puedes hacer por él:
   "pager.view.noRoom": "Sin sala",
   "pager.view.empty": "No hay avisos",
   "pager.view.discordUnset":
-    "Discord no está configurado, así que tus avisos se quedan en la oficina.",
+    "Ni Discord ni las notificaciones del dispositivo están configurados, así que tus avisos se quedan en la oficina.",
   "pager.view.settingsLink": "Ajustes de avisos",
   "pager.view.loadFailed": "No se pudieron cargar los avisos.",
   "pager.view.retry": "Reintentar",
@@ -3050,6 +3050,34 @@ Cosas que puedes hacer por él:
   "apiCall.pagerSettings.read": "Leer los ajustes de avisos",
   "apiCall.pagerSettings.save": "Guardar los ajustes de avisos",
   "apiCall.pagerSettings.test": "Enviar aviso de prueba",
+  "push.test": "Notificación de prueba de Isomux.",
+  "push.settings.title": "Notificaciones en este dispositivo",
+  "push.settings.hint":
+    "Los avisos de las salas con notificaciones activadas también aparecen como notificaciones en este dispositivo.",
+  "push.settings.turnOn": "Activar",
+  "push.settings.turnOff": "Desactivar",
+  "push.settings.test": "Enviar notificación de prueba",
+  "push.settings.testSent": "Notificación de prueba enviada.",
+  "push.settings.testFailed":
+    "No se envió la notificación de prueba: {reason}.",
+  "push.settings.iosInstall":
+    "En iPhone y iPad, añade Isomux a la pantalla de inicio y ábrelo desde allí.",
+  "push.settings.unsupported":
+    "Este navegador no puede mostrar notificaciones push.",
+  "push.settings.blocked":
+    "Las notificaciones de Isomux están bloqueadas en los ajustes de este navegador.",
+  "push.settings.failed":
+    "No se pudieron cambiar las notificaciones de este dispositivo.",
+  "push.settings.otherDevices": "Otros dispositivos",
+  "push.settings.remove": "Eliminar",
+  "push.settings.unnamed": "Dispositivo sin nombre",
+  "push.failure.gone": "la suscripción ha caducado",
+  "push.failure.rejected": "el servicio push la rechazó",
+  "push.failure.unreachable": "no se puede contactar con el servicio push",
+  "apiCall.pushDevices.list": "Listar dispositivos de notificaciones",
+  "apiCall.pushDevices.add": "Activar notificaciones del dispositivo",
+  "apiCall.pushDevices.remove": "Eliminar dispositivo de notificaciones",
+  "apiCall.pushDevices.test": "Enviar notificación de prueba",
   "common.skills": "Habilidades",
   "skills.engine": "Motor",
   "skills.search": "Buscar habilidades",

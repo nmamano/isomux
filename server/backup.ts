@@ -243,6 +243,17 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
       `${root}/pager-settings.json.corrupt-*`,
     ],
   },
+  // The Web Push VAPID private key and the device endpoints. After a
+  // restore, the server makes new keys and members turn notifications on
+  // again.
+  {
+    id: "web-push",
+    archivePatterns: (root) => [
+      `${root}/web-push.json`,
+      `${root}/web-push.json.tmp`,
+      `${root}/web-push.json.corrupt-*`,
+    ],
+  },
   {
     id: "legacy-tls-key",
     archivePatterns: (root) => [`${root}/tls/cert.key`],

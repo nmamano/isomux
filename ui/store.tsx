@@ -22,11 +22,7 @@ import {
   type ReactNode,
   type Dispatch,
 } from "react";
-import {
-  KILLED_AGENT_CHIP_CAP,
-  LOBBY_ROOM_ID,
-  ordinaryRooms,
-} from "../shared/types.ts";
+import { KILLED_AGENT_CHIP_CAP, ordinaryRooms } from "../shared/types.ts";
 import type {
   AgentInfo,
   AgentState,
@@ -1765,12 +1761,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const username = getUsername();
       const me = username ? state.users.get(username.toLowerCase()) : undefined;
       const notifRooms = me?.notifRooms ?? [];
-      // The receptionist's lobby is nobody's notification room; its turn end
-      // sounds for everyone who asked it something.
-      if (
-        state.soundTrigger.roomId === LOBBY_ROOM_ID ||
-        shouldNotifyRoom(state.soundTrigger.roomId, notifRooms)
-      ) {
+      // The lobby always sounds (shared/notif-rooms.ts).
+      if (shouldNotifyRoom(state.soundTrigger.roomId, notifRooms)) {
         playNotificationSound();
       }
     }

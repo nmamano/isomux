@@ -1140,6 +1140,33 @@ export type PagerTestRes =
   | { delivered: true }
   | { delivered: false; failure: PagerDeliveryFailure };
 
+// Web Push (server/web-push-*.ts). A device where the member turned on
+// notifications; the endpoint never leaves the server.
+export type PushDeviceFailure = "gone" | "rejected" | "unreachable";
+
+export interface PushDevice {
+  id: string;
+  label: string;
+  createdAt: number;
+  lastFailure?: PushDeviceFailure;
+}
+
+export interface PushDevicesRes {
+  // The VAPID public key (base64url) the browser subscribes with.
+  publicKey: string;
+  devices: PushDevice[];
+}
+
+export interface PushDeviceReq {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  label?: string;
+}
+
+export type PushTestRes =
+  | { delivered: true }
+  | { delivered: false; failure: PushDeviceFailure };
+
 // One line of the member usage cap status: the office sign-in's weekly
 // reading for one provider. A provider with no office sign-in has no line.
 export type OfficeUsageStatusWire =

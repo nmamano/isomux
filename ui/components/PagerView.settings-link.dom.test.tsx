@@ -1,7 +1,8 @@
 // Pager settings stay in Settings > You > Pager (task fe0c21fd); the pager view
-// links there. A notice says so when the member's settings read answers with
-// no Discord destination, and only then: a load or a failed read never claims
-// Discord is absent. The empty list links there too.
+// links there. A notice says so when the member's reads answer with no
+// Discord destination and no device with notifications on, and only then: a
+// load or a failed read never claims both are absent. The empty list links
+// there too.
 
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -53,6 +54,19 @@ describe("the link to the pager settings", () => {
     loading.view.unmount();
 
     shim.pagerSettings = "fail";
+    const failed = await mount([page("p1")], signedIn);
+    expect(notice(failed.view)).toBeNull();
+  });
+
+  it("shows no notice when a device has notifications on, or when the devices read fails", async () => {
+    shim.pagerSettings = { webhookUrlMasked: null };
+    shim.pushDevices = 1;
+    const device = await mount([page("p1")], signedIn);
+    expect(shim.calls).toContain("GET /api/users/Tester/push-devices");
+    expect(notice(device.view)).toBeNull();
+    device.view.unmount();
+
+    shim.pushDevices = "fail";
     const failed = await mount([page("p1")], signedIn);
     expect(notice(failed.view)).toBeNull();
   });

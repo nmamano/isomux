@@ -87,6 +87,15 @@ import {
   createPagerDelivery,
   type PagerDeliveryService,
 } from "./pager-delivery.ts";
+import {
+  createWebPushFilePersistence,
+  createWebPushStore,
+  type WebPushStore,
+} from "./web-push-store.ts";
+import {
+  createWebPushDelivery,
+  type WebPushDeliveryService,
+} from "./web-push-delivery.ts";
 import type { ScheduledMessageManager } from "./scheduled-messages.ts";
 import {
   loadRecentCwds,
@@ -264,6 +273,7 @@ import {
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { pagerHandlers } from "./routes/handlers/pager.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
+import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
 import {
   recordAgentReferenceUsage,
@@ -657,6 +667,8 @@ let scheduledMessageManager: ScheduledMessageManager;
 let pagerStore: PagerStore;
 let pagerSettings: PagerSettingsStore;
 let pagerDelivery: PagerDeliveryService;
+let webPushStore: WebPushStore;
+let webPushDelivery: WebPushDeliveryService;
 let providerAccountManager: ProviderAccountManager;
 // The app supervisor is injectable for one specific reason: systemd is
 // MACHINE-GLOBAL. Every other collaborator a test injects is about determinism
@@ -809,8 +821,14 @@ function createManagers(startOpts: StartServerOpts): void {
     persistence: createPagerFilePersistence(join(STATE_ROOT, "pager.json")),
     archive: createPagerArchiveFile(join(STATE_ROOT, "pager-resolved.jsonl")),
     onChange: (entry) => pushPagerEntryToEachWs(entry),
-    onRaised: (entry, kind) => pagerDelivery.onRaised(entry, kind),
-    onTransitioned: (entry, to) => pagerDelivery.onTransitioned(entry, to),
+    onRaised: (entry, kind) => {
+      pagerDelivery.onRaised(entry, kind);
+      webPushDelivery.onRaised(entry, kind);
+    },
+    onTransitioned: (entry, to) => {
+      pagerDelivery.onTransitioned(entry, to);
+      webPushDelivery.onTransitioned(entry, to);
+    },
   });
   pagerDelivery = createPagerDelivery({
     store: pagerStore,
@@ -818,6 +836,23 @@ function createManagers(startOpts: StartServerOpts): void {
     setHoldUntil: (userId, at) => pagerSettings.setHoldUntil(userId, at),
     translator: (userId) => translatorForUserId(userId).t,
     fetch: startOpts.pagerFetch ?? ((url, init) => fetch(url, init)),
+    now: () => Date.now(),
+    scheduler: { setTimeout, clearTimeout },
+    officeOrigin: () => buildPublicOrigin().origin,
+    roomName: (roomId) => agentManager.roomById(roomId)?.name ?? null,
+  });
+  // Web Push: the second pager channel, to the devices where members turned
+  // on notifications. Keys and devices live in web-push.json.
+  webPushStore = createWebPushStore(
+    createWebPushFilePersistence(join(STATE_ROOT, "web-push.json")),
+  );
+  webPushDelivery = createWebPushDelivery({
+    store: webPushStore,
+    pages: pagerStore,
+    repeatMinutes: (userId) => pagerSettings.get(userId).repeatMinutes,
+    notifRooms: (userId) => getUserById(userId)?.notifRooms ?? null,
+    translator: (userId) => translatorForUserId(userId).t,
+    fetch: startOpts.webPushFetch ?? ((url, init) => fetch(url, init)),
     now: () => Date.now(),
     scheduler: { setTimeout, clearTimeout },
     officeOrigin: () => buildPublicOrigin().origin,
@@ -2978,8 +3013,19 @@ function buildExecutorDeps(
   register(
     pagerSettingsHandlers({
       settings: pagerSettings,
-      rescheduleMember: (userId) => pagerDelivery.rescheduleMember(userId),
+      rescheduleMember: (userId) => {
+        pagerDelivery.rescheduleMember(userId);
+        webPushDelivery.rescheduleMember(userId);
+      },
       sendTest: (userId) => pagerDelivery.sendTest(userId),
+    }),
+  );
+
+  register(
+    pushDevicesHandlers({
+      store: webPushStore,
+      sendTest: (userId, deviceId) =>
+        webPushDelivery.sendTest(userId, deviceId),
     }),
   );
 
@@ -4216,6 +4262,7 @@ function buildExecutorDeps(
           mcpSources.servers.removeMember(target.id);
           dropOAuthTokensOfScope({ kind: "user", userId: target.id });
           removeManagedUserEnv(target.id);
+          webPushStore.removeMember(target.id);
         }
         // Idempotent: deleteUser is a no-op for an unknown username; the
         // users_list broadcast still fires so a watcher sees the target absent.
@@ -8226,7 +8273,10 @@ function runBackgroundBoot(
   if (!startOpts.skipSchedulers) scheduledMessageManager.start();
 
   // Resume the repeat of open pages from their saved last attempt.
-  if (!startOpts.skipSchedulers) pagerDelivery.start();
+  if (!startOpts.skipSchedulers) {
+    pagerDelivery.start();
+    webPushDelivery.start();
+  }
 
   // OAuth MCP servers: a refresh pass now (the access tokens are in memory
   // only), then one a minute for tokens near their expiry.
@@ -8303,6 +8353,8 @@ export interface StartServerOpts {
   appSupervisor?: AppSupervisor;
   // Inject the pager's HTTP send. Tests pass a stub: no test sends to Discord.
   pagerFetch?: (url: string, init: RequestInit) => Promise<Response>;
+  // The same for Web Push: no test sends to a push service.
+  webPushFetch?: (url: string, init: RequestInit) => Promise<Response>;
   // Inject the Test button's HTTP calls (integrations A3). Tests pass a stub.
   connectionTestFetch?: ConnectionTestFetch;
   // Background-job skips. Tests set these so `bun test` does no timers, no
@@ -8356,6 +8408,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   extensionService?.stop();
   extensionSessions?.stop();
   pagerDelivery?.stop();
+  webPushDelivery?.stop();
   if (mcpOAuthTimer) clearInterval(mcpOAuthTimer);
   mcpOAuthTimer = null;
   await server.stop(true);

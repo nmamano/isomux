@@ -2976,7 +2976,7 @@ Coses que pots fer per ell:
     "Benvinguts al vestíbul. En una oficina real responc preguntes sobre Isomux i sobre aquesta oficina. Això és una demo, així que no s'ha enviat res a cap model.",
   "settings.sidebar.pager": "Avisos",
   "pager.settings.intro":
-    "Quan un agent o una app et necessita i potser no mires l'oficina, envia un avís. L'avís apareix a la vista d'Avisos i arriba al teu Discord, on et menciona perquè el mòbil t'avisi. Un avís obert es repeteix fins que el confirmes (l'has vist) o algú el resol (el problema s'ha acabat).",
+    "Quan un agent o una app et necessita i potser no mires l'oficina, envia un avís. L'avís apareix a la vista d'Avisos i arriba al teu Discord, on et menciona perquè el mòbil t'avisi, i als dispositius on has activat les notificacions. Un avís obert es repeteix fins que el confirmes (l'has vist) o algú el resol (el problema s'ha acabat).",
   "pager.settings.webhook": "URL del webhook de Discord",
   "pager.settings.webhookHint":
     "<b>On trobar-la:</b> a Discord, obre la configuració del canal → Integracions → Webhooks → Webhook nou → Copia l'URL del webhook.",
@@ -2997,7 +2997,7 @@ Coses que pots fer per ell:
     "Enganxa a dalt un URL nou per substituir-la.",
   "pager.settings.webhookSaved": "Desada",
   "pager.settings.onlyDiscord":
-    "De moment, Discord és l'única destinació d'avisos. <link>Obre una issue a GitHub</link> si vols més integracions.",
+    "De moment, Discord i les notificacions del dispositiu són les úniques destinacions d'avisos. <link>Obre una issue a GitHub</link> si vols més integracions.",
   "pager.settings.saved": "Desat.",
   "pager.settings.loadFailed": "No s'han pogut carregar els ajustos d'avisos.",
   "pager.settings.test": "Envia un avís de prova",
@@ -3023,7 +3023,7 @@ Coses que pots fer per ell:
   "pager.view.noRoom": "Sense sala",
   "pager.view.empty": "No hi ha avisos",
   "pager.view.discordUnset":
-    "Discord no està configurat, així que els teus avisos es queden a l'oficina.",
+    "Ni Discord ni les notificacions del dispositiu estan configurats, així que els teus avisos es queden a l'oficina.",
   "pager.view.settingsLink": "Configuració dels avisos",
   "pager.view.loadFailed": "No s'han pogut carregar els avisos.",
   "pager.view.retry": "Torna-ho a provar",
@@ -3050,6 +3050,34 @@ Coses que pots fer per ell:
   "apiCall.pagerSettings.read": "Llegir els ajustos d'avisos",
   "apiCall.pagerSettings.save": "Desar els ajustos d'avisos",
   "apiCall.pagerSettings.test": "Enviar un avís de prova",
+  "push.test": "Notificació de prova d'Isomux.",
+  "push.settings.title": "Notificacions en aquest dispositiu",
+  "push.settings.hint":
+    "Els avisos de les sales amb notificacions activades també apareixen com a notificacions en aquest dispositiu.",
+  "push.settings.turnOn": "Activa",
+  "push.settings.turnOff": "Desactiva",
+  "push.settings.test": "Envia una notificació de prova",
+  "push.settings.testSent": "Notificació de prova enviada.",
+  "push.settings.testFailed":
+    "No s'ha enviat la notificació de prova: {reason}.",
+  "push.settings.iosInstall":
+    "A l'iPhone i l'iPad, afegeix Isomux a la pantalla d'inici i obre'l des d'allà.",
+  "push.settings.unsupported":
+    "Aquest navegador no pot mostrar notificacions push.",
+  "push.settings.blocked":
+    "Les notificacions d'Isomux estan bloquejades a la configuració d'aquest navegador.",
+  "push.settings.failed":
+    "No s'han pogut canviar les notificacions d'aquest dispositiu.",
+  "push.settings.otherDevices": "Altres dispositius",
+  "push.settings.remove": "Elimina",
+  "push.settings.unnamed": "Dispositiu sense nom",
+  "push.failure.gone": "la subscripció ha caducat",
+  "push.failure.rejected": "el servei push l'ha rebutjat",
+  "push.failure.unreachable": "no es pot contactar amb el servei push",
+  "apiCall.pushDevices.list": "Llistar els dispositius de notificacions",
+  "apiCall.pushDevices.add": "Activar les notificacions del dispositiu",
+  "apiCall.pushDevices.remove": "Eliminar un dispositiu de notificacions",
+  "apiCall.pushDevices.test": "Enviar una notificació de prova",
   "common.skills": "Habilitats",
   "skills.engine": "Motor",
   "skills.search": "Cerca habilitats",

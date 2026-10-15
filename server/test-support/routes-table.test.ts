@@ -479,6 +479,10 @@ describe("route table: managed env values are self-only", () => {
       "pagerSettings.get",
       "pagerSettings.update",
       "pagerSettings.test",
+      "pushDevices.list",
+      "pushDevices.add",
+      "pushDevices.remove",
+      "pushDevices.test",
     ]) {
       const route = API_ROUTES.find((candidate) => candidate.opId === opId)!;
       expect(
@@ -577,6 +581,10 @@ describe("route table: managed env values are self-only", () => {
     "pagerSettings.get",
     "pagerSettings.update",
     "pagerSettings.test",
+    "pushDevices.list",
+    "pushDevices.add",
+    "pushDevices.remove",
+    "pushDevices.test",
   ];
   it("admits an office owner on another member's items, except their values", () => {
     const ownerDeps: GuardDeps = { ...deps, isOfficeOwnerUserId: () => true };
@@ -1281,6 +1289,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   "pagerSettings.get": { caps: ["user:env"], emits: [] },
   "pagerSettings.update": { caps: ["user:env"], emits: ["pager_upserted"] },
   "pagerSettings.test": { caps: ["user:env"], emits: [] },
+  "pushDevices.list": { caps: ["user:env"], emits: [] },
+  "pushDevices.add": { caps: ["user:env"], emits: [] },
+  "pushDevices.remove": { caps: ["user:env"], emits: [] },
+  "pushDevices.test": { caps: ["user:env"], emits: [] },
   "apiTokens.list": { caps: ["user:self"], emits: [] },
   "apiTokens.mint": { caps: ["user:self"], emits: [] },
   "apiTokens.revoke": { caps: ["user:self"], emits: [] },
@@ -1826,6 +1838,10 @@ const API_REACHABLE_OPIDS = [
   "pagerSettings.get",
   "pagerSettings.update",
   "pagerSettings.test",
+  "pushDevices.list",
+  "pushDevices.add",
+  "pushDevices.remove",
+  "pushDevices.test",
   "apiTokenInbox.drain",
   // users.update is absent only because this body carries keys other than the
   // prompt fields; routes-users-rest.test.ts covers a token's prompt edit.

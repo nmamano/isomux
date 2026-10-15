@@ -2051,6 +2051,19 @@ describe("describeIsomuxRoute: pager settings", () => {
   });
 });
 
+describe("describeIsomuxRoute: push devices", () => {
+  test("each push device route has its own label", () => {
+    const keys = [
+      describeIsomuxRoute("GET", "/api/users/nil/push-devices"),
+      describeIsomuxRoute("POST", "/api/users/nil/push-devices"),
+      describeIsomuxRoute("DELETE", "/api/users/nil/push-devices/0123abcd"),
+      describeIsomuxRoute("POST", "/api/users/nil/push-devices/0123abcd/test"),
+    ];
+    expect(keys.every((k) => k !== null)).toBe(true);
+    expect(new Set(keys).size).toBe(4);
+  });
+});
+
 // Task 5377b96f: two office API calls from Nil's chat that showed as raw Bash.
 describe("parseIsomuxCurl python -c tails and one-line curl functions", () => {
   const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;

@@ -32,6 +32,7 @@ Out of scope for v0 (possible follow-ups):
 - Slack channel.
 - Web Push channel (needs a push handler in `ui/sw.js`, VAPID keys, device
   subscriptions, payload encryption, HTTPS, and iOS home-screen install).
+  Shipped later (task dc2dc0ea): `server/web-push-*.ts`.
 - Escalation to other members, on-call lists.
 - Ack from inside Discord (needs a Discord bot, not a webhook).
 - Breaking through Do Not Disturb.
@@ -102,6 +103,14 @@ implementing).
 Repeat: while a page is `open`, the server re-sends it every repeat interval.
 Ack and resolve stop the repeats. Resolve also sends one short "resolved"
 message.
+
+Web Push (added later, task dc2dc0ea): the same events also go to each
+device where the member turned on notifications, encrypted for the device
+(RFC 8291) and signed with the office's VAPID key (`web-push.json`, made on
+first use). Only pages whose room passes `shared/notif-rooms.ts` go; app pages
+with no room always go. Repeat timers are in memory, so a restart between a
+resolve and its push loses that "Resolved" push. Sign-out removes the device.
+Code: `server/web-push-*.ts`, `ui/sw.js`, `ui/components/PushDevicesBlock.tsx`.
 
 Failure: a failed send records its class on the page and the view shows it. The
 next repeat tick retries. On a 429, the server waits for Discord's
