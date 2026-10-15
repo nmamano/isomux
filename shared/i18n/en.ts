@@ -677,7 +677,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.storage.daysHint": "days. Anything touched more recently is kept.",
   "settings.storage.keepPerAgent": "Always keep, per agent",
   "settings.storage.keepHint":
-    "newest conversations, however old they are. 0 spares none on that basis.",
+    "newest conversations of each live agent, however old they are. 0 spares none on that basis.",
   "settings.storage.preview": "Preview what would be deleted",
   "settings.storage.measuring": "Measuring…",
   "settings.storage.onDisk": "What is on disk",

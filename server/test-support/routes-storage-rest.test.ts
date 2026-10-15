@@ -11,7 +11,13 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, existsSync, utimesSync } from "fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  utimesSync,
+} from "fs";
 import { join } from "path";
 import { resetStorageUsageCache } from "../storage-usage.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -422,6 +428,50 @@ describe("routes/storage.prune REST", () => {
     expect(plan.skipped.some((s) => s.reason === "active-session")).toBe(true);
     expect(existsSync(path)).toBe(true);
   });
+});
+
+// Task 9643a66a: keepPerAgent spares the newest sessions of live agents only.
+// The killed set comes from agent-history.json kill stamps, never from "not in
+// the live map", which is empty while restoreAgents runs after the listener
+// binds. The ghost below stands for that window: alive per history, absent
+// from the live map.
+it("drops the keepPerAgent floor only for agents proven killed", async () => {
+  const srv = await startTestServer();
+  server = srv;
+  const owner = await srv.seedOwner("Boss");
+  const room = srv.agentManager.getRooms()[0].id;
+  const live = await spawnAgent(srv, "Live", room);
+  const dead = await spawnAgent(srv, "Dead", room);
+  await srv.agentManager.kill(dead.id);
+  seedOldLogs(srv.stateRoot, live.id);
+  seedOldLogs(srv.stateRoot, dead.id);
+  seedOldLogs(srv.stateRoot, "agent-ghost");
+  const historyFile = join(srv.stateRoot, "agent-history.json");
+  const history = JSON.parse(readFileSync(historyFile, "utf-8"));
+  history["agent-ghost"] = {
+    name: "Ghost",
+    lastRoomId: room,
+    lastRoomName: "Room",
+    killedAt: null,
+  };
+  writeFileSync(historyFile, JSON.stringify(history));
+
+  const r = await api(srv, "/api/storage/prune", {
+    method: "POST",
+    rawSessionId: owner.rawSessionId,
+    body: { target: "transcripts", olderThanDays: 30, keepPerAgent: 1 },
+  });
+  expect(r.status).toBe(200);
+  const plan = r.body!.plan as { candidates: { agentId: string }[] };
+  const perAgent = (id: string) =>
+    plan.candidates.filter((c) => c.agentId === id).length;
+  expect(perAgent(dead.id)).toBe(2);
+  expect(perAgent(live.id)).toBe(1);
+  expect(perAgent("agent-ghost")).toBe(1);
+  // The kill left the agent's history entry in place.
+  expect(
+    JSON.parse(readFileSync(historyFile, "utf-8"))[dead.id].killedAt,
+  ).toEqual(expect.any(Number));
 });
 
 it("counts and prunes token logs only on explicit owner apply, including revoked logs", async () => {

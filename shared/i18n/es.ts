@@ -677,7 +677,7 @@ Cosas que puedes hacer por él:
     "días. Todo lo tocado más recientemente se conserva.",
   "settings.storage.keepPerAgent": "Conservar siempre, por agente",
   "settings.storage.keepHint":
-    "conversaciones más recientes, por antiguas que sean. 0 no conserva ninguna por ese criterio.",
+    "conversaciones más recientes de cada agente vivo, por antiguas que sean. 0 no conserva ninguna por ese criterio.",
   "settings.storage.preview": "Previsualizar lo que se borraría",
   "settings.storage.measuring": "Midiendo…",
   "settings.storage.onDisk": "Qué hay en disco",

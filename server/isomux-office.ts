@@ -419,6 +419,7 @@ import {
 import { measureStorageCached } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
+import { parseKilledPageQuery, pageKilledAgents } from "./killed-roster.ts";
 import { updateHandlers } from "./routes/handlers/update.ts";
 import { triggerUpdate } from "./update-trigger.ts";
 import { readUpdateConf } from "./update-conf.ts";
@@ -5518,6 +5519,7 @@ function buildExecutorDeps(
           .map((a) => agentManager.getCurrentSessionId(a.id))
           .filter((id): id is string => id !== null),
       ),
+      killedAgentIds: agentManager.getKilledAgentIds(),
       loadSessionsMap: (agentId) => loadSessionsMap(agentId),
       queuedAttachments: (agentId) =>
         queued === null ? null : (queued.get(agentId) ?? new Set<string>()),
@@ -7452,6 +7454,13 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                 },
               );
             }
+            const page = parseKilledPageQuery(url.searchParams);
+            if (!page.ok) {
+              return new Response(JSON.stringify({ error: page.error }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
             // SCOPED LIKE THE LOG RULE, deliberately NOT like the live manifest
             // below: the killed agent's own member (the user that spawned it), plus
             // office owners, and NEVER a cron run. Room grants move after a kill
@@ -7496,7 +7505,13 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               });
             }
             return new Response(
-              JSON.stringify(buildKilledManifest(killed), null, 2),
+              JSON.stringify(
+                buildKilledManifest(
+                  pageKilledAgents(killed, page.limit, page.before),
+                ),
+                null,
+                2,
+              ),
               { headers: { "Content-Type": "application/json" } },
             );
           }

@@ -591,6 +591,51 @@ describe("GET /agents?killed=1 (killed roster)", () => {
     }
   });
 
+  // Task 9643a66a: spawning agents kill finished workers, so the roster pages.
+  it("pages newest kill first with limit and before", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const ids: string[] = [];
+    for (const [i, name] of ["W1", "W2", "W3"].entries()) {
+      const a = await spawnOwnedBy(srv, name, r1, i, owner.username);
+      await srv.agentManager.kill(a.id);
+      ids.push(a.id);
+    }
+    const spawner = await spawnOwnedBy(srv, "Spawner", r1, 3, owner.username);
+    // Distinct kill times, so the page boundaries below are exact.
+    const historyFile = join(srv.stateRoot, "agent-history.json");
+    const history = JSON.parse(readFileSync(historyFile, "utf-8"));
+    ids.forEach((id, i) => (history[id].killedAt = 1_000 * (i + 1)));
+    writeFileSync(historyFile, JSON.stringify(history));
+
+    const get = async (q: string) => {
+      const res = await srv.http(`/agents?killed=1${q}`, {
+        headers: { Authorization: `Bearer ${bearerFor(spawner.id)}` },
+      });
+      return {
+        status: res.status,
+        body: (await res.json()) as Array<{ id: string; killedAt: number }>,
+      };
+    };
+    const first = await get("&limit=2");
+    expect(first.status).toBe(200);
+    expect(first.body.map((k) => k.id)).toEqual([ids[2], ids[1]]);
+    const second = await get(`&limit=2&before=${first.body[1].killedAt}`);
+    expect(second.body.map((k) => k.id)).toEqual([ids[0]]);
+    // No limit: the default page holds all three.
+    expect((await get("")).body.map((k) => k.id)).toEqual([
+      ids[2],
+      ids[1],
+      ids[0],
+    ]);
+
+    for (const bad of ["&limit=0", "&limit=501", "&limit=x", "&before=-1"]) {
+      expect((await get(bad)).status).toBe(400);
+    }
+  });
+
   it("a CRON-RUN token is denied, matching the log route it feeds", async () => {
     const srv = await startTestServer();
     server = srv;

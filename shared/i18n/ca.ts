@@ -673,7 +673,7 @@ Coses que pots fer per ell:
     "dies. Tot el que s'ha tocat més recentment es conserva.",
   "settings.storage.keepPerAgent": "Conserva sempre, per agent",
   "settings.storage.keepHint":
-    "converses més recents, per antigues que siguin. 0 no en conserva cap per aquest criteri.",
+    "converses més recents de cada agent viu, per antigues que siguin. 0 no en conserva cap per aquest criteri.",
   "settings.storage.preview": "Previsualitza què s'esborraria",
   "settings.storage.measuring": "Mesurant…",
   "settings.storage.onDisk": "Què hi ha al disc",

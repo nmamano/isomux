@@ -2238,6 +2238,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     );
   }
 
+  // Ids of agents KNOWN to be killed, for the storage pruner (which drops the
+  // keepPerAgent floor for them). Stricter than the killed roster on purpose:
+  // only an entry kill() stamped with killedAt counts. A legacy entry without
+  // it, or a live agent read before restoreAgents fills the live map (its entry
+  // carries killedAt: null), is not proven killed and keeps its protection.
+  function getKilledAgentIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const [id, entry] of Object.entries(loadAgentHistory())) {
+      if (typeof entry.killedAt === "number" && !agents.has(id)) ids.add(id);
+    }
+    return ids;
+  }
+
   // The spawning user recorded for a KILLED agent - one that is gone from the
   // live map but still has its history entry (and its transcripts on disk).
   // Gates the killed-agent branch of log reads, which is why it
@@ -11166,6 +11179,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     inFlightTurnForLogs,
     getKilledAgentSummaries,
     getKilledAgentSummariesForManager,
+    getKilledAgentIds,
     killedAgentManagerUserId,
     killedAgentLastRoomId,
     restoreAgents,

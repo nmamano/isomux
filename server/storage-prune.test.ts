@@ -61,6 +61,7 @@ function deps(logsDir: string, overrides: Partial<PruneDeps> = {}): PruneDeps {
     tokenLogsDir: join(logsDir, "..", "token-logs"),
     now: NOW,
     activeSessionIds: new Set<string>(),
+    killedAgentIds: new Set<string>(),
     loadSessionsMap: () => ({}),
     queuedAttachments: () => new Set<string>(),
     ...overrides,
@@ -362,6 +363,78 @@ describe("planPrune (transcripts)", () => {
     expect(new Set(plan.candidates.map((c) => c.agentId))).toEqual(
       new Set(["agent-a", "agent-b"]),
     );
+  });
+
+  // Task 9643a66a: spawning agents kill finished workers, so a killed agent's
+  // newest sessions are no longer spared on recency alone. Every other guard
+  // still holds for it.
+  describe("killed agents", () => {
+    it("drops the keepPerAgent floor for a killed agent only", () => {
+      const logs = join(tempDir(), "logs");
+      for (const agent of ["agent-live", "agent-dead"]) {
+        writeAged(join(logs, agent, "s1.jsonl"), "x".repeat(10), 100);
+        writeAged(join(logs, agent, "s2.jsonl"), "x".repeat(10), 200);
+      }
+      const plan = planPrune(
+        "transcripts",
+        POLICY,
+        deps(logs, { killedAgentIds: new Set(["agent-dead"]) }),
+      );
+      expect(plan.candidates.map((c) => c.path).sort()).toEqual([
+        "agent-dead/s1.jsonl",
+        "agent-dead/s2.jsonl",
+      ]);
+      expect(skipCount(plan, "keep-newest")).toBe(2);
+    });
+
+    it("still spares a killed agent's fork ancestors and recent files", () => {
+      const logs = fourOldSessions();
+      writeAged(join(logs, "agent-a", "fresh.jsonl"), "f", 1);
+      const plan = planPrune(
+        "transcripts",
+        POLICY,
+        deps(logs, {
+          killedAgentIds: new Set(["agent-a"]),
+          loadSessionsMap: () => ({ newest: { forkedFrom: "third" } }),
+        }),
+      );
+      expect(sessionIds(plan)).toEqual(["newest", "oldest", "second"]);
+      expect(skipCount(plan, "fork-ancestor")).toBe(1);
+      expect(skipCount(plan, "too-recent")).toBe(1);
+      expect(skipCount(plan, "keep-newest")).toBe(0);
+    });
+
+    it("still spares an active session listed for a killed agent", () => {
+      const logs = fourOldSessions();
+      const plan = planPrune(
+        "transcripts",
+        POLICY,
+        deps(logs, {
+          killedAgentIds: new Set(["agent-a"]),
+          activeSessionIds: new Set(["newest"]),
+        }),
+      );
+      expect(sessionIds(plan)).toEqual(["oldest", "second", "third"]);
+      expect(skipCount(plan, "active-session")).toBe(1);
+    });
+
+    it("refuses at apply a file whose agent was revived since the plan", () => {
+      const logs = fourOldSessions();
+      const plan = planPrune(
+        "transcripts",
+        POLICY,
+        deps(logs, { killedAgentIds: new Set(["agent-a"]) }),
+      );
+      expect(plan.candidates).toHaveLength(4);
+      // Revived between plan and apply: the floor is back for the fresh pass.
+      const result = applyPrune(plan, deps(logs));
+      expect(result.deleted).toBe(2);
+      expect(
+        result.refused.filter((r) => r.reason === "became-keep-newest"),
+      ).toHaveLength(2);
+      expect(existsSync(join(logs, "agent-a", "newest.jsonl"))).toBe(true);
+      expect(existsSync(join(logs, "agent-a", "second.jsonl"))).toBe(true);
+    });
   });
 
   it("returns an empty plan when the logs dir does not exist", () => {

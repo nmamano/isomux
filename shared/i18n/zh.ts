@@ -618,7 +618,7 @@ App 的一些原则：
   "settings.storage.daysHint": "天。最近有过改动的内容会保留。",
   "settings.storage.keepPerAgent": "每个智能体始终保留",
   "settings.storage.keepHint":
-    "个最新对话，无论其存在多久。设为 0 则不按此条件保留任何对话。",
+    "个最新对话（仅限未终止的智能体），无论其存在多久。设为 0 则不按此条件保留任何对话。",
   "settings.storage.preview": "预览将删除的内容",
   "settings.storage.measuring": "正在测量…",
   "settings.storage.onDisk": "磁盘上的内容",

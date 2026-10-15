@@ -21,7 +21,11 @@
 //
 // What is protected, and why (the non-obvious part):
 //   - the ACTIVE session of any agent - it is being appended to right now;
-//   - the K newest sessions of every agent, regardless of age;
+//   - the K newest sessions of every LIVE agent, regardless of age. A killed
+//     agent gets no recency floor: nothing new will ever be appended to it, so
+//     its newest session is just an old file (spawning agents kill finished
+//     workers, and their transcripts would otherwise pile up K at a time).
+//     Every other guard below still applies to a killed agent;
 //   - any session that another session was FORKED FROM. persistence.ts's
 //     loadLogWithAncestors assembles a fork's transcript by walking the
 //     forkedFrom chain and reading each ancestor's .jsonl, so an ancestor file
@@ -59,7 +63,7 @@
 // that needs a real answer.
 //
 // Seam discipline: every input is injected (logs dir, clock, active-session
-// set, the sessions-map reader), so the whole safety matrix unit-tests against
+// set, killed-agent set, the sessions-map reader), so the whole safety matrix unit-tests against
 // a temp fixture tree with zero reference to the real ~/.isomux.
 
 import { join, resolve, sep, dirname } from "path";
@@ -86,7 +90,8 @@ import type {
 // Field semantics worth restating here, next to the code that enforces them:
 //   PrunePolicy.olderThanDays  files younger than this are never candidates;
 //                              the route rejects 0 (no "delete everything").
-//   PrunePolicy.keepPerAgent   transcripts only; ignored for other targets.
+//   PrunePolicy.keepPerAgent   transcripts only; ignored for other targets
+//                              and for killed agents.
 //   PruneCandidate.mtimeMs     captured at plan time. applyPrune refuses a file
 //                              whose mtime moved since, so a plan that raced a
 //                              live agent's write cannot delete fresh content.
@@ -106,6 +111,13 @@ export interface PruneDeps {
   // Session ids currently live across the office. Session ids are UUIDs, so a
   // flat set needs no per-agent keying.
   activeSessionIds: ReadonlySet<string>;
+  // Agents KNOWN to be killed. keepPerAgent spares nothing for these.
+  //
+  // A positive list, deliberately not "every agent dir with no live agent":
+  // the HTTP listener binds before restoreAgents fills the live map, and in
+  // that window the complement would strip the recency floor from every live
+  // agent. An agent the wiring cannot prove killed keeps its floor.
+  killedAgentIds: ReadonlySet<string>;
   // server/persistence.ts loadSessionsMap, narrowed to what pruning needs.
   loadSessionsMap(agentId: string): Record<string, { forkedFrom?: string }>;
   // Attachment filenames owed to messages still sitting in this agent's queue,
@@ -278,8 +290,12 @@ function planTranscripts(
     }
     if (files.length === 0) continue;
 
-    // Newest first: the first keepPerAgent are spared on recency alone.
+    // Newest first: the first keepPerAgent are spared on recency alone, for a
+    // live agent only.
     files.sort((a, b) => b.mtime - a.mtime);
+    const keepNewest = deps.killedAgentIds.has(agentId)
+      ? 0
+      : policy.keepPerAgent;
     const forkAncestors = new Set<string>();
     for (const meta of Object.values(deps.loadSessionsMap(agentId))) {
       if (meta?.forkedFrom) forkAncestors.add(meta.forkedFrom);
@@ -292,7 +308,7 @@ function planTranscripts(
         addSkip(ledger, rel, "active-session", file.size);
         return;
       }
-      if (index < policy.keepPerAgent) {
+      if (index < keepNewest) {
         addSkip(ledger, rel, "keep-newest", file.size);
         return;
       }

@@ -1443,6 +1443,19 @@ describe("agent discovery route label", () => {
     expect(req!.actionKey).toBe("apiCall.agents.list");
   });
 
+  test("a paged killed roster is still the killed roster", () => {
+    const req = parseIsomuxCurl(
+      `curl -s "localhost:4000/agents?killed=1&limit=50&before=1700000000000" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`,
+    );
+    expect(req).not.toBeNull();
+    expect(humanizeIsomuxRequest(EN, req!)).toBe(
+      humanizeIsomuxRequest(
+        EN,
+        parseIsomuxCurl(`curl -s "localhost:4000/agents?killed=1"`)!,
+      ),
+    );
+  });
+
   // The server answers a present non-"1" value with 400, so the card must not
   // claim EITHER roster came back - including the live one.
   test("a present non-1 killed value is labelled invalid, not as a listing", () => {
