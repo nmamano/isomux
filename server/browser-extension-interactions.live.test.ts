@@ -10,7 +10,7 @@ import { browserExtensionFixture } from "./test-support/browser-extension-fixtur
 import { ExtensionBrowserSessions } from "./browser-extension-session";
 import type { BrowserExtensionService } from "./browser-extension-service";
 import type { BrowserResult } from "./browser-actions";
-import { CLICK_REASON, SELECT_REASON } from "./browser-input";
+import { CHECK_REASON, CLICK_REASON, SELECT_REASON } from "./browser-input";
 import type { Page } from "playwright-core";
 import { writeFileSync } from "node:fs";
 
@@ -574,6 +574,285 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
 
         const shot = ok(await act({ action: "screenshot" }));
         writeFileSync(join(dir, "final.png"), shot.png!);
+        console.log("Interaction evidence: " + dir);
+      },
+      DEADLINE_MS,
+    );
+  },
+  120_000,
+);
+
+// Settings switches with the pattern of the Discord developer portal: a native
+// input[role=switch] under a styled cover inside its label, so that a human
+// click on the cover toggles it. The other controls cover the failure paths.
+const SWITCH_PAGE = `<!doctype html><title>Bot</title>
+<style>.sw{position:relative;display:inline-block;width:40px;height:24px;margin:4px}
+.sw input{position:absolute;inset:0;margin:0}
+.sw .cover{position:absolute;inset:0;background:#5865f2;border-radius:12px}</style>
+<p><label class="sw"><input type="checkbox" role="switch" id="intent" aria-label="Message Content Intent"><span class="cover" id="intent-cover"></span></label>
+<label class="sw"><input type="checkbox" role="switch" id="on" aria-label="Presence Intent" checked><span class="cover"></span></label>
+<label class="sw"><input type="checkbox" role="switch" id="locked" aria-label="Locked" disabled><span class="cover"></span></label>
+<span role="switch" id="aria-locked" aria-label="Aria locked" aria-checked="false" aria-disabled="true" tabindex="0">Aria locked</span>
+<span role="switch" id="aria" aria-label="Aria switch" aria-checked="false" tabindex="0">Aria switch</span>
+<span class="sw"><input type="checkbox" role="switch" id="dead" aria-label="Dead cover"><span class="cover" id="dead-cover"></span></span>
+<span style="position:relative;display:inline-block"><span class="sw"><input type="checkbox" role="switch" id="bannered" aria-label="Under banner"></span><span id="banner" style="position:absolute;inset:0;background:#000"></span></span>
+<span style="position:fixed;left:-200px;top:10px;width:40px;height:24px"><input type="checkbox" role="switch" id="offscreen" aria-label="Offscreen" style="position:absolute;inset:0;margin:0"></span>
+<input type="radio" name="plan" id="plan-a" aria-label="Plan A" checked><input type="radio" name="plan" id="plan-b" aria-label="Plan B">
+<input type="checkbox" id="hidden" style="display:none"><button id="plain">Plain</button></p>
+<p><span id="pair" style="position:relative;display:inline-block;width:120px;height:24px"><span role="switch" id="lone" aria-label="Lone switch" aria-checked="false" tabindex="0" style="position:absolute;left:0;top:0;width:40px;height:24px">Lone</span><label class="sw" style="position:absolute;left:0;top:0;margin:0"><input type="checkbox" role="switch" id="neighbour" aria-label="Neighbour"><span class="cover" id="neighbour-cover"></span></label></span></p>
+<div style="position:relative;height:60px"><div id="under" style="position:absolute;left:0;top:0;width:300px;height:60px"></div><iframe id="framed" src="/frame" style="position:absolute;left:300px;top:0;width:300px;height:60px;border:0"></iframe></div>
+<output id="events"></output>
+<script>
+const $ = (id) => document.getElementById(id);
+const log = (text) => ($("events").textContent += text + ";");
+for (const input of document.querySelectorAll("input"))
+  input.addEventListener("change", () => log("change:" + input.id + "=" + input.checked));
+$("intent-cover").addEventListener("click", () => log("cover:intent"));
+$("dead-cover").addEventListener("click", () => log("cover:dead"));
+$("banner").addEventListener("click", () => log("banner"));
+$("under").addEventListener("click", () => log("under"));
+$("lone").addEventListener("click", () => log("click:lone"));
+for (const id of ["aria", "aria-locked"])
+  $(id).addEventListener("click", () => {
+    log("click:" + id);
+    if ($(id).getAttribute("aria-disabled") === "true") return;
+    $(id).setAttribute("aria-checked", String($(id).getAttribute("aria-checked") !== "true"));
+  });
+addEventListener("pointerdown", () => log("pointerdown"), true);
+</script>`;
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "check sets a covered styled switch that a click cannot reach",
+  async () => {
+    await withOfferedTab(
+      (url) =>
+        html(
+          url.pathname === "/frame"
+            ? // Fixed outside the frame's viewport, but inside the page's.
+              '<input type="checkbox" role="switch" id="framed-switch" aria-label="Framed" style="position:fixed;left:-60px;top:10px;width:40px;height:20px;margin:0">'
+            : SWITCH_PAGE,
+        ),
+      async ({ dir, act, setupPage }) => {
+        const { ok, failed, read } = expectations(act);
+        // Input commands that the office hands to the bridge.
+        type Dispatch = (...args: unknown[]) => Promise<void>;
+        const bridge = ExtensionConnection.prototype as unknown as {
+          dispatch: Dispatch;
+        };
+        const dispatch = spyOn(bridge, "dispatch");
+        const inputs = () =>
+          dispatch.mock.calls.filter((args) =>
+            JSON.stringify(args[1]).includes('"Input.'),
+          ).length;
+        const switches = async () =>
+          ok(await act({ action: "snapshot" })).snapshot!;
+        try {
+          // The precondition: the cover is on top at the input's centre, and
+          // the click fails as covered with no input.
+          expect(
+            await setupPage.evaluate(() => {
+              const input = document.getElementById("intent")!;
+              const box = input.getBoundingClientRect();
+              return document.elementFromPoint(
+                box.left + box.width / 2,
+                box.top + box.height / 2,
+              )!.id;
+            }),
+          ).toBe("intent-cover");
+          const before = inputs();
+          const covered = failed(
+            await act({ action: "click", selector: "#intent" }),
+          );
+          expect(covered.code).toBe("action_failed");
+          expect(covered.error).toContain(CLICK_REASON.covered);
+          expect(inputs()).toBe(before);
+          expect(await switches()).not.toMatch(
+            /switch "Message Content Intent" \[checked\]/,
+          );
+
+          // check turns it on at once: the forced click hits the cover, and
+          // the label passes it to the input.
+          const on = await act({ action: "check", selector: "#intent" });
+          expect(ok(on).checked).toBe(true);
+          expect(on.elapsed).toBeLessThan(DEADLINE_MS / 2);
+          expect(inputs()).toBeGreaterThan(before);
+          expect(await read("#events")).toBe(
+            "pointerdown;cover:intent;change:intent=true;",
+          );
+          expect(await switches()).toMatch(
+            /switch "Message Content Intent" \[checked\]/,
+          );
+
+          // Already in the wanted state: no input, the state is unchanged.
+          for (const [selector, checked] of [
+            ["#intent", true],
+            ["#on", true],
+            ["#plan-a", true],
+          ] as const) {
+            const quiet = inputs();
+            expect(
+              ok(await act({ action: "check", selector, checked })).checked,
+            ).toBe(checked);
+            expect(inputs()).toBe(quiet);
+          }
+          expect(await read("#events")).toBe(
+            "pointerdown;cover:intent;change:intent=true;",
+          );
+
+          // Off again, and a switch with only ARIA state.
+          expect(
+            ok(
+              await act({
+                action: "check",
+                selector: "#intent",
+                checked: false,
+              }),
+            ).checked,
+          ).toBe(false);
+          expect(
+            ok(
+              await act({
+                action: "check",
+                selector: 'role=switch[name="Aria switch"]',
+              }),
+            ).checked,
+          ).toBe(true);
+          const events = await read("#events");
+          expect(events).toContain("change:intent=false;");
+          expect(events).toContain("click:aria;");
+
+          // Refusals before any input: disabled (native and ARIA), hidden,
+          // missing, not checkable, and an uncheck of a radio button.
+          for (const [body, reason] of [
+            [{ selector: "#locked" }, CHECK_REASON.disabled],
+            [{ selector: "#aria-locked" }, CHECK_REASON.disabled],
+            [{ selector: "#hidden" }, CHECK_REASON.hidden],
+            [{ selector: "#absent" }, CHECK_REASON.missing],
+            [{ selector: "#plain" }, CHECK_REASON.notCheckable],
+            [{ selector: "#plan-a", checked: false }, CHECK_REASON.radio],
+          ] as const) {
+            const quiet = inputs();
+            const refused = failed(await act({ action: "check", ...body }));
+            expect(refused.code).toBe("action_failed");
+            expect(refused.error).toContain(reason);
+            expect(inputs()).toBe(quiet);
+          }
+          expect(await read("#events")).toBe(events);
+          const snapshot = await switches();
+          expect(snapshot).toMatch(/switch "Locked" \[disabled\]/);
+          expect(snapshot).not.toMatch(/switch "Locked" \[checked\]/);
+          expect(snapshot).not.toMatch(/switch "Aria locked" \[checked\]/);
+
+          // A cover that does not belong to the control, and a centre with
+          // no element: refused before any input.
+          for (const [selector, hit, reason] of [
+            ["#bannered", "banner", CHECK_REASON.covered],
+            ["#offscreen", null, CHECK_REASON.outside],
+          ] as const) {
+            expect(
+              await setupPage.locator(selector).evaluate((input) => {
+                const box = input.getBoundingClientRect();
+                return (
+                  document.elementFromPoint(
+                    box.left + box.width / 2,
+                    box.top + box.height / 2,
+                  )?.id ?? null
+                );
+              }),
+            ).toBe(hit);
+            const quiet = inputs();
+            const refused = failed(await act({ action: "check", selector }));
+            expect(refused.code).toBe("action_failed");
+            expect(refused.error).toContain(reason);
+            expect(inputs()).toBe(quiet);
+          }
+          expect(await read("#events")).toBe(events);
+
+          // A parent that also holds another control is not the control's
+          // own wrapper: the other control's cover is refused.
+          expect(
+            await setupPage.locator("#lone").evaluate((lone) => {
+              const box = lone.getBoundingClientRect();
+              return document.elementFromPoint(
+                box.left + box.width / 2,
+                box.top + box.height / 2,
+              )!.id;
+            }),
+          ).toBe("neighbour-cover");
+          const quietPair = inputs();
+          const shared = failed(
+            await act({ action: "check", selector: "#lone" }),
+          );
+          expect(shared.code).toBe("action_failed");
+          expect(shared.error).toContain(CHECK_REASON.covered);
+          expect(inputs()).toBe(quietPair);
+          expect(await read("#events")).toBe(events);
+
+          // No element at the centre inside the frame, where the forced click
+          // would land on the page element under it.
+          const frame = setupPage
+            .frames()
+            .find((child) => child.url().endsWith("/frame"))!;
+          expect(
+            await frame.locator("#framed-switch").evaluate((input) => {
+              const box = input.getBoundingClientRect();
+              return document.elementFromPoint(
+                box.left + box.width / 2,
+                box.top + box.height / 2,
+              );
+            }),
+          ).toBeNull();
+          expect(
+            await setupPage.evaluate(() => {
+              const box = document
+                .getElementById("framed")!
+                .getBoundingClientRect();
+              return document.elementFromPoint(box.left - 40, box.top + 20)!.id;
+            }),
+          ).toBe("under");
+          const quietFrame = inputs();
+          const framed = failed(
+            await act({
+              action: "check",
+              framePath: [0],
+              selector: "#framed-switch",
+            }),
+          );
+          expect(framed.code).toBe("action_failed");
+          expect(framed.error).toContain(CHECK_REASON.outside);
+          expect(inputs()).toBe(quietFrame);
+          expect(await read("#events")).toBe(events);
+
+          // A cover in the control's parent takes the click but does not
+          // pass it on: the state does not change, and the result says so.
+          const unchanged = failed(
+            await act({ action: "check", selector: "#dead" }),
+          );
+          expect(unchanged.code).toBe("action_failed");
+          expect(unchanged.error).toContain(CHECK_REASON.unchanged);
+          expect(await read("#events")).toBe(
+            events + "pointerdown;cover:dead;",
+          );
+          const after = await switches();
+          for (const name of [
+            "Dead cover",
+            "Under banner",
+            "Offscreen",
+            "Lone switch",
+            "Neighbour",
+            "Framed",
+          ])
+            expect(after).not.toContain(`switch "${name}" [checked]`);
+
+          // The next action runs at once: no fence from an earlier check.
+          const next = await act({ action: "check", selector: "#intent" });
+          expect(ok(next).checked).toBe(true);
+          expect(next.elapsed).toBeLessThan(DEADLINE_MS / 2);
+        } finally {
+          dispatch.mockRestore();
+        }
+        const shot = ok(await act({ action: "screenshot" }));
+        writeFileSync(join(dir, "switches.png"), shot.png!);
         console.log("Interaction evidence: " + dir);
       },
       DEADLINE_MS,

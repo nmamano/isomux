@@ -316,13 +316,14 @@ export interface AffordanceBrowserReq {
     | "click"
     | "fill"
     | "select"
+    | "check"
     | "upload"
     | "press"
     | "screenshot"
     | "close";
   /** `goto`: the http(s) URL to open. */
   url?: string;
-  /** `click`, `fill`, `select`, and optionally `press`: a Playwright selector. */
+  /** `click`, `fill`, `select`, `check`, and optionally `press`: a Playwright selector. */
   selector?: string;
   /** `upload`: one absolute office-server file path, up to 4 MiB. */
   path?: string;
@@ -334,7 +335,9 @@ export interface AffordanceBrowserReq {
   value?: string;
   /** `select`: the option label; exactly one of value and label. */
   label?: string;
-  /** `click`, `press`, `select`: accept the first dialog the action opens. */
+  /** `check`: the wanted state; default true. */
+  checked?: boolean;
+  /** `click`, `press`, `select`, `check`: accept the first dialog the action opens. */
   dialog?: "accept";
   /** `screenshot`: capture the whole page instead of the viewport. */
   fullPage?: boolean;
@@ -359,6 +362,8 @@ export interface AffordanceBrowserResp {
   closed?: boolean;
   /** `select`: the selected option values. */
   selected?: string[];
+  /** `check`: the control's checked state after the action. */
+  checked?: boolean;
   /** The input completed, but a navigation it started had not loaded. */
   loading?: boolean;
   /** JavaScript dialogs that the action opened, and their answers. A failure carries them as `error.dialogs`. */

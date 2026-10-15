@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { CLICK_REASON, clickNotPerformedReason } from "./browser-input";
+import {
+  CHECK_REASON,
+  CLICK_REASON,
+  checkNotPerformedReason,
+  clickNotPerformedReason,
+} from "./browser-input";
 
 // Call logs as Playwright 1.62.1 reports them for a click that timed out
 // before it dispatched input (recorded 2026-10-08 against real Chrome).
@@ -89,4 +94,51 @@ test("a colored call log gives the same reasons as a plain one", () => {
   expect(clickNotPerformedReason(colored(...resolved))).toBe(
     CLICK_REASON.unknown,
   );
+});
+
+test("a known setChecked failure maps to a fixed reason, and any other error to none", () => {
+  // First message lines of isChecked and forced setChecked errors in Playwright 1.62.1
+  // against real Chrome (recorded 2026-10-15). A call log follows them.
+  const failure = (first: string) =>
+    [first, "Call log:", "  - waiting for locator('#x')"].join("\n");
+  expect(
+    checkNotPerformedReason(failure("setChecked: Element is not visible")),
+  ).toBe(CHECK_REASON.hidden);
+  expect(
+    checkNotPerformedReason(
+      failure("setChecked: Element is outside of the viewport"),
+    ),
+  ).toBe(CHECK_REASON.outside);
+  for (const method of ["setChecked", "isChecked"])
+    expect(
+      checkNotPerformedReason(
+        failure(`${method}: Error: Not a checkbox or radio button`),
+      ),
+    ).toBe(CHECK_REASON.notCheckable);
+  expect(
+    checkNotPerformedReason(
+      failure(
+        "setChecked: Cannot uncheck radio button. Radio buttons can only be unchecked by selecting another radio button in the same group.",
+      ),
+    ),
+  ).toBe(CHECK_REASON.radio);
+  expect(
+    checkNotPerformedReason(
+      failure("setChecked: Clicking the checkbox did not change its state"),
+    ),
+  ).toBe(CHECK_REASON.unchanged);
+  expect(
+    checkNotPerformedReason(
+      "\u001b[2msetChecked: Element is not visible\u001b[22m",
+    ),
+  ).toBe(CHECK_REASON.hidden);
+  for (const message of [
+    "setChecked: Timeout 3000ms exceeded.",
+    "setChecked: Target page, context or browser has been closed",
+    // A reason only from the first line, never from page-supplied log text.
+    failure("setChecked: Execution context was destroyed") +
+      "\n  - Clicking the checkbox did not change its state",
+    "",
+  ])
+    expect(checkNotPerformedReason(message)).toBeUndefined();
 });

@@ -48,6 +48,87 @@ export const SELECT_REASON = {
   optionDisabled: "the first matching option is disabled",
 } as const;
 
+export const CHECK_REASON = {
+  missing: CLICK_REASON.missing,
+  hidden: CLICK_REASON.hidden,
+  disabled: "the control is disabled",
+  covered: "an element that does not belong to the control covers it",
+  outside: CLICK_REASON.outside,
+  notCheckable: "the element is not a checkbox, radio button or switch",
+  radio:
+    "a radio button turns off only when another option in its group is checked",
+  unchanged: "a click on it did not change its state",
+} as const;
+// Errors of isChecked and a forced Playwright setChecked. All except the last
+// one come before any input is dispatched.
+const CHECK_ERROR: [RegExp, string][] = [
+  [/^setChecked: Element is not visible$/, CHECK_REASON.hidden],
+  [/^setChecked: Element is outside of the viewport$/, CHECK_REASON.outside],
+  [
+    /^(setChecked|isChecked): (Error: )?Not a checkbox or radio button$/,
+    CHECK_REASON.notCheckable,
+  ],
+  [/^setChecked: Cannot uncheck radio button\b/, CHECK_REASON.radio],
+  [
+    /^setChecked: Clicking the checkbox did not change its state$/,
+    CHECK_REASON.unchanged,
+  ],
+];
+
+/**
+ * Runs in the page. Scrolls the control's centre into the viewport when it is
+ * outside, and names the topmost element there: "control" when it is the
+ * control, inside the control, or inside a label or the parent element that
+ * wraps only this control; "covered" for any other element; "outside" when
+ * there is none.
+ */
+export function checkHitTarget(
+  control: Element,
+): "control" | "covered" | "outside" {
+  const centre = () => {
+    const box = control.getBoundingClientRect();
+    return [box.left + box.width / 2, box.top + box.height / 2];
+  };
+  let [x, y] = centre();
+  if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) {
+    control.scrollIntoView({ block: "center", inline: "center" });
+    [x, y] = centre();
+  }
+  const root = control.getRootNode();
+  const hit = (root instanceof ShadowRoot ? root : document).elementFromPoint(
+    x,
+    y,
+  );
+  if (!hit) return "outside";
+  if (control.contains(hit)) return "control";
+  // A wrapper that holds another interactive element is not the control's
+  // own: its cover can belong to the other control.
+  const ownWrapper = (wrapper: Element | null) =>
+    !!wrapper &&
+    wrapper !== document.body &&
+    wrapper !== document.documentElement &&
+    [
+      ...wrapper.querySelectorAll(
+        "input, button, select, textarea, a[href], [role=switch], [role=checkbox], [role=radio], [role=button], [tabindex]",
+      ),
+    ].every((element) => control.contains(element));
+  const labels =
+    control instanceof HTMLInputElement && control.labels
+      ? [...control.labels]
+      : [];
+  return [...labels, control.parentElement].some(
+    (wrapper) => ownWrapper(wrapper) && wrapper!.contains(hit),
+  )
+    ? "control"
+    : "covered";
+}
+
+/** The fixed reason for a known isChecked or setChecked failure, or undefined. */
+export function checkNotPerformedReason(message: string): string | undefined {
+  const first = message.replace(ANSI_ESCAPE, "").split("\n")[0];
+  return CHECK_ERROR.find(([pattern]) => pattern.test(first))?.[1];
+}
+
 // option.text in Chrome: ASCII whitespace stripped and collapsed.
 const optionText = (text: string) =>
   text

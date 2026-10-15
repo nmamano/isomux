@@ -21,6 +21,7 @@ export const BROWSER_ACTIONS = [
   "click",
   "fill",
   "select",
+  "check",
   "upload",
   "press",
   "screenshot",
@@ -75,6 +76,8 @@ export interface BrowserSuccess {
   closed?: boolean;
   /** `select` only: the selected option values after the change. */
   selected?: string[];
+  /** `check` only: the control's checked state, read after the action. */
+  checked?: boolean;
   /** True when the input completed but a navigation it started had not loaded by the deadline. */
   loading?: boolean;
   /** Dialogs that the action opened, in order. */
@@ -138,6 +141,7 @@ interface ParsedParams {
   key?: string;
   value?: string;
   label?: string;
+  checked?: boolean;
   dialog?: "accept";
   fullPage?: boolean;
   viewport: { width: number; height: number };
@@ -185,6 +189,7 @@ export function parseBrowserParams(
         "click",
         "fill",
         "select",
+        "check",
         "press",
         "upload",
         "snapshot",
@@ -238,6 +243,7 @@ export function parseBrowserParams(
     action === "click" ||
     action === "fill" ||
     action === "select" ||
+    action === "check" ||
     action === "upload"
   ) {
     const selector = body.selector;
@@ -260,13 +266,19 @@ export function parseBrowserParams(
     params[fields[0]] = option;
   }
 
+  if (action === "check") {
+    if (body.checked !== undefined && typeof body.checked !== "boolean")
+      return invalid("checked must be a boolean");
+    params.checked = body.checked !== false;
+  }
+
   if (body.dialog !== undefined) {
     if (
       body.dialog !== "accept" ||
-      !["click", "press", "select"].includes(action)
+      !["click", "press", "select", "check"].includes(action)
     )
       return invalid(
-        'dialog must be "accept" on a click, press or select action',
+        'dialog must be "accept" on a click, press, select or check action',
       );
     params.dialog = "accept";
   }

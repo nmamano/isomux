@@ -1,6 +1,11 @@
 import { chromium, errors, type Browser } from "playwright-core";
 import { BrowserExtensionService } from "./browser-extension-service";
-import { ExtensionBrowserSessions } from "./browser-extension-session";
+import {
+  ExtensionBrowserSessions,
+  NOT_SENT_ERROR,
+  STILL_SETTLING_ERROR,
+  TIMED_OUT_ERROR,
+} from "./browser-extension-session";
 import { test, expect, spyOn } from "bun:test";
 import {
   mkdtempSync,
@@ -633,6 +638,7 @@ async function timeoutSessionFixture(
     retired = 0,
     frameCalls = 0,
     background = false,
+    sendOnClose = false,
     pageClosed = false;
   let settled = false;
   let transport!: import("playwright-core").ConnectOverCDPTransport;
@@ -722,6 +728,14 @@ async function timeoutSessionFixture(
         on() {},
         close: async () => {
           retired++;
+          // Cleanup that the old client sends while it closes.
+          if (sendOnClose)
+            transport.send({
+              id: 43,
+              method: "Runtime.releaseObject",
+              sessionId: sessionId as string,
+              params: { objectId: "fixture" },
+            });
           transport.close();
         },
       } as unknown as Browser;
@@ -740,6 +754,10 @@ async function timeoutSessionFixture(
     backgroundOnNextClick: () => {
       background = true;
     },
+    sendOnNextClose: () => {
+      sendOnClose = true;
+    },
+    closeTransport: () => transport.close(),
     retired: () => retired,
     calls: () => calls,
     connect,
@@ -762,7 +780,12 @@ test("settled selector timeout retains the same grant/session and queued differe
       text: "private fixture",
     });
     const next = h.sessions.run("agent", { action: "text" });
-    expect(await timeout).toMatchObject({ ok: false, code: "action_timeout" });
+    // Its own timeout, settled within the grace.
+    expect(await timeout).toMatchObject({
+      ok: false,
+      code: "action_timeout",
+      error: TIMED_OUT_ERROR,
+    });
     expect(await next).toMatchObject({ ok: true, text: "fixture" });
     expect(
       await h.sessions.run("agent", { action: "click", selector: "button" }),
@@ -806,9 +829,11 @@ test("held frame work fences every All actor and Off ends it without replay", as
       expect(await work).toMatchObject({
         code: off ? "browser_control_ended" : "action_timeout",
       });
-      expect(await next).toMatchObject({
-        code: off ? "browser_control_ended" : "action_timeout",
-      });
+      expect(await next).toMatchObject(
+        off
+          ? { code: "browser_control_ended" }
+          : { code: "action_timeout", error: NOT_SENT_ERROR },
+      );
       expect(h.calls()).toBe(0);
       if (!off) {
         expect(h.connection.offered("second")).toBe(h.grant);
@@ -835,19 +860,23 @@ test("unsettled command keeps ON and fences later work until the real late respo
   const h = await timeoutSessionFixture(true);
   const diagnostics = spyOn(console, "info").mockImplementation(() => {});
   try {
-    expect(
-      await h.sessions.run("agent", {
-        action: "fill",
-        selector: "#fixture",
-        text: "fixture",
-      }),
-    ).toMatchObject({ code: "action_timeout" });
+    const sent = await h.sessions.run("agent", {
+      action: "fill",
+      selector: "#fixture",
+      text: "fixture",
+    });
+    // Its own timeout, with its command still pending: not the fence copy.
+    expect(sent).toMatchObject({
+      code: "action_timeout",
+      error: STILL_SETTLING_ERROR,
+    });
     const command = h.messages.find((m) => m.method === "cdp")!;
     expect(command).toBeDefined();
     expect(h.connection.pendingCount(h.grant)).toBe(1);
     expect(h.connection.offered("agent")).toBe(h.grant);
     expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
       code: "action_timeout",
+      error: NOT_SENT_ERROR,
     });
     expect(h.calls()).toBe(0);
     h.connection.receive({
@@ -869,6 +898,31 @@ test("unsettled command keeps ON and fences later work until the real late respo
   }
 });
 
+test("a client that closes during its own action gets that action's timeout", async () => {
+  const h = await timeoutSessionFixture(true);
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    const work = h.sessions.run("agent", {
+      action: "fill",
+      selector: "#fixture",
+      text: "fixture",
+    });
+    for (let i = 0; i < 100 && !h.messages.some((m) => m.method === "cdp"); i++)
+      await Bun.sleep(2);
+    expect(h.connection.pendingCount(h.grant)).toBe(1);
+    h.closeTransport();
+    expect(await work).toMatchObject({
+      code: "action_timeout",
+      error: STILL_SETTLING_ERROR,
+    });
+    expect(diagnostics.mock.calls.flat().join(" ")).toContain("client_closed");
+    expect(h.connection.offered("agent")).toBe(h.grant);
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+});
+
 test("watchdog response waits for old operation settlement without releasing the grant", async () => {
   const h = await timeoutSessionFixture("watchdog");
   const diagnostics = spyOn(console, "info").mockImplementation(() => {});
@@ -879,7 +933,10 @@ test("watchdog response waits for old operation settlement without releasing the
       text: "fixture",
     });
     const next = h.sessions.run("agent", { action: "text" });
-    expect(await pending).toMatchObject({ code: "action_timeout" });
+    expect(await pending).toMatchObject({
+      code: "action_timeout",
+      error: TIMED_OUT_ERROR,
+    });
     expect(await next).toMatchObject({ ok: true });
     expect(h.connection.offered("agent")).toBe(h.grant);
     expect(h.connect).toHaveBeenCalledTimes(1);
@@ -1043,7 +1100,10 @@ for (const held of [false, true])
       expect(await first).toMatchObject({ code: "action_timeout" });
       if (held) {
         expect(h.connection.pendingCount(h.grant)).toBe(1);
-        expect(await next).toMatchObject({ code: "action_timeout" });
+        expect(await next).toMatchObject({
+          code: "action_timeout",
+          error: NOT_SENT_ERROR,
+        });
         expect(h.calls()).toBe(0);
         const command = h.messages.find((m) => m.method === "cdp")!;
         h.connection.receive({
@@ -1222,7 +1282,10 @@ for (const held of [false, true])
         "Runtime.releaseObject",
       );
       if (held) {
-        expect(await second).toMatchObject({ code: "action_timeout" });
+        expect(await second).toMatchObject({
+          code: "action_timeout",
+          error: NOT_SENT_ERROR,
+        });
         expect(h.retired()).toBe(0);
         expect(h.connection.targets("second")).toHaveLength(1);
       }
@@ -1244,6 +1307,33 @@ for (const held of [false, true])
       h.stop();
     }
   });
+
+test("an actor switch whose retiring client leaves a command pending sends nothing", async () => {
+  const h = await timeoutSessionFixture(false, true);
+  try {
+    expect(
+      await h.sessions.run("agent", {
+        action: "fill",
+        selector: "#fixture",
+        text: "fixture",
+      }),
+    ).toMatchObject({ code: "action_timeout" });
+    expect(
+      await h.sessions.run("agent", { action: "click", selector: "button" }),
+    ).toMatchObject({ ok: true });
+    expect(h.connection.pendingCount(h.grant)).toBe(0);
+    h.sendOnNextClose();
+    expect(await h.sessions.run("second", { action: "text" })).toMatchObject({
+      code: "action_timeout",
+      error: NOT_SENT_ERROR,
+    });
+    expect(h.retired()).toBe(1);
+    expect(h.calls()).toBe(1);
+    expect(h.connect).toHaveBeenCalledTimes(1);
+  } finally {
+    h.stop();
+  }
+});
 
 for (const expiry of [false, true])
   test(`All release interrupts both active and queued callers (expiry=${expiry})`, async () => {
@@ -1345,6 +1435,34 @@ test("a queued action stays bound to its browser and grant when another browser'
     });
   } finally {
     desk.close();
+    h.stop();
+  }
+});
+
+test("an action that outwaits debugger recovery is not sent", async () => {
+  const h = await timeoutSessionFixture();
+  try {
+    expect(
+      await h.sessions.run("agent", {
+        action: "fill",
+        selector: "input",
+        text: "fixture",
+      }),
+    ).toMatchObject({ code: "action_timeout" });
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.grant,
+      method: "recovering",
+      params: {},
+    });
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      code: "action_timeout",
+      error: NOT_SENT_ERROR,
+    });
+    expect(h.calls()).toBe(0);
+    expect(h.connection.offered("agent")).toBe(h.grant);
+  } finally {
     h.stop();
   }
 });

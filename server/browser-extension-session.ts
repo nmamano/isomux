@@ -13,7 +13,10 @@ import {
 } from "playwright-core";
 import { readBrowserFrames, resolveBrowserFrame } from "./browser-frames";
 import {
+  CHECK_REASON,
   SELECT_REASON,
+  checkHitTarget,
+  checkNotPerformedReason,
   clickNotPerformedReason,
   firstMatchingOption,
   watchNavigation,
@@ -67,13 +70,21 @@ const ended = () =>
     "browser_control_ended",
     "Browser control ended; pending outcomes may be unknown",
   );
-const timeoutResult = (recovering = false) =>
-  failure(
-    "action_timeout",
-    recovering
-      ? "The previous browser action is still settling; its outcome may be unknown. Control remains on. Inspect the page after it settles before retrying."
-      : "The browser action timed out; its outcome may be unknown. Control remains on. Inspect the page before retrying.",
-  );
+// This action's own timeout. respond() sends every one through
+// settleTimeout, which picks the copy after the drain grace.
+export const TIMED_OUT_ERROR =
+  "The browser action timed out; its outcome may be unknown. Control remains on. Inspect the page before retrying.";
+const timedOutResult = () => failure("action_timeout", TIMED_OUT_ERROR);
+// This action's own timeout, while its commands still run.
+export const STILL_SETTLING_ERROR =
+  "The browser action timed out and is still settling; its outcome may be unknown. Control remains on. Wait until it settles, and then inspect the page before retrying.";
+const stillSettlingResult = () =>
+  failure("action_timeout", STILL_SETTLING_ERROR);
+// A fence before this action dispatched anything: only an earlier action's
+// outcome is unknown.
+export const NOT_SENT_ERROR =
+  "This browser action was not sent: the previous action is still settling, and only its outcome is unknown. Control remains on. Inspect the page after it settles before retrying.";
+const notSentResult = () => failure("action_timeout", NOT_SENT_ERROR);
 const offline = () =>
   failure("browser_offline", "No paired Chrome browser is online");
 const SETTLEMENT_GRACE_MS = 1000;
@@ -90,6 +101,11 @@ const notPerformed = (action: "click" | "select", reason: string) =>
     action === "click"
       ? `The click was not performed: ${reason}.`
       : `The option was not selected: ${reason}.`,
+  );
+const notChecked = (wanted: boolean, reason: string) =>
+  failure(
+    "action_failed",
+    `The control was not ${wanted ? "checked" : "unchecked"}: ${reason}.`,
   );
 // Every dialog is answered at once. Without a page listener Playwright closes
 // it itself without catching a failed answer, which ends the server process.
@@ -237,7 +253,7 @@ export class ExtensionBrowserSessions {
     }
     if (!(await connection.waitForRecovery(grant, actionMs))) {
       return connection.offered(agent, target) === grant
-        ? timeoutResult(true)
+        ? notSentResult()
         : ended();
     }
     if (session && (session.signal.aborted || !session.browser.isConnected())) {
@@ -246,7 +262,7 @@ export class ExtensionBrowserSessions {
     }
     const prior = this.recovering.get(key);
     if (prior?.connection === connection && prior.grant === grant)
-      return timeoutResult(true);
+      return notSentResult();
     if (connection.pendingCount(grant)) {
       let drainTimer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
@@ -256,7 +272,7 @@ export class ExtensionBrowserSessions {
         }),
       ]);
       clearTimeout(drainTimer);
-      if (connection.pendingCount(grant)) return timeoutResult(true);
+      if (connection.pendingCount(grant)) return notSentResult();
     }
     if (session && session.actor !== agent) {
       // One client at a time per grant. Its immutable actor retires with it;
@@ -264,7 +280,7 @@ export class ExtensionBrowserSessions {
       this.sessions.delete(key);
       await session.browser.close().catch(() => {});
       session = undefined;
-      if (connection.pendingCount(grant)) return timeoutResult(true);
+      if (connection.pendingCount(grant)) return notSentResult();
     }
     const started = performance.now();
     const deadline = actionStarted + actionMs;
@@ -311,7 +327,7 @@ export class ExtensionBrowserSessions {
         debuggerDetached = true;
         this.end(key);
         interrupt(detachedResult());
-      } else if (valid()) interrupt(timeoutResult(true));
+      } else if (valid()) interrupt(timedOutResult());
       else {
         this.end(key);
         interrupt(ended());
@@ -390,7 +406,7 @@ export class ExtensionBrowserSessions {
         this.end(key);
         return ended();
       }
-      if (timedOut) return timeoutResult(true);
+      if (timedOut) return timedOutResult();
       const dialogs: ActionDialogs = {
         accept: params.dialog === "accept",
         acceptUsed: false,
@@ -434,6 +450,7 @@ export class ExtensionBrowserSessions {
       const element = frame?.locator(params.selector!);
       let uploaded: UploadedFile | undefined;
       let selected: string[] | undefined;
+      let checked: boolean | undefined;
       let loading = false;
       // The input outcome stays separate from the settle: a settle that runs
       // out sets loading, it never turns a dispatched input into a failure.
@@ -547,7 +564,7 @@ export class ExtensionBrowserSessions {
             !(await option.isEnabled({ timeout: checkBudget() }))
           )
             return notPerformed("select", SELECT_REASON.optionDisabled);
-          if (timedOut) return timeoutResult(true);
+          if (timedOut) return timedOutResult();
           // Forced past the visibility check, so that a native select hidden
           // under a styled control works. The disabled check above is a
           // separate round trip.
@@ -561,6 +578,84 @@ export class ExtensionBrowserSessions {
           });
           break;
         }
+        case "check": {
+          const control = element ?? page.locator(params.selector!).first();
+          const wanted = params.checked!;
+          const checkBudget = () =>
+            Math.max(1, deadline - INPUT_RESERVE_MS - performance.now());
+          phase = "check";
+          let enabled: boolean;
+          try {
+            enabled = await control.isEnabled({ timeout: checkBudget() });
+          } catch (error) {
+            if (error instanceof Error && error.name === "TimeoutError")
+              return notChecked(wanted, CHECK_REASON.missing);
+            throw error;
+          }
+          // force skips Playwright's own enabled check.
+          if (!enabled) return notChecked(wanted, CHECK_REASON.disabled);
+          // A control with no box cannot take a click. The bridge hides the
+          // CDP error that tells Playwright so, and setChecked would retry
+          // its scroll until the deadline.
+          if (!(await control.boundingBox({ timeout: checkBudget() })))
+            return notChecked(wanted, CHECK_REASON.hidden);
+          try {
+            // A control already in the wanted state gets no input and no
+            // hit-target check.
+            if (
+              (await control.isChecked({ timeout: checkBudget() })) === wanted
+            ) {
+              checked = wanted;
+              break;
+            }
+          } catch (error) {
+            const reason =
+              error instanceof Error && error.name !== "TimeoutError"
+                ? checkNotPerformedReason(error.message)
+                : undefined;
+            if (!reason) throw error;
+            return notChecked(wanted, reason);
+          }
+          // force skips Playwright's hit-target check, so the topmost element
+          // at the control's centre gets the click. Only an element that
+          // belongs to the control may get it.
+          const hit = await control.evaluate(checkHitTarget, undefined, {
+            timeout: checkBudget(),
+          });
+          if (hit !== "control") {
+            diagnostic("check_not_performed");
+            return notChecked(
+              wanted,
+              hit === "covered" ? CHECK_REASON.covered : CHECK_REASON.outside,
+            );
+          }
+          if (timedOut) return timedOutResult();
+          inputsAtClick = session.transport.inputs;
+          try {
+            // Forced past the visibility and hit-target checks, so that a
+            // native input under its own styled cover works.
+            await inputThenSettle(async () => {
+              await control.setChecked(wanted, {
+                force: true,
+                timeout: inputBudget(),
+              });
+              checked = await control.isChecked({ timeout: inputBudget() });
+            });
+          } catch (error) {
+            const reason =
+              error instanceof Error && error.name !== "TimeoutError"
+                ? checkNotPerformedReason(error.message)
+                : undefined;
+            if (!reason) throw error;
+            diagnostic(
+              reason === CHECK_REASON.unchanged
+                ? "check_unchanged"
+                : "check_not_performed",
+            );
+            return notChecked(wanted, reason);
+          }
+          break;
+        }
         case "fill":
           if (element) await element.fill(params.text!, { timeout });
           else await page.fill(params.selector!, params.text!, { timeout });
@@ -568,7 +663,7 @@ export class ExtensionBrowserSessions {
         case "upload": {
           const file = await readBrowserUpload(params.path!);
           if (!valid()) return ended();
-          if (timedOut) return timeoutResult(true);
+          if (timedOut) return timedOutResult();
           await (element ?? page.locator(params.selector!)).setInputFiles(
             file,
             { timeout },
@@ -587,7 +682,7 @@ export class ExtensionBrowserSessions {
           else await page.keyboard.press(params.key!);
           break;
       }
-      if (timedOut) return timeoutResult(true);
+      if (timedOut) return timedOutResult();
       let current: Page;
       let title: string;
       let metadataRetry = false;
@@ -632,6 +727,7 @@ export class ExtensionBrowserSessions {
         title,
         ...(uploaded ? { uploaded } : {}),
         ...(selected ? { selected } : {}),
+        ...(checked !== undefined ? { checked } : {}),
         ...(loading ? { loading: true } : {}),
       };
       if (params.action === "text")
@@ -676,7 +772,7 @@ export class ExtensionBrowserSessions {
         this.end(key);
         return ended();
       }
-      if (timedOut) return timeoutResult(true);
+      if (timedOut) return timedOutResult();
       return result;
     };
     // The action promise can reject before Chrome finishes the underlying CDP
@@ -712,7 +808,7 @@ export class ExtensionBrowserSessions {
       if (!valid()) return ended();
       const busy = this.recovering.get(key) === recovery;
       if (busy) diagnostic("drain_exceeded");
-      return timeoutResult(busy);
+      return busy ? stillSettlingResult() : timedOutResult();
     };
     const respond = async (): Promise<BrowserResult> => {
       try {
@@ -724,7 +820,7 @@ export class ExtensionBrowserSessions {
               () => {
                 timeoutWinner = "watchdog_timeout";
                 timedOut = true;
-                resolve(timeoutResult(true));
+                resolve(timedOutResult());
               },
               Math.max(0, deadline - performance.now()) + SETTLEMENT_GRACE_MS,
             );

@@ -25,6 +25,8 @@ describe("parseBrowserParams", () => {
       { action: "select", selector: "#ttl", value: "300" },
       { action: "select", selector: "#ttl", value: "" },
       { action: "select", selector: "#ttl", label: "5 min" },
+      { action: "check", selector: "#intent" },
+      { action: "check", selector: "#intent", checked: false },
       { action: "click", selector: "#remove", dialog: "accept" },
       { action: "press", key: "Enter", dialog: "accept" },
       {
@@ -148,6 +150,7 @@ it("frame paths are bounded structural hints for reads and element actions", () 
   for (const action of [
     "click",
     "fill",
+    "check",
     "press",
     "upload",
     "snapshot",
@@ -235,4 +238,26 @@ it("select takes exactly one string value or label, and dialog accepts only on i
     { action: "snapshot", dialog: "accept" },
   ])
     expect(parseBrowserParams(body).ok).toBe(false);
+});
+
+it("check wants a boolean checked that defaults to true", () => {
+  const check = (extra: Record<string, unknown>) =>
+    parseBrowserParams({ action: "check", selector: "#intent", ...extra });
+  expect(check({})).toMatchObject({ ok: true, checked: true });
+  expect(check({ checked: true })).toMatchObject({ ok: true, checked: true });
+  expect(check({ checked: false })).toMatchObject({ ok: true, checked: false });
+  for (const checked of [null, "false", 0, 1])
+    expect(check({ checked })).toMatchObject({
+      ok: false,
+      code: "invalid_request",
+    });
+  expect(parseBrowserParams({ action: "check" })).toMatchObject({
+    ok: false,
+    code: "invalid_request",
+  });
+  expect(check({ framePath: [0], dialog: "accept" })).toMatchObject({
+    ok: true,
+    framePath: [0],
+    dialog: "accept",
+  });
 });
