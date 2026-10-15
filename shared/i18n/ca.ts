@@ -515,6 +515,8 @@ Coses que pots fer per ell:
   "settings.room.intro":
     "La reixeta de la paret, la tecla s i un doble clic a la pestanya de la sala obren aquesta pàgina.",
   "settings.room.namePlaceholder": "Nom de la sala",
+  "settings.room.backRoom": "Rebotiga",
+  "settings.room.backRoomHint": "Més de {count} agents, darrere d'una trapa.",
   "settings.room.prompt": "Prompt de la sala",
   "settings.room.promptHint":
     "(opcional, s'afegeix després del prompt de l'oficina)",

@@ -64,6 +64,7 @@ async function office() {
   server = srv;
   const owner = await srv.seedOwner("Boss");
   const r1 = srv.agentManager.getRooms()[0].id;
+  srv.agentManager.setRoomBackRoom(r1, true);
   const lead = await spawnAs(srv, "Lead", r1, 0, owner.username);
   for (const name of ["Worker 1", "Worker 2", "Worker 3"])
     await spawnAs(srv, name, r1, null, owner.username);
@@ -140,7 +141,9 @@ describe("GET /agents for an agent: one entry per back room", () => {
     const owner = await srv.seedOwner("Boss");
     const member = await srv.seedMember("Mem");
     const r1 = srv.agentManager.getRooms()[0].id;
+    srv.agentManager.setRoomBackRoom(r1, true);
     const r2 = srv.agentManager.createRoom("Members Only");
+    srv.agentManager.setRoomBackRoom(r2, true);
     const access = await srv.http(
       `/api/users/${encodeURIComponent(member.username)}/access`,
       {

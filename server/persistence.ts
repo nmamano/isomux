@@ -829,6 +829,9 @@ export interface Room {
   // The decor choices on top of the skin, or absent/null for none. Optional
   // for the same reason as `skin`.
   decor?: RoomDecor | null;
+  // Whether the room has a back room. Optional for the same reason as `pet`:
+  // absent reads as off, unless the room holds back agents at load.
+  backRoom?: boolean;
   agents: PersistedAgent[];
 }
 

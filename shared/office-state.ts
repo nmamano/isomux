@@ -27,6 +27,7 @@ import {
   isValidDesk,
   isBackSeat,
   firstFreeBackSeat,
+  hasBackRoom,
 } from "./desks.ts";
 import { taskVersion } from "./task-board.ts";
 import { randomOutfit } from "./outfit-options.ts";
@@ -45,6 +46,7 @@ export type OfficeEvent =
   | { type: "room_pet_updated"; roomId: string; pet: RoomPet | null }
   | { type: "room_skin_updated"; roomId: string; skin: RoomSkin | null }
   | { type: "room_decor_updated"; roomId: string; decor: RoomDecor | null }
+  | { type: "room_back_room_updated"; roomId: string; backRoom: boolean }
   | {
       type: "office_settings_updated";
       prompt: string | null;
@@ -210,7 +212,8 @@ export class OfficeState {
     // A front desk number, null for the back room, or omitted for the first
     // free front desk and then the back room. A taken front desk falls
     // through to the same order. Back seats are always assigned here, never
-    // named by the caller.
+    // named by the caller. A room with its back room off has no back seats:
+    // null fails, and the order stops at the front.
     desk?: number | null;
     roomId?: string;
     customInstructions?: string;
@@ -266,8 +269,8 @@ export class OfficeState {
       // auto-assign, which is the long-standing behavior.
       if (typeof opts.desk === "number" && !isValidDesk(opts.desk, targetRoom))
         return null;
-      // The lobby has no back room.
-      if (opts.desk === null && targetRoom?.type === "lobby") return null;
+      // The lobby, and a room with its back room off, have no back seats.
+      if (opts.desk === null && !hasBackRoom(targetRoom)) return null;
 
       const placed =
         typeof opts.desk === "number" && !taken.has(opts.desk)
@@ -537,19 +540,21 @@ export class OfficeState {
   }
 
   // The first free place in a room: a front desk, then a back seat ("front"),
-  // or a back seat only ("back"). The lobby has one desk and no back room, so
-  // there both areas mean its desk.
+  // or a back seat only ("back"). A room with no back room (the lobby, or a
+  // room with the setting off) has front desks only, so there both areas mean
+  // its first free desk.
   private freePlacement(
     room: RoomWire | undefined,
     taken: Set<number>,
     area: "front" | "back",
   ): number | null {
-    if (area === "front" || room?.type === "lobby") {
+    const back = hasBackRoom(room);
+    if (area === "front" || !back) {
       for (let i = 0; i < roomSlotCount(room); i++) {
         if (!taken.has(i)) return i;
       }
     }
-    if (room?.type === "lobby") return null;
+    if (!back) return null;
     return firstFreeBackSeat(taken);
   }
 
@@ -563,6 +568,8 @@ export class OfficeState {
   // front agent takes the first free front desk and then a back seat, a back
   // agent takes a back seat. Without a desk, a move to the agent's own room
   // does nothing (reason "same_place"). A taken desk is refused, not swapped.
+  // A room with its back room off takes front desks only: null is refused
+  // ("back_room_off"), and no desk means its first free front desk.
   placeAgent(
     agentId: string,
     targetRoomId: string,
@@ -578,7 +585,8 @@ export class OfficeState {
           | "invalid_desk"
           | "desk_taken"
           | "no_free_desk"
-          | "back_room_full";
+          | "back_room_full"
+          | "back_room_off";
       } {
     const agent = this.agents.get(agentId);
     if (!agent) return { ok: false, reason: "agent_not_found" };
@@ -591,6 +599,8 @@ export class OfficeState {
       return { ok: false, reason: "invalid_desk" };
     if (desk === null && targetRoom.type === "lobby")
       return { ok: false, reason: "invalid_desk" };
+    if (desk === null && !hasBackRoom(targetRoom))
+      return { ok: false, reason: "back_room_off" };
 
     const taken = new Set(
       [...this.agents.values()]
@@ -615,7 +625,7 @@ export class OfficeState {
     if (newDesk === null)
       return {
         ok: false,
-        reason: targetRoom.type === "lobby" ? "no_free_desk" : "back_room_full",
+        reason: hasBackRoom(targetRoom) ? "back_room_full" : "no_free_desk",
       };
     if (sameRoom && newDesk === agent.desk)
       return { ok: false, reason: "same_place" };
@@ -715,6 +725,35 @@ export class OfficeState {
     ];
     this.emitEvents(events);
     return events;
+  }
+
+  /** Turns the room's back room on or off. Off is refused while agents sit
+   *  there: nothing is moved or killed on its own, so the caller moves them
+   *  first. The lobby has no back room either way. */
+  setRoomBackRoom(
+    roomId: string,
+    backRoom: boolean,
+  ):
+    | { ok: true; events: OfficeEvent[] }
+    | { ok: false; reason: "room_not_found" | "not_supported" }
+    | { ok: false; reason: "in_use"; count: number } {
+    const idx = this._rooms.findIndex((r) => r.id === roomId);
+    if (idx < 0) return { ok: false, reason: "room_not_found" };
+    if (this._rooms[idx].type === "lobby")
+      return { ok: false, reason: "not_supported" };
+    if (!backRoom) {
+      let count = 0;
+      for (const a of this.agents.values()) {
+        if (a.roomId === roomId && isBackSeat(a.desk)) count++;
+      }
+      if (count > 0) return { ok: false, reason: "in_use", count };
+    }
+    this._rooms[idx] = { ...this._rooms[idx], backRoom };
+    const events: OfficeEvent[] = [
+      { type: "room_back_room_updated", roomId, backRoom },
+    ];
+    this.emitEvents(events);
+    return { ok: true, events };
   }
 
   setTopic(agentId: string, topic: string): OfficeEvent[] {

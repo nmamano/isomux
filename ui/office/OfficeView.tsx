@@ -58,7 +58,13 @@ import { useI18n } from "../i18n.tsx";
 import { useViewport } from "./useViewport.ts";
 import { ZoomControls } from "./ZoomControls.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
-import { DESK_COUNT, BACK_ROOM_SEATS, isBackSeat } from "../../shared/desks.ts";
+import {
+  DESK_COUNT,
+  BACK_ROOM_SEATS,
+  isBackSeat,
+  hasBackRoom,
+  roomIsFull as deskRoomIsFull,
+} from "../../shared/desks.ts";
 import { TrapDoor, type BackRoomAttention } from "./TrapDoor.tsx";
 import { BackRoomScreen } from "./back-room/BackRoomScreen.tsx";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
@@ -343,7 +349,10 @@ export function OfficeView({
     [swipeRef, viewport.setContainer],
   );
 
-  const showBackRoom = !!backRoomOpen && !lobbyOpen && !!currentRoomId;
+  // A room with its back room setting off has no back screen (task b16f1e6a).
+  const currentHasBackRoom = hasBackRoom(rooms[currentRoomIndex]);
+  const showBackRoom =
+    !!backRoomOpen && !lobbyOpen && !!currentRoomId && currentHasBackRoom;
   // Expose viewport controls to parent for keyboard shortcuts (0, +, -). Skip
   // in embed mode - the zoom UI is hidden there, and the keyboard parity
   // should match. The back room screen registers its own view.
@@ -381,12 +390,13 @@ export function OfficeView({
     asking: backAgents.filter((a) => a.pendingPrompt != null).length,
     error: backAgents.filter((a) => a.state === "error").length,
   };
-  // A room takes no more agents only when its front and back room are full.
-  const roomIsFull = (roomId: string) => {
-    const inRoom = agents.filter((x) => x.roomId === roomId);
-    const back = inRoom.filter((x) => isBackSeat(x.desk)).length;
-    return inRoom.length - back >= DESK_COUNT && back >= BACK_ROOM_SEATS;
-  };
+  // A room takes no more agents when its front, and its back room where it
+  // has one, are full: a door refuses such a room at once.
+  const roomIsFull = (roomId: string) =>
+    deskRoomIsFull(
+      rooms.find((r) => r.id === roomId),
+      agents.filter((x) => x.roomId === roomId).map((x) => x.desk),
+    );
   // Final ghost placement list - natural desk / lobby positions, plus
   // door-slide overrides for ghosts whose presence just crossed into / out
   // of our current room. The hook owns all per-ghost coordinate state;
@@ -913,19 +923,22 @@ export function OfficeView({
                           }}
                         />
                       )}
-                    <TrapDoor
-                      attention={backAttention}
-                      backFull={backAgents.length >= BACK_ROOM_SEATS}
-                      onOpen={() => onOpenBackRoom?.()}
-                      onDropDesk={(desk) => {
-                        const a = frontAgents.find((x) => x.desk === desk);
-                        if (!a || !currentRoomId) return;
-                        apiFetch("POST", `/api/agents/${a.id}/move`, {
-                          targetRoomId: currentRoomId,
-                          desk: null,
-                        } satisfies MoveAgentReq).catch(() => {});
-                      }}
-                    />
+                    {/* Only where the room's back room setting is on. */}
+                    {currentHasBackRoom && (
+                      <TrapDoor
+                        attention={backAttention}
+                        backFull={backAgents.length >= BACK_ROOM_SEATS}
+                        onOpen={() => onOpenBackRoom?.()}
+                        onDropDesk={(desk) => {
+                          const a = frontAgents.find((x) => x.desk === desk);
+                          if (!a || !currentRoomId) return;
+                          apiFetch("POST", `/api/agents/${a.id}/move`, {
+                            targetRoomId: currentRoomId,
+                            desk: null,
+                          } satisfies MoveAgentReq).catch(() => {});
+                        }}
+                      />
+                    )}
                     {/* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */}
                     {Array.from({ length: DESK_COUNT }, (_, i) => {
                       const agent = roomAgents.find((a) => a.desk === i);

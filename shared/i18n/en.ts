@@ -527,6 +527,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.room.intro":
     "The vent on the wall, the s key and a double-click on the room tab open this page.",
   "settings.room.namePlaceholder": "Room name",
+  "settings.room.backRoom": "Back room",
+  "settings.room.backRoomHint": "More than {count} agents, behind a trap door.",
   "settings.room.prompt": "Room Prompt",
   "settings.room.promptHint": "(optional, appended after office prompt)",
   "settings.room.promptTitle": "{room} · Room Prompt",

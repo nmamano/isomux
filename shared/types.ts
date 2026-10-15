@@ -1657,6 +1657,11 @@ export interface RoomWire {
   // only the slots somebody picked, so absent (or null) draws the preset
   // exactly as before this field existed. Persisted with the room like `skin`.
   decor?: RoomDecor | null;
+  // Whether the room has a back room (shared/desks.ts): seats past the 8 front
+  // desks, behind a trap door. Absent means off, which is what a room written
+  // before the setting existed reads as, unless it held back agents at load.
+  // The lobby never has one.
+  backRoom?: boolean;
 }
 
 // Per-user record stored server-side in ~/.isomux/users.json. Keyed by
@@ -2190,6 +2195,7 @@ export type ServerMessage =
   | { type: "room_pet_updated"; roomId: string; pet: RoomPet | null }
   | { type: "room_skin_updated"; roomId: string; skin: RoomSkin | null }
   | { type: "room_decor_updated"; roomId: string; decor: RoomDecor | null }
+  | { type: "room_back_room_updated"; roomId: string; backRoom: boolean }
   | { type: "users_list"; users: UserPublicWire[] }
   | { type: "user_updated"; user: UserPublicWire; prevName?: string }
   // Owners-audience FULL records (UserAdminWire === UserRecord). SEPARATE event

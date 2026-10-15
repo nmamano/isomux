@@ -1207,6 +1207,7 @@ const SPEC_ROUTE_CONTRACT: Record<
       "room_pet_updated",
       "room_skin_updated",
       "room_decor_updated",
+      "room_back_room_updated",
     ],
   },
   "rooms.getSettings": { caps: ["room:manage"], emits: [] },

@@ -224,14 +224,16 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
     expect(srv.agentManager.getAgent(x.id)?.roomId).toBe(r1); // untouched
   });
 
-  // Task 5b503e32: a full front no longer refuses a move; the agent takes a
-  // back room seat. (This used to assert 409 no_free_desk.)
+  // Task 5b503e32: with the back room on, a full front no longer refuses a
+  // move; the agent takes a back room seat. With it off, the move is 409
+  // no_free_desk as before (routes-back-room-setting.test.ts).
   it("target room with a full front -> 200, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("R2");
+    srv.agentManager.setRoomBackRoom(r2, true);
     for (let d = 0; d < 8; d++) await spawnAt(srv, `F${d}`, r2, d); // fill r2
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
@@ -443,13 +445,15 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     expect(errCode(res.body)).toBe("name_taken");
   });
 
-  // Task 5b503e32: a full front no longer refuses a spawn; the agent takes a
-  // back room seat. (This used to assert 409 no_free_desk.)
+  // Task 5b503e32: with the back room on, a full front no longer refuses a
+  // spawn; the agent takes a back room seat. With it off, the spawn is 409
+  // no_free_desk as before (routes-back-room-setting.test.ts).
   it("full front -> 201, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const r1 = srv.agentManager.getRooms()[0].id;
+    srv.agentManager.setRoomBackRoom(r1, true);
     for (let d = 0; d < 8; d++) await spawnAt(srv, `Fill${d}`, r1, d);
     const res = await req(srv, "POST", "/api/agents", {
       body: spawnBody(srv, "Extra", r1, 0),

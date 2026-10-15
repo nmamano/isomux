@@ -20,7 +20,12 @@ import { roomActivityDotColor, roomHasUnread } from "./room-activity.ts";
 import { TuckedRoomsChip } from "./TuckedRoomsChip.tsx";
 import { useDeskDrag } from "./useDeskDrag.ts";
 import { getDraggedDesk } from "./drag-state.ts";
-import { BACK_ROOM_SEATS, DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
+import {
+  BACK_ROOM_SEATS,
+  DESK_COUNT,
+  hasBackRoom,
+  isBackSeat,
+} from "../../shared/desks.ts";
 import type { MoveAgentReq } from "../../shared/contract-shapes.ts";
 
 // Per-tab mini-ghost cluster sizing. Kept small so the bar height
@@ -240,7 +245,7 @@ export function RoomTabBar({
   const [dragFrom, setDragFrom] = useState<string | null>(null);
   // A desk dragged from the scene (task f0af4677): every tab takes it to
   // that room's front, and a "Back room" target beside the tab takes it to
-  // that room's back room.
+  // that room's back room, where its setting is on (task b16f1e6a).
   const deskDrag = useDeskDrag();
   const [deskOver, setDeskOver] = useState<string | null>(null);
   if (!deskDrag && deskOver !== null) setDeskOver(null);
@@ -677,7 +682,7 @@ export function RoomTabBar({
                       />
                     )}
                   </button>
-                  {deskDrag && (
+                  {deskDrag && hasBackRoom(room) && (
                     <span
                       {...deskDropProps(room.id, "back")}
                       style={{

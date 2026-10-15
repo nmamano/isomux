@@ -205,9 +205,9 @@ status `obsolete`, with the reason in `description`.
 
 ### Update a room
 
-`PATCH /api/rooms/<roomId>` is a partial update over a room's cosmetic fields.
-Send `name`, `pet`, `skin`, `decor`, or any mix; each is applied only when the
-body carries it.
+`PATCH /api/rooms/<roomId>` is a partial update over a room's fields. Send
+`name`, `pet`, `skin`, `decor`, `backRoom`, or any mix; each is applied only
+when the body carries it.
 
 `skin` is the room's preset: `"office"` (the default) or `"hospital"`. `null`
 restores the office preset. An unknown value returns 422 `invalid_skin`. The
@@ -227,8 +227,13 @@ room to the preset. An unknown slot or value returns 422 `invalid_decor`, and
 nothing in that body is written. The lobby returns 422 `skin_not_supported`.
 `pet` keeps the animal and its coat; the `pet` slot sets whether it is drawn.
 
-`GET /api/rooms/<roomId>/settings` returns the room's `skin`, `pet` and `decor`
-beside the prompt. Its `version` covers the prompt only.
+`backRoom: true` gives the room a back room: up to 100 more agents behind a
+trap door. A new room has it off. Turning it off while agents sit there
+returns 409 `back_room_in_use` with their `count`, and nothing in that body is
+written: move them out first. The lobby returns 422 `back_room_not_supported`.
+
+`GET /api/rooms/<roomId>/settings` returns the room's `skin`, `pet`, `decor`
+and `backRoom` beside the prompt. Its `version` covers the prompt only.
 
 ### Members chat
 

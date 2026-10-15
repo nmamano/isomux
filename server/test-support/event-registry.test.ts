@@ -51,6 +51,7 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   room_pet_updated: "room-ACL",
   room_skin_updated: "room-ACL",
   room_decor_updated: "room-ACL",
+  room_back_room_updated: "room-ACL",
   // State / projection
   session_context: "recipient-scoped",
   full_state: "recipient-scoped",

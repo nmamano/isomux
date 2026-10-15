@@ -42,33 +42,55 @@ import type { AgentInfo } from "../../../shared/types.ts";
 import {
   roomSlotCount,
   isValidDesk,
+  hasBackRoom,
   BACK_ROOM_FULL_MESSAGE,
+  BACK_ROOM_OFF_MESSAGE,
 } from "../../../shared/desks.ts";
+
+type DeskRoom = Pick<
+  import("../../../shared/types.ts").RoomWire,
+  "type" | "backRoom"
+>;
 
 // A desk outside the room's grid names no slot to draw the agent at, so both
 // spawn and revive reject it here rather than letting it reach the core. Spawn
 // used to create a real but unrenderable agent that broke the
 // office view for the whole room; revive reported it as an occupied desk).
-const deskRangeMessage = (
-  room?: Pick<import("../../../shared/types.ts").RoomWire, "type">,
-) =>
-  room?.type === "lobby"
-    ? `desk must be a whole number from 0 to ${roomSlotCount(room) - 1}`
-    : `desk must be a whole number from 0 to ${roomSlotCount(room) - 1}, or null for the back room`;
+const deskRangeMessage = (room?: DeskRoom) =>
+  hasBackRoom(room)
+    ? `desk must be a whole number from 0 to ${roomSlotCount(room) - 1}, or null for the back room`
+    : `desk must be a whole number from 0 to ${roomSlotCount(room) - 1}`;
 
 // The desk field of spawn, move and revive: absent, null (the back room) or a
 // front desk number. Back seats are always assigned by the server, so a
 // number outside the front grid - including a back seat number - is refused.
+// null into a room with its back room off is its own refusal (409
+// back_room_off); an unknown room passes, so the core answers 404.
 function deskField(
   value: unknown,
-  room: Pick<import("../../../shared/types.ts").RoomWire, "type"> | undefined,
-): { ok: true; desk: number | null | undefined } | { ok: false } {
+  room: DeskRoom | undefined,
+):
+  | { ok: true; desk: number | null | undefined }
+  | { ok: false; backRoomOff?: true } {
   if (value === undefined) return { ok: true, desk: undefined };
-  if (value === null)
-    return room?.type === "lobby" ? { ok: false } : { ok: true, desk: null };
+  if (value === null) {
+    if (room?.type === "lobby") return { ok: false };
+    if (room && !hasBackRoom(room)) return { ok: false, backRoomOff: true };
+    return { ok: true, desk: null };
+  }
   if (typeof value === "number" && isValidDesk(value, room))
     return { ok: true, desk: value };
   return { ok: false };
+}
+
+// The answer for a desk field deskField refused.
+function deskFieldFailure(
+  r: { backRoomOff?: true },
+  room: DeskRoom | undefined,
+) {
+  return r.backRoomOff
+    ? fail(409, "back_room_off", BACK_ROOM_OFF_MESSAGE)
+    : fail(422, "invalid_desk", deskRangeMessage(room));
 }
 import { AGENT_TEMPLATES } from "../../../shared/agent-templates.ts";
 import {
@@ -94,6 +116,7 @@ export type SpawnResult =
         | "name_taken"
         | "no_free_desk"
         | "back_room_full"
+        | "back_room_off"
         | "room_not_found"
         | "invalid_model_family"
         | "spawn_failed";
@@ -120,15 +143,19 @@ export type ReviveResult =
   | {
       ok: false;
       error: string;
-      field?: "name" | "desk" | "room" | "back_room";
+      field?:
+        | "name"
+        | "desk"
+        | "room"
+        | "back_room"
+        | "back_room_off"
+        | "room_full";
     };
 
 export type KillResult = { ok: true };
 
 export interface AgentsDeps {
-  roomForDesks?(
-    roomId: string,
-  ): Pick<import("../../../shared/types.ts").RoomWire, "type"> | undefined;
+  roomForDesks?(roomId: string): DeskRoom | undefined;
   // Despawns a live agent (core revokes its token). No-op safe: the agentParam
   // guard already gated existence + access, so a stale id is a harmless no-op.
   kill(agentId: string): Promise<KillResult>;
@@ -159,6 +186,7 @@ export interface AgentsDeps {
         reason:
           | "no_free_desk"
           | "back_room_full"
+          | "back_room_off"
           | "desk_taken"
           | "room_not_found"
           | "agent_not_found";
@@ -203,7 +231,7 @@ export interface AgentsDeps {
   revive(
     agentId: string,
     roomId: string,
-    desk: number | null,
+    desk: number | null | undefined,
   ): Promise<ReviveResult>;
   // Validates cwd when present (-> invalid_cwd) and a present modelFamily
   // against the agentType the edit lands on (-> invalid_model_family), applies
@@ -358,7 +386,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         typeof b.targetRoomId === "string" ? b.targetRoomId : "";
       const room = deps.roomForDesks?.(targetRoomId);
       const desk = deskField(b.desk, room);
-      if (!desk.ok) return fail(422, "invalid_desk", deskRangeMessage(room));
+      if (!desk.ok) return deskFieldFailure(desk, room);
       const r = deps.move(ctx.params.id, targetRoomId, desk.desk);
       if (r.ok) return ok({ agent: r.agent }); // includes the same-place no-op
       if (r.reason === "no_free_desk") {
@@ -366,6 +394,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       }
       if (r.reason === "back_room_full") {
         return fail(409, "back_room_full", BACK_ROOM_FULL_MESSAGE);
+      }
+      if (r.reason === "back_room_off") {
+        return fail(409, "back_room_off", BACK_ROOM_OFF_MESSAGE);
       }
       if (r.reason === "desk_taken") {
         return fail(409, "desk_taken", "That desk is not free.");
@@ -420,15 +451,10 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       }
       // No desk puts the agent in the back room: an agent that spawns
       // workers without a desk choice keeps the front for the agents people
-      // talk to.
-      const spawnDesk = deskField(b.desk, deps.roomForDesks?.(b.roomId));
-      if (!spawnDesk.ok) {
-        return fail(
-          422,
-          "invalid_desk",
-          deskRangeMessage(deps.roomForDesks?.(b.roomId)),
-        );
-      }
+      // talk to. A room with its back room off takes front desks only.
+      const spawnRoom = deps.roomForDesks?.(b.roomId);
+      const spawnDesk = deskField(b.desk, spawnRoom);
+      if (!spawnDesk.ok) return deskFieldFailure(spawnDesk, spawnRoom);
       if (malformedAgentFields(b)) {
         return fail(422, "invalid_request", "malformed agent field");
       }
@@ -462,10 +488,10 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         name: b.name,
         cwd: b.cwd,
         roomId: b.roomId,
-        // The lobby has no back room: no desk there is its desk.
+        // No desk is a back seat only where the room has a back room; in the
+        // lobby, or with the setting off, it is the first free front desk.
         desk:
-          spawnDesk.desk === undefined &&
-          deps.roomForDesks?.(b.roomId)?.type !== "lobby"
+          spawnDesk.desk === undefined && hasBackRoom(spawnRoom)
             ? null
             : spawnDesk.desk,
         permissionMode,
@@ -503,20 +529,12 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       }
       // Same range check as spawn: without it an off-grid desk reached the core
       // and came back as 409 desk_taken, telling the member a desk was occupied
-      // when it doesn't exist. No desk revives into the back room.
-      const reviveDesk = deskField(b.desk, deps.roomForDesks?.(b.roomId));
-      if (!reviveDesk.ok) {
-        return fail(
-          422,
-          "invalid_desk",
-          deskRangeMessage(deps.roomForDesks?.(b.roomId)),
-        );
-      }
-      const r = await deps.revive(
-        ctx.params.id,
-        b.roomId,
-        reviveDesk.desk ?? null,
-      );
+      // when it doesn't exist. No desk revives into the back room, or to the
+      // first free front desk where the room has none.
+      const reviveRoom = deps.roomForDesks?.(b.roomId);
+      const reviveDesk = deskField(b.desk, reviveRoom);
+      if (!reviveDesk.ok) return deskFieldFailure(reviveDesk, reviveRoom);
+      const r = await deps.revive(ctx.params.id, b.roomId, reviveDesk.desk);
       if (r.ok) return ok({ agent: r.agent });
       // The revive dialog surfaces e.message; the code mirrors the field hint.
       const code =
@@ -526,9 +544,13 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
             ? "desk_taken"
             : r.field === "back_room"
               ? "back_room_full"
-              : r.field === "room"
-                ? "room_not_found"
-                : "revive_failed";
+              : r.field === "back_room_off"
+                ? "back_room_off"
+                : r.field === "room_full"
+                  ? "no_free_desk"
+                  : r.field === "room"
+                    ? "room_not_found"
+                    : "revive_failed";
       return fail(r.field === "room" ? 404 : 409, code, r.error);
     },
 

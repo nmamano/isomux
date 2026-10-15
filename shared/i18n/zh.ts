@@ -488,6 +488,8 @@ App 的一些原则：
   "settings.room.title": "{room} · 设置",
   "settings.room.intro": "墙上的通风口、s 键和双击房间标签页都可打开此页面。",
   "settings.room.namePlaceholder": "房间名称",
+  "settings.room.backRoom": "后屋",
+  "settings.room.backRoomHint": "可容纳超过 {count} 位智能体，经活板门进入。",
   "settings.room.prompt": "房间提示词",
   "settings.room.promptHint": "（可选，附加在办公室提示词之后）",
   "settings.room.promptTitle": "{room} · 房间提示词",

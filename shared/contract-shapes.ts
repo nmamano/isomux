@@ -566,7 +566,7 @@ export interface RoomCreateReq {
 }
 
 export interface RoomRenameReq {
-  // All four fields are optional and independent: the picker sends only `pet`,
+  // All five fields are optional and independent: the picker sends only `pet`,
   // the settings pane sends whichever of the others changed. A body carrying
   // none of them is malformed.
   name?: string;
@@ -579,6 +579,9 @@ export interface RoomRenameReq {
   // Merged into the room's choices: a value sets that slot, null clears it back
   // to the preset, an absent key leaves it. `decor: null` clears every choice.
   decor?: RoomDecorPatch | null;
+  // Turns the back room on or off. Off is refused (409 back_room_in_use)
+  // while agents sit there. The lobby has no back room.
+  backRoom?: boolean;
 }
 
 // Room-prompt write. `version` is the token from a preceding rooms.getSettings
@@ -598,6 +601,7 @@ export interface RoomSettingsRes {
   skin: RoomSkin | null;
   pet: RoomPet | null;
   decor: RoomDecor | null;
+  backRoom: boolean;
 }
 
 export interface ViewOrderReq {

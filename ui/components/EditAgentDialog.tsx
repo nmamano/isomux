@@ -22,6 +22,7 @@ import {
 import {
   roomSlotCount,
   isBackSeat,
+  hasBackRoom,
   BACK_ROOM_SEATS,
 } from "../../shared/desks.ts";
 import { randomOutfit } from "../../shared/outfit-options.ts";
@@ -1399,8 +1400,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     </div>
   );
 
-  // Each room offers its front and, outside the lobby, its back room
-  // (task f0af4677). The agent's own room offers the area it is not in.
+  // Each room offers its front and, where its setting is on, its back room
+  // (tasks f0af4677, b16f1e6a). The agent's own room offers the area it is
+  // not in.
   const moveTo = (targetRoomId: string, desk?: number | null) =>
     requestClose(() => {
       apiFetch("POST", `/api/agents/${agent!.id}/move`, {
@@ -1424,7 +1426,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     fontFamily: "'JetBrains Mono',monospace",
   });
   const moveToRoomBlock = !isSpawn &&
-    (roomCount > 1 || rooms[agentRoomIndex]?.type !== "lobby") && (
+    (roomCount > 1 || hasBackRoom(rooms[agentRoomIndex])) && (
       <>
         <label style={{ ...labelStyle, marginTop: 14 }}>
           {t("dialogs.agent.moveToRoom")}
@@ -1433,7 +1435,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           {rooms.map((target, i) => {
             const own = target.id === agent!.roomId;
             const lobby = target.type === "lobby";
-            if (own && lobby) return null;
+            const back = hasBackRoom(target);
+            if (own && !back) return null;
             const inRoom = agents.filter(
               (candidate) => candidate.roomId === target.id,
             );
@@ -1461,11 +1464,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   onClick={() =>
                     moveTo(target.id, lobby ? undefined : freeDesk)
                   }
-                  style={moveButtonStyle(frontOff, lobby ? "only" : "left")}
+                  style={moveButtonStyle(frontOff, back ? "left" : "only")}
                 >
                   {roomName}
                 </button>
-                {!lobby && (
+                {back && (
                   <button
                     disabled={backOff}
                     onClick={() => moveTo(target.id, null)}

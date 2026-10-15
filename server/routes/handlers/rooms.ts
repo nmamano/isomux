@@ -42,6 +42,7 @@ import {
   type RoomDecor,
   type RoomDecorPatch,
 } from "../../../shared/room-decor.ts";
+import { backRoomInUseMessage } from "../../../shared/desks.ts";
 
 export interface RoomsDeps {
   // Creates a room, applies the rule-based creator grant (a member creator
@@ -83,6 +84,15 @@ export interface RoomsDeps {
     roomId: string,
     patch: RoomDecorPatch | null,
   ): "ok" | "room_not_found" | "skin_not_supported";
+  // Turns the room's back room on or off. Off is refused while agents sit
+  // there (the count says how many to move out first); the lobby has none.
+  setBackRoom(
+    roomId: string,
+    backRoom: boolean,
+  ):
+    | { ok: true }
+    | { ok: false; reason: "room_not_found" | "not_supported" }
+    | { ok: false; reason: "in_use"; count: number };
   // Reads a room's settings (the prompt; null means no prompt set) plus the
   // prompt's optimistic-concurrency version, and the room's look so an agent
   // can read it before changing it. The version covers the prompt only.
@@ -93,6 +103,7 @@ export interface RoomsDeps {
     skin: RoomSkin | null;
     pet: RoomPet | null;
     decor: RoomDecor | null;
+    backRoom: boolean;
   } | null;
   // Sets a room's prompt (null clears), guarded by the version from a preceding
   // getSettings - a mismatch writes nothing and reports the current version
@@ -141,6 +152,7 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         pet?: unknown;
         skin?: unknown;
         decor?: unknown;
+        backRoom?: unknown;
       };
       // The tests differ on purpose and all are right over JSON: a name is
       // absent or a string, but `pet` and `skin` carry meaning when they are
@@ -150,13 +162,22 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       const hasPet = "pet" in b;
       const hasSkin = "skin" in b;
       const hasDecor = "decor" in b;
+      const hasBackRoom = "backRoom" in b;
       // Shape checks only (never an existence oracle): a malformed body is not
       // a comment on whether the room exists.
-      if (!hasName && !hasPet && !hasSkin && !hasDecor) {
+      if (!hasName && !hasPet && !hasSkin && !hasDecor && !hasBackRoom) {
         return fail(
           422,
           "invalid_request",
-          "name, pet, skin or decor is required",
+          "name, pet, skin, decor or backRoom is required",
+        );
+      }
+      // The lobby has no back room, whatever the value (the skin's rule).
+      if (hasBackRoom && deps.takesSkin(ctx.params.roomId) === "no") {
+        return fail(
+          422,
+          "back_room_not_supported",
+          "the lobby has no back room",
         );
       }
       // The lobby's refusal is decided before any value is looked at (Nil via
@@ -194,6 +215,33 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         const parsed = parseRoomDecorPatch(b.decor);
         if (!parsed.ok) return fail(422, "invalid_decor", parsed.reason);
         decor = parsed.patch;
+      }
+      if (hasBackRoom && typeof b.backRoom !== "boolean") {
+        return fail(422, "invalid_back_room", "backRoom must be true or false");
+      }
+      // The back room goes first: it is the one write that can be refused for
+      // the room's state (agents still in the back), and a refusal must leave
+      // the rest of the body unwritten.
+      if (hasBackRoom) {
+        const r = deps.setBackRoom(ctx.params.roomId, b.backRoom === true);
+        if (!r.ok) {
+          if (r.reason === "in_use") {
+            return fail(
+              409,
+              "back_room_in_use",
+              backRoomInUseMessage(r.count),
+              { count: r.count },
+            );
+          }
+          if (r.reason === "not_supported") {
+            return fail(
+              422,
+              "back_room_not_supported",
+              "the lobby has no back room",
+            );
+          }
+          return fail(404, "room_not_found", "Room not found");
+        }
       }
       // One 404 for the whole request: every write hits the same room, so the
       // first miss answers for all of them and none has run.

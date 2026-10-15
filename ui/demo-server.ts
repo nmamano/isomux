@@ -7,7 +7,11 @@ import {
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
-import { deskOfBackSeat } from "../shared/desks.ts";
+import {
+  deskOfBackSeat,
+  hasBackRoom,
+  backRoomInUseMessage,
+} from "../shared/desks.ts";
 import { detectBrowserLanguage } from "../shared/languages.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 import { displayLanguage } from "./preference-form.ts";
@@ -586,6 +590,8 @@ function seedOffice() {
     throw new Error("Every demo room needs an explicit name");
   }
   state.renameRoom(state.rooms[0].id, DEMO_ROOM_NAMES[0]);
+  // The Conference Room has its back room on, for Creed below.
+  state.setRoomBackRoom(state.rooms[0].id, true);
   for (let i = 1; i <= maxRoom; i++)
     state.createRoom(DEMO_ROOM_NAMES[i], DEMO_ROOM_SKINS[i]);
 
@@ -1728,6 +1734,13 @@ function emitEvents(events: OfficeEvent[]) {
           type: "room_decor_updated",
           roomId: event.roomId,
           decor: event.decor,
+        });
+        break;
+      case "room_back_room_updated":
+        shimEmit({
+          type: "room_back_room_updated",
+          roomId: event.roomId,
+          backRoom: event.backRoom,
         });
         break;
       case "room_closed":
@@ -2972,8 +2985,12 @@ export async function demoApi(
         permissionMode:
           b.permissionMode ??
           (b.agentType === "opencode" ? "bypassPermissions" : "default"),
-        // As on the server: no desk is the back room.
-        desk: b.desk === undefined ? null : b.desk,
+        // As on the server: no desk is the back room, where the room has one.
+        desk:
+          b.desk === undefined &&
+          hasBackRoom(state.rooms.find((r) => r.id === b.roomId))
+            ? null
+            : b.desk,
         roomId: b.roomId,
         customInstructions: b.customInstructions,
         outfit: b.outfit,
@@ -3450,6 +3467,7 @@ export async function demoApi(
       skin: room?.skin ?? null,
       pet: room?.pet ?? null,
       decor: room?.decor ?? null,
+      backRoom: room?.backRoom === true,
     };
   }
   if (roomSettingsMatch && method === "PUT") {
@@ -3469,8 +3487,19 @@ export async function demoApi(
     if (method === "PATCH") {
       const b = (body ?? {}) as RoomRenameReq;
       // PATCH is a partial update: the settings pane sends whichever of name,
-      // pet, skin and decor changed, the pet picker sends a pet, and any of
-      // them may arrive alone.
+      // pet, skin, decor and backRoom changed, the pet picker sends a pet, and
+      // any of them may arrive alone. The back room goes first, as on the
+      // server: its refusal writes nothing.
+      if (typeof b.backRoom === "boolean") {
+        const r = state.setRoomBackRoom(id, b.backRoom);
+        if (r.ok) emitEvents(r.events);
+        else if (r.reason === "in_use")
+          throw new ApiError(
+            409,
+            "back_room_in_use",
+            backRoomInUseMessage(r.count),
+          );
+      }
       if (typeof b.name === "string") emitEvents(state.renameRoom(id, b.name));
       if (b.pet !== undefined) emitEvents(state.setRoomPet(id, b.pet));
       if (b.skin !== undefined) emitEvents(state.setRoomSkin(id, b.skin));

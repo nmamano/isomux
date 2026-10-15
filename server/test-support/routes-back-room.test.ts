@@ -71,6 +71,7 @@ async function setup() {
   server = srv;
   const owner = await srv.seedOwner("Boss");
   const r1 = srv.agentManager.getRooms()[0].id;
+  srv.agentManager.setRoomBackRoom(r1, true);
   return { srv, owner, r1 };
 }
 
@@ -182,6 +183,7 @@ describe("move between front and back", () => {
   it("into a full back room -> 409 back_room_full", async () => {
     const { srv, owner, r1 } = await setup();
     const r2 = srv.agentManager.createRoom("R2");
+    srv.agentManager.setRoomBackRoom(r2, true);
     for (let i = 0; i < DESK_COUNT + BACK_ROOM_SEATS; i++)
       await spawnCore(srv, `A${i}`, r2);
     const x = await spawnCore(srv, "X", r1, 0);
@@ -203,6 +205,7 @@ describe("revive into the back room", () => {
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const r1 = srv.agentManager.getRooms()[0].id;
+    srv.agentManager.setRoomBackRoom(r1, true);
     const x = await spawnCore(srv, "K", r1, 0);
     await srv.agentManager.kill(x.id);
     return { srv, owner, r1, x };
@@ -261,6 +264,7 @@ describe("the lobby with no desk", () => {
     if (!receptionist) throw new Error("no receptionist");
     await srv.agentManager.kill(receptionist.id);
     const r1 = srv.agentManager.getOrdinaryRooms()[0].id;
+    srv.agentManager.setRoomBackRoom(r1, true);
     return { srv, rawSessionId, receptionist, r1 };
   }
 
@@ -304,5 +308,22 @@ describe("the lobby with no desk", () => {
     );
     expect(res.status).toBe(200);
     expect(srv.agentManager.getAgent(receptionist.id)?.desk).toBe(0);
+  });
+  // Task b16f1e6a: a full lobby was 409 desk_taken here, against the design.
+  it("revive into a full lobby -> 409 no_free_desk", async () => {
+    const { srv, rawSessionId, receptionist } = await emptyLobby();
+    await spawnCore(srv, "Sitter", "lobby", 0);
+    const res = await req(
+      srv,
+      "POST",
+      `/api/agents/${receptionist.id}/revive`,
+      {
+        body: { roomId: "lobby" },
+        rawSessionId,
+      },
+    );
+    expect(res.status).toBe(409);
+    expect(errOf(res.body)?.code).toBe("no_free_desk");
+    expect(srv.agentManager.getAgent(receptionist.id)).toBeUndefined();
   });
 });

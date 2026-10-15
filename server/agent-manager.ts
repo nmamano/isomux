@@ -69,8 +69,12 @@ import {
 } from "./session-manager.ts";
 import {
   isValidDesk,
+  isBackSeat,
+  roomSlotCount,
+  hasBackRoom,
   firstFreeBackSeat,
   BACK_ROOM_FULL_MESSAGE,
+  BACK_ROOM_OFF_MESSAGE,
 } from "../shared/desks.ts";
 import {
   appendLog,
@@ -1934,6 +1938,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return "ok";
   }
 
+  /** Turns the room's back room on or off (OfficeState.setRoomBackRoom). Off
+   *  is refused while agents sit there; the answer carries how many. */
+  function setRoomBackRoom(
+    roomId: string,
+    backRoom: boolean,
+  ): ReturnType<OfficeState["setRoomBackRoom"]> {
+    const r = officeState.setRoomBackRoom(roomId, backRoom);
+    if (!r.ok) return r;
+    for (const event of r.events) eventHandler(event);
+    persistAll();
+    return r;
+  }
+
   function moveAgent(agentId: string, targetRoomId: string): boolean {
     const events = officeState.moveAgent(agentId, targetRoomId);
     if (events.length === 0) return false;
@@ -2117,6 +2134,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       pet: r.pet ?? null,
       skin: r.skin ?? null,
       decor: r.decor ?? null,
+      ...(r.type !== "lobby" ? { backRoom: r.backRoom === true } : {}),
       type: r.type,
       ...(r.id === LOBBY_ROOM_ID && lobbySeedPending
         ? { defaultAgentPending: true as const }
@@ -9437,14 +9455,22 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   async function revive(
     agentId: string,
     roomId: string,
-    // A front desk, or null / omitted for the first free back room seat.
+    // A front desk, or null / omitted for the first free back room seat. In
+    // a room with its back room off, omitted is the first free front desk and
+    // null is refused.
     requestedDesk?: number | null,
   ): Promise<
     | { ok: true; agent: AgentInfo }
     | {
         ok: false;
         error: string;
-        field?: "name" | "desk" | "room" | "back_room";
+        field?:
+          | "name"
+          | "desk"
+          | "room"
+          | "back_room"
+          | "back_room_off"
+          | "room_full";
       }
   > {
     // 1. Must be currently killed (not in live map).
@@ -9498,16 +9524,32 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
       desk = requestedDesk;
     } else {
-      // The lobby has no back room: no desk there is its one desk.
-      if (officeState.rooms[roomIdx].type === "lobby") {
-        if (taken.has(0)) {
+      const room = officeState.rooms[roomIdx];
+      // null asks for a back seat; a room with its back room off has none.
+      if (requestedDesk === null && room.type !== "lobby" && !hasBackRoom(room))
+        return {
+          ok: false,
+          error: BACK_ROOM_OFF_MESSAGE,
+          field: "back_room_off",
+        };
+      // The lobby, and a room with its back room off, have front desks only:
+      // no desk there is the first free one.
+      if (!hasBackRoom(room)) {
+        let free = -1;
+        for (let i = 0; i < roomSlotCount(room); i++) {
+          if (!taken.has(i)) {
+            free = i;
+            break;
+          }
+        }
+        if (free < 0) {
           return {
             ok: false,
             error: "The target room has no free desks.",
-            field: "desk",
+            field: "room_full",
           };
         }
-        desk = 0;
+        desk = free;
       } else {
         const seat = firstFreeBackSeat(taken);
         if (seat === null) {
@@ -11224,6 +11266,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     setRoomPet,
     setRoomSkin,
     setRoomDecor,
+    setRoomBackRoom,
     moveAgent,
     placeAgent,
     getAllAgents,
@@ -11347,6 +11390,15 @@ export function createProductionAgentManager(overrides?: {
             pet: r.pet ?? null,
             skin: r.skin ?? null,
             decor: r.decor ?? null,
+            // A room stored before the setting existed has no field: it reads
+            // as off, unless it already holds back agents, which keep their
+            // seats.
+            ...(r.type !== "lobby"
+              ? {
+                  backRoom:
+                    r.backRoom ?? r.agents.some((a) => isBackSeat(a.desk)),
+                }
+              : {}),
             type: r.type,
           }))
         : [{ id: generateRoomId(), name: "Room 1", prompt: null }],

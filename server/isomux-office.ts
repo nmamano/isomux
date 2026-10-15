@@ -103,7 +103,11 @@ import {
 } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { KILLED_AGENT_CHIP_CAP, MAX_UPLOAD_BYTES } from "../shared/types.ts";
-import { BACK_ROOM_FULL_MESSAGE } from "../shared/desks.ts";
+import {
+  BACK_ROOM_FULL_MESSAGE,
+  BACK_ROOM_OFF_MESSAGE,
+  hasBackRoom,
+} from "../shared/desks.ts";
 import { projectBackRooms } from "./discovery-back-room.ts";
 import type { Attachment, InviteWire, SessionWire } from "../shared/types.ts";
 import {
@@ -4414,6 +4418,8 @@ function buildExecutorDeps(
       },
       setSkin: (roomId, skin) => agentManager.setRoomSkin(roomId, skin),
       setDecor: (roomId, patch) => agentManager.setRoomDecor(roomId, patch),
+      setBackRoom: (roomId, backRoom) =>
+        agentManager.setRoomBackRoom(roomId, backRoom),
       getSettings: (roomId) => {
         const room = agentManager.getRooms().find((r) => r.id === roomId);
         // Version over the prompt bytes ("" for a never-set/cleared prompt),
@@ -4425,6 +4431,7 @@ function buildExecutorDeps(
               skin: room.skin ?? null,
               pet: room.pet ?? null,
               decor: room.decor ?? null,
+              backRoom: room.backRoom === true,
             }
           : null;
       },
@@ -4643,21 +4650,31 @@ function buildExecutorDeps(
               message: "Room not found",
             };
           }
-          // The room is full: the lobby has one desk, every other room fills
-          // its back room last.
-          const lobby =
-            agentManager.getRooms().find((r) => r.id === input.roomId)?.type ===
-            "lobby";
-          return lobby
+          // The room is full: a room with a back room fills it last; the
+          // lobby, and a room with the setting off, have front desks only.
+          // null names the back room, which a room with the setting off lacks
+          // (the handler refuses that first; this covers a race with the
+          // setting).
+          const room = agentManager
+            .getRooms()
+            .find((r) => r.id === input.roomId);
+          if (hasBackRoom(room)) {
+            return {
+              ok: false,
+              reason: "back_room_full",
+              message: BACK_ROOM_FULL_MESSAGE,
+            };
+          }
+          return input.desk === null && room?.type !== "lobby"
             ? {
                 ok: false,
-                reason: "no_free_desk",
-                message: "The target room has no free desks.",
+                reason: "back_room_off",
+                message: BACK_ROOM_OFF_MESSAGE,
               }
             : {
                 ok: false,
-                reason: "back_room_full",
-                message: BACK_ROOM_FULL_MESSAGE,
+                reason: "no_free_desk",
+                message: "The target room has no free desks.",
               };
         } catch (err) {
           return {
@@ -6410,6 +6427,12 @@ function emitAgentEvent(event: AgentEvent): void {
       liveEmit("room_decor_updated", {
         roomId: event.roomId,
         decor: event.decor,
+      });
+      break;
+    case "room_back_room_updated":
+      liveEmit("room_back_room_updated", {
+        roomId: event.roomId,
+        backRoom: event.backRoom,
       });
       break;
     case "room_closed":

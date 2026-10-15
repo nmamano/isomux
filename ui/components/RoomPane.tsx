@@ -22,6 +22,7 @@ import {
   type RoomLook,
 } from "../room-look.ts";
 import { RoomDecorPicker } from "./RoomDecorPicker.tsx";
+import { DESK_COUNT } from "../../shared/desks.ts";
 import { isFullUserView } from "../user-merge.ts";
 import {
   followRecord,
@@ -78,6 +79,12 @@ export function RoomPane({
   const [baselinePrompt, setBaselinePrompt] = useState("");
   const [baselineLook, setBaselineLook] = useState<RoomLook>(() =>
     initialRoomLook(room),
+  );
+  // The back room switch, saved through the same PATCH. Turning it off while
+  // agents sit there comes back as a 409 the error line shows.
+  const [backRoom, setBackRoom] = useState(room?.backRoom === true);
+  const [baselineBackRoom, setBaselineBackRoom] = useState(
+    room?.backRoom === true,
   );
   // Room memory is edited via the unified /api/memory verbs (load + version-
   // guarded save). Saved separately from the room settings PUT.
@@ -159,11 +166,14 @@ export function RoomPane({
     // Save tries the identical body again.
     const lookBody =
       room && room.type !== "lobby" ? roomLookBody(look, baselineLook) : null;
+    const backRoomChanged =
+      room != null && room.type !== "lobby" && backRoom !== baselineBackRoom;
     const renameBody: RoomRenameReq | null =
-      room && (trimmedName !== room.name || lookBody)
+      room && (trimmedName !== room.name || lookBody || backRoomChanged)
         ? {
             ...(trimmedName !== room.name ? { name: trimmedName } : {}),
             ...lookBody,
+            ...(backRoomChanged ? { backRoom } : {}),
           }
         : null;
     // The settings save drives the pane: success settles it to "Saved", an
@@ -215,6 +225,7 @@ export function RoomPane({
           setError(t("settings.room.reloadFailed"));
         }
         setBaselineName(trimmedName);
+        setBaselineBackRoom(backRoom);
         setLook(savedRoomLook(look));
         setBaselineLook(savedRoomLook(look));
         setSavedAt(Date.now());
@@ -315,12 +326,14 @@ export function RoomPane({
     (settingsLoaded &&
       (name.trim() !== baselineName ||
         prompt !== baselinePrompt ||
+        backRoom !== baselineBackRoom ||
         roomLookBody(look, baselineLook) !== null)) ||
     mem.dirty ||
     viewDirty;
   const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
     setName(baselineName);
     setPrompt(baselinePrompt);
+    setBackRoom(baselineBackRoom);
     setLook(baselineLook);
     setView(viewBase);
     mem.reset();
@@ -373,6 +386,19 @@ export function RoomPane({
               placeholder={t("settings.room.namePlaceholder")}
               style={inputStyle}
             />
+            <label style={{ ...viewRowStyle, marginTop: 14 }}>
+              <input
+                type="checkbox"
+                data-room-setting="backRoom"
+                checked={backRoom}
+                onChange={() => setBackRoom(!backRoom)}
+                style={checkboxStyle(true)}
+              />
+              {t("settings.room.backRoom")}
+              <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
+                {t("settings.room.backRoomHint", { count: DESK_COUNT })}
+              </span>
+            </label>
           </>
         )}
 
@@ -585,6 +611,7 @@ export function RoomPane({
               onClick={() => {
                 setName(baselineName);
                 setPrompt(baselinePrompt);
+                setBackRoom(baselineBackRoom);
                 setLook(baselineLook);
                 setView(viewBase);
                 mem.reset();

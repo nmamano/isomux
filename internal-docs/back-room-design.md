@@ -22,6 +22,27 @@ drawn and how agent lists show it (one line per back room, see Discovery).
 
 The lobby has no back room. It keeps its 1 slot.
 
+## The setting (task b16f1e6a)
+
+The back room is a per-room setting, `backRoom`, off for a new room (Nil,
+2026-10-15). Members turn it on in the room settings, agents with
+`PATCH /api/rooms/:roomId` and `{backRoom}`; `GET /api/rooms/:roomId/settings`
+reads it, and it rides the room wire (event `room_back_room_updated`).
+
+- Off: the room is its 8 front desks, as before the back room. No desk on a
+  spawn, move or revive takes the first free front desk; a full front is 409
+  `no_free_desk`, and `desk: null` is 409 `back_room_off`. No trap door, no
+  back room target in the move dialog or beside the room tab, no "Move to back
+  room" in the desk menu.
+- On: everything below.
+- Turning it off while agents sit in the back is 409 `back_room_in_use` with
+  their `count`. Nothing is moved or killed on its own.
+- Stored on the room record in agents.json. A room stored before the setting
+  has no field: it reads as off, unless it holds back agents at load, which
+  reads as on. The previous release loads a file with the field and drops it
+  on its next write.
+- The lobby has none: 422 `back_room_not_supported`.
+
 ## Seats and storage
 
 One field, `desk: number`, on `AgentInfo` and `PersistedAgent`:
@@ -113,7 +134,8 @@ Approved by the Lead, 2026-10-15.
 ## The front
 
 - The trap door: a wooden hatch on the front floor at scene point (445, 310),
-  in every skin, always there in every ordinary room (task f0af4677). Light
+  in every skin, always there in every room with the back room on (tasks
+  f0af4677, b16f1e6a). Light
   shows through the planks when a back agent works; badges above it:
   "{n} asking", "{n} error", each hidden at 0. A back agent's unread output
   lights nothing on the front, the room tab dot included: people rarely talk

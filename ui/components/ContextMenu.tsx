@@ -15,6 +15,7 @@ import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { noTranslate } from "../no-translate.ts";
 import {
   BACK_ROOM_SEATS,
+  hasBackRoom,
   isBackSeat,
   isFrontDesk,
   roomSlotCount,
@@ -184,7 +185,7 @@ export function ContextMenu({
           }}
         />
       )}
-      {room && room.type !== "lobby" && isFrontDesk(agent.desk, room) && (
+      {room && hasBackRoom(room) && isFrontDesk(agent.desk, room) && (
         <MenuItem
           label={
             backFull
