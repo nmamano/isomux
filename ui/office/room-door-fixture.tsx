@@ -24,6 +24,11 @@ export const room = (
 });
 const { SceneDecorationContext } = await import("./scene-decoration.tsx");
 let decorateScene = true;
+// Whether the office shows the current room's back room screen.
+let backRoomOpen = false;
+export function setBackRoomOpen(open: boolean) {
+  backRoomOpen = open;
+}
 const noop = () => {};
 export let snapshot: ReturnType<typeof useAppState>;
 export let dispatch: ReturnType<typeof useDispatch>;
@@ -58,6 +63,7 @@ function Office({ creationOnly = false }: { creationOnly?: boolean }) {
       onOpenCronjobs={noop}
       onOpenApps={noop}
       onOpenUpdate={noop}
+      backRoomOpen={backRoomOpen}
     />
   );
 }
@@ -99,6 +105,7 @@ export function mount(
 export function setupRoomDoorTests({ decorations = true } = {}) {
   beforeEach(() => {
     decorateScene = decorations;
+    backRoomOpen = false;
     window.localStorage.clear();
     requests = [];
     reply = async () => ({ room: room("created", "Room 2") });

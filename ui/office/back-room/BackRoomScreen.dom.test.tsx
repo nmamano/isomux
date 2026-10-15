@@ -14,6 +14,7 @@ const { firstFreeBackSeat, deskOfBackSeat, backRoomSide } =
   await import("../../../shared/desks.ts");
 const { backRoomLayout, MIN_SCALE } = await import("./geometry.ts");
 const { computeRestView } = await import("../useViewport.ts");
+const { getDraggedDesk, setDraggedDesk } = await import("../drag-state.ts");
 
 afterEach(cleanup);
 
@@ -47,6 +48,7 @@ function backAgents(n: number) {
 function show(
   agents: ReturnType<typeof backAgents>,
   unread = new Set<string>(),
+  frontFull = false,
 ) {
   const calls: string[] = [];
   const view = render(
@@ -61,6 +63,8 @@ function show(
         onSpawn={() => calls.push("spawn")}
         onOpenAgent={(id) => calls.push(`open:${id}`)}
         onContextMenu={(_x, _y, a) => calls.push(`menu:${a.id}`)}
+        frontFull={frontFull}
+        onDropToFront={(a) => calls.push(`front:${a.id}`)}
       />,
     ),
   );
@@ -105,6 +109,49 @@ describe("BackRoomScreen", () => {
     const { view, calls } = show(backAgents(1));
     fireEvent.click(view.container.querySelector("[data-back-ladder]")!);
     expect(calls).toEqual(["back"]);
+  });
+
+  it("takes a figure dropped on the ladder to the front, unless the front is full", () => {
+    const drag = (el: HTMLElement) => {
+      const ladder = el.querySelector("[data-back-ladder]")!;
+      // A desk left over from a desk that moved away mid-drag.
+      setDraggedDesk(3);
+      fireEvent.dragStart(figures(el)[1], {
+        dataTransfer: { setData: () => {} },
+      });
+      // A figure is not a desk: the room tabs must not take it.
+      expect(getDraggedDesk()).toBeNull();
+      fireEvent.dragOver(ladder, { dataTransfer: { dropEffect: "" } });
+      const target = el
+        .querySelector("[data-back-ladder-target]")
+        ?.getAttribute("data-back-ladder-target");
+      fireEvent.drop(ladder, { dataTransfer: { getData: () => "w1" } });
+      return target;
+    };
+    const open = show(backAgents(2));
+    // No drag, no drop target.
+    expect(
+      open.view.container.querySelector("[data-back-ladder-target]"),
+    ).toBeNull();
+    expect(drag(open.view.container)).toBe("open");
+    expect(open.calls).toEqual(["front:w1"]);
+    // The drop clears the target.
+    expect(
+      open.view.container.querySelector("[data-back-ladder-target]"),
+    ).toBeNull();
+    cleanup();
+    const full = show(backAgents(2), new Set(), true);
+    expect(drag(full.view.container)).toBe("full");
+    expect(full.calls).toEqual([]);
+  });
+
+  it("darkens its edges more than the front", () => {
+    const { view } = show(backAgents(1));
+    expect(
+      view.container
+        .querySelector("[data-vignette]")
+        ?.getAttribute("data-vignette"),
+    ).toBe("strong");
   });
 
   it("stands the ladder at the right wall's end and keeps the board clear of it", () => {
@@ -196,6 +243,8 @@ describe("BackRoomScreen", () => {
           onSpawn={() => {}}
           onOpenAgent={() => {}}
           onContextMenu={() => {}}
+          frontFull={false}
+          onDropToFront={() => {}}
           viewportControlsRef={ref as never}
         />,
       ),

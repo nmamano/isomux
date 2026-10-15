@@ -4,6 +4,7 @@ import {
   pathForPage,
   pageForFlags,
   pageShortcut,
+  backRoomShortcut,
   pagerIdForSearch,
   pageForLocation,
   mcpSignInForSearch,
@@ -294,5 +295,29 @@ describe("page shortcuts and rendered-page precedence", () => {
         pagerOpen: true,
       }),
     ).toBe("settings");
+  });
+});
+
+describe("backRoomShortcut", () => {
+  const office = { hasBackRoom: true, backRoomOpen: false, covered: false };
+
+  it("goes between the front and the back room", () => {
+    expect(backRoomShortcut({ key: "b" }, office)).toBe("open");
+    expect(
+      backRoomShortcut({ key: "b" }, { ...office, backRoomOpen: true }),
+    ).toBe("close");
+  });
+
+  it("does nothing without a back room, while typing, with a modifier, or under a log or page", () => {
+    expect(
+      backRoomShortcut({ key: "b" }, { ...office, hasBackRoom: false }),
+    ).toBeNull();
+    expect(backRoomShortcut({ key: "b", isInput: true }, office)).toBeNull();
+    for (const mod of ["metaKey", "ctrlKey", "altKey"] as const)
+      expect(backRoomShortcut({ key: "b", [mod]: true }, office)).toBeNull();
+    expect(
+      backRoomShortcut({ key: "b" }, { ...office, covered: true }),
+    ).toBeNull();
+    expect(backRoomShortcut({ key: "c" }, office)).toBeNull();
   });
 });

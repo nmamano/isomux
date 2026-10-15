@@ -66,6 +66,7 @@ import {
   roomIsFull as deskRoomIsFull,
 } from "../../shared/desks.ts";
 import { TrapDoor, type BackRoomAttention } from "./TrapDoor.tsx";
+import { Vignette } from "./Vignette.tsx";
 import { BackRoomScreen } from "./back-room/BackRoomScreen.tsx";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
 import { inDefaultTaskList } from "../../shared/task-board.ts";
@@ -382,6 +383,11 @@ export function OfficeView({
   // desks, and its counts are the front's (task 5b503e32).
   const frontAgents = roomAgents.filter((a) => !isBackSeat(a.desk));
   const backAgents = roomAgents.filter((a) => isBackSeat(a.desk));
+  // Where a back agent dropped on the ladder goes: the first free front desk.
+  const firstFreeFrontDesk =
+    Array.from({ length: DESK_COUNT }, (_, d) => d).find(
+      (d) => !frontAgents.some((a) => a.desk === d),
+    ) ?? null;
   const backAttention: BackRoomAttention = {
     agents: backAgents.length,
     working: backAgents.filter(
@@ -652,6 +658,15 @@ export function OfficeView({
             onSpawn={() => onSpawnBack?.()}
             onOpenAgent={(agentId) => dispatch({ type: "focus", agentId })}
             onContextMenu={onContextMenu}
+            frontFull={firstFreeFrontDesk === null}
+            onDropToFront={(a) => {
+              if (firstFreeFrontDesk === null || !currentRoomId) return;
+              apiFetch("POST", `/api/agents/${a.id}/move`, {
+                targetRoomId: currentRoomId,
+                desk: firstFreeFrontDesk,
+              } satisfies MoveAgentReq).catch(() => {});
+            }}
+            vignette={!embed}
             viewportControlsRef={viewportControlsRef}
           />
         ) : (
@@ -1048,17 +1063,7 @@ export function OfficeView({
               /* eslint-enable react-hooks/refs */
             )}
 
-            {/* Vignette */}
-            {!embed && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  pointerEvents: "none",
-                  boxShadow: "inset 0 0 120px var(--vignette)",
-                }}
-              />
-            )}
+            {!embed && <Vignette />}
           </div>
         )}
         {!embed && lobbyOpen && isMobile && (
@@ -1123,12 +1128,13 @@ export function OfficeView({
                   "office.hints.tap",
                   "office.hints.longPress",
                   "office.hints.pinch",
-                  "office.hints.drag",
+                  "office.hints.dragFloor",
                 ] as const)
               : ([
                   "office.hints.click",
+                  "office.hints.dragAgent",
                   "office.hints.wheel",
-                  "office.hints.drag",
+                  "office.hints.dragFloor",
                   "office.hints.rightClick",
                   "office.hints.resetView",
                 ] as const)
@@ -1142,10 +1148,10 @@ export function OfficeView({
               : ([
                   "office.hints.click",
                   !lobbyOpen && currentHasBackRoom
-                    ? "office.hints.dragSwap"
-                    : "office.hints.dragSwapDoor",
+                    ? "office.hints.dragDeskTrapDoor"
+                    : "office.hints.dragDesk",
                   "office.hints.wheel",
-                  "office.hints.drag",
+                  "office.hints.dragFloor",
                   "office.hints.rightClick",
                   "office.hints.resetView",
                 ] as const)

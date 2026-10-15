@@ -2026,12 +2026,13 @@ Cosas que puedes hacer por él:
   "office.hints.pinch": "PELLIZCAR → zoom",
   "office.hints.dragZoomed": "ARRASTRAR (con zoom) → desplazar",
   "office.hints.click": "CLIC → abrir el agente",
-  "office.hints.dragSwap":
-    "ARRASTRAR → intercambiar escritorios, mover a una puerta o a la trampilla",
-  "office.hints.dragSwapDoor":
-    "ARRASTRAR → intercambiar escritorios o mover a la puerta",
+  "office.hints.dragDeskTrapDoor":
+    "ARRASTRAR EL ESCRITORIO → intercambiar, o mover a una puerta o a la trampilla",
+  "office.hints.dragDesk":
+    "ARRASTRAR EL ESCRITORIO → intercambiar, o mover a una puerta",
+  "office.hints.dragAgent": "ARRASTRAR EL AGENTE → mover al frente (escalera)",
   "office.hints.wheel": "RUEDA / +- → zoom",
-  "office.hints.drag": "ARRASTRAR → desplazar",
+  "office.hints.dragFloor": "ARRASTRAR EL SUELO → desplazar",
   "office.hints.rightClick": "CLIC DERECHO → acciones",
   "office.hints.resetView": "0 → restablecer la vista",
   "office.pendingPrompt.permission": "permiso",

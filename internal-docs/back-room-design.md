@@ -140,7 +140,8 @@ Approved by the Lead, 2026-10-15.
   "{n} asking", "{n} error", each hidden at 0. A back agent's unread output
   lights nothing on the front, the room tab dot included: people rarely talk
   to the back room (Nil). An empty back room leaves it closed and quiet. A click opens the back screen. A desk
-  dropped on it moves to the back. Phone tap box: 60 × 44 px.
+  dropped on it moves to the back. The b key goes between the front and the
+  back screen. Phone tap box: 60 × 44 px.
 - Room tabs during a desk drag: a drop on a tab moves the agent to that
   room's first free front desk; a "Back room" target beside each tab moves
   it to that room's back room. A full area takes no drop.
@@ -180,6 +181,11 @@ Approved by the Lead, 2026-10-15.
   10 × 10 room. One finger pans at any scale (no room swipe here).
 - A bar: "← {room}", "Back room", "+ New agent". Figure menu: "Move to front"
   (first free desk; disabled with "Front is full").
+- On a desktop, a figure dragged onto the ladder moves to the first free
+  front desk, the mirror of the trap door; during the drag the ladder shows
+  "Move to front", or "Move to front (full)" and takes no drop when every
+  front desk is taken (task c18ef3e8).
+- The screen's edge darkens as the front's does, stronger (task c18ef3e8).
 - Navigation: a deep level over today's one-entry history model. Back from a
   back agent's log returns to the back screen; a reload lands on the front.
   A click on any room tab, this room's included, or on the ladder opens a

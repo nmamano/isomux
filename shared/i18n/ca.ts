@@ -2027,12 +2027,13 @@ Coses que pots fer per ell:
   "office.hints.pinch": "PESSIGA → zoom",
   "office.hints.dragZoomed": "ARROSSEGA (amb zoom) → desplaça",
   "office.hints.click": "CLIC → obre l'agent",
-  "office.hints.dragSwap":
-    "ARROSSEGA → intercanvia escriptoris, mou a una porta o a la trapa",
-  "office.hints.dragSwapDoor":
-    "ARROSSEGA → intercanvia escriptoris o mou a la porta",
+  "office.hints.dragDeskTrapDoor":
+    "ARROSSEGA L'ESCRIPTORI → intercanvia, o mou a una porta o a la trapa",
+  "office.hints.dragDesk":
+    "ARROSSEGA L'ESCRIPTORI → intercanvia, o mou a una porta",
+  "office.hints.dragAgent": "ARROSSEGA L'AGENT → mou al davant (escala)",
   "office.hints.wheel": "RODA / +- → zoom",
-  "office.hints.drag": "ARROSSEGA → desplaça",
+  "office.hints.dragFloor": "ARROSSEGA EL TERRA → desplaça",
   "office.hints.rightClick": "CLIC DRET → accions",
   "office.hints.resetView": "0 → restableix la vista",
   "office.pendingPrompt.permission": "permís",

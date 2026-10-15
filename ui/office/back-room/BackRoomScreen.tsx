@@ -5,8 +5,10 @@
 // not animate: a hundred animated characters made the frame time 3 to 4 times
 // the front view's (measured 2026-10-15), and static ones cost nothing over
 // it. The room zooms and pans with the front's viewport code (task f0af4677).
+// On a desktop, a figure dragged onto the ladder moves to the front, the
+// mirror of the trap door (task c18ef3e8).
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentInfo } from "../../../shared/types.ts";
 import { backRoomSide, backSeatOf } from "../../../shared/desks.ts";
 import { useI18n } from "../../i18n.tsx";
@@ -16,6 +18,8 @@ import { StatusLight } from "../StatusLight.tsx";
 import { styleForModel } from "../../model-styles.ts";
 import { useViewport } from "../useViewport.ts";
 import { ZoomControls } from "../ZoomControls.tsx";
+import { setDraggedDesk } from "../drag-state.ts";
+import { Vignette } from "../Vignette.tsx";
 import type { ViewportControls } from "../OfficeView.tsx";
 import {
   FIGURE_SCALE,
@@ -110,15 +114,20 @@ function Figure({
   at,
   z,
   unread,
+  draggable,
   onOpen,
   onMenu,
+  onDrag,
 }: {
   agent: AgentInfo;
   at: Point;
   z: number;
   unread: boolean;
+  draggable: boolean;
   onOpen: () => void;
   onMenu: (x: number, y: number) => void;
+  /** The figure's drag starts (true) or ends (false). */
+  onDrag: (dragging: boolean) => void;
 }) {
   const h = 68 * FIGURE_SCALE;
   const w = 52 * FIGURE_SCALE;
@@ -142,6 +151,16 @@ function Figure({
         data-back-figure={agent.id}
         aria-label={agent.name}
         title={agent.name}
+        draggable={draggable}
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", agent.id);
+          e.dataTransfer.effectAllowed = "move";
+          // Not a desk drag: clear a desk left over from a desk that moved
+          // away mid-drag, so the room tabs do not offer to take this one.
+          setDraggedDesk(null);
+          onDrag(true);
+        }}
+        onDragEnd={() => onDrag(false)}
         onClick={() => {
           if (pressed.current) {
             pressed.current = false;
@@ -261,6 +280,9 @@ export function BackRoomScreen({
   onSpawn,
   onOpenAgent,
   onContextMenu,
+  frontFull,
+  onDropToFront,
+  vignette = true,
   viewportControlsRef,
 }: {
   roomName: string;
@@ -272,6 +294,11 @@ export function BackRoomScreen({
   onSpawn: () => void;
   onOpenAgent: (agentId: string) => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
+  /** No front desk is free: the ladder refuses a dropped figure. */
+  frontFull: boolean;
+  /** Moves the agent to a free front desk. */
+  onDropToFront: (agent: AgentInfo) => void;
+  vignette?: boolean;
   /** Where the 0, + and - keys find the view. */
   viewportControlsRef?: React.RefObject<ViewportControls | null>;
 }) {
@@ -279,6 +306,8 @@ export function BackRoomScreen({
   const side = backRoomSide(agents.map((a) => a.desk));
   const layout = backRoomLayout(side);
   const roomRef = useRef<HTMLDivElement | null>(null);
+  // The figure being dragged: the ladder shows itself as the drop target.
+  const [dragged, setDragged] = useState<AgentInfo | null>(null);
   // The front's zoom and pan (task f0af4677), with its own saved view. The
   // rest view fits the whole room down to a readable scale and crops evenly
   // below it; zoom goes far enough out to show a full room on a phone, and
@@ -583,6 +612,9 @@ export function BackRoomScreen({
             at={at}
             z={j * 10 + 3}
             unread={needsAttention.has(agent.id)}
+            // HTML5 drag is a mouse gesture, as on the front's desks.
+            draggable={!isMobile}
+            onDrag={(on) => setDragged(on ? agent : null)}
             // A touch pan that starts on a figure does not open it.
             onOpen={viewport.wrapClick(() => onOpenAgent(agent.id))}
             onMenu={(x, y) => onContextMenu(x, y, agent)}
@@ -828,6 +860,17 @@ export function BackRoomScreen({
                 pointerEvents="all"
                 cursor="pointer"
                 onClick={viewport.wrapClick(onBack)}
+                onDragOver={(e) => {
+                  if (!dragged) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = frontFull ? "none" : "move";
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const agent = dragged;
+                  setDragged(null);
+                  if (agent && !frontFull) onDropToFront(agent);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
@@ -839,7 +882,58 @@ export function BackRoomScreen({
                   {t("office.backRoom.backToTitle", { room: roomName })}
                 </title>
               </path>
+              {dragged && (
+                <path
+                  data-back-ladder-target={frontFull ? "full" : "open"}
+                  d={poly([
+                    { x: ladderFoot.x - 16, y: ladderFoot.y + 12 },
+                    { x: ladderTop.x - 16, y: ladderTop.y - 8 },
+                    {
+                      x: ladderTop.x + 38,
+                      y: ladderTop.y - 8 + 22 * LADDER_SLOPE,
+                    },
+                    {
+                      x: ladderFoot.x + 38,
+                      y: ladderFoot.y + 12 + 22 * LADDER_SLOPE,
+                    },
+                  ])}
+                  fill={
+                    frontFull
+                      ? "rgba(255,60,60,0.12)"
+                      : "rgba(126,184,255,0.18)"
+                  }
+                  stroke={frontFull ? "var(--red)" : "var(--accent)"}
+                  strokeWidth={2.5}
+                  strokeDasharray="6 4"
+                  pointerEvents="none"
+                />
+              )}
             </svg>
+            {dragged && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: ladderTop.x + 11,
+                  top: ladderTop.y - 14,
+                  transform: "translate(-50%, -100%)",
+                  zIndex: 9000,
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                  padding: "5px 10px",
+                  borderRadius: 14,
+                  background: frontFull ? "var(--red)" : "var(--accent-text)",
+                  color: "var(--bg-base)",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {frontFull
+                  ? t("contextMenu.moveToFrontFull")
+                  : t("contextMenu.moveToFront")}
+              </div>
+            )}
             {rows}
             <svg
               width={layout.width}
@@ -883,6 +977,7 @@ export function BackRoomScreen({
           onZoomOut={viewport.zoomOut}
           onReset={viewport.resetView}
         />
+        {vignette && <Vignette strong />}
       </div>
     </div>
   );

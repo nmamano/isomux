@@ -39,7 +39,7 @@ import type { PreferencesReq } from "../shared/contract-shapes.ts";
 import { agentTabLabel } from "./agent-face.ts";
 import { LOBBY_ROOM_ID, type AgentInfo } from "../shared/types.ts";
 import { swipeTarget } from "./office/room-cycle.ts";
-import { isValidDesk, isBackSeat } from "../shared/desks.ts";
+import { isValidDesk, isBackSeat, hasBackRoom } from "../shared/desks.ts";
 import { cycleAgent } from "./agent-cycle.ts";
 import {
   pageForLocation,
@@ -49,6 +49,7 @@ import {
   pathForPage,
   pageForFlags,
   pageShortcut,
+  backRoomShortcut,
   type Page,
 } from "./routes.ts";
 
@@ -634,6 +635,29 @@ export function App({ routing = true }: { routing?: boolean }) {
             );
         }
       }
+      const backRoomKey = backRoomShortcut(
+        {
+          key: e.key,
+          isInput,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+        },
+        {
+          hasBackRoom:
+            !lobbyOpen &&
+            hasBackRoom(rooms.find((r) => r.id === currentRoomId)),
+          backRoomOpen,
+          covered: !!focusedAgentId || page !== null,
+        },
+      );
+      if (backRoomKey === "open") {
+        e.preventDefault();
+        setBackRoomOpen(true);
+      } else if (backRoomKey === "close") {
+        e.preventDefault();
+        goHome();
+      }
       // Viewport zoom/pan shortcuts (only from office view): 0 → reset, +/= → zoom in, - → zoom out.
       // "=" accepted as an alias for "+" so users don't need Shift on US layouts.
       // Ref is null when OfficeView isn't mounted (log view, etc.) - don't swallow the key in those cases.
@@ -733,6 +757,8 @@ export function App({ routing = true }: { routing?: boolean }) {
     pagerOpen,
     openSettings,
     lobbyOpen,
+    backRoomOpen,
+    page,
   ]);
 
   const isDeep = page !== null || focusedAgentId !== null || backRoomOpen;

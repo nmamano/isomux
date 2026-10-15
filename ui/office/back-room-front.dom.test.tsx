@@ -99,11 +99,9 @@ it("draws no trap door in a room with the back room setting off", async () => {
   expect(view.container.textContent).toContain("Front");
   expect(view.container.querySelector("[data-trap-door]")).toBeNull();
   // The footer drag hint names no trap door either.
-  expect(view.container.textContent).toContain(
-    EN.t("office.hints.dragSwapDoor"),
-  );
+  expect(view.container.textContent).toContain(EN.t("office.hints.dragDesk"));
   expect(view.container.textContent).not.toContain(
-    EN.t("office.hints.dragSwap"),
+    EN.t("office.hints.dragDeskTrapDoor"),
   );
   // The same room with the setting on draws it.
   await act(async () =>
@@ -114,7 +112,9 @@ it("draws no trap door in a room with the back room setting off", async () => {
     } as never),
   );
   expect(view.container.querySelector("[data-trap-door]")).not.toBeNull();
-  expect(view.container.textContent).toContain(EN.t("office.hints.dragSwap"));
+  expect(view.container.textContent).toContain(
+    EN.t("office.hints.dragDeskTrapDoor"),
+  );
 });
 
 // A door refuses a room it cannot take at once, rather than accepting the
@@ -166,4 +166,61 @@ it("a door refuses a next room with a full front and the setting off", async () 
   );
   await drop();
   expect(moves).toEqual([{ targetRoomId: "second" }]);
+});
+
+// The ladder is the trap door's mirror (task c18ef3e8): a back figure dropped
+// on it goes to the first free front desk, and a full front refuses the drop
+// at once, before any request.
+it("a back figure dropped on the ladder moves to the first free front desk, unless the front is full", async () => {
+  const moves: unknown[] = [];
+  setApiShim(async (method, path, body) => {
+    if (method === "POST" && path.endsWith("/move")) moves.push(body);
+    if (path.startsWith("/api/members-chat"))
+      return { messages: [], hasMore: false, readPointer: null, unread: 0 };
+    return {};
+  });
+  fixture.setBackRoomOpen(true);
+  const back = agent("Back", deskOfBackSeat({ table: 0, stool: 0 }), "idle");
+  const emit = (front: number[]) =>
+    act(async () =>
+      shimEmit({
+        type: "full_state",
+        agents: [back, ...front.map((d) => agent(`F${d}`, d, "idle"))],
+        rooms: [room("first")],
+        office: { name: "Back room test", prompt: null },
+        recentCwds: [],
+        killedAgents: [],
+        interactions: [],
+      } as never),
+    );
+  const view = mount([room("first")]);
+  // Desks 0 and 2 are taken: desk 1 is the first free one.
+  await emit([0, 2]);
+  // Drags the figure over the ladder and drops it there; returns the state
+  // the ladder showed during the drag.
+  const dropOnLadder = async () => {
+    await act(async () => {
+      fireEvent.dragStart(
+        view.container.querySelector('[data-back-figure="Back"]')!,
+        { dataTransfer: { setData: () => {} } },
+      );
+    });
+    const ladder = view.container.querySelector("[data-back-ladder]")!;
+    await act(async () => {
+      fireEvent.dragOver(ladder, { dataTransfer: { dropEffect: "" } });
+    });
+    const shown = view.container
+      .querySelector("[data-back-ladder-target]")
+      ?.getAttribute("data-back-ladder-target");
+    await act(async () => {
+      fireEvent.drop(ladder, { dataTransfer: { getData: () => "Back" } });
+    });
+    return shown;
+  };
+  expect(await dropOnLadder()).toBe("open");
+  expect(moves).toEqual([{ targetRoomId: "first", desk: 1 }]);
+  // Every front desk taken: the ladder shows it refuses, and takes no drop.
+  await emit(Array.from({ length: DESK_COUNT }, (_, d) => d));
+  expect(await dropOnLadder()).toBe("full");
+  expect(moves).toEqual([{ targetRoomId: "first", desk: 1 }]);
 });

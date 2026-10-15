@@ -186,3 +186,30 @@ export function pageShortcut(
   if (input.key === "s") return { usersOpen: true };
   return null;
 }
+
+export interface BackRoomShortcutState {
+  /** The current room has its back room setting on, and is not the lobby. */
+  hasBackRoom: boolean;
+  backRoomOpen: boolean;
+  /** An agent's log or a page shows over the office. */
+  covered: boolean;
+}
+
+/** "b" goes between a room's front and its back room (Nil, 2026-10-15):
+ *  "open" or "close" the back room, or null when the key does nothing. */
+export function backRoomShortcut(
+  input: PageShortcutInput,
+  state: BackRoomShortcutState,
+): "open" | "close" | null {
+  if (
+    input.key !== "b" ||
+    input.isInput ||
+    input.metaKey ||
+    input.ctrlKey ||
+    input.altKey ||
+    state.covered ||
+    !state.hasBackRoom
+  )
+    return null;
+  return state.backRoomOpen ? "close" : "open";
+}
