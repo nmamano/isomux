@@ -68,7 +68,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Sound notification** when an agent finishes and the browser tab is unfocused.
 - **Kaomoji face in the browser tab** for the agent you have open: `(-_-)zz` idle, `~(o_o)~` working, `(^_^)ﾉ` waiting for you.
 - Auto-generated **conversation topic** below nametag.
-- **Drag agents between desks or rooms** to rearrange, or onto the trap door to move them to the back room. In the back room, drag one onto the ladder to move it to the front.
+- **Drag agents between desks or rooms** to rearrange, or onto the trap door to move them to the back room.
 - **A pet in every room** - a cat by default; click it to pick a cat, dog, rabbit or tortoise and a coat for it. The choice is stored with the room, so everyone sees the same animal.
 - **Room look** - pick Office or Hospital, then the walls, curtains, plants, wall art and more.
 - **Skeuomorphic touches**: click the moon through the window to toggle dark mode, click doors to switch rooms, etc.
