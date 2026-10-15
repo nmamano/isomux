@@ -27,6 +27,7 @@ const EXPECTED_AUTORUN = new Set([
   "resume",
   "model",
   "effort",
+  "plan",
   "diff",
   "isomux-diff",
 ]);
