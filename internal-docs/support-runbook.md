@@ -13,7 +13,8 @@ Do not act only on an office name, Stripe receipt, or forwarded message.
    account. Compare addresses case-insensitively. If it did not, ask the
    requester to write again from the account email. Do not disclose whether the
    named office or account exists.
-2. In the control-plane production database (the Neon production branch), find
+2. In the control-plane production database (PostgreSQL on the Hosted VPS,
+   compose project `isomux-hosted`, service `db`), find
    the `accounts` row by `email`. Join it through `name_reservations.account_id`
    to the office and instance. Confirm that the supplied office name matches
    `name_reservations.name`.
@@ -24,12 +25,9 @@ Do not act only on an office name, Stripe receipt, or forwarded message.
 
 The production database is the local record of account ownership and service
 work. Stripe is the authority for payments, invoices, subscription state, and
-refund state. Use the operator-owned production database connection or Neon SQL
-Editor for database checks. From the office box, the hardened reader is
-`control-plane/exercises/neon-api.ts` with `targetFor(PRODUCTION_BRANCH)`: it
-builds the connection string in process from `~/nil/secrets/control-plane-neon.env`
-and prints nothing, so an agent never hand-rolls an env reader. Do not copy
-credentials into a ticket, support message, command line, or transcript.
+refund state. Neon was retired on 2026-10-15, and there is no hardened reader
+for the VPS database yet (task fd71c74c). Do not copy credentials into a ticket,
+support message, command line, or transcript.
 
 ## Decide refund eligibility
 
