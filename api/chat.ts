@@ -285,6 +285,52 @@ export function buildSystemPrompt(
   return `${SYSTEM_PROMPT}\n\nAnswer for the Isomux option that fits the visitor's question. Do not assume they are self-hosting.`;
 }
 
+// --- Discord log ---
+// Discord refuses a post longer than this.
+const DISCORD_LIMIT = 2000;
+const CONVERSATION_ID = /^[a-z0-9]{8,32}$/;
+
+// The tag goes in the first line of each log post, so a reader can group the
+// posts of one conversation. A request with no valid id gets no tag.
+export function conversationTag(conversationId: unknown): string {
+  return typeof conversationId === "string" &&
+    CONVERSATION_ID.test(conversationId)
+    ? ` [conversation ${conversationId}]`
+    : "";
+}
+
+// An answer that does not fit in one post goes over several, each labelled
+// with its part number. Cuts fall on a line break or a space when one is near.
+// Discord trims whitespace at the end of a post, so a cut goes before the
+// break: the whitespace opens the next part, after its header line.
+export function botPosts(text: string, tag: string): string[] {
+  const single = `[isomux.com]${tag} **Bot:**\n${text}`;
+  if (single.length <= DISCORD_LIMIT) return [single];
+  const budget = DISCORD_LIMIT - `[isomux.com]${tag} **Bot (99/99):**\n`.length;
+  const floor = budget / 2;
+  const parts: string[] = [];
+  let rest = text;
+  while (rest.length > budget) {
+    let cut = rest.lastIndexOf("\n", budget);
+    if (cut < floor) cut = rest.lastIndexOf(" ", budget);
+    if (cut < floor) {
+      cut = budget;
+      // Do not cut a surrogate pair in two.
+      const code = rest.charCodeAt(cut - 1);
+      if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+    }
+    // Only a run of whitespace longer than half a post can end a part.
+    while (cut > floor && /\s/u.test(rest[cut - 1])) cut -= 1;
+    parts.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+  }
+  parts.push(rest);
+  return parts.map(
+    (part, i) =>
+      `[isomux.com]${tag} **Bot (${i + 1}/${parts.length}):**\n${part}`,
+  );
+}
+
 // --- SSE parsing helpers ---
 
 async function* parseAnthropicStream(
@@ -357,10 +403,11 @@ export default async function handler(req: Request) {
       "Send a JSON object with a messages array.",
     );
   }
-  const { messages, pageContext, page } = body as {
+  const { messages, pageContext, page, conversationId } = body as {
     messages: { role: string; content: string }[];
     pageContext?: string;
     page?: unknown;
+    conversationId?: unknown;
   };
   if (!Array.isArray(messages)) {
     return jsonError(
@@ -408,6 +455,7 @@ export default async function handler(req: Request) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   const userAgent = req.headers.get("user-agent") || "unknown";
   const referer = req.headers.get("referer") || "unknown";
+  const tag = conversationTag(conversationId);
   const meta = `> IP: \`${ip}\` | UA: \`${userAgent.slice(0, 100)}\` | Ref: \`${referer}\``;
 
   // Log visitor message to Discord (fire-and-forget)
@@ -420,9 +468,9 @@ export default async function handler(req: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         content:
-          `[isomux.com] **Visitor:**\n${lastUserMsg.content}\n${meta}`.slice(
+          `[isomux.com]${tag} **Visitor:**\n${lastUserMsg.content}\n${meta}`.slice(
             0,
-            2000,
+            DISCORD_LIMIT,
           ),
       }),
     }).catch(() => {});
@@ -489,13 +537,14 @@ export default async function handler(req: Request) {
         // Log bot response to Discord before closing the stream
         // (Vercel Edge tears down after close, so fire-and-forget wouldn't complete)
         if (webhookUrl && fullText) {
-          await fetch(webhookUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              content: `[isomux.com] **Bot:**\n${fullText}`.slice(0, 2000),
-            }),
-          }).catch(() => {});
+          // One at a time, so the parts arrive in order.
+          for (const content of botPosts(fullText, tag)) {
+            await fetch(webhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ content }),
+            }).catch(() => {});
+          }
         }
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();

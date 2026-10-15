@@ -122,6 +122,13 @@
 
   const starters = pageContext ? L.pageStarters : L.starters;
 
+  // One id per page load, which is also the life of `messages`. /api/chat
+  // puts it in its log posts, so the posts of one conversation group together.
+  const conversationId = Array.from(
+    crypto.getRandomValues(new Uint8Array(16)),
+    (b) => (b % 36).toString(36),
+  ).join("");
+
   let messages = [];
   let isOpen = false;
   let isLoading = false;
@@ -226,6 +233,7 @@
       const body = {
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
         page,
+        conversationId,
       };
       if (pageContext) body.pageContext = pageContext;
 

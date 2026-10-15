@@ -63,6 +63,10 @@
             "type": "string",
             "enum": ["main", "hosted"],
             "description": "Page where the visitor opened the chat widget."
+          },
+          "conversationId": {
+            "type": "string",
+            "description": "Optional id that groups the requests of one conversation in the server log. The server ignores a value that does not match ^[a-z0-9]{8,32}$."
           }
         },
         "additionalProperties": false

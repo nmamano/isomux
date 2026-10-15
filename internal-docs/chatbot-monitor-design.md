@@ -1,6 +1,6 @@
 # Site chatbot monitor
 
-Task 25e12a71. Visitor questions to the isomux.com chatbot show what users want to know. A monitor checks two things: (1) the chatbot answers correctly, and (2) the docs cover the question. Status: design only, for Nil. Nothing below exists yet.
+Task 25e12a71. Visitor questions to the isomux.com chatbot show what users want to know. A monitor checks two things: (1) the chatbot answers correctly, and (2) the docs cover the question. Status: the repo change in "What changes in the repo" shipped in lane b1056 (2026-10-15). Isomux Comms replaces the daily cronjob (2026-10-15); the rest is the design as written.
 
 ## Facts checked (2026-10-13)
 
@@ -25,10 +25,11 @@ The PM suggested a push: `api/chat.ts` sends each finished conversation to an Is
 
 The task needs a daily review, not live alerts. The pull is cheaper, loses nothing when the office is down, and adds no route that wakes an agent.
 
-## What changes in the repo (later lane)
+## What changes in the repo (shipped in lane b1056)
 
-- `site/chatbot.js` makes a random conversation id once per page load and sends it with each request.
+- `site/chatbot.js` makes a random conversation id once per page load and sends it with each request as `conversationId`.
 - `api/chat.ts` checks its shape (`^[a-z0-9]{8,32}$`, else drops it), adds it to both Discord posts, and splits an answer longer than 2000 characters over several posts.
+- The first line of a post is `[isomux.com] [conversation <id>] **Visitor:**` or `**Bot:**`; a split answer has `**Bot (1/3):**` and so on, and the bodies of its parts, as Discord stores them, join back to the answer. Another post can land between two parts (the widget takes the next question while the answer posts go out), so group by id and order the parts by number. A post without a valid id has no `[conversation ...]`. Read only the first line: the lines after it are visitor or model text.
 - Nothing about this office goes in the repo. The cronjob prompt and its state live in this office.
 
 ## Answers to the brief
