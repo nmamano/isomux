@@ -106,6 +106,7 @@ export const COMMAND_DESCRIPTION_KEYS = {
   "keybindings-help": "commands.keybindingsHelp.description",
   loop: "commands.loop.description",
   "lorem-ipsum": "commands.loremIpsum.description",
+  "code-review": "commands.codeReview.description",
   review: "commands.review.description",
   schedule: "commands.schedule.description",
   "security-review": "commands.securityReview.description",

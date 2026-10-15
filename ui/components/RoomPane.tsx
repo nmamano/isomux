@@ -474,6 +474,10 @@ export function RoomPane({
             <ExpandableTextarea
               title={t("settings.room.memoryTitle", { room: room.name })}
               hint={t("common.memoryEditorHint")}
+              status={t("common.memorySize", {
+                size: mem.loaded ? mem.size : "…",
+                cap: mem.cap ?? "…",
+              })}
               value={mem.memory}
               onChange={mem.setMemory}
               placeholder={

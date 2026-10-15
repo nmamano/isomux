@@ -83,6 +83,13 @@ export interface AgentOutfit {
 // conversation, not by editing this field.
 export type AgentBackendType = "claude" | "codex" | "opencode";
 
+// Engine names are proper nouns and stay as they are in every language.
+export const ENGINE_NAMES: Record<AgentBackendType, string> = {
+  claude: "Claude",
+  codex: "Codex",
+  opencode: "OpenCode",
+};
+
 // Claude's 4-mode permission enum.
 export type ClaudePermissionMode =
   | "default"
@@ -571,6 +578,10 @@ export interface QueuedMessage {
   // pre-expanded slash command (e.g. /subagent-review → full skill prompt).
   // Stays undefined for plain user messages.
   sdkText?: string;
+  // A slash command the engine expands itself (CommandConfig.native, or one
+  // the SDK reports): the flush sends it alone, as typed, with no prefix or
+  // note, because the engine expands it only at the start of a message.
+  native?: boolean;
   // True when the message landed while the agent was busy (thinking /
   // tool_executing). Used at flush time to warn the agent that the sender
   // hadn't yet seen its most recent reply when sending this.

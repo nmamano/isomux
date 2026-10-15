@@ -348,6 +348,7 @@ Coses que pots fer per ell:
   "common.loadingDots": "Carregant...",
   "common.loadingMemory": "Carregant la memòria…",
   "common.memory": "Memòria",
+  "common.memorySize": "{size} / {cap} caràcters",
   "common.memoryEditorHint":
     "Aquest editor reescriu el fitxer tal com es mostra. Fes servir una memòria per línia.",
   "common.saveFailed": "No s'ha pogut desar",
@@ -2487,6 +2488,8 @@ Coses que pots fer per ell:
   "commands.loop.message":
     "no està disponible de manera nativa; mira si la pàgina d'Automatitzacions o els missatges programats et serveixen",
   "commands.loremIpsum.description": "Generar text de farciment",
+  "commands.codeReview.description":
+    "Revisa si hi ha errors als canvis actuals, en un PR, una branca o un camí (nivell d’esforç, --fix, --comment, --max-findings)",
   "commands.review.description":
     "Revisió de codi a la cerca d'errors, lògica i casos límit",
   "commands.schedule.description": "Crear agents remots programats amb cron",
@@ -2502,6 +2505,10 @@ Coses que pots fer per ell:
     "`/{name}` ({description}) és una ordre de Claude Code, però no està disponible a Isomux.",
   "commands.unsupported.bundledSkill":
     "`/{name}` ({description}) és una habilitat inclosa a Claude Code, però no està disponible a Isomux. Pots substituir-la creant el teu propi fitxer d'habilitat.",
+  "commands.native.attachments":
+    "`/{name}` no admet fitxers adjunts. Envia els fitxers en un altre missatge.",
+  "commands.unsupported.engine":
+    "`/{name}` només funciona en agents de {engines}.",
   "commands.unsupported.notAvailable": "`/{name}` no està disponible a Isomux.",
   "commands.unsupported.unknownCommand":
     "Ordre desconeguda `/{name}`. Escriu `/help` per veure les ordres disponibles.",
@@ -3107,6 +3114,7 @@ Coses que pots fer per ell:
   "skills.field.file": "Fitxer",
   "skills.field.project": "Projecte",
   "skills.field.alias": "També s'executa com a",
+  "skills.field.engines": "Funciona en",
   "skills.field.uses": "Els teus usos",
   "skills.delete.title": "Vols eliminar /{name}?",
   "skills.delete.folder":
@@ -3119,7 +3127,7 @@ Coses que pots fer per ell:
   "apiCall.skills.delete": "Elimina una habilitat",
   "skills.commands": "Ordres",
   "skills.commands.note":
-    "L’oficina gestiona aquestes ordres; no són habilitats. Funcionen igual per a tots els agents.",
+    "Aquestes ordres vénen integrades; no són habilitats.",
   "skills.commands.search": "Cerca ordres",
   "skills.allAgents": "Tots els agents",
   "skills.invalid.frontmatter":

@@ -1497,6 +1497,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
       <ExpandableTextarea
         title={t("dialogs.agent.memoryTitle")}
+        status={t("common.memorySize", {
+          size: mem.size,
+          cap: mem.cap ?? "…",
+        })}
         value={mem.memory}
         onChange={mem.setMemory}
         placeholder={

@@ -1,4 +1,4 @@
-import type { AgentBackendType } from "../shared/types.ts";
+import { ENGINE_NAMES, type AgentBackendType } from "../shared/types.ts";
 import type { MessageKey } from "../shared/i18n/translate.ts";
 
 // The engine names are proper nouns and stay as they are (ruling 11); the line
@@ -12,19 +12,19 @@ export const ENGINE_OPTIONS: Array<{
 }> = [
   {
     agentType: "claude",
-    label: "Claude",
+    label: ENGINE_NAMES.claude,
     blurbKey: "dialogs.agent.engineBlurb.claude",
     accent: "rgba(100,160,255,0.85)",
   },
   {
     agentType: "codex",
-    label: "Codex",
+    label: ENGINE_NAMES.codex,
     blurbKey: "dialogs.agent.engineBlurb.codex",
     accent: "rgba(120,220,160,0.85)",
   },
   {
     agentType: "opencode",
-    label: "OpenCode",
+    label: ENGINE_NAMES.opencode,
     blurbKey: "dialogs.agent.engineBlurb.opencode",
     accent: "rgba(245,180,80,0.85)",
   },

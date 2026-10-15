@@ -35,7 +35,8 @@ const EXPECTED_AUTORUN = new Set([
 // Commands that need (or primarily want) an argument, so they must stay
 // copy-into-composer: a required path, or a name/id whose no-arg output is just
 // a usage/listing en route to the real selection.
-const EXPECTED_COPY = new Set(["isomux-edit"]);
+// The Claude Code built-ins take options a member types after the name.
+const EXPECTED_COPY = new Set(["isomux-edit", "code-review", "simplify"]);
 
 describe("command registry autoRun classification", () => {
   it("marks exactly the no-arg commands autoRun in the registry", () => {
@@ -62,7 +63,7 @@ describe("command registry autoRun classification", () => {
 });
 
 describe("autocompleteCommands() wire shape", () => {
-  const wire = autocompleteCommands();
+  const wire = autocompleteCommands("claude");
 
   it("emits autoRun: true only for the no-arg commands, and omits it otherwise", () => {
     for (const c of wire) {
@@ -85,6 +86,23 @@ describe("autocompleteCommands() wire shape", () => {
     }
     for (const c of wire) {
       expect(commands[c.name]?.autocomplete).toBe(true);
+    }
+  });
+});
+
+describe("autocompleteCommands() per engine", () => {
+  it("lists a command only for the engines that run it", () => {
+    const restricted = Object.entries(commands).filter(
+      ([, cfg]) => cfg.autocomplete && cfg.engines,
+    );
+    // Enabling condition: the registry has engine-restricted commands.
+    expect(restricted.length).toBeGreaterThan(0);
+    for (const engine of ["claude", "codex", "opencode"] as const) {
+      const names = autocompleteCommands(engine).map((c) => c.name);
+      for (const [name, cfg] of restricted) {
+        expect(names.includes(name)).toBe(cfg.engines!.includes(engine));
+      }
+      expect(names).toContain("clear");
     }
   });
 });

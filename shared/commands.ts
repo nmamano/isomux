@@ -19,6 +19,7 @@ import {
 } from "./i18n/command-keys.ts";
 import { keyFrom } from "./i18n/translate.ts";
 import type { Translator } from "./i18n/translate.ts";
+import type { AgentBackendType } from "./types.ts";
 
 export type CommandType = "hardcoded" | "bundled-skill";
 
@@ -55,6 +56,18 @@ export type CommandConfig = {
    * carry it.
    */
   autoRun?: boolean;
+  /** The engines that run this command. Absent: every engine. Autocomplete,
+   *  /help and the Sk menu show it only to agents on these engines, and an
+   *  agent on another engine refuses it. */
+  engines?: AgentBackendType[];
+  /**
+   * The engine runs this command itself: Isomux sends the text exactly as
+   * typed, with no member prefix and no notice ahead of it, because the
+   * engine expands a slash command only when it is the first thing in the
+   * message. While the agent is busy it waits in the queue and goes alone
+   * (QueuedMessage.native). Requires `engines`.
+   */
+  native?: boolean;
 };
 
 // Shorthand for the common unsupported-hardcoded pattern
@@ -205,6 +218,7 @@ export const commands: Record<string, CommandConfig> = {
     handler: "plan",
     // Bare /plan toggles plan mode; /plan <text> is the optional form.
     autoRun: true,
+    engines: ["claude", "codex"],
   },
   rename: { ...UNSUPPORTED_HARDCODED },
   reset: {
@@ -401,8 +415,25 @@ export const commands: Record<string, CommandConfig> = {
   "lorem-ipsum": {
     ...UNSUPPORTED_BUNDLED_SKILL,
   },
+  // Claude Code built-ins (GitHub #57, #58). Checked 2026-10-15: Claude Agent
+  // SDK 0.3.293 reports both in slash_commands.
+  "code-review": {
+    type: "bundled-skill",
+    supported: true,
+    autocomplete: true,
+    overridable: true,
+    native: true,
+    engines: ["claude"],
+  },
+  // Claude Code runs /review as /code-review.
   review: {
-    ...UNSUPPORTED_BUNDLED_SKILL,
+    type: "bundled-skill",
+    supported: true,
+    autocomplete: false,
+    overridable: true,
+    aliasFor: "code-review",
+    native: true,
+    engines: ["claude"],
   },
   schedule: {
     ...UNSUPPORTED_BUNDLED_SKILL,
@@ -411,7 +442,12 @@ export const commands: Record<string, CommandConfig> = {
     ...UNSUPPORTED_BUNDLED_SKILL,
   },
   simplify: {
-    ...UNSUPPORTED_BUNDLED_SKILL,
+    type: "bundled-skill",
+    supported: true,
+    autocomplete: true,
+    overridable: true,
+    native: true,
+    engines: ["claude"],
   },
   skillify: {
     ...UNSUPPORTED_BUNDLED_SKILL,
@@ -427,8 +463,16 @@ export const commands: Record<string, CommandConfig> = {
   },
 };
 
+/** Does an agent on `engine` run this command? */
+export function runsOnEngine(
+  cfg: CommandConfig,
+  engine: AgentBackendType,
+): boolean {
+  return !cfg.engines || cfg.engines.includes(engine);
+}
+
 /**
- * All command names that should appear in autocomplete from the config.
+ * The command names that appear in autocomplete for an agent on `engine`.
  *
  * No description rides the wire: this list is broadcast per AGENT, not per
  * reader, so a description resolved here would be one language for everybody.
@@ -436,13 +480,13 @@ export const commands: Record<string, CommandConfig> = {
  * description is user-authored data and still travels as delivered - it is on
  * the skills half of the same wire, not here.
  */
-export function autocompleteCommands(): {
+export function autocompleteCommands(engine: AgentBackendType): {
   name: string;
   aliasFor?: string;
   autoRun?: boolean;
 }[] {
   return Object.entries(commands)
-    .filter(([, cfg]) => cfg.autocomplete)
+    .filter(([, cfg]) => cfg.autocomplete && runsOnEngine(cfg, engine))
     .map(([name, cfg]) => ({
       name,
       ...(cfg.aliasFor ? { aliasFor: cfg.aliasFor } : {}),

@@ -4,7 +4,8 @@
 //
 // Agent chats are not routes (ruling 3 of internal-docs/url-routing-loop.md),
 // so a chat is "/" like the office. Backing out of tasks-over-a-chat lands on
-// the chat - the one case where a page closes without the office coming back.
+// the chat, not the office; settings over a chat does the same
+// (ui/App.settings-over-chat.dom.test.tsx).
 
 import {
   afterAll,
@@ -64,8 +65,7 @@ const taskPageOpen = (view: View) =>
 
 describe("a page opened over a chat", () => {
   // Agent chats are not routes (ruling 3), so a chat is "/" like the office.
-  // Back out of tasks-over-a-chat lands on the chat - the one case where a page
-  // closes without the office coming back.
+  // Back out of tasks-over-a-chat lands on the chat, not the office.
   const AGENT = {
     id: "a1",
     name: "Tester",

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import type { LogEntry } from "../shared/types.ts";
 import {
+  editLogUserText,
   locateEditTarget,
   type EditBackendUser,
   type EditLogUser,
@@ -93,6 +95,50 @@ describe("locateEditTarget", () => {
     });
     expect(locateEditTarget(backend("other"), log("a"), "e0")).toEqual({
       kind: "missing",
+    });
+  });
+});
+
+describe("a native Claude Code command in the history", () => {
+  // Claude Code records a command it expands as this tagged text, with the
+  // skill body and tool results as further user messages (measured with
+  // SDK 0.3.293, 2026-10-15). Isomux sent "/simplify foo.ts" with no member
+  // prefix, so the log text never matches: an edit of the command fails
+  // closed, and the messages around it still match.
+  const recorded =
+    "<command-message>simplify</command-message>\n<command-name>/simplify</command-name>\n<command-args>foo.ts</command-args>";
+  const entry = (id: string, content: string): LogEntry => ({
+    id,
+    agentId: "a",
+    timestamp: 0,
+    kind: "user_message",
+    content,
+    metadata: { username: "Nil" },
+  });
+  const users = [
+    entry("e0", "before"),
+    entry("e1", "/simplify foo.ts"),
+    entry("e2", "after"),
+  ].map((e) => ({ id: e.id, text: editLogUserText(e) }));
+  const history = backend("[Nil] before", recorded, "", "[Nil] after");
+
+  it("does not locate the command itself, even as the latest message", () => {
+    expect(locateEditTarget(history, users, "e1")).toEqual({
+      kind: "missing",
+    });
+    expect(
+      locateEditTarget(history.slice(0, 3), users.slice(0, 2), "e1"),
+    ).toEqual({ kind: "missing" });
+  });
+
+  it("still locates the messages before and after it", () => {
+    expect(locateEditTarget(history, users, "e0")).toEqual({
+      kind: "found",
+      index: 0,
+    });
+    expect(locateEditTarget(history, users, "e2")).toEqual({
+      kind: "found",
+      index: 6,
     });
   });
 });

@@ -333,6 +333,7 @@ App 的一些原则：
   "common.loadingDots": "正在加载…",
   "common.loadingMemory": "正在加载记忆…",
   "common.memory": "记忆",
+  "common.memorySize": "{size} / {cap} 个字符",
   "common.memoryEditorHint": "此编辑器会按显示的内容重写文件。每行写一条记忆。",
   "common.saveFailed": "保存失败",
   "common.memoryConflict":
@@ -2241,6 +2242,8 @@ App 的一些原则：
   "commands.loop.message":
     "不提供原生支持；请查看「自动化」页面或定时消息是否适合此用途",
   "commands.loremIpsum.description": "生成占位文本",
+  "commands.codeReview.description":
+    "审查当前改动、PR、分支或路径中的缺陷（努力级别、--fix、--comment、--max-findings）",
   "commands.review.description": "审查代码中的缺陷、逻辑和边界情况",
   "commands.schedule.description": "创建按 cron 计划运行的远程智能体",
   "commands.securityReview.description": "以安全为重点审查代码",
@@ -2253,6 +2256,9 @@ App 的一些原则：
     "`/{name}`（{description}）是 Claude Code 命令，但 Isomux 不支持。",
   "commands.unsupported.bundledSkill":
     "`/{name}`（{description}）是 Claude Code 内置技能，但 Isomux 不支持。可以创建自己的技能文件来覆盖它。",
+  "commands.native.attachments":
+    "`/{name}` 不接受附件。请在另一条消息中发送这些文件。",
+  "commands.unsupported.engine": "`/{name}` 只能在 {engines} 智能体上运行。",
   "commands.unsupported.notAvailable": "Isomux 中无法使用 `/{name}`。",
   "commands.unsupported.unknownCommand":
     "未知命令 `/{name}`。输入 `/help` 查看可用命令。",
@@ -2778,6 +2784,7 @@ App 的一些原则：
   "skills.field.file": "文件",
   "skills.field.project": "项目",
   "skills.field.alias": "也可用",
+  "skills.field.engines": "运行于",
   "skills.field.uses": "你的使用次数",
   "skills.delete.title": "删除 /{name}？",
   "skills.delete.folder":
@@ -2787,8 +2794,7 @@ App 的一些原则：
   "skills.delete.failed": "无法删除技能。",
   "apiCall.skills.delete": "删除技能",
   "skills.commands": "命令",
-  "skills.commands.note":
-    "这些命令由办公室处理，并非技能。它们对所有代理的作用相同。",
+  "skills.commands.note": "这些命令是内置的，并非技能。",
   "skills.commands.search": "搜索命令",
   "skills.allAgents": "所有代理",
   "skills.invalid.frontmatter": "请在文件开头添加用 --- 行包围的 YAML 元数据。",

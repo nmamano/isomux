@@ -791,3 +791,55 @@ describe("a backend that is not configured keeps the queue (df2c820b)", () => {
     );
   });
 });
+
+// GitHub #57/#58: a native command (CommandConfig.native) queued while the
+// agent was busy is carried like any item, and still goes alone and as typed.
+describe("a native command in the carried queue", () => {
+  const NATIVE = "/code-review low --max-findings 3";
+
+  async function busyWithNativeBetween() {
+    const fake = fakeBackend();
+    const made = makeManager(fake);
+    const info = await spawn(made.mgr);
+    const old = await startTurn(made.mgr, fake, info.id);
+    queueWhileBusy(made.mgr, info.id, "CARRIED-ONE");
+    await made.mgr.sendMessage(info.id, NATIVE);
+    queueWhileBusy(made.mgr, info.id, "CARRIED-TWO");
+    // Enabling condition: the command waits in the queue, marked native.
+    expect(visibleQueue(made.mgr, info.id).map((m) => !!m.native)).toEqual([
+      false,
+      true,
+      false,
+    ]);
+    expect(old.sent.map((m) => m.text)).toEqual(["kickoff"]);
+    return { ...made, fake, info, old };
+  }
+
+  async function expectNativeAloneInOrder(
+    fake: FakeBackend,
+    id: string,
+    old: FakeSession,
+  ) {
+    const fresh = await freshSession(fake, id, old);
+    expect(fresh.sent[0].text).toContain("CARRIED-ONE");
+    expect(fresh.sent[0].text).not.toContain("code-review");
+    fresh.completeTurn({ text: "ok" });
+    await waitUntil(() => fresh.sent.length >= 2, "native send");
+    expect(fresh.sent[1].text).toBe(NATIVE);
+    fresh.completeTurn({ text: "ok" });
+    await waitUntil(() => fresh.sent.length >= 3, "last batch");
+    expect(fresh.sent[2].text).toContain("CARRIED-TWO");
+  }
+
+  it("new conversation", async () => {
+    const { mgr, info, fake, old } = await busyWithNativeBetween();
+    await mgr.newConversation(info.id);
+    await expectNativeAloneInOrder(fake, info.id, old);
+  });
+
+  it("typed /clear", async () => {
+    const { mgr, info, fake, old } = await busyWithNativeBetween();
+    await mgr.sendMessage(info.id, "/clear");
+    await expectNativeAloneInOrder(fake, info.id, old);
+  });
+});

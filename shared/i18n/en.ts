@@ -360,6 +360,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.loadingDots": "Loading...",
   "common.loadingMemory": "Loading memory…",
   "common.memory": "Memory",
+  "common.memorySize": "{size} / {cap} characters",
   "common.memoryEditorHint":
     "This editor rewrites the file exactly as shown. Use one memory per line.",
   "common.saveFailed": "Save failed",
@@ -2427,6 +2428,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.loop.message":
     "not supported natively; see if the Automations page or scheduled messages satisfy your use case",
   "commands.loremIpsum.description": "Generate placeholder text",
+  "commands.codeReview.description":
+    "Review the current changes, a PR, a branch or a path for bugs (effort level, --fix, --comment, --max-findings)",
   "commands.review.description": "Code review for bugs, logic, and edge cases",
   "commands.schedule.description": "Create cron-scheduled remote agents",
   "commands.securityReview.description": "Security-focused code review",
@@ -2443,6 +2446,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "`/{name}` ({description}) is a Claude Code command, but it's not supported in Isomux.",
   "commands.unsupported.bundledSkill":
     "`/{name}` ({description}) is a Claude Code bundled skill, but it's not supported in Isomux. You can override it by creating your own skill file.",
+  "commands.native.attachments":
+    "`/{name}` takes no attachments. Send the files in their own message.",
+  "commands.unsupported.engine": "`/{name}` runs only on {engines} agents.",
   "commands.unsupported.notAvailable": "`/{name}` is not available in Isomux.",
   "commands.unsupported.unknownCommand":
     "Unknown command `/{name}`. Type `/help` to see available commands.",
@@ -3076,6 +3082,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "skills.field.file": "File",
   "skills.field.project": "Project",
   "skills.field.alias": "Also runs as",
+  "skills.field.engines": "Runs on",
   "skills.field.uses": "Your uses",
   "skills.delete.title": "Delete /{name}?",
   "skills.delete.folder":
@@ -3086,8 +3093,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "skills.delete.failed": "Could not delete the skill.",
   "apiCall.skills.delete": "Delete a skill",
   "skills.commands": "Commands",
-  "skills.commands.note":
-    "The office handles these commands, not skills. They work the same for every agent.",
+  "skills.commands.note": "These commands are built in, not skills.",
   "skills.commands.search": "Search commands",
   "skills.allAgents": "All agents",
   "skills.invalid.frontmatter":

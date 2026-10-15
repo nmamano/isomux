@@ -2486,7 +2486,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const managed: ManagedAgent = {
       info,
       sessionManager,
-      slashCommands: autocompleteCommands(),
+      slashCommands: autocompleteCommands(info.agentType),
       skills: deduplicateSkills([
         ...discoverUserSkills(discoverySkillRoots),
         ...discoverProjectSkills(p.cwd),
@@ -4782,7 +4782,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // SDK-reported commands are NOT added to autocomplete (per design).
         // Skills are listed in priority order; deduplicate by name (highest priority wins).
         const uniqueSkills = managed ? discoverSkillsFor(managed) : [];
-        const configCommands = autocompleteCommands();
+        const configCommands = managed
+          ? autocompleteCommands(managed.info.agentType)
+          : [];
         if (managed) {
           managed.slashCommands = configCommands;
           managed.skills = uniqueSkills;
@@ -6389,7 +6391,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const managed: ManagedAgent = {
       info,
       sessionManager,
-      slashCommands: autocompleteCommands(),
+      slashCommands: autocompleteCommands(info.agentType),
       skills: deduplicateSkills([
         ...discoverUserSkills(initialSkillRoots),
         ...discoverProjectSkills(resolvedCwd),
@@ -6834,7 +6836,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // message, an expanded skill or a handoff keeps the whole queue on the flush
   // path, where it becomes a backend user message (edit/fork map onto those).
   function boundaryEligible(m: QueuedMessage): boolean {
-    return m.sender.kind !== "user" && !m.sdkText && !m.handoff;
+    return m.sender.kind !== "user" && !m.sdkText && !m.handoff && !m.native;
   }
 
   // The PostToolBatch callback (backends/claude.ts toolBoundaryHooks), bound to
@@ -7110,6 +7112,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sender: QueuedMessage["sender"];
       text: string;
       sdkText?: string;
+      // QueuedMessage.native.
+      native?: boolean;
       attachments?: Attachment[];
       clientMessageId?: string;
       // Set by the scheduled-message scheduler at fire time (see
@@ -7183,6 +7187,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sender: msg.sender,
       text: msg.text,
       ...(msg.sdkText ? { sdkText: msg.sdkText } : {}),
+      ...(msg.native ? { native: true } : {}),
       ...(queuedDuringBusyTurn ? { queuedDuringBusyTurn: true } : {}),
       ...(msg.scheduledFor !== undefined
         ? { scheduledFor: msg.scheduledFor }
@@ -7475,6 +7480,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // claim's items are included again (at-least-once).
       let items = unclaimedQueue(managed);
       if (items.length === 0) return;
+      // A native command goes alone and as typed (QueuedMessage.native): a
+      // batch ends before one, and one at the head is the whole batch. The
+      // turn's end flushes the rest.
+      const firstNative = items.findIndex((m) => m.native);
+      if (firstNative === 0) items = [items[0]];
+      else if (firstNative > 0) items = items.slice(0, firstNative);
 
       // Member usage cap, decided per item. The claim is flushInProgress; the
       // token and session are captured before the provider read and checked
@@ -7516,6 +7527,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (items.length === 0) return;
       }
 
+      const native = items.length === 1 && items[0].native === true;
       const promptParts: string[] = [];
       const allAttachments: Attachment[] = [];
       // If any items were queued while the agent was busy, prepend a single
@@ -7527,7 +7539,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Items a conversation change carried get their own note first. A batch
       // with a handoff brief gets none of these notes: the brief explains the
       // change, and the fresh session has no previous turn to refer to.
-      const noteItems = items.some((m) => m.handoff) ? [] : items;
+      const noteItems = items.some((m) => m.handoff) || native ? [] : items;
       const busyCount = noteItems.reduce(
         (n, m) => (m.queuedDuringBusyTurn ? n + 1 : n),
         0,
@@ -7553,7 +7565,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         promptParts.push(note);
       }
       for (const m of items) {
-        promptParts.push(queuedItemText(m, agentId));
+        promptParts.push(native ? m.text : queuedItemText(m, agentId));
         if (m.attachments) allAttachments.push(...m.attachments);
       }
       const prompt = promptParts.join("\n\n");
@@ -7567,6 +7579,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // completed turns stay silent. Only a human member starts a chimeable
           // turn here.
           humanInput: items.some((m) => m.sender.kind === "user"),
+          nativeCommand: native,
           onSendAccepted: () => {
             // Send accepted by the backend. Finalize: write per-message log
             // entries (provenance) and remove the items from the live queue.
@@ -8743,6 +8756,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
 
     // Intercept slash commands that are handled locally, not by the LLM
+    let nativeCommand = false;
     if (text.startsWith("/")) {
       const [cmd, ...args] = text.slice(1).trim().split(/\s+/);
       // Accepted to run. A command that is not handled here is a skill, which
@@ -8757,7 +8771,54 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         username,
         device,
       );
-      if (handled) return;
+      if (handled === "native") nativeCommand = true;
+      else if (handled) return;
+    }
+    // Claude Code reads an attachment block after the command as part of the
+    // message and then does not expand the command (measured 2026-10-15).
+    if (nativeCommand && attachments && attachments.length > 0) {
+      emitEphemeralLog(
+        agentId,
+        "user_message",
+        text,
+        buildUserMeta(username, device),
+      );
+      emitEphemeralLog(
+        agentId,
+        "system",
+        logWords(agentId, username)("commands.native.attachments", {
+          name: text.slice(1).trim().split(/\s+/)[0],
+        }),
+      );
+      return;
+    }
+    // Slash commands skip the busy gate above. A native one that ran now
+    // would supersede the running turn, so it waits in the queue, and the
+    // flush sends it alone and unprefixed.
+    if (nativeCommand) {
+      const nowState = managed.info.state;
+      if (
+        nowState === "thinking" ||
+        nowState === "tool_executing" ||
+        managed.sessionManager.pendingTurn !== null ||
+        managed.autoHandoffPhase !== null
+      ) {
+        const result = enqueueMessage(agentId, {
+          sender: { kind: "user", username, device },
+          text,
+          native: true,
+        });
+        if (!result.ok) {
+          addLogEntry(
+            agentId,
+            "system",
+            logWords(agentId, username)("systemEntries.queueFailed", {
+              error: result.error,
+            }),
+          );
+        }
+        return;
+      }
     }
 
     // A slash command that wasn't intercepted above is a skill - it expands to
@@ -8821,7 +8882,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
     }
 
-    const prefix = formatPrefix({ username, device });
+    // A native command goes as typed: the engine expands it only at the start
+    // of the message, so the member prefix would turn it into plain text.
+    const prefix = nativeCommand ? "" : formatPrefix({ username, device });
     const prefixedText = prefix ? `${prefix}${text}` : text;
     try {
       await runAgentTurn({
@@ -8830,6 +8893,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         attachments,
         humanInput: true,
         usageCapped: directInputCapped(username),
+        nativeCommand,
       });
     } catch (err) {
       // runAgentTurn re-throws whatever the underlying turn threw; it also
@@ -8839,6 +8903,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       if (
         requeueSwappedSend(agentId, err, {
           text,
+          native: nativeCommand,
           attachments,
           username,
           device,
@@ -9780,6 +9845,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           capabilities: getBackend(targetAgentType).capabilities,
         }))
           emit(event);
+        // The command list is per engine (CommandConfig.engines). The next
+        // system_init would recompute it, but a released agent has no session
+        // until its next message, so the menu would show the old engine's.
+        managed.slashCommands = autocompleteCommands(targetAgentType);
+        emit({
+          type: "slash_commands",
+          agentId,
+          commands: managed.slashCommands,
+          skills: managed.skills,
+        });
       }
 
       // Release-on-clear: a blank conversation holds NO subprocess. Instead of
@@ -10170,6 +10245,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     msg: {
       text: string;
       sdkText?: string;
+      native?: boolean;
       attachments?: Attachment[];
       username?: string;
       device?: string;
@@ -10181,6 +10257,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sender: { kind: "user", username: msg.username, device: msg.device },
       text: msg.text,
       ...(msg.sdkText ? { sdkText: msg.sdkText } : {}),
+      ...(msg.native ? { native: true } : {}),
       attachments: msg.attachments,
       resend: { echoed: err.reason !== "carry" },
     });

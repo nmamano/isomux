@@ -70,6 +70,7 @@ export function ExpandableTextarea({
   onChange,
   title,
   hint,
+  status,
   readOnly,
   rows,
   placeholder,
@@ -83,6 +84,9 @@ export function ExpandableTextarea({
   /** Optional line under the overlay header - usually the same guidance the
    *  inline field has below it, which is out of sight while expanded. */
   hint?: ReactNode;
+  /** Optional live line in the overlay header, e.g. a memory file's size
+   *  against its cap, which the inline field shows beside its label. */
+  status?: ReactNode;
   readOnly?: boolean;
   rows?: number;
   placeholder?: string;
@@ -122,6 +126,7 @@ export function ExpandableTextarea({
           title={title}
           titleId={labelId}
           hint={hint}
+          status={status}
           readOnly={readOnly}
           placeholder={placeholder}
           onClose={() => {
@@ -143,6 +148,7 @@ function ExpandedEditor({
   title,
   titleId,
   hint,
+  status,
   readOnly,
   placeholder,
   onClose,
@@ -152,6 +158,7 @@ function ExpandedEditor({
   title: string;
   titleId: string;
   hint?: ReactNode;
+  status?: ReactNode;
   readOnly?: boolean;
   placeholder?: string;
   onClose: () => void;
@@ -253,6 +260,14 @@ function ExpandedEditor({
             {title}
           </span>
           <span style={{ flex: 1 }} />
+          {status != null && (
+            <span
+              data-expanded-status=""
+              style={{ fontSize: 11, color: "var(--text-muted)" }}
+            >
+              {status}
+            </span>
+          )}
           <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
             {t("dialogs.textarea.escCollapse")}
           </span>

@@ -310,6 +310,10 @@ export function OfficePane({
             <ExpandableTextarea
               title={t("settings.office.memoryTitle")}
               hint={t("common.memoryEditorHint")}
+              status={t("common.memorySize", {
+                size: mem.loaded ? mem.size : "…",
+                cap: mem.cap ?? "…",
+              })}
               value={mem.memory}
               onChange={mem.setMemory}
               placeholder={

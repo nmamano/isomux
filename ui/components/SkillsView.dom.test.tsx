@@ -13,6 +13,7 @@ const { ApiError, setApiShim } = await import("../api.ts");
 const { connect, setShim } = await import("../ws.ts");
 const { EditorView } = await import("@codemirror/view");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { ENGINE_NAMES } = await import("../../shared/types.ts");
 type SkillCatalogRes =
   import("../../shared/contract-shapes.ts").SkillCatalogRes;
 
@@ -387,6 +388,23 @@ it("keeps shared skills out of the engine tabs and returns to the shared list", 
   expect(commandList?.querySelector('[data-office-command="compact"]')).toBe(
     null,
   );
+  // Engine built-ins Isomux passes through are listed with the engines that
+  // run them; a command every engine runs has no engine line.
+  expect(clear?.querySelector("[data-command-engines]")).toBe(null);
+  for (const name of ["code-review", "simplify"]) {
+    const row = commandList?.querySelector(`[data-office-command="${name}"]`);
+    expect(row?.querySelector("[data-command-engines]")?.textContent).toContain(
+      ENGINE_NAMES.claude,
+    );
+    expect(
+      row?.querySelector("[data-command-engines]")?.textContent,
+    ).not.toContain(ENGINE_NAMES.codex);
+  }
+  expect(
+    commandList
+      ?.querySelector('[data-office-command="code-review"]')
+      ?.querySelector("[data-command-aliases]")?.textContent,
+  ).toContain("/review");
   expect(
     commandList?.querySelector("button, input, textarea, [contenteditable]"),
   ).toBe(null);

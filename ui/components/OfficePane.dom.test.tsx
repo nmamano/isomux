@@ -59,3 +59,41 @@ it("states the memory cap while the memory loads", async () => {
   );
   view.unmount();
 });
+
+it("shows the memory size against its cap in the expanded editor, live", async () => {
+  const { translatorFor } = await import("../../shared/i18n/translate.ts");
+  const { t } = translatorFor("en");
+  setApiShim(async (method, path) => {
+    if (path.startsWith("/api/memory"))
+      return { text: "one\ntwo", version: "0", size: 7, cap: 4000 };
+    if (path === "/api/office/settings" && method === "GET")
+      return { prompt: null, name: null, version: "1" };
+    throw new Error(`no shim for ${method} ${path}`);
+  });
+  const view = render(onLanguage(null, createElement(OfficePane)));
+  await act(async () => {});
+  const status = () =>
+    document.body.querySelector("[data-expanded-status]")?.textContent;
+  expect(status()).toBeUndefined();
+
+  await act(async () =>
+    fireEvent.click(
+      view.getByRole("button", {
+        name: t("dialogs.textarea.expand", {
+          title: t("settings.office.memoryTitle"),
+        }),
+      }),
+    ),
+  );
+  expect(status()).toBe(t("common.memorySize", { size: 7, cap: 4000 }));
+
+  const overlay = document.body.querySelector<HTMLTextAreaElement>(
+    '[role="dialog"] textarea',
+  );
+  expect(overlay).not.toBeNull();
+  await act(async () =>
+    fireEvent.change(overlay!, { target: { value: "one\ntwo\nthree" } }),
+  );
+  expect(status()).toBe(t("common.memorySize", { size: 13, cap: 4000 }));
+  view.unmount();
+});

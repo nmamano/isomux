@@ -572,6 +572,24 @@ export function App({ routing = true }: { routing?: boolean }) {
     setTasksOpen(true);
   }, []);
 
+  // Settings opened straight over a chat ("s" in a chat) closes back to that
+  // chat, as tasks does (task e927e6ff). Every way out of settings goes
+  // through goHome, whose history.back() lands in the popstate handler below.
+  // Over another page, or with no chat under it, closing still goes to the
+  // office.
+  const settingsOverChat =
+    usersOpen &&
+    !!focusedAgent &&
+    pageForFlags({
+      usersOpen: false,
+      tasksOpen,
+      cronjobsOpen,
+      appsOpen,
+      skillsOpen,
+      integrationsOpen,
+      pagerOpen,
+    }) === null;
+
   const openTask = useCallback((id: string) => {
     setTaskOpenRequest({ id });
     setTasksOpen(true);
@@ -812,6 +830,14 @@ export function App({ routing = true }: { routing?: boolean }) {
         return;
       }
       entryRef.current = "none";
+      if (settingsOverChat) {
+        // Back from settings over a chat steps back to the chat, as for
+        // tasks below.
+        setUsersOpen(false);
+        setEditingUserId(null);
+        setSettingsTarget(null);
+        return;
+      }
       if (tasksOverChat) {
         // Back from tasks-over-a-chat steps back to the chat, not the
         // office. We stay deep (focus is still set), so the sync effect
@@ -832,7 +858,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [applyPage, dispatch, tasksOverChat, logOverBackRoom]);
+  }, [applyPage, dispatch, settingsOverChat, tasksOverChat, logOverBackRoom]);
 
   return (
     <>

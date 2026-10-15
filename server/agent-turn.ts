@@ -46,6 +46,10 @@ export interface RunAgentTurnOpts {
    *  UsageCapError on a refusal. flushQueue decides per item itself and
    *  leaves this unset. */
   usageCapped?: boolean;
+  /** sdkText is a slash command the engine expands itself, which it does
+   *  only when the command starts the message. No notice goes ahead of it;
+   *  every armed notice waits for the next turn. */
+  nativeCommand?: boolean;
 }
 
 // Dependency injection: agent-manager owns beginTurn and createTurnDeferred as
@@ -133,41 +137,47 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
 
   // The bounded await inside buildContextNoticeBlock caps the added latency
   // (~500ms worst case, and only when a sample is still in flight).
-  const contextNotice = await buildContextNoticeBlock(managed);
+  const native = opts.nativeCommand === true;
+  const contextNotice = native ? null : await buildContextNoticeBlock(managed);
   // The await above can straddle a Stop / session swap.
   checkCancelled();
   // Read AFTER that await for the same reason: a session swap in the window
   // re-arms the slot, and we want the value we are actually about to send.
   // `gen` is captured with it, for the same send-accept guard the context
   // notice uses - everything from here to session.send() is synchronous.
-  const memoryNotice = managed.memoryNotice
-    ? { block: managed.memoryNotice, gen: managed.contextGen }
-    : null;
+  const memoryNotice =
+    !native && managed.memoryNotice
+      ? { block: managed.memoryNotice, gen: managed.contextGen }
+      : null;
   // Read in the same window and for the same reason. Armed by the dormant-wake
   // paths when the previous session died to a restart or an unexpected backend
   // death; this is the only way the warning reaches the agent,
   // since isomux log entries never re-enter a prompt.
-  const wakeNotice = managed.wakeNotice
-    ? { block: managed.wakeNotice, gen: managed.contextGen }
-    : null;
+  const wakeNotice =
+    !native && managed.wakeNotice
+      ? { block: managed.wakeNotice, gen: managed.contextGen }
+      : null;
   // Armed by a settings change (server/settings-notice.ts); read here for the
   // same reason.
-  const settingsNotice = managed.settingsNotice
-    ? {
-        arm: managed.settingsNotice,
-        gen: managed.contextGen,
-        block: deps.renderSettingsNotice(managed, managed.settingsNotice),
-      }
-    : null;
+  const settingsNotice =
+    !native && managed.settingsNotice
+      ? {
+          arm: managed.settingsNotice,
+          gen: managed.contextGen,
+          block: deps.renderSettingsNotice(managed, managed.settingsNotice),
+        }
+      : null;
   // Armed by newConversation for a conversation an automatic handoff opened;
   // read here for the same reason.
-  const autoHandoffNotice = managed.autoHandoffNotice
-    ? { block: managed.autoHandoffNotice, gen: managed.contextGen }
-    : null;
+  const autoHandoffNotice =
+    !native && managed.autoHandoffNotice
+      ? { block: managed.autoHandoffNotice, gen: managed.contextGen }
+      : null;
   // Armed by an agent's abort; read here for the same reason.
-  const stopNotice = managed.stopNotice
-    ? { arm: managed.stopNotice, gen: managed.contextGen }
-    : null;
+  const stopNotice =
+    !native && managed.stopNotice
+      ? { arm: managed.stopNotice, gen: managed.contextGen }
+      : null;
 
   // 3. Assemble the outbound envelope, then the user payload. The reserved
   // `isomux:` delimiter lets stripOutboundEnvelope round-trip the notices for

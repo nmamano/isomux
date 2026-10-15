@@ -9,6 +9,7 @@ import type {
   QueuedMessage,
   RoomWire,
 } from "../shared/types.ts";
+import { ENGINE_NAMES } from "../shared/types.ts";
 import { sessionResumeLabel } from "../shared/session-label.ts";
 import { isBackSeat } from "../shared/desks.ts";
 import { translatorForUsername } from "./i18n.ts";
@@ -31,6 +32,7 @@ import { listAgentSessions, loadAgentHistory } from "./persistence.ts";
 import { tildifyCwd } from "./cwd-utils.ts";
 import {
   commands,
+  runsOnEngine,
   unsupportedMessage,
   type CommandConfig,
 } from "./commands.ts";
@@ -154,6 +156,13 @@ function formatAliasGroup(
       : primary;
   return description ? `  ${head} - ${description}` : `  ${head}`;
 }
+
+// What a slash command became. true: handled here, nothing goes to the
+// engine. false: not handled; sendMessage sends the text as a normal message.
+// "native": the engine runs it (CommandConfig.native, or a command the engine
+// reports); sendMessage sends the text exactly as typed, or queues it as a
+// native item while the agent is busy.
+export type SlashCommandResult = boolean | "native";
 
 interface HandlerDeps {
   // State accessors are live references, read at call time.
@@ -1330,7 +1339,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     rawText: string,
     username?: string,
     device?: string,
-  ): Promise<boolean> {
+  ): Promise<SlashCommandResult> {
     const { t } = translatorForUsername(username);
     const userMeta = buildMeta(username, device);
     const cfg: CommandConfig | undefined = commands[cmd];
@@ -1386,6 +1395,25 @@ export function createCommandHandling(deps: HandlerDeps) {
     }
 
     if (cfg && cfg.overridable) {
+      if (cfg.supported && cfg.native) {
+        const engine = managed.info.agentType;
+        if (!runsOnEngine(cfg, engine)) {
+          deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+          deps.emitEphemeralLog(
+            agentId,
+            "system",
+            t("commands.unsupported.engine", {
+              name: cmd,
+              engines: (cfg.engines ?? [])
+                .map((e) => ENGINE_NAMES[e])
+                .join(", "),
+            }),
+          );
+          return true;
+        }
+        if (cfg.autocomplete) countUse();
+        return "native";
+      }
       if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
         if (cfg.autocomplete) countUse();
         return commandHandlers[cfg.handler](
@@ -1402,9 +1430,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     }
 
-    if (managed.sdkReportedCommands.includes(cmd)) {
-      return false; // let sendMessage() pass it through
-    }
+    // A command the engine reports and Isomux does not handle runs in the
+    // engine, as a native command does.
+    if (managed.sdkReportedCommands.includes(cmd)) return "native";
 
     deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
     deps.emitEphemeralLog(

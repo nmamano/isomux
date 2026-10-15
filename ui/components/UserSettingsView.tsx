@@ -1921,6 +1921,10 @@ function UserEditPanel({
             <ExpandableTextarea
               title={t("settings.profile.memoryTitle", { user: user.name })}
               hint={t("common.memoryEditorHint")}
+              status={t("common.memorySize", {
+                size: mem.loaded ? mem.size : "…",
+                cap: mem.cap ?? "…",
+              })}
               value={mem.memory}
               onChange={mem.setMemory}
               placeholder={

@@ -347,6 +347,7 @@ Cosas que puedes hacer por él:
   "common.loadingDots": "Cargando...",
   "common.loadingMemory": "Cargando la memoria…",
   "common.memory": "Memoria",
+  "common.memorySize": "{size} / {cap} caracteres",
   "common.memoryEditorHint":
     "Este editor reescribe el archivo tal como se muestra. Usa una memoria por línea.",
   "common.saveFailed": "No se pudo guardar",
@@ -2488,6 +2489,8 @@ Cosas que puedes hacer por él:
   "commands.loop.message":
     "no está disponible de forma nativa; mira si la página de Automatizaciones o los mensajes programados te sirven",
   "commands.loremIpsum.description": "Generar texto de relleno",
+  "commands.codeReview.description":
+    "Revisa en busca de errores los cambios actuales, un PR, una rama o una ruta (nivel de esfuerzo, --fix, --comment, --max-findings)",
   "commands.review.description":
     "Revisión de código en busca de errores, lógica y casos límite",
   "commands.schedule.description": "Crear agentes remotos programados con cron",
@@ -2504,6 +2507,10 @@ Cosas que puedes hacer por él:
     "`/{name}` ({description}) es un comando de Claude Code, pero no está disponible en Isomux.",
   "commands.unsupported.bundledSkill":
     "`/{name}` ({description}) es una habilidad incluida en Claude Code, pero no está disponible en Isomux. Puedes sustituirla creando tu propio archivo de habilidad.",
+  "commands.native.attachments":
+    "`/{name}` no admite archivos adjuntos. Envía los archivos en otro mensaje.",
+  "commands.unsupported.engine":
+    "`/{name}` solo funciona en agentes de {engines}.",
   "commands.unsupported.notAvailable":
     "`/{name}` no está disponible en Isomux.",
   "commands.unsupported.unknownCommand":
@@ -3107,6 +3114,7 @@ Cosas que puedes hacer por él:
   "skills.field.file": "Archivo",
   "skills.field.project": "Proyecto",
   "skills.field.alias": "También se ejecuta como",
+  "skills.field.engines": "Funciona en",
   "skills.field.uses": "Tus usos",
   "skills.delete.title": "¿Eliminar /{name}?",
   "skills.delete.folder":
@@ -3119,7 +3127,7 @@ Cosas que puedes hacer por él:
   "apiCall.skills.delete": "Eliminar una habilidad",
   "skills.commands": "Comandos",
   "skills.commands.note":
-    "La oficina gestiona estos comandos; no son habilidades. Funcionan igual para todos los agentes.",
+    "Estos comandos vienen integrados; no son habilidades.",
   "skills.commands.search": "Buscar comandos",
   "skills.allAgents": "Todos los agentes",
   "skills.invalid.frontmatter":

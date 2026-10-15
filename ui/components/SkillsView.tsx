@@ -9,6 +9,7 @@
 // keeps the member's text, instead of overwriting the other edit.
 
 import { commands } from "../../shared/commands.ts";
+import { ENGINE_NAMES } from "../../shared/types.ts";
 import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import { skillFileProblem } from "../../shared/skill-validation.ts";
@@ -54,16 +55,16 @@ import {
   validSkillName,
 } from "./skills-page.ts";
 
+// Every command an agent can run here, Isomux's own and the engine built-ins
+// it passes through (CommandConfig.native).
 const OFFICE_COMMANDS = Object.entries(commands)
-  .filter(
-    ([, config]) =>
-      config.type === "hardcoded" && config.supported && !config.aliasFor,
-  )
-  .map(([name]) => ({
+  .filter(([, config]) => config.supported && !config.aliasFor)
+  .map(([name, config]) => ({
     name,
     aliases: Object.entries(commands)
       .filter(([, config]) => config.supported && config.aliasFor === name)
       .map(([alias]) => alias),
+    engines: config.engines ?? null,
   }));
 
 const ENGINE_KEY = "isomux:skills:engine";
@@ -1406,6 +1407,19 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
                     >
                       {t("skills.field.alias")}:{" "}
                       {command.aliases.map((name) => `/${name}`).join(", ")}
+                    </dd>
+                  )}
+                  {command.engines && (
+                    <dd
+                      data-command-engines=""
+                      style={{
+                        margin: "5px 0 0",
+                        fontSize: 12,
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      {t("skills.field.engines")}:{" "}
+                      {command.engines.map((e) => ENGINE_NAMES[e]).join(", ")}
                     </dd>
                   )}
                   <dd
