@@ -3,7 +3,7 @@ import type { AgentInfo, PresenceInfo, RoomWire } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
-import { roomActivityDotColor } from "./room-activity.ts";
+import { roomActivityDotColor, roomHasUnread } from "./room-activity.ts";
 
 const MINI_GHOST_SIZE = 12;
 const MAX_MINI_GHOSTS = 3;
@@ -29,7 +29,7 @@ export function tuckedChipSummary(
     presences: [...ids].flatMap((id) => presencesByRoom.get(id) ?? []),
     dotColor: roomActivityDotColor(
       roomAgents,
-      roomAgents.some((a) => needsAttention.has(a.id)),
+      roomHasUnread(roomAgents, needsAttention),
       false,
     ),
   };
@@ -223,7 +223,7 @@ export function TuckedRoomsChip({
             const roomAgents = agents.filter((a) => a.roomId === room.id);
             const dot = roomActivityDotColor(
               roomAgents,
-              roomAgents.some((a) => needsAttention.has(a.id)),
+              roomHasUnread(roomAgents, needsAttention),
               isActive,
             );
             const presences = presencesByRoom.get(room.id) ?? [];

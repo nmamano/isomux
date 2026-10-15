@@ -1,6 +1,7 @@
 // The back room screen (task 5b503e32): one seated figure per back agent at
 // its stored seat, the room's n x n size, one click to a log, the attention
-// bubbles, and the bar's buttons.
+// bubbles, the bar's buttons, the ladder up to the front, and the board's fit
+// on the wall (task f0af4677).
 import { afterEach, describe, expect, it } from "bun:test";
 import type { AgentInfo } from "../../../shared/types.ts";
 import { setUpDomTestFile } from "../../test-support/dom.ts";
@@ -9,9 +10,10 @@ setUpDomTestFile();
 const { cleanup, fireEvent, render } = await import("@testing-library/react");
 const { BackRoomScreen } = await import("./BackRoomScreen.tsx");
 const { onLanguage } = await import("../../test-support/language-fixture.tsx");
-const { firstFreeBackSeat, deskOfBackSeat } =
+const { firstFreeBackSeat, deskOfBackSeat, backRoomSide } =
   await import("../../../shared/desks.ts");
-const { backRoomLayout, fitScale, MIN_SCALE } = await import("./geometry.ts");
+const { backRoomLayout, MIN_SCALE } = await import("./geometry.ts");
+const { computeRestView } = await import("../useViewport.ts");
 
 afterEach(cleanup);
 
@@ -77,13 +79,88 @@ describe("BackRoomScreen", () => {
     expect(calls).toEqual(["open:w1"]);
   });
 
+  it("puts each agent's name on a nameplate over its figure", () => {
+    const { view } = show(backAgents(3));
+    const plates = [
+      ...view.container.querySelectorAll("[data-back-nameplate]"),
+    ];
+    expect(plates.map((p) => p.textContent)).toEqual(["W0", "W1", "W2"]);
+  });
+
   it("opens the menu on right-click; the bar goes back and spawns", () => {
     const { view, calls } = show(backAgents(1));
     fireEvent.contextMenu(figures(view.container)[0]);
-    const buttons = [...view.container.querySelectorAll("button")];
+    // The bar is the screen's first row; the zoom buttons sit in the room.
+    const buttons = [
+      ...view.container.querySelectorAll(
+        "[data-back-room] > div:first-child button",
+      ),
+    ];
     fireEvent.click(buttons[0]);
     fireEvent.click(buttons[buttons.length - 1]);
     expect(calls).toEqual(["menu:w0", "back", "spawn"]);
+  });
+
+  it("goes back to the front on a click on the ladder", () => {
+    const { view, calls } = show(backAgents(1));
+    fireEvent.click(view.container.querySelector("[data-back-ladder]")!);
+    expect(calls).toEqual(["back"]);
+  });
+
+  it("stands the ladder at the right wall's end and keeps the board clear of it", () => {
+    // From 3x3 to 10x10: the ladder's right edge stays inside the wall, past
+    // its middle; the board stays between the back corner and the ladder.
+    for (const n of [1, 24, 100]) {
+      const agents = backAgents(n);
+      const { view } = show(agents);
+      const layout = backRoomLayout(backRoomSide(agents.map((a) => a.desk)));
+      const backCorner = layout.at(0, 0).x;
+      const wallEnd = layout.at(layout.nc, 0).x;
+      const ladderXs = [
+        ...view.container
+          .querySelector("[data-back-ladder]")!
+          .getAttribute("d")!
+          .matchAll(/[ML](-?[\d.]+) /g),
+      ].map((m) => Number(m[1]));
+      expect(Math.max(...ladderXs)).toBeLessThanOrEqual(wallEnd);
+      expect(Math.min(...ladderXs)).toBeGreaterThan((backCorner + wallEnd) / 2);
+      const g = view.container.querySelector("[data-back-board]")!;
+      const m = /matrix\(([^)]+)\)/.exec(g.getAttribute("transform")!)!;
+      const [k, , , , x] = m[1].split(" ").map(Number);
+      const w = Number(g.querySelector("rect")!.getAttribute("width"));
+      expect(x).toBeGreaterThanOrEqual(backCorner);
+      expect(x + k * w).toBeLessThanOrEqual(Math.min(...ladderXs));
+      cleanup();
+    }
+  });
+
+  it("gives the 0, + and - keys its own view, which zooms out past the front's limit", () => {
+    const ref: { current: { zoomOut: () => void } | null } = { current: null };
+    const view = render(
+      onLanguage(
+        "en",
+        <BackRoomScreen
+          roomName="Studio"
+          agents={backAgents(1)}
+          needsAttention={new Set()}
+          isMobile={false}
+          onBack={() => {}}
+          onSpawn={() => {}}
+          onOpenAgent={() => {}}
+          onContextMenu={() => {}}
+          viewportControlsRef={ref as never}
+        />,
+      ),
+    );
+    expect(ref.current).not.toBeNull();
+    for (let i = 0; i < 12; i++) ref.current!.zoomOut();
+    const scene = view.container.querySelector(
+      "[data-back-room] > div:nth-child(2) > div",
+    ) as HTMLElement;
+    // The front stops at 0.5; the back room goes to 0.25.
+    expect(scene.style.transform).toContain("scale(0.25)");
+    view.unmount();
+    expect(ref.current).toBeNull();
   });
 
   it("is 3x3 at first and grows to 4x4 when the ninth seat fills", () => {
@@ -153,14 +230,25 @@ describe("BackRoomScreen", () => {
 });
 
 describe("back room fit", () => {
-  it("fits the room in the box but never below the smallest readable scale", () => {
-    const layout = backRoomLayout(10);
-    expect(fitScale(layout, { width: 5000, height: 5000 })).toBe(1);
-    expect(fitScale(layout, { width: 300, height: 300 })).toBe(MIN_SCALE);
-    const mid = fitScale(layout, {
-      width: layout.width * 0.9,
-      height: layout.height,
-    });
-    expect(mid).toBeCloseTo(0.9, 5);
+  // The back room's rest view, as BackRoomScreen asks the viewport for it: the
+  // room box, centred in the screen, width and height both count.
+  const rest = (side: number, cw: number, ch: number) => {
+    const { width, height } = backRoomLayout(side);
+    const box = {
+      left: (cw - width) / 2,
+      right: (cw + width) / 2,
+      top: (ch - height) / 2,
+      bottom: (ch + height) / 2,
+    };
+    return computeRestView(cw, ch, box, true, MIN_SCALE).scale;
+  };
+
+  it("fits the room in the screen but never below the smallest readable scale", () => {
+    expect(rest(10, 5000, 5000)).toBe(1);
+    expect(rest(10, 390, 700)).toBe(MIN_SCALE);
+    const { width } = backRoomLayout(10);
+    const mid = rest(10, width * 0.95, 5000);
+    expect(mid).toBeGreaterThan(MIN_SCALE);
+    expect(mid).toBeLessThan(1);
   });
 });

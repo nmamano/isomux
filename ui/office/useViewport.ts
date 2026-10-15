@@ -66,17 +66,53 @@ const FIT_AXES: "height" | "both" = "height";
 
 const DEFAULT_STATE: ViewportState = { x: 0, y: 0, scale: 1 };
 
-// Module-scoped so the user's zoom/pan survives OfficeView unmounts (entering
-// a chat, tasks, cronjobs, mobile list). The hook's design treats viewport as
-// global across rooms - module scope extends that to "global across views"
-// without round-tripping through React state. Mutated in place via state.current.
-const persistedState: ViewportState = { ...DEFAULT_STATE };
+/** The front office, or the back room screen (task f0af4677). */
+export type ViewportKind = "front" | "back";
 
-// The rest view the scene was last fitted to, module-scoped for the same reason
-// persistedState is: a remount must be able to tell "the user has not touched
-// the view" from "the user panned or zoomed". Starts equal to DEFAULT_STATE, so
+// One saved view per kind. `state` is module-scoped so the user's zoom/pan
+// survives OfficeView unmounts (entering a chat, tasks, cronjobs, mobile
+// list). The hook's design treats viewport as global across rooms - module
+// scope extends that to "global across views" without round-tripping through
+// React state. Mutated in place via state.current.
+//
+// `rest` is the rest view the scene was last fitted to, module-scoped for the
+// same reason: a remount must be able to tell "the user has not touched the
+// view" from "the user panned or zoomed". Starts equal to DEFAULT_STATE, so
 // the very first mount counts as untouched and fits.
-const restView: ViewportState = { ...DEFAULT_STATE };
+const savedViews: Record<
+  ViewportKind,
+  { state: ViewportState; rest: ViewportState }
+> = {
+  front: { state: { ...DEFAULT_STATE }, rest: { ...DEFAULT_STATE } },
+  back: { state: { ...DEFAULT_STATE }, rest: { ...DEFAULT_STATE } },
+};
+
+/** What differs between viewports. Every field defaults to the front office. */
+export interface ViewportOptions {
+  /** Which saved view the hook keeps across unmounts. */
+  kind?: ViewportKind;
+  /** The painted scene as fractions of the content's layout box. */
+  artBox?: Bounds;
+  /** Whether width may drive the rest scale down, as well as height. */
+  fitWidth?: boolean;
+  /** The zoom range. */
+  minScale?: number;
+  maxScale?: number;
+  /** The lowest scale the rest view fits to; below it the rest view crops. */
+  restMinScale?: number;
+  /** One finger pans at the rest scale too. The front cedes it to the room
+   *  swipe until the user zooms in. */
+  touchPanAtRest?: boolean;
+}
+
+interface ViewportConfig {
+  artBox: Bounds;
+  fitWidth: boolean;
+  minScale: number;
+  maxScale: number;
+  restMinScale: number;
+  touchPanAtRest: boolean;
+}
 
 // Pan should start from any non-interactive surface in the scene. Every clickable
 // target in the scene - including native HTML5 drag sources like DeskUnit - opts
@@ -92,8 +128,12 @@ const PAN_BLOCKER_SELECTOR =
 // synthesized clicks, and wrapClick + didPan gate those on idle gestures.
 const TOUCH_PAN_BLOCKER_SELECTOR = "button, a, input, textarea, select";
 
-function clampScale(scale: number) {
-  return Math.max(VIEWPORT.MIN_SCALE, Math.min(VIEWPORT.MAX_SCALE, scale));
+function clampScale(
+  scale: number,
+  min: number = VIEWPORT.MIN_SCALE,
+  max: number = VIEWPORT.MAX_SCALE,
+) {
+  return Math.max(min, Math.min(max, scale));
 }
 
 /** An axis-aligned box in viewport-layer-local coords (pre-zoom). */
@@ -151,6 +191,7 @@ export function computeRestView(
   ch: number,
   art: Bounds,
   fitWidth: boolean,
+  minScale: number = VIEWPORT.MIN_SCALE,
 ): ViewportState {
   const aw = art.right - art.left;
   const ah = art.bottom - art.top;
@@ -161,7 +202,7 @@ export function computeRestView(
   const byWidth = fitWidth
     ? (cw - 2 * VIEWPORT.FIT_MARGIN) / aw
     : Number.POSITIVE_INFINITY;
-  const scale = clampScale(Math.min(1, byHeight, byWidth));
+  const scale = clampScale(Math.min(1, byHeight, byWidth), minScale);
   return {
     scale,
     x: fitAxis(cw, scale, art.left, art.right),
@@ -170,14 +211,14 @@ export function computeRestView(
 }
 
 /** The painted scene box, derived from the measured layout box. */
-export function artBounds(b: Bounds): Bounds {
+export function artBounds(b: Bounds, box: Bounds = ART_BOX): Bounds {
   const w = b.right - b.left;
   const h = b.bottom - b.top;
   return {
-    left: b.left + ART_BOX.left * w,
-    right: b.left + ART_BOX.right * w,
-    top: b.top + ART_BOX.top * h,
-    bottom: b.top + ART_BOX.bottom * h,
+    left: b.left + box.left * w,
+    right: b.left + box.right * w,
+    top: b.top + box.top * h,
+    bottom: b.top + box.bottom * h,
   };
 }
 
@@ -243,7 +284,26 @@ type Gesture =
  * Returns callback refs (`setContainer`, `setScene`, `setContent`) instead of
  * RefObjects - attach them via `ref={...}` on the corresponding elements.
  */
-export function useViewport(layoutKey: string, enabled: boolean) {
+export function useViewport(
+  layoutKey: string,
+  enabled: boolean,
+  options: ViewportOptions = {},
+) {
+  // A call site's options never change; handlers set up once read them too.
+  const config: ViewportConfig = {
+    artBox: options.artBox ?? ART_BOX,
+    fitWidth: options.fitWidth ?? FIT_AXES === "both",
+    minScale: options.minScale ?? VIEWPORT.MIN_SCALE,
+    maxScale: options.maxScale ?? VIEWPORT.MAX_SCALE,
+    restMinScale:
+      options.restMinScale ?? options.minScale ?? VIEWPORT.MIN_SCALE,
+    touchPanAtRest: options.touchPanAtRest ?? false,
+  };
+  const kind = options.kind ?? "front";
+  // The saved view of this kind. Both refs point at the module's objects,
+  // which the handlers update in place.
+  const state = useRef<ViewportState>(savedViews[kind].state);
+  const restView = useRef<ViewportState>(savedViews[kind].rest);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<HTMLDivElement | null>(null);
   /** The scene-content element inside the zoom/pan layer - measured for pan-clamp bounds. */
@@ -259,12 +319,20 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   }, []);
   const setScene = useCallback((node: HTMLDivElement | null) => {
     sceneRef.current = node;
+    // A new scene element (the front coming back after the back room screen,
+    // with this hook still mounted) must carry the saved view before anything
+    // measures it: measureSceneBounds inverts the transform it assumes is on
+    // screen, and an untransformed scene read that way shifted the rest view
+    // by its own offset on every round trip (task f0af4677).
+    if (node) {
+      const { x, y, scale } = state.current;
+      node.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    }
   }, []);
   const setContent = useCallback((node: HTMLDivElement | null) => {
     contentRef.current = node;
   }, []);
 
-  const state = useRef<ViewportState>(persistedState);
   const gesture = useRef<Gesture>({ kind: "idle" });
   /** Scene content bounds in viewport-layer-local coords (pre-zoom). Null until measured. */
   const sceneBounds = useRef<Bounds | null>(null);
@@ -388,9 +456,9 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   function isAtRest() {
     const s = state.current;
     return (
-      Math.abs(s.scale - restView.scale) < 1e-3 &&
-      Math.abs(s.x - restView.x) < 0.5 &&
-      Math.abs(s.y - restView.y) < 0.5
+      Math.abs(s.scale - restView.current.scale) < 1e-3 &&
+      Math.abs(s.x - restView.current.x) < 0.5 &&
+      Math.abs(s.y - restView.current.y) < 0.5
     );
   }
 
@@ -409,15 +477,16 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     const target = computeRestView(
       container.clientWidth,
       container.clientHeight,
-      artBounds(b),
-      FIT_AXES === "both",
+      artBounds(b, config.artBox),
+      config.fitWidth,
+      config.restMinScale,
     );
-    restView.x = target.x;
-    restView.y = target.y;
-    restView.scale = target.scale;
-    // Mutate in place so the module-scoped persistedState stays the single
+    restView.current.x = target.x;
+    restView.current.y = target.y;
+    restView.current.scale = target.scale;
+    // Mutate in place so the module-scoped saved state stays the single
     // source of truth across mounts. Reassigning state.current to a fresh
-    // object would orphan persistedState at its last value.
+    // object would orphan the saved state at its last value.
     state.current.x = target.x;
     state.current.y = target.y;
     state.current.scale = target.scale;
@@ -426,7 +495,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
 
   function zoomAt(cx: number, cy: number, newScale: number) {
     const s = state.current;
-    const clamped = clampScale(newScale);
+    const clamped = clampScale(newScale, config.minScale, config.maxScale);
     const ratio = clamped / s.scale;
     s.x = cx - ratio * (cx - s.x);
     s.y = cy - ratio * (cy - s.y);
@@ -484,7 +553,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
    *  so the comparison has to be relative or a short screen would never hand
    *  one-finger drags to pan. */
   const isZoomedIn = useCallback(
-    () => state.current.scale > restView.scale * VIEWPORT.ZOOM_EPSILON,
+    () => state.current.scale > restView.current.scale * VIEWPORT.ZOOM_EPSILON,
     [],
   );
 
@@ -724,7 +793,10 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       // One-finger touches at rest scale belong to the swipe-to-change-room
       // hook (iOS-gallery pattern). Once zoomed in, the user needs one-finger
       // pan to look around, so we take the gesture back.
-      if (state.current.scale <= VIEWPORT.ZOOM_EPSILON) {
+      if (
+        !config.touchPanAtRest &&
+        state.current.scale <= VIEWPORT.ZOOM_EPSILON
+      ) {
         return;
       }
       const t = e.touches[0];
@@ -750,7 +822,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
         const newMidY = (t1.clientY + t2.clientY) / 2 - rect.top;
 
         const newScale = g.initial.scale * (dist / g.startDist);
-        const clamped = clampScale(newScale);
+        const clamped = clampScale(newScale, config.minScale, config.maxScale);
         const scaleRatio = clamped / g.initial.scale;
 
         // Zoom anchored at the current midpoint, pinning the scene point that

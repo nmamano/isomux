@@ -68,18 +68,7 @@ export function backRoomLayout(side: number): BackRoomLayout {
   };
 }
 
-// The smallest scale the room is drawn at, so a seat stays about 44 px wide
-// along its table (a phone tap target) and a figure stays readable. Below
-// it, the view pans instead of shrinking.
+// The lowest scale the back room's rest view fits to, so a seat stays about
+// 44 px wide along its table (a phone tap target) and a figure stays readable.
+// Below it, the rest view crops; zoom still goes lower (task f0af4677).
 export const MIN_SCALE = 0.83;
-
-/** The scale that fits the room in the box, never above 1 or below
- *  MIN_SCALE. */
-export function fitScale(
-  layout: Pick<BackRoomLayout, "width" | "height">,
-  box: { width: number; height: number },
-): number {
-  if (box.width <= 0 || box.height <= 0) return 1;
-  const fit = Math.min(box.width / layout.width, box.height / layout.height);
-  return Math.max(MIN_SCALE, Math.min(1, fit));
-}

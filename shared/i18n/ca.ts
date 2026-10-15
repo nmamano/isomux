@@ -1286,6 +1286,7 @@ Coses que pots fer per ell:
   "dialogs.agent.titleEdit": "Editar l'agent",
   "dialogs.agent.desk": "Escriptori #{desk}",
   "dialogs.agent.backRoom": "Rebotiga",
+  "dialogs.agent.moveToBackOf": "Rebotiga de {room}",
   "dialogs.agent.engineBlurb.claude":
     "Funciona amb el teu compte de Claude Code.",
   "dialogs.agent.engineBlurb.codex": "Funciona amb el teu compte de ChatGPT.",
@@ -2003,7 +2004,6 @@ Coses que pots fer per ell:
   "office.status.idle": "inactius",
   "office.backRoom.tooltip.one": "Rebotiga · {count} agent",
   "office.backRoom.tooltip.other": "Rebotiga · {count} agents",
-  "office.backRoom.unread": "{count} sense llegir",
   "office.backRoom.asking": "{count} preguntant",
   "office.backRoom.error": "{count} amb error",
   "office.backRoom.dropBadge": "Mou a la rebotiga",

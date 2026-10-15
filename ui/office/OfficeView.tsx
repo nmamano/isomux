@@ -343,11 +343,12 @@ export function OfficeView({
     [swipeRef, viewport.setContainer],
   );
 
+  const showBackRoom = !!backRoomOpen && !lobbyOpen && !!currentRoomId;
   // Expose viewport controls to parent for keyboard shortcuts (0, +, -). Skip
   // in embed mode - the zoom UI is hidden there, and the keyboard parity
-  // should match.
+  // should match. The back room screen registers its own view.
   useEffect(() => {
-    if (!viewportControlsRef || embed) {
+    if (!viewportControlsRef || embed || showBackRoom) {
       return;
     }
     viewportControlsRef.current = {
@@ -361,6 +362,7 @@ export function OfficeView({
   }, [
     viewportControlsRef,
     embed,
+    showBackRoom,
     viewport.resetView,
     viewport.zoomIn,
     viewport.zoomOut,
@@ -376,7 +378,6 @@ export function OfficeView({
     working: backAgents.filter(
       (a) => a.state === "thinking" || a.state === "tool_executing",
     ).length,
-    unread: backAgents.filter((a) => needsAttention.has(a.id)).length,
     asking: backAgents.filter((a) => a.pendingPrompt != null).length,
     error: backAgents.filter((a) => a.state === "error").length,
   };
@@ -409,7 +410,6 @@ export function OfficeView({
   const [rightDoorReject, setRightDoorReject] = useState(false);
   // The header counts what the screen draws: the back room's agents on its
   // screen, the front's otherwise.
-  const showBackRoom = !!backRoomOpen && !lobbyOpen && !!currentRoomId;
   const counts = getRoomCounts(showBackRoom ? backAgents : frontAgents);
 
   const officeActions: NavAction[] = [
@@ -619,7 +619,12 @@ export function OfficeView({
         </div>
       )}
 
-      {!embed && <RoomTabBar onOpenRoomSettings={onEditRoomSettings} />}
+      {!embed && (
+        <RoomTabBar
+          onOpenRoomSettings={onEditRoomSettings}
+          onSelectRoom={showBackRoom ? onCloseBackRoom : undefined}
+        />
+      )}
 
       {/* Chat overlays the scene without changing the viewport's fit or origin.
           It stays outside the gesture container so chat scrolling and text
@@ -637,6 +642,7 @@ export function OfficeView({
             onSpawn={() => onSpawnBack?.()}
             onOpenAgent={(agentId) => dispatch({ type: "focus", agentId })}
             onContextMenu={onContextMenu}
+            viewportControlsRef={viewportControlsRef}
           />
         ) : (
           /* touch-action: none keeps iOS from turning one-finger drags into page scroll.
@@ -909,7 +915,6 @@ export function OfficeView({
                       )}
                     <TrapDoor
                       attention={backAttention}
-                      frontFull={frontAgents.length >= DESK_COUNT}
                       backFull={backAgents.length >= BACK_ROOM_SEATS}
                       onOpen={() => onOpenBackRoom?.()}
                       onDropDesk={(desk) => {
@@ -1101,11 +1106,18 @@ export function OfficeView({
         >
           {(showBackRoom
             ? isMobile
-              ? (["office.hints.tap", "office.hints.longPress"] as const)
+              ? ([
+                  "office.hints.tap",
+                  "office.hints.longPress",
+                  "office.hints.pinch",
+                  "office.hints.drag",
+                ] as const)
               : ([
                   "office.hints.click",
+                  "office.hints.wheel",
                   "office.hints.drag",
                   "office.hints.rightClick",
+                  "office.hints.resetView",
                 ] as const)
             : isMobile
               ? ([

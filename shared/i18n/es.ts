@@ -1285,6 +1285,7 @@ Cosas que puedes hacer por él:
   "dialogs.agent.titleEdit": "Editar el agente",
   "dialogs.agent.desk": "Escritorio #{desk}",
   "dialogs.agent.backRoom": "Trastienda",
+  "dialogs.agent.moveToBackOf": "Trastienda de {room}",
   "dialogs.agent.engineBlurb.claude": "Funciona con tu cuenta de Claude Code.",
   "dialogs.agent.engineBlurb.codex": "Funciona con tu cuenta de ChatGPT.",
   "dialogs.agent.engineBlurb.opencode":
@@ -2002,7 +2003,6 @@ Cosas que puedes hacer por él:
   "office.status.idle": "inactivos",
   "office.backRoom.tooltip.one": "Trastienda · {count} agente",
   "office.backRoom.tooltip.other": "Trastienda · {count} agentes",
-  "office.backRoom.unread": "{count} sin leer",
   "office.backRoom.asking": "{count} preguntando",
   "office.backRoom.error": "{count} con error",
   "office.backRoom.dropBadge": "Mover a la trastienda",

@@ -1,12 +1,13 @@
 // The trap door to the back room (task 5b503e32): a wooden hatch on the front
-// floor. It shows only when the back room has agents, when the front is full
-// (so the back room is the way to spawn), or while a desk is dragged (as the
-// drop target). Light comes through the planks while a back agent works, and
-// badges above it count back agents that need a person.
+// floor of every ordinary room, so a click or a dropped desk reaches the back
+// room at any time (task f0af4677). Light comes through the planks while a
+// back agent works, and badges above it count back agents that wait on a
+// person (asking) or failed; unread output shows only on the back screen
+// (Nil, task f0af4677). An empty back room leaves it closed and quiet.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useI18n } from "../i18n.tsx";
-import { getDraggedDesk } from "./drag-state.ts";
+import { useDeskDrag } from "./useDeskDrag.ts";
 import { VB_X, VB_Y } from "./grid.ts";
 
 // The hatch's centre on the floor, in scene SVG units. One spot in every skin:
@@ -23,7 +24,6 @@ export const TRAP_DOOR_HIT = { w: 120, h: 86 };
 export interface BackRoomAttention {
   agents: number;
   working: number;
-  unread: number;
   asking: number;
   error: number;
 }
@@ -39,37 +39,13 @@ const poly = (s: number) =>
     .join(" L") +
   " Z";
 
-/** True while a desk is being dragged anywhere in the office. HTML5 drag
- *  events bubble to the document, and DeskUnit records the dragged desk. */
-function useDeskDrag(): boolean {
-  const [dragging, setDragging] = useState(false);
-  useEffect(() => {
-    const start = () =>
-      // DeskUnit sets the dragged desk in its own dragstart handler, which
-      // runs before this document listener.
-      setDragging(getDraggedDesk() !== null);
-    const end = () => setDragging(false);
-    document.addEventListener("dragstart", start);
-    document.addEventListener("dragend", end);
-    document.addEventListener("drop", end);
-    return () => {
-      document.removeEventListener("dragstart", start);
-      document.removeEventListener("dragend", end);
-      document.removeEventListener("drop", end);
-    };
-  }, []);
-  return dragging;
-}
-
 export function TrapDoor({
   attention,
-  frontFull,
   backFull,
   onOpen,
   onDropDesk,
 }: {
   attention: BackRoomAttention;
-  frontFull: boolean;
   backFull: boolean;
   onOpen: () => void;
   /** Moves the dragged desk's agent to the back room. */
@@ -78,18 +54,10 @@ export function TrapDoor({
   const { t, tn } = useI18n();
   const dragging = useDeskDrag();
   const [over, setOver] = useState(false);
-  if (attention.agents === 0 && !frontFull && !dragging) return null;
-
   const lit = attention.working > 0;
   const left = TRAP_DOOR_CENTER.x - VB_X - TRAP_DOOR_HIT.w / 2;
   const top = TRAP_DOOR_CENTER.y - VB_Y - TRAP_DOOR_HIT.h / 2;
   const badges: Array<{ text: string; bg: string; fg: string }> = [];
-  if (attention.unread)
-    badges.push({
-      text: t("office.backRoom.unread", { count: attention.unread }),
-      bg: "var(--purple-text)",
-      fg: "var(--bg-base)",
-    });
   if (attention.asking)
     badges.push({
       text: t("office.backRoom.asking", { count: attention.asking }),

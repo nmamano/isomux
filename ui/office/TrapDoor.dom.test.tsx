@@ -1,5 +1,5 @@
-// The trap door to the back room (task 5b503e32): when it shows, what its
-// badges count, and what a dropped desk does.
+// The trap door to the back room (tasks 5b503e32 and f0af4677): it is always
+// there, what its light and badges show, and what a dropped desk does.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -13,7 +13,7 @@ const { setDraggedDesk } = await import("./drag-state.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
 const EN = translatorFor("en");
-const NONE = { agents: 0, working: 0, unread: 0, asking: 0, error: 0 };
+const NONE = { agents: 0, working: 0, asking: 0, error: 0 };
 
 afterEach(() => {
   cleanup();
@@ -29,7 +29,6 @@ function show(
       "en",
       <TrapDoor
         attention={NONE}
-        frontFull={false}
         backFull={false}
         onOpen={() => {}}
         onDropDesk={(desk) => dropped.push(desk)}
@@ -42,45 +41,47 @@ function show(
 }
 
 describe("TrapDoor", () => {
-  it("is hidden with an empty back room and a free front desk", () => {
-    expect(show().hatch()).toBeNull();
+  it("shows with an empty back room, closed and quiet", () => {
+    const { view, hatch } = show();
+    expect(hatch()).not.toBeNull();
+    // No plank light and no badges.
+    expect(view.container.querySelector("[filter]")).toBeNull();
+    expect(view.container.textContent).toBe("");
   });
 
-  it("shows when the back room has agents, or the front is full", () => {
-    expect(show({ attention: { ...NONE, agents: 1 } }).hatch()).not.toBeNull();
-    cleanup();
-    expect(show({ frontFull: true }).hatch()).not.toBeNull();
+  it("lights the planks while a back agent works", () => {
+    const { view } = show({ attention: { ...NONE, agents: 1, working: 1 } });
+    expect(view.container.querySelector("[filter]")).not.toBeNull();
   });
 
-  it("shows while a desk is dragged, as the drop target", () => {
-    const { hatch } = show();
-    expect(hatch()).toBeNull();
+  it("marks itself as the drop target while a desk is dragged", () => {
+    const { view } = show();
     act(() => {
       setDraggedDesk(3);
       document.dispatchEvent(new Event("dragstart"));
     });
-    expect(hatch()).not.toBeNull();
+    expect(view.container.textContent).toContain(
+      EN.t("office.backRoom.dropBadge"),
+    );
     act(() => {
       setDraggedDesk(null);
       document.dispatchEvent(new Event("dragend"));
     });
-    expect(hatch()).toBeNull();
+    expect(view.container.textContent).toBe("");
   });
 
-  it("counts unread, asking and error back agents, and hides a zero", () => {
+  it("counts asking and error back agents, and hides a zero", () => {
     const { view } = show({
-      attention: { agents: 5, working: 2, unread: 2, asking: 1, error: 1 },
+      attention: { agents: 5, working: 2, asking: 1, error: 1 },
     });
     const text = view.container.textContent ?? "";
-    expect(text).toContain(EN.t("office.backRoom.unread", { count: 2 }));
     expect(text).toContain(EN.t("office.backRoom.asking", { count: 1 }));
     expect(text).toContain(EN.t("office.backRoom.error", { count: 1 }));
     cleanup();
     const quiet = show({
-      attention: { agents: 5, working: 2, unread: 0, asking: 1, error: 0 },
+      attention: { agents: 5, working: 2, asking: 1, error: 0 },
     });
     const rest = quiet.view.container.textContent ?? "";
-    expect(rest).not.toContain(EN.t("office.backRoom.unread", { count: 0 }));
     expect(rest).not.toContain(EN.t("office.backRoom.error", { count: 0 }));
   });
 
@@ -90,11 +91,11 @@ describe("TrapDoor", () => {
       fireEvent.drop(hatch, {
         dataTransfer: { getData: () => "4", dropEffect: "move" },
       });
-    const open = show({ frontFull: true }, dropped);
+    const open = show({}, dropped);
     drop(open.hatch()!);
     expect(dropped).toEqual([4]);
     cleanup();
-    const full = show({ frontFull: true, backFull: true }, dropped);
+    const full = show({ backFull: true }, dropped);
     drop(full.hatch()!);
     expect(dropped).toEqual([4]);
   });

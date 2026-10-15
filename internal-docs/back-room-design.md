@@ -113,11 +113,18 @@ Approved by the Lead, 2026-10-15.
 ## The front
 
 - The trap door: a wooden hatch on the front floor at scene point (445, 310),
-  in every skin. It shows only when the back room has agents, when the front
-  is full, or during a desk drag. Light shows through the planks when a back
-  agent works; badges above it: "{n} unread", "{n} asking", "{n} error",
-  each hidden at 0. A click opens the back screen. A desk dropped on it moves
-  to the back. Phone tap box: 60 × 44 px.
+  in every skin, always there in every ordinary room (task f0af4677). Light
+  shows through the planks when a back agent works; badges above it:
+  "{n} asking", "{n} error", each hidden at 0. A back agent's unread output
+  lights nothing on the front, the room tab dot included: people rarely talk
+  to the back room (Nil). An empty back room leaves it closed and quiet. A click opens the back screen. A desk
+  dropped on it moves to the back. Phone tap box: 60 × 44 px.
+- Room tabs during a desk drag: a drop on a tab moves the agent to that
+  room's first free front desk; a "Back room" target beside each tab moves
+  it to that room's back room. A full area takes no drop.
+- "Move to Room" in the agent dialog: each room offers its front and, outside
+  the lobby, its back room. The agent's own room offers only the area the
+  agent is not in.
 - No room shows an agent count: the room tab (RoomTabBar.tsx:598), the
   tucked-room list (TuckedRoomsChip.tsx:282) and the "Move to room" buttons
   (EditAgentDialog.tsx:1426). The tucked-rooms chip keeps its count of
@@ -128,26 +135,35 @@ Approved by the Lead, 2026-10-15.
 
 ## The back screen
 
-- A basement: brick walls, concrete floor, bulbs, a ladder up to the trap door,
-  "BACK ROOM" on the wall. One look in every skin.
+- A basement: brick walls, concrete floor, bulbs, "BACK ROOM" on the wall. One
+  look in every skin. The ladder up to the trap door stands at the right end
+  of the right wall, under the trap door; the board hangs between the back
+  corner and the ladder. The brick courses wrap over the walls' cut ends and
+  the tops show joints; the floor's checkerboard runs down the slab's sides,
+  which reach out under the walls (task f0af4677).
 - n tables of n stools. Each agent is its own `Character`, seated, with a
-  status light above the head, a purple "•••" bubble when unread, an amber "?"
-  bubble when asking, and the error pose with a red light. No nameplate: the
-  name is in the tooltip, the menu header and the log. Figures are static (no
-  animation): measured 2026-10-15, 100 static figures draw at the front view's
-  frame time, 100 animated ones 3 to 4 times slower.
-- The view fits the room to the screen and stops shrinking at the smallest
-  readable figure size; past that, it pans, on the phone too.
+  small nameplate above the head (status light and name, the front's style), a
+  purple "•••" bubble when unread, an amber "?" bubble when asking, and the
+  error pose with a red light. Figures are static (no animation): measured
+  2026-10-15, 100 static figures draw at the front view's frame time, 100
+  animated ones 3 to 4 times slower.
+- Zoom and pan as on the front (wheel, drag, pinch, +, - and 0, and the zoom
+  buttons), with the front's useViewport and a saved view of its own. The rest
+  view fits the room down to the smallest readable figure size (scale 0.83)
+  and crops evenly below it; zoom goes out to 0.25, so a phone can show a full
+  10 × 10 room. One finger pans at any scale (no room swipe here).
 - A bar: "← {room}", "Back room", "+ New agent". Figure menu: "Move to front"
   (first free desk; disabled with "Front is full").
 - Navigation: a deep level over today's one-entry history model. Back from a
   back agent's log returns to the back screen; a reload lands on the front.
+  A click on any room tab, this room's included, or on the ladder opens a
+  front.
 - The log of a back agent has a strip: "In the back room of {room}. People talk
   to the front:" with a chip per front agent.
 
 ## Demo
 
-The demo office shows 1 back agent, so visitors see the trap door.
+The demo office shows 1 back agent.
 
 ## Slices
 

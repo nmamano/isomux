@@ -1270,6 +1270,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.titleEdit": "Edit Agent",
   "dialogs.agent.desk": "Desk #{desk}",
   "dialogs.agent.backRoom": "Back room",
+  "dialogs.agent.moveToBackOf": "Back room of {room}",
   "dialogs.agent.engineBlurb.claude": "Works with your Claude Code login.",
   "dialogs.agent.engineBlurb.codex": "Works with your ChatGPT login.",
   "dialogs.agent.engineBlurb.opencode":
@@ -1958,7 +1959,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "office.status.idle": "idle",
   "office.backRoom.tooltip.one": "Back room · {count} agent",
   "office.backRoom.tooltip.other": "Back room · {count} agents",
-  "office.backRoom.unread": "{count} unread",
   "office.backRoom.asking": "{count} asking",
   "office.backRoom.error": "{count} error",
   "office.backRoom.dropBadge": "Move to back room",

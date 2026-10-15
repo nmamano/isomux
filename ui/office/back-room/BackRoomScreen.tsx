@@ -1,25 +1,31 @@
 // The back room screen (task 5b503e32): the room's basement, a sweatshop of
 // n long tables with n stools. Each back agent is a seated figure with a
-// status light, a purple bubble when unread and an amber one when it waits on
-// a prompt; a click or tap opens its log. The figures do not animate: a
-// hundred animated characters made the frame time 3 to 4 times the front
-// view's (measured 2026-10-15), and static ones cost nothing over it.
+// nameplate (status light and name), a purple bubble when unread and an amber
+// one when it waits on a prompt; a click or tap opens its log. The figures do
+// not animate: a hundred animated characters made the frame time 3 to 4 times
+// the front view's (measured 2026-10-15), and static ones cost nothing over
+// it. The room zooms and pans with the front's viewport code (task f0af4677).
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { AgentInfo } from "../../../shared/types.ts";
 import { backRoomSide, backSeatOf } from "../../../shared/desks.ts";
 import { useI18n } from "../../i18n.tsx";
 import { noTranslate } from "../../no-translate.ts";
 import { Character } from "../Character.tsx";
 import { StatusLight } from "../StatusLight.tsx";
+import { styleForModel } from "../../model-styles.ts";
+import { useViewport } from "../useViewport.ts";
+import { ZoomControls } from "../ZoomControls.tsx";
+import type { ViewportControls } from "../OfficeView.tsx";
 import {
   FIGURE_SCALE,
   SLAB_H,
   TABLE_DEPTH,
   TABLE_H,
+  TILE_A,
   WALL_H,
+  MIN_SCALE,
   backRoomLayout,
-  fitScale,
   type Point,
 } from "./geometry.ts";
 
@@ -33,7 +39,36 @@ const BRICK = {
   mortar: "rgba(60,30,20,0.18)",
 };
 const FLOOR = ["#b1aea8", "#a9a6a0"];
+// The slab's two visible sides, in the floor's two shades.
+const SLAB_LEFT = ["#8e8b86", "#86837e"];
+const SLAB_RIGHT = ["#7d7a75", "#76736e"];
+// The walls' thickness, and a brick's length along a wall top.
+const WALL_T = 8;
+const BRICK_LEN = 26;
 const LONG_PRESS_MS = 500;
+// A bulb's height over the floor, and its cord's length above it: long
+// enough to run off the top of the screen at any pan and zoom (Nil: "the lamp
+// cables should always reach the very top of the screen").
+const BULB_H = 168;
+const CORD_H = 20000;
+// The ladder's foot, in tiles from the right wall's end: it stands at the
+// right, under the trap door, which is on the right of the front floor.
+const LADDER_FROM_END = 1.6;
+// The board: its smallest width, its fonts, and its span on the right wall in
+// tiles (from near the back corner to short of the ladder).
+const BOARD_W = 120;
+const BOARD_TITLE_FONT = 13;
+const BOARD_COUNT_FONT = 18;
+const BOARD_C0 = 0.45;
+const BOARD_LADDER_GAP = 0.35;
+
+/** About how wide a monospace line draws: CJK glyphs take a full em, the
+ *  rest 0.6 em. */
+function textWidth(text: string, fontSize: number): number {
+  let em = 0;
+  for (const ch of text) em += /[\u2e80-\uffff]/.test(ch) ? 1 : 0.6;
+  return em * fontSize;
+}
 
 const poly = (pts: Point[]) =>
   "M" + pts.map((p) => `${p.x} ${p.y}`).join(" L") + " Z";
@@ -80,6 +115,7 @@ function Figure({
 }) {
   const h = 68 * FIGURE_SCALE;
   const w = 52 * FIGURE_SCALE;
+  const plate = styleForModel(agent.modelFamily);
   const working =
     agent.state === "thinking" || agent.state === "tool_executing";
   const press = useRef<number | null>(null);
@@ -93,6 +129,9 @@ function Figure({
       <div
         role="button"
         tabIndex={0}
+        // A mouse drag from a figure does not pan (the viewport would take the
+        // click); a touch drag still does, as on the front's desks.
+        data-no-pan
         data-back-figure={agent.id}
         aria-label={agent.name}
         title={agent.name}
@@ -147,24 +186,50 @@ function Figure({
           />
         </div>
       </div>
+      {/* The nameplate: the front's, smaller. Neighbours on a table sit a
+          stool step (24 units) lower, more than its height, so plates do not
+          overlap at any room size. */}
       <div
+        data-back-nameplate
         style={{
           position: "absolute",
-          left: at.x - 5,
-          top: at.y - h - 19,
+          left: at.x,
+          top: at.y - h - 15,
+          transform: "translateX(-50%)",
           zIndex: 5000 + z,
           pointerEvents: "none",
           display: "flex",
+          alignItems: "center",
+          gap: 3,
+          maxWidth: 96,
+          padding: "1px 6px 1px 4px",
+          background: plate.bg,
+          border: `1px solid ${plate.border}`,
+          borderRadius: 10,
+          whiteSpace: "nowrap",
         }}
       >
-        <StatusLight state={agent.state} size={11} />
+        <StatusLight state={agent.state} size={6} />
+        <span
+          {...noTranslate()}
+          style={{
+            fontSize: 9,
+            fontWeight: 600,
+            lineHeight: "11px",
+            color: "var(--text-primary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {agent.name}
+        </span>
       </div>
       {(agent.pendingPrompt || unread) && (
         <div
           style={{
             position: "absolute",
-            left: at.x + 4,
-            top: at.y - h - 35,
+            left: at.x + 6,
+            top: at.y - h - 32,
             zIndex: 5001 + z,
             pointerEvents: "none",
           }}
@@ -189,6 +254,7 @@ export function BackRoomScreen({
   onSpawn,
   onOpenAgent,
   onContextMenu,
+  viewportControlsRef,
 }: {
   roomName: string;
   /** The room's back agents. */
@@ -199,25 +265,52 @@ export function BackRoomScreen({
   onSpawn: () => void;
   onOpenAgent: (agentId: string) => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
+  /** Where the 0, + and - keys find the view. */
+  viewportControlsRef?: React.RefObject<ViewportControls | null>;
 }) {
   const { t } = useI18n();
   const side = backRoomSide(agents.map((a) => a.desk));
   const layout = backRoomLayout(side);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const roomRef = useRef<HTMLDivElement | null>(null);
-  const [box, setBox] = useState({ width: 0, height: 0 });
-  const scale = fitScale(layout, box);
-
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const measure = () =>
-      setBox({ width: el.clientWidth - 16, height: el.clientHeight - 16 });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  // The front's zoom and pan (task f0af4677), with its own saved view. The
+  // rest view fits the whole room down to a readable scale and crops evenly
+  // below it; zoom goes far enough out to show a full room on a phone, and
+  // one finger always pans (there is no room swipe here).
+  const viewport = useViewport(`${side}|${isMobile ? 1 : 0}`, true, {
+    kind: "back",
+    artBox: { left: 0, top: 0, right: 1, bottom: 1 },
+    fitWidth: true,
+    minScale: 0.25,
+    restMinScale: MIN_SCALE,
+    touchPanAtRest: true,
+  });
+  const { setContent } = viewport;
+  const attachRoom = useCallback(
+    (node: HTMLDivElement | null) => {
+      roomRef.current = node;
+      setContent(node);
+    },
+    [setContent],
+  );
+  // The 0, + and - keys reach this view while it shows.
+  useEffect(() => {
+    if (!viewportControlsRef) return;
+    const controls = {
+      resetView: viewport.resetView,
+      zoomIn: viewport.zoomIn,
+      zoomOut: viewport.zoomOut,
+    };
+    viewportControlsRef.current = controls;
+    return () => {
+      if (viewportControlsRef.current === controls)
+        viewportControlsRef.current = null;
+    };
+  }, [
+    viewportControlsRef,
+    viewport.resetView,
+    viewport.zoomIn,
+    viewport.zoomOut,
+  ]);
 
   // SVG animations do not stop for CSS: pause them, so every figure stays
   // still (the CSS rule below stops the rest).
@@ -226,39 +319,40 @@ export function BackRoomScreen({
       svg.pauseAnimations?.();
   });
 
-  // When the room is wider or taller than the screen, open it centred on the
-  // seated figures.
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el || box.width === 0) return;
-    const seats = agents
-      .map((a) => backSeatOf(a.desk))
-      .filter((s) => s !== null)
-      .map((s) => layout.seat(s));
-    const cx = seats.length
-      ? (Math.min(...seats.map((p) => p.x)) +
-          Math.max(...seats.map((p) => p.x))) /
-        2
-      : layout.width / 2;
-    const cy = seats.length
-      ? (Math.min(...seats.map((p) => p.y)) +
-          Math.max(...seats.map((p) => p.y))) /
-        2
-      : layout.height / 2;
-    el.scrollLeft = cx * scale - el.clientWidth / 2;
-    el.scrollTop = cy * scale - el.clientHeight / 2;
-    // Only on open and when the room's size changes, not on every update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [box.width, box.height, side]);
-
-  // A mouse drag pans the room; touch pans it natively.
-  const drag = useRef<{ x: number; y: number; l: number; t: number } | null>(
-    null,
-  );
-
   const back = layout.at(0, 0);
   const left = layout.at(0, layout.nr);
   const right = layout.at(layout.nc, 0);
+  // The walls' outer corners: the wall is WALL_T thick, out from the floor.
+  const outerLeft = { x: left.x - WALL_T, y: left.y - WALL_T / 2 };
+  const outerRight = { x: right.x + WALL_T, y: right.y - WALL_T / 2 };
+  // Joints across the wall tops, one per brick length along each wall, from
+  // the inner edge to the outer one.
+  const backOuter = { x: back.x, y: back.y - WALL_T };
+  const topJoints: React.ReactNode[] = [];
+  for (const [a, b, oa, ob] of [
+    [left, back, outerLeft, backOuter],
+    [back, right, backOuter, outerRight],
+  ] as const) {
+    const n = Math.round(Math.hypot(b.x - a.x, b.y - a.y) / BRICK_LEN);
+    for (let k = 1; k < n; k++) {
+      const f = k / n;
+      const p = up(
+        { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f },
+        WALL_H,
+      );
+      const q = up(
+        { x: oa.x + (ob.x - oa.x) * f, y: oa.y + (ob.y - oa.y) * f },
+        WALL_H,
+      );
+      topJoints.push(
+        <path
+          key={`top-${a.x}-${k}`}
+          d={`M${p.x} ${p.y} L${q.x} ${q.y}`}
+          stroke={BRICK.mortar}
+        />,
+      );
+    }
+  }
   const walls = (
     <>
       <path
@@ -288,8 +382,8 @@ export function BackRoomScreen({
         d={poly([
           up(left, WALL_H),
           up(back, WALL_H),
-          up(back, WALL_H + 8),
-          { x: left.x - 8, y: left.y - WALL_H - 4 },
+          up(backOuter, WALL_H),
+          up(outerLeft, WALL_H),
         ])}
         fill={BRICK.topLeft}
       />
@@ -297,29 +391,39 @@ export function BackRoomScreen({
         d={poly([
           up(back, WALL_H),
           up(right, WALL_H),
-          { x: right.x + 8, y: right.y - WALL_H - 4 },
-          up(back, WALL_H + 8),
+          up(outerRight, WALL_H),
+          up(backOuter, WALL_H),
         ])}
         fill={BRICK.topRight}
       />
+      {/* The cut ends stand on the floor slab, which reaches out under
+          them as in the front rooms. */}
       <path
-        d={poly([
-          left,
-          up(left, WALL_H),
-          { x: left.x - 8, y: left.y - WALL_H - 4 },
-          { x: left.x - 8, y: left.y - 4 },
-        ])}
+        d={poly([left, up(left, WALL_H), up(outerLeft, WALL_H), outerLeft])}
         fill={BRICK.endLeft}
       />
       <path
-        d={poly([
-          right,
-          up(right, WALL_H),
-          { x: right.x + 8, y: right.y - WALL_H - 4 },
-          { x: right.x + 8, y: right.y - 4 },
-        ])}
+        d={poly([right, up(right, WALL_H), up(outerRight, WALL_H), outerRight])}
         fill={BRICK.endRight}
       />
+      {/* The brick wraps around the wall's thickness: the courses run on
+          over the cut ends, and the tops show the bricks' joints. */}
+      {Array.from({ length: Math.floor(WALL_H / 11) }, (_, k) => {
+        const y = (k + 1) * 11;
+        return (
+          <g key={`end-${k}`}>
+            <path
+              d={`M${left.x} ${left.y - y} L${outerLeft.x} ${outerLeft.y - y}`}
+              stroke={BRICK.mortar}
+            />
+            <path
+              d={`M${right.x} ${right.y - y} L${outerRight.x} ${outerRight.y - y}`}
+              stroke={BRICK.mortar}
+            />
+          </g>
+        );
+      })}
+      {topJoints}
     </>
   );
   const floor: React.ReactNode[] = [];
@@ -342,22 +446,65 @@ export function BackRoomScreen({
         />,
       );
     }
-  const slab = (a: Point, b: Point, fill: string) => (
+  // The slab's sides carry the floor's checkerboard down over its thickness,
+  // one face per edge block, as in the front rooms. The first face on each
+  // side reaches out under the wall to its outer corner.
+  const slab = (a: Point, b: Point, fill: string, key: string) => (
     <path
+      key={key}
       d={poly([a, b, { x: b.x, y: b.y + SLAB_H }, { x: a.x, y: a.y + SLAB_H }])}
       fill={fill}
+      stroke="rgba(0,0,0,0.10)"
+      strokeWidth={0.6}
     />
   );
+  const lastR = Math.ceil(layout.nr / 1.5) * 1.5 - 1.5;
+  const lastC = Math.ceil(layout.nc / 1.5) * 1.5 - 1.5;
+  const parity = (r: number, c: number) => Math.round((r + c) / 1.5) % 2;
+  const slabs: React.ReactNode[] = [];
+  for (let c = 0; c < layout.nc; c += 1.5)
+    slabs.push(
+      slab(
+        c === 0 ? outerLeft : layout.at(c, layout.nr),
+        layout.at(Math.min(layout.nc, c + 1.5), layout.nr),
+        SLAB_LEFT[parity(lastR, c)],
+        `sl-${c}`,
+      ),
+    );
+  for (let r = 0; r < layout.nr; r += 1.5)
+    slabs.push(
+      slab(
+        r === 0 ? outerRight : layout.at(layout.nc, r),
+        layout.at(layout.nc, Math.min(layout.nr, r + 1.5)),
+        SLAB_RIGHT[parity(r, lastC)],
+        `sr-${r}`,
+      ),
+    );
   const sign = layout.at(0, layout.nr * 0.62);
-  const ladderFoot = layout.at(1.2, 0.15);
+  const ladderFoot = layout.at(layout.nc - LADDER_FROM_END, 0.15);
   const ladderTop = { x: ladderFoot.x + 26, y: ladderFoot.y - WALL_H - 70 };
-  const board = layout.at(layout.nc * 0.55, 0);
+  // The board hangs on the right wall between the back corner and the
+  // ladder, centred, and shrinks to fit a small room's wall.
+  const boardCount = t("office.backRoom.boardCount", { count: agents.length });
+  const boardTitle = t("office.backRoom.boardTitle");
+  const boardW = Math.max(
+    BOARD_W,
+    textWidth(boardCount, BOARD_COUNT_FONT) + 24,
+    textWidth(boardTitle, BOARD_TITLE_FONT) + 24,
+  );
+  const boardSpan =
+    (layout.nc - LADDER_FROM_END - BOARD_LADDER_GAP - BOARD_C0) * TILE_A;
+  const boardScale = Math.min(1, boardSpan / boardW);
+  const board = layout.at(
+    BOARD_C0 + (boardSpan - boardW * boardScale) / 2 / TILE_A,
+    0,
+  );
   // Bare bulbs on cords over the aisles, one per two tables on each side.
   const bulbs: Point[] = [];
   for (let j = 0; j < side; j += 2)
     for (const c of [layout.nc * 0.25, layout.nc * 0.75]) {
       const p = layout.at(c, layout.table(j).r + 0.9);
-      bulbs.push({ x: p.x, y: p.y - 150 });
+      bulbs.push({ x: p.x, y: p.y - BULB_H });
     }
 
   // Back to front: tables in order, each with its figures and empty stools
@@ -420,7 +567,8 @@ export function BackRoomScreen({
             at={at}
             z={j * 10 + 3}
             unread={needsAttention.has(agent.id)}
-            onOpen={() => onOpenAgent(agent.id)}
+            // A touch pan that starts on a figure does not open it.
+            onOpen={viewport.wrapClick(() => onOpenAgent(agent.id))}
             onMenu={(x, y) => onContextMenu(x, y, agent)}
           />,
         );
@@ -518,56 +666,33 @@ export function BackRoomScreen({
           {t("office.backRoom.newAgent")}
         </button>
       </div>
+      {/* touch-action: none hands every touch to the viewport, as on the
+          front. */}
       <div
-        ref={scrollRef}
-        onPointerDown={(e) => {
-          if (e.pointerType !== "mouse" || e.button !== 0) return;
-          if ((e.target as HTMLElement).closest("[data-back-figure]")) return;
-          const el = scrollRef.current!;
-          drag.current = {
-            x: e.clientX,
-            y: e.clientY,
-            l: el.scrollLeft,
-            t: el.scrollTop,
-          };
-        }}
-        onPointerMove={(e) => {
-          const d = drag.current;
-          const el = scrollRef.current;
-          if (!d || !el) return;
-          el.scrollLeft = d.l - (e.clientX - d.x);
-          el.scrollTop = d.t - (e.clientY - d.y);
-        }}
-        onPointerUp={() => (drag.current = null)}
-        onPointerLeave={() => (drag.current = null)}
+        ref={viewport.setContainer}
         style={{
           flex: 1,
-          overflow: "auto",
+          overflow: "hidden",
           position: "relative",
-          padding: 8,
+          touchAction: "none",
           background:
             "radial-gradient(ellipse at 50% 40%, var(--ambient-1) 0%, transparent 60%)",
         }}
       >
         <div
-          style={{
-            width: layout.width * scale,
-            height: layout.height * scale,
-            margin: "0 auto",
-            position: "relative",
-          }}
+          ref={viewport.setScene}
+          style={{ position: "absolute", inset: 0, transformOrigin: "0 0" }}
         >
           <div
-            ref={roomRef}
+            ref={attachRoom}
             className="back-room-still"
             style={{
               position: "absolute",
-              left: 0,
-              top: 0,
+              left: "50%",
+              top: "50%",
               width: layout.width,
               height: layout.height,
-              transform: `scale(${scale})`,
-              transformOrigin: "0 0",
+              transform: "translate(-50%, -50%)",
             }}
           >
             <style>{`.back-room-still *, .back-room-still *::before, .back-room-still *::after { animation: none !important; transition: none !important; }`}</style>
@@ -579,16 +704,7 @@ export function BackRoomScreen({
             >
               {walls}
               {floor}
-              {slab(
-                layout.at(0, layout.nr),
-                layout.at(layout.nc, layout.nr),
-                "#8e8b86",
-              )}
-              {slab(
-                layout.at(layout.nc, 0),
-                layout.at(layout.nc, layout.nr),
-                "#7d7a75",
-              )}
+              {slabs}
               <g
                 transform={`matrix(1 -0.5 0 1 ${sign.x} ${sign.y - WALL_H * 0.6})`}
               >
@@ -606,35 +722,36 @@ export function BackRoomScreen({
                 </text>
               </g>
               <g
-                transform={`matrix(1 0.5 0 1 ${board.x} ${board.y - WALL_H * 0.78})`}
+                data-back-board
+                transform={`matrix(${boardScale} ${boardScale * 0.5} 0 ${boardScale} ${board.x} ${board.y - WALL_H * 0.78})`}
               >
                 <rect
-                  width={120}
+                  width={boardW}
                   height={64}
                   fill="#2f3a33"
                   stroke="#6b5240"
                   strokeWidth={4}
                 />
                 <text
-                  x={60}
+                  x={boardW / 2}
                   y={22}
                   textAnchor="middle"
-                  fontSize={13}
+                  fontSize={BOARD_TITLE_FONT}
                   fill="rgba(255,255,255,0.85)"
                   fontFamily="'JetBrains Mono',monospace"
                 >
-                  {t("office.backRoom.boardTitle")}
+                  {boardTitle}
                 </text>
                 <text
-                  x={60}
+                  x={boardW / 2}
                   y={48}
                   textAnchor="middle"
-                  fontSize={18}
+                  fontSize={BOARD_COUNT_FONT}
                   fontWeight={700}
                   fill="rgba(255,255,255,0.9)"
                   fontFamily="'JetBrains Mono',monospace"
                 >
-                  {t("office.backRoom.boardCount", { count: agents.length })}
+                  {boardCount}
                 </text>
               </g>
             </svg>
@@ -648,7 +765,6 @@ export function BackRoomScreen({
                 zIndex: 1,
                 pointerEvents: "none",
               }}
-              aria-hidden="true"
             >
               {[0, 22].map((dx) => (
                 <path
@@ -671,6 +787,36 @@ export function BackRoomScreen({
                   />
                 );
               })}
+              {/* The ladder leads up to the front: a click on it goes there. */}
+              <path
+                data-back-ladder
+                data-no-pan
+                role="button"
+                tabIndex={0}
+                aria-label={t("office.backRoom.backToTitle", {
+                  room: roomName,
+                })}
+                d={poly([
+                  { x: ladderFoot.x - 8, y: ladderFoot.y + 6 },
+                  { x: ladderTop.x - 8, y: ladderTop.y },
+                  { x: ladderTop.x + 30, y: ladderTop.y },
+                  { x: ladderFoot.x + 30, y: ladderFoot.y + 6 },
+                ])}
+                fill="transparent"
+                pointerEvents="all"
+                cursor="pointer"
+                onClick={viewport.wrapClick(onBack)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onBack();
+                  }
+                }}
+              >
+                <title>
+                  {t("office.backRoom.backToTitle", { room: roomName })}
+                </title>
+              </path>
             </svg>
             {rows}
             <svg
@@ -694,7 +840,7 @@ export function BackRoomScreen({
               {bulbs.map((p, k) => (
                 <g key={k}>
                   <path
-                    d={`M${p.x} ${p.y - 260} L${p.x} ${p.y}`}
+                    d={`M${p.x} ${p.y - CORD_H} L${p.x} ${p.y}`}
                     stroke="#3b3b3b"
                     strokeWidth={1.4}
                   />
@@ -710,6 +856,11 @@ export function BackRoomScreen({
             </svg>
           </div>
         </div>
+        <ZoomControls
+          onZoomIn={viewport.zoomIn}
+          onZoomOut={viewport.zoomOut}
+          onReset={viewport.resetView}
+        />
       </div>
     </div>
   );

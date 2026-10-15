@@ -1399,54 +1399,89 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     </div>
   );
 
-  const moveToRoomBlock = !isSpawn && roomCount > 1 && (
-    <>
-      <label style={{ ...labelStyle, marginTop: 14 }}>
-        {t("dialogs.agent.moveToRoom")}
-      </label>
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        {Array.from({ length: roomCount }, (_, i) => {
-          if (rooms[i]?.id === agent!.roomId) return null;
-          // Full only when the front and the back room are both full: a
-          // move with no desk takes a back seat when the front is full.
-          const inRoom = agents.filter(
-            (candidate) => candidate.roomId === rooms[i]?.id,
-          );
-          const backCount = inRoom.filter((a) => isBackSeat(a.desk)).length;
-          const isFull =
-            inRoom.length - backCount >= roomSlotCount(rooms[i]) &&
-            (rooms[i]?.type === "lobby" || backCount >= BACK_ROOM_SEATS);
-          return (
-            <button
-              key={i}
-              disabled={isFull}
-              onClick={() => {
-                const targetRoomId = rooms[i]?.id;
-                if (!targetRoomId) return;
-                requestClose(() => {
-                  apiFetch("POST", `/api/agents/${agent!.id}/move`, {
-                    targetRoomId,
-                  } satisfies MoveAgentReq).catch(() => {});
-                });
-              }}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-                background: isFull ? "var(--bg-input)" : "var(--btn-surface)",
-                color: isFull ? "var(--text-hint)" : "var(--text-dim)",
-                fontSize: 12,
-                cursor: isFull ? "not-allowed" : "pointer",
-                fontFamily: "'JetBrains Mono',monospace",
-              }}
-            >
-              {rooms[i]?.name ?? t("common.roomFallback", { number: i + 1 })}
-            </button>
-          );
-        })}
-      </div>
-    </>
-  );
+  // Each room offers its front and, outside the lobby, its back room
+  // (task f0af4677). The agent's own room offers the area it is not in.
+  const moveTo = (targetRoomId: string, desk?: number | null) =>
+    requestClose(() => {
+      apiFetch("POST", `/api/agents/${agent!.id}/move`, {
+        targetRoomId,
+        ...(desk !== undefined && { desk }),
+      } satisfies MoveAgentReq).catch(() => {});
+    });
+  const moveButtonStyle = (
+    disabled: boolean,
+    side: "only" | "left" | "right",
+  ): React.CSSProperties => ({
+    padding: "5px 12px",
+    borderRadius:
+      side === "only" ? 6 : side === "left" ? "6px 0 0 6px" : "0 6px 6px 0",
+    border: "1px solid var(--border)",
+    marginLeft: side === "right" ? -1 : 0,
+    background: disabled ? "var(--bg-input)" : "var(--btn-surface)",
+    color: disabled ? "var(--text-hint)" : "var(--text-dim)",
+    fontSize: 12,
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontFamily: "'JetBrains Mono',monospace",
+  });
+  const moveToRoomBlock = !isSpawn &&
+    (roomCount > 1 || rooms[agentRoomIndex]?.type !== "lobby") && (
+      <>
+        <label style={{ ...labelStyle, marginTop: 14 }}>
+          {t("dialogs.agent.moveToRoom")}
+        </label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {rooms.map((target, i) => {
+            const own = target.id === agent!.roomId;
+            const lobby = target.type === "lobby";
+            if (own && lobby) return null;
+            const inRoom = agents.filter(
+              (candidate) => candidate.roomId === target.id,
+            );
+            const taken = new Set(inRoom.map((a) => a.desk));
+            const freeDesk =
+              Array.from({ length: roomSlotCount(target) }, (_, d) => d).find(
+                (d) => !taken.has(d),
+              ) ?? null;
+            const backFull =
+              inRoom.filter((a) => isBackSeat(a.desk)).length >=
+              BACK_ROOM_SEATS;
+            const inBack = isBackSeat(agent!.desk);
+            const frontOff = freeDesk === null || (own && !inBack);
+            const backOff = backFull || (own && inBack);
+            const roomName =
+              target.name ?? t("common.roomFallback", { number: i + 1 });
+            const backLabel = t("dialogs.agent.moveToBackOf", {
+              room: roomName,
+            });
+            return (
+              <div key={target.id} style={{ display: "inline-flex" }}>
+                <button
+                  disabled={frontOff}
+                  // The lobby's one desk needs no number.
+                  onClick={() =>
+                    moveTo(target.id, lobby ? undefined : freeDesk)
+                  }
+                  style={moveButtonStyle(frontOff, lobby ? "only" : "left")}
+                >
+                  {roomName}
+                </button>
+                {!lobby && (
+                  <button
+                    disabled={backOff}
+                    onClick={() => moveTo(target.id, null)}
+                    aria-label={backLabel}
+                    title={backLabel}
+                    style={moveButtonStyle(backOff, "right")}
+                  >
+                    {t("dialogs.agent.backRoom")}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </>
+    );
 
   const memoryBlock = isSpawn ? (
     <div className="agent-memory-field">

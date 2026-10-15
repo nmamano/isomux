@@ -16,8 +16,12 @@ import {
   roomsInOrder,
   usePendingView,
 } from "./pending-view.ts";
-import { roomActivityDotColor } from "./room-activity.ts";
+import { roomActivityDotColor, roomHasUnread } from "./room-activity.ts";
 import { TuckedRoomsChip } from "./TuckedRoomsChip.tsx";
+import { useDeskDrag } from "./useDeskDrag.ts";
+import { getDraggedDesk } from "./drag-state.ts";
+import { BACK_ROOM_SEATS, DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
+import type { MoveAgentReq } from "../../shared/contract-shapes.ts";
 
 // Per-tab mini-ghost cluster sizing. Kept small so the bar height
 // stays at 32px (the tabs' existing height) - mini ghosts must read as
@@ -172,8 +176,12 @@ function TotalOnlineChip({ count }: { count: number }) {
 // SECOND copy from its own state, so the office had two of them.
 export function RoomTabBar({
   onOpenRoomSettings,
+  onSelectRoom,
 }: {
   onOpenRoomSettings?: (roomId: string) => void;
+  /** Runs after every tab click, the open room's included: the back screen
+   *  closes, so the click lands on that room's front (task f0af4677). */
+  onSelectRoom?: () => void;
 }) {
   const {
     agents,
@@ -230,6 +238,70 @@ export function RoomTabBar({
   // Drag state holds room ids, so a drop is correct even when tucked rooms
   // sit between two tabs in the member's order.
   const [dragFrom, setDragFrom] = useState<string | null>(null);
+  // A desk dragged from the scene (task f0af4677): every tab takes it to
+  // that room's front, and a "Back room" target beside the tab takes it to
+  // that room's back room.
+  const deskDrag = useDeskDrag();
+  const [deskOver, setDeskOver] = useState<string | null>(null);
+  if (!deskDrag && deskOver !== null) setDeskOver(null);
+  const deskTarget = (roomId: string, area: "front" | "back") => {
+    const inRoom = agents.filter((a) => a.roomId === roomId);
+    if (area === "back")
+      return inRoom.filter((a) => isBackSeat(a.desk)).length < BACK_ROOM_SEATS
+        ? { desk: null }
+        : null;
+    if (roomId === currentRoomId) return null;
+    const taken = new Set(inRoom.map((a) => a.desk));
+    const desk = Array.from({ length: DESK_COUNT }, (_, d) => d).find(
+      (d) => !taken.has(d),
+    );
+    return desk === undefined ? null : { desk };
+  };
+  const deskDropProps = (roomId: string, area: "front" | "back") => {
+    const key = `${roomId}:${area}`;
+    const target = deskTarget(roomId, area);
+    return {
+      "data-desk-drop": key,
+      onDragOver: (e: React.DragEvent) => {
+        if (getDraggedDesk() === null) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = target ? "move" : "none";
+        setDeskOver(key);
+      },
+      onDragLeave: () => setDeskOver((k) => (k === key ? null : k)),
+      onDrop: (e: React.DragEvent) => {
+        const desk = getDraggedDesk();
+        if (desk === null) return;
+        e.preventDefault();
+        setDeskOver(null);
+        const agent = agents.find(
+          (a) => a.roomId === currentRoomId && a.desk === desk,
+        );
+        if (!agent || !target) return;
+        apiFetch("POST", `/api/agents/${agent.id}/move`, {
+          targetRoomId: roomId,
+          desk: target.desk,
+        } satisfies MoveAgentReq).catch(() => {});
+      },
+    };
+  };
+  const deskDropStyle = (
+    roomId: string,
+    area: "front" | "back",
+  ): React.CSSProperties => {
+    const ok = deskTarget(roomId, area) !== null;
+    const over = deskOver === `${roomId}:${area}`;
+    if (over && ok)
+      return {
+        border: "1px solid var(--accent)",
+        background: "var(--accent-bg)",
+        color: "var(--accent-text)",
+      };
+    return {
+      border: `1px dashed ${ok ? "var(--accent)" : "var(--border)"}`,
+      opacity: ok ? 1 : 0.45,
+    };
+  };
   const [dragOver, setDragOver] = useState<string | null>(null);
 
   // Overflow state for the scroll affordances. Tracked per direction so
@@ -450,6 +522,7 @@ export function RoomTabBar({
               onClick={(e) => {
                 (e.target as HTMLElement).blur();
                 dispatch({ type: "set_lobby_open", open: true });
+                onSelectRoom?.();
               }}
               onContextMenu={(e) => e.preventDefault()}
               style={{
@@ -484,9 +557,7 @@ export function RoomTabBar({
               const pinned = room === activeTucked;
               const isActive = !lobbyOpen && room.id === currentRoomId;
               const roomAgents = agents.filter((a) => a.roomId === room.id);
-              const hasAttention = roomAgents.some((a) =>
-                needsAttention.has(a.id),
-              );
+              const hasAttention = roomHasUnread(roomAgents, needsAttention);
               const activityDotColor = roomActivityDotColor(
                 roomAgents,
                 hasAttention,
@@ -550,6 +621,7 @@ export function RoomTabBar({
                     onClick={(e) => {
                       (e.target as HTMLElement).blur();
                       dispatch({ type: "set_current_room", roomId: room.id });
+                      onSelectRoom?.();
                     }}
                     onDoubleClick={(e) => {
                       e.preventDefault();
@@ -584,8 +656,10 @@ export function RoomTabBar({
                       // wrapped to two lines and the selected-tab border
                       // looked taller than on tabs whose names fit.
                       whiteSpace: "nowrap",
+                      ...(deskDrag && deskDropStyle(room.id, "front")),
                     }}
                     title={t("office.tabs.roomSettings")}
+                    {...(deskDrag && deskDropProps(room.id, "front"))}
                   >
                     {displayName}
                     {activityDotColor && (
@@ -603,6 +677,23 @@ export function RoomTabBar({
                       />
                     )}
                   </button>
+                  {deskDrag && (
+                    <span
+                      {...deskDropProps(room.id, "back")}
+                      style={{
+                        padding: "3px 8px",
+                        borderRadius: 6,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: "var(--text-dim)",
+                        whiteSpace: "nowrap",
+                        fontFamily: "'JetBrains Mono',monospace",
+                        ...deskDropStyle(room.id, "back"),
+                      }}
+                    >
+                      {t("office.backRoom.title")}
+                    </span>
+                  )}
                   <MiniGhostCluster
                     presences={roomPresences}
                     selfConnectionId={selfConnectionId}
@@ -703,7 +794,10 @@ export function RoomTabBar({
         selfConnectionId={selfConnectionId}
         dragging={dragFrom !== null}
         onTuckDrop={tuckDragged}
-        onSelect={(roomId) => dispatch({ type: "set_current_room", roomId })}
+        onSelect={(roomId) => {
+          dispatch({ type: "set_current_room", roomId });
+          onSelectRoom?.();
+        }}
       />
     </div>
   );
