@@ -69,14 +69,6 @@ export const DOCS_URL = "https://isomux.com/docs";
 // the reader is on.
 export const SKILLS_PAGE_PATH = "/skills";
 const EDIT_USAGE = "`/isomux-edit <path>`";
-// Engine names are proper nouns and stay untranslated (as in
-// ui/engine-options.ts).
-const ENGINE_NAMES: Record<AgentBackendType, string> = {
-  claude: "Claude",
-  codex: "Codex",
-  opencode: "OpenCode",
-};
-
 type HandlerFn = (
   agentId: string,
   managed: ManagedAgent,
