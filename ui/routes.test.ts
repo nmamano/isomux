@@ -13,19 +13,22 @@ import {
   type PageShortcutInput,
 } from "./routes.ts";
 
-const PAGES: Page[] = [
-  "tasks",
-  "cronjobs",
-  "apps",
-  "skills",
-  "integrations",
-  "settings",
-  "pager",
-];
+// Each page and its canonical path. The cronjobs page is "Automations" on
+// screen, and its path says so.
+const PATHS: Record<Page, string> = {
+  tasks: "/tasks",
+  cronjobs: "/automations",
+  apps: "/apps",
+  skills: "/skills",
+  integrations: "/integrations",
+  settings: "/settings",
+  pager: "/pager",
+};
+const PAGES = Object.keys(PATHS) as Page[];
 
 describe("pageForPath", () => {
   it("names each page from its canonical path", () => {
-    for (const page of PAGES) expect(pageForPath(`/${page}`)).toBe(page);
+    for (const page of PAGES) expect(pageForPath(PATHS[page])).toBe(page);
   });
 
   it("treats the office and its variants as no page", () => {
@@ -41,6 +44,11 @@ describe("pageForPath", () => {
   it("accepts /users as the settings page's old name", () => {
     expect(pageForPath("/users")).toBe("settings");
     expect(pageForPath("/users/")).toBe("settings");
+  });
+
+  it("accepts /cronjobs as the automations page's old path", () => {
+    expect(pageForPath("/cronjobs")).toBe("cronjobs");
+    expect(pageForPath("/cronjobs/")).toBe("cronjobs");
   });
 
   it("is case-sensitive", () => {
@@ -109,7 +117,7 @@ describe("the MCP sign-in return", () => {
 describe("pathForPage", () => {
   it("formats each page and the office", () => {
     expect(pathForPage(null)).toBe("/");
-    for (const page of PAGES) expect(pathForPage(page)).toBe(`/${page}`);
+    for (const page of PAGES) expect(pathForPage(page)).toBe(PATHS[page]);
   });
 
   it("round-trips every path it produces", () => {
@@ -117,8 +125,11 @@ describe("pathForPage", () => {
       expect(pageForPath(pathForPage(page))).toBe(page);
   });
 
-  it("never produces the accepted-only /users alias", () => {
-    for (const page of PAGES) expect(pathForPage(page)).not.toBe("/users");
+  it("never produces the accepted-only /users and /cronjobs aliases", () => {
+    for (const page of PAGES) {
+      expect(pathForPage(page)).not.toBe("/users");
+      expect(pathForPage(page)).not.toBe("/cronjobs");
+    }
   });
 });
 

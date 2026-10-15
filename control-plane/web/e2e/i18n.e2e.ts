@@ -10,8 +10,8 @@
 //
 // IT NAMES NO DATABASE. It runs on a scratch schema from `testing/pg.ts`,
 // dropped in the finally, so it never seeds the configured database directly and
-// never prints a connection string. `freshDsn` refuses a remote target that
-// cannot prove it is the scratch branch.
+// never prints a connection string. `freshDsn` refuses any database but the
+// local test database.
 //
 // It needs no Stripe key and no network beyond localhost.
 //
@@ -27,7 +27,6 @@ import {
   freshDsn,
   openTestStoreOn,
   releaseTestStores,
-  TARGET_IS_LOCAL,
 } from "../../testing/pg.ts";
 import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { setOperator } from "../../operator-admin.ts";
@@ -109,11 +108,9 @@ async function main(): Promise<void> {
   const officeName = `i18n-${suffix}`;
 
   say("# S11 browser transcript: the control plane in three languages");
-  // NO CONNECTION STRING IN THE TRANSCRIPT. The one fact worth recording is
-  // whether this ran against the throwaway container or a managed branch.
-  say(
-    `target: ${TARGET_IS_LOCAL ? "local throwaway container" : "managed scratch branch"}`,
-  );
+  // NO CONNECTION STRING IN THE TRANSCRIPT. freshDsn refuses any target but
+  // the local test database.
+  say("target: local throwaway container");
   say("schema: a fresh scratch schema, dropped when this exits");
 
   const dsn = await freshDsn();

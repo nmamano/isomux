@@ -182,11 +182,11 @@ async function main(): Promise<void> {
 
   const db = databaseUrl();
   // This transcript SEEDS ROWS - two accounts, a reservation, an instance - so
-  // it is subject to the same refusal the suite is: a remote target must prove
-  // it is the scratch branch before anything is written. Fail closed; there is
+  // it is subject to the same refusal the suite is: anything but the local
+  // test database refuses before anything is written. Fail closed; there is
   // no flag that skips it.
   await assertScratchTarget(db, LOCAL_DATABASE_URL);
-  say("target proved to be the scratch branch: true");
+  say("target is the local test database: true");
   const store = await Store.open(db);
   say(`database: ${store.describe()}`);
 
@@ -608,9 +608,7 @@ async function main(): Promise<void> {
     // `APIRequestContext` call against an Auth.js route dies inside Playwright's
     // own Set-Cookie parser with `TypeError: "/api/auth/csrf" cannot be parsed
     // as a URL`, and `route.fetch()` inside a `page.route` handler dies the same
-    // way and then never fulfils, hanging the click. A plain fetch is what
-    // `production-probe.ts` already uses against these routes for the same
-    // reason. Sessions here are JWTs with no server-side store, so signing this
+    // way and then never fulfils, hanging the click. Sessions here are JWTs with no server-side store, so signing this
     // twin out does not disturb the session the click below uses.
     const cookieHeader = `${COOKIE}=${ownerCookie}`;
     const csrfAnswer = await fetch(`${BASE}/api/auth/csrf`, {

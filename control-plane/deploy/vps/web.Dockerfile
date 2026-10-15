@@ -2,10 +2,10 @@
 #
 # The build context is the repository root; web.Dockerfile.dockerignore beside
 # this file replaces the root .dockerignore, which belongs to the provisioner.
-# The install follows the Vercel artifact (deploy/artifact.ts): the
-# artifact-root pair at the root, because control-plane/ imports `pg` from above
-# the web package, and then the web package's own install. Vercel builds and
-# serves under Node, so this image does too; Bun only installs.
+# The install puts the deploy/vercel-root pair at the root, because
+# control-plane/ imports `pg` from above the web package, and then runs the web
+# package's own install. The storefront builds and serves under Node; Bun only
+# installs.
 
 FROM oven/bun:1.3.11-slim AS bun
 

@@ -125,6 +125,7 @@ export const RESERVED_APP_NAMES: ReadonlySet<string> = new Set([
   // Office routes and extensionless static entries. The coverage test in
   // app-short-url.test.ts checks these against routing sources and ui/dist.
   "tasks",
+  "automations",
   "cronjobs",
   "skills",
   "settings",

@@ -41,25 +41,21 @@ export const LOCAL_DATABASE_URL =
 /**
  * The database this run creates its schemas in.
  *
- * `CONTROL_PLANE_DB` is how a run is pointed at the managed engine instead -
- * the same variable the product reads, because a second name for "which
- * database" is a second thing to keep true. Nothing is trusted on the strength
- * of that variable: a remote target must PROVE it is the scratch branch
- * (`assertScratchTarget`) before a schema is created, and the proof is refused
- * by default rather than granted by default. CI sets nothing and is unaffected.
+ * `CONTROL_PLANE_DB` is the variable the product reads, so it is read here
+ * too: a run whose environment names another database refuses
+ * (`assertScratchTarget`) before a schema is created, rather than writing to
+ * it or silently using the local one. CI sets nothing and is unaffected.
  */
 export const TEST_DATABASE_URL =
   process.env.CONTROL_PLANE_DB ?? LOCAL_DATABASE_URL;
 
 /**
- * Is this run pointed at the local throwaway container, or at a managed branch?
+ * Is this run pointed at the local throwaway container?
  *
- * Some properties can only be exercised on an engine we control the shape of -
- * a session that reports NO Neon branch id, for instance, which is what the
- * unmanaged half of the store's bounds contract is about. A managed branch reports one on every session, so those
- * cases cannot be staged there at all: they are skipped rather than rewritten
- * into something that passes, because a test that cannot fail is worse than one
- * that does not run.
+ * Some properties can only be exercised on an engine we control the shape of.
+ * Every other target refuses at the first schema (`assertScratchTarget`), so
+ * this is true in any run that gets that far; the suites that need it still
+ * say so.
  */
 export const TARGET_IS_LOCAL = TEST_DATABASE_URL === LOCAL_DATABASE_URL;
 

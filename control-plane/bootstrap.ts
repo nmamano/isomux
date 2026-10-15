@@ -12,8 +12,7 @@
 //
 // The second is CONTENTS evidence and is deliberately not offered as identity
 // evidence: an empty database proves nothing about WHICH database it is. That
-// proof belongs to the caller - `exercises/neon.ts bootstrap` makes it from the
-// Neon API and the engine's own branch id before this runs.
+// proof belongs to the caller.
 //
 // It does NOT go through cli.ts's `openStore`, which also imports the legacy
 // intent journal from `~/.isomux-control-plane/intents`: a bootstrap that

@@ -22,9 +22,9 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-for (const [label, path] of [
-  ["Apps", "/apps"],
-  [en["common.automations"], "/cronjobs"],
+for (const [label, path, page] of [
+  ["Apps", "/apps", "apps"],
+  [en["common.automations"], "/automations", "cronjobs"],
 ] as const) {
   it(`opens ${path} from its lobby wall control`, async () => {
     const view = render(
@@ -46,6 +46,6 @@ for (const [label, path] of [
       fireEvent.click(wall!);
     });
     expect(window.location.pathname).toBe(path);
-    expect(window.history.state).toEqual({ isomux: true, page: path.slice(1) });
+    expect(window.history.state).toEqual({ isomux: true, page });
   });
 }

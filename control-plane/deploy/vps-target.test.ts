@@ -10,7 +10,6 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { shipsToImage } from "./build-context.ts";
-import { PRODUCTION_SHAPES } from "./production-phase.ts";
 import {
   CERTIFICATE_SECRET_NAMES,
   CONTABO_SECRET_NAMES,
@@ -203,21 +202,6 @@ describe("the committed templates", () => {
         ...certificateSettings,
       ].sort(),
     );
-  });
-
-  test("the storefront template names every value Vercel production carries, less the generated and compose-set ones", () => {
-    const supplied = new Set([
-      "CONTROL_PLANE_DB",
-      "CONTROL_PLANE_MINT_TOKEN",
-      "CONTROL_PLANE_MINT_URL",
-    ]);
-    const vercel = PRODUCTION_SHAPES.map((shape) => shape.key).filter(
-      (key) => !supplied.has(key),
-    );
-    const names = [...envTemplate("web.env.example").keys()];
-    expect(
-      names.filter((key) => key !== "STRIPE_TEST_SECRET_KEY").sort(),
-    ).toEqual([...vercel].sort());
   });
 
   test("the Caddy sites are example hostnames on loopback upstreams", () => {

@@ -38,6 +38,17 @@ export function DeskUnit({
   const containerRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggered = useRef(false);
+  // The desk this unit put in drag-state, while its drag runs. A desk that
+  // unmounts mid-drag (its agent moved to another room) never gets dragend,
+  // so the unmount clears it instead.
+  const dragStarted = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      const desk = dragStarted.current;
+      if (desk !== null && getDraggedDesk() === desk) setDraggedDesk(null);
+    },
+    [],
+  );
   const isWorking = isWorkingState(agent.state);
   const modelStyle = styleForModel(agent.modelFamily);
   const [now, setNow] = useState(() => Date.now());
@@ -130,6 +141,7 @@ export function DeskUnit({
           e.dataTransfer.setData("text/plain", String(agent.desk));
           e.dataTransfer.effectAllowed = "move";
           setDraggedDesk(agent.desk);
+          dragStarted.current = agent.desk;
         }}
         onDragOver={(e) => {
           e.preventDefault();
@@ -149,6 +161,7 @@ export function DeskUnit({
           if (!isNaN(src) && src !== agent.desk) onSwap?.(src, agent.desk);
         }}
         onDragEnd={() => {
+          dragStarted.current = null;
           setDraggedDesk(null);
           setDragOver(false);
         }}

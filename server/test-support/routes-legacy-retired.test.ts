@@ -220,6 +220,7 @@ describe("routes/pages: direct loads and reloads", () => {
     for (const identity of identities) {
       for (const page of [
         "tasks",
+        "automations",
         "cronjobs",
         "apps",
         "skills",

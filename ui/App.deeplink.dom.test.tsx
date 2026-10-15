@@ -47,6 +47,8 @@ const taskPageOpen = (view: View) =>
   view.queryByPlaceholderText(/Quick add a task/) !== null;
 const settingsOpen = (view: View) =>
   view.queryByText(/Select a setting from the list/) !== null;
+const automationsOpen = (view: View) =>
+  view.container.querySelector("[data-schedules-tab]") !== null;
 describe("a link straight to a page", () => {
   it("opens the page and keeps its path, without pushing an entry", () => {
     const pushState = spyOn(window.history, "pushState");
@@ -66,6 +68,19 @@ describe("a link straight to a page", () => {
 
     expect(settingsOpen(view)).toBe(true);
     expect(window.location.pathname).toBe("/settings");
+  });
+
+  it("redirects the old /cronjobs path to /automations, without pushing an entry", () => {
+    const pushState = spyOn(window.history, "pushState");
+    const before = window.history.length;
+
+    const view = mountAt("/cronjobs");
+
+    expect(automationsOpen(view)).toBe(true);
+    expect(window.location.pathname).toBe("/automations");
+    expect(pushState).not.toHaveBeenCalled();
+    expect(window.history.length).toBe(before);
+    pushState.mockRestore();
   });
 
   it("tolerates a trailing slash", () => {

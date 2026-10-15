@@ -377,26 +377,15 @@ database refused a statement (SQLSTATE 23505) constraint=operations_pkey
 table=operations` instead of the engine's prose, and three tests that asserted
 that prose now assert the SQLSTATE - which is the portable fact anyway.
 
-`exercises/neon-redaction.ts` is the standing check: four deliberate connection
-failures against a real endpoint, scanning message, stack, `String`,
-`JSON.stringify` and the whole cause chain, with one positive control PER
-COMPONENT - the password, the role, the host, the endpoint id alone, the
-database name, the whole `options` value and a single token out of it - each of
-which must be caught by the same scan, plus a synthetic DSN with a
-one-character role, password and port to pin that no length is exempt.
+A live check against the managed endpoint, `exercises/neon-redaction.ts`, ran
+four deliberate connection failures through these surfaces. It was removed with
+Neon on 2026-10-15.
 
-It also carries the check no component scan can make: for each failure it asks a
-BARE pool for the same connection, captures what the driver itself said, and
-requires that exact sentence to appear on none of the surfaces we emit. A driver
-message is free text rather than a DSN component, so nothing else in this file
-would have noticed it crossing.
+### What a managed Postgres gave this build (Neon, measured 2026-08-11)
 
-### What a managed Postgres actually gives this build (Neon, measured 2026-08-11)
-
-The project is `isomux-control-plane` (Postgres 18.4, aws-eu-central-1). This
-section used to be documentation - "nothing here has run against Neon". It is
-now a record of runs, and the first thing those runs found is that one
-paragraph of it was wrong in a way that mattered.
+Neon was the production database until the move to the Docker host, and the
+project was deleted on 2026-10-15. This section is the record of the runs
+against it. The store's managed-session path below came from them and stays.
 
 - **THE TWO BOUNDS DO NOT SURVIVE AS STARTUP FIELDS, AND NOTHING SAYS SO.**
   `statement_timeout` and `idle_in_transaction_session_timeout` used to travel
@@ -428,7 +417,6 @@ paragraph of it was wrong in a way that mattered.
   `verify-full` explicitly: pg 8.23 currently treats `require` as `verify-full`
   and warns that a future major will stop doing so, so leaving it at `require`
   is a certificate check that expires on somebody else's release schedule.
-  `exercises/neon-api.ts` sets `verify-full` on every string it builds.
 - **The DIRECT endpoint, not the pooled one - and the answer depends on the
   CHANNEL, which is why this paragraph has been measured twice.** As pool
   startup FIELDS, the two bounds were silently dropped by both endpoints: a
@@ -442,9 +430,6 @@ paragraph of it was wrong in a way that mattered.
   connects, direct with `options` connects, pooled plain connects, pooled with
   `options` fails 08P01. So `Store.open` cannot open against the pooled
   endpoint at all, and it fails closed rather than running unbounded.
-  `exercises/neon-api.ts` takes the direct host from the API's endpoint record
-  rather than by editing a hostname, and refuses a pooled one outright;
-  `deploy/endpoint-posture.ts` is the standing re-measurement.
 - **What bounds connections**, and why the direct endpoint is affordable: the
   web app holds ONE store per process with a pool capped at 4 and a 10s idle
   timeout, so a warm instance holds a handful of connections and an idle one
@@ -467,9 +452,7 @@ if not exists` and nothing else. Confirmed by running the bootstrap against
   and this document does not pretend the recovery is transparent.
 - **The engine says which branch is answering.** `current_setting('neon.branch_id')`
   is present on every session and equals the id the Neon API reports for that
-  branch. That is what makes the branch guards below proofs rather than
-  conventions: a connection string can name any host, and the branch serving
-  the connection is the only thing that knows which branch it is.
+  branch.
 
 ### The connection posture, and the number it is stated as
 
@@ -752,83 +735,29 @@ boot instead of quietly building itself.
 
 ### What the web deployment may carry
 
-An allowlist in `deploy/vercel-api.ts`, and the absences are as much of the
-contract as the entries. Preview carries only `CONTROL_PLANE_DB` and
-`AUTH_SECRET`. Production also carries `AUTH_URL`, `CONTROL_PLANE_MINT_URL`,
-`CONTROL_PLANE_MINT_TOKEN`, Google's two values, `CONTROL_PLANE_STRIPE_MODE`,
-the restricted `STRIPE_LIVE_SECRET_KEY`, and the Entry and Poweruser Price ids.
-The target-specific inventory refuses any live Stripe value on Preview.
-
-Refused by name, not merely absent: every Contabo credential, the Neon API key,
-the fly token, the branch pin, both dev-auth flags, the test Stripe key, and the
-legacy single Price and Coupon names. A read of the Vercel inventory on
-2026-08-20 found the original seven Production values and two Preview values,
-with no Stripe value on either target. Stripe names had been swept into an
-absence check built for infrastructure credentials while the web app had no
-live signup path; no commit, comment or design note recorded a Stripe-specific
-provisioner boundary. The inventory now matches the tier that creates Checkout
-Sessions. `signUpOffice` still judges the customer's input and the selected
-plan's Price before it reserves a name.
-
 The boundary is worth stating precisely, because the web app plainly DOES hold
 credentials: a Production database DSN, its own `AUTH_SECRET`, Google's client
 secret, and the provisioner's bearer. What it holds none of is
 INFRASTRUCTURE-PROVIDER credentials or provisioning key material - no Contabo
-credential, no Neon API key, no fly token, no Vercel token, no protection-bypass
-secret. It can talk to its own database and ask the provisioner for something;
+credential. It can talk to its own database and ask the provisioner for something;
 it cannot create, destroy or reach a customer's box, and it holds nothing that
 would let it. That is the whole reason the provisioner exists.
 
-### Branches: which database a command is allowed to touch
+### Which database a test may touch
 
-Loop ruling 4: suites and transcripts run against a CHILD branch, and the
-production branch receives SCHEMA ONLY - no test row, ever. Two mechanisms
-enforce it, and they are independent on purpose.
-
-`exercises/neon-api.ts` is the library and `exercises/neon.ts` the commands:
-
-```
-bun control-plane/exercises/neon.ts branches
-bun control-plane/exercises/neon.ts branch --create suites
-bun control-plane/exercises/neon.ts branch --delete suites
-bun control-plane/exercises/neon.ts measure --branch suites
-bun control-plane/exercises/neon.ts run --branch suites -- bun test control-plane --timeout 30000
-bun control-plane/exercises/neon.ts bootstrap --branch production
-bun control-plane/exercises/neon.ts govern --branch suites
-bun control-plane/exercises/neon.ts regovern --branch suites [--reverse]
-bun control-plane/exercises/neon.ts ungovern --branch suites
-```
-
-- **A connection string is never read whole.** The direct endpoint host comes
-  from the API's endpoint record; the role, password and database name come
-  from the env DSN, whose host is discarded; the two are combined in the
-  running process and the result is never written to disk, echoed, or passed as
-  an argument. Manager ruling 2026-08-11, after the env file turned out to hold
-  the pooled host. Stripping the `-pooler` label is a fallback only, and it is
-  gated on a live connection whose branch id matches the API's.
-- **The project is matched by name**, and any other refused: the API key is
-  account-wide.
-- **`run` refuses the default branch**, and `bootstrap` refuses anything else.
-- **Every line these commands print is a boolean or a count.** No host, role,
-  endpoint id, database name, branch id or DSN, on any path, error paths
-  included.
-
-The second mechanism does not trust the first. `testing/target.ts` is called by
+Loop ruling 4: suites and transcripts never write to production, and production
+receives SCHEMA ONLY - no test row, ever. `testing/target.ts` is called by
 `testing/pg.ts` before the first schema is acquired and by
-`e2e/production-server.e2e.ts` before it seeds anything: it reads
-`neon.branch_id` from the session, asks the API for the branch the tooling
-targets, and requires the two ids to be equal and that branch to be a
-non-default branch with a parent. An absent setting, an API that cannot answer,
-or any mismatch REFUSES. There is no "assume child" arm and no flag that skips
-it - so pointing `CONTROL_PLANE_DB` at production and running `bun test`
-directly is refused by the harness itself, which is the bypass the first
-mechanism cannot see.
+`e2e/production-server.e2e.ts` before it seeds anything, and it accepts only
+`LOCAL_DATABASE_URL`, the throwaway Postgres on 5433. Any other database
+refuses, so pointing `CONTROL_PLANE_DB` at production and running `bun test`
+is refused by the harness itself. There is no flag that skips it.
 
-A local DSN is the other allowed target, allowed by identity rather than by
-exception: `LOCAL_DATABASE_URL` is the throwaway container on 5433, so CI and a
-contributor's `bun test` never reach the network and are unchanged.
+Until 2026-10-15 a Neon child branch (`suites`) was the other allowed target,
+proved by the engine's `neon.branch_id`, and `exercises/neon.ts` managed the
+branches. Both were removed with Neon.
 
-### Bootstrapping a branch, and the two booleans
+### Bootstrapping a database, and the two booleans
 
 `bun control-plane/cli.ts bootstrap` brings the database named by
 `CONTROL_PLANE_DB` to schema-ready and reports what it did:
@@ -860,10 +789,7 @@ putting rows there that ruling 4 forbids.
 
 Row counts are CONTENTS evidence and are not offered as identity evidence: an
 empty database says nothing about WHICH database it is. That proof belongs to
-`exercises/neon.ts bootstrap`, which establishes it from two directions before
-a single statement is written - the API says the branch is the default with no
-parent, and then the engine's own `neon.branch_id` says that is the branch
-answering.
+the operator who names the database.
 
 ### Checking a restored copy
 
@@ -980,436 +906,12 @@ all. It is never deleted or rewritten, and it can only ever refuse a create.
 
 ## Deployed: the web app on Vercel
 
-Retired 2026-10-06: the storefront runs on the Docker host and deploys from
-main (see "Deployed: Hosted Isomux on one Docker host"). Vercel stays only for a
-rollback until Nil retires it.
-
-The storefront is a Next.js app inside a repository that already belongs to
-something else, and that sentence is the whole difficulty. Every step below is
-here because a deployment failed without it, and the failures are recorded
-rather than tidied away: a procedure that reads as though it were designed in
-one pass would hide the two constraints that will still be true next year.
-
-The project is `isomux-control-plane` in Nil's personal scope, Root Directory
-`control-plane/web`, framework `nextjs`, with `sourceFilesOutsideRootDirectory`
-enabled. `buildCommand` and `outputDirectory` are deliberately unset, so
-framework detection chooses them; `installCommand` is set, and is the one thing
-that could not be left to detection.
-
-```
-bun control-plane/deploy/vercel-capability.ts     # read-only: token, CLI, live settings, upload size
-bun control-plane/deploy/artifact-local.ts        # build the artifact and prove it, locally
-bun control-plane/deploy/vercel-archive-deploy.ts # the settings, the artifact, one preview
-bun control-plane/deploy/vercel-diagnose.ts       # why did a build fail? closed vocabulary
-```
-
-### The artifact is not the repository, and three files say so
-
-A CLI deployment uploads a directory, and **the directory it uploads is what
-governs the build** - not the project's Root Directory setting. That single fact
-produced two of the four failures. So the artifact is a `git archive` of HEAD
-into a throwaway directory, with exactly three transformations
-(`deploy/artifact.ts`), each proved by comparing file manifests before and
-after rather than by trusting the code that made them:
-
-| transformation         | why                                                              |
-| ---------------------- | ---------------------------------------------------------------- |
-| remove `vercel.json`   | it is the landing page's build configuration, and it wins        |
-| replace `package.json` | dependencies must resolve from `control-plane/`, which is above  |
-| replace `bun.lock`     | a lock describing the office manifest cannot be frozen-installed |
-
-The replacements come from `control-plane/deploy/vercel-root/`, a manifest pair
-of its own: `pg` and `@types/pg`, private, no scripts. It is deliberately NOT
-the provisioner's `deploy/package.json`, which is a runtime manifest for an
-image holding provider credentials and has no business carrying a build-only
-type declaration. `deploy/artifact.test.ts` pins the two as separate contracts
-and requires every spec in either to match both the repository root and
-`control-plane/web` exactly, so neither can drift.
-
-The repository itself is never touched. Every original is digested before the
-artifact is built and compared afterwards, and the digests stay in memory.
-
-### The install command, and why detection could not choose it
-
-```
-cd ../.. && test -f control-plane/web/package.json && bun install --frozen-lockfile && cd control-plane/web && bun install --frozen-lockfile
-```
-
-Two frozen installs, root first. Vercel installs in the Root Directory, so
-dependencies land in `control-plane/web/node_modules` - and `pg` is imported by
-`control-plane/store.ts`, which sits ABOVE that directory, where a bare
-specifier resolves by walking UP and finds nothing. The root install is the
-ancestor install that fixes it, which is the same move `deploy/Dockerfile`
-already makes for the provisioner by installing its manifest at `/app`.
-
-`@types/pg` is there for the same reason one level further out: `next build`
-type-checks `../store.ts`, and TypeScript resolves TYPES from the importing
-file's directory upward, so the web package's own devDependency is invisible to
-it. Measured 2026-08-11: without it the build fails `TS7016` while every module
-resolves perfectly well.
-
-The `test -f` is a fail-closed anchor. The command starts in the Root
-Directory, so `cd ../..` is the artifact root only while that holds; if it ever
-stops holding, the build stops rather than installing something somewhere else.
-
-### What the four preview deployments measured
-
-Every one of these was a real deployment, and each answered exactly one
-question (2026-08-11, source `d294c96`).
-
-1. **CLI run inside `control-plane/web`** - `rootDirectoryMissing`. Vercel
-   applied the Root Directory to the uploaded directory and looked for
-   `control-plane/web/control-plane/web`. The upload's root is what counts.
-2. **CLI run at the archive root, `vercel.json` kept** - the build ran the
-   LANDING PAGE's demo-and-docs command and never mentioned `control-plane/web`
-   at all. A `vercel.json` at the upload root outranks the project's settings,
-   so the artifact has to drop it.
-3. **`vercel.json` removed** - a real Next.js build inside `control-plane/web`,
-   with no trace of the landing page, and `../../` imports RESOLVED. That is the
-   answer to the question the whole approach rested on:
-   `sourceFilesOutsideRootDirectory` works. It failed on one package, `pg`.
-4. **Ancestor manifest and install command** - `READY`.
-
-The fourth was run only after the entire shape reached a green `next build` on
-a developer box through `deploy/artifact-local.ts`, which makes the same
-artifact, runs the same install command from the same starting directory, and
-runs the same build. Three deployments had failed for three different reasons by
-then, and moving the loop off the network is what stopped it being four.
-
-### Who can reach it, and when that changes
-
-The project was created with Vercel Authentication already on, at
-`ssoProtection.deploymentType: all_except_custom_domains`. Two consequences, and
-they are opposite in sign:
-
-- **Before a custom domain exists, the `*.vercel.app` URLs are not publicly
-  reachable at all** (measured 2026-08-11): every request, including
-  `/api/auth/providers`, answers `302` to Vercel's own SSO. That is a real
-  safety property while the deployment is being built out, and it is also why
-  the first round of application probes proved nothing - they were talking to
-  Vercel, not to us, and are recorded as inconclusive rather than as passes.
-- **`cloud.isomux.com` is attached, so the exemption applies to it**, and the
-  intended public exposure has begun (2026-08-11). Any Google account can sign
-  in, and a sign-in BINDS AN ACCOUNT ROW in Neon production. That write surface
-  is the deliberate one; there is no other, and it is the reason the production
-  probes mint a cookie for an account that does not exist rather than seeding
-  one.
-
-Automated probing of a protected deployment needs Vercel's Protection Bypass for
-Automation. Worth knowing before reaching for it: Vercel places that secret into
-the deployment's own environment as `VERCEL_AUTOMATION_BYPASS_SECRET`, so it is
-not invisible to the application, and its documentation offers the value as a
-query parameter as well as a header.
-
-### The certificate, and the ordering it forced
-
-`cloud.isomux.com` is live: a production deployment serving it against Neon
-production, with a verified certificate and Google as the only configured
-sign-in provider (2026-08-11). Getting there settled an ordering question that
-is worth recording, because the obvious sequence did not produce a
-certificate while it was watched.
-
-What the deployment holds, measured 2026-08-11 after the first real sign-in: ONE
-`accounts` row, bound to a Google subject, and zero rows in every other user
-table. That row is the deliberate write surface and the only one - a sign-in
-binds an account, and nothing else in this deployment writes user data. It was
-created by the first real sign-in and confirmed from a browser at ~18:3xZ the
-same day: the home page showed the signed-in identity and the no-office card,
-which is the whole store-backed path working against Neon production. A second
-sign-in from a fresh private window later the same evening bound to the SAME
-account rather than making another - `bindGoogleSubject` finds the existing
-Google subject - so the count is one because the binding is idempotent, not
-because nobody tried twice.
-
-**The first interactive sign-in also found a bug, and it is recorded here
-because the transcript reads as a failure and was not one.** The OAuth round
-trip completed, the account bound on the first attempt, no error was logged, and
-the browser still returned to a sign-in page offering to sign in. The cause was
-in this repository rather than in any deployment setting: `app/signin/page.tsx`
-called `signIn("google")` with no `callbackUrl`, and Auth.js therefore returned
-the user to the page the flow started on - `/signin`, a client component that
-never asks whether anyone is signed in, served from the prerender cache. Every
-click succeeded and every click looked identical to failure. The dev provider
-next to it passes `callbackUrl: "/"`, which is why no earlier transcript caught
-it: dev-auth is what every previous run exercised, and Google only becomes
-reachable on a real deployment.
-
-Both halves of the fix shipped the same evening (commit `439ef15`, redeployed
-2026-08-11): the Google call now names `callbackUrl: "/"` like the dev call
-beside it, and `/signin` became a server component that asks `auth()` and sends
-an already-authenticated visitor to `/`. Either alone ends the loop; together
-they also cover a visitor who reaches `/signin` by some other route while
-holding a session. The build output was the proof that the second half was real -
-`/signin` moved from `○` (static, prerendered) to `ƒ` (dynamic), because a
-prerendered page cannot know whether anyone is signed in.
-
-**That second half moved on 2026-09-05 (task `1cccebcf`), and the property did
-not.** Asking `auth()` while the page renders is exactly what a shared cache can
-never reuse, so `/` and `/signin` were paying every visitor an origin round trip
-to be told what nearly all of them already knew: they are signed out. Both pages
-are now prerendered shells again - `○` in the build output - and the session
-question lives in `/api/session`, a `force-dynamic` route that answers
-`Cache-Control: no-store`, with a client guard on `/signin` that moves a
-signed-in visitor to `/` with `router.replace`. The 2026-08-11 page was a loop
-because it had NO WAY OUT: it could not know a session existed, so the visitor
-stayed until they navigated away by hand. The way out is now automatic, and the
-`callbackUrl: "/"` half is untouched. The cost is a flash: a signed-in visitor
-reads the signed-out shell for the length of one same-origin fetch, which is the
-price of the page being cacheable at all. `signin-return.test.ts` asserts the
-chain from the guard to the route link by link, and
-`web/e2e/production-server.e2e.ts` drives `/signin` to `/` with a real session
-cookie.
-
-Measured 2026-09-05 under `next start`: `/` and `/signin` moved from
-`Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate` to
-`s-maxage=31536000` with `x-nextjs-prerender: 1`. **The landing benefit is
-conditional on task `113ed58a`:** the repository-root `middleware.ts` belongs to
-the marketing site but its matcher covers `/`, and the control-plane build
-compiles it in, so every hit on `/` still crosses that proxy. Until that task
-lands, `/` is statically rendered but not a clean edge hit, and `/` answers 406
-to a client that asks for neither HTML nor markdown. `/signin` is not covered by
-the matcher and has no such caveat.
-
-**The redeploy proved less than the first deployment did, on purpose.** It read
-no credential and wrote no environment variable, so it could not mint a session
-cookie: the synthetic authenticated store checks and the deployed-web bearer
-round trip were NOT repeated. `AUTH_SECRET` is write-only by design and the
-coordinator that generated it is gone, which is exactly the cost the environment
-section above describes rather than a new concession. What it did prove: the
-artifact came from the committed fix, no credential was read, no environment
-entry changed, the inventory was exactly 2+7 before and after, the row counts
-were unchanged at one account throughout, and the anonymous suite was green.
-
-The authenticated half of the acceptance is therefore a browser, not a probe,
-and it is recorded as measured on 2026-08-11: a private-window sign-in from
-`/signin` landed on `/` showing "Signed in as ... / You have no office yet",
-with no bounce and no loop. Taken with the root-page check from the same
-evening - which proved the ORIGINAL session had survived the whole time - the
-defect and its fix are both confirmed from a real browser against the deployed
-production, which is the only place either could be seen at all.
-
-The obvious sequence is: attach the domain, wait for DNS, wait for TLS, then
-deploy something once the hostname is known good. What was measured instead is
-below, all times UTC on 2026-08-11.
-
-The continuous readings are not this tooling's: they come from a 15-second HTTPS
-watcher run by the operator in a separate session - one uninterrupted background
-`curl` loop, started around 15:45Z, exiting on its first non-000 answer. Its
-first-success timestamp is the mtime of that loop's output file, and the file
-recorded HTTP 200 with a verified Let's Encrypt certificate. The manual 000
-readings at 16:03:18Z, ~16:25Z, 16:45:27Z and 17:06:17Z are from the same
-operator's transcript. The `READY` timestamp is from the Vercel deployment
-record.
-
-| time      | observation                                                                                                                                                     |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 12:51Z    | domain attached; the authoritative per-project CNAME derived and handed over                                                                                    |
-| ~15:40Z   | the CNAME installed at the registrar                                                                                                                            |
-| ~15:45Z   | a watcher begins polling `https://cloud.isomux.com` every 15 seconds                                                                                            |
-| 16:04Z    | Vercel reports the configuration accepted: `misconfigured` false, ownership verified, zero outstanding challenges, observed CNAME exactly the handed-off target |
-| 16:05Z    | a read-only certificate-list query finds no account certificate covering the hostname; the TLS handshake closes without a response                              |
-| 17:21:51Z | the first production deployment reaches `READY`                                                                                                                 |
-| 17:22:02Z | the watcher still records no HTTPS answer - `READY` + 10.5s                                                                                                     |
-| 17:22:17Z | the watcher's first success: HTTP 200 with a verified certificate - `READY` + 25.5s                                                                             |
-
-So the certificate appeared inside a 15-second window beginning ten seconds
-after the deployment went READY, ending **97 minutes of continuous
-15-second-resolution absence** - 77 of those minutes with Vercel reporting the
-configuration entirely correct. The certificate's own validity window is
-consistent with issuance in the minutes before 17:22Z.
-
-**This is an inference, not an established platform rule.** It is one
-chronology. It does not prove that Vercel never issues a certificate for an
-attached domain before a production deployment exists, and the closing sentence
-of a run is a bad place to legislate somebody else's platform. What it does
-establish is the procedure that works, and the one that does not:
-
-```
-attach the domain -> land DNS -> DEPLOY TO PRODUCTION -> bounded TLS wait -> probe
-```
-
-The reverse - waiting for TLS before deploying - produced nothing across 97
-minutes of observation. Whether it would EVENTUALLY have produced one is not
-something a single run can answer, and this does not claim it. `deploy/`'s
-production phase therefore deploys first and waits for the certificate
-afterwards, at absolute offsets from `READY` (+60s, +180s, +360s, +600s, +900s)
-with a hard fifteen-minute deadline. In the live run the first check was enough:
-`tls_reads: 1`.
-
-### Running the production phase after a freeze
-
-In a fresh clone, install both dependency sets. The second install supplies the
-local production probe runtime. If that runtime cannot start, the phase refuses
-before it reads the Vercel token and before it contacts a remote service.
-
-```
-bun install
-(cd control-plane/web && bun install)
-```
-
-Then use one of two commands:
-
-```
-bun control-plane/deploy/production-phase.ts --redeploy  # ships new code, writes nothing
-bun control-plane/deploy/production-phase.ts --stage-live-env # creates only the four live Stripe entries, then stops
-```
-
-Anything else - no argument, a typo, an extra argument, `--redeploy=true` -
-refuses before the token file is opened. The first-deploy mode, which wrote
-all eleven Production entries, was removed with the Fly app: its
-`CONTROL_PLANE_MINT_URL` was the Fly provisioner's origin, and no public seam
-origin exists now.
-
-**Live-environment staging is a separate operator action.** It starts only
-when Preview carries its exact two entries and Production carries its exact
-seven-entry legacy shape, for nine entries total. It creates only the four
-Production Stripe entries, reads back the inventory, and requires eleven
-Production entries plus the unchanged two Preview entries, for thirteen total.
-It cannot update, delete, deploy, probe, wait for TLS or detach the domain. A
-partial write is reported and left for manual recovery. A re-run after success
-refuses with a distinct already-staged message. The next action is a separate
-`--redeploy` during task `9f69ed8e`.
-
-The real staging run comes only after that activation task has registered the
-live webhook endpoint and staged its signing secret, created the restricted
-live web key, and created the live-mode Prices. Staging sets the fixed Stripe
-mode to `live`; the following deploy makes that mode active on the storefront.
-
-**First-deploy mode** expects Preview-only environment and an empty database: it
-refuses unless Production carries no entries of its own and every user table
-reads zero. That is why it cannot be re-run against a live deployment, and why
-running it "just to see" is the wrong instinct - it is the mode that creates
-credentials.
-
-**Redeploy mode** was proved live on 2026-08-11 against the then-current two
-Preview plus seven Production entries and remains the one to reach for when
-only the application changed.
-It requires the environment to be ALREADY exact at 2+11, reads no credential
-file, generates nothing, and performs no
-environment create, update or delete - the list of writes it iterates is empty,
-so no mutating call is reachable. It deploys the committed `HEAD` artifact once,
-waits for the certificate on the same bounded schedule, and runs the ANONYMOUS
-suite only. It cannot repeat the synthetic authenticated store checks or the
-deployed-web bearer round trip, for the reason the environment section gives:
-`AUTH_SECRET` is write-only and the process that generated it is gone. Real
-authenticated acceptance is a human signing in from a private window.
-Detach-before-diagnosis and the TLS-timeout exception apply to both modes. A
-local probe-runtime startup failure is a pre-deploy harness failure, not a
-public predicate failure: it refuses before deployment and detaches nothing.
-Once deployment starts, a real public probe predicate failure still detaches
-before its transcript is printed.
-
-**Redeploy mode asserts that the deploy changed no user data, and it says that
-as a COMPARISON** (fixed 2026-08-12, task f5ed4b60). It was written with the row
-state this deployment happened to have - exactly one account and nothing else -
-frozen into it as a constant, which was true only while Nil's sign-in was the
-whole of production and would have refused a perfectly healthy deployment the
-moment the first customer office existed. The reading taken before the phase
-runs is now the expectation every later reading is judged against, so what is
-checked is that nothing MOVED. What a redeploy still demands of production is
-what a wrong target would fail: EACH of the four user tables readable as a whole
-non-negative number, and at least the one account production has carried since
-2026-08-11 - an empty database under a redeploy is not production. Each, named
-one by one, because a check over whatever keys the reading happened to carry
-accepted a PARTIAL reading and would have let a live redeploy proceed having
-established nothing about three of the four tables (reviewer finding,
-2026-08-12). A first deploy still demands an empty database, and
-that number is fixed forever.
-
-The comparison says nothing about WHO changed a row: a customer signing up
-while the deploy runs would trip it too. That is accepted rather than worked
-around, because this phase is an operator action run deliberately, not a
-background job.
-
-The rest of this section describes first-deploy mode. One process, because a
-`sensitive` value cannot be read back and only the process that generated
-`AUTH_SECRET` can mint a session cookie for the deployment. It writes the eleven
-Production variables, deploys once from the
-transformed artifact, waits for the certificate, probes over HTTPS, and detaches
-the domain before reporting anything if a predicate fails after the deploy was
-invoked - including a failure that arrives as a thrown error rather than as a
-verdict. There is ONE ruled exception: if the certificate never arrives inside
-the fifteen-minute deadline, it parks with the domain still attached and
-detaches nothing, because production never began serving and there is nothing
-public to roll back.
-
-**It runs against a frozen tree, and that took a fix.** The phase refuses to run
-when a runtime path under `control-plane/` has an uncommitted non-doc change -
-the artifact is `git archive HEAD`, so anything uncommitted would silently not
-be in it. The guard used to test for that by dropping `??` lines from
-`git status --porcelain` and treating the rest as modified tracked files, which
-collides with the convention this repo freezes a tree with: `git add
---intent-to-add .` turns every untracked file into an ` A` index entry.
-Measured 2026-08-11, 27 paths counted as dirty runtime paths and not one of them
-was tracked, and the operator's workaround was to unstage, run, and re-add.
-`deploy/tree-state.ts` now classifies against WHAT HEAD CARRIES instead: a path
-HEAD does not carry cannot make the archive stale however the index is staged,
-which is a fact about the commit rather than about a two-character prefix. The
-phase also reports `paths_not_in_head`, so a freeze is visible rather than
-merely tolerated.
-
-### The environment, and what a `sensitive` value costs
-
-Preview carries exactly `CONTROL_PLANE_DB` (the Neon **suites** branch) and its
-own `AUTH_SECRET`. Production carries the production DSN, its own `AUTH_SECRET`,
-`AUTH_URL`, the two Google credentials, the mint URL and bearer, the live Stripe
-secret, the Stripe mode, and the two live Price ids. The two names that appear
-in both scopes hold different values under disjoint targets, which is the point
-of scoping rather than duplication.
-
-That shape is also why the inventory is judged PER TARGET rather than by name.
-Vercel's environment list is a flat set of entries, and a check that maps them
-by key lets the Production `CONTROL_PLANE_DB` stand in for the Preview one - so
-a missing Preview entry reads as a complete inventory. `deploy/`'s production
-phase partitions by target first, requires every entry to name exactly one known
-target, refuses a repeated key on the same target, and requires thirteen entries
-in total: two on Preview and eleven on Production. The original nine-entry
-shape was verified exact on the live run, 2026-08-11.
-
-Every credential is stored `sensitive`, which on Vercel means **non-readable
-once created** - not by the dashboard, and not by the token that wrote it. Six
-values are deliberately `encrypted` instead: the site's own address, the
-provisioner's hostname, Google's client id, the Stripe mode, and the two Price
-ids. They are non-secret configuration whose exact values must remain readable
-for verification. Making them write-only would cost that ability and buy
-nothing.
-
-The price of write-only is worth stating plainly, because it shapes the
-procedure. A deployment never needs to know its own secrets - Vercel injects
-them - so **redeploying is unaffected and nothing has to be rotated**. But
-minting a session cookie to prove an authenticated page DOES need the secret, so
-that proof can only happen in the same process that generated it, or through a
-real sign-in. After that process exits, the secret still exists inside Vercel
-and still serves the deployment; what is gone is our readable copy.
-
-### What the instruments may say
-
-Every program here prints booleans, counts, and values matched against fixed
-shapes. The boundary is not "nothing identifying" - the production coordinator
-prints the source commit, and the deploy tooling prints fixed public values such
-as the DNS record it derived and the public origin it probed, because a DNS
-record is meant to be read. What never leaves is a secret value, a raw response
-body or header, a build log, a provider ACCOUNT or PROJECT identifier, a
-fragment of a credential, or any child byte that did not match a fixed shape.
-A public provider NAME is a different thing and is printed deliberately - the
-probe reports that `google` is the only configured sign-in provider, which is
-the point of the check. A build log
-is fetched, judged into booleans, and dropped. `deploy/vercel-diagnose.ts`
-carries a CLOSED vocabulary of failure classes and answers `unclassified` rather
-than guessing, because a cause nobody listed is not a cause to invent.
-
-Two of those instruments were wrong in ways only a working deployment could
-expose, and both are now pinned by tests: an evidence boolean demanded the
-literal string `bun.lock` and so reported failure on an artifact that
-deliberately uses two lockfiles, and a failure classifier matched the bare
-`--frozen-lockfile` flag that this build's own successful install command
-carries.
-
-**The repository root is linked to the landing page** (`.vercel/project.json`,
-gitignored), so the CLI's default target in this tree is somebody else's
-production site. The tooling never runs the CLI in the repository root, never
-reads that link, keeps `isomux` on a refusal list checked by name AND by id, and
-deploys from a copy that has no link file for a fallback to find.
+The storefront ran on Vercel against Neon until the move to the Docker host
+(see "Deployed: Hosted Isomux on one Docker host"). Vercel was retired
+2026-10-06 and Neon was deleted 2026-10-15, so no rollback is left. The deploy
+programs (`deploy/*-phase.ts`, `deploy/vercel-*.ts`, the artifact builder and
+the two probes under `web/e2e/`) were removed on 2026-10-15. Git history keeps
+them. `deploy/vercel-root/` stays: the storefront image installs from it.
 
 ## Deployed: the provisioner
 
@@ -1562,10 +1064,9 @@ truthfully pass. And `ungovern` is not this change's rollback: it drops both
 roles, which is an outage lever rather than the reverse of one incremental
 grant.
 
-```
-bun control-plane/exercises/neon.ts regovern --branch <name>            # forward
-bun control-plane/exercises/neon.ts regovern --branch <name> --reverse  # back
-```
+The command was `exercises/neon.ts regovern [--reverse]`, removed with Neon on
+2026-10-15. `reapplyMatrix` in `bootstrap.ts` remains, with no command in front
+of it.
 
 **One exemption, measured on the provider rather than reasoned about.** Both
 runtime roles have the OWNER as a member, with admin option, and that is not a
@@ -2631,8 +2132,7 @@ and the previous version of this table could not tell the two apart.
 
 The cells above were measured against the local container. The `node` /
 `next start` cell was re-measured on 2026-08-11 against the MANAGED engine (the
-Neon `suites` branch) and every check stayed green - see the Tests section for
-the command. That is the cell a deployment uses, so it is the one that needed a
+Neon `suites` branch) and every check stayed green. That is the cell a deployment uses, so it is the one that needed a
 real database behind it rather than a convenient one.
 
 **The right-hand column is what the port bought.** Before it, Node could not
@@ -3537,11 +3037,8 @@ Two 2026-08-13 launch blockers came from the real pass. The Fly image lacked
 not start the installer; task `a8258f96` owns the permanent image fix. Also, a
 fresh clone with only the root dependencies installed could deploy a healthy
 Vercel build and then fail its LOCAL probe import (`next-auth/jwt` absent),
-causing the safety gate to detach the healthy domain. The production phase now
-starts that real probe entry point in a network-free readiness mode before it
-reads the Vercel token or contacts a remote service. A startup failure refuses
-before deployment. Install dependencies in both the repo root and
-`control-plane/web` before `production-phase.ts --redeploy`.
+causing the safety gate to detach the healthy domain. The Vercel deploy path
+and its probe were removed on 2026-10-15.
 
 ## Tests
 
@@ -3570,50 +3067,9 @@ stores opened on the same string share state exactly as two stores on one file
 did. Schemas are recycled between tests rather than created per test, for
 efficiency.
 
-The same suite runs against the managed engine, on the `suites` child branch and
-never on production:
-
-```
-bun control-plane/exercises/neon.ts run --branch suites -- \
-    bun test control-plane --timeout 30000
-```
-
-Measured 2026-08-11: 728 tests across 46 files, 0 failures, **9m16s** wall
-against 50s on the local container. The suite issues about 11,200 round trips
-and each one costs 26ms to Frankfurt, which is the whole difference; the box's
-own CPU time was 1m12s of those nine minutes.
-
-`--timeout 30000` is on the command line rather than in any test file, and it
-is load bearing rather than precautionary: the same suite run at bun's default
-5s bound fails exactly two tests, both of them timeouts at 5001ms and 5002ms,
-both in `adopt-run.test.ts`'s `--revoke` block, which drives a whole adoption
-through one test. Wall clock was the same either way (9m14s), so the flag buys
-headroom and costs nothing. NO SOURCE TIMEOUT MOVED - a bound written into a
-test file would follow it to CI, where the same test finishes in milliseconds.
-
-The run is pointed at the branch through `CONTROL_PLANE_DB` - the product's own
-variable, not a second name for the same thing - and both branch guards above
-apply, so a mistyped target refuses instead of writing.
-
-The production web server is driven against the same branch, and that is the
-transcript that matters most here because it writes rows the product's own
-signup path wrote:
-
-```
-bun control-plane/exercises/neon.ts run --branch suites -- \
-    bun control-plane/web/e2e/production-server.e2e.ts --runtime node --mode start
-```
-
-Measured 2026-08-11: every check green in 17s, including the seeded office's
-hostname, the polled progress route, a second account refused the same office,
-and the ops floor before and after the operator grant. So the `node` / `next
-start` cell of the runtime matrix now has a managed engine behind it, not only
-a local container.
-
-One caveat that belongs to the harness rather than to the engine:
-`sweepAbandoned` decides "did the process that made this schema die" with
-`process.kill` on THIS machine, which is sound only because one machine uses the
-branch. Two machines sharing it would drop each other's live schemas.
+Until 2026-10-15 the same suite also ran against the Neon `suites` branch
+(measured 2026-08-11: 728 tests, 0 failures, 9m16s wall against 50s on the
+local container). That target was removed with Neon.
 
 `deploy/install-sh.test.ts` also scans install.sh for the heredoc defect as a
 CLASS, at both stages: what install.sh's own shell expands, and what the helper

@@ -1058,9 +1058,8 @@ async function printOperations(
  * Deliberately NOT through `openStore`: that also imports the legacy intent
  * journal from this box, and a bootstrap must put nothing in a fresh database
  * except the schema. Whether the database is the one intended is the caller's
- * proof to make - `exercises/neon.ts bootstrap` makes it from the provider's
- * API and the engine's own branch id, because an empty database says nothing
- * about which database it is.
+ * proof to make, because an empty database says nothing about which database
+ * it is.
  */
 async function cmdBootstrap(): Promise<void> {
   const result = await bootstrapDatabase(databaseUrl());

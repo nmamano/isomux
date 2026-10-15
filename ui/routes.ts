@@ -30,7 +30,7 @@ export function pageForPath(pathname: string): Page | null {
   switch (pathname.replace(/\/+$/, "")) {
     case "/tasks":
       return "tasks";
-    case "/cronjobs":
+    case "/automations":
       return "cronjobs";
     case "/apps":
       return "apps";
@@ -47,6 +47,10 @@ export function pageForPath(pathname: string): Page | null {
     // Accepted so an old link keeps working, never produced.
     case "/users":
       return "settings";
+    // The automations page lived at /cronjobs until 2026-10-16. Accepted so
+    // an old link keeps working, never produced.
+    case "/cronjobs":
+      return "cronjobs";
     default:
       return null;
   }
@@ -88,7 +92,8 @@ export function mcpSignInForSearch(search: string): string | null {
 
 /** The canonical path for a page, or "/" for the office. */
 export function pathForPage(page: Page | null): string {
-  return page === null ? "/" : `/${page}`;
+  if (page === null) return "/";
+  return page === "cronjobs" ? "/automations" : `/${page}`;
 }
 
 export interface PageFlags {
