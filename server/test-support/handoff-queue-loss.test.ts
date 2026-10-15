@@ -169,9 +169,10 @@ describe("task 6f6e8ed7: queued messages across a handoff", () => {
     expectCarried(old, await freshSession(srv, a.id, old), brief, queued);
   });
 
-  it("new-conversation still clears the queue: no message is delivered and no session wakes", async () => {
+  it("new-conversation carries the queue: the queued message reaches the fresh session", async () => {
+    // df2c820b (Nil, 2026-10-06): a clear never deletes queued messages.
     const queued = "QUEUED-FROM-B";
-    const { srv, a } = await busyAgentWithQueuedMessage(queued);
+    const { srv, a, old } = await busyAgentWithQueuedMessage(queued);
     server = srv;
 
     const res = await call(
@@ -182,9 +183,9 @@ describe("task 6f6e8ed7: queued messages across a handoff", () => {
       {},
     );
     expect(res.status).toBe(204);
-    await waitUntil(() => agentOf(srv, a.id).dormant === true, "reset done");
-    expect(agentOf(srv, a.id).queue ?? []).toHaveLength(0);
-    expect(sessionsFor(srv, a.id)).toHaveLength(1);
-    expect(deliveryCount(srv, a.id, queued)).toBe(0);
+    const fresh = await freshSession(srv, a.id, old);
+    expect(fresh.sent.some((m) => m.text.includes(queued))).toBe(true);
+    expect(old.sent.some((m) => m.text.includes(queued))).toBe(false);
+    expect(deliveryCount(srv, a.id, queued)).toBe(1);
   });
 });
