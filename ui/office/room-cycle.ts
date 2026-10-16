@@ -24,3 +24,33 @@ export function swipeTarget(
         : undefined;
   return neighbour ? { kind: "room", roomId: neighbour.id } : { kind: "lobby" };
 }
+
+const NO_ROOMS: string[] = [];
+
+// The member's tucked rooms, from their own user record.
+export function selfTuckedRooms(
+  users: Iterable<{ id: string; tucked?: string[] }>,
+  selfId: string | null,
+): readonly string[] {
+  for (const u of users) {
+    if (u.id === selfId) return u.tucked ?? NO_ROOMS;
+  }
+  return NO_ROOMS;
+}
+
+// The room tabs in the tab bar, in order: the rooms that are not tucked, then
+// the open room when it is tucked, so the member always sees which room is
+// open. Swipes walk this list too.
+export function tabBarRooms<T extends { id: string }>(
+  rooms: readonly T[],
+  tucked: readonly string[],
+  currentRoomId: string | null,
+  lobbyOpen: boolean,
+): T[] {
+  const tuckedSet = new Set(tucked);
+  const tabs = rooms.filter((r) => !tuckedSet.has(r.id));
+  const open = lobbyOpen
+    ? undefined
+    : rooms.find((r) => r.id === currentRoomId && tuckedSet.has(r.id));
+  return open ? [...tabs, open] : tabs;
+}

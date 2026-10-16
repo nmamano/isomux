@@ -38,7 +38,11 @@ import { apiFetch } from "./api.ts";
 import type { PreferencesReq } from "../shared/contract-shapes.ts";
 import { agentTabLabel } from "./agent-face.ts";
 import { LOBBY_ROOM_ID, type AgentInfo } from "../shared/types.ts";
-import { swipeTarget } from "./office/room-cycle.ts";
+import {
+  selfTuckedRooms,
+  swipeTarget,
+  tabBarRooms,
+} from "./office/room-cycle.ts";
 import { isValidDesk, isBackSeat, hasBackRoom } from "../shared/desks.ts";
 import { cycleAgent } from "./agent-cycle.ts";
 import {
@@ -99,6 +103,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     sessionContext,
     hasReceivedInitialState,
     lobbyOpen,
+    users,
   } = useAppState();
   const features = useFeatures();
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
@@ -384,15 +389,21 @@ export function App({ routing = true }: { routing?: boolean }) {
   // Phone swipes walk the tab bar in order, the Lobby included (Nil): the
   // order lives in swipeTarget. Selecting a room closes the lobby; opening the
   // lobby leaves the room selection alone, like the Lobby tab does.
+  const selfId = sessionContext?.userId ?? null;
+  const tucked = useMemo(
+    () => selfTuckedRooms(users.values(), selfId),
+    [users, selfId],
+  );
   const swipeRoom = useCallback(
     (direction: "next" | "prev") => {
-      const target = swipeTarget(rooms, currentRoomId, lobbyOpen, direction);
+      const tabs = tabBarRooms(rooms, tucked, currentRoomId, lobbyOpen);
+      const target = swipeTarget(tabs, currentRoomId, lobbyOpen, direction);
       if (!target) return;
       if (target.kind === "lobby")
         dispatch({ type: "set_lobby_open", open: true });
       else dispatch({ type: "set_current_room", roomId: target.roomId });
     },
-    [dispatch, rooms, currentRoomId, lobbyOpen],
+    [dispatch, rooms, tucked, currentRoomId, lobbyOpen],
   );
   const swipeRoomNext = useCallback(() => swipeRoom("next"), [swipeRoom]);
   const swipeRoomPrev = useCallback(() => swipeRoom("prev"), [swipeRoom]);
