@@ -1,13 +1,6 @@
 import { MembersChatUnread } from "../members-chat/MembersChatUnread.tsx";
 import { ordinaryRooms } from "../../shared/types.ts";
-import {
-  useState,
-  useMemo,
-  useRef,
-  useEffect,
-  useCallback,
-  useLayoutEffect,
-} from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type {
@@ -47,24 +40,9 @@ const MINI_GHOST_SIZE = 20;
 const MAX_MINI_GHOSTS = 5;
 // Each ghost after the first shows 14px past the previous one.
 const MINI_GHOST_OVERLAP = -6;
-// How far the sticker layers reach below the bar.
+// How far the scroller reaches below the bar, so the stickers that stick out
+// below it are not clipped by its overflow.
 const GHOST_STICK_OUT = 14;
-
-// Where a tab's stickers hang: the bottom center of its pill, in the
-// scroller's content coordinates (x scrolls with the tabs).
-type StickerAnchor = { x: number; y: number };
-
-function sameAnchors(
-  a: Map<string, StickerAnchor>,
-  b: Map<string, StickerAnchor>,
-): boolean {
-  if (a.size !== b.size) return false;
-  for (const [id, p] of a) {
-    const q = b.get(id);
-    if (!q || q.x !== p.x || q.y !== p.y) return false;
-  }
-  return true;
-}
 
 export { roomActivityDotColor };
 
@@ -341,9 +319,6 @@ export function RoomTabBar({
   // each edge hint appears only when there is actually content hidden on
   // that side (both false when all tabs fit - the common case).
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  // The two sticker strips (see measureStickers).
-  const stickerPaintRef = useRef<HTMLDivElement | null>(null);
-  const stickerHitRef = useRef<HTMLDivElement | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
@@ -356,24 +331,11 @@ export function RoomTabBar({
     setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
   }, []);
 
-  // Direct style writes, not state: the stickers keep up with the tabs
-  // without a render per scroll frame.
-  const syncStickerStrips = useCallback(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    for (const strip of [stickerPaintRef.current, stickerHitRef.current])
-      if (strip) strip.style.transform = `translateX(${-el.scrollLeft}px)`;
-  }, []);
-
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
     updateOverflow();
-    const onScroll = () => {
-      updateOverflow();
-      syncStickerStrips();
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("scroll", updateOverflow, { passive: true });
     // Container resizes (window resize, side panel open/close) change
     // clientWidth; content-width changes are covered by the state-driven
     // effect below.
@@ -400,71 +362,11 @@ export function RoomTabBar({
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
-      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("scroll", updateOverflow);
       el.removeEventListener("wheel", onWheel);
       ro.disconnect();
     };
-  }, [updateOverflow, syncStickerStrips]);
-
-  // The stickers stick out below the bar, which the scroller cannot show:
-  // its overflow clips them, and it cannot reach below the bar, because
-  // there it would cover the office and still have to take pointer events.
-  // So the stickers live in two layers after the scroller, placed at their
-  // tabs' measured anchors, and the scroll listener moves the layers with
-  // the tabs.
-  const [stickerAnchors, setStickerAnchors] = useState<
-    Map<string, StickerAnchor>
-  >(() => new Map());
-  const [barHeight, setBarHeight] = useState(0);
-  const measureStickers = useCallback(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const box = el.getBoundingClientRect();
-    const next = new Map<string, StickerAnchor>();
-    for (const pill of el.querySelectorAll<HTMLElement>(
-      "[data-room-tab-button]",
-    )) {
-      // The bottom of the pill's padding box, inside its border.
-      const r = pill.getBoundingClientRect();
-      next.set(pill.dataset.roomTabButton!, {
-        x: r.left - box.left + el.scrollLeft + r.width / 2,
-        y: r.top - box.top + pill.clientTop + pill.clientHeight,
-      });
-    }
-    setStickerAnchors((prev) => (sameAnchors(prev, next) ? prev : next));
-    setBarHeight(el.clientHeight);
-  }, []);
-  // Any render can move a tab (rooms, names, presences, a desk drag); a
-  // tab that changes size without a render (a font load) moves the tabs
-  // after it, so every tab box is observed too. The observer is renewed
-  // only when the set of tab boxes changes: each observe() queues a
-  // notification, and the bar renders on every app state change.
-  const tabResizeRef = useRef<ResizeObserver | null>(null);
-  const observedTabsRef = useRef<Element[]>([]);
-  useLayoutEffect(() => {
-    measureStickers();
-    const el = scrollerRef.current;
-    if (!el) return;
-    const tabs = [...el.children];
-    const observed = observedTabsRef.current;
-    if (
-      tabs.length === observed.length &&
-      tabs.every((tab, i) => tab === observed[i])
-    )
-      return;
-    observedTabsRef.current = tabs;
-    tabResizeRef.current ??= new ResizeObserver(measureStickers);
-    const ro = tabResizeRef.current;
-    ro.disconnect();
-    for (const tab of tabs) ro.observe(tab);
-  });
-  useEffect(
-    () => () => {
-      tabResizeRef.current?.disconnect();
-      observedTabsRef.current = [];
-    },
-    [],
-  );
+  }, [updateOverflow]);
 
   // Content width changes without a scroll/resize event: rooms added,
   // removed, or renamed; mini-ghost clusters growing/shrinking; agent
@@ -570,49 +472,6 @@ export function RoomTabBar({
     setDragOver(null);
   }
 
-  const tabRooms = [...barRooms, ...(activeTucked ? [activeTucked] : [])];
-  const selectRoom = (roomId: string) => {
-    dispatch({ type: "set_current_room", roomId });
-    onSelectRoom?.();
-  };
-  // One sticker cluster per tab with ghosts, at the tab's anchor. `top` is
-  // the anchor's offset from the top of the layer it is drawn in.
-  const stickerClusters = (top: number, hit: boolean) =>
-    tabRooms.map((room) => {
-      const anchor = stickerAnchors.get(room.id);
-      const roomPresences = presencesByRoom.get(room.id) ?? [];
-      if (!anchor || roomPresences.length === 0) return null;
-      return (
-        <span
-          key={room.id}
-          data-sticker-room={room.id}
-          onClick={hit ? () => selectRoom(room.id) : undefined}
-          style={{
-            position: "absolute",
-            left: anchor.x,
-            top: anchor.y - top,
-            transform: "translate(-50%, -33%)",
-            display: "flex",
-            pointerEvents: hit ? "auto" : undefined,
-            cursor: hit ? "pointer" : undefined,
-            opacity: hit ? 0 : undefined,
-          }}
-        >
-          <MiniGhostCluster
-            presences={roomPresences}
-            selfConnectionId={selfConnectionId}
-            size={MINI_GHOST_SIZE}
-            max={MAX_MINI_GHOSTS}
-            overlap={MINI_GHOST_OVERLAP}
-            // A soft shadow lifts each ghost off the tab.
-            ghostStyle={{
-              filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.35))",
-            }}
-          />
-        </span>
-      );
-    });
-
   return (
     // Wrapper/scroller split: the edge hints (and the settings modal)
     // must NOT live inside the scroll container - absolutely positioned
@@ -637,16 +496,12 @@ export function RoomTabBar({
           ref={scrollerRef}
           className="hide-scrollbar"
           style={{
-            // The scroller keeps its pointer events: iOS does not scroll an
-            // overflow box with pointer-events none, whatever its children
-            // take (WebKit bug 183870, task 17537680). So it stays inside the
-            // bar, and the ghost stickers that stick out below the bar live
-            // in the sticker layers after it.
-            display: "flex",
-            alignItems: "center",
-            gap: 2,
-            padding: "0 12px",
-            height: "100%",
+            // The scroller reaches GHOST_STICK_OUT below the bar. Only its
+            // track takes pointer events, so the strip below the bar does not
+            // cover the office.
+            paddingBottom: GHOST_STICK_OUT,
+            height: `calc(100% + ${GHOST_STICK_OUT}px)`,
+            pointerEvents: "none",
             overflowX: "auto",
             overflowY: "hidden",
             scrollbarWidth: "none",
@@ -661,299 +516,310 @@ export function RoomTabBar({
             overscrollBehaviorX: "contain",
           }}
         >
-          {/* The Lobby tab: client state, not a room. First, never draggable,
-            never reordered. The dot carries members chat attention;
-            room tabs stand down while the lobby is open. */}
+          {/* The track fills the bar, gaps and padding included, so a swipe
+            that starts anywhere on the bar scrolls it (task 17537680). */}
           <div
-            data-lobby-tab
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 4,
-              flexShrink: 0,
-              borderLeft: "2px solid transparent",
-              borderRight: "2px solid transparent",
+              gap: 2,
+              padding: "0 12px",
+              height: "100%",
+              width: "max-content",
+              minWidth: "100%",
+              pointerEvents: "auto",
             }}
           >
-            <button
-              onClick={(e) => {
-                (e.target as HTMLElement).blur();
-                dispatch({ type: "set_lobby_open", open: true });
-                onSelectRoom?.();
-              }}
-              onContextMenu={(e) => e.preventDefault()}
+            {/* The Lobby tab: client state, not a room. First, never draggable,
+            never reordered. The dot carries members chat attention;
+            room tabs stand down while the lobby is open. */}
+            <div
+              data-lobby-tab
               style={{
-                padding: "4px 12px",
-                borderRadius: 6,
-                border: lobbyOpen
-                  ? "1px solid var(--accent)"
-                  : "1px solid transparent",
-                background: lobbyOpen ? "var(--accent-bg)" : "transparent",
-                color: lobbyOpen ? "var(--accent-text)" : "var(--text-dim)",
-                fontSize: 11,
-                fontWeight: 600,
-                cursor: "pointer",
-                fontFamily: "var(--font-ui)",
-                letterSpacing: "0.02em",
-                outline: "none",
-                position: "relative",
-                userSelect: "none",
-                display: "inline-flex",
+                display: "flex",
                 alignItems: "center",
-                gap: 6,
+                gap: 4,
+                flexShrink: 0,
+                borderLeft: "2px solid transparent",
+                borderRight: "2px solid transparent",
               }}
             >
-              {t("common.lobby")}
-              {!mobileLobby && <MembersChatUnread />}
-            </button>
-          </div>
-          {tabRooms.map((room, i) => {
-            // The active tucked room's tab: shown while it is open, never
-            // dragged (its place in the order is in the chip).
-            const pinned = room === activeTucked;
-            const isActive = !lobbyOpen && room.id === currentRoomId;
-            const roomAgents = agents.filter((a) => a.roomId === room.id);
-            const hasAttention = roomHasUnread(roomAgents, needsAttention);
-            const activityDotColor = roomActivityDotColor(
-              roomAgents,
-              hasAttention,
-              isActive,
-            );
-            const isEmpty = roomAgents.length === 0;
-            const displayName = room.name;
-            const isDragging = dragFrom === room.id;
-            const isDropTarget = dragOver === room.id;
-            const fromIdx = barRooms.findIndex((r) => r.id === dragFrom);
-            const roomPresences = presencesByRoom.get(room.id) ?? [];
-            const stickerWidth = miniGhostClusterWidth(
-              selectMiniGhosts(roomPresences, selfConnectionId, MAX_MINI_GHOSTS)
-                .length,
-              MINI_GHOST_SIZE,
-              MINI_GHOST_OVERLAP,
-            );
-
-            return (
-              <div
-                key={room.id}
-                data-active-room-tab={isActive || undefined}
-                data-tucked-room-tab={pinned || undefined}
-                // A lone tab still drags: the chip takes it as a tuck.
-                draggable={!pinned}
-                {...(pinned
-                  ? {}
-                  : {
-                      onDragStart: (e: React.DragEvent) =>
-                        handleDragStart(e, room.id),
-                      onDragOver: (e: React.DragEvent) =>
-                        handleDragOver(e, room.id),
-                      onDragLeave: handleDragLeave,
-                      onDrop: (e: React.DragEvent) => handleDrop(e, room.id),
-                      onDragEnd: handleDragEnd,
-                    })}
+              <button
+                onClick={(e) => {
+                  (e.target as HTMLElement).blur();
+                  dispatch({ type: "set_lobby_open", open: true });
+                  onSelectRoom?.();
+                }}
+                onContextMenu={(e) => e.preventDefault()}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
+                  padding: "4px 12px",
+                  borderRadius: 6,
+                  border: lobbyOpen
+                    ? "1px solid var(--accent)"
+                    : "1px solid transparent",
+                  background: lobbyOpen ? "var(--accent-bg)" : "transparent",
+                  color: lobbyOpen ? "var(--accent-text)" : "var(--text-dim)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "var(--font-ui)",
+                  letterSpacing: "0.02em",
+                  outline: "none",
                   position: "relative",
-                  // Don't let a narrow viewport (mobile) squeeze the tab -
-                  // without this, the scroller's overflowX:auto wouldn't
-                  // stop browsers from shrinking the tab and wrapping the
-                  // room name across two lines, which makes the active
-                  // border render around a taller pill than other tabs.
-                  flexShrink: 0,
-                  opacity: isDragging ? 0.4 : 1,
-                  borderLeft:
-                    isDropTarget && fromIdx > i
-                      ? "2px solid var(--accent)"
-                      : "2px solid transparent",
-                  borderRight:
-                    isDropTarget && fromIdx !== -1 && fromIdx < i
-                      ? "2px solid var(--accent)"
-                      : "2px solid transparent",
-                  transition: "opacity 0.15s",
+                  userSelect: "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
-                {/* Tab pill: room name and attention dot. Its presence
-                stickers are in the sticker layers after the scroller. */}
-                <button
-                  {...noTranslate()}
-                  data-room-tab-button={room.id}
-                  onClick={(e) => {
-                    (e.target as HTMLElement).blur();
-                    selectRoom(room.id);
-                  }}
-                  onDoubleClick={(e) => {
-                    e.preventDefault();
-                    onOpenRoomSettings?.(room.id);
-                  }}
-                  onContextMenu={(e) => e.preventDefault()}
-                  style={{
-                    padding: "4px 12px",
-                    borderRadius: 6,
-                    border: isActive
-                      ? "1px solid var(--accent)"
-                      : "1px solid transparent",
-                    background: isActive ? "var(--accent-bg)" : "transparent",
-                    color: isActive ? "var(--accent-text)" : "var(--text-dim)",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: "grab",
-                    fontFamily: "var(--font-ui)",
-                    letterSpacing: "0.02em",
-                    outline: "none",
-                    position: "relative",
-                    userSelect: "none",
-                    WebkitUserSelect: "none",
-                    WebkitTouchCallout: "none",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minWidth: stickerWidth,
-                    // Keep multi-word room names on a single line so the
-                    // active border surrounds a fixed-height pill regardless
-                    // of name length. Without this, names that didn't fit
-                    // wrapped to two lines and the selected-tab border
-                    // looked taller than on tabs whose names fit.
-                    whiteSpace: "nowrap",
-                    ...(deskDrag && deskDropStyle(room.id, "front")),
-                  }}
-                  title={t("office.tabs.roomSettings")}
-                  {...(deskDrag && deskDropProps(room.id, "front"))}
-                >
-                  {displayName}
-                  {activityDotColor && (
-                    <span
-                      style={{
-                        position: "absolute",
-                        top: 2,
-                        right: 2,
-                        width: 5,
-                        height: 5,
-                        borderRadius: "50%",
-                        background: activityDotColor,
-                        boxShadow: `0 0 4px ${activityDotColor}`,
-                      }}
-                    />
-                  )}
-                </button>
-                {deskDrag && hasBackRoom(room) && (
-                  <span
-                    {...deskDropProps(room.id, "back")}
+                {t("common.lobby")}
+                {!mobileLobby && <MembersChatUnread />}
+              </button>
+            </div>
+            {[...barRooms, ...(activeTucked ? [activeTucked] : [])].map(
+              (room, i) => {
+                // The active tucked room's tab: shown while it is open, never
+                // dragged (its place in the order is in the chip).
+                const pinned = room === activeTucked;
+                const isActive = !lobbyOpen && room.id === currentRoomId;
+                const roomAgents = agents.filter((a) => a.roomId === room.id);
+                const hasAttention = roomHasUnread(roomAgents, needsAttention);
+                const activityDotColor = roomActivityDotColor(
+                  roomAgents,
+                  hasAttention,
+                  isActive,
+                );
+                const isEmpty = roomAgents.length === 0;
+                const displayName = room.name;
+                const isDragging = dragFrom === room.id;
+                const isDropTarget = dragOver === room.id;
+                const fromIdx = barRooms.findIndex((r) => r.id === dragFrom);
+                const roomPresences = presencesByRoom.get(room.id) ?? [];
+                const stickerWidth = miniGhostClusterWidth(
+                  selectMiniGhosts(
+                    roomPresences,
+                    selfConnectionId,
+                    MAX_MINI_GHOSTS,
+                  ).length,
+                  MINI_GHOST_SIZE,
+                  MINI_GHOST_OVERLAP,
+                );
+
+                return (
+                  <div
+                    key={room.id}
+                    data-active-room-tab={isActive || undefined}
+                    data-tucked-room-tab={pinned || undefined}
+                    // A lone tab still drags: the chip takes it as a tuck.
+                    draggable={!pinned}
+                    {...(pinned
+                      ? {}
+                      : {
+                          onDragStart: (e: React.DragEvent) =>
+                            handleDragStart(e, room.id),
+                          onDragOver: (e: React.DragEvent) =>
+                            handleDragOver(e, room.id),
+                          onDragLeave: handleDragLeave,
+                          onDrop: (e: React.DragEvent) =>
+                            handleDrop(e, room.id),
+                          onDragEnd: handleDragEnd,
+                        })}
                     style={{
-                      padding: "3px 8px",
-                      borderRadius: 6,
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: "var(--text-dim)",
-                      whiteSpace: "nowrap",
-                      fontFamily: "var(--font-ui)",
-                      ...deskDropStyle(room.id, "back"),
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      position: "relative",
+                      // Don't let a narrow viewport (mobile) squeeze the tab -
+                      // without this, the scroller's overflowX:auto wouldn't
+                      // stop browsers from shrinking the tab and wrapping the
+                      // room name across two lines, which makes the active
+                      // border render around a taller pill than other tabs.
+                      flexShrink: 0,
+                      opacity: isDragging ? 0.4 : 1,
+                      borderLeft:
+                        isDropTarget && fromIdx > i
+                          ? "2px solid var(--accent)"
+                          : "2px solid transparent",
+                      borderRight:
+                        isDropTarget && fromIdx !== -1 && fromIdx < i
+                          ? "2px solid var(--accent)"
+                          : "2px solid transparent",
+                      transition: "opacity 0.15s",
                     }}
                   >
-                    {t("office.backRoom.title")}
-                  </span>
-                )}
-                {/* Close button: closeable-when-empty rooms only.
+                    {/* Tab pill: room name, attention dot and the presence
+                stickers. */}
+                    <button
+                      {...noTranslate()}
+                      onClick={(e) => {
+                        (e.target as HTMLElement).blur();
+                        dispatch({ type: "set_current_room", roomId: room.id });
+                        onSelectRoom?.();
+                      }}
+                      onDoubleClick={(e) => {
+                        e.preventDefault();
+                        onOpenRoomSettings?.(room.id);
+                      }}
+                      onContextMenu={(e) => e.preventDefault()}
+                      style={{
+                        padding: "4px 12px",
+                        borderRadius: 6,
+                        border: isActive
+                          ? "1px solid var(--accent)"
+                          : "1px solid transparent",
+                        background: isActive
+                          ? "var(--accent-bg)"
+                          : "transparent",
+                        color: isActive
+                          ? "var(--accent-text)"
+                          : "var(--text-dim)",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: "grab",
+                        fontFamily: "var(--font-ui)",
+                        letterSpacing: "0.02em",
+                        outline: "none",
+                        position: "relative",
+                        userSelect: "none",
+                        WebkitUserSelect: "none",
+                        WebkitTouchCallout: "none",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        minWidth: stickerWidth,
+                        // Keep multi-word room names on a single line so the
+                        // active border surrounds a fixed-height pill regardless
+                        // of name length. Without this, names that didn't fit
+                        // wrapped to two lines and the selected-tab border
+                        // looked taller than on tabs whose names fit.
+                        whiteSpace: "nowrap",
+                        ...(deskDrag && deskDropStyle(room.id, "front")),
+                      }}
+                      title={t("office.tabs.roomSettings")}
+                      {...(deskDrag && deskDropProps(room.id, "front"))}
+                    >
+                      {displayName}
+                      <span
+                        style={{
+                          position: "absolute",
+                          left: "50%",
+                          top: "100%",
+                          transform: "translate(-50%, -33%)",
+                          display: "flex",
+                          zIndex: 1,
+                        }}
+                      >
+                        <MiniGhostCluster
+                          presences={roomPresences}
+                          selfConnectionId={selfConnectionId}
+                          size={MINI_GHOST_SIZE}
+                          max={MAX_MINI_GHOSTS}
+                          overlap={MINI_GHOST_OVERLAP}
+                          // A soft shadow lifts each ghost off the tab.
+                          ghostStyle={{
+                            filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.35))",
+                          }}
+                        />
+                      </span>
+                      {activityDotColor && (
+                        <span
+                          style={{
+                            position: "absolute",
+                            top: 2,
+                            right: 2,
+                            width: 5,
+                            height: 5,
+                            borderRadius: "50%",
+                            background: activityDotColor,
+                            boxShadow: `0 0 4px ${activityDotColor}`,
+                          }}
+                        />
+                      )}
+                    </button>
+                    {deskDrag && hasBackRoom(room) && (
+                      <span
+                        {...deskDropProps(room.id, "back")}
+                        style={{
+                          padding: "3px 8px",
+                          borderRadius: 6,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: "var(--text-dim)",
+                          whiteSpace: "nowrap",
+                          fontFamily: "var(--font-ui)",
+                          ...deskDropStyle(room.id, "back"),
+                        }}
+                      >
+                        {t("office.backRoom.title")}
+                      </span>
+                    )}
+                    {/* Close button: closeable-when-empty rooms only.
                 room.canCloseWhenEmpty is the server-authoritative
                 protected-first-room signal (false only for the canonical first
                 room, derived from canonical order - correct even under a custom
                 view order). Emptiness stays a client-side reactive check. */}
-                {room.canCloseWhenEmpty && isEmpty && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      apiFetch<void>("DELETE", `/api/rooms/${room.id}`).catch(
-                        () => {},
-                      );
-                    }}
-                    style={{
-                      width: 20,
-                      height: 20,
-                      borderRadius: 4,
-                      border: "1px solid var(--border)",
-                      background: "var(--bg-code)",
-                      color: "var(--text-secondary)",
-                      fontSize: 14,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      padding: 0,
-                      lineHeight: 1,
-                    }}
-                    title={t("office.tabs.closeEmptyRoom")}
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            );
-          })}
-          {/* Add room button */}
-          <button
-            onClick={() => {
-              // Fire-and-forget; the room_created broadcast adds the tab (parity
-              // with the old WS create_room, which carried no name and no ack).
-              apiFetch<void>("POST", "/api/rooms", {}).catch(() => {});
-            }}
-            style={{
-              padding: "4px 8px",
-              borderRadius: 6,
-              border: "1px dashed var(--border)",
-              background: "transparent",
-              color: "var(--text-hint)",
-              fontSize: 12,
-              cursor: "pointer",
-              fontFamily: "var(--font-ui)",
-              marginLeft: 4,
-              flexShrink: 0,
-            }}
-            title={t("office.tabs.newRoom")}
-          >
-            +
-          </button>
+                    {room.canCloseWhenEmpty && isEmpty && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          apiFetch<void>(
+                            "DELETE",
+                            `/api/rooms/${room.id}`,
+                          ).catch(() => {});
+                        }}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: 4,
+                          border: "1px solid var(--border)",
+                          background: "var(--bg-code)",
+                          color: "var(--text-secondary)",
+                          fontSize: 14,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: 0,
+                          lineHeight: 1,
+                        }}
+                        title={t("office.tabs.closeEmptyRoom")}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                );
+              },
+            )}
+            {/* Add room button */}
+            <button
+              onClick={() => {
+                // Fire-and-forget; the room_created broadcast adds the tab (parity
+                // with the old WS create_room, which carried no name and no ack).
+                apiFetch<void>("POST", "/api/rooms", {}).catch(() => {});
+              }}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px dashed var(--border)",
+                background: "transparent",
+                color: "var(--text-hint)",
+                fontSize: 12,
+                cursor: "pointer",
+                fontFamily: "var(--font-ui)",
+                marginLeft: 4,
+                flexShrink: 0,
+              }}
+              title={t("office.tabs.newRoom")}
+            >
+              +
+            </button>
 
-          {/* Total online users chip - answers "who is online anywhere"
+            {/* Total online users chip - answers "who is online anywhere"
           (counts distinct userIds across the WHOLE office, including
           off-scene sessions). Per-tab clusters above answer "who is
           in this room". */}
-          <TotalOnlineChip count={totalOnlineUsers} />
-        </div>
-
-        {/* The stickers as drawn. The layer takes no pointer events, so on
-          the bar a tap or a swipe on a sticker reaches the tab under it. */}
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: `calc(100% + ${GHOST_STICK_OUT}px)`,
-            overflow: "hidden",
-            pointerEvents: "none",
-          }}
-        >
-          <div ref={stickerPaintRef} style={{ position: "absolute", inset: 0 }}>
-            {stickerClusters(0, false)}
-          </div>
-        </div>
-        {/* The part of the stickers below the bar takes a click (it selects
-          the sticker's room) and shows each ghost's name, from a clear copy
-          of the clusters; below the stickers, the office takes the tap. */}
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            right: 0,
-            height: GHOST_STICK_OUT,
-            overflow: "hidden",
-            pointerEvents: "none",
-          }}
-        >
-          <div ref={stickerHitRef} style={{ position: "absolute", inset: 0 }}>
-            {stickerClusters(barHeight, true)}
+            <TotalOnlineChip count={totalOnlineUsers} />
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -100,178 +100,37 @@ function scrollerOf(container: HTMLElement): HTMLElement {
   return el;
 }
 
-function stickerClusters(container: HTMLElement, roomId: string) {
-  const all = [
-    ...container.querySelectorAll<HTMLElement>(
-      `[data-sticker-room="${roomId}"]`,
-    ),
-  ];
-  const painted = all.filter((el) => el.closest("[aria-hidden]"));
-  const hit = all.filter((el) => !el.closest("[aria-hidden]"));
-  return { painted, hit };
-}
-
-// The nearest ancestor that sets pointer events, or "" if none does.
-function pointerEventsOf(el: HTMLElement): string {
-  for (let node: HTMLElement | null = el; node; node = node.parentElement)
-    if (node.style.pointerEvents) return node.style.pointerEvents;
-  return "";
-}
-
 describe("room tab bar scrolling (task 17537680)", () => {
-  // iOS does not scroll an overflow box with pointer-events none, even when
-  // its children take pointer events (WebKit bug 183870). The scroller keeps
-  // them and stays inside the bar; the stickers live outside it.
-  it("keeps pointer events on a scroller that fills the bar and holds every tab", () => {
+  // A touch scrolls the bar only when it lands on the scroller or inside it.
+  // The scroller reaches below the bar for the ghost stickers and takes no
+  // pointer events there, so the office below stays reachable; the track
+  // inside it takes them and fills the bar, so no part of the bar is dead.
+  it("puts every tab and sticker in one track that takes pointer events and fills the bar", () => {
     const { container } = mount();
     const scroller = scrollerOf(container);
-    // No node from the scroller up to the mount point turns pointer events
-    // off: on iOS any of them would stop the swipe.
-    const off: string[] = [];
-    for (
-      let node: HTMLElement | null = scroller;
-      node && node !== container.parentElement;
-      node = node.parentElement
-    )
-      if (
-        node.style.pointerEvents === "none" ||
-        getComputedStyle(node).pointerEvents === "none"
-      )
-        off.push(node.outerHTML.slice(0, 80));
-    expect(off).toEqual([]);
-    expect(scroller.style.height).toBe("100%");
+    expect(scroller.style.pointerEvents).toBe("none");
+    expect(scroller.children.length).toBe(1);
+    const track = scroller.children[0] as HTMLElement;
+    expect(track.style.pointerEvents).toBe("auto");
+    expect(track.style.height).toBe("100%");
+    expect(track.style.minWidth).toBe("100%");
+
     const tabs = [...container.querySelectorAll("[draggable]")];
+    const stickers = [...container.querySelectorAll("[draggable] svg")];
     expect(tabs.length).toBe(3);
-    for (const el of [container.querySelector("[data-lobby-tab]")!, ...tabs])
-      expect(scroller.contains(el)).toBe(true);
-    expect(scroller.querySelectorAll("svg").length).toBe(0);
+    expect(stickers.length).toBe(2);
+    for (const el of [
+      container.querySelector("[data-lobby-tab]")!,
+      ...tabs,
+      ...stickers,
+    ])
+      expect(track.contains(el)).toBe(true);
   });
 
-  it("draws the stickers outside the scroller, in a layer that takes no pointer events", () => {
+  it("scrolls on a mouse wheel that lands on the track between tabs", () => {
     const { container } = mount();
     const scroller = scrollerOf(container);
-    const { painted } = stickerClusters(container, "b");
-    expect(painted.length).toBe(1);
-    expect(painted[0].querySelectorAll("svg").length).toBe(2);
-    expect(scroller.contains(painted[0])).toBe(false);
-    expect(pointerEventsOf(painted[0])).toBe("none");
-    expect(stickerClusters(container, "a").painted.length).toBe(0);
-  });
-
-  it("selects the room on a click on the part of its sticker below the bar", () => {
-    const { container } = mount();
-    const { hit } = stickerClusters(container, "b");
-    expect(hit.length).toBe(1);
-    expect(pointerEventsOf(hit[0])).toBe("auto");
-    // The hit copy's layer starts at the bottom of the bar.
-    expect(hit[0].parentElement!.parentElement!.style.top).toBe("100%");
-    const activeTab = () =>
-      container
-        .querySelector('[data-active-room-tab="true"] [data-room-tab-button]')
-        ?.getAttribute("data-room-tab-button");
-    expect(activeTab()).not.toBe("b");
-    act(() => {
-      hit[0]
-        .querySelector("svg")!
-        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(activeTab()).toBe("b");
-  });
-
-  it("hangs each sticker on the bottom center of its tab pill", () => {
-    const { container } = mount();
-    const scroller = scrollerOf(container);
-    const pill = container.querySelector<HTMLElement>(
-      '[data-room-tab-button="b"]',
-    )!;
-    const rect = (left: number, top: number, width: number, height: number) =>
-      ({
-        left,
-        top,
-        width,
-        height,
-        right: left + width,
-        bottom: top + height,
-      }) as DOMRect;
-    scroller.getBoundingClientRect = () => rect(10, 5, 390, 31);
-    Object.defineProperty(scroller, "clientHeight", { value: 31 });
-    scroller.scrollLeft = 30;
-    // A 24px-tall pill with a 1px border: its padding box ends 1px above the
-    // bottom of its border box.
-    pill.getBoundingClientRect = () => rect(110, 9, 80, 24);
-    Object.defineProperty(pill, "clientTop", { value: 1 });
-    Object.defineProperty(pill, "clientHeight", { value: 22 });
-    // A render measures the anchors again.
-    act(() => {
-      shimEmit({
-        type: "presence_list",
-        entries: [presence("c1", "b")],
-        totalOnlineUsers: 2,
-        onlineUserIds: ["u-c1", "u-self"],
-      });
-    });
-    const { painted, hit } = stickerClusters(container, "b");
-    // x: 110 - 10 + 30 + 80 / 2; y: 9 - 5 + 1 + 22.
-    expect(painted[0].style.left).toBe("170px");
-    expect(painted[0].style.top).toBe("27px");
-    expect(hit[0].style.left).toBe("170px");
-    expect(hit[0].style.top).toBe(`${27 - 31}px`);
-  });
-
-  it("moves the sticker strips with the tabs on a scroll", () => {
-    const { container } = mount();
-    const scroller = scrollerOf(container);
-    const { painted, hit } = stickerClusters(container, "b");
-    // The first scroll also renders (the left edge hint appears); the
-    // second one does not, so only the scroll listener can move the strips.
-    for (const scrollLeft of [120, 200]) {
-      scroller.scrollLeft = scrollLeft;
-      act(() => {
-        scroller.dispatchEvent(new Event("scroll"));
-      });
-      for (const cluster of [painted[0], hit[0]])
-        expect(cluster.parentElement!.style.transform).toBe(
-          `translateX(${-scrollLeft}px)`,
-        );
-    }
-  });
-
-  // The bar renders on every app state change; each observe() queues a
-  // notification and so a second measure.
-  it("observes the tab boxes again only when the set of tabs changes", () => {
-    const observe = spyOn(ResizeObserver.prototype, "observe");
-    try {
-      mount();
-      observe.mockClear();
-      act(() => {
-        shimEmit({
-          type: "presence_list",
-          entries: [presence("c1", "b")],
-          totalOnlineUsers: 2,
-          onlineUserIds: ["u-c1", "u-self"],
-        });
-      });
-      expect(observe).toHaveBeenCalledTimes(0);
-      act(() => {
-        shimEmit({
-          type: "full_state",
-          agents: [],
-          rooms: ["a", "b", "c", "d"].map(room),
-          office: { name: "Tab test", prompt: null },
-          recentCwds: [],
-          killedAgents: [],
-          interactions: [],
-        });
-      });
-      expect(observe.mock.calls.length).toBeGreaterThan(0);
-    } finally {
-      observe.mockRestore();
-    }
-  });
-
-  it("scrolls on a mouse wheel that lands on a tab", () => {
-    const { container } = mount();
-    const scroller = scrollerOf(container);
+    const track = scroller.children[0] as HTMLElement;
     Object.defineProperty(scroller, "scrollWidth", { value: 800 });
     Object.defineProperty(scroller, "clientWidth", { value: 390 });
     const wheel = new WheelEvent("wheel", {
@@ -279,7 +138,7 @@ describe("room tab bar scrolling (task 17537680)", () => {
       bubbles: true,
       cancelable: true,
     });
-    container.querySelector("[draggable]")!.dispatchEvent(wheel);
+    track.dispatchEvent(wheel);
     expect(scroller.scrollLeft).toBe(100);
     expect(wheel.defaultPrevented).toBe(true);
   });
