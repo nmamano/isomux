@@ -227,6 +227,9 @@ async function setup(
     repeatMinutes?: number | null;
     // Read on every call, so a test can change it.
     interval?: { minutes: number | null };
+    // Members with the turn-end push on, and who can see each room.
+    turnEnd?: Record<string, boolean>;
+    audience?: Record<string, string[]>;
     pages?: PagerEntry[];
   } = {},
 ) {
@@ -249,6 +252,9 @@ async function setup(
       get: (id) => pages.get(id) ?? null,
     },
     repeatMinutes: () => interval.minutes,
+    turnEndPush: (userId) => opts.turnEnd?.[userId] === true,
+    roomAudience: (roomId) => opts.audience?.[roomId] ?? [],
+    isLobby: (roomId) => roomId === LOBBY_ROOM_ID,
     notifRooms: (userId) =>
       Object.hasOwn(notifRooms, userId) ? notifRooms[userId] : null,
     translator: () => en,
@@ -452,6 +458,92 @@ describe("web push delivery: repeat and resolve", () => {
     expect(calls).toHaveLength(0);
     await time.advance(1);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("web push delivery: turn ends", () => {
+  const bot = { id: "agent-1", name: "Bot", roomId: "room-a" };
+  const audience = { "room-a": ["u-boss"], [LOBBY_ROOM_ID]: ["u-boss"] };
+  // The one member: can see room-a, has it in their rooms, option on. Each
+  // skip case below changes exactly one of these.
+  const base = {
+    notifRooms: { "u-boss": ["room-a"] } as Record<string, string[] | null>,
+    turnEnd: { "u-boss": true },
+    audience,
+  };
+
+  async function oneDevice(opts: Parameters<typeof setup>[0]) {
+    const ctx = await setup(opts);
+    const dev = await browserDevice(1);
+    await ctx.store.upsert("u-boss", dev.input);
+    return { ...ctx, dev };
+  }
+
+  it("goes to a member who can see the room, has it in their rooms and turned it on", async () => {
+    const { calls, service, time, dev } = await oneDevice(base);
+    service.onTurnEnd(bot);
+    await time.advance(0);
+    expect(calls.map((c) => c.url)).toEqual([dev.input.endpoint]);
+    const payload = await decrypt(calls[0].body, dev);
+    expect(payload.title).toBe(en("push.turnEnd.title", { agent: "Bot" }));
+    expect(payload.body).toBe("Ops");
+    expect(payload.tag).toBe("turn-end:agent-1");
+    expect(payload.url).toBe("/");
+    expect(payload.renotify).toBe(true);
+  });
+
+  it("skips a member with the option off", async () => {
+    const { calls, service, time } = await oneDevice({
+      ...base,
+      turnEnd: {},
+    });
+    service.onTurnEnd(bot);
+    await time.advance(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("skips a room out of the member's rooms", async () => {
+    const { calls, service, time } = await oneDevice({
+      ...base,
+      notifRooms: { "u-boss": ["room-b"] },
+    });
+    service.onTurnEnd(bot);
+    await time.advance(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("skips a member who cannot see the room", async () => {
+    const { calls, service, time } = await oneDevice({
+      ...base,
+      audience: { "room-a": [] },
+    });
+    service.onTurnEnd(bot);
+    await time.advance(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("skips a member who is gone", async () => {
+    const { calls, service, time } = await oneDevice({
+      ...base,
+      notifRooms: { "u-boss": null },
+    });
+    service.onTurnEnd(bot);
+    await time.advance(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("skips an agent with no room", async () => {
+    const { calls, service, time } = await oneDevice(base);
+    service.onTurnEnd({ ...bot, roomId: null });
+    await time.advance(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("sends nothing for the lobby (Lead ruling), though the room filter passes it", async () => {
+    const { calls, service, time } = await oneDevice(base);
+    service.onTurnEnd({ ...bot, roomId: LOBBY_ROOM_ID });
+    await time.advance(0);
+    expect(calls).toHaveLength(0);
   });
 });
 

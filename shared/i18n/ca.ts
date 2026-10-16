@@ -445,6 +445,8 @@ Coses que pots fer per ell:
   "settings.profile.accessColumn": "Accés",
   "settings.profile.displayedColumn": "Mostrada",
   "settings.profile.notificationsColumn": "Notificacions",
+  "settings.profile.turnEndPush":
+    "Avisa també els meus dispositius quan un agent acabi",
   "settings.profile.accessTo": "Accés a {room}",
   "settings.profile.display": "Mostra {room}",
   "settings.profile.tuckedColumn": "Recollida",
@@ -3064,6 +3066,7 @@ Coses que pots fer per ell:
   "apiCall.pagerSettings.save": "Desar els ajustos d'avisos",
   "apiCall.pagerSettings.test": "Enviar un avís de prova",
   "push.test": "Notificació de prova d'Isomux.",
+  "push.turnEnd.title": "{agent} ha acabat",
   "push.settings.title": "Notificacions en aquest dispositiu",
   "push.settings.hint":
     "Els avisos de les sales amb notificacions activades també apareixen com a notificacions en aquest dispositiu.",

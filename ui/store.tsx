@@ -23,6 +23,11 @@ import {
   type Dispatch,
 } from "react";
 import { KILLED_AGENT_CHIP_CAP, ordinaryRooms } from "../shared/types.ts";
+import {
+  ATTENTION_STATES,
+  endsTurn,
+  turnEndNotifies,
+} from "../shared/turn-end.ts";
 import type {
   AgentInfo,
   AgentState,
@@ -491,8 +496,6 @@ type Action =
     }
   | { type: "cronjob_run_updated"; run: CronjobRun };
 
-const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
-
 // Keep at most pagerResolvedAllowance resolved pages: drop the oldest in
 // resolve order. Open and acked pages and the pinned link page stay. A drop
 // means "Load more" has pages to bring back.
@@ -787,14 +790,15 @@ export function reducer(state: AppState, action: Action): AppState {
       // and the user is not currently viewing this agent
       if (action.changes.state && ATTENTION_STATES.has(action.changes.state)) {
         const prevAgent = state.agents.find((a) => a.id === action.agentId);
-        const wasWorking = prevAgent && !ATTENTION_STATES.has(prevAgent.state);
+        const wasWorking =
+          prevAgent && endsTurn(prevAgent.state, action.changes.state);
         let soundTrigger = state.soundTrigger;
         if (wasWorking) {
           // Sound: only fire when the turn that's ending originated from a
           // human message. Pure agent-to-agent traffic (one agent pings
           // another, the receiver answers and idles) stays silent - see
           // turnHadHumanInput on the server side.
-          if (prevAgent.turnHadHumanInput) {
+          if (turnEndNotifies(prevAgent, action.changes.state)) {
             const roomId = prevAgent.roomId;
             soundTrigger = { seq: state.soundTrigger.seq + 1, roomId };
           }

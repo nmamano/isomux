@@ -200,6 +200,7 @@ function load(): Record<string, UserRecord> {
         avatarColor: normalizeAvatarColor(value.avatarColor, id),
         avatarVariant: normalizeAvatarVariant(value.avatarVariant),
         language: normalizeLanguage(value.language),
+        ...(value.turnEndPush === true ? { turnEndPush: true as const } : {}),
         ...(value.pendingSignIn === true
           ? { pendingSignIn: true as const }
           : {}),
@@ -531,7 +532,7 @@ export function updateUserById(
       | "avatarVariant"
       | "language"
     >
-  > & { allowedRooms?: string[] },
+  > & { allowedRooms?: string[]; turnEndPush?: boolean },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
   load();
   const existing = users[id];
@@ -603,6 +604,13 @@ export function updateUserById(
       changes.language !== undefined
         ? normalizeLanguage(changes.language)
         : existing.language,
+    ...((
+      changes.turnEndPush !== undefined
+        ? changes.turnEndPush
+        : existing.turnEndPush
+    )
+      ? { turnEndPush: true as const }
+      : {}),
     ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
   };
 

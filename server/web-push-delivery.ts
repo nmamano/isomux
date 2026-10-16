@@ -15,6 +15,14 @@
 // A rotated endpoint is not re-posted on its own: the device shows Off in
 // the settings and the member turns it on again.
 //
+// Turn ends (onTurnEnd): a member who turned on the turnEndPush preference
+// also gets a push when an agent they can see ends a turn that had human
+// input, in a room the same filter passes: the turn ends that sound the
+// browser's turn-end sound (shared/turn-end.ts). Not for the lobby: any
+// member or guest talks to the receptionist, and a push reaches every
+// phone. One tag per agent, so the next turn end of that agent replaces the
+// last one.
+//
 // A push service that answers 401, 403, 404 or 410 refuses or no longer
 // knows the subscription, so the device is removed. Any other failure stays on the device record for
 // the settings list. Log lines are fixed text: an error may quote the
@@ -52,6 +60,12 @@ export interface WebPushDeliveryDeps {
   pages: Pick<PagerStore, "list" | "get">;
   // Minutes between repeats of an open page, or null for never. May throw.
   repeatMinutes: (userId: string) => number | null;
+  // Whether the member turned on turn-end pushes. May throw.
+  turnEndPush: (userId: string) => boolean;
+  // The members who can see a room (its access rule), for turn ends.
+  roomAudience: (roomId: string) => readonly string[];
+  // The receptionist's lobby: its turn ends push nobody (Lead ruling).
+  isLobby: (roomId: string) => boolean;
   // The member's notification rooms, or null when the member is gone.
   notifRooms: (userId: string) => readonly string[] | null;
   translator: (userId: string) => Translator["t"];
@@ -69,6 +83,8 @@ export interface WebPushDeliveryDeps {
 export interface WebPushDeliveryService {
   onRaised(entry: PagerEntry, kind: "created" | "reraised"): void;
   onTransitioned(entry: PagerEntry, to: "acked" | "resolved"): void;
+  // An agent ended a turn that had human input.
+  onTurnEnd(agent: { id: string; name: string; roomId: string | null }): void;
   start(): void;
   // The member changed their repeat interval: re-arm their open pages.
   rescheduleMember(userId: string): void;
@@ -262,11 +278,43 @@ export function createWebPushDelivery(
     await Promise.all(devices.map((d) => deliver(d, payload)));
   };
 
-  const send = (entry: PagerEntry, kind: MessageKind) => {
-    const run: Promise<void> = sendPage(entry, kind)
+  const track = (work: Promise<void>) => {
+    const run: Promise<void> = work
       .catch(() => log("a send failed unexpectedly"))
       .finally(() => inflight.delete(run));
     inflight.add(run);
+  };
+
+  const send = (entry: PagerEntry, kind: MessageKind) => {
+    track(sendPage(entry, kind));
+  };
+
+  const turnEndOn = (userId: string): boolean => {
+    try {
+      return deps.turnEndPush(userId);
+    } catch {
+      log("cannot read the turn-end setting");
+      return false;
+    }
+  };
+
+  const sendTurnEnd = async (
+    userId: string,
+    agent: { id: string; name: string },
+    roomId: string,
+  ) => {
+    const devices = deps.store.list(userId);
+    if (devices.length === 0) return;
+    const payload = encodePayload({
+      title: deps.translator(userId)("push.turnEnd.title", {
+        agent: agent.name,
+      }),
+      body: deps.roomName(roomId) ?? "",
+      tag: `turn-end:${agent.id}`,
+      url: "/",
+      renotify: true,
+    });
+    await Promise.all(devices.map((d) => deliver(d, payload)));
   };
 
   const clearTimer = (pageId: string) => {
@@ -326,6 +374,20 @@ export function createWebPushDelivery(
         if (stopped || kind !== "created") return;
         send(entry, "page");
         arm(entry, deps.now());
+      });
+    },
+
+    onTurnEnd(agent) {
+      guard(() => {
+        const roomId = agent.roomId;
+        if (stopped || roomId === null) return;
+        if (deps.isLobby(roomId)) return;
+        for (const userId of deps.roomAudience(roomId)) {
+          const rooms = deps.notifRooms(userId);
+          if (rooms === null || !shouldNotifyRoom(roomId, rooms)) continue;
+          if (!turnEndOn(userId)) continue;
+          track(sendTurnEnd(userId, agent, roomId));
+        }
       });
     },
 

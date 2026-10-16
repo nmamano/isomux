@@ -1,6 +1,6 @@
 // Personal-preference handler (opId prefs.update). The
 // self-scoped write path for the settings that follow a member across devices:
-// reply language.
+// reply language and the turn-end push.
 //
 // SELF-only by construction: the route table gates it with user:self +
 // authenticated and the handler acts on the CALLER's own userId, never on a
@@ -81,6 +81,16 @@ export function preferencesHandlers(
           );
         }
         change.language = value;
+      }
+      if ("turnEndPush" in body) {
+        if (typeof body.turnEndPush !== "boolean") {
+          return fail(
+            422,
+            "invalid_request",
+            "turnEndPush must be true or false",
+          );
+        }
+        change.turnEndPush = body.turnEndPush;
       }
       if (!deps.applyPreferences(userId, change)) {
         return fail(404, "user_not_found");

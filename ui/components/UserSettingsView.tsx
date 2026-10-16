@@ -1205,6 +1205,16 @@ function UserEditPanel({
       .then((r) => setMeRooms(r.rooms))
       .catch(() => {});
   }, [isOwner, isMe, accessKey]);
+  // The turn-end push, a SELF-only preference under the Notifications column
+  // it follows. Like tucked: a change saved elsewhere lands here when the
+  // member has not edited the box.
+  const userTurnEndPush = user.turnEndPush === true;
+  const [turnEndPush, setTurnEndPush] = useState(userTurnEndPush);
+  const [turnEndPushBase, setTurnEndPushBase] = useState(userTurnEndPush);
+  if (turnEndPushBase !== userTurnEndPush) {
+    setTurnEndPushBase(userTurnEndPush);
+    if (turnEndPush === turnEndPushBase) setTurnEndPush(userTurnEndPush);
+  }
   // Rows of the Rooms table - RENDERING only; the destructive shown-complement
   // written on save is computed from a fresh /api/me/rooms read in handleSave,
   // never from these rows. Owner viewers: the unfiltered global list (they
@@ -1347,6 +1357,7 @@ function UserEditPanel({
     if (!sameRoomSet(allowedSetting, user.allowedRooms)) return true;
     if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) return true;
     if (isMe && !sameRoomSet(tuckedSetting, userTucked)) return true;
+    if (isMe && turnEndPush !== userTurnEndPush) return true;
     return false;
   }
 
@@ -1521,6 +1532,9 @@ function UserEditPanel({
         await apiFetch("PUT", "/api/me/view/tucked", {
           tucked: tuckedSetting,
         });
+      }
+      if (isMe && turnEndPush !== userTurnEndPush) {
+        await apiFetch("PATCH", "/api/me/preferences", { turnEndPush });
       }
       if (renamed) onRenamed?.(trimmed);
       // Unlike the old modal (which collapsed the editor on save), the page
@@ -1867,6 +1881,28 @@ function UserEditPanel({
                 })
               )}
             </div>
+            {isMe && (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 10,
+                  fontSize: 12,
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  data-testid="turn-end-push"
+                  checked={turnEndPush}
+                  onChange={() => setTurnEndPush(!turnEndPush)}
+                  style={{ accentColor: "var(--accent)", cursor: "pointer" }}
+                />
+                {t("settings.profile.turnEndPush")}
+              </label>
+            )}
           </>
         ) : null}
 

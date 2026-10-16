@@ -459,6 +459,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.profile.accessColumn": "Access",
   "settings.profile.displayedColumn": "Displayed",
   "settings.profile.notificationsColumn": "Notifications",
+  "settings.profile.turnEndPush":
+    "Also notify my devices when an agent finishes",
   "settings.profile.accessTo": "Access to {room}",
   "settings.profile.display": "Display {room}",
   "settings.profile.tuckedColumn": "Tucked",
@@ -3035,6 +3037,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.pagerSettings.save": "Save pager settings",
   "apiCall.pagerSettings.test": "Send test page",
   "push.test": "Test notification from Isomux.",
+  "push.turnEnd.title": "{agent} finished",
   "push.settings.title": "Notifications on this device",
   "push.settings.hint":
     "Pages from rooms with notifications on also show as notifications on this device.",

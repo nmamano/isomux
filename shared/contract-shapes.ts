@@ -646,12 +646,13 @@ export interface TuckedRoomsReq {
 // so a caller can clear or set the value; `language: null` is meaningful.
 export type PreferencesReq = Partial<{
   language: SupportedLanguageCode | null;
+  turnEndPush: boolean;
 }>;
 
 // The writable preference keys, as VALUES, so the handler can reject an unknown
 // key (a typo like `langauge` would otherwise be a successful no-op) without a
 // second hand-maintained list drifting from the type above.
-export const PREFERENCE_KEYS = ["language"] as const;
+export const PREFERENCE_KEYS = ["language", "turnEndPush"] as const;
 
 export interface ApiTokenWire {
   id: string;

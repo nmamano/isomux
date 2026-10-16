@@ -96,6 +96,7 @@ import {
   createWebPushDelivery,
   type WebPushDeliveryService,
 } from "./web-push-delivery.ts";
+import { createTurnEndWatch } from "./turn-end-watch.ts";
 import type { ScheduledMessageManager } from "./scheduled-messages.ts";
 import {
   loadRecentCwds,
@@ -669,6 +670,10 @@ let pagerSettings: PagerSettingsStore;
 let pagerDelivery: PagerDeliveryService;
 let webPushStore: WebPushStore;
 let webPushDelivery: WebPushDeliveryService;
+// Turn ends that sound the browser's turn-end sound also feed the turn-end
+// push (task 1eda8af8). Made per server start, so its last-state memory
+// starts empty each time.
+let turnEndWatch: ReturnType<typeof createTurnEndWatch> | undefined;
 let providerAccountManager: ProviderAccountManager;
 // The app supervisor is injectable for one specific reason: systemd is
 // MACHINE-GLOBAL. Every other collaborator a test injects is about determinism
@@ -850,6 +855,11 @@ function createManagers(startOpts: StartServerOpts): void {
     store: webPushStore,
     pages: pagerStore,
     repeatMinutes: (userId) => pagerSettings.get(userId).repeatMinutes,
+    turnEndPush: (userId) => getUserById(userId)?.turnEndPush === true,
+    roomAudience: (roomId) =>
+      listUsers()
+        .filter((u) => canAccess(u, roomId))
+        .map((u) => u.id),
     notifRooms: (userId) => getUserById(userId)?.notifRooms ?? null,
     translator: (userId) => translatorForUserId(userId).t,
     fetch: startOpts.webPushFetch ?? ((url, init) => fetch(url, init)),
@@ -857,6 +867,21 @@ function createManagers(startOpts: StartServerOpts): void {
     scheduler: { setTimeout, clearTimeout },
     officeOrigin: () => buildPublicOrigin().origin,
     roomName: (roomId) => agentManager.roomById(roomId)?.name ?? null,
+    isLobby: (roomId) => isLobbyRoom(roomId),
+  });
+  turnEndWatch = createTurnEndWatch({
+    agent: (agentId) => {
+      const a = agentManager.getAgent(agentId);
+      return a
+        ? {
+            id: a.id,
+            name: a.name,
+            roomId: a.roomId ?? null,
+            turnHadHumanInput: a.turnHadHumanInput,
+          }
+        : null;
+    },
+    onTurnEnd: (agent) => webPushDelivery.onTurnEnd(agent),
   });
 }
 
@@ -2083,6 +2108,14 @@ function pushPresenceListToEachWs() {
 // (by rule) or a member whose grants cover all rooms. visibleRoomProjection's
 // identity fast-path additionally requires no hidden rooms and no custom order
 // (otherwise it falls to the general accessible∩shown-in-order path).
+// The receptionist's lobby. One test for room access (canAccess) and the
+// turn-end push, which skips the lobby.
+function isLobbyRoom(roomId: string): boolean {
+  return (
+    roomId === LOBBY_ROOM_ID || agentManager.roomById(roomId)?.type === "lobby"
+  );
+}
+
 // Rule-based room ACCESS. Owners have access to ALL rooms by
 // RULE (no materialized grant list); members have access to explicitly-granted
 // rooms only (UserRecord.allowedRooms == member grants). This is the SECURITY
@@ -2091,11 +2124,7 @@ function pushPresenceListToEachWs() {
 // turn `hidden` into a security gate.
 function canAccess(user: UserRecord, roomId: string): boolean {
   // Lobby access is universal; task scopes and room memory use ordinary rooms.
-  if (
-    roomId === LOBBY_ROOM_ID ||
-    agentManager.roomById(roomId)?.type === "lobby"
-  )
-    return true;
+  if (isLobbyRoom(roomId)) return true;
   return user.role === "owner" || user.allowedRooms.includes(roomId);
 }
 
@@ -6316,7 +6345,10 @@ function applyPreferencesChange(
     return false;
   }
   // Only fan out on a real change.
-  if (r.user.language !== user.language) {
+  if (
+    r.user.language !== user.language ||
+    r.user.turnEndPush !== user.turnEndPush
+  ) {
     emitPrivateUserRecord(r.user);
   }
   return true;
@@ -6676,6 +6708,7 @@ function wireEventSinks(): void {
     // routeAgentEvent bridge inside emitAgentEvent (agent_removed left the
     // bridge - carried roomId → room-ACL).
     emitAgentEvent(event);
+    turnEndWatch?.observe(event);
     // Any mutation of the global rooms list also refreshes the owner-only
     // admin view of all rooms (used by UserSettingsView). Done here
     // (rather than inside routeAgentEvent) so the all_rooms_list message

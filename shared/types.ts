@@ -1751,6 +1751,10 @@ export interface UserRecord {
   // agent system prompt plus the voice input/output locale. null means "no
   // clause" - agents behave exactly as they did before the setting existed.
   language: SupportedLanguageCode | null;
+  // `turnEndPush`: also push to the member's devices when an agent ends a
+  // turn that sounds the turn-end sound (server/web-push-delivery.ts).
+  // Absent = off.
+  turnEndPush?: true;
   // Set when an owner creates the member (users.create); removed by the
   // member's first accepted sign-in link. Absent on every other record,
   // legacy ones included: absent means "has signed in".
