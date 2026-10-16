@@ -210,6 +210,12 @@ describe("push devices block", () => {
     expect(view.getByTestId("push-toggle").getAttribute("data-on")).toBe(
       "true",
     );
+    // The other devices sit in a collapsed row.
+    expect(view.queryAllByTestId("push-device")).toHaveLength(0);
+    const row = view.getByTestId("push-others");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => fireEvent.click(row));
+    expect(row.getAttribute("aria-expanded")).toBe("true");
     const others = view.getAllByTestId("push-device");
     expect(others).toHaveLength(1);
     expect(others[0].textContent).toContain("iPhone");

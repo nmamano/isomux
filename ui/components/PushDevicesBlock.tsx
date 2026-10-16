@@ -1,6 +1,6 @@
-// Settings → You → Pager → Notifications on this device: turn pager pushes
-// on or off for this browser, send a test, and remove the member's other
-// devices. Server side: server/web-push-*.ts and the pushDevices.* routes.
+// Settings → You → Pager → This device: switch pager pushes on or off for
+// this browser, send a test, and remove the member's other devices (a
+// collapsed row). Server side: server/web-push-*.ts and the pushDevices.* routes.
 
 import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
@@ -14,7 +14,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import type { MessageKey } from "../../shared/i18n/en.ts";
 import { cardActionBtn, dialogHint, disabledLook } from "./dialog-styles.ts";
-import { hint, cardStyle } from "./access-shared.tsx";
+import { cardStyle } from "./access-shared.tsx";
 import { getDevice } from "../device-settings.ts";
 import {
   currentDeviceId,
@@ -38,6 +38,7 @@ export function PushDevicesBlock({ username }: { username: string }) {
   const [data, setData] = useState<PushDevicesRes | null>(null);
   const [thisId, setThisId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [othersOpen, setOthersOpen] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
@@ -129,83 +130,109 @@ export function PushDevicesBlock({ username }: { username: string }) {
       };
     });
 
-  if (!data) return null;
-  const others = data.devices.filter((d) => d.id !== thisId);
+  const others = data?.devices.filter((d) => d.id !== thisId) ?? [];
   const blocked =
     support === "ok" && Notification.permission === "denied" && !thisId;
+  const on = thisId !== null;
 
   return (
-    <div style={{ marginTop: 20 }} data-testid="push-devices">
-      <h4 style={{ ...hint, fontWeight: 600, color: "var(--text-secondary)" }}>
-        {t("push.settings.title")}
-      </h4>
-      <div style={cardStyle}>
-        <p style={{ ...dialogHint, margin: 0 }}>{t("push.settings.hint")}</p>
-        {support === "ok" ? (
-          <div
+    <div style={cardStyle} data-testid="push-devices">
+      {support === "ok" ? (
+        <div style={row}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            data-testid="push-toggle"
+            data-on={on}
+            onClick={() => void (thisId ? remove(thisId) : turnOn())}
+            disabled={busy || !data}
             style={{
-              display: "flex",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: 10,
-              marginTop: 12,
+              ...switchButton,
+              ...(busy || !data ? disabledLook : null),
             }}
           >
+            <span
+              aria-hidden
+              style={{
+                ...switchTrack,
+                background: on ? "var(--accent)" : "var(--border-medium)",
+              }}
+            >
+              <span style={{ ...switchKnob, left: on ? 16 : 2 }} />
+            </span>
+            {t("push.settings.switch")}
+          </button>
+          {on && (
             <button
-              data-testid="push-toggle"
-              data-on={thisId !== null}
-              onClick={() => void (thisId ? remove(thisId) : turnOn())}
+              data-testid="push-test"
+              onClick={() => void test()}
               disabled={busy}
               style={{ ...cardActionBtn, ...(busy ? disabledLook : null) }}
             >
-              {thisId ? t("push.settings.turnOff") : t("push.settings.turnOn")}
+              {t("push.settings.test")}
             </button>
-            {thisId && (
-              <button
-                data-testid="push-test"
-                onClick={() => void test()}
-                disabled={busy}
-                style={{ ...cardActionBtn, ...(busy ? disabledLook : null) }}
-              >
-                {t("push.settings.test")}
-              </button>
-            )}
-            {status && (
-              <span
-                role="status"
-                data-testid="push-status"
-                data-ok={status.ok}
-                style={{
-                  fontSize: 11,
-                  color: status.ok ? "var(--text-muted)" : "var(--red-text)",
-                }}
-              >
-                {status.text}
-              </span>
-            )}
-          </div>
-        ) : (
-          <p
-            data-testid="push-unsupported"
-            data-reason={support}
-            style={{ ...dialogHint, margin: "10px 0 0" }}
+          )}
+          {status && (
+            <span
+              role="status"
+              data-testid="push-status"
+              data-ok={status.ok}
+              style={{
+                fontSize: 11,
+                color: status.ok ? "var(--text-muted)" : "var(--red-text)",
+              }}
+            >
+              {status.text}
+            </span>
+          )}
+        </div>
+      ) : (
+        <p
+          data-testid="push-unsupported"
+          data-reason={support}
+          style={{ ...dialogHint, margin: 0 }}
+        >
+          {support === "ios-install"
+            ? t("push.settings.iosInstall")
+            : t("push.settings.unsupported")}
+        </p>
+      )}
+      {blocked && (
+        <p style={{ ...dialogHint, margin: "8px 0 0" }}>
+          {t("push.settings.blocked")}
+        </p>
+      )}
+      {others.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            data-testid="push-others"
+            aria-expanded={othersOpen}
+            onClick={() => setOthersOpen(!othersOpen)}
+            style={disclosure}
           >
-            {support === "ios-install"
-              ? t("push.settings.iosInstall")
-              : t("push.settings.unsupported")}
-          </p>
-        )}
-        {blocked && (
-          <p style={{ ...dialogHint, margin: "8px 0 0" }}>
-            {t("push.settings.blocked")}
-          </p>
-        )}
-        {others.length > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ ...dialogHint, fontWeight: 600 }}>
-              {t("push.settings.otherDevices")}
-            </div>
-            {others.map((d) => (
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              aria-hidden
+              style={{
+                transform: othersOpen ? "rotate(90deg)" : undefined,
+                transition: "transform 120ms",
+              }}
+            >
+              <path
+                d="M3 1.5 L7 5 L3 8.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              />
+            </svg>
+            {t("push.settings.otherDevices", { count: others.length })}
+          </button>
+          {othersOpen &&
+            others.map((d) => (
               <div
                 key={d.id}
                 data-testid="push-device"
@@ -215,6 +242,7 @@ export function PushDevicesBlock({ username }: { username: string }) {
                   flexWrap: "wrap",
                   gap: 8,
                   marginTop: 6,
+                  paddingLeft: 16,
                   fontSize: 12,
                   color: "var(--text-secondary)",
                 }}
@@ -236,9 +264,58 @@ export function PushDevicesBlock({ username }: { username: string }) {
                 </button>
               </div>
             ))}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const row: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: 10,
+};
+
+const switchButton: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  padding: 0,
+  border: "none",
+  background: "transparent",
+  color: "var(--text-primary)",
+  fontSize: 13,
+  cursor: "pointer",
+};
+
+const switchTrack: React.CSSProperties = {
+  position: "relative",
+  display: "inline-block",
+  width: 32,
+  height: 18,
+  borderRadius: 9,
+  transition: "background 120ms",
+};
+
+const switchKnob: React.CSSProperties = {
+  position: "absolute",
+  top: 2,
+  width: 14,
+  height: 14,
+  borderRadius: "50%",
+  background: "#fff",
+  transition: "left 120ms",
+};
+
+const disclosure: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: 0,
+  border: "none",
+  background: "transparent",
+  color: "var(--text-secondary)",
+  fontSize: 12,
+  cursor: "pointer",
+};

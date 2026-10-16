@@ -1,6 +1,8 @@
-// Settings → You → Pager: where the member's pages go (a Discord webhook),
-// the Discord user to mention, how often an open page repeats, and a test
-// send. Server side: server/pager-settings.ts and the pagerSettings.* routes.
+// Settings → You → Pager: where the member's pages go, in three sections:
+// this device (Web Push, PushDevicesBlock), Discord (the webhook, the user to
+// mention and a test send), and how often an open page repeats, which saves
+// on its own. Server side: server/pager-settings.ts and the pagerSettings.*
+// routes.
 //
 // The webhook URL is a credential: the server only ever returns its masked
 // form, so the field starts empty and a typed URL replaces the saved one.
@@ -24,13 +26,13 @@ import {
   disabledLook,
 } from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
+import { HelpTip } from "../integrations/kit.tsx";
 import { MaskedInput } from "./MaskedInput.tsx";
 import { Reserved } from "./Reserved.tsx";
 import { getPagerLayout, setPagerLayout } from "../device-settings.ts";
 import { PushDevicesBlock } from "./PushDevicesBlock.tsx";
 
 const REPEAT_CHOICES = [1, 5, 15, 30, 60, 480, 1440];
-const ISSUES_URL = "https://github.com/nmamano/isomux/issues";
 
 // A delivery failure class, in words.
 export const PAGER_FAILURE_KEYS = {
@@ -46,10 +48,7 @@ const NEVER = "never";
 const HELD_WEBHOOK = "https://discord.com/api/webhooks/…0000";
 
 export function PagerSettingsPane({ username }: { username: string }) {
-  const { t, tn, rich } = useI18n();
-  const bold = (chunk: React.ReactNode) => (
-    <strong style={{ color: "var(--text-secondary)" }}>{chunk}</strong>
-  );
+  const { t, tn } = useI18n();
   const path = `/api/users/${encodeURIComponent(username)}/pager-settings`;
   const [saved, setSaved] = useState<PagerSettingsRes | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -57,21 +56,28 @@ export function PagerSettingsPane({ username }: { username: string }) {
   const [userId, setUserId] = useState("");
   const [repeat, setRepeat] = useState<string>(NEVER);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  // The result line, shown in the section that acted.
+  const [status, setStatus] = useState<{
+    ok: boolean;
+    text: string;
+    at: "discord" | "repeat";
+  } | null>(null);
   const mounted = useRef(true);
   // While the settings load, the pane shows the form it showed last on this
   // device with nothing to act on, so it keeps its height when they arrive.
   const [held] = useState(getPagerLayout);
   const loading = !saved && !loadFailed;
 
-  function adopt(next: PagerSettingsRes) {
+  function adoptRepeat(next: PagerSettingsRes) {
     setSaved(next);
+    setRepeat(next.repeatMinutes === null ? NEVER : String(next.repeatMinutes));
+  }
+
+  function adopt(next: PagerSettingsRes) {
+    adoptRepeat(next);
     setPagerLayout({ webhook: !!next.webhookUrlMasked });
     setUrl("");
     setUserId(next.discordUserId ?? "");
-    setRepeat(next.repeatMinutes === null ? NEVER : String(next.repeatMinutes));
   }
 
   useEffect(() => {
@@ -88,30 +94,31 @@ export function PagerSettingsPane({ username }: { username: string }) {
     };
   }, [path]);
 
-  const repeatMinutes = repeat === NEVER ? null : Number(repeat);
+  // The Discord fields save together; the repeat saves on its own.
   const change: PagerSettingsReq = {};
   if (saved) {
     if (url.trim() !== "") change.webhookUrl = url.trim();
     if (userId.trim() !== (saved.discordUserId ?? "")) {
       change.discordUserId = userId.trim() === "" ? null : userId.trim();
     }
-    if (repeatMinutes !== saved.repeatMinutes) {
-      change.repeatMinutes = repeatMinutes;
-    }
   }
   const dirty = Object.keys(change).length > 0;
 
-  async function run(work: () => Promise<{ ok: boolean; text: string }>) {
+  async function run(
+    at: "discord" | "repeat",
+    work: () => Promise<{ ok: boolean; text: string }>,
+  ) {
     setBusy(true);
     setStatus(null);
     try {
       const result = await work();
-      if (mounted.current) setStatus(result);
+      if (mounted.current) setStatus({ ...result, at });
     } catch (e) {
       if (mounted.current) {
         setStatus({
           ok: false,
           text: e instanceof ApiError ? e.message : t("common.saveFailed"),
+          at,
         });
       }
     } finally {
@@ -120,14 +127,26 @@ export function PagerSettingsPane({ username }: { username: string }) {
   }
 
   const save = (body: PagerSettingsReq) =>
-    run(async () => {
+    run("discord", async () => {
       const next = await apiFetch<PagerSettingsRes>("PATCH", path, body);
       if (mounted.current) adopt(next);
       return { ok: true, text: t("pager.settings.saved") };
     });
 
+  // A typed but unsaved webhook URL or user ID stays in its field.
+  const saveRepeat = (value: string) => {
+    setRepeat(value);
+    return run("repeat", async () => {
+      const next = await apiFetch<PagerSettingsRes>("PATCH", path, {
+        repeatMinutes: value === NEVER ? null : Number(value),
+      });
+      if (mounted.current) adoptRepeat(next);
+      return { ok: true, text: t("pager.settings.saved") };
+    });
+  };
+
   const test = () =>
-    run(async () => {
+    run("discord", async () => {
       const res = await apiFetch<PagerTestRes>("POST", `${path}/test`);
       return res.delivered
         ? { ok: true, text: t("pager.settings.testSent") }
@@ -194,9 +213,6 @@ export function PagerSettingsPane({ username }: { username: string }) {
         >
           {t("pager.settings.webhookRemove")}
         </button>
-        <span style={{ ...dialogHint, flexBasis: "100%" }}>
-          {t("pager.settings.webhookReplace")}
-        </span>
       </div>
     ) : (
       <p
@@ -207,24 +223,30 @@ export function PagerSettingsPane({ username }: { username: string }) {
       </p>
     );
 
+  const statusLine = (at: "discord" | "repeat") =>
+    status?.at === at && (
+      <span
+        role="status"
+        data-testid="pager-status"
+        data-ok={status.ok}
+        style={{
+          fontSize: 11,
+          color: status.ok ? "var(--text-muted)" : "var(--red-text)",
+        }}
+      >
+        {status.text}
+      </span>
+    );
+
   return (
     <div style={{ marginTop: 24 }} data-testid="pager-settings">
       <h4 style={sectionHeader}>{t("settings.sidebar.pager")}</h4>
       <p style={{ ...hint, marginTop: 4 }}>{t("pager.settings.intro")}</p>
-      <p style={{ ...hint, marginTop: 6 }}>
-        {rich("pager.settings.onlyDiscord", {
-          link: (chunk) => (
-            <a
-              href={ISSUES_URL}
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: "var(--accent-text)" }}
-            >
-              {chunk}
-            </a>
-          ),
-        })}
-      </p>
+
+      <h5 style={subHeader}>{t("pager.settings.thisDevice")}</h5>
+      <PushDevicesBlock username={username} />
+
+      <h5 style={subHeader}>{t("pager.settings.discord")}</h5>
       {loadFailed ? (
         <p role="alert" style={hint}>
           {t("pager.settings.loadFailed")}
@@ -237,6 +259,7 @@ export function PagerSettingsPane({ username }: { username: string }) {
               htmlFor="pager-webhook"
             >
               {t("pager.settings.webhook")}
+              <HelpTip text={t("pager.settings.webhookHint")} />
             </label>
             <MaskedInput
               id="pager-webhook"
@@ -256,12 +279,12 @@ export function PagerSettingsPane({ username }: { username: string }) {
             ) : (
               webhookCurrent(saved?.webhookUrlMasked ?? null)
             )}
-            <p style={{ ...dialogHint, margin: "8px 0 0" }}>
-              {rich("pager.settings.webhookHint", { b: bold })}
-            </p>
 
             <label style={fieldLabel} htmlFor="pager-user-id">
               {t("pager.settings.userId")}
+              <HelpTip
+                text={`${t("pager.settings.userIdHint")} ${t("pager.settings.phoneHint")}`}
+              />
             </label>
             <input
               id="pager-user-id"
@@ -275,21 +298,47 @@ export function PagerSettingsPane({ username }: { username: string }) {
               }}
               style={dialogInput}
             />
-            <p style={{ ...dialogHint, margin: "6px 0 0" }}>
-              {rich("pager.settings.userIdHint", { b: bold })}
-            </p>
 
-            <label style={fieldLabel} htmlFor="pager-repeat">
+            <div style={actionRow}>
+              <button
+                data-testid="pager-save"
+                onClick={() => void save(change)}
+                disabled={busy || !dirty}
+                style={{
+                  ...dialogSaveBtn,
+                  ...(busy || !dirty ? disabledLook : null),
+                }}
+              >
+                {busy ? t("common.saving") : t("common.save")}
+              </button>
+              <button
+                data-testid="pager-test"
+                onClick={() => void test()}
+                disabled={busy || dirty || !saved?.webhookUrlMasked}
+                style={{
+                  ...cardActionBtn,
+                  ...(busy || dirty || !saved?.webhookUrlMasked
+                    ? disabledLook
+                    : null),
+                }}
+              >
+                {t("pager.settings.test")}
+              </button>
+              {loading && <span style={hint}>{t("common.loading")}</span>}
+              {statusLine("discord")}
+            </div>
+          </div>
+
+          <div style={{ ...actionRow, marginTop: 20 }}>
+            <label style={{ ...dialogLabel, margin: 0 }} htmlFor="pager-repeat">
               {t("pager.settings.repeat")}
             </label>
             <select
               id="pager-repeat"
               data-testid="pager-repeat"
               value={loading ? "" : repeat}
-              onChange={(e) => {
-                setRepeat(e.target.value);
-                setStatus(null);
-              }}
+              disabled={busy}
+              onChange={(e) => void saveRepeat(e.target.value)}
               style={selectStyle}
             >
               {/* Nothing chosen until the settings arrive. */}
@@ -303,65 +352,28 @@ export function PagerSettingsPane({ username }: { username: string }) {
                 </option>
               ))}
             </select>
+            {statusLine("repeat")}
           </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: 10,
-              marginTop: 14,
-            }}
-          >
-            <button
-              data-testid="pager-save"
-              onClick={() => void save(change)}
-              disabled={busy || !dirty}
-              style={{
-                ...dialogSaveBtn,
-                ...(busy || !dirty ? disabledLook : null),
-              }}
-            >
-              {busy ? t("common.saving") : t("common.save")}
-            </button>
-            <button
-              data-testid="pager-test"
-              onClick={() => void test()}
-              disabled={busy || dirty || !saved?.webhookUrlMasked}
-              style={{
-                ...cardActionBtn,
-                ...(busy || dirty || !saved?.webhookUrlMasked
-                  ? disabledLook
-                  : null),
-              }}
-            >
-              {t("pager.settings.test")}
-            </button>
-            {loading && <span style={hint}>{t("common.loading")}</span>}
-            {status && (
-              <span
-                role="status"
-                data-testid="pager-status"
-                data-ok={status.ok}
-                style={{
-                  fontSize: 11,
-                  color: status.ok ? "var(--text-muted)" : "var(--red-text)",
-                }}
-              >
-                {status.text}
-              </span>
-            )}
-          </div>
-          <p style={{ ...hint, marginTop: 12 }}>
-            {rich("pager.settings.phoneHint", { b: bold })}
-          </p>
         </div>
       )}
-      <PushDevicesBlock username={username} />
     </div>
   );
 }
+
+const subHeader: React.CSSProperties = {
+  margin: "20px 0 8px",
+  fontSize: 13,
+  fontWeight: 600,
+  color: "var(--text-primary)",
+};
+
+const actionRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: 10,
+  marginTop: 14,
+};
 
 // Each field after the first sits under a hairline, so the three settings
 // read as separate steps.

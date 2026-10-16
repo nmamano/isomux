@@ -2990,28 +2990,25 @@ Cosas que puedes hacer por él:
     "Bienvenidos al vestíbulo. En una oficina real respondo preguntas sobre Isomux y sobre esta oficina. Esto es una demo, así que no se ha enviado nada a un modelo.",
   "settings.sidebar.pager": "Avisos",
   "pager.settings.intro":
-    "Cuando un agente o una app te necesita y quizá no estás mirando la oficina, envía un aviso. El aviso aparece en la vista de Avisos y llega a tu Discord, donde te menciona para que tu móvil te avise, y a los dispositivos donde activaste las notificaciones. Un aviso abierto se repite hasta que lo confirmas (lo has visto) o alguien lo resuelve (el problema ha terminado).",
-  "pager.settings.webhook": "URL del webhook de Discord",
+    "Los agentes te envían un aviso cuando te necesitan. Los avisos aparecen en la vista de Avisos y llegan a los sitios de abajo.",
+  "pager.settings.thisDevice": "Este dispositivo",
+  "pager.settings.discord": "Discord",
+  "pager.settings.webhook": "URL del webhook",
   "pager.settings.webhookHint":
-    "<b>Dónde encontrarla:</b> en Discord, abre los ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL del webhook.",
-  "pager.settings.webhookNone":
-    "Sin configurar. Los avisos se quedan en la oficina.",
+    "En Discord: ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL del webhook.",
+  "pager.settings.webhookNone": "No configurado.",
   "pager.settings.webhookRemove": "Quitar webhook",
-  "pager.settings.userId": "ID de usuario de Discord",
+  "pager.settings.userId": "ID de usuario",
   "pager.settings.userIdHint":
-    "Los avisos te mencionan para que Discord te notifique. <b>Dónde encontrarlo:</b> en Discord, activa Ajustes de usuario → Avanzado → Modo desarrollador y luego haz clic derecho en tu nombre (mantén pulsado en el móvil) → Copiar ID de usuario.",
+    "Los avisos te mencionan para que Discord te notifique. En Discord: Ajustes de usuario → Avanzado → Modo desarrollador, y luego haz clic derecho en tu nombre (mantén pulsado en el móvil) → Copiar ID de usuario.",
   "pager.settings.repeat": "Repetir un aviso abierto",
   "pager.settings.repeatNever": "Nunca",
   "pager.settings.repeatEvery": "Cada {count} min",
   "pager.settings.phoneHint":
-    "<b>En tu móvil:</b> deja activadas las notificaciones de Discord para este servidor, al menos para las @menciones.",
+    "En tu móvil, deja activadas las notificaciones de Discord para este servidor, al menos para las @menciones.",
   "pager.settings.repeatEveryHours.other": "Cada {count} horas",
   "pager.settings.repeatEveryHours.one": "Cada {count} hora",
-  "pager.settings.webhookReplace":
-    "Pega arriba una URL nueva para sustituirla.",
   "pager.settings.webhookSaved": "Guardada",
-  "pager.settings.onlyDiscord":
-    "Por ahora, Discord y las notificaciones del dispositivo son los únicos destinos de avisos. <link>Abre una issue en GitHub</link> si quieres más integraciones.",
   "pager.settings.saved": "Guardado.",
   "pager.settings.loadFailed": "No se pudieron cargar los ajustes de avisos.",
   "pager.settings.test": "Enviar aviso de prueba",
@@ -3066,11 +3063,7 @@ Cosas que puedes hacer por él:
   "apiCall.pagerSettings.test": "Enviar aviso de prueba",
   "push.test": "Notificación de prueba de Isomux.",
   "push.turnEnd.title": "{agent} ha terminado",
-  "push.settings.title": "Notificaciones en este dispositivo",
-  "push.settings.hint":
-    "Los avisos de las salas con notificaciones activadas también aparecen como notificaciones en este dispositivo.",
-  "push.settings.turnOn": "Activar",
-  "push.settings.turnOff": "Desactivar",
+  "push.settings.switch": "Notificaciones",
   "push.settings.test": "Enviar notificación de prueba",
   "push.settings.testSent": "Notificación de prueba enviada.",
   "push.settings.testFailed":
@@ -3083,7 +3076,7 @@ Cosas que puedes hacer por él:
     "Las notificaciones de Isomux están bloqueadas en los ajustes de este navegador.",
   "push.settings.failed":
     "No se pudieron cambiar las notificaciones de este dispositivo.",
-  "push.settings.otherDevices": "Otros dispositivos",
+  "push.settings.otherDevices": "Otros dispositivos ({count})",
   "push.settings.remove": "Eliminar",
   "push.settings.unnamed": "Dispositivo sin nombre",
   "push.failure.gone": "la suscripción ha caducado",

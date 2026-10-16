@@ -78,14 +78,27 @@ test("the pane saves only what changed, never shows the saved URL, and runs the 
   );
   expect(view.container.textContent).not.toContain("abcdWXYZ");
 
-  // An interval change sends the interval alone.
+  // An interval change saves at once, the interval alone, and leaves a typed
+  // but unsaved user ID in its field.
+  await act(async () =>
+    fireEvent.change(view.getByTestId("pager-user-id"), {
+      target: { value: "998877665544332211" },
+    }),
+  );
   await act(async () =>
     fireEvent.change(view.getByTestId("pager-repeat"), {
       target: { value: "never" },
     }),
   );
-  await act(async () => fireEvent.click(save));
   expect(writes.at(-1)).toEqual(["PATCH", PATH, { repeatMinutes: null }]);
+  expect((view.getByTestId("pager-user-id") as HTMLInputElement).value).toBe(
+    "998877665544332211",
+  );
+  await act(async () =>
+    fireEvent.change(view.getByTestId("pager-user-id"), {
+      target: { value: "112233445566778899" },
+    }),
+  );
 
   await act(async () => fireEvent.click(send));
   expect(writes.at(-1)).toEqual(["POST", `${PATH}/test`, undefined]);

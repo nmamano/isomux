@@ -2961,26 +2961,25 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // failure classes (server/pager-delivery.ts).
   "settings.sidebar.pager": "Pager",
   "pager.settings.intro":
-    "When an agent or app needs you and you may not be looking at the office, it raises a page. The page shows in the Pager view and goes to your Discord, where it mentions you so your phone notifies you, and to the devices where you turned on notifications. An open page repeats until you ack it (you saw it) or someone resolves it (the problem is over).",
-  "pager.settings.webhook": "Discord webhook URL",
+    "Agents page you when they need you. Pages show in the Pager view and reach the places below.",
+  "pager.settings.thisDevice": "This device",
+  "pager.settings.discord": "Discord",
+  "pager.settings.webhook": "Webhook URL",
   "pager.settings.webhookHint":
-    "<b>Where to find it:</b> in Discord, open the channel's settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.",
-  "pager.settings.webhookNone": "Not set. Pages stay in the office.",
+    "In Discord: the channel's settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.",
+  "pager.settings.webhookNone": "Not set.",
   "pager.settings.webhookRemove": "Remove webhook",
-  "pager.settings.userId": "Discord user ID",
+  "pager.settings.userId": "User ID",
   "pager.settings.userIdHint":
-    "Pages mention you so that Discord notifies you. <b>Where to find it:</b> in Discord, turn on User Settings → Advanced → Developer Mode, then right-click your name (long-press on a phone) → Copy User ID.",
+    "Pages mention you, so Discord notifies you. In Discord: User Settings → Advanced → Developer Mode, then right-click your name (long-press on a phone) → Copy User ID.",
   "pager.settings.repeat": "Repeat an open page",
   "pager.settings.repeatNever": "Never",
   "pager.settings.repeatEvery": "Every {count} min",
   "pager.settings.phoneHint":
-    "<b>On your phone:</b> keep Discord notifications on for this server, at least for @mentions.",
+    "On your phone, keep Discord notifications on for this server, at least for @mentions.",
   "pager.settings.repeatEveryHours.other": "Every {count} hours",
   "pager.settings.repeatEveryHours.one": "Every {count} hour",
-  "pager.settings.webhookReplace": "Paste a new URL above to replace it.",
   "pager.settings.webhookSaved": "Saved",
-  "pager.settings.onlyDiscord":
-    "Discord and device notifications are the only pager destinations for now. <link>File an issue on GitHub</link> if you'd like more integrations.",
   "pager.settings.saved": "Saved.",
   "pager.settings.loadFailed": "Could not load the pager settings.",
   "pager.settings.test": "Send test page",
@@ -3037,11 +3036,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.pagerSettings.test": "Send test page",
   "push.test": "Test notification from Isomux.",
   "push.turnEnd.title": "{agent} finished",
-  "push.settings.title": "Notifications on this device",
-  "push.settings.hint":
-    "Pages from rooms with notifications on also show as notifications on this device.",
-  "push.settings.turnOn": "Turn on",
-  "push.settings.turnOff": "Turn off",
+  "push.settings.switch": "Notifications",
   "push.settings.test": "Send test notification",
   "push.settings.testSent": "Test notification sent.",
   "push.settings.testFailed": "Test notification not sent: {reason}.",
@@ -3051,7 +3046,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "push.settings.blocked":
     "Notifications for Isomux are blocked in this browser's settings.",
   "push.settings.failed": "Could not change notifications on this device.",
-  "push.settings.otherDevices": "Other devices",
+  "push.settings.otherDevices": "Other devices ({count})",
   "push.settings.remove": "Remove",
   "push.settings.unnamed": "Unnamed device",
   "push.failure.gone": "subscription expired",
