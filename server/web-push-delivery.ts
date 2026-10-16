@@ -4,9 +4,9 @@
 // member's repeat interval, and one "resolved" message. The two channels are
 // independent: a member with no Discord webhook still gets pushes.
 //
-// Filter: a page goes out only when shared/notif-rooms.ts passes its room
-// for the member's notifRooms, read at each send. A page with no room (an
-// app page) always goes.
+// No room filter for pages: a page has one target member and is rare, so it
+// goes to that member's devices whatever their room notification settings,
+// as the Discord delivery does (PM ruling on Nil's delegation, 2026-10-16).
 //
 // Repeat timers are in memory. On boot, each open page is due one interval
 // after the boot: no catch-up burst. A restart between a resolve and its
@@ -17,7 +17,8 @@
 //
 // Turn ends (onTurnEnd): a member who turned on the turnEndPush preference
 // also gets a push when an agent they can see ends a turn that had human
-// input, in a room the same filter passes: the turn ends that sound the
+// input, in a room shared/notif-rooms.ts passes for the member's notifRooms
+// (read at each send): the turn ends that sound the
 // browser's turn-end sound (shared/turn-end.ts). Not for the lobby: any
 // member or guest talks to the receptionist, and a push reaches every
 // phone. One tag per agent, so the next turn end of that agent replaces the
@@ -256,14 +257,8 @@ export function createWebPushDelivery(
 
   const sendPage = async (entry: PagerEntry, kind: MessageKind) => {
     const userId = entry.targetUserId;
-    const rooms = deps.notifRooms(userId);
-    if (rooms === null) return;
-    if (
-      entry.source.roomId !== null &&
-      !shouldNotifyRoom(entry.source.roomId, rooms)
-    ) {
-      return;
-    }
+    // A gone member has no settings; a page ignores the room filter.
+    if (deps.notifRooms(userId) === null) return;
     const devices = deps.store.list(userId);
     if (devices.length === 0) return;
     const payload = encodePayload(

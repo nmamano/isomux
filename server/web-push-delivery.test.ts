@@ -2,8 +2,8 @@
 //
 // Pins: a new page goes to every device of the target member, encrypted for
 // each device (decrypted here with the device's private key) and signed with
-// VAPID; only pages from the member's notification rooms go, and app pages
-// with no room always go; an open page repeats on the member's interval and
+// VAPID; every page goes, whatever the member's notification rooms (only the
+// turn-end push follows them); an open page repeats on the member's interval and
 // stops on ack; a resolve sends one replacing "Resolved" message; a boot
 // arms repeats one interval out without sending; 404/410 drop the device,
 // other failures stay on it.
@@ -311,16 +311,18 @@ describe("web push delivery: a new page", () => {
     expect(payload.renotify).toBe(true);
   });
 
-  it("goes only for rooms with notifications on; an app page with no room always goes", async () => {
+  it("goes for every page, whatever the member's notification rooms (PM ruling, 2026-10-16)", async () => {
     const { store, calls, service, time } = await setup({
       notifRooms: { "u-boss": ["room-b"] },
     });
     const d1 = await browserDevice(1);
     await store.upsert("u-boss", d1.input);
 
+    // The page's room is not among the member's notification rooms.
     service.onRaised(page(), "created");
     await time.advance(0);
-    expect(calls).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    calls.length = 0;
 
     service.onRaised(
       page({
