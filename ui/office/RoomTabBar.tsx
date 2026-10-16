@@ -492,18 +492,16 @@ export function RoomTabBar({
       <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
         <div
           ref={scrollerRef}
-          className="hide-scrollbar"
+          // room-tab-scroller (ui/styles.ts) passes clicks through the
+          // scroller except on iOS, where the scroller must keep its pointer
+          // events to scroll (WebKit bug 183870, task 17537680).
+          className="hide-scrollbar room-tab-scroller"
           style={{
-            // The scroller keeps its pointer events: iOS does not scroll an
-            // overflow box with pointer-events none, whatever its children
-            // take (WebKit bug 183870, task 17537680). It reaches
-            // GHOST_STICK_OUT below the bar, so the stickers scroll with
-            // their tabs as part of the content; that strip of the office
-            // under the bar takes no taps.
-            display: "flex",
-            alignItems: "center",
-            gap: 2,
-            padding: `0 12px ${GHOST_STICK_OUT}px`,
+            // The scroller reaches GHOST_STICK_OUT below the bar, so the
+            // stickers scroll with their tabs as part of the content. Only
+            // its track takes pointer events, so that strip of the office
+            // under the bar still takes clicks (task d4f9210e).
+            paddingBottom: GHOST_STICK_OUT,
             height: `calc(100% + ${GHOST_STICK_OUT}px)`,
             overflowX: "auto",
             overflowY: "hidden",
@@ -519,6 +517,21 @@ export function RoomTabBar({
             overscrollBehaviorX: "contain",
           }}
         >
+          {/* The track fills the bar, gaps and padding included, so a swipe
+            that starts anywhere on the bar scrolls it (task 17537680). */}
+          <div
+            data-room-tab-track
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              padding: "0 12px",
+              height: "100%",
+              width: "max-content",
+              minWidth: "100%",
+              pointerEvents: "auto",
+            }}
+          >
           {/* The Lobby tab: client state, not a room. First, never draggable,
             never reordered. The dot carries members chat attention;
             room tabs stand down while the lobby is open. */}
@@ -799,6 +812,7 @@ export function RoomTabBar({
           off-scene sessions). Per-tab clusters above answer "who is
           in this room". */}
           <TotalOnlineChip count={totalOnlineUsers} />
+          </div>
         </div>
 
         {canScrollLeft && (

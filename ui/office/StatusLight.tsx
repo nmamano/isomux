@@ -16,10 +16,13 @@ export function StatusLight({
   state,
   size = 10,
   elapsedMs,
+  ring = false,
 }: {
   state: AgentState;
   size?: number;
   elapsedMs?: number;
+  /** A dark edge, so a small light reads on any background. */
+  ring?: boolean;
 }) {
   let c = COLORS[state] || "var(--text-muted)";
   if (
@@ -57,7 +60,9 @@ export function StatusLight({
           height: size,
           borderRadius: "50%",
           background: c,
-          boxShadow: `0 0 ${size}px ${c}`,
+          boxShadow: ring
+            ? `0 0 0 1px rgba(0,0,0,0.55), 0 0 ${size}px ${c}`
+            : `0 0 ${size}px ${c}`,
         }}
       />
     </span>

@@ -10,6 +10,7 @@ const { LanguageProvider } = await import("../i18n.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, shimEmit, connect } = await import("../ws.ts");
 const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
+const { CSS } = await import("../styles.ts");
 
 type RoomWire = import("../../shared/types.ts").RoomWire;
 type PresenceInfo = import("../../shared/types.ts").PresenceInfo;
@@ -104,13 +105,26 @@ describe("room tab bar scrolling (task 17537680)", () => {
   // iOS does not scroll an overflow box with pointer-events none, even when
   // its children take pointer events (WebKit bug 183870). The stickers move
   // with their tabs only as part of the scrolled content, so the scroller
-  // reaches below the bar to show them and keeps its pointer events.
-  it("keeps pointer events on every node from the scroller up", () => {
+  // reaches below the bar to show them. Its stylesheet class lets that strip
+  // pass clicks to the office everywhere but iOS (task d4f9210e), and a
+  // track that fills the bar takes the bar's pointer events.
+  it("leaves the scroller's pointer events to its class, and the track takes them", () => {
     const { container } = mount();
     const scroller = scrollerOf(container);
+    expect(scroller.classList.contains("room-tab-scroller")).toBe(true);
+    expect(scroller.style.pointerEvents).toBe("");
+    const track = scroller.querySelector<HTMLElement>("[data-room-tab-track]")!;
+    expect(track.parentElement).toBe(scroller);
+    expect(track.style.pointerEvents).toBe("auto");
+    expect(track.style.height).toBe("100%");
+    for (const el of [
+      container.querySelector("[data-lobby-tab]")!,
+      ...container.querySelectorAll("[draggable]"),
+    ])
+      expect(track.contains(el)).toBe(true);
     const off: string[] = [];
     for (
-      let node: HTMLElement | null = scroller;
+      let node: HTMLElement | null = scroller.parentElement;
       node && node !== container.parentElement;
       node = node.parentElement
     )
@@ -120,6 +134,28 @@ describe("room tab bar scrolling (task 17537680)", () => {
       )
         off.push(node.outerHTML.slice(0, 80));
     expect(off).toEqual([]);
+  });
+
+  // The class rule: no pointer events, except under the iOS-only feature
+  // test, where the scroller keeps them so it still scrolls.
+  it("turns the scroller's pointer events off except on iOS", () => {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(CSS);
+    const declared = (rules: CSSRuleList) =>
+      [...rules]
+        .filter(
+          (r): r is CSSStyleRule =>
+            r instanceof CSSStyleRule &&
+            r.selectorText === ".room-tab-scroller",
+        )
+        .map((r) => r.style.pointerEvents);
+    expect(declared(sheet.cssRules)).toEqual(["none"]);
+    const ios = [...sheet.cssRules].filter(
+      (r): r is CSSSupportsRule =>
+        r instanceof CSSSupportsRule &&
+        r.conditionText.replace(/\s/g, "") === "(-webkit-touch-callout:none)",
+    );
+    expect(ios.flatMap((r) => declared(r.cssRules))).toEqual(["auto"]);
   });
 
   it("puts every sticker inside its own tab, in the scrolled content", () => {

@@ -1,7 +1,7 @@
 // The trap door to the back room (task 5b503e32): a wooden hatch on the front
 // floor of every ordinary room, so a click or a dropped desk reaches the back
-// room at any time (task f0af4677). Light comes through the planks while a
-// back agent works, and badges above it count back agents that wait on a
+// room at any time (task f0af4677). Light comes through the planks and the
+// lamp on it is lit while a back agent works (task 7e325e1b), and badges above it count back agents that wait on a
 // person (asking) or failed; unread output shows only on the back screen
 // (Nil, task f0af4677). An empty back room leaves it closed and quiet.
 
@@ -38,6 +38,8 @@ const poly = (s: number) =>
     .map((p) => `${p.x} ${p.y}`)
     .join(" L") +
   " Z";
+// Where the lamp stands: the far corner, across from the ring handle.
+const LAMP = pt(-0.62, -0.55);
 
 export function TrapDoor({
   attention,
@@ -153,6 +155,41 @@ export function TrapDoor({
               </g>
             );
           })}
+          {/* The lamp on the far corner: lit while any back agent has a turn
+              in flight, off otherwise; it shows no count (task 7e325e1b). */}
+          <g data-trap-door-lamp={lit ? "on" : "off"}>
+            {lit && (
+              <circle
+                cx={LAMP.x}
+                cy={LAMP.y - 3}
+                r={11}
+                fill="#ffcf6b"
+                opacity={0.75}
+                filter="url(#trap-door-glow)"
+              />
+            )}
+            <ellipse
+              cx={LAMP.x}
+              cy={LAMP.y}
+              rx={6.5}
+              ry={3.2}
+              fill="#2b2622"
+            />
+            <path
+              d={`M${LAMP.x - 5} ${LAMP.y} A5 5.5 0 0 1 ${LAMP.x + 5} ${LAMP.y} Z`}
+              fill={lit ? "#ffd970" : "#5a5f66"}
+              stroke={lit ? "#fff3c4" : "#3a3d42"}
+              strokeWidth={0.8}
+            />
+            <ellipse
+              cx={LAMP.x - 1.8}
+              cy={LAMP.y - 3.4}
+              rx={1.4}
+              ry={1}
+              fill="#fff"
+              opacity={lit ? 0.9 : 0.35}
+            />
+          </g>
           <ellipse
             cx={pt(0.62, 0.55).x}
             cy={pt(0.62, 0.55).y}

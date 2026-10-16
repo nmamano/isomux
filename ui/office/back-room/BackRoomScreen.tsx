@@ -235,7 +235,9 @@ function Figure({
           whiteSpace: "nowrap",
         }}
       >
-        <StatusLight state={agent.state} size={6} />
+        {/* Larger than the plate's text needs, with a dark edge: at 6px with
+            no edge the lights were too faint on the plates (task 634dbde6). */}
+        <StatusLight state={agent.state} size={8} ring />
         <span
           {...noTranslate()}
           style={{

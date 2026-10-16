@@ -7,6 +7,15 @@ export const CSS = `
   ::-webkit-scrollbar-thumb { background:var(--bg-hover); border-radius:3px; }
   .hide-scrollbar::-webkit-scrollbar { display:none; }
   .hide-scrollbar { scrollbar-width:none; -ms-overflow-style:none; }
+  /* ui/office/RoomTabBar.tsx: the tab scroller reaches below the bar for the
+     ghost stickers. Only its track takes pointer events, so that strip passes
+     clicks to the office. iOS does not scroll an overflow box with
+     pointer-events none (WebKit bug 183870), so there the scroller keeps them
+     (tasks 17537680, d4f9210e). */
+  .room-tab-scroller { pointer-events:none; }
+  @supports (-webkit-touch-callout: none) {
+    .room-tab-scroller { pointer-events:auto; }
+  }
 
   @keyframes waitBounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
   @keyframes errShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-2px)} 75%{transform:translateX(2px)} }

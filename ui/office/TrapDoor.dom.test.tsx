@@ -54,6 +54,23 @@ describe("TrapDoor", () => {
     expect(view.container.querySelector("[filter]")).not.toBeNull();
   });
 
+  // A binary lamp: lit for any number of working back agents, off for none,
+  // whatever else the back room holds (task 7e325e1b).
+  it("lights its lamp while any back agent works, and only then", () => {
+    const lamp = (attention: typeof NONE) => {
+      const { view } = show({ attention });
+      const state = view.container
+        .querySelector("[data-trap-door-lamp]")
+        ?.getAttribute("data-trap-door-lamp");
+      cleanup();
+      return state;
+    };
+    expect(lamp(NONE)).toBe("off");
+    expect(lamp({ agents: 3, working: 0, asking: 1, error: 1 })).toBe("off");
+    expect(lamp({ ...NONE, agents: 1, working: 1 })).toBe("on");
+    expect(lamp({ ...NONE, agents: 9, working: 7 })).toBe("on");
+  });
+
   it("marks itself as the drop target while a desk is dragged", () => {
     const { view } = show();
     act(() => {
