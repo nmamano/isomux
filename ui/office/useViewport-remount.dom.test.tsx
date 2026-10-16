@@ -34,6 +34,15 @@ function fakeLayout() {
     Element.prototype,
     "getBoundingClientRect",
   )!;
+  // happy-dom's own getters live on HTMLElement.prototype: the undo puts
+  // them back, or every later file in the process reads undefined.
+  const originalSizes = (["clientWidth", "clientHeight"] as const).map(
+    (key) =>
+      [
+        key,
+        Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)!,
+      ] as const,
+  );
   // As in a browser, a new observation reports the element's size once.
   globalThis.ResizeObserver = class {
     constructor(private cb: () => void) {}
@@ -73,8 +82,8 @@ function fakeLayout() {
       "getBoundingClientRect",
       originalRect,
     );
-    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
-    delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    for (const [key, descriptor] of originalSizes)
+      Object.defineProperty(HTMLElement.prototype, key, descriptor);
   };
 }
 
