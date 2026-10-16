@@ -2,8 +2,8 @@
 // floor of every ordinary room, so a click or a dropped desk reaches the back
 // room at any time (task f0af4677). Light comes through the planks while a
 // back agent works. The lamp on it is red while a back agent is in error,
-// green while one works, and off otherwise; it shows no count (Nil, task
-// 7e325e1b). An empty back room leaves it closed and quiet.
+// else yellow while one waits on a permission prompt, else green while one
+// works, and off otherwise; it shows no count (Nil, task 7e325e1b). An empty back room leaves it closed and quiet.
 
 import { useState } from "react";
 import { useI18n } from "../i18n.tsx";
@@ -24,6 +24,7 @@ export const TRAP_DOOR_HIT = { w: 120, h: 86 };
 export interface BackRoomAttention {
   agents: number;
   working: number;
+  asking: number;
   error: number;
 }
 
@@ -39,6 +40,12 @@ const poly = (s: number) =>
   " Z";
 // Where the lamp stands: the far corner, across from the ring handle.
 const LAMP = pt(-0.62, -0.55);
+const LAMP_COLORS: Record<string, string | null> = {
+  error: "#ff5a5a",
+  asking: "#ffc93c",
+  working: "#4fdc7c",
+  off: null,
+};
 
 export function TrapDoor({
   attention,
@@ -56,9 +63,15 @@ export function TrapDoor({
   const dragging = useDeskDrag();
   const [over, setOver] = useState(false);
   const lit = attention.working > 0;
-  const lamp = attention.error > 0 ? "error" : lit ? "working" : "off";
-  const lampColor =
-    lamp === "error" ? "#ff5a5a" : lamp === "working" ? "#4fdc7c" : null;
+  const lamp =
+    attention.error > 0
+      ? "error"
+      : attention.asking > 0
+        ? "asking"
+        : lit
+          ? "working"
+          : "off";
+  const lampColor = LAMP_COLORS[lamp];
   const left = TRAP_DOOR_CENTER.x - VB_X - TRAP_DOOR_HIT.w / 2;
   const top = TRAP_DOOR_CENTER.y - VB_Y - TRAP_DOOR_HIT.h / 2;
 

@@ -13,7 +13,7 @@ const { setDraggedDesk } = await import("./drag-state.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
 const EN = translatorFor("en");
-const NONE = { agents: 0, working: 0, error: 0 };
+const NONE = { agents: 0, working: 0, asking: 0, error: 0 };
 
 afterEach(() => {
   cleanup();
@@ -54,9 +54,10 @@ describe("TrapDoor", () => {
     expect(view.container.querySelector("[filter]")).not.toBeNull();
   });
 
-  // The lamp: red while any back agent is in error, else green while any
-  // works, else off; no count (Nil, task 7e325e1b).
-  it("lights its lamp red on an error, green while an agent works, else off", () => {
+  // The lamp: red while any back agent is in error, else yellow while one
+  // waits on a permission prompt, else green while one works, else off; no
+  // count (Nil, task 7e325e1b).
+  it("lights its lamp red, then yellow, then green, else off", () => {
     const lamp = (attention: typeof NONE) => {
       const { view } = show({ attention });
       const state = view.container
@@ -70,7 +71,9 @@ describe("TrapDoor", () => {
     expect(lamp({ ...NONE, agents: 1, working: 1 })).toBe("working");
     expect(lamp({ ...NONE, agents: 9, working: 7 })).toBe("working");
     expect(lamp({ ...NONE, agents: 2, error: 1 })).toBe("error");
-    expect(lamp({ agents: 9, working: 7, error: 1 })).toBe("error");
+    expect(lamp({ agents: 9, working: 7, asking: 1, error: 1 })).toBe("error");
+    expect(lamp({ ...NONE, agents: 2, asking: 1 })).toBe("asking");
+    expect(lamp({ ...NONE, agents: 9, working: 7, asking: 1 })).toBe("asking");
   });
 
   it("marks itself as the drop target while a desk is dragged", () => {
@@ -89,8 +92,10 @@ describe("TrapDoor", () => {
     expect(view.container.textContent).toBe("");
   });
 
-  it("shows no count chip for working or failed back agents", () => {
-    const { view } = show({ attention: { agents: 5, working: 2, error: 1 } });
+  it("shows no count chip for working, asking or failed back agents", () => {
+    const { view } = show({
+      attention: { agents: 5, working: 2, asking: 1, error: 1 },
+    });
     expect(view.container.textContent).toBe("");
   });
 
