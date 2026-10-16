@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { PresenceInfo } from "../../shared/types.ts";
-import { selectMiniGhosts } from "./MiniGhostCluster.tsx";
+import {
+  miniGhostClusterWidth,
+  selectMiniGhosts,
+} from "./MiniGhostCluster.tsx";
 
 function presence(
   connectionId: string,
@@ -42,5 +45,13 @@ describe("selectMiniGhosts", () => {
       "reader-2",
       "reader-3",
     ]);
+  });
+});
+
+describe("miniGhostClusterWidth", () => {
+  it("is zero for no ghosts, one ghost for one, then each overlapped step", () => {
+    expect(miniGhostClusterWidth(0, 20, -6)).toBe(0);
+    expect(miniGhostClusterWidth(1, 20, -6)).toBe(20);
+    expect(miniGhostClusterWidth(5, 20, -6)).toBe(20 + 4 * 14);
   });
 });

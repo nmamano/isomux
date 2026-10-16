@@ -17,6 +17,15 @@ export function selectMiniGhosts(
     .slice(0, max);
 }
 
+/** The width a cluster of `count` ghosts takes. */
+export function miniGhostClusterWidth(
+  count: number,
+  size: number,
+  overlap: number,
+): number {
+  return count === 0 ? 0 : size + (count - 1) * (size + overlap);
+}
+
 export function MiniGhostCluster({
   presences,
   selfConnectionId,

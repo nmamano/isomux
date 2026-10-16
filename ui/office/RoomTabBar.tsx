@@ -7,7 +7,11 @@ import type {
   TuckedRoomsReq,
   ViewOrderReq,
 } from "../../shared/contract-shapes.ts";
-import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
+import {
+  MiniGhostCluster,
+  miniGhostClusterWidth,
+  selectMiniGhosts,
+} from "./MiniGhostCluster.tsx";
 import type { PresenceInfo } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
@@ -29,15 +33,16 @@ import {
 import type { MoveAgentReq } from "../../shared/contract-shapes.ts";
 
 // Per-tab mini ghosts sit on the tab like stickers (Nil, task 90f655b0):
-// centered on the pill's bottom edge, over a little of the room name and
-// out below the bar, so they take no width in the row.
-const MINI_GHOST_SIZE = 16;
+// centered on the pill's bottom edge, over the bottom of the room name and
+// out below the bar. A tab is at least as wide as its stickers, so the
+// stickers of two short tabs side by side do not run into each other.
+const MINI_GHOST_SIZE = 20;
 const MAX_MINI_GHOSTS = 5;
-// Each ghost after the first shows 10px past the previous one.
+// Each ghost after the first shows 14px past the previous one.
 const MINI_GHOST_OVERLAP = -6;
 // How far the scroller reaches below the bar, so the stickers that stick out
 // below it are not clipped by its overflow.
-const GHOST_STICK_OUT = 8;
+const GHOST_STICK_OUT = 14;
 
 export { roomActivityDotColor };
 
@@ -583,6 +588,15 @@ export function RoomTabBar({
               const isDropTarget = dragOver === room.id;
               const fromIdx = barRooms.findIndex((r) => r.id === dragFrom);
               const roomPresences = presencesByRoom.get(room.id) ?? [];
+              const stickerWidth = miniGhostClusterWidth(
+                selectMiniGhosts(
+                  roomPresences,
+                  selfConnectionId,
+                  MAX_MINI_GHOSTS,
+                ).length,
+                MINI_GHOST_SIZE,
+                MINI_GHOST_OVERLAP,
+              );
 
               return (
                 <div
@@ -661,6 +675,8 @@ export function RoomTabBar({
                       WebkitTouchCallout: "none",
                       display: "inline-flex",
                       alignItems: "center",
+                      justifyContent: "center",
+                      minWidth: stickerWidth,
                       // Keep multi-word room names on a single line so the
                       // active border surrounds a fixed-height pill regardless
                       // of name length. Without this, names that didn't fit
@@ -678,7 +694,7 @@ export function RoomTabBar({
                         position: "absolute",
                         left: "50%",
                         top: "100%",
-                        transform: "translate(-50%, -45%)",
+                        transform: "translate(-50%, -33%)",
                         display: "flex",
                         zIndex: 1,
                       }}
@@ -689,11 +705,9 @@ export function RoomTabBar({
                         size={MINI_GHOST_SIZE}
                         max={MAX_MINI_GHOSTS}
                         overlap={MINI_GHOST_OVERLAP}
-                        // A thin light edge and a soft shadow make each ghost
-                        // read as a sticker on the tab.
+                        // A soft shadow lifts each ghost off the tab.
                         ghostStyle={{
-                          filter:
-                            "drop-shadow(0 0 0.6px #fff) drop-shadow(0 0 0.6px #fff) drop-shadow(0 1px 1px rgba(0,0,0,0.35))",
+                          filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.35))",
                         }}
                       />
                     </span>

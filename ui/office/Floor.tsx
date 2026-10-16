@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import {
   SCENE_W,
   SCENE_H,
@@ -27,6 +27,12 @@ import {
 } from "./plants.tsx";
 import { useAppState } from "../store.tsx";
 import { DecorWalls, useCurrentRoomDecor } from "./skins/index.tsx";
+import {
+  DOOR_LABEL_END,
+  DOOR_LABEL_SIZE,
+  fitDoorLabel,
+  type DoorLabelFit,
+} from "./door-label.ts";
 import { useI18n } from "../i18n.tsx";
 import { landingUrl } from "../../shared/i18n/site-url.ts";
 
@@ -730,6 +736,49 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
   const [seen, setSeen] = useState({ pass, swings: 0 });
   const swings = pass > seen.pass ? seen.swings + 1 : seen.swings;
   if (pass !== seen.pass) setSeen({ pass, swings });
+  // The label is measured in the real font by a hidden copy that holds the
+  // full name and an ellipsis, then fitted to the wall (door-label.ts). Until
+  // the first measurement it draws centred and whole.
+  const measureRef = useRef<SVGTextElement>(null);
+  const [fit, setFit] = useState<DoorLabelFit | null>(null);
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el || typeof el.getSubStringLength !== "function") return;
+    let live = true;
+    const label = door.label;
+    const measure = () => {
+      if (!live) return;
+      const prefix = (n: number) => (n > 0 ? el.getSubStringLength(0, n) : 0);
+      setFit(
+        fitDoorLabel(
+          label,
+          prefix,
+          el.getComputedTextLength() - prefix(label.length),
+        ),
+      );
+    };
+    measure();
+    // A web font that loads later changes every width.
+    void document.fonts?.ready.then(measure);
+    return () => {
+      live = false;
+    };
+  }, [door.label]);
+  const labelFit = fit ?? {
+    text: door.label,
+    size: DOOR_LABEL_SIZE,
+    atWallEnd: false,
+  };
+  const labelAnchor = !labelFit.atWallEnd
+    ? "middle"
+    : side === "right"
+      ? "end"
+      : "start";
+  const labelX = !labelFit.atWallEnd
+    ? 0
+    : side === "right"
+      ? DOOR_LABEL_END
+      : -DOOR_LABEL_END;
   return (
     <g
       data-no-pan
@@ -886,9 +935,19 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
         </g>
         <g transform={`skewY(${skewDeg})`}>
           <text
-            x="0"
+            ref={measureRef}
+            aria-hidden="true"
+            visibility="hidden"
+            fontSize={DOOR_LABEL_SIZE}
+            fontWeight="600"
+            style={{ fontFamily: "var(--font-ui)" }}
+          >
+            {door.label}…
+          </text>
+          <text
+            x={labelX}
             y="-98"
-            textAnchor="middle"
+            textAnchor={labelAnchor}
             fill={
               door.reject
                 ? "var(--red-text)"
@@ -896,12 +955,11 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
                   ? "var(--accent-text)"
                   : "var(--text-dim)"
             }
-            fontSize="12"
-            fontFamily="'JetBrains Mono',monospace"
+            fontSize={labelFit.size}
             fontWeight="600"
-            style={{ userSelect: "none" }}
+            style={{ fontFamily: "var(--font-ui)", userSelect: "none" }}
           >
-            {door.label}
+            {labelFit.text}
           </text>
         </g>
       </g>
