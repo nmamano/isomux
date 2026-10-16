@@ -1,9 +1,9 @@
 // The trap door to the back room (task 5b503e32): a wooden hatch on the front
 // floor of every ordinary room, so a click or a dropped desk reaches the back
-// room at any time (task f0af4677). Light comes through the planks and the
-// lamp on it is lit while a back agent works (task 7e325e1b), and badges above it count back agents that wait on a
-// person (asking) or failed; unread output shows only on the back screen
-// (Nil, task f0af4677). An empty back room leaves it closed and quiet.
+// room at any time (task f0af4677). Light comes through the planks while a
+// back agent works. The lamp on it is red while a back agent is in error,
+// green while one works, and off otherwise; it shows no count (Nil, task
+// 7e325e1b). An empty back room leaves it closed and quiet.
 
 import { useState } from "react";
 import { useI18n } from "../i18n.tsx";
@@ -24,7 +24,6 @@ export const TRAP_DOOR_HIT = { w: 120, h: 86 };
 export interface BackRoomAttention {
   agents: number;
   working: number;
-  asking: number;
   error: number;
 }
 
@@ -57,21 +56,11 @@ export function TrapDoor({
   const dragging = useDeskDrag();
   const [over, setOver] = useState(false);
   const lit = attention.working > 0;
+  const lamp = attention.error > 0 ? "error" : lit ? "working" : "off";
+  const lampColor =
+    lamp === "error" ? "#ff5a5a" : lamp === "working" ? "#4fdc7c" : null;
   const left = TRAP_DOOR_CENTER.x - VB_X - TRAP_DOOR_HIT.w / 2;
   const top = TRAP_DOOR_CENTER.y - VB_Y - TRAP_DOOR_HIT.h / 2;
-  const badges: Array<{ text: string; bg: string; fg: string }> = [];
-  if (attention.asking)
-    badges.push({
-      text: t("office.backRoom.asking", { count: attention.asking }),
-      bg: "var(--orange-text)",
-      fg: "var(--bg-base)",
-    });
-  if (attention.error)
-    badges.push({
-      text: t("office.backRoom.error", { count: attention.error }),
-      bg: "var(--red)",
-      fg: "#fff",
-    });
 
   return (
     <>
@@ -155,15 +144,14 @@ export function TrapDoor({
               </g>
             );
           })}
-          {/* The lamp on the far corner: lit while any back agent has a turn
-              in flight, off otherwise; it shows no count (task 7e325e1b). */}
-          <g data-trap-door-lamp={lit ? "on" : "off"}>
-            {lit && (
+          {/* The lamp on the far corner (task 7e325e1b). */}
+          <g data-trap-door-lamp={lamp}>
+            {lampColor && (
               <circle
                 cx={LAMP.x}
                 cy={LAMP.y - 3}
                 r={11}
-                fill="#ffcf6b"
+                fill={lampColor}
                 opacity={0.75}
                 filter="url(#trap-door-glow)"
               />
@@ -171,8 +159,8 @@ export function TrapDoor({
             <ellipse cx={LAMP.x} cy={LAMP.y} rx={6.5} ry={3.2} fill="#2b2622" />
             <path
               d={`M${LAMP.x - 5} ${LAMP.y} A5 5.5 0 0 1 ${LAMP.x + 5} ${LAMP.y} Z`}
-              fill={lit ? "#ffd970" : "#5a5f66"}
-              stroke={lit ? "#fff3c4" : "#3a3d42"}
+              fill={lampColor ?? "#5a5f66"}
+              stroke={lampColor ? "#ffffff" : "#3a3d42"}
               strokeWidth={0.8}
             />
             <ellipse
@@ -181,7 +169,7 @@ export function TrapDoor({
               rx={1.4}
               ry={1}
               fill="#fff"
-              opacity={lit ? 0.9 : 0.35}
+              opacity={lampColor ? 0.9 : 0.35}
             />
           </g>
           <ellipse
@@ -206,9 +194,9 @@ export function TrapDoor({
           )}
         </svg>
       </div>
-      {(dragging || badges.length > 0) && (
+      {dragging && (
         // A sibling of the hatch, not a child: the hatch sits under the desks,
-        // and the badges must sit above them.
+        // and the drop badge must sit above them.
         <div
           style={{
             position: "absolute",
@@ -222,41 +210,22 @@ export function TrapDoor({
             zIndex: 9000,
           }}
         >
-          {dragging ? (
-            <span
-              style={{
-                padding: "5px 10px",
-                borderRadius: 14,
-                background: backFull ? "var(--red)" : "var(--accent-text)",
-                color: "var(--bg-base)",
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-              }}
-            >
-              {backFull
-                ? t("office.backRoom.fullBadge")
-                : t("office.backRoom.dropBadge")}
-            </span>
-          ) : (
-            badges.map((b) => (
-              <span
-                key={b.text}
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: b.fg,
-                  background: b.bg,
-                  padding: "1px 6px",
-                  borderRadius: 8,
-                  boxShadow: "0 1px 4px rgba(0,0,0,.2)",
-                }}
-              >
-                {b.text}
-              </span>
-            ))
-          )}
+          <span
+            style={{
+              padding: "5px 10px",
+              borderRadius: 14,
+              background: backFull ? "var(--red)" : "var(--accent-text)",
+              color: "var(--bg-base)",
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+            }}
+          >
+            {backFull
+              ? t("office.backRoom.fullBadge")
+              : t("office.backRoom.dropBadge")}
+          </span>
         </div>
       )}
     </>

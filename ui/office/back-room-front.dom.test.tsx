@@ -74,12 +74,15 @@ it("counts front agents in the header and shows back agents only through the tra
     new RegExp(`${n}\\s*${EN.t(key as never)}`);
   expect(text).toMatch(count(1, "office.status.waiting"));
   expect(text).not.toMatch(count(1, "office.status.working"));
-  // "1 error" shows once: the trap door's badge, not a header count.
-  const errorText = EN.t("office.backRoom.error", { count: 1 });
-  expect(text.split(errorText)).toHaveLength(2);
-  // The trap door shows, with the back room's error.
+  expect(text).not.toMatch(count(1, "office.status.error"));
+  // The trap door shows, its lamp red for the back room's error.
   const hatch = view.container.querySelector("[data-trap-door]");
   expect(hatch).not.toBeNull();
+  expect(
+    hatch
+      ?.querySelector("[data-trap-door-lamp]")
+      ?.getAttribute("data-trap-door-lamp"),
+  ).toBe("error");
   expect(hatch?.getAttribute("aria-label")).toContain("2");
 });
 

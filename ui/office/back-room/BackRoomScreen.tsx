@@ -229,7 +229,9 @@ function Figure({
           gap: 3,
           maxWidth: 96,
           padding: "1px 6px 1px 4px",
-          background: plate.bg,
+          // The model tint over a mostly solid base, so the name reads on
+          // the brick and the tables (Nil, task 634dbde6).
+          background: `linear-gradient(${plate.bg}, ${plate.bg}), color-mix(in srgb, var(--bg-base) 75%, transparent)`,
           border: `1px solid ${plate.border}`,
           borderRadius: 10,
           whiteSpace: "nowrap",

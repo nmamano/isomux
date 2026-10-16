@@ -2013,8 +2013,6 @@ Coses que pots fer per ell:
   "office.status.idle": "inactius",
   "office.backRoom.tooltip.one": "Rebotiga · {count} agent",
   "office.backRoom.tooltip.other": "Rebotiga · {count} agents",
-  "office.backRoom.asking": "{count} preguntant",
-  "office.backRoom.error": "{count} amb error",
   "office.backRoom.dropBadge": "Mou a la rebotiga",
   "office.backRoom.fullBadge": "La rebotiga és plena",
   "office.backRoom.title": "Rebotiga",

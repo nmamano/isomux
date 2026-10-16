@@ -1,5 +1,5 @@
 // The trap door to the back room (tasks 5b503e32 and f0af4677): it is always
-// there, what its light and badges show, and what a dropped desk does.
+// there, what its light and lamp show, and what a dropped desk does.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -13,7 +13,7 @@ const { setDraggedDesk } = await import("./drag-state.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
 const EN = translatorFor("en");
-const NONE = { agents: 0, working: 0, asking: 0, error: 0 };
+const NONE = { agents: 0, working: 0, error: 0 };
 
 afterEach(() => {
   cleanup();
@@ -44,7 +44,7 @@ describe("TrapDoor", () => {
   it("shows with an empty back room, closed and quiet", () => {
     const { view, hatch } = show();
     expect(hatch()).not.toBeNull();
-    // No plank light and no badges.
+    // No plank light and no text.
     expect(view.container.querySelector("[filter]")).toBeNull();
     expect(view.container.textContent).toBe("");
   });
@@ -54,9 +54,9 @@ describe("TrapDoor", () => {
     expect(view.container.querySelector("[filter]")).not.toBeNull();
   });
 
-  // A binary lamp: lit for any number of working back agents, off for none,
-  // whatever else the back room holds (task 7e325e1b).
-  it("lights its lamp while any back agent works, and only then", () => {
+  // The lamp: red while any back agent is in error, else green while any
+  // works, else off; no count (Nil, task 7e325e1b).
+  it("lights its lamp red on an error, green while an agent works, else off", () => {
     const lamp = (attention: typeof NONE) => {
       const { view } = show({ attention });
       const state = view.container
@@ -66,9 +66,11 @@ describe("TrapDoor", () => {
       return state;
     };
     expect(lamp(NONE)).toBe("off");
-    expect(lamp({ agents: 3, working: 0, asking: 1, error: 1 })).toBe("off");
-    expect(lamp({ ...NONE, agents: 1, working: 1 })).toBe("on");
-    expect(lamp({ ...NONE, agents: 9, working: 7 })).toBe("on");
+    expect(lamp({ ...NONE, agents: 3 })).toBe("off");
+    expect(lamp({ ...NONE, agents: 1, working: 1 })).toBe("working");
+    expect(lamp({ ...NONE, agents: 9, working: 7 })).toBe("working");
+    expect(lamp({ ...NONE, agents: 2, error: 1 })).toBe("error");
+    expect(lamp({ agents: 9, working: 7, error: 1 })).toBe("error");
   });
 
   it("marks itself as the drop target while a desk is dragged", () => {
@@ -87,19 +89,9 @@ describe("TrapDoor", () => {
     expect(view.container.textContent).toBe("");
   });
 
-  it("counts asking and error back agents, and hides a zero", () => {
-    const { view } = show({
-      attention: { agents: 5, working: 2, asking: 1, error: 1 },
-    });
-    const text = view.container.textContent ?? "";
-    expect(text).toContain(EN.t("office.backRoom.asking", { count: 1 }));
-    expect(text).toContain(EN.t("office.backRoom.error", { count: 1 }));
-    cleanup();
-    const quiet = show({
-      attention: { agents: 5, working: 2, asking: 1, error: 0 },
-    });
-    const rest = quiet.view.container.textContent ?? "";
-    expect(rest).not.toContain(EN.t("office.backRoom.error", { count: 0 }));
+  it("shows no count chip for working or failed back agents", () => {
+    const { view } = show({ attention: { agents: 5, working: 2, error: 1 } });
+    expect(view.container.textContent).toBe("");
   });
 
   it("moves a dropped desk to the back room, unless the back room is full", () => {

@@ -1800,8 +1800,6 @@ App 的一些原则：
   "office.status.idle": "空闲",
   "office.backRoom.tooltip.one": "后屋 · {count} 位智能体",
   "office.backRoom.tooltip.other": "后屋 · {count} 位智能体",
-  "office.backRoom.asking": "{count} 在提问",
-  "office.backRoom.error": "{count} 出错",
   "office.backRoom.dropBadge": "移到后屋",
   "office.backRoom.fullBadge": "后屋已满",
   "office.backRoom.title": "后屋",

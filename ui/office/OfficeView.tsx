@@ -393,7 +393,6 @@ export function OfficeView({
     working: backAgents.filter(
       (a) => a.state === "thinking" || a.state === "tool_executing",
     ).length,
-    asking: backAgents.filter((a) => a.pendingPrompt != null).length,
     error: backAgents.filter((a) => a.state === "error").length,
   };
   // A room takes no more agents when its front, and its back room where it

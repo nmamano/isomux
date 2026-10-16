@@ -2012,8 +2012,6 @@ Cosas que puedes hacer por él:
   "office.status.idle": "inactivos",
   "office.backRoom.tooltip.one": "Trastienda · {count} agente",
   "office.backRoom.tooltip.other": "Trastienda · {count} agentes",
-  "office.backRoom.asking": "{count} preguntando",
-  "office.backRoom.error": "{count} con error",
   "office.backRoom.dropBadge": "Mover a la trastienda",
   "office.backRoom.fullBadge": "La trastienda está llena",
   "office.backRoom.title": "Trastienda",

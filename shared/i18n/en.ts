@@ -1968,8 +1968,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "office.status.idle": "idle",
   "office.backRoom.tooltip.one": "Back room · {count} agent",
   "office.backRoom.tooltip.other": "Back room · {count} agents",
-  "office.backRoom.asking": "{count} asking",
-  "office.backRoom.error": "{count} error",
   "office.backRoom.dropBadge": "Move to back room",
   "office.backRoom.fullBadge": "Back room is full",
   "office.backRoom.title": "Back room",
