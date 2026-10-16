@@ -397,7 +397,6 @@ Coses que pots fer per ell:
   "preferences.saved": "Desat.",
   "preferences.saveFailed": "No s'ha pogut desar",
 
-  "settings.backToOffice": "Torna a l'oficina",
   "settings.selectHint": "Tria una opció de la llista",
   "settings.profilesNote":
     "Els perfils d'membre es desen al servidor. Les teves notificacions i credencials et segueixen entre dispositius.",

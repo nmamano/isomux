@@ -101,7 +101,7 @@ describe("the Integrations page in the office", () => {
       "/integrations",
     ]);
     await act(async () => {
-      view.getByRole("button", { name: t("settings.backToOffice") }).click();
+      view.getByRole("button", { name: t("common.back") }).click();
     });
     expect(page(view)).toBeNull();
   });

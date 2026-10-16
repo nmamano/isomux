@@ -1388,6 +1388,7 @@ export function TaskView({
 
   return (
     <div
+      data-tasks-page=""
       style={{
         height: isMobile
           ? "calc(100dvh - var(--banner-h, 0px))"
@@ -1436,6 +1437,7 @@ export function TaskView({
           >
             <button
               onClick={onClose}
+              data-page-close=""
               style={{
                 background: "none",
                 border: "none",

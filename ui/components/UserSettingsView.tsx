@@ -5,7 +5,7 @@ import { ordinaryRooms } from "../../shared/types.ts";
 // The full-page Settings surface (master-detail), replacing the old crowded modal
 // (UserManagementModal). Entered and exited like the Tasks page: rendered in
 // App's main view switch, closed via the header back arrow, ESC, or the
-// browser back button (goHome → popstate).
+// browser back button (popstate).
 //
 // Layout: a sidebar (master) shows the account section (Access / Invites /
 // Sessions for owners, My devices for members) ABOVE the user list - so the
@@ -316,7 +316,7 @@ export function UserSettingsView({
 
   // ESC: mobile detail → back to the list; otherwise leave the page. Both
   // routed through the dirty check. Capture + stopPropagation so App's own
-  // Escape handler (goHome, which knows nothing of unsaved edits) never sees
+  // Escape handler (closeLog, which knows nothing of unsaved edits) never sees
   // it. No deps - re-registers every render so the closures stay fresh.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -510,13 +510,15 @@ export function UserSettingsView({
           zIndex: 500,
         }}
       >
-        {/* Leaves the page for the office. On a phone the detail pane adds
-            its own back control below, which goes to the sidebar list, so a
-            bare arrow here would read as one more "back to Settings" - it
-            says where it goes instead. Desktop shows no second control and
-            keeps the bare arrow the Tasks and Automations pages use. */}
+        {/* Closes the page, back to what it was opened over. On a phone the
+            detail pane adds its own back control below, which goes to the
+            sidebar list, so a bare arrow or "Back" here would read as one
+            more "back to Settings" - it says Close instead. Desktop shows no
+            second control and keeps the bare arrow the Tasks and Automations
+            pages use. */}
         <button
           onClick={() => leaveEdit(() => onClose())}
+          data-page-close=""
           style={{
             background: "none",
             border: "none",
@@ -529,7 +531,7 @@ export function UserSettingsView({
             whiteSpace: "nowrap",
           }}
         >
-          {isMobile ? <>&larr; {t("settings.backToOffice")}</> : <>&larr;</>}
+          {isMobile ? <>&larr; {t("common.close")}</> : <>&larr;</>}
         </button>
         <span
           style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}

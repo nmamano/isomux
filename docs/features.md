@@ -98,7 +98,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 - **Number keys 1–8** jump to agents from office view.
 - **Tab / Shift+Tab** cycle between agents in chat view.
-- **Escape** returns to office.
+- **Escape** closes the page on top and returns to what was under it.
 - **b** goes between a room's front and its back room.
 - **t**, **a**, **i** and **s** open Tasks, Apps, Integrations and Settings when no text field has focus. Press t, a or i again to close the page.
 - **Built-in slash commands**: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort`, `/plan`. Claude agents also run Claude Code's `/code-review` (or `/review`) and `/simplify`, with their options.

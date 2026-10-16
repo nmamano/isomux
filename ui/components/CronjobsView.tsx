@@ -286,7 +286,7 @@ export function CronjobsView({
     );
   }, [allRuns, runFilter, roomFilter, cronjobs, roomOptions]);
 
-  // ESC closes (handled at App level by goHome → popstate; local Escape just dismisses our overlays)
+  // ESC closes (handled at App level by closeLog; local Escape just dismisses our overlays)
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {

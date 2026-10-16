@@ -29,10 +29,13 @@ const { createElement } = await import("react");
 
 type View = ReturnType<typeof render>;
 
+// The Apps page, linked in the second test, lists its apps from the API.
 setApiShim(async (_method, path) =>
   path.startsWith("/api/memory")
     ? { text: "", version: "0", size: 0, cap: 4000 }
-    : {},
+    : path === "/api/apps"
+      ? []
+      : {},
 );
 
 afterAll(() => {
@@ -61,6 +64,10 @@ beforeEach(() => {
 
 const taskPageOpen = (view: View) =>
   view.queryByPlaceholderText(/Quick add a task/) !== null;
+const appsPageOpen = (view: View) =>
+  view.baseElement.querySelector("[data-apps-page]") !== null;
+const chatShowing = (view: View) =>
+  view.container.querySelector(".log-view-shell") !== null;
 // The office is the only view that renders the nav bar.
 const officeShowing = (view: View) => view.queryByTitle("Tasks (t)") !== null;
 
@@ -102,14 +109,14 @@ describe("a cold link over a restored chat", () => {
     canCloseWhenEmpty: true,
   };
 
-  function bootWithSavedAgent(): View {
+  function bootWithSavedAgent(path = "/tasks"): View {
     saveView("ricky", {
       roomId: "r1",
       agentId: "a1",
       panel: "apps",
       lobby: false,
     });
-    window.history.replaceState(null, "", "/tasks");
+    window.history.replaceState(null, "", path);
     setShim(
       () => {},
       () => {
@@ -166,6 +173,74 @@ describe("a cold link over a restored chat", () => {
     expect(officeShowing(view)).toBe(true);
     expect(window.location.pathname).toBe("/");
     expect(window.history.length).toBe(entries);
+    back.mockRestore();
+  });
+
+  // The same unpushed entry under a stack (task d6c09d1c): each Escape closes
+  // one layer in place, and only the last one, from the chat, reaches the
+  // office - by a replace, since there is nothing underneath to go back to.
+  // Tasks over a linked Apps page, not Settings over Tasks: the settings page
+  // needs list payloads this real store would take from the {} shim as
+  // undefined.
+  it("closes Tasks over the linked page layer by layer, never calling back()", async () => {
+    const view = bootWithSavedAgent("/apps");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    const entries = window.history.length;
+    const back = spyOn(window.history, "back");
+    const escape = () =>
+      act(async () => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+      });
+
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "t", bubbles: true }),
+      );
+    });
+    expect(taskPageOpen(view)).toBe(true);
+    expect(window.location.pathname).toBe("/tasks");
+
+    await escape();
+    expect(taskPageOpen(view)).toBe(false);
+    expect(appsPageOpen(view)).toBe(true);
+    expect(window.location.pathname).toBe("/apps");
+
+    await escape();
+    expect(appsPageOpen(view)).toBe(false);
+    expect(chatShowing(view)).toBe(true);
+    expect(window.location.pathname).toBe("/");
+
+    await escape();
+    expect(chatShowing(view)).toBe(false);
+    expect(officeShowing(view)).toBe(true);
+    expect(window.location.pathname).toBe("/");
+    expect(window.history.length).toBe(entries);
+    expect(back).not.toHaveBeenCalled();
+    back.mockRestore();
+  });
+
+  // A second "a" closes the page the way Escape does: over the chat, in place.
+  it("closes the linked Apps page to that chat on a second a", async () => {
+    const view = bootWithSavedAgent("/apps");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(appsPageOpen(view)).toBe(true);
+    const back = spyOn(window.history, "back");
+
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "a", bubbles: true }),
+      );
+    });
+    expect(appsPageOpen(view)).toBe(false);
+    expect(chatShowing(view)).toBe(true);
+    expect(window.location.pathname).toBe("/");
+    expect(back).not.toHaveBeenCalled();
     back.mockRestore();
   });
 });

@@ -3,6 +3,8 @@ import {
   pageForPath,
   pathForPage,
   pageForFlags,
+  pageUnder,
+  flagForPage,
   pageShortcut,
   backRoomShortcut,
   pagerIdForSearch,
@@ -306,6 +308,105 @@ describe("page shortcuts and rendered-page precedence", () => {
         pagerOpen: true,
       }),
     ).toBe("settings");
+  });
+});
+
+describe("pageUnder", () => {
+  it("names each page by the flag that shows it", () => {
+    for (const page of PAGES)
+      expect(pageForFlags({ ...office, [flagForPage(page)]: true })).toBe(page);
+  });
+
+  it("is null with no page or one page open", () => {
+    expect(pageUnder(office)).toBeNull();
+    for (const page of PAGES)
+      expect(pageUnder({ ...office, [flagForPage(page)]: true })).toBeNull();
+  });
+
+  it("names the page that shows when the top one closes", () => {
+    // t then s from a chat (task d6c09d1c): Settings closes to Tasks.
+    let state = pressPageKey(office, "t");
+    state = pressPageKey(state, "s");
+    expect(pageForFlags(state)).toBe("settings");
+    expect(pageUnder(state)).toBe("tasks");
+    // a then t: Tasks sits over Apps.
+    state = pressPageKey(pressPageKey(office, "a"), "t");
+    expect(pageForFlags(state)).toBe("tasks");
+    expect(pageUnder(state)).toBe("apps");
+  });
+
+  // The invariant pageUnder rests on: every shortcut, from every flags state a
+  // member can reach, shows the page it opened on top. A key that opened its
+  // page under the one shown would make Escape close the wrong layer.
+  it("every shortcut shows the page it opens, from every reachable state", () => {
+    const KEY_PAGE: Record<string, Page> = {
+      t: "tasks",
+      a: "apps",
+      i: "integrations",
+      s: "settings",
+    };
+    const apply = (state: PageFlags, key: string): PageFlags | null => {
+      const update = pageShortcut({ key }, state);
+      if (update === null) return null;
+      const top = pageForFlags(state);
+      // "home" closes the page on top (App's closePage).
+      if (update === "home")
+        return top === null ? state : { ...state, [flagForPage(top)]: false };
+      return {
+        ...state,
+        ...update,
+        tasksOpen:
+          typeof update.tasksOpen === "function"
+            ? update.tasksOpen(state.tasksOpen)
+            : (update.tasksOpen ?? state.tasksOpen),
+      };
+    };
+    // Start from the office and from each page alone (the bar buttons, a
+    // link, a saved spot); close the top layer as Escape does.
+    const seen = new Map<string, PageFlags>();
+    const queue: PageFlags[] = [
+      office,
+      ...PAGES.map((page) => ({ ...office, [flagForPage(page)]: true })),
+    ];
+    while (queue.length > 0) {
+      const state = queue.shift()!;
+      const id = JSON.stringify(state);
+      if (seen.has(id)) continue;
+      seen.set(id, state);
+      const top = pageForFlags(state);
+      if (top !== null) queue.push({ ...state, [flagForPage(top)]: false });
+      for (const key of Object.keys(KEY_PAGE)) {
+        const next = apply(state, key);
+        if (next === null) continue;
+        queue.push(next);
+        const opened =
+          pageShortcut({ key }, state) !== "home" &&
+          !(key === "t" && state.tasksOpen);
+        if (opened) expect(pageForFlags(next)).toBe(KEY_PAGE[key]);
+      }
+    }
+    // Stacks two and three deep were reached, so the walk covered layering.
+    const depths = [...seen.values()].map((state) => {
+      let depth = 0;
+      for (let s = state; pageForFlags(s) !== null; depth++)
+        s = { ...s, [flagForPage(pageForFlags(s)!)]: false };
+      return depth;
+    });
+    expect(Math.max(...depths)).toBe(3);
+  });
+
+  it("drops only the page on top", () => {
+    const all = {
+      usersOpen: true,
+      tasksOpen: true,
+      cronjobsOpen: true,
+      appsOpen: true,
+      skillsOpen: true,
+      integrationsOpen: true,
+      pagerOpen: true,
+    };
+    expect(pageUnder(all)).toBe("tasks");
+    expect(pageUnder({ ...all, usersOpen: false })).toBe("cronjobs");
   });
 });
 

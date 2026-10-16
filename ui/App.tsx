@@ -48,6 +48,7 @@ import {
   mcpSignInForSearch,
   pathForPage,
   pageForFlags,
+  pageUnder,
   pageShortcut,
   backRoomShortcut,
   type Page,
@@ -129,7 +130,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     pageForLocation(window.location.pathname, window.location.search),
   );
   // Full-page Settings (like tasks/cronjobs): part of the main view
-  // switch, closed via goHome/popstate.
+  // switch, closed via closePage/popstate.
   const [usersOpen, setUsersOpen] = useState(bootPage === "settings");
   // Live-avatars: when a ghost is clicked, the user-settings page opens
   // preopened to that user. Null = generic open (no preselection),
@@ -463,11 +464,11 @@ export function App({ routing = true }: { routing?: boolean }) {
   // Browser back button: navigate within the app instead of leaving the page.
   // Model: office = home, any other view = one level deep. Only one history
   // entry is ever pushed at a time, but Back can step through more than one
-  // UI level: tasks opened over a chat pops back to that chat first (the
-  // popstate handler re-pushes the entry), then to the office. Every "return
-  // to office" path goes through goHome(), which gets there one of two ways
-  // depending on the ref below - history.back() when we pushed the entry, and
-  // a replace when we did not.
+  // UI level: a page opened over a chat or over another page pops back to
+  // what is under it first (the popstate handler re-pushes the entry), then
+  // to the office. Every "return to office" path goes through goHome(), which
+  // gets there one of two ways depending on the ref below - history.back()
+  // when we pushed the entry, and a replace when we did not.
 
   // How the CURRENT history entry relates to us, which is what ruling 8 turns
   // on. "none": no page open, the office sits on whatever entry the load made.
@@ -479,24 +480,51 @@ export function App({ routing = true }: { routing?: boolean }) {
     bootPage === null ? "none" : "adopted",
   );
 
+  // Each page's open flag, and the one-shot state that belongs to it and is
+  // cleared whenever it closes. applyPage and closeTopPage both work from it.
+  const pageState = useMemo(
+    (): Record<
+      Page,
+      { setOpen: (open: boolean) => void; clear: () => void }
+    > => ({
+      settings: {
+        setOpen: setUsersOpen,
+        clear: () => {
+          setEditingUserId(null);
+          setSettingsTarget(null);
+        },
+      },
+      tasks: { setOpen: setTasksOpen, clear: () => setTaskOpenRequest(null) },
+      cronjobs: { setOpen: setCronjobsOpen, clear: () => {} },
+      apps: { setOpen: setAppsOpen, clear: () => {} },
+      skills: { setOpen: setSkillsOpen, clear: () => {} },
+      integrations: {
+        setOpen: setIntegrationsOpen,
+        clear: () => setIntegrationsRequest(null),
+      },
+      pager: {
+        setOpen: setPagerOpen,
+        clear: () => setPagerSelectRequest(null),
+      },
+    }),
+    [],
+  );
+
   // The one place a page is applied from outside the UI - boot and popstate.
   // Exactly one flag is set and the others are cleared, so no restore can
   // leave two pages open. The settings section and the preselected user are
   // deliberately dropped: neither is part of a route (ruling 3), so a Forward
   // into settings lands on the generic page instead of resurrecting whichever
   // row was open last time.
-  const applyPage = useCallback((page: Page | null) => {
-    setTasksOpen(page === "tasks");
-    setCronjobsOpen(page === "cronjobs");
-    setAppsOpen(page === "apps");
-    setSkillsOpen(page === "skills");
-    setIntegrationsOpen(page === "integrations");
-    setPagerOpen(page === "pager");
-    setUsersOpen(page === "settings");
-    setEditingUserId(null);
-    setSettingsTarget(null);
-    setIntegrationsRequest(null);
-  }, []);
+  const applyPage = useCallback(
+    (page: Page | null) => {
+      for (const [p, { setOpen, clear }] of Object.entries(pageState)) {
+        setOpen(p === page);
+        clear();
+      }
+    },
+    [pageState],
+  );
 
   // Open the settings page, optionally on a named row. Passing null is the
   // generic open (the bar's User button), which must CLEAR any section left
@@ -531,7 +559,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   // Which page is showing, in the same precedence as the view switch below. A
   // chat is not a page: agent chats are not routes (ruling 3), so a chat and
   // the office share the path "/".
-  const page = pageForFlags({
+  const pageFlags = {
     usersOpen,
     tasksOpen,
     cronjobsOpen,
@@ -539,56 +567,56 @@ export function App({ routing = true }: { routing?: boolean }) {
     skillsOpen,
     integrationsOpen,
     pagerOpen,
-  });
+  };
+  const pageBelow = pageUnder(pageFlags);
+  const page = pageForFlags(pageFlags);
+
+  // Pages close top first, back to what they were opened over (tasks 586b63a5
+  // and d6c09d1c): the page under the top one when two are stacked, else the
+  // chat. Gate on the resolved agent, not the id, so a chat whose agent
+  // disappeared while a page was open closes to the office instead of a stale
+  // focus.
+  const somethingUnderPage =
+    page !== null && (pageBelow !== null || !!focusedAgent);
+
+  // Drop only the page on top, with the state that belongs to it. Focus and
+  // the history entry stay: we stay deep, so the sync effect replaces the
+  // entry instead of pushing, and Back from what is uncovered still lands on
+  // the office.
+  const closeTopPage = useCallback(() => {
+    if (page === null) return;
+    pageState[page].setOpen(false);
+    pageState[page].clear();
+  }, [page, pageState]);
+
+  // Every page's way out - its Close button, Escape, and a second a or i -
+  // comes through here; Back takes the same decision in the popstate handler.
+  const closePage = useCallback(() => {
+    if (somethingUnderPage) closeTopPage();
+    else goHome();
+  }, [somethingUnderPage, closeTopPage, goHome]);
+
   // A back agent's log sits over the back screen, the way tasks sit over a
   // chat: closing it returns to the back screen, not the front. A page open
   // over the log (Apps, Settings, Tasks...) closes the normal way instead.
   const logOverBackRoom = backRoomOpen && !!focusedAgent && page === null;
+  // Escape and the chat's Back button. With a page showing, Escape closes
+  // that page instead.
   const closeLog = useCallback(() => {
-    if (logOverBackRoom) dispatch({ type: "focus", agentId: null });
+    if (page !== null) closePage();
+    else if (logOverBackRoom) dispatch({ type: "focus", agentId: null });
     else goHome();
-  }, [logOverBackRoom, dispatch, goHome]);
+  }, [page, closePage, logOverBackRoom, dispatch, goHome]);
 
-  // Tasks opened over a chat: the focused agent stays set while TaskView
-  // renders on top of it (render priority: tasks > log), so "return to the
-  // chat" is just dropping the tasks flag. Gate on the resolved agent, not
-  // the id, so a chat whose agent disappeared while tasks was open falls
-  // back to the office path instead of a stale focus.
-  const tasksOverChat = tasksOpen && !!focusedAgent;
-
-  // Closing the task view returns to the chat it was opened from, when there
-  // is one; otherwise to the office (goHome). Dropping only the tasks flag
-  // keeps us one level deep, so the history entry survives (deep→deep is a
-  // replaceState in the sync effect below) and a subsequent Back/Escape from
-  // the chat still lands on the office.
   const closeTasks = useCallback(() => {
     setTaskOpenRequest(null);
-    if (tasksOverChat) setTasksOpen(false);
-    else goHome();
-  }, [tasksOverChat, goHome]);
+    closePage();
+  }, [closePage]);
 
   const openTasks = useCallback(() => {
     setTaskOpenRequest(null);
     setTasksOpen(true);
   }, []);
-
-  // Settings opened straight over a chat ("s" in a chat) closes back to that
-  // chat, as tasks does (task e927e6ff). Every way out of settings goes
-  // through goHome, whose history.back() lands in the popstate handler below.
-  // Over another page, or with no chat under it, closing still goes to the
-  // office.
-  const settingsOverChat =
-    usersOpen &&
-    !!focusedAgent &&
-    pageForFlags({
-      usersOpen: false,
-      tasksOpen,
-      cronjobsOpen,
-      appsOpen,
-      skillsOpen,
-      integrationsOpen,
-      pagerOpen,
-    }) === null;
 
   const openTask = useCallback((id: string) => {
     setTaskOpenRequest({ id });
@@ -629,7 +657,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       );
       if (pageUpdate !== null) {
         e.preventDefault();
-        if (pageUpdate === "home") goHome();
+        if (pageUpdate === "home") closePage();
         else {
           if (pageUpdate.tasksOpen !== undefined)
             setTasksOpen(pageUpdate.tasksOpen);
@@ -759,6 +787,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     dispatch,
     goHome,
     closeLog,
+    closePage,
     focusedAgentId,
     agents,
     drafts,
@@ -830,20 +859,14 @@ export function App({ routing = true }: { routing?: boolean }) {
         return;
       }
       entryRef.current = "none";
-      if (settingsOverChat) {
-        // Back from settings over a chat steps back to the chat, as for
-        // tasks below.
-        setUsersOpen(false);
-        setEditingUserId(null);
-        setSettingsTarget(null);
-        return;
-      }
-      if (tasksOverChat) {
-        // Back from tasks-over-a-chat steps back to the chat, not the
-        // office. We stay deep (focus is still set), so the sync effect
-        // re-pushes the entry the Back just consumed; a second Back then
-        // lands on the office as usual.
-        setTasksOpen(false);
+      if (somethingUnderPage) {
+        // Back from a page over a chat or over another page steps back to
+        // what is under it, not the office. We stay deep, so the sync effect
+        // re-pushes the entry the Back just consumed; a Back from the chat
+        // then lands on the office as usual. The re-push relies on `page`
+        // changing, which it always does when a layer closes: it is the sync
+        // effect's dep. A pop that changed only focus would not re-push.
+        closeTopPage();
         return;
       }
       if (logOverBackRoom) {
@@ -858,7 +881,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [applyPage, dispatch, settingsOverChat, tasksOverChat, logOverBackRoom]);
+  }, [applyPage, dispatch, somethingUnderPage, closeTopPage, logOverBackRoom]);
 
   return (
     <>
@@ -870,7 +893,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           initialUserId={editingUserId}
           initialTarget={settingsTarget}
           onSwitchUser={(name) => setUsername(name)}
-          onClose={goHome}
+          onClose={closePage}
         />
       ) : page === "tasks" ? (
         <TaskView
@@ -884,7 +907,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         />
       ) : page === "cronjobs" ? (
         <CronjobsView
-          onClose={goHome}
+          onClose={closePage}
           onFocusAgent={(agentId) => {
             setCronjobsOpen(false);
             dispatch({ type: "focus", agentId });
@@ -892,23 +915,23 @@ export function App({ routing = true }: { routing?: boolean }) {
         />
       ) : page === "apps" ? (
         <AppsView
-          onClose={goHome}
+          onClose={closePage}
           onFocusAgent={(agentId) => {
             setAppsOpen(false);
             dispatch({ type: "focus", agentId });
           }}
         />
       ) : page === "skills" ? (
-        <SkillsView onClose={goHome} />
+        <SkillsView onClose={closePage} />
       ) : page === "integrations" ? (
         <IntegrationsView
-          onClose={goHome}
+          onClose={closePage}
           request={integrationsRequest}
           onRequestHandled={clearIntegrationsRequest}
         />
       ) : page === "pager" ? (
         <PagerView
-          onClose={goHome}
+          onClose={closePage}
           selectRequest={pagerSelectRequest}
           onSelectRequestHandled={clearPagerSelectRequest}
           onFocusAgent={(agentId) => {

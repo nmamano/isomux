@@ -1146,19 +1146,22 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
       >
         <button
           onClick={() => guarded(onClose)}
-          aria-label={t("settings.backToOffice")}
+          data-page-close=""
+          aria-label={t("common.back")}
           style={{
             background: "none",
             border: "none",
             color: "var(--text-muted)",
-            fontSize: 13,
+            fontSize: 18,
             cursor: "pointer",
             padding: "2px 8px",
-            whiteSpace: "nowrap",
           }}
         >
-          ← {t("settings.backToOffice")}
+          &larr;
         </button>
+        <h1 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
+          {t("common.skills")}
+        </h1>
         <div style={{ marginLeft: "auto", display: "flex" }}>
           <button
             data-skill-new=""

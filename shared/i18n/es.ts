@@ -397,7 +397,6 @@ Cosas que puedes hacer por él:
   "preferences.saved": "Guardado.",
   "preferences.saveFailed": "No se pudo guardar",
 
-  "settings.backToOffice": "Volver a la oficina",
   "settings.selectHint": "Elige un ajuste de la lista",
   "settings.profilesNote":
     "Los perfiles de miembro se guardan en el servidor. Tus notificaciones y credenciales te siguen entre dispositivos.",

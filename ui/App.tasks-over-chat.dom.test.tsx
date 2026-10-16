@@ -1,0 +1,16 @@
+// Tasks opened with "t" from an agent chat closes back to that chat (task
+// 586b63a5). The steps are in ui/test-support/over-chat-fixture.ts.
+
+import { setUpDomTestFile } from "./test-support/dom.ts";
+
+setUpDomTestFile();
+
+const { describeOverChat } =
+  await import("./test-support/over-chat-fixture.ts");
+
+describeOverChat({
+  key: "t",
+  marker: "[data-tasks-page]",
+  path: "/tasks",
+  toggles: true,
+});

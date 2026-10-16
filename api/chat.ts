@@ -157,7 +157,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Keyboard Shortcuts
 - Number keys 1–8 jump to agents from office view
 - Tab / Shift+Tab cycle between agents in chat view (within current room, skipping cleared agents)
-- Escape returns to office
+- Escape closes the page on top and returns to what was under it
 - b goes between a room's front and its back room
 - Ctrl+C to interrupt - cleanly aborts and lets you resume
 - Ctrl/Cmd+Enter to send a message and deliver it immediately: if the agent is busy, it interrupts the current turn and flushes the queue (same as "Send now"); if idle, it's a normal send

@@ -1284,6 +1284,7 @@ export function AppsView({
       >
         <button
           onClick={onClose}
+          data-page-close=""
           aria-label={t("common.back")}
           style={{
             background: "none",

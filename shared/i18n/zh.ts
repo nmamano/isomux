@@ -379,7 +379,6 @@ App 的一些原则：
     "智能体回复以及语音输入和播放使用的语言。智能体会在下一次对话中采用此设置。界面的其余部分目前仍使用英语。",
   "preferences.saved": "已保存。",
   "preferences.saveFailed": "无法保存",
-  "settings.backToOffice": "返回办公室",
   "settings.selectHint": "从列表中选择一项设置",
   "settings.profilesNote":
     "成员的个人资料存储在服务器上。通知和凭据会在设备间同步。",

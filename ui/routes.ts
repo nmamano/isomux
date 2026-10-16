@@ -125,6 +125,41 @@ export function pageForFlags(flags: PageFlags): Page | null {
                 : null;
 }
 
+/** The flag that holds a page open. */
+export function flagForPage(page: Page): keyof PageFlags {
+  switch (page) {
+    case "settings":
+      return "usersOpen";
+    case "tasks":
+      return "tasksOpen";
+    case "cronjobs":
+      return "cronjobsOpen";
+    case "apps":
+      return "appsOpen";
+    case "skills":
+      return "skillsOpen";
+    case "integrations":
+      return "integrationsOpen";
+    case "pager":
+      return "pagerOpen";
+  }
+}
+
+/** The page that shows when the page on top closes, or null when none is
+ *  open under it (task d6c09d1c: layers close top first).
+ *
+ *  It reads open order from pageForFlags' precedence, which holds because
+ *  every door opens its page on top: "s" sets only Settings, "t" is the only
+ *  key that leaves lower flags set, and "a" and "i" clear every flag under
+ *  Settings. So a stack is at most Settings over Tasks over one other page.
+ *  A door that opened a page UNDER the one shown would break this; the
+ *  pageShortcut test in routes.test.ts goes red on such a key. */
+export function pageUnder(flags: PageFlags): Page | null {
+  const top = pageForFlags(flags);
+  if (top === null) return null;
+  return pageForFlags({ ...flags, [flagForPage(top)]: false });
+}
+
 export interface PageShortcutInput {
   key: string;
   isInput?: boolean;

@@ -246,7 +246,7 @@ describe("back from an MCP sign-in", () => {
     const view = await app();
     expect(notices(view)).toHaveLength(1);
     await act(async () => {
-      view.getByRole("button", { name: t("settings.backToOffice") }).click();
+      view.getByRole("button", { name: t("common.back") }).click();
     });
     await act(async () => {
       view.getByTitle(t("nav.integrationsShortcut")).click();

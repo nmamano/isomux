@@ -410,7 +410,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "preferences.saveFailed": "Could not save",
 
   // The settings page shell: header, sidebar, roster, footer.
-  "settings.backToOffice": "Back to office",
   "settings.selectHint": "Select a setting from the list",
   "settings.profilesNote":
     "Member profiles are stored on the server. Your notifications and credentials follow you across devices.",
