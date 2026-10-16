@@ -236,7 +236,7 @@ describe("push devices REST: access", () => {
 });
 
 describe("push devices REST: delivery", () => {
-  it("a raised page reaches the device with no Discord set up, only for rooms with notifications on", async () => {
+  it("a raised page reaches the device with no Discord set up, whatever the member's notification rooms", async () => {
     const { srv, boss, bossId, roomA, botToken, path, pushed, discord } =
       await office();
     await api(srv, path, {
@@ -263,7 +263,8 @@ describe("push devices REST: delivery", () => {
       body: { title: "CPU hot", key: "cpu" },
     });
     await sleep(50);
-    expect(pushed).toHaveLength(1);
+    // A page ignores the room filter (PM ruling, 2026-10-16).
+    expect(pushed).toHaveLength(2);
   });
 
   it("deleting the member removes their devices", async () => {
