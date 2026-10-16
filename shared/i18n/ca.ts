@@ -1710,6 +1710,7 @@ Coses que pots fer per ell:
   "cards.toolCall.groupCount": "{count} crides a eines",
   "cards.toolResult.showMore": "Mostra'n més",
   "cards.toolResult.showLess": "Mostra'n menys",
+  "cards.reviewFindings.none": "Cap troballa.",
   "cards.fileView.fullSize": "Mida completa",
   "cards.fileView.earlierAttachment":
     "L'agent ha vist un fitxer adjuntat abans en aquest xat. Fes clic per mostrar-lo.",

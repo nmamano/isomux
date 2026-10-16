@@ -1525,6 +1525,7 @@ App 的一些原则：
   "cards.toolCall.groupCount": "{count} 次工具调用",
   "cards.toolResult.showMore": "显示更多",
   "cards.toolResult.showLess": "显示更少",
+  "cards.reviewFindings.none": "没有发现问题。",
   "cards.fileView.fullSize": "原始大小",
   "cards.fileView.earlierAttachment":
     "智能体查看了此聊天中较早附加的文件。点击显示。",

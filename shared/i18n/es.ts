@@ -1709,6 +1709,7 @@ Cosas que puedes hacer por él:
   "cards.toolCall.groupCount": "{count} llamadas a herramientas",
   "cards.toolResult.showMore": "Ver más",
   "cards.toolResult.showLess": "Ver menos",
+  "cards.reviewFindings.none": "Sin hallazgos.",
   "cards.fileView.fullSize": "Tamaño completo",
   "cards.fileView.earlierAttachment":
     "El agente ha visto un archivo adjuntado antes en este chat. Haz clic para mostrarlo.",

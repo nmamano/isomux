@@ -1674,6 +1674,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.toolCall.groupCount": "{count} tool calls",
   "cards.toolResult.showMore": "Show more",
   "cards.toolResult.showLess": "Show less",
+  "cards.reviewFindings.none": "No findings.",
   "cards.fileView.fullSize": "Full size",
   "cards.fileView.earlierAttachment":
     "The agent viewed a file attached earlier in this chat. Click to show it.",

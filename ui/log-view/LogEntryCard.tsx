@@ -38,6 +38,10 @@ import {
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
 import { failedEditText } from "../../shared/failed-edit.ts";
+import {
+  parseReviewFindings,
+  type ReviewFinding,
+} from "../../shared/review-findings.ts";
 
 function EditIcon() {
   return (
@@ -741,6 +745,11 @@ export const LogEntryCard = memo(function LogEntryCard({
       // and reads as agent prose - stderr needs a log block.
       if (entry.content.startsWith("[codex stderr]")) {
         return <StderrBlock content={entry.content} isMobile={isMobile} />;
+      }
+      // Claude Code's /code-review output: a fenced JSON findings array.
+      const findings = parseReviewFindings(entry.content);
+      if (findings) {
+        return <ReviewFindingsCard findings={findings} isMobile={isMobile} />;
       }
       return <SystemMessage content={entry.content} isMobile={isMobile} />;
     }
@@ -2131,6 +2140,162 @@ function PermissionDeniedCard({
           {t("cards.terminalCommand.copy")}
         </button>
       )}
+    </div>
+  );
+}
+
+// Claude Code's /code-review findings (shared/review-findings.ts), one row
+// each in the PermissionDeniedCard style. Verdict, category and outcome are
+// protocol values, shown as they arrive.
+function ReviewFindingsCard({
+  findings,
+  isMobile,
+}: {
+  findings: ReviewFinding[];
+  isMobile?: boolean;
+}) {
+  const { t } = useI18n();
+  if (findings.length === 0) {
+    return (
+      <SystemMessage
+        content={t("cards.reviewFindings.none")}
+        isMobile={isMobile}
+      />
+    );
+  }
+  return (
+    <div style={{ margin: "8px 0" }} data-review-findings="">
+      {findings.map((finding, i) => (
+        <ReviewFindingRow key={i} finding={finding} isMobile={isMobile} />
+      ))}
+    </div>
+  );
+}
+
+const BADGE_COLORS: Record<string, string> = {
+  CONFIRMED: "var(--red-text)",
+  PLAUSIBLE: "var(--orange-text)",
+  fixed: "var(--green-text)",
+};
+
+function FindingBadge({ value }: { value: string }) {
+  return (
+    <span
+      data-finding-badge={value}
+      style={{
+        color: BADGE_COLORS[value] ?? "var(--text-faint)",
+        fontSize: 10,
+        fontWeight: 600,
+        textTransform: "uppercase",
+        letterSpacing: "0.05em",
+        flexShrink: 0,
+      }}
+    >
+      {value}
+    </span>
+  );
+}
+
+function ReviewFindingRow({
+  finding,
+  isMobile,
+}: {
+  finding: ReviewFinding;
+  isMobile?: boolean;
+}) {
+  const location =
+    finding.file === undefined
+      ? undefined
+      : finding.line === undefined
+        ? finding.file
+        : `${finding.file}:${finding.line}`;
+  // short_summary is the headline when present; summary then shows under it.
+  const headline = finding.shortSummary ?? finding.summary;
+  const detail =
+    finding.shortSummary !== undefined ? finding.summary : undefined;
+  const badges = [finding.verdict, finding.category, finding.outcome].filter(
+    (value): value is string => value !== undefined,
+  );
+  return (
+    <div
+      data-review-finding=""
+      style={{
+        margin: "4px 0",
+        padding: "6px 10px",
+        borderLeft: "3px solid var(--orange)",
+        borderRadius: 4,
+        background: "var(--bg-code)",
+        fontSize: isMobile ? 13 : 12,
+        lineHeight: 1.5,
+        overflowWrap: "anywhere",
+      }}
+    >
+      {(badges.length > 0 || location) && (
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            alignItems: "baseline",
+            flexWrap: "wrap",
+            marginBottom: 2,
+          }}
+        >
+          {badges.map((value, i) => (
+            <FindingBadge key={i} value={value} />
+          ))}
+          {location && (
+            <span
+              data-finding-location=""
+              style={{
+                color: "var(--text-primary)",
+                fontFamily: "'JetBrains Mono',monospace",
+                fontWeight: 600,
+              }}
+            >
+              {location}
+            </span>
+          )}
+        </div>
+      )}
+      {headline && (
+        // .md-content paints var(--text-secondary): re-point it per block.
+        <div
+          data-finding-headline=""
+          style={{ ["--text-secondary" as string]: "var(--text-primary)" }}
+        >
+          <Markdown content={headline} />
+        </div>
+      )}
+      {detail && (
+        <div data-finding-detail="" style={{ marginTop: 2 }}>
+          <Markdown content={detail} />
+        </div>
+      )}
+      {finding.failureScenario && (
+        <div
+          style={{
+            ["--text-secondary" as string]: "var(--text-dim)",
+            marginTop: 2,
+          }}
+        >
+          <Markdown content={finding.failureScenario} />
+        </div>
+      )}
+      {finding.extras.map(([key, value]) => (
+        <div
+          key={key}
+          data-finding-extra={key}
+          style={{
+            color: "var(--text-dim)",
+            fontFamily: "'JetBrains Mono',monospace",
+            fontSize: isMobile ? 12 : 11,
+            marginTop: 2,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {key}: {value}
+        </div>
+      ))}
     </div>
   );
 }
