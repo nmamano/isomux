@@ -1,4 +1,4 @@
-// The room settings pane's "Your view" block: the Devices box (task
+// The room settings pane's "Your view" block: the Push box (task
 // 0c3fa26f), the room's entry in the member's pushRooms. Gated by Displayed
 // like the Notifications box, and saved with the full-list route.
 

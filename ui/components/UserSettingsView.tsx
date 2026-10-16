@@ -1226,7 +1226,7 @@ function UserEditPanel({
       .then((r) => setMeRooms(r.rooms))
       .catch(() => {});
   }, [isOwner, isMe, accessKey]);
-  // Rooms whose turn ends push to the member's devices (the Devices column).
+  // Rooms whose turn ends push to the member's devices (the Push column).
   // Like tucked: the room settings pane writes the same field, so a change
   // saved there lands here when the member has not edited the column.
   const userPush = user.pushRooms ?? NO_ROOM_IDS;
@@ -1703,7 +1703,7 @@ function UserEditPanel({
             ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS, and DISPLAYED ⊇ DEVICES.
             Access is owner-managed on member targets; the other columns are
             SELF-only view prefs (owner-editing-member: Access only;
-            self-edit: Displayed, Tucked, Notifications, Devices). A member
+            self-edit: Displayed, Tucked, Notifications, Push). A member
             viewer only ever mounts this panel for themselves (canEdit), so
             !isOwner ⇒ isMe. */}
         {(isOwner && (!ownerTarget || isMe)) || (!isOwner && isMe) ? (

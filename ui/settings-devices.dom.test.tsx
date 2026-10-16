@@ -1,4 +1,4 @@
-// The Devices column of the Rooms table on the member's own profile (task
+// The Push column of the Rooms table on the member's own profile (task
 // 0c3fa26f): per room, a push to the member's devices at turn end. It
 // replaced the one "notify my devices" box, and is independent of the
 // Notifications column.
@@ -68,7 +68,7 @@ const boxFor = (
 const devicesBox = (view: ReturnType<typeof render>, id: string) =>
   boxFor(view, "settings.profile.devicesFor", id);
 
-describe("Devices column", () => {
+describe("Push column", () => {
   it("saves the push rooms with the full-list route and no preference write", async () => {
     const view = await mount({ pushRooms: ["r1"], notifRooms: [] });
     expect(devicesBox(view, "r1").checked).toBe(true);
