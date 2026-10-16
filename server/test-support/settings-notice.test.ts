@@ -220,9 +220,12 @@ describe("settings notice", () => {
     expect(notice).toBe(expected);
     // The member sees the same entry, with the message it went out with.
     const added = srv.agentManager.getAgentLogs(id).slice(logsBefore);
-    expect(
-      added.filter((e) => e.kind === "system" && e.content === expected),
-    ).toHaveLength(1);
+    const shown = added.filter(
+      (e) => e.kind === "system" && e.content === expected,
+    );
+    expect(shown).toHaveLength(1);
+    // Marked, so the chat shows the lines as a system message.
+    expect(shown[0].metadata?.notice).toBe("settings");
 
     // One-shot.
     await turn(srv, id, "later");

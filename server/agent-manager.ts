@@ -567,11 +567,14 @@ export function createAgentManager(deps: ManagerDeps) {
       contextNoticeSampleWaitMs,
       renderSettingsNotice: (managed, arm) =>
         settingsNoticeText(english.t, managed, arm),
+      // metadata.notice makes the chat show it as a system message even
+      // though it spans several lines (LogEntryCard's system case).
       logSettingsNotice: (managed, arm) =>
         addLogEntry(
           managed.info.id,
           "system",
           settingsNoticeText(logWords(managed.info.id), managed, arm),
+          { notice: "settings" },
         ),
     });
   }

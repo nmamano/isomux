@@ -41,9 +41,13 @@ omitted and the concrete recovery action.
   `ISOMUX_HOME` points at. The archive is written with
   `tar -C <parent-of-state-root> <basename>`, so it holds exactly one
   top-level directory, normally `.isomux/`.
-- **Destination:** `$ISOMUX_BACKUP_DIR`, else `~/isomux-backups`. That is
-  the home directory of the **server process**, which on a VPS install is
-  `/home/isomux/isomux-backups`, not your own home. The destination sits
+- **Destination:** `$ISOMUX_BACKUP_DIR`, else a folder next to the state
+  root, named after it: `~/.isomux` backs up to `~/isomux-backups`, and an
+  `ISOMUX_HOME` of `/srv/office` to `/srv/office-backups`. `~` there is the
+  home directory of the **server process**, so on a VPS install it is
+  `/home/isomux/isomux-backups`, not your own home. Two offices with different
+  state roots get separate folders, so one office's seven-day retention does
+  not delete the other's backups. The destination sits
   outside the state root so a restore never clobbers the backups. It is
   still the same disk as the office it protects, and nothing copies it
   anywhere else - a box that dies takes its backups with it. If the office

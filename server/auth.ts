@@ -1811,8 +1811,8 @@ export function setCookieHeader(
 // `__Host-` cookie, which is still dual-read - so a sign-out that skipped it
 // would revoke the session server-side and leave the cookie sitting in the
 // browser. The `__Host-` clear carries `Secure` because the prefix rules apply
-// to a deletion too; browsers treat localhost as trustworthy, so it lands on a
-// loopback office as well.
+// to a deletion too, so on a loopback office it is best-effort: Chrome accepts
+// it from http://localhost, Safari has not.
 export function clearCookieHeaders(): string[] {
   const { isHttps } = buildPublicOrigin();
   return [
@@ -1823,20 +1823,31 @@ export function clearCookieHeaders(): string[] {
 
 // Both session cookies as they arrived, plus which one the request is
 // claiming. `null` means ABSENT; a present cookie with an empty value is `""`.
-// The distinction matters: `__Host-isomux_session=` is present, so it blocks
-// the legacy fallback and the request fails closed rather than being rescued
-// by a legacy cookie alongside it.
+// The distinction matters: on an HTTPS office `__Host-isomux_session=` is
+// present, so it blocks the legacy fallback and the request fails closed
+// rather than being rescued by a legacy cookie alongside it.
 export interface SessionCookies {
   hostRaw: string | null;
   legacyRaw: string | null;
-  // Name precedence, decided by PRESENCE and never by validity: the `__Host-`
-  // cookie wins whenever it arrives at all. An injected or stale legacy cookie
-  // therefore cannot displace the authoritative one, in either header order.
+  // Name precedence. On an HTTPS office it is decided by PRESENCE, never by
+  // validity: the `__Host-` cookie wins whenever it arrives at all. An injected
+  // or stale legacy cookie therefore cannot displace the authoritative one, in
+  // either header order.
+  //
+  // The one exception is a plain-HTTP office, where a `__Host-` cookie that
+  // does not validate gives way to a legacy cookie. That office writes only
+  // the legacy name and cannot reliably clear a `__Host-` cookie (Safari has
+  // refused Secure cookies from http://localhost), and cookies are not scoped
+  // by port. So a `__Host-` cookie that another office on the same host wrote
+  // would otherwise lock it out after every sign-in.
   selected: string | null;
+  selectedName: "host" | "legacy" | null;
 }
 
 // Parse the `Cookie` request header. Multi-cookie strings ("a=1; b=2") parsed
-// without bringing in a dependency.
+// without bringing in a dependency. Not pure: on a plain-HTTP office that
+// receives both names, it validates the `__Host-` value, which can touch the
+// session store like any validateSession call (roll, or drop an expired row).
 export function readSessionCookies(req: Request): SessionCookies {
   let hostRaw: string | null = null;
   let legacyRaw: string | null = null;
@@ -1857,11 +1868,20 @@ export function readSessionCookies(req: Request): SessionCookies {
       }
     }
   }
-  return {
-    hostRaw,
-    legacyRaw,
-    selected: hostRaw !== null ? hostRaw : legacyRaw,
-  };
+  const legacyWins =
+    hostRaw === null ||
+    (legacyRaw !== null &&
+      !buildPublicOrigin().isHttps &&
+      !validateSession(hostRaw || null));
+  if (legacyWins) {
+    return {
+      hostRaw,
+      legacyRaw,
+      selected: legacyRaw,
+      selectedName: legacyRaw === null ? null : "legacy",
+    };
+  }
+  return { hostRaw, legacyRaw, selected: hostRaw, selectedName: "host" };
 }
 
 // The raw session id to validate, or null when there is nothing to validate.
@@ -1905,7 +1925,7 @@ export function browserSessionDiagnostic(
   if (cookies.hostRaw === null && cookies.legacyRaw === null) {
     return { outcome: "cookie_absent", gate };
   }
-  const selected = cookies.hostRaw !== null ? "host" : "legacy";
+  const selected = cookies.selectedName ?? "legacy";
   if (!lookup) {
     return {
       outcome: "cookie_rejected",
@@ -2039,7 +2059,10 @@ export function _testResetBrowserSessionDiagnostics(): void {
 //      under the new name and leave the legacy cookie alone.
 //   2. RETIRE - a `__Host-` cookie came back from the browser (so it accepted
 //      the upgrade, and by name precedence it is what authenticated this
-//      request) while a legacy cookie is still around. Clear the legacy name.
+//      request) while the legacy cookie with the SAME value is still around.
+//      Clear the legacy name. A legacy cookie with another value is not the
+//      one step 1 copied: cookies are not scoped by port, so it can be the
+//      session of a plain-HTTP office on the same host, and it stays.
 //
 // Splitting the steps is what makes the migration incapable of signing anyone
 // out: nothing is ever cleared until its replacement has been OBSERVED. A
@@ -2063,7 +2086,7 @@ export function sessionCookieMigrationHeaders(
       ),
     ];
   }
-  if (cookies.hostRaw !== null && cookies.legacyRaw !== null) {
+  if (cookies.hostRaw !== null && cookies.legacyRaw === cookies.hostRaw) {
     return [cookieLine(COOKIE_NAME, "", 0, true)];
   }
   return [];

@@ -14,7 +14,6 @@ import { OFFICE_DATABASE } from "./audit-store.ts";
 // internal-docs/backup-restore.md.
 
 import { basename, dirname, join } from "path";
-import { homedir } from "os";
 import {
   closeSync,
   chmodSync,
@@ -38,11 +37,10 @@ import {
 } from "./backend-credential-paths.ts";
 import { STATE_ROOT } from "./config.ts";
 
-const HOME = homedir();
 const STATE_ROOT_PARENT = dirname(STATE_ROOT);
 const STATE_ROOT_NAME = basename(STATE_ROOT);
 const BACKUP_DIR =
-  process.env.ISOMUX_BACKUP_DIR || join(HOME, "isomux-backups");
+  process.env.ISOMUX_BACKUP_DIR || defaultBackupDir(STATE_ROOT);
 const RETENTION = 7;
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1h
 const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -51,6 +49,17 @@ const FIRST_BACKUP_MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
 const MIN_HEADROOM_BYTES = 256 * 1024 * 1024; // 256 MiB
 const FILENAME_PATTERN = /^isomux-(\d{4}-\d{2}-\d{2})(?:-(\d+))?\.tar\.gz$/;
 const PARTIAL_PATTERN = /^\.isomux-backup-.*\.partial$/;
+
+// Next to the state root and named after it: ~/.isomux backs up to
+// ~/isomux-backups, as it always has. An office started with its own
+// ISOMUX_HOME gets its own folder, so its retention never prunes another
+// office's backups.
+export function defaultBackupDir(stateRoot: string): string {
+  return join(
+    dirname(stateRoot),
+    `${basename(stateRoot).replace(/^\./, "")}-backups`,
+  );
+}
 
 let lastAttemptAt: number | null = null;
 let lastAttemptError: string | null = null;

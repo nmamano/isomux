@@ -17,6 +17,7 @@
 import {
   lstatSync,
   mkdirSync,
+  readlinkSync,
   realpathSync,
   unlinkSync,
   writeFileSync,
@@ -73,6 +74,21 @@ function realKey(path: string): string {
     return realpathSync(path);
   } catch {
     return resolve(path);
+  }
+}
+
+// The folder of a skill, or the file of a command: what a link points to.
+function placeOf(skill: LocatedSkill): string {
+  return basename(skill.path) === "SKILL.md" ? dirname(skill.path) : skill.path;
+}
+
+// Where a link points, one hop; null when `path` is not a link.
+function linkTarget(path: string): string | null {
+  try {
+    if (!lstatSync(path).isSymbolicLink()) return null;
+    return resolve(dirname(path), readlinkSync(path));
+  } catch {
+    return null;
   }
 }
 
@@ -146,7 +162,10 @@ function engineCatalog(
   // One entry per name and real file: the same file reached twice (a personal
   // provider home links the box home's skills, or two projects link one
   // folder) is one skill. It runs when any of its places runs in any context
-  // that place belongs to; the first place found is the one shown.
+  // that place belongs to. The first place found is the one shown, unless it
+  // is a link to a later place of the same source: then the later one is, so
+  // every engine shows the box home's path and the page lists the skill once
+  // for all agents.
   const groups = new Map<
     string,
     {
@@ -173,6 +192,11 @@ function engineCatalog(
       });
     } else {
       group.runs ||= runs;
+      if (
+        sourceOf(skill) === sourceOf(group.first.skill) &&
+        linkTarget(placeOf(group.first.skill)) === placeOf(skill)
+      )
+        group.first = item;
     }
   }
 

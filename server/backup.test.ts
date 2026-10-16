@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   backupStatusForTest,
+  defaultBackupDir,
   dfAvailableBytes,
   isBackupPartialForTest,
   prepareBackupDirectoryForTest,
@@ -128,6 +129,48 @@ function extract(
   expect(result.exitCode).toBe(0);
   return path.join(restored, path.basename(f.state));
 }
+
+describe("default backup folder", () => {
+  test("the standard and container state roots keep their folder", () => {
+    expect(defaultBackupDir("/home/u/.isomux")).toBe("/home/u/isomux-backups");
+    expect(defaultBackupDir("/var/data/home/.isomux")).toBe(
+      "/var/data/home/isomux-backups",
+    );
+  });
+
+  test("another state root gets a folder of its own", () => {
+    const live = defaultBackupDir("/home/u/.isomux");
+    for (const root of ["/home/u/.isomux-scratch", "/home/u/scratch"]) {
+      expect(defaultBackupDir(root)).not.toBe(live);
+      expect(path.dirname(defaultBackupDir(root))).toBe("/home/u");
+    }
+    expect(defaultBackupDir("/tmp/a/.isomux")).not.toBe(
+      defaultBackupDir("/tmp/b/.isomux"),
+    );
+    expect(defaultBackupDir("/srv/office")).toBe("/srv/office-backups");
+  });
+
+  test("an office started with only ISOMUX_HOME backs up next to it", () => {
+    const f = fixture();
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      // A trailing slash, as a hand-typed ISOMUX_HOME may carry.
+      ISOMUX_HOME: `${f.state}/`,
+    };
+    delete env.ISOMUX_BACKUP_DIR;
+    const run = Bun.spawnSync(
+      [
+        process.execPath,
+        "-e",
+        `const { getBackupStatus } = await import(${JSON.stringify(path.join(import.meta.dir, "backup.ts"))}); console.log(getBackupStatus().backupDir);`,
+      ],
+      { env, stderr: "pipe" },
+    );
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout.toString().trim()).toBe(defaultBackupDir(f.state));
+    expect(path.dirname(run.stdout.toString().trim())).toBe(f.root);
+  });
+});
 
 describe("verified backup publication", () => {
   test("publishes only after tar creation and a full verification pass", async () => {

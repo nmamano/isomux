@@ -740,6 +740,13 @@ export const LogEntryCard = memo(function LogEntryCard({
           />
         );
       }
+      // A notice from isomux (metadata.notice names it, e.g. "settings"):
+      // a system message whatever its line count.
+      if (typeof entry.metadata?.notice === "string") {
+        return (
+          <SystemMessage content={entry.content} isMobile={isMobile} notice />
+        );
+      }
       // Subprocess stderr surfaced by a backend adapter (Codex prefixes it
       // "[codex stderr]"). Multiline SystemMessage renders through Markdown
       // and reads as agent prose - stderr needs a log block.
@@ -1983,14 +1990,18 @@ function StderrBlock({
   );
 }
 
+// A multi-line entry is command output (/help, /context) and renders as
+// Markdown; a `notice` keeps the one-line style and its line breaks.
 function SystemMessage({
   content,
   isMobile,
+  notice,
 }: {
   content: string;
   isMobile?: boolean;
+  notice?: boolean;
 }) {
-  const isMultiline = content.includes("\n");
+  const isMultiline = !notice && content.includes("\n");
   return (
     <div
       style={{

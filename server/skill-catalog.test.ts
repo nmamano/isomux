@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import {
   buildSkillCatalog,
   createSkill,
@@ -193,6 +193,43 @@ describe("skill catalog", () => {
     );
     const list = entries(context({ userRoots: [personal, box] }));
     expect(list.filter((s) => s.name === "shared")).toHaveLength(1);
+  });
+
+  // A Codex agent reads the member's personal Claude home before the box one,
+  // and a Claude agent only the box one. Both must show the same path, or the
+  // page lists the skill once per engine instead of once for all agents.
+  it("shows a personal-home link under the box path it points to", () => {
+    for (const relativeLinks of [false, true]) {
+      const box = tmp("box");
+      const personal = tmp("personal");
+      const boxSkill = skill(box, "shared");
+      const boxCommand = join(box, "commands", "cmd.md");
+      mkdirSync(dirname(boxCommand), { recursive: true });
+      writeFileSync(boxCommand, "command body\n");
+      // exposePersonalProviderSkills writes absolute targets; a relative one
+      // resolves against the link's own folder.
+      const link = (target: string, at: string) => {
+        mkdirSync(dirname(at), { recursive: true });
+        symlinkSync(relativeLinks ? relative(dirname(at), target) : target, at);
+      };
+      link(dirname(boxSkill), join(personal, "skills", "shared"));
+      link(boxCommand, join(personal, "commands", "cmd.md"));
+      // As in the field: Codex reads the personal Claude home before the box
+      // one, Claude reads only the box one.
+      const catalog = buildSkillCatalog(
+        [
+          context({ userRoots: [box] }),
+          { ...context({ userRoots: [personal, box] }), engine: "codex" },
+        ],
+        {},
+        "/new",
+        "/home",
+      );
+      for (const { skills } of catalog.engines) {
+        expect(skills.find((s) => s.name === "shared")?.path).toBe(boxSkill);
+        expect(skills.find((s) => s.name === "cmd")?.path).toBe(boxCommand);
+      }
+    }
   });
 
   it("shows a built-in alias once, under the alias, with both names' uses", () => {
