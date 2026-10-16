@@ -180,41 +180,46 @@ const MAC = process.platform === "darwin";
 
 describe("standalone Codex safety hook", () => {
   // Quarantined on macOS (task b0976a10): the concurrent build timed out at 5 s there.
-  it.skipIf(MAC)("isolates concurrent compiler scratch files from the shared checkout", async () => {
-    const repositoryRoot = join(import.meta.dir, "../../..");
-    const scratchInCheckout = () =>
-      readdirSync(repositoryRoot).filter((name) => name.endsWith(".bun-build"));
-    expect(scratchInCheckout()).toEqual([]);
-    const outputs = [join(root, "concurrent-a"), join(root, "concurrent-b")];
-    let settled = false;
-    let observations = 0;
-    const builds = Promise.all(outputs.map(buildCodexSafetyHook));
-    const observedBuilds = builds.then(
-      (value) => ({ ok: true as const, value }),
-      (error: unknown) => ({ ok: false as const, error }),
-    );
-    void observedBuilds.finally(() => {
-      settled = true;
-    });
-    let outcome: Awaited<typeof observedBuilds>;
-    try {
-      // No other compiler path should write Bun scratch files in this checkout.
-      while (!settled) {
-        observations++;
-        expect(scratchInCheckout()).toEqual([]);
-        await Bun.sleep(1);
+  it.skipIf(MAC)(
+    "isolates concurrent compiler scratch files from the shared checkout",
+    async () => {
+      const repositoryRoot = join(import.meta.dir, "../../..");
+      const scratchInCheckout = () =>
+        readdirSync(repositoryRoot).filter((name) =>
+          name.endsWith(".bun-build"),
+        );
+      expect(scratchInCheckout()).toEqual([]);
+      const outputs = [join(root, "concurrent-a"), join(root, "concurrent-b")];
+      let settled = false;
+      let observations = 0;
+      const builds = Promise.all(outputs.map(buildCodexSafetyHook));
+      const observedBuilds = builds.then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      void observedBuilds.finally(() => {
+        settled = true;
+      });
+      let outcome: Awaited<typeof observedBuilds>;
+      try {
+        // No other compiler path should write Bun scratch files in this checkout.
+        while (!settled) {
+          observations++;
+          expect(scratchInCheckout()).toEqual([]);
+          await Bun.sleep(1);
+        }
+      } finally {
+        outcome = await observedBuilds;
       }
-    } finally {
-      outcome = await observedBuilds;
-    }
-    if (!outcome.ok) throw outcome.error;
-    expect(observations).toBeGreaterThan(10);
-    for (const output of outputs) {
-      expect(existsSync(output)).toBe(true);
-      expect(statSync(output).size).toBeGreaterThan(1_000_000);
-    }
-    expect(scratchInCheckout()).toEqual([]);
-  });
+      if (!outcome.ok) throw outcome.error;
+      expect(observations).toBeGreaterThan(10);
+      for (const output of outputs) {
+        expect(existsSync(output)).toBe(true);
+        expect(statSync(output).size).toBeGreaterThan(1_000_000);
+      }
+      expect(scratchInCheckout()).toEqual([]);
+    },
+  );
 
   it("stamps the complete local source closure into the executable", async () => {
     expect(built.sourceFiles).toEqual([

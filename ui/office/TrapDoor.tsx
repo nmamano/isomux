@@ -168,13 +168,7 @@ export function TrapDoor({
                 filter="url(#trap-door-glow)"
               />
             )}
-            <ellipse
-              cx={LAMP.x}
-              cy={LAMP.y}
-              rx={6.5}
-              ry={3.2}
-              fill="#2b2622"
-            />
+            <ellipse cx={LAMP.x} cy={LAMP.y} rx={6.5} ry={3.2} fill="#2b2622" />
             <path
               d={`M${LAMP.x - 5} ${LAMP.y} A5 5.5 0 0 1 ${LAMP.x + 5} ${LAMP.y} Z`}
               fill={lit ? "#ffd970" : "#5a5f66"}
