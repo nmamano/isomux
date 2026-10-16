@@ -1,6 +1,6 @@
 // Personal-preference handler (opId prefs.update). The
 // self-scoped write path for the settings that follow a member across devices:
-// reply language and the turn-end push.
+// the reply language.
 //
 // SELF-only by construction: the route table gates it with user:self +
 // authenticated and the handler acts on the CALLER's own userId, never on a
@@ -24,7 +24,7 @@
 // LEAF over the executor + the injected PreferencesDeps. The handler never
 // emits; the seam fans out the SCOPED full-record events (user_admin_updated +
 // user_self_updated, via emitPrivateUserRecord) - not the public pair, since
-// neither preference appears in UserPublicWire.
+// the preference does not appear in UserPublicWire.
 
 import { noContent, fail, type RouteHandler } from "../executor.ts";
 import {
@@ -81,16 +81,6 @@ export function preferencesHandlers(
           );
         }
         change.language = value;
-      }
-      if ("turnEndPush" in body) {
-        if (typeof body.turnEndPush !== "boolean") {
-          return fail(
-            422,
-            "invalid_request",
-            "turnEndPush must be true or false",
-          );
-        }
-        change.turnEndPush = body.turnEndPush;
       }
       if (!deps.applyPreferences(userId, change)) {
         return fail(404, "user_not_found");

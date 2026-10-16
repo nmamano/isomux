@@ -152,6 +152,7 @@ export const AUDIT_OPERATIONS = [
   "users.update",
   "view.setNotifRooms",
   "view.setOrder",
+  "view.setPushRooms",
   "view.setShown",
   "view.setTucked",
   "webhooks.create",

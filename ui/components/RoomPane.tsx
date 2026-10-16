@@ -278,6 +278,12 @@ export function RoomPane({
       });
       setViewBase((b) => b && { ...b, notif: want.notif });
     };
+    const writePush = async () => {
+      await apiFetch<void>("PUT", "/api/me/view/push-rooms", {
+        pushRooms: withRoom(record().pushRooms ?? [], roomId, want.push),
+      });
+      setViewBase((b) => b && { ...b, push: want.push });
+    };
     // The shown list is the complement of hidden over the rooms the viewer
     // can reach, read fresh: a room left out of it is hidden, so a stale list
     // would hide a room granted since (the guard Settings > Rooms uses).
@@ -302,7 +308,7 @@ export function RoomPane({
     };
     const roomListFailed = t("settings.profile.roomListFailed");
     if (base.shown && !want.shown) {
-      // No notifications write: the server drops a hidden room's.
+      // No notifications or push write: the server drops a hidden room's.
       if (want.tucked !== base.tucked) await writeTucked();
       if (!(await writeShown())) return roomListFailed;
       onDeleted();
@@ -312,6 +318,7 @@ export function RoomPane({
       return roomListFailed;
     }
     if (want.notif !== base.notif) await writeNotif();
+    if (want.push !== base.push) await writePush();
     if (want.tucked !== base.tucked) await writeTucked();
     return null;
   }
@@ -527,7 +534,8 @@ export function RoomPane({
               {t("settings.room.yourView")}
             </h4>
             {/* Same gates as the Settings > Rooms row: a hidden room keeps
-                its tucked flag but locks it, and loses its notifications. */}
+                its tucked flag but locks it, and loses its notifications and
+                device notifications. */}
             <label style={viewRowStyle}>
               <input
                 type="checkbox"
@@ -536,7 +544,7 @@ export function RoomPane({
                 onChange={() =>
                   setView(
                     view.shown
-                      ? { ...view, shown: false, notif: false }
+                      ? { ...view, shown: false, notif: false, push: false }
                       : { ...view, shown: true },
                   )
                 }
@@ -571,6 +579,20 @@ export function RoomPane({
                 style={checkboxStyle(view.shown)}
               />
               {t("settings.profile.notificationsColumn")}
+            </label>
+            <label style={viewRowStyle}>
+              <input
+                type="checkbox"
+                data-view-choice="push"
+                checked={view.push}
+                disabled={!view.shown}
+                onChange={() => {
+                  if (!view.shown) return;
+                  setView({ ...view, push: !view.push });
+                }}
+                style={checkboxStyle(view.shown)}
+              />
+              {t("settings.profile.devicesColumn")}
             </label>
           </>
         )}

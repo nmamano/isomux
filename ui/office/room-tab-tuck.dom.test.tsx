@@ -40,6 +40,7 @@ function self(tucked: string[]): UserRecord {
     hidden: [],
     order: [],
     tucked,
+    pushRooms: [],
     memberPrompt: null,
     language: null,
   };

@@ -419,17 +419,18 @@ App 的一些原则：
   "settings.profile.accessHint":
     "访问权限：此成员可以查看和操作的房间（由办公室所有者管理）。",
   "settings.profile.viewHint":
-    "显示：在个人视图中显示哪些有权访问的房间。通知：房间中的智能体完成任务时播放声音。房间必须显示才能发出通知。",
+    "显示：在个人视图中显示哪些有权访问的房间。通知：房间中的智能体完成任务时播放声音。设备：房间中的智能体完成任务时向你的设备发送推送通知。房间必须显示才能发出通知。",
   "settings.profile.roomColumn": "房间",
   "settings.profile.accessColumn": "访问权限",
   "settings.profile.displayedColumn": "显示",
   "settings.profile.notificationsColumn": "通知",
-  "settings.profile.turnEndPush": "智能体完成时也通知我的设备",
+  "settings.profile.devicesColumn": "设备",
   "settings.profile.accessTo": "{room} 的访问权限",
   "settings.profile.display": "显示 {room}",
   "settings.profile.tuckedColumn": "收起",
   "settings.profile.tuck": "收起 {room}",
   "settings.profile.notificationsFor": "{room} 的通知",
+  "settings.profile.devicesFor": "{room} 的设备通知",
   "settings.profile.agentContext": "智能体上下文",
   "settings.profile.promptConflict":
     "特别指令已在其他位置更改。你的草稿已保留。请查看当前文本后再保存。",

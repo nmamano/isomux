@@ -159,6 +159,7 @@ function writeOwner(dir: string) {
         allowedRooms: [],
         hidden: [],
         tucked: [],
+        pushRooms: [],
         order: [],
         avatarColor: "#112233",
         avatarVariant: "classic",

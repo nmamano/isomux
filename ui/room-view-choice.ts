@@ -7,6 +7,7 @@ export interface RoomViewChoice {
   shown: boolean;
   tucked: boolean;
   notif: boolean;
+  push: boolean;
 }
 
 export function roomViewChoice(
@@ -19,6 +20,8 @@ export function roomViewChoice(
     tucked: (record.tucked ?? []).includes(roomId),
     // Notifications need a displayed room, as the server's clamp holds.
     notif: shown && record.notifRooms.includes(roomId),
+    // A record from a server older than pushRooms has none.
+    push: shown && (record.pushRooms ?? []).includes(roomId),
   };
 }
 
@@ -27,7 +30,12 @@ export function sameRoomViewChoice(
   b: RoomViewChoice | null,
 ): boolean {
   if (a === null || b === null) return a === b;
-  return a.shown === b.shown && a.tucked === b.tucked && a.notif === b.notif;
+  return (
+    a.shown === b.shown &&
+    a.tucked === b.tucked &&
+    a.notif === b.notif &&
+    a.push === b.push
+  );
 }
 
 // A record change that lands while the pane is open moves only the controls
@@ -42,6 +50,7 @@ export function followRecord(
     shown: form.shown === oldBase.shown ? live.shown : form.shown,
     tucked: form.tucked === oldBase.tucked ? live.tucked : form.tucked,
     notif: form.notif === oldBase.notif ? live.notif : form.notif,
+    push: form.push === oldBase.push ? live.push : form.push,
   };
 }
 

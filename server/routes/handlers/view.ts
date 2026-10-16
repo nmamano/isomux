@@ -1,5 +1,6 @@
 // View-preference resource handlers. The per-user visibility
-// surface (opIds view.{setOrder,setShown,setNotifRooms,setTucked,listRooms}) on the
+// surface (opIds view.{setOrder,setShown,setNotifRooms,setTucked,setPushRooms,
+// listRooms}) on the
 // unified REST surface. SELF-scoped: the route table gates every op with
 // view:manage + authenticated, and each handler acts on the CALLER's own userId.
 //
@@ -18,10 +19,10 @@
 //
 // The write ops delegate to the SAME core (applyViewChange in the index seam),
 // so the view invariants - order deduped + filtered to accessible; hidden =
-// accessible minus shown; notifRooms within effective shown - live in exactly
+// accessible minus shown; notifRooms and pushRooms within effective shown - live in exactly
 // one place. The handler NEVER emits; the core fans out (projected full_state
 // for shown, room_order_updated for order, user_updated for notifRooms, the private
-// record for tucked).
+// record for tucked and pushRooms).
 //
 // NO-ORACLE (Isomuxer3 Q2): handlers reject malformed body SHAPES (a non-array
 // where room ids are expected), but NEVER an unknown / inaccessible /
@@ -38,6 +39,7 @@ export interface ViewChangeInput {
   shown?: string[];
   notifRooms?: string[];
   tucked?: string[];
+  pushRooms?: string[];
 }
 
 export interface ViewDeps {
@@ -57,7 +59,7 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
   // SHAPE; the core silently filters unknown/inaccessible/hidden ids.
   const setIdList =
     (
-      field: "order" | "shown" | "notifRooms" | "tucked",
+      field: "order" | "shown" | "notifRooms" | "tucked" | "pushRooms",
       code: string,
     ): RouteHandler =>
     (ctx) => {
@@ -79,6 +81,7 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
     "view.setShown": setIdList("shown", "invalid_shown"),
     "view.setNotifRooms": setIdList("notifRooms", "invalid_notif_rooms"),
     "view.setTucked": setIdList("tucked", "invalid_tucked"),
+    "view.setPushRooms": setIdList("pushRooms", "invalid_push_rooms"),
 
     "view.listRooms": (ctx) => {
       const userId = ctx.identity.userId;

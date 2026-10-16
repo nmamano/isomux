@@ -228,85 +228,17 @@ describe("prefs.update - live event contract", () => {
   });
 });
 
-// The turn-end push (task 1eda8af8): a boolean preference, absent = off.
-describe("prefs.update - turnEndPush", () => {
-  const bag = (sock: TestSocket, type: string): Record<string, unknown>[] =>
-    (sock.messages as Record<string, unknown>[]).filter((m) => m.type === type);
-
-  it("starts off, refuses a non-boolean, and saves on through a cold restart", async () => {
+// The retired turn-end box (task 0c3fa26f): the per-room Devices column
+// replaced it, so the key is refused like any unknown one and writes nothing.
+describe("prefs.update - turnEndPush is gone", () => {
+  it("refuses turnEndPush as an unknown preference", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
-    expect(getUserByName("Boss")!.turnEndPush).toBeUndefined();
-    for (const bad of ["yes", 1, null]) {
-      expect(
-        await putPrefs(server, owner.rawSessionId, { turnEndPush: bad }),
-      ).toBe(422);
-    }
-    // An unknown key next to it is still refused, and writes nothing.
-    expect(
-      await putPrefs(server, owner.rawSessionId, {
-        turnEndPush: true,
-        turnEndPsuh: true,
-      }),
-    ).toBe(422);
-    expect(getUserByName("Boss")!.turnEndPush).toBeUndefined();
     expect(
       await putPrefs(server, owner.rawSessionId, { turnEndPush: true }),
-    ).toBe(204);
-    server = await server.restart();
-    expect(getUserByName("Boss")!.turnEndPush).toBe(true);
-  });
-
-  it("saves off, and a language change keeps it", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    await putPrefs(server, owner.rawSessionId, { turnEndPush: true });
-    await putPrefs(server, owner.rawSessionId, { language: "es" });
-    expect(getUserByName("Boss")!.turnEndPush).toBe(true);
-    expect(
-      await putPrefs(server, owner.rawSessionId, { turnEndPush: false }),
-    ).toBe(204);
-    expect(getUserByName("Boss")!.turnEndPush).toBeUndefined();
-  });
-
-  it("the self record carries it; no public event does", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    const member = await server.seedMember("Mia");
-    const ownerSock = await server.connectWs(owner.rawSessionId);
-    const memberSock = await server.connectWs(member.rawSessionId);
-    await ownerSock.waitFor("presence_list");
-    await memberSock.waitFor("presence_list");
-    const beforeSelf = bag(memberSock, "user_self_updated").length;
-
-    expect(
-      await putPrefs(server, member.rawSessionId, { turnEndPush: true }),
-    ).toBe(204);
-    await sleep(50);
-
-    const selfEvents = bag(memberSock, "user_self_updated").slice(beforeSelf);
-    expect(selfEvents.length).toBe(1);
-    expect((selfEvents[0].user as Record<string, unknown>).turnEndPush).toBe(
-      true,
-    );
-    expect(bag(ownerSock, "user_updated").length).toBe(0);
-    expect(bag(memberSock, "user_updated").length).toBe(0);
-    expect(bag(ownerSock, "users_list").length).toBe(1);
-    // A socket that connects after the write: the public roster still has no
-    // such field, while the record on the server has it.
-    expect(getUserByName("Mia")!.turnEndPush).toBe(true);
-    const later = await server.connectWs(owner.rawSessionId);
-    await later.waitFor("presence_list");
-    const lists = bag(later, "users_list");
-    expect(lists.length).toBe(1);
-    const mia = (lists[0].users as Record<string, unknown>[]).find(
-      (u) => u.name === "Mia",
-    );
-    expect(mia).toBeDefined();
-    expect("turnEndPush" in mia!).toBe(false);
-    later.close();
-    ownerSock.close();
-    memberSock.close();
+    ).toBe(422);
+    expect("turnEndPush" in getUserByName("Boss")!).toBe(false);
+    expect(getUserByName("Boss")!.pushRooms).toEqual([]);
   });
 });
 

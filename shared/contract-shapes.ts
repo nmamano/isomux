@@ -634,6 +634,12 @@ export interface NotifRoomsReq {
   notifRooms: string[];
 }
 
+// view.setPushRooms: the FULL list of rooms whose turn ends push to the
+// caller's devices.
+export interface PushRoomsReq {
+  pushRooms: string[];
+}
+
 // view.setTucked: the FULL list of rooms the caller tucks into the tab bar's
 // overflow chip.
 export interface TuckedRoomsReq {
@@ -646,13 +652,12 @@ export interface TuckedRoomsReq {
 // so a caller can clear or set the value; `language: null` is meaningful.
 export type PreferencesReq = Partial<{
   language: SupportedLanguageCode | null;
-  turnEndPush: boolean;
 }>;
 
 // The writable preference keys, as VALUES, so the handler can reject an unknown
 // key (a typo like `langauge` would otherwise be a successful no-op) without a
 // second hand-maintained list drifting from the type above.
-export const PREFERENCE_KEYS = ["language", "turnEndPush"] as const;
+export const PREFERENCE_KEYS = ["language"] as const;
 
 export interface ApiTokenWire {
   id: string;

@@ -15,11 +15,11 @@
 // A rotated endpoint is not re-posted on its own: the device shows Off in
 // the settings and the member turns it on again.
 //
-// Turn ends (onTurnEnd): a member who turned on the turnEndPush preference
-// also gets a push when an agent they can see ends a turn that had human
-// input, in a room shared/notif-rooms.ts passes for the member's notifRooms
-// (read at each send): the turn ends that sound the
-// browser's turn-end sound (shared/turn-end.ts). Not for the lobby: any
+// Turn ends (onTurnEnd): a member also gets a push when an agent they can see
+// ends a turn that had human input, in a room on the member's pushRooms (read
+// at each send; the Devices column in the room settings, independent of the
+// sound's notifRooms). These are the turn ends that sound the browser's
+// turn-end sound (shared/turn-end.ts). Not for the lobby: any
 // member or guest talks to the receptionist, and a push reaches every
 // phone. One tag per agent, so the next turn end of that agent replaces the
 // last one.
@@ -41,7 +41,6 @@ import type { Translator } from "../shared/i18n/translate.ts";
 import type { PagerStore } from "./pager-store.ts";
 import type { PushDeviceRecord, WebPushStore } from "./web-push-store.ts";
 import { pagerLink } from "./pager-delivery.ts";
-import { shouldNotifyRoom } from "../shared/notif-rooms.ts";
 import { encryptPushPayload, vapidAuthorization } from "./web-push-crypto.ts";
 
 export const WEB_PUSH_SEND_TIMEOUT_MS = 10_000;
@@ -61,8 +60,9 @@ export interface WebPushDeliveryDeps {
   pages: Pick<PagerStore, "list" | "get">;
   // Minutes between repeats of an open page, or null for never. May throw.
   repeatMinutes: (userId: string) => number | null;
-  // Whether the member turned on turn-end pushes. May throw.
-  turnEndPush: (userId: string) => boolean;
+  // The rooms whose turn ends push to the member, or null when the member
+  // is gone. May throw.
+  pushRooms: (userId: string) => readonly string[] | null;
   // The members who can see a room (its access rule), for turn ends.
   roomAudience: (roomId: string) => readonly string[];
   // The receptionist's lobby: its turn ends push nobody (Lead ruling).
@@ -284,9 +284,9 @@ export function createWebPushDelivery(
     track(sendPage(entry, kind));
   };
 
-  const turnEndOn = (userId: string): boolean => {
+  const turnEndOn = (userId: string, roomId: string): boolean => {
     try {
-      return deps.turnEndPush(userId);
+      return deps.pushRooms(userId)?.includes(roomId) === true;
     } catch {
       log("cannot read the turn-end setting");
       return false;
@@ -378,9 +378,7 @@ export function createWebPushDelivery(
         if (stopped || roomId === null) return;
         if (deps.isLobby(roomId)) return;
         for (const userId of deps.roomAudience(roomId)) {
-          const rooms = deps.notifRooms(userId);
-          if (rooms === null || !shouldNotifyRoom(roomId, rooms)) continue;
-          if (!turnEndOn(userId)) continue;
+          if (!turnEndOn(userId, roomId)) continue;
           track(sendTurnEnd(userId, agent, roomId));
         }
       });

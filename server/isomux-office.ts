@@ -855,7 +855,7 @@ function createManagers(startOpts: StartServerOpts): void {
     store: webPushStore,
     pages: pagerStore,
     repeatMinutes: (userId) => pagerSettings.get(userId).repeatMinutes,
-    turnEndPush: (userId) => getUserById(userId)?.turnEndPush === true,
+    pushRooms: (userId) => getUserById(userId)?.pushRooms ?? null,
     roomAudience: (roomId) =>
       listUsers()
         .filter((u) => canAccess(u, roomId))
@@ -4115,10 +4115,16 @@ function buildExecutorDeps(
         // Record fields ONLY - allowedRooms/notif/default are NOT in
         // UserUpdateReq (access → users.setAccess; view prefs → view.*). Resolve
         // by id so a rename can't strand the write.
+        const reclamped = roleChanged
+          ? clampViewFields(accessible, target, {})
+          : null;
         const result = updateUserById(target.id, {
           role: changes.role,
-          ...(roleChanged
-            ? { notifRooms: clampViewFields(accessible, target, {}).notifRooms }
+          ...(reclamped
+            ? {
+                notifRooms: reclamped.notifRooms,
+                pushRooms: reclamped.pushRooms,
+              }
             : {}),
           name: changes.name,
           memberPrompt: changes.memberPrompt,
@@ -4211,7 +4217,8 @@ function buildExecutorDeps(
           };
         }
         // ATOMIC clamp: compute the new accessible set from the INCOMING
-        // allowedRooms and prune the target's existing notifRooms to fit, in ONE
+        // allowedRooms and prune the target's existing notifRooms and pushRooms
+        // to fit, in ONE
         // updateUserById write. An empty `change` re-clamps the current view
         // fields (clampViewFields reads `current`).
         const accessible = accessibleRoomIdsFor(target, allowedRooms);
@@ -4221,7 +4228,12 @@ function buildExecutorDeps(
         const changes: {
           allowedRooms: string[];
           notifRooms: string[];
-        } = { allowedRooms, notifRooms: clamped.notifRooms };
+          pushRooms: string[];
+        } = {
+          allowedRooms,
+          notifRooms: clamped.notifRooms,
+          pushRooms: clamped.pushRooms,
+        };
         const result = updateUserById(target.id, changes);
         if (!result.ok) {
           return {
@@ -4440,14 +4452,21 @@ function buildExecutorDeps(
         for (const u of listUsers()) {
           const inAllowed = u.allowedRooms.includes(roomId);
           const inNotif = u.notifRooms.includes(roomId);
-          if (!inAllowed && !inNotif) continue;
-          const changes: { allowedRooms?: string[]; notifRooms?: string[] } =
-            {};
+          const inPush = u.pushRooms.includes(roomId);
+          if (!inAllowed && !inNotif && !inPush) continue;
+          const changes: {
+            allowedRooms?: string[];
+            notifRooms?: string[];
+            pushRooms?: string[];
+          } = {};
           if (inAllowed) {
             changes.allowedRooms = u.allowedRooms.filter((id) => id !== roomId);
           }
           if (inNotif) {
             changes.notifRooms = u.notifRooms.filter((id) => id !== roomId);
+          }
+          if (inPush) {
+            changes.pushRooms = u.pushRooms.filter((id) => id !== roomId);
           }
           const r = updateUserById(u.id, changes);
           if (r.ok) {
@@ -6191,16 +6210,17 @@ function dedupeFirstWins(ids: readonly string[]): string[] {
 // a role-change/demotion hook re-clamps the target the same way), so the change
 // applies to targetUserId, never the actor's session. It is the ONE place that
 // computes: the rule-based ACCESSIBLE set, effective shown (accessible \
-// hidden), the sparse-order filter+dedupe, and the notifRooms clamp - then
+// hidden), the sparse-order filter+dedupe, and the notifRooms/pushRooms clamp - then
 // persists once and fans out.
 //
 // NO-ORACLE on write (Isomuxer3 Q2): unknown / inaccessible / accessible-but-
 // hidden room ids are SILENTLY filtered/clamped, never rejected (a reject is an
 // existence oracle). Callers reject malformed body SHAPES before reaching here.
 //
-// `change` is a partial: any subset of {order, shown, notifRooms}. An EMPTY
-// change is the re-clamp pass (call after an access mutation / demotion to
-// re-establish hidden ⊆ accessible, notifRooms ⊆ effective shown). `shown` is
+// `change` is a partial: any subset of {order, shown, notifRooms, tucked,
+// pushRooms}. An EMPTY change is the re-clamp pass (call after an access
+// mutation / demotion to re-establish hidden ⊆ accessible, notifRooms and
+// pushRooms ⊆ effective shown). `shown` is
 // the desired VISIBLE set (route input); it is converted at the boundary to
 // hidden = accessible \ shown (only accessible ids are ever persisted in
 // hidden). Returns false if the target user is missing.
@@ -6209,6 +6229,7 @@ interface ViewChange {
   shown?: readonly string[];
   notifRooms?: readonly string[];
   tucked?: readonly string[];
+  pushRooms?: readonly string[];
 }
 
 // PURE clamp - the single source of truth for the view invariants. Given the
@@ -6216,7 +6237,8 @@ interface ViewChange {
 // the next fields: order deduped (first wins) + filtered to accessible (hidden-
 // but-accessible ids KEPT, so hide/show is non-destructive); hidden = the
 // accessible rooms NOT in the desired shown set (or the stored hidden re-
-// filtered to accessible); notifRooms within effective shown; tucked deduped +
+// filtered to accessible); notifRooms and pushRooms within effective shown;
+// tucked deduped +
 // filtered to accessible (hidden ids kept, as for order). applyViewChange
 // (view.*) and the users.setAccess prune-clamp both clamp through this,
 // so the invariant lives in exactly one place.
@@ -6227,6 +6249,7 @@ function clampViewFields(
     hidden: readonly string[];
     notifRooms: readonly string[];
     tucked: readonly string[];
+    pushRooms: readonly string[];
   },
   change: ViewChange,
 ): {
@@ -6234,6 +6257,7 @@ function clampViewFields(
   hidden: string[];
   notifRooms: string[];
   tucked: string[];
+  pushRooms: string[];
 } {
   const order = dedupeFirstWins([...(change.order ?? current.order)]).filter(
     (id) => accessible.has(id),
@@ -6252,10 +6276,13 @@ function clampViewFields(
   const notifRooms = dedupeFirstWins([
     ...(change.notifRooms ?? current.notifRooms),
   ]).filter((id) => effectiveShown.has(id));
+  const pushRooms = dedupeFirstWins([
+    ...(change.pushRooms ?? current.pushRooms),
+  ]).filter((id) => effectiveShown.has(id));
   const tucked = dedupeFirstWins([...(change.tucked ?? current.tucked)]).filter(
     (id) => accessible.has(id),
   );
-  return { order, hidden, notifRooms, tucked };
+  return { order, hidden, notifRooms, tucked, pushRooms };
 }
 
 function applyViewChange(targetUserId: string, change: ViewChange): boolean {
@@ -6270,6 +6297,7 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   const prevHiddenKey = [...user.hidden].sort().join("\u0000");
   const prevNotifKey = [...user.notifRooms].sort().join("\u0000");
   const prevTuckedKey = [...user.tucked].sort().join("\u0000");
+  const prevPushKey = [...user.pushRooms].sort().join("\u0000");
   const next = clampViewFields(accessible, user, change);
 
   const r = updateUserById(targetUserId, {
@@ -6277,6 +6305,7 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
     hidden: next.hidden,
     notifRooms: next.notifRooms,
     tucked: next.tucked,
+    pushRooms: next.pushRooms,
   });
   if (!r.ok) {
     console.error(
@@ -6317,9 +6346,13 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   if (recordChanged) {
     emitUserUpdated(r.user);
     emitUsersList();
-  } else if ([...next.tucked].sort().join("\u0000") !== prevTuckedKey) {
-    // Tucked is private and not in full_state: a tuck leaves the projection
-    // as it is, so only the record goes out, on the private channels.
+  } else if (
+    [...next.tucked].sort().join("\u0000") !== prevTuckedKey ||
+    [...next.pushRooms].sort().join("\u0000") !== prevPushKey
+  ) {
+    // Tucked and pushRooms are private and not in full_state: they leave the
+    // projection as it is, so only the record goes out, on the private
+    // channels.
     emitPrivateUserRecord(r.user);
   }
   return true;
@@ -6345,10 +6378,7 @@ function applyPreferencesChange(
     return false;
   }
   // Only fan out on a real change.
-  if (
-    r.user.language !== user.language ||
-    r.user.turnEndPush !== user.turnEndPush
-  ) {
+  if (r.user.language !== user.language) {
     emitPrivateUserRecord(r.user);
   }
   return true;

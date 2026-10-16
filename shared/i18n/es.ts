@@ -439,18 +439,18 @@ Cosas que puedes hacer por él:
   "settings.profile.accessHint":
     "Acceso: salas que este miembro puede ver y en las que puede actuar (lo gestiona el propietario de la oficina).",
   "settings.profile.viewHint":
-    "Mostradas: cuáles de tus salas accesibles aparecen en tu vista. Notificaciones: sonido cuando un agente de esa sala termina. Una sala debe estar mostrada para notificar.",
+    "Mostradas: cuáles de tus salas accesibles aparecen en tu vista. Notificaciones: sonido cuando un agente de esa sala termina. Dispositivos: una notificación push en tus dispositivos cuando un agente de esa sala termina. Una sala debe estar mostrada para notificar.",
   "settings.profile.roomColumn": "Sala",
   "settings.profile.accessColumn": "Acceso",
   "settings.profile.displayedColumn": "Mostrada",
   "settings.profile.notificationsColumn": "Notificaciones",
-  "settings.profile.turnEndPush":
-    "Avisar también a mis dispositivos cuando un agente termine",
+  "settings.profile.devicesColumn": "Dispositivos",
   "settings.profile.accessTo": "Acceso a {room}",
   "settings.profile.display": "Mostrar {room}",
   "settings.profile.tuckedColumn": "Recogida",
   "settings.profile.tuck": "Recoger {room}",
   "settings.profile.notificationsFor": "Notificaciones de {room}",
+  "settings.profile.devicesFor": "Notificaciones en dispositivos de {room}",
   "settings.profile.agentContext": "Contexto para agentes",
   "settings.profile.promptConflict":
     "Las instrucciones especiales cambiaron en otro lugar. Tu borrador se conserva. Revisa el texto actual antes de volver a guardar.",

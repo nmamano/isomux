@@ -980,12 +980,31 @@ function newMemberRecord(): UserRecord {
     hidden: [],
     order: [],
     tucked: [],
+    pushRooms: [],
     memberPrompt: null,
     language: null,
   };
 }
 
 const NO_ROOM_IDS: string[] = [];
+
+// Rooms table layout, one grid for the header and every room row: an edge
+// gutter, the room name, one track per checkbox column, an edge gutter. A
+// checkbox column has its full width when there is room and narrows to its
+// header on a narrow screen; the room name keeps at least ROOM_NAME_MIN_PX.
+const ROOM_NAME_MIN_PX = 88;
+function roomTableColumns(columnWidths: number[]): string {
+  return [
+    "12px",
+    `minmax(${ROOM_NAME_MIN_PX}px, 1fr)`,
+    ...columnWidths.map((w) => `minmax(min-content, ${w}px)`),
+    "12px",
+  ].join(" ");
+}
+const roomColumnHeader: React.CSSProperties = {
+  textAlign: "center",
+  padding: "4px 2px 6px",
+};
 
 function sameRoomSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -1207,15 +1226,15 @@ function UserEditPanel({
       .then((r) => setMeRooms(r.rooms))
       .catch(() => {});
   }, [isOwner, isMe, accessKey]);
-  // The turn-end push, a SELF-only preference under the Notifications column
-  // it follows. Like tucked: a change saved elsewhere lands here when the
-  // member has not edited the box.
-  const userTurnEndPush = user.turnEndPush === true;
-  const [turnEndPush, setTurnEndPush] = useState(userTurnEndPush);
-  const [turnEndPushBase, setTurnEndPushBase] = useState(userTurnEndPush);
-  if (turnEndPushBase !== userTurnEndPush) {
-    setTurnEndPushBase(userTurnEndPush);
-    if (turnEndPush === turnEndPushBase) setTurnEndPush(userTurnEndPush);
+  // Rooms whose turn ends push to the member's devices (the Devices column).
+  // Like tucked: the room settings pane writes the same field, so a change
+  // saved there lands here when the member has not edited the column.
+  const userPush = user.pushRooms ?? NO_ROOM_IDS;
+  const [pushSetting, setPushSetting] = useState<string[]>(userPush);
+  const [pushBase, setPushBase] = useState<string[]>(userPush);
+  if (!sameRoomSet(pushBase, userPush)) {
+    setPushBase(userPush);
+    if (sameRoomSet(pushSetting, pushBase)) setPushSetting(userPush);
   }
   // Rows of the Rooms table - RENDERING only; the destructive shown-complement
   // written on save is computed from a fresh /api/me/rooms read in handleSave,
@@ -1311,7 +1330,16 @@ function UserEditPanel({
     );
   }
 
-  // Hiding a room prunes its notification (NOTIFICATIONS ⊆ DISPLAYED). The
+  function toggleRoomPush(roomId: string) {
+    setPushSetting(
+      pushSetting.includes(roomId)
+        ? pushSetting.filter((id) => id !== roomId)
+        : [...pushSetting, roomId],
+    );
+  }
+
+  // Hiding a room prunes its notification and its device notification
+  // (NOTIFICATIONS ⊆ DISPLAYED, DEVICES ⊆ DISPLAYED). The
   // server applies the same clamp on save (clampViewFields); the client-side
   // mirror keeps the form state consistent mid-edit.
   function toggleRoomDisplayed(roomId: string) {
@@ -1323,6 +1351,7 @@ function UserEditPanel({
     );
     if (!wasHidden) {
       setNotifSetting(notifSetting.filter((id) => id !== roomId));
+      setPushSetting(pushSetting.filter((id) => id !== roomId));
     }
   }
 
@@ -1359,7 +1388,7 @@ function UserEditPanel({
     if (!sameRoomSet(allowedSetting, user.allowedRooms)) return true;
     if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) return true;
     if (isMe && !sameRoomSet(tuckedSetting, userTucked)) return true;
-    if (isMe && turnEndPush !== userTurnEndPush) return true;
+    if (isMe && !sameRoomSet(pushSetting, userPush)) return true;
     return false;
   }
 
@@ -1535,8 +1564,10 @@ function UserEditPanel({
           tucked: tuckedSetting,
         });
       }
-      if (isMe && turnEndPush !== userTurnEndPush) {
-        await apiFetch("PATCH", "/api/me/preferences", { turnEndPush });
+      if (isMe && !sameRoomSet(pushSetting, userPush)) {
+        await apiFetch("PUT", "/api/me/view/push-rooms", {
+          pushRooms: pushSetting,
+        });
       }
       if (renamed) onRenamed?.(trimmed);
       // Unlike the old modal (which collapsed the editor on save), the page
@@ -1668,13 +1699,13 @@ function UserEditPanel({
           />
         )}
 
-        {/* Rooms: ONE table for the three hierarchical
-            per-room settings - ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
-            Access is owner-managed on member targets; Displayed and
-            Notifications are SELF-only view prefs, so at most two
-            columns ever render at once (owner-editing-member: Access only;
-            self-edit: Displayed + Notifications). A member viewer only ever
-            mounts this panel for themselves (canEdit), so !isOwner ⇒ isMe. */}
+        {/* Rooms: ONE table for the hierarchical per-room settings -
+            ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS, and DISPLAYED ⊇ DEVICES.
+            Access is owner-managed on member targets; the other columns are
+            SELF-only view prefs (owner-editing-member: Access only;
+            self-edit: Displayed, Tucked, Notifications, Devices). A member
+            viewer only ever mounts this panel for themselves (canEdit), so
+            !isOwner ⇒ isMe. */}
         {(isOwner && (!ownerTarget || isMe)) || (!isOwner && isMe) ? (
           <>
             <h5 style={sectionTitleStyle}>{t("common.rooms")}</h5>
@@ -1690,46 +1721,61 @@ function UserEditPanel({
                 background: "var(--bg-base)",
                 padding: "4px 0",
                 marginTop: 8,
+                display: "grid",
+                gridTemplateColumns: roomTableColumns([
+                  ...(isOwner && !ownerTarget ? [80] : []),
+                  ...(isMe ? [80, 80, 90, 80] : []),
+                ]),
+                alignItems: "center",
               }}
             >
               <div
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "4px 12px 6px",
-                  borderBottom: "1px solid var(--border-subtle)",
+                  display: "contents",
                   fontSize: 10,
                   fontWeight: 600,
                   color: "var(--text-muted)",
                 }}
               >
-                <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ gridColumn: 2, padding: "4px 0 6px" }}>
                   {t("settings.profile.roomColumn")}
                 </span>
                 {isOwner && !ownerTarget && (
-                  <span style={{ width: 80, textAlign: "center" }}>
+                  <span style={roomColumnHeader}>
                     {t("settings.profile.accessColumn")}
                   </span>
                 )}
                 {isMe && (
-                  <span style={{ width: 80, textAlign: "center" }}>
+                  <span style={roomColumnHeader}>
                     {t("settings.profile.displayedColumn")}
                   </span>
                 )}
                 {isMe && (
-                  <span style={{ width: 80, textAlign: "center" }}>
+                  <span style={roomColumnHeader}>
                     {t("settings.profile.tuckedColumn")}
                   </span>
                 )}
                 {isMe && (
-                  <span style={{ width: 90, textAlign: "center" }}>
+                  <span style={roomColumnHeader}>
                     {t("settings.profile.notificationsColumn")}
                   </span>
                 )}
+                {isMe && (
+                  <span style={roomColumnHeader}>
+                    {t("settings.profile.devicesColumn")}
+                  </span>
+                )}
               </div>
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  borderBottom: "1px solid var(--border-subtle)",
+                }}
+              />
               {rowsForPrefs.length === 0 ? (
                 <div
                   style={{
+                    gridColumn: "1 / -1",
                     padding: "8px 12px",
                     fontSize: 12,
                     color: "var(--text-muted)",
@@ -1742,23 +1788,20 @@ function UserEditPanel({
                   const hasAccess = accessibleForPrefs.includes(r.id);
                   const displayed = hasAccess && !hiddenSetting.includes(r.id);
                   const wantsNotif = displayed && notifSetting.includes(r.id);
+                  const wantsPush = displayed && pushSetting.includes(r.id);
                   // A hidden room keeps its tucked flag: shown, but locked.
                   const tucked = hasAccess && tuckedSetting.includes(r.id);
                   return (
                     <div
                       key={r.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        padding: "6px 12px",
-                        fontSize: 12,
-                      }}
+                      style={{ display: "contents", fontSize: 12 }}
                     >
                       <span
                         {...noTranslate()}
                         style={{
-                          flex: 1,
+                          gridColumn: 2,
                           minWidth: 0,
+                          padding: "6px 0",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
@@ -1772,7 +1815,7 @@ function UserEditPanel({
                       {isOwner && !ownerTarget && (
                         <span
                           style={{
-                            width: 80,
+                            padding: "6px 0",
                             display: "flex",
                             justifyContent: "center",
                           }}
@@ -1794,7 +1837,7 @@ function UserEditPanel({
                       {isMe && (
                         <span
                           style={{
-                            width: 80,
+                            padding: "6px 0",
                             display: "flex",
                             justifyContent: "center",
                           }}
@@ -1823,7 +1866,7 @@ function UserEditPanel({
                       {isMe && (
                         <span
                           style={{
-                            width: 80,
+                            padding: "6px 0",
                             display: "flex",
                             justifyContent: "center",
                           }}
@@ -1850,7 +1893,7 @@ function UserEditPanel({
                       {isMe && (
                         <span
                           style={{
-                            width: 90,
+                            padding: "6px 0",
                             display: "flex",
                             justifyContent: "center",
                           }}
@@ -1878,33 +1921,39 @@ function UserEditPanel({
                           />
                         </span>
                       )}
+                      {isMe && (
+                        <span
+                          style={{
+                            padding: "6px 0",
+                            display: "flex",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={wantsPush}
+                            disabled={!displayed}
+                            onChange={() => {
+                              // DEVICES ⊆ DISPLAYED, gated like Notifications.
+                              if (!displayed) return;
+                              toggleRoomPush(r.id);
+                            }}
+                            aria-label={t("settings.profile.devicesFor", {
+                              room: r.name,
+                            })}
+                            style={{
+                              accentColor: "var(--accent)",
+                              cursor: displayed ? "pointer" : "default",
+                              opacity: displayed ? 1 : 0.35,
+                            }}
+                          />
+                        </span>
+                      )}
                     </div>
                   );
                 })
               )}
             </div>
-            {isMe && (
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginTop: 10,
-                  fontSize: 12,
-                  color: "var(--text-secondary)",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  data-testid="turn-end-push"
-                  checked={turnEndPush}
-                  onChange={() => setTurnEndPush(!turnEndPush)}
-                  style={{ accentColor: "var(--accent)", cursor: "pointer" }}
-                />
-                {t("settings.profile.turnEndPush")}
-              </label>
-            )}
           </>
         ) : null}
 

@@ -227,8 +227,9 @@ async function setup(
     repeatMinutes?: number | null;
     // Read on every call, so a test can change it.
     interval?: { minutes: number | null };
-    // Members with the turn-end push on, and who can see each room.
-    turnEnd?: Record<string, boolean>;
+    // Each member's turn-end push rooms (null: the member is gone), and who
+    // can see each room.
+    pushRooms?: Record<string, string[] | null>;
     audience?: Record<string, string[]>;
     pages?: PagerEntry[];
   } = {},
@@ -252,7 +253,7 @@ async function setup(
       get: (id) => pages.get(id) ?? null,
     },
     repeatMinutes: () => interval.minutes,
-    turnEndPush: (userId) => opts.turnEnd?.[userId] === true,
+    pushRooms: (userId) => opts.pushRooms?.[userId] ?? null,
     roomAudience: (roomId) => opts.audience?.[roomId] ?? [],
     isLobby: (roomId) => roomId === LOBBY_ROOM_ID,
     notifRooms: (userId) =>
@@ -466,11 +467,10 @@ describe("web push delivery: repeat and resolve", () => {
 describe("web push delivery: turn ends", () => {
   const bot = { id: "agent-1", name: "Bot", roomId: "room-a" };
   const audience = { "room-a": ["u-boss"], [LOBBY_ROOM_ID]: ["u-boss"] };
-  // The one member: can see room-a, has it in their rooms, option on. Each
+  // The one member: can see room-a and has it in their push rooms. Each
   // skip case below changes exactly one of these.
   const base = {
-    notifRooms: { "u-boss": ["room-a"] } as Record<string, string[] | null>,
-    turnEnd: { "u-boss": true },
+    pushRooms: { "u-boss": ["room-a"] } as Record<string, string[] | null>,
     audience,
   };
 
@@ -481,7 +481,7 @@ describe("web push delivery: turn ends", () => {
     return { ...ctx, dev };
   }
 
-  it("goes to a member who can see the room, has it in their rooms and turned it on", async () => {
+  it("goes to a member who can see the room and has it in their push rooms", async () => {
     const { calls, service, time, dev } = await oneDevice(base);
     service.onTurnEnd(bot);
     await time.advance(0);
@@ -494,24 +494,24 @@ describe("web push delivery: turn ends", () => {
     expect(payload.renotify).toBe(true);
   });
 
-  it("skips a member with the option off", async () => {
+  it("skips a room out of the member's push rooms", async () => {
     const { calls, service, time } = await oneDevice({
       ...base,
-      turnEnd: {},
+      pushRooms: { "u-boss": ["room-b"] },
     });
     service.onTurnEnd(bot);
     await time.advance(0);
     expect(calls).toHaveLength(0);
   });
 
-  it("skips a room out of the member's rooms", async () => {
-    const { calls, service, time } = await oneDevice({
+  it("does not read the sound's notification rooms", async () => {
+    const { calls, service, time, dev } = await oneDevice({
       ...base,
-      notifRooms: { "u-boss": ["room-b"] },
+      notifRooms: { "u-boss": [] },
     });
     service.onTurnEnd(bot);
     await time.advance(0);
-    expect(calls).toHaveLength(0);
+    expect(calls.map((c) => c.url)).toEqual([dev.input.endpoint]);
   });
 
   it("skips a member who cannot see the room", async () => {
@@ -527,7 +527,7 @@ describe("web push delivery: turn ends", () => {
   it("skips a member who is gone", async () => {
     const { calls, service, time } = await oneDevice({
       ...base,
-      notifRooms: { "u-boss": null },
+      pushRooms: { "u-boss": null },
     });
     service.onTurnEnd(bot);
     await time.advance(0);
@@ -541,8 +541,11 @@ describe("web push delivery: turn ends", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("sends nothing for the lobby (Lead ruling), though the room filter passes it", async () => {
-    const { calls, service, time } = await oneDevice(base);
+  it("sends nothing for the lobby (Lead ruling), even with it in the push rooms", async () => {
+    const { calls, service, time } = await oneDevice({
+      ...base,
+      pushRooms: { "u-boss": ["room-a", LOBBY_ROOM_ID] },
+    });
     service.onTurnEnd({ ...bot, roomId: LOBBY_ROOM_ID });
     await time.advance(0);
     expect(calls).toHaveLength(0);

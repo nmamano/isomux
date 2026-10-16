@@ -25,6 +25,7 @@ function full(name: string, over: Partial<UserRecord> = {}): UserRecord {
     hidden: [],
     order: [],
     tucked: [],
+    pushRooms: [],
     memberPrompt: null,
     language: null,
     ...over,

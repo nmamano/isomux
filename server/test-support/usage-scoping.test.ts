@@ -157,6 +157,7 @@ describe("usageAudienceForUser", () => {
     hidden: [],
     order: [],
     tucked: [],
+    pushRooms: [],
     memberPrompt: null,
     language: null,
   };

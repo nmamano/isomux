@@ -439,18 +439,18 @@ Coses que pots fer per ell:
   "settings.profile.accessHint":
     "Accés: sales que aquest membre pot veure i on pot actuar (ho gestiona el propietari de l'oficina).",
   "settings.profile.viewHint":
-    "Mostrades: quines de les teves sales accessibles apareixen a la teva vista. Notificacions: so quan un agent d'aquella sala acaba. Una sala ha d'estar mostrada per notificar.",
+    "Mostrades: quines de les teves sales accessibles apareixen a la teva vista. Notificacions: so quan un agent d'aquella sala acaba. Dispositius: una notificació push als teus dispositius quan un agent d'aquella sala acaba. Una sala ha d'estar mostrada per notificar.",
   "settings.profile.roomColumn": "Sala",
   "settings.profile.accessColumn": "Accés",
   "settings.profile.displayedColumn": "Mostrada",
   "settings.profile.notificationsColumn": "Notificacions",
-  "settings.profile.turnEndPush":
-    "Avisa també els meus dispositius quan un agent acabi",
+  "settings.profile.devicesColumn": "Dispositius",
   "settings.profile.accessTo": "Accés a {room}",
   "settings.profile.display": "Mostra {room}",
   "settings.profile.tuckedColumn": "Recollida",
   "settings.profile.tuck": "Recull {room}",
   "settings.profile.notificationsFor": "Notificacions de {room}",
+  "settings.profile.devicesFor": "Notificacions als dispositius de {room}",
   "settings.profile.agentContext": "Context per als agents",
   "settings.profile.promptConflict":
     "Les instruccions especials han canviat en un altre lloc. Es conserva el teu esborrany. Revisa el text actual abans de tornar a desar.",

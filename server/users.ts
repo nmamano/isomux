@@ -132,7 +132,12 @@ function normalizeAvatarVariant(value: unknown): GhostVariant {
 // Treat a raw object as a user record. Used both for the post-migration
 // format (id-keyed) and the legacy name-keyed format - the id field is
 // optional here; load() assigns one if it's missing.
-type RawUserRecord = Partial<UserRecord> & { name?: unknown };
+// `turnEndPush` is the retired one-box turn-end push (main only, never
+// released); load() turns it into pushRooms.
+type RawUserRecord = Partial<UserRecord> & {
+  name?: unknown;
+  turnEndPush?: unknown;
+};
 
 function load(): Record<string, UserRecord> {
   if (loaded) return users;
@@ -180,6 +185,15 @@ function load(): Record<string, UserRecord> {
           `[migration] minted id=${id} for legacy user "${value.name}" (was keyed by "${storageKey}")`,
         );
       }
+      // The retired turnEndPush box covered every room with notifications
+      // on, so those rooms become the push rooms. Runs once: the rewrite
+      // below drops turnEndPush.
+      if ("turnEndPush" in value) migratedAny = true;
+      const notifRooms = normalizeNotifRooms(value.notifRooms);
+      const pushRooms =
+        value.turnEndPush === true && value.pushRooms === undefined
+          ? [...notifRooms]
+          : normalizeRoomIdList(value.pushRooms);
       result[id] = {
         id,
         name: value.name,
@@ -187,7 +201,7 @@ function load(): Record<string, UserRecord> {
         // legacy `defaultRoomId` field in an existing users.json is tolerated
         // and simply ignored here - reads never break, the field is dropped on
         // the next rewrite.
-        notifRooms: normalizeNotifRooms(value.notifRooms),
+        notifRooms,
         createdAt:
           typeof value.createdAt === "number" ? value.createdAt : Date.now(),
         role: normalizeRole(value.role),
@@ -196,11 +210,11 @@ function load(): Record<string, UserRecord> {
         hidden: normalizeRoomIdList(value.hidden),
         order: normalizeRoomIdList(value.order),
         tucked: normalizeRoomIdList(value.tucked),
+        pushRooms,
         memberPrompt: normalizeMemberPrompt(value.memberPrompt),
         avatarColor: normalizeAvatarColor(value.avatarColor, id),
         avatarVariant: normalizeAvatarVariant(value.avatarVariant),
         language: normalizeLanguage(value.language),
-        ...(value.turnEndPush === true ? { turnEndPush: true as const } : {}),
         ...(value.pendingSignIn === true
           ? { pendingSignIn: true as const }
           : {}),
@@ -345,6 +359,7 @@ export function claimUser(
     hidden: [],
     order: [],
     tucked: [],
+    pushRooms: [],
     memberPrompt: normalizeMemberPrompt(initial?.memberPrompt),
     // Live-avatars defaults. Color is deterministic per user-id so the
     // same user gets a consistent hue across restarts; variant is the
@@ -527,12 +542,13 @@ export function updateUserById(
       | "hidden"
       | "order"
       | "tucked"
+      | "pushRooms"
       | "memberPrompt"
       | "avatarColor"
       | "avatarVariant"
       | "language"
     >
-  > & { allowedRooms?: string[]; turnEndPush?: boolean },
+  > & { allowedRooms?: string[] },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
   load();
   const existing = users[id];
@@ -585,6 +601,10 @@ export function updateUserById(
       changes.tucked !== undefined
         ? normalizeRoomIdList(changes.tucked)
         : existing.tucked,
+    pushRooms:
+      changes.pushRooms !== undefined
+        ? normalizeRoomIdList(changes.pushRooms)
+        : existing.pushRooms,
     memberPrompt:
       changes.memberPrompt !== undefined
         ? normalizeMemberPrompt(changes.memberPrompt)
@@ -604,13 +624,6 @@ export function updateUserById(
       changes.language !== undefined
         ? normalizeLanguage(changes.language)
         : existing.language,
-    ...((
-      changes.turnEndPush !== undefined
-        ? changes.turnEndPush
-        : existing.turnEndPush
-    )
-      ? { turnEndPush: true as const }
-      : {}),
     ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
   };
 
@@ -645,14 +658,17 @@ export function pruneStaleRoomRefs(validRoomIds: string[]): number {
     const u = users[key];
     const newAllowed = u.allowedRooms.filter((id) => validSet.has(id));
     const newNotif = u.notifRooms.filter((id) => validSet.has(id));
+    const newPush = u.pushRooms.filter((id) => validSet.has(id));
     if (
       newAllowed.length !== u.allowedRooms.length ||
-      newNotif.length !== u.notifRooms.length
+      newNotif.length !== u.notifRooms.length ||
+      newPush.length !== u.pushRooms.length
     ) {
       users[key] = {
         ...u,
         allowedRooms: newAllowed,
         notifRooms: newNotif,
+        pushRooms: newPush,
       };
       touched++;
     }

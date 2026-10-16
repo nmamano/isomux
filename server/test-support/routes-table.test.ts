@@ -1234,6 +1234,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["view:manage"],
     emits: ["user_admin_updated", "user_self_updated"],
   },
+  "view.setPushRooms": {
+    caps: ["view:manage"],
+    emits: ["user_admin_updated", "user_self_updated"],
+  },
   "view.listRooms": { caps: ["view:manage"], emits: [] },
   // Personal preferences (task 49d4e2f6). user:self, NOT view:manage - these
   // are record fields, and user:self is the capability that already means

@@ -125,6 +125,7 @@ import type {
   ViewOrderReq,
   ShownRoomsReq,
   TuckedRoomsReq,
+  PushRoomsReq,
   NotifRoomsReq,
   MeRoomsRes,
   PreferencesReq,
@@ -1048,6 +1049,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/me/view/tucked",
     auth: cap("view:manage", authenticated),
     // Tucked is a private record field, not in full_state.
+    emits: ["user_admin_updated", "user_self_updated"],
+  }),
+  defineRoute<PushRoomsReq, NoContent>({
+    opId: "view.setPushRooms",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "PUT",
+    path: "/api/me/view/push-rooms",
+    auth: cap("view:manage", authenticated),
+    // pushRooms is a private record field, like tucked.
     emits: ["user_admin_updated", "user_self_updated"],
   }),
   // Self-scoped accessible-rooms read: id+name for every room

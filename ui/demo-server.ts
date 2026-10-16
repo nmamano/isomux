@@ -35,6 +35,7 @@ import type {
   PagerSettingsReq,
   PagerSettingsRes,
   TuckedRoomsReq,
+  PushRoomsReq,
   StoragePruneReq,
   StoragePruneRes,
   StorageUsageWire,
@@ -1602,6 +1603,7 @@ function seedUsers() {
       hidden: [],
       order: [],
       tucked: [],
+      pushRooms: [],
       memberPrompt: null,
       avatarColor: defaultGhostColorForUserId(id),
       // Stephen gets a distinctive variant so the cycling ghost is
@@ -2793,6 +2795,19 @@ export async function demoApi(
         : undefined;
       if (!existing || !Array.isArray(b.tucked)) return undefined;
       const updated: UserRecord = { ...existing, tucked: [...b.tucked] };
+      users.set(updated.name.toLowerCase(), updated);
+      shimEmit({ type: "user_self_updated", user: updated });
+      return undefined;
+    }
+    // view.setPushRooms round-trips too, so the Devices box keeps its tick.
+    case "PUT /api/me/view/push-rooms": {
+      const b = (body ?? {}) as PushRoomsReq;
+      const selfId = sessionContext?.userId ?? null;
+      const existing = selfId
+        ? [...users.values()].find((u) => u.id === selfId)
+        : undefined;
+      if (!existing || !Array.isArray(b.pushRooms)) return undefined;
+      const updated: UserRecord = { ...existing, pushRooms: [...b.pushRooms] };
       users.set(updated.name.toLowerCase(), updated);
       shimEmit({ type: "user_self_updated", user: updated });
       return undefined;

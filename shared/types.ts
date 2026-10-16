@@ -1731,6 +1731,10 @@ export interface UserRecord {
   hidden: string[];
   order: string[];
   tucked: string[];
+  // Rooms whose turn ends also push to the member's devices
+  // (server/web-push-delivery.ts). Independent of notifRooms, and held within
+  // the shown rooms by the same clamp. Defaults to `[]`.
+  pushRooms: string[];
   // Self-described member profile prompt. Auto-injected into the system
   // prompt of every agent owned by this user, so the agent has standing
   // context about who its owner is. Other agents can also look up this
@@ -1751,10 +1755,6 @@ export interface UserRecord {
   // agent system prompt plus the voice input/output locale. null means "no
   // clause" - agents behave exactly as they did before the setting existed.
   language: SupportedLanguageCode | null;
-  // `turnEndPush`: also push to the member's devices when an agent ends a
-  // turn that sounds the turn-end sound (server/web-push-delivery.ts).
-  // Absent = off.
-  turnEndPush?: true;
   // Set when an owner creates the member (users.create); removed by the
   // member's first accepted sign-in link. Absent on every other record,
   // legacy ones included: absent means "has signed in".

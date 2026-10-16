@@ -58,6 +58,7 @@ import {
   listUsers,
   getUserById,
   getUserByName,
+  updateUserById,
   _testResetUsers,
 } from "../users.ts";
 import {
@@ -541,6 +542,56 @@ describe("users.json field normalization (Phase 1.3)", () => {
     expect(bad?.hidden).toEqual([]);
     expect(bad?.order).toEqual([]);
     expect(bad?.tucked).toEqual([]);
+  });
+
+  // Task 0c3fa26f: the one-box turnEndPush (main only) became the per-room
+  // pushRooms. A member who had it on gets the rooms with notifications on;
+  // the rewrite leaves no turnEndPush on disk, and a second load changes
+  // nothing.
+  it("turns turnEndPush into pushRooms once and drops it from disk", () => {
+    seed("users.json", {
+      on: {
+        id: "on",
+        name: "On",
+        role: "member",
+        allowedRooms: ["r1", "r2"],
+        notifRooms: ["r1", "r2"],
+        turnEndPush: true,
+      },
+      off: {
+        id: "off",
+        name: "Off",
+        role: "member",
+        allowedRooms: ["r1"],
+        notifRooms: ["r1"],
+        turnEndPush: false,
+      },
+      never: {
+        id: "never",
+        name: "Never",
+        role: "member",
+        allowedRooms: ["r1"],
+        notifRooms: ["r1"],
+        pushRooms: ["r1"],
+      },
+    });
+    _testResetUsers();
+    expect(getUserById("on")?.pushRooms).toEqual(["r1", "r2"]);
+    expect(getUserById("off")?.pushRooms).toEqual([]);
+    expect(getUserById("never")?.pushRooms).toEqual(["r1"]);
+    const onDisk = JSON.parse(
+      readFileSync(stateFile("users.json"), "utf-8"),
+    ) as Record<string, Record<string, unknown>>;
+    for (const id of ["on", "off", "never"]) {
+      expect("turnEndPush" in onDisk[id]).toBe(false);
+    }
+    expect(onDisk.on.pushRooms).toEqual(["r1", "r2"]);
+
+    // The member then clears a room; a reload keeps that choice.
+    _testResetUsers();
+    updateUserById("on", { pushRooms: ["r2"] });
+    _testResetUsers();
+    expect(getUserById("on")?.pushRooms).toEqual(["r2"]);
   });
 });
 

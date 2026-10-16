@@ -453,18 +453,18 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.profile.accessHint":
     "Access: rooms this member can see and act in (office-owner managed).",
   "settings.profile.viewHint":
-    "Displayed: which of your accessible rooms appear in your own view. Notifications: sound when an agent in that room finishes. A room must be displayed to notify.",
+    "Displayed: which of your accessible rooms appear in your own view. Notifications: sound when an agent in that room finishes. Devices: a push notification to your devices when an agent in that room finishes. A room must be displayed to notify.",
   "settings.profile.roomColumn": "Room",
   "settings.profile.accessColumn": "Access",
   "settings.profile.displayedColumn": "Displayed",
   "settings.profile.notificationsColumn": "Notifications",
-  "settings.profile.turnEndPush":
-    "Also notify my devices when an agent finishes",
+  "settings.profile.devicesColumn": "Devices",
   "settings.profile.accessTo": "Access to {room}",
   "settings.profile.display": "Display {room}",
   "settings.profile.tuckedColumn": "Tucked",
   "settings.profile.tuck": "Tuck {room}",
   "settings.profile.notificationsFor": "Notifications for {room}",
+  "settings.profile.devicesFor": "Device notifications for {room}",
   "settings.profile.agentContext": "Agent Context",
   "settings.profile.promptConflict":
     "Special instructions changed elsewhere. Your draft is kept. Review the current text before you save again.",

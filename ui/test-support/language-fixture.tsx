@@ -39,6 +39,7 @@ export function selfUserRecord(
     hidden: [],
     order: [],
     tucked: [],
+    pushRooms: [],
     memberPrompt: null,
     language,
   };

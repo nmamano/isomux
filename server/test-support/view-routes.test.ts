@@ -503,3 +503,152 @@ describe("view.setTucked (task 6c23d908)", () => {
     expect(getUserById(memberId)!.tucked).toEqual([r2]);
   });
 });
+
+// Task 0c3fa26f - view.setPushRooms: the rooms whose turn ends push to the
+// member's devices (the Devices column). The same clamp as notifRooms holds
+// it within the shown rooms; it rides only the private record channels.
+describe("view.setPushRooms (task 0c3fa26f)", () => {
+  async function http(
+    srv: TestServer,
+    rawSessionId: string,
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<number> {
+    const resp = await srv.http(path, {
+      method,
+      rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return resp.status;
+  }
+
+  it("stores the full list within the shown rooms: dedupes, drops unknown, inaccessible and hidden ids", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const r1 = server.agentManager.getRooms()[0].id;
+    const r2 = server.agentManager.createRoom("R2");
+    const r3 = server.agentManager.createRoom("R3"); // inaccessible to Mia
+    const r4 = server.agentManager.createRoom("R4"); // hidden by Mia
+    grant(member.username, [r1, r2, r4]);
+    hide(member.username, [r4]);
+    const memberId = getUserByName(member.username)!.id;
+    expect(getUserById(memberId)!.pushRooms).toEqual([]);
+
+    expect(
+      await putView(server, member.rawSessionId, "push-rooms", {
+        pushRooms: [r2, r1, r2, r3, r4, "no-such-room"],
+      }),
+    ).toBe(204);
+    expect(getUserById(memberId)!.pushRooms).toEqual([r2, r1]);
+    // Independent of the sound's rooms.
+    expect(getUserById(memberId)!.notifRooms).toEqual([]);
+    expect(
+      await putView(server, member.rawSessionId, "push-rooms", {
+        pushRooms: r1,
+      }),
+    ).toBe(422);
+    expect(getUserById(memberId)!.pushRooms).toEqual([r2, r1]);
+  });
+
+  it("hiding a room, losing access to it and closing it each drop it", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const r1 = server.agentManager.getRooms()[0].id;
+    const r2 = server.agentManager.createRoom("R2");
+    const r3 = server.agentManager.createRoom("R3");
+    grant(member.username, [r1, r2, r3]);
+    const memberId = getUserByName(member.username)!.id;
+    await putView(server, member.rawSessionId, "push-rooms", {
+      pushRooms: [r1, r2, r3],
+    });
+    expect(getUserById(memberId)!.pushRooms).toEqual([r1, r2, r3]);
+
+    await putView(server, member.rawSessionId, "shown", { shown: [r2, r3] });
+    expect(getUserById(memberId)!.pushRooms).toEqual([r2, r3]);
+
+    expect(
+      await http(
+        server,
+        owner.rawSessionId,
+        "PUT",
+        `/api/users/${encodeURIComponent(member.username)}/access`,
+        { allowedRooms: [r1, r3] },
+      ),
+    ).toBe(200);
+    expect(getUserById(memberId)!.pushRooms).toEqual([r3]);
+
+    expect(
+      await http(server, owner.rawSessionId, "DELETE", `/api/rooms/${r3}`),
+    ).toBe(204);
+    expect(getUserById(memberId)!.pushRooms).toEqual([]);
+  });
+
+  it("a demotion drops the rooms the member no longer reaches", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const r1 = server.agentManager.getRooms()[0].id;
+    const r2 = server.agentManager.createRoom("R2");
+    grant(member.username, [r1]);
+    const memberId = getUserByName(member.username)!.id;
+    const setRole = (role: string) =>
+      http(
+        server!,
+        owner.rawSessionId,
+        "PATCH",
+        `/api/users/${encodeURIComponent(member.username)}`,
+        { role },
+      );
+
+    // As an owner Mia reaches every room by rule, so both rooms stay.
+    expect(await setRole("owner")).toBe(200);
+    await putView(server, member.rawSessionId, "push-rooms", {
+      pushRooms: [r1, r2],
+    });
+    expect(getUserById(memberId)!.pushRooms).toEqual([r1, r2]);
+
+    expect(await setRole("member")).toBe(200);
+    expect(getUserById(memberId)!.role).toBe("member");
+    expect(getUserById(memberId)!.allowedRooms).not.toContain(r2);
+    expect(getUserById(memberId)!.pushRooms).not.toContain(r2);
+  });
+
+  it("sends the member's own record and the owners' admin record, no full_state and nothing public", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const other = await server.seedMember("Ola");
+    const r1 = server.agentManager.getRooms()[0].id;
+    grant(member.username, [r1]);
+    grant(other.username, [r1]);
+
+    const sock = await connectSettled(server, member.rawSessionId);
+    const otherSock = await connectSettled(server, other.rawSessionId);
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    const selfBefore = sock.messages.length;
+    const otherBefore = otherSock.messages.length;
+    const ownerBefore = ownerSock.messages.length;
+
+    await putView(server, member.rawSessionId, "push-rooms", {
+      pushRooms: [r1],
+    });
+    await waitForAfter(sock, selfBefore, "user_self_updated");
+    await sleep(50);
+    const selfNew = (sock.messages as Record<string, unknown>[]).slice(
+      selfBefore,
+    );
+    expect(selfNew.map((m) => m.type)).toEqual(["user_self_updated"]);
+    expect((selfNew[0].user as { pushRooms: string[] }).pushRooms).toEqual([
+      r1,
+    ]);
+    expect(otherSock.messages.slice(otherBefore)).toEqual([]);
+    const ownerNew = (ownerSock.messages as Record<string, unknown>[]).slice(
+      ownerBefore,
+    );
+    expect(ownerNew.map((m) => m.type)).toEqual(["user_admin_updated"]);
+  });
+});
