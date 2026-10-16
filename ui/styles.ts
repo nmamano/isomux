@@ -7,9 +7,6 @@ export const CSS = `
   ::-webkit-scrollbar-thumb { background:var(--bg-hover); border-radius:3px; }
   .hide-scrollbar::-webkit-scrollbar { display:none; }
   .hide-scrollbar { scrollbar-width:none; -ms-overflow-style:none; }
-  /* ui/office/RoomTabBar.tsx: the scroller reaches below the bar for the
-     ghost stickers; only its tabs and buttons take pointer events. */
-  .room-tab-scroller > * { pointer-events: auto; }
 
   @keyframes waitBounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
   @keyframes errShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-2px)} 75%{transform:translateX(2px)} }
