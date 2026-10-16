@@ -630,7 +630,7 @@ export function RoomTabBar({
                       gap: 4,
                       position: "relative",
                       // Don't let a narrow viewport (mobile) squeeze the tab -
-                      // without this, the flex parent's overflowX:auto wouldn't
+                      // without this, the scroller's overflowX:auto wouldn't
                       // stop browsers from shrinking the tab and wrapping the
                       // room name across two lines, which makes the active
                       // border render around a taller pill than other tabs.
