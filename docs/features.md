@@ -65,7 +65,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - Desk monitors **glow based on agent state** (green / purple / red).
 - Status light with **escalating hung-agent warnings**: amber at 2 min, red at 5 min.
 - **Activity badge** on desk when an agent needs attention.
-- **Sound notification** when an agent finishes and the browser tab is unfocused. Optionally, a notification on your devices too (Settings → You).
+- **Sound notification** when an agent finishes and the browser tab is unfocused.
 - **Kaomoji face in the browser tab** for the agent you have open: `(-_-)zz` idle, `~(o_o)~` working, `(^_^)ﾉ` waiting for you.
 - Auto-generated **conversation topic** below nametag.
 - **Drag agents between desks or rooms** to rearrange, or onto the trap door to move them to the back room.
@@ -101,13 +101,13 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Escape** closes the page on top and returns to what was under it.
 - **b** goes between a room's front and its back room.
 - **t**, **a**, **i** and **s** open Tasks, Apps, Integrations and Settings when no text field has focus. Press t, a or i again to close the page.
-- **Built-in slash commands**: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort`, `/plan`. Claude agents also run Claude Code's `/code-review` (or `/review`) and `/simplify`, with their options.
+- **Built-in slash commands**: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort`, `/plan`. Claude agents also run Claude Code's `/code-review` (or `/review`) and `/simplify`.
 - **Spawn dialog**: pick model, permission mode, thinking effort, and working directory (with recent-CWD suggestions) when creating an agent.
 - Start with a blank-canvas agent or choose from 13 templates like Side Project Builder, Money Planner, and Health Navigator, in your language.
 - **Autocomplete dropdown** with keyboard navigation for slash commands.
 - **Skills browser** - the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
 - **User skills** from `~/.claude/skills/` and project commands.
-- **Skills page** - shared skills appear once in All agents; engine tabs show the differences. The read-only Commands tab lists built-in commands, their aliases and the engines that run them, with the same descriptions as /help. Open a preview or the full SKILL.md, edit user and project skills, or create new ones for all agents. Saves require valid YAML front matter with a name and description. Broken files stay listed for repair; legacy command files keep their existing format. Delete user or project skills after confirmation: the whole skill folder is removed. Legacy commands delete one file. Linked targets remain.
+- **Skills page** - shared skills appear once in All agents; engine tabs show the differences. The read-only Commands tab lists office commands and their aliases with the same descriptions as /help. Open a preview or the full SKILL.md, edit user and project skills, or create new ones for all agents. Saves require valid YAML front matter with a name and description. Broken files stay listed for repair; legacy command files keep their existing format. Delete user or project skills after confirmation: the whole skill folder is removed. Legacy commands delete one file. Linked targets remain.
 
 ## Developer tools
 
@@ -162,7 +162,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 
 - **Agents and apps page you** when a person must act: a blocked process, a failure they cannot fix, a decision only you can make.
 - **Pages reach your Discord**, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
-- **Device notifications**: pages also show as notifications on a phone or browser you turn on in Settings → You → Pager. On iPhone and iPad, add Isomux to the Home Screen first.
+- **Device notifications**: pages and finished turns can also show as notifications on your phone or browser.
 - **Pager view**: every page you can see, open pages first, with ack and resolve. A badge on the Pager button counts your open pages.
 
 ## Safety

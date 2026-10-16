@@ -46,7 +46,7 @@ free for small teams · source-available · no account needed · works with your
 - **Every desk comes stocked**: built-in [terminal](https://x.com/Nil053/status/2039504957184090281), [editor](site/built-in-editor.jpeg), [diff viewer](https://x.com/Nil053/status/2047917731874557983), diagram viewer, and URL screenshotter
 - **A skills page**: browse, edit and create the skills all your agents share
 - [**Schedules**](https://x.com/Nil053/status/2048308972072079753): recurring work runs on its own
-- **A pager**: agents page you on Discord when something needs you, and keep paging until you ack
+- **A pager**: agents page you on Discord or with a phone notification when something needs you, and keep paging until you ack
 - [**Cute**](https://x.com/Nil053/status/2039027360117506399): [six themes](https://x.com/Nil053/status/2054709610519638506), and the room is clickable (the moon for dark mode, the door to change rooms, the clock for scheduled tasks...)
 - **Full of quality-of-life features**: edit a past message to branch the conversation, attach files, auto-generated conversation topics, [pre-tool-call safety hooks](https://x.com/Nil053/status/2039497314826666469), secrets kept out of prompts, daily backups, and more
 
