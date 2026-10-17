@@ -140,6 +140,30 @@ it("quotes a provider refusal and names the provider", () => {
   }
 });
 
+// The free-tier refusal gets a second line naming the likely cause; other
+// refusals do not (Nil, 2026-10-18).
+it("adds the free-tier hint only to the free-tier refusal", () => {
+  const hint = translatorFor("en").t("systemEntries.openCodeFreeTierHint");
+  const freeTier = openCodeProviderRefusal(
+    { name: "APIError", statusCode: 403, message: FREE_TIER_REFUSAL },
+    "opencode",
+  );
+  expect(freeTier?.split("\n")).toEqual([
+    expect.stringContaining(FREE_TIER_REFUSAL),
+    hint,
+  ]);
+  const other = openCodeProviderRefusal(
+    {
+      name: "APIError",
+      statusCode: 403,
+      message: "Model not allowed for this key.",
+    },
+    "opencode",
+  );
+  expect(other).not.toContain(hint);
+  expect(other).not.toContain("\n");
+});
+
 it("leaves failures that are not a provider refusal to the generic copy", () => {
   for (const error of [
     { name: "APIError", statusCode: 403 },

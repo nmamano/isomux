@@ -2428,6 +2428,8 @@ App 的一些原则：
     "此容器无法运行 Codex 的 sandbox，因此命令在容器内以完全访问权限运行。",
   "systemEntries.openCodeProviderRefused":
     "提供方 `{provider}` 拒绝了请求：“{message}”",
+  "systemEntries.openCodeFreeTierHint":
+    "当某台服务器过多使用 OpenCode 的免费额度时，OpenCode 也可能发送此消息。使用付费模型或 OpenCode Go 可以避免。",
   "systemEntries.openCodeProviderRetry":
     "提供方 `{provider}` 报告：“{message}”；正在进行第 {attempt} 次重试，共 {maxAttempts} 次。",
   "systemEntries.openCodePreviousSettings": "本轮使用你之前的集成设置。",

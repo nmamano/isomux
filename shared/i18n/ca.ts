@@ -2698,6 +2698,8 @@ Coses que pots fer per ell:
     "Aquest contenidor no pot executar el sandbox de Codex, així que les ordres s'executen amb accés complet dins del contenidor.",
   "systemEntries.openCodeProviderRefused":
     'El proveïdor `{provider}` ha rebutjat la sol·licitud: "{message}"',
+  "systemEntries.openCodeFreeTierHint":
+    "OpenCode també pot enviar això quan un servidor fa servir massa el seu nivell gratuït. Un model de pagament o OpenCode Go ho evita.",
   "systemEntries.openCodeProviderRetry":
     'El proveïdor `{provider}` ha informat: "{message}"; reintent {attempt} de {maxAttempts}.',
   "systemEntries.openCodePreviousSettings":

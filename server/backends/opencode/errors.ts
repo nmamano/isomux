@@ -76,10 +76,21 @@ export function openCodeProviderRefusal(
     status === undefined
       ? /rate.?limit|too many requests|quota|usage limit/i.test(message)
       : status >= 400 && status <= 499 && status !== 401;
-  return refused
-    ? words("systemEntries.openCodeProviderRefused", { provider, message })
-    : null;
+  if (!refused) return null;
+  const line = words("systemEntries.openCodeProviderRefused", {
+    provider,
+    message,
+  });
+  return FREE_TIER_REFUSAL.test(message)
+    ? `${line}\n${words("systemEntries.openCodeFreeTierHint")}`
+    : line;
 }
+
+// OpenCode's words for this refusal blame the client, but this office got it
+// after heavy free-tier volume from one server while another machine with the
+// same OpenCode version and config was served (2026-10-17). So a second line
+// names the likely cause, without claiming it.
+const FREE_TIER_REFUSAL = /free tier can only be used from within OpenCode/i;
 
 // Copy for failures that carry no provider message to show.
 export function openCodeErrorMessage(
