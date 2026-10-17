@@ -198,3 +198,33 @@ it("holds the share row and status lines it last showed on this device while set
   expect(view.container.querySelector("[data-reserved]")).toBeNull();
   view.unmount();
 });
+
+// Task 32c25445: the Office and Room panes keep Save live with nothing
+// changed, so a click always answers. This card does the same.
+it("saves and says so when Save is clicked with nothing changed", async () => {
+  const writes: Record<string, unknown>[] = [];
+  setApiShim(async (method, _path, body) => {
+    if (method === "PUT") {
+      writes.push(body as Record<string, unknown>);
+      return undefined;
+    }
+    return { version: "1", memberUsageCap: true, memberUsageShare: 80 };
+  });
+  const view = render(onLanguage(null, createElement(MemberUsageCard)));
+  await act(async () => {});
+  const buttons = view.getAllByRole("button") as HTMLButtonElement[];
+  const save = buttons[buttons.length - 1];
+  expect(save.disabled).toBe(false);
+  const before = save.textContent;
+  await act(async () => fireEvent.click(save));
+  expect(writes).toEqual([
+    {
+      prompt: null,
+      version: "1",
+      memberUsageCap: true,
+      memberUsageShare: 80,
+    },
+  ]);
+  expect(save.textContent).not.toBe(before);
+  view.unmount();
+});

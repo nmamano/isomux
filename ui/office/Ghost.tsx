@@ -422,8 +422,7 @@ export function GhostTag({
           background: "rgba(0,0,0,0.7)",
           color: "white",
           fontSize: 10,
-          fontFamily:
-            "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          fontFamily: "var(--font-ui)",
           padding: "1px 7px",
           borderRadius: 8,
           letterSpacing: "0.02em",
