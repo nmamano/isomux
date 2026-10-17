@@ -1,6 +1,13 @@
 // Topic generation after a failed one-shot: automatic triggers back off per
 // model, the manual refresh does not, and a failed refresh keeps the old label.
-import { afterEach, describe, expect, it, setSystemTime, spyOn } from "bun:test";
+import {
+  afterEach,
+  describe,
+  expect,
+  it,
+  setSystemTime,
+  spyOn,
+} from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OfficeState } from "../../shared/office-state.ts";
@@ -296,9 +303,7 @@ describe("topic generation backoff", () => {
 
       await refresh();
       expect(fake.oneShotCount).toBe(2);
-      expect(
-        isCodexAuthenticated(mgr.buildEnvForUserId("user-a")),
-      ).toBe(false);
+      expect(isCodexAuthenticated(mgr.buildEnvForUserId("user-a"))).toBe(false);
       expect(topic()).toBe("Earlier label");
       expect(mgr.getAgent(agentId)?.topicStale).toBe(stale);
 
