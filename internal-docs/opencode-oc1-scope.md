@@ -232,8 +232,8 @@ OpenCode uses shared servers, not one process per agent:
   variant for that turn.
 
 The server record also carries a revision of the generated OpenCode config.
-The first S6-era acquire treats a pre-S6 record without that revision as stale,
-drains active turns for the existing two-minute bound, and replaces the server.
+The first S6-era acquire treats a pre-S6 record without that revision as stale
+and replaces the server.
 An operator can therefore see each still-running OpenCode server restart once
 after this upgrade. An unchanged config continues to adopt the same process.
 
@@ -505,7 +505,7 @@ a repo-A session still ran its tool in repo A, so a cwd edit starts a fresh
 session for OpenCode as it does for Codex. The profile and other durable
 sessions stay in place.
 
-The SSE subscription is per turn. Replacement drains all active turns, so no
+The SSE subscription is per turn. Replacement waits until no turn runs, so no
 idle persistent subscription can be stranded on the old endpoint. Retained
 leases read the supervisor's current authenticated endpoint before their next
 turn. Agent-manager enforces one live backend session per agent; edit closes
@@ -523,8 +523,12 @@ depend on the edit path reading messages first.
 Environment-file contents have a separate revision from profile identity. The
 revision hashes configured office and user env-file values only, never ambient
 process values, and is stored only in the mode-0600 server record. A changed
-revision replaces the active server in the same paths-only profile after the
-two-minute bounded drain. Durable session ids remain valid.
+revision replaces the server in the same paths-only profile when its last turn
+and its last request outside a turn (a model list, a new session) end; a
+pending replacement never holds or fails a turn or a model list, which use the
+running server meanwhile (task 8d9561a5). So a new environment reaches
+new turns only once the server is idle, which can take long while turns keep
+overlapping. Durable session ids remain valid.
 6. **S5 - model and UI completion.** Add provider/model discovery, at most
    three first-release certified models, capability-shaped controls, and every
    killed/resumed-agent surface.

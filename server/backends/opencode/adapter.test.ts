@@ -444,6 +444,7 @@ describe("OpenCode pinned transport", () => {
         pid: process.pid,
         baseUrl: `http://127.0.0.1:${server.port}`,
         authHeader: "Basic test",
+        settle: () => {},
         beginTurn: async () => {},
         endTurn: () => {},
         serverStopped: () => false,
@@ -1014,6 +1015,7 @@ describe("OpenCode pinned transport", () => {
       get authHeader() {
         return "Basic test";
       },
+      settle: () => {},
       beginTurn: async () => {},
       endTurn: () => {},
       serverStopped: () => false,

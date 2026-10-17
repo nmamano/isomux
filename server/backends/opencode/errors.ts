@@ -93,6 +93,7 @@ export function logOpenCodeError(
           ? { isRetryable: error.isRetryable }
           : {}),
         ...(context.failure ? { failure: context.failure } : {}),
+        ...(context.step ? { step: context.step } : {}),
         ...(context.openCodeLog ? { openCodeLog: context.openCodeLog } : {}),
       }),
     ),

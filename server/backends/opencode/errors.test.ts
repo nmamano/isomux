@@ -65,6 +65,7 @@ it("logs the agent, the failure and OpenCode's log next to the cause", () => {
       {
         agentId: "agent-1",
         failure: "failure text",
+        step: "begin_turn",
         openCodeLog: "/profile/opencode.log",
       },
     );
@@ -75,6 +76,7 @@ it("logs the agent, the failure and OpenCode's log next to the cause", () => {
       agentId: "agent-1",
       name: "Error",
       failure: "failure text",
+      step: "begin_turn",
       openCodeLog: "/profile/opencode.log",
     });
   } finally {

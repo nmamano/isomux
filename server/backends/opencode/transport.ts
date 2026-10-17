@@ -467,8 +467,9 @@ export class OpenCodeTransport {
     input?: number;
     output?: number;
   } | null> {
-    await this.initialize(() => undefined);
-    const models = await this.catalog().catch(() => []);
+    const models = await this.outsideTurn(() =>
+      this.catalog().catch(() => []),
+    );
     const model = models.find((entry) => entry.id === this.model);
     if (model?.contextLimit === undefined) return null;
     return {
@@ -538,8 +539,13 @@ export class OpenCodeTransport {
     return { notice: openCodeEffortUnavailableNotice(this.model, this.effort) };
   }
 
-  async initialize(sink: EventSink, withinTurn = false): Promise<string> {
+  async initialize(
+    sink: EventSink,
+    withinTurn = false,
+    onStep?: (step: OpenCodeTurnStep) => void,
+  ): Promise<string> {
     if (this.sessionId) return this.sessionId;
+    onStep?.("acquire");
     this.lease = await this.supervisor.acquire();
     // A turn-sending transport loads the catalog alongside POST /session.
     if (this.systemPrompt !== undefined) {
@@ -550,6 +556,7 @@ export class OpenCodeTransport {
     if (this.resumedSessionId) {
       this.sessionId = this.resumedSessionId;
     } else {
+      onStep?.("session");
       const init = {
         method: "POST",
         body: JSON.stringify({ title: "Isomux OpenCode session" }),
@@ -580,6 +587,8 @@ export class OpenCodeTransport {
     let settled = false;
     let turnStarted = false;
     let controller: AbortController | undefined;
+    // The step a failure happened in, for the journal.
+    let step: OpenCodeTurnStep | undefined;
     const emit: EventSink = (event) => {
       if (event.kind === "turn_completed") {
         if (settled) return;
@@ -635,7 +644,7 @@ export class OpenCodeTransport {
       sink(event);
     };
     this.turnSink = emit;
-    const fail = (error: unknown, context: string): void => {
+    const fail = (error: unknown, context: string, at = step): void => {
       // Late failures after settlement or intentional close are deliberately silent.
       if (settled || this.closed) return;
       const safeError = allowTransportError(
@@ -648,13 +657,16 @@ export class OpenCodeTransport {
           : `${context} (${safeError.name}${safeError.code ? `/${safeError.code}` : ""}; HTTP status: ${safeError.statusCode ?? "unavailable"}).`;
       // Observability must not stop delivery of the failed completion.
       try {
-        this.safeErrorSink?.(safeError, this.errorContext(failure));
+        this.safeErrorSink?.(safeError, this.errorContext(failure, at));
       } catch {
         console.error("OpenCode error sink failed.");
       } finally {
         emit({ kind: "turn_completed", status: "failed", error: failure });
       }
     };
+    // The event stream reports its own failures, whatever step the turn is in.
+    const failInStream = (error: unknown, context: string): void =>
+      fail(error, context, "event_stream");
     if (this.systemPrompt === undefined) {
       fail(
         new Error(),
@@ -671,7 +683,10 @@ export class OpenCodeTransport {
     }
     this.folderSetupNoticeShown = false;
     try {
-      const sessionId = await this.initialize(emit, true);
+      const sessionId = await this.initialize(emit, true, (next) => {
+        step = next;
+      });
+      step = "begin_turn";
       await this.lease!.beginTurn();
       turnStarted = true;
       this.authorityBinding?.activate(this.lease!.pid);
@@ -680,12 +695,13 @@ export class OpenCodeTransport {
       this.promptSent = false;
       controller = new AbortController();
       this.abortController = controller;
+      step = "event_stream";
       try {
         await this.consumeEvents(
           sessionId,
           emit,
           controller.signal,
-          fail,
+          failInStream,
           billedSteps,
         );
       } catch (error) {
@@ -698,21 +714,24 @@ export class OpenCodeTransport {
         // No prompt is out yet, so recovery replays nothing. When the guard
         // keeps a live server another turn uses, a missed deadline fails the
         // turn in member words.
+        step = "recovery";
         try {
           await this.lease!.recoverBeforePrompt();
         } catch (recoveryError) {
           throw error instanceof OpenCodeTurnFailure ? error : recoveryError;
         }
         this.authorityBinding?.activate(this.lease!.pid);
+        step = "event_stream";
         await this.consumeEvents(
           sessionId,
           emit,
           controller.signal,
-          fail,
+          failInStream,
           billedSteps,
         );
       }
       if (settled) return;
+      step = "safety_plugin";
       await this.requireSafetyPlugin(controller.signal, emit);
       if (settled) return;
       // After beginTurn and recovery, which can each replace the server.
@@ -725,6 +744,7 @@ export class OpenCodeTransport {
       }
       if (notice)
         emit({ kind: "system_text", text: notice, isomuxAuthored: true });
+      step = "prompt";
       const [providerID, modelID] = splitModel(this.model);
       this.promptSent = true;
       this.promptSentAt = Date.now();
@@ -749,6 +769,10 @@ export class OpenCodeTransport {
         return;
       }
       fail(error, "OpenCode turn failed");
+    } finally {
+      // A turn that ended before beginTurn, even a silent one after close(),
+      // still holds its acquire; after beginTurn this is a no-op.
+      this.lease?.settle();
     }
   }
 
@@ -794,37 +818,53 @@ export class OpenCodeTransport {
   }
 
   async getSessionMessages(): Promise<NormalizedMessage[]> {
-    const sessionId = await this.initialize(() => undefined);
-    const response = await this.request(
-      `/session/${encodeURIComponent(sessionId)}/message`,
-    );
-    const messages = allowMessages(await response.json());
-    this.contractShapeSink?.("http:message:list");
-    return messages;
+    return this.outsideTurn(async (sessionId) => {
+      const response = await this.request(
+        `/session/${encodeURIComponent(sessionId)}/message`,
+      );
+      const messages = allowMessages(await response.json());
+      this.contractShapeSink?.("http:message:list");
+      return messages;
+    });
   }
 
   // OpenCode copies the messages before messageId; null copies them all.
   async forkAtMessage(messageId: string | null): Promise<string> {
-    const sessionId = await this.initialize(() => undefined);
-    const response = await this.request(
-      `/session/${encodeURIComponent(sessionId)}/fork`,
-      {
-        method: "POST",
-        body: JSON.stringify(
-          messageId === null ? {} : { messageID: messageId },
-        ),
-      },
-    );
-    const child = allowSession(await response.json()).id;
-    this.contractShapeSink?.("http:fork:{id:string}");
-    return child;
+    return this.outsideTurn(async (sessionId) => {
+      const response = await this.request(
+        `/session/${encodeURIComponent(sessionId)}/fork`,
+        {
+          method: "POST",
+          body: JSON.stringify(
+            messageId === null ? {} : { messageID: messageId },
+          ),
+        },
+      );
+      const child = allowSession(await response.json()).id;
+      this.contractShapeSink?.("http:fork:{id:string}");
+      return child;
+    });
   }
 
   async deleteSession(): Promise<void> {
-    const sessionId = await this.initialize(() => undefined);
-    await this.request(`/session/${encodeURIComponent(sessionId)}`, {
-      method: "DELETE",
+    await this.outsideTurn(async (sessionId) => {
+      await this.request(`/session/${encodeURIComponent(sessionId)}`, {
+        method: "DELETE",
+      });
     });
+  }
+
+  // Work outside a turn keeps the hold its acquire took until it ends, so a
+  // pending server replacement waits for it. A transport that already has
+  // its session took no new hold.
+  private async outsideTurn<T>(
+    work: (sessionId: string) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await work(await this.initialize(() => undefined));
+    } finally {
+      this.lease?.settle();
+    }
   }
 
   canAbortInPlace(): boolean {
@@ -1400,11 +1440,16 @@ export class OpenCodeTransport {
     });
   }
 
-  private errorContext(failure?: string): OpenCodeErrorContext {
-    const profileDir = this.lease?.profileDir;
+  private errorContext(
+    failure?: string,
+    step?: OpenCodeTurnStep,
+  ): OpenCodeErrorContext {
+    // Before acquire returns a lease, the supervisor names the same profile.
+    const profileDir = this.lease?.profileDir ?? this.supervisor.profileDir;
     return {
       ...(this.agentId ? { agentId: this.agentId } : {}),
       ...(failure ? { failure } : {}),
+      ...(step ? { step } : {}),
       ...(profileDir ? { openCodeLog: openCodeLogPath(profileDir) } : {}),
     };
   }
@@ -1862,8 +1907,20 @@ type AllowedEvent =
 export interface OpenCodeErrorContext {
   agentId?: string;
   failure?: string;
+  step?: OpenCodeTurnStep;
   openCodeLog?: string;
 }
+
+// Where in send() a turn failed. Every step before "prompt" runs before
+// OpenCode has the prompt. Choosing the effort has no step: it cannot fail.
+export type OpenCodeTurnStep =
+  | "acquire"
+  | "session"
+  | "begin_turn"
+  | "event_stream"
+  | "recovery"
+  | "safety_plugin"
+  | "prompt";
 
 export type OpenCodeSafeErrorSink = (
   error: Readonly<SafeOpenCodeError>,

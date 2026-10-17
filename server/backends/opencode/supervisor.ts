@@ -19,7 +19,6 @@ import {
 } from "./server-health.ts";
 
 export const OPENCODE_IDLE_SHUTDOWN_MS = 10 * 60 * 1000;
-export const OPENCODE_REPLACEMENT_DRAIN_MS = 2 * 60 * 1000;
 
 interface ServerRecord {
   pid: number;
@@ -101,6 +100,9 @@ export interface OpenCodeLease {
   pid: number;
   // One server process: a replacement gets a new key, an adoption keeps it.
   serverKey: string;
+  // Ends the hold acquire() takes. Until then, or until beginTurn counts the
+  // turn, or release(), a pending replacement does not stop this server.
+  settle(): void;
   release(): void;
   beginTurn(): Promise<void>;
   recoverBeforePrompt(): Promise<void>;
@@ -121,7 +123,6 @@ export interface OpenCodeSupervisorOptions {
   serverCwd?: string;
   idleShutdownMs?: number;
   launchEnv?: Record<string, string | undefined>;
-  replacementDrainMs?: number;
   environmentRevision?: string;
   idleScheduler?: {
     setTimeout(
@@ -143,6 +144,10 @@ export interface OpenCodeSupervisorOptions {
 export class OpenCodeSupervisor {
   private leases = 0;
   private activeTurns = 0;
+  // Work on the server that no turn counts yet: an acquired lease until its
+  // caller settles it, and a turn entry until the turn counts. A pending
+  // replacement waits for it as it waits for turns.
+  private holds = 0;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private record: ServerRecord | null = null;
@@ -157,7 +162,6 @@ export class OpenCodeSupervisor {
   private readonly idleShutdownMs: number;
   private launchEnv: Record<string, string | undefined>;
   private environmentRevision: string;
-  private readonly replacementDrainMs: number;
   private replacementPromise: Promise<void> | null = null;
   private replacementRequested = false;
   private readonly idleScheduler: NonNullable<
@@ -190,8 +194,6 @@ export class OpenCodeSupervisor {
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};
     this.environmentRevision = options.environmentRevision ?? "default";
-    this.replacementDrainMs =
-      options.replacementDrainMs ?? OPENCODE_REPLACEMENT_DRAIN_MS;
     this.idleScheduler = options.idleScheduler ?? {
       setTimeout: (callback, delayMs) =>
         setTimeout(() => void callback(), delayMs),
@@ -204,11 +206,29 @@ export class OpenCodeSupervisor {
   }
 
   async acquire(): Promise<OpenCodeLease> {
-    if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
-    this.idleTimer = null;
-    if (this.shutdownPromise) await this.shutdownPromise;
-    await this.replaceServerIfRequested();
-    await this.ensureServer(this.markReplaceable(this.activeTurns > 0));
+    // Taken before the first wait, so no replacement can start between the
+    // check below and the caller's work.
+    let entry: (() => void) | null = this.hold();
+    try {
+      if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+      if (this.shutdownPromise) await this.shutdownPromise;
+      const replacement = await this.replaceServerIfRequested(1);
+      const replaceMarked = this.markReplaceable(this.activeTurns > 0);
+      // A pending replacement: the helper would not adopt the server under
+      // its new revisions and would stop it, so use it as it is.
+      const record = this.record;
+      if (
+        replacement !== "pending" ||
+        replaceMarked ||
+        !record ||
+        !this.processIdentityMatches(record.pid, record.startTicks)
+      )
+        await this.ensureServer(replaceMarked);
+    } catch (error) {
+      entry();
+      throw error;
+    }
     this.leases++;
     let released = false;
     let turnActive = false;
@@ -229,7 +249,13 @@ export class OpenCodeSupervisor {
         const record = currentRecord();
         return `${record.pid}:${record.startTicks ?? ""}:${record.port}`;
       },
+      settle: () => {
+        entry?.();
+        entry = null;
+      },
       release: () => {
+        entry?.();
+        entry = null;
         if (released) return;
         released = true;
         this.leases--;
@@ -237,13 +263,20 @@ export class OpenCodeSupervisor {
       },
       beginTurn: async () => {
         if (released || turnActive) return;
-        await this.replaceServerIfRequested();
-        if (this.shutdownPromise) await this.shutdownPromise;
-        await this.validateServerForTurn(this.activeTurns > 0);
-        turnActive = true;
-        this.activeTurns++;
-        if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
-        this.idleTimer = null;
+        // The acquire's hold, or a new one, ends once the turn counts.
+        const drop = entry ?? this.hold();
+        entry = null;
+        try {
+          await this.replaceServerIfRequested(1);
+          if (this.shutdownPromise) await this.shutdownPromise;
+          await this.validateServerForTurn(this.activeTurns > 0);
+          turnActive = true;
+          this.activeTurns++;
+          if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
+          this.idleTimer = null;
+        } finally {
+          drop();
+        }
       },
       recoverBeforePrompt: async () => {
         if (released || !turnActive) return;
@@ -254,6 +287,7 @@ export class OpenCodeSupervisor {
         turnActive = false;
         this.activeTurns--;
         this.armIdleReap();
+        this.replaceOnceIdle();
       },
       serverStopped: (pid) => {
         const record = this.record;
@@ -466,20 +500,19 @@ export class OpenCodeSupervisor {
     );
   }
 
-  private async replaceServerIfRequested(): Promise<void> {
+  // A replacement never stops a running turn or held work and never waits
+  // for them: meanwhile it stays pending, and new turns and acquires use the
+  // current server. The last turn or hold to end replaces it
+  // (replaceOnceIdle). ownHolds: the caller's own holds, which do not count.
+  private async replaceServerIfRequested(
+    ownHolds = 0,
+  ): Promise<"none" | "pending" | "replaced"> {
     const marker = join(this.profileDir, "server.replace");
     if (!this.replacementRequested && !(await getAgentHost().fs.exists(marker)))
-      return;
+      return "none";
     if (!this.replacementPromise) {
+      if (this.activeTurns > 0 || this.holds > ownHolds) return "pending";
       this.replacementPromise = (async () => {
-        const deadline = Date.now() + this.replacementDrainMs;
-        while (this.activeTurns > 0 && Date.now() < deadline)
-          await Bun.sleep(25);
-        if (this.activeTurns > 0) {
-          throw new Error(
-            "OpenCode configuration changed, but active turns did not drain in time. Send your message again to retry.",
-          );
-        }
         await this.shutdown();
         await getAgentHost().fs.rm(marker);
         this.replacementRequested = false;
@@ -488,6 +521,31 @@ export class OpenCodeSupervisor {
       });
     }
     await this.replacementPromise;
+    return "replaced";
+  }
+
+  private hold(): () => void {
+    this.holds++;
+    let held = true;
+    return () => {
+      if (!held) return;
+      held = false;
+      this.holds--;
+      this.replaceOnceIdle();
+    };
+  }
+
+  // At the end of a turn or hold: a pending replacement runs once neither is
+  // left. Retained leases get the new server at once, as after a replacement
+  // at acquire.
+  private replaceOnceIdle(): void {
+    if (this.activeTurns > 0 || this.holds > 0) return;
+    void (async () => {
+      if ((await this.replaceServerIfRequested()) !== "replaced") return;
+      if (this.leases > 0 && !this.record) await this.ensureServer();
+    })().catch(() => {
+      console.error("[opencode] Server replacement after the last turn failed.");
+    });
   }
 
   private async readRecord(): Promise<ServerRecord | null> {

@@ -80,6 +80,7 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         pid: process.pid,
         baseUrl: `http://127.0.0.1:${server.port}`,
         authHeader: "Basic test",
+        settle: () => {},
         beginTurn: async () => {},
         endTurn: () => {},
         serverStopped: () => false,
@@ -191,6 +192,7 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
           pid: process.pid,
           baseUrl: "http://127.0.0.1:1",
           authHeader: "Basic test",
+          settle: () => {},
           beginTurn: async () => {
             turnsStarted++;
           },
@@ -349,6 +351,7 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         pid: process.pid,
         baseUrl: `http://127.0.0.1:${server.port}`,
         authHeader: "Basic test",
+        settle: () => {},
         beginTurn: async () => {},
         endTurn: () => {},
         serverStopped: () => false,
@@ -1313,6 +1316,7 @@ describe("OpenCode permission event integration", () => {
         pid: process.pid,
         baseUrl: `http://127.0.0.1:${server.port}`,
         authHeader: "Basic test",
+        settle: () => {},
         beginTurn: async () => {},
         endTurn: () => {},
         serverStopped: () => false,
@@ -1820,6 +1824,7 @@ describe("OpenCode permission event integration", () => {
         pid: process.pid,
         baseUrl: `http://127.0.0.1:${server.port}`,
         authHeader: "Basic test",
+        settle: () => {},
         beginTurn: async () => {},
         endTurn: () => {},
         serverStopped: () => false,
@@ -2143,6 +2148,7 @@ describe("OpenCode edit fork", () => {
         pid: process.pid,
         baseUrl: `http://127.0.0.1:${server.port}`,
         authHeader: "Basic test",
+        settle: () => {},
         beginTurn: async () => {},
         endTurn: () => {},
         serverStopped: () => false,
@@ -2266,6 +2272,7 @@ describe("OpenCode kept model catalog", () => {
           serverKeyReads++;
           return serverKey;
         },
+        settle: () => {},
         beginTurn: async () => {},
         endTurn: () => {},
         serverStopped: () => false,

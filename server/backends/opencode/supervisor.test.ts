@@ -33,6 +33,7 @@ import {
   type ProposedAction,
 } from "../../safety-policy.ts";
 import {
+  discoverOpenCodeModels,
   OPENCODE_SERVER_STOPPED_FAILURE,
   OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
   OpenCodeTransport,
@@ -191,7 +192,6 @@ function makeSupervisor(
   config?: Record<string, unknown>,
   idleShutdownMs = 1000,
   launchEnv: Record<string, string | undefined> = {},
-  replacementDrainMs = 5000,
   binary?: string,
 ) {
   const supervisor = new OpenCodeSupervisor({
@@ -204,7 +204,6 @@ function makeSupervisor(
       OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
       ...launchEnv,
     },
-    replacementDrainMs,
     binary,
   });
   supervisors.push(supervisor);
@@ -233,14 +232,7 @@ function manualIdleScheduler() {
   };
 }
 
-function shutdownInProgress(supervisor: OpenCodeSupervisor): boolean {
-  return (
-    (supervisor as unknown as { shutdownPromise: Promise<void> | null })
-      .shutdownPromise !== null
-  );
-}
-
-async function makeHealthOnlyBinary(path: string) {
+async function makeHealthOnlyBinary(path: string, providerDelayMs = 0) {
   const binary = join(path, "health-only-opencode");
   const healthMarker = join(path, "health-only-requests");
   const launchMarker = join(path, "health-only-launches");
@@ -251,6 +243,11 @@ import { appendFileSync } from "node:fs";
 appendFileSync(${JSON.stringify(launchMarker)}, process.pid + "\\n");
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const server = Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
+  if (new URL(request.url).pathname === "/provider")
+    return Bun.sleep(${providerDelayMs}).then(() => Response.json({
+      all: [{ id: "fake", name: "Fake", models: { m: { name: "M" } } }],
+      connected: ["fake"],
+    }));
   if (new URL(request.url).pathname !== "/global/health")
     return new Response("not found", { status: 404 });
   appendFileSync(${JSON.stringify(healthMarker)}, "hit\\n");
@@ -311,7 +308,6 @@ describe("OpenCode shared server supervisor", () => {
       ]),
       1000,
       { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
-      5000,
       binary,
     );
     const lease = await supervisor.acquire();
@@ -368,7 +364,6 @@ describe("OpenCode shared server supervisor", () => {
       gateConfig(mockProvider()),
       1000,
       {},
-      5000,
       binary,
     );
     const data = join(supervisor.profileDir, "data");
@@ -401,7 +396,6 @@ describe("OpenCode shared server supervisor", () => {
         gateConfig(mockProvider()),
         1000,
         {},
-        5000,
         binary,
       );
       const logDir = join(supervisor.profileDir, "data", "opencode", "log");
@@ -426,7 +420,6 @@ describe("OpenCode shared server supervisor", () => {
       gateConfig(mockProvider()),
       1000,
       {},
-      5000,
       binary,
     );
     const lease = await supervisor.acquire();
@@ -566,7 +559,6 @@ describe("OpenCode shared server supervisor", () => {
       config,
       1000,
       hostileAmbient,
-      5000,
       binary,
     );
     const second = makeSupervisor(
@@ -574,7 +566,6 @@ describe("OpenCode shared server supervisor", () => {
       config,
       1000,
       hostileAmbient,
-      5000,
       binary,
     );
     const [leaseA, leaseB] = await Promise.all([
@@ -635,7 +626,6 @@ describe("OpenCode shared server supervisor", () => {
       undefined,
       1000,
       { HOME: decoyHome, ISOMUX_HOME: decoyState },
-      5000,
       binary,
     );
     const lease = await supervisor.acquire();
@@ -693,7 +683,6 @@ describe("OpenCode shared server supervisor", () => {
         OPENCODE_SERVER_PASSWORD: "hostile-parent-password",
         TMPDIR: debugRoot,
       },
-      5000,
       binary,
     );
     const priorDebug = process.env.ISOMUX_OPENCODE_DEBUG;
@@ -731,7 +720,7 @@ describe("OpenCode shared server supervisor", () => {
     const path = await root();
     const config = gateConfig(mockProvider());
     const { binary, healthMarker } = await makeHealthOnlyBinary(path);
-    const first = makeSupervisor(path, config, 1000, {}, 5000, binary);
+    const first = makeSupervisor(path, config, 1000, {}, binary);
     const firstLease = await first.acquire();
     const firstPid = firstLease.pid;
     firstLease.release();
@@ -753,7 +742,7 @@ describe("OpenCode shared server supervisor", () => {
     record.port = killer.port;
     await writeFile(first.recordPath, `${JSON.stringify(record)}\n`);
 
-    const second = makeSupervisor(path, config, 1000, {}, 5000, binary);
+    const second = makeSupervisor(path, config, 1000, {}, binary);
     const replacement = await second.acquire();
     expect(killerHits).toBeGreaterThan(0);
     expect((await readFile(healthMarker, "utf8")).length).toBeGreaterThan(0);
@@ -774,6 +763,8 @@ describe("OpenCode shared server supervisor", () => {
     });
     supervisors.push(supervisor);
     const retained = await supervisor.acquire();
+    // An idle transport has settled its acquire.
+    retained.settle();
     const priorPid = retained.pid;
     const priorKey = retained.serverKey;
     await expectChildEnvironment(priorPid, { S4_ENV_CANARY: "before" });
@@ -920,41 +911,71 @@ describe("OpenCode shared server supervisor", () => {
     await unrelated.exited;
   });
 
-  it("waits for an active turn before a permission-config replacement", async () => {
+  // Task 8d9561a5: a member's env edit while another agent ran a long turn
+  // held every new turn and model list for two minutes, then failed them.
+  it("keeps the current server for new turns and model lists while a turn runs, and replaces it when the last turn ends", async () => {
     const path = await root();
-    const initialConfig = { share: "disabled" };
-    const { binary } = await makeHealthOnlyBinary(path);
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const memberDir = join(path, "member-opencode");
     const supervisor = makeSupervisor(
       path,
-      initialConfig,
+      { share: "disabled" },
       1000,
-      {},
-      5000,
+      { S4_ENV_CANARY: "before" },
       binary,
     );
-    const active = await supervisor.acquire();
-    const unchanged = await supervisor.acquire();
-    expect(unchanged.pid).toBe(active.pid);
-    unchanged.release();
-    await active.beginTurn();
-    const priorPid = active.pid;
-    supervisor.updateConfiguration({
-      ...initialConfig,
-      permission: { bash: "ask", edit: "ask", question: "deny" },
-    });
-    let granted = false;
-    const waiting = supervisor.acquire().then((lease) => {
-      granted = true;
-      return lease;
-    });
-    expect(shutdownInProgress(supervisor)).toBe(false);
-    expect(granted).toBe(false);
+    const long = await supervisor.acquire();
+    await long.beginTurn();
+    const priorPid = long.pid;
+    await expectChildEnvironment(priorPid, { S4_ENV_CANARY: "before" });
+    supervisor.updateLaunchEnvironment(
+      { OPENCODE_CONFIG_DIR: memberDir, S4_ENV_CANARY: "after" },
+      "revision-after",
+    );
+    const launches = async () =>
+      (await readFile(launchMarker, "utf8")).trim().split("\n").length;
+    expect(await launches()).toBe(1);
+
+    const next = await within(
+      (async () => {
+        const lease = await supervisor.acquire();
+        await lease.beginTurn();
+        return lease;
+      })(),
+      5000,
+    );
+    if (typeof next === "string") throw new Error(`new turn ${next}`);
+    expect(next.pid).toBe(priorPid);
+    const models = await within(
+      discoverOpenCodeModels(supervisor, path),
+      5000,
+    );
+    expect(models).toEqual([expect.objectContaining({ id: "fake/m" })]);
     expect(alive(priorPid)).toBe(true);
-    active.endTurn();
-    const replacement = await waiting;
-    expect(replacement.pid).not.toBe(priorPid);
-    active.release();
-    replacement.release();
+    expect(await launches()).toBe(1);
+
+    // The long turn still runs: another turn ending keeps the server.
+    next.endTurn();
+    next.release();
+    await Bun.sleep(100);
+    expect(alive(priorPid)).toBe(true);
+
+    long.endTurn();
+    const deadline = Date.now() + 5000;
+    while (alive(priorPid) && Date.now() < deadline) await Bun.sleep(25);
+    expect(alive(priorPid), "the last turn's end replaces the server").toBe(
+      false,
+    );
+    const after = await supervisor.acquire();
+    await after.beginTurn();
+    expect(after.pid).not.toBe(priorPid);
+    expect(long.pid, "a retained lease follows the replacement").toBe(
+      after.pid,
+    );
+    await expectChildEnvironment(after.pid, { S4_ENV_CANARY: "after" });
+    after.endTurn();
+    after.release();
+    long.release();
   }, 20_000);
 
   it("replaces a stale cross-process record before starting", async () => {
@@ -1123,7 +1144,6 @@ describe("OpenCode shared server supervisor", () => {
       gateConfig(mockProvider()),
       1000,
       {},
-      5000,
       binary,
     );
     const first = await supervisor.acquire();
@@ -1193,27 +1213,170 @@ describe("OpenCode shared server supervisor", () => {
     next.release();
   }, 20_000);
 
-  it("fails a requested replacement loudly when an active turn does not finish", async () => {
+  // A long turn, an env change, and a server the next turn may replace.
+  async function pendingReplacement(
+    path: string,
+    options: {
+      providerDelayMs?: number;
+      turnHealthCheck?: () => Promise<OpenCodeServerHealth>;
+    } = {},
+  ) {
+    const { binary } = await makeHealthOnlyBinary(
+      path,
+      options.providerDelayMs,
+    );
+    const memberDir = join(path, "member-opencode");
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: { share: "disabled" },
+      idleShutdownMs: 1000,
+      launchEnv: { OPENCODE_CONFIG_DIR: memberDir },
+      binary,
+      ...(options.turnHealthCheck
+        ? { turnHealthCheck: options.turnHealthCheck }
+        : {}),
+    });
+    supervisors.push(supervisor);
+    const long = await supervisor.acquire();
+    await long.beginTurn();
+    supervisor.updateLaunchEnvironment(
+      { OPENCODE_CONFIG_DIR: memberDir, S4_ENV_CANARY: "after" },
+      "revision-after",
+    );
+    return { supervisor, long, priorPid: long.pid };
+  }
+
+  async function dies(pid: number, ms = 5000): Promise<boolean> {
+    const deadline = Date.now() + ms;
+    while (alive(pid) && Date.now() < deadline) await Bun.sleep(25);
+    return !alive(pid);
+  }
+
+  it("keeps the server for a model list in flight when the last turn ends, and replaces it after", async () => {
     const path = await root();
+    const { supervisor, long, priorPid } = await pendingReplacement(path, {
+      providerDelayMs: 1500,
+    });
+    const list = discoverOpenCodeModels(supervisor, path).then(
+      (models) => models,
+      (error: unknown) => String(error),
+    );
+    await Bun.sleep(300);
+    long.endTurn();
+    expect(await list).toEqual([expect.objectContaining({ id: "fake/m" })]);
+    expect(await dies(priorPid), "replaced once the list settled").toBe(true);
+    long.release();
+  }, 20_000);
+
+  it("keeps the server for an acquired lease until its turn begins", async () => {
+    const path = await root();
+    const { supervisor, long, priorPid } = await pendingReplacement(path);
+    // A new session: acquire, then POST /session, then beginTurn.
+    const next = await supervisor.acquire();
+    long.endTurn();
+    expect(await dies(priorPid, 1000), "the acquire's hold keeps it").toBe(
+      false,
+    );
+    // The server is idle now: the turn replaces it before it counts.
+    await next.beginTurn();
+    expect(next.pid).not.toBe(priorPid);
+    expect(alive(priorPid)).toBe(false);
+    next.endTurn();
+    next.release();
+    long.release();
+  }, 20_000);
+
+  it("runs a turn that enters as the last turn ends on the new server", async () => {
+    const path = await root();
+    const { supervisor, long, priorPid } = await pendingReplacement(path);
+    const next = await supervisor.acquire();
+    next.settle();
+    // Order A: the replacement starts first, the entry waits for it.
+    long.endTurn();
+    await next.beginTurn();
+    expect(next.pid).not.toBe(priorPid);
+    expect(alive(priorPid)).toBe(false);
+    expect(alive(next.pid)).toBe(true);
+    await expectChildEnvironment(next.pid, { S4_ENV_CANARY: "after" });
+    next.endTurn();
+    next.release();
+    long.release();
+  }, 20_000);
+
+  it("keeps the server for a turn still entering when the last turn ends", async () => {
+    const path = await root();
+    let gate: Promise<void> | null = null;
+    let open = () => {};
+    let gated = false;
+    const { supervisor, long, priorPid } = await pendingReplacement(path, {
+      turnHealthCheck: async () => {
+        if (gate) {
+          gated = true;
+          await gate;
+        }
+        return "healthy";
+      },
+    });
+    const next = await supervisor.acquire();
+    next.settle();
+    gate = new Promise<void>((resolve) => (open = resolve));
+    // Order B: the entry is inside its health check when the turn ends.
+    const entered = next.beginTurn();
+    while (!gated) await Bun.sleep(5);
+    long.endTurn();
+    expect(await dies(priorPid, 1000), "the entry's hold keeps it").toBe(
+      false,
+    );
+    open();
+    await entered;
+    expect(next.pid).toBe(priorPid);
+    expect(alive(priorPid)).toBe(true);
+    next.endTurn();
+    expect(await dies(priorPid), "replaced at that turn's end").toBe(true);
+    next.release();
+    long.release();
+  }, 20_000);
+
+  it("ends an acquire's hold when its turn counts, with no settle", async () => {
+    const path = await root();
+    const { supervisor, long, priorPid } = await pendingReplacement(path);
+    const next = await supervisor.acquire();
+    await next.beginTurn();
+    expect(next.pid).toBe(priorPid);
+    next.endTurn();
+    long.endTurn();
+    // Neither lease is settled or released: only the turns held the server.
+    expect(await dies(priorPid), "replaced at the last turn's end").toBe(true);
+    next.release();
+    long.release();
+  }, 20_000);
+
+  it("defers a requested replacement while a turn runs instead of failing", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
     const supervisor = makeSupervisor(
       path,
       gateConfig(mockProvider()),
       1000,
       {},
-      30,
+      binary,
     );
     const lease = await supervisor.acquire();
     await lease.beginTurn();
-    await writeFile(
-      join(supervisor.profileDir, "server.replace"),
-      "authentication changed\n",
-    );
-    await expectRejection(
-      supervisor.acquire(),
-      /Send your message again to retry/,
-    );
-    expect(alive(lease.pid)).toBe(true);
+    const priorPid = lease.pid;
+    const marker = join(supervisor.profileDir, "server.replace");
+    await writeFile(marker, "authentication changed\n");
+    const other = await within(supervisor.acquire(), 5000);
+    if (typeof other === "string") throw new Error(`acquire ${other}`);
+    expect(other.pid).toBe(priorPid);
+    expect(existsSync(marker)).toBe(true);
+    other.release();
     lease.endTurn();
+    const deadline = Date.now() + 5000;
+    while (existsSync(marker) && Date.now() < deadline) await Bun.sleep(25);
+    expect(existsSync(marker)).toBe(false);
+    expect(alive(priorPid)).toBe(false);
     lease.release();
   }, 20_000);
 
@@ -1797,7 +1960,6 @@ describe("OpenCode shared server under load and loss", () => {
       gateConfig(mockProvider()),
       1000,
       {},
-      5000,
       binary,
     );
     const first = await supervisor.acquire();
@@ -1849,7 +2011,6 @@ describe("OpenCode shared server under load and loss", () => {
       gateConfig(mockProvider()),
       1000,
       {},
-      5000,
       binary,
     );
     const active = await supervisor.acquire();
@@ -1879,7 +2040,6 @@ describe("OpenCode shared server under load and loss", () => {
       gateConfig(mockProvider()),
       1000,
       {},
-      5000,
       binary,
     );
     const active = await supervisor.acquire();
@@ -1913,7 +2073,6 @@ describe("OpenCode shared server under load and loss", () => {
       gateConfig(mockProvider()),
       1000,
       {},
-      5000,
       binary,
     );
     const a = await supervisor.acquire();

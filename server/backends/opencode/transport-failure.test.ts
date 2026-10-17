@@ -15,6 +15,7 @@ import {
   openCodeEffortUnavailableNotice,
   OpenCodeTransport,
   type OpenCodeErrorContext,
+  type OpenCodeTurnStep,
   type SafeOpenCodeError,
 } from "./transport.ts";
 import { openCodeLogPath } from "./profile-paths.ts";
@@ -37,6 +38,8 @@ type Stage =
   | "session-json"
   | "begin"
   | "events"
+  | "recover"
+  | "plugin"
   | "body"
   | "reader"
   | "prompt"
@@ -51,8 +54,13 @@ afterEach(() => {
   restoreFetch = undefined;
 });
 
-function fixture(stage: Stage, onPrompt = () => {}) {
+function fixture(
+  stage: Stage,
+  onPrompt = () => {},
+  acquireGate?: Promise<void>,
+) {
   let ended = 0;
+  let settles = 0;
   let prompts = 0;
   let recoveries = 0;
   let eventStream: ReadableStreamDefaultController | undefined;
@@ -70,7 +78,8 @@ function fixture(stage: Stage, onPrompt = () => {}) {
       return Response.json({ id: "failure-session" });
     }
     if (url.pathname === "/event") {
-      if (stage === "events") return new Response(CANARY, { status: 502 });
+      if (stage === "events" || stage === "recover")
+        return new Response(CANARY, { status: 502 });
       if (stage === "body") return new Response(null);
       return new Response(
         new ReadableStream({
@@ -100,8 +109,10 @@ function fixture(stage: Stage, onPrompt = () => {}) {
         }),
       );
     }
-    if (url.pathname === "/experimental/tool/ids")
+    if (url.pathname === "/experimental/tool/ids") {
+      if (stage === "plugin") return new Response(CANARY, { status: 503 });
       return Response.json([OPENCODE_SAFETY_TOOL]);
+    }
     if (url.pathname.endsWith("/prompt_async")) {
       prompts++;
       if (stage === "late-permission") {
@@ -140,21 +151,27 @@ function fixture(stage: Stage, onPrompt = () => {}) {
     }
     if (url.pathname === "/provider")
       return Response.json({ all: [], connected: [] });
+    if (url.pathname.endsWith("/message")) return Response.json([]);
     return Response.json(true);
   }) as typeof fetch);
   restoreFetch = () => fetchSpy.mockRestore();
   const supervisor = {
     acquire: async () => {
+      if (acquireGate) await acquireGate;
       if (stage === "acquire") throw failure;
       return {
         pid: process.pid,
         baseUrl: "http://127.0.0.1:1",
         authHeader: "Basic synthetic",
+        settle: () => {
+          settles++;
+        },
         beginTurn: async () => {
           if (stage === "begin") throw failure;
         },
         recoverBeforePrompt: async () => {
           recoveries++;
+          if (stage === "recover") throw failure;
         },
         endTurn: () => {
           ended++;
@@ -170,51 +187,65 @@ function fixture(stage: Stage, onPrompt = () => {}) {
     ended: () => ended,
     prompts: () => prompts,
     recoveries: () => recoveries,
+    settles: () => settles,
     permissionReplies,
   };
 }
 
-const cases: Array<[Stage, string, string, number | undefined]> = [
-  ["acquire", "OpenCode turn failed", "Error", undefined],
-  ["session", "OpenCode turn failed", "Error", 503],
-  ["session-json", "OpenCode turn failed", "SyntaxError", undefined],
-  ["begin", "OpenCode turn failed", "Error", undefined],
-  ["events", "OpenCode turn failed", "Error", 502],
-  ["body", "OpenCode turn failed", "Error", undefined],
-  ["reader", "OpenCode event stream failed", "Error", undefined],
-  ["prompt", "OpenCode turn failed", "Error", 504],
+// The last column is the step the journal line names (task 8d9561a5).
+const cases: Array<
+  [Stage, string, string, number | undefined, OpenCodeTurnStep]
+> = [
+  ["acquire", "OpenCode turn failed", "Error", undefined, "acquire"],
+  ["session", "OpenCode turn failed", "Error", 503, "session"],
+  ["session-json", "OpenCode turn failed", "SyntaxError", undefined, "session"],
+  ["begin", "OpenCode turn failed", "Error", undefined, "begin_turn"],
+  ["events", "OpenCode turn failed", "Error", 502, "event_stream"],
+  ["body", "OpenCode turn failed", "Error", undefined, "event_stream"],
+  ["recover", "OpenCode turn failed", "Error", undefined, "recovery"],
+  ["plugin", "OpenCode turn failed", "Error", 503, "safety_plugin"],
+  ["reader", "OpenCode event stream failed", "Error", undefined, "event_stream"],
+  ["prompt", "OpenCode turn failed", "Error", 504, "prompt"],
   [
     "end",
     "OpenCode event stream ended before turn completion",
     "Error",
     undefined,
+    "event_stream",
   ],
   [
     "idle",
     "OpenCode became idle without a recorded completion",
     "Error",
     undefined,
+    "event_stream",
   ],
-  ["race", "OpenCode event stream failed", "Error", undefined],
+  ["race", "OpenCode event stream failed", "Error", undefined, "event_stream"],
 ];
 
-for (const [stage, context, name, statusCode] of cases) {
+for (const [stage, context, name, statusCode, step] of cases) {
   it(`reports ${stage} failure once with safe class and status`, async () => {
     const harness = fixture(stage);
     const errors: SafeOpenCodeError[] = [];
+    const steps: (OpenCodeTurnStep | undefined)[] = [];
     const events: NormalizedEvent[] = [];
     const transport = new OpenCodeTransport({
       supervisor: harness.supervisor,
       cwd: STATE_ROOT,
       model: "provider/model",
       systemPrompt: "system",
-      safeErrorSink: (error) => errors.push(error),
+      safeErrorSink: (error, context) => {
+        errors.push(error);
+        steps.push(context?.step);
+      },
     });
     try {
       await transport.send([{ type: "text", text: "go" }], (event) =>
         events.push(event),
       );
-      const code = ["acquire", "begin", "reader", "race"].includes(stage)
+      const code = ["acquire", "begin", "reader", "race", "recover"].includes(
+        stage,
+      )
         ? "ConnectionRefused"
         : undefined;
       expect(errors, "safe error projection").toEqual([
@@ -234,6 +265,7 @@ for (const [stage, context, name, statusCode] of cases) {
           error: `${context} (${name}${code ? `/${code}` : ""}; HTTP status: ${statusCode ?? "unavailable"}).`,
         },
       ]);
+      expect(steps, "the journal names the failed step").toEqual([step]);
       expect(
         JSON.stringify({ errors, events }),
         "no raw error fields",
@@ -247,12 +279,98 @@ for (const [stage, context, name, statusCode] of cases) {
       expect(
         harness.recoveries(),
         "recovery stays before prompt submission",
-      ).toBe(stage === "events" || stage === "body" ? 1 : 0);
+      ).toBe(["events", "body", "recover"].includes(stage) ? 1 : 0);
     } finally {
       transport.close();
     }
   });
 }
+
+// Task 8d9561a5: the hold an acquire takes keeps a pending server
+// replacement waiting. A lost settle would keep it waiting until restart.
+it("settles the acquire of a turn that fails before beginTurn", async () => {
+  const harness = fixture("session");
+  const transport = new OpenCodeTransport({
+    supervisor: harness.supervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+    systemPrompt: "system",
+  });
+  try {
+    await transport.send([{ type: "text", text: "go" }], () => {});
+    expect(harness.ended(), "the turn never began").toBe(0);
+    expect(harness.settles()).toBe(1);
+  } finally {
+    transport.close();
+  }
+});
+
+it("settles the acquire of a turn that fails silently after close", async () => {
+  let open = () => {};
+  const gate = new Promise<void>((resolve) => (open = resolve));
+  const harness = fixture("session", () => {}, gate);
+  const events: NormalizedEvent[] = [];
+  const transport = new OpenCodeTransport({
+    supervisor: harness.supervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+    systemPrompt: "system",
+  });
+  const sent = transport.send([{ type: "text", text: "go" }], (event) =>
+    events.push(event),
+  );
+  transport.close();
+  open();
+  await sent;
+  expect(events, "a closed transport stays silent").toEqual([]);
+  expect(harness.settles()).toBe(1);
+});
+
+it("settles the acquire of work outside a turn", async () => {
+  const harness = fixture("end");
+  const transport = new OpenCodeTransport({
+    supervisor: harness.supervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+  });
+  try {
+    await transport.getSessionMessages();
+    expect(harness.settles()).toBe(1);
+  } finally {
+    transport.close();
+  }
+});
+
+// Task 8d9561a5: a turn that failed inside acquire had no lease, so its
+// journal line named no OpenCode log.
+it("names OpenCode's log when the turn fails before acquire returns a lease", async () => {
+  const contexts: (OpenCodeErrorContext | undefined)[] = [];
+  const transport = new OpenCodeTransport({
+    supervisor: {
+      profileDir: "/profiles/acquire-failure",
+      acquire: async () => {
+        throw new Error("replacement failed");
+      },
+    } as unknown as OpenCodeSupervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+    systemPrompt: "system",
+    agentId: "agent-acquire",
+    safeErrorSink: (_error, context) => contexts.push(context),
+  });
+  try {
+    await transport.send([{ type: "text", text: "go" }], () => {});
+    expect(contexts).toEqual([
+      expect.objectContaining({
+        agentId: "agent-acquire",
+        step: "acquire",
+        openCodeLog: openCodeLogPath("/profiles/acquire-failure"),
+      }),
+    ]);
+  } finally {
+    transport.close();
+  }
+});
 
 it("drops unreviewed exception fields and still settles if the error observer throws", async () => {
   const error = Object.assign(new Error(CANARY), {
@@ -348,6 +466,7 @@ it("retries one refused event subscription before submitting one prompt, then re
         pid: process.pid,
         baseUrl: "http://127.0.0.1:1",
         authHeader: "Basic synthetic",
+        settle: () => {},
         beginTurn: async () => {},
         recoverBeforePrompt: async () => {
           recoveries++;
@@ -413,6 +532,7 @@ it("does not recover when closure aborts the initial event subscription", async 
         pid: process.pid,
         baseUrl: "http://127.0.0.1:1",
         authHeader: "Basic synthetic",
+        settle: () => {},
         beginTurn: async () => {},
         recoverBeforePrompt: async () => {
           recoveries++;
@@ -888,6 +1008,7 @@ function drivenTransport(
       get serverKey() {
         return options.serverKey?.() ?? "server-1";
       },
+      settle: () => {},
       beginTurn: async () => {
         options.onBeginTurn?.();
       },
@@ -1003,6 +1124,7 @@ it("names the agent, the failure and OpenCode's log when a turn misses the deadl
       {
         agentId: "agent-driven",
         failure: OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
+        step: "event_stream",
         openCodeLog: openCodeLogPath(DRIVEN_PROFILE),
       },
     ]);
