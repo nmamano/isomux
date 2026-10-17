@@ -100,6 +100,12 @@ export interface OpenCodeLease {
   pid: number;
   // One server process: a replacement gets a new key, an adoption keeps it.
   serverKey: string;
+  // The running server has older revisions than the current env, secrets or
+  // MCP config, the rule replaceServerIfRequested uses: its replacement
+  // waits for this server's turns and held work, so a turn that runs now
+  // uses the previous settings. The server.replace marker, which no Isomux
+  // path writes, is not read here: this getter is sync.
+  readonly replacementPending: boolean;
   // Ends the hold acquire() takes. Until then, or until beginTurn counts the
   // turn, or release(), a pending replacement does not stop this server.
   settle(): void;
@@ -233,6 +239,7 @@ export class OpenCodeSupervisor {
     let turnActive = false;
     const initialRecord = this.record!;
     const currentRecord = () => this.record ?? initialRecord;
+    const replacementPending = () => this.recordStale();
     return {
       get baseUrl() {
         return `http://127.0.0.1:${currentRecord().port}`;
@@ -247,6 +254,9 @@ export class OpenCodeSupervisor {
       get serverKey() {
         const record = currentRecord();
         return `${record.pid}:${record.startTicks ?? ""}:${record.port}`;
+      },
+      get replacementPending() {
+        return replacementPending();
       },
       settle: () => {
         entry?.();
@@ -308,13 +318,15 @@ export class OpenCodeSupervisor {
     };
   }
 
+  // True when the revision changed: a running server is then stale.
   updateLaunchEnvironment(
     launchEnv: Record<string, string | undefined>,
     environmentRevision: string,
-  ): void {
-    if (environmentRevision === this.environmentRevision) return;
+  ): boolean {
+    if (environmentRevision === this.environmentRevision) return false;
     this.launchEnv = launchEnv;
     this.environmentRevision = environmentRevision;
+    return true;
   }
 
   // The config the next server start writes to opencode.json.
@@ -322,12 +334,29 @@ export class OpenCodeSupervisor {
     return this.config;
   }
 
-  updateConfiguration(config: Record<string, unknown>): void {
+  updateConfiguration(config: Record<string, unknown>): boolean {
     const next = { ...config, autoupdate: false };
     const revision = this.computeConfigRevision(next);
-    if (revision === this.configRevision) return;
+    if (revision === this.configRevision) return false;
     this.config = next;
     this.configRevision = revision;
+    return true;
+  }
+
+  // Saved settings, with the env and config the next session start passes.
+  // The replacement they request runs now on a server where nothing runs,
+  // else when the last turn or hold ends.
+  updateSettings(
+    launchEnv: Record<string, string | undefined>,
+    environmentRevision: string,
+    config: Record<string, unknown>,
+  ): void {
+    const configChanged = this.updateConfiguration(config);
+    const envChanged = this.updateLaunchEnvironment(
+      launchEnv,
+      environmentRevision,
+    );
+    if (configChanged || envChanged) this.replaceOnceIdle();
   }
 
   shutdown(): Promise<void> {
@@ -508,15 +537,8 @@ export class OpenCodeSupervisor {
   ): Promise<"none" | "pending" | "replaced"> {
     const marker = join(this.profileDir, "server.replace");
     if (!this.replacementPromise) {
-      // From the record, not a flag: a server that any start gave the
-      // current revisions satisfies the request, and one that a start in
-      // flight brought up with older revisions does not.
-      const record = this.record;
-      const stale =
-        record !== null &&
-        (record.environmentRevision !== this.environmentRevision ||
-          record.configRevision !== this.configRevision);
-      if (!stale && !(await getAgentHost().fs.exists(marker))) return "none";
+      if (!this.recordStale() && !(await getAgentHost().fs.exists(marker)))
+        return "none";
     }
     // Another caller can have started the replacement during that await.
     if (!this.replacementPromise) {
@@ -530,6 +552,18 @@ export class OpenCodeSupervisor {
     }
     await this.replacementPromise;
     return "replaced";
+  }
+
+  // From the record, not a flag: a server that any start gave the current
+  // revisions satisfies a request, and one that a start in flight brought up
+  // with older revisions does not. No running server is not stale.
+  private recordStale(): boolean {
+    const record = this.record;
+    return (
+      record !== null &&
+      (record.environmentRevision !== this.environmentRevision ||
+        record.configRevision !== this.configRevision)
+    );
   }
 
   private hold(): () => void {
@@ -612,13 +646,10 @@ export function openCodeConfigFor(
 // `mcpServers` undefined keeps the config the profile's server has: callers
 // that do not start an agent session (a model list, a transcript read) must
 // not drop the servers and restart it.
-export function openCodeSupervisorForEnvironment(
-  environmentKey: string | undefined,
+function launchEnvFor(
   env: Record<string, string | undefined> | undefined,
-  environmentRevision = "default",
-  mcpServers?: AgentMcpServer[],
-): OpenCodeSupervisor {
-  const launchEnv = Object.fromEntries(
+): Record<string, string> {
+  return Object.fromEntries(
     Object.entries(env ?? {})
       // Agent tokens are per-agent capabilities. A shared OpenCode server must
       // never inherit one agent's token or use it as a profile discriminator.
@@ -628,11 +659,43 @@ export function openCodeSupervisorForEnvironment(
       .filter((entry): entry is [string, string] => entry[1] !== undefined)
       .sort(([a], [b]) => a.localeCompare(b)),
   );
+}
+
+function supervisorKey(environmentKey: string): string {
+  const profileDir = openCodeProfilePaths(environmentKey).profileDir;
+  return profileDir.slice(profileDir.lastIndexOf("/") + 1);
+}
+
+// A saved env variable, secret or MCP server, with the inputs a session start
+// passes to openCodeSupervisorForEnvironment. Only an existing supervisor
+// takes it; none is created.
+export function updateOpenCodeSupervisorSettings(
+  environmentKey: string,
+  env: Record<string, string | undefined> | undefined,
+  environmentRevision: string,
+  mcpServers: AgentMcpServer[],
+): void {
+  environmentSupervisors
+    .get(supervisorKey(environmentKey))
+    ?.updateSettings(
+      launchEnvFor(env),
+      environmentRevision,
+      openCodeConfigFor(mcpServers),
+    );
+}
+
+export function openCodeSupervisorForEnvironment(
+  environmentKey: string | undefined,
+  env: Record<string, string | undefined> | undefined,
+  environmentRevision = "default",
+  mcpServers?: AgentMcpServer[],
+): OpenCodeSupervisor {
+  const launchEnv = launchEnvFor(env);
   if (!environmentKey) {
     throw new Error("OpenCode session environment identity is required.");
   }
   const profileDir = openCodeProfilePaths(environmentKey).profileDir;
-  const key = profileDir.slice(profileDir.lastIndexOf("/") + 1);
+  const key = supervisorKey(environmentKey);
   let supervisor = environmentSupervisors.get(key);
   if (!supervisor) {
     supervisor = new OpenCodeSupervisor({

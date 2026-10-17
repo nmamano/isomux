@@ -15,6 +15,7 @@ import {
   openCodeEffortUnavailableNotice,
   OpenCodeTransport,
   type OpenCodeErrorContext,
+  type OpenCodeStreamSilence,
   type OpenCodeTurnStep,
   type SafeOpenCodeError,
 } from "./transport.ts";
@@ -1126,11 +1127,16 @@ function drivenTransport(
     onBeginTurn?: () => void;
     onRecover?: () => void;
     agentId?: string;
+    replacementPending?: boolean;
+    words?: (key: string) => string;
   } = {},
 ) {
   const marked: { pid: number; afterPrompt: boolean }[] = [];
   const errors: SafeOpenCodeError[] = [];
   const contexts: (OpenCodeErrorContext | undefined)[] = [];
+  const silences: OpenCodeStreamSilence[] = [];
+  // Both journal sinks, in the order they wrote.
+  const journal: string[] = [];
   let recoveries = 0;
   const supervisor = {
     acquire: async () => ({
@@ -1141,6 +1147,7 @@ function drivenTransport(
       get serverKey() {
         return options.serverKey?.() ?? "server-1";
       },
+      replacementPending: options.replacementPending ?? false,
       settle: () => {},
       beginTurn: async () => {
         options.onBeginTurn?.();
@@ -1167,11 +1174,17 @@ function drivenTransport(
     ...(options.sessionId ? { sessionId: options.sessionId } : {}),
     ...(options.agent ? { agent: options.agent } : {}),
     ...(options.agentId ? { agentId: options.agentId } : {}),
+    ...(options.words ? { words: options.words as never } : {}),
     eventStreamDeadlineMs: DEADLINE_MS,
     deadlineScheduler: clock.scheduler,
     safeErrorSink: (error, context) => {
       errors.push(error);
       contexts.push(context);
+      journal.push("error");
+    },
+    streamSilenceSink: (silence) => {
+      silences.push(silence);
+      journal.push("silence");
     },
   });
   const completions: Extract<NormalizedEvent, { kind: "turn_completed" }>[] =
@@ -1190,6 +1203,8 @@ function drivenTransport(
     notices,
     errors,
     contexts,
+    silences,
+    journal,
     send: () =>
       transport.send([{ type: "text", text: "go" }], (event) => {
         if (event.kind === "turn_completed") completions.push(event);
@@ -2236,3 +2251,355 @@ it("reports a stream failure from a stopped server in member words and keeps the
     server.restore();
   }
 });
+
+// Task 430d7bfd: a silence left no record of what the turn waited on. Each
+// silence writes one journal line at the deadline, before the recovery's
+// effects, with how the recovery ended.
+const toolFrame = (status: "pending" | "running" | "completed") =>
+  frame({
+    type: "message.part.updated",
+    properties: {
+      sessionID: "driven",
+      part: {
+        type: "tool",
+        id: "tool-part",
+        messageID: "answer-1",
+        callID: "call-1",
+        tool: "bash",
+        state: { status, input: { command: `echo ${CANARY}` } },
+      },
+    },
+  });
+// Another session's frame, with text that must never reach the journal.
+const otherSessionText = () =>
+  frame({
+    type: "message.part.updated",
+    properties: {
+      sessionID: "other",
+      part: { type: "text", id: "other-part", messageID: "other", text: CANARY },
+    },
+  });
+
+it("journals a silent turn's running tool, its last frames, the probe and its recovery, once per silence", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    status: { driven: { type: "busy" } },
+    messages: () => [answer("Hi", false)],
+  });
+  const turn = drivenTransport(clock, {
+    sessionId: "driven",
+    agentId: "agent-driven",
+  });
+  try {
+    await turn.send();
+    server.send(answerStarted());
+    server.send(toolFrame("running"));
+    server.send(otherSessionText());
+    await settleUntil(() => false);
+    await missStreamDeadline(clock, server);
+    expect(turn.completions, "the turn goes on").toEqual([]);
+    expect(turn.silences).toHaveLength(1);
+    const [first] = turn.silences;
+    expect(first).toMatchObject({
+      agentId: "agent-driven",
+      sessionId: "driven",
+      silence: 1,
+      lastEvent: { type: "message.part.updated:text" },
+      lastTurnEvent: { type: "message.part.updated:tool" },
+      waitingOn: "tool",
+      tools: ["bash"],
+      probe: "healthy",
+      outcome: "recovered",
+      openCodeLog: openCodeLogPath(DRIVEN_PROFILE),
+    });
+    expect(Date.parse(first.lastTurnEvent!.at)).toBeLessThanOrEqual(
+      Date.parse(first.deadlineAt),
+    );
+    expect(Date.parse(first.promptSentAt!)).toBeLessThanOrEqual(
+      Date.parse(first.lastTurnEvent!.at),
+    );
+    // The new stream sends only its connect frame, so the next silence
+    // fails the turn alone. The replay is not a frame the stream sent.
+    await missStreamDeadline(clock, server);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([streamLost]);
+    expect(turn.silences).toHaveLength(2);
+    expect(turn.silences[1]).toMatchObject({
+      silence: 2,
+      lastEvent: { type: "server.connected" },
+      lastTurnEvent: { type: "message.part.updated:tool" },
+      waitingOn: "tool",
+      tools: ["bash"],
+      probe: "healthy",
+      outcome: "failed_alone",
+    });
+    expect(turn.journal, "each silence line before the failure").toEqual([
+      "silence",
+      "silence",
+      "error",
+    ]);
+    expect(JSON.stringify(turn.silences)).not.toContain(CANARY);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("journals a silent turn that waits on a permission request on a server that refuses health as marked", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdReply: true, health: "refused" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await settleUntil(() => turn.approvals.length > 0);
+    expect(turn.approvals, "the member is asked").toEqual(["asked"]);
+    clock.advance(DEADLINE_MS);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([unresponsive]);
+    expect(turn.silences).toMatchObject([
+      {
+        waitingOn: "permission",
+        permissions: ["bash"],
+        lastTurnEvent: { type: "permission.asked" },
+        probe: "refused",
+        outcome: "marked",
+      },
+    ]);
+    expect(turn.journal).toEqual(["silence", "error"]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("journals a silent turn in a provider retry with its attempt and no provider text", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ messages: () => earlierTurn });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    server.send(answerStarted());
+    server.send(
+      frame({
+        type: "session.status",
+        properties: {
+          sessionID: "driven",
+          status: { type: "retry", attempt: 2, message: `HTTP 503 ${CANARY}` },
+        },
+      }),
+    );
+    await settleUntil(() => turn.notices.length > 0);
+    await missStreamDeadline(clock, server);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([streamLost]);
+    expect(turn.silences).toMatchObject([
+      {
+        lastTurnEvent: { type: "session.status:retry" },
+        waitingOn: "retry",
+        retryAttempt: 2,
+        outcome: "failed_alone",
+      },
+    ]);
+    expect(JSON.stringify(turn.silences)).not.toContain(CANARY);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("journals a silent turn whose model request was open and that finished in the silence as completed", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    messages: () => [...earlierTurn, answer("All done", true)],
+  });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    server.send(answerStarted());
+    server.send(textFrame("All"));
+    await settleUntil(() => turn.texts.length > 0);
+    await missStreamDeadline(clock, server);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toMatchObject([{ status: "completed" }]);
+    expect(turn.silences).toMatchObject([
+      { waitingOn: "model", probe: "healthy", outcome: "completed" },
+    ]);
+    expect(turn.silences[0].tools).toBeUndefined();
+    expect(turn.journal).toEqual(["silence"]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("journals a silence before the prompt went out, and one that the turn's close ended", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    holdToolIds: true,
+    holdEvent: "later",
+    health: "healthy",
+  });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    void turn.send();
+    await settleUntil(() => server.toolIdsHeld());
+    await missStreamDeadline(clock, server);
+    expect(server.eventRequests(), "the new subscription is pending").toBe(2);
+    expect(turn.silences, "written when the recovery ends").toEqual([]);
+    turn.transport.close();
+    await settleUntil(() => turn.silences.length > 0);
+    expect(turn.silences).toMatchObject([
+      {
+        lastEvent: { type: "server.connected" },
+        waitingOn: "prompt_not_sent",
+        probe: "healthy",
+        outcome: "ended",
+      },
+    ]);
+    expect(turn.silences[0].promptSentAt).toBeUndefined();
+    expect(turn.silences[0].lastTurnEvent).toBeUndefined();
+  } finally {
+    turn.transport.close();
+    server.releaseToolIds();
+    server.restore();
+  }
+});
+
+it("journals a silent turn whose answer's model request ended as waiting on none", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ status: { driven: { type: "busy" } } });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    server.send(answerStarted());
+    server.send(
+      frame({
+        type: "message.updated",
+        properties: {
+          sessionID: "driven",
+          info: {
+            id: "answer-1",
+            role: "assistant",
+            time: { created: 1, completed: 2 },
+          },
+        },
+      }),
+    );
+    await settleUntil(() => false);
+    await missStreamDeadline(clock, server);
+    expect(turn.silences).toMatchObject([
+      {
+        lastTurnEvent: { type: "message.updated" },
+        waitingOn: "none",
+        outcome: "recovered",
+      },
+    ]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("journals a silent turn whose tool completed without that tool", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ status: { driven: { type: "busy" } } });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    server.send(answerStarted());
+    server.send(toolFrame("running"));
+    server.send(toolFrame("completed"));
+    await settleUntil(() => false);
+    await missStreamDeadline(clock, server);
+    expect(turn.silences).toMatchObject([
+      {
+        lastTurnEvent: { type: "message.part.updated:tool" },
+        waitingOn: "model",
+      },
+    ]);
+    expect(turn.silences[0].tools).toBeUndefined();
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+// recover() makes no request outside its own catch; what can throw in it is
+// an injected dependency. Here the deadline scheduler refuses the recovery's
+// bound, after the probe and before any outcome.
+it("journals a recovery that throws as error, before the turn's failure line", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ status: { driven: { type: "busy" } } });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  const arm = clock.scheduler.setTimeout;
+  let refuseBound = false;
+  clock.scheduler.setTimeout = (callback, delayMs) => {
+    if (refuseBound && delayMs === DEADLINE_MS) {
+      refuseBound = false;
+      throw new Error("scheduler refused");
+    }
+    return arm(callback, delayMs);
+  };
+  try {
+    await turn.send();
+    refuseBound = true;
+    await missStreamDeadline(clock, server);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(refuseBound, "the recovery asked for its bound").toBe(false);
+    expect(turn.completions).toMatchObject([{ status: "failed" }]);
+    expect(turn.silences).toMatchObject([
+      { probe: "healthy", outcome: "error" },
+    ]);
+    expect(turn.journal).toEqual(["silence", "error"]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("journals no silence for a turn whose stream keeps sending", async () => {
+  const clock = drivenClock();
+  const server = drivenServer();
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    clock.advance(DEADLINE_MS / 2);
+    server.send(heartbeat());
+    await settleUntil(() => false);
+    clock.advance(DEADLINE_MS / 2);
+    server.complete();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toMatchObject([{ status: "completed" }]);
+    expect(turn.silences).toEqual([]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+// Task d4a7031e: a changed setting waits for every turn on the shared server,
+// and the turn did not say it ran on the previous settings. The notice goes
+// through the member's translator.
+const previousSettings = "[systemEntries.openCodePreviousSettings]";
+for (const pending of [true, false])
+  it(`${pending ? "says once" : "does not say"} that a turn uses the previous settings when the server's replacement ${pending ? "waits" : "does not wait"}`, async () => {
+    const clock = drivenClock();
+    const server = drivenServer();
+    const turn = drivenTransport(clock, {
+      sessionId: "driven",
+      replacementPending: pending,
+      words: (key) => `[${key}]`,
+    });
+    try {
+      await turn.send();
+      server.complete();
+      await settleUntil(() => turn.completions.length > 0);
+      expect(turn.completions).toMatchObject([{ status: "completed" }]);
+      expect(
+        turn.notices.filter((notice) => notice === previousSettings),
+      ).toHaveLength(pending ? 1 : 0);
+    } finally {
+      turn.transport.close();
+      server.restore();
+    }
+  });

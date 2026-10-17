@@ -13,6 +13,11 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 import { isManagedEnvKey, ManagedEnvValidationError } from "../../user-env.ts";
 import { memberSubject } from "./member-subject.ts";
+import type { SecretScope } from "../../secret-store.ts";
+import {
+  pushOpenCodeSettings,
+  type PushOpenCodeSettings,
+} from "./opencode-settings.ts";
 
 type Outcome =
   | { ok: true }
@@ -44,6 +49,7 @@ export interface UserEnvDeps {
   // it without reading the others' values.
   setOfficeOne(name: string, value: string, note: unknown): Outcome;
   removeOfficeOne(name: string): Outcome | false;
+  pushOpenCodeSettings?: PushOpenCodeSettings;
 }
 
 function subjectUserId(ctx: Parameters<RouteHandler>[0]): string | null {
@@ -76,13 +82,17 @@ function setBody(body: unknown): { value: string; note: unknown } | null {
   return typeof value === "string" ? { value, note } : null;
 }
 
-function writeOutcome(run: () => Outcome | false): HandlerResult {
+// A write, and after a success the OpenCode push (task d4a7031e).
+function writeOutcome(
+  run: () => Outcome | false,
+  saved: () => void,
+): HandlerResult {
   try {
     const result = run();
     if (result === false) return fail(404, "not_found");
-    return result.ok
-      ? noContent()
-      : fail(result.status, result.code, result.message);
+    if (!result.ok) return fail(result.status, result.code, result.message);
+    saved();
+    return noContent();
   } catch (error) {
     return error instanceof ManagedEnvValidationError
       ? fail(400, "invalid_env", error.message)
@@ -96,6 +106,8 @@ export function userEnvHandlers(
   const subjectOf = memberSubject((username) =>
     deps.userIdForUsername(username),
   );
+  const saved = (scope: SecretScope) => () =>
+    pushOpenCodeSettings(deps.pushOpenCodeSettings, scope);
   const officeVariable = (
     ctx: Parameters<RouteHandler>[0],
   ): { name: string } | HandlerResult => {
@@ -146,16 +158,10 @@ export function userEnvHandlers(
       const values = valuesFromBody(ctx.body);
       if (!values)
         return fail(400, "invalid_env", "values must be a string map");
-      try {
-        const result = deps.replace(userId, values, notesFromBody(ctx.body));
-        return result.ok
-          ? noContent()
-          : fail(result.status, result.code, result.message);
-      } catch (error) {
-        return error instanceof ManagedEnvValidationError
-          ? fail(400, "invalid_env", error.message)
-          : fail(500, "write_failed", "could not save the managed env file");
-      }
+      return writeOutcome(
+        () => deps.replace(userId, values, notesFromBody(ctx.body)),
+        saved({ kind: "user", userId }),
+      );
     },
     "userEnv.set": (ctx) => {
       const target = variable(ctx);
@@ -163,14 +169,18 @@ export function userEnvHandlers(
       const body = setBody(ctx.body);
       if (!body)
         return fail(400, "invalid_request", "the body is { value, note? }");
-      return writeOutcome(() =>
-        deps.setOne(target.userId, target.name, body.value, body.note),
+      return writeOutcome(
+        () => deps.setOne(target.userId, target.name, body.value, body.note),
+        saved({ kind: "user", userId: target.userId }),
       );
     },
     "userEnv.remove": (ctx) => {
       const target = variable(ctx);
       if ("kind" in target) return target;
-      return writeOutcome(() => deps.removeOne(target.userId, target.name));
+      return writeOutcome(
+        () => deps.removeOne(target.userId, target.name),
+        saved({ kind: "user", userId: target.userId }),
+      );
     },
     "officeEnv.names": () => {
       try {
@@ -198,16 +208,10 @@ export function userEnvHandlers(
       const values = valuesFromBody(ctx.body);
       if (!values)
         return fail(400, "invalid_env", "values must be a string map");
-      try {
-        const result = deps.replaceOffice(values, notesFromBody(ctx.body));
-        return result.ok
-          ? noContent()
-          : fail(result.status, result.code, result.message);
-      } catch (error) {
-        return error instanceof ManagedEnvValidationError
-          ? fail(400, "invalid_env", error.message)
-          : fail(500, "write_failed", "could not save the managed env file");
-      }
+      return writeOutcome(
+        () => deps.replaceOffice(values, notesFromBody(ctx.body)),
+        saved({ kind: "office" }),
+      );
     },
     "officeEnv.set": (ctx) => {
       const target = officeVariable(ctx);
@@ -215,14 +219,18 @@ export function userEnvHandlers(
       const body = setBody(ctx.body);
       if (!body)
         return fail(400, "invalid_request", "the body is { value, note? }");
-      return writeOutcome(() =>
-        deps.setOfficeOne(target.name, body.value, body.note),
+      return writeOutcome(
+        () => deps.setOfficeOne(target.name, body.value, body.note),
+        saved({ kind: "office" }),
       );
     },
     "officeEnv.remove": (ctx) => {
       const target = officeVariable(ctx);
       if ("kind" in target) return target;
-      return writeOutcome(() => deps.removeOfficeOne(target.name));
+      return writeOutcome(
+        () => deps.removeOfficeOne(target.name),
+        saved({ kind: "office" }),
+      );
     },
   };
 }

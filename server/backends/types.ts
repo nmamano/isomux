@@ -561,6 +561,16 @@ export interface Backend {
   getModelOptions(): ModelOption[];
   getPermissionModes(): PermissionModeOption[];
 
+  // A saved env variable, secret or MCP server, with the inputs a session
+  // start passes. A backend with a shared server takes them now, if that
+  // server exists.
+  updateSavedSettings?(opts: {
+    environmentKey: string;
+    env: { [key: string]: string | undefined } | undefined;
+    environmentRevision: string;
+    mcpServers: AgentMcpServer[];
+  }): void;
+
   // Fetch the auth-appropriate model list from the underlying backend. For
   // Codex this calls `model/list` over the JSON-RPC App Server; for backends
   // without a runtime model API this returns the static getModelOptions()

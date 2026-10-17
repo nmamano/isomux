@@ -1,5 +1,9 @@
 import { redactLogEntry } from "../../log-redaction.ts";
-import type { OpenCodeErrorContext, SafeOpenCodeError } from "./transport.ts";
+import type {
+  OpenCodeErrorContext,
+  OpenCodeStreamSilence,
+  SafeOpenCodeError,
+} from "./transport.ts";
 
 // Provider text is diagnostic data, not member-facing copy.
 export function openCodeErrorMessage(
@@ -97,5 +101,16 @@ export function logOpenCodeError(
         ...(context.openCodeLog ? { openCodeLog: context.openCodeLog } : {}),
       }),
     ),
+  );
+}
+
+// One line per silent event stream. The transport builds every field from
+// Isomux state and OpenCode names in a fixed shape, never from a frame body.
+export function logOpenCodeStreamSilence(
+  silence: Readonly<OpenCodeStreamSilence>,
+): void {
+  console.error(
+    "[opencode]",
+    JSON.stringify(redactLogEntry({ event: "event_stream_silent", ...silence })),
   );
 }

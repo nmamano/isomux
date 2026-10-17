@@ -1,9 +1,11 @@
 import { expect, it, spyOn } from "bun:test";
 import {
   logOpenCodeError,
+  logOpenCodeStreamSilence,
   openCodeErrorMessage,
   openCodeRetryMessage,
 } from "./errors.ts";
+import type { OpenCodeStreamSilence } from "./transport.ts";
 
 it("gives errors a cause without copying provider text", () => {
   for (const [error, cause] of [
@@ -78,6 +80,36 @@ it("logs the agent, the failure and OpenCode's log next to the cause", () => {
       failure: "failure text",
       step: "begin_turn",
       openCodeLog: "/profile/opencode.log",
+    });
+  } finally {
+    logged.mockRestore();
+  }
+});
+
+// Task 430d7bfd: one line per silent stream, in the same journal as a
+// failure.
+it("logs a stream silence as one tagged line with its fields", () => {
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const silence: OpenCodeStreamSilence = {
+      agentId: "agent-1",
+      sessionId: "ses_1",
+      silence: 1,
+      deadlineAt: "2026-10-17T00:46:30.000Z",
+      lastEvent: { type: "server.heartbeat", at: "2026-10-17T00:46:00.000Z" },
+      waitingOn: "tool",
+      tools: ["bash"],
+      probe: "healthy",
+      outcome: "recovered",
+      openCodeLog: "/profile/opencode.log",
+    };
+    logOpenCodeStreamSilence(silence);
+    expect(logged.mock.calls).toHaveLength(1);
+    const [tag, line] = logged.mock.calls[0] as [string, string];
+    expect(tag).toBe("[opencode]");
+    expect(JSON.parse(line)).toEqual({
+      event: "event_stream_silent",
+      ...silence,
     });
   } finally {
     logged.mockRestore();

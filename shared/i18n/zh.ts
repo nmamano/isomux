@@ -888,7 +888,8 @@ App 的一些原则：
   "integrations.memberTitle": "{member} 的集成",
   "integrations.backToYours": "返回你的集成",
   "integrations.picker": "查看谁的集成",
-  "integrations.applies": "智能体在开始新对话时获得更改。",
+  "integrations.applies":
+    "Claude 和 Codex 智能体在开始新对话时获得更改。OpenCode 智能体在它们都不工作时获得更改。",
   "integrations.helpTip": "这是什么意思？",
   "integrations.show": "显示",
   "integrations.hide": "隐藏",
@@ -2425,6 +2426,8 @@ App 的一些原则：
   "systemEntries.interruptHandlerFailed": "中断处理失败：{error}",
   "systemEntries.codexSandboxUnavailable":
     "此容器无法运行 Codex 的 sandbox，因此命令在容器内以完全访问权限运行。",
+  "systemEntries.openCodePreviousSettings":
+    "本轮使用你之前的集成设置。",
   "systemEntries.codexInterruptFallback":
     "Codex 未及时响应中断，改为使用新会话。",
   "systemEntries.deliveryStalled": "消息传送停滞，正在恢复。",

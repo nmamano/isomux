@@ -984,7 +984,7 @@ Cosas que puedes hacer por él:
   "integrations.backToYours": "Volver a las tuyas",
   "integrations.picker": "De quién son las integraciones",
   "integrations.applies":
-    "Los agentes reciben un cambio cuando inician una conversación nueva.",
+    "Los agentes de Claude y Codex reciben un cambio cuando inician una conversación nueva. Los agentes de OpenCode lo reciben cuando ninguno de ellos esté trabajando.",
   "integrations.helpTip": "¿Qué significa esto?",
   "integrations.show": "Mostrar",
   "integrations.hide": "Ocultar",
@@ -2697,6 +2697,8 @@ Cosas que puedes hacer por él:
     "Falló el gestor de interrupciones: {error}",
   "systemEntries.codexSandboxUnavailable":
     "Este contenedor no puede ejecutar el sandbox de Codex, así que los comandos se ejecutan con acceso completo dentro del contenedor.",
+  "systemEntries.openCodePreviousSettings":
+    "Este turno usa tu configuración anterior de Integraciones.",
   "systemEntries.codexInterruptFallback":
     "Codex no atendió la interrupción a tiempo; se pasa a una sesión nueva.",
   "systemEntries.deliveryStalled":

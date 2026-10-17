@@ -32,6 +32,10 @@ import {
   EFFORT_LEVELS,
   type EffortLevel,
 } from "../../../shared/types.ts";
+import {
+  translatorFor,
+  type Translator,
+} from "../../../shared/i18n/translate.ts";
 
 export const OPENCODE_PERMISSION_ID_WARNING =
   "Isomux stopped this turn: OpenCode asked to use a tool but sent no id " +
@@ -99,7 +103,11 @@ class OpenCodeFolderSetupFailure extends OpenCodeTurnFailure {}
 // The member stopped the turn before its prompt went out.
 class OpenCodeTurnStopped extends Error {}
 
-type OpenCodeServerProbe = "healthy" | "unhealthy" | "refused" | "silent";
+export type OpenCodeServerProbe =
+  | "healthy"
+  | "unhealthy"
+  | "refused"
+  | "silent";
 
 export function openCodeModelUnavailableFailure(model: string): string {
   return `OpenCode cannot use model \`${model}\`: the provider refused this model. Pick another model with \`/model\`.`;
@@ -242,8 +250,12 @@ export interface OpenCodeTransportOptions {
   sessionId?: string;
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: OpenCodeSafeErrorSink;
+  streamSilenceSink?: OpenCodeStreamSilenceSink;
   completedStepSink?: (breakdown: OpenCodeContextBreakdown) => void;
   eventStreamDeadlineMs?: number;
+  // Translates the notices the transport writes into the chat; English when
+  // absent.
+  words?: Translator["t"];
   deadlineScheduler?: OpenCodeDeadlineScheduler;
 }
 
@@ -395,6 +407,8 @@ export class OpenCodeTransport {
   private readonly resumedSessionId?: string;
   private readonly contractShapeSink?: (shape: string) => void;
   private readonly safeErrorSink?: OpenCodeSafeErrorSink;
+  private readonly streamSilenceSink?: OpenCodeStreamSilenceSink;
+  private readonly words: Translator["t"];
   private readonly completedStepSink?: (
     breakdown: OpenCodeContextBreakdown,
   ) => void;
@@ -454,6 +468,8 @@ export class OpenCodeTransport {
     this.resumedSessionId = options.sessionId;
     this.contractShapeSink = options.contractShapeSink;
     this.safeErrorSink = options.safeErrorSink;
+    this.streamSilenceSink = options.streamSilenceSink;
+    this.words = options.words ?? translatorFor("en").t;
     this.completedStepSink = options.completedStepSink;
     this.eventStreamDeadlineMs =
       options.eventStreamDeadlineMs ?? OPENCODE_EVENT_STREAM_DEADLINE_MS;
@@ -746,6 +762,14 @@ export class OpenCodeTransport {
       step = "begin_turn";
       await this.lease!.beginTurn();
       turnStarted = true;
+      // A saved setting's server replacement waits for this turn, so the
+      // turn runs on the previous settings (task d4a7031e).
+      if (this.lease!.replacementPending)
+        emit({
+          kind: "system_text",
+          text: this.words("systemEntries.openCodePreviousSettings"),
+          isomuxAuthored: true,
+        });
       this.authorityBinding?.activate(this.lease!.pid);
       this.activeTurn = true;
       this.abortRequested = false;
@@ -970,6 +994,14 @@ export class OpenCodeTransport {
     const seenPermissions = new Set<string>();
     const safetyWarningState = { shown: false };
     this.subagentSessions.clear();
+    // What a silence report names: the turn's open answers, its running
+    // tools, its permission names and its last frames.
+    const openAnswers = new Set<string>();
+    const runningTools = new Set<string>();
+    const permissionNames = new Map<string, string>();
+    let retryAttempt: number | undefined;
+    let lastEvent: OpenCodeStreamFrame | undefined;
+    let lastTurnEvent: OpenCodeStreamFrame | undefined;
     let hasCompletedStep = false;
     let overflowPending = false;
     let settled = false;
@@ -990,13 +1022,16 @@ export class OpenCodeTransport {
       if (signal.aborted || settled) return;
       deadline = this.deadlineScheduler.setTimeout(() => {
         if (signal.aborted || settled) return;
+        silence = { report: silenceAtDeadline() };
         // A recovery that ended the turn wakes the loop below, which waits on
         // the stream it cancelled.
         void recover()
-          .catch((error) =>
-            fail(error, "OpenCode event stream recovery failed"),
-          )
+          .catch((error) => {
+            reportSilence("error");
+            fail(error, "OpenCode event stream recovery failed");
+          })
           .finally(() => {
+            reportSilence("ended");
             if (settled || signal.aborted) deliver({ value: null });
           });
       }, this.eventStreamDeadlineMs);
@@ -1010,7 +1045,10 @@ export class OpenCodeTransport {
     // The pump reads the body on its own, so any frame resets the deadline,
     // also while the loop below awaits a permission reply. A fresh read
     // starts a new connection: the loop drops the old one's partial frame.
-    type Read = { value: Uint8Array | null; fresh?: true } | { error: unknown };
+    // at: when the pump read the chunk. A fresh read is a replay.
+    type Read =
+      | { value: Uint8Array | null; fresh?: true; at?: number }
+      | { error: unknown };
     const pending: Read[] = [];
     let waiter: PromiseWithResolvers<Read> | null = null;
     const deliver = (read: Read): void => {
@@ -1036,7 +1074,7 @@ export class OpenCodeTransport {
             if (done) break;
             connectionChunks++;
             armDeadline();
-            deliver({ value });
+            deliver({ value, at: Date.now() });
           }
           deliver({ value: null });
         } catch (error) {
@@ -1044,8 +1082,74 @@ export class OpenCodeTransport {
         }
       })();
     };
+    // One journal line per silence: what the turn waited on at the deadline,
+    // the health probe, and how the recovery ended. It is written before the
+    // recovery's effects, so it comes before a failure's own line.
+    let silence: {
+      report: Omit<OpenCodeStreamSilence, "probe" | "outcome">;
+      probe?: OpenCodeServerProbe;
+    } | null = null;
+    const reportSilence = (outcome: OpenCodeSilenceOutcome): void => {
+      const current = silence;
+      silence = null;
+      if (!current) return;
+      try {
+        this.streamSilenceSink?.({
+          ...current.report,
+          ...(current.probe ? { probe: current.probe } : {}),
+          outcome,
+        });
+      } catch {
+        console.error("OpenCode stream silence sink failed.");
+      }
+    };
+    const silenceAtDeadline = (): Omit<
+      OpenCodeStreamSilence,
+      "probe" | "outcome"
+    > => {
+      const permissions = [...this.pendingPermissions.keys()].map(
+        (id) => permissionNames.get(id) ?? "unknown",
+      );
+      const running = [...runningTools].map((partId) =>
+        safeJournalName(tools.get(partId)?.name),
+      );
+      const waitingOn: OpenCodeStreamSilence["waitingOn"] = !this.promptSent
+        ? "prompt_not_sent"
+        : permissions.length > 0
+          ? "permission"
+          : running.length > 0
+            ? "tool"
+            : lastTurnEvent?.type === "session.status:retry"
+              ? "retry"
+              : openAnswers.size > 0
+                ? "model"
+                : "none";
+      const { openCodeLog } = this.errorContext();
+      return {
+        ...(this.agentId ? { agentId: this.agentId } : {}),
+        sessionId,
+        silence: recoveries + 1,
+        deadlineAt: new Date().toISOString(),
+        ...(lastEvent ? { lastEvent } : {}),
+        ...(lastTurnEvent ? { lastTurnEvent } : {}),
+        ...(this.promptSent
+          ? { promptSentAt: new Date(this.promptSentAt).toISOString() }
+          : {}),
+        waitingOn,
+        ...(running.length > 0 ? { tools: running } : {}),
+        ...(permissions.length > 0 ? { permissions } : {}),
+        ...(waitingOn === "retry" && retryAttempt !== undefined
+          ? { retryAttempt }
+          : {}),
+        ...(this.subagentSessions.size > 0
+          ? { subagents: this.subagentSessions.size }
+          : {}),
+        ...(openCodeLog ? { openCodeLog } : {}),
+      };
+    };
     // The server did not answer: it is marked, and the supervisor replaces it.
     const unresponsive = (): void => {
+      reportSilence("marked");
       lease.markUnresponsive(serverPid, this.promptSent);
       fail(
         new OpenCodeTurnFailure(OPENCODE_SERVER_UNRESPONSIVE_FAILURE, {
@@ -1058,6 +1162,7 @@ export class OpenCodeTransport {
     // that it does not run on unseen.
     const failAlone = (): void => {
       if (settled || signal.aborted) return;
+      reportSilence("failed_alone");
       if (this.promptSent)
         void this.rejectPendingPermission()
           .then(() =>
@@ -1087,6 +1192,7 @@ export class OpenCodeTransport {
       connection++;
       void reader.cancel().catch(() => undefined);
       const probe = await this.probeServer(lease);
+      if (silence) silence.probe = probe;
       if (signal.aborted || settled) return;
       if (probe === "refused" || probe === "unhealthy") {
         unresponsive();
@@ -1155,6 +1261,7 @@ export class OpenCodeTransport {
           failAlone();
           return;
         }
+        reportSilence("completed");
         deliver({
           value: sseFrames([
             ...missed.frames,
@@ -1180,6 +1287,7 @@ export class OpenCodeTransport {
             properties,
           }))
         : [];
+      reportSilence("recovered");
       deliver({ value: sseFrames([...missed.frames, ...asked]), fresh: true });
       pump(next.body.getReader());
       armDeadline();
@@ -1217,7 +1325,18 @@ export class OpenCodeTransport {
               .map((line) => line.slice(5).trimStart())
               .join("\n");
             if (!data) continue;
-            const event = parseAllowedEvent(data);
+            const raw = parseFrame(data);
+            if (!raw) continue;
+            if (!read.fresh) {
+              const seen = {
+                type: frameLabel(raw),
+                at: new Date(read.at ?? Date.now()).toISOString(),
+              };
+              lastEvent = seen;
+              if (asRecord(raw.properties).sessionID === sessionId)
+                lastTurnEvent = seen;
+            }
+            const event = allowedEvent(raw);
             if (!event) continue;
             if (event.kind === "session_created") {
               if (this.ownsSession(event.parentId))
@@ -1247,12 +1366,15 @@ export class OpenCodeTransport {
               continue;
             this.contractShapeSink?.(`sse:${event.kind}`);
             if (event.kind === "assistant") {
+              if (event.completed) openAnswers.delete(event.messageId);
+              else openAnswers.add(event.messageId);
               if (event.summary) {
                 summaryMessages.add(event.messageId);
                 assistantMessages.delete(event.messageId);
               } else assistantMessages.add(event.messageId);
             }
             if (event.kind === "retry") {
+              retryAttempt = event.attempt;
               sink({
                 kind: "system_text",
                 text: openCodeRetryMessage(event.message, event.attempt),
@@ -1317,6 +1439,8 @@ export class OpenCodeTransport {
                   terminal: false,
                 });
               }
+              if (event.status === "running") runningTools.add(event.partId);
+              else runningTools.delete(event.partId);
               const tracked = tools.get(event.partId);
               if (tracked)
                 for (const normalized of toolUpdateEvents(tracked, event))
@@ -1344,6 +1468,7 @@ export class OpenCodeTransport {
                   )
                 : [];
               this.pendingPermissions.set(event.id, event.sessionId);
+              permissionNames.set(event.id, safeJournalName(permissionName));
               sink({
                 kind: "approval_request",
                 approvalId: event.id,
@@ -1915,6 +2040,8 @@ type AllowedEvent =
       sessionId: string;
       messageId: string;
       summary?: boolean;
+      // OpenCode set time.completed: the model request of this answer ended.
+      completed?: boolean;
     }
   | { kind: "retry"; sessionId: string; attempt: number; message?: string }
   | {
@@ -1991,6 +2118,58 @@ export type OpenCodeTurnStep =
   | "safety_plugin"
   | "prompt";
 
+export interface OpenCodeStreamFrame {
+  type: string;
+  at: string;
+}
+
+// How a silence's recovery ended. completed: the session finished during the
+// silence, and the turn settles from the replay. ended: the turn ended or
+// was stopped during the recovery. error: the recovery threw.
+export type OpenCodeSilenceOutcome =
+  | "recovered"
+  | "completed"
+  | "failed_alone"
+  | "marked"
+  | "ended"
+  | "error";
+
+// A turn's event stream sent nothing until the deadline. Every field is
+// Isomux-authored or an OpenCode name in a fixed shape; no frame body.
+export interface OpenCodeStreamSilence {
+  agentId?: string;
+  sessionId: string;
+  // 1 for the turn's first silence.
+  silence: number;
+  deadlineAt: string;
+  // The last frame on the stream, from any session or the server.
+  lastEvent?: OpenCodeStreamFrame;
+  // The last frame of the turn's own session.
+  lastTurnEvent?: OpenCodeStreamFrame;
+  promptSentAt?: string;
+  // At the deadline, in this order: no prompt sent yet, a permission request
+  // the member has not answered, a running tool, a provider retry, an
+  // answer whose model request has not ended, or none of these.
+  waitingOn:
+    | "prompt_not_sent"
+    | "permission"
+    | "tool"
+    | "retry"
+    | "model"
+    | "none";
+  tools?: string[];
+  permissions?: string[];
+  retryAttempt?: number;
+  subagents?: number;
+  probe?: OpenCodeServerProbe;
+  outcome: OpenCodeSilenceOutcome;
+  openCodeLog?: string;
+}
+
+export type OpenCodeStreamSilenceSink = (
+  silence: Readonly<OpenCodeStreamSilence>,
+) => void;
+
 export type OpenCodeSafeErrorSink = (
   error: Readonly<SafeOpenCodeError>,
   context?: Readonly<OpenCodeErrorContext>,
@@ -2050,12 +2229,44 @@ function allowTransportError(error: unknown): SafeOpenCodeError {
 }
 
 export function parseAllowedEvent(data: string): AllowedEvent | null {
-  let raw: Record<string, unknown>;
+  const raw = parseFrame(data);
+  return raw ? allowedEvent(raw) : null;
+}
+
+function parseFrame(data: string): Record<string, unknown> | null {
   try {
-    raw = JSON.parse(data) as Record<string, unknown>;
+    return asRecord(JSON.parse(data));
   } catch {
     return null;
   }
+}
+
+// A frame's OpenCode type for the journal, with the part or status type
+// that tells what the session did: "message.part.updated:tool".
+function frameLabel(raw: Record<string, unknown>): string {
+  const properties = asRecord(raw.properties);
+  const detail =
+    raw.type === "message.part.updated"
+      ? asRecord(properties.part).type
+      : raw.type === "session.status"
+        ? asRecord(properties.status).type
+        : undefined;
+  return safeJournalName(
+    typeof raw.type === "string" && typeof detail === "string"
+      ? `${raw.type}:${detail}`
+      : raw.type,
+  );
+}
+
+// OpenCode names (event, tool and permission types) go to the journal only
+// in this shape, so no free text from OpenCode or a provider reaches it.
+function safeJournalName(value: unknown): string {
+  return typeof value === "string" && /^[a-zA-Z0-9._:-]{1,80}$/.test(value)
+    ? value
+    : "unknown";
+}
+
+function allowedEvent(raw: Record<string, unknown>): AllowedEvent | null {
   const type = raw.type;
   const properties = asRecord(raw.properties);
   const sessionId = stringField(properties, "sessionID");
@@ -2115,6 +2326,9 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
         sessionId,
         messageId,
         ...(info.summary === true ? { summary: true } : {}),
+        ...(numberField(asRecord(info.time), "completed") !== null
+          ? { completed: true }
+          : {}),
       };
     }
   }

@@ -267,7 +267,8 @@ import {
   getAgentTokenRaw,
   getAgentTokenIdentity,
 } from "./identity/tokens.ts";
-import { getUserById, getUserByName } from "./users.ts";
+import { getUserById, getUserByName, listUsers } from "./users.ts";
+import type { SecretScope } from "./secret-store.ts";
 // Backend-option validators live in agent-validators.ts so cron handlers can
 // share them. UI shouldn't send mismatched values, but a stale tab or hand-
 // crafted client could; each validator falls back to a safe default when the
@@ -6069,6 +6070,34 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return buildEnvForUserId(userId);
   }
 
+  // A saved env variable, secret or MCP server in `scope` (an office save
+  // reaches every member) goes to each existing OpenCode server now, with the
+  // inputs a session start passes. A failure is logged and never fails the
+  // save.
+  function pushOpenCodeSettings(scope: SecretScope): void {
+    try {
+      const userIds: (string | null)[] =
+        scope.kind === "user"
+          ? [scope.userId]
+          : [null, ...listUsers().map((user) => user.id)];
+      // Members with the same key have the same env sources and settings.
+      const pushed = new Set<string>();
+      for (const userId of userIds) {
+        const key = environmentSourceKeyForUserId(userId);
+        if (pushed.has(key)) continue;
+        pushed.add(key);
+        getBackend("opencode").updateSavedSettings?.({
+          environmentKey: key,
+          env: buildOpenCodeLaunchEnvironmentForUserId(userId),
+          environmentRevision: environmentSourceRevisionForUserId(userId),
+          mcpServers: agentMcpServers(userId),
+        });
+      }
+    } catch {
+      console.error("[opencode] Saved settings did not reach the server.");
+    }
+  }
+
   // Error-path env build for diagnostic hints. Resume preflights deliberately
   // fail loudly on an environment load error (an agent expecting custom creds must not
   // silently fall through to host creds). Hint generators are different: they
@@ -11521,6 +11550,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     buildEnvForUserId,
     refreshLimitedClaudeFamilies,
     buildOpenCodeLaunchEnvironmentForUserId,
+    pushOpenCodeSettings,
     environmentSourceKeyForUserId,
     environmentSourceRevisionForUserId,
   };

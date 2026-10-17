@@ -36,6 +36,10 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 import { mcpServerHost } from "../../../shared/mcp-servers.ts";
 import { callerIsIntegrationOwner, memberSubject } from "./member-subject.ts";
+import {
+  pushOpenCodeSettings,
+  type PushOpenCodeSettings,
+} from "./opencode-settings.ts";
 
 export interface McpServersDeps {
   store: McpServerStore;
@@ -48,6 +52,7 @@ export interface McpServersDeps {
   isOfficeOwnerUserId: (userId: string) => boolean;
   userIdForUsername: (username: string) => string | null;
   usernameForUserId: (userId: string) => string | null;
+  pushOpenCodeSettings?: PushOpenCodeSettings;
 }
 
 const CREATE_KEYS = ["name", "url", "secret", "note", "oauth"];
@@ -165,6 +170,18 @@ function guarded(handler: RouteHandler): RouteHandler {
   };
 }
 
+// A save's answer, after the OpenCode push (task d4a7031e).
+function savedIn(
+  deps: McpServersDeps,
+  scope: SecretScope,
+): (result: HandlerResult) => HandlerResult {
+  return (result) => {
+    if (result.kind !== "error")
+      pushOpenCodeSettings(deps.pushOpenCodeSettings, scope);
+    return result;
+  };
+}
+
 function scopedHandlers(
   deps: McpServersDeps,
   scopeOf: (ctx: Parameters<RouteHandler>[0]) => SecretScope | null,
@@ -188,7 +205,7 @@ function scopedHandlers(
       if (!body) return invalidRequest();
       const result = deps.oauth.create(scope, body);
       return result.ok
-        ? answer(result.change, rowFor(ctx), "created")
+        ? savedIn(deps, scope)(answer(result.change, rowFor(ctx), "created"))
         : invalidRequest();
     },
     update: (ctx) => {
@@ -197,13 +214,15 @@ function scopedHandlers(
       const body = bodyWith(ctx.body, UPDATE_KEYS);
       if (!body || Object.keys(body).length === 0) return invalidRequest();
       const result = deps.oauth.update(scope, ctx.params.name ?? "", body);
-      return result.ok ? answer(result.change, rowFor(ctx)) : invalidRequest();
+      return result.ok
+        ? savedIn(deps, scope)(answer(result.change, rowFor(ctx)))
+        : invalidRequest();
     },
     remove: (ctx) => {
       const scope = scopeOf(ctx);
       if (!scope) return fail(404, "not_found");
       return deps.oauth.remove(scope, ctx.params.name ?? "")
-        ? noContent()
+        ? savedIn(deps, scope)(noContent())
         : fail(404, "not_found");
     },
     // The authorization URL for the browser of the person who starts the
@@ -260,6 +279,9 @@ function callbackHandler(deps: McpServersDeps): RouteHandler {
         ? "office"
         : deps.usernameForUserId(result.scope.userId);
     deps.auditSignIn(ctx, [result.name, ...(subject ? [subject] : [])]);
+    // The sign-in completes the server's headers, so the OpenCode servers
+    // take them as after a save. The redirect carries no field.
+    pushOpenCodeSettings(deps.pushOpenCodeSettings, result.scope);
     return backToIntegrations("ok");
   };
 }

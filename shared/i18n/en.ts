@@ -977,7 +977,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.backToYours": "Back to yours",
   "integrations.picker": "Whose integrations",
   "integrations.applies":
-    "Agents get a change when they start a new conversation.",
+    "Claude and Codex agents get a change when they start a new conversation. OpenCode agents get it once none of them is working.",
   "integrations.helpTip": "What does this mean?",
   "integrations.show": "Show",
   "integrations.hide": "Hide",
@@ -2669,6 +2669,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.interruptHandlerFailed": "Interrupt handler failed: {error}",
   "systemEntries.codexSandboxUnavailable":
     "This container cannot run Codex's sandbox, so commands run with full access inside the container.",
+  "systemEntries.openCodePreviousSettings":
+    "This turn uses your previous Integrations settings.",
   "systemEntries.codexInterruptFallback":
     "Codex didn't honor the interrupt in time; falling back to a fresh session.",
   "systemEntries.deliveryStalled": "Message delivery stalled; recovering.",

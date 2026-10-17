@@ -221,9 +221,11 @@ OpenCode uses shared servers, not one process per agent:
   other turn is active. It cannot stop a server that another session is using.
   A probe that times out means busy, not dead: a busy identity-matching server
   is adopted, never replaced (task dc2796a3);
-- a turn whose `/event` stream sends no frame for 30 s fails, and marks its
-  server for replacement at the next turn entry or acquisition (task 7e474e35).
-  The same bound covers the turn's `/event` headers and new-session POST. A
+- a turn whose `/event` stream sends no frame for 30 s probes the server's
+  health. A server that refuses the probe or answers with an error is marked
+  for replacement at the next turn entry or acquisition (task 7e474e35).
+  Otherwise the turn moves to a new stream, settles from what it missed, or
+  fails alone (task 439afbc8). The same bound covers the turn's `/event` headers and new-session POST. A
   missed `/event` header deadline comes before any prompt, so the turn
   recovers once onto a replacement, unless another turn is on that live
   server; then it fails. A server marked before a prompt is replaced only
@@ -527,7 +529,11 @@ and its last request outside a turn (a model list, a new session) end; a
 pending replacement never holds or fails a turn or a model list, which use the
 running server meanwhile (task 8d9561a5). So a new environment reaches
 new turns only once the server is idle, which can take long while turns keep
-overlapping. Durable session ids remain valid.
+overlapping. Durable session ids remain valid. A saved env variable, secret or
+MCP server reaches each existing server at once, with the inputs the next
+session start passes (an office save reaches every member's server; a save
+starts none). A turn that runs on a server with a pending replacement says it
+uses the previous settings (task d4a7031e).
 6. **S5 - model and UI completion.** Add provider/model discovery, at most
    three first-release certified models, capability-shaped controls, and every
    killed/resumed-agent surface.
@@ -832,7 +838,13 @@ OpenCode itself appends the same lines to `data/opencode/log/opencode.log` in
 the profile and keeps that file across servers; OpenCode 1.18.35 never rotates
 it. The server start makes its folder 0700 and the file 0600, and moves a file
 over 10 MB to `opencode.log.1`, replacing the older one. A failed turn's
-journal line names the log. Every start and adoption also makes the profile
+journal line names the log. Each silent event stream writes one
+`event_stream_silent` journal line before its recovery acts: the agent and
+session, the last frame and the turn's own last frame with their times, what
+the turn waited on (no prompt yet, a permission request, a running tool, a
+provider retry, a model request), the health probe, how the recovery ended,
+and OpenCode's log. It carries OpenCode type and tool names only, never a
+frame body. Every start and adoption also makes the profile
 folder 0700 and `opencode.db` with its `-wal` and `-shm` files 0600: the
 database holds OpenCode's account and credential tables. A
 startup stops after one non-bind error. For one diagnostic run, an operator can set

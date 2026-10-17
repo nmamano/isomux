@@ -37,6 +37,10 @@ import type {
   SecretWire,
 } from "../../../shared/contract-shapes.ts";
 import { callerIsIntegrationOwner, memberSubject } from "./member-subject.ts";
+import {
+  pushOpenCodeSettings,
+  type PushOpenCodeSettings,
+} from "./opencode-settings.ts";
 
 export interface SecretsDeps {
   store: SecretStore;
@@ -55,6 +59,8 @@ export interface SecretsDeps {
   // point, so a failure here is logged and the route still answers success;
   // the proxy child gets a full snapshot at its next start.
   onChanged?: () => Promise<void>;
+  // After the runtime took the change, so the push reads the new secrets.
+  pushOpenCodeSettings?: PushOpenCodeSettings;
 }
 
 const CREATE_KEYS = ["name", "value", "hosts", "form", "note"];
@@ -121,18 +127,22 @@ function answer(
   }
 }
 
-// Tells the runtime about a change that the store committed.
+// Tells the runtime, and then the OpenCode servers, about a change that the
+// store committed.
 async function committed(
   deps: SecretsDeps,
   result: HandlerResult,
+  scope: SecretScope,
 ): Promise<HandlerResult> {
-  if (result.kind !== "error" && deps.onChanged) {
+  if (result.kind === "error") return result;
+  if (deps.onChanged) {
     try {
       await deps.onChanged();
     } catch {
       console.error("[secrets] the proxy did not take a change");
     }
   }
+  pushOpenCodeSettings(deps.pushOpenCodeSettings, scope);
   return result;
 }
 
@@ -208,7 +218,11 @@ function scopedHandlers(
           kind: "invalid",
           error: { field: "name", reason: "invalid" },
         });
-      return committed(deps, answer(deps.store.create(scope, body), "created"));
+      return committed(
+        deps,
+        answer(deps.store.create(scope, body), "created"),
+        scope,
+      );
     },
     rotate: (ctx) => {
       const scope = scopeOf(ctx);
@@ -218,6 +232,7 @@ function scopedHandlers(
       return committed(
         deps,
         answer(deps.store.rotate(scope, ctx.params.name ?? "", body.value)),
+        scope,
       );
     },
     update: (ctx) => {
@@ -232,6 +247,7 @@ function scopedHandlers(
             addHosts: ctx.identity.scope !== "agent",
           }),
         ),
+        scope,
       );
     },
     reissue: (ctx) => {
@@ -242,13 +258,14 @@ function scopedHandlers(
       return committed(
         deps,
         answer(deps.store.reissue(scope, ctx.params.name ?? "")),
+        scope,
       );
     },
     remove: (ctx) => {
       const scope = scopeOf(ctx);
       if (!scope) return fail(404, "not_found");
       return deps.store.remove(scope, ctx.params.name ?? "")
-        ? committed(deps, noContent())
+        ? committed(deps, noContent(), scope)
         : fail(404, "not_found");
     },
   };

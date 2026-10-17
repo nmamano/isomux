@@ -26,6 +26,7 @@ import {
   OpenCodeSupervisor,
   openCodeConfigFor,
   openCodeSupervisorForEnvironment,
+  updateOpenCodeSupervisorSettings,
 } from "./supervisor.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeLogPath } from "./profile-paths.ts";
@@ -523,6 +524,22 @@ describe("OpenCode shared server supervisor", () => {
     expect(openCodeConfigFor([])).not.toHaveProperty("mcp");
   });
 
+  // Task d4a7031e: a save goes only to a supervisor that exists.
+  it("creates no supervisor for a saved setting", () => {
+    const servers = [
+      { name: "isomux-docs", url: "https://docs.example.com/mcp", headers: {} },
+    ];
+    updateOpenCodeSupervisorSettings("source-push-none", {}, "saved", servers);
+    // Had the push made one, its MCP config would outlive this call, which
+    // keeps a profile's config.
+    const supervisor = openCodeSupervisorForEnvironment(
+      "source-push-none",
+      {},
+      "start",
+    );
+    expect(supervisor.configuration.mcp).toBeUndefined();
+  });
+
   it("writes the named unattended agent without widening the default permissions", async () => {
     const path = await root();
     const supervisor = makeSupervisor(path, undefined, 1000);
@@ -981,6 +998,7 @@ describe("OpenCode shared server supervisor", () => {
     await long.beginTurn();
     const priorPid = long.pid;
     await expectChildEnvironment(priorPid, { S4_ENV_CANARY: "before" });
+    expect(long.replacementPending).toBe(false);
     supervisor.updateLaunchEnvironment(
       { OPENCODE_CONFIG_DIR: memberDir, S4_ENV_CANARY: "after" },
       "revision-after",
@@ -999,6 +1017,9 @@ describe("OpenCode shared server supervisor", () => {
     );
     if (typeof next === "string") throw new Error(`new turn ${next}`);
     expect(next.pid).toBe(priorPid);
+    expect(next.replacementPending, "the new turn uses the old settings").toBe(
+      true,
+    );
     const models = await within(discoverOpenCodeModels(supervisor, path), 5000);
     expect(models).toEqual([expect.objectContaining({ id: "fake/m" })]);
     expect(alive(priorPid)).toBe(true);
@@ -1022,10 +1043,114 @@ describe("OpenCode shared server supervisor", () => {
     expect(long.pid, "a retained lease follows the replacement").toBe(
       after.pid,
     );
+    expect(after.replacementPending).toBe(false);
     await expectChildEnvironment(after.pid, { S4_ENV_CANARY: "after" });
     after.endTurn();
     after.release();
     long.release();
+  }, 20_000);
+
+  // Task d4a7031e: a save reaches a running server at once. Its replacement
+  // waits for a running turn and runs at once on an idle server; the next
+  // session start, with the same inputs, requests no second one.
+  it("takes saved settings: waits for a running turn, then needs no second replacement", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const memberDir = join(path, "member-opencode");
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      { S4_ENV_CANARY: "before" },
+      binary,
+    );
+    const launches = async () =>
+      (await readFile(launchMarker, "utf8")).trim().split("\n").length;
+    const turn = await supervisor.acquire();
+    await turn.beginTurn();
+    const priorPid = turn.pid;
+    const env = { OPENCODE_CONFIG_DIR: memberDir, S4_ENV_CANARY: "after" };
+    const config = openCodeConfigFor([]);
+    supervisor.updateSettings(env, "revision-after", config);
+    expect(turn.replacementPending).toBe(true);
+    await Bun.sleep(100);
+    expect(alive(priorPid), "the running turn keeps its server").toBe(true);
+
+    turn.endTurn();
+    const deadline = Date.now() + 5000;
+    while (alive(priorPid) && Date.now() < deadline) await Bun.sleep(25);
+    expect(alive(priorPid), "the last turn's end replaces the server").toBe(
+      false,
+    );
+    // The session start's own update, with the same inputs.
+    expect(supervisor.updateLaunchEnvironment(env, "revision-after")).toBe(
+      false,
+    );
+    expect(supervisor.updateConfiguration(config)).toBe(false);
+    const after = await supervisor.acquire();
+    await after.beginTurn();
+    expect(after.replacementPending).toBe(false);
+    await expectChildEnvironment(after.pid, { S4_ENV_CANARY: "after" });
+    const launched = await launches();
+    after.endTurn();
+    turn.release();
+
+    // A save with the same inputs on an idle server replaces nothing.
+    const samePid = after.pid;
+    supervisor.updateSettings(env, "revision-after", config);
+    expect(after.replacementPending).toBe(false);
+    await Bun.sleep(200);
+    expect(alive(samePid), "the same settings keep the server").toBe(true);
+    expect(await launches()).toBe(launched);
+
+    // Idle: the next save replaces the server at once.
+    const idlePid = after.pid;
+    supervisor.updateSettings(
+      { ...env, S4_ENV_CANARY: "idle" },
+      "revision-idle",
+      config,
+    );
+    const idleDeadline = Date.now() + 5000;
+    while (alive(idlePid) && Date.now() < idleDeadline) await Bun.sleep(25);
+    expect(alive(idlePid), "an idle server is replaced at once").toBe(false);
+    // A held lease gets the new server, which starts after the stop.
+    while (after.pid === idlePid && Date.now() < idleDeadline)
+      await Bun.sleep(25);
+    expect(after.pid, "a held lease follows the replacement").not.toBe(
+      idlePid,
+    );
+    expect(await launches()).toBe(launched + 1);
+    after.release();
+  }, 20_000);
+
+  it("takes saved settings with no server running: nothing is pending, and the next start uses them", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      { S4_ENV_CANARY: "before" },
+      binary,
+    );
+    supervisor.updateSettings(
+      {
+        OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
+        S4_ENV_CANARY: "saved",
+      },
+      "revision-saved",
+      openCodeConfigFor([]),
+    );
+    const lease = await supervisor.acquire();
+    await lease.beginTurn();
+    expect(lease.replacementPending).toBe(false);
+    await expectChildEnvironment(lease.pid, { S4_ENV_CANARY: "saved" });
+    expect(
+      (await readFile(launchMarker, "utf8")).trim().split("\n"),
+      "one start",
+    ).toHaveLength(1);
+    lease.endTurn();
+    lease.release();
   }, 20_000);
 
   it("replaces a stale cross-process record before starting", async () => {

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { logOpenCodeError } from "./errors.ts";
+import { logOpenCodeError, logOpenCodeStreamSilence } from "./errors.ts";
 // OpenCode backend boundary. The production singleton uses the pinned OC1
 // server transport. createOpenCodeTracerBackend remains as the deterministic
 // no-process test double that proved the S1a orchestrator seam.
@@ -33,11 +33,13 @@ import {
   splitModel,
   type OpenCodeContextBreakdown,
   type OpenCodeSafeErrorSink,
+  type OpenCodeStreamSilenceSink,
 } from "./transport.ts";
 import {
   OPENCODE_CRON_AGENT,
   OPENCODE_INTERACTIVE_BYPASS_AGENT,
   openCodeSupervisorForEnvironment,
+  updateOpenCodeSupervisorSettings,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
 import { inspectOpenCodeStoredSession } from "./storage.ts";
@@ -135,6 +137,7 @@ export interface OpenCodeBackendOptions {
   supervisor?: OpenCodeSupervisor;
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: OpenCodeSafeErrorSink;
+  streamSilenceSink?: OpenCodeStreamSilenceSink;
   bindingAgentSink?: (sessionId: string, agent: string | undefined) => void;
   oneShotTimeoutMs?: number;
 }
@@ -170,6 +173,7 @@ class OpenCodeServerSession implements BackendSession {
     contractShapeSink?: (shape: string) => void,
     safeErrorSink?: OpenCodeSafeErrorSink,
     private readonly onSessionId?: (sessionId: string) => void,
+    streamSilenceSink?: OpenCodeStreamSilenceSink,
   ) {
     this.agentId = opts.agentId;
     this.transport = new OpenCodeTransport({
@@ -184,6 +188,8 @@ class OpenCodeServerSession implements BackendSession {
       sessionId,
       contractShapeSink,
       safeErrorSink,
+      streamSilenceSink,
+      words: opts.words,
       completedStepSink: (breakdown) => {
         this.latestContextBreakdown = breakdown;
       },
@@ -465,6 +471,8 @@ export function createOpenCodeBackend(
   options: OpenCodeBackendOptions = {},
 ): Backend {
   const safeErrorSink = options.safeErrorSink ?? logOpenCodeError;
+  const streamSilenceSink =
+    options.streamSilenceSink ?? logOpenCodeStreamSilence;
   const bindings = new Map<
     string,
     {
@@ -548,6 +556,15 @@ export function createOpenCodeBackend(
     capabilities: CAPABILITIES,
     getModelOptions: () => [],
     getPermissionModes: () => PERMISSION_MODES,
+    updateSavedSettings: (opts) => {
+      if (options.supervisor) return;
+      updateOpenCodeSupervisorSettings(
+        opts.environmentKey,
+        opts.env,
+        opts.environmentRevision,
+        opts.mcpServers,
+      );
+    },
     async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
       const supervisor = supervisorFor(opts);
       const models = await discoverOpenCodeModels(supervisor, opts.cwd);
@@ -568,6 +585,7 @@ export function createOpenCodeBackend(
         safeErrorSink,
         (sessionId) =>
           setBinding(sessionId, { cwd: opts.cwd, supervisor, model, agent }),
+        streamSilenceSink,
       );
     },
     resumeSession(
@@ -592,6 +610,7 @@ export function createOpenCodeBackend(
             model,
             agent,
           }),
+        streamSilenceSink,
       );
     },
     inspectStoredSession(sessionId, opts): StoredSessionState {
@@ -675,6 +694,8 @@ export function createOpenCodeBackend(
         undefined,
         options.contractShapeSink,
         safeErrorSink,
+        undefined,
+        streamSilenceSink,
       );
       const timeoutError = new Error("OpenCode one-shot prompt timed out.");
       let timeout: ReturnType<typeof setTimeout> | undefined;

@@ -983,7 +983,7 @@ Coses que pots fer per ell:
   "integrations.backToYours": "Torna a les teves",
   "integrations.picker": "De qui són les integracions",
   "integrations.applies":
-    "Els agents reben un canvi quan inicien una conversa nova.",
+    "Els agents de Claude i Codex reben un canvi quan inicien una conversa nova. Els agents d'OpenCode el reben quan cap d'ells no estigui treballant.",
   "integrations.helpTip": "Què vol dir això?",
   "integrations.show": "Mostra",
   "integrations.hide": "Amaga",
@@ -2696,6 +2696,8 @@ Coses que pots fer per ell:
     "El gestor d'interrupcions ha fallat: {error}",
   "systemEntries.codexSandboxUnavailable":
     "Aquest contenidor no pot executar el sandbox de Codex, així que les ordres s'executen amb accés complet dins del contenidor.",
+  "systemEntries.openCodePreviousSettings":
+    "Aquest torn fa servir la teva configuració anterior d'Integracions.",
   "systemEntries.codexInterruptFallback":
     "Codex no va atendre la interrupció a temps; es passa a una sessió nova.",
   "systemEntries.deliveryStalled":
