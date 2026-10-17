@@ -33,3 +33,9 @@ export function openCodeProfilePaths(
     cacheHome: join(profileDir, "cache"),
   };
 }
+
+// OpenCode 1.18.35 appends its log here (XDG_DATA_HOME/opencode/log) and keeps
+// it across server restarts; the server's stderr carries the same lines.
+export function openCodeLogPath(profileDir: string): string {
+  return join(profileDir, "data", "opencode", "log", "opencode.log");
+}

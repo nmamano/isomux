@@ -5,15 +5,17 @@ import {
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   chmod,
+  lstat,
   mkdtemp,
   mkdir,
   readdir,
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { homedir, tmpdir } from "node:os";
@@ -354,6 +356,90 @@ describe("OpenCode shared server supervisor", () => {
     expect(cmdline.includes(value)).toBe(false);
     const environ = (await readFile(`/proc/${lease.pid}/environ`)).toString();
     expect(environ.includes(value)).toBe(false);
+    lease.release();
+  });
+
+  // OpenCode keeps its log, provider error bodies included, across servers.
+  it("makes OpenCode's log owner-only at a start, also in an older profile, and leaves the folders above it alone", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      5000,
+      binary,
+    );
+    const data = join(supervisor.profileDir, "data");
+    const logDir = join(data, "opencode", "log");
+    await mkdir(logDir, { recursive: true });
+    for (const dir of [data, join(data, "opencode"), logDir])
+      await chmod(dir, 0o775);
+    await writeFile(join(logDir, "opencode.log"), "older run\n");
+    await chmod(join(logDir, "opencode.log"), 0o664);
+    const lease = await supervisor.acquire();
+    const mode = async (target: string) => (await stat(target)).mode & 0o777;
+    expect(await mode(logDir)).toBe(0o700);
+    expect(await mode(join(logDir, "opencode.log"))).toBe(0o600);
+    expect(await readFile(join(logDir, "opencode.log"), "utf8")).toBe(
+      "older run\n",
+    );
+    expect(await mode(data)).toBe(0o775);
+    expect(await mode(join(data, "opencode"))).toBe(0o775);
+    lease.release();
+  });
+
+  // A root-owned target: opening it for append fails as any other user.
+  it.skipIf(process.getuid?.() === 0 || !existsSync("/etc/hostname"))(
+    "starts the server when OpenCode's log cannot be made owner-only",
+    async () => {
+      const path = await root();
+      const { binary } = await makeHealthOnlyBinary(path);
+      const supervisor = makeSupervisor(
+        path,
+        gateConfig(mockProvider()),
+        1000,
+        {},
+        5000,
+        binary,
+      );
+      const logDir = join(supervisor.profileDir, "data", "opencode", "log");
+      await mkdir(logDir, { recursive: true });
+      await symlink("/etc/hostname", join(logDir, "opencode.log"));
+      const targetMode = (await stat("/etc/hostname")).mode;
+      const lease = await supervisor.acquire();
+      expect(alive(lease.pid), "the server started").toBe(true);
+      expect(
+        (await lstat(join(logDir, "opencode.log"))).isSymbolicLink(),
+      ).toBe(true);
+      expect((await stat("/etc/hostname")).mode).toBe(targetMode);
+      lease.release();
+    },
+  );
+
+  it("makes only the log folder owner-only in a new profile", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      5000,
+      binary,
+    );
+    const lease = await supervisor.acquire();
+    const data = join(supervisor.profileDir, "data");
+    const mode = async (target: string) => (await stat(target)).mode & 0o777;
+    const folderDefault = 0o777 & ~process.umask();
+    expect(folderDefault, "the umask leaves a folder mode to tell apart").not.toBe(0o700);
+    expect(await mode(join(data, "opencode", "log"))).toBe(0o700);
+    expect(await mode(join(data, "opencode", "log", "opencode.log"))).toBe(
+      0o600,
+    );
+    expect(await mode(data)).toBe(folderDefault);
+    expect(await mode(join(data, "opencode"))).toBe(folderDefault);
     lease.release();
   });
 

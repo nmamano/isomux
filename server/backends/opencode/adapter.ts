@@ -32,7 +32,7 @@ import {
   OpenCodeTransport,
   splitModel,
   type OpenCodeContextBreakdown,
-  type SafeOpenCodeError,
+  type OpenCodeSafeErrorSink,
 } from "./transport.ts";
 import {
   OPENCODE_CRON_AGENT,
@@ -134,7 +134,7 @@ interface TracerOptions {
 export interface OpenCodeBackendOptions {
   supervisor?: OpenCodeSupervisor;
   contractShapeSink?: (shape: string) => void;
-  safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
+  safeErrorSink?: OpenCodeSafeErrorSink;
   bindingAgentSink?: (sessionId: string, agent: string | undefined) => void;
   oneShotTimeoutMs?: number;
 }
@@ -166,7 +166,7 @@ class OpenCodeServerSession implements BackendSession {
     supervisor: OpenCodeSupervisor,
     sessionId?: string,
     contractShapeSink?: (shape: string) => void,
-    safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void,
+    safeErrorSink?: OpenCodeSafeErrorSink,
     private readonly onSessionId?: (sessionId: string) => void,
   ) {
     this.agentId = opts.agentId;

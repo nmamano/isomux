@@ -205,6 +205,29 @@ const configOverride = JSON.stringify(
 // every config folder without one. Nothing in the profile's own folder uses
 // it, and the safety plugin imports nothing, so the profile skips the install.
 await markPluginSdkInstalled(join(profileDir, "config", "opencode"));
+// OpenCode appends every log line, provider error bodies included, to
+// XDG_DATA_HOME/opencode/log/opencode.log (openCodeLogPath in
+// profile-paths.ts) and keeps it. This runs before the server does, so the
+// folder exists owner-only before OpenCode writes into it. OpenCode opens the
+// file for append, so a file made owner-only here stays that way; an older
+// profile converges at its next start that is not an adoption. Only the log
+// folder is owner-only: the folders above it keep their modes. A log this
+// user cannot change (another user's, from before split mode) stays as it is:
+// the server still starts.
+try {
+  const openCodeDataDir = join(profileDir, "data", "opencode");
+  await mkdir(openCodeDataDir, { recursive: true });
+  const openCodeLogDir = join(openCodeDataDir, "log");
+  await mkdir(openCodeLogDir, { recursive: true, mode: 0o700 });
+  await chmod(openCodeLogDir, 0o700);
+  const openCodeLog = join(openCodeLogDir, "opencode.log");
+  await (await open(openCodeLog, "a", 0o600)).close();
+  await chmod(openCodeLog, 0o600);
+} catch (error) {
+  process.stderr.write(
+    `OpenCode's log keeps its modes: ${(error as NodeJS.ErrnoException).code ?? "error"}.\n`,
+  );
+}
 let started: ServerRecord | null = null;
 // Retry only when a healthy child exits before its identity can be captured.
 for (let attempt = 0; attempt < 40; attempt++) {
@@ -228,9 +251,10 @@ for (let attempt = 0; attempt < 40; attempt++) {
     {
       cwd: serverCwd,
       detached: true,
-      // OC1 logs raw provider errors, including response bodies. Startup output
-      // goes only to a private /tmp file. It is unlinked as soon as the server
-      // is healthy unless an operator explicitly enables debug capture.
+      // OC1 logs raw provider errors, including response bodies. Its own
+      // owner-only log above keeps the same lines. This private /tmp copy is
+      // read for startup and unlinked as soon as the server is healthy unless
+      // an operator explicitly enables debug capture.
       stdio: ["ignore", stdout.fd, stderr.fd],
       env: {
         ...sanitizedChildEnvironment(),

@@ -1,5 +1,5 @@
 import { redactLogEntry } from "../../log-redaction.ts";
-import type { SafeOpenCodeError } from "./transport.ts";
+import type { OpenCodeErrorContext, SafeOpenCodeError } from "./transport.ts";
 
 // Provider text is diagnostic data, not member-facing copy.
 export function openCodeErrorMessage(
@@ -64,7 +64,10 @@ export function openCodeRetryMessage(
   return `${cause.replace(/\.$/, "")}; retrying ${attempt} of 5.`;
 }
 
-export function logOpenCodeError(error: Readonly<SafeOpenCodeError>): void {
+export function logOpenCodeError(
+  error: Readonly<SafeOpenCodeError>,
+  context: Readonly<OpenCodeErrorContext> = {},
+): void {
   // Never log headers, bodies, metadata or arbitrary object fields. Scrub the
   // free-text fields before the shared log redactor handles known keys.
   const scrub = (value: string) =>
@@ -79,6 +82,7 @@ export function logOpenCodeError(error: Readonly<SafeOpenCodeError>): void {
     "[opencode]",
     JSON.stringify(
       redactLogEntry({
+        ...(context.agentId ? { agentId: context.agentId } : {}),
         ...(error.name ? { name: scrub(error.name) } : {}),
         ...(error.message ? { message: scrub(error.message) } : {}),
         ...(error.code ? { code: scrub(error.code) } : {}),
@@ -88,6 +92,8 @@ export function logOpenCodeError(error: Readonly<SafeOpenCodeError>): void {
         ...(error.isRetryable !== undefined
           ? { isRetryable: error.isRetryable }
           : {}),
+        ...(context.failure ? { failure: context.failure } : {}),
+        ...(context.openCodeLog ? { openCodeLog: context.openCodeLog } : {}),
       }),
     ),
   );

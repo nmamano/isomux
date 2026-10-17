@@ -1278,6 +1278,7 @@ describe("OpenCode permission event integration", () => {
     stopOnText = false,
   ) {
     const replies: unknown[] = [];
+    const replyIds: string[] = [];
     const contexts: number[] = [];
     const turns = [frames, ...laterTurns];
     const server = Bun.serve({
@@ -1301,6 +1302,7 @@ describe("OpenCode permission event integration", () => {
         if (url.pathname.endsWith("/prompt_async")) return new Response(null);
         if (url.pathname.startsWith("/permission/") && request.body) {
           replies.push(await request.json());
+          replyIds.push(decodeURIComponent(url.pathname.split("/")[2] ?? ""));
           return new Response(null);
         }
         return new Response("not found", { status: 404 });
@@ -1344,7 +1346,7 @@ describe("OpenCode permission event integration", () => {
     }
     transport.close();
     await server.stop(true);
-    return { events, replies, contexts };
+    return { events, replies, replyIds, contexts };
   }
 
   const frame = (type: string, properties: object) => ({
@@ -1365,6 +1367,21 @@ describe("OpenCode permission event integration", () => {
       part: { id: id + "-finish", messageID: id, type: "step-finish" },
     });
   const idle = frame("session.idle", {});
+  const asked = (sessionID: string, id: string) => ({
+    type: "permission.asked",
+    properties: {
+      sessionID,
+      id,
+      permission: "bash",
+      patterns: [`printf ${id}`],
+      metadata: { command: `printf ${id}` },
+    },
+  });
+  // OpenCode's task tool runs a subagent in a child session.
+  const created = (id: string, parentID: string) => ({
+    type: "session.created",
+    properties: { sessionID: id, info: { id, parentID } },
+  });
 
   const billed = (partId: string, messageId: string, n: number) =>
     frame("message.part.updated", {
@@ -1742,22 +1759,25 @@ describe("OpenCode permission event integration", () => {
       transport: OpenCodeTransport,
       events: NormalizedEvent[],
     ) => Promise<void>,
-    options: { refuseRejects?: boolean } = {},
+    options: { refuseRejects?: boolean; frames?: unknown[] } = {},
   ): Promise<{
     replies: { id: string; reply: unknown }[];
     events: NormalizedEvent[];
   }> {
     const replies: { id: string; reply: unknown }[] = [];
-    const frames = ["permission-1", "permission-2"].map((id) => ({
-      type: "permission.asked",
-      properties: {
-        sessionID: "session-1",
-        id,
-        permission: "bash",
-        patterns: [`printf ${id}`],
-        metadata: { command: `printf ${id}` },
-      },
-    }));
+    const frames = options.frames ?? [
+      asked("session-1", "permission-1"),
+      asked("session-1", "permission-2"),
+    ];
+    const askedIds = frames.flatMap((frame) => {
+      const { type, properties } = frame as {
+        type: string;
+        properties: { id?: string };
+      };
+      return type === "permission.asked" && properties.id
+        ? [properties.id]
+        : [];
+    });
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -1822,7 +1842,7 @@ describe("OpenCode permission event integration", () => {
       const deadline = Date.now() + 1_000;
       while (
         events.filter((event) => event.kind === "approval_request").length <
-          2 &&
+          askedIds.length &&
         Date.now() < deadline
       )
         await Bun.sleep(5);
@@ -1830,7 +1850,7 @@ describe("OpenCode permission event integration", () => {
         events.flatMap((event) =>
           event.kind === "approval_request" ? [event.approvalId] : [],
         ),
-      ).toEqual(["permission-1", "permission-2"]);
+      ).toEqual(askedIds);
       await answer(transport, events);
     } finally {
       transport.close();
@@ -1924,6 +1944,182 @@ describe("OpenCode permission event integration", () => {
       "withdrawn:permission-2",
       "turn_completed",
     ]);
+  });
+  // Task 42500a30: a subagent's request was dropped as a foreign session's,
+  // so the subagent and the agent's turn waited on it until the stream
+  // deadline.
+  describe("subagent requests", () => {
+    it("answers a subagent's and a nested subagent's request under bypass", async () => {
+      const result = await runFrames(
+        [
+          created("child-1", "session-1"),
+          asked("child-1", "permission-child"),
+          created("grandchild-1", "child-1"),
+          asked("grandchild-1", "permission-grandchild"),
+          assistant("answer"),
+          finish("answer"),
+          idle,
+        ],
+        "isomux-interactive-bypass",
+      );
+      // MUTANT: the own-session-only filter answers neither request.
+      // MUTANT: no recursion answers only the child's request.
+      expect(result.replyIds).toEqual([
+        "permission-child",
+        "permission-grandchild",
+      ]);
+      expect(result.replies).toEqual([{ reply: "once" }, { reply: "once" }]);
+      expect(result.events.at(-1)).toMatchObject({
+        kind: "turn_completed",
+        status: "completed",
+      });
+    });
+
+    it("runs the safety checks on a subagent's request under bypass", async () => {
+      const result = await runFrames(
+        [
+          created("child-1", "session-1"),
+          {
+            type: "permission.asked",
+            properties: {
+              sessionID: "child-1",
+              id: "permission-child",
+              permission: "bash",
+              patterns: ["git reset --hard"],
+              metadata: { command: "git reset --hard" },
+            },
+          },
+        ],
+        "isomux-interactive-bypass",
+      );
+      expect(result.replyIds).toEqual(["permission-child"]);
+      expect(result.replies[0]).toMatchObject({ reply: "reject" });
+    });
+
+    it("leaves the request of another session's subagent alone", async () => {
+      const result = await runFrames(
+        [
+          created("child-foreign", "session-foreign"),
+          asked("child-foreign", "permission-foreign"),
+          assistant("answer"),
+          finish("answer"),
+          idle,
+        ],
+        "isomux-interactive-bypass",
+      );
+      expect(result.replyIds).toEqual([]);
+      expect(
+        result.events.some((event) => event.kind === "approval_request"),
+      ).toBe(false);
+    });
+
+    it("does not end the turn on a subagent's idle", async () => {
+      const result = await runFrames([
+        created("child-1", "session-1"),
+        { type: "session.idle", properties: { sessionID: "child-1" } },
+        assistant("answer"),
+        finish("answer"),
+        idle,
+      ]);
+      // MUTANT: routing every subagent event fails the turn at the child's
+      // idle, before the agent's step completes.
+      expect(
+        result.events.filter((event) => event.kind === "turn_completed"),
+      ).toMatchObject([{ status: "completed" }]);
+    });
+
+    it("asks the member and replies on the subagent's request", async () => {
+      const { replies } = await withTwoOpenRequests(
+        async (transport) => {
+          await transport.approve("permission-child", { kind: "allow_once" });
+        },
+        {
+          frames: [
+            created("child-1", "session-1"),
+            asked("child-1", "permission-child"),
+          ],
+        },
+      );
+      // MUTANT: approve() keeps only the agent's own session.
+      expect(replies).toEqual([{ id: "permission-child", reply: "once" }]);
+    });
+
+    it("closes only the subagent's requests when the member denies one", async () => {
+      let withdrawnBeforeClose: NormalizedEvent[] = [];
+      const { replies } = await withTwoOpenRequests(
+        async (transport, events) => {
+          await transport.approve("permission-child-a", { kind: "deny" });
+          await transport.approve("permission-1", { kind: "allow_once" });
+          withdrawnBeforeClose = events.filter(
+            (event) => event.kind === "approval_withdrawn",
+          );
+        },
+        {
+          frames: [
+            asked("session-1", "permission-1"),
+            created("child-1", "session-1"),
+            asked("child-1", "permission-child-a"),
+            asked("child-1", "permission-child-b"),
+          ],
+        },
+      );
+      // MUTANT: a deny that forgets the agent's session withdraws
+      // permission-1 while OpenCode still waits on it, so its allow is
+      // never sent.
+      expect(replies).toEqual([
+        { id: "permission-child-a", reply: "reject" },
+        { id: "permission-1", reply: "once" },
+      ]);
+      expect(withdrawnBeforeClose).toEqual([
+        { kind: "approval_withdrawn", approvalId: "permission-child-b" },
+      ]);
+    });
+
+    it("rejects the open requests of each session when the turn stops", async () => {
+      const { replies, events } = await withTwoOpenRequests(
+        async (transport) => {
+          await transport.abort();
+        },
+        {
+          frames: [
+            asked("session-1", "permission-1"),
+            created("child-1", "session-1"),
+            asked("child-1", "permission-child"),
+            created("child-2", "session-1"),
+            asked("child-2", "permission-child-2"),
+          ],
+        },
+      );
+      // MUTANT: a stop that rejects only the agent's session leaves the
+      // subagents waiting. The rejects go out together.
+      expect(replies.toSorted((a, b) => a.id.localeCompare(b.id))).toEqual([
+        { id: "permission-1", reply: "reject" },
+        { id: "permission-child", reply: "reject" },
+        { id: "permission-child-2", reply: "reject" },
+      ]);
+      expect(
+        events.filter((event) => event.kind === "approval_withdrawn"),
+      ).toEqual([
+        { kind: "approval_withdrawn", approvalId: "permission-1" },
+        { kind: "approval_withdrawn", approvalId: "permission-child" },
+        { kind: "approval_withdrawn", approvalId: "permission-child-2" },
+      ]);
+    });
+
+    it("reports a subagent's question", async () => {
+      const result = await runFrames([
+        created("child-1", "session-1"),
+        {
+          type: "question.asked",
+          properties: { sessionID: "child-1", id: "question-child" },
+        },
+      ]);
+      expect(result.events).toContainEqual({
+        kind: "input_request",
+        inputType: "question",
+        requestId: "question-child",
+      });
+    });
   });
 });
 

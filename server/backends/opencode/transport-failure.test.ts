@@ -13,8 +13,10 @@ import {
   OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
   openCodeEffortUnavailableNotice,
   OpenCodeTransport,
+  type OpenCodeErrorContext,
   type SafeOpenCodeError,
 } from "./transport.ts";
+import { openCodeLogPath } from "./profile-paths.ts";
 import type { OpenCodeSupervisor } from "./supervisor.ts";
 import { OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS as PROBE_MS } from "./server-health.ts";
 import type { NormalizedEvent } from "../types.ts";
@@ -826,6 +828,8 @@ function drivenServer(
   };
 }
 
+const DRIVEN_PROFILE = "/driven-profile";
+
 function drivenTransport(
   clock: ReturnType<typeof drivenClock>,
   options: {
@@ -836,16 +840,19 @@ function drivenTransport(
     serverKey?: () => string;
     onBeginTurn?: () => void;
     onRecover?: () => void;
+    agentId?: string;
   } = {},
 ) {
   const marked: { pid: number; afterPrompt: boolean }[] = [];
   const errors: SafeOpenCodeError[] = [];
+  const contexts: (OpenCodeErrorContext | undefined)[] = [];
   let recoveries = 0;
   const supervisor = {
     acquire: async () => ({
       pid: 4242,
       baseUrl: "http://127.0.0.1:1",
       authHeader: "Basic synthetic",
+      profileDir: DRIVEN_PROFILE,
       get serverKey() {
         return options.serverKey?.() ?? "server-1";
       },
@@ -873,9 +880,13 @@ function drivenTransport(
     systemPrompt: "system",
     ...(options.sessionId ? { sessionId: options.sessionId } : {}),
     ...(options.agent ? { agent: options.agent } : {}),
+    ...(options.agentId ? { agentId: options.agentId } : {}),
     eventStreamDeadlineMs: DEADLINE_MS,
     deadlineScheduler: clock.scheduler,
-    safeErrorSink: (error) => errors.push(error),
+    safeErrorSink: (error, context) => {
+      errors.push(error);
+      contexts.push(context);
+    },
   });
   const completions: Extract<NormalizedEvent, { kind: "turn_completed" }>[] =
     [];
@@ -888,6 +899,7 @@ function drivenTransport(
     completions,
     notices,
     errors,
+    contexts,
     send: () =>
       transport.send([{ type: "text", text: "go" }], (event) => {
         if (event.kind === "turn_completed") completions.push(event);
@@ -926,6 +938,34 @@ it("keeps a turn whose stream frames reset the deadline across several deadlines
     expect(turn.recoveries(), "no replacement inside the turn").toBe(0);
     expect(server.promptBodies, "the prompt is never replayed").toHaveLength(1);
     expect(server.eventRequests(), "no second subscription").toBe(1);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+// Task 42500a30: the journal line of an unresponsive turn was a bare
+// {"name":"Error"} that named neither the agent nor the failure.
+it("names the agent, the failure and OpenCode's log when a turn misses the deadline", async () => {
+  const clock = drivenClock();
+  const server = drivenServer();
+  const turn = drivenTransport(clock, {
+    sessionId: "driven",
+    agentId: "agent-driven",
+  });
+  try {
+    await turn.send();
+    clock.advance(DEADLINE_MS);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([unresponsive]);
+    expect(turn.errors).toEqual([{ name: "Error" }]);
+    expect(turn.contexts).toEqual([
+      {
+        agentId: "agent-driven",
+        failure: OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
+        openCodeLog: openCodeLogPath(DRIVEN_PROFILE),
+      },
+    ]);
   } finally {
     turn.transport.close();
     server.restore();

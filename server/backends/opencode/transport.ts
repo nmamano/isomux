@@ -17,6 +17,7 @@ import {
   type OpenCodeAuthorityBroker,
 } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
+import { openCodeLogPath } from "./profile-paths.ts";
 import { OpenCodeUnsupportedHostError } from "./runtime.ts";
 import { OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS } from "./server-health.ts";
 import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
@@ -237,7 +238,7 @@ export interface OpenCodeTransportOptions {
   supervisor?: OpenCodeSupervisor;
   sessionId?: string;
   contractShapeSink?: (shape: string) => void;
-  safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
+  safeErrorSink?: OpenCodeSafeErrorSink;
   completedStepSink?: (breakdown: OpenCodeContextBreakdown) => void;
   eventStreamDeadlineMs?: number;
   deadlineScheduler?: OpenCodeDeadlineScheduler;
@@ -390,7 +391,7 @@ export class OpenCodeTransport {
   private readonly agent: string | undefined;
   private readonly resumedSessionId?: string;
   private readonly contractShapeSink?: (shape: string) => void;
-  private readonly safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
+  private readonly safeErrorSink?: OpenCodeSafeErrorSink;
   private readonly completedStepSink?: (
     breakdown: OpenCodeContextBreakdown,
   ) => void;
@@ -413,6 +414,8 @@ export class OpenCodeTransport {
   // Open permission requests: request id -> OpenCode session id. OpenCode
   // runs the tool calls of one step in parallel, and each can ask at once.
   private pendingPermissions = new Map<string, string>();
+  // The open turn's subagent sessions, nested ones included.
+  private subagentSessions = new Set<string>();
   // The open turn's sink, so a request that OpenCode closes outside a member
   // answer can be withdrawn from the orchestrator.
   private turnSink: EventSink | null = null;
@@ -634,21 +637,18 @@ export class OpenCodeTransport {
       const safeError = allowTransportError(
         error instanceof OpenCodeTurnFailure ? error.cause : error,
       );
+      const failure =
+        error instanceof OpenCodeUnsupportedHostError ||
+        error instanceof OpenCodeTurnFailure
+          ? error.message
+          : `${context} (${safeError.name}${safeError.code ? `/${safeError.code}` : ""}; HTTP status: ${safeError.statusCode ?? "unavailable"}).`;
       // Observability must not stop delivery of the failed completion.
       try {
-        this.safeErrorSink?.(safeError);
+        this.safeErrorSink?.(safeError, this.errorContext(failure));
       } catch {
         console.error("OpenCode error sink failed.");
       } finally {
-        emit({
-          kind: "turn_completed",
-          status: "failed",
-          error:
-            error instanceof OpenCodeUnsupportedHostError ||
-            error instanceof OpenCodeTurnFailure
-              ? error.message
-              : `${context} (${safeError.name}${safeError.code ? `/${safeError.code}` : ""}; HTTP status: ${safeError.statusCode ?? "unavailable"}).`,
-        });
+        emit({ kind: "turn_completed", status: "failed", error: failure });
       }
     };
     if (this.systemPrompt === undefined) {
@@ -764,7 +764,7 @@ export class OpenCodeTransport {
 
   async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
     const sessionId = this.pendingPermissions.get(approvalId);
-    if (!sessionId || sessionId !== this.sessionId) return;
+    if (!sessionId || !this.ownsSession(sessionId)) return;
     if (decision.kind !== "allow_once" && decision.kind !== "deny") {
       throw new Error("OpenCode supports Allow once and Deny.");
     }
@@ -779,7 +779,7 @@ export class OpenCodeTransport {
     } catch (err) {
       // OpenCode did not take the answer, so the request is still open,
       // unless its turn ended meanwhile.
-      if (this.activeTurn && this.sessionId === sessionId)
+      if (this.activeTurn && this.ownsSession(sessionId))
         this.pendingPermissions.set(approvalId, sessionId);
       throw err;
     }
@@ -865,6 +865,7 @@ export class OpenCodeTransport {
     const tools = new Map<string, TrackedTool>();
     const seenPermissions = new Set<string>();
     const safetyWarningState = { shown: false };
+    this.subagentSessions.clear();
     let hasCompletedStep = false;
     let overflowPending = false;
     let settled = false;
@@ -955,7 +956,24 @@ export class OpenCodeTransport {
               .join("\n");
             if (!data) continue;
             const event = parseAllowedEvent(data);
-            if (!event || event.sessionId !== sessionId) continue;
+            if (!event) continue;
+            if (event.kind === "session_created") {
+              if (this.ownsSession(event.parentId))
+                this.subagentSessions.add(event.sessionId);
+              continue;
+            }
+            // A subagent waits on its requests like the agent does, and
+            // nothing else answers them. Its other events are its own.
+            if (
+              event.sessionId !== sessionId &&
+              !(
+                this.subagentSessions.has(event.sessionId) &&
+                (event.kind === "permission" ||
+                  event.kind === "permission_fault" ||
+                  event.kind === "question")
+              )
+            )
+              continue;
             this.contractShapeSink?.(`sse:${event.kind}`);
             if (event.kind === "assistant") {
               if (event.summary) {
@@ -1112,7 +1130,7 @@ export class OpenCodeTransport {
             if (event.kind === "error") {
               if (this.abortRequested) continue;
               try {
-                this.safeErrorSink?.(event.error);
+                this.safeErrorSink?.(event.error, this.errorContext());
               } catch {
                 /* Logging cannot end a turn. */
               }
@@ -1182,17 +1200,35 @@ export class OpenCodeTransport {
     });
   }
 
-  // One reject is enough: OpenCode rejects the other open requests of the
-  // session with it.
+  private errorContext(failure?: string): OpenCodeErrorContext {
+    const profileDir = this.lease?.profileDir;
+    return {
+      ...(this.agentId ? { agentId: this.agentId } : {}),
+      ...(failure ? { failure } : {}),
+      ...(profileDir ? { openCodeLog: openCodeLogPath(profileDir) } : {}),
+    };
+  }
+
+  // The agent's session or one of the open turn's subagent sessions.
+  private ownsSession(sessionId: string): boolean {
+    return (
+      sessionId === this.sessionId || this.subagentSessions.has(sessionId)
+    );
+  }
+
+  // One reject per session is enough: OpenCode rejects the other open
+  // requests of that session with it.
   private async rejectPendingPermission(): Promise<void> {
-    const sessionId = this.sessionId;
-    if (!sessionId) return;
-    const id = [...this.pendingPermissions].find(
-      ([, owner]) => owner === sessionId,
-    )?.[0];
-    if (!id) return;
-    this.forgetPermissions(sessionId);
-    await this.replyPermission(id, "reject").catch(() => undefined);
+    const firstByOwner = new Map<string, string>();
+    for (const [id, owner] of this.pendingPermissions)
+      if (this.ownsSession(owner) && !firstByOwner.has(owner))
+        firstByOwner.set(owner, id);
+    await Promise.all(
+      [...firstByOwner].map(([owner, id]) => {
+        this.forgetPermissions(owner);
+        return this.replyPermission(id, "reject").catch(() => undefined);
+      }),
+    );
   }
 
   private forgetPermissions(sessionId: string): void {
@@ -1578,7 +1614,22 @@ type AllowedEvent =
       cost?: number;
     }
   | { kind: "idle"; sessionId: string }
+  // A subagent's session: OpenCode's task tool runs it as a child session.
+  | { kind: "session_created"; sessionId: string; parentId: string }
   | { kind: "error"; sessionId: string; error: SafeOpenCodeError };
+
+// What the Isomux side knows about a failure. Every field is Isomux-authored:
+// `failure` is the text the member reads.
+export interface OpenCodeErrorContext {
+  agentId?: string;
+  failure?: string;
+  openCodeLog?: string;
+}
+
+export type OpenCodeSafeErrorSink = (
+  error: Readonly<SafeOpenCodeError>,
+  context?: Readonly<OpenCodeErrorContext>,
+) => void;
 
 export interface SafeOpenCodeError {
   name?: string;
@@ -1645,6 +1696,13 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
   const sessionId = stringField(properties, "sessionID");
   if (!sessionId) return null;
   if (type === "session.idle") return { kind: "idle", sessionId };
+  if (type === "session.created") {
+    const info = asRecord(properties.info);
+    const id = stringField(info, "id");
+    const parentId = stringField(info, "parentID");
+    if (!id || !parentId) return null;
+    return { kind: "session_created", sessionId: id, parentId };
+  }
   if (type === "session.status") {
     const status = asRecord(properties.status);
     const attempt = numberField(status, "attempt");

@@ -824,8 +824,11 @@ producing false login cards. Recorded 401 and 403 API errors remain structured
 authentication failures. Free-form error messages are used for classification
 but are never persisted.
 
-OpenCode startup output is not persisted below `STATE_ROOT`. A startup stops
-after one non-bind error. For one diagnostic run, an operator can set
+Isomux does not keep a copy of the server's output below `STATE_ROOT`.
+OpenCode itself appends the same lines to `data/opencode/log/opencode.log` in
+the profile and keeps that file across servers. The server start makes its
+folder 0700 and the file 0600, and a failed turn's journal line names it. A
+startup stops after one non-bind error. For one diagnostic run, an operator can set
 `ISOMUX_OPENCODE_DEBUG=1`; this keeps private startup output in a mode-0600
 directory below `/tmp`. The operator must treat that output as secret-bearing
 and remove it after diagnosis.

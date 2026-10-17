@@ -57,6 +57,31 @@ it("logs reviewed cause fields with secrets redacted", () => {
   }
 });
 
+it("logs the agent, the failure and OpenCode's log next to the cause", () => {
+  const logged = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    logOpenCodeError(
+      { name: "Error" },
+      {
+        agentId: "agent-1",
+        failure: "failure text",
+        openCodeLog: "/profile/opencode.log",
+      },
+    );
+    expect(logged.mock.calls).toHaveLength(1);
+    const [tag, line] = logged.mock.calls[0] as [string, string];
+    expect(tag).toBe("[opencode]");
+    expect(JSON.parse(line)).toEqual({
+      agentId: "agent-1",
+      name: "Error",
+      failure: "failure text",
+      openCodeLog: "/profile/opencode.log",
+    });
+  } finally {
+    logged.mockRestore();
+  }
+});
+
 for (const [label, message, cause] of [
   ["timeout", "SSE read timed out SECRET_CANARY", /time/i],
   ["network", "Connection reset by server SECRET_CANARY", /connection/i],
