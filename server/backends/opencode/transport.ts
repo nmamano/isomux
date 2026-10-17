@@ -47,6 +47,9 @@ export const OPENCODE_SERVER_STOPPED_FAILURE =
 export const OPENCODE_SERVER_UNRESPONSIVE_FAILURE =
   "The OpenCode server stopped responding during this turn. Send your message again.";
 
+export const OPENCODE_EVENT_STREAM_LOST_FAILURE =
+  "OpenCode stopped sending updates for this turn. Send your message again.";
+
 export const OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE =
   "OpenCode did not load the Isomux safety checks for this folder, so this turn did not run. Tell the office owner and check the isomux service logs.";
 
@@ -408,9 +411,10 @@ export class OpenCodeTransport {
   private abortRequested = false;
   private stopPreStreamWait: (() => void) | null = null;
   private folderSetupNoticeShown = false;
-  // Set when this turn's prompt request starts; a later missed stream
-  // deadline then replaces the server even while other turns run on it.
+  // Set when this turn's prompt request starts. A later mark for a server
+  // that stopped answering replaces it even while other turns run on it.
   private promptSent = false;
+  private promptSentAt = 0;
   // Open permission requests: request id -> OpenCode session id. OpenCode
   // runs the tool calls of one step in parallel, and each can ask at once.
   private pendingPermissions = new Map<string, string>();
@@ -723,6 +727,7 @@ export class OpenCodeTransport {
         emit({ kind: "system_text", text: notice, isomuxAuthored: true });
       const [providerID, modelID] = splitModel(this.model);
       this.promptSent = true;
+      this.promptSentAt = Date.now();
       await this.request(
         `/session/${encodeURIComponent(sessionId)}/prompt_async`,
         {
@@ -856,8 +861,9 @@ export class OpenCodeTransport {
       { signal, notice: sink },
     );
     if (!response.body) throw new Error("OpenCode event stream has no body.");
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    let reader: ReadableStreamDefaultReader<Uint8Array> =
+      response.body.getReader();
+    let decoder = new TextDecoder();
     const assistantMessages = new Set<string>();
     const summaryMessages = new Set<string>();
     const textByPart = new Map<string, string>();
@@ -886,14 +892,13 @@ export class OpenCodeTransport {
       if (signal.aborted || settled) return;
       deadline = this.deadlineScheduler.setTimeout(() => {
         if (signal.aborted || settled) return;
-        lease.markUnresponsive(serverPid, this.promptSent);
-        fail(
-          new OpenCodeTurnFailure(OPENCODE_SERVER_UNRESPONSIVE_FAILURE, {
-            cause: new Error(),
-          }),
-          "",
-        );
-        void reader.cancel().catch(() => undefined);
+        // A recovery that ended the turn wakes the loop below, which waits on
+        // the stream it cancelled.
+        void recover()
+          .catch((error) => fail(error, "OpenCode event stream recovery failed"))
+          .finally(() => {
+            if (settled || signal.aborted) deliver({ value: null });
+          });
       }, this.eventStreamDeadlineMs);
     };
     const streamFailure = async (error: unknown): Promise<unknown> =>
@@ -903,33 +908,186 @@ export class OpenCodeTransport {
           })
         : error;
     // The pump reads the body on its own, so any frame resets the deadline,
-    // also while the loop below awaits a permission reply.
-    type Read = { value: Uint8Array | null } | { error: unknown };
+    // also while the loop below awaits a permission reply. A fresh read
+    // starts a new connection: the loop drops the old one's partial frame.
+    type Read = { value: Uint8Array | null; fresh?: true } | { error: unknown };
     const pending: Read[] = [];
-    let waiter: PromiseWithResolvers<Uint8Array | null> | null = null;
+    let waiter: PromiseWithResolvers<Read> | null = null;
     const deliver = (read: Read): void => {
       const current = waiter;
       waiter = null;
       if (!current) pending.push(read);
       else if ("error" in read) current.reject(read.error);
-      else current.resolve(read.value);
+      else current.resolve(read);
+    };
+    // A recovery moves the turn to a new connection. The silent one's pump
+    // then stops delivering, so its late end or error does not fail the turn.
+    let connection = 0;
+    let connectionChunks = 0;
+    const pump = (current: ReadableStreamDefaultReader<Uint8Array>): void => {
+      const id = ++connection;
+      connectionChunks = 0;
+      reader = current;
+      void (async () => {
+        try {
+          for (;;) {
+            const { done, value } = await current.read();
+            if (id !== connection) return;
+            if (done) break;
+            connectionChunks++;
+            armDeadline();
+            deliver({ value });
+          }
+          deliver({ value: null });
+        } catch (error) {
+          if (id === connection) deliver({ error });
+        }
+      })();
+    };
+    // The server did not answer: it is marked, and the supervisor replaces it.
+    const unresponsive = (): void => {
+      lease.markUnresponsive(serverPid, this.promptSent);
+      fail(
+        new OpenCodeTurnFailure(OPENCODE_SERVER_UNRESPONSIVE_FAILURE, {
+          cause: new Error(),
+        }),
+        "",
+      );
+    };
+    // The server answers, so only this turn fails. Its session is stopped so
+    // that it does not run on unseen.
+    const failAlone = (): void => {
+      if (settled || signal.aborted) return;
+      if (this.promptSent)
+        void this.rejectPendingPermission()
+          .then(() =>
+            this.request(`/session/${encodeURIComponent(sessionId)}/abort`, {
+              method: "POST",
+            }),
+          )
+          .catch(() => undefined);
+      fail(
+        new OpenCodeTurnFailure(OPENCODE_EVENT_STREAM_LOST_FAILURE, {
+          cause: new Error(),
+        }),
+        "",
+      );
+    };
+    // A missed deadline is evidence about this stream, not about the shared
+    // server, which other agents' turns use. Only a server that does not
+    // answer is marked. Otherwise the turn moves to a new stream and catches
+    // up on what the silent one missed, or fails alone.
+    let recoveries = 0;
+    const streamStartedAt = Date.now();
+    const recover = async (): Promise<void> => {
+      // The first stream may be recovered even when it got nothing after its
+      // connect frame. A later one must have delivered a heartbeat or an
+      // event, so a folder whose streams connect and go silent does not loop.
+      const recoverable = recoveries++ === 0 || connectionChunks > 1;
+      connection++;
+      void reader.cancel().catch(() => undefined);
+      const probe = await this.probeServer(lease);
+      if (signal.aborted || settled) return;
+      if (probe === "refused" || probe === "unhealthy") {
+        unresponsive();
+        return;
+      }
+      if (!recoverable) {
+        failAlone();
+        return;
+      }
+      // One bound for the requests below. The new stream subscribes first, so
+      // nothing after the reads is lost.
+      const bounded = new AbortController();
+      signal.addEventListener("abort", () => bounded.abort(), { once: true });
+      let expired = false;
+      const timer = this.deadlineScheduler.setTimeout(() => {
+        expired = true;
+        bounded.abort();
+      }, this.eventStreamDeadlineMs);
+      const read = (path: string): Promise<unknown> =>
+        this.request(path, { signal: bounded.signal }).then((r) => r.json());
+      let next: Response;
+      let status: unknown;
+      let permissions: unknown;
+      let messages: unknown;
+      let promptSent = false;
+      try {
+        next = await this.request("/event", { signal: bounded.signal });
+        // OpenCode registers the listener before it answers, so a prompt
+        // sent after this point is seen on the new stream.
+        promptSent = this.promptSent;
+        [status, permissions, messages] = await Promise.all([
+          read("/session/status"),
+          read("/permission"),
+          read(`/session/${encodeURIComponent(sessionId)}/message`),
+          this.findSubagentSessions(streamStartedAt, read),
+        ]);
+      } catch {
+        if (signal.aborted || settled) return;
+        // A server that answered health is kept: its folder may be stuck
+        // while other folders' turns run on it.
+        if (expired && probe === "silent") unresponsive();
+        else failAlone();
+        return;
+      } finally {
+        this.deadlineScheduler.clearTimeout(timer);
+      }
+      if (signal.aborted || settled || !next.body) {
+        void next.body?.cancel().catch(() => undefined);
+        failAlone();
+        return;
+      }
+      const missed = promptSent
+        ? turnReplayFrames(sessionId, messages, this.promptSentAt)
+        : { frames: [], finishedStep: false };
+      const state = asRecord(asRecord(status)[sessionId]).type;
+      if (promptSent && state !== "busy" && state !== "retry") {
+        // The session went idle while its stream was silent. The loop below
+        // settles the turn from what it missed.
+        void next.body.cancel().catch(() => undefined);
+        if (
+          !this.abortRequested &&
+          !hasCompletedStep &&
+          !missed.finishedStep &&
+          missed.error === undefined
+        ) {
+          failAlone();
+          return;
+        }
+        deliver({
+          value: sseFrames([
+            ...missed.frames,
+            ...(missed.error === undefined
+              ? []
+              : [
+                  {
+                    type: "session.error",
+                    properties: { sessionID: sessionId, error: missed.error },
+                  },
+                ]),
+            { type: "session.idle", properties: { sessionID: sessionId } },
+          ]),
+          fresh: true,
+        });
+        return;
+      }
+      // A permission asked while the stream was silent. The loop below drops
+      // other sessions' requests and the ones it already handled.
+      const asked = Array.isArray(permissions)
+        ? permissions.map((properties) => ({
+            type: "permission.asked",
+            properties,
+          }))
+        : [];
+      deliver({ value: sseFrames([...missed.frames, ...asked]), fresh: true });
+      pump(next.body.getReader());
+      armDeadline();
     };
     armDeadline();
-    void (async () => {
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          armDeadline();
-          deliver({ value });
-        }
-        deliver({ value: null });
-      } catch (error) {
-        deliver({ error });
-      }
-    })();
-    const nextChunk = (): Promise<Uint8Array | null> => {
-      waiter = Promise.withResolvers<Uint8Array | null>();
+    pump(reader);
+    const nextChunk = (): Promise<Read> => {
+      waiter = Promise.withResolvers<Read>();
       const { promise } = waiter;
       const read = pending.shift();
       if (read) deliver(read);
@@ -938,10 +1096,14 @@ export class OpenCodeTransport {
     void (async () => {
       try {
         while (!signal.aborted) {
-          const value = await nextChunk();
-          if (value === null) break;
+          const read = await nextChunk();
+          if (!("value" in read) || read.value === null) break;
+          if (read.fresh) {
+            buffer = "";
+            decoder = new TextDecoder();
+          }
           buffer =
-            `${buffer}${decoder.decode(value, { stream: true })}`.replaceAll(
+            `${buffer}${decoder.decode(read.value, { stream: true })}`.replaceAll(
               "\r\n",
               "\n",
             );
@@ -993,6 +1155,13 @@ export class OpenCodeTransport {
               assistantMessages.has(event.messageId)
             ) {
               const prior = textByPart.get(event.partId) ?? "";
+              // After a recovery, the new stream can deliver frames older
+              // than the replay. A shorter copy of text already shown is one.
+              if (
+                event.text.length < prior.length &&
+                prior.startsWith(event.text)
+              )
+                continue;
               if (event.text.startsWith(prior)) {
                 const delta = event.text.slice(prior.length);
                 if (delta) sink({ kind: "assistant_text", text: delta });
@@ -1004,6 +1173,11 @@ export class OpenCodeTransport {
               assistantMessages.has(event.messageId)
             ) {
               const prior = reasoningByPart.get(event.partId) ?? "";
+              if (
+                event.text.length < prior.length &&
+                prior.startsWith(event.text)
+              )
+                continue;
               if (event.text.startsWith(prior)) {
                 const delta = event.text.slice(prior.length);
                 if (delta)
@@ -1175,6 +1349,30 @@ export class OpenCodeTransport {
     // lets the loop settle what the stream already holds (an early failure)
     // before the caller submits the prompt.
     await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  // The turn's subagent sessions that started while its stream was silent:
+  // their session.created events were lost, so their permission requests
+  // would be dropped as another session's.
+  private async findSubagentSessions(
+    since: number,
+    read: (path: string) => Promise<unknown>,
+  ): Promise<void> {
+    const queue = [this.sessionId!, ...this.subagentSessions];
+    for (let owner = queue.shift(); owner; owner = queue.shift()) {
+      const children = await read(
+        `/session/${encodeURIComponent(owner)}/children`,
+      );
+      if (!Array.isArray(children)) continue;
+      for (const child of children.map(asRecord)) {
+        const id = stringField(child, "id");
+        const created = numberField(asRecord(child.time), "created");
+        if (!id || this.subagentSessions.has(id)) continue;
+        if (created !== null && created < since) continue;
+        this.subagentSessions.add(id);
+        queue.push(id);
+      }
+    }
   }
 
   // A killed server resets its streams before the kernel reaps its process,
@@ -1421,6 +1619,47 @@ export class OpenCodeTransport {
       return null;
     }
   }
+}
+
+function sseFrames(events: object[]): Uint8Array {
+  return new TextEncoder().encode(
+    events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+  );
+}
+
+// The open turn's answers from GET /session/:id/message, as the frames the
+// event stream sends for them: the assistant messages OpenCode created after
+// the prompt went out. Earlier ones belong to earlier turns, and OpenCode may
+// not have stored this turn's user message yet. error: the error of the
+// turn's last answer, which the stream sends as session.error.
+function turnReplayFrames(
+  sessionId: string,
+  raw: unknown,
+  promptSentAt: number,
+): { frames: object[]; finishedStep: boolean; error?: unknown } {
+  const frames: object[] = [];
+  let finishedStep = false;
+  let error: unknown;
+  for (const message of Array.isArray(raw) ? raw.map(asRecord) : []) {
+    const info = asRecord(message.info);
+    const created = numberField(asRecord(info.time), "created");
+    if (info.role !== "assistant" || created === null || created < promptSentAt)
+      continue;
+    frames.push({
+      type: "message.updated",
+      properties: { sessionID: sessionId, info },
+    });
+    for (const part of Array.isArray(message.parts) ? message.parts : []) {
+      frames.push({
+        type: "message.part.updated",
+        properties: { sessionID: sessionId, part },
+      });
+      if (asRecord(part).type === "step-finish" && info.summary !== true)
+        finishedStep = true;
+    }
+    error = info.error ?? undefined;
+  }
+  return { frames, finishedStep, ...(error === undefined ? {} : { error }) };
 }
 
 export function splitModel(model: string): [string, string] {

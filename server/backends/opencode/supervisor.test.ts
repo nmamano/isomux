@@ -2,7 +2,7 @@ import {
   MCP_SECRET_VALUE,
   placeholderMcpServers,
 } from "../../test-support/mcp-placeholder-fixture.ts";
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
   chmod,
   lstat,
@@ -1676,6 +1676,7 @@ function heldProvider(
       : undefined);
   const release = Promise.withResolvers<void>();
   const requested = Promise.withResolvers<void>();
+  let prompts = 0;
   const chunk = (delta: object, finish: string | null) =>
     `data: ${JSON.stringify({
       id: "held",
@@ -1716,6 +1717,7 @@ function heldProvider(
             chunk({}, "tool_calls") +
             "data: [DONE]\n\n",
         );
+      prompts++;
       requested.resolve();
       if (!call) await release.promise;
       return sse(
@@ -1729,6 +1731,7 @@ function heldProvider(
   return {
     mock,
     requested: () => requested.promise,
+    prompts: () => prompts,
     release: () => release.resolve(),
   };
 }
@@ -1968,6 +1971,105 @@ describe("OpenCode shared server under load and loss", () => {
     } finally {
       provider.release();
       transport.close();
+    }
+  }, 60_000);
+
+  // Task 439afbc8: one turn's silent stream marked the shared server after its
+  // prompt, and the next acquire replaced it under every other turn.
+  it("keeps the shared server and another agent's turn when one turn's stream goes silent on a server that answers", async () => {
+    const path = await root();
+    const provider = heldProvider();
+    const supervisor = makeSupervisor(path, gateConfig(provider.mock));
+    const silentFolder = join(path, "silent");
+    const otherFolder = join(path, "other");
+    await mkdir(silentFolder);
+    await mkdir(otherFolder);
+    // The silent turn's deadlines move only when the test fires them.
+    const timers = new Map<number, () => void>();
+    let nextTimer = 1;
+    const clock = {
+      setTimeout: (callback: () => void) => {
+        timers.set(nextTimer, callback);
+        return nextTimer++;
+      },
+      clearTimeout: (timer: unknown) => void timers.delete(timer as number),
+    };
+    const silent = new OpenCodeTransport({
+      cwd: silentFolder,
+      model: "gate/gate-model",
+      supervisor,
+      systemPrompt: "Test.",
+      deadlineScheduler: clock,
+    });
+    const other = new OpenCodeTransport({
+      cwd: otherFolder,
+      model: "gate/gate-model",
+      supervisor,
+      systemPrompt: "Test.",
+    });
+    // The silent folder's first event stream stops passing frames on; the
+    // server and its other streams go on.
+    let silenced = false;
+    let silentStreams = 0;
+    const originalFetch = globalThis.fetch;
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      const response = await originalFetch(input, init);
+      if (
+        url.pathname !== "/event" ||
+        url.searchParams.get("directory") !== silentFolder ||
+        ++silentStreams > 1 ||
+        !response.body
+      )
+        return response;
+      const source = response.body.getReader();
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            const read = await source.read();
+            if (silenced) return new Promise<void>(() => {});
+            if (read.done) controller.close();
+            else controller.enqueue(read.value);
+          },
+          cancel: () => source.cancel(),
+        }),
+        { headers: response.headers },
+      );
+    }) as typeof fetch);
+    try {
+      const silentTurn = sendTurn(silent);
+      const otherTurn = sendTurn(other);
+      while (provider.prompts() < 2) await Bun.sleep(25);
+      const pid = await recordedPid(supervisor);
+      silenced = true;
+      // The silent turn's stream deadline is its one pending timer. Firing
+      // it starts the recovery, whose own bounds stay pending.
+      expect(timers.size).toBe(1);
+      const [[deadline, missed]] = [...timers];
+      timers.delete(deadline);
+      missed();
+      while (silentStreams < 2) await Bun.sleep(25);
+      // Any agent's next acquire replaced a marked server.
+      const next = await supervisor.acquire();
+      expect(next.pid).toBe(pid);
+      next.release();
+      provider.release();
+      expect(await within(otherTurn, 30_000)).toMatchObject({
+        status: "completed",
+      });
+      expect(await within(silentTurn, 30_000)).toMatchObject({
+        status: "completed",
+      });
+      expect(await recordedPid(supervisor)).toBe(pid);
+      expect(alive(pid)).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+      provider.release();
+      silent.close();
+      other.close();
     }
   }, 60_000);
 

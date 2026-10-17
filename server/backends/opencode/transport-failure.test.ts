@@ -8,6 +8,7 @@ import {
   OPENCODE_FOLDER_SETUP_FAILURE,
   OPENCODE_FOLDER_SETUP_LIMIT_MS,
   OPENCODE_FOLDER_SETUP_NOTICE,
+  OPENCODE_EVENT_STREAM_LOST_FAILURE,
   OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE,
   OPENCODE_SERVER_STOPPED_FAILURE,
   OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
@@ -647,8 +648,11 @@ function drivenServer(
   options: {
     holdSession?: boolean;
     holdProvider?: "first" | "always";
-    holdEvent?: "first" | "always";
+    // "later": every subscription after the first, as a stuck folder holds a
+    // reconnect.
+    holdEvent?: "first" | "always" | "later";
     holdReply?: boolean;
+    holdToolIds?: boolean;
     failStreamAtPrompt?: boolean;
     // How /global/health answers. A frozen server (a held session or event
     // request) accepts the connection and never answers; a killed one that
@@ -657,6 +661,11 @@ function drivenServer(
     // false: the safety plugin did not load, so its tool is missing.
     safetyPlugin?: boolean;
     variants?: () => Record<string, unknown>;
+    // What the reads of a stream recovery answer.
+    status?: Record<string, unknown>;
+    messages?: () => unknown[];
+    permissions?: unknown[];
+    children?: () => Record<string, unknown[]>;
   } = {},
 ) {
   const health =
@@ -664,6 +673,7 @@ function drivenServer(
     (options.holdSession || options.holdEvent ? "silent" : "healthy");
   const heldEvents: (() => void)[] = [];
   const heldProviders: (() => void)[] = [];
+  const heldToolIds: (() => void)[] = [];
   let providerAborts = 0;
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
   let releaseReply: (() => void) | undefined;
@@ -671,6 +681,7 @@ function drivenServer(
   let eventRequests = 0;
   let healthRequests = 0;
   const requested = new Set<string>();
+  const log: string[] = [];
   const promptBodies: Record<string, unknown>[] = [];
   const hold = (init?: RequestInit) =>
     new Promise<Response>((_resolve, reject) => {
@@ -688,6 +699,17 @@ function drivenServer(
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.origin !== "http://127.0.0.1:1") return originalFetch(input, init);
     requested.add(url.pathname);
+    log.push(url.pathname);
+    if (url.pathname === "/session/status")
+      return Response.json(options.status ?? {});
+    if (url.pathname === "/permission")
+      return Response.json(options.permissions ?? []);
+    if (url.pathname === "/session/driven/message")
+      return Response.json(options.messages?.() ?? []);
+    if (url.pathname.endsWith("/children"))
+      return Response.json(
+        options.children?.()[url.pathname.split("/")[2]] ?? [],
+      );
     if (url.pathname === "/session") {
       if (options.holdSession) return hold(init);
       return Response.json({ id: "driven" });
@@ -744,7 +766,8 @@ function drivenServer(
         );
       if (
         options.holdEvent === "always" ||
-        (options.holdEvent === "first" && eventRequests === 1)
+        (options.holdEvent === "first" && eventRequests === 1) ||
+        (options.holdEvent === "later" && eventRequests > 1)
       )
         // Held until aborted, or answered late by releaseEvent.
         return new Promise<Response>((resolve, reject) => {
@@ -757,10 +780,16 @@ function drivenServer(
         });
       return respond();
     }
-    if (url.pathname === "/experimental/tool/ids")
-      return Response.json(
-        options.safetyPlugin === false ? ["bash"] : [OPENCODE_SAFETY_TOOL],
+    if (url.pathname === "/experimental/tool/ids") {
+      const ids = () =>
+        Response.json(
+          options.safetyPlugin === false ? ["bash"] : [OPENCODE_SAFETY_TOOL],
+        );
+      if (!options.holdToolIds) return ids();
+      return new Promise<Response>((resolve) =>
+        heldToolIds.push(() => resolve(ids())),
       );
+    }
     if (url.pathname.endsWith("/prompt_async")) {
       promptBodies.push(JSON.parse(init?.body as string));
       if (options.failStreamAtPrompt) stream!.error(failure);
@@ -795,9 +824,12 @@ function drivenServer(
   }) as typeof fetch);
   return {
     requested: (path: string) => requested.has(path),
+    log,
     eventRequests: () => eventRequests,
     healthRequests: () => healthRequests,
     releaseEvent: () => heldEvents.splice(0).forEach((answer) => answer()),
+    toolIdsHeld: () => heldToolIds.length > 0,
+    releaseToolIds: () => heldToolIds.splice(0).forEach((answer) => answer()),
     providerRequests: () => providerRequests,
     providerAborts: () => providerAborts,
     releaseProvider: () =>
@@ -891,10 +923,14 @@ function drivenTransport(
   const completions: Extract<NormalizedEvent, { kind: "turn_completed" }>[] =
     [];
   const notices: string[] = [];
+  const texts: string[] = [];
+  const approvals: string[] = [];
   return {
     transport,
     supervisor,
     marked,
+    texts,
+    approvals,
     recoveries: () => recoveries,
     completions,
     notices,
@@ -904,6 +940,8 @@ function drivenTransport(
       transport.send([{ type: "text", text: "go" }], (event) => {
         if (event.kind === "turn_completed") completions.push(event);
         if (event.kind === "system_text") notices.push(event.text);
+        if (event.kind === "assistant_text") texts.push(event.text);
+        if (event.kind === "approval_request") approvals.push(event.approvalId);
       }),
   };
 }
@@ -914,9 +952,11 @@ const unresponsive = {
   error: OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
 } as const;
 
+// A server that refuses the health probe at the deadline has stopped
+// answering: the turn fails and the server is marked.
 it("keeps a turn whose stream frames reset the deadline across several deadlines", async () => {
   const clock = drivenClock();
-  const server = drivenServer();
+  const server = drivenServer({ health: "refused" });
   const turn = drivenTransport(clock, { sessionId: "driven" });
   try {
     await turn.send();
@@ -948,7 +988,7 @@ it("keeps a turn whose stream frames reset the deadline across several deadlines
 // {"name":"Error"} that named neither the agent nor the failure.
 it("names the agent, the failure and OpenCode's log when a turn misses the deadline", async () => {
   const clock = drivenClock();
-  const server = drivenServer();
+  const server = drivenServer({ health: "refused" });
   const turn = drivenTransport(clock, {
     sessionId: "driven",
     agentId: "agent-driven",
@@ -966,6 +1006,384 @@ it("names the agent, the failure and OpenCode's log when a turn misses the deadl
         openCodeLog: openCodeLogPath(DRIVEN_PROFILE),
       },
     ]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+// Task 439afbc8: one silent stream marked the shared server, and its
+// replacement failed every other turn on it. A server that answers is kept.
+const streamLost = {
+  kind: "turn_completed",
+  status: "failed",
+  error: OPENCODE_EVENT_STREAM_LOST_FAILURE,
+} as const;
+// An earlier turn's answer, which a recovery never shows again.
+const earlierTurn = [
+  {
+    info: { id: "user-0", role: "user", time: { created: 1 } },
+    parts: [{ type: "text", id: "user-part-0", messageID: "user-0", text: "hi" }],
+  },
+  {
+    info: { id: "answer-0", role: "assistant", time: { created: 2 } },
+    parts: [
+      { type: "text", id: "old-part", messageID: "answer-0", text: "Earlier" },
+      { type: "step-finish", id: "old-step", messageID: "answer-0", tokens: {} },
+    ],
+  },
+];
+// This turn's answer, which OpenCode creates after the prompt went out.
+const answer = (text: string, finished: boolean) => ({
+  info: {
+    id: "answer-1",
+    role: "assistant",
+    time: { created: Date.now() },
+  },
+  parts: [
+    { type: "text", id: "answer-part", messageID: "answer-1", text },
+    ...(finished
+      ? [
+          {
+            type: "step-finish",
+            id: "answer-step",
+            messageID: "answer-1",
+            tokens: { input: 1, output: 1 },
+          },
+        ]
+      : []),
+  ],
+});
+const textFrame = (text: string) =>
+  frame({
+    type: "message.part.updated",
+    properties: {
+      sessionID: "driven",
+      part: { type: "text", id: "answer-part", messageID: "answer-1", text },
+    },
+  });
+const answerStarted = () =>
+  frame({
+    type: "message.updated",
+    properties: {
+      sessionID: "driven",
+      info: { id: "answer-1", role: "assistant" },
+    },
+  });
+
+// The deadline, the health probe, and the recovery requests.
+async function missStreamDeadline(
+  clock: ReturnType<typeof drivenClock>,
+  server: ReturnType<typeof drivenServer>,
+): Promise<void> {
+  const health = server.healthRequests();
+  clock.advance(DEADLINE_MS);
+  await settleUntil(() => server.healthRequests() > health);
+  await settleUntil(() => false);
+}
+
+it("moves a turn whose stream goes silent on a server that answers to a new stream, with the text it missed", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    status: { driven: { type: "busy" } },
+    messages: () => [...earlierTurn, answer("Hello there", false)],
+  });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    server.send(answerStarted());
+    server.send(textFrame("Hello"));
+    await settleUntil(() => turn.texts.length > 0);
+    expect(turn.texts).toEqual(["Hello"]);
+    await missStreamDeadline(clock, server);
+    expect(server.eventRequests(), "a second subscription").toBe(2);
+    expect(turn.completions, "the turn goes on").toEqual([]);
+    expect(turn.texts, "the missed text, once").toEqual(["Hello", " there"]);
+    // The new stream subscribes before the reads, so nothing after them is
+    // lost.
+    const subscribed = server.log.lastIndexOf("/event");
+    expect(subscribed).toBeLessThan(server.log.indexOf("/session/status"));
+    expect(subscribed).toBeLessThan(server.log.indexOf("/permission"));
+    server.send(textFrame("Hello there, done"));
+    server.complete();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toMatchObject([{ status: "completed" }]);
+    expect(turn.texts).toEqual(["Hello", " there", ", done"]);
+    expect(turn.marked, "the server is not marked").toEqual([]);
+    expect(server.promptBodies, "the prompt is never replayed").toHaveLength(1);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("shows text once when the new stream delivers frames older than the replay", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    status: { driven: { type: "busy" } },
+    messages: () => [answer("Hi", false)],
+  });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await missStreamDeadline(clock, server);
+    expect(turn.texts, "the replay").toEqual(["Hi"]);
+    // Sent between the new subscription and the message read.
+    server.send(answerStarted());
+    server.send(textFrame(""));
+    server.send(textFrame("H"));
+    server.send(textFrame("Hi"));
+    server.send(textFrame("Hi there"));
+    server.complete();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toMatchObject([{ status: "completed" }]);
+    expect(turn.texts).toEqual(["Hi", " there"]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("shows reasoning once when the new stream delivers frames older than the replay", async () => {
+  const clock = drivenClock();
+  const reasoning = (text: string) => ({
+    type: "reasoning",
+    id: "thought",
+    messageID: "answer-1",
+    text,
+  });
+  const server = drivenServer({
+    status: { driven: { type: "busy" } },
+    messages: () => [
+      { ...answer("", false), parts: [reasoning("Thinking")] },
+    ],
+  });
+  const thoughts: string[] = [];
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.transport.send([{ type: "text", text: "go" }], (event) => {
+      if (event.kind === "thinking") thoughts.push(event.text);
+      if (event.kind === "turn_completed") turn.completions.push(event);
+    });
+    await missStreamDeadline(clock, server);
+    expect(thoughts, "the replay").toEqual(["Thinking"]);
+    server.send(answerStarted());
+    for (const text of ["Think", "Thinking", "Thinking more"])
+      server.send(
+        frame({
+          type: "message.part.updated",
+          properties: { sessionID: "driven", part: reasoning(text) },
+        }),
+      );
+    server.complete();
+    await settleUntil(() => turn.completions.length > 0);
+    expect(thoughts).toEqual(["Thinking", " more"]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("replays a turn whose prompt went out while its recovery subscribed", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    holdToolIds: true,
+    holdEvent: "later",
+    health: "healthy",
+    status: { driven: { type: "busy" } },
+    messages: () => [answer("Hi", false)],
+  });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    void turn.send();
+    await settleUntil(() => server.toolIdsHeld());
+    expect(server.promptBodies, "no prompt yet").toEqual([]);
+    // The stream deadline passes before the prompt. The recovery waits on
+    // its new subscription while the prompt goes out.
+    await missStreamDeadline(clock, server);
+    expect(server.eventRequests(), "the new subscription is pending").toBe(2);
+    server.releaseToolIds();
+    await settleUntil(() => server.promptBodies.length > 0);
+    expect(server.promptBodies).toHaveLength(1);
+    server.releaseEvent();
+    await settleUntil(() => turn.texts.length > 0);
+    expect(turn.texts, "the frames on neither stream").toEqual(["Hi"]);
+    expect(turn.completions).toEqual([]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("completes a turn that finished while its stream was silent, with its text", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    messages: () => [...earlierTurn, answer("All done", true)],
+  });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await missStreamDeadline(clock, server);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toMatchObject([{ status: "completed" }]);
+    expect(turn.completions[0].usage, "the missed step is billed").toEqual({
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+    });
+    expect(turn.texts).toEqual(["All done"]);
+    expect(turn.marked).toEqual([]);
+    expect(server.requested("/session/driven/abort")).toBe(false);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("fails only its own turn and stops its session when the session went idle with no answer while the stream was silent", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ messages: () => earlierTurn });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await missStreamDeadline(clock, server);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([streamLost]);
+    expect(turn.marked, "the server is not marked").toEqual([]);
+    await settleUntil(() => server.requested("/session/driven/abort"));
+    expect(server.requested("/session/driven/abort")).toBe(true);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("ends a turn the member stopped while its stream was silent as stopped", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ messages: () => earlierTurn });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await turn.transport.abort();
+    await missStreamDeadline(clock, server);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([
+      { kind: "turn_completed", status: "interrupted" },
+    ]);
+    expect(turn.marked).toEqual([]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("fails only its own turn when a server that answers health does not answer the new subscription", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdEvent: "later", health: "healthy" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await missStreamDeadline(clock, server);
+    expect(server.eventRequests(), "the new subscription is pending").toBe(2);
+    expect(turn.completions).toEqual([]);
+    clock.advance(DEADLINE_MS);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([streamLost]);
+    expect(turn.marked, "a server that answers health is kept").toEqual([]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("marks a server that answers neither health nor the new subscription", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ holdEvent: "later", health: "silent" });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    clock.advance(DEADLINE_MS);
+    await settleUntil(() => server.healthRequests() > 0);
+    clock.advance(PROBE_MS);
+    await settleUntil(() => server.eventRequests() === 2);
+    expect(server.eventRequests(), "a slow health answer is not proof").toBe(
+      2,
+    );
+    expect(turn.marked).toEqual([]);
+    clock.advance(DEADLINE_MS);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([unresponsive]);
+    expect(turn.marked).toEqual([{ pid: 4242, afterPrompt: true }]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("recovers a turn's first stream once, and fails it alone when the new stream sends nothing after it connects", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({ status: { driven: { type: "busy" } } });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await missStreamDeadline(clock, server);
+    expect(server.eventRequests(), "the first stream is recovered").toBe(2);
+    expect(turn.completions).toEqual([]);
+    await missStreamDeadline(clock, server);
+    await settleUntil(() => turn.completions.length > 0);
+    expect(turn.completions).toEqual([streamLost]);
+    expect(server.eventRequests(), "no third subscription").toBe(2);
+    expect(turn.marked).toEqual([]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+it("shows a subagent's permission request after a silence in which the subagent started", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    status: { driven: { type: "busy" } },
+    children: () => ({
+      driven: [
+        { id: "child", parentID: "driven", time: { created: Date.now() } },
+      ],
+    }),
+    permissions: [
+      {
+        id: "asked-in-silence",
+        sessionID: "child",
+        permission: "bash",
+        patterns: ["pwd"],
+      },
+      {
+        id: "another-agent",
+        sessionID: "elsewhere",
+        permission: "bash",
+        patterns: ["pwd"],
+      },
+    ],
+  });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await missStreamDeadline(clock, server);
+    expect(turn.approvals).toEqual(["asked-in-silence"]);
+    server.send(
+      frame({
+        type: "permission.asked",
+        properties: {
+          sessionID: "child",
+          id: "asked-after",
+          permission: "bash",
+          patterns: ["ls"],
+        },
+      }),
+    );
+    await settleUntil(() => turn.approvals.length > 1);
+    expect(turn.approvals).toEqual(["asked-in-silence", "asked-after"]);
+    expect(turn.completions).toEqual([]);
   } finally {
     turn.transport.close();
     server.restore();
