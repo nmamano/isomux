@@ -583,6 +583,17 @@ export function showAgentSubscriptionUsageIndicator(
   return agentType !== "opencode";
 }
 
+// True when the member has a text selection inside el.
+function selectionInside(el: HTMLElement): boolean {
+  const sel = window.getSelection();
+  return !!(
+    sel &&
+    !sel.isCollapsed &&
+    sel.anchorNode &&
+    el.contains(sel.anchorNode)
+  );
+}
+
 export function LogView({
   agent,
   logs: rawLogs,
@@ -647,7 +658,15 @@ export function LogView({
     }
     dispatch({ type: "set_draft", agentId: agent.id, text });
   }
-  const [autoScroll, setAutoScroll] = useState(true);
+  // Whether the view follows the bottom. The ref mirrors the state for the
+  // resize observer below, which must see the member's latest scroll, not
+  // the value from the render that created it.
+  const [autoScroll, setAutoScrollState] = useState(true);
+  const followRef = useRef(true);
+  const setAutoScroll = useCallback((follow: boolean) => {
+    followRef.current = follow;
+    setAutoScrollState(follow);
+  }, []);
   const speechLocale = useSpeechLocale();
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
@@ -851,10 +870,32 @@ export function LogView({
     onSwipeRight ?? (() => {}),
     isMobile,
   );
+  // An image that loads late, or a scroller that shrinks (the pinned banner,
+  // the composer), moves the bottom with no logs change and no scroll event.
+  // Follow those here: Safari before 27 has no scroll anchoring, and there the
+  // view stayed where the old bottom was. Other growth is left alone: a card
+  // the member expands at the bottom must open downward, not scroll away.
+  const stopFollowingResizesRef = useRef<(() => void) | null>(null);
   const messagesRef: RefCallback<HTMLDivElement> = useCallback(
     (node: HTMLDivElement | null) => {
       scrollRef.current = node;
       swipeRef(node);
+      stopFollowingResizesRef.current?.();
+      stopFollowingResizesRef.current = null;
+      if (!node) return;
+      const pin = () => {
+        if (!followRef.current || selectionInside(node)) return;
+        node.scrollTop = node.scrollHeight;
+      };
+      // load does not bubble; a capture listener sees every image inside.
+      node.addEventListener("load", pin, true);
+      const observer =
+        typeof ResizeObserver === "undefined" ? null : new ResizeObserver(pin);
+      observer?.observe(node);
+      stopFollowingResizesRef.current = () => {
+        node.removeEventListener("load", pin, true);
+        observer?.disconnect();
+      };
     },
     // useSwipeLeftRight returns a stable callback (memoized internally), so
     // omitting swipeRef from deps is safe.
@@ -951,7 +992,7 @@ export function LogView({
       setAutoScroll(true);
     }
     prevLogsLen.current = logs.length;
-  }, [logs.length]);
+  }, [logs.length, setAutoScroll]);
 
   useEffect(() => {
     if (!autoScroll || !scrollRef.current) return;
@@ -963,14 +1004,7 @@ export function LogView({
         // Skip if the user has an active selection inside the log - a
         // scrollTop assignment here combined with sibling DOM churn (e.g.
         // the sticky avatar remounting on agent.state change) clears it.
-        const sel = window.getSelection();
-        if (
-          sel &&
-          !sel.isCollapsed &&
-          sel.anchorNode &&
-          el.contains(sel.anchorNode)
-        )
-          return;
+        if (selectionInside(el)) return;
         el.scrollTop = el.scrollHeight;
       });
     });
@@ -1037,10 +1071,19 @@ export function LogView({
   const citeEnabled = !isTouchPrimary && !editingLogEntryId;
   const { cite, clearCite } = useSelectionCite(scrollRef, citeEnabled);
 
+  const lastScrollTopRef = useRef(0);
   function handleScroll() {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
+    // Only a move up leaves the bottom. Content that grew between a pin and
+    // its scroll event (an image loading) widens the gap without moving the
+    // view up, and the resize observer re-pins it.
+    const movedUp = scrollTop < lastScrollTopRef.current;
+    lastScrollTopRef.current = scrollTop;
+    setAutoScroll(
+      scrollHeight - scrollTop - clientHeight < 50 ||
+        (followRef.current && !movedUp),
+    );
     recomputePinned();
     // Hide cite pill when the chat scrolls - its cached viewport rect goes
     // stale and `selectionchange` won't fire for a pure scroll. The hook
@@ -1177,7 +1220,7 @@ export function LogView({
       setAutoScroll(true);
       return true;
     },
-    [agent.id, connected, device],
+    [agent.id, connected, device, setAutoScroll],
   );
 
   const baseAgentActions: NavAction[] = [
@@ -2496,6 +2539,7 @@ export function LogView({
             composer grows (multiline draft, queue chips, attachments). */}
             {!autoScroll && (
               <button
+                data-jump-to-bottom=""
                 onClick={() => {
                   if (scrollRef.current) {
                     scrollRef.current.scrollTop =
