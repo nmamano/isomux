@@ -1164,37 +1164,37 @@ export function OfficeView({
           ).map((key, i) => {
             const dragHint = DRAG_DESK_HINTS.some((k) => k === key);
             return (
-            <span
-              key={i}
-              style={{
-                fontSize: 10,
-                color: "var(--text-hint)",
-                fontFamily: "var(--font-ui)",
-                letterSpacing: "0.04em",
-                ...(dragHint
-                  ? { display: "inline-grid", textAlign: "center" }
-                  : {}),
-              }}
-            >
-              {dragHint
-                ? // Both drag hints share one grid cell and only one shows, so
-                  // the footer, and with it the scene, keeps one size in rooms
-                  // with and without a trap door (task f158d7f9).
-                  DRAG_DESK_HINTS.map((k) => (
-                    <span
-                      key={k}
-                      data-drag-hint={k === key ? "" : undefined}
-                      aria-hidden={k === key ? undefined : true}
-                      style={{
-                        gridArea: "1 / 1",
-                        visibility: k === key ? "visible" : "hidden",
-                      }}
-                    >
-                      {t(k)}
-                    </span>
-                  ))
-                : t(key)}
-            </span>
+              <span
+                key={i}
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-hint)",
+                  fontFamily: "var(--font-ui)",
+                  letterSpacing: "0.04em",
+                  ...(dragHint
+                    ? { display: "inline-grid", textAlign: "center" }
+                    : {}),
+                }}
+              >
+                {dragHint
+                  ? // Both drag hints share one grid cell and only one shows, so
+                    // the footer, and with it the scene, keeps one size in rooms
+                    // with and without a trap door (task f158d7f9).
+                    DRAG_DESK_HINTS.map((k) => (
+                      <span
+                        key={k}
+                        data-drag-hint={k === key ? "" : undefined}
+                        aria-hidden={k === key ? undefined : true}
+                        style={{
+                          gridArea: "1 / 1",
+                          visibility: k === key ? "visible" : "hidden",
+                        }}
+                      >
+                        {t(k)}
+                      </span>
+                    ))
+                  : t(key)}
+              </span>
             );
           })}
         </div>
