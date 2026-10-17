@@ -1164,6 +1164,15 @@ export class OpenCodeTransport {
                 this.subagentSessions.add(event.sessionId);
               continue;
             }
+            // A subagent reopened with task_id sends no session.created, and
+            // after an edit and resend its parent is the session before the
+            // fork. The task part of a session this turn owns names it.
+            if (
+              event.kind === "tool" &&
+              event.subagentSessionId &&
+              this.ownsSession(event.sessionId)
+            )
+              this.subagentSessions.add(event.subagentSessionId);
             // A subagent waits on its requests like the agent does, and
             // nothing else answers them. Its other events are its own.
             if (
@@ -1875,6 +1884,8 @@ type AllowedEvent =
       error?: string;
       exitCode?: number;
       durationMs?: number;
+      // The session a task tool part runs its subagent in.
+      subagentSessionId?: string;
     }
   | {
       kind: "permission";
@@ -2080,6 +2091,10 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
       const metadata = asRecord(state.metadata);
       const start = numberField(time, "start");
       const end = numberField(time, "end");
+      // OpenCode 1.18.35's task tool names the session it runs, new or
+      // reopened with task_id, in metadata.sessionId before the subagent starts.
+      const subagentSessionId =
+        name === "task" ? stringField(metadata, "sessionId") : null;
       return {
         kind: "tool",
         sessionId,
@@ -2096,6 +2111,7 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
         ...(start !== null && end !== null
           ? { durationMs: Math.max(0, end - start) }
           : {}),
+        ...(subagentSessionId ? { subagentSessionId } : {}),
       };
     }
     if (part.type === "step-finish") {

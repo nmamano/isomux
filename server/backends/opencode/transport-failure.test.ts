@@ -1521,6 +1521,61 @@ it("shows a subagent's permission request after a silence in which the subagent 
   }
 });
 
+// Task 386f6ad1: a subagent reopened with task_id is older than the stream,
+// so only the replayed task part names it.
+it("shows a reopened subagent's permission request after a silence", async () => {
+  const clock = drivenClock();
+  const server = drivenServer({
+    status: { driven: { type: "busy" } },
+    children: () => ({
+      driven: [{ id: "child", parentID: "driven", time: { created: 1 } }],
+    }),
+    messages: () => [
+      {
+        info: {
+          id: "answer-1",
+          role: "assistant",
+          time: { created: Date.now() },
+        },
+        parts: [
+          {
+            type: "tool",
+            id: "task-part",
+            messageID: "answer-1",
+            tool: "task",
+            callID: "call-task",
+            state: {
+              status: "running",
+              input: { prompt: "go on", task_id: "child" },
+              metadata: { parentSessionId: "driven", sessionId: "child" },
+            },
+          },
+        ],
+      },
+    ],
+    permissions: [
+      {
+        id: "asked-in-silence",
+        sessionID: "child",
+        permission: "bash",
+        patterns: ["pwd"],
+      },
+    ],
+  });
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    await missStreamDeadline(clock, server);
+    // MUTANT: the recovery delivering the missed requests before the
+    // replayed messages drops the request.
+    expect(turn.approvals).toEqual(["asked-in-silence"]);
+    expect(turn.completions).toEqual([]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
 it("keeps a turn whose stream frames arrive while a permission reply is pending", async () => {
   const clock = drivenClock();
   const server = drivenServer({ holdReply: true });

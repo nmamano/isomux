@@ -2125,6 +2125,146 @@ describe("OpenCode permission event integration", () => {
         requestId: "question-child",
       });
     });
+
+    // Task 386f6ad1: a subagent reopened with task_id sends no
+    // session.created, so its request in a later turn hung the turn.
+    describe("subagents named by a task part", () => {
+      const taskPart = (sessionID: string, child: string) => ({
+        type: "message.part.updated",
+        properties: {
+          sessionID,
+          part: {
+            id: `${child}-task`,
+            messageID: `${sessionID}-message`,
+            sessionID,
+            type: "tool",
+            tool: "task",
+            callID: `call-${child}`,
+            state: {
+              status: "running",
+              input: { prompt: "go on", task_id: child },
+              metadata: { parentSessionId: sessionID, sessionId: child },
+            },
+          },
+        },
+      });
+
+      it("answers a reopened subagent's request under bypass", async () => {
+        const result = await runFrames(
+          [
+            taskPart("session-1", "child-1"),
+            asked("child-1", "permission-child"),
+            assistant("answer"),
+            finish("answer"),
+            idle,
+          ],
+          "isomux-interactive-bypass",
+        );
+        // MUTANT: parseAllowedEvent does not read metadata.sessionId, so
+        // the request is dropped as another session's.
+        expect(result.replyIds).toEqual(["permission-child"]);
+        expect(result.replies).toEqual([{ reply: "once" }]);
+        expect(result.events.at(-1)).toMatchObject({
+          kind: "turn_completed",
+          status: "completed",
+        });
+      });
+
+      it("asks the member and replies on a reopened subagent's request", async () => {
+        const { replies } = await withTwoOpenRequests(
+          async (transport) => {
+            await transport.approve("permission-child", {
+              kind: "allow_once",
+            });
+          },
+          {
+            frames: [
+              taskPart("session-1", "child-1"),
+              asked("child-1", "permission-child"),
+            ],
+          },
+        );
+        expect(replies).toEqual([{ id: "permission-child", reply: "once" }]);
+      });
+
+      it("answers a subagent whose parent is the session before an edit fork", async () => {
+        const result = await runFrames(
+          [
+            created("child-1", "session-before-fork"),
+            taskPart("session-1", "child-1"),
+            asked("child-1", "permission-child"),
+            assistant("answer"),
+            finish("answer"),
+            idle,
+          ],
+          "isomux-interactive-bypass",
+        );
+        // MUTANT: adopting only a session.created whose parent the turn
+        // owns drops this request.
+        expect(result.replyIds).toEqual(["permission-child"]);
+      });
+
+      it("leaves a session alone that only another session's task part names", async () => {
+        const result = await runFrames(
+          [
+            taskPart("session-foreign", "child-foreign"),
+            asked("child-foreign", "permission-foreign"),
+            assistant("answer"),
+            finish("answer"),
+            idle,
+          ],
+          "isomux-interactive-bypass",
+        );
+        // MUTANT: adopting from the task part of any session answers it.
+        expect(result.replyIds).toEqual([]);
+        expect(
+          result.events.some((event) => event.kind === "approval_request"),
+        ).toBe(false);
+      });
+
+      it("answers a nested subagent that a subagent's task part names", async () => {
+        const result = await runFrames(
+          [
+            created("child-1", "session-1"),
+            taskPart("child-1", "grandchild-1"),
+            asked("grandchild-1", "permission-grandchild"),
+            assistant("answer"),
+            finish("answer"),
+            idle,
+          ],
+          "isomux-interactive-bypass",
+        );
+        // MUTANT: adopting only from the agent's own task parts, or after
+        // the filter that drops a subagent's tool events, drops it.
+        expect(result.replyIds).toEqual(["permission-grandchild"]);
+      });
+
+      it("keeps a subagent for its turn only", async () => {
+        const result = await runFrames(
+          [
+            taskPart("session-1", "child-1"),
+            assistant("answer-1"),
+            finish("answer-1"),
+            idle,
+          ],
+          "isomux-interactive-bypass",
+          [],
+          [
+            [
+              asked("child-1", "permission-later"),
+              assistant("answer-2"),
+              finish("answer-2"),
+              idle,
+            ],
+          ],
+        );
+        expect(
+          result.events.filter((event) => event.kind === "turn_completed"),
+        ).toHaveLength(2);
+        // MUTANT: no per-turn reset of the subagent sessions answers it.
+        expect(result.replyIds).toEqual([]);
+      });
+    });
   });
 });
 
