@@ -229,8 +229,8 @@ export function TrapDoor({
         <div
           style={{
             position: "absolute",
-            left: left + TRAP_DOOR_HIT.w / 2 + 20,
-            top: top + 2,
+            left: left + TRAP_DOOR_HIT.w / 2 + 44,
+            top: top + 16,
             transform: "translate(-100%, -100%)",
             display: "flex",
             gap: 4,
