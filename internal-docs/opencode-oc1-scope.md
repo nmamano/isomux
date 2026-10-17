@@ -344,9 +344,8 @@ old environment. Both routes require server replacement.
 
 The same probes found that pinned `opencode auth login` against a profile with
 a live server produced no prompt for more than 40 seconds. The cause was not
-measured. Before it emits the card, Isomux stops new acquires, gives active turns
-a two-minute drain, and stops the shared server. A drain timeout asks the user
-to retry. Pending login state expires after ten minutes and is removed when a
+measured. The terminal login card is not enabled (`cardEligible` is false), so
+no login path replaces the server today. Pending login state expires after ten minutes and is removed when a
 supervisor starts, so an abandoned card cannot disable the shared environment.
 The
 mode-0700 wrapper runs the pinned login against the exact shared profile under
