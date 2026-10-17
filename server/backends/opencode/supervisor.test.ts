@@ -410,9 +410,9 @@ describe("OpenCode shared server supervisor", () => {
       const targetMode = (await stat("/etc/hostname")).mode;
       const lease = await supervisor.acquire();
       expect(alive(lease.pid), "the server started").toBe(true);
-      expect(
-        (await lstat(join(logDir, "opencode.log"))).isSymbolicLink(),
-      ).toBe(true);
+      expect((await lstat(join(logDir, "opencode.log"))).isSymbolicLink()).toBe(
+        true,
+      );
       expect((await stat("/etc/hostname")).mode).toBe(targetMode);
       lease.release();
     },
@@ -433,7 +433,10 @@ describe("OpenCode shared server supervisor", () => {
     const data = join(supervisor.profileDir, "data");
     const mode = async (target: string) => (await stat(target)).mode & 0o777;
     const folderDefault = 0o777 & ~process.umask();
-    expect(folderDefault, "the umask leaves a folder mode to tell apart").not.toBe(0o700);
+    expect(
+      folderDefault,
+      "the umask leaves a folder mode to tell apart",
+    ).not.toBe(0o700);
     expect(await mode(join(data, "opencode", "log"))).toBe(0o700);
     expect(await mode(join(data, "opencode", "log", "opencode.log"))).toBe(
       0o600,

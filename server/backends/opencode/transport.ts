@@ -1211,9 +1211,7 @@ export class OpenCodeTransport {
 
   // The agent's session or one of the open turn's subagent sessions.
   private ownsSession(sessionId: string): boolean {
-    return (
-      sessionId === this.sessionId || this.subagentSessions.has(sessionId)
-    );
+    return sessionId === this.sessionId || this.subagentSessions.has(sessionId);
   }
 
   // One reject per session is enough: OpenCode rejects the other open
