@@ -62,6 +62,7 @@ export function TrapDoor({
   const { t, tn } = useI18n();
   const dragging = useDeskDrag();
   const [over, setOver] = useState(false);
+  if (!dragging && over) setOver(false);
   const lit = attention.working > 0;
   const lamp =
     attention.error > 0
@@ -117,7 +118,14 @@ export function TrapDoor({
         <svg
           width={TRAP_DOOR_HIT.w}
           height={TRAP_DOOR_HIT.h}
-          style={{ position: "absolute", inset: 0, overflow: "visible" }}
+          // Not a drag target itself: a drag moving onto the drawing would
+          // leave the hatch and clear the over state.
+          style={{
+            position: "absolute",
+            inset: 0,
+            overflow: "visible",
+            pointerEvents: "none",
+          }}
           aria-hidden="true"
         >
           <defs>
@@ -194,15 +202,23 @@ export function TrapDoor({
             stroke="#3a3a3a"
             strokeWidth={1.6}
           />
-          {(over || dragging) && (
+          {/* Quiet while a desk is dragged, so the other drop targets still
+              read as options; strong only while the drag is over the hatch
+              (task 318df699). */}
+          {dragging && (
             <path
               d={poly(1.35)}
               fill={
-                backFull ? "rgba(255,60,60,0.12)" : "rgba(126,184,255,0.18)"
+                backFull
+                  ? "rgba(255,60,60,0.12)"
+                  : over
+                    ? "rgba(126,184,255,0.18)"
+                    : "none"
               }
               stroke={backFull ? "var(--red)" : "var(--accent)"}
-              strokeWidth={2.5}
-              strokeDasharray="6 4"
+              strokeWidth={backFull || over ? 2 : 1}
+              strokeDasharray={over && !backFull ? "none" : "6 4"}
+              opacity={backFull || over ? 1 : 0.6}
             />
           )}
         </svg>
@@ -225,14 +241,27 @@ export function TrapDoor({
         >
           <span
             style={{
-              padding: "5px 10px",
-              borderRadius: 14,
-              background: backFull ? "var(--red)" : "var(--accent-text)",
-              color: "var(--bg-base)",
+              padding: "2px 8px",
+              borderRadius: 10,
               fontSize: 11,
-              fontWeight: 800,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
+              fontWeight: 600,
+              ...(backFull
+                ? {
+                    border: "1px solid var(--red)",
+                    background: "var(--red)",
+                    color: "var(--bg-base)",
+                  }
+                : over
+                  ? {
+                      border: "1px solid var(--accent)",
+                      background: "var(--bg-tag)",
+                      color: "var(--accent-text)",
+                    }
+                  : {
+                      border: "1px dashed var(--accent)",
+                      background: "var(--bg-tag)",
+                      color: "var(--text-dim)",
+                    }),
             }}
           >
             {backFull
