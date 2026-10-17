@@ -76,6 +76,12 @@ import { inDefaultTaskList } from "../../shared/task-board.ts";
 // Height scales proportionally inside the SVG viewBox.
 const GHOST_SIZE = 40;
 
+// The desktop footer's two drag hints, with and without the trap door.
+const DRAG_DESK_HINTS = [
+  "office.hints.dragDesk",
+  "office.hints.dragDeskTrapDoor",
+] as const;
+
 export const LOBBY_CHAT_WIDTH = DEFAULT_MEMBERS_CHAT_WIDTH;
 
 /** HTML drop zone positioned over an SVG door - SVG elements are unreliable drag-and-drop targets */
@@ -1155,7 +1161,9 @@ export function OfficeView({
                   "office.hints.rightClick",
                   "office.hints.resetView",
                 ] as const)
-          ).map((key, i) => (
+          ).map((key, i) => {
+            const dragHint = DRAG_DESK_HINTS.some((k) => k === key);
+            return (
             <span
               key={i}
               style={{
@@ -1163,11 +1171,32 @@ export function OfficeView({
                 color: "var(--text-hint)",
                 fontFamily: "var(--font-ui)",
                 letterSpacing: "0.04em",
+                ...(dragHint
+                  ? { display: "inline-grid", textAlign: "center" }
+                  : {}),
               }}
             >
-              {t(key)}
+              {dragHint
+                ? // Both drag hints share one grid cell and only one shows, so
+                  // the footer, and with it the scene, keeps one size in rooms
+                  // with and without a trap door (task f158d7f9).
+                  DRAG_DESK_HINTS.map((k) => (
+                    <span
+                      key={k}
+                      data-drag-hint={k === key ? "" : undefined}
+                      aria-hidden={k === key ? undefined : true}
+                      style={{
+                        gridArea: "1 / 1",
+                        visibility: k === key ? "visible" : "hidden",
+                      }}
+                    >
+                      {t(k)}
+                    </span>
+                  ))
+                : t(key)}
             </span>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

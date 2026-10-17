@@ -101,11 +101,18 @@ it("draws no trap door in a room with the back room setting off", async () => {
   );
   expect(view.container.textContent).toContain("Front");
   expect(view.container.querySelector("[data-trap-door]")).toBeNull();
-  // The footer drag hint names no trap door either.
-  expect(view.container.textContent).toContain(EN.t("office.hints.dragDesk"));
-  expect(view.container.textContent).not.toContain(
-    EN.t("office.hints.dragDeskTrapDoor"),
-  );
+  // The footer drag hint names no trap door either. The other hint stays in
+  // the footer, hidden, to keep its size (task f158d7f9).
+  const dragHint = () =>
+    view.container.querySelectorAll("[data-drag-hint]");
+  expect(dragHint().length).toBe(1);
+  expect(dragHint()[0]?.textContent).toBe(EN.t("office.hints.dragDesk"));
+  const reserve = dragHint()[0]?.parentElement?.children ?? [];
+  expect(reserve.length).toBe(2);
+  expect([...reserve].map((e) => e.getAttribute("aria-hidden"))).toEqual([
+    null,
+    "true",
+  ]);
   // The same room with the setting on draws it.
   await act(async () =>
     shimEmit({
@@ -115,7 +122,8 @@ it("draws no trap door in a room with the back room setting off", async () => {
     } as never),
   );
   expect(view.container.querySelector("[data-trap-door]")).not.toBeNull();
-  expect(view.container.textContent).toContain(
+  expect(dragHint().length).toBe(1);
+  expect(dragHint()[0]?.textContent).toBe(
     EN.t("office.hints.dragDeskTrapDoor"),
   );
 });
