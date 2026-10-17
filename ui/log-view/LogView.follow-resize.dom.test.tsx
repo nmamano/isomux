@@ -86,7 +86,12 @@ function Page() {
   const state = useAppState();
   return (
     <StateCtx.Provider value={state}>
-      <LogView agent={agent} logs={logs} onBack={() => {}} onEditAgent={() => {}} />
+      <LogView
+        agent={agent}
+        logs={logs}
+        onBack={() => {}}
+        onEditAgent={() => {}}
+      />
     </StateCtx.Provider>
   );
 }
@@ -151,11 +156,20 @@ async function mount() {
   const scrollerResizes = async () => {
     await act(async () => FakeResizeObserver.resize(scroller));
   };
-  return { view, scroller, following, scrollTo, imageLoads, scrollerResizes, ...fake };
+  return {
+    view,
+    scroller,
+    following,
+    scrollTo,
+    imageLoads,
+    scrollerResizes,
+    ...fake,
+  };
 }
 
 it("re-pins when an image loads while the member follows", async () => {
-  const { view, following, scrollTo, imageLoads, geometry, writes } = await mount();
+  const { view, following, scrollTo, imageLoads, geometry, writes } =
+    await mount();
   await scrollTo(800); // at the bottom of 1000 - 200
   expect(following()).toBe(true);
   geometry.scrollHeight = 1600; // the image is taller than its placeholder
@@ -167,7 +181,8 @@ it("re-pins when an image loads while the member follows", async () => {
 });
 
 it("re-pins when the scroller shrinks while the member follows", async () => {
-  const { view, following, scrollTo, scrollerResizes, geometry, writes } = await mount();
+  const { view, following, scrollTo, scrollerResizes, geometry, writes } =
+    await mount();
   await scrollTo(800);
   expect(following()).toBe(true);
   geometry.clientHeight = 150; // the composer grew
@@ -179,7 +194,15 @@ it("re-pins when the scroller shrinks while the member follows", async () => {
 });
 
 it("leaves the member's place alone after they scrolled up", async () => {
-  const { view, following, scrollTo, imageLoads, scrollerResizes, geometry, writes } = await mount();
+  const {
+    view,
+    following,
+    scrollTo,
+    imageLoads,
+    scrollerResizes,
+    geometry,
+    writes,
+  } = await mount();
   await scrollTo(800);
   await scrollTo(100); // the member scrolls up
   expect(following()).toBe(false);
@@ -197,7 +220,8 @@ it("leaves the member's place alone after they scrolled up", async () => {
 // load or a scroller resize re-pins, so a resize of anything inside the
 // transcript writes nothing.
 it("does not re-pin growth inside the transcript", async () => {
-  const { view, scroller, following, scrollTo, geometry, writes } = await mount();
+  const { view, scroller, following, scrollTo, geometry, writes } =
+    await mount();
   await scrollTo(800);
   expect(following()).toBe(true);
   geometry.scrollHeight = 1600; // a card opened
@@ -211,7 +235,8 @@ it("does not re-pin growth inside the transcript", async () => {
 });
 
 it("stops following image loads and resizes on unmount", async () => {
-  const { view, scroller, following, scrollTo, geometry, writes } = await mount();
+  const { view, scroller, following, scrollTo, geometry, writes } =
+    await mount();
   await scrollTo(800);
   expect(following()).toBe(true);
   const image = document.createElement("img");
@@ -228,7 +253,8 @@ it("stops following image loads and resizes on unmount", async () => {
 // in that frame, the event sees a gap although the view did not move up; the
 // member did not leave the bottom, and the load re-pins.
 it("keeps following when content grew before the scroll event of a pin", async () => {
-  const { view, following, scrollTo, imageLoads, geometry, writes } = await mount();
+  const { view, following, scrollTo, imageLoads, geometry, writes } =
+    await mount();
   await scrollTo(800);
   expect(following()).toBe(true);
   geometry.scrollHeight = 1600; // grew between the pin and its event

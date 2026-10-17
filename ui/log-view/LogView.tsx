@@ -659,8 +659,8 @@ export function LogView({
     dispatch({ type: "set_draft", agentId: agent.id, text });
   }
   // Whether the view follows the bottom. The ref mirrors the state for the
-  // resize observer below, which must see the member's latest scroll, not
-  // the value from the render that created it.
+  // image load listener and the resize observer below, which must see the
+  // member's latest scroll, not the value from the render that created them.
   const [autoScroll, setAutoScrollState] = useState(true);
   const followRef = useRef(true);
   const setAutoScroll = useCallback((follow: boolean) => {
@@ -1077,7 +1077,7 @@ export function LogView({
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
     // Only a move up leaves the bottom. Content that grew between a pin and
     // its scroll event (an image loading) widens the gap without moving the
-    // view up, and the resize observer re-pins it.
+    // view up, and the image load listener re-pins it.
     const movedUp = scrollTop < lastScrollTopRef.current;
     lastScrollTopRef.current = scrollTop;
     setAutoScroll(
