@@ -1,3 +1,8 @@
+import {
+  INBOX_PLAIN_TEXT_PARAMS,
+  MESSAGE_PLAIN_TEXT_PARAMS,
+  type PlainTextParams,
+} from "../../shared/plain-text-form.ts";
 import type { AppWidgetStatus } from "../../shared/contract-shapes.ts";
 import {
   resourceTargets,
@@ -304,6 +309,10 @@ export interface RouteDef<Req = unknown, Res = unknown> {
   // "binary": the executor does not read or JSON-parse the body; the handler
   // reads ctx.req itself. Absent means a JSON body.
   body?: "binary";
+  // The route also takes a text/plain body: the body is the `text` field and
+  // each listed query parameter is one more field (shared/plain-text-form.ts).
+  // Absent means JSON only.
+  plainText?: { params: PlainTextParams<Req> };
   // Phantom type carriers (no runtime presence): bind the request/response types
   // for handler typing. defineRoute<Req,Res> attaches them.
   readonly __req?: Req;
@@ -598,6 +607,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ],
       messageSend,
     ),
+    plainText: { params: MESSAGE_PLAIN_TEXT_PARAMS },
     emits: ["log_entry", "interaction_added", "agent_updated"],
     preconditions: [
       "messageRecipientExists",
@@ -1647,6 +1657,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/api-token-inboxes/:tokenId/messages",
     auth: cap("agent:send-to-api-token", agentTokenSender),
+    plainText: { params: INBOX_PLAIN_TEXT_PARAMS },
     emits: ["log_entry"],
     preconditions: ["apiTokenInboxTargetAvailable"],
   }),

@@ -79,7 +79,7 @@ describe("idempotency: caching semantics", () => {
         method: "POST",
         opId: "tasks.create",
         idempotencyKey: null,
-        rawBody: "{}",
+        bodyFingerprint: "{}",
       },
       async () => ++calls,
     );
@@ -95,7 +95,7 @@ describe("idempotency: caching semantics", () => {
       method: "POST",
       opId: "tasks.create",
       idempotencyKey: "k1",
-      rawBody: '{"title":"a"}',
+      bodyFingerprint: '{"title":"a"}',
     };
     const a = await cache.run(args, async () => ++calls);
     const b = await cache.run(args, async () => ++calls);
@@ -113,9 +113,9 @@ describe("idempotency: caching semantics", () => {
       opId: "tasks.create",
       idempotencyKey: "k1",
     };
-    await cache.run({ ...base, rawBody: '{"title":"a"}' }, async () => ++calls);
+    await cache.run({ ...base, bodyFingerprint: '{"title":"a"}' }, async () => ++calls);
     const conflict = await cache.run(
-      { ...base, rawBody: '{"title":"b"}' },
+      { ...base, bodyFingerprint: '{"title":"b"}' },
       async () => ++calls,
     );
     expect(conflict).toEqual({ kind: "conflict" });
@@ -129,7 +129,7 @@ describe("idempotency: caching semantics", () => {
       identity: user,
       method: "POST",
       opId: "tasks.create",
-      rawBody: "{}",
+      bodyFingerprint: "{}",
     };
     await cache.run({ ...base, idempotencyKey: "k1" }, async () => ++calls);
     await cache.run({ ...base, idempotencyKey: "k2" }, async () => ++calls);
@@ -145,7 +145,7 @@ describe("idempotency: caching semantics", () => {
         method: "POST",
         opId: "tasks.create",
         idempotencyKey: "k",
-        rawBody: "{}",
+        bodyFingerprint: "{}",
       },
       async () => ++calls,
     );
@@ -155,7 +155,7 @@ describe("idempotency: caching semantics", () => {
         method: "POST",
         opId: "rooms.create",
         idempotencyKey: "k",
-        rawBody: "{}",
+        bodyFingerprint: "{}",
       },
       async () => ++calls,
     );
@@ -177,7 +177,7 @@ describe("idempotency: caching semantics", () => {
       method: "POST",
       opId: "tasks.create",
       idempotencyKey: "k",
-      rawBody: "{}",
+      bodyFingerprint: "{}",
     };
     await cache.run({ ...base, identity: user }, async () => ++calls);
     const agentRun = await cache.run(
@@ -199,7 +199,7 @@ describe("idempotency: TTL expiry (injected clock)", () => {
       method: "POST",
       opId: "tasks.create",
       idempotencyKey: "k1",
-      rawBody: "{}",
+      bodyFingerprint: "{}",
     };
     await cache.run(args, async () => ++calls); // stored, expires at 6000
     clock = 5999;
@@ -222,7 +222,7 @@ describe("idempotency: in-flight collapse", () => {
       method: "POST",
       opId: "tasks.create",
       idempotencyKey: "k1",
-      rawBody: "{}",
+      bodyFingerprint: "{}",
     };
     const handler = async () => {
       calls++;
@@ -249,12 +249,12 @@ describe("idempotency: in-flight collapse", () => {
       opId: "tasks.create",
       idempotencyKey: "k1",
     };
-    const p1 = cache.run({ ...base, rawBody: '{"v":1}' }, async () => {
+    const p1 = cache.run({ ...base, bodyFingerprint: '{"v":1}' }, async () => {
       await gate.promise;
       return "first";
     });
     const conflict = await cache.run(
-      { ...base, rawBody: '{"v":2}' },
+      { ...base, bodyFingerprint: '{"v":2}' },
       async () => "second",
     );
     expect(conflict).toEqual({ kind: "conflict" });
@@ -272,7 +272,7 @@ describe("idempotency: failures are not cached", () => {
       method: "POST",
       opId: "tasks.create",
       idempotencyKey: "k1",
-      rawBody: "{}",
+      bodyFingerprint: "{}",
     };
     await expectRejection(
       cache.run(args, async () => {

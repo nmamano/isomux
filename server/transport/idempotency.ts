@@ -78,14 +78,15 @@ export interface IdempotencyOptions {
 export interface IdempotencyCache {
   // Run `handler` under idempotency. `idempotencyKey` null ⇒ no caching (just
   // run). `method`/`opId` namespace the key so a key reused on a different
-  // route can't replay. `rawBody` is the exact received body string (hashed).
+  // route can't replay. `bodyFingerprint` (hashed) is the exact received body
+  // string, or the executor's normalized fields for a plain-text form.
   run<R>(
     args: {
       identity: Identity;
       method: string;
       opId: string;
       idempotencyKey: string | null;
-      rawBody: string;
+      bodyFingerprint: string;
     },
     handler: () => Promise<R>,
   ): Promise<IdempotencyOutcome<R>>;
@@ -125,7 +126,7 @@ export function createIdempotencyCache(
       method: string;
       opId: string;
       idempotencyKey: string | null;
-      rawBody: string;
+      bodyFingerprint: string;
     },
     handler: () => Promise<R>,
   ): Promise<IdempotencyOutcome<R>> {
@@ -137,7 +138,7 @@ export function createIdempotencyCache(
     const t = now();
     pruneExpired(t);
 
-    const bodyHash = hashBody(args.rawBody);
+    const bodyHash = hashBody(args.bodyFingerprint);
     const cacheKey = composeKey(
       identitySubjectKey(args.identity),
       args.method,

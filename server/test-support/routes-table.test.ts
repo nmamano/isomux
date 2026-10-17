@@ -298,6 +298,19 @@ describe("provider account routes", () => {
   });
 });
 
+describe("route table: plain-text form", () => {
+  it("only the two one-block-of-text message routes take a text/plain body", () => {
+    const optedIn = ALL_ROUTES.filter((r) => r.plainText).map((r) => [
+      r.opId,
+      Object.keys(r.plainText!.params),
+    ]);
+    expect(optedIn).toEqual([
+      ["agents.sendMessage", ["steer", "deliverAt", "clientMessageId"]],
+      ["apiTokenInbox.send", []],
+    ]);
+  });
+});
+
 describe("route table: emits resolve to the event registry", () => {
   it("every emitted id is a real registry event", () => {
     for (const r of ALL_ROUTES) {

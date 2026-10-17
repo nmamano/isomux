@@ -2,7 +2,7 @@
 //
 // The chat transcript is full of Bash tool calls like
 //   curl -s -X POST localhost:4000/api/agents/<id>/messages -H 'Content-Type:
-//   application/json' -d '{"text":"..."}'
+//   text/plain' --data-binary @- <<'EOF'
 // Since we know the shape of our own API, we can render these as a structured
 // card (method badge, route, key payload fields) instead of raw shell text.
 //
@@ -27,7 +27,9 @@
 // - a heredoc feeding curl's stdin directly (`curl -d @- <<'EOF' ... EOF` - the
 //   standard Codex message-POST shape) supplies the body: literal JSON becomes
 //   card fields, anything else a "body from heredoc" note (see
-//   resolveHeredocBody).
+//   resolveHeredocBody). On the routes that take a text/plain body, such a
+//   body is the message text, read with the server's own parser (see
+//   plainTextParams).
 // - trailing `;`/`&&`-chained inspection commands (`curl ... > f; wc -c f`,
 //   `curl ... >/dev/null && echo posted`) are accepted for a small allowlist of
 //   display/inspection commands, and - like a pipe tail - are ALWAYS shown on
@@ -42,6 +44,13 @@ import type {
   PlainMessageKey,
   Translator,
 } from "../../shared/i18n/translate.ts";
+import {
+  INBOX_PLAIN_TEXT_PARAMS,
+  MESSAGE_PLAIN_TEXT_PARAMS,
+  isTextPlain,
+  readPlainTextForm,
+  type PlainTextParamKind,
+} from "../../shared/plain-text-form.ts";
 
 export type CurlBodyField = { key: string; value: string };
 
@@ -1953,6 +1962,7 @@ function parseIsomuxCurlInner(
         ports,
         stdinBody,
         tokenized.outputRedirect,
+        heredoc?.literal ? heredoc.body : null,
       ),
       trailingCommand,
     );
@@ -2019,12 +2029,48 @@ function withTrailing(
  * stdin via an @-interpreting data flag (`-d @-`) and `stdinBody` supplies
  * bodyFields/bodyNote.
  */
+// The query parameters of a route that takes a text/plain body (RouteDef
+// plainText on the server), or null for every other route.
+function plainTextParams(
+  method: string,
+  path: string,
+): Readonly<Record<string, PlainTextParamKind>> | null {
+  const key = describeIsomuxRoute(method, path);
+  if (key === "apiCall.agents.sendMessage") return MESSAGE_PLAIN_TEXT_PARAMS;
+  if (key === "apiCall.inbox.messageBoss") return INBOX_PLAIN_TEXT_PARAMS;
+  return null;
+}
+
+// The exact body bytes curl sends, or null when the card cannot know them: a
+// file (`@path`), --data-urlencode, several parts, or stdin through a flag
+// other than --data-binary (-d @- strips line breaks from what it reads).
+function sentDataBytes(
+  dataParts: string[],
+  dataFlags: string[],
+  formParts: string[],
+  stdinText: string | null,
+): string | null {
+  if (dataParts.length !== 1 || formParts.length !== 0) return null;
+  const [value] = dataParts;
+  const [flag] = dataFlags;
+  if (flag === "--data-urlencode") return null;
+  if (flag === "--data-raw") return value;
+  if (value === "@-")
+    return flag === "--data-binary" && stdinText !== null
+      ? `${stdinText}\n`
+      : null;
+  return value.startsWith("@") ? null : value;
+}
+
 function parseCurlStage(
   tokens: string[],
   pipeTail: string | null,
   ports: readonly string[],
   stdinBody: ResolvedBody | null,
   outputRedirect: OutputRedirect | null = null,
+  // The literal text of a heredoc on curl's stdin, without the line break
+  // that ends it; null when there is none or the shell expands it.
+  stdinText: string | null = null,
 ): IsomuxCurlRequest | null {
   if (pipeTail !== null && !isSafePipeTail(pipeTail)) return null;
 
@@ -2032,12 +2078,14 @@ function parseCurlStage(
   let url: string | null = null;
   let hasAuth = false;
   const dataParts: string[] = [];
+  const dataFlags: string[] = []; // the flag that supplied each data part
   const formParts: string[] = [];
+  let contentType: string | null = null;
   let getStyle = false; // -G/--get sends -d data as query params
   let stdinData = 0; // count of `@-` values seen via @-interpreting data flags
   let outputFromFlag: string | null = null; // -o/--output with a real path
 
-  const applyArg = (kind: ArgKind, value: string): boolean => {
+  const applyArg = (kind: ArgKind, value: string, flag = ""): boolean => {
     switch (kind) {
       case "method":
         if (method !== null) return false;
@@ -2047,14 +2095,22 @@ function parseCurlStage(
         const name = value.split(":", 1)[0].trim().toLowerCase();
         if (!ALLOWED_HEADERS.has(name)) return false;
         if (name === "authorization") hasAuth = true;
+        if (name === "content-type") {
+          // Two Content-Type headers: which one curl sends is not worth
+          // modelling.
+          if (contentType !== null) return false;
+          contentType = value.slice(value.indexOf(":") + 1).trim();
+        }
         return true;
       }
       case "data":
         if (value === "@-") stdinData++;
         dataParts.push(value);
+        dataFlags.push(flag);
         return true;
       case "dataLiteral":
         dataParts.push(value);
+        dataFlags.push(flag);
         return true;
       case "form":
         formParts.push(value);
@@ -2101,7 +2157,7 @@ function parseCurlStage(
       if (!kind) return null;
       const value = eq !== -1 ? tok.slice(eq + 1) : tokens[++i];
       if (value === undefined) return null;
-      if (!applyArg(kind, value)) return null;
+      if (!applyArg(kind, value, name)) return null;
       continue;
     }
     if (tok.startsWith("-") && tok.length > 1) {
@@ -2119,7 +2175,7 @@ function parseCurlStage(
         const attached = tok.slice(j + 1);
         const value = attached !== "" ? attached : tokens[++i];
         if (value === undefined) return null;
-        if (!applyArg(kind, value)) return null;
+        if (!applyArg(kind, value, `-${ch}`)) return null;
         break;
       }
       continue;
@@ -2152,7 +2208,35 @@ function parseCurlStage(
   let bodyFields: CurlBodyField[] | null = null;
   let bodyRaw: string | null = null;
   let bodyNote: IsomuxCurlBodyNote | null = null;
-  if (stdinBody !== null) {
+  const plainParams = plainTextParams(resolvedMethod, path);
+  if (plainParams !== null) {
+    // A plain-text route: read body and query the way the server does
+    // (shared/plain-text-form.ts). A request the server refuses stays raw.
+    const sent = !hasBody
+      ? ""
+      : sentDataBytes(dataParts, dataFlags, formParts, stdinText);
+    // Unknown bytes on the text/plain form (a file, `-d @-`, which strips
+    // line breaks): the card cannot show the message, so the paths below
+    // note or show the body as they do for any route.
+    if (sent !== null || !isTextPlain(contentType ?? "")) {
+      const q = path.indexOf("?");
+      const form = readPlainTextForm(
+        plainParams,
+        contentType ?? "",
+        q === -1 ? "" : path.slice(q).split("#")[0],
+        sent ?? "",
+      );
+      if (form.kind === "error") return null;
+      if (form.kind === "text")
+        bodyFields = Object.entries(form.body).map(([key, value]) => ({
+          key,
+          value: displayValue(value),
+        }));
+    }
+  }
+  if (bodyFields !== null) {
+    // The plain-text form above already read the body.
+  } else if (stdinBody !== null) {
     if (stdinBody.kind === "fields") bodyFields = stdinBody.fields;
     else bodyNote = stdinBody.note;
   } else if (hasBody) {

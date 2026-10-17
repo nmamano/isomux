@@ -36,6 +36,7 @@ import {
   type GuardDeps,
 } from "../identity/guards.ts";
 import type { IdempotencyCache } from "../transport/idempotency.ts";
+import { readPlainTextForm } from "../../shared/plain-text-form.ts";
 
 // A typed union so resource handlers never construct a Response directly; the
 // executor renders it (status, envelope, idempotency storage). `file` is for
@@ -277,7 +278,9 @@ export async function executeRoute(
 
   // Read the body exactly once (skip GET/HEAD and multipart - multipart is
   // consumed by the handler via req.formData()). A present-but-unparseable JSON
-  // body is a 400 before any auth, matching today's handlers.
+  // body is a 400 before any auth, matching today's handlers. A route with
+  // plainText also takes a text/plain body (see shared/plain-text-form.ts); a
+  // malformed query on that form is a 422 before any auth, too.
   const contentType = req.headers.get("content-type") ?? "";
   const isMultipart = contentType.includes("multipart/form-data");
   // A binary route (an image upload) reads `req` itself, after authorization,
@@ -286,9 +289,27 @@ export async function executeRoute(
   const isGet = method === "GET" || method === "HEAD";
   let rawBody = "";
   let body: unknown = undefined;
+  // What Idempotency-Key compares: the received bytes, or for the plain-text
+  // form the fields built from body and query, so a changed option conflicts.
+  let bodyFingerprint = "";
   if (!isGet && !isMultipart && !isBinary) {
     rawBody = await req.text();
-    if (rawBody.length > 0) {
+    bodyFingerprint = rawBody;
+    const form = route.plainText
+      ? readPlainTextForm(
+          route.plainText.params,
+          contentType,
+          url.search,
+          rawBody,
+        )
+      : ({ kind: "json" } as const);
+    if (form.kind === "error") {
+      return render(fail(form.status, form.code, form.message));
+    }
+    if (form.kind === "text") {
+      body = form.body;
+      bodyFingerprint = JSON.stringify(form.body);
+    } else if (rawBody.length > 0) {
       try {
         body = JSON.parse(rawBody);
       } catch {
@@ -341,7 +362,13 @@ export async function executeRoute(
 
   try {
     const outcome = await deps.idempotency.run<HandlerResult>(
-      { identity, method, opId: route.opId, idempotencyKey, rawBody },
+      {
+        identity,
+        method,
+        opId: route.opId,
+        idempotencyKey,
+        bodyFingerprint,
+      },
       async () => {
         const actor =
           !isGet && route.audit?.owner !== "none"

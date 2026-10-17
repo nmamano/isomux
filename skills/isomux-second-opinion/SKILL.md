@@ -18,7 +18,7 @@ If the boss supplied a question, use it verbatim. Otherwise pin down one concret
 
 ### 3. Send the ask
 
-POST to `/agents/<peer-id>/message`. The body must include:
+Send it with `POST /api/agents/<peer-id>/messages`, as a `text/plain` body (agent reference page `messaging`). The body must include:
 
 - **The question**, framed clearly.
 - **Just enough context** to form an opinion: the specific code path or decision, relevant constraints.

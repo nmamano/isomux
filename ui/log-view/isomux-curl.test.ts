@@ -1123,6 +1123,121 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
   });
 });
 
+describe("parseIsomuxCurl text/plain message bodies", () => {
+  const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
+  const MESSAGES = "localhost:4000/api/agents/agent-1/messages";
+  const heredocSend = (query: string, body: string, flag = "--data-binary") =>
+    `curl -s -X POST "${MESSAGES}${query}" ${AUTH} -H 'Content-Type: text/plain' ${flag} @- <<'EOF'\n${body}\nEOF`;
+  const humanize = (cmd: string) =>
+    humanizeIsomuxRequest(EN, parseIsomuxCurl(cmd)!, () => "Todoer");
+
+  test("a quoted heredoc is the text, verbatim, and the card shows it as the text field", () => {
+    const req = parseIsomuxCurl(
+      heredocSend("", 'He said "hi" \\ C:\\new\nline 2 $HOME `x`'),
+    );
+    expect(req).not.toBeNull();
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
+    expect(req!.bodyNote).toBeNull();
+    // Card chips collapse whitespace; nothing else changes.
+    expect(req!.bodyFields).toEqual([
+      { key: "text", value: 'He said "hi" \\ C:\\new line 2 $HOME `x`' },
+    ]);
+    expect(humanize(heredocSend("", "hi"))).toBe("Send a message to Todoer");
+  });
+
+  test("steer and deliverAt come from the query, decoded as the server decodes them", () => {
+    const steer = heredocSend("?steer=1", "now");
+    expect(parseIsomuxCurl(steer)!.bodyFields).toEqual([
+      { key: "text", value: "now" },
+      { key: "steer", value: "true" },
+    ]);
+    expect(humanize(steer)).toBe(
+      EN.t("apiCall.agents.steerMessage", { who: "Todoer" }),
+    );
+    const later = heredocSend("?deliverAt=2026-10-18T09:00:00+02:00", "later");
+    // "+" stays literal, as on the server (no form decoding to a space).
+    expect(parseIsomuxCurl(later)!.bodyFields).toEqual([
+      { key: "text", value: "later" },
+      { key: "deliverAt", value: "2026-10-18T09:00:00+02:00" },
+    ]);
+    expect(humanize(later)).toBe(
+      EN.t("apiCall.agents.scheduleMessage", { who: "Todoer" }),
+    );
+  });
+
+  test("an inline body works with every flag that sends it unchanged", () => {
+    for (const flag of ["-d", "--data", "--data-binary", "--data-raw"]) {
+      const req = parseIsomuxCurl(
+        `curl -s "${MESSAGES}?steer=true" -H 'Content-Type: text/plain' ${flag} 'say "hi"'`,
+      );
+      expect(req!.method).toBe("POST");
+      expect(req!.bodyFields).toEqual([
+        { key: "text", value: 'say "hi"' },
+        { key: "steer", value: "true" },
+      ]);
+    }
+  });
+
+  test("a body the card cannot know exactly is noted, never shown as the text", () => {
+    // -d @- strips the line breaks it reads, so the heredoc is not the text.
+    expect(parseIsomuxCurl(heredocSend("", "a\nb", "-d"))!.bodyNote).toEqual({
+      kind: "heredoc",
+    });
+    // An unquoted delimiter lets the shell expand $HOME.
+    const unquoted = `curl -s -X POST ${MESSAGES} -H 'Content-Type: text/plain' --data-binary @- <<EOF\nhi $HOME\nEOF`;
+    expect(parseIsomuxCurl(unquoted)!.bodyNote).toEqual({ kind: "heredoc" });
+  });
+
+  test("a request the server refuses stays raw", () => {
+    // An option in the query of a JSON request.
+    expect(
+      parseIsomuxCurl(
+        `curl -s -X POST "${MESSAGES}?steer=1" -H 'Content-Type: application/json' -d '{"text":"hi"}'`,
+      ),
+    ).toBeNull();
+    // An unknown or malformed option on the text/plain form.
+    expect(parseIsomuxCurl(heredocSend("?stear=1", "hi"))).toBeNull();
+    expect(parseIsomuxCurl(heredocSend("?steer=yes", "hi"))).toBeNull();
+    // The inbox route takes no query parameters.
+    expect(
+      parseIsomuxCurl(
+        `curl -s -X POST "localhost:4000/api/api-token-inboxes/pat-1/messages?steer=1" -H 'Content-Type: text/plain' --data-binary 'hi'`,
+      ),
+    ).toBeNull();
+    // Two Content-Type headers.
+    expect(
+      parseIsomuxCurl(
+        `curl -s ${MESSAGES} -H 'Content-Type: text/plain' -H 'Content-Type: application/json' -d '{"text":"hi"}'`,
+      ),
+    ).toBeNull();
+  });
+
+  test("JSON sent as text/plain with no option in the query reads as JSON, as on the server", () => {
+    const req = parseIsomuxCurl(
+      `curl -s ${MESSAGES} -H 'Content-Type: text/plain' -d '{"text":"hi","steer":true}'`,
+    );
+    expect(req!.bodyFields).toEqual([
+      { key: "text", value: "hi" },
+      { key: "steer", value: "true" },
+    ]);
+  });
+
+  test("the inbox route reads a text/plain body as its text", () => {
+    const req = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/api-token-inboxes/pat-1/messages ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nreport ready\nEOF`,
+    );
+    expect(req!.actionKey).toBe("apiCall.inbox.messageBoss");
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "report ready" }]);
+  });
+
+  test("text/plain on any other route keeps today's card", () => {
+    const req = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/tasks -H 'Content-Type: text/plain' -d '{"title":"x"}'`,
+    );
+    expect(req!.bodyFields).toEqual([{ key: "title", value: "x" }]);
+  });
+});
+
 describe("describeIsomuxRoute", () => {
   test("labels member prompt reads and writes for a concrete username", () => {
     expect(describeIsomuxRoute("GET", "/api/users/Nil/member-prompt")).toBe(
