@@ -895,7 +895,9 @@ export class OpenCodeTransport {
         // A recovery that ended the turn wakes the loop below, which waits on
         // the stream it cancelled.
         void recover()
-          .catch((error) => fail(error, "OpenCode event stream recovery failed"))
+          .catch((error) =>
+            fail(error, "OpenCode event stream recovery failed"),
+          )
           .finally(() => {
             if (settled || signal.aborted) deliver({ value: null });
           });

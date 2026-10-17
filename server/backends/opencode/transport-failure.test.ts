@@ -1023,13 +1023,20 @@ const streamLost = {
 const earlierTurn = [
   {
     info: { id: "user-0", role: "user", time: { created: 1 } },
-    parts: [{ type: "text", id: "user-part-0", messageID: "user-0", text: "hi" }],
+    parts: [
+      { type: "text", id: "user-part-0", messageID: "user-0", text: "hi" },
+    ],
   },
   {
     info: { id: "answer-0", role: "assistant", time: { created: 2 } },
     parts: [
       { type: "text", id: "old-part", messageID: "answer-0", text: "Earlier" },
-      { type: "step-finish", id: "old-step", messageID: "answer-0", tokens: {} },
+      {
+        type: "step-finish",
+        id: "old-step",
+        messageID: "answer-0",
+        tokens: {},
+      },
     ],
   },
 ];
@@ -1154,9 +1161,7 @@ it("shows reasoning once when the new stream delivers frames older than the repl
   });
   const server = drivenServer({
     status: { driven: { type: "busy" } },
-    messages: () => [
-      { ...answer("", false), parts: [reasoning("Thinking")] },
-    ],
+    messages: () => [{ ...answer("", false), parts: [reasoning("Thinking")] }],
   });
   const thoughts: string[] = [];
   const turn = drivenTransport(clock, { sessionId: "driven" });
@@ -1307,9 +1312,7 @@ it("marks a server that answers neither health nor the new subscription", async 
     await settleUntil(() => server.healthRequests() > 0);
     clock.advance(PROBE_MS);
     await settleUntil(() => server.eventRequests() === 2);
-    expect(server.eventRequests(), "a slow health answer is not proof").toBe(
-      2,
-    );
+    expect(server.eventRequests(), "a slow health answer is not proof").toBe(2);
     expect(turn.marked).toEqual([]);
     clock.advance(DEADLINE_MS);
     await settleUntil(() => turn.completions.length > 0);
