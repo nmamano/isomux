@@ -1649,14 +1649,7 @@ describe("OpenCode permission event integration", () => {
       }),
     ];
     const spanish = translatorFor("es").t;
-    const result = await runFrames(
-      frames,
-      undefined,
-      [],
-      [],
-      false,
-      spanish,
-    );
+    const result = await runFrames(frames, undefined, [], [], false, spanish);
     const retry = result.events.find((e) => e.kind === "system_text");
     expect(retry).toMatchObject({
       text: openCodeRetryMessage(message, 1, "provider", spanish),

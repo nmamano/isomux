@@ -1,4 +1,7 @@
-import { translatorFor, type Translator } from "../../../shared/i18n/translate.ts";
+import {
+  translatorFor,
+  type Translator,
+} from "../../../shared/i18n/translate.ts";
 import { redactLogEntry } from "../../log-redaction.ts";
 import type {
   OpenCodeErrorContext,
@@ -34,8 +37,11 @@ function redactText(value: string): string {
 // no longer match. The cut counts code points, so it never splits one.
 export function providerText(message: string | undefined): string | null {
   const line = (message ?? "")
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\s\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]+/g, " ")
+    .replace(
+      // eslint-disable-next-line no-control-regex
+      /[\s\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]+/g,
+      " ",
+    )
     .trim();
   if (!line) return null;
   const text = Array.from(redactText(line));
