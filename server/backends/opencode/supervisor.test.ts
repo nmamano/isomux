@@ -1116,9 +1116,7 @@ describe("OpenCode shared server supervisor", () => {
     // A held lease gets the new server, which starts after the stop.
     while (after.pid === idlePid && Date.now() < idleDeadline)
       await Bun.sleep(25);
-    expect(after.pid, "a held lease follows the replacement").not.toBe(
-      idlePid,
-    );
+    expect(after.pid, "a held lease follows the replacement").not.toBe(idlePid);
     expect(await launches()).toBe(launched + 1);
     after.release();
   }, 20_000);

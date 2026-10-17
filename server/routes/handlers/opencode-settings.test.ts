@@ -267,7 +267,11 @@ describe("MCP server saves", () => {
       usernameForUserId: () => null,
       pushOpenCodeSettings: push,
     });
-    const body = { name: "docs", url: "https://mcp.example.com/mcp", secret: null };
+    const body = {
+      name: "docs",
+      url: "https://mcp.example.com/mcp",
+      secret: null,
+    };
     const created = json(
       await handlers["officeMcpServers.create"](ctx({}, body)),
     );

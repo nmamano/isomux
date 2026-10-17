@@ -111,6 +111,8 @@ export function logOpenCodeStreamSilence(
 ): void {
   console.error(
     "[opencode]",
-    JSON.stringify(redactLogEntry({ event: "event_stream_silent", ...silence })),
+    JSON.stringify(
+      redactLogEntry({ event: "event_stream_silent", ...silence }),
+    ),
   );
 }

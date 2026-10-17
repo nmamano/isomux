@@ -3887,8 +3887,7 @@ function buildExecutorDeps(
         delete values[name];
         return replaceOfficeEnv(values, undefined);
       },
-      pushOpenCodeSettings: (scope) =>
-        agentManager.pushOpenCodeSettings(scope),
+      pushOpenCodeSettings: (scope) => agentManager.pushOpenCodeSettings(scope),
     }),
   );
   // Secrets: no route returns a value but Show. The runtime pushes each
@@ -3899,8 +3898,7 @@ function buildExecutorDeps(
     secretsHandlers({
       store: mcpSources.secrets,
       onChanged: () => secretsRuntime.changed(),
-      pushOpenCodeSettings: (scope) =>
-        agentManager.pushOpenCodeSettings(scope),
+      pushOpenCodeSettings: (scope) => agentManager.pushOpenCodeSettings(scope),
       userIdForUsername: (username) =>
         buildLiveGuardDeps().userIdForUsername(username),
       isOfficeOwnerUserId: (userId) =>
@@ -3988,8 +3986,7 @@ function buildExecutorDeps(
       userIdForUsername: (username) =>
         buildLiveGuardDeps().userIdForUsername(username),
       usernameForUserId: (userId) => getUserById(userId)?.name ?? null,
-      pushOpenCodeSettings: (scope) =>
-        agentManager.pushOpenCodeSettings(scope),
+      pushOpenCodeSettings: (scope) => agentManager.pushOpenCodeSettings(scope),
     }),
   );
   register(

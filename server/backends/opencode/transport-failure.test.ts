@@ -2276,7 +2276,12 @@ const otherSessionText = () =>
     type: "message.part.updated",
     properties: {
       sessionID: "other",
-      part: { type: "text", id: "other-part", messageID: "other", text: CANARY },
+      part: {
+        type: "text",
+        id: "other-part",
+        messageID: "other",
+        text: CANARY,
+      },
     },
   });
 
