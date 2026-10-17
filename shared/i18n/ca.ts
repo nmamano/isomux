@@ -2696,6 +2696,10 @@ Coses que pots fer per ell:
     "El gestor d'interrupcions ha fallat: {error}",
   "systemEntries.codexSandboxUnavailable":
     "Aquest contenidor no pot executar el sandbox de Codex, així que les ordres s'executen amb accés complet dins del contenidor.",
+  "systemEntries.openCodeProviderRefused":
+    'El proveïdor `{provider}` ha rebutjat la sol·licitud: "{message}"',
+  "systemEntries.openCodeProviderRetry":
+    'El proveïdor `{provider}` ha informat: "{message}"; reintent {attempt} de {maxAttempts}.',
   "systemEntries.openCodePreviousSettings":
     "Aquest torn fa servir la teva configuració anterior d'Integracions.",
   "systemEntries.codexInterruptFallback":

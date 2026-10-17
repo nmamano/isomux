@@ -1,9 +1,14 @@
 import { expect, it, spyOn } from "bun:test";
+import { Lexer, defaults } from "marked";
+import { translatorFor } from "../../../shared/i18n/translate.ts";
 import {
   logOpenCodeError,
   logOpenCodeStreamSilence,
   openCodeErrorMessage,
+  openCodeProviderRefusal,
   openCodeRetryMessage,
+  PROVIDER_TEXT_LIMIT,
+  providerText,
 } from "./errors.ts";
 import type { OpenCodeStreamSilence } from "./transport.ts";
 
@@ -116,18 +121,171 @@ it("logs a stream silence as one tagged line with its fields", () => {
   }
 });
 
-for (const [label, message, cause] of [
-  ["timeout", "SSE read timed out SECRET_CANARY", /time/i],
-  ["network", "Connection reset by server SECRET_CANARY", /connection/i],
-  ["HTTP status", "HTTP 503 SECRET_CANARY", /503/],
-  ["rate limit", "rate limit SECRET_CANARY", /rate limit/i],
-  ["overloaded", "overloaded SECRET_CANARY", /busy/i],
-  ["unknown", "SECRET_CANARY", /provider/i],
-] as const) {
-  it(`shows a reviewed ${label} retry cause and bounded attempt`, () => {
-    const copy = openCodeRetryMessage(message, 2);
-    expect(copy).toMatch(cause);
-    expect(copy).toMatch(/retrying 2 of 5/);
-    expect(copy).not.toContain("SECRET_CANARY");
-  });
+// Observed from OpenCode Zen on 2026-10-17, as a 403 APIError.
+const FREE_TIER_REFUSAL =
+  "OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building.";
+
+// Task 1a963907: a refusal names the provider and quotes its message.
+it("quotes a provider refusal and names the provider", () => {
+  for (const error of [
+    { name: "APIError", statusCode: 403, message: FREE_TIER_REFUSAL },
+    { name: "APIError", statusCode: 400, message: FREE_TIER_REFUSAL },
+    { name: "APIError", statusCode: 429, message: FREE_TIER_REFUSAL },
+    { name: "APIError", message: `rate limit: ${FREE_TIER_REFUSAL}` },
+    { name: "APIError", message: `Quota exceeded. ${FREE_TIER_REFUSAL}` },
+  ]) {
+    const copy = openCodeProviderRefusal(error, "opencode");
+    expect(copy).toContain("`opencode`");
+    expect(copy).toContain(`${FREE_TIER_REFUSAL}"`);
+  }
+});
+
+it("leaves failures that are not a provider refusal to the generic copy", () => {
+  for (const error of [
+    { name: "APIError", statusCode: 403 },
+    { name: "APIError", statusCode: 403, message: " \n\t " },
+    { name: "APIError", statusCode: 401, message: FREE_TIER_REFUSAL },
+    { name: "APIError", statusCode: 503, message: FREE_TIER_REFUSAL },
+    { name: "APIError", message: FREE_TIER_REFUSAL },
+    { name: "UnknownError", statusCode: 403, message: FREE_TIER_REFUSAL },
+  ]) {
+    expect(openCodeProviderRefusal(error, "opencode")).toBeNull();
+  }
+});
+
+it("bounds provider text to one redacted line", () => {
+  const secrets = [
+    "Bearer bearer-canary",
+    "https://user:pass-canary@example.com/x",
+    "https://example.com/?token=url-canary",
+    "sk-abcdefghijklmnopqrstuvwxyz123456",
+  ];
+  const message = `denied\n\n  ${secrets.join("\t")}\u001b[31m end`;
+  const text = providerText(message)!;
+  for (const secret of [
+    "bearer-canary",
+    "pass-canary",
+    "url-canary",
+    "abcdefghijklmnopqrstuvwxyz123456",
+  ])
+    expect(text).not.toContain(secret);
+  expect(text).toStartWith("denied Bearer ");
+  expect(text).toEndWith("[31m end");
+  // eslint-disable-next-line no-control-regex
+  expect(text).not.toMatch(/[\u0000-\u001f\u007f]|\s\s/);
+  const copy = openCodeProviderRefusal(
+    { name: "APIError", statusCode: 403, message },
+    "opencode",
+  );
+  expect(copy).toContain(text);
+});
+
+it("cuts long provider text after redacting it", () => {
+  const long = "x".repeat(PROVIDER_TEXT_LIMIT * 2);
+  const text = providerText(long)!;
+  expect(text).toHaveLength(PROVIDER_TEXT_LIMIT);
+  expect(text).toEndWith("…");
+  // A key across the cut is redacted whole; cutting first would leave a
+  // prefix too short for the pattern to match.
+  const key = "sk-abcdefghijklmnopqrstuvwxyz123456";
+  const straddling = providerText(
+    `${"y".repeat(PROVIDER_TEXT_LIMIT - 12)} ${key}`,
+  )!;
+  expect(straddling).not.toContain(key.slice(0, 9));
+  expect(straddling.length).toBeLessThanOrEqual(PROVIDER_TEXT_LIMIT);
+  // The cut counts code points: no lone surrogate renders as U+FFFD.
+  const emoji = providerText("😀".repeat(PROVIDER_TEXT_LIMIT))!;
+  expect(emoji.isWellFormed()).toBe(true);
+  expect(Array.from(emoji)).toHaveLength(PROVIDER_TEXT_LIMIT);
+  expect(emoji).toStartWith("😀");
+});
+
+// Inside a quote, a direction override reverses the rest of the line on
+// screen, Isomux's own words included.
+it("drops direction and zero-width format characters", () => {
+  const formats = [
+    ...range(0x200b, 0x200f),
+    ...range(0x202a, 0x202e),
+    ...range(0x2066, 0x2069),
+  ];
+  for (const code of formats) {
+    const text = providerText(`denied${String.fromCodePoint(code)}here`)!;
+    expect(text.codePointAt(6)).toBe(0x20);
+    expect(text).toHaveLength("denied here".length);
+  }
+});
+
+function range(first: number, last: number): number[] {
+  return Array.from({ length: last - first + 1 }, (_, i) => first + i);
 }
+
+// The chat renders a system line through InlineMarkdown, which lexes it this
+// way and shows an escape as its text and every other token as its source.
+function inlineTokens(line: string) {
+  return Lexer.lexInline(line, { ...defaults, gfm: true, breaks: false });
+}
+
+it("keeps provider markdown inert in the retry line", () => {
+  const message =
+    "Retry later. [Isomux support: re-enter your key here](https://evil.example/login) **urgent** _now_ `code` ~~old~~ <b>x</b> ![i](https://e.x/i.png) mail ops@evil.example or www.evil.example, C:\\temp https://opencode.ai/workspace/wrk_01/go";
+  const line = openCodeRetryMessage(message, 1, "opencode");
+  const start = line.indexOf('"') + 1;
+  const quoted = line.slice(start, line.lastIndexOf('"'));
+  const tokens = inlineTokens(quoted);
+  expect(
+    tokens
+      .map((token) => token.type)
+      .filter((type) => type !== "text" && type !== "escape"),
+  ).toEqual([]);
+  const shown = tokens
+    .map((token) => (token.type === "escape" ? token.text : token.raw))
+    .join("");
+  expect(shown).toBe(message);
+  // The whole line lexes with no provider-made link, emphasis or code.
+  for (const token of inlineTokens(line))
+    expect(["link", "strong", "em", "del", "html"]).not.toContain(token.type);
+});
+
+it("words a refusal in the reader's language", () => {
+  const error = {
+    name: "APIError",
+    statusCode: 403,
+    message: FREE_TIER_REFUSAL,
+  };
+  const english = openCodeProviderRefusal(error, "opencode");
+  const spanish = openCodeProviderRefusal(
+    error,
+    "opencode",
+    translatorFor("es").t,
+  );
+  expect(spanish).toContain(FREE_TIER_REFUSAL);
+  expect(spanish).toContain("`opencode`");
+  expect(spanish).not.toBe(english);
+});
+
+it("quotes the provider's retry message with the provider and attempt", () => {
+  for (const message of [
+    "Free usage exceeded, subscribe to Go",
+    "HTTP 503 Service Unavailable",
+  ]) {
+    const copy = openCodeRetryMessage(message, 2, "opencode");
+    expect(copy).toContain("`opencode`");
+    expect(copy).toContain(`"${message}"`);
+    expect(copy).toMatch(/\b2\b.*\b5\b/);
+  }
+  const redacted = openCodeRetryMessage(
+    "rate limit sk-abcdefghijklmnopqrstuvwxyz123456",
+    1,
+    "opencode",
+  );
+  expect(redacted).not.toContain("abcdefghijklmnopqrstuvwxyz123456");
+});
+
+it("keeps the generic retry line when OpenCode sends no message", () => {
+  for (const message of [undefined, "", "  "]) {
+    const copy = openCodeRetryMessage(message, 3, "opencode");
+    expect(copy).toMatch(/provider/i);
+    expect(copy).not.toContain("`opencode`");
+    expect(copy).toMatch(/retrying 3 of 5/);
+  }
+});

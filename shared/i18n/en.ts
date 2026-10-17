@@ -2669,6 +2669,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.interruptHandlerFailed": "Interrupt handler failed: {error}",
   "systemEntries.codexSandboxUnavailable":
     "This container cannot run Codex's sandbox, so commands run with full access inside the container.",
+  "systemEntries.openCodeProviderRefused":
+    'The provider `{provider}` refused the request: "{message}"',
+  "systemEntries.openCodeProviderRetry":
+    'The provider `{provider}` reported: "{message}"; retrying {attempt} of {maxAttempts}.',
   "systemEntries.openCodePreviousSettings":
     "This turn uses your previous Integrations settings.",
   "systemEntries.codexInterruptFallback":

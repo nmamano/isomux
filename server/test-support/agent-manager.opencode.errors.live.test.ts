@@ -13,6 +13,10 @@ const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
 const reaper = createOpenCodeTestReaper();
 afterEach(reaper.afterEach);
 afterAll(reaper.afterAll);
+// Observed from OpenCode Zen on 2026-10-17, as a 403.
+const REFUSAL =
+  "OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building.";
+
 async function until(condition: () => boolean) {
   const deadline = Date.now() + 20_000;
   while (!condition()) {
@@ -27,6 +31,7 @@ for (const scenario of [
   "busy-peer",
   "terminal",
   "retry",
+  "refused",
 ] as const) {
   it.skipIf(!LIVE)(
     `keeps real OpenCode ${scenario} answers on their own turn`,
@@ -36,6 +41,11 @@ for (const scenario of [
       const releaseSummary = Promise.withResolvers<void>();
       let summaryHeld = false;
       const rawErrors: string[] = [];
+      // No compaction summary is held: the second request ends the turn.
+      const single =
+        scenario === "terminal" ||
+        scenario === "retry" ||
+        scenario === "refused";
       const mock = Bun.serve({
         hostname: "127.0.0.1",
         port: 0,
@@ -48,6 +58,11 @@ for (const scenario of [
               { error: { message: "rate limit", type: "rate_limit_error" } },
               { status: 429, headers: { "retry-after-ms": "10" } },
             );
+          if (n === 2 && scenario === "refused")
+            return Response.json(
+              { error: { message: REFUSAL, type: "permission_error" } },
+              { status: 403 },
+            );
           if (n === 2)
             return Response.json(
               {
@@ -58,16 +73,16 @@ for (const scenario of [
               },
               { status: 400 },
             );
-          if (n === 3 && scenario !== "terminal" && scenario !== "retry") {
+          if (n === 3 && !single) {
             summaryHeld = true;
             await releaseSummary.promise;
           }
           const answer =
             n === 1
               ? "BASELINE_REPLY"
-              : n === 3 && scenario !== "terminal" && scenario !== "retry"
+              : n === 3 && !single
                 ? "INTERNAL_SUMMARY"
-                : n === 4 && scenario !== "terminal" && scenario !== "retry"
+                : n === 4 && !single
                   ? "ORIGINAL_REPLY"
                   : "FOLLOWUP_REPLY";
           const chunk = (delta: object, finish_reason: string | null) =>
@@ -166,6 +181,15 @@ for (const scenario of [
           expect(logs().filter((e) => e.kind === "error")).toHaveLength(0);
           expect(rawErrors).toEqual([]);
           expect(requests).toBe(3);
+        } else if (scenario === "refused") {
+          // Task 1a963907: the member reads the provider's own words.
+          await until(
+            () => logs().some((e) => e.kind === "error") && settled(),
+          );
+          const error = logs().find((e) => e.kind === "error")!.content;
+          expect(error).toContain("`control`");
+          expect(error).toContain(`"${REFUSAL}"`);
+          expect(requests).toBe(2);
         } else if (scenario === "terminal") {
           await until(
             () => logs().some((e) => e.kind === "error") && settled(),

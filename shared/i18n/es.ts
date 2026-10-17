@@ -2697,6 +2697,10 @@ Cosas que puedes hacer por él:
     "Falló el gestor de interrupciones: {error}",
   "systemEntries.codexSandboxUnavailable":
     "Este contenedor no puede ejecutar el sandbox de Codex, así que los comandos se ejecutan con acceso completo dentro del contenedor.",
+  "systemEntries.openCodeProviderRefused":
+    'El proveedor `{provider}` rechazó la solicitud: "{message}"',
+  "systemEntries.openCodeProviderRetry":
+    'El proveedor `{provider}` informó: "{message}"; reintento {attempt} de {maxAttempts}.',
   "systemEntries.openCodePreviousSettings":
     "Este turno usa tu configuración anterior de Integraciones.",
   "systemEntries.codexInterruptFallback":

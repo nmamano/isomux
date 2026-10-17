@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { openCodeErrorMessage, openCodeRetryMessage } from "./errors.ts";
+import {
+  openCodeErrorMessage,
+  openCodeProviderRefusal,
+  openCodeRetryMessage,
+} from "./errors.ts";
 import type { NormalizedEvent } from "../types.ts";
 import type {
   ApprovalDecision,
@@ -1377,7 +1381,12 @@ export class OpenCodeTransport {
               retryAttempt = event.attempt;
               sink({
                 kind: "system_text",
-                text: openCodeRetryMessage(event.message, event.attempt),
+                text: openCodeRetryMessage(
+                  event.message,
+                  event.attempt,
+                  splitModel(this.model)[0],
+                  this.words,
+                ),
                 isomuxAuthored: true,
               });
             }
@@ -1548,16 +1557,25 @@ export class OpenCodeTransport {
                 overflowPending = true;
                 continue;
               }
-              const failure = await this.classifyProviderFailure(event.error);
+              const refusal = openCodeProviderRefusal(
+                event.error,
+                splitModel(this.model)[0],
+                this.words,
+              );
+              const failure =
+                refusal === null
+                  ? await this.classifyProviderFailure(event.error)
+                  : null;
               settle({
                 kind: "turn_completed",
                 status: "failed",
                 error:
-                  failure === "model_unavailable"
+                  refusal ??
+                  (failure === "model_unavailable"
                     ? openCodeModelUnavailableFailure(this.model)
                     : failure === "authentication"
                       ? OPENCODE_AUTH_FAILURE
-                      : openCodeErrorMessage(event.error),
+                      : openCodeErrorMessage(event.error)),
               });
               return;
             }

@@ -27,6 +27,11 @@ import type { OpenCodeSupervisor } from "./supervisor.ts";
 import type { OpenCodeAuthorityBroker } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
 import type { NormalizedEvent } from "../types.ts";
+import {
+  translatorFor,
+  type Translator,
+} from "../../../shared/i18n/translate.ts";
+import { openCodeProviderRefusal, openCodeRetryMessage } from "./errors.ts";
 import toolInputSequences from "./fixtures/tool-input-sequences.json";
 
 type ToolUpdate = Parameters<typeof toolUpdateEvents>[1];
@@ -1279,6 +1284,7 @@ describe("OpenCode permission event integration", () => {
     connectedProviders: string[] = [],
     laterTurns: unknown[][] = [],
     stopOnText = false,
+    words?: Translator["t"],
   ) {
     const replies: unknown[] = [];
     const replyIds: string[] = [];
@@ -1332,6 +1338,7 @@ describe("OpenCode permission event integration", () => {
       sessionId: "session-1",
       agent,
       completedStepSink: (value) => contexts.push(value.totalTokens),
+      words,
     });
     const events: NormalizedEvent[] = [];
     for (let turn = 0; turn <= laterTurns.length; turn++) {
@@ -1535,13 +1542,13 @@ describe("OpenCode permission event integration", () => {
     }
   });
 
-  it("shows native retry attempts without settling the turn or exposing provider text", async () => {
+  it("shows native retry attempts with the provider's message without settling the turn", async () => {
     const messages = [
       "SSE read timed out",
-      "Connection reset by server",
+      "Free usage exceeded, subscribe to Go",
       "HTTP 503",
-      "rate limit",
-      "SECRET_CANARY",
+      "",
+      "rate limit sk-abcdefghijklmnopqrstuvwxyz123456",
     ];
     for (const terminal of [false, true]) {
       const result = await runFrames([
@@ -1565,19 +1572,19 @@ describe("OpenCode permission event integration", () => {
       ]);
       const retries = result.events.filter((e) => e.kind === "system_text");
       expect(retries).toHaveLength(5);
-      const causes = [
-        /time/i,
-        /connection/i,
-        /503/,
-        /rate limit/i,
-        /provider/i,
-      ];
       for (const [i, entry] of retries.entries()) {
         expect(entry.isomuxAuthored).toBe(true);
-        expect(entry.text).toMatch(causes[i]);
-        expect(entry.text).toMatch(new RegExp(`retrying ${i + 1} of 5`));
+        expect(entry.text).toMatch(new RegExp(`\\b${i + 1}\\b.*\\b5\\b`));
       }
-      expect(JSON.stringify(result.events)).not.toContain("SECRET_CANARY");
+      for (const i of [0, 1, 2]) {
+        expect(retries[i].text).toContain("`provider`");
+        expect(retries[i].text).toContain(`"${messages[i]}"`);
+      }
+      expect(retries[3].text).not.toContain("`provider`");
+      expect(retries[4].text).toContain("rate limit");
+      expect(JSON.stringify(result.events)).not.toContain(
+        "abcdefghijklmnopqrstuvwxyz123456",
+      );
       expect(
         result.events.filter((e) => e.kind === "turn_completed"),
       ).toHaveLength(1);
@@ -1609,29 +1616,77 @@ describe("OpenCode permission event integration", () => {
     ).toHaveLength(1);
   });
 
-  it("reports the observed model refusal as model unavailable", async () => {
+  // Task 1a963907: the provider's own words, so members see the refusal is
+  // the provider's.
+  it("quotes the provider's refusal instead of blaming the model", async () => {
+    const message =
+      "OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building.";
     const result = await runFrames([
-      {
-        type: "session.error",
-        properties: {
-          sessionID: "session-1",
-          error: {
-            name: "APIError",
-            data: {
-              message:
-                "The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_01M14CXRV15MZRVVQ0ZPQHET0F/go",
-              statusCode: 403,
-              isRetryable: false,
-            },
-          },
+      frame("session.error", {
+        error: {
+          name: "APIError",
+          data: { message, statusCode: 403, isRetryable: false },
         },
-      },
+      }),
+    ]);
+    const last = result.events.at(-1);
+    expect(last).toMatchObject({ kind: "turn_completed", status: "failed" });
+    const error = (last as { error: string }).error;
+    expect(error).toContain("`provider`");
+    expect(error).toContain(`"${message}"`);
+    expect(error).not.toBe(openCodeModelUnavailableFailure("provider/model"));
+  });
+
+  it("words the provider's refusal and retry in the member's language", async () => {
+    const message = "Free usage exceeded, subscribe to Go";
+    const error = { name: "APIError", statusCode: 403, message };
+    const frames = [
+      frame("session.status", {
+        status: { type: "retry", attempt: 1, message },
+      }),
+      frame("session.error", {
+        error: { name: "APIError", data: { message, statusCode: 403 } },
+      }),
+    ];
+    const spanish = translatorFor("es").t;
+    const result = await runFrames(
+      frames,
+      undefined,
+      [],
+      [],
+      false,
+      spanish,
+    );
+    const retry = result.events.find((e) => e.kind === "system_text");
+    expect(retry).toMatchObject({
+      text: openCodeRetryMessage(message, 1, "provider", spanish),
+    });
+    expect(retry).not.toMatchObject({
+      text: openCodeRetryMessage(message, 1, "provider"),
+    });
+    expect(result.events.at(-1)).toEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error: openCodeProviderRefusal(error, "provider", spanish)!,
+    });
+    expect(openCodeProviderRefusal(error, "provider", spanish)).not.toBe(
+      openCodeProviderRefusal(error, "provider"),
+    );
+  });
+
+  it("keeps the model line for a 403 with no provider message", async () => {
+    const result = await runFrames([
+      frame("session.error", {
+        error: {
+          name: "APIError",
+          data: { statusCode: 403, isRetryable: false },
+        },
+      }),
     ]);
     expect(result.events.at(-1)).toEqual({
       kind: "turn_completed",
       status: "failed",
-      error:
-        "OpenCode cannot use model `provider/model`: the provider refused this model. Pick another model with `/model`.",
+      error: openCodeModelUnavailableFailure("provider/model"),
     });
   });
 
