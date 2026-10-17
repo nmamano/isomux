@@ -103,6 +103,11 @@ export interface ManagedAgent {
   // result if it changed during the await - otherwise an in-flight LLM call
   // would stomp on the cleared state when it finally returns.
   topicGenToken: number;
+  // Set by a failed topic. key is "<agentType>:<one-shot model>"; while it
+  // matches, automatic triggers wait until retryAt, and each further failure
+  // doubles the wait. A success clears it; the manual refresh ignores it.
+  // In-memory only.
+  topicBackoff: { key: string; failures: number; retryAt: number } | null;
   // See internal-docs/context-fullness-visibility.md.
   // Latest committed fullness measurement for the CURRENT conversation, or null
   // when none exists (fresh/blank conversation, resumed-but-not-yet-sampled,

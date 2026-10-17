@@ -139,7 +139,9 @@ export interface OpenCodeBackendOptions {
   oneShotTimeoutMs?: number;
 }
 
-const ONE_SHOT_TIMEOUT_MS = 30_000;
+// Free gateway models were measured at 2-6 s on a good run and 37-190 s on
+// a slow one (2026-10-17); the agent manager backs off after a failure.
+const ONE_SHOT_TIMEOUT_MS = 120_000;
 const ONE_SHOT_CLEANUP_TIMEOUT_MS = 1_000;
 
 function productionModel(model: string): string {

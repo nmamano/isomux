@@ -2507,6 +2507,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       topicGenerating: false,
       topicMessageCount: persistedTopicCount,
       topicGenToken: 0,
+      topicBackoff: null,
       contextUsage: null,
       contextGen: 0,
       contextSampleSeq: 0,
@@ -3917,13 +3918,39 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return textCount - managed.topicMessageCount >= TOPIC_REGEN_THRESHOLD;
   }
 
-  // Generate a short topic description for an agent's conversation
-  async function generateTopic(agentId: string) {
+  // After a failed topic, automatic triggers wait this long for the same
+  // model, doubling per further failure up to the cap. Without it a slow
+  // model failed and logged once per message.
+  const TOPIC_RETRY_BASE_MS = 10 * 60_000;
+  const TOPIC_RETRY_MAX_MS = 24 * 60 * 60_000;
+
+  // Generate a short topic description for an agent's conversation. The
+  // manual refresh passes manual: true to skip the failure backoff.
+  async function generateTopic(
+    agentId: string,
+    opts: { manual?: boolean } = {},
+  ) {
     const managed = agents.get(agentId);
     if (
       !managed ||
       managed.topicGenerating ||
       !managed.info.capabilities.topicGen
+    )
+      return;
+    // Topic-gen model is backend-specific: Claude uses sonnet (cheap); Codex
+    // uses its default GPT-5 family. Per-backend `oneShotPrompt` honors the
+    // modelFamily arg, so we let the backend pick something sensible.
+    const topicModel =
+      managed.info.agentType === "claude" ? "sonnet" : managed.info.modelFamily;
+    // The backoff follows the model that answers the one-shot. A /clear keeps
+    // it: the model is still slow.
+    const backoffKey = `${managed.info.agentType}:${topicModel}`;
+    const backoff = managed.topicBackoff;
+    if (
+      !opts.manual &&
+      backoff &&
+      backoff.key === backoffKey &&
+      Date.now() < backoff.retryAt
     )
       return;
     managed.topicGenerating = true;
@@ -3937,6 +3964,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return;
     }
     if (!agents.has(agentId) || managed.topicGenToken !== startToken) return;
+    // A failure puts these back, so a failed refresh keeps the old label.
+    const previousTopic = managed.info.topic;
+    const previousStale = managed.info.topicStale;
     for (const event of officeState.updateAgent(agentId, {
       topic: "...",
       topicStale: false,
@@ -3988,13 +4018,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     try {
       const backend = getBackend(managed.info.agentType);
-      // Topic-gen model is backend-specific: Claude uses sonnet (cheap); Codex
-      // uses its default GPT-5 family. Per-backend `oneShotPrompt` honors the
-      // modelFamily arg, so we let the backend pick something sensible.
-      const topicModel =
-        managed.info.agentType === "claude"
-          ? "sonnet"
-          : managed.info.modelFamily;
       const text = await backend.oneShotPrompt(prompt, {
         cwd: managed.info.cwd,
         modelFamily: topicModel,
@@ -4024,12 +4047,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       ) {
         // A signed-out backend can return its auth notice as a successful
         // one-shot result. Treat it like the quiet auth-error catch below,
-        // rather than publishing provider copy as the topic. A null topic
-        // retries this cheap subprocess on each message until sign-in; keep
-        // that self-resolving cost instead of blocking the recovered account.
-        for (const event of officeState.updateAgent(agentId, { topic: null }))
+        // rather than publishing provider copy as the topic, and put back the
+        // earlier label. With no earlier label, a null topic retries this
+        // cheap subprocess on each message until sign-in; keep that
+        // self-resolving cost (no backoff) instead of blocking the recovered
+        // account.
+        for (const event of officeState.updateAgent(agentId, {
+          topic: previousTopic,
+          topicStale: previousStale,
+        }))
           emit(event);
       } else if (agents.has(agentId) && managed.topicGenToken === startToken) {
+        managed.topicBackoff = null;
         const topic = text.trim().slice(0, 80);
         managed.topicMessageCount = textEntries.length;
         // officeState.setTopic mutates topic + topicStale, fires persistAll via onChange,
@@ -4054,11 +4083,32 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // chat, so the server-side log is just noise. Suppress those
       // specifically; keep other failures visible for debugging.
       if (!detectAgentAuthError(managed, text)) {
-        console.error(`Topic generation failed for ${agentId}:`, text);
+        const failures =
+          managed.topicBackoff?.key === backoffKey
+            ? managed.topicBackoff.failures + 1
+            : 1;
+        const waitMs = Math.min(
+          TOPIC_RETRY_BASE_MS * 2 ** (failures - 1),
+          TOPIC_RETRY_MAX_MS,
+        );
+        managed.topicBackoff = {
+          key: backoffKey,
+          failures,
+          retryAt: Date.now() + waitMs,
+        };
+        console.error(
+          `Topic generation failed for ${agentId}:`,
+          text,
+          `(next automatic attempt in ${Math.round(waitMs / 60_000)} min)`,
+        );
       }
-      // Silently fail - clear the "..." placeholder, but only if it's still ours
+      // Silently fail - put back the label from before the "..." placeholder,
+      // but only if the placeholder is still ours
       if (agents.has(agentId) && managed.topicGenToken === startToken) {
-        for (const event of officeState.updateAgent(agentId, { topic: null }))
+        for (const event of officeState.updateAgent(agentId, {
+          topic: previousTopic,
+          topicStale: previousStale,
+        }))
           emit(event);
       }
     } finally {
@@ -6413,6 +6463,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       topicGenerating: false,
       topicMessageCount: 0,
       topicGenToken: 0,
+      topicBackoff: null,
       contextUsage: null,
       contextGen: 0,
       contextSampleSeq: 0,
@@ -11179,7 +11230,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function resetTopic(agentId: string) {
     const managed = agents.get(agentId);
     if (!managed) return;
-    void generateTopic(agentId); // fire-and-forget
+    void generateTopic(agentId, { manual: true }); // fire-and-forget
   }
 
   const terminalDeps: TerminalDeps = {
