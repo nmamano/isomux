@@ -204,7 +204,13 @@ const cases: Array<
   ["body", "OpenCode turn failed", "Error", undefined, "event_stream"],
   ["recover", "OpenCode turn failed", "Error", undefined, "recovery"],
   ["plugin", "OpenCode turn failed", "Error", 503, "safety_plugin"],
-  ["reader", "OpenCode event stream failed", "Error", undefined, "event_stream"],
+  [
+    "reader",
+    "OpenCode event stream failed",
+    "Error",
+    undefined,
+    "event_stream",
+  ],
   ["prompt", "OpenCode turn failed", "Error", 504, "prompt"],
   [
     "end",

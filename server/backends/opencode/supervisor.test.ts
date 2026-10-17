@@ -554,20 +554,8 @@ describe("OpenCode shared server supervisor", () => {
       OPENCODE_DISABLE_SHARE: "0",
       ISOMUX_OPENCODE_DEBUG: "1",
     };
-    const first = makeSupervisor(
-      path,
-      config,
-      1000,
-      hostileAmbient,
-      binary,
-    );
-    const second = makeSupervisor(
-      path,
-      config,
-      1000,
-      hostileAmbient,
-      binary,
-    );
+    const first = makeSupervisor(path, config, 1000, hostileAmbient, binary);
+    const second = makeSupervisor(path, config, 1000, hostileAmbient, binary);
     const [leaseA, leaseB] = await Promise.all([
       first.acquire(),
       second.acquire(),
@@ -946,10 +934,7 @@ describe("OpenCode shared server supervisor", () => {
     );
     if (typeof next === "string") throw new Error(`new turn ${next}`);
     expect(next.pid).toBe(priorPid);
-    const models = await within(
-      discoverOpenCodeModels(supervisor, path),
-      5000,
-    );
+    const models = await within(discoverOpenCodeModels(supervisor, path), 5000);
     expect(models).toEqual([expect.objectContaining({ id: "fake/m" })]);
     expect(alive(priorPid)).toBe(true);
     expect(await launches()).toBe(1);
@@ -1325,9 +1310,7 @@ describe("OpenCode shared server supervisor", () => {
     const entered = next.beginTurn();
     while (!gated) await Bun.sleep(5);
     long.endTurn();
-    expect(await dies(priorPid, 1000), "the entry's hold keeps it").toBe(
-      false,
-    );
+    expect(await dies(priorPid, 1000), "the entry's hold keeps it").toBe(false);
     open();
     await entered;
     expect(next.pid).toBe(priorPid);

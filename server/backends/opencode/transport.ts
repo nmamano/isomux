@@ -467,9 +467,7 @@ export class OpenCodeTransport {
     input?: number;
     output?: number;
   } | null> {
-    const models = await this.outsideTurn(() =>
-      this.catalog().catch(() => []),
-    );
+    const models = await this.outsideTurn(() => this.catalog().catch(() => []));
     const model = models.find((entry) => entry.id === this.model);
     if (model?.contextLimit === undefined) return null;
     return {

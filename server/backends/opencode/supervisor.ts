@@ -544,7 +544,9 @@ export class OpenCodeSupervisor {
       if ((await this.replaceServerIfRequested()) !== "replaced") return;
       if (this.leases > 0 && !this.record) await this.ensureServer();
     })().catch(() => {
-      console.error("[opencode] Server replacement after the last turn failed.");
+      console.error(
+        "[opencode] Server replacement after the last turn failed.",
+      );
     });
   }
 
