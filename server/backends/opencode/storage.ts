@@ -1,5 +1,11 @@
 import { Database, SQLiteError } from "bun:sqlite";
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { inAgentSpace } from "../../agent-host.ts";
@@ -83,7 +89,19 @@ export function inspectOpenCodeDatabase(
   databasePath: string,
   sessionId: string,
 ): StoredSessionState {
-  if (!existsSync(databasePath)) return "missing";
+  // The profile is owner-only (start-server.ts). For another user, such as
+  // the server user in split mode, a denied stat is no answer: existsSync
+  // would read it as missing and drop a stored session.
+  try {
+    statSync(databasePath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return "missing";
+    throw new Error(
+      `OpenCode session storage is not readable (${code ?? "error"}).`,
+      { cause: error },
+    );
+  }
 
   let snapshotDir: string | null = null;
   let path = databasePath;

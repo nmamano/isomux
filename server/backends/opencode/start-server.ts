@@ -7,6 +7,7 @@ import {
   readFile,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -28,6 +29,7 @@ import {
 } from "./config-layers.ts";
 import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
 import {
+  OPENCODE_LOG_ROTATE_BYTES,
   OPENCODE_SERVER_USERNAME as username,
   waitHealthy,
 } from "./server-startup.ts";
@@ -161,6 +163,21 @@ function sanitizedChildEnvironment(): NodeJS.ProcessEnv {
 }
 
 await mkdir(profileDir, { recursive: true });
+// The profile holds sign-ins (opencode.db) and OpenCode's log: owner-only, at
+// every start and adoption, so an older profile converges too. The folder
+// closes everything below it; the database files are owner-only as well, in
+// case the folder mode is widened. A profile this user cannot change stays as
+// it is: the server still starts.
+try {
+  await chmod(profileDir, 0o700);
+  const database = join(profileDir, "data", "opencode", "opencode.db");
+  for (const file of [database, `${database}-wal`, `${database}-shm`])
+    if (existsSync(file)) await chmod(file, 0o600);
+} catch (error) {
+  process.stderr.write(
+    `The OpenCode profile keeps its modes: ${(error as NodeJS.ErrnoException).code ?? "error"}.\n`,
+  );
+}
 // An adopted server can be importing the file for a new folder: a changed
 // build replaces it in one rename, never by truncation.
 if (
@@ -207,13 +224,14 @@ const configOverride = JSON.stringify(
 await markPluginSdkInstalled(join(profileDir, "config", "opencode"));
 // OpenCode appends every log line, provider error bodies included, to
 // XDG_DATA_HOME/opencode/log/opencode.log (openCodeLogPath in
-// profile-paths.ts) and keeps it. This runs before the server does, so the
-// folder exists owner-only before OpenCode writes into it. OpenCode opens the
-// file for append, so a file made owner-only here stays that way; an older
-// profile converges at its next start that is not an adoption. Only the log
-// folder is owner-only: the folders above it keep their modes. A log this
-// user cannot change (another user's, from before split mode) stays as it is:
-// the server still starts.
+// profile-paths.ts) and never rotates it. This runs before the server does
+// (an adoption exits above), so the folder exists owner-only before OpenCode
+// writes into it, and no server writes the file while a log over
+// OPENCODE_LOG_ROTATE_BYTES moves to opencode.log.1, replacing the one before.
+// OpenCode opens the file for append, so a file made owner-only here stays
+// that way; an older profile converges at its next start that is not an
+// adoption. A log this user cannot change (another user's, from before split
+// mode) stays as it is: the server still starts.
 try {
   const openCodeDataDir = join(profileDir, "data", "opencode");
   await mkdir(openCodeDataDir, { recursive: true });
@@ -221,6 +239,14 @@ try {
   await mkdir(openCodeLogDir, { recursive: true, mode: 0o700 });
   await chmod(openCodeLogDir, 0o700);
   const openCodeLog = join(openCodeLogDir, "opencode.log");
+  const size = await stat(openCodeLog).then(
+    (info) => info.size,
+    () => 0,
+  );
+  if (size > OPENCODE_LOG_ROTATE_BYTES) {
+    await rename(openCodeLog, `${openCodeLog}.1`);
+    await chmod(`${openCodeLog}.1`, 0o600);
+  }
   await (await open(openCodeLog, "a", 0o600)).close();
   await chmod(openCodeLog, 0o600);
 } catch (error) {

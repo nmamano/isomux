@@ -406,6 +406,10 @@ export class OpenCodeTransport {
     load: Promise<DiscoveredOpenCodeModel[]>;
   } | null = null;
   private sessionId: string | null = null;
+  private initializing: Promise<{
+    sessionId: string;
+    settle: () => void;
+  }> | null = null;
   private abortController: AbortController | null = null;
   private activeTurn = false;
   private abortRequested = false;
@@ -537,44 +541,93 @@ export class OpenCodeTransport {
     return { notice: openCodeEffortUnavailableNotice(this.model, this.effort) };
   }
 
-  async initialize(
+  // One initialization at a time, so one lease. The caller whose initialize
+  // acquires owns the hold that acquire takes and ends it with the settle it
+  // gets back. A caller that waited for another one's initialization runs as
+  // on an initialized transport: no hold outside a turn, and a turn takes its
+  // own at beginTurn. A failed initialization ends its own hold.
+  private async initialize(
     sink: EventSink,
     withinTurn = false,
     onStep?: (step: OpenCodeTurnStep) => void,
-  ): Promise<string> {
-    if (this.sessionId) return this.sessionId;
+  ): Promise<{ sessionId: string; settle: () => void }> {
+    if (this.sessionId) return { sessionId: this.sessionId, settle: () => {} };
     onStep?.("acquire");
-    this.lease = await this.supervisor.acquire();
-    // A turn-sending transport loads the catalog alongside POST /session.
-    if (this.systemPrompt !== undefined) {
-      const load = this.catalog();
-      load.catch(() => {});
-      this.prefetchedCatalog = { serverKey: this.lease.serverKey, load };
+    while (this.initializing) {
+      await this.initializing.catch(() => {});
+      if (this.sessionId) {
+        sink({
+          kind: "system_init",
+          sessionId: this.sessionId,
+          model: this.model,
+        });
+        return { sessionId: this.sessionId, settle: () => {} };
+      }
     }
-    if (this.resumedSessionId) {
-      this.sessionId = this.resumedSessionId;
-    } else {
-      onStep?.("session");
-      const init = {
-        method: "POST",
-        body: JSON.stringify({ title: "Isomux OpenCode session" }),
-      };
-      const body = allowSession(
-        withinTurn
-          ? await this.withinDeadline(
-              (signal) =>
-                this.request("/session", { ...init, signal }).then((r) =>
-                  r.json(),
-                ),
-              { notice: sink },
-            )
-          : await this.request("/session", init).then((r) => r.json()),
-      );
-      this.contractShapeSink?.("http:session:{id:string}");
-      this.sessionId = body.id;
+    if (this.closed) throw new Error("OpenCode transport is closed.");
+    const run = (async () => {
+      try {
+        return await this.openSession(sink, withinTurn, onStep);
+      } finally {
+        this.initializing = null;
+      }
+    })();
+    this.initializing = run;
+    return run;
+  }
+
+  private async openSession(
+    sink: EventSink,
+    withinTurn: boolean,
+    onStep?: (step: OpenCodeTurnStep) => void,
+  ): Promise<{ sessionId: string; settle: () => void }> {
+    const lease = await this.supervisor.acquire();
+    // close() ran during the acquire and had no lease to release.
+    if (this.closed) {
+      lease.release();
+      throw new Error("OpenCode transport is closed.");
     }
-    sink({ kind: "system_init", sessionId: this.sessionId, model: this.model });
-    return this.sessionId;
+    // An initialization that failed after its acquire left its lease.
+    this.lease?.release();
+    this.lease = lease;
+    const settle = () => lease.settle();
+    try {
+      // A turn-sending transport loads the catalog alongside POST /session.
+      if (this.systemPrompt !== undefined) {
+        const load = this.catalog();
+        load.catch(() => {});
+        this.prefetchedCatalog = { serverKey: lease.serverKey, load };
+      }
+      let sessionId: string;
+      if (this.resumedSessionId) {
+        sessionId = this.resumedSessionId;
+      } else {
+        onStep?.("session");
+        const init = {
+          method: "POST",
+          body: JSON.stringify({ title: "Isomux OpenCode session" }),
+        };
+        const body = allowSession(
+          withinTurn
+            ? await this.withinDeadline(
+                (signal) =>
+                  this.request("/session", { ...init, signal }).then((r) =>
+                    r.json(),
+                  ),
+                { notice: sink },
+              )
+            : await this.request("/session", init).then((r) => r.json()),
+        );
+        this.contractShapeSink?.("http:session:{id:string}");
+        sessionId = body.id;
+      }
+      this.sessionId = sessionId;
+      sink({ kind: "system_init", sessionId, model: this.model });
+      return { sessionId, settle };
+    } catch (error) {
+      settle();
+      throw error;
+    }
   }
 
   async send(parts: OpenCodePromptPart[], sink: EventSink): Promise<void> {
@@ -680,10 +733,12 @@ export class OpenCodeTransport {
       return;
     }
     this.folderSetupNoticeShown = false;
+    let settleAcquire = () => {};
     try {
-      const sessionId = await this.initialize(emit, true, (next) => {
+      const { sessionId, settle } = await this.initialize(emit, true, (next) => {
         step = next;
       });
+      settleAcquire = settle;
       step = "begin_turn";
       await this.lease!.beginTurn();
       turnStarted = true;
@@ -770,7 +825,7 @@ export class OpenCodeTransport {
     } finally {
       // A turn that ended before beginTurn, even a silent one after close(),
       // still holds its acquire; after beginTurn this is a no-op.
-      this.lease?.settle();
+      settleAcquire();
     }
   }
 
@@ -858,10 +913,11 @@ export class OpenCodeTransport {
   private async outsideTurn<T>(
     work: (sessionId: string) => Promise<T>,
   ): Promise<T> {
+    const { sessionId, settle } = await this.initialize(() => undefined);
     try {
-      return await work(await this.initialize(() => undefined));
+      return await work(sessionId);
     } finally {
-      this.lease?.settle();
+      settle();
     }
   }
 

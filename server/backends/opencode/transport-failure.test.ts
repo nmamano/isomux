@@ -58,9 +58,12 @@ function fixture(
   stage: Stage,
   onPrompt = () => {},
   acquireGate?: Promise<void>,
+  messageGate?: Promise<void>,
 ) {
   let ended = 0;
   let settles = 0;
+  let acquires = 0;
+  let releases = 0;
   let prompts = 0;
   let recoveries = 0;
   let eventStream: ReadableStreamDefaultController | undefined;
@@ -151,21 +154,29 @@ function fixture(
     }
     if (url.pathname === "/provider")
       return Response.json({ all: [], connected: [] });
-    if (url.pathname.endsWith("/message")) return Response.json([]);
+    if (url.pathname.endsWith("/message")) {
+      if (messageGate) await messageGate;
+      return Response.json([]);
+    }
     return Response.json(true);
   }) as typeof fetch);
   restoreFetch = () => fetchSpy.mockRestore();
   const supervisor = {
     acquire: async () => {
+      acquires++;
       if (acquireGate) await acquireGate;
       if (stage === "acquire") throw failure;
+      // As in the supervisor, release() also ends a hold not yet settled.
+      let held = true;
+      const endHold = () => {
+        if (held) settles++;
+        held = false;
+      };
       return {
         pid: process.pid,
         baseUrl: "http://127.0.0.1:1",
         authHeader: "Basic synthetic",
-        settle: () => {
-          settles++;
-        },
+        settle: endHold,
         beginTurn: async () => {
           if (stage === "begin") throw failure;
         },
@@ -178,12 +189,17 @@ function fixture(
         },
         serverStopped: () => false,
         markUnresponsive: () => {},
-        release: () => {},
+        release: () => {
+          endHold();
+          releases++;
+        },
       };
     },
   } as unknown as OpenCodeSupervisor;
   return {
     supervisor,
+    acquires: () => acquires,
+    releases: () => releases,
     ended: () => ended,
     prompts: () => prompts,
     recoveries: () => recoveries,
@@ -330,6 +346,117 @@ it("settles the acquire of a turn that fails silently after close", async () => 
   await sent;
   expect(events, "a closed transport stays silent").toEqual([]);
   expect(harness.settles()).toBe(1);
+});
+
+// Task 63efb5b1: the supervisor counts a lease until its release. One that
+// came back after close() was never released, so the idle reap never armed.
+it("releases a lease that an acquire returns after close", async () => {
+  let open = () => {};
+  const gate = new Promise<void>((resolve) => (open = resolve));
+  const harness = fixture("end", () => {}, gate);
+  const transport = new OpenCodeTransport({
+    supervisor: harness.supervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+  });
+  const read = transport.getSessionMessages().then(
+    () => "read",
+    () => "rejected",
+  );
+  transport.close();
+  open();
+  const outcome = await read;
+  expect(harness.acquires()).toBe(1);
+  expect(harness.releases()).toBe(1);
+  expect(outcome).toBe("rejected");
+});
+
+it("releases the lease of a failed initialization when the next one acquires", async () => {
+  const harness = fixture("session");
+  const transport = new OpenCodeTransport({
+    supervisor: harness.supervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+  });
+  try {
+    for (let attempt = 0; attempt < 2; attempt++)
+      expect(
+        await transport.getSessionMessages().then(
+          () => "read",
+          () => "rejected",
+        ),
+      ).toBe("rejected");
+    expect(harness.acquires()).toBe(2);
+    expect(harness.releases()).toBe(1);
+  } finally {
+    transport.close();
+  }
+  expect(harness.releases()).toBe(2);
+});
+
+// Task 63efb5b1: two initializations in flight both acquired, and the second
+// lease replaced the first, which was never released or settled.
+it("shares one acquire between two callers in flight, and only its owner ends the hold", async () => {
+  let openAcquire = () => {};
+  const acquireGate = new Promise<void>((resolve) => (openAcquire = resolve));
+  let openMessages = () => {};
+  const messageGate = new Promise<void>((resolve) => (openMessages = resolve));
+  const harness = fixture("end", () => {}, acquireGate, messageGate);
+  const transport = new OpenCodeTransport({
+    supervisor: harness.supervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+  });
+  try {
+    let read = false;
+    const owner = transport.getSessionMessages().then(() => {
+      read = true;
+    });
+    const joiner = transport.deleteSession();
+    openAcquire();
+    await joiner;
+    expect(harness.acquires()).toBe(1);
+    expect(read, "the owner's work still runs").toBe(false);
+    expect(harness.settles(), "the joiner ends no hold").toBe(0);
+    openMessages();
+    await owner;
+    expect(harness.settles()).toBe(1);
+  } finally {
+    transport.close();
+  }
+  expect(harness.releases()).toBe(1);
+});
+
+it("starts a turn that waited for another caller's initialization with the session", async () => {
+  let openAcquire = () => {};
+  const acquireGate = new Promise<void>((resolve) => (openAcquire = resolve));
+  const harness = fixture("end", () => {}, acquireGate);
+  const events: NormalizedEvent[] = [];
+  const transport = new OpenCodeTransport({
+    supervisor: harness.supervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+    systemPrompt: "system",
+  });
+  try {
+    const read = transport.getSessionMessages();
+    const sent = transport.send([{ type: "text", text: "go" }], (event) =>
+      events.push(event),
+    );
+    openAcquire();
+    await Promise.all([read, sent]);
+    expect(harness.acquires()).toBe(1);
+    expect(events.filter((event) => event.kind === "system_init")).toEqual([
+      {
+        kind: "system_init",
+        sessionId: "failure-session",
+        model: "provider/model",
+      },
+    ]);
+    expect(harness.ended(), "the turn began").toBe(1);
+  } finally {
+    transport.close();
+  }
 });
 
 it("settles the acquire of work outside a turn", async () => {

@@ -267,7 +267,7 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 
 ### 8.1 State files
 
-All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `secrets/`, `mcp-servers/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files and the secrets hold their values as plain text. `secrets/` also holds the placeholder key and the office CA key. A registered MCP server's header holds its secret's placeholder, never the value, so the config file of each OpenCode profile (`opencode/profiles/<key>/opencode.json`, mode 0600) holds no value.
+All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `secrets/`, `mcp-servers/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `pager-settings.json`, `provider-homes/`, each OpenCode profile `opencode/profiles/<key>/`) have mode 0600 or 0700. The managed environment files and the secrets hold their values as plain text. `secrets/` also holds the placeholder key and the office CA key. A registered MCP server's header holds its secret's placeholder, never the value, so the config file of each OpenCode profile (`opencode/profiles/<key>/opencode.json`, mode 0600) holds no value.
 
 ### 8.2 Backups
 

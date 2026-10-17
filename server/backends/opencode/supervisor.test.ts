@@ -13,19 +13,23 @@ import {
   rm,
   stat,
   symlink,
+  truncate,
   writeFile,
 } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { homedir, tmpdir } from "node:os";
 import { STATE_ROOT } from "../../config.ts";
+import { localAgentHost, setAgentHost } from "../../agent-host.ts";
 import {
   OpenCodeSupervisor,
   openCodeConfigFor,
   openCodeSupervisorForEnvironment,
 } from "./supervisor.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
+import { openCodeLogPath } from "./profile-paths.ts";
+import { OPENCODE_LOG_ROTATE_BYTES } from "./server-startup.ts";
 import { markPluginSdkInstalled } from "./config-layers.ts";
 import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
 import {
@@ -412,7 +416,7 @@ describe("OpenCode shared server supervisor", () => {
     },
   );
 
-  it("makes only the log folder owner-only in a new profile", async () => {
+  it("makes the profile and the log folder owner-only in a new profile, and leaves the folders between them alone", async () => {
     const path = await root();
     const { binary } = await makeHealthOnlyBinary(path);
     const supervisor = makeSupervisor(
@@ -430,12 +434,73 @@ describe("OpenCode shared server supervisor", () => {
       folderDefault,
       "the umask leaves a folder mode to tell apart",
     ).not.toBe(0o700);
+    expect(await mode(supervisor.profileDir)).toBe(0o700);
     expect(await mode(join(data, "opencode", "log"))).toBe(0o700);
     expect(await mode(join(data, "opencode", "log", "opencode.log"))).toBe(
       0o600,
     );
     expect(await mode(data)).toBe(folderDefault);
     expect(await mode(join(data, "opencode"))).toBe(folderDefault);
+    lease.release();
+  });
+
+  // Task 8ee6d90e: opencode.db holds OpenCode's account and credential
+  // tables, and OpenCode creates it, its folders and the profile readable by
+  // other users.
+  it("makes an older profile and its database owner-only at a start and at an adoption", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const config = gateConfig(mockProvider());
+    const first = makeSupervisor(path, config, 1000, {}, binary);
+    const database = join(first.profileDir, "data", "opencode", "opencode.db");
+    const files = [database, `${database}-wal`, `${database}-shm`];
+    const widen = async () => {
+      await chmod(first.profileDir, 0o775);
+      for (const file of files) await chmod(file, 0o644);
+    };
+    const mode = async (target: string) => (await stat(target)).mode & 0o777;
+    await mkdir(join(first.profileDir, "data", "opencode"), {
+      recursive: true,
+    });
+    for (const file of files) await writeFile(file, "");
+    await widen();
+    const lease = await first.acquire();
+    expect(await mode(first.profileDir)).toBe(0o700);
+    for (const file of files) expect(await mode(file), file).toBe(0o600);
+
+    await widen();
+    const second = makeSupervisor(path, config, 1000, {}, binary);
+    const adopted = await second.acquire();
+    expect(adopted.pid, "the second supervisor adopted").toBe(lease.pid);
+    expect(await mode(first.profileDir)).toBe(0o700);
+    for (const file of files) expect(await mode(file), file).toBe(0o600);
+    adopted.release();
+    lease.release();
+  });
+
+  // Task 8ee6d90e: OpenCode 1.18.35 appends to its log and never rotates it.
+  it("moves a log over the size bound aside at a start, replacing the older one", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      binary,
+    );
+    const log = openCodeLogPath(supervisor.profileDir);
+    await mkdir(dirname(log), { recursive: true });
+    await writeFile(`${log}.1`, "oldest run\n");
+    await writeFile(log, "");
+    await truncate(log, OPENCODE_LOG_ROTATE_BYTES + 1);
+    await chmod(log, 0o664);
+    const lease = await supervisor.acquire();
+    const mode = async (target: string) => (await stat(target)).mode & 0o777;
+    expect((await stat(`${log}.1`)).size).toBe(OPENCODE_LOG_ROTATE_BYTES + 1);
+    expect(await mode(`${log}.1`)).toBe(0o600);
+    expect((await stat(log)).size).toBe(0);
+    expect(await mode(log)).toBe(0o600);
     lease.release();
   });
 
@@ -1361,6 +1426,121 @@ describe("OpenCode shared server supervisor", () => {
     expect(existsSync(marker)).toBe(false);
     expect(alive(priorPid)).toBe(false);
     lease.release();
+  }, 20_000);
+
+  // Task 63efb5b1: the server that an unresponsive mark starts under a
+  // pending replacement already has the new environment.
+  it("restarts no server at idle after a mark under a pending replacement started one", async () => {
+    const path = await root();
+    const { supervisor, long, priorPid } = await pendingReplacement(path);
+    const entering = await supervisor.acquire();
+    entering.markUnresponsive(priorPid, true);
+    await entering.beginTurn();
+    const startedPid = entering.pid;
+    expect(startedPid).not.toBe(priorPid);
+    await expectChildEnvironment(startedPid, { S4_ENV_CANARY: "after" });
+    entering.endTurn();
+    long.endTurn();
+    expect(await dies(startedPid, 1000), "no second replacement").toBe(false);
+    expect(long.pid).toBe(startedPid);
+    entering.release();
+    long.release();
+  }, 20_000);
+
+  // Task 63efb5b1: a config change (an MCP server edit) is pending only by
+  // the record's config revision.
+  it("keeps the server for a config change while a turn runs, and replaces it with the new config when the turn ends", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      {},
+      binary,
+    );
+    const long = await supervisor.acquire();
+    await long.beginTurn();
+    const priorPid = long.pid;
+    const revision = async () =>
+      (JSON.parse(await readFile(supervisor.recordPath, "utf8")) as {
+        configRevision: string;
+      }).configRevision;
+    const priorRevision = await revision();
+    const permission = { bash: "ask", edit: "ask", question: "deny" };
+    supervisor.updateConfiguration({ share: "disabled", permission });
+    const next = await within(supervisor.acquire(), 5000);
+    if (typeof next === "string") throw new Error(`acquire ${next}`);
+    expect(next.pid, "the busy server stays").toBe(priorPid);
+    expect(alive(priorPid)).toBe(true);
+    next.release();
+    long.endTurn();
+    expect(await dies(priorPid), "replaced at the turn's end").toBe(true);
+    const after = await supervisor.acquire();
+    expect(after.pid).not.toBe(priorPid);
+    expect(await revision()).not.toBe(priorRevision);
+    const written = JSON.parse(
+      await readFile(join(supervisor.profileDir, "opencode.json"), "utf8"),
+    ) as { permission?: unknown };
+    expect(written.permission).toEqual(permission);
+    after.release();
+    long.release();
+  }, 20_000);
+
+  // Task 63efb5b1: a start in flight while a replacement ran brought up a
+  // server with an older environment, and the replacement then cleared the
+  // newer request.
+  it("replaces a server that a start in flight brought up with an older environment", async () => {
+    const path = await root();
+    const { supervisor, long, priorPid } = await pendingReplacement(path);
+    let open = () => {};
+    let gate: Promise<void> | null = new Promise<void>(
+      (resolve) => (open = resolve),
+    );
+    let gated = false;
+    setAgentHost({
+      ...localAgentHost,
+      run: async (argv, options) => {
+        const wait = gate;
+        if (wait && options?.env?.OPENCODE_SERVER_ACTION !== "stop") {
+          gate = null;
+          gated = true;
+          await wait;
+        }
+        return localAgentHost.run(argv, options);
+      },
+    });
+    try {
+      // The last turn's end replaces the server; the start for the retained
+      // lease waits at the gate with the second environment.
+      long.endTurn();
+      while (!gated) await Bun.sleep(5);
+      expect(alive(priorPid)).toBe(false);
+      supervisor.updateLaunchEnvironment(
+        {
+          OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
+          S4_ENV_CANARY: "third",
+        },
+        "revision-third",
+      );
+      const next = await supervisor.acquire();
+      const thirdPid = next.pid;
+      await expectChildEnvironment(thirdPid, { S4_ENV_CANARY: "third" });
+      open();
+      // The gated start replaces that server with the second environment.
+      const deadline = Date.now() + 5000;
+      while (next.pid === thirdPid && Date.now() < deadline)
+        await Bun.sleep(25);
+      expect(alive(thirdPid), "the gated start ran").toBe(false);
+      await expectChildEnvironment(next.pid, { S4_ENV_CANARY: "after" });
+      await next.beginTurn();
+      await expectChildEnvironment(next.pid, { S4_ENV_CANARY: "third" });
+      next.endTurn();
+      next.release();
+    } finally {
+      setAgentHost(localAgentHost);
+      long.release();
+    }
   }, 20_000);
 
   it.each(["exit 1", "kill -KILL $$"])(

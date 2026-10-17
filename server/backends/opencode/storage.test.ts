@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { inspectOpenCodeDatabase } from "./storage.ts";
@@ -61,6 +67,26 @@ describe("OpenCode stored session inspection", () => {
     expect(inspectOpenCodeDatabase(target, "wal")).toBe("durable");
     source.database.close();
   });
+
+  // Task 8ee6d90e: the profile is owner-only. For another user a denied stat
+  // must keep the stored id, never read as a missing session.
+  it.skipIf(process.getuid?.() === 0)(
+    "fails instead of answering missing when the folder denies access",
+    () => {
+      const { root, path, database } = fixture();
+      database.query("INSERT INTO session (id) VALUES (?)").run("durable");
+      database.close();
+      expect(inspectOpenCodeDatabase(join(root, "absent.db"), "durable")).toBe(
+        "missing",
+      );
+      chmodSync(root, 0o600);
+      try {
+        expect(() => inspectOpenCodeDatabase(path, "durable")).toThrow();
+      } finally {
+        chmodSync(root, 0o700);
+      }
+    },
+  );
 
   it("fails loudly on schema drift and corruption", () => {
     const root = mkdtempSync(join(tmpdir(), "isomux-opencode-storage-bad-"));

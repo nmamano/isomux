@@ -829,8 +829,12 @@ but are never persisted.
 
 Isomux does not keep a copy of the server's output below `STATE_ROOT`.
 OpenCode itself appends the same lines to `data/opencode/log/opencode.log` in
-the profile and keeps that file across servers. The server start makes its
-folder 0700 and the file 0600, and a failed turn's journal line names it. A
+the profile and keeps that file across servers; OpenCode 1.18.35 never rotates
+it. The server start makes its folder 0700 and the file 0600, and moves a file
+over 10 MB to `opencode.log.1`, replacing the older one. A failed turn's
+journal line names the log. Every start and adoption also makes the profile
+folder 0700 and `opencode.db` with its `-wal` and `-shm` files 0600: the
+database holds OpenCode's account and credential tables. A
 startup stops after one non-bind error. For one diagnostic run, an operator can set
 `ISOMUX_OPENCODE_DEBUG=1`; this keeps private startup output in a mode-0600
 directory below `/tmp`. The operator must treat that output as secret-bearing

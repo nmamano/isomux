@@ -9,6 +9,9 @@ import { parseOpenCodeServerPort } from "./server-port.ts";
 // 12.30-30.17 s (load 26.3-33.3). Allow 60 s, nearly 2x that maximum.
 export const OPENCODE_STARTUP_TIMEOUT_MS = 60_000;
 export const OPENCODE_SERVER_USERNAME = "isomux";
+// OpenCode never rotates its log: a start moves a log over this size to
+// opencode.log.1 (start-server.ts).
+export const OPENCODE_LOG_ROTATE_BYTES = 10 * 1024 * 1024;
 
 interface StartupRuntime {
   now(): number;

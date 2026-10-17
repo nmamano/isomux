@@ -163,7 +163,6 @@ export class OpenCodeSupervisor {
   private launchEnv: Record<string, string | undefined>;
   private environmentRevision: string;
   private replacementPromise: Promise<void> | null = null;
-  private replacementRequested = false;
   private readonly idleScheduler: NonNullable<
     OpenCodeSupervisorOptions["idleScheduler"]
   >;
@@ -316,7 +315,6 @@ export class OpenCodeSupervisor {
     if (environmentRevision === this.environmentRevision) return;
     this.launchEnv = launchEnv;
     this.environmentRevision = environmentRevision;
-    this.replacementRequested = true;
   }
 
   // The config the next server start writes to opencode.json.
@@ -330,7 +328,6 @@ export class OpenCodeSupervisor {
     if (revision === this.configRevision) return;
     this.config = next;
     this.configRevision = revision;
-    this.replacementRequested = true;
   }
 
   shutdown(): Promise<void> {
@@ -500,22 +497,33 @@ export class OpenCodeSupervisor {
     );
   }
 
-  // A replacement never stops a running turn or held work and never waits
-  // for them: meanwhile it stays pending, and new turns and acquires use the
-  // current server. The last turn or hold to end replaces it
-  // (replaceOnceIdle). ownHolds: the caller's own holds, which do not count.
+  // A replacement is requested while the running server has other revisions
+  // than the current ones, or while the marker exists. It never stops a
+  // running turn or held work and never waits for them: meanwhile it stays
+  // pending, and new turns and acquires use the current server. The last turn
+  // or hold to end replaces it (replaceOnceIdle). ownHolds: the caller's own
+  // holds, which do not count.
   private async replaceServerIfRequested(
     ownHolds = 0,
   ): Promise<"none" | "pending" | "replaced"> {
     const marker = join(this.profileDir, "server.replace");
-    if (!this.replacementRequested && !(await getAgentHost().fs.exists(marker)))
-      return "none";
+    if (!this.replacementPromise) {
+      // From the record, not a flag: a server that any start gave the
+      // current revisions satisfies the request, and one that a start in
+      // flight brought up with older revisions does not.
+      const record = this.record;
+      const stale =
+        record !== null &&
+        (record.environmentRevision !== this.environmentRevision ||
+          record.configRevision !== this.configRevision);
+      if (!stale && !(await getAgentHost().fs.exists(marker))) return "none";
+    }
+    // Another caller can have started the replacement during that await.
     if (!this.replacementPromise) {
       if (this.activeTurns > 0 || this.holds > ownHolds) return "pending";
       this.replacementPromise = (async () => {
         await this.shutdown();
         await getAgentHost().fs.rm(marker);
-        this.replacementRequested = false;
       })().finally(() => {
         this.replacementPromise = null;
       });
