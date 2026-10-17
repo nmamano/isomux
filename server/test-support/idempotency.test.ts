@@ -113,7 +113,10 @@ describe("idempotency: caching semantics", () => {
       opId: "tasks.create",
       idempotencyKey: "k1",
     };
-    await cache.run({ ...base, bodyFingerprint: '{"title":"a"}' }, async () => ++calls);
+    await cache.run(
+      { ...base, bodyFingerprint: '{"title":"a"}' },
+      async () => ++calls,
+    );
     const conflict = await cache.run(
       { ...base, bodyFingerprint: '{"title":"b"}' },
       async () => ++calls,

@@ -31,7 +31,8 @@ function expectInvalid(form: PlainTextForm, param: string): void {
 
 describe("readPlainTextForm: the body", () => {
   it("keeps quotes, backslashes, tabs, inner line breaks and non-ASCII byte for byte", () => {
-    const text = 'say "hi" \\n is not a newline\\\n\tnext line ünï 日本 🚀 $HOME `x`';
+    const text =
+      'say "hi" \\n is not a newline\\\n\tnext line ünï 日本 🚀 $HOME `x`';
     expect(read("", text)).toEqual({ kind: "text", body: { text } });
   });
 
@@ -121,7 +122,10 @@ describe("readPlainTextForm: query parameters", () => {
 
   it("refuses a repeated parameter", () => {
     expectInvalid(read("?steer=1&steer=1"), "steer");
-    expectInvalid(read("?clientMessageId=a&clientMessageId=a"), "clientMessageId");
+    expectInvalid(
+      read("?clientMessageId=a&clientMessageId=a"),
+      "clientMessageId",
+    );
   });
 
   it("refuses an unknown parameter and names the accepted ones", () => {

@@ -111,9 +111,7 @@ export function readPlainTextForm(
 ): PlainTextForm {
   const declared = new Set(Object.keys(params));
   const pairs = splitQuery(search);
-  const options = pairs.filter(
-    (p) => p.name !== null && declared.has(p.name),
-  );
+  const options = pairs.filter((p) => p.name !== null && declared.has(p.name));
 
   if (!isTextPlain(contentType)) {
     // Options in the query belong to the text/plain form only. On a JSON,

@@ -56,7 +56,9 @@ async function setup(): Promise<{
 type Sent = {
   status: number;
   headers: Headers;
-  body: Record<string, unknown> & { error?: { code: string; message?: string } };
+  body: Record<string, unknown> & {
+    error?: { code: string; message?: string };
+  };
 };
 
 async function post(
@@ -76,7 +78,7 @@ async function post(
     headers["Content-Type"] = init.contentType;
   const bearer =
     init.bearer ??
-    (init.agentId ? getAgentTokenRaw(init.agentId) ?? undefined : undefined);
+    (init.agentId ? (getAgentTokenRaw(init.agentId) ?? undefined) : undefined);
   if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
   // A Blob body keeps fetch from adding its own Content-Type, so a test can
   // send no Content-Type at all.
