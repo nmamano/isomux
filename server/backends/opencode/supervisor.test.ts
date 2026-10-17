@@ -1463,9 +1463,11 @@ describe("OpenCode shared server supervisor", () => {
     await long.beginTurn();
     const priorPid = long.pid;
     const revision = async () =>
-      (JSON.parse(await readFile(supervisor.recordPath, "utf8")) as {
-        configRevision: string;
-      }).configRevision;
+      (
+        JSON.parse(await readFile(supervisor.recordPath, "utf8")) as {
+          configRevision: string;
+        }
+      ).configRevision;
     const priorRevision = await revision();
     const permission = { bash: "ask", edit: "ask", question: "deny" };
     supervisor.updateConfiguration({ share: "disabled", permission });

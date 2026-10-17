@@ -735,9 +735,13 @@ export class OpenCodeTransport {
     this.folderSetupNoticeShown = false;
     let settleAcquire = () => {};
     try {
-      const { sessionId, settle } = await this.initialize(emit, true, (next) => {
-        step = next;
-      });
+      const { sessionId, settle } = await this.initialize(
+        emit,
+        true,
+        (next) => {
+          step = next;
+        },
+      );
       settleAcquire = settle;
       step = "begin_turn";
       await this.lease!.beginTurn();
