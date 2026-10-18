@@ -73,7 +73,10 @@ it("links an answer to the card that created its actionable, and the click scrol
   const proto = HTMLElement.prototype as unknown as {
     scrollIntoView: (this: HTMLElement) => void;
   };
-  const before = proto.scrollIntoView;
+  // Restore the exact prototype state: an own property left behind on
+  // HTMLElement.prototype would shadow other files' stubs on Element.prototype
+  // when the DOM suites share one process.
+  const before = Object.getOwnPropertyDescriptor(proto, "scrollIntoView");
   proto.scrollIntoView = function () {
     scrolled.push(this.dataset.logEntryId ?? "");
   };
@@ -87,7 +90,8 @@ it("links an answer to the card that created its actionable, and the click scrol
     expect(scrolled).toEqual(["call"]);
     view.unmount();
   } finally {
-    proto.scrollIntoView = before;
+    if (before) Object.defineProperty(proto, "scrollIntoView", before);
+    else delete (proto as { scrollIntoView?: unknown }).scrollIntoView;
   }
 });
 
