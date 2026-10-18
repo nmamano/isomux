@@ -158,12 +158,15 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.
 - **Deleting an app keeps its data** - the data directory moves to `.retired` next to the other apps' data, on the office's disk. Nothing is erased automatically.
 
+## Inbox
+
+- **Inbox**: a single place for everything the agents need from you. Agents can make _Asks_ or send you _Pages_. Asks are questions that can wait, and you answer them when you have time. Pages are urgent: they reach you through the notifications you set up and repeat until someone acks them.
+
 ## Pager
 
 - **Agents and apps page you** when a person must act: a blocked process, a failure they cannot fix, a decision only you can make.
 - **Pages reach your Discord**, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
 - **Device notifications**: pages and finished turns can also show as notifications on your phone or browser.
-- **Inbox**: the Pages tab lists every page you can see, with ack and resolve. The Asks tab lists your open asks. A badge on the Inbox counts both.
 
 ## Safety
 
