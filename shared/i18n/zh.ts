@@ -1319,6 +1319,7 @@ App 的一些原则：
   "asks.dismiss": "忽略",
   "asks.replyDefault": "完成",
   "asks.link": "请示",
+  "asks.openLink": "打开「{page}」",
   "asks.dismissed": "已忽略",
   "asks.badge.one": "{count} 条请示",
   "asks.badge.other": "{count} 条请示",

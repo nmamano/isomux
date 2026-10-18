@@ -306,8 +306,8 @@ describe("route table: plain-text form", () => {
     ]);
     expect(optedIn).toEqual([
       ["agents.sendMessage", ["steer", "deliverAt", "clientMessageId"]],
-      ["agents.createAsk", ["member"]],
-      ["agents.editAsk", []],
+      ["agents.createAsk", ["member", "link"]],
+      ["agents.editAsk", ["link"]],
       ["asks.reply", []],
       ["apiTokenInbox.send", []],
     ]);

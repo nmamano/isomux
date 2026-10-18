@@ -140,6 +140,25 @@ describe("the three shapes", () => {
       { ...BASE, secret: { ...SECRET, requestId: "", scope: "office" } },
       false,
     ],
+    // A link is checked on write only: one this release does not know (a
+    // page a later release dropped) loads, so it cannot cost every ask.
+    [
+      "link to a page this release does not know",
+      { ...BASE, memberUserId: "u1", link: "/gone" },
+      true,
+    ],
+    ["link that is not a string", { ...BASE, memberUserId: "u1", link: 1 }, false],
+    ["empty link", { ...BASE, memberUserId: "u1", link: "" }, false],
+    [
+      "secret with a link",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: { ...SECRET, scope: "personal" },
+        link: "/integrations/secrets",
+      },
+      false,
+    ],
   ];
   for (const [label, entry, loads] of shapes)
     it(`${loads ? "loads" : "moves aside"} a file with a ${label} entry`, () => {
@@ -173,6 +192,61 @@ describe("the three shapes", () => {
       secret: { ...SECRET, scope: "office" },
     });
     expect(office.ok && office.entry.memberUserId).toBe(undefined);
+  });
+
+  it("never stores a link on a secret request, on create or on edit", () => {
+    const { path } = fileIn();
+    const store = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    expect(() =>
+      store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "Go?",
+        secret: { ...SECRET, scope: "personal" },
+        link: "/integrations/secrets",
+      }),
+    ).toThrow();
+    expect(store.listAll()).toEqual([]);
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Go?",
+      secret: { ...SECRET, scope: "personal" },
+    });
+    if (!made.ok) throw new Error("create failed");
+    expect(() =>
+      store.edit(made.entry.id, "Go?", "/integrations/secrets"),
+    ).toThrow();
+    expect(store.get(made.entry.id)).toEqual(made.entry);
+  });
+});
+
+describe("an edit's link", () => {
+  it("keeps the link when none is given, replaces it, and deletes the key on null", () => {
+    const { path } = fileIn();
+    const store = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Sign in?",
+      link: "/integrations/mcp",
+    });
+    if (!made.ok) throw new Error("create failed");
+    const id = made.entry.id;
+    expect(store.edit(id, "Sign in now?")?.link).toBe("/integrations/mcp");
+    expect(store.edit(id, "Pair?", "/integrations/browser")?.link).toBe(
+      "/integrations/browser",
+    );
+    const cleared = store.edit(id, "Pair?", null);
+    expect(cleared && "link" in cleared).toBe(false);
+    const reread = createAskStore({
+      persistence: createAskFilePersistence(path),
+    }).get(id);
+    expect(reread && "link" in reread).toBe(false);
   });
 });
 

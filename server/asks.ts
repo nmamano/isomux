@@ -105,7 +105,7 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
 
 // Three shapes: a plain ask and a personal secret request are for one
 // member; an office secret request is for every office owner and names no
-// member.
+// member. A secret request has no link.
 function isAskEntry(v: unknown): v is AskEntry {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
@@ -122,7 +122,13 @@ function isAskEntry(v: unknown): v is AskEntry {
     return false;
   const hasMember =
     typeof r.memberUserId === "string" && r.memberUserId.length > 0;
+  // Any non-empty string: the handlers check a link against the office pages on write,
+  // and the card draws only one it knows, so a page a later release drops
+  // cannot fail the file.
+  if (r.link !== undefined && (typeof r.link !== "string" || r.link === ""))
+    return false;
   if (r.secret === undefined) return hasMember;
+  if (r.link !== undefined) return false;
   if (!isSecretAskRequest(r.secret)) return false;
   return r.secret.scope === "office" ? r.memberUserId === undefined : hasMember;
 }
@@ -188,8 +194,10 @@ export interface AskStore {
     memberUserId?: string;
     prompt: string;
     secret?: SecretAskRequest;
+    link?: string;
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
-  edit(id: string, prompt: string): AskEntry | null;
+  // link: undefined keeps the ask's link, null removes it.
+  edit(id: string, prompt: string, link?: string | null): AskEntry | null;
   remove(id: string): AskEntry | null;
   // Every entry of a removed agent. Returns how many went.
   removeAgent(agentId: string): number;
@@ -248,7 +256,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         .filter((e) => e.agentId === agentId)
         .map((e) => ({ ...e }));
     },
-    create({ agentId, memberUserId, prompt, secret }) {
+    create({ agentId, memberUserId, prompt, secret, link }) {
       check();
       const open = entries.filter((e) => e.agentId === agentId).length;
       if (open >= ASK_MAX_OPEN_PER_AGENT)
@@ -262,16 +270,20 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         createdAt: at,
         updatedAt: at,
         ...(secret ? { secret } : {}),
+        ...(link !== undefined ? { link } : {}),
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);
       return { ok: true, entry: { ...entry } };
     },
-    edit(id, prompt) {
+    edit(id, prompt, link) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
-      const entry = { ...prev, prompt, updatedAt: now() };
+      const entry: AskEntry = { ...prev, prompt, updatedAt: now() };
+      if (link === null) delete entry.link;
+      else if (link !== undefined) entry.link = link;
+      if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit(
         entries.map((e) => (e.id === id ? entry : e)),
         [{ kind: "upserted", entry }],

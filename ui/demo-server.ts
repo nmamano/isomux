@@ -813,7 +813,7 @@ const DEMO_LOGS: {
         content:
           "Here's your speech:\n\n---\n\nI know what you're thinking. \"Oh great, another all-hands.\" And yes, I've been told I do too many of these. But that's because I care too much.\n\nThis team shipped more this quarter than anyone thought possible. And I'm not gonna stand up here and take credit for that. Even though I could.\n\nYou stayed late debugging that cursed production issue. You reviewed PRs at midnight. You brought donuts the next morning. I ate three of those donuts. We all played our part.\n\nWe don't just work together. We *show up* for each other. And that's like finding a really good parking spot at Costco.\n\nSo look around this room. These are your people. I'm your people. Let's keep building.\n\n---\n\nWant me to add specific shout-outs, or adjust the tone for a more formal audience?",
       },
-      // Two asks for the viewer (demoAskEntries): the chat's
+      // Asks for the viewer (demoAskEntries): the chat's
       // "Ask" link on an answer jumps back to these cards.
       {
         kind: "tool_call",
@@ -862,6 +862,24 @@ const DEMO_LOGS: {
         kind: "tool_result",
         content: '{"id":"dea0ac03","agentId":"demo-michael","member":"Ricky"}',
         metadata: { toolUseId: "tool-michael-3" },
+      },
+      // An ask with a link to an office page.
+      {
+        kind: "tool_call",
+        content: "Bash",
+        metadata: {
+          toolId: "tool-michael-4",
+          input: {
+            command:
+              "curl -s -X POST \"localhost:4000/api/agents/demo-michael/asks?link=/integrations/mcp\" -H \"Authorization: Bearer $ISOMUX_AGENT_TOKEN\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nSign in to Linear so I can file the all-hands follow-ups.\nEOF",
+          },
+        },
+      },
+      {
+        kind: "tool_result",
+        content:
+          '{"id":"dea0ac06","agentId":"demo-michael","member":"Ricky","link":"/integrations/mcp"}',
+        metadata: { toolUseId: "tool-michael-4" },
       },
     ],
   },
@@ -1140,6 +1158,15 @@ function demoAskEntries(): AskEntry[] {
       prompt: "Who gives the opening toast, Jim or Dwight?",
       createdAt: now - 5 * 60_000,
       updatedAt: now - 5 * 60_000,
+    },
+    {
+      id: "dea0ac06",
+      agentId: "demo-michael",
+      memberUserId: member,
+      prompt: "Sign in to Linear so I can file the all-hands follow-ups.",
+      createdAt: now - 3 * 60_000,
+      updatedAt: now - 3 * 60_000,
+      link: "/integrations/mcp",
     },
     // One from the back room, so its plate shows the count dot too.
     {

@@ -718,9 +718,13 @@ export interface AskCreateReq {
   text: string;
   // A member's username. Absent means the agent's manager.
   member?: string;
+  // One of OFFICE_LINK_PATHS (shared/office-links.ts).
+  link?: string;
 }
 export interface AskEditReq {
   text: string;
+  // Absent keeps the ask's link; "" removes it.
+  link?: string;
 }
 export interface AskReplyReq {
   text: string;

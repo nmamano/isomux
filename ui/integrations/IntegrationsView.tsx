@@ -37,6 +37,10 @@ import { targetKey, type Role, type Target } from "./target.ts";
 import { BuildingIcon, PersonIcon } from "../components/NavIcons.tsx";
 import { getIntegrationsTab, setIntegrationsTab } from "../device-settings.ts";
 import { BrowserPane } from "../components/BrowserPane.tsx";
+import {
+  INTEGRATIONS_TABS,
+  type IntegrationsTab,
+} from "../../shared/office-links.ts";
 
 export type IntegrationsRequest = {
   // The result code of an MCP sign-in that came back (?mcpSignIn=<code>).
@@ -45,19 +49,9 @@ export type IntegrationsRequest = {
   tab?: IntegrationsTab;
 };
 
-export type IntegrationsTab =
-  | "providers"
-  | "mcp"
-  | "secrets"
-  | "variables"
-  | "browser";
-const TABS: IntegrationsTab[] = [
-  "providers",
-  "mcp",
-  "secrets",
-  "variables",
-  "browser",
-];
+export type { IntegrationsTab };
+// Shared with the server, which checks an ask's link to a tab.
+const TABS = INTEGRATIONS_TABS;
 
 const TAB_LABEL = {
   providers: "integrations.tabs.providers",

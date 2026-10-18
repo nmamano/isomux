@@ -6,15 +6,11 @@
 // Agent chats and settings sections are deliberately NOT routes (ruling 3), so
 // a chat, a settings section and the office all share one path, "/".
 
-export type Page =
-  | "tasks"
-  | "cronjobs"
-  | "apps"
-  | "skills"
-  | "integrations"
-  | "settings"
-  | "pager"
-  | "asks";
+import { pathForPage, type Page } from "../shared/office-links.ts";
+
+// The page list lives in shared/office-links.ts, where the server reads it
+// to check an ask's link.
+export { pathForPage, type Page };
 
 /**
  * The page a pathname names, or null for the office.
@@ -91,12 +87,6 @@ export function pageForLocation(pathname: string, search: string): Page | null {
 export function mcpSignInForSearch(search: string): string | null {
   const code = new URLSearchParams(search).get("mcpSignIn")?.trim() ?? "";
   return code.length > 0 && code.length <= 64 ? code : null;
-}
-
-/** The canonical path for a page, or "/" for the office. */
-export function pathForPage(page: Page | null): string {
-  if (page === null) return "/";
-  return page === "cronjobs" ? "/automations" : `/${page}`;
 }
 
 export interface PageFlags {

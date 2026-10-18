@@ -1466,6 +1466,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.dismiss": "Dismiss",
   "asks.replyDefault": "done",
   "asks.link": "Ask",
+  "asks.openLink": "Open {page}",
   "asks.dismissed": "Dismissed",
   "asks.badge.one": "{count} ask",
   "asks.badge.other": "{count} asks",

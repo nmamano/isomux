@@ -4,6 +4,8 @@
 // linked to the ask. FakeBackend only.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
@@ -244,6 +246,166 @@ describe("the agent's own list", () => {
       text: "One more?",
     });
     expect(full.status).toBe(429);
+  });
+});
+
+describe("a link to an office page", () => {
+  // The stored entry, as the next boot reads it.
+  const stored = (w: Awaited<ReturnType<typeof world>>, id: string) =>
+    (
+      JSON.parse(
+        readFileSync(join(w.srv.stateRoot, "asks.json"), "utf-8"),
+      ) as AskEntry[]
+    ).find((e) => e.id === id);
+
+  it("takes a link on create and edit, keeps it when an edit omits it, and removes it on link=", async () => {
+    const w = await world();
+    const ws = await w.srv.connectWs(w.owner.rawSessionId);
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const made = await call(
+      w.srv,
+      "POST",
+      `${base}?link=/integrations/mcp`,
+      w.as(w.asker.id),
+      { text: "Sign in to Linear?\n" },
+    );
+    expect(made.status).toBe(201);
+    const id = (made.body as AskEntry).id;
+    expect((made.body as AskEntry).link).toBe("/integrations/mcp");
+    expect(((await ws.waitFor("ask_upserted")).entry as AskEntry).link).toBe(
+      "/integrations/mcp",
+    );
+
+    // An edit without a link keeps it.
+    const kept = await call(w.srv, "PATCH", `${base}/${id}`, w.as(w.asker.id), {
+      text: "Sign in to Linear, please?",
+    });
+    expect(kept.status).toBe(200);
+    expect((kept.body as AskEntry).link).toBe("/integrations/mcp");
+
+    // A JSON edit replaces it.
+    const moved = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}`,
+      w.as(w.asker.id),
+      { json: { text: "Pair your Chrome?", link: "/integrations/browser" } },
+    );
+    expect((moved.body as AskEntry).link).toBe("/integrations/browser");
+    expect(stored(w, id)?.link).toBe("/integrations/browser");
+
+    // link= with no value removes the key: from the answer, the push and the
+    // file, never an empty string.
+    const cleared = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}?link=`,
+      w.as(w.asker.id),
+      { text: "Pair your Chrome now?" },
+    );
+    expect(cleared.status).toBe(200);
+    expect("link" in (cleared.body as object)).toBe(false);
+    const pushedClear = () =>
+      ws.messages
+        .filter((m) => (m as { type?: string }).type === "ask_upserted")
+        .map((m) => (m as { entry: AskEntry }).entry)
+        .find((e) => e.prompt === "Pair your Chrome now?");
+    await waitUntil(() => pushedClear() !== undefined, "the cleared push");
+    expect("link" in pushedClear()!).toBe(false);
+    expect(stored(w, id)).toBeDefined();
+    expect("link" in stored(w, id)!).toBe(false);
+
+    // A JSON create carries one too, and the member's list shows it.
+    const json = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Sign in to Codex?", link: "/integrations/providers" },
+    });
+    expect(json.status).toBe(201);
+    const listed = await call(w.srv, "GET", "/api/asks", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    expect(
+      (listed.body as AskEntry[]).map((e) => [e.prompt, e.link ?? null]),
+    ).toEqual([
+      ["Pair your Chrome now?", null],
+      ["Sign in to Codex?", "/integrations/providers"],
+    ]);
+  });
+
+  it("refuses a link that is not an office page, on create and on edit, and changes nothing", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const created = await open(w, "Sign in to Linear?");
+    const outside = [
+      "https://linear.app",
+      "//tasks",
+      "/integrations/",
+      "/integrations/mcp/",
+      "/integrations?tab=mcp",
+      "/integrations/constructor",
+      "/users",
+      "/",
+      "constructor",
+    ];
+    for (const link of outside) {
+      const post = await call(
+        w.srv,
+        "POST",
+        `${base}?link=${encodeURIComponent(link)}`,
+        w.as(w.asker.id),
+        { text: "Where?" },
+      );
+      expect(`${link} ${post.status} ${post.code}`).toBe(
+        `${link} 422 invalid_link`,
+      );
+      const patch = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${created.id}?link=${encodeURIComponent(link)}`,
+        w.as(w.asker.id),
+        { text: "Where?" },
+      );
+      expect(`${link} ${patch.status} ${patch.code}`).toBe(
+        `${link} 422 invalid_link`,
+      );
+    }
+    for (const link of [42, null, ""]) {
+      const post = await call(w.srv, "POST", base, w.as(w.asker.id), {
+        json: { text: "Where?", link },
+      });
+      expect(`${link} ${post.status} ${post.code}`).toBe(
+        `${link} 422 invalid_link`,
+      );
+    }
+    const listed = await call(w.srv, "GET", base, w.as(w.asker.id));
+    expect(
+      (listed.body as AskEntry[]).map((e) => [e.prompt, e.link ?? null]),
+    ).toEqual([["Sign in to Linear?", null]]);
+  });
+
+  it("never goes on a secret request", async () => {
+    const w = await world();
+    const r = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/secret-requests`,
+      w.as(w.asker.id),
+      {
+        json: {
+          name: "GH_TOKEN",
+          hosts: ["api.github.com"],
+          reason: "To open the pull request.",
+          link: "/integrations/secrets",
+        },
+      },
+    );
+    expect(r.code).toBe("invalid_request");
+    const listed = await call(
+      w.srv,
+      "GET",
+      `/api/agents/${w.asker.id}/asks`,
+      w.as(w.asker.id),
+    );
+    expect(listed.body).toEqual([]);
   });
 });
 

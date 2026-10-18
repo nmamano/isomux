@@ -14,7 +14,9 @@ const { StoreProvider, useDispatch } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
+const { OfficeLinkOpener } = await import("../office-link.tsx");
 type AskEntry = import("../../shared/types.ts").AskEntry;
+type OfficeLink = import("../../shared/office-links.ts").OfficeLink;
 
 const NOW = Date.now();
 const entry = (
@@ -34,6 +36,9 @@ const ENTRIES = [
   entry("bbbb0002", "a1", "Second question?", 5),
   entry("aaaa0001", "a1", "First question?", 120),
   entry("cccc0003", "a2", "Another agent's question?", 1),
+  // Agent a3's asks carry links: one this UI knows, one it does not.
+  { ...entry("dddd0004", "a3", "Sign in to Linear?", 3), link: "/integrations/mcp" },
+  { ...entry("eeee0005", "a3", "Open the old page?", 2), link: "/gone" },
 ];
 
 // No socket: the store's provider would open one.
@@ -69,12 +74,18 @@ function Seed({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function mount(isMobile: boolean) {
+function mount(
+  isMobile: boolean,
+  agentId = "a1",
+  opener: ((link: OfficeLink) => void) | null = null,
+) {
   return render(
     <StoreProvider>
-      <Seed>
-        <AsksStack agentId="a1" isMobile={isMobile} />
-      </Seed>
+      <OfficeLinkOpener.Provider value={opener}>
+        <Seed>
+          <AsksStack agentId={agentId} isMobile={isMobile} />
+        </Seed>
+      </OfficeLinkOpener.Provider>
     </StoreProvider>,
   );
 }
@@ -163,5 +174,39 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
   expect(card.querySelector("[role=alert]")?.textContent).toContain(
     "agent_stopped",
   );
+  view.unmount();
+});
+
+const linkButtons = (root: HTMLElement) =>
+  [...root.querySelectorAll<HTMLElement>("[data-ask-office-link]")].map(
+    (b) => [b.closest<HTMLElement>("[data-ask]")?.dataset.ask, b.dataset.askOfficeLink],
+  );
+
+it("draws a button for an office page it knows, and a click opens that page", async () => {
+  const opened: OfficeLink[] = [];
+  const view = mount(false, "a3", (link) => opened.push(link));
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  // The unknown page draws nothing.
+  expect(linkButtons(view.container)).toEqual([
+    ["dddd0004", "/integrations/mcp"],
+  ]);
+  const button = view.container.querySelector<HTMLButtonElement>(
+    "[data-ask-office-link]",
+  )!;
+  // A button, not an anchor: there is no address to open in a new tab.
+  expect(button.tagName).toBe("BUTTON");
+  expect(view.container.querySelector("a[href]")).toBeNull();
+  fireEvent.click(button);
+  expect(opened).toEqual([{ page: "integrations", tab: "mcp" }]);
+  // The ask stays open, and nothing was posted.
+  expect(cards(view.container)).toEqual(["dddd0004", "eeee0005"]);
+  expect(posts).toEqual([]);
+  view.unmount();
+});
+
+it("draws no link without an opener", async () => {
+  const view = mount(false, "a3");
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  expect(linkButtons(view.container)).toEqual([]);
   view.unmount();
 });

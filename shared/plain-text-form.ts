@@ -43,9 +43,11 @@ export const INBOX_PLAIN_TEXT_PARAMS =
   {} as const satisfies PlainTextParams<ApiTokenInboxSendReq>;
 export const ASK_CREATE_PLAIN_TEXT_PARAMS = {
   member: "string",
+  link: "string",
 } as const satisfies PlainTextParams<AskCreateReq>;
-export const ASK_EDIT_PLAIN_TEXT_PARAMS =
-  {} as const satisfies PlainTextParams<AskEditReq>;
+export const ASK_EDIT_PLAIN_TEXT_PARAMS = {
+  link: "string",
+} as const satisfies PlainTextParams<AskEditReq>;
 // device is set by the chat's JSON body only; a text/plain caller has none.
 export const ASK_REPLY_PLAIN_TEXT_PARAMS =
   {} as const satisfies PlainTextParams<AskReplyReq>;

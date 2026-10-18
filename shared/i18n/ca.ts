@@ -1486,6 +1486,7 @@ Coses que pots fer per ell:
   "asks.dismiss": "Descarta",
   "asks.replyDefault": "fet",
   "asks.link": "Petició",
+  "asks.openLink": "Obre {page}",
   "asks.dismissed": "Descartada",
   "asks.badge.one": "{count} petició",
   "asks.badge.other": "{count} peticions",

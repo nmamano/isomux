@@ -1484,6 +1484,7 @@ Cosas que puedes hacer por él:
   "asks.dismiss": "Descartar",
   "asks.replyDefault": "hecho",
   "asks.link": "Petición",
+  "asks.openLink": "Abrir {page}",
   "asks.dismissed": "Descartada",
   "asks.badge.one": "{count} petición",
   "asks.badge.other": "{count} peticiones",

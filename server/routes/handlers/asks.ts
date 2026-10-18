@@ -35,6 +35,7 @@ import {
   type AskAudienceDeps,
   type AskStore,
 } from "../../asks.ts";
+import { OFFICE_LINK_PATHS, officeLinkFor } from "../../../shared/office-links.ts";
 
 // The member message text of a dismiss. The chat shows it translated from the
 // entry's metadata; the agent reads these words.
@@ -111,6 +112,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   };
 
   const notFound = () => fail(404, "not_found", "No such open ask.");
+  const invalidLink = () =>
+    fail(
+      422,
+      "invalid_link",
+      `link must be one of: ${OFFICE_LINK_PATHS.join(", ")}`,
+    );
   const secretRequest = (message: string) =>
     fail(409, "secret_request", message);
 
@@ -172,6 +179,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
       if (body.member !== undefined && typeof body.member !== "string")
         return fail(422, "invalid_request", "member must be a username");
+      if (body.link !== undefined && !officeLinkFor(body.link))
+        return invalidLink();
       const agent = deps.agent(ctx.params.id);
       if (!agent) return fail(404, "not_found", "No such agent.");
       let memberUserId: string;
@@ -199,6 +208,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         agentId: ctx.params.id,
         memberUserId,
         prompt: checked.prompt,
+        ...(body.link !== undefined ? { link: body.link as string } : {}),
       });
       if (!result.ok)
         return fail(
@@ -222,13 +232,24 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       const body = (ctx.body ?? {}) as Record<string, unknown>;
       const checked = checkPrompt(body.text);
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
+      // Absent keeps the link and "" removes it.
+      if (
+        body.link !== undefined &&
+        body.link !== "" &&
+        !officeLinkFor(body.link)
+      )
+        return invalidLink();
       const prev = own(ctx.params.id, ctx.params.askId);
       if (!prev) return notFound();
       if (prev.secret)
         return secretRequest(
           "A secret request cannot be edited. Delete it to withdraw it.",
         );
-      const entry = store.edit(ctx.params.askId, checked.prompt);
+      const entry = store.edit(
+        ctx.params.askId,
+        checked.prompt,
+        body.link === "" ? null : (body.link as string | undefined),
+      );
       return entry ? ok(wire(entry)) : notFound();
     }),
 

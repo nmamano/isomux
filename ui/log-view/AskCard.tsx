@@ -2,9 +2,10 @@
 // catalog's "done", Reply and Dismiss; a secret request has its masked form
 // instead (SecretAskCard). The asks stack above the chat input and the Asks
 // page both draw it, so a new kind of ask shows on both. The card goes on a
-// 204, without waiting for ask_removed.
+// 204, without waiting for ask_removed. An ask with a link to an office page
+// has a button that opens it (ui/office-link.tsx); the ask stays open.
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -17,6 +18,8 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { SecretAskCard } from "./SecretAskCard.tsx";
+import { officeLinkFor } from "../../shared/office-links.ts";
+import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
 
 const PROMPT_LINES = 3;
 
@@ -50,6 +53,9 @@ function ReplyAskCard({
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
   const promptRef = useRef<HTMLDivElement>(null);
+  const openLink = useContext(OfficeLinkOpener);
+  // A link this UI does not know is not drawn.
+  const link = officeLinkFor(entry.link);
 
   // Show more only when the clamp cuts the prompt.
   useLayoutEffect(() => {
@@ -143,6 +149,26 @@ function ReplyAskCard({
                 ? t("cards.toolResult.showLess")
                 : t("cards.toolResult.showMore")}
             </button>
+          )}
+          {link && openLink && (
+            <div style={{ marginTop: 2 }}>
+              <button
+                type="button"
+                data-ask-office-link={entry.link}
+                onClick={() => openLink(link)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--accent-text)",
+                  fontSize: isMobile ? 13 : 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                {t("asks.openLink", { page: t(officeLinkLabel(link)) })}
+              </button>
+            </div>
           )}
         </div>
         <span

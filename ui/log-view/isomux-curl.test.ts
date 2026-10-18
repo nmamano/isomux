@@ -2359,4 +2359,21 @@ describe("parseIsomuxCurl ask routes", () => {
     )!;
     expect(edit.bodyFields).toEqual([{ key: "text", value: "Go later?" }]);
   });
+
+  test("create and edit read a link from the query, and an empty one on edit", () => {
+    const create = parseIsomuxCurl(
+      `curl -s -X POST "${BASE}?link=/integrations/mcp" ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nSign in?\nEOF`,
+    )!;
+    expect(create.bodyFields).toEqual([
+      { key: "text", value: "Sign in?" },
+      { key: "link", value: "/integrations/mcp" },
+    ]);
+    const clear = parseIsomuxCurl(
+      `curl -s -X PATCH "${BASE}/abcd1234?link=" ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nSign in?\nEOF`,
+    )!;
+    expect(clear.bodyFields).toEqual([
+      { key: "text", value: "Sign in?" },
+      { key: "link", value: "" },
+    ]);
+  });
 });

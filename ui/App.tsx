@@ -59,6 +59,8 @@ import {
   backRoomShortcut,
   type Page,
 } from "./routes.ts";
+import { OfficeLinkOpener } from "./office-link.tsx";
+import type { OfficeLink } from "../shared/office-links.ts";
 
 /**
  * The page a history entry names, `null` for an entry that means the office,
@@ -568,6 +570,18 @@ export function App({ routing = true }: { routing?: boolean }) {
     [applyPage],
   );
 
+  // An ask's link opens its page on top of the chat or the Asks page it was
+  // clicked on, so Close and Back return there. The page's one-shot state is
+  // cleared first, so Settings opens on no stale row.
+  const openOfficeLink = useCallback(
+    (link: OfficeLink) => {
+      pageState[link.page].clear();
+      if (link.tab) setIntegrationsRequest({ tab: link.tab });
+      pageState[link.page].setOpen(true);
+    },
+    [pageState],
+  );
+
   const goHome = useCallback(() => {
     if (entryRef.current === "pushed") {
       window.history.back(); // popstate handler will reset state
@@ -918,7 +932,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   }, [applyPage, dispatch, somethingUnderPage, closeTopPage, logOverBackRoom]);
 
   return (
-    <>
+    <OfficeLinkOpener.Provider value={openOfficeLink}>
       <style>{CSS}</style>
       <ConnectionBanner />
       <UpdateOverlay />
@@ -1072,6 +1086,6 @@ export function App({ routing = true }: { routing?: boolean }) {
           onClose={() => setEditAgent(null)}
         />
       )}
-    </>
+    </OfficeLinkOpener.Provider>
   );
 }

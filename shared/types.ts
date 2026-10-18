@@ -1182,6 +1182,9 @@ export interface AskEntry {
   // Present when the ask is a secret request: the member answers it with
   // the masked form, not a reply. The prompt holds the request's reason.
   secret?: SecretAskRequest;
+  // The office page where the member acts, as one of OFFICE_LINK_PATHS
+  // (shared/office-links.ts). Never on a secret request.
+  link?: string;
 }
 
 // The ask a member message answers. Rides on the queued item and on the
