@@ -93,10 +93,10 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
       },
     ]);
     const settings = await setup.newPage();
-    await settings.goto(officeOrigin + "/settings");
+    await settings.goto(officeOrigin + "/integrations");
     await settings.bringToFront();
     await settings
-      .getByRole("button", { name: t("browser.title"), exact: true })
+      .getByRole("tab", { name: t("integrations.tabs.browser"), exact: true })
       .click();
     expect(await settings.getByTestId("browser-backend").count()).toBe(0);
     expect(
@@ -177,6 +177,11 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
       (element as HTMLInputElement).value = "[redeemed]";
     });
     await settings.screenshot({ path: join(dir, "settings-connected.png") });
+    // The rest of the run keeps this page as the front tab. With the
+    // Integrations page there, screenshots of the background tabs time out in
+    // this Chrome (found in task f2d5cf9f, reported to Isomux Lead); Settings,
+    // the front page before Browser Use moved, does not stall them.
+    await settings.goto(officeOrigin + "/settings");
     let releaseNavigation!: () => void;
     let navigationReached!: () => void;
     const navigationStarted = new Promise<void>((resolve) => {

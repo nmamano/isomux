@@ -67,6 +67,7 @@ export const es: Catalog = {
     "Este agente ya tiene una pestaña. Desactívala primero.",
   "browser.control": "Control del agente",
   "browser.title": "Uso del navegador",
+  "settings.browserMoved": "Uso del navegador se ha movido a <link>Integraciones</link>.",
   "browser.intro":
     "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas. Ofrece una pestaña a Todos o a un agente.",
   "browser.chromeHelp":
@@ -92,9 +93,9 @@ export const es: Catalog = {
   "browser.connecting": "Conectando…",
   "browser.connected": "Conectado",
   "browser.disabled": "Desconectado por el miembro",
-  "browser.blocked": "Vuelve a vincularlo desde los ajustes de la oficina.",
+  "browser.blocked": "Vuelve a vincularlo desde Integraciones en la oficina.",
   "browser.unknown":
-    "Resultado de desvinculación desconocido. Comprueba los ajustes de la oficina.",
+    "Resultado de desvinculación desconocido. Comprueba Integraciones en la oficina.",
   "browser.download": "Descargar extensión {version}",
   "browser.install":
     "Extrae el ZIP. En Chrome de escritorio, abre chrome://extensions, activa el modo de desarrollador, selecciona Cargar descomprimida y elige la carpeta extraída. Fija Isomux Browser en la barra de herramientas.",
@@ -122,7 +123,7 @@ export const es: Catalog = {
   "browser.stop": "Detener control",
   "browser.retained": "Detener el control deja las páginas abiertas.",
   "browser.offlineHelp":
-    "Para revocar el acceso sin conexión, usa Navegador en los ajustes de la oficina.",
+    "Para revocar el acceso sin conexión, usa la pestaña Navegador de Integraciones en la oficina.",
   "browser.failed":
     "La solicitud al navegador ha fallado. Comprueba la conexión e inténtalo de nuevo.",
 
@@ -959,6 +960,7 @@ Cosas que puedes hacer por él:
   "integrations.tabs.mcp": "Servidores MCP",
   "integrations.tabs.secrets": "Secretos",
   "integrations.tabs.variables": "Variables",
+  "integrations.tabs.browser": "Navegador",
   "integrations.tabIntro.providers":
     "Las cuentas y claves con las que funcionan los agentes de Claude, Codex y OpenCode.",
   "integrations.tabIntro.mcp":

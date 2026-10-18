@@ -1,6 +1,8 @@
 // The Integrations page (task 911c9bbb, design A of the mocks): what agents
-// can use, in four tabs - model providers, MCP servers, secrets, variables.
-// Each tab shows the office-wide ones, then the personal ones. An owner can
+// can use, in five tabs - model providers, MCP servers, secrets, variables,
+// browser. Each tab but Browser shows the office-wide ones, then the personal
+// ones; Browser pairs only the viewer's own Chrome (task f2d5cf9f moved it
+// here from Settings). An owner can
 // pick another member's personal ones; the card then turns orange, takes the
 // member's name and offers a way back, and every form names the member, so an
 // owner cannot forget whose items they are changing (Nil, 2026-10-13).
@@ -9,7 +11,7 @@
 // except the Settings member profile's link, which opens on that member once.
 // The tab is remembered on the device: an open starts on the last one, except
 // an MCP sign-in that came back, which opens MCP servers on the card of the
-// server it signed in to.
+// server it signed in to, and a request that names a tab.
 
 import {
   useEffect,
@@ -35,20 +37,35 @@ import { Btn, Data, card, hintText, input } from "./kit.tsx";
 import { targetKey, type Role, type Target } from "./target.ts";
 import { BuildingIcon, PersonIcon } from "../components/NavIcons.tsx";
 import { getIntegrationsTab, setIntegrationsTab } from "../device-settings.ts";
+import { BrowserPane } from "../components/BrowserPane.tsx";
 
 export type IntegrationsRequest = {
   // The result code of an MCP sign-in that came back (?mcpSignIn=<code>).
   signIn?: string;
+  // The tab to open on, for a door that names one.
+  tab?: IntegrationsTab;
 };
 
-export type IntegrationsTab = "providers" | "mcp" | "secrets" | "variables";
-const TABS: IntegrationsTab[] = ["providers", "mcp", "secrets", "variables"];
+export type IntegrationsTab =
+  | "providers"
+  | "mcp"
+  | "secrets"
+  | "variables"
+  | "browser";
+const TABS: IntegrationsTab[] = [
+  "providers",
+  "mcp",
+  "secrets",
+  "variables",
+  "browser",
+];
 
 const TAB_LABEL = {
   providers: "integrations.tabs.providers",
   mcp: "integrations.tabs.mcp",
   secrets: "integrations.tabs.secrets",
   variables: "integrations.tabs.variables",
+  browser: "integrations.tabs.browser",
 } as const;
 
 const TAB_INTRO = {
@@ -56,6 +73,7 @@ const TAB_INTRO = {
   mcp: "integrations.tabIntro.mcp",
   secrets: "integrations.tabIntro.secrets",
   variables: "integrations.tabIntro.variables",
+  browser: "browser.intro",
 } as const;
 
 type IntegrationsProps = {
@@ -86,7 +104,9 @@ function IntegrationsPage({
   // Read once: the request is one-shot, and App clears it below.
   const [initial] = useState(() => request);
   const [tab, setTabState] = useState<IntegrationsTab>(() =>
-    initial?.signIn ? "mcp" : (getIntegrationsTab(TABS) ?? "providers"),
+    initial?.signIn
+      ? "mcp"
+      : (initial?.tab ?? getIntegrationsTab(TABS) ?? "providers"),
   );
   const setTab = (next: IntegrationsTab) => {
     setTabState(next);
@@ -121,6 +141,8 @@ function IntegrationsPage({
   const connectionsFailed = useMyConnectionsFailed();
 
   useEffect(() => {
+    // A named tab counts as picked, so the next open starts there too.
+    if (initial?.tab) setIntegrationsTab(initial.tab);
     if (request) onRequestHandled?.();
     // Once, on mount: the page has what it needs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -227,6 +249,9 @@ function IntegrationsPage({
             onGone={memberGone}
           />
         );
+      // The Browser tab has no cards (see the page below).
+      case "browser":
+        return null;
     }
   }
 
@@ -298,6 +323,9 @@ function IntegrationsPage({
               display: "flex",
               gap: 2,
               borderBottom: "1px solid var(--border)",
+              // Five tabs do not fit a phone's width in one row: they wrap,
+              // so no tab hides past the edge.
+              flexWrap: isMobile ? "wrap" : undefined,
               overflowX: "auto",
               marginBottom: 16,
             }}
@@ -394,55 +422,62 @@ function IntegrationsPage({
               </p>
             )}
 
-            <section
-              data-integrations-card="office"
-              style={card}
-              onClickCapture={actOn(office)}
-            >
-              <CardHead
-                icon={BuildingIcon}
-                title={t("integrations.office")}
-                sub={
-                  role === "owner"
-                    ? t("integrations.officeWho")
-                    : t("integrations.officeWhoMember")
-                }
-                action={
-                  tab === "providers" ? (
-                    <Btn
-                      small
-                      disabled={accounts.refreshing}
-                      onClick={accounts.refresh}
-                      data-providers-refresh
-                    >
-                      {accounts.refreshing
-                        ? t("settings.connections.refreshing")
-                        : t("settings.connections.refresh")}
-                    </Btn>
-                  ) : undefined
-                }
-              />
-              {section(office)}
-            </section>
+            {tab === "browser" ? (
+              // Only a session has its own Chrome to pair.
+              sessionContext && <BrowserPane />
+            ) : (
+              <>
+              <section
+                data-integrations-card="office"
+                style={card}
+                onClickCapture={actOn(office)}
+              >
+                <CardHead
+                  icon={BuildingIcon}
+                  title={t("integrations.office")}
+                  sub={
+                    role === "owner"
+                      ? t("integrations.officeWho")
+                      : t("integrations.officeWhoMember")
+                  }
+                  action={
+                    tab === "providers" ? (
+                      <Btn
+                        small
+                        disabled={accounts.refreshing}
+                        onClick={accounts.refresh}
+                        data-providers-refresh
+                      >
+                        {accounts.refreshing
+                          ? t("settings.connections.refreshing")
+                          : t("settings.connections.refresh")}
+                      </Btn>
+                    ) : undefined
+                  }
+                />
+                {section(office)}
+              </section>
 
-            <PersonalCard
-              cardRef={personalRef}
-              target={personal}
-              role={role}
-              others={others.map((user) => user.name)}
-              onPick={pick}
-              gone={goneMember}
-              onClickCapture={actOn(personal)}
-            >
-              {section(personal)}
-            </PersonalCard>
+              <PersonalCard
+                cardRef={personalRef}
+                target={personal}
+                role={role}
+                others={others.map((user) => user.name)}
+                onPick={pick}
+                gone={goneMember}
+                onClickCapture={actOn(personal)}
+              >
+                {section(personal)}
+              </PersonalCard>
 
-            {tab === "providers" && (
-              <ProvidersFooter onVariables={() => setTab("variables")} />
+              {tab === "providers" && (
+                <ProvidersFooter onVariables={() => setTab("variables")} />
+              )}
+              <p style={{ ...hintText, marginTop: 8 }}>
+                {t("integrations.applies")}
+              </p>
+              </>
             )}
-            <p style={{ ...hintText, marginTop: 8 }}>
-              {t("integrations.applies")}
-            </p>
           </div>
         </div>
       </div>

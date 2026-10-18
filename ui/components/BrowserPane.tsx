@@ -82,12 +82,11 @@ export function BrowserPane() {
   const [name, setName] = useState("");
   const expired = !!pair && now >= pair.expiresAt;
   return (
+    // The Integrations Browser tab shows the title and intro above this.
     <section
       data-testid="browser-settings"
-      style={{ marginTop: 24, fontSize: 12, lineHeight: 1.6 }}
+      style={{ fontSize: 12, lineHeight: 1.6 }}
     >
-      <h4 style={sectionHeader}>{t("browser.title")}</h4>
-      <p style={hint}>{t("browser.intro")}</p>
       {error && <p role="alert">{t("browser.failed")}</p>}
       {status ? (
         <>

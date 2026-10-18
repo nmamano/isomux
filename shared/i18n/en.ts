@@ -81,6 +81,7 @@ export const en = {
     "This agent already has a tab. Turn that tab off first.",
   "browser.control": "Agent control",
   "browser.title": "Browser Use",
+  "settings.browserMoved": "Browser Use moved to <link>Integrations</link>.",
   "browser.intro":
     "Let agents browse, read pages, and fill forms in your desktop Chrome using your existing logins. Offer a tab to All or one agent.",
   "browser.chromeHelp":
@@ -104,8 +105,8 @@ export const en = {
   "browser.connecting": "Connecting…",
   "browser.connected": "Connected",
   "browser.disabled": "Disconnected by member",
-  "browser.blocked": "Pair again in office settings.",
-  "browser.unknown": "Unpair result unknown. Check office settings.",
+  "browser.blocked": "Pair again in office Integrations.",
+  "browser.unknown": "Unpair result unknown. Check office Integrations.",
   "browser.download": "Download extension {version}",
   "browser.install":
     "Extract the ZIP. In desktop Chrome, open chrome://extensions, enable Developer mode, select Load unpacked and choose the extracted folder. Pin Isomux Browser in the toolbar.",
@@ -133,7 +134,7 @@ export const en = {
   "browser.stop": "Stop control",
   "browser.retained": "Stopping control leaves pages open.",
   "browser.offlineHelp":
-    "To revoke access while offline, use Browser in office settings.",
+    "To revoke access while offline, use the Browser tab in office Integrations.",
   "browser.failed":
     "Browser request failed. Check the connection and try again.",
 
@@ -952,6 +953,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.tabs.mcp": "MCP servers",
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
+  "integrations.tabs.browser": "Browser",
   "integrations.tabIntro.providers":
     "The accounts and keys that Claude, Codex and OpenCode agents run on.",
   "integrations.tabIntro.mcp":

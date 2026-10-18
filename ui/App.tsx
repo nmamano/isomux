@@ -160,7 +160,8 @@ export function App({ routing = true }: { routing?: boolean }) {
   );
   // One-shot: what the Integrations page opens on, beyond its defaults: an
   // MCP sign-in that came back carries its result (read once, like the pager
-  // id below). The page takes it on mount and clears it.
+  // id below), and a door that names a tab carries the tab. The page takes it
+  // on mount and clears it.
   const [integrationsRequest, setIntegrationsRequest] =
     useState<IntegrationsRequest | null>(() => {
       const signIn = mcpSignInForSearch(window.location.search);
@@ -545,10 +546,16 @@ export function App({ routing = true }: { routing?: boolean }) {
     setUsersOpen(true);
   }, []);
 
-  const openIntegrations = useCallback(() => {
-    setIntegrationsRequest(null);
-    setIntegrationsOpen(true);
-  }, []);
+  // Integrations replaces every open page, so the one door that opens it over
+  // another page (the Settings pointer to Browser Use, task f2d5cf9f) leaves
+  // no page stacked under it.
+  const openIntegrations = useCallback(
+    (request?: IntegrationsRequest) => {
+      applyPage("integrations");
+      setIntegrationsRequest(request ?? null);
+    },
+    [applyPage],
+  );
 
   const goHome = useCallback(() => {
     if (entryRef.current === "pushed") {
@@ -905,6 +912,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           initialTarget={settingsTarget}
           onSwitchUser={(name) => setUsername(name)}
           onClose={closePage}
+          onOpenBrowser={() => openIntegrations({ tab: "browser" })}
         />
       ) : page === "tasks" ? (
         <TaskView
@@ -992,7 +1000,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           onOpenCronjobs={() => setCronjobsOpen(true)}
           onOpenApps={() => setAppsOpen(true)}
           onOpenSkills={() => setSkillsOpen(true)}
-          onOpenIntegrations={openIntegrations}
+          onOpenIntegrations={() => openIntegrations()}
           onOpenPager={() => setPagerOpen(true)}
           onOpenUpdate={() =>
             openSettings({ kind: "section", section: "updates" })

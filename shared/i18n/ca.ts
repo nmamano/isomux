@@ -67,6 +67,7 @@ export const ca: Catalog = {
     "Aquest agent ja té una pestanya. Desactiva-la primer.",
   "browser.control": "Control de l’agent",
   "browser.title": "Ús del navegador",
+  "settings.browserMoved": "Ús del navegador s’ha mogut a <link>Integracions</link>.",
   "browser.intro":
     "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les sessions iniciades. Ofereix una pestanya a Tots o a un agent.",
   "browser.chromeHelp":
@@ -92,9 +93,9 @@ export const ca: Catalog = {
   "browser.connecting": "Connectant…",
   "browser.connected": "Connectat",
   "browser.disabled": "Desconnectat pel membre",
-  "browser.blocked": "Torna a vincular-lo des de la configuració de l’oficina.",
+  "browser.blocked": "Torna a vincular-lo des d’Integracions a l’oficina.",
   "browser.unknown":
-    "Resultat de desvinculació desconegut. Comprova la configuració de l’oficina.",
+    "Resultat de desvinculació desconegut. Comprova Integracions a l’oficina.",
   "browser.download": "Descarrega l’extensió {version}",
   "browser.install":
     "Extreu el ZIP. A Chrome d’escriptori, obre chrome://extensions, activa el mode de desenvolupador, selecciona Carrega una extensió desempaquetada i tria la carpeta extreta. Fixa Isomux Browser a la barra d’eines.",
@@ -122,7 +123,7 @@ export const ca: Catalog = {
   "browser.stop": "Atura el control",
   "browser.retained": "Aturar el control deixa les pàgines obertes.",
   "browser.offlineHelp":
-    "Per revocar l’accés sense connexió, fes servir Navegador a la configuració de l’oficina.",
+    "Per revocar l’accés sense connexió, fes servir la pestanya Navegador d’Integracions a l’oficina.",
   "browser.failed":
     "La sol·licitud al navegador ha fallat. Comprova la connexió i torna-ho a provar.",
 
@@ -958,6 +959,7 @@ Coses que pots fer per ell:
   "integrations.tabs.mcp": "Servidors MCP",
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
+  "integrations.tabs.browser": "Navegador",
   "integrations.tabIntro.providers":
     "Els comptes i les claus amb què funcionen els agents de Claude, Codex i OpenCode.",
   "integrations.tabIntro.mcp":
