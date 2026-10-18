@@ -18,10 +18,12 @@ import type {
   SendMessageReq,
 } from "./contract-shapes.ts";
 
-export type PlainTextParamKind = "flag" | "string";
+export type PlainTextParamKind = "flag" | "string" | { readonly list: string };
 
 // The query parameters of a plain-text route, keyed by request field: "flag"
-// fills a boolean field (steer=1), "string" a string field.
+// fills a boolean field (steer=1), "string" a string field, and {list: name}
+// a string[] field from every name=<value> in the query (option=a&option=b).
+// A lone empty name= gives [], so an edit can remove the list.
 export type PlainTextParams<Req> = {
   readonly [K in Exclude<keyof Req, "text">]?: NonNullable<
     Req[K]
@@ -29,7 +31,9 @@ export type PlainTextParams<Req> = {
     ? "flag"
     : NonNullable<Req[K]> extends string
       ? "string"
-      : never;
+      : NonNullable<Req[K]> extends string[]
+        ? { readonly list: string }
+        : never;
 };
 
 // The query parameters of the plain-text routes. The route table and the
@@ -44,9 +48,11 @@ export const INBOX_PLAIN_TEXT_PARAMS =
 export const ASK_CREATE_PLAIN_TEXT_PARAMS = {
   member: "string",
   link: "string",
+  options: { list: "option" },
 } as const satisfies PlainTextParams<AskCreateReq>;
 export const ASK_EDIT_PLAIN_TEXT_PARAMS = {
   link: "string",
+  options: { list: "option" },
 } as const satisfies PlainTextParams<AskEditReq>;
 // device is set by the chat's JSON body only; a text/plain caller has none.
 export const ASK_REPLY_PLAIN_TEXT_PARAMS =
@@ -122,7 +128,16 @@ export function readPlainTextForm(
   search: string,
   rawBody: string,
 ): PlainTextForm {
-  const declared = new Set(Object.keys(params));
+  // Query name to field: the same name except for a list.
+  const declared = new Map<
+    string,
+    { field: string; kind: PlainTextParamKind }
+  >();
+  for (const [field, kind] of Object.entries(params))
+    declared.set(typeof kind === "string" ? field : kind.list, {
+      field,
+      kind,
+    });
   const pairs = splitQuery(search);
   const options = pairs.filter((p) => p.name !== null && declared.has(p.name));
 
@@ -138,8 +153,8 @@ export function readPlainTextForm(
   }
   if (options.length === 0 && isJsonMessage(rawBody)) return { kind: "json" };
 
-  const accepted = [...declared].join(", ");
-  const fields: Record<string, string | boolean> = {};
+  const accepted = [...declared.keys()].join(", ");
+  const fields: Record<string, string | boolean | string[]> = {};
   for (const pair of pairs) {
     if (pair.name === null)
       return invalid(
@@ -151,12 +166,14 @@ export function readPlainTextForm(
           ? `Unknown query parameter ${pair.name}. This route accepts: ${accepted}.`
           : `Unknown query parameter ${pair.name}. This route accepts no query parameters.`,
       );
-    if (pair.name in fields)
+    const { field, kind } = declared.get(pair.name)!;
+    const isList = typeof kind !== "string";
+    if (!isList && field in fields)
       return invalid(`Query parameter ${pair.name} appears more than once.`);
-    if (params[pair.name] === "flag") {
+    if (kind === "flag") {
       if (pair.value !== "1" && pair.value !== "true")
         return invalid(`Use ${pair.name}=1 or ${pair.name}=true.`);
-      fields[pair.name] = true;
+      fields[field] = true;
       continue;
     }
     if (pair.value === null)
@@ -165,14 +182,20 @@ export function readPlainTextForm(
           ? `Query parameter ${pair.name} has malformed percent-encoding.`
           : `Query parameter ${pair.name} needs a value.`,
       );
-    fields[pair.name] = pair.value;
+    if (isList) ((fields[field] ??= []) as string[]).push(pair.value);
+    else fields[field] = pair.value;
   }
+  // A lone empty list value (option=) is the empty list.
+  for (const [field, value] of Object.entries(fields))
+    if (Array.isArray(value) && value.length === 1 && value[0] === "")
+      fields[field] = [];
 
   // A heredoc ends the body with one line break the sender did not type.
   const text = rawBody.replace(/\r?\n$/, "");
   // A fixed key order (text, then the declared order), so equal requests give
   // equal idempotency fingerprints.
   const body: Record<string, unknown> = { text };
-  for (const name of declared) if (name in fields) body[name] = fields[name];
+  for (const field of Object.keys(params))
+    if (field in fields) body[field] = fields[field];
   return { kind: "text", body };
 }

@@ -28,6 +28,9 @@ import {
 // Sanity bounds only.
 export const ASK_PROMPT_MAX = 4000;
 export const ASK_MAX_OPEN_PER_AGENT = 50;
+export const ASK_OPTIONS_MIN = 2;
+export const ASK_OPTIONS_MAX = 4;
+export const ASK_OPTION_MAX_CHARS = 80;
 
 export type AskLoadResult =
   | { kind: "missing" }
@@ -106,7 +109,7 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
 
 // Three shapes: a plain ask and a personal secret request are for one
 // member; an office secret request is for every office owner and names no
-// member. A secret request has no link.
+// member. A secret request has no link and no options.
 function isAskEntry(v: unknown): v is AskEntry {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
@@ -130,8 +133,18 @@ function isAskEntry(v: unknown): v is AskEntry {
     return false;
   if (r.sessionId !== undefined && typeof r.sessionId !== "string")
     return false;
+  // The bounds are checked on write only, as for a link.
+  if (
+    r.options !== undefined &&
+    !(
+      Array.isArray(r.options) &&
+      r.options.length > 0 &&
+      r.options.every((o) => typeof o === "string" && o !== "")
+    )
+  )
+    return false;
   if (r.secret === undefined) return hasMember;
-  if (r.link !== undefined) return false;
+  if (r.link !== undefined || r.options !== undefined) return false;
   if (!isSecretAskRequest(r.secret)) return false;
   return r.secret.scope === "office" ? r.memberUserId === undefined : hasMember;
 }
@@ -175,6 +188,31 @@ export function checkPrompt(
   return { ok: true, prompt: text };
 }
 
+// The options as they are stored (each trimmed), or the reason they are
+// refused.
+export function checkOptions(
+  value: unknown,
+): { ok: true; options: string[] } | { ok: false; message: string } {
+  if (!Array.isArray(value) || !value.every((o) => typeof o === "string"))
+    return { ok: false, message: "options must be a list of strings" };
+  const options = value.map((o: string) => o.trim());
+  if (options.length < ASK_OPTIONS_MIN || options.length > ASK_OPTIONS_MAX)
+    return {
+      ok: false,
+      message: `give ${ASK_OPTIONS_MIN} to ${ASK_OPTIONS_MAX} options`,
+    };
+  if (options.some((o) => o === ""))
+    return { ok: false, message: "an option must not be empty" };
+  if (options.some((o) => o.length > ASK_OPTION_MAX_CHARS))
+    return {
+      ok: false,
+      message: `an option must be at most ${ASK_OPTION_MAX_CHARS} characters`,
+    };
+  if (new Set(options).size !== options.length)
+    return { ok: false, message: "options must not repeat" };
+  return { ok: true, options };
+}
+
 export type AskChange =
   | { kind: "upserted"; entry: AskEntry }
   | { kind: "removed"; entry: AskEntry };
@@ -198,10 +236,16 @@ export interface AskStore {
     prompt: string;
     secret?: SecretAskRequest;
     link?: string;
+    options?: string[];
     sessionId?: string;
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
-  // link: undefined keeps the ask's link, null removes it.
-  edit(id: string, prompt: string, link?: string | null): AskEntry | null;
+  // link and options: undefined keeps the ask's value, null removes it.
+  edit(
+    id: string,
+    prompt: string,
+    link?: string | null,
+    options?: string[] | null,
+  ): AskEntry | null;
   remove(id: string): AskEntry | null;
   // Every entry of a removed agent. Returns how many went.
   removeAgent(agentId: string): number;
@@ -260,7 +304,15 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         .filter((e) => e.agentId === agentId)
         .map((e) => ({ ...e }));
     },
-    create({ agentId, memberUserId, prompt, secret, link, sessionId }) {
+    create({
+      agentId,
+      memberUserId,
+      prompt,
+      secret,
+      link,
+      options,
+      sessionId,
+    }) {
       check();
       const open = entries.filter((e) => e.agentId === agentId).length;
       if (open >= ASK_MAX_OPEN_PER_AGENT)
@@ -275,19 +327,22 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         updatedAt: at,
         ...(secret ? { secret } : {}),
         ...(link !== undefined ? { link } : {}),
+        ...(options !== undefined ? { options } : {}),
         ...(sessionId ? { sessionId } : {}),
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);
       return { ok: true, entry: { ...entry } };
     },
-    edit(id, prompt, link) {
+    edit(id, prompt, link, options) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
       const entry: AskEntry = { ...prev, prompt, updatedAt: now() };
       if (link === null) delete entry.link;
       else if (link !== undefined) entry.link = link;
+      if (options === null) delete entry.options;
+      else if (options !== undefined) entry.options = options;
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit(
         entries.map((e) => (e.id === id ? entry : e)),

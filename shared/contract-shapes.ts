@@ -720,11 +720,15 @@ export interface AskCreateReq {
   member?: string;
   // One of OFFICE_LINK_PATHS (shared/office-links.ts).
   link?: string;
+  // 2 to 4 answers the member can tap (ASK_OPTIONS_MIN..MAX in server/asks.ts).
+  options?: string[];
 }
 export interface AskEditReq {
   text: string;
   // Absent keeps the ask's link; "" removes it.
   link?: string;
+  // Absent keeps the ask's options; [] removes them.
+  options?: string[];
 }
 export interface AskReplyReq {
   text: string;

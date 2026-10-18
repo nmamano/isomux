@@ -409,6 +409,253 @@ describe("a link to an office page", () => {
   });
 });
 
+describe("options the member can tap", () => {
+  const stored = (w: Awaited<ReturnType<typeof world>>, id: string) =>
+    (
+      JSON.parse(
+        readFileSync(join(w.srv.stateRoot, "asks.json"), "utf-8"),
+      ) as AskEntry[]
+    ).find((e) => e.id === id);
+
+  it("takes options on create and edit, trimmed, keeps them when an edit omits them, and removes them", async () => {
+    const w = await world();
+    const ws = await w.srv.connectWs(w.owner.rawSessionId);
+    const base = `/api/agents/${w.asker.id}/asks`;
+    // One option= each, in order, percent-encoded like any query value.
+    const made = await call(
+      w.srv,
+      "POST",
+      `${base}?option=${encodeURIComponent(" Jim ")}&option=Dwight&option=${encodeURIComponent("Both, a duet")}`,
+      w.as(w.asker.id),
+      { text: "Who gives the toast?\n" },
+    );
+    expect(made.status).toBe(201);
+    const id = (made.body as AskEntry).id;
+    expect((made.body as AskEntry).options).toEqual([
+      "Jim",
+      "Dwight",
+      "Both, a duet",
+    ]);
+    expect(
+      ((await ws.waitFor("ask_upserted")).entry as AskEntry).options,
+    ).toEqual(["Jim", "Dwight", "Both, a duet"]);
+    expect(stored(w, id)?.options).toEqual(["Jim", "Dwight", "Both, a duet"]);
+
+    // An edit without options keeps them; a link change leaves them alone.
+    const kept = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}?link=/tasks`,
+      w.as(w.asker.id),
+      { text: "Who gives the toast, then?" },
+    );
+    expect(kept.status).toBe(200);
+    expect((kept.body as AskEntry).options).toEqual([
+      "Jim",
+      "Dwight",
+      "Both, a duet",
+    ]);
+
+    // A JSON edit replaces them.
+    const replaced = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}`,
+      w.as(w.asker.id),
+      { json: { text: "Toast?", options: ["Pam", "Oscar"] } },
+    );
+    expect((replaced.body as AskEntry).options).toEqual(["Pam", "Oscar"]);
+    expect(stored(w, id)?.options).toEqual(["Pam", "Oscar"]);
+
+    // A lone option= removes the key, from the answer and the file.
+    const cleared = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}?option=`,
+      w.as(w.asker.id),
+      { text: "Toast now?" },
+    );
+    expect(cleared.status).toBe(200);
+    expect("options" in (cleared.body as object)).toBe(false);
+    expect(stored(w, id)).toBeDefined();
+    expect("options" in stored(w, id)!).toBe(false);
+
+    // JSON options: [] removes them too.
+    await call(w.srv, "PATCH", `${base}/${id}`, w.as(w.asker.id), {
+      json: { text: "Toast?", options: ["Pam", "Oscar"] },
+    });
+    const emptied = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}`,
+      w.as(w.asker.id),
+      { json: { text: "Toast?", options: [] } },
+    );
+    expect(emptied.status).toBe(200);
+    expect("options" in (emptied.body as object)).toBe(false);
+    expect("options" in stored(w, id)!).toBe(false);
+
+    // A JSON create carries them, and the member's list shows them.
+    const json = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Ship it?", options: ["Yes", "No"] },
+    });
+    expect(json.status).toBe(201);
+    const listed = await call(w.srv, "GET", "/api/asks", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    expect(
+      (listed.body as AskEntry[]).map((e) => [e.prompt, e.options ?? null]),
+    ).toEqual([
+      ["Toast?", null],
+      ["Ship it?", ["Yes", "No"]],
+    ]);
+  });
+
+  it("refuses options that break a rule, on create and on edit, and changes nothing", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const created = await open(w, "Which one?");
+    const long = "x".repeat(81);
+    const bad: unknown[] = [
+      ["Only one"],
+      ["A", "B", "C", "D", "E"],
+      ["A", "  "],
+      ["A", long],
+      ["Same", " Same"],
+      ["A", 2],
+      "A, B",
+      null,
+    ];
+    for (const options of bad) {
+      const label = JSON.stringify(options);
+      const post = await call(w.srv, "POST", base, w.as(w.asker.id), {
+        json: { text: "Which?", options },
+      });
+      expect(`${label} ${post.status} ${post.code}`).toBe(
+        `${label} 422 invalid_options`,
+      );
+      const patch = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${created.id}`,
+        w.as(w.asker.id),
+        { json: { text: "Which?", options } },
+      );
+      expect(`${label} ${patch.status} ${patch.code}`).toBe(
+        `${label} 422 invalid_options`,
+      );
+    }
+    // A create has nothing to remove: an empty list is too few.
+    for (const [path, body] of [
+      [`${base}?option=`, { text: "Which?" }],
+      [base, { json: { text: "Which?", options: [] } }],
+      [`${base}?option=A&option=`, { text: "Which?" }],
+    ] as const) {
+      const post = await call(w.srv, "POST", path, w.as(w.asker.id), body);
+      expect(`${path} ${post.status} ${post.code}`).toBe(
+        `${path} 422 invalid_options`,
+      );
+    }
+    // At the bounds: four options of 80 characters each.
+    const four = ["a", "b", "c", "d"].map((c) => c.repeat(80));
+    const edge = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Which?", options: four },
+    });
+    expect(edge.status).toBe(201);
+    expect((edge.body as AskEntry).options).toEqual(four);
+    const listed = await call(w.srv, "GET", base, w.as(w.asker.id));
+    expect(
+      (listed.body as AskEntry[]).map((e) => [e.prompt, e.options ?? null]),
+    ).toEqual([
+      ["Which one?", null],
+      ["Which?", four],
+    ]);
+  });
+
+  it("never goes on a secret request", async () => {
+    const w = await world();
+    const owner = { rawSessionId: w.owner.rawSessionId };
+    const refused = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/secret-requests`,
+      w.as(w.asker.id),
+      {
+        json: {
+          name: "GH_TOKEN",
+          hosts: ["api.github.com"],
+          reason: "To open the pull request.",
+          options: ["Save", "Decline"],
+        },
+      },
+    );
+    expect(refused.code).toBe("invalid_request");
+    const made = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/secret-requests`,
+      w.as(w.asker.id),
+      {
+        json: {
+          name: "GH_TOKEN",
+          hosts: ["api.github.com"],
+          reason: "To open the pull request.",
+        },
+      },
+    );
+    expect(made.status).toBe(200);
+    const [entry] = (await call(w.srv, "GET", "/api/asks", owner))
+      .body as AskEntry[];
+    const edit = await call(
+      w.srv,
+      "PATCH",
+      `/api/agents/${w.asker.id}/asks/${entry.id}`,
+      w.as(w.asker.id),
+      { json: { text: entry.prompt, options: ["Save", "Decline"] } },
+    );
+    expect(`${edit.status} ${edit.code}`).toBe("409 secret_request");
+    const after = (await call(w.srv, "GET", "/api/asks", owner))
+      .body as AskEntry[];
+    expect(after.map((e) => [e.id, "options" in e])).toEqual([
+      [entry.id, false],
+    ]);
+  });
+
+  it("answers once when the same option is sent twice at the same time", async () => {
+    const w = await world();
+    const made = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/asks?option=Jim&option=Dwight`,
+      w.as(w.asker.id),
+      { text: "Who gives the toast?" },
+    );
+    const created = made.body as AskEntry;
+    const tap = () =>
+      call(
+        w.srv,
+        "POST",
+        `/api/asks/${created.id}/reply`,
+        { rawSessionId: w.owner.rawSessionId },
+        { json: { text: "Dwight" } },
+      );
+    const results = await Promise.all([tap(), tap()]);
+    // One goes through; the other finds the answer in flight or the ask closed.
+    const statuses = results.map((r) => r.status).sort();
+    expect(statuses[0]).toBe(204);
+    expect([404, 409]).toContain(statuses[1]);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).some((t) => t.endsWith("Dwight")),
+      "the tap delivered",
+    );
+    await sleep(50);
+    // The option reaches the agent as a typed reply does.
+    expect(sentTexts(w.srv, w.asker.id).filter((t) => t.endsWith("Dwight"))).toEqual([
+      `[${w.owner.username}] ${askReplyNote(created)}Dwight`,
+    ]);
+  });
+});
+
 describe("the member's answer", () => {
   it("reaches the agent as the member's message, linked to the ask, and closes it", async () => {
     const w = await world();

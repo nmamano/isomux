@@ -2376,4 +2376,21 @@ describe("parseIsomuxCurl ask routes", () => {
       { key: "link", value: "" },
     ]);
   });
+
+  test("create and edit read every option= into one options field", () => {
+    const create = parseIsomuxCurl(
+      `curl -s -X POST "${BASE}?option=Jim&option=Dwight" ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nWho?\nEOF`,
+    )!;
+    expect(create.bodyFields).toEqual([
+      { key: "text", value: "Who?" },
+      { key: "options", value: '["Jim","Dwight"]' },
+    ]);
+    const clear = parseIsomuxCurl(
+      `curl -s -X PATCH "${BASE}/abcd1234?option=" ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nWho?\nEOF`,
+    )!;
+    expect(clear.bodyFields).toEqual([
+      { key: "text", value: "Who?" },
+      { key: "options", value: "[]" },
+    ]);
+  });
 });

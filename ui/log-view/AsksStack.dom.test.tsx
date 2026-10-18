@@ -42,6 +42,11 @@ const ENTRIES = [
     link: "/integrations/mcp",
   },
   { ...entry("eeee0005", "a3", "Open the old page?", 2), link: "/gone" },
+  // Agent a4's ask has options.
+  {
+    ...entry("ffff0006", "a4", "Who gives the toast?", 4),
+    options: ["Jim", "Dwight"],
+  },
 ];
 
 // No socket: the store's provider would open one.
@@ -212,5 +217,113 @@ it("draws no link without an opener", async () => {
   const view = mount(false, "a3");
   await waitFor(() => expect(cards(view.container).length).toBe(2));
   expect(linkButtons(view.container)).toEqual([]);
+  view.unmount();
+});
+
+const optionButtons = (card: HTMLElement) => [
+  ...card.querySelectorAll<HTMLButtonElement>("[data-ask-option]"),
+];
+
+it("draws a button per option above the reply field, and a tap replies with that option", async () => {
+  let release: () => void = () => {};
+  answer = () => new Promise((resolve) => (release = () => resolve(undefined)));
+  const view = mount(true, "a4");
+  await waitFor(() =>
+    expect(view.container.querySelector("[data-asks-stack]")).not.toBe(null),
+  );
+  fireEvent.click(
+    view.container.querySelector<HTMLElement>(
+      "[data-asks-stack=collapsed] button",
+    )!,
+  );
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask="ffff0006"]',
+  )!;
+  expect(optionButtons(card).map((b) => b.textContent)).toEqual([
+    "Jim",
+    "Dwight",
+  ]);
+  // The row sits before the form, and the field stays for another answer.
+  const row = card.querySelector("[data-ask-options]")!;
+  const form = card.querySelector("form")!;
+  expect(
+    row.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(form.querySelector("input")).not.toBe(null);
+  await act(async () => {
+    fireEvent.click(optionButtons(card)[1]);
+  });
+  expect(posts).toEqual([
+    { path: "/api/asks/ffff0006/reply", body: { text: "Dwight" } },
+  ]);
+  // Every option waits while the answer is in flight.
+  expect(optionButtons(card).map((b) => b.disabled)).toEqual([true, true]);
+  await act(async () => {
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(cards(view.container)).toEqual([]);
+  view.unmount();
+});
+
+it("sends one answer when two taps land before the card draws again", async () => {
+  answer = () => new Promise(() => {});
+  const view = mount(false, "a4");
+  await waitFor(() => expect(cards(view.container)).toEqual(["ffff0006"]));
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask="ffff0006"]',
+  )!;
+  const [jim, dwight] = optionButtons(card);
+  // One act: no render between the taps, so the buttons are still enabled.
+  await act(async () => {
+    fireEvent.click(jim);
+    fireEvent.click(jim);
+    fireEvent.click(dwight);
+    fireEvent.submit(card.querySelector("form")!);
+  });
+  expect(posts).toEqual([
+    { path: "/api/asks/ffff0006/reply", body: { text: "Jim" } },
+  ]);
+  view.unmount();
+});
+
+it("draws no option row for an ask without options", async () => {
+  const view = mount(false);
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  expect(view.container.querySelector("[data-ask-options]")).toBe(null);
+  view.unmount();
+});
+
+it("leaves the options live after a refused tap, so the next tap posts again", async () => {
+  let refuse = true;
+  answer = async () => {
+    if (refuse) throw new ApiError(409, "ask_busy", "ask_busy");
+    return undefined;
+  };
+  const view = mount(false, "a4");
+  await waitFor(() => expect(cards(view.container)).toEqual(["ffff0006"]));
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask="ffff0006"]',
+  )!;
+  await act(async () => {
+    fireEvent.click(optionButtons(card)[0]);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  // Refused: the card stays with the reason, and its buttons are enabled.
+  expect(cards(view.container)).toEqual(["ffff0006"]);
+  expect(card.querySelector("[role=alert]")?.textContent).toContain(
+    "ask_busy",
+  );
+  expect(optionButtons(card).map((b) => b.disabled)).toEqual([false, false]);
+  refuse = false;
+  await act(async () => {
+    fireEvent.click(optionButtons(card)[1]);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts).toEqual([
+    { path: "/api/asks/ffff0006/reply", body: { text: "Jim" } },
+    { path: "/api/asks/ffff0006/reply", body: { text: "Dwight" } },
+  ]);
+  expect(cards(view.container)).toEqual([]);
   view.unmount();
 });

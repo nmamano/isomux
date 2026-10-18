@@ -31,6 +31,7 @@ import {
   askVisibleTo,
   AsksUnavailableError,
   ASK_MAX_OPEN_PER_AGENT,
+  checkOptions,
   checkPrompt,
   type AskAudienceDeps,
   type AskStore,
@@ -124,6 +125,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       "invalid_link",
       `link must be one of: ${OFFICE_LINK_PATHS.join(", ")}`,
     );
+  const invalidOptions = (message: string) =>
+    fail(422, "invalid_options", message);
   const secretRequest = (message: string) =>
     fail(409, "secret_request", message);
 
@@ -187,6 +190,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         return fail(422, "invalid_request", "member must be a username");
       if (body.link !== undefined && !officeLinkFor(body.link))
         return invalidLink();
+      let options: string[] | undefined;
+      if (body.options !== undefined) {
+        const checkedOptions = checkOptions(body.options);
+        if (!checkedOptions.ok) return invalidOptions(checkedOptions.message);
+        options = checkedOptions.options;
+      }
       const agent = deps.agent(ctx.params.id);
       if (!agent) return fail(404, "not_found", "No such agent.");
       let memberUserId: string;
@@ -215,6 +224,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         memberUserId,
         prompt: checked.prompt,
         ...(body.link !== undefined ? { link: body.link as string } : {}),
+        ...(options ? { options } : {}),
         ...(agent.sessionId ? { sessionId: agent.sessionId } : {}),
       });
       if (!result.ok)
@@ -246,6 +256,15 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         !officeLinkFor(body.link)
       )
         return invalidLink();
+      // Absent keeps the options and [] removes them.
+      let options: string[] | null | undefined;
+      if (Array.isArray(body.options) && body.options.length === 0)
+        options = null;
+      else if (body.options !== undefined) {
+        const checkedOptions = checkOptions(body.options);
+        if (!checkedOptions.ok) return invalidOptions(checkedOptions.message);
+        options = checkedOptions.options;
+      }
       const prev = own(ctx.params.id, ctx.params.askId);
       if (!prev) return notFound();
       if (prev.secret)
@@ -256,6 +275,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         ctx.params.askId,
         checked.prompt,
         body.link === "" ? null : (body.link as string | undefined),
+        options,
       );
       return entry ? ok(wire(entry)) : notFound();
     }),

@@ -4,9 +4,11 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  ASK_CREATE_PLAIN_TEXT_PARAMS,
   MESSAGE_PLAIN_TEXT_PARAMS,
   readPlainTextForm,
   type PlainTextForm,
+  type PlainTextParamKind,
 } from "./plain-text-form.ts";
 
 const TEXT_PLAIN = "text/plain";
@@ -15,7 +17,7 @@ function read(
   search: string,
   rawBody = "hello",
   contentType = TEXT_PLAIN,
-  params: Record<string, "flag" | "string"> = MESSAGE_PLAIN_TEXT_PARAMS,
+  params: Record<string, PlainTextParamKind> = MESSAGE_PLAIN_TEXT_PARAMS,
 ): PlainTextForm {
   return readPlainTextForm(params, contentType, search, rawBody);
 }
@@ -143,6 +145,43 @@ describe("readPlainTextForm: query parameters", () => {
       kind: "text",
       body: { text: "hello", steer: true },
     });
+  });
+});
+
+describe("readPlainTextForm: a list parameter", () => {
+  const ask = (search: string, contentType = TEXT_PLAIN) =>
+    read(search, "Toast?", contentType, ASK_CREATE_PLAIN_TEXT_PARAMS);
+
+  it("collects every option= into the options field, in query order", () => {
+    expect(ask("?option=Jim&member=nil&option=Dwight%2C%20Jr.")).toEqual({
+      kind: "text",
+      body: { text: "Toast?", member: "nil", options: ["Jim", "Dwight, Jr."] },
+    });
+    expect(ask("?option=Jim")).toEqual({
+      kind: "text",
+      body: { text: "Toast?", options: ["Jim"] },
+    });
+  });
+
+  it("reads a lone empty option= as the empty list, and keeps an empty one among others", () => {
+    expect(ask("?option=")).toEqual({
+      kind: "text",
+      body: { text: "Toast?", options: [] },
+    });
+    expect(ask("?option=Jim&option=")).toEqual({
+      kind: "text",
+      body: { text: "Toast?", options: ["Jim", ""] },
+    });
+  });
+
+  it("knows the list by its query name only", () => {
+    expectInvalid(ask("?options=Jim"), "options");
+    expectInvalid(ask("?option"), "option");
+    expectInvalid(ask("?option=Jim", "application/json"), "option");
+  });
+
+  it("still refuses a repeat of a parameter that is not a list", () => {
+    expectInvalid(ask("?option=Jim&link=/tasks&link=/apps"), "link");
   });
 });
 

@@ -854,7 +854,7 @@ const DEMO_LOGS: {
           toolId: "tool-michael-3",
           input: {
             command:
-              "curl -s -X POST \"localhost:4000/api/agents/demo-michael/asks\" -H \"Authorization: Bearer $ISOMUX_AGENT_TOKEN\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nWho gives the opening toast, Jim or Dwight?\nEOF",
+              "curl -s -X POST \"localhost:4000/api/agents/demo-michael/asks?option=Jim&option=Dwight\" -H \"Authorization: Bearer $ISOMUX_AGENT_TOKEN\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nWho gives the opening toast, Jim or Dwight?\nEOF",
           },
         },
       },
@@ -1158,6 +1158,7 @@ function demoAskEntries(): AskEntry[] {
       prompt: "Who gives the opening toast, Jim or Dwight?",
       createdAt: now - 5 * 60_000,
       updatedAt: now - 5 * 60_000,
+      options: ["Jim", "Dwight"],
     },
     {
       id: "dea0ac06",

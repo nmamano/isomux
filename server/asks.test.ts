@@ -9,6 +9,7 @@ import type { AskEntry } from "../shared/types.ts";
 import {
   askReplyNote,
   askVisibleTo,
+  checkOptions,
   type AskAudienceDeps,
   createAskFilePersistence,
   createAskStore,
@@ -162,6 +163,25 @@ describe("the three shapes", () => {
       },
       false,
     ],
+    // Options too are bounded on write only.
+    [
+      "five options",
+      { ...BASE, memberUserId: "u1", options: ["a", "b", "c", "d", "e"] },
+      true,
+    ],
+    ["empty options", { ...BASE, memberUserId: "u1", options: [] }, false],
+    ["an empty option", { ...BASE, memberUserId: "u1", options: ["a", ""] }, false],
+    ["options not a list", { ...BASE, memberUserId: "u1", options: "a" }, false],
+    [
+      "secret with options",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: { ...SECRET, scope: "personal" },
+        options: ["Save", "Decline"],
+      },
+      false,
+    ],
   ];
   for (const [label, entry, loads] of shapes)
     it(`${loads ? "loads" : "moves aside"} a file with a ${label} entry`, () => {
@@ -250,6 +270,84 @@ describe("an edit's link", () => {
       persistence: createAskFilePersistence(path),
     }).get(id);
     expect(reread && "link" in reread).toBe(false);
+  });
+});
+
+describe("an ask's options", () => {
+  it("keeps the options when none are given, replaces them, and deletes the key on null", () => {
+    const { path } = fileIn();
+    const store = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Toast?",
+      options: ["Jim", "Dwight"],
+    });
+    if (!made.ok) throw new Error("create failed");
+    const id = made.entry.id;
+    expect(store.edit(id, "Toast now?")?.options).toEqual(["Jim", "Dwight"]);
+    expect(store.edit(id, "Toast?", undefined, ["Pam", "Oscar"])?.options).toEqual(
+      ["Pam", "Oscar"],
+    );
+    const cleared = store.edit(id, "Toast?", undefined, null);
+    expect(cleared && "options" in cleared).toBe(false);
+    const reread = createAskStore({
+      persistence: createAskFilePersistence(path),
+    }).get(id);
+    expect(reread && "options" in reread).toBe(false);
+  });
+
+  it("never stores options on a secret request", () => {
+    const { path } = fileIn();
+    const store = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    expect(() =>
+      store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "Go?",
+        secret: { ...SECRET, scope: "personal" },
+        options: ["Save", "Decline"],
+      }),
+    ).toThrow();
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Go?",
+      secret: { ...SECRET, scope: "personal" },
+    });
+    if (!made.ok) throw new Error("create failed");
+    expect(() =>
+      store.edit(made.entry.id, "Go?", undefined, ["Save", "Decline"]),
+    ).toThrow();
+    expect(store.get(made.entry.id)).toEqual(made.entry);
+  });
+
+  it("checks the count, emptiness, length and repeats, after a trim", () => {
+    expect(checkOptions([" Jim ", "Dwight"])).toEqual({
+      ok: true,
+      options: ["Jim", "Dwight"],
+    });
+    const atBounds = ["a", "b", "c", "d"].map((c) => c.repeat(80));
+    expect(checkOptions(atBounds)).toEqual({ ok: true, options: atBounds });
+    // An 80-character option with spaces around it is in bounds.
+    expect(checkOptions([` ${"a".repeat(80)} `, "b"]).ok).toBe(true);
+    for (const bad of [
+      ["one"],
+      ["a", "b", "c", "d", "e"],
+      ["a", "   "],
+      ["a", "b".repeat(81)],
+      ["a", " a"],
+      ["a", 1],
+      "a",
+      undefined,
+    ])
+      expect(`${JSON.stringify(bad)} ${checkOptions(bad).ok}`).toBe(
+        `${JSON.stringify(bad)} false`,
+      );
   });
 });
 

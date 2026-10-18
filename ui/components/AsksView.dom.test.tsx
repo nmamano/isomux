@@ -27,10 +27,15 @@ const ask = (id: string, agentId: string, ageMin: number): AskEntry => ({
 });
 
 let posts: string[] = [];
+let bodies: unknown[] = [];
 beforeEach(() => {
   posts = [];
-  setApiShim(async (method, path) => {
-    if (method === "POST") posts.push(path);
+  bodies = [];
+  setApiShim(async (method, path, body) => {
+    if (method === "POST") {
+      posts.push(path);
+      bodies.push(body);
+    }
     return undefined;
   });
 });
@@ -126,4 +131,20 @@ it("drops a group with its last card, then shows the empty state", async () => {
   expect(posts).toEqual(["/api/asks/onlyA/reply", "/api/asks/onlyB/dismiss"]);
   expect(groupIds(view)).toEqual([]);
   expect(view.container.querySelector("[data-asks-empty]")).not.toBeNull();
+});
+
+it("answers with an option the card draws", async () => {
+  const { view } = mount([
+    { ...ask("pick", "a1", 5), options: ["Yes", "No"] },
+    ask("open", "a2", 10),
+  ]);
+  const card = view.container.querySelector('[data-ask="pick"]')!;
+  const options = [
+    ...card.querySelectorAll<HTMLButtonElement>("[data-ask-option]"),
+  ];
+  expect(options.map((b) => b.textContent)).toEqual(["Yes", "No"]);
+  await act(async () => fireEvent.click(options[1]));
+  expect(posts).toEqual(["/api/asks/pick/reply"]);
+  expect(bodies).toEqual([{ text: "No" }]);
+  expect(groupIds(view)).toEqual(["a2"]);
 });

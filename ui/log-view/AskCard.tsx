@@ -3,7 +3,8 @@
 // instead (SecretAskCard). The asks stack above the chat input and the Asks
 // page both draw it, so a new kind of ask shows on both. The card goes on a
 // 204, without waiting for ask_removed. An ask with a link to an office page
-// has a button that opens it (ui/office-link.tsx); the ask stays open.
+// has a button that opens it (ui/office-link.tsx); the ask stays open. An
+// ask with options has a button for each, and a tap sends it as the reply.
 
 import { useContext, useLayoutEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
@@ -49,6 +50,8 @@ function ReplyAskCard({
   const dispatch = useDispatch();
   const [reply, setReply] = useState(() => t("asks.replyDefault"));
   const [busy, setBusy] = useState(false);
+  // One answer at a time: a second tap in the same frame still sees busy false.
+  const sending = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
@@ -68,9 +71,10 @@ function ReplyAskCard({
   const age = since.kind === "now" ? t("common.justNow") : since.text;
   const fontSize = isMobile ? 14 : 13;
 
-  async function answer(dismiss: boolean) {
-    if (busy) return;
-    if (!dismiss && reply.trim() === "") return;
+  async function answer(dismiss: boolean, text = reply) {
+    if (sending.current) return;
+    if (!dismiss && text.trim() === "") return;
+    sending.current = true;
     setBusy(true);
     setError(null);
     const device = getDevice() || undefined;
@@ -81,11 +85,12 @@ function ReplyAskCard({
         } satisfies AskDismissReq);
       else
         await apiFetch("POST", `/api/asks/${entry.id}/reply`, {
-          text: reply,
+          text,
           ...(device ? { device } : {}),
         } satisfies AskReplyReq);
       dispatch({ type: "ask_removed", id: entry.id });
     } catch (err) {
+      sending.current = false;
       setBusy(false);
       setError(
         t("asks.answerFailed", {
@@ -182,6 +187,40 @@ function ReplyAskCard({
           {age}
         </span>
       </div>
+      {entry.options && entry.options.length > 0 && (
+        <div
+          data-ask-options=""
+          style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}
+        >
+          {entry.options.map((option, i) => (
+            <button
+              key={i}
+              type="button"
+              data-ask-option=""
+              disabled={busy}
+              onClick={() => void answer(false, option)}
+              style={{
+                maxWidth: "100%",
+                padding: buttonPad,
+                borderRadius: 8,
+                border: "1px solid var(--accent-text)",
+                background: "transparent",
+                color: "var(--accent-text)",
+                fontFamily: "var(--font-ui)",
+                fontSize: isMobile ? 14 : 12,
+                fontWeight: 600,
+                lineHeight: 1.35,
+                textAlign: "left",
+                overflowWrap: "anywhere",
+                cursor: busy ? "default" : "pointer",
+                opacity: busy ? 0.6 : 1,
+              }}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();

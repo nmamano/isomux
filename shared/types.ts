@@ -1185,6 +1185,9 @@ export interface AskEntry {
   // The office page where the member acts, as one of OFFICE_LINK_PATHS
   // (shared/office-links.ts). Never on a secret request.
   link?: string;
+  // Answers the member can tap; a tap sends the option as the reply. Never on
+  // a secret request.
+  options?: string[];
   // The agent's session when it opened the ask. The reply note names it when
   // the reply reaches a later session.
   sessionId?: string;
