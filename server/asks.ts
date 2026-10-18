@@ -313,19 +313,14 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
   };
 }
 
-// The bracket the agent reads before the member's words, with the prompt cut
-// to 80 characters so a long prompt does not crowd out the answer.
-export const ASK_PROMPT_EXCERPT = 80;
+// The bracket the agent reads before the member's words. It quotes the whole
+// prompt: the reply can reach a later session (after a clear, a handoff or
+// /wrap-session) that never saw the question.
 export function askReplyNote(ref: {
   id: string;
   prompt: string;
   dismissed?: boolean;
 }): string {
-  const flat = ref.prompt.replace(/\s+/g, " ").trim();
-  const excerpt =
-    flat.length > ASK_PROMPT_EXCERPT
-      ? `${flat.slice(0, ASK_PROMPT_EXCERPT - 1)}…`
-      : flat;
   const verb = ref.dismissed ? "Dismissed your ask" : "Reply to your ask";
-  return `[${verb} ${ref.id}: ${JSON.stringify(excerpt)}] `;
+  return `[${verb} ${ref.id}: ${JSON.stringify(ref.prompt.trim())}] `;
 }

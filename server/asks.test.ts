@@ -7,7 +7,6 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { AskEntry } from "../shared/types.ts";
 import {
-  ASK_PROMPT_EXCERPT,
   askReplyNote,
   askVisibleTo,
   type AskAudienceDeps,
@@ -147,7 +146,11 @@ describe("the three shapes", () => {
       { ...BASE, memberUserId: "u1", link: "/gone" },
       true,
     ],
-    ["link that is not a string", { ...BASE, memberUserId: "u1", link: 1 }, false],
+    [
+      "link that is not a string",
+      { ...BASE, memberUserId: "u1", link: 1 },
+      false,
+    ],
     ["empty link", { ...BASE, memberUserId: "u1", link: "" }, false],
     [
       "secret with a link",
@@ -293,14 +296,15 @@ describe("who sees an ask", () => {
 });
 
 describe("the note before the member's words", () => {
-  it("names the ask, cuts a long prompt and tells a dismiss from a reply", () => {
-    const long = "word ".repeat(100);
+  it("names the ask, quotes the whole prompt and tells a dismiss from a reply", () => {
+    const long = `${"word ".repeat(100)}\n- option one\n- option two`;
     const note = askReplyNote({ id: "abcd1234", prompt: long });
     expect(note).toContain("abcd1234");
     const quoted = JSON.parse(
       note.slice(note.indexOf('"'), note.lastIndexOf('"') + 1),
     );
-    expect(quoted.length).toBe(ASK_PROMPT_EXCERPT);
+    expect(quoted).toBe(long.trim());
+    expect(note).not.toContain("\n");
     expect(
       askReplyNote({ id: "abcd1234", prompt: "x", dismissed: true }),
     ).not.toBe(askReplyNote({ id: "abcd1234", prompt: "x" }));
