@@ -634,7 +634,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     // human operator (or a privileged agent with agent:converse) to answer a
     // reachable agent, while an ordinary agent cannot use its spawning user's
     // room grants as a confused deputy.
-    auth: cap(["agent:converse", "self:affordance"], and(notApp, conversationReset)),
+    auth: cap(
+      ["agent:converse", "self:affordance"],
+      and(notApp, conversationReset),
+    ),
     emits: ["interaction_removed", "agent_updated", "log_entry", "clear_logs"],
   }),
   // `:id` is the SENDER here (the outbox being managed) - the deliberate
@@ -707,7 +710,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/handoff",
-    auth: cap(["agent:converse", "self:affordance"], and(notApp, conversationReset)),
+    auth: cap(
+      ["agent:converse", "self:affordance"],
+      and(notApp, conversationReset),
+    ),
     emits: ["clear_logs", "log_entry"],
   }),
   defineRoute<ResumeReq, NoContent>({

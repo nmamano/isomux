@@ -236,8 +236,9 @@ describe("resume after a usage limit", () => {
       await toResume(h, reset);
       await waitUntil(() => resumesSent(h) === 1, "resume sent");
       // The member reads a system line, not a message from the agent itself.
-      expect(h.logs.some((e) => e.kind === "system" && e.content === RESUMED))
-        .toBe(true);
+      expect(
+        h.logs.some((e) => e.kind === "system" && e.content === RESUMED),
+      ).toBe(true);
       expect(
         h.logs.some(
           (e) =>
@@ -411,8 +412,9 @@ describe("resume after a usage limit: when it is dropped", () => {
     const reset = h.clock.now() + HOUR;
     const s = await limitedTurn(h, info.id, reset);
     // Another agent's message starts a flush, which waits for the sample.
-    expect(h.mgr.enqueueMessage(info.id, { sender: OTHER, text: "a note" }).ok)
-      .toBe(true);
+    expect(
+      h.mgr.enqueueMessage(info.id, { sender: OTHER, text: "a note" }).ok,
+    ).toBe(true);
     await settle();
     expect(stateOf(h, info.id)).toBe("waiting_for_response");
     // Still armed while the flush is parked.
@@ -420,12 +422,12 @@ describe("resume after a usage limit: when it is dropped", () => {
     await toResume(h, reset);
     // The fire ran and skipped.
     expect(persistedAt(info.id)).toBeUndefined();
-    expect(queueOf(h, info.id).map((m) => m.text)).toEqual([
-      "a note",
-    ]);
+    expect(queueOf(h, info.id).map((m) => m.text)).toEqual(["a note"]);
     sample.release?.();
     await waitUntil(
-      () => stateOf(h, info.id) === "thinking" && texts(s).some((t) => t.includes("a note")),
+      () =>
+        stateOf(h, info.id) === "thinking" &&
+        texts(s).some((t) => t.includes("a note")),
       "the note's turn running",
     );
     s.completeTurn({ text: "done" });
@@ -461,14 +463,14 @@ describe("resume after a usage limit: when it is dropped", () => {
     await waitUntil(() => {
       const cur = h.fake.sessionForAgent(info.id);
       return (
-        !!cur && cur !== old && texts(cur).some((t) => t.includes("carried note"))
+        !!cur &&
+        cur !== old &&
+        texts(cur).some((t) => t.includes("carried note"))
       );
     }, "carried note in the new conversation");
     await settle();
     expect(resumesSent(h)).toBe(0);
-    expect(
-      queueOf(h, info.id).some((m) => m.limitResume),
-    ).toBe(false);
+    expect(queueOf(h, info.id).some((m) => m.limitResume)).toBe(false);
   });
 
   it("the switch off at the stop arms nothing", async () => {
@@ -543,7 +545,10 @@ describe("resume after a usage limit: restart", () => {
         name: "room-a",
         prompt: null,
         agents: [
-          persisted("stopped", { lastSessionId: "s-old", limitResumeAt: dueAt }),
+          persisted("stopped", {
+            lastSessionId: "s-old",
+            limitResumeAt: dueAt,
+          }),
         ],
       },
     ]);

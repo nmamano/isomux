@@ -1693,7 +1693,8 @@ export class CodexSession implements BackendSession {
         pickCodexLimitBucket(this.rateLimitBuckets)?.snapshot ?? null,
       );
     const finish = (at: number | null) => {
-      if (at !== null) this.enqueue({ kind: "usage_limit_stop", resetsAtMs: at });
+      if (at !== null)
+        this.enqueue({ kind: "usage_limit_stop", resetsAtMs: at });
       this.enqueue(turnCompleted);
     };
     const known = resetsAtMs();

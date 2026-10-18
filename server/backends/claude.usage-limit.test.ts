@@ -12,7 +12,10 @@
 //   one-shot SDK query on the office account. Its status was "allowed"; the
 //   tests set the status they need, and only the status.
 import { describe, expect, it } from "bun:test";
-import type { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeSession, type SdkClient, type SdkConversation } from "./claude";
 import type { NormalizedEvent } from "./types";
 

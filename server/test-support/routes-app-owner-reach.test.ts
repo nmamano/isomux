@@ -148,7 +148,10 @@ describe("app owner reach: the same token follows the owner agent live", () => {
     server = srv;
     await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0].id;
-    const created = createMember("Mia", { role: "member", allowedRooms: [room] });
+    const created = createMember("Mia", {
+      role: "member",
+      allowedRooms: [room],
+    });
     if (!created.ok) throw new Error(created.error);
     const owner = await spawn(srv, "MiaBot", "Mia", room);
     const peer = await spawn(srv, "MiaPeer", "Mia", room);
@@ -157,9 +160,7 @@ describe("app owner reach: the same token follows the owner agent live", () => {
 
     expect(getUserByName("Mia")!.allowedRooms).toContain(room);
     expect((await call(srv, "GET", logs, appToken)).status).toBe(200);
-    expect(updateUserById(created.user.id, { allowedRooms: [] }).ok).toBe(
-      true,
-    );
+    expect(updateUserById(created.user.id, { allowedRooms: [] }).ok).toBe(true);
     expect(getUserByName("Mia")!.allowedRooms).not.toContain(room);
     expect((await call(srv, "GET", logs, appToken)).status).toBe(403);
   });
@@ -292,17 +293,17 @@ describe("app owner reach: an ordinary agent cannot raise an app to privileged",
     // Registering makes the ordinary agent the owner, so the app has nothing
     // above that agent's reach.
     const record = await call(srv, "GET", "/api/apps/raise", builderToken);
-    expect((record.body as { createdByAgentId?: string }).createdByAgentId).toBe(
-      ordinary.id,
-    );
+    expect(
+      (record.body as { createdByAgentId?: string }).createdByAgentId,
+    ).toBe(ordinary.id);
     expect((await call(srv, "GET", "/api/cronjobs", appToken)).status).toBe(
       403,
     );
 
     // While the owner is ordinary, the ordinary agent changes command and cwd.
-    expect((await patch(builderToken, { command: "bun run a.ts" })).status).toBe(
-      200,
-    );
+    expect(
+      (await patch(builderToken, { command: "bun run a.ts" })).status,
+    ).toBe(200);
     expect((await patch(builderToken, { cwd: srv.stateRoot })).status).toBe(
       200,
     );
@@ -331,9 +332,7 @@ describe("app owner reach: an ordinary agent cannot raise an app to privileged",
     ]) {
       expect((await patch(builderToken, body)).status).toBe(403);
     }
-    expect((await patch(builderToken, { description: "ok" })).status).toBe(
-      200,
-    );
+    expect((await patch(builderToken, { description: "ok" })).status).toBe(200);
     expect(
       (await patch(privilegedToken, { command: "bun run other.ts" })).status,
     ).toBe(200);
@@ -369,7 +368,10 @@ describe("app owner reach: an owner agent of another member gives no reach", () 
     server = srv;
     const boss = await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0].id;
-    const created = createMember("Mia", { role: "member", allowedRooms: [room] });
+    const created = createMember("Mia", {
+      role: "member",
+      allowedRooms: [room],
+    });
     if (!created.ok) throw new Error(created.error);
     const owner = await spawn(srv, "BossBot", "Boss", room);
     const miaBot = await spawn(srv, "MiaBot", "Mia", room);

@@ -170,8 +170,16 @@ describe("the three shapes", () => {
       true,
     ],
     ["empty options", { ...BASE, memberUserId: "u1", options: [] }, false],
-    ["an empty option", { ...BASE, memberUserId: "u1", options: ["a", ""] }, false],
-    ["options not a list", { ...BASE, memberUserId: "u1", options: "a" }, false],
+    [
+      "an empty option",
+      { ...BASE, memberUserId: "u1", options: ["a", ""] },
+      false,
+    ],
+    [
+      "options not a list",
+      { ...BASE, memberUserId: "u1", options: "a" },
+      false,
+    ],
     [
       "secret with options",
       {
@@ -288,9 +296,9 @@ describe("an ask's options", () => {
     if (!made.ok) throw new Error("create failed");
     const id = made.entry.id;
     expect(store.edit(id, "Toast now?")?.options).toEqual(["Jim", "Dwight"]);
-    expect(store.edit(id, "Toast?", undefined, ["Pam", "Oscar"])?.options).toEqual(
-      ["Pam", "Oscar"],
-    );
+    expect(
+      store.edit(id, "Toast?", undefined, ["Pam", "Oscar"])?.options,
+    ).toEqual(["Pam", "Oscar"]);
     const cleared = store.edit(id, "Toast?", undefined, null);
     expect(cleared && "options" in cleared).toBe(false);
     const reread = createAskStore({

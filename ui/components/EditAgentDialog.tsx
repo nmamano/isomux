@@ -934,9 +934,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           if (autoHandoff || (!limitResume && !isOpenCode))
             await apiFetch("PATCH", `/api/agents/${res.agent.id}`, {
               ...(autoHandoff ? { autoHandoff: true } : {}),
-              ...(!limitResume && !isOpenCode
-                ? { limitResume: false }
-                : {}),
+              ...(!limitResume && !isOpenCode ? { limitResume: false } : {}),
             } satisfies EditAgentReq);
           if (privileged)
             await apiFetch("PUT", `/api/agents/${res.agent.id}/privileged`, {

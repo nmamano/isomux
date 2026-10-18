@@ -1918,9 +1918,7 @@ describe("route table: an APP has its live owner agent's reach", () => {
   });
 
   it("never holds secret:show, even from an owner set that has it", () => {
-    expect(appWith(ownerAgent(true)).capabilities).not.toContain(
-      "secret:show",
-    );
+    expect(appWith(ownerAgent(true)).capabilities).not.toContain("secret:show");
     expect(
       appCapabilities([...PRIVILEGED_AGENT_CAPABILITIES, "secret:show"]),
     ).not.toContain("secret:show");

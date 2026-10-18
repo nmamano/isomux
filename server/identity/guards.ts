@@ -13,11 +13,7 @@
 // `allowedRooms` to rule-based access by replacing the GuardDeps implementation,
 // never a guard signature.
 
-import {
-  actsForAgent,
-  identityHasCapability,
-  type Identity,
-} from "./index.ts";
+import { actsForAgent, identityHasCapability, type Identity } from "./index.ts";
 
 // Every guard (and the dispatcher) returns this. Shared, frozen singletons keep
 // the envelope strings identical across the whole authz surface - tests pin the

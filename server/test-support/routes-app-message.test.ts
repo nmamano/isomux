@@ -924,7 +924,11 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
       await h["apps.sendMessage"](
         owned({ text: "hi", targetAgentId: "a-gone" }),
       ),
-    ).toMatchObject({ kind: "error", status: 404, code: "recipient_not_found" });
+    ).toMatchObject({
+      kind: "error",
+      status: 404,
+      code: "recipient_not_found",
+    });
     expect(delivered).toEqual(["a-2", "a-gone"]);
   });
 });

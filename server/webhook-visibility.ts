@@ -59,8 +59,7 @@ export function webhookViewerForIdentity(
   const participates =
     identity.scope === "user" ||
     identity.scope === "api" ||
-    (actsForAgent(identity) &&
-      identityHasCapability(identity, "webhook:read"));
+    (actsForAgent(identity) && identityHasCapability(identity, "webhook:read"));
   return {
     userId: identity.userId,
     participates,

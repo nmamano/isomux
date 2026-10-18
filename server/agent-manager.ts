@@ -9688,9 +9688,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // agents, and revive reads entry.privileged).
           privileged: managed.info.privileged ?? false,
           ...(managed.info.autoHandoff ? { autoHandoff: true } : {}),
-          ...(managed.info.limitResume === false
-            ? { limitResume: false }
-            : {}),
+          ...(managed.info.limitResume === false ? { limitResume: false } : {}),
         };
         saveAgentHistory(history);
       }

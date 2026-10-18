@@ -3563,7 +3563,10 @@ describe("Codex usage-limit stop", () => {
 
   // The stop as app-server reports it: the error notification, then the
   // failed turn.
-  function fireStop(fake: FakeCodexTransport, codexErrorInfo = "usageLimitExceeded") {
+  function fireStop(
+    fake: FakeCodexTransport,
+    codexErrorInfo = "usageLimitExceeded",
+  ) {
     const error = {
       message: LIMIT_TEXT,
       codexErrorInfo,
@@ -3640,8 +3643,16 @@ describe("Codex usage-limit stop", () => {
     const past = Math.floor(Date.now() / 1000) - 60;
     fake.rateLimitsReadResponse = {
       rateLimits: limits({
-        primary: { usedPercent: 3, windowDurationMins: 300, resetsAt: FIVE_HOUR_RESET },
-        secondary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: WEEK_RESET },
+        primary: {
+          usedPercent: 3,
+          windowDurationMins: 300,
+          resetsAt: FIVE_HOUR_RESET,
+        },
+        secondary: {
+          usedPercent: 100,
+          windowDurationMins: 10080,
+          resetsAt: WEEK_RESET,
+        },
       }),
       rateLimitsByLimitId: null,
       rateLimitResetCredits: null,
@@ -3722,7 +3733,11 @@ describe("Codex usage-limit stop", () => {
     });
     it("a reached window limit with no window at 100% takes the fullest window", () => {
       const near = limits({
-        primary: { usedPercent: 99.6, windowDurationMins: 300, resetsAt: FIVE_HOUR_RESET },
+        primary: {
+          usedPercent: 99.6,
+          windowDurationMins: 300,
+          resetsAt: FIVE_HOUR_RESET,
+        },
       });
       expect(codexUsageLimitResetMs(near)).toBe(FIVE_HOUR_RESET * 1000);
     });
@@ -3734,7 +3749,11 @@ describe("Codex usage-limit stop", () => {
         codexUsageLimitResetMs(
           limits({
             rateLimitReachedType: null,
-            primary: { usedPercent: 99, windowDurationMins: 300, resetsAt: FIVE_HOUR_RESET },
+            primary: {
+              usedPercent: 99,
+              windowDurationMins: 300,
+              resetsAt: FIVE_HOUR_RESET,
+            },
           }),
         ),
       ).toBeNull();
@@ -3758,7 +3777,11 @@ describe("Codex usage-limit stop", () => {
       expect(
         codexUsageLimitResetMs(
           limits({
-            primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: null },
+            primary: {
+              usedPercent: 100,
+              windowDurationMins: 300,
+              resetsAt: null,
+            },
             secondary: null,
           }),
         ),

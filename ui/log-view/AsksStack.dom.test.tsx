@@ -311,9 +311,7 @@ it("leaves the options live after a refused tap, so the next tap posts again", a
   });
   // Refused: the card stays with the reason, and its buttons are enabled.
   expect(cards(view.container)).toEqual(["ffff0006"]);
-  expect(card.querySelector("[role=alert]")?.textContent).toContain(
-    "ask_busy",
-  );
+  expect(card.querySelector("[role=alert]")?.textContent).toContain("ask_busy");
   expect(optionButtons(card).map((b) => b.disabled)).toEqual([false, false]);
   refuse = false;
   await act(async () => {

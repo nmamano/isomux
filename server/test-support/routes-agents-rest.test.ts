@@ -859,7 +859,12 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    const x = await spawnAt(srv, "Resume", srv.agentManager.getRooms()[0].id, 0);
+    const x = await spawnAt(
+      srv,
+      "Resume",
+      srv.agentManager.getRooms()[0].id,
+      0,
+    );
     // No stored value reads as on.
     expect(srv.agentManager.getAgent(x.id)?.limitResume ?? true).toBe(true);
     const persisted = () =>

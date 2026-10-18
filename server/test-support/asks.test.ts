@@ -650,9 +650,9 @@ describe("options the member can tap", () => {
     );
     await sleep(50);
     // The option reaches the agent as a typed reply does.
-    expect(sentTexts(w.srv, w.asker.id).filter((t) => t.endsWith("Dwight"))).toEqual([
-      `[${w.owner.username}] ${askReplyNote(created)}Dwight`,
-    ]);
+    expect(
+      sentTexts(w.srv, w.asker.id).filter((t) => t.endsWith("Dwight")),
+    ).toEqual([`[${w.owner.username}] ${askReplyNote(created)}Dwight`]);
   });
 });
 
