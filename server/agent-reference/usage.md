@@ -4,7 +4,7 @@
 
 `GET /api/agents/:id/subscription` refreshes provider allowance when a live session exists. Available data includes provider windows, reset times, plan, sample and observation times, age, and fresh/cached state. Cached data can survive a released session and starts empty after server restart. Unavailable reasons include `no_session`, `not_yet_measured`, and `provider_unavailable`; OpenCode reports provider unavailable.
 
-When a usage limit stops your turn, Isomux sends you a message after the limit resets, unless `limitResume` is off in your settings. Then continue where you stopped.
+When a usage limit stops your turn, Isomux sends you a message after the limit resets, unless `limitResume` is off in your settings.
 
 Room access controls which agent ids the caller may inspect.
 
