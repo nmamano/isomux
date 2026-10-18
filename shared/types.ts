@@ -1185,6 +1185,9 @@ export interface AskEntry {
   // The office page where the member acts, as one of OFFICE_LINK_PATHS
   // (shared/office-links.ts). Never on a secret request.
   link?: string;
+  // The agent's session when it opened the ask. The reply note names it when
+  // the reply reaches a later session.
+  sessionId?: string;
 }
 
 // The ask a member message answers. Rides on the queued item and on the
@@ -1194,6 +1197,7 @@ export interface AskRef {
   id: string;
   prompt: string;
   dismissed?: boolean;
+  sessionId?: string;
 }
 
 export function generateAskId(existing?: string[]): string {

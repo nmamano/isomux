@@ -3076,7 +3076,11 @@ function buildExecutorDeps(
       agent: (agentId) => {
         const agent = agentManager.getAgent(agentId);
         return agent
-          ? { roomId: agent.roomId, managerUserId: agent.userId ?? null }
+          ? {
+              roomId: agent.roomId,
+              managerUserId: agent.userId ?? null,
+              sessionId: agentManager.getCurrentSessionId(agentId),
+            }
           : null;
       },
       memberByName: (name) => {
@@ -6186,6 +6190,7 @@ function deliverAskAnswer(
     id: entry.id,
     prompt: entry.prompt,
     ...(opts.dismissed ? { dismissed: true } : {}),
+    ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
   };
   const send = (device: string | undefined) =>
     sendMemberMessage(entry.agentId, text, username, device, undefined, {

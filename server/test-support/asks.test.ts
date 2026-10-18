@@ -766,6 +766,59 @@ describe("the member's answer", () => {
     });
     expect((mine.body as AskEntry[]).map((e) => e.id)).toEqual([created.id]);
   });
+
+  it("names the opening session when the reply reaches a later one", async () => {
+    const w = await world();
+    const sessionOf = () => w.srv.agentManager.getCurrentSessionId(w.asker.id);
+    const reply = async (id: string, text: string) => {
+      const r = await call(
+        w.srv,
+        "POST",
+        `/api/asks/${id}/reply`,
+        { rawSessionId: w.owner.rawSessionId },
+        { json: { text } },
+      );
+      expect(r.status).toBe(204);
+      await waitUntil(
+        () => sentTexts(w.srv, w.asker.id).some((t) => t.endsWith(text)),
+        `reply ${text} delivered`,
+      );
+      return sentTexts(w.srv, w.asker.id).find((t) => t.endsWith(text))!;
+    };
+    const start = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/messages`,
+      w.as(w.other.id),
+      { text: "start a session" },
+    );
+    expect(start.status).toBe(200);
+    await waitUntil(() => sessionOf() !== null, "first session");
+    const opener = sessionOf()!;
+
+    const same = await open(w, "Answered in the same session?");
+    // The opening session stays server-side.
+    expect("sessionId" in same).toBe(false);
+    const stored = JSON.parse(
+      readFileSync(join(w.srv.stateRoot, "asks.json"), "utf-8"),
+    ) as AskEntry[];
+    expect(stored.find((e) => e.id === same.id)?.sessionId).toBe(opener);
+    expect(await reply(same.id, "same session")).not.toContain(opener);
+
+    const later = await open(w, "Answered after a clear?");
+    const cleared = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/new-conversation`,
+      w.as(w.asker.id),
+      { json: {} },
+    );
+    expect(cleared.status).toBe(204);
+    await waitUntil(() => sessionOf() !== opener, "session cleared");
+    const sent = await reply(later.id, "after the clear");
+    expect(sent).toContain(opener);
+    expect(sent).toContain("Answered after a clear?");
+  });
 });
 
 describe("live and durable", () => {

@@ -47,9 +47,11 @@ export const ASK_DISMISSED_TEXT = "Dismissed";
 export interface AsksDeps {
   store: AskStore;
   // The agent as it is now, or null when it is gone.
-  agent(
-    agentId: string,
-  ): { roomId: string; managerUserId: string | null } | null;
+  agent(agentId: string): {
+    roomId: string;
+    managerUserId: string | null;
+    sessionId?: string | null;
+  } | null;
   // A member by username (case-insensitive), or null.
   memberByName(name: string): { id: string; name: string } | null;
   // A member's username, or null when the record is gone.
@@ -85,7 +87,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // cannot send the message twice.
   const delivering = new Set<string>();
 
-  const wire = (entry: AskEntry): AskAgentWire => ({
+  // The opening session stays server-side: it is for the reply note only.
+  const wire = ({ sessionId: _session, ...entry }: AskEntry): AskAgentWire => ({
     ...entry,
     // An office secret request is for every owner and names no member.
     member:
@@ -212,6 +215,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         memberUserId,
         prompt: checked.prompt,
         ...(body.link !== undefined ? { link: body.link as string } : {}),
+        ...(agent.sessionId ? { sessionId: agent.sessionId } : {}),
       });
       if (!result.ok)
         return fail(

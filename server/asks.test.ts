@@ -306,6 +306,15 @@ describe("the note before the member's words", () => {
     expect(quoted).toBe(long.trim());
     expect(note).not.toContain("\n");
     expect(
+      askReplyNote({ id: "abcd1234", prompt: "x", sessionId: "s-1" }, "s-1"),
+    ).toBe(askReplyNote({ id: "abcd1234", prompt: "x" }));
+    expect(
+      askReplyNote({ id: "abcd1234", prompt: "x", sessionId: "s-1" }, "s-2"),
+    ).toContain("s-1");
+    expect(
+      askReplyNote({ id: "abcd1234", prompt: "x", sessionId: "s-1" }, null),
+    ).toContain("s-1");
+    expect(
       askReplyNote({ id: "abcd1234", prompt: "x", dismissed: true }),
     ).not.toBe(askReplyNote({ id: "abcd1234", prompt: "x" }));
   });

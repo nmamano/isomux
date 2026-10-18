@@ -6784,7 +6784,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return `[Handoff from your previous session] `;
     }
     if (m.ask && m.sender.kind === "user") {
-      return `${senderPrefixText(m.sender, receiverAgentId)}${askReplyNote(m.ask)}`;
+      return `${senderPrefixText(m.sender, receiverAgentId)}${askReplyNote(m.ask, getCurrentSessionId(receiverAgentId))}`;
     }
     if (m.scheduledFor === undefined || m.sender.kind !== "agent") {
       return senderPrefixText(m.sender, receiverAgentId);
@@ -9002,7 +9002,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // of the message, so the member prefix would turn it into plain text.
     const prefix = nativeCommand
       ? ""
-      : `${formatPrefix({ username, device })}${ask ? askReplyNote(ask) : ""}`;
+      : `${formatPrefix({ username, device })}${ask ? askReplyNote(ask, managed.sessionManager.sessionId) : ""}`;
     const prefixedText = prefix ? `${prefix}${text}` : text;
     try {
       await runAgentTurn({

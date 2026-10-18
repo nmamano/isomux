@@ -21,6 +21,7 @@ import { errMessage } from "../shared/errors.ts";
 import {
   generateAskId,
   type AskEntry,
+  type AskRef,
   type SecretAskRequest,
 } from "../shared/types.ts";
 
@@ -127,6 +128,8 @@ function isAskEntry(v: unknown): v is AskEntry {
   // cannot fail the file.
   if (r.link !== undefined && (typeof r.link !== "string" || r.link === ""))
     return false;
+  if (r.sessionId !== undefined && typeof r.sessionId !== "string")
+    return false;
   if (r.secret === undefined) return hasMember;
   if (r.link !== undefined) return false;
   if (!isSecretAskRequest(r.secret)) return false;
@@ -195,6 +198,7 @@ export interface AskStore {
     prompt: string;
     secret?: SecretAskRequest;
     link?: string;
+    sessionId?: string;
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
   // link: undefined keeps the ask's link, null removes it.
   edit(id: string, prompt: string, link?: string | null): AskEntry | null;
@@ -256,7 +260,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         .filter((e) => e.agentId === agentId)
         .map((e) => ({ ...e }));
     },
-    create({ agentId, memberUserId, prompt, secret, link }) {
+    create({ agentId, memberUserId, prompt, secret, link, sessionId }) {
       check();
       const open = entries.filter((e) => e.agentId === agentId).length;
       if (open >= ASK_MAX_OPEN_PER_AGENT)
@@ -271,6 +275,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         updatedAt: at,
         ...(secret ? { secret } : {}),
         ...(link !== undefined ? { link } : {}),
+        ...(sessionId ? { sessionId } : {}),
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);
@@ -313,14 +318,18 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
   };
 }
 
-// The bracket the agent reads before the member's words. It quotes the whole
-// prompt: the reply can reach a later session (after a clear, a handoff or
-// /wrap-session) that never saw the question.
-export function askReplyNote(ref: {
-  id: string;
-  prompt: string;
-  dismissed?: boolean;
-}): string {
+// The bracket the agent reads before the member's words. The reply can reach a
+// later session (after a clear, a handoff or /wrap-session) that never saw the
+// question, so the note quotes the whole prompt and, when the session that
+// opened the ask is not the current one, names it for a log search.
+export function askReplyNote(
+  ref: AskRef,
+  currentSessionId: string | null = null,
+): string {
   const verb = ref.dismissed ? "Dismissed your ask" : "Reply to your ask";
-  return `[${verb} ${ref.id}: ${JSON.stringify(ref.prompt.trim())}] `;
+  const from =
+    ref.sessionId && ref.sessionId !== currentSessionId
+      ? ` (opened in session ${ref.sessionId})`
+      : "";
+  return `[${verb} ${ref.id}${from}: ${JSON.stringify(ref.prompt.trim())}] `;
 }
