@@ -565,7 +565,7 @@ export interface QueuedMessage {
     | { kind: "user"; username?: string; device?: string }
     | { kind: "agent"; agentId: string; agentName: string; roomName: string }
     | { kind: "cronjob"; cronjobId: string; cronjobName: string }
-    // A registered app messaging the agent that built it (POST /api/app/message).
+    // A registered app messaging an agent (POST /api/app/message).
     // Only the NAME is carried, and it comes from the app's token rather than its
     // request: an app cannot claim to be another app, an agent, or a member. The
     // name is also the reason nothing here needs escaping - app names are

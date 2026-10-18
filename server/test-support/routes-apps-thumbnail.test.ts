@@ -540,6 +540,7 @@ function deps(over: Partial<AppsDeps>): AppsDeps {
     now: () => 1000,
     resolveMessageTarget: () => "ok",
     resolveCreator: () => "unavailable",
+    isPrivilegedAgent: () => false,
     attributionFor: () => ({ createdBy: "Agent1", username: "alice" }),
     validateCwd: (cwd) => ({ ok: true, resolved: cwd }),
     projectForList: (_identity, _record, wire) => wire,

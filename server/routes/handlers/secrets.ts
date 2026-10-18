@@ -244,7 +244,10 @@ function scopedHandlers(
         deps,
         answer(
           deps.store.update(scope, ctx.params.name ?? "", body, {
-            addHosts: ctx.identity.scope !== "agent",
+            // Only a human, by cookie or API token, adds hosts; every other
+            // caller (an agent, an app) only narrows them.
+            addHosts:
+              ctx.identity.scope === "user" || ctx.identity.scope === "api",
           }),
         ),
         scope,

@@ -27,11 +27,18 @@ import {
   RUN_CAPABILITIES,
   APP_CAPABILITIES,
   API_CAPABILITIES,
+  agentCapabilities,
+  appCapabilities,
   type Capability,
   type Identity,
 } from "../identity/index.ts";
 import type { GuardDeps } from "../identity/guards.ts";
 import { providerAccountsHandlers } from "../routes/handlers/provider-accounts.ts";
+import {
+  appIdentityFromToken,
+  type AppOwnerAgentResolver,
+  type AppTokenStore,
+} from "../app-tokens.ts";
 import {
   AGENT_ROUTE_REFERENCE_EXEMPTIONS,
   AGENT_ROUTE_REFERENCE_TOPICS,
@@ -1752,6 +1759,171 @@ describe("route table: an APP identity authorizes exactly the app-self routes", 
     expect(
       runAuthorize(someRoute.auth, appIdentity, {}, undefined, generousDeps),
     ).toEqual({ ok: false, status: 403, code: "forbidden" });
+  });
+});
+
+// --- an APP has its live OWNER AGENT's reach --------------------------------
+//
+// Nil, 2026-10-18: an app has the exact reach of the agent that owns it, read
+// live, except for the routes below (Lead ruling, task c0204eb6). Walked over the
+// whole table with identities built by the shipping resolver, so the
+// manager-match and killed-owner branches are the ones under test.
+
+// Allowed to the owner agent, refused to its app: the app would be recorded as
+// a member or as the agent, or the route acts in the agent's own chat,
+// session, outbox or token.
+const APP_REFUSED_OPIDS = [
+  // No chat, session, outbox or token of its own.
+  "agents.readFile",
+  "agents.diff",
+  "agents.editFile",
+  "agents.terminalCommand",
+  "agents.secretRequest",
+  "agents.createAsk",
+  "agents.listAsks",
+  "agents.getAsk",
+  "agents.editAsk",
+  "agents.deleteAsk",
+  "agents.previewUrl",
+  "agents.browser",
+  "agents.handoff",
+  "agents.listScheduledMessages",
+  "agents.cancelScheduledMessage",
+  "agentConnections.list",
+  "apiTokenInbox.send",
+  "pager.raise",
+  // No app shape in the record: it would name the member.
+  "agents.sendMessage",
+  "agents.editMessage",
+  "agents.respondInteraction",
+  "agents.sendNow",
+  "membersChat.page",
+  "membersChat.post",
+  "membersChat.pin",
+  "membersChat.thumbsUp",
+  "membersChat.edit",
+  "membersChat.delete",
+  "membersChat.markRead",
+  "membersChat.upload",
+  "membersChat.getFile",
+  "cron.create",
+  "cron.runNow",
+  "cron.runMessage",
+  "cron.editRunMessage",
+  // The stop note would name a member.
+  "agents.abort",
+  // App code does not read the agent reference.
+  "agentReference.list",
+  "agentReference.get",
+  // A browser session's routes, which `authenticated` keeps from every app.
+  "sessions.logout",
+  "validate.env",
+];
+
+// An ORDINARY agent may also clear its own conversation; an app has none.
+const APP_REFUSED_SELF_ONLY_OPIDS = ["agents.newConversation"];
+
+describe("route table: an APP has its live owner agent's reach", () => {
+  const generousDeps: GuardDeps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: () => "u-owner",
+    cronjobCreatorUserId: () => "u-owner",
+    appOwnerUserId: () => "u-owner",
+    webhookOwnerUserId: () => "u-owner",
+    isOfficeOwnerUserId: () => true,
+    agentManagerUserId: () => "u-owner",
+    killedAgentManagerUserId: () => "u-owner",
+  };
+  // :id is the owner agent itself, so every self-bound route is open to the
+  // agent and the walk shows what the app does NOT get.
+  const params = {
+    id: "a-owner",
+    name: "hello",
+    username: "alice",
+    roomId: "r1",
+    sessionPrefix: "abc",
+    cronjobId: "j1",
+    runId: "run-1",
+    taskId: "t1",
+    scheduledId: "s1",
+    askId: "k1",
+    interactionId: "i1",
+    logEntryId: "l1",
+    messageId: "m1",
+    tokenId: "tok1",
+  };
+  const body = { senderAgentId: "a-owner", roomId: "r1", role: "member" };
+  const store = {
+    lookup: () => ({ appName: "hello", userId: "u-owner" }),
+  } as unknown as AppTokenStore;
+  const owned = () => ({ userId: "u-owner", createdByAgentId: "a-owner" });
+  const ownerAgent =
+    (privileged: boolean, userId = "u-owner"): AppOwnerAgentResolver =>
+    (agentId) =>
+      agentId === "a-owner" ? { agentId, userId, privileged } : null;
+  const appWith = (resolveAgent: AppOwnerAgentResolver): Identity =>
+    appIdentityFromToken("raw", store, owned, resolveAgent)!;
+  const agent = (privileged: boolean): Identity => ({
+    scope: "agent",
+    userId: "u-owner",
+    agentId: "a-owner",
+    role: "member",
+    capabilities: agentCapabilities(privileged),
+  });
+  const reach = (identity: Identity): Set<string> =>
+    new Set(
+      API_ROUTES.filter(
+        (r) =>
+          r.auth.kind !== "public" &&
+          runAuthorize(r.auth, identity, params, body, generousDeps).ok,
+      ).map((r) => r.opId),
+    );
+
+  for (const privileged of [false, true]) {
+    const label = privileged ? "a privileged" : "an ordinary";
+    it(`equals ${label} owner agent's reach, minus the refused routes, plus the app-self routes`, () => {
+      const app = appWith(ownerAgent(privileged));
+      // The enabling condition: the resolver found the owner.
+      expect(app.ownerAgentId).toBe("a-owner");
+      const appReach = reach(app);
+      const agentReach = reach(agent(privileged));
+      const onlyAgent = [...agentReach].filter((op) => !appReach.has(op));
+      const onlyApp = [...appReach].filter((op) => !agentReach.has(op));
+      const refused = [
+        ...APP_REFUSED_OPIDS,
+        ...(privileged ? [] : APP_REFUSED_SELF_ONLY_OPIDS),
+      ];
+      expect(onlyAgent.sort()).toEqual(
+        refused.filter((op) => agentReach.has(op)).sort(),
+      );
+      expect(onlyApp.sort()).toEqual([...APP_REACHABLE_OPIDS].sort());
+    });
+  }
+
+  it("names no refused route that the privileged owner agent cannot reach", () => {
+    const agentReach = reach(agent(true));
+    expect(APP_REFUSED_OPIDS.filter((op) => !agentReach.has(op))).toEqual([]);
+  });
+
+  it("falls back to the app-self routes when the owner is gone or has another manager", () => {
+    for (const resolveAgent of [
+      (() => null) as AppOwnerAgentResolver,
+      ownerAgent(true, "u-other"),
+    ]) {
+      const app = appWith(resolveAgent);
+      expect(app.ownerAgentId).toBeUndefined();
+      expect([...reach(app)].sort()).toEqual([...APP_REACHABLE_OPIDS].sort());
+    }
+  });
+
+  it("never holds secret:show, even from an owner set that has it", () => {
+    expect(appWith(ownerAgent(true)).capabilities).not.toContain(
+      "secret:show",
+    );
+    expect(
+      appCapabilities([...PRIVILEGED_AGENT_CAPABILITIES, "secret:show"]),
+    ).not.toContain("secret:show");
   });
 });
 

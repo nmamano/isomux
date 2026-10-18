@@ -1,4 +1,4 @@
-import type { Identity } from "./identity/index.ts";
+import { actsForAgent, type Identity } from "./identity/index.ts";
 
 export interface AppVisibilityFacts {
   ownerUserId: string | null;
@@ -15,7 +15,7 @@ export interface AppViewerFacts {
 
 export function viewerUserId(identity: Identity): string | null {
   return identity.scope === "user" ||
-    identity.scope === "agent" ||
+    actsForAgent(identity) ||
     identity.scope === "api"
     ? identity.userId
     : null;

@@ -60,7 +60,12 @@ import {
   APP_MESSAGE_MAX_CHARS,
   type AppMessageLimiter,
 } from "../../app-message-limits.ts";
-import type { Identity } from "../../identity/index.ts";
+import {
+  actsForAgent,
+  reachAgentId,
+  type Identity,
+} from "../../identity/index.ts";
+import { noteAuditTarget } from "../../audit-context.ts";
 import type { AppRecord } from "../../../shared/types.ts";
 import {
   MAX_APP_THUMBNAIL_BYTES,
@@ -143,6 +148,8 @@ export interface AppsDeps {
     ownerUserId: string | null,
     agentId: string,
   ): "ok" | "invalid_id" | "unavailable";
+  // Whether this live agent is privileged now. False for an unknown agent.
+  isPrivilegedAgent(agentId: string): boolean;
   // Both the caller and the app owner must reach this live agent.
   resolveCreator(
     identity: Identity,
@@ -729,6 +736,30 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           }
           creator = resolved;
         }
+        // Only a human sets the privileged flag, so an app must not be a way
+        // around it: an agent caller that is not privileged (an app counts as
+        // its owner agent) may not point an app at a privileged agent, nor
+        // change the owner, command or cwd of an app whose owner is privileged.
+        // The app would run that caller's choice with privileged reach.
+        const callerAgent = reachAgentId(ctx.identity);
+        if (callerAgent !== null && !deps.isPrivilegedAgent(callerAgent)) {
+          const ownerPrivileged =
+            !!before.createdByAgentId &&
+            deps.isPrivilegedAgent(before.createdByAgentId);
+          if (
+            (creator && deps.isPrivilegedAgent(creator.id)) ||
+            (ownerPrivileged &&
+              (body.createdByAgentId !== undefined ||
+                body.command !== undefined ||
+                body.cwd !== undefined))
+          ) {
+            return fail(
+              403,
+              "forbidden",
+              "only a human or a privileged agent can change the owner, command or cwd of a privileged agent's app",
+            );
+          }
+        }
         // An empty patch is a caller mistake, not a no-op: answering 200 to a
         // request that asked for nothing hides whatever built it.
         if (
@@ -866,13 +897,19 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     // an app token reaches, and the only handler here whose caller is the app
     // rather than its owner.
     //
-    // NOTHING ABOUT THE MESSAGE IS THE CALLER'S TO CHOOSE except the text. Which
-    // app is speaking comes from the token, who hears it comes from the registry,
-    // and how it is labelled comes from the app's registered name. A body field
-    // for any of those would be a field to lie in.
+    // The caller chooses the text and, optionally, a target. Which app is
+    // speaking comes from the token and how it is labelled comes from the app's
+    // registered name, so a body field for either would be a field to lie in.
+    // Without targetAgentId the message goes to the configured target. A chosen
+    // target needs a live owner agent (the identity's reach), and then reaches
+    // what that agent's own send reaches: any live agent, with the delivery's
+    // own refusals.
     "apps.sendMessage": async (ctx) => {
       const appName = ctx.identity.appName ?? "";
-      const body = (ctx.body ?? {}) as { text?: unknown };
+      const body = (ctx.body ?? {}) as {
+        text?: unknown;
+        targetAgentId?: unknown;
+      };
       if (typeof body.text !== "string" || body.text.trim() === "") {
         // trim, not length: a whitespace-only message wakes an agent and burns
         // model tokens on nothing, which is precisely the shape of an unattended
@@ -884,6 +921,17 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           400,
           "text_too_long",
           `text must be at most ${APP_MESSAGE_MAX_CHARS} characters`,
+        );
+      }
+      const requested = body.targetAgentId;
+      if (
+        requested !== undefined &&
+        (typeof requested !== "string" || requested === "")
+      ) {
+        return fail(
+          400,
+          "invalid_target",
+          "targetAgentId must be a non-empty string",
         );
       }
 
@@ -922,10 +970,16 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         if (!record) {
           return fail(404, "not_found", "this app is no longer registered");
         }
-        // The target is configured by the app owner, never supplied by the app
-        // message. Old records fall back to their creator for compatibility.
+        if (requested !== undefined && !actsForAgent(ctx.identity))
+          return fail(
+            403,
+            "forbidden",
+            "this app has no live owner agent, so it can message only its configured target",
+          );
+        // Without a chosen target, the one the app owner configured. Old
+        // records fall back to their creator for compatibility.
         const targetAgentId =
-          record.messageTargetAgentId ?? record.createdByAgentId;
+          requested ?? record.messageTargetAgentId ?? record.createdByAgentId;
         if (!targetAgentId) {
           return fail(
             409,
@@ -939,6 +993,10 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           // an answer to "so what do I do", because the raw delivery error
           // ("agent not found") reads like a bad parameter - and there is no
           // parameter.
+          // A chosen target that is gone gets the answer the owner agent's own
+          // send gives (its messageRecipientExists precondition).
+          if (sent.status === 404 && requested !== undefined)
+            return fail(404, "recipient_not_found", "Recipient not found.");
           if (sent.status === 404) {
             return fail(
               404,
@@ -953,6 +1011,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // nothing but its burst slot.
         deps.limiter.commitDaily(appName);
         committed = true;
+        noteAuditTarget(targetAgentId);
         return ok({
           messageId: sent.messageId ?? "",
           ...(sent.queued === undefined ? {} : { queued: sent.queued }),

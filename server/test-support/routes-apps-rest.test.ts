@@ -2293,6 +2293,7 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     update: () => record,
     resolveMessageTarget: () => "ok",
     resolveCreator: () => "unavailable",
+    isPrivilegedAgent: () => false,
     attributionFor: () => ({ createdBy: "Agent1", username: "alice" }),
     validateCwd: (cwd) => ({ ok: true, resolved: cwd }),
     projectForList: (_identity, _record, wire) => wire,

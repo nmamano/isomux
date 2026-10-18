@@ -1511,12 +1511,13 @@ export interface AppRegisterReq {
   description?: string;
 }
 
-// POST /api/app/message - the app-SELF surface, and the only route an app token
-// reaches. There is no recipient field and no app field: the token says which app
-// is speaking, and the registry says which agent built it. Both are things a
-// caller could otherwise lie about, so neither is a parameter.
+// POST /api/app/message - the app-SELF surface. There is no app field: the token
+// says which app is speaking. targetAgentId names any agent the app's live
+// owner agent could message; without it the message goes to the configured
+// target.
 export interface AppMessageReq {
   text: string;
+  targetAgentId?: string;
 }
 
 // PATCH /api/apps/:name. Any subset of the mutable fields; an absent key

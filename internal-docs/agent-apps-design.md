@@ -162,8 +162,14 @@ theirs (`ISOMUX_APP_TOKEN`). The app's server side holds it; browser JavaScript
 never sees it. Capability: message the agent its owner configured, touch its own storage,
 nothing else - not spawning agents, not the task board, not other agents' logs.
 Before targets were configurable, an app registered by a person always answered
-`409 no_target`. Its owner can now configure an agent, but the app still cannot
-choose its own recipient.
+`409 no_target`. Its owner can now configure an agent.
+
+Since 2026-10-18 (Nil, task c0204eb6) an app token has the reach of its live
+owner agent (`createdByAgentId`, with the app owner as manager), read on each
+request, and a message may name `targetAgentId`. The identity stays scope
+`app`, so writes name the app. Routes that would record a member or act as the
+agent stay refused; the list is in the apps agent reference. Without a live
+owner agent the app keeps the two capabilities above.
 
 Three things this needs that agent tokens do not:
 

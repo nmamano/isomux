@@ -16,9 +16,10 @@ import type { UserRole } from "../../shared/types.ts";
 //
 // APP is the odd one out and deliberately so: it is the scope of a registered
 // app's own server process (server/app-tokens.ts), which is agent-AUTHORED code
-// running unattended, and it holds NO capabilities at all today. Adding it here
-// rather than off to one side is what makes every `switch (identity.scope)` in
-// the guard catalog fail to compile until it has decided about apps.
+// running unattended. It acts with its owner agent's reach (ownerAgentId) but is
+// never that agent, so every write records the app. Adding it here rather than
+// off to one side is what makes every `switch (identity.scope)` in the guard
+// catalog fail to compile until it has decided about apps.
 export type TokenScope = "user" | "agent" | "cron-run" | "app" | "api";
 
 // The capability lattice. A capability gates a class of operations; the route
@@ -140,11 +141,10 @@ export interface Identity {
   // the cronjob's creator (may be null for an unowned job); for APP scope the
   // user the app belongs to.
   //
-  // On APP scope this field is TRUTHFUL, not an authority: an app is not its
-  // owner. Every guard that owner-matches on userId is scope-gated first, and
-  // the whole-table reachability test pins that an app identity authorizes
-  // nothing - carrying null here instead would make attribution dishonest and
-  // hide a missed scope check rather than prevent one.
+  // On APP scope this field is TRUTHFUL: the app owner, who is also the owner
+  // agent's manager whenever ownerAgentId is set. Room access keys on it, so an
+  // app with an owner reaches that agent's rooms; without one, every guard
+  // that owner-matches on userId refuses the app first.
   userId: string | null;
   // Present only on the corresponding scope.
   agentId?: string;
@@ -152,6 +152,11 @@ export interface Identity {
   runId?: string;
   // APP scope: the registered app's name (unique, and fixed for its whole life).
   appName?: string;
+  // APP scope: the live owner agent whose reach the app has, read on each
+  // request (appIdentityFromToken). Absent when the owner is gone, so the app
+  // has only APP_CAPABILITIES. A REACH fact only: no attribution path reads it,
+  // and agentId stays unset, so no guard can mistake the app for its owner.
+  ownerAgentId?: string;
   // API scope: stable token id for idempotency and a server-stored display name
   // used in sender attribution. Neither comes from the request body.
   apiTokenId?: string;
@@ -317,29 +322,41 @@ export const RUN_CAPABILITIES: readonly Capability[] = [
   "task:write",
 ];
 
-// APP set: TWO capabilities, and the narrowness is the whole point of the
-// scope.
-//
-// An app may message the agent that built it (app:message), and raise and
-// resolve its own pages (pager:raise). That is the entire surface: it cannot
-// read the office, list its siblings, touch the task board or shared memory,
-// or manage even ITS OWN registry record - app:read and app:write are the
-// owner's capabilities, not the app's, so an app cannot rename, restart or
-// delete itself, nor read another app's port. None of its routes carries a
-// recipient parameter either (the registry decides who hears it, and a page
-// goes to the app's owner), so the widest thing a stolen app token can do is
-// wake one agent, rate-limited, with a message labelled as coming from an
-// app, or page the app's owner within the pager's per-source bound.
-//
-// A narrow set rather than no scope at all because the token must still be
-// distinguishable from a garbage one - an app presenting its token for anything
-// else gets a 403 (I know who you are, you may not do that), not a 401. The
-// whole-table reachability test in routes-table.test.ts walks every route and
-// pins the exact set an app reaches.
+// APP set: what an app has on its own - message its target (app:message) and
+// raise and resolve its own pages (pager:raise). With a live owner agent the app
+// also has that agent's set (appCapabilities), so an app token is as sensitive
+// as its owner agent's token. Without one, these two are all: a 403 for anything
+// else (I know who you are, you may not do that), not a 401. The whole-table
+// parity test in routes-table.test.ts pins both cases.
 export const APP_CAPABILITIES: readonly Capability[] = [
   "app:message",
   "pager:raise",
 ];
+
+// Never passed from an owner agent to its app. The self ones act as the agent
+// in its own chat, outbox or token, which an app does not have; chat:members
+// would post with no app author shape; secret:show is in no agent set, and is
+// named so that a later set that gains it does not hand it to apps.
+export const APP_NEVER_INHERITED: readonly Capability[] = [
+  "self:affordance",
+  "agent:send-as-self",
+  "agent:send-to-api-token",
+  "chat:members",
+  "secret:show",
+];
+
+// An app's set when its owner agent holds ownerSet: the owner's set minus
+// APP_NEVER_INHERITED, plus the app's own two.
+export function appCapabilities(
+  ownerSet: readonly Capability[],
+): readonly Capability[] {
+  return [
+    ...new Set([
+      ...ownerSet.filter((cap) => !APP_NEVER_INHERITED.includes(cap)),
+      ...APP_CAPABILITIES,
+    ]),
+  ];
+}
 
 // API set: a remote member gets the same curated operational reach as a
 // privileged agent, expressed explicitly so every capability is an audit
@@ -405,6 +422,29 @@ export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {
     case "api":
       return API_CAPABILITIES;
   }
+}
+
+// An agent, or an app acting with its live owner agent's reach (ownerAgentId,
+// set by appIdentityFromToken only while that agent is live and shares the app
+// owner as manager). EVERY reach check that admits agents goes through this, so
+// an app with an owner gets the agent's reach and an app without one gets none
+// of it. Self-bound checks never use it: they compare identity.agentId, which an
+// app does not carry, so an app is never its owner agent.
+export function actsForAgent(identity: Identity): boolean {
+  if (identity.scope === "agent") return true;
+  return (
+    identity.scope === "app" &&
+    typeof identity.ownerAgentId === "string" &&
+    identity.ownerAgentId.length > 0
+  );
+}
+
+// The agent whose live reach the caller has: the agent itself, or an app's
+// owner agent. For REACH questions only (is that agent privileged); never for
+// attribution.
+export function reachAgentId(identity: Identity): string | null {
+  if (identity.scope === "agent") return identity.agentId || null;
+  return actsForAgent(identity) ? identity.ownerAgentId! : null;
 }
 
 export function identityHasCapability(

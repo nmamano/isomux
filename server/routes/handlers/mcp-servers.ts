@@ -89,7 +89,12 @@ export function agentServerRow(server: McpServerWire): AgentMcpServerWire {
 type Row = McpServerWire | AgentMcpServerWire;
 
 function rowFor(ctx: Parameters<RouteHandler>[0]): (s: McpServerWire) => Row {
-  return ctx.identity.scope === "agent" ? agentServerRow : (server) => server;
+  // Only a human, by cookie or API token, gets the URL; every other caller (an
+  // agent, an app) gets the host only: a URL can carry a token in its path or
+  // query.
+  return ctx.identity.scope === "user" || ctx.identity.scope === "api"
+    ? (server) => server
+    : agentServerRow;
 }
 
 function bodyWith(

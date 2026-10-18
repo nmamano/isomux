@@ -333,7 +333,7 @@ import {
   type AppRuntime,
   type AppSupervisor,
 } from "./app-supervisor.ts";
-import { appTokens } from "./app-tokens.ts";
+import { appTokens, setAppOwnerAgentResolver } from "./app-tokens.ts";
 import { createContainerAppSupervisor } from "./container-app-supervisor.ts";
 import {
   appHostingUnsupportedReason,
@@ -499,7 +499,12 @@ import {
 import type { TaskChange } from "../shared/office-state.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
 import { OfficeOutbox } from "./office-ws-outbox.ts";
-import { identityHasCapability, type Identity } from "./identity/index.ts";
+import {
+  actsForAgent,
+  identityHasCapability,
+  reachAgentId,
+  type Identity,
+} from "./identity/index.ts";
 import {
   appVisibleTo,
   viewerUserId,
@@ -1384,6 +1389,13 @@ function registerBootHooks(): void {
         repickFallbackSeeds(created.userId, created.id);
     }
   };
+  // An app's owner agent, live: killed agents are gone from the manager.
+  setAppOwnerAgentResolver((agentId) => {
+    const agent = agentManager.getAgent(agentId);
+    return agent
+      ? { agentId, userId: agent.userId, privileged: agent.privileged === true }
+      : null;
+  });
   setOnOwnerCreated(async ({ username }) => {
     takeOwnerClaimedInThisProcess();
     await seedWelcomeAgentsForFirstOwner!(username);
@@ -2505,6 +2517,10 @@ function attributionFor(identity: Identity): {
     const display = agentManager.getAgentDisplay(identity.agentId);
     if (display) createdBy = display.name;
   }
+  // An app acts as itself, never as its owner agent or the owning member, whose
+  // name stays in `username` (ownership).
+  if (identity.scope === "app" && identity.appName)
+    createdBy = appActorName(identity.appName);
   // A cron run acts as the JOB, not as the human who created the job: its
   // userId is there for `username` (ownership), but a task the run files should
   // read as the job's, the way it did when the run passed createdBy itself on
@@ -2516,6 +2532,12 @@ function attributionFor(identity: Identity): {
     if (job) createdBy = job.name;
   }
   return { createdBy, username };
+}
+
+// How an app is named where a record keeps a display name for its author
+// (task createdBy, memory author, settings-change notices).
+function appActorName(appName: string): string {
+  return `App "${appName}"`;
 }
 
 // The room ACCESS set for a caller identity, for room-scoping the task board.
@@ -2540,9 +2562,11 @@ function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
   // app every room its owner can reach - and with it every room-gated read.
   // A scope that should see no rooms must be the default, not an exception
   // somebody remembers to add.
+  // An app with a live owner agent has that agent's rooms (its userId is the
+  // agent's manager); an ownerless app has none.
   if (
     identity.scope !== "user" &&
-    identity.scope !== "agent" &&
+    !actsForAgent(identity) &&
     identity.scope !== "api"
   ) {
     return new Set<string>();
@@ -2552,18 +2576,17 @@ function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
 }
 
 // The room a create with NO roomId in the body defaults to: an AGENT caller's
-// OWN room, else undefined (office-global) for a user, cron-run, or unknown
-// identity. The agent's room is used verbatim even if its
+// OWN room (an app's: its owner agent's current room), else undefined
+// (office-global) for a user, cron-run, or unknown identity. The agent's room is used verbatim even if its
 // spawning user can't currently access it - "agent create → the agent's room" is
 // the authoritative rule; an explicit cross-room target is what the access guard
 // in the handler checks.
 function defaultCreateRoomIdForIdentity(
   identity: Identity,
 ): string | undefined {
-  if (identity.scope === "agent" && identity.agentId) {
-    const agent = agentManager
-      .getAllAgents()
-      .find((a) => a.id === identity.agentId);
+  const agentId = reachAgentId(identity);
+  if (agentId) {
+    const agent = agentManager.getAllAgents().find((a) => a.id === agentId);
     if (
       agent?.roomId &&
       agentManager.getOrdinaryRooms().some((room) => room.id === agent.roomId)
@@ -3159,6 +3182,8 @@ function buildExecutorDeps(
           ? "ok"
           : "unavailable";
       },
+      isPrivilegedAgent: (agentId) =>
+        agentManager.getAgent(agentId)?.privileged === true,
       resolveCreator: (identity, ownerUserId, agentId) => {
         if (!isSafeScopeId(agentId)) return "invalid_id";
         const owner = ownerUserId ? getUserById(ownerUserId) : null;
@@ -3357,6 +3382,8 @@ function buildExecutorDeps(
           const d = agentManager.getAgentDisplay(identity.agentId);
           return d ? d.name : null;
         }
+        if (identity.scope === "app")
+          return identity.appName ? appActorName(identity.appName) : null;
         if (identity.userId) {
           const u = getUserById(identity.userId);
           return u ? u.name : null;
@@ -7590,14 +7617,18 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // "is there an identity" alone: the agent manifest (live and killed), the
         // legacy upload/file/image handlers, the static UI. A registered app -
         // agent-authored code, often serving strangers - would otherwise inherit
-        // all of it the moment it had a token, which is the opposite of the
-        // narrow scope the token exists to express. On the /api surface above,
-        // the route table decides instead, and an app holds no capability that
-        // opens anything there.
+        // all of it the moment it had a token, beyond what its capabilities
+        // express. On the /api surface above,
+        // the route table decides instead.
         //
         // ONE check for the whole surface rather than per-handler, so a legacy
         // route added later cannot forget it. 403, not 401: the token is real and
-        // isomux knows whose it is.
+        // isomux knows whose it is. The one opening: an app with a live owner
+        // agent reads the agent manifest as that agent does.
+        const appManifestAllowed =
+          actsForAgent(auth.identity) &&
+          req.method === "GET" &&
+          url.pathname === "/agents";
         const apiManifestAllowed =
           auth.identity.scope === "api" &&
           req.method === "GET" &&
@@ -7607,7 +7638,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           (!url.searchParams.has("back") ||
             url.searchParams.get("back") === "1");
         if (
-          auth.identity.scope === "app" ||
+          (auth.identity.scope === "app" && !appManifestAllowed) ||
           (auth.identity.scope === "api" && !apiManifestAllowed)
         ) {
           return new Response(JSON.stringify({ error: "forbidden" }), {
@@ -7845,7 +7876,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             });
           }
           const collapseBackRooms =
-            (auth.identity.scope === "agent" ||
+            (actsForAgent(auth.identity) ||
               auth.identity.scope === "cron-run") &&
             backParam !== "1";
           return new Response(
@@ -8633,6 +8664,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setOnSessionsChanged(() => {});
   setOnUserRoleChanged(() => {});
   setOnOwnerCreated(async () => {});
+  setAppOwnerAgentResolver(() => null);
   seedWelcomeAgentsForFirstOwner = null;
   stopFallbackRepick();
   setApiTokenStreamSinks({ logEntry: () => {}, revoked: () => {} });

@@ -34,7 +34,7 @@ Thus, give office access only to persons you trust with a shell on the server. A
 | Agent              | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs, apps, webhooks, and pages to its manager.                                                                 |
 | Privileged agent   | The same agent token, with more capabilities  | Also: drive other agents, manage rooms and schedules, all inside the reach of the member who spawned it. See section 6.2.                                                                   |
 | Scheduled run      | A run token in the run environment            | Its own run affordances, messages that show the schedule as sender, and office-wide tasks.                                                                                                  |
-| App                | `ISOMUX_APP_TOKEN` in the app environment     | Send messages to the agent that built it, and raise and resolve its own pages to its owner. Nothing else.                                                                                   |
+| App                | `ISOMUX_APP_TOKEN` in the app environment     | The reach of its live owner agent, without that agent's own chat affordances; writes name the app. Without a live owner agent: messages to its target and pages to its owner.               |
 
 Isomux reads the role and the room access of a member from the live state on each request. A change to a role, to room access or to a member record has an effect on the next request.
 

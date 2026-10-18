@@ -12,7 +12,11 @@
 //
 // LEAF over types: the full truth table is unit-testable without a server.
 
-import { identityHasCapability, type Identity } from "./identity/index.ts";
+import {
+  actsForAgent,
+  identityHasCapability,
+  type Identity,
+} from "./identity/index.ts";
 
 export interface WebhookVisibilityFacts {
   ownerUserId: string;
@@ -55,7 +59,7 @@ export function webhookViewerForIdentity(
   const participates =
     identity.scope === "user" ||
     identity.scope === "api" ||
-    (identity.scope === "agent" &&
+    (actsForAgent(identity) &&
       identityHasCapability(identity, "webhook:read"));
   return {
     userId: identity.userId,

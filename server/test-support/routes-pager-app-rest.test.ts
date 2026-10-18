@@ -348,7 +348,9 @@ describe("app pager REST: resolve", () => {
 });
 
 describe("app pager REST: who reaches which route", () => {
-  it("an app token reaches no agent or member pager route", async () => {
+  // An app has its live owner agent's reach (task c0204eb6), except the agent
+  // raise route: it raises through /api/app/pager as itself.
+  it("an app token never raises on the agent route, and reads pages only through a live owner agent", async () => {
     const { srv, bot, appToken } = await office();
     const page = (
       await api(srv, "/api/pager", {
@@ -357,18 +359,33 @@ describe("app pager REST: who reaches which route", () => {
         body: { title: "x" },
       })
     ).body as PagerEntry;
+    const raise = () =>
+      api(srv, "/api/pager", {
+        method: "POST",
+        bearer: appToken,
+        body: { title: "x" },
+      });
+    const reads: string[] = ["/api/pager", `/api/pager/${page.id}`];
+    expect((await raise()).status).toBe(403);
+    for (const path of reads) {
+      const r = await api(srv, path, { method: "GET", bearer: appToken });
+      expect({ path, status: r.status }).toEqual({ path, status: 200 });
+    }
+
+    await srv.agentManager.kill(bot.agent.id);
+    expect(srv.agentManager.getAgent(bot.agent.id)).toBeUndefined();
     const calls: Array<[string, string]> = [
-      ["POST", "/api/pager"],
       ["GET", "/api/pager"],
       ["GET", `/api/pager/${page.id}`],
       ["POST", `/api/pager/${page.id}/ack`],
       ["POST", `/api/pager/${page.id}/resolve`],
     ];
+    expect((await raise()).status).toBe(403);
     for (const [method, path] of calls) {
       const r = await api(srv, path, {
         method,
         bearer: appToken,
-        ...(method === "POST" ? { body: { title: "x" } } : {}),
+        ...(method === "POST" ? { body: {} } : {}),
       });
       expect({ path, method, status: r.status }).toEqual({
         path,

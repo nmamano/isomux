@@ -35,7 +35,12 @@ import { join, resolve } from "path";
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { STATE_ROOT } from "./config.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
-import { APP_CAPABILITIES, type Identity } from "./identity/index.ts";
+import {
+  agentCapabilities,
+  APP_CAPABILITIES,
+  appCapabilities,
+  type Identity,
+} from "./identity/index.ts";
 import { appRegistry } from "./app-registry.ts";
 
 // 256 bits, matching the agent/cron-run tokens and auth.ts's session tokens.
@@ -268,6 +273,13 @@ export const appTokens: AppTokenStore = createAppTokenStore();
 // truthful attribution; deriving it from a record that still exists is what
 // makes that documentation true rather than probable.
 //
+// THE OWNER AGENT'S REACH is read live too, on every request: the app has its
+// owner agent's capabilities only while that agent is live and its manager is
+// the app owner. A killed agent, a mismatch (an app moved to another member's
+// agent), or no owner at all gives APP_CAPABILITIES. Nothing about the owner is
+// cached on the token or the identity, so a demotion, a kill or a lost room
+// grant takes effect on the next request.
+//
 // FAIL CLOSED, INCLUDING ON FAILURE TO ASK. A registry that throws (corrupt or
 // unreadable state) denies rather than resolves, logged without token material -
 // the same posture the token store itself takes, and the same reason: a state
@@ -276,12 +288,15 @@ export function appIdentityFromToken(
   raw: string,
   store: AppTokenStore = appTokens,
   resolveApp: AppOwnerResolver = liveAppOwner,
+  resolveAgent: AppOwnerAgentResolver = liveOwnerAgent,
 ): Identity | null {
   const found = store.lookup(raw);
   if (!found) return null;
-  let app: { userId: string | null } | null;
+  let app: ReturnType<AppOwnerResolver>;
+  let owner: ReturnType<AppOwnerAgentResolver> = null;
   try {
     app = resolveApp(found.appName);
+    if (app?.createdByAgentId) owner = resolveAgent(app.createdByAgentId);
   } catch (err) {
     // The catch lives HERE rather than only in the production resolver, so the
     // fail-closed guarantee belongs to identity resolution itself and holds for
@@ -293,12 +308,19 @@ export function appIdentityFromToken(
     return null;
   }
   if (!app) return null;
+  const reach =
+    owner !== null && app.userId !== null && owner.userId === app.userId
+      ? owner
+      : null;
   return {
     scope: "app",
     userId: app.userId,
     appName: found.appName,
     role: "member",
-    capabilities: APP_CAPABILITIES,
+    ...(reach ? { ownerAgentId: reach.agentId } : {}),
+    capabilities: reach
+      ? appCapabilities(agentCapabilities(reach.privileged))
+      : APP_CAPABILITIES,
   };
 }
 
@@ -307,12 +329,35 @@ export function appIdentityFromToken(
 // production registry.
 export type AppOwnerResolver = (
   appName: string,
-) => { userId: string | null } | null;
+) => { userId: string | null; createdByAgentId?: string } | null;
+
+// Look up a LIVE agent (never a killed one) with its manager and its privileged
+// flag as they are now, or null. Injectable for the same reason.
+export type AppOwnerAgentResolver = (
+  agentId: string,
+) => { agentId: string; userId: string | null; privileged: boolean } | null;
+
+// The production agent lookup is the agent manager's, which this module cannot
+// import (it sits below the managers). The office sets it at boot; until then
+// every app resolves with no owner, the fail-closed answer.
+let liveOwnerAgentLookup: AppOwnerAgentResolver = () => null;
+export function setAppOwnerAgentResolver(resolve: AppOwnerAgentResolver): void {
+  liveOwnerAgentLookup = resolve;
+}
+const liveOwnerAgent: AppOwnerAgentResolver = (agentId) =>
+  liveOwnerAgentLookup(agentId);
 
 // Production resolver over the app registry. May throw (the registry refuses
 // every operation on a corrupt view); appIdentityFromToken turns that into a
 // denial.
 const liveAppOwner: AppOwnerResolver = (appName) => {
   const record = appRegistry.get(appName);
-  return record ? { userId: record.userId } : null;
+  return record
+    ? {
+        userId: record.userId,
+        ...(record.createdByAgentId
+          ? { createdByAgentId: record.createdByAgentId }
+          : {}),
+      }
+    : null;
 };

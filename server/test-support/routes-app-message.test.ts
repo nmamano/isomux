@@ -23,6 +23,7 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
+import { officeAuditStore } from "../audit-store.ts";
 import { formatAppSenderPrefix } from "../../shared/identity.ts";
 import {
   APP_MESSAGE_BURST_LIMIT,
@@ -112,7 +113,9 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
     undefined,
     undefined,
     undefined,
-    undefined,
+    // Boss manages it, as the app owner: an app has its owner agent's reach
+    // only when they share the manager.
+    "Boss",
     // Codex: a boot-replay wake starts a FRESH session instead of tripping
     // Claude's resume preflight on the fake session id.
     "codex",
@@ -323,6 +326,143 @@ describe("POST /api/app/message: an app messages its configured target", () => {
     );
     expect(promptsFor(srv, agent.id)).not.toContainEqual(
       expect.stringContaining("production alert"),
+    );
+  });
+});
+
+// --- an app names its own target -------------------------------------------
+//
+// With a live owner agent the app reaches what that agent's own send reaches:
+// any live agent. Without one it can message only its configured target.
+
+async function spawnIn(
+  srv: TestServer,
+  name: string,
+  roomId: string,
+): Promise<AgentInfo> {
+  const info = await srv.agentManager.spawn(
+    name,
+    srv.stateRoot,
+    "default",
+    undefined,
+    undefined,
+    roomId,
+    undefined,
+    undefined,
+    undefined,
+    "Boss",
+    "codex",
+  );
+  if (!info) throw new Error(`spawn ${name} returned null`);
+  return info;
+}
+
+const sendTo = (
+  srv: TestServer,
+  appToken: string,
+  targetAgentId: unknown,
+  text: string,
+) => post(srv, "/api/app/message", appToken, { text, targetAgentId });
+
+// The targets of the newest apps.sendMessage audit row.
+const latestAuditTargets = () =>
+  officeAuditStore().list({ operation: "apps.sendMessage", limit: 1 }).items[0]
+    ?.targets ?? [];
+
+describe("POST /api/app/message: an app names its target", () => {
+  it("delivers to an agent in another room, labelled as the app, and the audit row names it", async () => {
+    const srv = await startTestServer({ fakeBackend: parkingBackend() });
+    server = srv;
+    const { agent, appToken } = await seedApp(srv, "dispatch");
+    const elsewhere = srv.agentManager.createRoom("Elsewhere");
+    const worker = await spawnIn(srv, "Worker", elsewhere);
+    // The enabling condition: the target is outside the owner agent's room.
+    expect(worker.roomId).not.toBe(agent.roomId);
+
+    const r = await sendTo(srv, appToken, worker.id, "task for worker");
+    expect(r.status).toBe(200);
+    await waitUntil(
+      () =>
+        promptsFor(srv, worker.id).some((t) => t.includes("task for worker")),
+      3000,
+      "named delivery",
+    );
+    const prompt = promptsFor(srv, worker.id).find((t) =>
+      t.includes("task for worker"),
+    )!;
+    expect(prompt).toContain(formatAppSenderPrefix("dispatch"));
+    expect(promptsFor(srv, agent.id).some((t) => t.includes("task for"))).toBe(
+      false,
+    );
+    expect(latestAuditTargets()).toContain(worker.id);
+    expect(latestAuditTargets()).not.toContain(agent.id);
+
+    // A default send's row names the configured target.
+    expect((await sendAppMessage(srv, appToken, "default")).status).toBe(200);
+    expect(latestAuditTargets()).toContain(agent.id);
+  });
+
+  it("refuses a non-string or empty targetAgentId with 400", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const { appToken } = await seedApp(srv, "bad-target");
+    for (const targetAgentId of ["", 7, null, ["x"], { id: "x" }]) {
+      const r = await sendTo(srv, appToken, targetAgentId, "hi");
+      expect({ targetAgentId, status: r.status, code: errOf(r)?.code }).toEqual(
+        { targetAgentId, status: 400, code: "invalid_target" },
+      );
+    }
+  });
+
+  it("answers an unknown or killed target as the owner agent's own send does", async () => {
+    const srv = await startTestServer({ fakeBackend: parkingBackend() });
+    server = srv;
+    const { agent, appToken, agentToken } = await seedApp(srv, "prober");
+    const doomed = await spawnIn(srv, "Doomed", agent.roomId);
+    await srv.agentManager.kill(doomed.id);
+
+    for (const id of ["agent-does-not-exist", doomed.id]) {
+      const byApp = await sendTo(srv, appToken, id, "probe");
+      const res = await srv.http(`/api/agents/${id}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${agentToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text: "probe" }),
+      });
+      const byAgent = { status: res.status, body: await res.json() };
+      // The enabling condition: the owner's send refuses it too.
+      expect(byAgent.status).toBeGreaterThanOrEqual(400);
+      expect({ status: byApp.status, code: errOf(byApp)?.code }).toEqual({
+        status: byAgent.status,
+        code: errOf(byAgent)?.code,
+      });
+    }
+  });
+
+  it("refuses a named target once the owner agent is gone, and still delivers to the configured one", async () => {
+    const srv = await startTestServer({ fakeBackend: parkingBackend() });
+    server = srv;
+    const { agent, appToken, ownerSessionId } = await seedApp(
+      srv,
+      "orphan-named",
+    );
+    const peer = await spawnIn(srv, "Survivor", agent.roomId);
+    const patched = await srv.http("/api/apps/orphan-named", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageTargetAgentId: peer.id }),
+      rawSessionId: ownerSessionId,
+    });
+    expect(patched.status).toBe(200);
+    expect((await sendTo(srv, appToken, peer.id, "alive")).status).toBe(200);
+
+    await srv.agentManager.kill(agent.id);
+    const named = await sendTo(srv, appToken, peer.id, "orphaned");
+    expect(named.status).toBe(403);
+    expect((await sendAppMessage(srv, appToken, "configured")).status).toBe(
+      200,
     );
   });
 });
@@ -550,6 +690,7 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     update: () => record,
     resolveMessageTarget: () => "ok",
     resolveCreator: () => "unavailable",
+    isPrivilegedAgent: () => false,
     attributionFor: () => ({ createdBy: "AppBot", username: "alice" }),
     validateCwd: (cwd: string) => ({ ok: true as const, resolved: cwd }),
     projectForList: (_identity, _record, wire) => wire,
@@ -729,5 +870,61 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     expect(await h["apps.sendMessage"](appCtx({ text: "hi" }))).toMatchObject({
       kind: "json",
     });
+  });
+
+  it("a named target without an owner agent spends the burst but not the day, and never reaches delivery", async () => {
+    const rec = recordingLimiter();
+    let sends = 0;
+    const h = appsHandlers(
+      deps({
+        limiter: rec.limiter,
+        sendAsApp: () => {
+          sends++;
+          return { ok: true as const, messageId: "m-1" };
+        },
+      }),
+    );
+    const out = await h["apps.sendMessage"](
+      appCtx({ text: "hi", targetAgentId: "a-2" }),
+    );
+    expect(out).toMatchObject({ kind: "error", status: 403 });
+    expect(sends).toBe(0);
+    expect(rec.calls).toEqual([
+      "burst:habits",
+      "hold:habits",
+      "release:habits",
+    ]);
+  });
+
+  it("with an owner agent, delivers to the named target and answers a missing one as the agent route does", async () => {
+    const delivered: string[] = [];
+    const h = appsHandlers(
+      deps({
+        sendAsApp: (_app, id) => {
+          delivered.push(id);
+          return id === "a-gone"
+            ? {
+                ok: false as const,
+                status: 404 as const,
+                code: "agent_not_found",
+                message: "agent not found",
+              }
+            : { ok: true as const, messageId: "m-1" };
+        },
+      }),
+    );
+    const owned = (body: unknown) => ({
+      ...appCtx(body),
+      identity: { ...appCtx(body).identity, ownerAgentId: "a-1" },
+    });
+    expect(
+      await h["apps.sendMessage"](owned({ text: "hi", targetAgentId: "a-2" })),
+    ).toMatchObject({ kind: "json" });
+    expect(
+      await h["apps.sendMessage"](
+        owned({ text: "hi", targetAgentId: "a-gone" }),
+      ),
+    ).toMatchObject({ kind: "error", status: 404, code: "recipient_not_found" });
+    expect(delivered).toEqual(["a-2", "a-gone"]);
   });
 });

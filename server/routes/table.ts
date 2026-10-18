@@ -72,6 +72,7 @@ import {
   hasOwningUser,
   runParamMustEqualTokenRun,
   taskDelete,
+  notApp,
   and,
   or,
   type Guard,
@@ -350,8 +351,9 @@ const pub: RouteAuth = { kind: "public" };
 
 const roomParam = (name: string): Guard =>
   requiresRoomAccess({ kind: "paramRoomId", name });
-// Capability-free agent routes also use this shorthand. APP stays outside;
-// remote-member API identities use their issuing user's room projection.
+// Capability-free agent routes also use this shorthand. An APP passes only with
+// a live owner agent, whose room reach it has; remote-member API identities use
+// their issuing user's room projection.
 const agentParam = (name: string): Guard => {
   const roomAccess = requiresRoomAccess({ kind: "paramAgentId", name });
   return (ctx) => {
@@ -632,7 +634,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // human operator (or a privileged agent with agent:converse) to answer a
     // reachable agent, while an ordinary agent cannot use its spawning user's
     // room grants as a confused deputy.
-    auth: cap(["agent:converse", "self:affordance"], conversationReset),
+    auth: cap(["agent:converse", "self:affordance"], and(notApp, conversationReset)),
     emits: ["interaction_removed", "agent_updated", "log_entry", "clear_logs"],
   }),
   // `:id` is the SENDER here (the outbox being managed) - the deliberate
@@ -658,7 +660,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/agents/:id/messages/:logEntryId",
-    auth: cap("agent:converse", agentParam("id")),
+    auth: cap("agent:converse", and(notApp, agentParam("id"))),
     emits: ["log_entry"],
   }),
   defineRoute<void, NoContent>({
@@ -674,7 +676,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/send-now",
-    auth: cap("agent:converse", agentParam("id")),
+    auth: cap("agent:converse", and(notApp, agentParam("id"))),
     emits: ["log_entry"],
   }),
   // Clear the session and start a fresh conversation. Operators (users +
@@ -705,7 +707,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/handoff",
-    auth: cap(["agent:converse", "self:affordance"], conversationReset),
+    auth: cap(["agent:converse", "self:affordance"], and(notApp, conversationReset)),
     emits: ["clear_logs", "log_entry"],
   }),
   defineRoute<ResumeReq, NoContent>({
@@ -2097,7 +2099,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/pager",
-    auth: cap("pager:raise", operationalAuthenticated),
+    auth: cap("pager:raise", and(notApp, operationalAuthenticated)),
     emits: ["pager_upserted"],
   }),
   defineRoute<void, PagerEntry[]>({
@@ -2262,14 +2264,11 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // Singular `/api/app` on purpose: everything under /api/apps/:name is the
-  // OWNER's management surface, and this is the one route the app itself
-  // reaches. It carries no :name and no recipient - the token says which app is
-  // speaking and the registry says which agent built it, so neither is a
-  // parameter a caller could lie about.
-  //
-  // One of the three routes an app identity authorizes, with the two app
-  // pager routes below, pinned by the whole-table reachability test in
-  // routes-table.test.ts.
+  // OWNER's management surface, and this is one of the three routes only an
+  // app reaches. It carries no :name - the token says which app is speaking.
+  // An optional body targetAgentId picks another recipient, for an app with a
+  // live owner agent. The whole-table parity test in routes-table.test.ts pins
+  // what else an app reaches.
   defineRoute<AppMessageReq, AgentMessageAck>({
     opId: "apps.sendMessage",
     audit: {
@@ -2503,7 +2502,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/cronjobs",
-    auth: cap("cron:manage", operationalAuthenticated),
+    auth: cap("cron:manage", and(notApp, operationalAuthenticated)),
     emits: ["cronjob_added"],
   }),
   defineRoute<CronUpdateReq, CronjobListWire>({
@@ -2530,7 +2529,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     },
     method: "POST",
     path: "/api/cronjobs/:id/runs",
-    auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
+    auth: cap("cron:manage", and(notApp, cronjobOwnerOrOfficeOwner("id"))),
     emits: ["cronjob_run_updated"],
   }),
   defineRoute<CronPromptReq, NoContent>({
@@ -2568,7 +2567,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/cronjobs/:id/runs/:runId/messages",
-    auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
+    auth: cap("cron:manage", and(notApp, cronjobOwnerOrOfficeOwner("id"))),
     emits: ["cron_run_log_entry"],
   }),
   defineRoute<EditMessageReq, MessageAck>({
@@ -2576,7 +2575,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/cronjobs/:id/runs/:runId/messages/:logEntryId",
-    auth: cap("cron:manage", cronjobOwnerOrOfficeOwner("id")),
+    auth: cap("cron:manage", and(notApp, cronjobOwnerOrOfficeOwner("id"))),
     emits: ["cron_run_log_entry"],
   }),
   defineRoute<AffordanceReadFileReq, OkTrue>({

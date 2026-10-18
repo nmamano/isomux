@@ -156,7 +156,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Its own web address** - on an office with its own domain and wildcard DNS, an app can get a short address like `myoffice.com/myapp`, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
 - **Chat beside an app** - Chat with the agent who created the app from a widget in the app itself.
-- **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.
+- **Apps can do what the agent that built them can**, so an app can report an event or hand out work to other agents.
 - **Deleting an app keeps its data** - the data directory moves to `.retired` next to the other apps' data, on the office's disk. Nothing is erased automatically.
 
 ## Inbox

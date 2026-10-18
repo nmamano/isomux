@@ -15,7 +15,11 @@
 // LEAF over types: the full truth table is unit-testable without a server.
 
 import type { Cronjob, CronjobListWire } from "../shared/types.ts";
-import { identityHasCapability, type Identity } from "./identity/index.ts";
+import {
+  actsForAgent,
+  identityHasCapability,
+  type Identity,
+} from "./identity/index.ts";
 
 export interface CronjobVisibilityFacts {
   makerUserId: string | null;
@@ -84,7 +88,7 @@ export function cronjobViewerForIdentity(
   hasRoomAccess: (roomId: string) => boolean,
 ): CronjobViewer {
   const isUser = identity.scope === "user";
-  const operator = identity.scope === "agent" || identity.scope === "api";
+  const operator = actsForAgent(identity) || identity.scope === "api";
   return {
     userId: identity.userId,
     isOfficeOwner: isUser && identity.role === "owner",

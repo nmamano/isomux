@@ -245,7 +245,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - The Apps tab lists every app available to you with its link, state, restart count, and thumbnail. App owners and office owners can also read recent output and start, stop, restart, archive, or delete an app.
 - On an office with its own domain and wildcard DNS, each app can get a short address, like your-office.com/hello, that shows the app full-page with a chat button. Chat uses the target agent's shared conversation and requires access to both the app and the agent's room. Members can paste, drop or attach screenshots in chat; Isomux does not capture the screen. A direct link opens hello.your-office.com (see isomux.com/docs/hosting).
 - Only people signed in to the office can open an app's address.
-- An app can message the agent that built it, so it can report an event and have an agent act on it.
+- An app can do what the agent that built it can, so it can report an event or hand out work to other agents.
 
 ### Pager
 - Agents and apps can page their manager or owner when a person must act. The page goes to the member's Discord and repeats until someone acks or resolves it.

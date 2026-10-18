@@ -13,7 +13,11 @@
 // `allowedRooms` to rule-based access by replacing the GuardDeps implementation,
 // never a guard signature.
 
-import { identityHasCapability, type Identity } from "./index.ts";
+import {
+  actsForAgent,
+  identityHasCapability,
+  type Identity,
+} from "./index.ts";
 
 // Every guard (and the dispatcher) returns this. Shared, frozen singletons keep
 // the envelope strings identical across the whole authz surface - tests pin the
@@ -132,6 +136,12 @@ function resolveRoomId(
   }
 }
 
+// Routes an app may not use even with an owner: the app would be recorded as a
+// member or as the agent, or the route acts in the agent's own chat or session.
+// Composed onto each such route in the table, so the refusal is visible there.
+export const notApp: Guard = ({ identity }) =>
+  identity.scope === "app" ? FORBIDDEN : ALLOW;
+
 // `public` in the spec. Always allows: it is the declared marker for the
 // pre-authn login/static surface, which is served BEFORE the dispatcher (so the
 // dispatcher's null-identity → 401 rule never applies to it). Named with a
@@ -151,16 +161,18 @@ export const publicGuard: Guard = () => ALLOW;
 // handful of `authenticated`-kind routes (system.version, sessions.logout) this
 // guard IS the whole gate, and "any identity at all" would quietly hand those to
 // a registered app the moment app tokens existed. An app is agent-authored code
-// serving strangers; it opts IN to a route deliberately, one route at a time,
-// through appScope below, never by being merely authenticated.
+// serving strangers; an app reaches capability routes through
+// operationalAuthenticated with its owner agent's set, never by being merely
+// authenticated.
 export const authenticated: Guard = ({ identity }) =>
   identity.scope === "app" || identity.scope === "api" ? FORBIDDEN : ALLOW;
 
-// Capability-gated operational routes admit a remote-member API identity. Keep
-// this separate from authenticated: that guard is also the whole gate on
+// Capability-gated operational routes admit a remote-member API identity, and
+// an app with a live owner agent (its capabilities are that agent's). Keep this
+// separate from authenticated: that guard is also the whole gate on
 // sessions.logout, which has no meaning for an API token and stays denied.
 export const operationalAuthenticated: Guard = ({ identity }) =>
-  identity.scope === "app" ? FORBIDDEN : ALLOW;
+  identity.scope === "app" && !actsForAgent(identity) ? FORBIDDEN : ALLOW;
 
 // On-demand agent references are useful to humans, remote API-token callers,
 // and agents. Cron runs have their own prompt contract; app code gets one
@@ -255,7 +267,7 @@ export function isEnvOwnerIdentity(
 // limits are part of the authorization, so a refused body is a 403 like any
 // other deny. Stage 1 (user:create) keeps ordinary agents, runs and apps out.
 export const ownerProxyMemberCreate: Guard = ({ identity, body, deps }) => {
-  if (identity.scope !== "agent" && identity.scope !== "api") return FORBIDDEN;
+  if (!actsForAgent(identity) && identity.scope !== "api") return FORBIDDEN;
   if (identity.userId === null || !deps.isOfficeOwnerUserId(identity.userId))
     return FORBIDDEN;
   if (typeof body !== "object" || body === null) return FORBIDDEN;
@@ -331,7 +343,7 @@ export function isIntegrationOwnerIdentity(
 ): boolean {
   if (isEnvOwnerIdentity(identity, isOfficeOwnerUserId)) return true;
   return (
-    identity.scope === "agent" &&
+    actsForAgent(identity) &&
     identity.userId !== null &&
     isOfficeOwnerUserId(identity.userId)
   );
@@ -342,7 +354,7 @@ function isIntegrationCaller(identity: Identity): boolean {
   return (
     (identity.scope === "user" ||
       identity.scope === "api" ||
-      identity.scope === "agent") &&
+      actsForAgent(identity)) &&
     !!identity.userId
   );
 }
@@ -378,7 +390,7 @@ export const integrationOfficeReader: Guard = ({ identity }) =>
 // Separate from officeOwner, which stays USER-only for the other owner routes.
 export const officeSettingsOwner: Guard = ({ identity, deps }) => {
   if (isOfficeOwnerIdentity(identity)) return ALLOW;
-  return (identity.scope === "agent" || identity.scope === "api") &&
+  return (actsForAgent(identity) || identity.scope === "api") &&
     identity.userId !== null &&
     deps.isOfficeOwnerUserId(identity.userId)
     ? ALLOW
@@ -395,7 +407,7 @@ export const selfOrOwner: Guard = (ctx) =>
 // checked live on each request. Stage 1 checks user:prompt.
 export const proxyMemberPrompt: Guard = ({ identity, params, deps }) => {
   if (
-    (identity.scope !== "agent" && identity.scope !== "api") ||
+    (!actsForAgent(identity) && identity.scope !== "api") ||
     !identity.userId ||
     !params.username
   )
@@ -493,13 +505,13 @@ export function agentManagerMatch(idParamName = "id"): Guard {
 // identical FORBIDDEN envelope - the guard never reveals which.
 export function requiresRoomAccess(ref: RoomRef): Guard {
   return ({ identity, params, body, deps }) => {
-    // An APP reaches no room, and this is checked HERE rather than left to the
-    // dep because the dep cannot express it: hasRoomAccess keys on the
-    // identity's userId, and an app's userId is its OWNER's. Without this line
-    // a registered app would inherit every room its owner can reach - and with
-    // it every room-gated route that asks for no capability, which is exactly
-    // the confused deputy an app token must never become.
-    if (identity.scope === "app") return FORBIDDEN;
+    // An APP without a live owner agent reaches no room, and this is checked
+    // HERE rather than left to the dep because the dep cannot express it:
+    // hasRoomAccess keys on the identity's userId, and an app's userId is its
+    // OWNER's. Without this line an ownerless app would inherit every room its
+    // owner can reach. With an owner agent the app has that agent's reach, and
+    // the agent's is exactly its manager's rooms, which is this userId.
+    if (identity.scope === "app" && !actsForAgent(identity)) return FORBIDDEN;
     const roomId = resolveRoomId(ref, params, body, deps);
     if (roomId === null) return FORBIDDEN;
     return deps.hasRoomAccess(identity, roomId) ? ALLOW : FORBIDDEN;
@@ -530,8 +542,9 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
 //
 // An agent or API token whose user is an office owner deliberately gets the
 // same office-wide app control.
-// This is a separate AGENT/API branch: officeOwner stays USER-only, and
-// cron/app identities do not inherit the grant through a matching userId.
+// This is a separate AGENT/API branch (an app with a live owner agent counts as
+// that agent): officeOwner stays USER-only, and cron identities and ownerless
+// apps do not inherit the grant through a matching userId.
 // Enumeration through apps.list uses a separate visibility seam.
 export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
   return (ctx) => {
@@ -539,12 +552,11 @@ export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
     const participates =
       identity.scope === "user" ||
       identity.scope === "api" ||
-      (identity.scope === "agent" &&
-        identityHasCapability(identity, "app:read"));
+      (actsForAgent(identity) && identityHasCapability(identity, "app:read"));
     if (!participates) return FORBIDDEN;
     if (officeOwner(ctx).ok) return ALLOW;
     if (
-      (identity.scope === "agent" || identity.scope === "api") &&
+      (actsForAgent(identity) || identity.scope === "api") &&
       identity.userId !== null &&
       deps.isOfficeOwnerUserId(identity.userId)
     ) {
@@ -572,7 +584,7 @@ export function webhookOwnerOrOfficeOwner(idParamName = "id"): Guard {
     const participates =
       identity.scope === "user" ||
       identity.scope === "api" ||
-      (identity.scope === "agent" &&
+      (actsForAgent(identity) &&
         identityHasCapability(identity, "webhook:read"));
     if (!participates) return FORBIDDEN;
     const id = params[idParamName];
@@ -581,7 +593,7 @@ export function webhookOwnerOrOfficeOwner(idParamName = "id"): Guard {
     if (ownerUserId === null) return FORBIDDEN;
     if (officeOwner(ctx).ok) return ALLOW;
     if (
-      (identity.scope === "agent" || identity.scope === "api") &&
+      (actsForAgent(identity) || identity.scope === "api") &&
       identity.userId !== null &&
       deps.isOfficeOwnerUserId(identity.userId)
     ) {
@@ -618,7 +630,7 @@ export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
     // a cron-run, which never holds it. Removing it (or simplifying to a bare
     // `scope === "agent"`) would let any agent own-match cronjobs.
     const isPrivilegedOperator =
-      (identity.scope === "agent" || identity.scope === "api") &&
+      (actsForAgent(identity) || identity.scope === "api") &&
       identityHasCapability(identity, "cron:manage");
     if (!isUser && !isPrivilegedOperator) return FORBIDDEN;
     if (officeOwner(ctx).ok) return ALLOW;
@@ -673,10 +685,9 @@ export const messageSend: Guard = (ctx) => {
     }
     case "api":
       return messageSendUserGuard(ctx);
-    // An app messaging its agent is the NEXT slice's feature, and it arrives as
-    // its own capability and its own guard - not as an app slipping through the
-    // route agents use to message each other, where the sender authority is a
-    // token agentId an app does not have.
+    // An app messages through POST /api/app/message, which labels it as the
+    // app and applies the per-app limits. Here the sender authority is a token
+    // agentId, which an app does not have.
     case "app":
       return FORBIDDEN;
   }
@@ -688,7 +699,8 @@ export const messageSend: Guard = (ctx) => {
 //   AGENT      → any agent, privileged or not, as messageSend's agent branch
 //                (an absent target is the core's 404). The core applies the
 //                steer rate limit and tells the target an agent stopped it.
-//   CRON-RUN / APP → deny.
+//   CRON-RUN / APP → deny. The core's stop note names an agent or a member,
+//                    never an app.
 export const agentAbort: Guard = (ctx) => {
   switch (ctx.identity.scope) {
     case "user":
@@ -710,13 +722,11 @@ export const agentAbort: Guard = (ctx) => {
 // retired loopback /tasks route) answered DELETE with a 405 wall - so granting a
 // run the board would otherwise hand it a delete power it never had, over any
 // office-global task. Nothing about an unattended scheduled run wants that.
-// USER, AGENT and remote-member API callers keep delete. An APP holds no
-// task capability at all, so it never reaches this guard through the dispatcher
-// - named here anyway, because a guard whose deny list is "everything except
-// the scopes I happened to know about" is one new scope away from being wrong.
+// USER, AGENT and remote-member API callers keep delete, and an app with a live
+// owner agent, which has that agent's reach.
 export const taskDelete: Guard = ({ identity }) =>
   identity.scope === "user" ||
-  identity.scope === "agent" ||
+  actsForAgent(identity) ||
   identity.scope === "api"
     ? ALLOW
     : FORBIDDEN;
@@ -775,8 +785,13 @@ export const conversationReset: Guard = (ctx) => {
         : agentParamMustEqualTokenAgent(ctx);
     case "cron-run":
       return FORBIDDEN;
-    case "app": // an app has no session of its own, and none over an agent
-      return FORBIDDEN;
+    // An app has no session of its own; with an owner agent that holds
+    // agent:converse it has the room reach of that agent.
+    case "app":
+      return actsForAgent(ctx.identity) &&
+        identityHasCapability(ctx.identity, "agent:converse")
+        ? messageSendUserGuard(ctx)
+        : FORBIDDEN;
     case "api":
       return messageSendUserGuard(ctx);
   }
@@ -850,11 +865,13 @@ export const logSearchAccess: Guard = (ctx) => {
         : killedAgentLogAccess(ctx);
     case "cron-run":
       return FORBIDDEN;
-    // An app reads no conversations. Its owning user's id is on the identity
-    // for attribution, and killedAgentLogAccess own-matches on exactly that -
-    // so this branch is what stops a truthful field from becoming an authority.
+    // An app without an owner agent reads no conversations: its owning user's
+    // id is on the identity, and killedAgentLogAccess own-matches on exactly
+    // that. With an owner agent it has the agent's reach without the self
+    // branch (an app is not its owner).
     case "app":
-      return FORBIDDEN;
+      if (!actsForAgent(ctx.identity)) return FORBIDDEN;
+      return logReadRoomGuard(ctx).ok ? ALLOW : killedAgentLogAccess(ctx);
     case "api":
       return logReadRoomGuard(ctx).ok ? ALLOW : killedAgentLogAccess(ctx);
   }
@@ -876,8 +893,9 @@ export const sessionListAccess: Guard = (ctx) => {
         ? ALLOW
         : FORBIDDEN;
     case "cron-run":
-    case "app":
       return FORBIDDEN;
+    case "app":
+      return actsForAgent(ctx.identity) ? logReadRoomGuard(ctx) : FORBIDDEN;
   }
 };
 
@@ -921,7 +939,7 @@ export function or(...guards: readonly Guard[]): Guard {
 export const auditOwner: Guard = ({ identity, deps }) => {
   if (identity.scope === "user")
     return identity.role === "owner" ? ALLOW : FORBIDDEN;
-  return (identity.scope === "agent" || identity.scope === "api") &&
+  return (actsForAgent(identity) || identity.scope === "api") &&
     identity.userId &&
     deps.isOfficeOwnerUserId(identity.userId)
     ? ALLOW
