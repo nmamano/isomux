@@ -1364,6 +1364,9 @@ Coses que pots fer per ell:
   "dialogs.agent.autoHandoff": "Traspàs automàtic",
   "dialogs.agent.autoHandoffHint":
     "Quan el context s'omple, l'agent escriu un resum i continua en una sessió nova. El xat es buida.",
+  "dialogs.agent.limitResume": "Reprendre després del límit d'ús",
+  "dialogs.agent.limitResumeHint":
+    "Quan un límit d'ús atura l'agent, continua quan el límit es restableix.",
   "dialogs.agent.permission.ask": "Preguntar",
   "dialogs.agent.permission.bypassAll": "Ometre tots els permisos",
   "dialogs.agent.permission.codexUntrusted":
@@ -2660,6 +2663,8 @@ Coses que pots fer per ell:
     "El traspàs automàtic no s'ha completat. Aquesta conversa continua.",
   "systemEntries.autoHandoff.paused":
     "El traspàs automàtic està en pausa en aquesta conversa: ha començat per sobre del llindar de traspàs.",
+  "systemEntries.limitResume.resumed":
+    "El límit d'ús s'ha restablert. Isomux ha reprès l'agent.",
   "systemEntries.usageCap.pace":
     "Els torns dels membres estan en pausa: l'ús de l'oficina ha arribat al límit d'avui per als membres. Es reprenen {when}.",
   "systemEntries.agentStopped": "L'agent s'ha aturat: {status}.",

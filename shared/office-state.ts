@@ -361,6 +361,7 @@ export class OfficeState {
       effort?: AgentInfo["effort"];
       codexSandbox?: AgentInfo["codexSandbox"];
       autoHandoff?: boolean;
+      limitResume?: boolean;
     },
   ): OfficeEvent[] {
     const agent = this.agents.get(agentId);
@@ -425,6 +426,13 @@ export class OfficeState {
     ) {
       agent.autoHandoff = changes.autoHandoff;
       updated.autoHandoff = changes.autoHandoff;
+    }
+    if (
+      typeof changes.limitResume === "boolean" &&
+      changes.limitResume !== (agent.limitResume ?? true)
+    ) {
+      agent.limitResume = changes.limitResume;
+      updated.limitResume = changes.limitResume;
     }
 
     if (Object.keys(updated).length === 0) return [];

@@ -784,6 +784,12 @@ export interface PersistedAgent {
   privileged?: boolean;
   // Automatic handoff switch. Written only when on; absent reads as false.
   autoHandoff?: boolean;
+  // Resume-after-usage-limit switch. Written only when off; absent reads as
+  // true.
+  limitResume?: boolean;
+  // The pending resume after a usage limit, epoch ms (server/limit-resume.ts).
+  // Absent when none is pending.
+  limitResumeAt?: number;
 }
 
 export interface PersistedUsage {
@@ -1389,6 +1395,8 @@ export interface AgentHistoryEntry {
   privileged?: boolean;
   // Automatic handoff switch, snapshotted like privileged. Absent ⇒ off.
   autoHandoff?: boolean;
+  // Resume-after-usage-limit switch, snapshotted like autoHandoff. Absent ⇒ on.
+  limitResume?: boolean;
 }
 export type AgentHistory = Record<string, AgentHistoryEntry>;
 

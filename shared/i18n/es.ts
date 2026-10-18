@@ -1362,6 +1362,9 @@ Cosas que puedes hacer por él:
   "dialogs.agent.autoHandoff": "Traspaso automático",
   "dialogs.agent.autoHandoffHint":
     "Cuando el contexto se llena, el agente escribe un resumen y continúa en una sesión nueva. El chat se vacía.",
+  "dialogs.agent.limitResume": "Reanudar tras el límite de uso",
+  "dialogs.agent.limitResumeHint":
+    "Cuando un límite de uso detiene al agente, continúa cuando el límite se restablece.",
   "dialogs.agent.permission.ask": "Preguntar",
   "dialogs.agent.permission.bypassAll": "Omitir todos los permisos",
   "dialogs.agent.permission.codexUntrusted":
@@ -2662,6 +2665,8 @@ Cosas que puedes hacer por él:
     "El traspaso automático no se completó. Esta conversación continúa.",
   "systemEntries.autoHandoff.paused":
     "El traspaso automático está en pausa en esta conversación: empezó por encima del umbral de traspaso.",
+  "systemEntries.limitResume.resumed":
+    "El límite de uso se restableció. Isomux reanudó el agente.",
   "systemEntries.usageCap.pace":
     "Los turnos de los miembros están en pausa: el uso de la oficina ha llegado al límite de hoy para los miembros. Se reanudan {when}.",
   "systemEntries.agentStopped": "El agente se detuvo: {status}.",

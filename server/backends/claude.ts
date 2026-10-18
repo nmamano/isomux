@@ -167,6 +167,7 @@ const CAPABILITIES: BackendCapabilities = {
   edit: true,
   mcp: true,
   autoHandoff: true,
+  limitResume: true,
 };
 
 // The SDK tool that asks the member to approve a plan and leave plan mode.
@@ -898,6 +899,7 @@ export class ClaudeSession implements BackendSession {
   // Per-session by construction: dies with the session, so tracked-task state
   // can never go stale across resume/swap (each new session gets a fresh one).
   private readonly taskTracker = new TaskBreadcrumbTracker();
+  private readonly usageLimitTracker = new ClaudeUsageLimitTracker();
   private pendingApprovals = new Map<
     string,
     {
@@ -999,6 +1001,11 @@ export class ClaudeSession implements BackendSession {
       // unhandled and crashes the whole Bun process.
       for await (const msg of this.conversation.messages()) {
         this.observePlanMode(msg);
+        // Before the translation: a stop it reports goes ahead of the
+        // result's turn_completed.
+        for (const ev of this.usageLimitTracker.observe(msg)) {
+          this.enqueue(ev);
+        }
         for (const ev of translateSDKMessage(msg, this.imageSink)) {
           this.enqueue(ev);
         }
@@ -1525,6 +1532,50 @@ interface TrackedTask {
   // skip_transcript on task_started mutes the settle breadcrumb too - the
   // task is still tracked so its notification stays filtered/deduped.
   silent: boolean;
+}
+
+// Usage-limit stops, for the resume after the reset (server/limit-resume.ts).
+// The CLI's limit message ("You've hit your limit · resets 5:20pm
+// (America/Los_Angeles)") is a synthetic assistant message with error
+// "rate_limit". Its text names no year and changes per window, so the reset
+// time comes from the rate_limit_event instead: the CLI's quota tracker
+// (extractQuotaStatusFromError in the CLI bundled with SDK 0.3.293) reads the
+// anthropic-ratelimit-unified-* headers of a 429 and emits a rate_limit_event
+// when the info changed, status "rejected" and resetsAt in epoch seconds. It
+// emits nothing when the info is unchanged, so the latest info of the session
+// is kept. error "rate_limit" alone is not a usage limit: the CLI also sets it
+// on a plain 429 and when a model needs usage credits, and those leave the
+// unified status alone. The decision is made at the turn's result, so the
+// order of the event and the synthetic message does not matter. A subagent's
+// stop is ignored: the main thread then makes its own call and gets its own
+// message.
+export class ClaudeUsageLimitTracker {
+  private latest: { status?: unknown; resetsAt?: unknown } | null = null;
+  private stoppedThisTurn = false;
+
+  observe(msg: SDKMessage): NormalizedEvent[] {
+    if (msg.type === "rate_limit_event") {
+      this.latest = msg.rate_limit_info ?? null;
+      return [];
+    }
+    if (msg.type === "assistant") {
+      if (
+        msg.error === "rate_limit" &&
+        msg.message?.model === "<synthetic>" &&
+        !msg.parent_tool_use_id
+      )
+        this.stoppedThisTurn = true;
+      return [];
+    }
+    if (msg.type !== "result") return [];
+    const stopped = this.stoppedThisTurn;
+    this.stoppedThisTurn = false;
+    if (!stopped || this.latest?.status !== "rejected") return [];
+    const resetsAt = this.latest.resetsAt;
+    if (typeof resetsAt !== "number" || !Number.isFinite(resetsAt)) return [];
+    if (resetsAt <= 0) return [];
+    return [{ kind: "usage_limit_stop", resetsAtMs: resetsAt * 1000 }];
+  }
 }
 
 export class TaskBreadcrumbTracker {

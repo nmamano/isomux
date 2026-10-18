@@ -131,6 +131,9 @@ export interface AgentCapabilities {
   // The engine reports context use and a compaction point the automatic
   // handoff can act on (internal-docs/auto-handoff-design.md).
   autoHandoff: boolean;
+  // The engine reports when a usage limit stopped a turn and when the limit
+  // resets, so the agent can resume after the reset (server/limit-resume.ts).
+  limitResume: boolean;
 }
 
 // All-capabilities-on default. Real server-spawned agents pull capabilities
@@ -146,6 +149,7 @@ export const DEFAULT_AGENT_CAPABILITIES: AgentCapabilities = {
   edit: true,
   mcp: true,
   autoHandoff: true,
+  limitResume: true,
 };
 
 // Model families - what users pick ("I want Opus"). Exact versions are an
@@ -623,6 +627,10 @@ export interface QueuedMessage {
   // writes no second chat entry. A conversation change clears it, because it
   // rewrites the chat.
   echoed?: boolean;
+  // The resume isomux sends itself after a usage limit reset
+  // (server/limit-resume.ts). The sender is the receiver; `text` is the whole
+  // agent-facing message, and the chat shows a system line instead of it.
+  limitResume?: boolean;
   attachments?: Attachment[];
   queuedAt: number;
 }
@@ -782,6 +790,10 @@ export interface AgentInfo {
   // turn, the server has the agent write a brief and hands off to a fresh
   // session (internal-docs/auto-handoff-design.md). Absent reads as false.
   autoHandoff?: boolean;
+  // Resume after a usage limit: a turn a usage limit stopped is continued
+  // after the limit resets (server/limit-resume.ts). Absent reads as true; the
+  // server sets it only when off.
+  limitResume?: boolean;
 
   // Mirrored to ~/.isomux/message-queues.json and replayed on boot (task
   // 9870b472) - a restart no longer empties it. Live source of truth is the

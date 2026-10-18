@@ -209,6 +209,11 @@ export interface ManagedAgent {
   // The fresh session's one-shot notice; consumed by runAgentTurn on the
   // never-before-send rule, like wakeNotice.
   autoHandoffNotice: string | null;
+  // Resume after a usage limit (server/limit-resume.ts). The reset time a
+  // usage_limit_stop reported for the running turn, read when it ends; and the
+  // pending resume's fire time (persisted as agents.json limitResumeAt).
+  limitStopResetsAtMs: number | null;
+  limitResumeAt: number | null;
   // Recovery copy held until the first event proves whether this wake failed
   // only because its provider needs sign-in. That auth path has one notice.
   pendingFreshRecoveryNotice: boolean;

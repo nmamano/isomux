@@ -193,6 +193,7 @@ const CAPABILITIES: BackendCapabilities = {
   edit: true,
   mcp: true,
   autoHandoff: true,
+  limitResume: true,
 };
 
 // Static model options - FALLBACK only. The live set comes from
@@ -771,11 +772,41 @@ export interface CodexSessionInitOpts {
   // translation with curated provider events. Undefined in production, where
   // the constructor builds a real JsonRpcLiteClient.
   client?: CodexTransport;
-  // Deterministic timer seam for capacity-retry contract tests.
+  // Deterministic timer seam for capacity-retry contract tests and the bound
+  // on a usage-limited turn's rate-limit read.
   scheduleRetry?: (delayMs: number, run: () => void) => () => void;
 }
 
 export const CODEX_CAPACITY_RETRY_DELAYS_MS = [5_000, 15_000, 30_000] as const;
+
+// The longest a usage-limited turn's end waits for a rate-limit read.
+export const CODEX_LIMIT_RESET_READ_MS = 3_000;
+
+// When the usage limit that stopped a turn resets, from the account's
+// rate-limit snapshot (epoch ms), or null when the snapshot does not say.
+// rateLimitReachedType "rate_limit_reached" is a window limit; the workspace
+// credit and usage-limit types, and a reached spend control, do not end at a
+// window reset, so they give null. A snapshot that does not name the type
+// counts only when a window is at 100%. The reset is the latest one among the
+// windows at the limit (both must reset before a turn can run), or, when none
+// reports 100%, among the fullest windows. Exported for tests.
+export function codexUsageLimitResetMs(
+  snapshot: RateLimitSnapshot | null,
+): number | null {
+  if (!snapshot || snapshot.spendControlReached === true) return null;
+  const reached = snapshot.rateLimitReachedType;
+  if (reached !== null && reached !== "rate_limit_reached") return null;
+  const windows = [snapshot.primary, snapshot.secondary].flatMap((w) => {
+    const at = w ? codexResetsAtMs(w.resetsAt) : null;
+    return w && at !== null ? [{ used: w.usedPercent, at }] : [];
+  });
+  const full = windows.filter((w) => w.used >= 100);
+  if (reached === null && full.length === 0) return null;
+  const top = Math.max(...windows.map((w) => w.used));
+  const chosen = full.length > 0 ? full : windows.filter((w) => w.used === top);
+  if (chosen.length === 0) return null;
+  return Math.max(...chosen.map((w) => w.at));
+}
 
 export class CodexSession implements BackendSession {
   private client: CodexTransport;
@@ -822,6 +853,8 @@ export class CodexSession implements BackendSession {
   // auth summary so the user sees a clear failure, not a vague "interrupted".
   private selfInterruptedForAuth = false;
   private capacityErrorThisAttempt: string | null = null;
+  // A usage limit ended this turn (codexErrorInfo "usageLimitExceeded").
+  private usageLimitThisTurn = false;
   private completedItemsThisAttempt = 0;
   private capacityRetryCount = 0;
   private cancelCapacityRetry: (() => void) | null = null;
@@ -1131,6 +1164,7 @@ export class CodexSession implements BackendSession {
     const input = buildCodexUserInput(text, attachments, this.opts.agentId);
     this.capacityRetryCount = 0;
     this.capacityErrorThisAttempt = null;
+    this.usageLimitThisTurn = false;
     this.completedItemsThisAttempt = 0;
     // Open the auth-stderr gate before turn/start. The gate must be open
     // during turn/start's await window because codex's websocket retry burst
@@ -1646,6 +1680,37 @@ export class CodexSession implements BackendSession {
     this.wake();
   }
 
+  // End a turn a usage limit stopped: the reset time goes ahead of the
+  // turn_completed (server/limit-resume.ts). The pushed snapshot usually has
+  // it already. When it does not, or its reset is already past (the cache
+  // still shows the window that stopped an earlier turn), one bounded
+  // account/rateLimits/read is awaited first, so a push that comes after the
+  // error costs seconds, not the resume. No reset time found: the turn ends
+  // with no stop event.
+  private endUsageLimitedTurn(turnCompleted: NormalizedEvent): void {
+    const resetsAtMs = (): number | null =>
+      codexUsageLimitResetMs(
+        pickCodexLimitBucket(this.rateLimitBuckets)?.snapshot ?? null,
+      );
+    const finish = (at: number | null) => {
+      if (at !== null) this.enqueue({ kind: "usage_limit_stop", resetsAtMs: at });
+      this.enqueue(turnCompleted);
+    };
+    const known = resetsAtMs();
+    if (known !== null && known > Date.now()) {
+      finish(known);
+      return;
+    }
+    let cancel: (() => void) | undefined;
+    const bound = new Promise<void>((res) => {
+      cancel = this.scheduleCapacityRetry(CODEX_LIMIT_RESET_READ_MS, res);
+    });
+    void Promise.race([this.readRateLimits(), bound]).then(() => {
+      cancel?.();
+      finish(resetsAtMs());
+    });
+  }
+
   // Funnel for system_text emissions whose payload may carry codex-sourced
   // text (stderr, advisory notifications, error messages). Applies the
   // per-turn auth-coalescing gate so any auth-shaped string - regardless of
@@ -1763,7 +1828,7 @@ export class CodexSession implements BackendSession {
         const turn = params?.turn as
           | {
               status?: string;
-              error?: { message?: string } | null;
+              error?: { message?: string; codexErrorInfo?: unknown } | null;
             }
           | undefined;
         const rawStatus = mapTurnStatus(turn?.status);
@@ -1828,7 +1893,7 @@ export class CodexSession implements BackendSession {
         this.authSignalsAllowedThisTurn = false;
         this.authSignalEmittedThisTurn = false;
         this.selfInterruptedForAuth = false;
-        this.enqueue({
+        const turnCompleted: NormalizedEvent = {
           kind: "turn_completed",
           status,
           error: capacityError ?? error,
@@ -1840,7 +1905,13 @@ export class CodexSession implements BackendSession {
           // wouldn't catch it.
           ...(causedByAuth ? { causedByAuth: true } : {}),
           ...(capacityError ? { causedByProviderCapacity: true } : {}),
-        });
+        };
+        const usageLimited =
+          this.usageLimitThisTurn ||
+          turn?.error?.codexErrorInfo === "usageLimitExceeded";
+        this.usageLimitThisTurn = false;
+        if (usageLimited) this.endUsageLimitedTurn(turnCompleted);
+        else this.enqueue(turnCompleted);
         this.clearCapacityRetry();
         break;
       }
@@ -2023,6 +2094,13 @@ export class CodexSession implements BackendSession {
         // orchestrator's pending turn or involving the auth-error funnel.
         const notification = params as ErrorNotification | null | undefined;
         const message = notification?.error.message;
+        // A usage limit ends the turn; turn/completed follows and reports
+        // the reset time (endUsageLimitedTurn).
+        if (
+          notification?.willRetry === false &&
+          notification.error.codexErrorInfo === "usageLimitExceeded"
+        )
+          this.usageLimitThisTurn = true;
         if (
           message &&
           notification.willRetry === false &&

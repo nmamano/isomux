@@ -1346,6 +1346,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.autoHandoff": "Automatic handoff",
   "dialogs.agent.autoHandoffHint":
     "When the context gets full, the agent writes a brief and continues in a fresh session. The chat clears.",
+  "dialogs.agent.limitResume": "Resume after usage limit",
+  "dialogs.agent.limitResumeHint":
+    "When a usage limit stops the agent, it continues after the limit resets.",
   "dialogs.agent.permission.ask": "Ask",
   "dialogs.agent.permission.bypassAll": "Bypass all permissions",
   "dialogs.agent.permission.codexUntrusted": "Untrusted (ask on every tool)",
@@ -2636,6 +2639,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Automatic handoff did not complete. This conversation continues.",
   "systemEntries.autoHandoff.paused":
     "Automatic handoff is paused for this conversation: it started above the handoff threshold.",
+  "systemEntries.limitResume.resumed":
+    "Usage limit reset. Isomux resumed the agent.",
   "systemEntries.usageCap.pace":
     "Member turns are paused: office usage has reached today's member limit. They resume {when}.",
   "systemEntries.agentStopped": "Agent stopped: {status}.",

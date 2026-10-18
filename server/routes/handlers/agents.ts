@@ -289,7 +289,10 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
     badStr(b.agentType) ||
     (b.autoHandoff !== undefined &&
       b.autoHandoff !== null &&
-      typeof b.autoHandoff !== "boolean")
+      typeof b.autoHandoff !== "boolean") ||
+    (b.limitResume !== undefined &&
+      b.limitResume !== null &&
+      typeof b.limitResume !== "boolean")
   ) {
     return true;
   }

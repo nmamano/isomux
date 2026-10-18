@@ -1218,6 +1218,9 @@ App 的一些原则：
   "dialogs.agent.autoHandoff": "自动交接",
   "dialogs.agent.autoHandoffHint":
     "上下文快满时，智能体会写一份简报并在新会话中继续。聊天记录会清空。",
+  "dialogs.agent.limitResume": "用量限制后继续",
+  "dialogs.agent.limitResumeHint":
+    "用量限制让智能体停下时，限制重置后它会继续。",
   "dialogs.agent.permission.ask": "询问",
   "dialogs.agent.permission.bypassAll": "跳过所有权限检查",
   "dialogs.agent.permission.codexUntrusted": "不受信任（每次使用工具都询问）",
@@ -2399,6 +2402,8 @@ App 的一些原则：
   "systemEntries.autoHandoff.failed": "自动交接未完成。本对话继续。",
   "systemEntries.autoHandoff.paused":
     "本对话的自动交接已暂停：它开始时已超过交接阈值。",
+  "systemEntries.limitResume.resumed":
+    "用量限制已重置。Isomux 已让智能体继续。",
   "systemEntries.usageCap.pace":
     "成员轮次已暂停：办公室用量已达到成员今天的上限。将于{when}恢复。",
   "systemEntries.agentStopped": "智能体已停止：{status}。",

@@ -207,6 +207,7 @@ describe("OpenCode deterministic tracer", () => {
       edit: true,
       mcp: false,
       autoHandoff: true,
+      limitResume: false,
     });
     expect(() => backend.inspectStoredSession("stored", opts)).toThrow(
       "environment identity is required",

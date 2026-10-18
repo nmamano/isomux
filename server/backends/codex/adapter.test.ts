@@ -37,7 +37,9 @@ import {
   codexThreadConfig,
   CODEX_PLAN_DISPLAY_NAMES,
   codexResetsAtMs,
+  codexUsageLimitResetMs,
   codexWindowLabel,
+  CODEX_LIMIT_RESET_READ_MS,
   CodexSession,
   mergeRateLimitSnapshots,
   commandTokensForPrefixMatch,
@@ -3519,5 +3521,248 @@ describe("MCP servers with a secret (secrets B2)", () => {
     const text = JSON.stringify(codexThreadConfig(servers));
     expect(text).toContain(placeholder);
     expect(text).not.toContain(MCP_SECRET_VALUE);
+  });
+});
+
+// Usage-limit stops, for the resume after the reset (server/limit-resume.ts).
+// LIMIT_TEXT is a real Codex stop from an isomux conversation log
+// (~/.isomux/logs/agent-1778482355712-dyrp/019ef5d8-4564-7b11-94fa-04facd047c75.jsonl,
+// 2026-06-24), where only the text survives. The rest of the payloads follow
+// the generated app-server types (ErrorNotification, TurnError,
+// RateLimitSnapshot); no raw instance of them was found.
+describe("Codex usage-limit stop", () => {
+  const LIMIT_TEXT =
+    "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Jun 25th, 2026 9:36 AM.";
+  // Epoch seconds, as app-server sends them, in the future.
+  const FIVE_HOUR_RESET = Math.floor(Date.now() / 1000) + 3 * 3600;
+  const WEEK_RESET = FIVE_HOUR_RESET + 4 * 24 * 3600;
+
+  function limits(over: Partial<RateLimitSnapshot> = {}): RateLimitSnapshot {
+    return {
+      limitId: "codex",
+      limitName: null,
+      normalModelSlug: null,
+      primary: {
+        usedPercent: 100,
+        windowDurationMins: 300,
+        resetsAt: FIVE_HOUR_RESET,
+      },
+      secondary: {
+        usedPercent: 41,
+        windowDurationMins: 10080,
+        resetsAt: WEEK_RESET,
+      },
+      credits: null,
+      individualLimit: null,
+      spendControlReached: null,
+      planType: "plus",
+      rateLimitReachedType: "rate_limit_reached",
+      ...over,
+    };
+  }
+
+  // The stop as app-server reports it: the error notification, then the
+  // failed turn.
+  function fireStop(fake: FakeCodexTransport, codexErrorInfo = "usageLimitExceeded") {
+    const error = {
+      message: LIMIT_TEXT,
+      codexErrorInfo,
+      additionalDetails: null,
+      misalignment: null,
+    };
+    fake.fireNotification("error", {
+      error,
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-1",
+    });
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1", status: "failed", error },
+    });
+  }
+
+  const reads = (fake: FakeCodexTransport) =>
+    fake.requests.filter((r) => r.method === "account/rateLimits/read").length;
+
+  it("reports the reset from the pushed limits, between the error and the turn's end", async () => {
+    const { session, fake, it } = await bootstrapped();
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: limits(),
+    });
+    await session.send("work");
+    fireStop(fake);
+    expect(expectKind(await nextEvent(it, "error"), "error").message).toBe(
+      LIMIT_TEXT,
+    );
+    expect(await nextEvent(it, "stop")).toEqual({
+      kind: "usage_limit_stop",
+      resetsAtMs: FIVE_HOUR_RESET * 1000,
+    });
+    expect(
+      expectKind(await nextEvent(it, "turn end"), "turn_completed").status,
+    ).toBe("failed");
+    expect(reads(fake)).toBe(0);
+  });
+
+  it("reads the limits once when the push does not show the stop, and ends the turn after the read", async () => {
+    const fake = new FakeCodexTransport();
+    fake.holdRateLimitsRead = true;
+    const { session, it } = await bootstrapped(fake);
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: limits({
+        rateLimitReachedType: null,
+        primary: { usedPercent: 97, windowDurationMins: 300, resetsAt: 1 },
+      }),
+    });
+    await session.send("work");
+    fireStop(fake);
+    expectKind(await nextEvent(it, "error"), "error");
+    await Promise.resolve();
+    expect(reads(fake)).toBe(1);
+    fake.rateLimitsReadResponse = {
+      rateLimits: limits(),
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    };
+    fake.releaseRateLimitsRead();
+    expect(await nextEvent(it, "stop")).toEqual({
+      kind: "usage_limit_stop",
+      resetsAtMs: FIVE_HOUR_RESET * 1000,
+    });
+    expectKind(await nextEvent(it, "turn end"), "turn_completed");
+  });
+
+  it("a pushed reset already past is read again: the stop carries the read's reset", async () => {
+    // The cache still shows the 5-hour window that stopped an earlier turn;
+    // this turn hit the weekly limit.
+    const fake = new FakeCodexTransport();
+    const past = Math.floor(Date.now() / 1000) - 60;
+    fake.rateLimitsReadResponse = {
+      rateLimits: limits({
+        primary: { usedPercent: 3, windowDurationMins: 300, resetsAt: FIVE_HOUR_RESET },
+        secondary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: WEEK_RESET },
+      }),
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    };
+    const { session, it } = await bootstrapped(fake);
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: limits({
+        primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: past },
+      }),
+    });
+    await session.send("work");
+    fireStop(fake);
+    expectKind(await nextEvent(it, "error"), "error");
+    expect(await nextEvent(it, "stop")).toEqual({
+      kind: "usage_limit_stop",
+      resetsAtMs: WEEK_RESET * 1000,
+    });
+    expectKind(await nextEvent(it, "turn end"), "turn_completed");
+    expect(reads(fake)).toBe(1);
+  });
+
+  it("a read that does not answer in time ends the turn with no stop", async () => {
+    const clock = retryClock();
+    const fake = new FakeCodexTransport();
+    fake.holdRateLimitsRead = true;
+    const { session, it } = await bootstrapped(fake, {
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await session.send("work");
+    fireStop(fake);
+    expectKind(await nextEvent(it, "error"), "error");
+    expect(clock.pending.map((t) => t.delayMs)).toEqual([
+      CODEX_LIMIT_RESET_READ_MS,
+    ]);
+    await clock.runNext();
+    expectKind(await nextEvent(it, "turn end"), "turn_completed");
+  });
+
+  it("another failure reports no stop and reads nothing", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("work");
+    fireStop(fake, "badRequest");
+    expectKind(await nextEvent(it, "error"), "error");
+    expectKind(await nextEvent(it, "turn end"), "turn_completed");
+    expect(reads(fake)).toBe(0);
+  });
+
+  it("the turn's own error alone marks the stop", async () => {
+    const { session, fake, it } = await bootstrapped();
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: limits(),
+    });
+    await session.send("work");
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: {
+        id: "turn-1",
+        status: "failed",
+        error: { message: LIMIT_TEXT, codexErrorInfo: "usageLimitExceeded" },
+      },
+    });
+    expect((await nextEvent(it, "stop")).kind).toBe("usage_limit_stop");
+  });
+
+  describe("codexUsageLimitResetMs", () => {
+    it("takes the window at the limit, in epoch ms", () => {
+      expect(codexUsageLimitResetMs(limits())).toBe(FIVE_HOUR_RESET * 1000);
+    });
+    it("waits for the later reset when both windows are at the limit", () => {
+      const both = limits({
+        secondary: {
+          usedPercent: 100,
+          windowDurationMins: 10080,
+          resetsAt: WEEK_RESET,
+        },
+      });
+      expect(codexUsageLimitResetMs(both)).toBe(WEEK_RESET * 1000);
+    });
+    it("a reached window limit with no window at 100% takes the fullest window", () => {
+      const near = limits({
+        primary: { usedPercent: 99.6, windowDurationMins: 300, resetsAt: FIVE_HOUR_RESET },
+      });
+      expect(codexUsageLimitResetMs(near)).toBe(FIVE_HOUR_RESET * 1000);
+    });
+    it("a snapshot that names no type counts only with a window at 100%", () => {
+      expect(
+        codexUsageLimitResetMs(limits({ rateLimitReachedType: null })),
+      ).toBe(FIVE_HOUR_RESET * 1000);
+      expect(
+        codexUsageLimitResetMs(
+          limits({
+            rateLimitReachedType: null,
+            primary: { usedPercent: 99, windowDurationMins: 300, resetsAt: FIVE_HOUR_RESET },
+          }),
+        ),
+      ).toBeNull();
+    });
+    it("limits that do not end at a window reset give no reset", () => {
+      for (const type of [
+        "workspace_owner_credits_depleted",
+        "workspace_member_credits_depleted",
+        "workspace_owner_usage_limit_reached",
+        "workspace_member_usage_limit_reached",
+      ] as const)
+        expect(
+          codexUsageLimitResetMs(limits({ rateLimitReachedType: type })),
+        ).toBeNull();
+      expect(
+        codexUsageLimitResetMs(limits({ spendControlReached: true })),
+      ).toBeNull();
+    });
+    it("no snapshot, or no reset time, gives none", () => {
+      expect(codexUsageLimitResetMs(null)).toBeNull();
+      expect(
+        codexUsageLimitResetMs(
+          limits({
+            primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: null },
+            secondary: null,
+          }),
+        ),
+      ).toBeNull();
+    });
   });
 });

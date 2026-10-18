@@ -202,6 +202,13 @@ import {
   autoHandoffTrigger,
   joinBriefChunks,
 } from "./auto-handoff.ts";
+import {
+  LIMIT_RESUME_BOOT_DELAY_MS,
+  LIMIT_RESUME_TEXT,
+  limitResumeDueAt,
+  limitResumeOn,
+  limitResumeWaitMs,
+} from "./limit-resume.ts";
 import { recordAudit } from "./audit-store.ts";
 import {
   BackendNotConfiguredError,
@@ -359,6 +366,15 @@ export interface ManagerDeps {
   // Production supplies the box provider homes. Tests omit this field so
   // fixtures never read the real member home.
   providerSkillSourceRoots?: { claude: string; codex: string };
+  // The clock and timers of the resume after a usage limit
+  // (server/limit-resume.ts). Defaults to the real ones; tests move time.
+  limitResumeClock?: LimitResumeClock;
+}
+
+export interface LimitResumeClock {
+  now(): number;
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
 }
 
 export function detectAuthErrorForEnvironment(
@@ -1455,6 +1471,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       codexSandbox?: AgentInfo["codexSandbox"];
       agentType?: AgentInfo["agentType"];
       autoHandoff?: boolean;
+      limitResume?: boolean;
     },
     // Who made the edit, for the settings notice. An edit without one (an
     // internal caller) arms no notice.
@@ -1502,6 +1519,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         meta.customInstructions = changes.customInstructions;
       if (typeof changes.autoHandoff === "boolean")
         meta.autoHandoff = changes.autoHandoff;
+      if (typeof changes.limitResume === "boolean")
+        meta.limitResume = changes.limitResume;
       if (Object.keys(meta).length > 0) {
         for (const event of officeState.editAgent(agentId, meta)) emit(event);
       }
@@ -1528,6 +1547,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       validated.customInstructions = changes.customInstructions;
     if (typeof changes.autoHandoff === "boolean")
       validated.autoHandoff = changes.autoHandoff;
+    if (typeof changes.limitResume === "boolean")
+      validated.limitResume = changes.limitResume;
     if (changes.modelFamily) {
       validated.modelFamily = validateModelFamily(
         managed.info.agentType,
@@ -1614,6 +1635,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       effort: managed.info.effort,
       codexSandbox: managed.info.codexSandbox,
       autoHandoff: managed.info.autoHandoff,
+      limitResume: managed.info.limitResume,
     };
 
     // Funnel through OfficeState.editAgent - single source of truth for
@@ -1632,6 +1654,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.autoHandoffPhase = null;
       releaseAutoHandoffQueue(agentId, managed);
     }
+    // Switched off: a pending resume after a usage limit does not happen.
+    if (managed.info.limitResume === false) dropLimitResume(agentId, managed);
 
     // After editAgent, managed.info has the new values, so createSession reads
     // them correctly. On failure we revert via officeState.updateAgent - that
@@ -2127,6 +2151,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       roomId: a.info.roomId,
       privileged: a.info.privileged ?? false,
       ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
+      ...(a.info.limitResume === false ? { limitResume: false } : {}),
+      ...(a.limitResumeAt !== null ? { limitResumeAt: a.limitResumeAt } : {}),
     };
   }
 
@@ -2188,6 +2214,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         username: a.info.username,
         privileged: a.info.privileged ?? false,
         ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
+        ...(a.info.limitResume === false ? { limitResume: false } : {}),
       };
     }
     saveAgentHistory(history);
@@ -2465,6 +2492,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       username: p.username ?? null,
       privileged: p.privileged ?? false,
       ...(p.autoHandoff === true ? { autoHandoff: true } : {}),
+      ...(p.limitResume === false ? { limitResume: false } : {}),
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
@@ -2527,6 +2555,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       autoHandoffCapture: null,
       autoHandoffOpened: false,
       autoHandoffNotice: null,
+      limitStopResetsAtMs: null,
+      limitResumeAt: null,
       pendingFreshRecoveryNotice: false,
       authNoticeEmittedThisWake: false,
       subscriptionUsage: null,
@@ -2733,6 +2763,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // idle RAM and removes the all-at-once respawn spike on restart.
           lazy: true,
         });
+        restoreLimitResume(p);
       }
     }
     // Round-trip migrations back to disk in case the load step filled in new
@@ -3231,6 +3262,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     stopConnectorRereads(agentId);
     managed.lastActiveAt = Date.now();
     managed.authNoticeEmittedThisWake = false;
+    // A usage limit stop belongs to the turn that reported it.
+    managed.limitStopResetsAtMs = null;
     if (managed.info.turnHadHumanInput !== opts.humanInput) {
       for (const event of officeState.updateAgent(agentId, {
         turnHadHumanInput: opts.humanInput,
@@ -3690,6 +3723,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (state === "thinking" && managed.info.state !== "thinking") {
       managed.thinkingStartedAt = Date.now();
     }
+    // The agent works again: a pending resume after a usage limit is not
+    // needed. A pending resume is armed at a turn's end, after that turn's
+    // last busy state, and an event with no live turn never sets a busy state
+    // (processNormalizedEvent).
+    if (state === "thinking" || state === "tool_executing")
+      dropLimitResume(agentId, managed);
     const prev = managed.info.state;
     for (const event of officeState.updateAgent(agentId, { state }))
       emit(event);
@@ -4184,6 +4223,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.autoHandoffSpent = restore ? restore.autoHandoffSpent : false;
     managed.autoHandoffOpened = false;
     managed.autoHandoffNotice = null;
+    // A resume after a usage limit continues the old conversation, so it
+    // goes with it, the edit-fork rollback included.
+    managed.limitStopResetsAtMs = null;
+    dropLimitResume(managed.info.id, managed);
     managed.pendingFreshRecoveryNotice = false;
     managed.authNoticeEmittedThisWake = false;
     // Null the slot so nothing ever waits on an orphaned old-conversation
@@ -5006,6 +5049,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const m = agents.get(agentId);
           if (m) drainBoundaryClaim(agentId, m);
           if (m?.autoHandoffCapture) m.autoHandoffCapture.status = ev.status;
+          // A usage limit stopped this turn: arm the resume now, before the
+          // turn's deferred resolves below and a queued message starts a
+          // turn that drops it.
+          if (m && m.limitStopResetsAtMs !== null) {
+            const resetsAtMs = m.limitStopResetsAtMs;
+            m.limitStopResetsAtMs = null;
+            armLimitResume(agentId, m, resetsAtMs);
+          }
         }
         // Backends report token totals per turn. We accumulate cumulative
         // totals into sessions.json (`usage`) and append a snapshot anchored
@@ -5181,6 +5232,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             );
           }
         }
+        break;
+      }
+      case "usage_limit_stop": {
+        // Read at the turn's end (turn_completed above).
+        const managed = agents.get(agentId);
+        if (managed) managed.limitStopResetsAtMs = ev.resetsAtMs;
         break;
       }
       case "plan_mode": {
@@ -6494,6 +6551,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       autoHandoffCapture: null,
       autoHandoffOpened: false,
       autoHandoffNotice: null,
+      limitStopResetsAtMs: null,
+      limitResumeAt: null,
       pendingFreshRecoveryNotice: false,
       authNoticeEmittedThisWake: false,
       subscriptionUsage: null,
@@ -6783,6 +6842,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     ) {
       return `[Handoff from your previous session] `;
     }
+    // The resume after a usage limit is a whole message of its own.
+    if (
+      m.limitResume &&
+      m.sender.kind === "agent" &&
+      m.sender.agentId === receiverAgentId
+    ) {
+      return "";
+    }
     if (m.ask && m.sender.kind === "user") {
       return `${senderPrefixText(m.sender, receiverAgentId)}${askReplyNote(m.ask, getCurrentSessionId(receiverAgentId))}`;
     }
@@ -6849,6 +6916,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // The chat already shows a direct send that a swap cut and that was
       // queued again.
       if (m.echoed) continue;
+      // The resume after a usage limit: the member reads a system line, not
+      // a message from the agent to itself.
+      if (m.limitResume) {
+        addLogEntry(
+          agentId,
+          "system",
+          logWords(agentId)("systemEntries.limitResume.resumed"),
+        );
+        continue;
+      }
       addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
     }
     // Trigger topic generation only after the user_message log entries
@@ -6905,10 +6982,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   // Machine traffic that the flush would send as plain prefixed text. A member
-  // message, an expanded skill or a handoff keeps the whole queue on the flush
-  // path, where it becomes a backend user message (edit/fork map onto those).
+  // message, an expanded skill, a handoff or a resume after a usage limit
+  // keeps the whole queue on the flush path, where it becomes a backend user
+  // message (edit/fork map onto those).
   function boundaryEligible(m: QueuedMessage): boolean {
-    return m.sender.kind !== "user" && !m.sdkText && !m.handoff && !m.native;
+    return (
+      m.sender.kind !== "user" &&
+      !m.sdkText &&
+      !m.handoff &&
+      !m.limitResume &&
+      !m.native
+    );
   }
 
   // The PostToolBatch callback (backends/claude.ts toolBoundaryHooks), bound to
@@ -7214,6 +7298,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       resend?: { echoed: boolean };
       // QueuedMessage.ask.
       ask?: AskRef;
+      // QueuedMessage.limitResume.
+      limitResume?: boolean;
     },
     // Agent-initiated steering. Set by the inter-agent send
     // route when the sender passed "steer":true. Deliberately an option on THIS
@@ -7279,6 +7365,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         : {}),
       ...(msg.scheduledSenderGone ? { scheduledSenderGone: true } : {}),
       ...(msg.handoff ? { handoff: true } : {}),
+      ...(msg.limitResume ? { limitResume: true } : {}),
       ...(msg.ask ? { ask: msg.ask } : {}),
       ...(msg.resend?.echoed ? { echoed: true } : {}),
       ...(boundarySteer ? { steer: true } : {}),
@@ -9601,6 +9688,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // agents, and revive reads entry.privileged).
           privileged: managed.info.privileged ?? false,
           ...(managed.info.autoHandoff ? { autoHandoff: true } : {}),
+          ...(managed.info.limitResume === false
+            ? { limitResume: false }
+            : {}),
         };
         saveAgentHistory(history);
       }
@@ -9633,6 +9723,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.sessionManager.session = null;
     // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
     agents.delete(agentId);
+    dropLimitResume(agentId, managed);
     dropSettledChoiceInteractions(agentId);
     userSendDedupe.forgetAgent(agentId);
     stopConnectorRereads(agentId);
@@ -9852,6 +9943,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       username: entry.username,
       privileged: entry.privileged ?? false,
       ...(entry.autoHandoff ? { autoHandoff: true } : {}),
+      ...(entry.limitResume === false ? { limitResume: false } : {}),
     };
 
     const installResult = restoreOrReviveAgent({
@@ -10112,6 +10204,127 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // starts when the next message arrives (flushQueue).
   }
 
+  // Resume after a usage limit (server/limit-resume.ts). The fire time is
+  // managed.limitResumeAt; this map holds the timer that waits for it.
+  const limitResumeClock: LimitResumeClock = deps.limitResumeClock ?? {
+    now: () => Date.now(),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (handle) =>
+      clearTimeout(handle as ReturnType<typeof setTimeout>),
+  };
+  const limitResumeTimers = new Map<string, unknown>();
+
+  function scheduleLimitResume(
+    agentId: string,
+    managed: ManagedAgent,
+    minWaitMs = 0,
+  ): void {
+    const prev = limitResumeTimers.get(agentId);
+    if (prev !== undefined) limitResumeClock.clearTimeout(prev);
+    limitResumeTimers.delete(agentId);
+    const dueAt = managed.limitResumeAt;
+    if (dueAt === null) return;
+    const timer = limitResumeClock.setTimeout(
+      () => {
+        limitResumeTimers.delete(agentId);
+        fireLimitResume(agentId);
+      },
+      limitResumeWaitMs(dueAt, limitResumeClock.now(), minWaitMs),
+    );
+    limitResumeTimers.set(agentId, timer);
+  }
+
+  // A turn a usage limit stopped has ended. A reset time that is not in the
+  // future arms nothing (the loop guard in limit-resume.ts).
+  function armLimitResume(
+    agentId: string,
+    managed: ManagedAgent,
+    resetsAtMs: number,
+  ): void {
+    if (!limitResumeOn(managed.info)) return;
+    const dueAt = limitResumeDueAt(resetsAtMs, limitResumeClock.now());
+    if (dueAt === null) return;
+    managed.limitResumeAt = dueAt;
+    persistAll();
+    scheduleLimitResume(agentId, managed);
+  }
+
+  function dropLimitResume(agentId: string, managed: ManagedAgent): void {
+    if (managed.limitResumeAt === null) return;
+    managed.limitResumeAt = null;
+    const timer = limitResumeTimers.get(agentId);
+    if (timer !== undefined) limitResumeClock.clearTimeout(timer);
+    limitResumeTimers.delete(agentId);
+    if (agents.get(agentId) === managed) persistAll();
+  }
+
+  // Boot: a pending resume of the conversation the agent restored. One due
+  // during downtime fires shortly after boot.
+  function restoreLimitResume(p: PersistedAgent): void {
+    const managed = agents.get(p.id);
+    const dueAt = p.limitResumeAt;
+    if (!managed || typeof dueAt !== "number" || !Number.isFinite(dueAt))
+      return;
+    if (!managed.sessionManager.sessionId || !limitResumeOn(managed.info))
+      return;
+    managed.limitResumeAt = dueAt;
+    scheduleLimitResume(p.id, managed, LIMIT_RESUME_BOOT_DELAY_MS);
+  }
+
+  // Why a due resume does not go out, or null when it does. A busy agent is
+  // already working, so the resume would stack a second turn.
+  function limitResumeSkipReason(managed: ManagedAgent): string | null {
+    if (!limitResumeOn(managed.info)) return "switched off";
+    if (!managed.sessionManager.sessionId) return "no conversation";
+    const state = managed.info.state;
+    if (state === "stopped") return "stopped";
+    if (!isQueueIdleState(state) && state !== "error") return "busy";
+    if (managed.sessionManager.pendingTurn || managed.flushInProgress)
+      return "busy";
+    if (managed.messageQueue.length > 0) return "messages queued";
+    if (inMultiStepFlow(managed) || pendingPromptOf(managed) !== null)
+      return "prompt pending";
+    if (managed.autoHandoffPhase) return "automatic handoff";
+    if (managed.queueHolds.size > 0) return "conversation change";
+    return null;
+  }
+
+  // The pending resume is cleared before the send, whatever the outcome, so
+  // a resume never repeats. The queue does the rest: it wakes a released
+  // session, resumes an agent in the error state, and applies the member
+  // usage cap.
+  function fireLimitResume(agentId: string): void {
+    const managed = agents.get(agentId);
+    if (!managed || managed.limitResumeAt === null) return;
+    if (limitResumeClock.now() < managed.limitResumeAt) {
+      scheduleLimitResume(agentId, managed);
+      return;
+    }
+    dropLimitResume(agentId, managed);
+    const skip = limitResumeSkipReason(managed);
+    const self = getAgentDisplay(agentId);
+    if (skip || !self) {
+      console.log(
+        `Resume after usage limit skipped for ${agentId}: ${skip ?? "agent not found"}`,
+      );
+      return;
+    }
+    const result = enqueueMessage(agentId, {
+      sender: {
+        kind: "agent",
+        agentId,
+        agentName: self.name,
+        roomName: self.roomName,
+      },
+      text: LIMIT_RESUME_TEXT,
+      limitResume: true,
+    });
+    if (!result.ok)
+      console.warn(
+        `Resume after usage limit not delivered to ${agentId}: ${result.status} ${result.error}`,
+      );
+  }
+
   // Check-and-set with no await before it, so only one caller starts the
   // brief turn. briefStarted stays true until the phase goes.
   function startAutoHandoffBrief(agentId: string, managed: ManagedAgent): void {
@@ -10320,9 +10533,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Marks the queue as carried, so the flush tells the agent it was written
   // for the context before the change, and drops what described the previous
   // session's turn. A handoff brief is not marked: it explains the change
-  // itself. Returns the count for the member's line.
+  // itself. A resume after a usage limit is dropped: it continues the old
+  // conversation. Returns the count for the member's line.
   function carryQueue(agentId: string, managed: ManagedAgent): number {
     let count = 0;
+    let resumes = 0;
+    for (let i = managed.messageQueue.length - 1; i >= 0; i--) {
+      if (!managed.messageQueue[i].limitResume) continue;
+      managed.messageQueue.splice(i, 1);
+      resumes++;
+    }
     for (const m of managed.messageQueue) {
       if (m.handoff) continue;
       m.carried = true;
@@ -10333,7 +10553,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       delete m.steer;
       count++;
     }
-    if (count > 0) {
+    if (count > 0 || resumes > 0) {
       emitQueueUpdate(agentId, managed);
       persistQueueState(agentId, managed);
     }

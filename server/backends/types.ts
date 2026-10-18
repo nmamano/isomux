@@ -198,6 +198,10 @@ export type NormalizedEvent =
   // or the turn ended. The orchestrator drops the request, or closes its card,
   // and records no member choice for it.
   | { kind: "approval_withdrawn"; approvalId: string }
+  // A usage limit stopped the running turn, and the engine reported when the
+  // limit resets (epoch ms). Emitted before that turn's turn_completed, and
+  // only when the reset time is known (server/limit-resume.ts).
+  | { kind: "usage_limit_stop"; resetsAtMs: number }
   // Backend requested interactive input that is not a tool permission. The
   // payload stays backend-owned and default-denied; callers only need the
   // reviewed request kind and id to fail an unattended turn visibly.

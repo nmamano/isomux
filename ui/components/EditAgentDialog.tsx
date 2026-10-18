@@ -187,6 +187,7 @@ export interface AgentFormSnapshot {
   codexSandbox: CodexSandboxMode;
   privileged: boolean;
   autoHandoff: boolean;
+  limitResume: boolean;
 }
 
 // Does the form hold edits that closing would throw away? Agent memory is
@@ -213,6 +214,7 @@ export function agentFormDirty(
     "codexSandbox",
     "privileged",
     "autoHandoff",
+    "limitResume",
   ] as const;
   for (const k of exact) {
     if (current[k] !== baseline[k]) return true;
@@ -295,6 +297,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     isSpawn ||
     targetEngine !== agentType ||
     agent?.capabilities.autoHandoff === true;
+  // Claude and Codex report a usage limit stop and its reset time; OpenCode
+  // does not.
+  const showLimitResume =
+    isSpawn || targetEngine !== agentType
+      ? !isOpenCode
+      : agent?.capabilities.limitResume === true;
   const roomCount = rooms.length;
   // Room of the agent being edited, resolved by stable id. The index is used
   // only for ordinal fallbacks; name is "" when the room isn't visible.
@@ -360,6 +368,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // agent can't self-confer. At spawn we two-step: create, then toggle.
   const [privileged, setPrivileged] = useState(agent?.privileged ?? false);
   const [autoHandoff, setAutoHandoff] = useState(agent?.autoHandoff ?? false);
+  // Absent reads as on.
+  const [limitResume, setLimitResume] = useState(agent?.limitResume ?? true);
   const [saving, setSaving] = useState(false);
   const [reviving, setReviving] = useState<string | null>(null);
   const [reviveError, setReviveError] = useState<string | null>(null);
@@ -437,6 +447,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     codexSandbox,
     privileged,
     autoHandoff,
+    limitResume,
   };
   // Copied, not aliased: the effects below re-stamp individual baseline entries
   // in place, and sharing the object with this render's snapshot would make
@@ -919,10 +930,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         ...(isCodex ? { codexSandbox } : {}),
       } satisfies SpawnReq)
         .then(async (res) => {
-          // Spawn takes no autoHandoff field: switch it on with an edit.
-          if (autoHandoff)
+          // Spawn takes neither switch: set them with an edit.
+          if (autoHandoff || (!limitResume && !isOpenCode))
             await apiFetch("PATCH", `/api/agents/${res.agent.id}`, {
-              autoHandoff: true,
+              ...(autoHandoff ? { autoHandoff: true } : {}),
+              ...(!limitResume && !isOpenCode
+                ? { limitResume: false }
+                : {}),
             } satisfies EditAgentReq);
           if (privileged)
             await apiFetch("PUT", `/api/agents/${res.agent.id}/privileged`, {
@@ -988,6 +1002,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       }
       if (autoHandoff !== (agent!.autoHandoff ?? false))
         changes.autoHandoff = autoHandoff;
+      if (showLimitResume && limitResume !== (agent!.limitResume ?? true))
+        changes.limitResume = limitResume;
       const hasChanges = !!(
         changes.name ||
         changes.cwd ||
@@ -998,7 +1014,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.permissionMode ||
         changes.codexSandbox ||
         changes.agentType ||
-        changes.autoHandoff !== undefined
+        changes.autoHandoff !== undefined ||
+        changes.limitResume !== undefined
       );
       // Privilege is its OWN user-gated route (PUT /privileged), never part of
       // the PATCH - it re-mints the token and restarts the session like a model
@@ -1864,6 +1881,31 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   </label>
                   <p style={{ ...dialogHint, margin: "5px 0 0" }}>
                     {t("dialogs.agent.autoHandoffHint")}
+                  </p>
+                </div>
+              )}
+              {showLimitResume && (
+                <div className="agent-limit-resume-field">
+                  <label
+                    htmlFor="agent-limit-resume"
+                    style={{ ...labelStyle, marginTop: 14 }}
+                  >
+                    {t("dialogs.agent.limitResume")}
+                  </label>
+                  <label
+                    className="agent-auto-handoff-control"
+                    htmlFor="agent-limit-resume"
+                  >
+                    <input
+                      id="agent-limit-resume"
+                      type="checkbox"
+                      checked={limitResume}
+                      onChange={(e) => setLimitResume(e.target.checked)}
+                      style={{ cursor: "pointer", margin: 0 }}
+                    />
+                  </label>
+                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>
+                    {t("dialogs.agent.limitResumeHint")}
                   </p>
                 </div>
               )}

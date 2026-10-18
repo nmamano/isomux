@@ -99,6 +99,8 @@ const CAPABILITIES: BackendCapabilities = {
   edit: true,
   mcp: false,
   autoHandoff: true,
+  // No engine signal for a usage limit stop and its reset time.
+  limitResume: false,
 };
 const TRACER_CAPABILITIES: BackendCapabilities = {
   ...CAPABILITIES,
