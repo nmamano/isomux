@@ -7,9 +7,8 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, render, fireEvent, waitFor } = await import(
-  "@testing-library/react"
-);
+const { act, render, fireEvent, waitFor } =
+  await import("@testing-library/react");
 const { useEffect } = await import("react");
 const { StoreProvider, useDispatch } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
@@ -87,11 +86,13 @@ const cards = (root: HTMLElement) =>
 
 it("shows this agent's actionables only, oldest first, open on a desktop", async () => {
   const view = mount(false);
-  await waitFor(() => expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]));
+  await waitFor(() =>
+    expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]),
+  );
   expect(
-    view.container.querySelector("[data-actionables-stack]")?.getAttribute(
-      "data-actionables-stack",
-    ),
+    view.container
+      .querySelector("[data-actionables-stack]")
+      ?.getAttribute("data-actionables-stack"),
   ).toBe("open");
   view.unmount();
 });
@@ -99,7 +100,9 @@ it("shows this agent's actionables only, oldest first, open on a desktop", async
 it("starts collapsed on a phone, with the count and the oldest prompt, and opens on a tap", async () => {
   const view = mount(true);
   await waitFor(() =>
-    expect(view.container.querySelector("[data-actionables-stack]")).not.toBe(null),
+    expect(view.container.querySelector("[data-actionables-stack]")).not.toBe(
+      null,
+    ),
   );
   const bar = view.container.querySelector<HTMLElement>(
     "[data-actionables-stack=collapsed] button",
@@ -150,7 +153,9 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
   const card = view.container.querySelector<HTMLElement>(
     '[data-actionable="bbbb0002"]',
   )!;
-  const dismiss = card.querySelector<HTMLButtonElement>("button[type=button]:last-of-type")!;
+  const dismiss = card.querySelector<HTMLButtonElement>(
+    "button[type=button]:last-of-type",
+  )!;
   await act(async () => {
     fireEvent.click(dismiss);
     await new Promise((r) => setTimeout(r, 0));

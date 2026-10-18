@@ -2330,11 +2330,20 @@ describe("parseIsomuxCurl actionable routes", () => {
 
   test("an agent's own actionable routes each get their label", () => {
     const cases: [string, RouteLabelKey][] = [
-      [`curl -s -X POST "${BASE}" ${AUTH} -d '{"text":"Go?"}'`, "apiCall.actionables.create"],
+      [
+        `curl -s -X POST "${BASE}" ${AUTH} -d '{"text":"Go?"}'`,
+        "apiCall.actionables.create",
+      ],
       [`curl -s "${BASE}" ${AUTH}`, "apiCall.actionables.list"],
       [`curl -s "${BASE}/abcd1234" ${AUTH}`, "apiCall.actionables.get"],
-      [`curl -s -X PATCH "${BASE}/abcd1234" ${AUTH} -d '{"text":"Go?"}'`, "apiCall.actionables.edit"],
-      [`curl -s -X DELETE "${BASE}/abcd1234" ${AUTH}`, "apiCall.actionables.delete"],
+      [
+        `curl -s -X PATCH "${BASE}/abcd1234" ${AUTH} -d '{"text":"Go?"}'`,
+        "apiCall.actionables.edit",
+      ],
+      [
+        `curl -s -X DELETE "${BASE}/abcd1234" ${AUTH}`,
+        "apiCall.actionables.delete",
+      ],
     ];
     for (const [cmd, key] of cases)
       expect(parseIsomuxCurl(cmd)!.actionKey).toBe(key);

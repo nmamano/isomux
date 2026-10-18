@@ -838,7 +838,7 @@ const DEMO_LOGS: {
           toolId: "tool-michael-2",
           input: {
             command:
-              "curl -s -X POST \"localhost:4000/api/agents/demo-michael/actionables\" -H \"Authorization: Bearer $ISOMUX_AGENT_TOKEN\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nTwo versions of the speech are ready. The casual one keeps the Costco line and the donut story; the formal one is safer if corporate dials in. Which one goes out Friday? Reply \"formal\" or \"casual\", or tell me what to change. I'll hold the slide deck until you pick, since the closing slide depends on the tone.\nEOF",
+              'curl -s -X POST "localhost:4000/api/agents/demo-michael/actionables" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H \'Content-Type: text/plain\' --data-binary @- <<\'EOF\'\nTwo versions of the speech are ready. The casual one keeps the Costco line and the donut story; the formal one is safer if corporate dials in. Which one goes out Friday? Reply "formal" or "casual", or tell me what to change. I\'ll hold the slide deck until you pick, since the closing slide depends on the tone.\nEOF',
           },
         },
       },
@@ -987,7 +987,11 @@ const DEMO_LOGS: {
 function demoChatReply(id: string): void {
   const prev = pendingReplies.get(id);
   if (prev) clearTimeout(prev);
-  shimEmit({ type: "agent_updated", agentId: id, changes: { state: "thinking" } });
+  shimEmit({
+    type: "agent_updated",
+    agentId: id,
+    changes: { state: "thinking" },
+  });
   pendingReplies.set(
     id,
     setTimeout(() => {
@@ -1125,7 +1129,7 @@ function demoActionableEntries(): ActionableEntry[] {
       agentId: "demo-michael",
       memberUserId: member,
       prompt:
-        "Two versions of the speech are ready. The casual one keeps the Costco line and the donut story; the formal one is safer if corporate dials in. Which one goes out Friday? Reply \"formal\" or \"casual\", or tell me what to change. I'll hold the slide deck until you pick, since the closing slide depends on the tone.",
+        'Two versions of the speech are ready. The casual one keeps the Costco line and the donut story; the formal one is safer if corporate dials in. Which one goes out Friday? Reply "formal" or "casual", or tell me what to change. I\'ll hold the slide deck until you pick, since the closing slide depends on the tone.',
       createdAt: now - 40 * 60_000,
       updatedAt: now - 40 * 60_000,
     },
@@ -3795,7 +3799,8 @@ export async function demoApi(
     const entry = entries.find(
       (e) => e.id === decodeURIComponent(actionableMatch[1]),
     );
-    if (!entry) throw new ApiError(404, "not_found", "No such open actionable.");
+    if (!entry)
+      throw new ApiError(404, "not_found", "No such open actionable.");
     const dismissed = actionableMatch[2] === "dismiss";
     const sent = (body as { text?: unknown } | undefined)?.text;
     const text = dismissed ? "Dismissed" : typeof sent === "string" ? sent : "";

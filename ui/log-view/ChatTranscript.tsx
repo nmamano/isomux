@@ -186,44 +186,44 @@ export function ChatTranscript({
   return (
     <SecretRequestOutcomes.Provider value={outcomes}>
       <ActionableOrigins.Provider value={origins}>
-      {logs.map((entry) => {
-        if (entry.metadata?.interactionFallback === true) return null;
-        if (view.groupedChildIds.has(entry.id)) return null;
-        const td = view.turnData.get(entry.id);
-        const rawToolGroup = view.rawToolGroupByFirstId.get(entry.id);
-        const isUserMsg =
-          entry.kind === "user_message" && senderIsHuman(entry.metadata);
-        return (
-          <div
-            key={entry.id}
-            data-log-entry-id={entry.id}
-            ref={isUserMsg ? getUserMessageRef?.(entry.id) : undefined}
-          >
-            {rawToolGroup ? (
-              <RawToolCallGroupCard
-                entries={rawToolGroup.entries}
-                isLastInTurn={td?.isLastInTurn}
-                turnEntries={td?.turnEntries}
-                isMobile={isMobile}
-                onCopyToTerminal={onCopyToTerminal}
-              />
-            ) : (
-              <LogEntryCard
-                entry={entry}
-                messageExpanded={view.expandedMessages.has(entry.id)}
-                onToggleMessage={view.toggleMessage}
-                isLastInTurn={td?.isLastInTurn}
-                turnEntries={td?.turnEntries}
-                isMobile={isMobile}
-                {...entryProps?.(entry)}
-              />
-            )}
-            {afterEntry?.(entry)}
-          </div>
-        );
-      })}
-      {interaction}
-      {activity && <ActivityIndicator {...activity} />}
+        {logs.map((entry) => {
+          if (entry.metadata?.interactionFallback === true) return null;
+          if (view.groupedChildIds.has(entry.id)) return null;
+          const td = view.turnData.get(entry.id);
+          const rawToolGroup = view.rawToolGroupByFirstId.get(entry.id);
+          const isUserMsg =
+            entry.kind === "user_message" && senderIsHuman(entry.metadata);
+          return (
+            <div
+              key={entry.id}
+              data-log-entry-id={entry.id}
+              ref={isUserMsg ? getUserMessageRef?.(entry.id) : undefined}
+            >
+              {rawToolGroup ? (
+                <RawToolCallGroupCard
+                  entries={rawToolGroup.entries}
+                  isLastInTurn={td?.isLastInTurn}
+                  turnEntries={td?.turnEntries}
+                  isMobile={isMobile}
+                  onCopyToTerminal={onCopyToTerminal}
+                />
+              ) : (
+                <LogEntryCard
+                  entry={entry}
+                  messageExpanded={view.expandedMessages.has(entry.id)}
+                  onToggleMessage={view.toggleMessage}
+                  isLastInTurn={td?.isLastInTurn}
+                  turnEntries={td?.turnEntries}
+                  isMobile={isMobile}
+                  {...entryProps?.(entry)}
+                />
+              )}
+              {afterEntry?.(entry)}
+            </div>
+          );
+        })}
+        {interaction}
+        {activity && <ActivityIndicator {...activity} />}
       </ActionableOrigins.Provider>
     </SecretRequestOutcomes.Provider>
   );

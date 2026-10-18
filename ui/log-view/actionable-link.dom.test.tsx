@@ -7,9 +7,8 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 
 const { render, fireEvent } = await import("@testing-library/react");
-const { ChatTranscript, useChatTranscript } = await import(
-  "./ChatTranscript.tsx"
-);
+const { ChatTranscript, useChatTranscript } =
+  await import("./ChatTranscript.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { DeskUnit } = await import("../office/DeskUnit.tsx");
 type LogEntry = import("../../shared/types.ts").LogEntry;

@@ -18,10 +18,7 @@
 import { readFileSync, renameSync } from "fs";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { errMessage } from "../shared/errors.ts";
-import {
-  generateActionableId,
-  type ActionableEntry,
-} from "../shared/types.ts";
+import { generateActionableId, type ActionableEntry } from "../shared/types.ts";
 
 // Sanity bounds only.
 export const ACTIONABLE_PROMPT_MAX = 4000;
@@ -104,7 +101,8 @@ function isActionableEntry(v: unknown): v is ActionableEntry {
 export function checkPrompt(
   text: unknown,
 ): { ok: true; prompt: string } | { ok: false; message: string } {
-  if (typeof text !== "string") return { ok: false, message: "text is required" };
+  if (typeof text !== "string")
+    return { ok: false, message: "text is required" };
   if (text.trim().length === 0)
     return { ok: false, message: "text must not be empty" };
   if (text.length > ACTIONABLE_PROMPT_MAX)
@@ -175,7 +173,9 @@ export function createActionableStore(
       try {
         deps.onChange?.({ ...change, entry: { ...change.entry } });
       } catch (err) {
-        console.error(`[actionables] a change listener threw: ${errMessage(err)}`);
+        console.error(
+          `[actionables] a change listener threw: ${errMessage(err)}`,
+        );
       }
     }
   }
@@ -188,7 +188,9 @@ export function createActionableStore(
     },
     listForAgent(agentId) {
       check();
-      return entries.filter((e) => e.agentId === agentId).map((e) => ({ ...e }));
+      return entries
+        .filter((e) => e.agentId === agentId)
+        .map((e) => ({ ...e }));
     },
     listForMember(memberUserId) {
       check();

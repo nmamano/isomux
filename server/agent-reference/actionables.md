@@ -18,12 +18,12 @@ Safe example: `GET /api/agents/<your-id>/actionables`.
 
 ## Route contract
 
-| Method and route                                     | Request                                       | Success                                |
-| ---------------------------------------------------- | --------------------------------------------- | -------------------------------------- |
-| `POST /api/agents/:id/actionables`                   | text/plain prompt, query `member`; or `{text,member?}` | `201` actionable                       |
-| `GET /api/agents/:id/actionables`                    | None                                          | Your open actionables, oldest first    |
-| `GET /api/agents/:id/actionables/:actionableId`      | None                                          | The actionable                         |
-| `PATCH /api/agents/:id/actionables/:actionableId`    | text/plain prompt; or `{text}`                | The actionable                         |
-| `DELETE /api/agents/:id/actionables/:actionableId`   | None                                          | `204`                                  |
+| Method and route                                   | Request                                                | Success                             |
+| -------------------------------------------------- | ------------------------------------------------------ | ----------------------------------- |
+| `POST /api/agents/:id/actionables`                 | text/plain prompt, query `member`; or `{text,member?}` | `201` actionable                    |
+| `GET /api/agents/:id/actionables`                  | None                                                   | Your open actionables, oldest first |
+| `GET /api/agents/:id/actionables/:actionableId`    | None                                                   | The actionable                      |
+| `PATCH /api/agents/:id/actionables/:actionableId`  | text/plain prompt; or `{text}`                         | The actionable                      |
+| `DELETE /api/agents/:id/actionables/:actionableId` | None                                                   | `204`                               |
 
 An actionable is `{id, agentId, memberUserId, member, prompt, createdAt, updatedAt}`. A closed or unknown id returns 404. An `:id` other than your own returns 403. An empty or too long prompt returns 400. An unknown `member`, or a member who cannot reach your room, returns 422. With no `member`, an agent without a manager gets 409. More than 50 open actionables returns 429.

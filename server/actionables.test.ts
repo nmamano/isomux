@@ -30,7 +30,11 @@ describe("loading", () => {
       persistence: createActionableFilePersistence(path),
     });
     expect(first.listForMember("u1")).toEqual([]);
-    const made = first.create({ agentId: "a1", memberUserId: "u1", prompt: "Go?" });
+    const made = first.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Go?",
+    });
     if (!made.ok) throw new Error("create failed");
     const second = createActionableStore({
       persistence: createActionableFilePersistence(path),
@@ -45,7 +49,9 @@ describe("loading", () => {
       persistence: createActionableFilePersistence(path),
     });
     expect(store.listForAgent("a1")).toEqual([]);
-    expect(readdirSync(dir).some((f) => f.startsWith("actionables.json.corrupt-"))).toBe(true);
+    expect(
+      readdirSync(dir).some((f) => f.startsWith("actionables.json.corrupt-")),
+    ).toBe(true);
   });
 
   it("refuses every operation when the file cannot be read", () => {
@@ -55,7 +61,9 @@ describe("loading", () => {
       quarantine: () => true,
     };
     const store = createActionableStore({ persistence });
-    expect(() => store.listForMember("u1")).toThrow(ActionablesUnavailableError);
+    expect(() => store.listForMember("u1")).toThrow(
+      ActionablesUnavailableError,
+    );
   });
 
   it("leaves memory unchanged when a write fails", () => {
@@ -68,7 +76,11 @@ describe("loading", () => {
       quarantine: () => true,
     };
     const store = createActionableStore({ persistence });
-    const made = store.create({ agentId: "a1", memberUserId: "u1", prompt: "Go?" });
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Go?",
+    });
     if (!made.ok) throw new Error("create failed");
     fail = true;
     expect(() => store.remove(made.entry.id)).toThrow();
@@ -81,10 +93,12 @@ describe("the note before the member's words", () => {
     const long = "word ".repeat(100);
     const note = actionableReplyNote({ id: "abcd1234", prompt: long });
     expect(note).toContain("abcd1234");
-    const quoted = JSON.parse(note.slice(note.indexOf('"'), note.lastIndexOf('"') + 1));
-    expect(quoted.length).toBe(ACTIONABLE_PROMPT_EXCERPT);
-    expect(actionableReplyNote({ id: "abcd1234", prompt: "x", dismissed: true })).not.toBe(
-      actionableReplyNote({ id: "abcd1234", prompt: "x" }),
+    const quoted = JSON.parse(
+      note.slice(note.indexOf('"'), note.lastIndexOf('"') + 1),
     );
+    expect(quoted.length).toBe(ACTIONABLE_PROMPT_EXCERPT);
+    expect(
+      actionableReplyNote({ id: "abcd1234", prompt: "x", dismissed: true }),
+    ).not.toBe(actionableReplyNote({ id: "abcd1234", prompt: "x" }));
   });
 });

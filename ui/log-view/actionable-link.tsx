@@ -136,7 +136,11 @@ export function ActionableLink({
         </button>
       ) : (
         <span
-          style={{ fontWeight: 600, color: "var(--orange-text)", flexShrink: 0 }}
+          style={{
+            fontWeight: 600,
+            color: "var(--orange-text)",
+            flexShrink: 0,
+          }}
         >
           {label}
         </span>

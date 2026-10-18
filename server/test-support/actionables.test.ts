@@ -275,7 +275,9 @@ describe("the member's answer", () => {
     expect(actionableReplyNote(created)).toContain(created.id);
     const entry = w.srv.agentManager
       .getAgentLogs(w.asker.id)
-      .find((e) => e.kind === "user_message" && e.content === "yes, per agent")!;
+      .find(
+        (e) => e.kind === "user_message" && e.content === "yes, per agent",
+      )!;
     expect(entry.metadata?.actionable).toEqual({
       id: created.id,
       prompt: "Pull the spend breakdown?",
@@ -546,7 +548,12 @@ describe("the member's answer", () => {
     // Fill the busy agent's queue.
     for (let i = 0; ; i++) {
       const r = w.srv.agentManager.enqueueMessage(w.asker.id, {
-        sender: { kind: "agent", agentId: w.other.id, agentName: "Other", roomName: "r" },
+        sender: {
+          kind: "agent",
+          agentId: w.other.id,
+          agentName: "Other",
+          roomName: "r",
+        },
         text: `filler ${i}`,
       });
       if (!r.ok) break;

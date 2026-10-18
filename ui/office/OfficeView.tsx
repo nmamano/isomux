@@ -982,7 +982,9 @@ export function OfficeView({
                               onContextMenu(e.clientX, e.clientY, agent)
                             }
                             needsAttention={needsAttention.has(agent.id)}
-                            actionableCount={actionableCountByAgent.get(agent.id)}
+                            actionableCount={actionableCountByAgent.get(
+                              agent.id,
+                            )}
                             onSwap={(a, b) => {
                               const rid = currentRoomId;
                               if (rid)

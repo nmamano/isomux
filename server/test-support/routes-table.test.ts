@@ -1187,7 +1187,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["self:affordance"],
     emits: ["actionable_removed"],
   },
-  "actionables.list": { caps: ["agent:converse", "api:send-message"], emits: [] },
+  "actionables.list": {
+    caps: ["agent:converse", "api:send-message"],
+    emits: [],
+  },
   "actionables.reply": {
     caps: ["agent:converse", "api:send-message"],
     emits: [

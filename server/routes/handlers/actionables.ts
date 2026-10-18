@@ -39,7 +39,9 @@ export const ACTIONABLE_DISMISSED_TEXT = "Dismissed";
 export interface ActionablesDeps {
   store: ActionableStore;
   // The agent as it is now, or null when it is gone.
-  agent(agentId: string): { roomId: string; managerUserId: string | null } | null;
+  agent(
+    agentId: string,
+  ): { roomId: string; managerUserId: string | null } | null;
   // A member by username (case-insensitive), or null.
   memberByName(name: string): { id: string; name: string } | null;
   // A member's username, or null when the record is gone.

@@ -284,9 +284,7 @@ export function ActionablesStack({
   const [moreBelow, setMoreBelow] = useState(false);
   const measure = () => {
     const el = bodyRef.current;
-    setMoreBelow(
-      !!el && el.scrollTop + el.clientHeight < el.scrollHeight - 2,
-    );
+    setMoreBelow(!!el && el.scrollTop + el.clientHeight < el.scrollHeight - 2);
   };
   useEffect(measure, [entries.length, collapsed, actionables]);
 
@@ -338,7 +336,8 @@ export function ActionablesStack({
       </div>
     );
 
-  const fade = "linear-gradient(to bottom, black calc(100% - 28px), transparent)";
+  const fade =
+    "linear-gradient(to bottom, black calc(100% - 28px), transparent)";
   return (
     <div data-actionables-stack="open" style={{ marginBottom: 10 }}>
       <button

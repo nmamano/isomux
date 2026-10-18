@@ -50,6 +50,7 @@ export function actionableCounts(
   entries: readonly ActionableEntry[],
 ): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const e of entries) counts.set(e.agentId, (counts.get(e.agentId) ?? 0) + 1);
+  for (const e of entries)
+    counts.set(e.agentId, (counts.get(e.agentId) ?? 0) + 1);
   return counts;
 }
