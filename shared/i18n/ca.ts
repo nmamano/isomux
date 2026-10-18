@@ -1745,6 +1745,7 @@ Coses que pots fer per ell:
   "cards.secretRequest.saved":
     "Desat. L'agent rep un substitut en el proper inici.",
   "cards.secretRequest.declined": "Rebutjada.",
+  "cards.secretRequest.declineFailed": "No s'ha pogut rebutjar la sol·licitud.",
   "cards.secretRequest.closed":
     "Aquesta sol·licitud està tancada. L'agent ho pot tornar a demanar.",
   "cards.secretRequest.forbidden":

@@ -46,8 +46,12 @@ export function SecretAskCard({
   const age = since.kind === "now" ? t("common.justNow") : since.text;
   const base = `/api/agents/${encodeURIComponent(entry.agentId)}/secret-requests/${encodeURIComponent(secret.requestId)}`;
 
-  function errorText(caught: unknown): string {
-    if (!(caught instanceof ApiError)) return t("settings.secrets.saveFailed");
+  function errorText(caught: unknown, kind: "save" | "decline"): string {
+    const failed =
+      kind === "save"
+        ? t("settings.secrets.saveFailed")
+        : t("cards.secretRequest.declineFailed");
+    if (!(caught instanceof ApiError)) return failed;
     const detail = caught.detail ?? {};
     if (caught.code === "forbidden") return t("cards.secretRequest.forbidden");
     if (caught.code === "host_not_allowed")
@@ -60,7 +64,7 @@ export function SecretAskCard({
       if (detail.field === "value") return t("settings.secrets.error.value");
       if (detail.field === "hosts") return t("settings.secrets.error.hosts");
     }
-    return t("settings.secrets.saveFailed");
+    return failed;
   }
 
   async function answer(kind: "save" | "decline") {
@@ -86,7 +90,7 @@ export function SecretAskCard({
         dispatch({ type: "ask_removed", id: entry.id });
         return;
       }
-      setError(errorText(caught));
+      setError(errorText(caught, kind));
       setBusy(false);
     }
   }

@@ -1708,6 +1708,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.secretRequest.saved":
     "Saved. The agent gets a stand-in at its next start.",
   "cards.secretRequest.declined": "Declined.",
+  "cards.secretRequest.declineFailed": "Could not decline the request.",
   "cards.secretRequest.closed":
     "This request is closed. The agent can ask again.",
   "cards.secretRequest.forbidden":

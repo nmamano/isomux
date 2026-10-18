@@ -1744,6 +1744,7 @@ Cosas que puedes hacer por él:
   "cards.secretRequest.saved":
     "Guardado. El agente recibe un sustituto en su próximo inicio.",
   "cards.secretRequest.declined": "Rechazada.",
+  "cards.secretRequest.declineFailed": "No se pudo rechazar la solicitud.",
   "cards.secretRequest.closed":
     "Esta solicitud está cerrada. El agente puede volver a pedirlo.",
   "cards.secretRequest.forbidden":

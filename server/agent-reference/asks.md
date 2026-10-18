@@ -1,6 +1,6 @@
 # Asks
 
-An ask is a question or request for one member that can wait. It stays above the chat input for that member, with a reply field, until they answer it. Open one instead of asking again in later messages: the member still sees it, so you do not need to repeat it.
+An ask is a question or request for one member that can wait. It stays above the chat input for that member and on their Asks page, with a reply field, until they answer it. Open one instead of asking again in later messages: the member still sees it, so you do not need to repeat it.
 
 Open one with `POST /api/agents/:id/asks`, where `:id` is your own agent id. Send the prompt as a text/plain body, up to 4000 characters. It goes to your manager; to send it to another member who can reach your room, add `member=<username>` to the query. With a quoted heredoc, nothing needs escaping:
 

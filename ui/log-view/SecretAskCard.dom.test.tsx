@@ -172,3 +172,20 @@ it("a refusal keeps the field and names the reason; a closed request takes the c
   expect(view.container.innerHTML).not.toContain(FAKE);
   view.unmount();
 });
+
+it("a failed decline says the decline failed, not the save, and the card stays", async () => {
+  answer = async () => {
+    throw new ApiError(500, "request_failed", "request failed");
+  };
+  const view = await mount();
+  await act(async () => {
+    fireEvent.click(
+      view.getByRole("button", { name: t("cards.secretRequest.decline") }),
+    );
+  });
+  expect(view.getByRole("alert").textContent).toBe(
+    t("cards.secretRequest.declineFailed"),
+  );
+  expect(card(view)).not.toBeNull();
+  view.unmount();
+});
