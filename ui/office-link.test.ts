@@ -27,7 +27,9 @@ describe("the open label", () => {
 
   it("labels a tab with the tab, not the page", () => {
     const { t } = translatorFor("zh");
-    const browser = t(officeLinkLabel({ page: "integrations", tab: "browser" }));
+    const browser = t(
+      officeLinkLabel({ page: "integrations", tab: "browser" }),
+    );
     // A Chinese label, so the no-space case is the one exercised.
     expect(/[一-鿿]/.test(browser)).toBe(true);
     expect(browser).not.toBe(t(officeLinkLabel({ page: "integrations" })));

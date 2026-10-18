@@ -22,12 +22,12 @@ Safe example: `GET /api/agents/<your-id>/asks`.
 
 ## Route contract
 
-| Method and route                     | Request                                                | Success                      |
-| ------------------------------------ | ------------------------------------------------------ | ---------------------------- |
+| Method and route                     | Request                                                              | Success                      |
+| ------------------------------------ | -------------------------------------------------------------------- | ---------------------------- |
 | `POST /api/agents/:id/asks`          | text/plain prompt, query `member`, `link`; or `{text,member?,link?}` | `201` ask                    |
-| `GET /api/agents/:id/asks`           | None                                                   | Your open asks, oldest first |
-| `GET /api/agents/:id/asks/:askId`    | None                                                   | The ask                      |
-| `PATCH /api/agents/:id/asks/:askId`  | text/plain prompt, query `link`; or `{text,link?}`     | The ask                      |
-| `DELETE /api/agents/:id/asks/:askId` | None                                                   | `204`                        |
+| `GET /api/agents/:id/asks`           | None                                                                 | Your open asks, oldest first |
+| `GET /api/agents/:id/asks/:askId`    | None                                                                 | The ask                      |
+| `PATCH /api/agents/:id/asks/:askId`  | text/plain prompt, query `link`; or `{text,link?}`                   | The ask                      |
+| `DELETE /api/agents/:id/asks/:askId` | None                                                                 | `204`                        |
 
 An ask is `{id, agentId, memberUserId, member, prompt, createdAt, updatedAt, link?, secret?}`. A closed or unknown id returns 404. An `:id` other than your own returns 403. An empty or too long prompt returns 400. An unknown `member`, or a member who cannot reach your room, returns 422. With no `member`, an agent without a manager gets 409. A `link` that is not one of the pages above returns 422 `invalid_link`. More than 50 open asks returns 429. An edit of a secret request returns 409 `secret_request`.

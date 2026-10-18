@@ -169,7 +169,8 @@ type View = ReturnType<typeof render>;
 
 const inboxButton = (view: View) =>
   [...view.container.querySelectorAll("button")].find(
-    (b) => b.querySelector(".nav-action-label")?.textContent === en["nav.inbox"],
+    (b) =>
+      b.querySelector(".nav-action-label")?.textContent === en["nav.inbox"],
   );
 const tab = (view: View, id: "pager" | "asks") =>
   view.container.querySelector<HTMLButtonElement>(`[data-inbox-tab="${id}"]`);

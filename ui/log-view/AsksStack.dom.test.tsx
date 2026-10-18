@@ -37,7 +37,10 @@ const ENTRIES = [
   entry("aaaa0001", "a1", "First question?", 120),
   entry("cccc0003", "a2", "Another agent's question?", 1),
   // Agent a3's asks carry links: one this UI knows, one it does not.
-  { ...entry("dddd0004", "a3", "Sign in to Linear?", 3), link: "/integrations/mcp" },
+  {
+    ...entry("dddd0004", "a3", "Sign in to Linear?", 3),
+    link: "/integrations/mcp",
+  },
   { ...entry("eeee0005", "a3", "Open the old page?", 2), link: "/gone" },
 ];
 
@@ -178,9 +181,10 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
 });
 
 const linkButtons = (root: HTMLElement) =>
-  [...root.querySelectorAll<HTMLElement>("[data-ask-office-link]")].map(
-    (b) => [b.closest<HTMLElement>("[data-ask]")?.dataset.ask, b.dataset.askOfficeLink],
-  );
+  [...root.querySelectorAll<HTMLElement>("[data-ask-office-link]")].map((b) => [
+    b.closest<HTMLElement>("[data-ask]")?.dataset.ask,
+    b.dataset.askOfficeLink,
+  ]);
 
 it("draws a button for an office page it knows, and a click opens that page", async () => {
   const opened: OfficeLink[] = [];

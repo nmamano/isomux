@@ -35,7 +35,10 @@ import {
   type AskAudienceDeps,
   type AskStore,
 } from "../../asks.ts";
-import { OFFICE_LINK_PATHS, officeLinkFor } from "../../../shared/office-links.ts";
+import {
+  OFFICE_LINK_PATHS,
+  officeLinkFor,
+} from "../../../shared/office-links.ts";
 
 // The member message text of a dismiss. The chat shows it translated from the
 // entry's metadata; the agent reads these words.

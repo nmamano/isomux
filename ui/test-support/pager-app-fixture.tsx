@@ -134,7 +134,8 @@ export const badge = (view: ReturnType<typeof render>) =>
   view.container.querySelector(".nav-action-badge")?.textContent ?? null;
 export const inboxButton = (view: ReturnType<typeof render>) =>
   [...view.container.querySelectorAll("button")].find(
-    (b) => b.querySelector(".nav-action-label")?.textContent === en["nav.inbox"],
+    (b) =>
+      b.querySelector(".nav-action-label")?.textContent === en["nav.inbox"],
   )!;
 export const toggleOf = (view: ReturnType<typeof render>, id: string) =>
   view.container.querySelector<HTMLElement>(
