@@ -1,12 +1,17 @@
 // Browser-safe operation suggestions. Coverage is checked against server write sites.
 export const AUDIT_OPERATIONS = [
+  "actionables.dismiss",
+  "actionables.reply",
   "admin.ownerLogin",
   "agents.abort",
   "agents.browser",
   "agents.cancelQueued",
   "agents.cancelScheduledMessage",
   "agents.closeFile",
+  "agents.createActionable",
+  "agents.deleteActionable",
   "agents.diff",
+  "agents.editActionable",
   "agents.editFile",
   "agents.editMessage",
   "agents.handoff",

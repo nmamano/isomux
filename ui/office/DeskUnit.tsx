@@ -23,16 +23,19 @@ export function DeskUnit({
   onSwap,
   stateChangedAt,
   workingSince,
+  actionableCount = 0,
 }: {
   agent: AgentInfo;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   needsAttention?: boolean;
+  // Open actionables from this agent to the viewing member: the count dot.
+  actionableCount?: number;
   onSwap?: (sourceDesk: number, targetDesk: number) => void;
   stateChangedAt?: number;
   workingSince?: number;
 }) {
-  const { t } = useI18n();
+  const { t, tn } = useI18n();
   const [hov, setHov] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -295,8 +298,36 @@ export function DeskUnit({
               ? "dotPulse 2s ease-in-out infinite"
               : undefined,
             whiteSpace: "nowrap",
+            position: "relative",
           }}
         >
+          {/* Open actionables for the viewer: a count on the corner, apart
+              from the word badges (unread, a pending prompt) inside. */}
+          {actionableCount > 0 && (
+            <span
+              data-actionable-dot=""
+              role="img"
+              aria-label={tn("actionables.badge", actionableCount)}
+              style={{
+                position: "absolute",
+                top: -7,
+                right: -7,
+                minWidth: 16,
+                height: 16,
+                padding: "0 4px",
+                borderRadius: 8,
+                background: "var(--orange-text)",
+                color: "var(--bg-base)",
+                fontSize: 10,
+                fontWeight: 800,
+                lineHeight: "16px",
+                textAlign: "center",
+                boxShadow: "0 0 0 2px var(--bg-base)",
+              }}
+            >
+              {actionableCount}
+            </span>
+          )}
           <StatusLight state={agent.state} size={8} elapsedMs={elapsedMs} />
           <span
             {...noTranslate()}

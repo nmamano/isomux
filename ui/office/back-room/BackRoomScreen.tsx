@@ -114,6 +114,7 @@ function Figure({
   at,
   z,
   unread,
+  actionableCount,
   draggable,
   onOpen,
   onMenu,
@@ -123,12 +124,15 @@ function Figure({
   at: Point;
   z: number;
   unread: boolean;
+  // Open actionables from this agent to the viewer: the count dot.
+  actionableCount: number;
   draggable: boolean;
   onOpen: () => void;
   onMenu: (x: number, y: number) => void;
   /** The figure's drag starts (true) or ends (false). */
   onDrag: (dragging: boolean) => void;
 }) {
+  const { tn } = useI18n();
   const h = 68 * FIGURE_SCALE;
   const w = 52 * FIGURE_SCALE;
   const plate = styleForModel(agent.modelFamily);
@@ -241,6 +245,35 @@ function Figure({
         {/* Larger than the plate's text needs, with a dark edge: at 6px with
             no edge the lights were too faint on the plates (task 634dbde6). */}
         <StatusLight state={agent.state} size={8} ring />
+        {/* The front plate's count dot, sized to this plate and set past
+            its right edge, clear of the name. It reaches 5 units above the
+            plate; the nearest plate above is a table behind, about 34 units
+            higher, so the dot stays clear of it. */}
+        {actionableCount > 0 && (
+          <span
+            data-actionable-dot=""
+            role="img"
+            aria-label={tn("actionables.badge", actionableCount)}
+            style={{
+              position: "absolute",
+              top: -5,
+              right: -10,
+              minWidth: 13,
+              height: 13,
+              padding: "0 3px",
+              borderRadius: 7,
+              background: "var(--orange-text)",
+              color: "var(--bg-base)",
+              fontSize: 8,
+              fontWeight: 800,
+              lineHeight: "13px",
+              textAlign: "center",
+              boxShadow: "0 0 0 1.5px var(--bg-base)",
+            }}
+          >
+            {actionableCount}
+          </span>
+        )}
         <span
           {...noTranslate()}
           style={{
@@ -280,6 +313,7 @@ export function BackRoomScreen({
   roomName,
   agents,
   needsAttention,
+  actionableCounts,
   isMobile,
   onBack,
   onSpawn,
@@ -294,6 +328,8 @@ export function BackRoomScreen({
   /** The room's back agents. */
   agents: AgentInfo[];
   needsAttention: Set<string>;
+  /** Open actionables per agent, for this member. */
+  actionableCounts?: ReadonlyMap<string, number>;
   isMobile: boolean;
   onBack: () => void;
   onSpawn: () => void;
@@ -617,6 +653,7 @@ export function BackRoomScreen({
             at={at}
             z={j * 10 + 3}
             unread={needsAttention.has(agent.id)}
+            actionableCount={actionableCounts?.get(agent.id) ?? 0}
             // HTML5 drag is a mouse gesture, as on the front's desks.
             draggable={!isMobile}
             onDrag={(on) => setDragged(on ? agent : null)}

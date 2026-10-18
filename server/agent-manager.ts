@@ -31,6 +31,7 @@ import type {
   ProviderAccountWire,
   ProviderAccountProvider,
   QueuedMessage,
+  ActionableRef,
   RoomWire,
   SecretRequestPayload,
   SkillInfo,
@@ -51,6 +52,7 @@ import {
   LOBBY_ROOM,
   LOBBY_ROOM_ID,
 } from "../shared/types.ts";
+import { actionableReplyNote } from "./actionables.ts";
 import {
   formatPrefix,
   formatAgentSenderPrefix,
@@ -6799,6 +6801,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     ) {
       return `[Handoff from your previous session] `;
     }
+    if (m.actionable && m.sender.kind === "user") {
+      return `${senderPrefixText(m.sender, receiverAgentId)}${actionableReplyNote(m.actionable)}`;
+    }
     if (m.scheduledFor === undefined || m.sender.kind !== "agent") {
       return senderPrefixText(m.sender, receiverAgentId);
     }
@@ -6856,6 +6861,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Self-handoff provenance: mirror the flush-prefix
       // marker into the persisted log entry, matching the scheduled path.
       if (m.handoff) meta = { ...(meta ?? {}), handoff: true };
+      // The chat's link back to the actionable this message answers.
+      if (m.actionable) meta = { ...(meta ?? {}), actionable: m.actionable };
       if (extraMeta) meta = { ...(meta ?? {}), ...extraMeta };
       // The chat already shows a direct send that a swap cut and that was
       // queued again.
@@ -7026,6 +7033,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       typeof r.queuedAt !== "number"
     )
       return false;
+    // The flush prefix reads an actionable's id and prompt.
+    if (r.actionable !== undefined) {
+      const a = r.actionable as Record<string, unknown> | null;
+      if (
+        typeof a !== "object" ||
+        a === null ||
+        typeof a.id !== "string" ||
+        typeof a.prompt !== "string"
+      )
+        return false;
+    }
     const s = r.sender as Record<string, unknown> | null | undefined;
     if (typeof s !== "object" || s === null) return false;
     if (s.kind === "user") return true;
@@ -7212,6 +7230,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // (requeueSwappedSend). Not marked as queued during a busy turn: it was
       // sent before that turn. `echoed`: the chat already shows it.
       resend?: { echoed: boolean };
+      // QueuedMessage.actionable.
+      actionable?: ActionableRef;
     },
     // Agent-initiated steering. Set by the inter-agent send
     // route when the sender passed "steer":true. Deliberately an option on THIS
@@ -7277,6 +7297,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         : {}),
       ...(msg.scheduledSenderGone ? { scheduledSenderGone: true } : {}),
       ...(msg.handoff ? { handoff: true } : {}),
+      ...(msg.actionable ? { actionable: msg.actionable } : {}),
       ...(msg.resend?.echoed ? { echoed: true } : {}),
       ...(boundarySteer ? { steer: true } : {}),
       attachments: msg.attachments,
@@ -7911,9 +7932,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       username?: string;
       device?: string;
       attachments?: Attachment[];
+      // The user_message metadata, when the caller adds to the member's.
+      meta?: Record<string, unknown>;
     },
   ): boolean {
     const { echoEarly, text, username, device, attachments } = opts;
+    const userMeta = opts.meta ?? buildUserMeta(username, device);
     if (signedOutProvider(managed)) return true;
     // Try to create a fresh session so the user's next message doesn't silently
     // vanish. pickAutoResumeSessionId returns managed.sessionManager.sessionId when it's safely
@@ -7932,13 +7956,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // here - the bottom of sendMessage won't re-add (echoEarly is still
       // true) and the send below would otherwise vanish from the log.
       if (clearedStale && echoEarly) {
-        addLogEntry(
-          agentId,
-          "user_message",
-          text,
-          buildUserMeta(username, device),
-          attachments,
-        );
+        addLogEntry(agentId, "user_message", text, userMeta, attachments);
       }
       // Capture before installSession clears them: a clean wake (idle eviction
       // or restart) gets an accurate calm message; only a genuine unexpected
@@ -8006,13 +8024,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return true;
     } catch (err) {
       if (!echoEarly)
-        addLogEntry(
-          agentId,
-          "user_message",
-          text,
-          buildUserMeta(username, device),
-          attachments,
-        );
+        addLogEntry(agentId, "user_message", text, userMeta, attachments);
       addLogEntry(
         agentId,
         "error",
@@ -8045,6 +8057,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       onAccepted?: (result: UserSendAcceptance) => void;
       claimedChoice?: ClaimedChoiceInteraction;
       clientMessageId?: string;
+      // A reply to, or dismissal of, one of the agent's actionables
+      // (server/actionables.ts). Never read as a slash command or as the
+      // answer to a pending prompt.
+      actionable?: ActionableRef;
     },
   ) {
     if (!agents.has(agentId)) {
@@ -8082,13 +8098,34 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       dedupe?.(result);
       opts?.onAccepted?.(result);
     };
+    // A message that answers a two-step prompt (typed, or a clicked choice)
+    // ends a flow that held the queue. An idle agent gets no turn end to
+    // flush it, so the flush runs here once the answer is handled.
+    const parked = agents.get(agentId);
+    const answersPrompt =
+      !!opts?.claimedChoice || (!!parked && inMultiStepFlow(parked));
     try {
       await sendMessageInner(agentId, text, username, device, attachments, {
         sendNow: opts?.sendNow,
         claimedChoice: opts?.claimedChoice,
+        actionable: opts?.actionable,
         accept: () => settle({ ok: true }),
         refuse: settle,
       });
+      const managed = agents.get(agentId);
+      if (
+        answersPrompt &&
+        managed &&
+        managed.messageQueue.length > 0 &&
+        isQueueIdleState(managed.info.state) &&
+        !inMultiStepFlow(managed)
+      )
+        flushQueue(agentId).catch((err: unknown) => {
+          console.error(
+            `flushQueue (prompt answered) failed for ${agentId}:`,
+            errMessage(err),
+          );
+        });
     } finally {
       settle({
         ok: false,
@@ -8108,11 +8145,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     opts: {
       sendNow?: boolean;
       claimedChoice?: ClaimedChoiceInteraction;
+      actionable?: ActionableRef;
       accept: () => void;
       refuse: (result: Exclude<UserSendAcceptance, { ok: true }>) => void;
     },
   ) {
-    const { accept, refuse } = opts;
+    const { accept, refuse, actionable } = opts;
+    const userMeta = actionable
+      ? { ...(buildUserMeta(username, device) ?? {}), actionable }
+      : buildUserMeta(username, device);
     const promptGone = {
       ok: false,
       status: 409,
@@ -8142,13 +8183,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // settleChoiceInteraction(), the sole state transition from pending. Every
     // early-return path below must therefore exclude a claimed choice.
     const claimedChoice =
-      opts?.claimedChoice ?? claimTypedChoiceInteraction(managed, text);
+      opts?.claimedChoice ??
+      (actionable ? null : claimTypedChoiceInteraction(managed, text));
 
     // Route through queue when busy. Multi-step pending flows (permission /
     // resume / model / effort) need the existing path because the user's reply
     // is interpreted as a pick. Slash commands also pass through so /clear,
     // /new etc. can preempt rather than queue.
-    const isSlash = text.startsWith("/");
+    // An actionable reply is the member's answer, typed in a field that is
+    // not the composer: "/clear" there is text, not a command.
+    const isSlash = !actionable && text.startsWith("/");
     // A new message retries a queue kept after a backend failure. The release
     // starts that flush before this message is handled, so the queue goes
     // first unless the flush waits (usage-cap read, in-flight sample); then
@@ -8162,11 +8206,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // An armed automatic handoff counts as busy: the message waits in the
     // queue for the fresh session.
     const busy = turnRunning || managed.autoHandoffPhase !== null;
-    if (busy && !claimedChoice && !inMultiStepFlow(managed) && !isSlash) {
+    // An actionable reply also waits behind a pending prompt: the flush that
+    // follows the prompt delivers it, so it is never read as the answer.
+    const queueIt = actionable
+      ? busy || inMultiStepFlow(managed)
+      : busy && !claimedChoice && !inMultiStepFlow(managed) && !isSlash;
+    if (queueIt) {
       const result = enqueueMessage(agentId, {
         sender: { kind: "user", username, device },
         text,
         attachments,
+        ...(actionable ? { actionable } : {}),
       });
       if (!result.ok) {
         addLogEntry(
@@ -8222,15 +8272,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // (or no echo at all for handled slash commands), so we only echo here for
     // the path that ends up at the addLogEntry/send block at the bottom of
     // this function.
-    const echoEarly =
-      !managed.pendingPermission && !claimedChoice && !text.startsWith("/");
+    const echoEarly = !managed.pendingPermission && !claimedChoice && !isSlash;
     if (echoEarly) {
       if (
         !addLogEntry(
           agentId,
           "user_message",
           text,
-          buildUserMeta(username, device),
+          userMeta,
           attachments,
           undefined,
           { durable: true },
@@ -8304,6 +8353,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           username,
           device,
           attachments,
+          meta: userMeta,
         })
       ) {
         accept();
@@ -8840,7 +8890,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     // Intercept slash commands that are handled locally, not by the LLM
     let nativeCommand = false;
-    if (text.startsWith("/")) {
+    if (isSlash) {
       const [cmd, ...args] = text.slice(1).trim().split(/\s+/);
       // Accepted to run. A command that is not handled here is a skill, which
       // runs as a normal turn below.
@@ -8920,6 +8970,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           username,
           device,
           attachments,
+          meta: userMeta,
         })
       ) {
         accept();
@@ -8941,7 +8992,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           agentId,
           "user_message",
           text,
-          buildUserMeta(username, device),
+          userMeta,
           attachments,
           undefined,
           { durable: !isSlash },
@@ -8967,7 +9018,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     // A native command goes as typed: the engine expands it only at the start
     // of the message, so the member prefix would turn it into plain text.
-    const prefix = nativeCommand ? "" : formatPrefix({ username, device });
+    const prefix = nativeCommand
+      ? ""
+      : `${formatPrefix({ username, device })}${actionable ? actionableReplyNote(actionable) : ""}`;
     const prefixedText = prefix ? `${prefix}${text}` : text;
     try {
       await runAgentTurn({
@@ -8990,6 +9043,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           attachments,
           username,
           device,
+          actionable,
         })
       )
         return;
@@ -10332,6 +10386,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       attachments?: Attachment[];
       username?: string;
       device?: string;
+      actionable?: ActionableRef;
     },
   ): boolean {
     if (!(err instanceof SwappedBeforeSendError)) return false;
@@ -10341,6 +10396,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       text: msg.text,
       ...(msg.sdkText ? { sdkText: msg.sdkText } : {}),
       ...(msg.native ? { native: true } : {}),
+      ...(msg.actionable ? { actionable: msg.actionable } : {}),
       attachments: msg.attachments,
       resend: { echoed: err.reason !== "carry" },
     });
@@ -11379,6 +11435,24 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // layers exist, every wire-constructible wedge is already recovered by those
   // layers themselves - the forced path is insurance for wedges we haven't
   // found, which by definition can't be manufactured through honest machinery.
+  // Test-only: put a message in the queue with no flush trigger, the state a
+  // missed trigger leaves behind. The watchdog sweep is what delivers it.
+  function _testStrandMessage(
+    agentId: string,
+    msg: Pick<QueuedMessage, "sender" | "text">,
+  ): void {
+    const managed = agents.get(agentId);
+    if (!managed)
+      throw new Error(`_testStrandMessage: unknown agent ${agentId}`);
+    managed.messageQueue.push({
+      id: generateQueuedId(managed.messageQueue),
+      sender: msg.sender,
+      text: msg.text,
+      queuedAt: Date.now(),
+    });
+    emitQueueUpdate(agentId, managed);
+  }
+
   function _testWedgeFlush(agentId: string, ageMs: number): void {
     const managed = agents.get(agentId);
     if (!managed) throw new Error(`_testWedgeFlush: unknown agent ${agentId}`);
@@ -11540,6 +11614,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     _testActiveToolCount,
     _testDormantReason,
     _testWedgeFlush,
+    _testStrandMessage,
     openEditorFile,
     saveEditorFile,
     resolveEditorPathForAgent,

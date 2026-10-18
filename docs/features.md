@@ -164,6 +164,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Pages reach your Discord**, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
 - **Device notifications**: pages and finished turns can also show as notifications on your phone or browser.
 - **Pager view**: every page you can see, open pages first, with ack and resolve. A badge on the Pager button counts your open pages.
+- **Actionables**: a question from an agent that can wait stays above the chat input, with a reply field, until you reply or dismiss it. A dot on the agent's desk counts them.
 
 ## Safety
 

@@ -545,44 +545,29 @@ describe("queue reliability: activity after a completed turn", () => {
 });
 
 describe("queue reliability: watchdog (da065287 L3)", () => {
-  it("gentle path: a message stranded by a missed trigger (model pick no-op) is delivered by the sweep", async () => {
+  it("gentle path: a message no trigger flushed is delivered by the sweep", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
-    const owner = await server.seedOwner("Boss");
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
-    const sock = await server.connectWs(owner.rawSessionId);
-    await sock.waitFor("full_state");
 
-    // Real missed-trigger construction: a message queued during a pending
-    // /model pick, where the pick resolves to "Already using X" - the handler
-    // returns with no state transition and no flush kick, stranding the item.
-    await sendHuman(server, owner.rawSessionId, recv.id, "/model");
-    await waitUntil(
-      () =>
-        (sock.messages as { entry?: LogEntry }[]).some((m) =>
-          m.entry?.content?.includes?.("Switch model"),
-        ),
-      3000,
-      "model pick list shown",
-    );
-    await postAgentMessage(server, recv.id, sender.id, "stranded");
-    await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
-
-    // Pick option 1 - the CURRENT model (spawn default = first family).
-    await sendHuman(server, owner.rawSessionId, recv.id, "1");
-    await waitUntil(
-      () =>
-        (sock.messages as { entry?: LogEntry }[]).some((m) =>
-          m.entry?.content?.includes?.("Already using"),
-        ),
-      3000,
-      "pick no-oped",
-    );
+    // A missed trigger leaves an idle agent with a queued message and no
+    // flush coming. The /model pick that answers to the current model used
+    // to be the real construction; answering a prompt now flushes
+    // (actionables lane b1036), so the test strands the message directly.
+    server.agentManager._testStrandMessage(recv.id, {
+      sender: {
+        kind: "agent",
+        agentId: sender.id,
+        agentName: "Sender",
+        roomName: room.name,
+      },
+      text: "stranded",
+    });
     await sleep(150);
     // Stranded: idle, queued, no flush coming.
     expect(queueOf(server, recv.id).length).toBe(1);
-    expect(stateOf(server, recv.id)).toBe("waiting_for_response");
+    expect(stateOf(server, recv.id)).not.toBe("thinking");
 
     const acted = await server.agentManager.sweepStuckFlushes(0);
     expect(acted).toBe(1);

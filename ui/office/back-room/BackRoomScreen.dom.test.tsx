@@ -49,6 +49,7 @@ function show(
   agents: ReturnType<typeof backAgents>,
   unread = new Set<string>(),
   frontFull = false,
+  actionableCounts?: ReadonlyMap<string, number>,
 ) {
   const calls: string[] = [];
   const view = render(
@@ -58,6 +59,7 @@ function show(
         roomName="Studio"
         agents={agents}
         needsAttention={unread}
+        actionableCounts={actionableCounts}
         isMobile={false}
         onBack={() => calls.push("back")}
         onSpawn={() => calls.push("spawn")}
@@ -89,6 +91,19 @@ describe("BackRoomScreen", () => {
       ...view.container.querySelectorAll("[data-back-nameplate]"),
     ];
     expect(plates.map((p) => p.textContent)).toEqual(["W0", "W1", "W2"]);
+  });
+
+  it("puts the count of open actionables on that agent's nameplate only", () => {
+    const { view } = show(
+      backAgents(3),
+      new Set(),
+      false,
+      new Map([["w1", 2]]),
+    );
+    const dots = [
+      ...view.container.querySelectorAll("[data-back-nameplate]"),
+    ].map((p) => p.querySelector("[data-actionable-dot]")?.textContent ?? null);
+    expect(dots).toEqual([null, "2", null]);
   });
 
   it("opens the menu on right-click; the bar goes back and spawns", () => {

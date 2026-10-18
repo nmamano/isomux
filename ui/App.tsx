@@ -28,6 +28,7 @@ import {
 } from "./integrations/IntegrationsView.tsx";
 import { PagerView, type PagerSelectRequest } from "./components/PagerView.tsx";
 import { usePagerSync } from "./pager-sync.ts";
+import { useActionablesSync } from "./actionables-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
 import { CSS } from "./styles.ts";
@@ -184,6 +185,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     [],
   );
   usePagerSync();
+  useActionablesSync();
 
   // Refresh persistence: reopen the same spot (room / agent chat / tasks /
   // cronjobs) after a page reload, and restore unsent chat drafts. The

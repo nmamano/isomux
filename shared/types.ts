@@ -601,6 +601,10 @@ export interface QueuedMessage {
   // time to mark the message as coming from the agent's previous session, so the
   // fresh copy treats it as its own brief instead of replying to itself.
   handoff?: boolean;
+  // Set when the item is a member's reply to, or dismissal of, one of the
+  // receiver's actionables. The flush prefix names it and the chat entry links
+  // to it.
+  actionable?: ActionableRef;
   // Accepted through an agent's "steer":true while the receiver was running a
   // turn. On a backend with tool-boundary delivery it lets the next main-thread
   // tool batch deliver the queue inside that turn. Lives and dies with the item.
@@ -1154,6 +1158,33 @@ export const PAGER_RESOLVED_SLICE = 50;
 // 8-character ids.
 export function generatePagerId(existing?: string[]): string {
   return generateHexId(existing, 8);
+}
+
+// An actionable: a prompt from an agent to one member, answered when the
+// member has time (internal-docs/actionables-design.md). Only open entries
+// exist; a reply, a dismiss or the agent's delete removes the entry.
+export interface ActionableEntry {
+  id: string;
+  agentId: string;
+  // The member the prompt is for: the agent's manager unless the agent named
+  // another member with access to its room.
+  memberUserId: string;
+  prompt: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// The actionable a member message answers. Rides on the queued item and on the
+// user_message log entry's metadata (`actionable`), where the chat draws the
+// link back to the agent's "Create actionable" card.
+export interface ActionableRef {
+  id: string;
+  prompt: string;
+  dismissed?: boolean;
+}
+
+export function generateActionableId(existing?: string[]): string {
+  return generateHexId(existing);
 }
 
 export function generateCronjobId(existing?: string[]): string {
@@ -2200,6 +2231,12 @@ export type ServerMessage =
   // There is no whole-list event: a pager view reads GET /api/pager when it
   // opens and after a reconnect.
   | { type: "pager_upserted"; entry: PagerEntry }
+  // An actionable addressed to the recipient was created or edited. Only the
+  // target member receives it; the UI reads GET /api/actionables after each
+  // reconnect.
+  | { type: "actionable_upserted"; entry: ActionableEntry }
+  // An actionable addressed to the recipient closed (reply, dismiss, delete).
+  | { type: "actionable_removed"; id: string }
   // Webhooks: only the hook owner and office owners receive these.
   | { type: "webhook_upserted"; webhook: WebhookWire }
   | { type: "webhook_deleted"; id: string }

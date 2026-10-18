@@ -38,6 +38,7 @@ import {
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
 import { failedEditText } from "../../shared/failed-edit.ts";
+import { ActionableLink, actionableRefOf } from "./actionable-link.tsx";
 import {
   parseReviewFindings,
   type ReviewFinding,
@@ -534,6 +535,12 @@ export const LogEntryCard = memo(function LogEntryCard({
         i18n,
         entry.metadata,
       );
+      // An answer to an actionable: the link above it, and a dismiss in the
+      // viewer's language (the agent reads the English word).
+      const actionable = actionableRefOf(entry);
+      const content = actionable?.dismissed
+        ? t("actionables.dismissed")
+        : entry.content;
       if (isEditing) {
         return (
           <EditableUserMessage
@@ -548,11 +555,16 @@ export const LogEntryCard = memo(function LogEntryCard({
       }
       return (
         <UserMessage
-          content={entry.content}
+          content={content}
+          beforeContent={
+            actionable ? (
+              <ActionableLink actionable={actionable} isMobile={isMobile} />
+            ) : undefined
+          }
           renderedContent={
             tasks && onOpenTask ? (
               <PlainTaskText
-                content={entry.content}
+                content={content}
                 tasks={tasks}
                 onOpen={onOpenTask}
               />
@@ -574,7 +586,7 @@ export const LogEntryCard = memo(function LogEntryCard({
           }
           attachments={entry.attachments}
           agentId={entry.agentId}
-          canEdit={canEdit && fromHuman}
+          canEdit={canEdit && fromHuman && !actionable}
           onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined}
           timestamp={entry.timestamp}
         />

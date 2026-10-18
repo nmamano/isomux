@@ -40,6 +40,7 @@ import type {
   TaskItem,
   AppListWire,
   PagerEntry,
+  ActionableEntry,
   OfficeSettings,
   OfficeWire,
   RoomWire,
@@ -205,6 +206,15 @@ export interface AppState {
   // continued from a page the list may no longer hold, so its slice is
   // refused and read again from the oldest page still held.
   pagerTrimSeq: number;
+  // The open actionables addressed to this member, in every room
+  // (internal-docs/actionables-design.md). useActionablesSync reads
+  // GET /api/actionables on every hydrationEpoch; actionable_upserted and
+  // actionable_removed keep it live. App-level: the desk dots read it.
+  actionables: ActionableEntry[];
+  // Bumped by every delta; a snapshot issued before one is refused and read
+  // again, as for the pager.
+  actionablesRevision: number;
+  actionablesFetchSeq: number;
   // The webhooks this viewer may see: its own, those in its rooms, or every
   // hook for an office owner. Fetched by the Webhooks tab (and by a webhook run's view, which
   // links to its hook) and kept fresh by the webhook_upserted /
@@ -434,6 +444,10 @@ type Action =
   | { type: "pager_load_failed" }
   | { type: "pager_refetch" }
   | { type: "pager_upserted"; entry: PagerEntry }
+  // CLIENT-LOCAL (not a ServerMessage): useActionablesSync's snapshot.
+  | { type: "actionables_loaded"; entries: ActionableEntry[]; revision: number }
+  | { type: "actionable_upserted"; entry: ActionableEntry }
+  | { type: "actionable_removed"; id: string }
   // CLIENT-LOCAL (not a ServerMessage): the webhook list fetch. Refused, like
   // apps_loaded, when a delta landed while it was in flight.
   | { type: "webhooks_loaded"; webhooks: WebhookWire[]; revision: number }
@@ -1244,6 +1258,29 @@ export function reducer(state: AppState, action: Action): AppState {
         pagerRevision: state.pagerRevision + 1,
       });
     }
+    case "actionables_loaded":
+      if (action.revision !== state.actionablesRevision)
+        return { ...state, actionablesFetchSeq: state.actionablesFetchSeq + 1 };
+      return { ...state, actionables: action.entries };
+    case "actionable_upserted": {
+      const idx = state.actionables.findIndex((e) => e.id === action.entry.id);
+      return {
+        ...state,
+        actionables:
+          idx === -1
+            ? [...state.actionables, action.entry]
+            : state.actionables.map((e) =>
+                e.id === action.entry.id ? action.entry : e,
+              ),
+        actionablesRevision: state.actionablesRevision + 1,
+      };
+    }
+    case "actionable_removed":
+      return {
+        ...state,
+        actionables: state.actionables.filter((e) => e.id !== action.id),
+        actionablesRevision: state.actionablesRevision + 1,
+      };
     case "webhooks_loaded":
       if (action.revision !== state.webhooksRevision) {
         return { ...state, webhooksLoaded: true };
@@ -1594,6 +1631,9 @@ export const initialState: AppState = {
   pagerPinnedId: null,
   pagerResolvedMore: false,
   pagerTrimSeq: 0,
+  actionables: [],
+  actionablesRevision: 0,
+  actionablesFetchSeq: 0,
   webhooks: [],
   webhooksLoaded: false,
   webhooksRevision: 0,

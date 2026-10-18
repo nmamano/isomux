@@ -53,6 +53,7 @@ import { citationBlock } from "./cite.ts";
 import { appendBlockToDraft } from "./draft-append.ts";
 import { sendAttempt, takeAttempt } from "./outbox.ts";
 import { OutboxRows } from "./OutboxRows.tsx";
+import { ActionablesStack } from "./ActionablesStack.tsx";
 import { errMessage } from "../../shared/errors.ts";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { ContextBattery } from "./ContextBattery.tsx";
@@ -2577,6 +2578,11 @@ export function LogView({
               multiple
               style={{ display: "none" }}
               onChange={(e) => handleFileSelect(e.target.files)}
+            />
+            <ActionablesStack
+              key={agent.id}
+              agentId={agent.id}
+              isMobile={isMobile}
             />
             <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
             {editError !== null && (

@@ -1,0 +1,155 @@
+// The one-line link above a member message that answers an actionable
+// (internal-docs/actionables-design.md). The message's metadata names the
+// actionable; a click scrolls to the agent's "Create actionable" card, found
+// by the id in that call's result. With no such card in the loaded chat the
+// line is plain text.
+
+import { createContext, useContext } from "react";
+import type { ActionableRef, LogEntry } from "../../shared/types.ts";
+import { useI18n } from "../i18n.tsx";
+import { describeIsomuxRoute } from "./isomux-curl.ts";
+import { isomuxRequestForToolCall } from "./tool-call-groups.ts";
+
+/** The actionable a user_message answers, from its metadata, or null. */
+export function actionableRefOf(entry: LogEntry): ActionableRef | null {
+  const raw = entry.metadata?.actionable;
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || typeof r.prompt !== "string") return null;
+  return { id: r.id, prompt: r.prompt, dismissed: r.dismissed === true };
+}
+
+const CREATED_ID = /"id"\s*:\s*"([0-9a-f]{8})"/;
+
+/**
+ * Actionable id → the log entry id of the tool call that created it. A call
+ * counts when it is the create route and its result carries the new id.
+ */
+export function actionableOrigins(logs: LogEntry[]): Map<string, string> {
+  const callByToolId = new Map<unknown, string>();
+  for (const entry of logs) {
+    if (entry.kind !== "tool_call") continue;
+    const req = isomuxRequestForToolCall(entry.content, entry.metadata?.input);
+    if (
+      req &&
+      describeIsomuxRoute(req.method, req.path) === "apiCall.actionables.create"
+    )
+      callByToolId.set(entry.metadata?.toolId, entry.id);
+  }
+  const origins = new Map<string, string>();
+  if (callByToolId.size === 0) return origins;
+  for (const entry of logs) {
+    if (entry.kind !== "tool_result") continue;
+    const callId = callByToolId.get(entry.metadata?.toolUseId);
+    if (!callId) continue;
+    const id = CREATED_ID.exec(entry.content)?.[1];
+    if (id) origins.set(id, callId);
+  }
+  return origins;
+}
+
+export const ActionableOrigins = createContext<ReadonlyMap<string, string>>(
+  new Map(),
+);
+
+function CheckIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={{ flexShrink: 0 }}
+    >
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+      <path d="M8 12.5l3 3 5-6" />
+    </svg>
+  );
+}
+
+export function ActionableLink({
+  actionable,
+  isMobile,
+}: {
+  actionable: ActionableRef;
+  isMobile?: boolean;
+}) {
+  const { t } = useI18n();
+  const origin = useContext(ActionableOrigins).get(actionable.id);
+  // Scroll to the card and ring it for a moment, so the eye finds it.
+  const jump = () => {
+    if (!origin) return;
+    const card = document.querySelector<HTMLElement>(
+      `[data-log-entry-id="${origin}"]`,
+    );
+    if (!card) return;
+    card.scrollIntoView({ block: "center", behavior: "smooth" });
+    card.style.outline = "2px solid var(--orange)";
+    card.style.outlineOffset = "2px";
+    card.style.borderRadius = "8px";
+    setTimeout(() => {
+      card.style.outline = "";
+      card.style.outlineOffset = "";
+      card.style.borderRadius = "";
+    }, 1600);
+  };
+  const label = (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <CheckIcon />
+      {t("actionables.link")}
+    </span>
+  );
+  return (
+    <div
+      data-actionable-link={actionable.id}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 4,
+        fontSize: isMobile ? 12 : 11,
+        color: "var(--text-faint)",
+        minWidth: 0,
+      }}
+    >
+      {origin ? (
+        <button
+          type="button"
+          onClick={jump}
+          style={{
+            background: "none",
+            border: "none",
+            padding: 0,
+            font: "inherit",
+            fontWeight: 600,
+            color: "var(--orange-text)",
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+        >
+          {label}
+        </button>
+      ) : (
+        <span
+          style={{ fontWeight: 600, color: "var(--orange-text)", flexShrink: 0 }}
+        >
+          {label}
+        </span>
+      )}
+      <span
+        style={{
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {actionable.prompt.replace(/\s+/g, " ")}
+      </span>
+    </div>
+  );
+}

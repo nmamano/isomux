@@ -299,13 +299,16 @@ describe("provider account routes", () => {
 });
 
 describe("route table: plain-text form", () => {
-  it("only the two one-block-of-text message routes take a text/plain body", () => {
+  it("only the one-block-of-text routes take a text/plain body", () => {
     const optedIn = ALL_ROUTES.filter((r) => r.plainText).map((r) => [
       r.opId,
       Object.keys(r.plainText!.params),
     ]);
     expect(optedIn).toEqual([
       ["agents.sendMessage", ["steer", "deliverAt", "clientMessageId"]],
+      ["agents.createActionable", ["member"]],
+      ["agents.editActionable", []],
+      ["actionables.reply", []],
       ["apiTokenInbox.send", []],
     ]);
   });
@@ -1170,6 +1173,39 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.secretRequest": { caps: ["self:affordance"], emits: ["log_entry"] },
   "secretRequests.save": { caps: ["user:env"], emits: ["log_entry"] },
   "secretRequests.decline": { caps: ["user:env"], emits: ["log_entry"] },
+  "agents.createActionable": {
+    caps: ["self:affordance"],
+    emits: ["actionable_upserted"],
+  },
+  "agents.listActionables": { caps: ["self:affordance"], emits: [] },
+  "agents.getActionable": { caps: ["self:affordance"], emits: [] },
+  "agents.editActionable": {
+    caps: ["self:affordance"],
+    emits: ["actionable_upserted"],
+  },
+  "agents.deleteActionable": {
+    caps: ["self:affordance"],
+    emits: ["actionable_removed"],
+  },
+  "actionables.list": { caps: ["agent:converse", "api:send-message"], emits: [] },
+  "actionables.reply": {
+    caps: ["agent:converse", "api:send-message"],
+    emits: [
+      "actionable_removed",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
+  },
+  "actionables.dismiss": {
+    caps: ["agent:converse", "api:send-message"],
+    emits: [
+      "actionable_removed",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
+  },
   "agents.previewUrl": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.browser": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.contextUsage": { caps: ["log:read"], emits: [] },
@@ -1792,6 +1828,9 @@ const API_REACHABLE_OPIDS = [
   "agents.listSessions",
   "secretRequests.save",
   "secretRequests.decline",
+  "actionables.list",
+  "actionables.reply",
+  "actionables.dismiss",
   "agents.contextUsage",
   "agents.subscriptionUsage",
   "agents.logs",

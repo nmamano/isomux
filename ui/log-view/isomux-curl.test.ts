@@ -5,6 +5,7 @@ import {
   humanizeIsomuxRequest,
   pipeTailForDisplay,
   BASH_RAW_SUMMARY_CHARS,
+  type RouteLabelKey,
 } from "./isomux-curl.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 
@@ -2320,5 +2321,36 @@ describe("parseIsomuxCurl python -c tails and one-line curl functions", () => {
     );
     expect(get!.path).toBe("/api/tasks");
     expect(get!.pipeTail).toBe(`| jq '.[0]'`);
+  });
+});
+
+describe("parseIsomuxCurl actionable routes", () => {
+  const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
+  const BASE = "localhost:4000/api/agents/agent-1/actionables";
+
+  test("an agent's own actionable routes each get their label", () => {
+    const cases: [string, RouteLabelKey][] = [
+      [`curl -s -X POST "${BASE}" ${AUTH} -d '{"text":"Go?"}'`, "apiCall.actionables.create"],
+      [`curl -s "${BASE}" ${AUTH}`, "apiCall.actionables.list"],
+      [`curl -s "${BASE}/abcd1234" ${AUTH}`, "apiCall.actionables.get"],
+      [`curl -s -X PATCH "${BASE}/abcd1234" ${AUTH} -d '{"text":"Go?"}'`, "apiCall.actionables.edit"],
+      [`curl -s -X DELETE "${BASE}/abcd1234" ${AUTH}`, "apiCall.actionables.delete"],
+    ];
+    for (const [cmd, key] of cases)
+      expect(parseIsomuxCurl(cmd)!.actionKey).toBe(key);
+  });
+
+  test("create and edit read a text/plain body the way the server does", () => {
+    const create = parseIsomuxCurl(
+      `curl -s -X POST "${BASE}?member=pat" ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nGo "now"?\nEOF`,
+    )!;
+    expect(create.bodyFields).toEqual([
+      { key: "text", value: 'Go "now"?' },
+      { key: "member", value: "pat" },
+    ]);
+    const edit = parseIsomuxCurl(
+      `curl -s -X PATCH "${BASE}/abcd1234" ${AUTH} -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nGo later?\nEOF`,
+    )!;
+    expect(edit.bodyFields).toEqual([{ key: "text", value: "Go later?" }]);
   });
 });

@@ -1,4 +1,7 @@
 import {
+  ACTIONABLE_CREATE_PLAIN_TEXT_PARAMS,
+  ACTIONABLE_EDIT_PLAIN_TEXT_PARAMS,
+  ACTIONABLE_REPLY_PLAIN_TEXT_PARAMS,
   INBOX_PLAIN_TEXT_PARAMS,
   MESSAGE_PLAIN_TEXT_PARAMS,
   type PlainTextParams,
@@ -97,6 +100,7 @@ import type {
   LogEntry,
   UpdateStatusWire,
   MembersChatMessage,
+  ActionableEntry,
 } from "../../shared/types.ts";
 import type {
   SpawnReq,
@@ -169,6 +173,11 @@ import type {
   SecretRotateReq,
   SecretUpdateReq,
   SecretRequestReq,
+  ActionableCreateReq,
+  ActionableEditReq,
+  ActionableReplyReq,
+  ActionableDismissReq,
+  ActionableAgentWire,
   SecretRequestRes,
   SecretRequestSaveReq,
   SecretRequestAnswerRes,
@@ -777,6 +786,84 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/secret-requests/:requestId/decline",
     auth: cap("user:env", memberScope),
     emits: ["log_entry"],
+  }),
+  // Actionables (internal-docs/actionables-design.md): the agent manages its
+  // own list (self:affordance, :id must be the token's agent); the member the
+  // actionable is for answers it. The handlers check that member and its room
+  // access against live state, the same 404 for anyone else.
+  defineRoute<ActionableCreateReq, ActionableAgentWire>({
+    opId: "agents.createActionable",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/agents/:id/actionables",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    plainText: { params: ACTIONABLE_CREATE_PLAIN_TEXT_PARAMS },
+    emits: ["actionable_upserted"],
+  }),
+  defineRoute<void, ActionableAgentWire[]>({
+    opId: "agents.listActionables",
+    method: "GET",
+    path: "/api/agents/:id/actionables",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    emits: [],
+  }),
+  defineRoute<void, ActionableAgentWire>({
+    opId: "agents.getActionable",
+    method: "GET",
+    path: "/api/agents/:id/actionables/:actionableId",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    emits: [],
+  }),
+  defineRoute<ActionableEditReq, ActionableAgentWire>({
+    opId: "agents.editActionable",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PATCH",
+    path: "/api/agents/:id/actionables/:actionableId",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    plainText: { params: ACTIONABLE_EDIT_PLAIN_TEXT_PARAMS },
+    emits: ["actionable_upserted"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "agents.deleteActionable",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "DELETE",
+    path: "/api/agents/:id/actionables/:actionableId",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    emits: ["actionable_removed"],
+  }),
+  defineRoute<void, ActionableEntry[]>({
+    opId: "actionables.list",
+    method: "GET",
+    path: "/api/actionables",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    emits: [],
+  }),
+  defineRoute<ActionableReplyReq, NoContent>({
+    opId: "actionables.reply",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/actionables/:actionableId/reply",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    plainText: { params: ACTIONABLE_REPLY_PLAIN_TEXT_PARAMS },
+    emits: [
+      "actionable_removed",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
+  }),
+  defineRoute<ActionableDismissReq, NoContent>({
+    opId: "actionables.dismiss",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/actionables/:actionableId/dismiss",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    emits: [
+      "actionable_removed",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
   }),
   defineRoute<AffordancePreviewUrlReq, OkTrue>({
     opId: "agents.previewUrl",

@@ -79,6 +79,12 @@ import {
   type PagerStore,
 } from "./pager-store.ts";
 import {
+  createActionableFilePersistence,
+  createActionableStore,
+  type ActionableChange,
+  type ActionableStore,
+} from "./actionables.ts";
+import {
   createPagerSettingsFilePersistence,
   createPagerSettingsStore,
   type PagerSettingsStore,
@@ -150,6 +156,8 @@ import type {
   LogEntry,
   TaskItem,
   PagerEntry,
+  ActionableEntry,
+  ActionableRef,
   WebhookRecord,
   WebhookTarget,
   WebhookWire,
@@ -257,7 +265,7 @@ import {
   type ScopedSessionRevokeResult,
   type SessionLookup,
 } from "./auth.ts";
-import { lowercaseKey } from "../shared/identity.ts";
+import { formatApiTokenDevice, lowercaseKey } from "../shared/identity.ts";
 import { startAdminSocket } from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
 import { setAgentHost } from "./agent-host.ts";
@@ -274,6 +282,7 @@ import {
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { pagerHandlers } from "./routes/handlers/pager.ts";
+import { actionableHandlers } from "./routes/handlers/actionables.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
 import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
@@ -671,6 +680,7 @@ setMcpPlaceholderProvider((scope, name) =>
 );
 let scheduledMessageManager: ScheduledMessageManager;
 let pagerStore: PagerStore;
+let actionableStore: ActionableStore | undefined;
 let pagerSettings: PagerSettingsStore;
 let pagerDelivery: PagerDeliveryService;
 let webPushStore: WebPushStore;
@@ -824,6 +834,12 @@ function createManagers(startOpts: StartServerOpts): void {
   // credential and lives in its own file, never in the env injected into
   // agents), and delivery. The store and delivery call each other through
   // these closures.
+  actionableStore = createActionableStore({
+    persistence: createActionableFilePersistence(
+      join(STATE_ROOT, "actionables.json"),
+    ),
+    onChange: (change) => pushActionableChange(change),
+  });
   pagerSettings = createPagerSettingsStore(
     createPagerSettingsFilePersistence(join(STATE_ROOT, "pager-settings.json")),
   );
@@ -3045,6 +3061,28 @@ function buildExecutorDeps(
   );
 
   register(
+    actionableHandlers({
+      store: actionableStore!,
+      agent: (agentId) => {
+        const agent = agentManager.getAgent(agentId);
+        return agent
+          ? { roomId: agent.roomId, managerUserId: agent.userId ?? null }
+          : null;
+      },
+      memberByName: (name) => {
+        const user = getUserByName(name);
+        return user ? { id: user.id, name: user.name } : null;
+      },
+      memberName: (userId) => getUserById(userId)?.name ?? null,
+      memberCanSeeRoom: (userId, roomId) => {
+        const user = getUserById(userId);
+        return !!user && accessibleRoomIdsFor(user).has(roomId);
+      },
+      deliver: deliverActionableAnswer,
+    }),
+  );
+
+  register(
     pagerSettingsHandlers({
       settings: pagerSettings,
       rescheduleMember: (userId) => {
@@ -4979,24 +5017,9 @@ function buildExecutorDeps(
         sendNow,
         clientMessageId,
       ) =>
-        // Resolves at the acceptance decision (task 51de8814), never at turn
-        // completion: sendMessage owns the echo / queue / recovery / slash /
-        // approval-reply overload and streams the turn over WS.
-        new Promise<UserSendAcceptance>((resolve) => {
-          agentManager
-            .sendMessage(agentId, text, username, device, attachments, {
-              sendNow,
-              clientMessageId,
-              onAccepted: resolve,
-            })
-            .catch(() =>
-              resolve({
-                ok: false,
-                status: 500,
-                code: "send_failed",
-                message: "The message could not be sent.",
-              }),
-            );
+        sendMemberMessage(agentId, text, username, device, attachments, {
+          sendNow,
+          clientMessageId,
         }),
       sendAsApi: (agentId, text, username, device, tokenId) =>
         sendApiTokenMessage(
@@ -5009,36 +5032,7 @@ function buildExecutorDeps(
               agentManager.getAgentDisplay(agentId)?.roomName ?? "",
             text,
           },
-          () =>
-            new Promise((resolve) => {
-              let settled = false;
-              const settle = (result: UserSendAcceptance) => {
-                if (settled) return;
-                settled = true;
-                resolve(result);
-              };
-              void agentManager
-                .sendMessage(agentId, text, username, device, undefined, {
-                  onAccepted: settle,
-                })
-                .then(() => {
-                  settle({
-                    ok: false,
-                    status: 500,
-                    code: "acceptance_missing",
-                    message:
-                      "The message did not reach an acceptance decision.",
-                  });
-                })
-                .catch(() => {
-                  settle({
-                    ok: false,
-                    status: 500,
-                    code: "send_failed",
-                    message: "The message could not be sent.",
-                  });
-                });
-            }),
+          () => sendMemberMessage(agentId, text, username, device, undefined),
         ),
       sendAsAgent: async (
         receiverId,
@@ -6102,6 +6096,116 @@ function pushPagerEntryToEachWs(entry: PagerEntry) {
   }
 }
 
+// Push ONE actionable change to the sockets of the member it is for, and to no
+// one else. An upsert also needs the member's access to the agent's room, the
+// rule GET /api/actionables applies; a removal goes to the member regardless,
+// so a stack never keeps an entry that closed.
+function pushActionableChange(change: ActionableChange) {
+  const { entry } = change;
+  const agent = agentManager.getAgent(entry.agentId);
+  for (const ws of browsers) {
+    if (ws.data.session.userId !== entry.memberUserId) continue;
+    if (change.kind === "removed") {
+      officeSend(
+        ws,
+        JSON.stringify({ type: "actionable_removed", id: entry.id }),
+      );
+      continue;
+    }
+    const user = getUserById(entry.memberUserId);
+    if (!user || !agent || !accessibleRoomIdsFor(user).has(agent.roomId))
+      continue;
+    officeSend(ws, JSON.stringify({ type: "actionable_upserted", entry }));
+  }
+}
+
+// A member's message to an agent: the one wrapper over sendMessage for the
+// chat send, the API-token send and an actionable's answer. Resolves at the
+// acceptance decision (task 51de8814), never at turn completion: sendMessage
+// owns the echo / queue / recovery / slash / approval-reply overload and
+// streams the turn over WS.
+function sendMemberMessage(
+  agentId: string,
+  text: string,
+  username: string | undefined,
+  device: string | undefined,
+  attachments: Attachment[] | undefined,
+  opts: {
+    sendNow?: boolean;
+    clientMessageId?: string;
+    actionable?: ActionableRef;
+  } = {},
+): Promise<UserSendAcceptance> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (result: UserSendAcceptance) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    agentManager
+      .sendMessage(agentId, text, username, device, attachments, {
+        ...opts,
+        onAccepted: settle,
+      })
+      .then(() =>
+        settle({
+          ok: false,
+          status: 500,
+          code: "acceptance_missing",
+          message: "The message did not reach an acceptance decision.",
+        }),
+      )
+      .catch(() =>
+        settle({
+          ok: false,
+          status: 500,
+          code: "send_failed",
+          message: "The message could not be sent.",
+        }),
+      );
+  });
+}
+
+// A reply or dismiss of an actionable, delivered the way a typed member
+// message is (an API token through its own send record, as on the message
+// route). Resolves at the acceptance decision.
+function deliverActionableAnswer(
+  identity: Identity,
+  entry: ActionableEntry,
+  text: string,
+  opts: { dismissed: boolean; device: string | undefined },
+): Promise<UserSendAcceptance> {
+  const username = attributionFor(identity).username;
+  const actionable = {
+    id: entry.id,
+    prompt: entry.prompt,
+    ...(opts.dismissed ? { dismissed: true } : {}),
+  };
+  const send = (device: string | undefined) =>
+    sendMemberMessage(entry.agentId, text, username, device, undefined, {
+      actionable,
+    });
+  if (identity.scope !== "api") return send(opts.device);
+  const display = agentManager.getAgentDisplay(entry.agentId);
+  return sendApiTokenMessage(
+    identity.apiTokenId ?? "",
+    {
+      targetAgentId: entry.agentId,
+      targetAgentName: display?.name ?? entry.agentId,
+      targetRoomName: display?.roomName ?? "",
+      text,
+    },
+    () =>
+      send(
+        formatApiTokenDevice(
+          identity.apiTokenName ?? "unknown",
+          identity.apiTokenId ?? "reply unavailable: missing token id",
+        ),
+      ),
+  ).then((result) => (result.ok ? { ok: true } : result));
+}
+
 // Push ONE app mutation to every socket as a per-recipient delta. Apps are
 // The owner and office owners always see an app. A live creator also grants
 // launch-only visibility through its room. appDeltaFor owns both the audience
@@ -6512,6 +6616,15 @@ function emitAgentEvent(event: AgentEvent): void {
       });
       break;
     case "agent_removed":
+      // The agent's open actionables go with it.
+      try {
+        actionableStore?.removeAgent(event.agentId);
+      } catch (err) {
+        console.error(
+          `[actionables] could not remove ${event.agentId}'s entries:`,
+          errMessage(err),
+        );
+      }
       // Room-ACL via the CARRIED pre-removal roomId. The agent
       // is already gone from state, so the registry's carriedRoomId projection
       // is what makes the audience computable; sessions that couldn't see the
