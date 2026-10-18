@@ -166,7 +166,7 @@ metadata; assignment/connection end clears the extension display. Names render
 as text. The authenticated generation-bound `unpair` frame revokes only the
 current socket member's credential hash and Origin, acknowledges with `unpaired`,
 then closes. Lost acknowledgements show an unknown result; the office's
-Integrations → Browser tab is authoritative. Offline revocation is done there.
+Integrations → Browser Use tab is authoritative. Offline revocation is done there.
 Run the opt-in office check with:
 
 ```
@@ -357,7 +357,7 @@ remains; a new code voids the previous code.
 pairs again with a new code is a new browser; its old row shows Offline until
 the member unpairs it.
 
-**Integrations → Browser** (Settings until task f2d5cf9f). `GET /api/me/browser` keeps `paired` (any browser) and `online`
+**Integrations → Browser Use** (Settings until task f2d5cf9f). `GET /api/me/browser` keeps `paired` (any browser) and `online`
 (any connected) and adds `browsers: [{id, name, pairedAt, online}]`. The
 Connection card lists one row per browser: name, Connected/Offline, paired
 date, and Unpair. The new route `DELETE /api/me/browser/browsers/:id` uses

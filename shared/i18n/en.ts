@@ -81,7 +81,6 @@ export const en = {
     "This agent already has a tab. Turn that tab off first.",
   "browser.control": "Agent control",
   "browser.title": "Browser Use",
-  "settings.browserMoved": "Browser Use moved to <link>Integrations</link>.",
   "browser.intro":
     "Let agents browse, read pages, and fill forms in your desktop Chrome using your existing logins. Offer a tab to All or one agent.",
   "browser.chromeHelp":
@@ -134,7 +133,7 @@ export const en = {
   "browser.stop": "Stop control",
   "browser.retained": "Stopping control leaves pages open.",
   "browser.offlineHelp":
-    "To revoke access while offline, use the Browser tab in office Integrations.",
+    "To revoke access while offline, use the Browser Use tab in office Integrations.",
   "browser.failed":
     "Browser request failed. Check the connection and try again.",
 
@@ -953,7 +952,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.tabs.mcp": "MCP servers",
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
-  "integrations.tabs.browser": "Browser",
+  "integrations.tabs.browser": "Browser Use",
   "integrations.tabIntro.providers":
     "The accounts and keys that Claude, Codex and OpenCode agents run on.",
   "integrations.tabIntro.mcp":

@@ -67,8 +67,6 @@ export const es: Catalog = {
     "Este agente ya tiene una pestaña. Desactívala primero.",
   "browser.control": "Control del agente",
   "browser.title": "Uso del navegador",
-  "settings.browserMoved":
-    "El uso del navegador se ha movido a <link>Integraciones</link>.",
   "browser.intro":
     "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas. Ofrece una pestaña a Todos o a un agente.",
   "browser.chromeHelp":
@@ -124,7 +122,7 @@ export const es: Catalog = {
   "browser.stop": "Detener control",
   "browser.retained": "Detener el control deja las páginas abiertas.",
   "browser.offlineHelp":
-    "Para revocar el acceso sin conexión, usa la pestaña Navegador de Integraciones en la oficina.",
+    "Para revocar el acceso sin conexión, usa la pestaña Uso del navegador de Integraciones en la oficina.",
   "browser.failed":
     "La solicitud al navegador ha fallado. Comprueba la conexión e inténtalo de nuevo.",
 
@@ -961,7 +959,7 @@ Cosas que puedes hacer por él:
   "integrations.tabs.mcp": "Servidores MCP",
   "integrations.tabs.secrets": "Secretos",
   "integrations.tabs.variables": "Variables",
-  "integrations.tabs.browser": "Navegador",
+  "integrations.tabs.browser": "Uso del navegador",
   "integrations.tabIntro.providers":
     "Las cuentas y claves con las que funcionan los agentes de Claude, Codex y OpenCode.",
   "integrations.tabIntro.mcp":

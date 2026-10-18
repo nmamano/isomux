@@ -1,4 +1,4 @@
-// The Browser tab (task f2d5cf9f): Browser Use moved here from Settings. It
+// The Browser Use tab (task f2d5cf9f): Browser Use moved here from Settings. It
 // pairs the viewer's own Chrome only, so it has no office card and no member
 // picker, and it is remembered like the other tabs.
 
@@ -32,7 +32,7 @@ const selected = (view: View) =>
 const panel = (view: View) =>
   view.container.querySelector('[role="tabpanel"]')!;
 
-describe("the Browser tab", () => {
+describe("the Browser Use tab", () => {
   it("is the fifth tab", async () => {
     const view = await open();
     const tabs = [

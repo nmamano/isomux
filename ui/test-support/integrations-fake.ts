@@ -173,7 +173,7 @@ export class IntegrationsFake {
       return { accounts: this.accounts };
     if (path === "/api/me/connections") return this.connections;
     if (path === "/api/office/settings") return this.officeSettings;
-    // The Browser tab's status: the viewer's own Chrome, none paired.
+    // The Browser Use tab's status: the viewer's own Chrome, none paired.
     if (path === "/api/me/browser" && method === "GET")
       return {
         paired: false,

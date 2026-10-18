@@ -248,7 +248,7 @@ function IntegrationsPage({
             onGone={memberGone}
           />
         );
-      // The Browser tab has no cards (see the page below).
+      // The Browser Use tab has no cards (see the page below).
       case "browser":
         return null;
     }

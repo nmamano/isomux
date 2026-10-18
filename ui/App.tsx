@@ -914,7 +914,6 @@ export function App({ routing = true }: { routing?: boolean }) {
           initialTarget={settingsTarget}
           onSwitchUser={(name) => setUsername(name)}
           onClose={closePage}
-          onOpenBrowser={() => openIntegrations({ tab: "browser" })}
         />
       ) : page === "tasks" ? (
         <TaskView

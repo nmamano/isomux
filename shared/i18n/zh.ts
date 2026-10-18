@@ -62,7 +62,6 @@ export const zh: Catalog = {
   "browser.tabConflict": "此代理已有标签页。请先关闭该标签页的控制。",
   "browser.control": "代理控制",
   "browser.title": "浏览器使用",
-  "settings.browserMoved": "浏览器使用已移至<link>集成</link>。",
   "browser.intro":
     "让代理使用桌面 Chrome 中现有的登录状态浏览、读取页面和填写表单。可将标签页提供给全部代理或一个代理。",
   "browser.chromeHelp":
@@ -112,7 +111,7 @@ export const zh: Catalog = {
   "browser.stop": "停止控制",
   "browser.retained": "停止控制后，页面保持打开。",
   "browser.offlineHelp":
-    "离线时如需撤销访问权限，请使用办公室“集成”中的“浏览器”标签页。",
+    "离线时如需撤销访问权限，请使用办公室“集成”中的“浏览器使用”标签页。",
   "browser.failed": "浏览器请求失败。请检查连接后重试。",
 
   "lobby.moveHere": "移到这里",
@@ -867,7 +866,7 @@ App 的一些原则：
   "integrations.tabs.mcp": "MCP 服务器",
   "integrations.tabs.secrets": "密钥",
   "integrations.tabs.variables": "变量",
-  "integrations.tabs.browser": "浏览器",
+  "integrations.tabs.browser": "浏览器使用",
   "integrations.tabIntro.providers":
     "Claude、Codex 和 OpenCode 智能体运行所用的账号和密钥。",
   "integrations.tabIntro.mcp": "智能体可以调用的工具，例如 Linear 或 Sentry。",

@@ -67,8 +67,6 @@ export const ca: Catalog = {
     "Aquest agent ja té una pestanya. Desactiva-la primer.",
   "browser.control": "Control de l’agent",
   "browser.title": "Ús del navegador",
-  "settings.browserMoved":
-    "L’ús del navegador s’ha mogut a <link>Integracions</link>.",
   "browser.intro":
     "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les sessions iniciades. Ofereix una pestanya a Tots o a un agent.",
   "browser.chromeHelp":
@@ -124,7 +122,7 @@ export const ca: Catalog = {
   "browser.stop": "Atura el control",
   "browser.retained": "Aturar el control deixa les pàgines obertes.",
   "browser.offlineHelp":
-    "Per revocar l’accés sense connexió, fes servir la pestanya Navegador d’Integracions a l’oficina.",
+    "Per revocar l’accés sense connexió, fes servir la pestanya Ús del navegador d’Integracions a l’oficina.",
   "browser.failed":
     "La sol·licitud al navegador ha fallat. Comprova la connexió i torna-ho a provar.",
 
@@ -960,7 +958,7 @@ Coses que pots fer per ell:
   "integrations.tabs.mcp": "Servidors MCP",
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
-  "integrations.tabs.browser": "Navegador",
+  "integrations.tabs.browser": "Ús del navegador",
   "integrations.tabIntro.providers":
     "Els comptes i les claus amb què funcionen els agents de Claude, Codex i OpenCode.",
   "integrations.tabIntro.mcp":

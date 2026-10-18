@@ -64,7 +64,6 @@ import { ExternalAccessPane } from "./ExternalAccessPane.tsx";
 import { InvitesPane } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
-import { Btn } from "../integrations/kit.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
 import { PagerSettingsPane } from "./PagerSettingsPane.tsx";
 import { ApiTokenCards, ApiTokensPane } from "./ApiTokensPane.tsx";
@@ -95,7 +94,6 @@ export type SettingsSection =
   | "invites"
   | "sessions"
   | "prefs"
-  | "browser"
   | "pager"
   | "apiTokens"
   | "signInLinks"
@@ -162,7 +160,6 @@ export function UserSettingsView({
   onSwitchUser,
   onClose,
   initialTarget,
-  onOpenBrowser,
 }: {
   // Live-avatars: when set, the page opens with this user's editor selected
   // (used by ghost click → settings shortcut). Read once on mount; updates to
@@ -177,8 +174,6 @@ export function UserSettingsView({
   initialTarget?: Selection | null;
   onSwitchUser: (name: string | null) => void;
   onClose: () => void;
-  // Opens the Integrations page on its Browser tab.
-  onOpenBrowser?: () => void;
 }) {
   const {
     users,
@@ -414,11 +409,6 @@ export function UserSettingsView({
                 ]
               : []),
             sectionRow("prefs", t("common.preferences")),
-            // Browser Use moved to Integrations (task f2d5cf9f). Remove this
-            // row and its pointer one release after that task shipped.
-            ...(sessionContext
-              ? [sectionRow("browser", t("browser.title"))]
-              : []),
             sectionRow("pager", t("settings.sidebar.pager")),
             sectionRow("apiTokens", t("settings.sidebar.apiTokens")),
             sectionRow("signInLinks", t("settings.sidebar.signInLinks")),
@@ -862,23 +852,6 @@ export function UserSettingsView({
                   <SessionsPane />
                 ) : selection.section === "signInLinks" && sessionContext ? (
                   <MyDevicesPane />
-                ) : selection.section === "browser" && sessionContext ? (
-                  <p
-                    data-browser-moved=""
-                    style={{ ...dialogHint, marginTop: 24 }}
-                  >
-                    {i18n.rich("settings.browserMoved", {
-                      link: (chunk) => (
-                        <Btn
-                          kind="link"
-                          onClick={() => leaveEdit(onOpenBrowser)}
-                          data-browser-moved-link
-                        >
-                          {chunk}
-                        </Btn>
-                      ),
-                    })}
-                  </p>
                 ) : selection.section === "prefs" && sessionContext ? (
                   <PreferencesPane />
                 ) : selection.section === "office" ? (

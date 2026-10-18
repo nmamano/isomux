@@ -82,7 +82,7 @@ export function BrowserPane() {
   const [name, setName] = useState("");
   const expired = !!pair && now >= pair.expiresAt;
   return (
-    // The Integrations Browser tab shows the title and intro above this.
+    // The Integrations Browser Use tab shows the title and intro above this.
     <section
       data-testid="browser-settings"
       style={{ fontSize: 12, lineHeight: 1.6 }}

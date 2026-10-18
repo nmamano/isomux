@@ -121,9 +121,9 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 ### Desktop Chrome extension
 
-In **Integrations → Browser**, download the extension ZIP and extract it. In desktop Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder. Pin **Isomux Browser** to the toolbar.
+In **Integrations → Browser Use**, download the extension ZIP and extract it. In desktop Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder. Pin **Isomux Browser** to the toolbar.
 
-Create a pairing code in Integrations → Browser. Open the extension and enter the office HTTPS address and code. Codes expire after five minutes. Each member pairs their own browsers: one code per computer, and every paired browser stays paired. Name each browser when you create its code; Integrations → Browser lists them, and Unpair removes one. Agents use their manager's browsers. Another chat speaker does not change the browser owner.
+Create a pairing code in Integrations → Browser Use. Open the extension and enter the office HTTPS address and code. Codes expire after five minutes. Each member pairs their own browsers: one code per computer, and every paired browser stays paired. Name each browser when you create its code; Integrations → Browser Use lists them, and Unpair removes one. Agents use their manager's browsers. Another chat speaker does not change the browser owner.
 
 Chrome warns **Read your browsing history**. The extension uses this permission to bind site-opened popups to the agent's tab. It does not collect browsing history. Chrome also shows its own debugger warning during control.
 
@@ -131,7 +131,7 @@ Open an HTTP(S) tab, choose **All** (the default) or an agent in the extension p
 
 Agents can attach one office-server file to an exact file input with the browser `upload` action. The file must be a regular file up to 4 MiB; sensitive files are refused. The office sends the bytes to Chrome, so the path refers to the server, not the desktop. Upload replaces the input’s selection. Sites may upload as soon as a file is selected; the action does not press Submit or Publish.
 
-The **ON** badge marks offered tabs and their site-opened popups. Other tabs have no badge. The popup separates the Office connection from Agent control and names All or the assigned agent. Stopping control leaves pages open. The popup can also disconnect or unpair. Disconnect stays off until Reconnect. To revoke a browser that is offline, unpair it in Integrations → Browser. If an unpair acknowledgement is lost, the popup reports an unknown result; check Integrations → Browser. Pairing a Chrome again adds a new browser; unpair its old, offline entry in Integrations → Browser.
+The **ON** badge marks offered tabs and their site-opened popups. Other tabs have no badge. The popup separates the Office connection from Agent control and names All or the assigned agent. Stopping control leaves pages open. The popup can also disconnect or unpair. Disconnect stays off until Reconnect. To revoke a browser that is offline, unpair it in Integrations → Browser Use. If an unpair acknowledgement is lost, the popup reports an unknown result; check Integrations → Browser Use. Pairing a Chrome again adds a new browser; unpair its old, offline entry in Integrations → Browser Use.
 
 Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection releases tab offers. Offer the tab again after reconnecting or reloading the extension. Chrome mode never creates a replacement tab or repeats a command. Check the page before repeating an action with an unknown outcome. An action timeout keeps control ON. If Chrome is still completing a command, the agent must wait for it to settle before another action can run.
 
@@ -164,7 +164,6 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Pages reach your Discord**, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
 - **Device notifications**: pages and finished turns can also show as notifications on your phone or browser.
 - **Pager view**: every page you can see, open pages first, with ack and resolve. A badge on the Pager button counts your open pages.
-- **Actionables**: a question from an agent that can wait stays above the chat input, with a reply field, until you reply or dismiss it. A dot on the agent's desk counts them.
 
 ## Safety
 
@@ -172,7 +171,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Secret leak prevention** - Isomux masks recognized secret patterns before they reach the logs or the chat.
 - **Managed environment variables** - keep API tokens and other secrets out of prompts: set office-wide and personal variables on the Integrations page, and Isomux stores them in private files under `~/.isomux/`. Personal values override office-wide values. Values are not embedded in prompts or conversation logs.
 - **Secrets** - save a credential with the hosts that may receive it. Agents get a stand-in, not the value, and can ask you for a credential on a card where you type it masked. An agent that reads the office's files on purpose can still find the value. Show reveals a value to its own member, and an office value to an owner.
-- **Integrations page** - everything your agents can use. Each tab shows the office-wide items and your own, except Browser, which pairs only your own Chrome, and the MCP tab lists the claude.ai connectors of your Claude sign-in. Owners manage every member's items there. Test one to see whether it works and which account the service sees. A note on a variable, secret or MCP server tells your agents how to use it.
+- **Integrations page** - everything your agents can use. Each tab shows the office-wide items and your own, except Browser Use, which pairs only your own Chrome, and the MCP tab lists the claude.ai connectors of your Claude sign-in. Owners manage every member's items there. Test one to see whether it works and which account the service sees. A note on a variable, secret or MCP server tells your agents how to use it.
 - **Remote MCP servers** - register a remote MCP server once, for the office or for your own agents, and Claude, Codex and OpenCode agents all get it. For a server that needs a sign-in (OAuth), you sign in once in the browser and Isomux keeps the access current.
 - **Codex approvals** - when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
 - **Personal API tokens** - drive the office from an external tool and receive the token’s sends and replies through the office WebSocket.
