@@ -7,11 +7,12 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    # One weekly PR for all version updates; security updates stay separate
+    # (a group applies to version updates unless it says applies-to).
     groups:
-      react:
+      bun:
         patterns:
-          - "react"
-          - "react-dom"
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
