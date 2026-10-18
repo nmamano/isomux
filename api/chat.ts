@@ -338,7 +338,10 @@ export function botPosts(text: string, tag: string): string[] {
 
 async function* parseAnthropicStream(
   body: ReadableStream<Uint8Array>,
-): AsyncGenerator<{ type?: string; delta?: { type?: string; text?: string } }> {
+): AsyncGenerator<{
+  type?: string;
+  delta?: { type?: string; text?: string; stop_reason?: string };
+}> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -490,8 +493,10 @@ export default async function handler(req: Request) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
+        model: "claude-sonnet-5-5",
+        // Adaptive thinking counts against max_tokens, so leave room for it.
+        max_tokens: 4000,
+        output_config: { effort: "medium" },
         system,
         stream: true,
         messages: messages.map((m: { role: string; content: string }) => ({
@@ -525,6 +530,14 @@ export default async function handler(req: Request) {
       let fullText = "";
       try {
         for await (const event of parseAnthropicStream(upstream.body!)) {
+          if (
+            event.type === "message_delta" &&
+            event.delta?.stop_reason === "refusal"
+          )
+            throw new Error(
+              "The chat service declined to answer. Rephrase the question, or use the documentation links on the page.",
+            );
+          // Only text reaches the visitor; thinking deltas are dropped here.
           if (
             event.type === "content_block_delta" &&
             event.delta?.type === "text_delta" &&
