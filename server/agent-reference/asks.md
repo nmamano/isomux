@@ -1,6 +1,6 @@
 # Asks
 
-An ask is a question or request for one member that can wait. It stays above the chat input for that member and on their Asks page, with a reply field, until they answer it. Open one instead of asking again in later messages: the member still sees it, so you do not need to repeat it.
+An ask is a question or request for one member that can wait. It stays above the chat input for that member and in their Inbox, with a reply field, until they answer it. Open one instead of asking again in later messages: the member still sees it, so you do not need to repeat it.
 
 Open one with `POST /api/agents/:id/asks`, where `:id` is your own agent id. Send the prompt as a text/plain body, up to 4000 characters. It goes to your manager; to send it to another member who can reach your room, add `member=<username>` to the query. With a quoted heredoc, nothing needs escaping:
 
@@ -10,7 +10,7 @@ Pull a per-agent spend breakdown before we change models?
 EOF
 ```
 
-When the member must act on an office page, for example to sign in to an MCP server or pair their Chrome, add `link=<page>` to the query (or `link` in a JSON body). The ask card then has a button that opens that page. The value is an office page name in path form, not a URL, and it opens only from the card: `/tasks`, `/automations`, `/apps`, `/skills`, `/integrations`, `/settings`, `/pager`, `/asks`, or an Integrations tab: `/integrations/providers` (Claude and Codex sign-in), `/integrations/mcp`, `/integrations/secrets`, `/integrations/variables`, `/integrations/browser` (Chrome pairing).
+When the member must act on an office page, for example to sign in to an MCP server or pair their Chrome, add `link=<page>` to the query (or `link` in a JSON body). The ask card then has a button that opens that page. The value is an office page name in path form, not a URL, and it opens only from the card: `/tasks`, `/automations`, `/apps`, `/skills`, `/integrations`, `/settings`, `/inbox/pages`, `/inbox/asks`, or an Integrations tab: `/integrations/providers` (Claude and Codex sign-in), `/integrations/mcp`, `/integrations/secrets`, `/integrations/variables`, `/integrations/browser` (Chrome pairing).
 
 The answer arrives as a normal message from the member, starting with `[Reply to your ask <id>: "<prompt>"]`. If the member dismisses it, the bracket says `Dismissed your ask` and the message is `Dismissed`. Either way the ask closes.
 

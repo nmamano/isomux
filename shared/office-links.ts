@@ -32,7 +32,10 @@ export type IntegrationsTab = (typeof INTEGRATIONS_TABS)[number];
 /** The canonical path for a page, or "/" for the office. */
 export function pathForPage(page: Page | null): string {
   if (page === null) return "/";
-  return page === "cronjobs" ? "/automations" : `/${page}`;
+  if (page === "cronjobs") return "/automations";
+  if (page === "pager") return "/inbox/pages";
+  if (page === "asks") return "/inbox/asks";
+  return `/${page}`;
 }
 
 export interface OfficeLink {

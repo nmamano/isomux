@@ -22,9 +22,9 @@ const {
 setupPagerAppTests();
 
 describe("the Discord link", () => {
-  it("opens the pager at /pager and expands the page once the delayed snapshot lands", async () => {
+  it("opens the Inbox's Pages tab and expands the page once the delayed snapshot lands", async () => {
     const view = await boot("/?pager=p1");
-    expect(window.location.pathname).toBe("/pager");
+    expect(window.location.pathname).toBe("/inbox/pages");
     expect(window.location.search).toBe("");
     expect(pending.map((p) => p.path)).toEqual([
       "/api/pager?state=all&limit=50",
@@ -37,6 +37,19 @@ describe("the Discord link", () => {
       page("p2", { lastRaisedAt: 9_000 }),
       page("p1", { state: "resolved" }),
     ]);
+    expect(toggleOf(view, "p1")?.getAttribute("aria-expanded")).toBe("true");
+    expect(toggleOf(view, "p2")?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("wins over the Asks tab's path", async () => {
+    const view = await boot("/inbox/asks?pager=p1");
+    expect(window.location.pathname).toBe("/inbox/pages");
+    expect(
+      view.container
+        .querySelector('[role="tab"][aria-selected="true"]')
+        ?.getAttribute("data-inbox-tab"),
+    ).toBe("pager");
+    await settle(0, [page("p1"), page("p2")]);
     expect(toggleOf(view, "p1")?.getAttribute("aria-expanded")).toBe("true");
     expect(toggleOf(view, "p2")?.getAttribute("aria-expanded")).toBe("false");
   });

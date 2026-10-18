@@ -2982,7 +2982,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // failure classes (server/pager-delivery.ts).
   "settings.sidebar.pager": "Pager",
   "pager.settings.intro":
-    "Agents page you when they need you. Pages show in the Pager view and reach the places below.",
+    "Agents page you when they need you. Pages show in your Inbox and reach the places below.",
   "pager.settings.thisDevice": "This device",
   "pager.settings.discord": "Discord",
   "pager.settings.webhook": "Webhook URL",
@@ -3015,10 +3015,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "pager.discord.stillOpen": "Still open: {title}",
   "pager.discord.resolved": "Resolved: {title}",
   "pager.discord.test": "Test page from Isomux.",
-  // The pager view and its nav entry (ui/components/PagerView.tsx).
-  "common.pager": "Pager",
-  "nav.pagerOpenCount.one": "Pager: {count} open page",
-  "nav.pagerOpenCount.other": "Pager: {count} open pages",
+  // The Inbox, its nav entry and its Pages tab (ui/components/InboxView.tsx).
+  "nav.inbox": "Inbox",
+  "nav.inboxOpenCount.one": "Inbox: {count} open item",
+  "nav.inboxOpenCount.other": "Inbox: {count} open items",
+  "inbox.tab.pages": "Pages",
+  // The Pages tab (ui/components/PagerView.tsx).
   "pager.view.shown": "{count} shown",
   "pager.view.filterActive": "Open and acked",
   "pager.view.stateFilter": "State",

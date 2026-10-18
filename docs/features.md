@@ -163,7 +163,7 @@ Office installs and updates build the ZIP automatically. To update an unpacked e
 - **Agents and apps page you** when a person must act: a blocked process, a failure they cannot fix, a decision only you can make.
 - **Pages reach your Discord**, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
 - **Device notifications**: pages and finished turns can also show as notifications on your phone or browser.
-- **Pager view**: every page you can see, open pages first, with ack and resolve. A badge on the Pager button counts your open pages.
+- **Inbox**: the Pages tab lists every page you can see, with ack and resolve. The Asks tab lists your open asks. A badge on the Inbox counts both.
 
 ## Safety
 

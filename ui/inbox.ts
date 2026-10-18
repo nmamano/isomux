@@ -1,0 +1,44 @@
+// The Inbox (task c952e551): one top-bar entry over two tabs, the pager's
+// pages and the asks. Each tab is its own route ("pager" and "asks" in
+// ui/routes.ts), so this module holds only what the bar and the tabs share.
+
+import { useMemo } from "react";
+import { useAppState } from "./store.tsx";
+import { openPagesFor } from "./pager-sync.ts";
+import { visibleAsks } from "./asks-sync.ts";
+import type { AskEntry, PagerEntry } from "../shared/types.ts";
+
+/** An Inbox tab is the page it shows. */
+export type InboxTab = "pager" | "asks";
+
+export interface InboxCounts {
+  pages: number;
+  asks: number;
+}
+
+/** The open items per tab. The bar's badge is their sum. */
+export function inboxCounts(
+  pager: readonly PagerEntry[],
+  asks: readonly AskEntry[],
+  agents: readonly { id: string }[],
+  userId: string | null,
+): InboxCounts {
+  return {
+    pages: openPagesFor(pager, userId),
+    asks: visibleAsks(asks, agents).length,
+  };
+}
+
+/** The tab the bar entry opens: Pages when a page is open, else Asks. */
+export function inboxTabFor(counts: InboxCounts): InboxTab {
+  return counts.pages > 0 ? "pager" : "asks";
+}
+
+export function useInboxCounts(): InboxCounts {
+  const { pager, asks, agents, sessionContext } = useAppState();
+  const userId = sessionContext?.userId ?? null;
+  return useMemo(
+    () => inboxCounts(pager, asks, agents, userId),
+    [pager, asks, agents, userId],
+  );
+}

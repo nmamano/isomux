@@ -37,6 +37,17 @@ export function pageForPath(pathname: string): Page | null {
       return "integrations";
     case "/settings":
       return "settings";
+    // The Inbox (task c952e551): its two tabs are the pager and the asks.
+    case "/inbox/pages":
+      return "pager";
+    case "/inbox/asks":
+      return "asks";
+    // A typed /inbox opens Pages: the boot cannot know yet whether a page is
+    // open. Accepted, never produced.
+    case "/inbox":
+      return "pager";
+    // The Inbox tabs were their own pages until 2026-10-18. Accepted so an
+    // old link keeps working, never produced.
     case "/pager":
       return "pager";
     case "/asks":
@@ -61,8 +72,8 @@ const PAGER_LINK_ID_MAX = 64;
 
 /**
  * The page id in a Discord link, `<origin>/?pager=<id>` (server/pager-delivery.ts),
- * or null. The parameter opens the pager view on any path, so the link keeps
- * working if the office ever moves its root.
+ * or null. The parameter opens the Inbox's Pages tab on any path, so the link
+ * keeps working if the office ever moves its root.
  */
 export function pagerIdForSearch(search: string): string | null {
   const id = new URLSearchParams(search).get("pager")?.trim() ?? "";

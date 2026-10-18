@@ -24,7 +24,7 @@ setupPagerAppTests();
 describe("the snapshot sync", () => {
   // Booted on the pager view, which lists only a landed snapshot.
   it("drops a response from an earlier connection", async () => {
-    const view = await boot("/pager");
+    const view = await boot("/inbox/pages");
     // A reconnect re-hydrates while the first read is still out.
     await act(async () => fullState());
     expect(pending.length).toBe(2);
@@ -36,7 +36,7 @@ describe("the snapshot sync", () => {
   });
 
   it("refetches when a delta overtakes the snapshot", async () => {
-    const view = await boot("/pager");
+    const view = await boot("/inbox/pages");
     expect(pending.length).toBe(1);
     await act(async () =>
       shimEmit({ type: "pager_upserted", entry: page("q") }),

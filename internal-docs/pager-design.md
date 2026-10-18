@@ -18,7 +18,7 @@ sound (`internal-docs/operator-alerting-design.md`). The pager closes that gap.
 - The server delivers the page to the member's Discord, through a Discord
   incoming webhook.
 - The page repeats until someone acks it.
-- A pager view in the UI lists all pages.
+- The Inbox's Pages tab lists all pages.
 
 Out of scope for v0 (possible follow-ups):
 
@@ -119,8 +119,9 @@ marked as not delivered.
 
 ## Pager view
 
-A new view, modeled on the task board (`ui/components/TaskView.tsx`, routed as
-`page === "tasks"` in `ui/App.tsx`):
+The Inbox's Pages tab (`/inbox/pages`, `ui/components/PagerView.tsx` inside
+`ui/components/InboxView.tsx`; `/pager` still opens it). The Asks tab is the
+other one (internal-docs/asks-design.md):
 
 - Lists all pages the member can see, newest first, with open pages on top.
   Resolved pages load one slice at a time (see "Storage of resolved pages").
@@ -130,7 +131,9 @@ A new view, modeled on the task board (`ui/components/TaskView.tsx`, routed as
   status.
 - Actions: ack and resolve. The row links to the source agent's chat.
 - The Discord link opens the view with that page selected.
-- A badge on the view's entry point counts open pages for the member.
+- The Inbox entry in the office bar opens this tab when the member has an open
+  page. Its badge counts open pages for the member plus their open asks, and
+  each tab shows its own count.
 
 Visibility follows room access, the same as tasks.
 

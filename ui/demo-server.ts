@@ -1177,7 +1177,7 @@ function demoAskEntries(): AskEntry[] {
       createdAt: now - 15 * 60_000,
       updatedAt: now - 15 * 60_000,
     },
-    // One from the second room, so the Asks page shows two rooms.
+    // One from the second room, so the Asks tab shows two rooms.
     {
       id: "dea0ac05",
       agentId: "demo-angela",
@@ -1192,7 +1192,7 @@ function demoAskEntries(): AskEntry[] {
 
 // Pages, built on the first list so they can name the viewer and the demo's
 // agents: one open page from an agent and one acked page from an app, so the
-// office bar shows a badge and the pager view shows both kinds of source.
+// office bar shows a badge and the Pages tab shows both kinds of source.
 let demoPager: PagerEntry[] | null = null;
 
 function demoPagerEntries(): PagerEntry[] {

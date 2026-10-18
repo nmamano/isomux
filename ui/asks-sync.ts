@@ -53,7 +53,7 @@ export function askCounts(entries: readonly AskEntry[]): Map<string, number> {
 }
 
 /**
- * The asks the Asks page lists and its nav badge counts: those whose agent is
+ * The asks the Inbox's Asks tab lists and counts: those whose agent is
  * in the agents slice. GET /api/asks filters on room access, but an agent in
  * a room the member hides never reaches the client, so its desk and chat
  * cannot show the ask either.

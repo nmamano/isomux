@@ -37,7 +37,7 @@ function showAll(view: View) {
 
 describe("the bound on resolved pages", () => {
   it("live resolves keep the list at its loaded size, and Load more brings the dropped pages back, none skipped or repeated", async () => {
-    const view = await boot("/pager");
+    const view = await boot("/inbox/pages");
     await settle(0, [page("open1"), ...resolved(0, 50)]);
     showAll(view);
     // Three pages resolve while the view is open; they are the newest.
@@ -76,7 +76,7 @@ describe("the bound on resolved pages", () => {
 
   it("a drop while Load more is out: the slice is read again from the oldest page held, none missing or twice", async () => {
     // Reviewer 3's R3a.
-    const view = await boot("/pager");
+    const view = await boot("/inbox/pages");
     await settle(0, resolved(0, 50));
     showAll(view);
     await act(async () => fireEvent.click(loadMore(view)!));

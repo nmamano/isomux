@@ -1,7 +1,8 @@
-// The Asks page: the member's open asks from every agent they can see,
+// The Inbox's Asks tab: the member's open asks from every agent they can see,
 // grouped by agent, the longest wait first. Each ask is the AskCard the chat's
 // stack draws, so reply and dismiss work the same here; the agent's name opens
-// its chat. The list is the store's asks slice (ui/asks-sync.ts).
+// its chat. The list is the store's asks slice (ui/asks-sync.ts). InboxView
+// draws the header and the tabs around it.
 
 import { useMemo } from "react";
 import { useAppState } from "../store.tsx";
@@ -35,10 +36,8 @@ export function askGroups(
 }
 
 export function AsksView({
-  onClose,
   onFocusAgent,
 }: {
-  onClose: () => void;
   onFocusAgent: (agentId: string) => void;
 }) {
   const { asks, agents, rooms, isMobile } = useAppState();
@@ -48,69 +47,16 @@ export function AsksView({
     () => new Map(rooms.map((r) => [r.id, r.name])),
     [rooms],
   );
-  const count = groups.reduce((n, g) => n + g.entries.length, 0);
 
   return (
     <div
       style={{
-        height: isMobile
-          ? "calc(100dvh - var(--banner-h, 0px))"
-          : "calc(100vh - var(--banner-h, 0px))",
+        flex: 1,
+        minHeight: 0,
         display: "flex",
         flexDirection: "column",
-        background: "var(--bg-base)",
-        color: "var(--text-primary)",
       }}
     >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: isMobile ? "4px 12px" : "0 20px",
-          paddingTop: isMobile
-            ? "max(4px, env(safe-area-inset-top, 0px))"
-            : undefined,
-          minHeight: 44,
-          background: "var(--bg-hud)",
-          backdropFilter: "blur(16px)",
-          borderBottom: "1px solid var(--border-subtle)",
-          flexShrink: 0,
-          zIndex: 500,
-        }}
-      >
-        <button
-          onClick={onClose}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: 18,
-            cursor: "pointer",
-            padding: "2px 8px",
-          }}
-        >
-          &larr;
-        </button>
-        <span
-          style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}
-        >
-          {t("asks.title")}
-        </span>
-        {count > 0 && (
-          <span
-            style={{
-              fontSize: 11,
-              color: "var(--text-muted)",
-              fontFamily: "var(--font-ui)",
-            }}
-          >
-            {count}
-          </span>
-        )}
-      </div>
-
       {/* List */}
       <div
         style={{

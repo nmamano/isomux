@@ -44,7 +44,7 @@ function showAll(view: View) {
 
 describe("resolved pages in slices", () => {
   it("loads the next older slice after the last resolved page, and stops after a short one", async () => {
-    const view = await boot("/pager");
+    const view = await boot("/inbox/pages");
     await settle(0, [page("open1"), ...resolved(0, 50)]);
     // The default filter shows open and acked pages only.
     expect(loadMore(view)).toBeNull();
@@ -65,7 +65,7 @@ describe("resolved pages in slices", () => {
   });
 
   it("a hydration starts again from the newest slice", async () => {
-    const view = await boot("/pager");
+    const view = await boot("/inbox/pages");
     await settle(0, resolved(0, 50));
     showAll(view);
     await act(async () => fireEvent.click(loadMore(view)!));
@@ -81,7 +81,7 @@ describe("resolved pages in slices", () => {
   });
 
   it("drops a slice read before a reconnect", async () => {
-    const view = await boot("/pager");
+    const view = await boot("/inbox/pages");
     await settle(0, resolved(0, 50));
     showAll(view);
     await act(async () => fireEvent.click(loadMore(view)!));

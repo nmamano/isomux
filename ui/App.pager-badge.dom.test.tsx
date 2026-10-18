@@ -13,7 +13,7 @@ const {
   boot,
   en,
   page,
-  pagerButton,
+  inboxButton,
   pending,
   rowIds,
   settle,
@@ -43,17 +43,24 @@ describe("the badge", () => {
       }),
     );
     expect(badge(view)).toBeNull();
-    // The bar entry opens the view, which lists every visible page, not
-    // only the member's: open first.
-    await act(async () => fireEvent.click(pagerButton(view)));
-    expect(window.location.pathname).toBe("/pager");
+    // With no open page of the member's, the bar entry opens the Asks tab.
+    await act(async () => fireEvent.click(inboxButton(view)));
+    expect(window.location.pathname).toBe("/inbox/asks");
+    // The Pages tab lists every visible page, not only the member's: open
+    // first.
+    await act(async () =>
+      fireEvent.click(
+        view.container.querySelector<HTMLElement>('[data-inbox-tab="pager"]')!,
+      ),
+    );
+    expect(window.location.pathname).toBe("/inbox/pages");
     expect(rowIds(view)).toEqual(["theirs", "mine", "seen"]);
   });
 });
 
 describe("a failed load", () => {
   it("shows a failed load with Retry in the view, and Retry reads again", async () => {
-    const view = await boot("/pager");
+    const view = await boot("/inbox/pages");
     await act(async () => pending[0].reject(new Error("down")));
     expect(view.container.querySelector(".pager-load-failed")).not.toBeNull();
     expect(view.queryByText(en["pager.view.empty"])).toBeNull();

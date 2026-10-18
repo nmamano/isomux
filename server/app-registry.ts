@@ -132,6 +132,7 @@ export const RESERVED_APP_NAMES: ReadonlySet<string> = new Set([
   "settings",
   "integrations",
   "pager",
+  "inbox",
   "users",
   "agents",
   "setup",

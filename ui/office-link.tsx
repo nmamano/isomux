@@ -22,7 +22,7 @@ const PAGE_LABEL: Record<Page, PlainMessageKey> = {
   skills: "common.skills",
   integrations: "common.integrations",
   settings: "common.settings",
-  pager: "common.pager",
+  pager: "inbox.tab.pages",
   asks: "asks.title",
 };
 

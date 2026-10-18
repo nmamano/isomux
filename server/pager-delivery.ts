@@ -89,8 +89,8 @@ export interface PagerDeliveryService {
   stop(): void;
 }
 
-// The link from Discord back to the page. The pager view (P4) reads the
-// `pager` query parameter and opens with that page selected.
+// The link from Discord back to the page. The office reads the `pager` query
+// parameter and opens the Inbox's Pages tab with that page selected.
 export function pagerLink(origin: string, pageId: string): string {
   return `${origin}/?pager=${encodeURIComponent(pageId)}`;
 }

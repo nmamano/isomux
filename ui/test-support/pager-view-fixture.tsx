@@ -133,7 +133,6 @@ export async function mount(
         DispatchCtx.Provider,
         { value: dispatch },
         createElement(PagerView, {
-          onClose: () => {},
           onFocusAgent: (id: string) => focused.push(id),
           selectRequest: request,
           onSelectRequestHandled: () => setRequest(null),

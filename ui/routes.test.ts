@@ -16,7 +16,8 @@ import {
 } from "./routes.ts";
 
 // Each page and its canonical path. The cronjobs page is "Automations" on
-// screen, and its path says so.
+// screen, and its path says so. The pager and asks pages are the Inbox's two
+// tabs.
 const PATHS: Record<Page, string> = {
   tasks: "/tasks",
   cronjobs: "/automations",
@@ -24,8 +25,8 @@ const PATHS: Record<Page, string> = {
   skills: "/skills",
   integrations: "/integrations",
   settings: "/settings",
-  pager: "/pager",
-  asks: "/asks",
+  pager: "/inbox/pages",
+  asks: "/inbox/asks",
 };
 const PAGES = Object.keys(PATHS) as Page[];
 
@@ -52,6 +53,23 @@ describe("pageForPath", () => {
   it("accepts /cronjobs as the automations page's old path", () => {
     expect(pageForPath("/cronjobs")).toBe("cronjobs");
     expect(pageForPath("/cronjobs/")).toBe("cronjobs");
+  });
+
+  it("accepts the Inbox tabs' old paths, and /inbox as Pages", () => {
+    expect(pageForPath("/pager")).toBe("pager");
+    expect(pageForPath("/asks")).toBe("asks");
+    expect(pageForPath("/asks/")).toBe("asks");
+    expect(pageForPath("/inbox")).toBe("pager");
+    expect(pageForPath("/inbox/")).toBe("pager");
+    expect(pageForPath("/inbox/pages/")).toBe("pager");
+  });
+
+  it("matches the Inbox tab paths segment by segment", () => {
+    expect(pageForPath("/inbox/x")).toBeNull();
+    expect(pageForPath("/inbox/pages/x")).toBeNull();
+    expect(pageForPath("/Inbox/pages")).toBeNull();
+    expect(pageForPath("/inbox/Asks")).toBeNull();
+    expect(pageForPath("/inbox//asks")).toBeNull();
   });
 
   it("is case-sensitive", () => {
@@ -82,6 +100,7 @@ describe("the pager link", () => {
     expect(pagerIdForSearch("?pager=1a2b3c4d")).toBe("1a2b3c4d");
     expect(pageForLocation("/", "?pager=1a2b3c4d")).toBe("pager");
     expect(pageForLocation("/tasks", "?pager=1a2b3c4d")).toBe("pager");
+    expect(pageForLocation("/inbox/asks", "?pager=1a2b3c4d")).toBe("pager");
   });
 
   it("falls back to the path without a usable id", () => {
@@ -128,11 +147,9 @@ describe("pathForPage", () => {
       expect(pageForPath(pathForPage(page))).toBe(page);
   });
 
-  it("never produces the accepted-only /users and /cronjobs aliases", () => {
-    for (const page of PAGES) {
-      expect(pathForPage(page)).not.toBe("/users");
-      expect(pathForPage(page)).not.toBe("/cronjobs");
-    }
+  it("never produces an accepted-only alias", () => {
+    const aliases = ["/users", "/cronjobs", "/pager", "/asks", "/inbox"];
+    for (const page of PAGES) expect(aliases).not.toContain(pathForPage(page));
   });
 });
 
@@ -207,19 +224,19 @@ describe("page shortcuts and rendered-page precedence", () => {
     expect(shown.pagerOpen).toBe(false);
   });
 
-  it("leaves the Asks page for Apps on a", () => {
+  it("leaves the Asks tab for Apps on a", () => {
     const shown = pressPageKey({ ...office, asksOpen: true }, "a");
     expect(pageForFlags(shown)).toBe("apps");
     expect(shown.asksOpen).toBe(false);
   });
 
-  it("leaves the Asks page for Integrations on i", () => {
+  it("leaves the Asks tab for Integrations on i", () => {
     const shown = pressPageKey({ ...office, asksOpen: true }, "i");
     expect(pageForFlags(shown)).toBe("integrations");
     expect(shown.asksOpen).toBe(false);
   });
 
-  it("shows the Asks page under every other page", () => {
+  it("shows the Asks tab under every other page", () => {
     for (const page of PAGES) {
       if (page === "asks") continue;
       expect(
@@ -358,7 +375,7 @@ describe("pageUnder", () => {
     state = pressPageKey(pressPageKey(office, "a"), "t");
     expect(pageForFlags(state)).toBe("tasks");
     expect(pageUnder(state)).toBe("apps");
-    // Tasks over the Asks page (the bar button, then t).
+    // Tasks over the Asks tab (the bar button, then t).
     state = pressPageKey({ ...office, asksOpen: true }, "t");
     expect(pageForFlags(state)).toBe("tasks");
     expect(pageUnder(state)).toBe("asks");

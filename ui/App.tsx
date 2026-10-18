@@ -29,6 +29,8 @@ import {
 import { PagerView, type PagerSelectRequest } from "./components/PagerView.tsx";
 import { usePagerSync } from "./pager-sync.ts";
 import { AsksView } from "./components/AsksView.tsx";
+import { InboxView } from "./components/InboxView.tsx";
+import type { InboxTab } from "./inbox.ts";
 import { useAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
@@ -135,7 +137,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   // The page the URL asked for, read once at mount. Every page flag below
   // starts from it, so a shared link renders its page on the FIRST paint - no
   // flash of the office, and no wait for the websocket.
-  // A Discord page link (`/?pager=<id>`) opens the pager on that page.
+  // A Discord page link (`/?pager=<id>`) opens the Inbox on that page.
   const [bootPage] = useState(() =>
     pageForLocation(window.location.pathname, window.location.search),
   );
@@ -178,7 +180,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   );
   const [pagerOpen, setPagerOpen] = useState(bootPage === "pager");
   // Read once, like bootPage. The sync effect below rewrites the URL to
-  // /pager, so the id lives here until the view has shown it.
+  // /inbox/pages, so the id lives here until the view has shown it.
   const [pagerSelectRequest, setPagerSelectRequest] =
     useState<PagerSelectRequest | null>(() => {
       const id = pagerIdForSearch(window.location.search);
@@ -189,6 +191,14 @@ export function App({ routing = true }: { routing?: boolean }) {
     [],
   );
   const [asksOpen, setAsksOpen] = useState(bootPage === "asks");
+  // The Inbox's two tabs are the pager and asks pages. Every door into the
+  // Inbox sets one flag and clears the other: with both set, Pages would show
+  // and closing it would uncover Asks instead of what is under the Inbox.
+  const openInboxTab = useCallback((tab: InboxTab) => {
+    setPagerOpen(tab === "pager");
+    setAsksOpen(tab === "asks");
+    if (tab !== "pager") setPagerSelectRequest(null);
+  }, []);
   usePagerSync();
   useAsksSync();
 
@@ -570,16 +580,19 @@ export function App({ routing = true }: { routing?: boolean }) {
     [applyPage],
   );
 
-  // An ask's link opens its page on top of the chat or the Asks page it was
+  // An ask's link opens its page on top of the chat or the Inbox it was
   // clicked on, so Close and Back return there. The page's one-shot state is
-  // cleared first, so Settings opens on no stale row.
+  // cleared first, so Settings opens on no stale row. The Inbox's tabs do not
+  // stack: a link to one from the other switches the tab.
   const openOfficeLink = useCallback(
     (link: OfficeLink) => {
       pageState[link.page].clear();
       if (link.tab) setIntegrationsRequest({ tab: link.tab });
-      pageState[link.page].setOpen(true);
+      if (link.page === "pager" || link.page === "asks")
+        openInboxTab(link.page);
+      else pageState[link.page].setOpen(true);
     },
-    [pageState],
+    [pageState, openInboxTab],
   );
 
   const goHome = useCallback(() => {
@@ -977,28 +990,30 @@ export function App({ routing = true }: { routing?: boolean }) {
           request={integrationsRequest}
           onRequestHandled={clearIntegrationsRequest}
         />
-      ) : page === "pager" ? (
-        <PagerView
-          onClose={closePage}
-          selectRequest={pagerSelectRequest}
-          onSelectRequestHandled={clearPagerSelectRequest}
-          onFocusAgent={(agentId) => {
-            setPagerOpen(false);
-            dispatch({ type: "focus", agentId });
-          }}
-          onOpenPagerSettings={() => {
-            setPagerOpen(false);
-            openSettings({ kind: "section", section: "pager" });
-          }}
-        />
-      ) : page === "asks" ? (
-        <AsksView
-          onClose={closePage}
-          onFocusAgent={(agentId) => {
-            setAsksOpen(false);
-            dispatch({ type: "focus", agentId });
-          }}
-        />
+      ) : page === "pager" || page === "asks" ? (
+        <InboxView tab={page} onSelectTab={openInboxTab} onClose={closePage}>
+          {page === "pager" ? (
+            <PagerView
+              selectRequest={pagerSelectRequest}
+              onSelectRequestHandled={clearPagerSelectRequest}
+              onFocusAgent={(agentId) => {
+                setPagerOpen(false);
+                dispatch({ type: "focus", agentId });
+              }}
+              onOpenPagerSettings={() => {
+                setPagerOpen(false);
+                openSettings({ kind: "section", section: "pager" });
+              }}
+            />
+          ) : (
+            <AsksView
+              onFocusAgent={(agentId) => {
+                setAsksOpen(false);
+                dispatch({ type: "focus", agentId });
+              }}
+            />
+          )}
+        </InboxView>
       ) : focusedAgent ? (
         <LogView
           key={focusedAgent.id}
@@ -1038,8 +1053,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           onOpenApps={() => setAppsOpen(true)}
           onOpenSkills={() => setSkillsOpen(true)}
           onOpenIntegrations={() => openIntegrations()}
-          onOpenPager={() => setPagerOpen(true)}
-          onOpenAsks={() => setAsksOpen(true)}
+          onOpenInbox={openInboxTab}
           onOpenUpdate={() =>
             openSettings({ kind: "section", section: "updates" })
           }

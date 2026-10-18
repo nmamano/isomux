@@ -237,7 +237,8 @@ export const ClockIcon = (
   </svg>
 );
 
-export const PagerIcon = (
+// An inbox tray: the pages and asks that wait for the member.
+export const InboxIcon = (
   <svg
     width="15"
     height="15"
@@ -249,25 +250,8 @@ export const PagerIcon = (
     strokeLinejoin="round"
     style={{ display: "block" }}
   >
-    <path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.2 1.3H2.8z" />
-    <path d="M6.6 14.2a1.5 1.5 0 0 0 2.8 0" />
-  </svg>
-);
-
-// A speech bubble: an agent's question that waits for the member.
-export const AsksIcon = (
-  <svg
-    width="15"
-    height="15"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.4"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    style={{ display: "block" }}
-  >
-    <path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5.5A1.5 1.5 0 0 1 12 11H7l-3 2.5V11a1.5 1.5 0 0 1-1.5-1.5z" />
+    <path d="M2.5 9 4.3 3.4a1.3 1.3 0 0 1 1.2-.9h5a1.3 1.3 0 0 1 1.2.9L13.5 9v3a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12z" />
+    <path d="M2.5 9h3l1 1.5h3l1-1.5h3" />
   </svg>
 );
 

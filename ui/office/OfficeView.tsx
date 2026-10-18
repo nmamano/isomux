@@ -13,7 +13,7 @@ import { LOBBY_ROOM_ID, ordinaryRooms } from "../../shared/types.ts";
 import { useMemo, useState, useEffect, useCallback, useContext } from "react";
 import { SceneDecorationContext } from "./scene-decoration.tsx";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
-import { openPagesFor } from "../pager-sync.ts";
+import { inboxTabFor, useInboxCounts, type InboxTab } from "../inbox.ts";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { RoomProps } from "./RoomProps.tsx";
@@ -46,12 +46,11 @@ import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import {
   TasksIcon,
-  AsksIcon,
+  InboxIcon,
   ClockIcon,
   AppsIcon,
   SkillsIcon,
   PlugIcon,
-  PagerIcon,
   SettingsIcon,
 } from "../components/NavIcons.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
@@ -71,7 +70,7 @@ import { Vignette } from "./Vignette.tsx";
 import { BackRoomScreen } from "./back-room/BackRoomScreen.tsx";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
 import { inDefaultTaskList } from "../../shared/task-board.ts";
-import { askCounts, visibleAsks } from "../asks-sync.ts";
+import { askCounts } from "../asks-sync.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
@@ -185,10 +184,8 @@ interface OfficeViewProps {
   onOpenApps: () => void;
   // Absent where there is no Skills page to open (test fixtures).
   onOpenSkills?: () => void;
-  // Absent in fixtures that render the office without the pager.
-  onOpenPager?: () => void;
-  // Absent in fixtures that render the office without the Asks page.
-  onOpenAsks?: () => void;
+  // Absent in fixtures that render the office without the Inbox.
+  onOpenInbox?: (tab: InboxTab) => void;
   // Absent in fixtures that render the office without the Integrations page.
   onOpenIntegrations?: () => void;
   onOpenUpdate: () => void;
@@ -213,8 +210,7 @@ export function OfficeView({
   onOpenCronjobs,
   onOpenApps,
   onOpenSkills,
-  onOpenPager,
-  onOpenAsks,
+  onOpenInbox,
   onOpenIntegrations,
   onOpenUpdate,
   onSwipeLeft,
@@ -236,19 +232,12 @@ export function OfficeView({
     presences,
     sessionContext,
     lobbyOpen,
-    pager,
     asks,
     membersChat,
   } = useAppState();
   const askCountByAgent = useMemo(() => askCounts(asks), [asks]);
-  const openAsks = useMemo(
-    () => visibleAsks(asks, agents).length,
-    [asks, agents],
-  );
-  const openPages = useMemo(
-    () => openPagesFor(pager, sessionContext?.userId ?? null),
-    [pager, sessionContext?.userId],
-  );
+  const inbox = useInboxCounts();
+  const inboxOpen = inbox.pages + inbox.asks;
   const [newRoomOpen, setNewRoomOpen] = useState(false);
   const closeNewRoom = useCallback(() => setNewRoomOpen(false), []);
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
@@ -453,15 +442,17 @@ export function OfficeView({
       title: t("nav.tasksShortcut"),
       onClick: onOpenTasks,
     },
-    ...(onOpenAsks
+    ...(onOpenInbox
       ? [
           {
-            id: "asks",
-            icon: AsksIcon,
-            label: t("asks.title"),
-            title: openAsks ? i18n.tn("asks.badge", openAsks) : t("asks.title"),
-            onClick: onOpenAsks,
-            badge: openAsks,
+            id: "inbox",
+            icon: InboxIcon,
+            label: t("nav.inbox"),
+            title: inboxOpen
+              ? i18n.tn("nav.inboxOpenCount", inboxOpen)
+              : t("nav.inbox"),
+            onClick: () => onOpenInbox(inboxTabFor(inbox)),
+            badge: inboxOpen,
           },
         ]
       : []),
@@ -497,20 +488,6 @@ export function OfficeView({
             label: t("common.integrations"),
             title: t("nav.integrationsShortcut"),
             onClick: onOpenIntegrations,
-          },
-        ]
-      : []),
-    ...(onOpenPager
-      ? [
-          {
-            id: "pager",
-            icon: PagerIcon,
-            label: t("common.pager"),
-            title: openPages
-              ? i18n.tn("nav.pagerOpenCount", openPages)
-              : t("common.pager"),
-            onClick: onOpenPager,
-            badge: openPages,
           },
         ]
       : []),

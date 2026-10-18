@@ -59,7 +59,6 @@ function mount(asks: AskEntry[]) {
         DispatchCtx.Provider,
         { value: dispatch },
         createElement(AsksView, {
-          onClose: () => {},
           onFocusAgent: (id: string) => focused.push(id),
         }),
       ),

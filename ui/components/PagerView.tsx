@@ -1,7 +1,8 @@
-// The pager view (internal-docs/pager-design.md, "Pager view"): every open and
-// acked page the member can see, open pages first, with ack and resolve, and
-// resolved pages one slice at a time ("Load more"). The list is the store's
-// pager slice, which usePagerSync (ui/pager-sync.ts) keeps filled.
+// The Inbox's Pages tab (internal-docs/pager-design.md, "Pager view"): every
+// open and acked page the member can see, open pages first, with ack and
+// resolve, and resolved pages one slice at a time ("Load more"). The list is
+// the store's pager slice, which usePagerSync (ui/pager-sync.ts) keeps filled.
+// InboxView draws the header and the tabs around it.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
@@ -109,13 +110,11 @@ export function sourceApp(
 }
 
 export function PagerView({
-  onClose,
   onFocusAgent,
   selectRequest,
   onSelectRequestHandled,
   onOpenPagerSettings,
 }: {
-  onClose: () => void;
   onFocusAgent?: (agentId: string) => void;
   selectRequest?: PagerSelectRequest | null;
   onSelectRequestHandled?: () => void;
@@ -447,64 +446,12 @@ export function PagerView({
   return (
     <div
       style={{
-        height: isMobile
-          ? "calc(100dvh - var(--banner-h, 0px))"
-          : "calc(100vh - var(--banner-h, 0px))",
+        flex: 1,
+        minHeight: 0,
         display: "flex",
         flexDirection: "column",
-        background: "var(--bg-base)",
-        color: "var(--text-primary)",
       }}
     >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: isMobile ? "4px 12px" : "0 20px",
-          paddingTop: isMobile
-            ? "max(4px, env(safe-area-inset-top, 0px))"
-            : undefined,
-          minHeight: 44,
-          background: "var(--bg-hud)",
-          backdropFilter: "blur(16px)",
-          borderBottom: "1px solid var(--border-subtle)",
-          flexShrink: 0,
-          zIndex: 500,
-        }}
-      >
-        <button
-          onClick={onClose}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: 18,
-            cursor: "pointer",
-            padding: "2px 8px",
-          }}
-        >
-          &larr;
-        </button>
-        <span
-          style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}
-        >
-          {t("common.pager")}
-        </span>
-        {pagerLoaded && (
-          <span
-            style={{
-              fontSize: 11,
-              color: "var(--text-muted)",
-              fontFamily: "var(--font-ui)",
-            }}
-          >
-            {t("pager.view.shown", { count: shown.length })}
-          </span>
-        )}
-      </div>
-
       {/* Filters */}
       <div
         style={{
@@ -542,6 +489,19 @@ export function PagerView({
             <option value="none">{t("pager.view.noRoom")}</option>
           )}
         </select>
+        {pagerLoaded && (
+          <span
+            style={{
+              alignSelf: "center",
+              marginLeft: "auto",
+              fontSize: 11,
+              color: "var(--text-muted)",
+              fontFamily: "var(--font-ui)",
+            }}
+          >
+            {t("pager.view.shown", { count: shown.length })}
+          </span>
+        )}
       </div>
 
       {/* List */}
