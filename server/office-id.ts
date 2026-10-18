@@ -56,8 +56,7 @@ export function readOrCreateOfficeId(
     renameSync(path, asidePath);
     replaced = {
       asidePath,
-      problem:
-        saved === "" ? "empty" : "not 12 lowercase hex characters",
+      problem: saved === "" ? "empty" : "not 12 lowercase hex characters",
     };
   }
   const id = randomBytes(6).toString("hex");

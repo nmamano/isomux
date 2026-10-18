@@ -52,7 +52,8 @@ function postAccept(
 function cookieFrom(response: Response): string {
   const header = response.headers.get("set-cookie") ?? "";
   const match = new RegExp(`${sessionCookieName()}=([^;]+)`).exec(header);
-  if (!match) throw new Error(`missing ${sessionCookieName()} cookie: ${header}`);
+  if (!match)
+    throw new Error(`missing ${sessionCookieName()} cookie: ${header}`);
   return match[1];
 }
 

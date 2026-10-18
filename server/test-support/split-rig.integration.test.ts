@@ -102,7 +102,9 @@ function claim(name: string): string {
     "root",
     `curl -s -i -X POST http://127.0.0.1:10000/auth/claim -H 'Origin: http://localhost:10000' --data-urlencode 'name=${OWNER}' --data-urlencode key@${STATE}/setup-key`,
   );
-  const cookie = /set-cookie: (isomux_session_[0-9a-f]{12}=[^;]+)/i.exec(r.out)?.[1];
+  const cookie = /set-cookie: (isomux_session_[0-9a-f]{12}=[^;]+)/i.exec(
+    r.out,
+  )?.[1];
   if (!cookie) throw new Error(`claim failed: ${r.out}`);
   return cookie;
 }

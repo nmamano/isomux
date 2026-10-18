@@ -1650,7 +1650,8 @@ export function officeSessionCookieNames(): { host: string; plain: string } {
 
 // Every name an office writes or wrote, for any office id. The app proxy
 // strips all of them, so no app receives an office session.
-const SESSION_COOKIE_NAME_PATTERN = /^(?:__Host-)?isomux_session(?:_[0-9a-f]{12})?$/;
+const SESSION_COOKIE_NAME_PATTERN =
+  /^(?:__Host-)?isomux_session(?:_[0-9a-f]{12})?$/;
 export function isSessionCookieName(name: string): boolean {
   return SESSION_COOKIE_NAME_PATTERN.test(name);
 }

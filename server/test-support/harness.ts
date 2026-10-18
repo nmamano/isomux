@@ -347,7 +347,8 @@ async function bootTestServer(
       // idempotent methods once in case the pool still
       // wins the race.
       headers.set("Connection", "close");
-      if (rawSessionId) headers.set("Cookie", `${sessionCookieName()}=${rawSessionId}`);
+      if (rawSessionId)
+        headers.set("Cookie", `${sessionCookieName()}=${rawSessionId}`);
       const attempt = () => fetch(`${baseUrl}${path}`, { ...rest, headers });
       try {
         return await attempt();
@@ -373,7 +374,8 @@ async function bootTestServer(
       // send several session cookies at once (the __Host- dual-read matrix).
       const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/ws`, {
         headers: {
-          Cookie: opts?.cookieHeader ?? `${sessionCookieName()}=${rawSessionId}`,
+          Cookie:
+            opts?.cookieHeader ?? `${sessionCookieName()}=${rawSessionId}`,
           Origin: buildPublicOrigin().origin,
           ...opts?.headers,
         },

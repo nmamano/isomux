@@ -122,60 +122,56 @@ function acceptForm(token: string): RequestInit {
 }
 
 describe("two offices on one host, one browser jar", () => {
-  it(
-    "a session from before the update survives, and signing out of one office leaves the other signed in",
-    async () => {
-      const b = await startB();
-      a = await startTestServer();
-      await a.seedOwner("Boss");
-      expect(buildPublicOrigin().isHttps).toBe(false);
-      const officeA: Office = {
-        base: a.baseUrl,
-        origin: buildPublicOrigin().origin,
-      };
-      const jar = new Jar();
+  it("a session from before the update survives, and signing out of one office leaves the other signed in", async () => {
+    const b = await startB();
+    a = await startTestServer();
+    await a.seedOwner("Boss");
+    expect(buildPublicOrigin().isHttps).toBe(false);
+    const officeA: Office = {
+      base: a.baseUrl,
+      origin: buildPublicOrigin().origin,
+    };
+    const jar = new Jar();
 
-      // Before the update, office A wrote the shared name.
-      const yu = await a.seedMember("Yu");
-      jar.cookies.set(SHARED_COOKIE_NAME, yu.rawSessionId);
-      expect(await whoAmI(jar, officeA)).toBe("Yu");
-      // The first request copied it to A's own name; the next one retired the
-      // shared copy.
-      expect(jar.cookies.get(officeSessionCookieNames().plain)).toBe(
-        yu.rawSessionId,
-      );
-      expect(await whoAmI(jar, officeA)).toBe("Yu");
-      expect(jar.cookies.has(SHARED_COOKIE_NAME)).toBe(false);
+    // Before the update, office A wrote the shared name.
+    const yu = await a.seedMember("Yu");
+    jar.cookies.set(SHARED_COOKIE_NAME, yu.rawSessionId);
+    expect(await whoAmI(jar, officeA)).toBe("Yu");
+    // The first request copied it to A's own name; the next one retired the
+    // shared copy.
+    expect(jar.cookies.get(officeSessionCookieNames().plain)).toBe(
+      yu.rawSessionId,
+    );
+    expect(await whoAmI(jar, officeA)).toBe("Yu");
+    expect(jar.cookies.has(SHARED_COOKIE_NAME)).toBe(false);
 
-      // Sign in to B in the same jar. B is HTTPS: it writes its own __Host-
-      // name, which A never reads.
-      const signedInB = await send(jar, b, "/auth/accept", acceptForm(b.token));
-      expect(signedInB.status).toBe(302);
-      expect(await whoAmI(jar, b)).toBe("Ann");
-      expect(await whoAmI(jar, officeA)).toBe("Yu");
-      expect(jar.cookies.size).toBe(2);
+    // Sign in to B in the same jar. B is HTTPS: it writes its own __Host-
+    // name, which A never reads.
+    const signedInB = await send(jar, b, "/auth/accept", acceptForm(b.token));
+    expect(signedInB.status).toBe(302);
+    expect(await whoAmI(jar, b)).toBe("Ann");
+    expect(await whoAmI(jar, officeA)).toBe("Yu");
+    expect(jar.cookies.size).toBe(2);
 
-      // Sign out of A: B stays signed in.
-      const outA = await send(jar, officeA, "/auth/logout", { method: "POST" });
-      expect(outA.status).toBe(302);
-      expect(await whoAmI(jar, officeA)).toBeNull();
-      expect(await whoAmI(jar, b)).toBe("Ann");
+    // Sign out of A: B stays signed in.
+    const outA = await send(jar, officeA, "/auth/logout", { method: "POST" });
+    expect(outA.status).toBe(302);
+    expect(await whoAmI(jar, officeA)).toBeNull();
+    expect(await whoAmI(jar, b)).toBe("Ann");
 
-      // Sign in to A again, sign out of B: A stays signed in.
-      const link = await mintMemberLink("Yu");
-      const signedInA = await send(
-        jar,
-        officeA,
-        "/auth/accept",
-        acceptForm(link.rawToken),
-      );
-      expect(signedInA.status).toBe(302);
-      expect(await whoAmI(jar, officeA)).toBe("Yu");
-      const outB = await send(jar, b, "/auth/logout", { method: "POST" });
-      expect(outB.status).toBe(302);
-      expect(await whoAmI(jar, b)).toBeNull();
-      expect(await whoAmI(jar, officeA)).toBe("Yu");
-    },
-    30_000,
-  );
+    // Sign in to A again, sign out of B: A stays signed in.
+    const link = await mintMemberLink("Yu");
+    const signedInA = await send(
+      jar,
+      officeA,
+      "/auth/accept",
+      acceptForm(link.rawToken),
+    );
+    expect(signedInA.status).toBe(302);
+    expect(await whoAmI(jar, officeA)).toBe("Yu");
+    const outB = await send(jar, b, "/auth/logout", { method: "POST" });
+    expect(outB.status).toBe(302);
+    expect(await whoAmI(jar, b)).toBeNull();
+    expect(await whoAmI(jar, officeA)).toBe("Yu");
+  }, 30_000);
 });

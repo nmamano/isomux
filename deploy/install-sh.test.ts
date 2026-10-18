@@ -980,9 +980,7 @@ for (const [label, source] of [
         const rows = names.map((name) => row(name, `V-${name}`));
         const expected = `V-${names[0]}`;
         expect(await runAwk(`${rows.join("\n")}\n`)).toBe(expected);
-        expect(await runAwk(`${rows.reverse().join("\n")}\n`)).toBe(
-          expected,
-        );
+        expect(await runAwk(`${rows.reverse().join("\n")}\n`)).toBe(expected);
       }
     });
 

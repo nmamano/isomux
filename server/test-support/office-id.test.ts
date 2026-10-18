@@ -98,7 +98,9 @@ describe("readOrCreateOfficeId", () => {
     const path = scratch();
     // The target's parent is a regular file, so no write can succeed.
     writeFileSync(join(dir!, "blocker"), "");
-    expect(() => readOrCreateOfficeId(join(dir!, "blocker", "office-id"))).toThrow();
+    expect(() =>
+      readOrCreateOfficeId(join(dir!, "blocker", "office-id")),
+    ).toThrow();
     expect(existsSync(path)).toBe(false);
   });
 });

@@ -172,7 +172,6 @@ async function whoAmI(srv: TestServer, cookieHeader: string): Promise<string> {
   return names[0];
 }
 
-
 // This office's two names, read at call time: the id lives in the state root,
 // which every startTestServer() wipes.
 const own = () => officeSessionCookieNames();
@@ -304,7 +303,12 @@ describe("office cookie names: HTTPS office", () => {
     const raw = yu.rawSessionId;
     const plain = `${own().plain}=${raw}`;
     const host = `${own().host}=${raw}`;
-    for (const cookie of [plain, host, `${host}; ${plain}`, `${plain}; ${host}`]) {
+    for (const cookie of [
+      plain,
+      host,
+      `${host}; ${plain}`,
+      `${plain}; ${host}`,
+    ]) {
       expect(await whoAmI(server, cookie)).toBe("Yu");
       const up = await rawUpgrade(server.port, cookie);
       expect(up.status).toBe(101);
@@ -415,7 +419,10 @@ describe("shared-name fallback (one release, task c9f250af)", () => {
     expect(buildPublicOrigin().isHttps).toBe(false);
     const yu = await server.seedMember("Yu");
     const shared = `${SHARED}=${yu.rawSessionId}`;
-    for (const foreign of [`${SHARED_HOST}=from-another-office`, `${SHARED_HOST}=`]) {
+    for (const foreign of [
+      `${SHARED_HOST}=from-another-office`,
+      `${SHARED_HOST}=`,
+    ]) {
       for (const cookie of [`${foreign}; ${shared}`, `${shared}; ${foreign}`]) {
         expect(await whoAmI(server, cookie)).toBe("Yu");
         expect((await rawUpgrade(server.port, cookie)).status).toBe(101);
