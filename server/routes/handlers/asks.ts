@@ -2,9 +2,11 @@
 //
 // Agent routes (/api/agents/:id/asks...): the route guard proves the
 // token's agent is :id, so an agent reaches only its own list. Member routes
-// (/api/asks...): only the member the ask is for, while that
-// member can still reach the agent's room; anyone else gets the same 404 as an
-// unknown id.
+// (/api/asks...): only a member askVisibleTo admits (the member the ask is
+// for, or an owner for an office secret request), while that member can
+// still reach the agent's room; anyone else gets the same 404 as an unknown
+// id. A secret request is answered on its own routes (secret-requests.ts),
+// never with a reply or a dismiss.
 //
 // A reply or a dismiss is a member message to the agent through the path a
 // typed message takes, so it wakes or resumes the agent the same way and is
@@ -26,9 +28,11 @@ import type { AskEntry } from "../../../shared/types.ts";
 import type { AskAgentWire } from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
+  askVisibleTo,
   AsksUnavailableError,
   ASK_MAX_OPEN_PER_AGENT,
   checkPrompt,
+  type AskAudienceDeps,
   type AskStore,
 } from "../../asks.ts";
 
@@ -48,6 +52,7 @@ export interface AsksDeps {
   memberName(userId: string): string | null;
   // Whether a member can reach a room.
   memberCanSeeRoom(userId: string, roomId: string): boolean;
+  isOfficeOwner(userId: string): boolean;
   // Deliver the member's message to the agent, carrying the ask.
   // Resolves at the acceptance decision, as a typed member message does.
   deliver(
@@ -80,8 +85,18 @@ export function askHandlers(
 
   const wire = (entry: AskEntry): AskAgentWire => ({
     ...entry,
-    member: deps.memberName(entry.memberUserId) ?? entry.memberUserId,
+    // An office secret request is for every owner and names no member.
+    member:
+      entry.memberUserId === undefined
+        ? null
+        : (deps.memberName(entry.memberUserId) ?? entry.memberUserId),
   });
+
+  const audience: AskAudienceDeps = {
+    isOfficeOwner: (userId) => deps.isOfficeOwner(userId),
+    agentRoomId: (agentId) => deps.agent(agentId)?.roomId ?? null,
+    canSeeRoom: (userId, roomId) => deps.memberCanSeeRoom(userId, roomId),
+  };
 
   // The agent's own open entry, or null.
   const own = (agentId: string, id: string): AskEntry | null => {
@@ -95,15 +110,14 @@ export function askHandlers(
     id: string,
   ): AskEntry | null => {
     const entry = store.get(id);
-    if (!entry || !identity.userId || entry.memberUserId !== identity.userId)
-      return null;
-    const agent = deps.agent(entry.agentId);
-    if (!agent || !deps.memberCanSeeRoom(identity.userId, agent.roomId))
-      return null;
-    return entry;
+    return entry && askVisibleTo(entry, identity.userId, audience)
+      ? entry
+      : null;
   };
 
   const notFound = () => fail(404, "not_found", "No such open ask.");
+  const secretRequest = (message: string) =>
+    fail(409, "secret_request", message);
 
   const answer =
     (dismissed: boolean): RouteHandler =>
@@ -125,6 +139,12 @@ export function askHandlers(
       }
       const entry = addressedTo(ctx.identity, ctx.params.askId);
       if (!entry) return notFound();
+      // A secret request is answered with its masked form only: a reply would
+      // carry what the member typed into the chat and to the agent.
+      if (entry.secret)
+        return secretRequest(
+          "This ask is a secret request. Save or decline it instead.",
+        );
       if (delivering.has(entry.id))
         return fail(
           409,
@@ -211,7 +231,12 @@ export function askHandlers(
       const body = (ctx.body ?? {}) as Record<string, unknown>;
       const checked = checkPrompt(body.text);
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
-      if (!own(ctx.params.id, ctx.params.askId)) return notFound();
+      const prev = own(ctx.params.id, ctx.params.askId);
+      if (!prev) return notFound();
+      if (prev.secret)
+        return secretRequest(
+          "A secret request cannot be edited. Delete it to withdraw it.",
+        );
       const entry = store.edit(ctx.params.askId, checked.prompt);
       return entry ? ok(wire(entry)) : notFound();
     }),
@@ -225,10 +250,9 @@ export function askHandlers(
       const userId = ctx.identity.userId;
       if (!userId) return ok([]);
       return ok(
-        store.listForMember(userId).filter((entry) => {
-          const agent = deps.agent(entry.agentId);
-          return !!agent && deps.memberCanSeeRoom(userId, agent.roomId);
-        }),
+        store
+          .listAll()
+          .filter((entry) => askVisibleTo(entry, userId, audience)),
       );
     }),
 

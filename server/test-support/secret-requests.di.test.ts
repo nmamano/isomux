@@ -1,5 +1,5 @@
 // The secret request end to end with the real agent manager (secrets loop,
-// B4 acceptance): the agent asks, the member saves the value on the card, the
+// B4 acceptance): the agent asks, the member saves the value in the ask, the
 // agent's next process has the placeholder, and neither the transcript nor
 // anything sent to the agent holds the value. FakeBackend only.
 
@@ -15,6 +15,7 @@ import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { setSecretEnvironmentProvider } from "../env-loader.ts";
+import { createAskStore, type AskStore } from "../asks.ts";
 import { createSecretRequests } from "../secret-requests.ts";
 import { createSecretStore, type SecretScope } from "../secret-store.ts";
 import { placeholderFor } from "../secret-proxy/placeholders.ts";
@@ -90,17 +91,27 @@ async function world() {
     initialRooms: [],
   });
   mgr.configureAgentTurnDeps();
+  const asks: AskStore = createAskStore({
+    persistence: {
+      load: () => ({ kind: "missing" }),
+      save: () => {},
+      quarantine: () => true,
+    },
+  });
   const requests = createSecretRequests({
     store,
+    asks,
+    audience: {
+      isOfficeOwner: () => false,
+      agentRoomId: (agentId) => mgr.getAgent(agentId)?.roomId ?? null,
+      canSeeRoom: () => true,
+    },
     onChanged: async () => mgr.secretsChanged([{ kind: "user", userId: USER }]),
     placeholderOf,
     agentUserId: (agentId) =>
       mgr.getAgent(agentId)
         ? (mgr.getAgent(agentId)!.userId ?? null)
         : undefined,
-    isOfficeOwnerUserId: () => false,
-    emitRequest: (agentId, payload) =>
-      mgr.emitAgentSecretRequest(agentId, payload),
     emitSettled: (agentId, requestId, outcome, name) =>
       mgr.emitAgentSecretRequestSettled(agentId, requestId, outcome, name),
     tellAgent: (agentId, _userId, text) => {
@@ -158,7 +169,7 @@ async function world() {
   const dir = claudeProjectDir(STATE_ROOT, { CLAUDE_CONFIG_DIR: claudeHome() });
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${mgr.getCurrentSessionId(id)}.jsonl`), "");
-  return { mgr, fake, requests, placeholderOf, id };
+  return { mgr, fake, asks, requests, placeholderOf, id };
 }
 
 type World = Awaited<ReturnType<typeof world>>;
@@ -175,7 +186,7 @@ function ask({ requests, id }: World) {
 
 // What the acceptance asks of the turn that the confirmation starts: a new
 // process whose environment has the placeholder and the proxy, a message
-// with the placeholder, a settled card, and the value nowhere.
+// with the placeholder, a settled entry, a closed ask, and the value nowhere.
 async function expectConfirmedOnNewProcess(
   w: World,
   requestId: string,
@@ -206,6 +217,7 @@ async function expectConfirmedOnNewProcess(
       .getAgentLogs(w.id)
       .some((e) => e.metadata?.secretRequestSettled === requestId),
   ).toBe(true);
+  expect(w.asks.listAll()).toEqual([]);
   const seen = JSON.stringify({
     logs: w.mgr.getAgentLogs(w.id),
     sent: [...firstSession!.sent, ...next.sent],
@@ -222,10 +234,13 @@ it("idle: the agent asks, the member saves in the masked form, and the confirmat
   expect(firstSession.opts.env?.GH_TOKEN === undefined).toBe(true);
   expect(firstSession.opts.env?.HTTPS_PROXY === undefined).toBe(true);
   const requestId = ask(w);
-  const card = w.mgr
-    .getAgentLogs(w.id)
-    .find((e) => e.kind === "secret-request");
-  expect(card?.secretRequest?.requestId).toBe(requestId);
+  // The request waits as an ask, not as a card in the chat.
+  expect(w.asks.listForAgent(w.id).map((e) => e.secret?.requestId)).toEqual([
+    requestId,
+  ]);
+  expect(
+    w.mgr.getAgentLogs(w.id).some((e) => e.kind === "secret-request"),
+  ).toBe(false);
   const saved = await w.requests.save(USER, w.id, requestId, {
     value: VALUE,
     hosts: ["api.github.com"],

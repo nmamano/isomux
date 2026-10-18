@@ -16,15 +16,15 @@ A secret's variable holds a placeholder, not the value. Use it as you would the 
 
 When you need a credential you do not have, ask for it as a secret. Never ask a member to paste a credential in the chat.
 
-`POST /api/agents/:id/secret-requests` (`:id` is your agent id) with `{name,hosts,reason,form?,scope?}` puts a card in your chat. The member types the value in a masked field on the card and can edit the hosts. `name` is the variable name, for example `GH_TOKEN`. `hosts` are the hosts that need the credential. `form` is `{"kind":"authorization"}` (the default: the Authorization header, any scheme) or `{"kind":"header","header":"x-api-key"}`. `scope` is `personal` (the default: your manager's secrets) or `office` (an office owner saves it). `reason` says why, in one or two sentences.
+`POST /api/agents/:id/secret-requests` (`:id` is your agent id) with `{name,hosts,reason,form?,scope?}` opens a request. It waits among your asks (see the asks page) until the member answers, also across a server restart. The member types the value in a masked field and can edit the hosts. `name` is the variable name, for example `GH_TOKEN`. `hosts` are the hosts that need the credential. `form` is `{"kind":"authorization"}` (the default: the Authorization header, any scheme) or `{"kind":"header","header":"x-api-key"}`. `scope` is `personal` (the default: your manager's secrets) or `office` (an office owner saves it). `reason` says why, in one or two sentences.
 
-The route answers `{requestId}`. End your turn and wait. When the member saves, you get a message with the placeholder, and the variable holds it from your next start. When the member declines, you get a message that says so.
+The route answers `{requestId}`. End your turn and wait. To withdraw the request, delete its ask. When the member saves, you get a message with the placeholder, and the variable holds it from your next start. When the member declines, you get a message that says so.
 
 Errors: 422 `host_not_allowed` for a model or package registry host, which never gets a secret; 409 `secret_exists` when the secret exists (tell the member, who can replace its value on the Integrations page); 409 `no_member` for a personal secret when you have no manager; 409 `request_open` when a request for this secret is open (wait for the member's answer).
 
 ## Changing connections
 
-Privileged agents only; any other agent gets 403. To get a credential from a member, ask for it on a card (above), never in a request body.
+Privileged agents only; any other agent gets 403. To get a credential from a member, ask for it as a secret (above), never in a request body.
 
 You have your manager's reach: your manager's connections, and the office's and every member's when your manager is an office owner. Anything else gets 403. `:username` is the member whose connections change.
 

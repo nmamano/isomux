@@ -1746,10 +1746,6 @@ Coses que pots fer per ell:
   "cards.secretRequest.declined": "Rebutjada.",
   "cards.secretRequest.closed":
     "Aquesta sol·licitud està tancada. L'agent ho pot tornar a demanar.",
-  "cards.secretRequest.ownerAnswers":
-    "Un propietari de l'oficina respon aquesta sol·licitud.",
-  "cards.secretRequest.managerAnswers":
-    "El responsable d'aquest agent respon aquesta sol·licitud.",
   "cards.secretRequest.forbidden":
     "Només el responsable de l'agent respon aquesta sol·licitud, o un propietari de l'oficina si és un secret de l'oficina.",
   "cards.terminalCommand.copy": "Copia a la terminal",

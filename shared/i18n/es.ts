@@ -1745,10 +1745,6 @@ Cosas que puedes hacer por él:
   "cards.secretRequest.declined": "Rechazada.",
   "cards.secretRequest.closed":
     "Esta solicitud está cerrada. El agente puede volver a pedirlo.",
-  "cards.secretRequest.ownerAnswers":
-    "Un propietario de la oficina responde a esta solicitud.",
-  "cards.secretRequest.managerAnswers":
-    "El responsable de este agente responde a esta solicitud.",
   "cards.secretRequest.forbidden":
     "Solo el responsable del agente responde a esta solicitud, o un propietario de la oficina si es un secreto de la oficina.",
   "cards.terminalCommand.copy": "Copiar en la terminal",

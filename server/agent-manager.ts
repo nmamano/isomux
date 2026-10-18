@@ -33,7 +33,6 @@ import type {
   QueuedMessage,
   AskRef,
   RoomWire,
-  SecretRequestPayload,
   SkillInfo,
   SubscriptionUsageWire,
   SubscriptionWindowWire,
@@ -2931,25 +2930,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ok: true };
   }
 
-  // The card of a secret request (secret-requests.ts): a masked form for the
-  // member. The payload holds no value. False when there is no such agent.
-  function emitAgentSecretRequest(
-    agentId: string,
-    payload: SecretRequestPayload,
-  ): boolean {
-    if (!agents.has(agentId)) return false;
-    addLogEntry(
-      agentId,
-      "secret-request",
-      `Secret request: ${payload.name}`,
-      undefined,
-      undefined,
-      { secretRequest: payload },
-    );
-    return true;
-  }
-
-  // The system entry that closes a secret request's card.
+  // The system entry that records a secret request's outcome. It also
+  // settles a card from a server before secret requests were asks.
   function emitAgentSecretRequestSettled(
     agentId: string,
     requestId: string,
@@ -11570,7 +11552,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agentMcpServers,
     emitAgentEditRequest,
     emitAgentTerminalCommand,
-    emitAgentSecretRequest,
     emitAgentSecretRequestSettled,
     emitAgentReadFile,
     emitAgentDiff,

@@ -934,18 +934,24 @@ export interface TerminalCommandPayload {
   command: string; // single-line shell command
 }
 
-// Structured payload attached to LogEntry when kind === "secret-request".
-// Emitted by POST /api/agents/:id/secret-requests. The card holds a masked
-// form: the member types the value there, so it never enters the chat. A
-// later system entry with metadata.secretRequestSettled = requestId closes it.
-export interface SecretRequestPayload {
+// An agent's request for a secret (server/secret-requests.ts). It holds no
+// value: the member types the value in a masked field, so it never enters the
+// chat. An open request is an ask (AskEntry.secret).
+export interface SecretAskRequest {
   requestId: string;
   scope: "personal" | "office";
   name: string;
   hosts: string[];
   form: SecretForm;
   reason: string;
-  // The server boot that opened it (full_state.serverBootId).
+}
+
+// Structured payload attached to LogEntry when kind === "secret-request".
+// Servers before secret requests became asks put this card in the chat; it
+// is read-only now. A later system entry with metadata.secretRequestSettled =
+// requestId names its outcome.
+export interface SecretRequestPayload extends SecretAskRequest {
+  // The server boot that opened it. Unused.
   bootId?: string;
 }
 
@@ -1167,11 +1173,15 @@ export interface AskEntry {
   id: string;
   agentId: string;
   // The member the prompt is for: the agent's manager unless the agent named
-  // another member with access to its room.
-  memberUserId: string;
+  // another member with access to its room. Absent only on an office secret
+  // request, which is for every office owner (askVisibleTo in server/asks.ts).
+  memberUserId?: string;
   prompt: string;
   createdAt: number;
   updatedAt: number;
+  // Present when the ask is a secret request: the member answers it with
+  // the masked form, not a reply. The prompt holds the request's reason.
+  secret?: SecretAskRequest;
 }
 
 // The ask a member message answers. Rides on the queued item and on the
@@ -2108,9 +2118,6 @@ export type ServerMessage =
       // older servers, where every engine is available.
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
-      // This server process. A secret request card from another boot is
-      // closed. Absent on older servers.
-      serverBootId?: string;
     }
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the agent's pre-removal roomId; delivery is scoped to sessions

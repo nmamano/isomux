@@ -1709,9 +1709,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.secretRequest.declined": "Declined.",
   "cards.secretRequest.closed":
     "This request is closed. The agent can ask again.",
-  "cards.secretRequest.ownerAnswers": "An office owner answers this request.",
-  "cards.secretRequest.managerAnswers":
-    "This agent's manager answers this request.",
   "cards.secretRequest.forbidden":
     "Only the agent's manager answers this request, or an office owner for an office secret.",
   "cards.terminalCommand.copy": "Copy to terminal",

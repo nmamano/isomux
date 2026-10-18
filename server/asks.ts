@@ -18,7 +18,11 @@
 import { readFileSync, renameSync } from "fs";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { errMessage } from "../shared/errors.ts";
-import { generateAskId, type AskEntry } from "../shared/types.ts";
+import {
+  generateAskId,
+  type AskEntry,
+  type SecretAskRequest,
+} from "../shared/types.ts";
 
 // Sanity bounds only.
 export const ASK_PROMPT_MAX = 4000;
@@ -83,18 +87,71 @@ export class AsksUnavailableError extends Error {
   }
 }
 
+function isSecretAskRequest(v: unknown): v is SecretAskRequest {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  const form = r.form as Record<string, unknown> | null;
+  return (
+    typeof r.requestId === "string" &&
+    r.requestId.length > 0 &&
+    (r.scope === "personal" || r.scope === "office") &&
+    typeof r.name === "string" &&
+    Array.isArray(r.hosts) &&
+    r.hosts.every((h) => typeof h === "string") &&
+    typeof form === "object" &&
+    form !== null &&
+    typeof form.kind === "string" &&
+    typeof r.reason === "string"
+  );
+}
+
+// Three shapes: a plain ask and a personal secret request are for one
+// member; an office secret request is for every office owner and names no
+// member.
 function isAskEntry(v: unknown): v is AskEntry {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
-  return (
-    typeof r.id === "string" &&
-    r.id.length > 0 &&
-    typeof r.agentId === "string" &&
-    typeof r.memberUserId === "string" &&
-    typeof r.prompt === "string" &&
-    typeof r.createdAt === "number" &&
-    typeof r.updatedAt === "number"
-  );
+  if (
+    !(
+      typeof r.id === "string" &&
+      r.id.length > 0 &&
+      typeof r.agentId === "string" &&
+      typeof r.prompt === "string" &&
+      typeof r.createdAt === "number" &&
+      typeof r.updatedAt === "number"
+    )
+  )
+    return false;
+  const hasMember =
+    typeof r.memberUserId === "string" && r.memberUserId.length > 0;
+  if (r.secret === undefined) return hasMember;
+  if (!isSecretAskRequest(r.secret)) return false;
+  return r.secret.scope === "office"
+    ? r.memberUserId === undefined
+    : hasMember;
+}
+
+export interface AskAudienceDeps {
+  isOfficeOwner: (userId: string) => boolean;
+  // The agent's room, or null when the agent is gone.
+  agentRoomId: (agentId: string) => string | null;
+  canSeeRoom: (userId: string, roomId: string) => boolean;
+}
+
+// Whether a member sees an ask and may answer it, decided live: the member
+// it names, or any office owner for an office secret request, and in both
+// cases only while the member can reach the agent's room. Every list, push
+// and answer check goes through here.
+export function askVisibleTo(
+  entry: AskEntry,
+  userId: string | null,
+  deps: AskAudienceDeps,
+): boolean {
+  if (!userId) return false;
+  const roomId = deps.agentRoomId(entry.agentId);
+  if (roomId === null || !deps.canSeeRoom(userId, roomId)) return false;
+  if (entry.secret?.scope === "office") return deps.isOfficeOwner(userId);
+  return entry.memberUserId !== undefined && entry.memberUserId === userId;
 }
 
 // The prompt as the agent sent it, or the reason it is refused.
@@ -126,12 +183,15 @@ export interface AskStoreDeps {
 
 export interface AskStore {
   get(id: string): AskEntry | null;
+  // Every open entry, for a scan across agents (secret requests).
+  listAll(): AskEntry[];
   listForAgent(agentId: string): AskEntry[];
-  listForMember(memberUserId: string): AskEntry[];
+  // Throws on an entry that is none of the three shapes.
   create(input: {
     agentId: string;
-    memberUserId: string;
+    memberUserId?: string;
     prompt: string;
+    secret?: SecretAskRequest;
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
   edit(id: string, prompt: string): AskEntry | null;
   remove(id: string): AskEntry | null;
@@ -186,19 +246,17 @@ export function createAskStore(
       const entry = entries.find((e) => e.id === id);
       return entry ? { ...entry } : null;
     },
+    listAll() {
+      check();
+      return entries.map((e) => ({ ...e }));
+    },
     listForAgent(agentId) {
       check();
       return entries
         .filter((e) => e.agentId === agentId)
         .map((e) => ({ ...e }));
     },
-    listForMember(memberUserId) {
-      check();
-      return entries
-        .filter((e) => e.memberUserId === memberUserId)
-        .map((e) => ({ ...e }));
-    },
-    create({ agentId, memberUserId, prompt }) {
+    create({ agentId, memberUserId, prompt, secret }) {
       check();
       const open = entries.filter((e) => e.agentId === agentId).length;
       if (open >= ASK_MAX_OPEN_PER_AGENT)
@@ -207,11 +265,13 @@ export function createAskStore(
       const entry: AskEntry = {
         id: generateAskId(entries.map((e) => e.id)),
         agentId,
-        memberUserId,
+        ...(memberUserId !== undefined ? { memberUserId } : {}),
         prompt,
         createdAt: at,
         updatedAt: at,
+        ...(secret ? { secret } : {}),
       };
+      if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);
       return { ok: true, entry: { ...entry } };
     },

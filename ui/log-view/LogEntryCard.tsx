@@ -795,12 +795,7 @@ export const LogEntryCard = memo(function LogEntryCard({
     case "secret-request": {
       if (!entry.secretRequest)
         return <SystemMessage content={entry.content} isMobile={isMobile} />;
-      return (
-        <SecretRequestCard
-          payload={entry.secretRequest}
-          agentId={entry.agentId}
-        />
-      );
+      return <SecretRequestCard payload={entry.secretRequest} />;
     }
     case "file-view": {
       if (!entry.attachments || entry.attachments.length === 0)

@@ -79,8 +79,10 @@ import {
   type PagerStore,
 } from "./pager-store.ts";
 import {
+  askVisibleTo,
   createAskFilePersistence,
   createAskStore,
+  type AskAudienceDeps,
   type AskChange,
   type AskStore,
 } from "./asks.ts";
@@ -371,7 +373,7 @@ import { createMembersChatStore } from "./members-chat.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
-import { createSecretRequests, SERVER_BOOT_ID } from "./secret-requests.ts";
+import { createSecretRequests } from "./secret-requests.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import { createMcpOAuth, type McpOAuth } from "./mcp-oauth.ts";
 import { dropOAuthTokensOfScope } from "./mcp-oauth-tokens.ts";
@@ -681,6 +683,16 @@ setMcpPlaceholderProvider((scope, name) =>
 let scheduledMessageManager: ScheduledMessageManager;
 let pagerStore: PagerStore;
 let askStore: AskStore | undefined;
+// Who sees and answers an ask (askVisibleTo), read live: GET /api/asks,
+// pushAskChange, the member answer routes and the secret request routes.
+const askAudience: AskAudienceDeps = {
+  isOfficeOwner: (userId) => buildLiveGuardDeps().isOfficeOwnerUserId(userId),
+  agentRoomId: (agentId) => agentManager.getAgent(agentId)?.roomId ?? null,
+  canSeeRoom: (userId, roomId) => {
+    const user = getUserById(userId);
+    return !!user && accessibleRoomIdsFor(user).has(roomId);
+  },
+};
 let pagerSettings: PagerSettingsStore;
 let pagerDelivery: PagerDeliveryService;
 let webPushStore: WebPushStore;
@@ -3074,10 +3086,8 @@ function buildExecutorDeps(
         return user ? { id: user.id, name: user.name } : null;
       },
       memberName: (userId) => getUserById(userId)?.name ?? null,
-      memberCanSeeRoom: (userId, roomId) => {
-        const user = getUserById(userId);
-        return !!user && accessibleRoomIdsFor(user).has(roomId);
-      },
+      memberCanSeeRoom: askAudience.canSeeRoom,
+      isOfficeOwner: askAudience.isOfficeOwner,
       deliver: deliverAskAnswer,
     }),
   );
@@ -3959,11 +3969,14 @@ function buildExecutorDeps(
         }),
     }),
   );
-  // Secret requests: an agent asks, the member types the value on a card.
+  // Secret requests: an agent asks, the member types the value in the ask's
+  // masked form.
   register(
     secretRequestHandlers(
       createSecretRequests({
         store: mcpSources.secrets,
+        asks: askStore!,
+        audience: askAudience,
         // The OpenCode servers take the new secret as after a save; every
         // one, since the request names no scope here.
         onChanged: async () => {
@@ -3976,10 +3989,6 @@ function buildExecutorDeps(
           const agent = agentManager.getAgent(agentId);
           return agent ? (agent.userId ?? null) : undefined;
         },
-        isOfficeOwnerUserId: (userId) =>
-          buildLiveGuardDeps().isOfficeOwnerUserId(userId),
-        emitRequest: (agentId, payload) =>
-          agentManager.emitAgentSecretRequest(agentId, payload),
         emitSettled: (agentId, requestId, outcome, name) =>
           agentManager.emitAgentSecretRequestSettled(
             agentId,
@@ -5952,7 +5961,6 @@ function sendProjectedFullState(
         : { opencode: "needs_linux" },
       unavailableFeatures:
         appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
-      serverBootId: SERVER_BOOT_ID,
     } satisfies ServerMessage),
   );
   // Fence the replay so the client knows the replayed transcript is complete
@@ -6096,25 +6104,24 @@ function pushPagerEntryToEachWs(entry: PagerEntry) {
   }
 }
 
-// Push ONE ask change to the sockets of the member it is for, and to no
-// one else. An upsert also needs the member's access to the agent's room, the
-// rule GET /api/asks applies; a removal goes to the member regardless,
-// so a stack never keeps an entry that closed.
+// Push ONE ask change to the sockets of the members askVisibleTo admits, the
+// rule GET /api/asks applies, and to no one else. A removal goes to the
+// member it named, or every owner for an office secret request, with no room
+// check, so a stack never keeps an entry that closed.
 function pushAskChange(change: AskChange) {
   const { entry } = change;
-  const agent = agentManager.getAgent(entry.agentId);
+  const forOwners = entry.secret?.scope === "office";
   for (const ws of browsers) {
-    if (ws.data.session.userId !== entry.memberUserId) continue;
+    const userId = ws.data.session.userId;
     if (change.kind === "removed") {
-      officeSend(
-        ws,
-        JSON.stringify({ type: "ask_removed", id: entry.id }),
-      );
+      const addressed = forOwners
+        ? !!userId && askAudience.isOfficeOwner(userId)
+        : !!userId && userId === entry.memberUserId;
+      if (addressed)
+        officeSend(ws, JSON.stringify({ type: "ask_removed", id: entry.id }));
       continue;
     }
-    const user = getUserById(entry.memberUserId);
-    if (!user || !agent || !accessibleRoomIdsFor(user).has(agent.roomId))
-      continue;
+    if (!askVisibleTo(entry, userId, askAudience)) continue;
     officeSend(ws, JSON.stringify({ type: "ask_upserted", entry }));
   }
 }

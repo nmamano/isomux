@@ -731,7 +731,8 @@ export interface AskDismissReq {
   device?: string;
 }
 // What an agent reads back: the stored entry plus the target's username.
-export type AskAgentWire = AskEntry & { member: string };
+// member is null for an office secret request, which is for every owner.
+export type AskAgentWire = AskEntry & { member: string | null };
 
 export interface ApiTokenInboxSendRes {
   messageId: string;

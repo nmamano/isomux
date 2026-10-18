@@ -1170,9 +1170,15 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.diff": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.editFile": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.terminalCommand": { caps: ["self:affordance"], emits: ["log_entry"] },
-  "agents.secretRequest": { caps: ["self:affordance"], emits: ["log_entry"] },
-  "secretRequests.save": { caps: ["user:env"], emits: ["log_entry"] },
-  "secretRequests.decline": { caps: ["user:env"], emits: ["log_entry"] },
+  "agents.secretRequest": { caps: ["self:affordance"], emits: ["ask_upserted"] },
+  "secretRequests.save": {
+    caps: ["user:env"],
+    emits: ["log_entry", "ask_removed"],
+  },
+  "secretRequests.decline": {
+    caps: ["user:env"],
+    emits: ["log_entry", "ask_removed"],
+  },
   "agents.createAsk": {
     caps: ["self:affordance"],
     emits: ["ask_upserted"],

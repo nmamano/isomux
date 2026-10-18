@@ -14,6 +14,8 @@ The answer arrives as a normal message from the member, starting with `[Reply to
 
 `GET /api/agents/:id/asks/:askId` returns the ask while it is open and 404 once it is closed. `GET /api/agents/:id/asks` lists your open ones. Change the prompt with `PATCH /api/agents/:id/asks/:askId` and a text/plain body. When the question no longer applies, for example because the member answered in the chat, delete it with `DELETE /api/agents/:id/asks/:askId`. You can have 50 open at a time. You can manage only your own asks.
 
+A secret request (see the connections page) is also one of your asks. It has `secret: {requestId, scope, name, hosts, form, reason}`, and its prompt is the reason. The member answers it in its masked form, not with a reply. You cannot edit it, but you can delete it to withdraw the request. An office secret request is for every office owner: it has no `memberUserId`, and `member` is null.
+
 Safe example: `GET /api/agents/<your-id>/asks`.
 
 ## Route contract
@@ -26,4 +28,4 @@ Safe example: `GET /api/agents/<your-id>/asks`.
 | `PATCH /api/agents/:id/asks/:askId`  | text/plain prompt; or `{text}`                         | The ask                      |
 | `DELETE /api/agents/:id/asks/:askId` | None                                                   | `204`                               |
 
-An ask is `{id, agentId, memberUserId, member, prompt, createdAt, updatedAt}`. A closed or unknown id returns 404. An `:id` other than your own returns 403. An empty or too long prompt returns 400. An unknown `member`, or a member who cannot reach your room, returns 422. With no `member`, an agent without a manager gets 409. More than 50 open asks returns 429.
+An ask is `{id, agentId, memberUserId, member, prompt, createdAt, updatedAt, secret?}`. A closed or unknown id returns 404. An `:id` other than your own returns 403. An empty or too long prompt returns 400. An unknown `member`, or a member who cannot reach your room, returns 422. With no `member`, an agent without a manager gets 409. More than 50 open asks returns 429. An edit of a secret request returns 409 `secret_request`.

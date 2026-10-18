@@ -1557,8 +1557,6 @@ App 的一些原则：
   "cards.secretRequest.saved": "已保存。智能体下次启动时会拿到占位值。",
   "cards.secretRequest.declined": "已拒绝。",
   "cards.secretRequest.closed": "此请求已关闭。智能体可以再次请求。",
-  "cards.secretRequest.ownerAnswers": "此请求由办公室所有者回应。",
-  "cards.secretRequest.managerAnswers": "此请求由该智能体的负责人回应。",
   "cards.secretRequest.forbidden":
     "只有此智能体的负责人可以回应此请求；办公室密钥则由办公室所有者回应。",
   "cards.terminalCommand.copy": "复制到终端",

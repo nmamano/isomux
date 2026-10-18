@@ -7,7 +7,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
-import { getUserByName } from "../users.ts";
+import { getUserByName, updateUserById } from "../users.ts";
 import { askReplyNote } from "../asks.ts";
 import { ASK_DISMISSED_TEXT } from "../routes/handlers/asks.ts";
 import type { AskEntry, AgentInfo } from "../../shared/types.ts";
@@ -652,5 +652,219 @@ describe("live and durable", () => {
     await server.agentManager.kill(w.asker.id);
     const gone = await call(server, "GET", "/api/asks", owner);
     expect(gone.body).toEqual([]);
+  });
+});
+
+describe("a secret request is an ask", () => {
+  const VALUE = "ghp_FAKEaskrouteFAKEaskrouteFAKEaskroute0";
+  const REQUEST = {
+    name: "GH_TOKEN",
+    hosts: ["api.github.com"],
+    reason: "To open the pull request.",
+  };
+
+  async function request(
+    srv: TestServer,
+    agentId: string,
+    body: Record<string, unknown> = REQUEST,
+  ): Promise<string> {
+    const r = await call(
+      srv,
+      "POST",
+      `/api/agents/${agentId}/secret-requests`,
+      { bearer: getAgentTokenRaw(agentId)! },
+      { json: body },
+    );
+    expect(r.status).toBe(200);
+    return (r.body as { requestId: string }).requestId;
+  }
+
+  const save = (
+    srv: TestServer,
+    agentId: string,
+    requestId: string,
+    rawSessionId: string,
+  ) =>
+    call(
+      srv,
+      "POST",
+      `/api/agents/${agentId}/secret-requests/${requestId}/save`,
+      { rawSessionId },
+      { json: { value: VALUE } },
+    );
+
+  it("waits in the manager's asks; a reply, a dismiss and the agent's edit are refused, and a save closes it", async () => {
+    const w = await world();
+    const ws = await w.srv.connectWs(w.owner.rawSessionId);
+    const requestId = await request(w.srv, w.asker.id);
+    const owner = { rawSessionId: w.owner.rawSessionId };
+    const listed = await call(w.srv, "GET", "/api/asks", owner);
+    const [entry] = listed.body as AskEntry[];
+    expect(entry.secret?.requestId).toBe(requestId);
+    expect(entry.prompt).toBe(REQUEST.reason);
+    const up = await ws.waitFor("ask_upserted");
+    expect((up.entry as AskEntry).id).toBe(entry.id);
+    // The agent sees its request among its asks.
+    const own = await call(
+      w.srv,
+      "GET",
+      `/api/agents/${w.asker.id}/asks`,
+      w.as(w.asker.id),
+    );
+    expect(own.body).toMatchObject([
+      { id: entry.id, member: w.owner.username },
+    ]);
+    // A reply would carry what the member typed to the chat: refused, and
+    // the request stays open.
+    for (const [verb, json] of [
+      ["reply", { text: VALUE }],
+      ["dismiss", {}],
+    ] as const) {
+      const r = await call(
+        w.srv,
+        "POST",
+        `/api/asks/${entry.id}/${verb}`,
+        owner,
+        { json },
+      );
+      expect(`${verb} ${r.status} ${r.code}`).toBe(
+        `${verb} 409 secret_request`,
+      );
+      expect(JSON.stringify(r.body)).not.toContain(VALUE);
+    }
+    const edit = await call(
+      w.srv,
+      "PATCH",
+      `/api/agents/${w.asker.id}/asks/${entry.id}`,
+      w.as(w.asker.id),
+      { text: "Another reason" },
+    );
+    expect(`${edit.status} ${edit.code}`).toBe("409 secret_request");
+    expect(sentTexts(w.srv, w.asker.id).some((t) => t.includes(VALUE))).toBe(
+      false,
+    );
+
+    const saved = await save(
+      w.srv,
+      w.asker.id,
+      requestId,
+      w.owner.rawSessionId,
+    );
+    expect(saved.status).toBe(200);
+    expect((await ws.waitFor("ask_removed")).id).toBe(entry.id);
+    expect((await call(w.srv, "GET", "/api/asks", owner)).body).toEqual([]);
+    // No log entry and no frame to the member holds the value.
+    expect(
+      JSON.stringify(w.srv.agentManager.getAgentLogs(w.asker.id)),
+    ).not.toContain(VALUE);
+    expect(JSON.stringify(ws.messages)).not.toContain(VALUE);
+  });
+
+  it("an office request goes to every owner who can reach the room, not to the agent's manager", async () => {
+    const w = await world();
+    const pat = await w.srv.seedMember("Pat");
+    const patId = getUserByName(pat.username)!.id;
+    expect(updateUserById(patId, { allowedRooms: [w.room.id] })).toBeTruthy();
+    // Pat manages this agent.
+    const info = await w.srv.agentManager.spawn(
+      "Pats",
+      w.srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      w.room.id,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "claude",
+      undefined,
+      patId,
+    );
+    const agentId = info!.id;
+    const personal = await request(w.srv, agentId);
+    const office = await request(w.srv, agentId, {
+      ...REQUEST,
+      name: "OFFICE_TOKEN",
+      scope: "office",
+    });
+    const ids = async (rawSessionId: string) =>
+      (
+        (await call(w.srv, "GET", "/api/asks", { rawSessionId }))
+          .body as AskEntry[]
+      ).map((e) => e.secret?.requestId);
+    expect(await ids(pat.rawSessionId)).toEqual([personal]);
+    expect(await ids(w.owner.rawSessionId)).toEqual([office]);
+    // The agent reads no member on the office request.
+    const own = await call(
+      w.srv,
+      "GET",
+      `/api/agents/${agentId}/asks`,
+      { bearer: getAgentTokenRaw(agentId)! },
+    );
+    expect(
+      (own.body as (AskEntry & { member: string | null })[]).map((e) => [
+        e.secret?.requestId,
+        e.member,
+      ]),
+    ).toEqual([
+      [personal, pat.username],
+      [office, null],
+    ]);
+    expect((await save(w.srv, agentId, office, pat.rawSessionId)).status).toBe(
+      403,
+    );
+    expect(
+      (await save(w.srv, agentId, personal, w.owner.rawSessionId)).status,
+    ).toBe(403);
+    expect(
+      (await save(w.srv, agentId, office, w.owner.rawSessionId)).status,
+    ).toBe(200);
+    expect(await ids(w.owner.rawSessionId)).toEqual([]);
+  });
+
+  it("survives a restart: the member saves after it, and the agent is told", async () => {
+    const w = await world();
+    const requestId = await request(w.srv, w.asker.id);
+    server = await w.srv.restart();
+    const after = await call(server, "GET", "/api/asks", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    expect(
+      (after.body as AskEntry[]).map((e) => e.secret?.requestId),
+    ).toEqual([requestId]);
+    const saved = await save(
+      server,
+      w.asker.id,
+      requestId,
+      w.owner.rawSessionId,
+    );
+    expect(saved.status).toBe(200);
+    const srv = server;
+    await waitUntil(
+      () =>
+        sentTexts(srv, w.asker.id).some((t) =>
+          t.includes(`I saved the secret ${REQUEST.name}`),
+        ),
+      "the agent is told",
+    );
+  });
+
+  it("the agent's delete withdraws it: a later save finds nothing", async () => {
+    const w = await world();
+    const requestId = await request(w.srv, w.asker.id);
+    const [entry] = (
+      await call(w.srv, "GET", `/api/agents/${w.asker.id}/asks`, w.as(w.asker.id))
+    ).body as AskEntry[];
+    const deleted = await call(
+      w.srv,
+      "DELETE",
+      `/api/agents/${w.asker.id}/asks/${entry.id}`,
+      w.as(w.asker.id),
+    );
+    expect(deleted.status).toBe(204);
+    expect(
+      (await save(w.srv, w.asker.id, requestId, w.owner.rawSessionId)).status,
+    ).toBe(404);
   });
 });

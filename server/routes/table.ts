@@ -759,17 +759,18 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: ["log_entry"],
   }),
-  // Secret requests (secrets loop, B4): the agent asks on its own chat; the
-  // member answers on the card. The core checks who may answer: the agent's
-  // manager for a personal secret, an office owner for an office one. Audit
-  // rows name the agent, the request and the secret, never a value.
+  // Secret requests (secrets loop, B4): the agent asks for itself, and the
+  // request waits as an ask; the member answers in the ask's masked form.
+  // The core checks who may answer (askVisibleTo): the agent's manager for a
+  // personal secret, an office owner for an office one. Audit rows name the
+  // agent, the request and the secret, never a value.
   defineRoute<SecretRequestReq, SecretRequestRes>({
     opId: "agents.secretRequest",
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/agents/:id/secret-requests",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
-    emits: ["log_entry"],
+    emits: ["ask_upserted"],
   }),
   defineRoute<SecretRequestSaveReq, SecretRequestAnswerRes>({
     opId: "secretRequests.save",
@@ -777,7 +778,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/secret-requests/:requestId/save",
     auth: cap("user:env", memberScope),
-    emits: ["log_entry"],
+    emits: ["log_entry", "ask_removed"],
   }),
   defineRoute<void, SecretRequestAnswerRes>({
     opId: "secretRequests.decline",
@@ -785,7 +786,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/secret-requests/:requestId/decline",
     auth: cap("user:env", memberScope),
-    emits: ["log_entry"],
+    emits: ["log_entry", "ask_removed"],
   }),
   // Asks (internal-docs/asks-design.md): the agent manages its
   // own list (self:affordance, :id must be the token's agent); the member the

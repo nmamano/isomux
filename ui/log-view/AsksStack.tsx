@@ -1,6 +1,7 @@
 // The agent's open asks for this member, stacked above the chat input
 // (internal-docs/asks-design.md). Each card is the agent's prompt, a
-// reply field prefilled with the catalog's "done", Reply and Dismiss. The
+// reply field prefilled with the catalog's "done", Reply and Dismiss; a
+// secret request has its masked form instead (SecretAskCard). The
 // stack scrolls past a maximum height and collapses to one bar: open by
 // default on a desktop, collapsed on a phone. The server closes an answered
 // ask and pushes ask_removed; the card also goes on a 204, so
@@ -19,6 +20,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { asksFor } from "../asks-sync.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
+import { SecretAskCard } from "./SecretAskCard.tsx";
 
 // The stack's height before it scrolls: about two and a half cards on a
 // desktop, so a cut card shows there is more.
@@ -68,7 +70,16 @@ function CountPill({ count, isMobile }: { count: number; isMobile: boolean }) {
   );
 }
 
-function AskCard({
+// One ask, of either kind.
+function AskCard({ entry, isMobile }: { entry: AskEntry; isMobile: boolean }) {
+  return entry.secret ? (
+    <SecretAskCard entry={entry} secret={entry.secret} isMobile={isMobile} />
+  ) : (
+    <ReplyAskCard entry={entry} isMobile={isMobile} />
+  );
+}
+
+function ReplyAskCard({
   entry,
   isMobile,
 }: {
@@ -330,7 +341,11 @@ export function AsksStack({
               textOverflow: "ellipsis",
             }}
           >
-            {entries[0].prompt.replace(/\s+/g, " ")}
+            {entries[0].secret
+              ? t("cards.secretRequest.title", {
+                  name: entries[0].secret.name,
+                })
+              : entries[0].prompt.replace(/\s+/g, " ")}
           </span>
         </button>
       </div>
