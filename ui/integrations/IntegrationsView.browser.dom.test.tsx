@@ -38,7 +38,13 @@ describe("the Browser tab", () => {
     const tabs = [
       ...view.container.querySelectorAll("[data-integrations-tab]"),
     ].map((el) => el.getAttribute("data-integrations-tab"));
-    expect(tabs).toEqual(["providers", "mcp", "secrets", "variables", "browser"]);
+    expect(tabs).toEqual([
+      "providers",
+      "mcp",
+      "secrets",
+      "variables",
+      "browser",
+    ]);
   });
 
   for (const [who, state] of [
@@ -48,14 +54,20 @@ describe("the Browser tab", () => {
     it(`shows ${who} the Chrome pairing pane alone: no cards, no member picker`, async () => {
       const view = await open(state);
       // The cards are up on the first tab, so their absence below is the tab's.
-      expect(panel(view).querySelectorAll("[data-integrations-card]").length).toBe(2);
+      expect(
+        panel(view).querySelectorAll("[data-integrations-card]").length,
+      ).toBe(2);
       await tab(view, "browser");
       expect(selected(view)).toBe("browser");
       expect(
         panel(view).querySelector('[data-testid="browser-settings"]'),
       ).not.toBeNull();
-      expect(panel(view).querySelectorAll("[data-integrations-card]").length).toBe(0);
-      expect(view.container.querySelector("[data-integrations-picker]")).toBeNull();
+      expect(
+        panel(view).querySelectorAll("[data-integrations-card]").length,
+      ).toBe(0);
+      expect(
+        view.container.querySelector("[data-integrations-picker]"),
+      ).toBeNull();
       expect(fake.requests("GET", "/api/me/browser").length).toBeGreaterThan(0);
     });
 
@@ -66,15 +78,23 @@ describe("the Browser tab", () => {
       card(view, "personal").getAttribute("data-integrations-member"),
     ).toBe("Stephen");
     await tab(view, "browser");
-    expect(view.container.querySelector("[data-integrations-picker]")).toBeNull();
-    expect(view.container.querySelector("[data-integrations-member]")).toBeNull();
+    expect(
+      view.container.querySelector("[data-integrations-picker]"),
+    ).toBeNull();
+    expect(
+      view.container.querySelector("[data-integrations-member]"),
+    ).toBeNull();
     expect(view.container.textContent).not.toContain("Stephen");
     expect(
       panel(view).querySelector('[data-testid="browser-settings"]'),
     ).not.toBeNull();
     // The pane reads only the viewer's own route, never the member's.
     expect(fake.requests("GET", "/api/me/browser").length).toBeGreaterThan(0);
-    expect(fake.requests("GET", /\/browser/).every((c) => c.path === "/api/me/browser")).toBe(true);
+    expect(
+      fake
+        .requests("GET", /\/browser/)
+        .every((c) => c.path === "/api/me/browser"),
+    ).toBe(true);
     await tab(view, "secrets");
     expect(
       card(view, "personal").getAttribute("data-integrations-member"),

@@ -67,7 +67,8 @@ export const es: Catalog = {
     "Este agente ya tiene una pestaña. Desactívala primero.",
   "browser.control": "Control del agente",
   "browser.title": "Uso del navegador",
-  "settings.browserMoved": "Uso del navegador se ha movido a <link>Integraciones</link>.",
+  "settings.browserMoved":
+    "Uso del navegador se ha movido a <link>Integraciones</link>.",
   "browser.intro":
     "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas. Ofrece una pestaña a Todos o a un agente.",
   "browser.chromeHelp":

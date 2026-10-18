@@ -427,55 +427,55 @@ function IntegrationsPage({
               sessionContext && <BrowserPane />
             ) : (
               <>
-              <section
-                data-integrations-card="office"
-                style={card}
-                onClickCapture={actOn(office)}
-              >
-                <CardHead
-                  icon={BuildingIcon}
-                  title={t("integrations.office")}
-                  sub={
-                    role === "owner"
-                      ? t("integrations.officeWho")
-                      : t("integrations.officeWhoMember")
-                  }
-                  action={
-                    tab === "providers" ? (
-                      <Btn
-                        small
-                        disabled={accounts.refreshing}
-                        onClick={accounts.refresh}
-                        data-providers-refresh
-                      >
-                        {accounts.refreshing
-                          ? t("settings.connections.refreshing")
-                          : t("settings.connections.refresh")}
-                      </Btn>
-                    ) : undefined
-                  }
-                />
-                {section(office)}
-              </section>
+                <section
+                  data-integrations-card="office"
+                  style={card}
+                  onClickCapture={actOn(office)}
+                >
+                  <CardHead
+                    icon={BuildingIcon}
+                    title={t("integrations.office")}
+                    sub={
+                      role === "owner"
+                        ? t("integrations.officeWho")
+                        : t("integrations.officeWhoMember")
+                    }
+                    action={
+                      tab === "providers" ? (
+                        <Btn
+                          small
+                          disabled={accounts.refreshing}
+                          onClick={accounts.refresh}
+                          data-providers-refresh
+                        >
+                          {accounts.refreshing
+                            ? t("settings.connections.refreshing")
+                            : t("settings.connections.refresh")}
+                        </Btn>
+                      ) : undefined
+                    }
+                  />
+                  {section(office)}
+                </section>
 
-              <PersonalCard
-                cardRef={personalRef}
-                target={personal}
-                role={role}
-                others={others.map((user) => user.name)}
-                onPick={pick}
-                gone={goneMember}
-                onClickCapture={actOn(personal)}
-              >
-                {section(personal)}
-              </PersonalCard>
+                <PersonalCard
+                  cardRef={personalRef}
+                  target={personal}
+                  role={role}
+                  others={others.map((user) => user.name)}
+                  onPick={pick}
+                  gone={goneMember}
+                  onClickCapture={actOn(personal)}
+                >
+                  {section(personal)}
+                </PersonalCard>
 
-              {tab === "providers" && (
-                <ProvidersFooter onVariables={() => setTab("variables")} />
-              )}
-              <p style={{ ...hintText, marginTop: 8 }}>
-                {t("integrations.applies")}
-              </p>
+                {tab === "providers" && (
+                  <ProvidersFooter onVariables={() => setTab("variables")} />
+                )}
+                <p style={{ ...hintText, marginTop: 8 }}>
+                  {t("integrations.applies")}
+                </p>
               </>
             )}
           </div>
