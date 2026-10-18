@@ -78,6 +78,8 @@ There is no Isomux Lead in the loop (Nil, 2026-10-18). The board is the only sta
 - **Isomux Main** (skill isomux-main): the only agent that writes to main. It merges approved branches, runs CI, and quarantines flaky tests. It writes no other code.
 - **Workers and reviewers** (skills isomux-loop-worker and isomux-loop-review): the existing persistent pairs (Worker N with Reviewer N), with the existing edit-token protocol. A worker takes one task at a time and checks on its own reviewer. The worker writes the tests. When the reviewer finds a gap in them, the reviewer may write the missing test itself.
 
+The loop runs 2 pairs at a time (Workers 1-2 with Reviewers 1-2), not 6 (Nil, 2026-10-18): it runs around the clock, and fewer parallel tasks mean fewer merge conflicts. It adds pairs only if the pilot shows the ready queue growing while the weekly allowance has room.
+
 ## The loop app
 
 One app holds the deterministic parts of the loop: the triage view, the copy view, dispatch and the tick. Its owner agent is Isomux Curator, and an app has the same reach as the agent that owns it (task c0204eb6), so the app reads and writes the board and messages workers.
