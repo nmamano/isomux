@@ -68,7 +68,7 @@ export const ca: Catalog = {
   "browser.control": "Control de l’agent",
   "browser.title": "Ús del navegador",
   "settings.browserMoved":
-    "Ús del navegador s’ha mogut a <link>Integracions</link>.",
+    "L’ús del navegador s’ha mogut a <link>Integracions</link>.",
   "browser.intro":
     "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les sessions iniciades. Ofereix una pestanya a Tots o a un agent.",
   "browser.chromeHelp":

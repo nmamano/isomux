@@ -7,8 +7,7 @@
 // member's name and offers a way back, and every form names the member, so an
 // owner cannot forget whose items they are changing (Nil, 2026-10-13).
 //
-// The member choice lives in this component only. Each open starts on You,
-// except the Settings member profile's link, which opens on that member once.
+// The member choice lives in this component only. Each open starts on You.
 // The tab is remembered on the device: an open starts on the last one, except
 // an MCP sign-in that came back, which opens MCP servers on the card of the
 // server it signed in to, and a request that names a tab.
