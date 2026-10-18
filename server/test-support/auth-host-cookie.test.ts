@@ -1,21 +1,18 @@
-// The office session cookie under the `__Host-` prefix (phase-3 slice 2).
+// The office session cookie names (task c9f250af, on top of the `__Host-`
+// work of phase-3 slice 2).
 //
-// Why the prefix: once registered apps answer on subdomains of the office
-// host, a page on `hello.apps.<office>` can set `isomux_session` with
-// `Domain=<office>` and shadow the office's own cookie. The `__Host-` prefix
-// is browser-enforced to be host-only, so a sibling subdomain cannot write it.
+// Each office writes its own names, isomux_session_<office id> and, on HTTPS,
+// __Host-isomux_session_<office id>. Browsers scope cookies by host, not by
+// port, so with one shared name two offices on one host read and cleared each
+// other's cookie. The `__Host-` prefix is browser-enforced to be host-only, so
+// a page on a sibling subdomain (`hello.apps.<office>`) cannot shadow it.
 //
-// The hard constraint this file exists to police is the other direction: NOBODY
-// GETS LOGGED OUT. Both names are read everywhere, the new name is only ever
-// written where the deployment can carry it (HTTPS), and the legacy cookie is
-// only cleared once its replacement has been observed coming back from the
-// browser. So there are two arms throughout:
-//
-//   - plain-HTTP (the default harness boot, and every loopback install):
-//     byte-identical to the behavior before this slice.
-//   - HTTPS (external access on + an https publicOrigin, reached through the
-//     real Access route + a cold restart, since the signal is boot-frozen):
-//     writes and migrates onto `__Host-`.
+// The hard constraint this file exists to police: NOBODY GETS SIGNED OUT. The
+// shared names every office wrote before are read for one release as a
+// fallback, the new name is only ever written where the deployment can carry
+// it, and an old cookie is only cleared once its replacement has been observed
+// coming back from the browser - and only when it carries this office's
+// session.
 
 import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach, beforeEach } from "bun:test";
@@ -27,15 +24,17 @@ import {
 } from "./harness.ts";
 import { builtShellExists } from "./built-ui.ts";
 import {
-  COOKIE_NAME,
-  HOST_COOKIE_NAME,
+  SHARED_COOKIE_NAME,
+  SHARED_HOST_COOKIE_NAME,
   _testResetBrowserSessionDiagnostics,
   browserSessionDiagnostic,
   buildPublicOrigin,
   formatBrowserSessionDiagnostic,
   emitBrowserSessionDiagnostic,
   listActiveSessions,
+  officeSessionCookieNames,
   readSessionCookies,
+  sessionCookieMigrationHeaders,
   validateSession,
 } from "../auth.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
@@ -173,25 +172,39 @@ async function whoAmI(srv: TestServer, cookieHeader: string): Promise<string> {
   return names[0];
 }
 
-describe("__Host- cookie: plain-HTTP arm is unchanged", () => {
-  it("login writes the legacy name with the pre-slice attribute string and no Secure", async () => {
+
+// This office's two names, read at call time: the id lives in the state root,
+// which every startTestServer() wipes.
+const own = () => officeSessionCookieNames();
+const SHARED = SHARED_COOKIE_NAME;
+const SHARED_HOST = SHARED_HOST_COOKIE_NAME;
+
+function clearOf(name: string, secure: boolean): string {
+  return `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? "; Secure" : ""}`;
+}
+
+describe("office cookie names: plain-HTTP office", () => {
+  it("login writes the office's plain name, with the pre-slice attribute string and no Secure", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
+    expect(own().plain).toMatch(/^isomux_session_[0-9a-f]{12}$/);
     const res = await acceptViaHttp(server, await mintFor("Yu"));
     expect(res.status).toBe(302);
     const lines = setCookieLines(res);
     expect(lines.length).toBe(1);
     expect(lines[0]).toMatch(
-      /^isomux_session=[^;]+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=\d+$/,
+      new RegExp(
+        `^${own().plain}=[^;]+; Path=/; HttpOnly; SameSite=Lax; Max-Age=\\d+$`,
+      ),
     );
   });
 
   it.skipIf(!builtShellExists)(
-    "no migration anywhere: shell, safe /api GET, and the WS 101 set no cookie (needs ui/dist - run `bun run build:ui`)",
+    "no migration for the write name: shell, safe /api GET, and the WS 101 set no cookie (needs ui/dist - run `bun run build:ui`)",
     async () => {
       server = await startTestServer();
       const owner = await server.seedOwner("Boss");
-      const cookie = `${COOKIE_NAME}=${owner.rawSessionId}`;
+      const cookie = `${own().plain}=${owner.rawSessionId}`;
 
       const shell = await server.http("/", { headers: { Cookie: cookie } });
       expect(shell.status).toBe(200);
@@ -209,117 +222,65 @@ describe("__Host- cookie: plain-HTTP arm is unchanged", () => {
     },
   );
 
-  // The one place a plain-HTTP office does NOT behave exactly as before, and
-  // deliberately: an office that was on HTTPS and then went back to loopback
-  // leaves browsers holding a `__Host-` cookie, which is still read. Signing
-  // out has to clear the cookie it might be authenticating with.
-  it("logout clears BOTH names, and the __Host- clear carries Secure so the browser honors it", async () => {
+  // An office that was on HTTPS and then went back to loopback leaves browsers
+  // holding its `__Host-` cookie, which is still read. Signing out has to
+  // clear the cookie it might be authenticating with.
+  it("logout clears both of the office's names, and the __Host- clear carries Secure so the browser honors it", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
     const member = await server.seedMember("Yu");
     const res = await server.http("/auth/logout", {
       method: "POST",
       redirect: "manual",
-      headers: { Cookie: `${COOKIE_NAME}=${member.rawSessionId}` },
+      headers: { Cookie: `${own().plain}=${member.rawSessionId}` },
     });
     expect(res.status).toBe(302);
     expect(setCookieLines(res)).toEqual([
-      "isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-      "__Host-isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
+      clearOf(own().plain, false),
+      clearOf(own().host, true),
     ]);
   });
 
-  it("a __Host- cookie left over from an HTTPS past still authenticates, and signing out clears it", async () => {
+  it("the office's __Host- cookie left over from an HTTPS past still authenticates, and signing out clears it", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
     const yu = await server.seedMember("Yu");
-    // Dual-read does not care which arm the office is on today.
-    expect(await whoAmI(server, `${HOST_COOKIE_NAME}=${yu.rawSessionId}`)).toBe(
-      "Yu",
-    );
+    const host = `${own().host}=${yu.rawSessionId}`;
+    expect(await whoAmI(server, host)).toBe("Yu");
     const res = await server.http("/auth/logout", {
       method: "POST",
       redirect: "manual",
-      headers: { Cookie: `${HOST_COOKIE_NAME}=${yu.rawSessionId}` },
+      headers: { Cookie: host },
     });
     expect(res.status).toBe(302);
-    expect(setCookieLines(res)).toContain(
-      "__Host-isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
-    );
+    expect(setCookieLines(res)).toContain(clearOf(own().host, true));
     const gone = await server.http("/api/sessions", {
-      headers: { Cookie: `${HOST_COOKIE_NAME}=${yu.rawSessionId}` },
+      headers: { Cookie: host },
     });
     expect(gone.status).toBe(401);
   });
-});
 
-// Cookies are not scoped by port, so an HTTPS office on the same host (a
-// container office on localhost) leaves a `__Host-` cookie a plain-HTTP office
-// can neither use nor reliably clear. An invalid one must not hide the legacy
-// cookie this office just wrote (task 57a62e40).
-describe("__Host- cookie: a foreign one on a plain-HTTP office", () => {
-  it("a sign-in still takes effect: the next request and the WS authenticate with the new legacy cookie", async () => {
+  // Write name first. A stale `__Host-` cookie of this office (a session
+  // revoked while the office was on HTTPS) cannot be cleared reliably from
+  // plain HTTP, so if it won by presence it would hide every new sign-in.
+  it("the plain write name wins over a stale __Host- cookie of the same office, in either order", async () => {
     server = await startTestServer();
     expect(buildPublicOrigin().isHttps).toBe(false);
     await server.seedOwner("Boss");
-    const foreign = `${HOST_COOKIE_NAME}=from-another-office`;
-    expect(
-      (await server.http("/api/sessions", { headers: { Cookie: foreign } }))
-        .status,
-    ).toBe(401);
+    const stale = `${own().host}=revoked-session`;
     const accepted = await acceptViaHttp(server, await mintFor("Yu"));
-    expect(accepted.status).toBe(302);
     const issued = setCookieLines(accepted)[0]?.split(";", 1)[0] ?? "";
-    expect(issued.startsWith(`${COOKIE_NAME}=`)).toBe(true);
-    for (const cookie of [`${foreign}; ${issued}`, `${issued}; ${foreign}`]) {
+    expect(issued.startsWith(`${own().plain}=`)).toBe(true);
+    for (const cookie of [`${stale}; ${issued}`, `${issued}; ${stale}`]) {
       expect(await whoAmI(server, cookie)).toBe("Yu");
       expect((await rawUpgrade(server.port, cookie)).status).toBe(101);
+      expect(cookies(cookie).selectedName).toBe("plain");
     }
-    const sock = await server.connectWs("", {
-      cookieHeader: `${foreign}; ${issued}`,
-    });
-    const ctx = (await sock.waitFor("session_context")) as {
-      context: { username: string };
-    };
-    expect(ctx.context.username).toBe("Yu");
-    sock.close();
-  });
-
-  it("an EMPTY __Host- cookie gives way too, and the selection names the legacy cookie", async () => {
-    server = await startTestServer();
-    expect(buildPublicOrigin().isHttps).toBe(false);
-    const yu = await server.seedMember("Yu");
-    const legacy = `${COOKIE_NAME}=${yu.rawSessionId}`;
-    expect(await whoAmI(server, `${HOST_COOKIE_NAME}=; ${legacy}`)).toBe("Yu");
-    const parsed = cookies(`${HOST_COOKIE_NAME}=; ${legacy}`);
-    expect(parsed.selectedName).toBe("legacy");
-    expect(parsed.selected).toBe(yu.rawSessionId);
-  });
-
-  it("a VALID __Host- cookie still wins over a legacy cookie for another user", async () => {
-    server = await startTestServer();
-    expect(buildPublicOrigin().isHttps).toBe(false);
-    const yu = await server.seedMember("Yu");
-    const mallory = await server.seedMember("Mallory");
-    const host = `${HOST_COOKIE_NAME}=${yu.rawSessionId}`;
-    const legacy = `${COOKIE_NAME}=${mallory.rawSessionId}`;
-    expect(await whoAmI(server, `${host}; ${legacy}`)).toBe("Yu");
-    expect(await whoAmI(server, `${legacy}; ${host}`)).toBe("Yu");
-  });
-
-  it("with only an invalid __Host- cookie the request stays rejected", async () => {
-    server = await startTestServer();
-    expect(buildPublicOrigin().isHttps).toBe(false);
-    await server.seedOwner("Boss");
-    const res = await server.http("/api/sessions", {
-      headers: { Cookie: `${HOST_COOKIE_NAME}=not-a-session` },
-    });
-    expect(res.status).toBe(401);
   });
 });
 
-describe("__Host- cookie: HTTPS arm writes and reads the prefixed name", () => {
-  it("login writes __Host- with Secure, Path=/, and no Domain", async () => {
+describe("office cookie names: HTTPS office", () => {
+  it("login writes the office's __Host- name with Secure, Path=/, and no Domain", async () => {
     const { srv } = await startHttps();
     server = srv;
     const res = await acceptViaHttp(server, await mintFor("Yu"));
@@ -327,64 +288,177 @@ describe("__Host- cookie: HTTPS arm writes and reads the prefixed name", () => {
     const lines = setCookieLines(res);
     expect(lines.length).toBe(1);
     expect(lines[0]).toMatch(
-      /^__Host-isomux_session=[^;]+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=\d+; Secure$/,
+      new RegExp(
+        `^${own().host}=[^;]+; Path=/; HttpOnly; SameSite=Lax; Max-Age=\\d+; Secure$`,
+      ),
     );
     // The prefix is only honored without a Domain attribute; a Domain here
     // would make browsers drop the cookie and nobody could sign in.
     expect(lines[0]).not.toContain("Domain");
   });
 
-  it("dual-read: legacy-only, host-only, and both (either header order) all authenticate", async () => {
+  it("dual-read: plain-only, host-only, and both (either header order) all authenticate", async () => {
     const { srv } = await startHttps();
     server = srv;
     const yu = await server.seedMember("Yu");
     const raw = yu.rawSessionId;
-    const legacy = `${COOKIE_NAME}=${raw}`;
-    const host = `${HOST_COOKIE_NAME}=${raw}`;
-    for (const cookie of [
-      legacy,
-      host,
-      `${host}; ${legacy}`,
-      `${legacy}; ${host}`,
-    ]) {
+    const plain = `${own().plain}=${raw}`;
+    const host = `${own().host}=${raw}`;
+    for (const cookie of [plain, host, `${host}; ${plain}`, `${plain}; ${host}`]) {
       expect(await whoAmI(server, cookie)).toBe("Yu");
       const up = await rawUpgrade(server.port, cookie);
       expect(up.status).toBe(101);
     }
   });
 
-  it("a present __Host- cookie blocks legacy fallback: invalid or EMPTY value -> 401, HTTP and WS", async () => {
+  it("a present __Host- cookie blocks every fallback: invalid or EMPTY value -> 401, HTTP and WS", async () => {
     const { srv } = await startHttps();
     server = srv;
     const yu = await server.seedMember("Yu");
-    const legacy = `${COOKIE_NAME}=${yu.rawSessionId}`;
     // Present-but-invalid, and present-but-empty. Both are the request
-    // CLAIMING the authoritative name; a legacy cookie must not rescue it.
-    for (const bad of [
-      `${HOST_COOKIE_NAME}=not-a-session`,
-      `${HOST_COOKIE_NAME}=`,
-    ]) {
-      const res = await server.http("/api/sessions", {
-        headers: { Cookie: `${bad}; ${legacy}` },
-      });
-      expect(res.status).toBe(401);
-      const up = await rawUpgrade(server.port, `${bad}; ${legacy}`);
-      expect(up.status).toBe(401);
+    // CLAIMING the authoritative name; no other cookie may rescue it.
+    for (const bad of [`${own().host}=not-a-session`, `${own().host}=`]) {
+      for (const rescue of [
+        `${own().plain}=${yu.rawSessionId}`,
+        `${SHARED_HOST}=${yu.rawSessionId}`,
+        `${SHARED}=${yu.rawSessionId}`,
+      ]) {
+        const res = await server.http("/api/sessions", {
+          headers: { Cookie: `${bad}; ${rescue}` },
+        });
+        expect(res.status).toBe(401);
+        const up = await rawUpgrade(server.port, `${rescue}; ${bad}`);
+        expect(up.status).toBe(401);
+      }
     }
   });
 
-  it("shadowing: an injected legacy cookie for another user cannot displace the __Host- session", async () => {
+  it("shadowing: an injected plain or shared cookie for another user cannot displace the __Host- session", async () => {
     const { srv } = await startHttps();
     server = srv;
     const yu = await server.seedMember("Yu");
     const mallory = await server.seedMember("Mallory");
-    const host = `${HOST_COOKIE_NAME}=${yu.rawSessionId}`;
+    const host = `${own().host}=${yu.rawSessionId}`;
     // Mallory's session is entirely valid - it is the NAME that decides.
-    const injected = `${COOKIE_NAME}=${mallory.rawSessionId}`;
-    expect(await whoAmI(server, `${host}; ${injected}`)).toBe("Yu");
-    expect(await whoAmI(server, `${injected}; ${host}`)).toBe("Yu");
+    for (const name of [own().plain, SHARED_HOST, SHARED]) {
+      const injected = `${name}=${mallory.rawSessionId}`;
+      expect(await whoAmI(server, `${host}; ${injected}`)).toBe("Yu");
+      expect(await whoAmI(server, `${injected}; ${host}`)).toBe("Yu");
+    }
     const sock = await server.connectWs(yu.rawSessionId, {
-      cookieHeader: `${injected}; ${host}`,
+      cookieHeader: `${own().plain}=${mallory.rawSessionId}; ${host}`,
+    });
+    const ctx = (await sock.waitFor("session_context")) as {
+      context: { username: string };
+    };
+    expect(ctx.context.username).toBe("Yu");
+    sock.close();
+  });
+});
+
+describe("shared-name fallback (one release, task c9f250af)", () => {
+  it("a session under a shared name survives the update, on plain HTTP and on HTTPS", async () => {
+    server = await startTestServer();
+    const yu = await server.seedMember("Yu");
+    for (const name of [SHARED, SHARED_HOST]) {
+      expect(await whoAmI(server, `${name}=${yu.rawSessionId}`)).toBe("Yu");
+    }
+    await server.stop();
+    const { srv } = await startHttps();
+    server = srv;
+    const ann = await server.seedMember("Ann");
+    for (const name of [SHARED, SHARED_HOST]) {
+      expect(await whoAmI(server, `${name}=${ann.rawSessionId}`)).toBe("Ann");
+      expect(
+        (await rawUpgrade(server.port, `${name}=${ann.rawSessionId}`)).status,
+      ).toBe(101);
+    }
+  });
+
+  it("any of the office's own names blocks the fallback, so an invalid own cookie fails closed", async () => {
+    server = await startTestServer();
+    const yu = await server.seedMember("Yu");
+    for (const bad of [`${own().plain}=stale`, `${own().host}=stale`]) {
+      for (const shared of [SHARED, SHARED_HOST]) {
+        const cookie = `${bad}; ${shared}=${yu.rawSessionId}`;
+        const res = await server.http("/api/sessions", {
+          headers: { Cookie: cookie },
+        });
+        expect(res.status).toBe(401);
+        expect((await rawUpgrade(server.port, cookie)).status).toBe(401);
+      }
+    }
+  });
+
+  it("another office's own names are not read at all", async () => {
+    server = await startTestServer();
+    const yu = await server.seedMember("Yu");
+    for (const name of [
+      "isomux_session_0123456789ab",
+      "__Host-isomux_session_0123456789ab",
+    ]) {
+      const cookie = `${name}=${yu.rawSessionId}`;
+      expect(cookies(cookie).selectedName).toBeNull();
+      const res = await server.http("/api/sessions", {
+        headers: { Cookie: cookie },
+      });
+      expect(res.status).toBe(401);
+    }
+  });
+
+  // An HTTPS office on the same host (a container office on localhost) on the
+  // previous release leaves a shared `__Host-` cookie that a plain-HTTP office
+  // can neither use nor reliably clear (task 57a62e40). Inside the fallback,
+  // an invalid one still gives way to the shared plain cookie.
+  it("plain HTTP: an invalid or EMPTY shared __Host- cookie gives way to the shared plain cookie", async () => {
+    server = await startTestServer();
+    expect(buildPublicOrigin().isHttps).toBe(false);
+    const yu = await server.seedMember("Yu");
+    const shared = `${SHARED}=${yu.rawSessionId}`;
+    for (const foreign of [`${SHARED_HOST}=from-another-office`, `${SHARED_HOST}=`]) {
+      for (const cookie of [`${foreign}; ${shared}`, `${shared}; ${foreign}`]) {
+        expect(await whoAmI(server, cookie)).toBe("Yu");
+        expect((await rawUpgrade(server.port, cookie)).status).toBe(101);
+        expect(cookies(cookie).selectedName).toBe("sharedPlain");
+      }
+    }
+  });
+
+  it("plain HTTP: a VALID shared __Host- cookie still wins over a shared plain cookie for another user", async () => {
+    server = await startTestServer();
+    const yu = await server.seedMember("Yu");
+    const mallory = await server.seedMember("Mallory");
+    const host = `${SHARED_HOST}=${yu.rawSessionId}`;
+    const plain = `${SHARED}=${mallory.rawSessionId}`;
+    expect(await whoAmI(server, `${host}; ${plain}`)).toBe("Yu");
+    expect(await whoAmI(server, `${plain}; ${host}`)).toBe("Yu");
+  });
+
+  it("HTTPS: the shared names keep presence precedence, so an invalid shared __Host- cookie is not rescued", async () => {
+    const { srv } = await startHttps();
+    server = srv;
+    const yu = await server.seedMember("Yu");
+    const cookie = `${SHARED_HOST}=not-a-session; ${SHARED}=${yu.rawSessionId}`;
+    const res = await server.http("/api/sessions", {
+      headers: { Cookie: cookie },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("a sign-in with a foreign shared __Host- cookie in the jar takes effect on the next request and the WS", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const foreign = `${SHARED_HOST}=from-another-office`;
+    const accepted = await acceptViaHttp(server, await mintFor("Yu"));
+    expect(accepted.status).toBe(302);
+    const issued = setCookieLines(accepted)[0]?.split(";", 1)[0] ?? "";
+    expect(issued.startsWith(`${own().plain}=`)).toBe(true);
+    for (const cookie of [`${foreign}; ${issued}`, `${issued}; ${foreign}`]) {
+      expect(await whoAmI(server, cookie)).toBe("Yu");
+      expect((await rawUpgrade(server.port, cookie)).status).toBe(101);
+    }
+    const sock = await server.connectWs("", {
+      cookieHeader: `${foreign}; ${issued}`,
     });
     const ctx = (await sock.waitFor("session_context")) as {
       context: { username: string };
@@ -406,24 +480,31 @@ describe("browser session lockout diagnostics", () => {
     expect(listActiveSessions()).toHaveLength(1);
   });
 
-  it("reports legacy selection when the __Host cookie is missing", async () => {
+  it("reports a shared-name selection, and stays silent for the office's own names", async () => {
     server = await startTestServer();
     const member = await server.seedMember("Yu");
-    const parsed = cookies(`${COOKIE_NAME}=${member.rawSessionId}`);
-    const lookup = validateSession(parsed.selected || null);
-    expect(lookup).not.toBeNull();
-    expect(browserSessionDiagnostic(parsed, lookup, "http")).toEqual({
-      outcome: "legacy_selected",
-      gate: "http",
-    });
+    for (const name of [SHARED, SHARED_HOST]) {
+      const parsed = cookies(`${name}=${member.rawSessionId}`);
+      const lookup = validateSession(parsed.selected || null);
+      expect(lookup).not.toBeNull();
+      expect(browserSessionDiagnostic(parsed, lookup, "http")).toEqual({
+        outcome: "shared_selected",
+        gate: "http",
+      });
+    }
+    for (const name of [own().plain, own().host]) {
+      const parsed = cookies(`${name}=${member.rawSessionId}`);
+      const lookup = validateSession(parsed.selected || null);
+      expect(browserSessionDiagnostic(parsed, lookup, "http")).toBeNull();
+    }
   });
 
-  it("reports a rejected __Host cookie overriding a valid legacy cookie", async () => {
+  it("reports a rejected __Host cookie overriding a valid plain cookie", async () => {
     const { srv } = await startHttps();
     server = srv;
     const member = await server.seedMember("Yu");
     const parsed = cookies(
-      `${HOST_COOKIE_NAME}=not-a-session; ${COOKIE_NAME}=${member.rawSessionId}`,
+      `${own().host}=not-a-session; ${own().plain}=${member.rawSessionId}`,
     );
     const lookup = validateSession(parsed.selected || null);
     expect(lookup).toBeNull();
@@ -438,7 +519,7 @@ describe("browser session lockout diagnostics", () => {
       outcome: "cookie_rejected",
       gate: "http",
       selected: "host",
-      legacyAlsoPresent: true,
+      othersPresent: true,
       marker: expectedMarker,
     });
     const line = formatBrowserSessionDiagnostic(
@@ -451,7 +532,7 @@ describe("browser session lockout diagnostics", () => {
       }),
     );
     expect(line).toContain(
-      `cookie rejected as invalid or stale selected=__Host legacy_overridden=yes marker=${expectedMarker} gate=http path=/api/sessions client=Chrome/Windows`,
+      `cookie rejected as invalid or stale selected=__Host others_overridden=yes marker=${expectedMarker} gate=http path=/api/sessions client=Chrome/Windows`,
     );
     expect(line).not.toContain("not-a-session");
     expect(line).not.toContain(member.rawSessionId);
@@ -518,13 +599,13 @@ describe("browser session lockout diagnostics", () => {
       lines.length = 0;
       const upgraded = await rawUpgrade(
         server.port,
-        `${COOKIE_NAME}=${owner.rawSessionId}`,
+        `${SHARED}=${owner.rawSessionId}`,
       );
       expect(upgraded.status).toBe(101);
       expect(
         lines.some((line) =>
           line.includes(
-            `browser session matched ${ownerLookup!.sessionPrefix}… selected=legacy gate=ws path=/ws`,
+            `browser session matched ${ownerLookup!.sessionPrefix}… selected=shared_plain gate=ws path=/ws`,
           ),
         ),
       ).toBe(true);
@@ -588,55 +669,107 @@ describe("browser session lockout diagnostics", () => {
   });
 });
 
-describe("__Host- cookie: the two-step migration", () => {
+describe("migration onto the office's write name", () => {
   it.skipIf(!builtShellExists)(
-    "step 1 on the shell: a legacy-only session gets the same id under the new name, legacy untouched (needs ui/dist - run `bun run build:ui`)",
+    "step 1 on the shell: a shared-name session gets the same id under the write name, nothing cleared (needs ui/dist - run `bun run build:ui`)",
     async () => {
-      const { srv } = await startHttps();
-      server = srv;
+      server = await startTestServer();
+      await server.seedOwner("Boss");
       const yu = await server.seedMember("Yu");
-      const res = await server.http("/", {
-        headers: { Cookie: `${COOKIE_NAME}=${yu.rawSessionId}` },
-      });
-      expect(res.status).toBe(200);
-      const lines = setCookieLines(res);
-      expect(lines.length).toBe(1);
-      // Same session id: a migration re-issues, it never mints.
-      expect(lines[0]).toContain(`${HOST_COOKIE_NAME}=${yu.rawSessionId}`);
-      expect(lines[0]).toContain("Secure");
-      // Nothing is cleared yet - the browser has not shown us it accepted this.
-      expect(lines[0]).not.toContain("Max-Age=0");
-      // Anchored to the session's ABSOLUTE cap (1 year), the same moment the
-      // original cookie was anchored to - not the 30-day rolling expiry, which
-      // would quietly shorten the session, and not a fresh year, which would
-      // quietly extend it.
-      const maxAge = parseInt(/Max-Age=(\d+)/.exec(lines[0])?.[1] ?? "0", 10);
-      const day = 24 * 60 * 60;
-      expect(maxAge).toBeGreaterThan(364 * day);
-      expect(maxAge).toBeLessThanOrEqual(365 * day);
+      for (const name of [SHARED, SHARED_HOST]) {
+        const res = await server.http("/", {
+          headers: { Cookie: `${name}=${yu.rawSessionId}` },
+        });
+        expect(res.status).toBe(200);
+        const lines = setCookieLines(res);
+        expect(lines.length).toBe(1);
+        // Same session id: a migration re-issues, it never mints.
+        expect(lines[0]).toStartWith(`${own().plain}=${yu.rawSessionId};`);
+        expect(lines[0]).not.toContain("Secure");
+        // Nothing is cleared yet - the browser has not shown us it accepted
+        // this.
+        expect(lines[0]).not.toContain("Max-Age=0");
+        // Anchored to the session's ABSOLUTE cap (1 year), the same moment the
+        // original cookie was anchored to - not the 30-day rolling expiry,
+        // which would quietly shorten the session, and not a fresh year, which
+        // would quietly extend it.
+        const maxAge = parseInt(/Max-Age=(\d+)/.exec(lines[0])?.[1] ?? "0", 10);
+        const day = 24 * 60 * 60;
+        expect(maxAge).toBeGreaterThan(364 * day);
+        expect(maxAge).toBeLessThanOrEqual(365 * day);
+      }
     },
   );
 
-  it.skipIf(!builtShellExists)(
-    "step 2: once the __Host- cookie comes back, the legacy name is cleared - and only then (needs ui/dist - run `bun run build:ui`)",
-    async () => {
-      const { srv } = await startHttps();
-      server = srv;
-      const yu = await server.seedMember("Yu");
-      const both = `${HOST_COOKIE_NAME}=${yu.rawSessionId}; ${COOKIE_NAME}=${yu.rawSessionId}`;
-      const res = await server.http("/", { headers: { Cookie: both } });
-      const lines = setCookieLines(res);
-      expect(lines.length).toBe(1);
-      expect(lines[0]).toBe(
-        "isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
-      );
-      // A session already fully on the new name is left entirely alone.
-      const done = await server.http("/", {
-        headers: { Cookie: `${HOST_COOKIE_NAME}=${yu.rawSessionId}` },
+  it("HTTPS: a shared name or the office's plain name upgrades to the office's __Host- name", async () => {
+    const { srv } = await startHttps();
+    server = srv;
+    const yu = await server.seedMember("Yu");
+    for (const name of [SHARED, SHARED_HOST, own().plain]) {
+      const get = await server.http("/api/sessions", {
+        headers: { Cookie: `${name}=${yu.rawSessionId}` },
       });
-      expect(setCookieLines(done)).toEqual([]);
-    },
-  );
+      expect(get.status).toBe(200);
+      const lines = setCookieLines(get);
+      expect(lines.length).toBe(1);
+      expect(lines[0]).toMatch(
+        new RegExp(
+          `^${own().host}=${yu.rawSessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=\\d+; Secure$`,
+        ),
+      );
+    }
+  });
+
+  it("step 2: once the write name comes back, every name with the SAME value is cleared, and only those", async () => {
+    const { srv } = await startHttps();
+    server = srv;
+    const yu = await server.seedMember("Yu");
+    const raw = yu.rawSessionId;
+    const host = `${own().host}=${raw}`;
+    // An office in the middle of the earlier two-step can have both shared
+    // names equal to its session.
+    const all = await server.http("/api/sessions", {
+      headers: {
+        Cookie: `${host}; ${own().plain}=${raw}; ${SHARED_HOST}=${raw}; ${SHARED}=${raw}`,
+      },
+    });
+    expect(all.status).toBe(200);
+    expect(setCookieLines(all).sort()).toEqual(
+      [
+        clearOf(own().plain, true),
+        clearOf(SHARED_HOST, true),
+        clearOf(SHARED, true),
+      ].sort(),
+    );
+    // Cookies are not scoped by port: a shared name with another value can be
+    // the session of another office on the same host, and it stays.
+    const foreign = await server.http("/api/sessions", {
+      headers: {
+        Cookie: `${host}; ${SHARED_HOST}=other-office; ${SHARED}=other-office`,
+      },
+    });
+    expect(foreign.status).toBe(200);
+    expect(setCookieLines(foreign)).toEqual([]);
+    // A session already fully on the write name is left entirely alone.
+    const done = await server.http("/api/sessions", {
+      headers: { Cookie: host },
+    });
+    expect(setCookieLines(done)).toEqual([]);
+  });
+
+  it("plain HTTP: step 2 clears a shared name with the same value and keeps another office's", async () => {
+    server = await startTestServer();
+    const yu = await server.seedMember("Yu");
+    const plain = `${own().plain}=${yu.rawSessionId}`;
+    const same = await server.http("/api/sessions", {
+      headers: { Cookie: `${plain}; ${SHARED}=${yu.rawSessionId}` },
+    });
+    expect(setCookieLines(same)).toEqual([clearOf(SHARED, false)]);
+    const other = await server.http("/api/sessions", {
+      headers: { Cookie: `${plain}; ${SHARED}=other-office` },
+    });
+    expect(setCookieLines(other)).toEqual([]);
+  });
 
   it("rides the WS 101 - the seam an already-open tab reaches without reloading", async () => {
     const { srv } = await startHttps();
@@ -648,72 +781,52 @@ describe("__Host- cookie: the two-step migration", () => {
     // it is one independent Set-Cookie field line. A WebSocket client cannot
     // show us this - its API exposes no response headers - so the handshake is
     // driven over a plain socket.
-    const upgrade = await rawUpgrade(server.port, `${COOKIE_NAME}=${raw}`);
+    const upgrade = await rawUpgrade(server.port, `${SHARED}=${raw}`);
     expect(upgrade.status).toBe(101);
     expect(upgrade.setCookie.length).toBe(1);
     expect(upgrade.setCookie[0]).toMatch(
       new RegExp(
-        `^__Host-isomux_session=${raw}; Path=/; HttpOnly; SameSite=Lax; Max-Age=\\d+; Secure$`,
+        `^${own().host}=${raw}; Path=/; HttpOnly; SameSite=Lax; Max-Age=\\d+; Secure$`,
       ),
     );
 
     const retire = await rawUpgrade(
       server.port,
-      `${HOST_COOKIE_NAME}=${raw}; ${COOKIE_NAME}=${raw}`,
+      `${own().host}=${raw}; ${SHARED}=${raw}`,
     );
     expect(retire.status).toBe(101);
-    expect(retire.setCookie).toEqual([
-      "isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
-    ]);
+    expect(retire.setCookie).toEqual([clearOf(SHARED, true)]);
 
-    const settled = await rawUpgrade(server.port, `${HOST_COOKIE_NAME}=${raw}`);
+    const foreign = await rawUpgrade(
+      server.port,
+      `${own().host}=${raw}; ${SHARED}=other-office`,
+    );
+    expect(foreign.status).toBe(101);
+    expect(foreign.setCookie).toEqual([]);
+
+    const settled = await rawUpgrade(server.port, `${own().host}=${raw}`);
     expect(settled.status).toBe(101);
     expect(settled.setCookie).toEqual([]);
-  });
-
-  // Cookies are not scoped by port: a legacy cookie with another value can be
-  // the session of a plain-HTTP office on the same host (task 57a62e40).
-  it("step 2 keeps a legacy cookie with another value, on a safe /api GET and the WS 101", async () => {
-    const { srv } = await startHttps();
-    server = srv;
-    const yu = await server.seedMember("Yu");
-    const host = `${HOST_COOKIE_NAME}=${yu.rawSessionId}`;
-    const both = `${host}; ${COOKIE_NAME}=plain-http-office-session`;
-    const get = await server.http("/api/sessions", {
-      headers: { Cookie: both },
-    });
-    expect(get.status).toBe(200);
-    expect(setCookieLines(get)).toEqual([]);
-    const up = await rawUpgrade(server.port, both);
-    expect(up.status).toBe(101);
-    expect(up.setCookie).toEqual([]);
-    // The same value is the migrated copy, and the same request retires it.
-    const same = await server.http("/api/sessions", {
-      headers: { Cookie: `${host}; ${COOKIE_NAME}=${yu.rawSessionId}` },
-    });
-    expect(setCookieLines(same)).toEqual([
-      "isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
-    ]);
   });
 
   it("rides a safe /api GET, never an unsafe method, never a bearer caller", async () => {
     const { srv } = await startHttps();
     server = srv;
     const yu = await server.seedMember("Yu");
-    const legacy = `${COOKIE_NAME}=${yu.rawSessionId}`;
+    const shared = `${SHARED}=${yu.rawSessionId}`;
 
     const get = await server.http("/api/sessions", {
-      headers: { Cookie: legacy },
+      headers: { Cookie: shared },
     });
     expect(get.status).toBe(200);
     expect(setCookieLines(get).length).toBe(1);
-    expect(setCookieLines(get)[0]).toContain(HOST_COOKIE_NAME);
+    expect(setCookieLines(get)[0]).toStartWith(`${own().host}=`);
 
     // An unsafe method could be revoking the very session we would re-issue
     // (DELETE /api/sessions/current), so migration never rides one.
     const del = await server.http("/api/sessions/current", {
       method: "DELETE",
-      headers: { Cookie: legacy },
+      headers: { Cookie: shared },
     });
     expect(del.status).toBe(204);
     expect(setCookieLines(del)).toEqual([]);
@@ -740,35 +853,71 @@ describe("__Host- cookie: the two-step migration", () => {
     const bearer = await server.http("/api/tasks", {
       headers: {
         Authorization: `Bearer ${getAgentTokenRaw(agent.id)}`,
-        Cookie: `${COOKIE_NAME}=${other.rawSessionId}`,
+        Cookie: `${SHARED}=${other.rawSessionId}`,
       },
     });
     expect(bearer.status).toBe(200);
     expect(setCookieLines(bearer)).toEqual([]);
   });
-});
 
-describe("__Host- cookie: sign-out", () => {
-  it("clears both names as independent Set-Cookie lines", async () => {
+  it("migrates nothing for a selected cookie that is not the session the caller authenticated", async () => {
     const { srv } = await startHttps();
     server = srv;
     const yu = await server.seedMember("Yu");
+    const ann = await server.seedMember("Ann");
+    const annLookup = validateSession(ann.rawSessionId)!;
+    expect(annLookup).not.toBeNull();
+    for (const cookie of [
+      `${SHARED}=${yu.rawSessionId}`,
+      `${own().host}=${yu.rawSessionId}; ${SHARED}=${yu.rawSessionId}`,
+    ]) {
+      expect(sessionCookieMigrationHeaders(cookies(cookie), annLookup)).toEqual(
+        [],
+      );
+    }
+  });
+});
+
+describe("sign-out", () => {
+  it("clears the office's names, and a shared name only when it carries the signed-out session", async () => {
+    const { srv } = await startHttps();
+    server = srv;
+    const yu = await server.seedMember("Yu");
+    const raw = yu.rawSessionId;
     const res = await server.http("/auth/logout", {
       method: "POST",
       redirect: "manual",
       headers: {
-        Cookie: `${HOST_COOKIE_NAME}=${yu.rawSessionId}; ${COOKIE_NAME}=${yu.rawSessionId}`,
+        Cookie: `${own().host}=${raw}; ${SHARED_HOST}=${raw}; ${SHARED}=other-office`,
       },
     });
     expect(res.status).toBe(302);
-    // Two retrievable lines, not one comma-folded string.
+    // Independent retrievable lines, not one comma-folded string.
     expect(setCookieLines(res)).toEqual([
-      "isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
-      "__Host-isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
+      clearOf(own().plain, true),
+      clearOf(own().host, true),
+      clearOf(SHARED_HOST, true),
     ]);
   });
 
-  it("revokes only the SELECTED session server-side, even though it clears both client names", async () => {
+  it("signing out through a shared name clears that name", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const yu = await server.seedMember("Yu");
+    const res = await server.http("/auth/logout", {
+      method: "POST",
+      redirect: "manual",
+      headers: { Cookie: `${SHARED}=${yu.rawSessionId}` },
+    });
+    expect(res.status).toBe(302);
+    expect(setCookieLines(res)).toEqual([
+      clearOf(own().plain, false),
+      clearOf(own().host, true),
+      clearOf(SHARED, false),
+    ]);
+  });
+
+  it("revokes only the SELECTED session server-side", async () => {
     const { srv } = await startHttps();
     server = srv;
     const yu = await server.seedMember("Yu");
@@ -778,19 +927,18 @@ describe("__Host- cookie: sign-out", () => {
       redirect: "manual",
       headers: {
         // Two different LIVE sessions. Name precedence picks Yu's.
-        Cookie: `${HOST_COOKIE_NAME}=${yu.rawSessionId}; ${COOKIE_NAME}=${ann.rawSessionId}`,
+        Cookie: `${own().host}=${yu.rawSessionId}; ${own().plain}=${ann.rawSessionId}`,
       },
     });
     expect(res.status).toBe(302);
-    // Yu's session is gone...
     const gone = await server.http("/api/sessions", {
-      headers: { Cookie: `${HOST_COOKIE_NAME}=${yu.rawSessionId}` },
+      headers: { Cookie: `${own().host}=${yu.rawSessionId}` },
     });
     expect(gone.status).toBe(401);
-    // ...and Ann's, which the same response merely stopped SENDING, is alive.
-    expect(
-      await whoAmI(server, `${HOST_COOKIE_NAME}=${ann.rawSessionId}`),
-    ).toBe("Ann");
+    // Ann's, which the same response merely stopped SENDING, is alive.
+    expect(await whoAmI(server, `${own().host}=${ann.rawSessionId}`)).toBe(
+      "Ann",
+    );
   });
 
   it("a lockout-blocked sign-out clears nothing", async () => {
@@ -802,7 +950,7 @@ describe("__Host- cookie: sign-out", () => {
     const res = await server.http("/auth/logout", {
       method: "POST",
       redirect: "manual",
-      headers: { Cookie: `${HOST_COOKIE_NAME}=${owner.rawSessionId}` },
+      headers: { Cookie: `${own().host}=${owner.rawSessionId}` },
     });
     expect(res.status).toBe(409);
     expect(setCookieLines(res)).toEqual([]);

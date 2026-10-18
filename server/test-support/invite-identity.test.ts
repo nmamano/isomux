@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import {
-  COOKIE_NAME,
+  sessionCookieName,
   _testSetSessionExpiry,
   listInvites,
   _testMintLegacyInvite,
@@ -51,8 +51,8 @@ function postAccept(
 
 function cookieFrom(response: Response): string {
   const header = response.headers.get("set-cookie") ?? "";
-  const match = new RegExp(`${COOKIE_NAME}=([^;]+)`).exec(header);
-  if (!match) throw new Error(`missing ${COOKIE_NAME} cookie: ${header}`);
+  const match = new RegExp(`${sessionCookieName()}=([^;]+)`).exec(header);
+  if (!match) throw new Error(`missing ${sessionCookieName()} cookie: ${header}`);
   return match[1];
 }
 

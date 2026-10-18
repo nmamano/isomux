@@ -109,6 +109,13 @@ The report does not claim that an archive is free of secrets. Conversation logs
 and provider transcripts remain because they are history, even though user text
 can incidentally contain sensitive values.
 
+The archive keeps `office-id`, the id in the office's session cookie names
+(`isomux_session_<id>`, `server/office-id.ts`), so a restored office keeps its
+browsers signed in. An office started from a copy of another office's state
+root (a restore next to the original, or a copied `~/.isomux`) has the same id,
+and on one host the two read and clear each other's session cookies. Delete
+`office-id` in the copy before its first start to give it its own id.
+
 Two things are silently absent:
 
 - **Unix sockets.** `~/.isomux/admin.sock` is skipped by tar (verified

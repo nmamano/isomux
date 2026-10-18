@@ -3,6 +3,7 @@
 // Seam: startTestServer() - the real boot path and the real /auth routes. The
 // harness resets the key module on each boot, the way a process restart does.
 
+import { sessionCookieName } from "../auth.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { existsSync, statSync, writeFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -51,7 +52,7 @@ describe("an office's own setup key", () => {
     const key = server.setupKey();
     const res = await claim(server, withKey(key));
     expect(res.status).toBe(302);
-    expect(res.headers.get("set-cookie")).toContain("isomux_session=");
+    expect(res.headers.get("set-cookie")).toContain(`${sessionCookieName()}=`);
     expect(hasOwner()).toBe(true);
     expect(existsSync(setupKeyFile())).toBe(false);
   });

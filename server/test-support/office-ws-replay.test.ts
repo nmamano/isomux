@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildPublicOrigin, COOKIE_NAME } from "../auth.ts";
+import { buildPublicOrigin, sessionCookieName } from "../auth.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 
 let server: TestServer | null = null;
@@ -75,7 +75,7 @@ async function startReader(
       process.execPath,
       join(import.meta.dir, "stalled-ws-reader.ts"),
       String(srv.port),
-      `${COOKIE_NAME}=${rawSessionId}`,
+      `${sessionCookieName()}=${rawSessionId}`,
       buildPublicOrigin().origin,
       String(stallMs),
     ],

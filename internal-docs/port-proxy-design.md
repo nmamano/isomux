@@ -58,7 +58,7 @@ design), and no phone story.
 **B. Subpath on the office origin** (`https://office.example.com/app/5173/...`).
 Rejected on two independent grounds:
 
-- _Auth blast radius._ Same origin means the member's `isomux_session` cookie
+- _Auth blast radius._ Same origin means the member's office session cookie
   (`Path=/`, host-only) is sent to the agent's app on every request, and any
   script the app loads can call the office API as the member with a matching
   `Origin` header. A dependency in a scratch dev app becomes office takeover.

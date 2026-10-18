@@ -13,7 +13,7 @@ import {
   memberRequest,
   ownedAgent,
 } from "./test-support/browser-extension-route-fixture";
-import { buildPublicOrigin } from "./auth";
+import { buildPublicOrigin, sessionCookieName } from "./auth";
 import { openExtensionActionPopup } from "./test-support/extension-action-popup";
 import { translatorFor } from "../shared/i18n/translate";
 import { getAgentTokenRaw } from "./identity/tokens";
@@ -87,7 +87,7 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
     const officeOrigin = buildPublicOrigin().origin;
     await setup.addCookies([
       {
-        name: "isomux_session",
+        name: sessionCookieName(),
         value: owner.rawSessionId,
         url: officeOrigin,
       },

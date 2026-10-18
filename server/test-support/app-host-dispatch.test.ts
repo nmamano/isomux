@@ -23,6 +23,7 @@
 // upgrade: fetch normalizes header order and cannot be made to hold a socket
 // open through a 101.
 
+import { sessionCookieName } from "../auth.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { type TestServer } from "./harness.ts";
 import { startTestServer } from "./harness.ts";
@@ -462,7 +463,7 @@ describe("app hosts: the office is untouched", () => {
       const res = await raw(srv.port, {
         host: OFFICE_HOST,
         path: "/",
-        headers: { Cookie: `isomux_session=${member.rawSessionId}` },
+        headers: { Cookie: `${sessionCookieName()}=${member.rawSessionId}` },
       });
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("text/html");
@@ -477,7 +478,7 @@ describe("app hosts: the office is untouched", () => {
       host: OFFICE_HOST,
       path: "/ws",
       origin: HTTPS_ORIGIN,
-      headers: { Cookie: `isomux_session=${member.rawSessionId}` },
+      headers: { Cookie: `${sessionCookieName()}=${member.rawSessionId}` },
     });
     // A real 101, not the 401/403 an unauthenticated or misrouted upgrade
     // gets, and emphatically not the app arm's 503.

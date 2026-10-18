@@ -37,6 +37,7 @@ import { createFakeAppSupervisor } from "./fake-app-supervisor.ts";
 import type { AppRuntime } from "../app-supervisor.ts";
 import type { AppRecord } from "../../shared/types.ts";
 import { _testSetAppRegistrationGeneration } from "../app-registry.ts";
+import { officeSessionCookieNames } from "../auth.ts";
 import {
   _testActiveAppLifecycles,
   _testResetAppLifecycles,
@@ -435,8 +436,15 @@ describe("relay: what the app is not handed", () => {
             "__Host-isomux_app=APPTOKEN",
             "__Host-isomux_session=OFFICETOKEN",
             "isomux_session=LEGACYTOKEN",
+            // This office's own names, and another office's on the same host.
+            `${officeSessionCookieNames().host}=OWNHOST`,
+            `${officeSessionCookieNames().plain}=OWNPLAIN`,
+            "__Host-isomux_session_0123456789ab=OTHERHOST",
+            "isomux_session_0123456789ab=OTHERPLAIN",
             "isomux_session_id=theirs",
             "ISOMUX_SESSION=theirs-too",
+            "isomux_session_0123456789abc=thirteen",
+            "isomux_session_0123456789AB=upper",
             "my__Host-isomux_app=nope",
             "theme=dark",
           ].join("; "),
@@ -445,7 +453,7 @@ describe("relay: what the app is not handed", () => {
       { app: appRecord(up.port) },
     );
     expect(up.seen[0].headers["cookie"]).toBe(
-      "isomux_session_id=theirs; ISOMUX_SESSION=theirs-too; my__Host-isomux_app=nope; theme=dark",
+      "isomux_session_id=theirs; ISOMUX_SESSION=theirs-too; isomux_session_0123456789abc=thirteen; isomux_session_0123456789AB=upper; my__Host-isomux_app=nope; theme=dark",
     );
   });
 

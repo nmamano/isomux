@@ -2,6 +2,7 @@
 // desk or desk null, the refusals that name a back seat or a taken desk, and
 // the 409 for a full back room.
 
+import { sessionCookieName } from "../auth.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -245,7 +246,7 @@ describe("the lobby with no desk", () => {
       redirect: "manual",
     });
     const m = (res.headers.get("set-cookie") ?? "").match(
-      /isomux_session=([^;]+)/,
+      new RegExp(`${sessionCookieName()}=([^;]+)`),
     );
     if (res.status !== 302 || !m) throw new Error("claim failed");
     return m[1];

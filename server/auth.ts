@@ -20,6 +20,7 @@ import type {
 import { atomicWriteFileSync } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { discardSetupKey } from "./setup-key.ts";
+import { officeIdFile, readOrCreateOfficeId } from "./office-id.ts";
 import {
   SUPPORTED_LANGUAGES,
   type SupportedLanguageCode,
@@ -1604,19 +1605,55 @@ export function resolveSessionHashByPrefix(prefix: string): string | null {
 // isomux-office.ts imports them directly from there; we don't re-export through
 // auth.ts to keep the user-record predicates close to the data.
 
-export const COOKIE_NAME = "isomux_session";
+// The names every office on a host shared before task c9f250af. Browsers scope
+// cookies by host, not by port, so two offices on one host read and cleared
+// each other's cookie. They are read for one release as a fallback, so no
+// browser is signed out by the update, and never written. Remove them, with
+// the fallback branch in readSessionCookies, in the release after.
+export const SHARED_COOKIE_NAME = "isomux_session";
+export const SHARED_HOST_COOKIE_NAME = "__Host-isomux_session";
 
-// The `__Host-` name. The prefix is browser-enforced: a cookie carrying it is
+// Each office writes its own names: the shared names plus `_<office id>`
+// (server/office-id.ts).
+//
+// The `__Host-` name: the prefix is browser-enforced. A cookie carrying it is
 // only accepted with `Secure`, `Path=/`, and NO `Domain` attribute - so a page
 // on a sibling subdomain (an app origin under the office host) cannot write a
 // cookie the office will read. That is the whole point: it forecloses cookie
 // shadowing before app hostnames exist.
 //
 // Because the prefix requires `Secure`, the name is only WRITABLE on an HTTPS
-// deployment. Both names are READ everywhere (readSessionCookies), so no
-// existing session is logged out and a loopback-HTTP install behaves exactly
-// as it did before.
-export const HOST_COOKIE_NAME = "__Host-isomux_session";
+// deployment. Both names are READ everywhere (readSessionCookies), so an
+// office that moves between HTTPS and loopback signs nobody out.
+let officeId: string | undefined;
+
+// Called once at boot (bootPrelude), so a failure to read or write the id file
+// stops the boot. Code that runs without a boot (a test that imports auth.ts
+// alone) loads it on first use.
+export function loadOfficeId(): void {
+  const read = readOrCreateOfficeId();
+  if (read.replaced) {
+    console.error(
+      `[auth] ${officeIdFile()} was ${read.replaced.problem}; moved it to ${read.replaced.asidePath} and made a new office id. Browsers that already signed in with the previous id must sign in again.`,
+    );
+  }
+  officeId = read.id;
+}
+
+export function officeSessionCookieNames(): { host: string; plain: string } {
+  if (officeId === undefined) loadOfficeId();
+  return {
+    host: `${SHARED_HOST_COOKIE_NAME}_${officeId}`,
+    plain: `${SHARED_COOKIE_NAME}_${officeId}`,
+  };
+}
+
+// Every name an office writes or wrote, for any office id. The app proxy
+// strips all of them, so no app receives an office session.
+const SESSION_COOKIE_NAME_PATTERN = /^(?:__Host-)?isomux_session(?:_[0-9a-f]{12})?$/;
+export function isSessionCookieName(name: string): boolean {
+  return SESSION_COOKIE_NAME_PATTERN.test(name);
+}
 
 // Precedence: process.env.ISOMUX_PUBLIC_ORIGIN > office-config.json's
 // `publicOrigin` (registered via setPublicOriginFallback at boot) >
@@ -1757,13 +1794,19 @@ export function buildPublicOrigin(): {
   return { origin: fallback, isHttps: false, source: "localhost" };
 }
 
-// The name a freshly written cookie carries. `__Host-` only on HTTPS - the
-// same `isHttps` that adds `Secure` picks the name, so the server is
-// structurally incapable of writing the prefixed name without the attributes
-// the prefix demands (a browser would silently drop such a cookie, which on
-// the login path means a session that never starts).
-function cookieWriteName(isHttps: boolean): string {
-  return isHttps ? HOST_COOKIE_NAME : COOKIE_NAME;
+// Which of this office's names a freshly written cookie carries. `__Host-`
+// only on HTTPS - the same `isHttps` that adds `Secure` picks the name, so the
+// server is structurally incapable of writing the prefixed name without the
+// attributes the prefix demands (a browser would silently drop such a cookie,
+// which on the login path means a session that never starts).
+function writeSlot(isHttps: boolean): "host" | "plain" {
+  return isHttps ? "host" : "plain";
+}
+
+// The name this boot writes. Tests use it to present a session the way a
+// browser that signed in here would.
+export function sessionCookieName(): string {
+  return officeSessionCookieNames()[writeSlot(buildPublicOrigin().isHttps)];
 }
 
 // Attribute order is load-bearing only in that the plain-HTTP arm must stay
@@ -1798,114 +1841,162 @@ export function setCookieHeader(
 ): string {
   const { isHttps } = buildPublicOrigin();
   return cookieLine(
-    cookieWriteName(isHttps),
+    officeSessionCookieNames()[writeSlot(isHttps)],
     rawSessionId,
     maxAgeUntil(absoluteExpiresAt),
     isHttps,
   );
 }
 
-// Sign-out clears BOTH names, on every deployment. Not just the one this
-// office would write today: an office that has been on HTTPS and then went
-// back to loopback (external access turned off) leaves browsers holding a
-// `__Host-` cookie, which is still dual-read - so a sign-out that skipped it
-// would revoke the session server-side and leave the cookie sitting in the
-// browser. The `__Host-` clear carries `Secure` because the prefix rules apply
-// to a deletion too, so on a loopback office it is best-effort: Chrome accepts
-// it from http://localhost, Safari has not.
-export function clearCookieHeaders(): string[] {
-  const { isHttps } = buildPublicOrigin();
-  return [
-    cookieLine(COOKIE_NAME, "", 0, isHttps),
-    cookieLine(HOST_COOKIE_NAME, "", 0, true),
-  ];
+// The four session cookies a request can carry for this office: its own two
+// names, and the two shared names of the one-release fallback.
+export type SessionCookieSlot = "host" | "plain" | "sharedHost" | "sharedPlain";
+
+function slotName(slot: SessionCookieSlot): string {
+  switch (slot) {
+    case "sharedHost":
+      return SHARED_HOST_COOKIE_NAME;
+    case "sharedPlain":
+      return SHARED_COOKIE_NAME;
+    default:
+      return officeSessionCookieNames()[slot];
+  }
 }
 
-// Both session cookies as they arrived, plus which one the request is
-// claiming. `null` means ABSENT; a present cookie with an empty value is `""`.
-// The distinction matters: on an HTTPS office `__Host-isomux_session=` is
-// present, so it blocks the legacy fallback and the request fails closed
-// rather than being rescued by a legacy cookie alongside it.
+// A clear for one slot. A `__Host-` clear carries `Secure` because the prefix
+// rules apply to a deletion too, so on a loopback office it is best-effort:
+// Chrome accepts it from http://localhost, Safari has not.
+function clearLine(slot: SessionCookieSlot, isHttps: boolean): string {
+  const prefixed = slot === "host" || slot === "sharedHost";
+  return cookieLine(slotName(slot), "", 0, prefixed || isHttps);
+}
+
+// Sign-out clears both of this office's names, on every deployment. Not just
+// the one this office would write today: an office that has been on HTTPS and
+// then went back to loopback leaves browsers holding a `__Host-` cookie, which
+// is still read - so a sign-out that skipped it would revoke the session
+// server-side and leave the cookie sitting in the browser.
+//
+// A shared name is cleared only when it carries the session this request
+// selected. Another value can be another office's session on the same host,
+// and signing out here must not sign the browser out there.
+export function clearCookieHeaders(cookies: SessionCookies): string[] {
+  const { isHttps } = buildPublicOrigin();
+  const lines = [clearLine("plain", isHttps), clearLine("host", isHttps)];
+  for (const slot of ["sharedPlain", "sharedHost"] as const) {
+    if (cookies.selected && cookies.values[slot] === cookies.selected) {
+      lines.push(clearLine(slot, isHttps));
+    }
+  }
+  return lines;
+}
+
+// The session cookies as they arrived, plus which one the request is claiming.
+// `null` means ABSENT; a present cookie with an empty value is `""`. The
+// distinction matters: a present `__Host-` cookie with an empty value still
+// wins the selection, and the request fails closed rather than being rescued
+// by another cookie alongside it.
 export interface SessionCookies {
-  hostRaw: string | null;
-  legacyRaw: string | null;
-  // Name precedence. On an HTTPS office it is decided by PRESENCE, never by
-  // validity: the `__Host-` cookie wins whenever it arrives at all. An injected
-  // or stale legacy cookie therefore cannot displace the authoritative one, in
-  // either header order.
+  values: Record<SessionCookieSlot, string | null>;
+  // Name precedence is decided by PRESENCE, never by validity: this office's
+  // write name, then its other name, then the shared names. On HTTPS that
+  // puts `__Host-` first, so an injected or stale plain cookie cannot displace
+  // the authoritative one, in either header order. On plain HTTP the plain
+  // name goes first: there the office cannot reliably clear a `__Host-` cookie
+  // (Safari refuses Secure cookies from http://localhost), and a stale one
+  // left from an HTTPS past would otherwise hide every new sign-in.
   //
-  // The one exception is a plain-HTTP office, where a `__Host-` cookie that
-  // does not validate gives way to a legacy cookie. That office writes only
-  // the legacy name and cannot reliably clear a `__Host-` cookie (Safari has
-  // refused Secure cookies from http://localhost), and cookies are not scoped
-  // by port. So a `__Host-` cookie that another office on the same host wrote
-  // would otherwise lock it out after every sign-in.
+  // The one exception is inside the shared-name fallback (task c9f250af, gone
+  // with that fallback): on a plain-HTTP office, a shared `__Host-` cookie that
+  // does not validate gives way to the shared plain cookie. Another office on
+  // the same host can have written it, and before this release that locked a
+  // plain-HTTP office out after every sign-in (task 57a62e40).
   selected: string | null;
-  selectedName: "host" | "legacy" | null;
+  selectedName: SessionCookieSlot | null;
 }
 
 // Parse the `Cookie` request header. Multi-cookie strings ("a=1; b=2") parsed
-// without bringing in a dependency. Not pure: on a plain-HTTP office that
-// receives both names, it validates the `__Host-` value, which can touch the
+// without bringing in a dependency. Not pure while the shared-name fallback
+// exists: on a plain-HTTP office whose request carries both shared names and
+// none of its own, it validates the shared `__Host-` value, which can touch the
 // session store like any validateSession call (roll, or drop an expired row).
 export function readSessionCookies(req: Request): SessionCookies {
-  let hostRaw: string | null = null;
-  let legacyRaw: string | null = null;
+  const names = officeSessionCookieNames();
+  const values: Record<SessionCookieSlot, string | null> = {
+    host: null,
+    plain: null,
+    sharedHost: null,
+    sharedPlain: null,
+  };
   const header = req.headers.get("cookie");
   if (header) {
     for (const part of header.split(";")) {
       const idx = part.indexOf("=");
       if (idx <= 0) continue;
       const name = part.slice(0, idx).trim();
-      const value = part.slice(idx + 1).trim();
+      const slot: SessionCookieSlot | null =
+        name === names.host
+          ? "host"
+          : name === names.plain
+            ? "plain"
+            : name === SHARED_HOST_COOKIE_NAME
+              ? "sharedHost"
+              : name === SHARED_COOKIE_NAME
+                ? "sharedPlain"
+                : null;
       // First occurrence wins per name: RFC 6265 has the browser send the
       // more specific match first, and a later duplicate under the same name
       // must never overwrite it.
-      if (name === HOST_COOKIE_NAME) {
-        if (hostRaw === null) hostRaw = value;
-      } else if (name === COOKIE_NAME) {
-        if (legacyRaw === null) legacyRaw = value;
+      if (slot !== null && values[slot] === null) {
+        values[slot] = part.slice(idx + 1).trim();
       }
     }
   }
-  const legacyWins =
-    hostRaw === null ||
-    (legacyRaw !== null &&
-      !buildPublicOrigin().isHttps &&
-      !validateSession(hostRaw || null));
-  if (legacyWins) {
-    return {
-      hostRaw,
-      legacyRaw,
-      selected: legacyRaw,
-      selectedName: legacyRaw === null ? null : "legacy",
-    };
+  const pick = (slot: SessionCookieSlot | null): SessionCookies => ({
+    values,
+    selected: slot === null ? null : values[slot],
+    selectedName: slot,
+  });
+  const { isHttps } = buildPublicOrigin();
+  const write = writeSlot(isHttps);
+  if (values[write] !== null) return pick(write);
+  const other = write === "host" ? "plain" : "host";
+  if (values[other] !== null) return pick(other);
+  // The shared-name fallback (task c9f250af). Reached only when the request
+  // carries none of this office's names, so an invalid own cookie is never
+  // rescued by a shared one.
+  if (values.sharedHost === null) {
+    return pick(values.sharedPlain === null ? null : "sharedPlain");
   }
-  return { hostRaw, legacyRaw, selected: hostRaw, selectedName: "host" };
+  const sharedHostGivesWay =
+    values.sharedPlain !== null &&
+    !isHttps &&
+    !validateSession(values.sharedHost || null);
+  return pick(sharedHostGivesWay ? "sharedPlain" : "sharedHost");
 }
 
 // The raw session id to validate, or null when there is nothing to validate.
 // An empty selected value is "nothing to validate" - and because selection
 // already happened, an empty `__Host-` cookie lands here as null instead of
-// falling back to a legacy cookie on the same request.
+// falling back to another cookie on the same request.
 export function readSessionCookie(req: Request): string | null {
   return readSessionCookies(req).selected || null;
 }
 
 export type BrowserSessionDiagnostic =
   | { outcome: "cookie_absent"; gate: "http" | "ws" }
-  | { outcome: "legacy_selected"; gate: "http" | "ws" }
+  | { outcome: "shared_selected"; gate: "http" | "ws" }
   | {
       outcome: "cookie_rejected";
       gate: "http" | "ws";
-      selected: "host" | "legacy";
-      legacyAlsoPresent: boolean;
+      selected: SessionCookieSlot;
+      othersPresent: boolean;
       marker?: string;
     }
   | {
       outcome: "session_matched";
       gate: "ws";
-      selected: "host" | "legacy";
+      selected: SessionCookieSlot;
       sessionPrefix: string;
     };
 
@@ -1914,24 +2005,24 @@ export type BrowserSessionDiagnostic =
 // redirectConsumedVisitorIfSignedIn also read cookies, but a rejection there
 // is not evidence that a browser was unexpectedly locked out.
 //
-// The ordinary HTTP hot path (a valid __Host cookie) returns before allocating
-// a diagnostic object. A matched prefix is emitted only for a WS connection,
-// rather than once for every HTTP request.
+// The ordinary HTTP hot path (a valid cookie under one of this office's names)
+// returns before allocating a diagnostic object. A matched prefix is emitted
+// only for a WS connection, rather than once for every HTTP request.
 export function browserSessionDiagnostic(
   cookies: SessionCookies,
   lookup: SessionLookup | null,
   gate: "http" | "ws",
 ): BrowserSessionDiagnostic | null {
-  if (cookies.hostRaw === null && cookies.legacyRaw === null) {
-    return { outcome: "cookie_absent", gate };
-  }
-  const selected = cookies.selectedName ?? "legacy";
+  const selected = cookies.selectedName;
+  if (selected === null) return { outcome: "cookie_absent", gate };
   if (!lookup) {
     return {
       outcome: "cookie_rejected",
       gate,
       selected,
-      legacyAlsoPresent: cookies.legacyRaw !== null,
+      othersPresent: Object.entries(cookies.values).some(
+        ([slot, value]) => slot !== selected && value !== null,
+      ),
       // Non-reversible: distinguishes a recurring stale cookie from changing
       // ones; never the cookie value itself.
       marker: cookies.selected
@@ -1940,7 +2031,9 @@ export function browserSessionDiagnostic(
     };
   }
   if (gate === "http") {
-    return selected === "legacy" ? { outcome: "legacy_selected", gate } : null;
+    return selected === "sharedHost" || selected === "sharedPlain"
+      ? { outcome: "shared_selected", gate }
+      : null;
   }
   return {
     outcome: "session_matched",
@@ -1949,6 +2042,13 @@ export function browserSessionDiagnostic(
     sessionPrefix: lookup.sessionPrefix,
   };
 }
+
+const SLOT_LABELS: Record<SessionCookieSlot, string> = {
+  host: "__Host",
+  plain: "plain",
+  sharedHost: "shared__Host",
+  sharedPlain: "shared_plain",
+};
 
 const BROWSER_DIAGNOSTIC_WINDOW_MS = 60_000;
 const BROWSER_DIAGNOSTIC_KEY_LIMIT = 256;
@@ -1999,20 +2099,17 @@ export function formatBrowserSessionDiagnostic(
   switch (diagnostic.outcome) {
     case "cookie_absent":
       return `[auth] browser session cookie absent ${context}`;
-    case "legacy_selected":
-      return `[auth] browser session selected legacy cookie ${context}`;
+    case "shared_selected":
+      return `[auth] browser session selected a shared cookie name ${context}`;
     case "cookie_rejected": {
-      const selection =
-        diagnostic.selected === "host" && diagnostic.legacyAlsoPresent
-          ? "selected=__Host legacy_overridden=yes"
-          : `selected=${diagnostic.selected === "host" ? "__Host" : "legacy"}`;
+      const selection = `selected=${SLOT_LABELS[diagnostic.selected]}${diagnostic.othersPresent ? " others_overridden=yes" : ""}`;
       const detail = diagnostic.marker
         ? `${selection} marker=${diagnostic.marker}`
         : selection;
       return `[auth] browser session cookie rejected as invalid or stale ${detail} ${context}`;
     }
     case "session_matched":
-      return `[auth] browser session matched ${diagnostic.sessionPrefix}… selected=${diagnostic.selected === "host" ? "__Host" : "legacy"} ${context}`;
+      return `[auth] browser session matched ${diagnostic.sessionPrefix}… selected=${SLOT_LABELS[diagnostic.selected]} ${context}`;
   }
 }
 
@@ -2046,50 +2143,56 @@ export function _testResetBrowserSessionDiagnostics(): void {
   browserDiagnosticCapReported = false;
 }
 
-// The two-step migration onto the `__Host-` name, as Set-Cookie lines (never
-// more than one - the steps must land in DIFFERENT responses).
+// The two-step migration onto this office's write name, as Set-Cookie lines.
+// The two steps never share a response.
 //
 // PURE: it re-reads no request and re-validates nothing. Callers pass the
-// cookies they already parsed plus the SessionLookup that already
-// authenticated, so this can never select a different identity than the one
-// the caller authorized.
+// cookies they parsed plus the SessionLookup that authenticated the request,
+// and a selected value that does not hash to that session migrates nothing, so
+// this can never act for a different identity than the one the caller
+// authorized.
 //
-//   1. UPGRADE - the request authenticated through the legacy cookie and
-//      carries no `__Host-` cookie at all. Re-issue the SAME raw session id
-//      under the new name and leave the legacy cookie alone.
-//   2. RETIRE - a `__Host-` cookie came back from the browser (so it accepted
-//      the upgrade, and by name precedence it is what authenticated this
-//      request) while the legacy cookie with the SAME value is still around.
-//      Clear the legacy name. A legacy cookie with another value is not the
-//      one step 1 copied: cookies are not scoped by port, so it can be the
-//      session of a plain-HTTP office on the same host, and it stays.
+//   1. UPGRADE - the request authenticated through a name other than the
+//      write name (a shared name, or this office's other name after a move
+//      between loopback and HTTPS). Write precedence puts the write name first,
+//      so it is absent. Re-issue the SAME raw session id under the write name
+//      and clear nothing.
+//   2. RETIRE - the write name came back from the browser (so it accepted the
+//      upgrade) and authenticated this request. Clear every other name that
+//      carries the SAME value: that is the copy step 1 made from. A cookie with
+//      another value stays. Cookies are not scoped by port, so a shared name
+//      with another value can be another office's session.
 //
 // Splitting the steps is what makes the migration incapable of signing anyone
 // out: nothing is ever cleared until its replacement has been OBSERVED. A
 // browser that refuses the new cookie (an office declaring HTTPS while its
 // terminator actually serves plain HTTP) just keeps the old one forever.
 export function sessionCookieMigrationHeaders(
-  cookies: Pick<SessionCookies, "hostRaw" | "legacyRaw">,
+  cookies: SessionCookies,
   lookup: SessionLookup,
 ): string[] {
+  const { selected, selectedName } = cookies;
+  if (selectedName === null || !selected) return [];
+  if (hashOf(selected) !== lookup.sessionIdHash) return [];
   const { isHttps } = buildPublicOrigin();
-  if (!isHttps) return [];
-  if (cookies.hostRaw === null && cookies.legacyRaw !== null) {
-    // The value re-issued is the raw id that was just validated - the only
-    // cookie on this request that could have produced `lookup`.
+  const write = writeSlot(isHttps);
+  if (selectedName !== write) {
     return [
       cookieLine(
-        HOST_COOKIE_NAME,
-        cookies.legacyRaw,
+        slotName(write),
+        selected,
         maxAgeUntil(lookup.absoluteExpiresAt),
-        true,
+        isHttps,
       ),
     ];
   }
-  if (cookies.hostRaw !== null && cookies.legacyRaw === cookies.hostRaw) {
-    return [cookieLine(COOKIE_NAME, "", 0, true)];
+  const lines: string[] = [];
+  for (const slot of Object.keys(cookies.values) as SessionCookieSlot[]) {
+    if (slot !== write && cookies.values[slot] === selected) {
+      lines.push(clearLine(slot, isHttps));
+    }
   }
-  return [];
+  return lines;
 }
 
 // Echoing-prevention: don't allow log lines to leak raw cookies/tokens. The
@@ -2211,6 +2314,8 @@ export function _testResetState() {
   envEvaluated = false;
   envCachedOrigin = null;
   boundLoopbackPort = null;
+  // Re-read from the state root on next use, as a restart does.
+  officeId = undefined;
 }
 
 export function _testResetOwnerClaimedInThisProcess(): void {

@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, spyOn } from "bun:test";
+import { sessionCookieName } from "../auth.ts";
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import {
@@ -50,7 +51,7 @@ async function claimOwner(srv: TestServer, name: string): Promise<string> {
   });
   if (res.status !== 302) throw new Error(`claim failed: HTTP ${res.status}`);
   const m = (res.headers.get("set-cookie") ?? "").match(
-    /isomux_session=([^;]+)/,
+    new RegExp(`${sessionCookieName()}=([^;]+)`),
   );
   if (!m) throw new Error("claim: no session cookie set");
   return m[1];

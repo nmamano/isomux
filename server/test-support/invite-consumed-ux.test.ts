@@ -21,7 +21,7 @@
 import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { COOKIE_NAME } from "../auth.ts";
+import { sessionCookieName } from "../auth.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -60,8 +60,8 @@ function acceptViaHttp(srv: TestServer, rawToken: string): Promise<Response> {
 
 function sessionCookieOf(res: Response): string {
   const setCookie = res.headers.get("set-cookie") ?? "";
-  const m = new RegExp(`${COOKIE_NAME}=([^;]+)`).exec(setCookie);
-  if (!m) throw new Error(`no ${COOKIE_NAME} cookie in: ${setCookie}`);
+  const m = new RegExp(`${sessionCookieName()}=([^;]+)`).exec(setCookie);
+  if (!m) throw new Error(`no ${sessionCookieName()} cookie in: ${setCookie}`);
   return m[1];
 }
 

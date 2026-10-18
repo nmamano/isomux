@@ -13,6 +13,7 @@
 // wait when asserting an omission / a no-op-on-the-id change) settle without
 // arbitrary sleeps.
 
+import { sessionCookieName } from "../auth.ts";
 import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import {
   startTestServer,
@@ -428,7 +429,7 @@ describe("lobby presence", () => {
     expect(claim.status).toBe(302);
     const cookie = claim.headers
       .get("set-cookie")!
-      .match(/isomux_session=([^;]+)/)![1];
+      .match(new RegExp(`${sessionCookieName()}=([^;]+)`))![1];
     const sock = await connectSettled(server, cookie);
     const cid = connectionIdOf(sock);
     const receptionist = server.agentManager

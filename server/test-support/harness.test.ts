@@ -3,6 +3,7 @@
 // sockets, drives a FakeBackend (zero LLM), and asserts on persisted files. The
 // richer onboarding / projection flows are Phase 1; this is the smoke that
 // proves the harness itself works.
+import { sessionCookieName } from "../auth.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { closeSync, existsSync, fstatSync, openSync, readFileSync } from "fs";
 import { homedir } from "os";
@@ -52,7 +53,7 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
     });
     expect(res.status).toBe(302);
     const setCookie = res.headers.get("set-cookie") ?? "";
-    const match = setCookie.match(/isomux_session=([^;]+)/);
+    const match = setCookie.match(new RegExp(`${sessionCookieName()}=([^;]+)`));
     expect(match).not.toBeNull();
     // The minted session is real and usable over the authenticated WS.
     const sock = await server.connectWs(match![1]);

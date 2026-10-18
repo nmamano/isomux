@@ -26,6 +26,7 @@
 // Zero LLM calls: bun test. The opt-in T3 live logged-in happy path is deferred
 // to Phase 1.4 (where the live/adapter infra lands); see live-gate.ts.
 
+import { sessionCookieName } from "../auth.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
@@ -69,7 +70,7 @@ async function claimOwner(srv: TestServer, name: string): Promise<string> {
   });
   if (res.status !== 302) throw new Error(`claim failed: HTTP ${res.status}`);
   const m = (res.headers.get("set-cookie") ?? "").match(
-    /isomux_session=([^;]+)/,
+    new RegExp(`${sessionCookieName()}=([^;]+)`),
   );
   if (!m) throw new Error("claim: no session cookie set");
   return m[1];

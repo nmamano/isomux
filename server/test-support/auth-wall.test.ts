@@ -29,7 +29,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { builtPwaAssetsExist } from "./built-ui.ts";
 import {
-  COOKIE_NAME,
+  sessionCookieName,
   buildPublicOrigin,
   validateSession,
   revokeSessionByPrefix,
@@ -65,7 +65,7 @@ function raw(
     headers.Origin = init.origin;
   }
   if (init.rawSessionId) {
-    headers.Cookie = `${COOKIE_NAME}=${init.rawSessionId}`;
+    headers.Cookie = `${sessionCookieName()}=${init.rawSessionId}`;
   }
   return fetch(`${srv.baseUrl}${path}`, {
     method: init.method ?? "GET",
@@ -347,7 +347,7 @@ describe("auth/wall: the two-step invite flow over HTTP", () => {
     expect(accept.status).toBe(302);
     expect(accept.headers.get("location")).toBe("/");
     const setCookie = accept.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain(`${COOKIE_NAME}=`);
+    expect(setCookie).toContain(`${sessionCookieName()}=`);
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Lax");
     expect(getUserByName("Newbie")?.role).toBe("member");

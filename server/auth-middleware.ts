@@ -620,8 +620,8 @@ export async function handleLogout(
   if (!originValidForAuthPost(req)) {
     return new Response("bad origin", { status: 403 });
   }
-  const cookie = readSessionCookie(req);
-  const lookup = validateSession(cookie);
+  const cookies = readSessionCookies(req);
+  const lookup = validateSession(cookies.selected || null);
   if (lookup && wouldRevokeLeaveOfficeUnreachable(lookup.sessionIdHash)) {
     const i18n = translatorForVisitor(req, onBox);
     return new Response(
@@ -655,12 +655,13 @@ export async function handleLogout(
         fields: [],
       });
   }
-  // Both names, as independent Set-Cookie lines (an object literal can only
-  // carry one). Clearing the name that did NOT authenticate this request is
-  // client-side cleanup only - the session revoked above is the one the
-  // request actually selected.
+  // Independent Set-Cookie lines (an object literal can only carry one).
+  // Clearing a name that did NOT authenticate this request is client-side
+  // cleanup only - the session revoked above is the one the request actually
+  // selected.
   const headers = new Headers({ Location: "/", ...securityHeaders() });
-  for (const line of clearCookieHeaders()) headers.append("Set-Cookie", line);
+  for (const line of clearCookieHeaders(cookies))
+    headers.append("Set-Cookie", line);
   return new Response(null, { status: 302, headers });
 }
 

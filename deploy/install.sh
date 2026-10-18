@@ -3633,14 +3633,18 @@ mint_invite() {
   # final report): the session prefix is the first 8 chars of the raw
   # cookie value.
   local raw prefix session user_id
-  # Both cookie names can sit in the jar (an HTTPS office writes the
-  # __Host- one; a jar carried over from before also holds the legacy one).
-  # Prefer __Host- regardless of row order, so the prefix below identifies
-  # the session the server itself would select.
+  # Several cookie names can sit in the jar: the office's own names
+  # (isomux_session_<office id>, with __Host- on HTTPS) and, in a jar
+  # carried over from before, the shared names every office used to write.
+  # Pick in the server's order for an HTTPS office, regardless of row
+  # order, so the prefix below identifies the session the server itself
+  # would select.
   raw=$(awk '
-    $6 == "__Host-isomux_session" { h = $7 }
-    $6 == "isomux_session" { l = $7 }
-    END { print (h != "" ? h : l) }
+    $6 ~ /^__Host-isomux_session_[0-9a-f]+$/ { r[4] = $7 }
+    $6 ~ /^isomux_session_[0-9a-f]+$/ { r[3] = $7 }
+    $6 == "__Host-isomux_session" { r[2] = $7 }
+    $6 == "isomux_session" { r[1] = $7 }
+    END { for (i = 4; i >= 1; i--) if (r[i] != "") { print r[i]; exit } }
   ' "$COOKIE_JAR")
   [[ -n $raw ]] || die "no session cookie in $COOKIE_JAR"
   prefix=${raw:0:8}

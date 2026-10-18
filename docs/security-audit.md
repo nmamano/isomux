@@ -354,9 +354,11 @@ In `~/.isomux/`:
 
 All three files are written atomically (temp + rename) and serialized under a single in-process mutex, so invite acceptance (which touches all three) can't race. Access pane saves go through the same mutex. Sessions persist to disk, so a restart keeps them.
 
+`office-id` holds 12 random hex characters, made at the first start. It names this office's session cookies. It is not a secret.
+
 ### Cookie semantics
 
-- Name: `__Host-isomux_session`, or `isomux_session` on `http://localhost*`, which cannot carry the `Secure` the prefix requires. The prefix is browser-enforced to be host-only, so a page on a subdomain of the office cannot write the cookie the office reads. Both names are accepted. On HTTPS a `__Host-` cookie that arrives is the one checked, valid or not; on `http://localhost*` an invalid one gives way to `isomux_session`, because another office on the same host can leave it there. An existing session moves onto the prefixed name on its next page load, WebSocket connection, or read-only API request.
+- Name: `__Host-isomux_session_<office id>`, or `isomux_session_<office id>` on `http://localhost*`, which cannot carry the `Secure` the prefix requires. The prefix is browser-enforced to be host-only, so a page on a subdomain of the office cannot write the cookie the office reads. Browsers scope cookies by host, not by port, so the office id keeps two offices on one host from reading or clearing each other's cookie. Both names are accepted, and the name the office writes is checked first, valid or not. The names `__Host-isomux_session` and `isomux_session` that every office used before are still read for one release, and an existing session moves onto the office's own name on its next page load, WebSocket connection, or read-only API request.
 - Attributes: `HttpOnly; Path=/; SameSite=Lax`. `Secure` is set when the configured Public URL is `https://`, and omitted when the server is on `http://localhost*` (pre-claim, or post-claim with external access off).
 - Rolling expiry: 30 days, refreshed on activity. Absolute cap: 1 year from creation.
 

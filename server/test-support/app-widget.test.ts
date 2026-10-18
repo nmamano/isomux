@@ -99,14 +99,14 @@ it("serves a private wrapper only after office sign-in and app access", async ()
   });
   const { raw, OFFICE_HOST, NAVIGATION_HEADERS } =
     await import("./app-host-test-kit.ts");
-  const { HOST_COOKIE_NAME } = await import("../auth.ts");
+  const { sessionCookieName } = await import("../auth.ts");
   const fetchPage = (path: string, cookie?: string) =>
     raw(srv.port, {
       host: OFFICE_HOST,
       path,
       headers: {
         ...NAVIGATION_HEADERS,
-        ...(cookie ? { Cookie: `${HOST_COOKIE_NAME}=${cookie}` } : {}),
+        ...(cookie ? { Cookie: `${sessionCookieName()}=${cookie}` } : {}),
       },
     });
   const signedOut = await fetchPage("/hello");

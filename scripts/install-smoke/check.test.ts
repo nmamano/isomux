@@ -70,6 +70,24 @@ describe("sessionCookie", () => {
   it("prefers the __Host- session cookie and drops the attributes", () => {
     expect(
       sessionCookie([
+        "isomux_session_0123456789ab=plain; Path=/",
+        "__Host-isomux_session_0123456789ab=new; Path=/; Secure",
+      ]),
+    ).toBe("__Host-isomux_session_0123456789ab=new");
+  });
+
+  it("prefers the office's own names over the shared names", () => {
+    expect(
+      sessionCookie([
+        "__Host-isomux_session=shared; Path=/; Secure",
+        "isomux_session_0123456789ab=own; Path=/",
+      ]),
+    ).toBe("isomux_session_0123456789ab=own");
+  });
+
+  it("still reads an office on a release with the shared names", () => {
+    expect(
+      sessionCookie([
         "isomux_session=legacy; Path=/",
         "__Host-isomux_session=new; Path=/; Secure",
       ]),
@@ -77,7 +95,14 @@ describe("sessionCookie", () => {
   });
 
   it("returns null when no session cookie has a value", () => {
-    expect(sessionCookie(["other=1", "isomux_session=; Max-Age=0"])).toBeNull();
+    expect(
+      sessionCookie([
+        "other=1",
+        "isomux_session_id=x",
+        "isomux_session=; Max-Age=0",
+        "isomux_session_0123456789ab=; Max-Age=0",
+      ]),
+    ).toBeNull();
   });
 });
 

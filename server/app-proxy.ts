@@ -28,7 +28,7 @@ import type { AppRecord } from "../shared/types.ts";
 import { appRegistrationKey, watchAppRetirement } from "./app-lifecycle.ts";
 import type { AppRuntime, AppSupervisor } from "./app-supervisor.ts";
 import { APP_COOKIE_NAME } from "./app-auth.ts";
-import { COOKIE_NAME, HOST_COOKIE_NAME } from "./auth.ts";
+import { isSessionCookieName } from "./auth.ts";
 import { setAppFramingPolicy } from "./app-framing.ts";
 import {
   APP_BUSY_BODY,
@@ -92,20 +92,20 @@ const RELAY_OWNED_REQUEST_HEADERS = new Set([
 //
 // `__Host-isomux_app` is the load-bearing one and the explicit handoff:
 // it is the credential that opens THIS app, and an app holding it could open
-// itself as its own visitor. The two office session names are stripped for the
-// same reason one level up - an app handed a live office session could act as
-// that user against the office API. No browser sends any of the three to a
-// child host (all are host-only), so a request carrying one was hand-built, and
-// there is nothing to preserve for it.
+// itself as its own visitor. The office session names (any office's, and the
+// shared names of the one-release fallback) are stripped for the same reason
+// one level up - an app handed a live office session could act as that user
+// against the office API. No browser sends any of them to a child host (all
+// are host-only), so a request carrying one was hand-built, and there is
+// nothing to preserve for it.
 //
-// Names are matched EXACTLY, and cookie names are case-sensitive (RFC 6265): an
-// app's own `isomux_session_id` or `ISOMUX_SESSION` is its own business and
-// passes through.
-const STRIPPED_COOKIE_NAMES = new Set([
-  APP_COOKIE_NAME,
-  HOST_COOKIE_NAME,
-  COOKIE_NAME,
-]);
+// Names are matched EXACTLY (an office id is exactly 12 lowercase hex
+// characters), and cookie names are case-sensitive (RFC 6265): an app's own
+// `isomux_session_id` or `ISOMUX_SESSION` is its own business and passes
+// through.
+function isStrippedCookieName(name: string): boolean {
+  return name === APP_COOKIE_NAME || isSessionCookieName(name);
+}
 
 // Statuses defined to carry no body. A `Response` built with one of these and a
 // body is a framing error waiting to happen, and there is nothing to stream.
@@ -136,7 +136,7 @@ export function stripIsomuxCookies(header: string | null): string | null {
     if (trimmed.length === 0) continue;
     const eq = trimmed.indexOf("=");
     const name = eq === -1 ? trimmed : trimmed.slice(0, eq);
-    if (STRIPPED_COOKIE_NAMES.has(name)) continue;
+    if (isStrippedCookieName(name)) continue;
     kept.push(trimmed);
   }
   return kept.length > 0 ? kept.join("; ") : null;

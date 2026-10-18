@@ -75,12 +75,16 @@ code=$(printf '%s' "$token" | curl -s -o /dev/null -w '%{http_code}' -c "$jar" \
 [ "$code" = "302" ] || die "owner-login accept was refused (HTTP $code)"
 
 # Resolve our own userId the way install.sh does: the session prefix is the
-# first 8 characters of the raw cookie value. Prefer the __Host- cookie an
-# HTTPS office writes, whatever order the jar holds them in.
+# first 8 characters of the raw cookie value. The office writes
+# isomux_session_<office id>, with __Host- on HTTPS; an office on an older
+# release writes the shared names. Pick in the server's order for an HTTPS
+# office, whatever order the jar holds them in.
 raw=$(awk '
-  $6 == "__Host-isomux_session" { h = $7 }
-  $6 == "isomux_session" { l = $7 }
-  END { print (h != "" ? h : l) }
+  $6 ~ /^__Host-isomux_session_[0-9a-f]+$/ { r[4] = $7 }
+  $6 ~ /^isomux_session_[0-9a-f]+$/ { r[3] = $7 }
+  $6 == "__Host-isomux_session" { r[2] = $7 }
+  $6 == "isomux_session" { r[1] = $7 }
+  END { for (i = 4; i >= 1; i--) if (r[i] != "") { print r[i]; exit } }
 ' "$jar")
 [ -n "$raw" ] || die "no session cookie after accepting the owner-login link"
 prefix=${raw:0:8}

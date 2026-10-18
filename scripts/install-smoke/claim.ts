@@ -15,14 +15,23 @@ export type ClaimMethod =
   | { kind: "setup-key"; name: string; key: string }
   | { kind: "invite"; url: string };
 
-const SESSION_COOKIES = ["__Host-isomux_session", "isomux_session"];
+// The office session cookie names, in the server's order for an HTTPS office:
+// the office's own names (isomux_session_<office id>), then the names every
+// office wrote before task c9f250af, which an older release still writes.
+const SESSION_COOKIES = [
+  /^__Host-isomux_session_[0-9a-f]{12}$/,
+  /^isomux_session_[0-9a-f]{12}$/,
+  /^__Host-isomux_session$/,
+  /^isomux_session$/,
+];
 
 // The `name=value` pair of the office session cookie, or null.
 export function sessionCookie(setCookies: string[]): string | null {
   for (const name of SESSION_COOKIES) {
     for (const line of setCookies) {
       const pair = line.split(";", 1)[0]!.trim();
-      if (pair.startsWith(`${name}=`) && pair.length > name.length + 1)
+      const eq = pair.indexOf("=");
+      if (eq > 0 && name.test(pair.slice(0, eq)) && pair.length > eq + 1)
         return pair;
     }
   }

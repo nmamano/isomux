@@ -217,6 +217,7 @@ import {
   emitBrowserSessionDiagnostic,
   evictSessionsForUserId,
   freezeBootState,
+  loadOfficeId,
   isOutsideReachabilityBlocked,
   isProcessBoundLoopback,
   isProcessPreClaim,
@@ -599,6 +600,10 @@ function bootPrelude(): void {
 
   // The setup key that claims an unclaimed office (server/setup-key.ts).
   setupKeyAtBoot(isProcessPreClaim());
+
+  // The office id names this office's session cookies (server/office-id.ts).
+  // A file that cannot be read or written stops the boot here.
+  loadOfficeId();
 } // end bootPrelude
 
 // AgentManager / CronjobManager instances. Module-level `let` (not top-level

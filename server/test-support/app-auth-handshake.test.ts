@@ -54,6 +54,7 @@ import {
   type RawResponse,
 } from "./app-host-test-kit.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
+import { SHARED_COOKIE_NAME, officeSessionCookieNames } from "../auth.ts";
 import { createHash } from "crypto";
 import { runInNewContext } from "node:vm";
 import {
@@ -920,43 +921,47 @@ describe("app-host handshake: the office mint endpoint", () => {
   });
 
   it("carries the __Host- office-cookie migration like any other page load", async () => {
-    // Slice 2's two-step migration must ride THIS response too. It is the door
-    // into the app origins, and the whole reason `__Host-` had to land before
-    // slice 5 is that an app page on a sibling subdomain can shadow a legacy
-    // office cookie. Reaching an app while still holding only the shadowable
-    // name would be exactly the case the prerequisite exists for.
+    // The two-step migration must ride THIS response too. It is the door into
+    // the app origins, and the whole reason `__Host-` had to land before slice
+    // 5 is that an app page on a sibling subdomain can shadow a plain office
+    // cookie. Reaching an app while still holding only the shadowable name
+    // would be exactly the case the prerequisite exists for.
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
-    // Step 1, UPGRADE: the request authenticated through the legacy name and
-    // carries no `__Host-` cookie, so the same session id is re-issued under
-    // the new name - and the handshake response is otherwise untouched.
-    const upgrade = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
+    const { host } = officeSessionCookieNames();
+    const shared = `${SHARED_COOKIE_NAME}=${rawSessionId}`;
+    // Step 1, UPGRADE: the request authenticated through a shared name and
+    // carries none of this office's names, so the same session id is
+    // re-issued under the office's `__Host-` name - and the handshake response
+    // is otherwise untouched.
+    const upgrade = await mint(srv, `?app=${label}&r=%2F`, {
+      headers: { Cookie: shared },
+    });
     expect(upgrade.status).toBe(302);
     expect(upgrade.headers.get("location")).toStartWith(
       `https://${appHost(label)}/__isomux/auth?code=`,
     );
     const issued = upgrade.headers.getSetCookie();
     expect(issued.length).toBe(1);
-    expect(issued[0]).toStartWith(`__Host-isomux_session=${rawSessionId};`);
+    expect(issued[0]).toStartWith(`${host}=${rawSessionId};`);
     expect(issued[0]).toContain("Secure");
-    // Step 2, RETIRE: the browser came back with both, so the legacy name is
+    // Step 2, RETIRE: the browser came back with both, so the shared name is
     // cleared - and nothing about the handshake changes.
     const retire = await srv.http(`/auth/app?app=${label}&r=%2F`, {
       redirect: "manual",
-      headers: {
-        Cookie: `__Host-isomux_session=${rawSessionId}; isomux_session=${rawSessionId}`,
-      },
+      headers: { Cookie: `${host}=${rawSessionId}; ${shared}` },
     });
     expect(retire.status).toBe(302);
     expect(retire.headers.get("location")).toStartWith(
       `https://${appHost(label)}/__isomux/auth?code=`,
     );
     expect(retire.headers.getSetCookie()).toEqual([
-      "isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
+      `${SHARED_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
     ]);
-    // And once only the new name arrives, there is nothing left to migrate.
+    // And once only the office's name arrives, there is nothing left to
+    // migrate.
     const settled = await srv.http(`/auth/app?app=${label}&r=%2F`, {
       redirect: "manual",
-      headers: { Cookie: `__Host-isomux_session=${rawSessionId}` },
+      headers: { Cookie: `${host}=${rawSessionId}` },
     });
     expect(settled.status).toBe(302);
     expect(settled.headers.getSetCookie()).toEqual([]);

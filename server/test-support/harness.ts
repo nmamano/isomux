@@ -26,7 +26,7 @@ import {
 } from "./fake-app-supervisor.ts";
 import { assertSafeToDelete, removeStateDir } from "./temp-state.ts";
 import {
-  COOKIE_NAME,
+  sessionCookieName,
   buildPublicOrigin,
   acceptInvite,
   mintInvite,
@@ -49,7 +49,7 @@ import type { UserRole } from "../../shared/types.ts";
 export interface SeededIdentity {
   username: string;
   role: UserRole;
-  // The raw session cookie value (isomux_session). Pass to connectWs/http.
+  // The raw session cookie value. Pass to connectWs/http.
   rawSessionId: string;
 }
 
@@ -347,7 +347,7 @@ async function bootTestServer(
       // idempotent methods once in case the pool still
       // wins the race.
       headers.set("Connection", "close");
-      if (rawSessionId) headers.set("Cookie", `${COOKIE_NAME}=${rawSessionId}`);
+      if (rawSessionId) headers.set("Cookie", `${sessionCookieName()}=${rawSessionId}`);
       const attempt = () => fetch(`${baseUrl}${path}`, { ...rest, headers });
       try {
         return await attempt();
@@ -373,7 +373,7 @@ async function bootTestServer(
       // send several session cookies at once (the __Host- dual-read matrix).
       const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/ws`, {
         headers: {
-          Cookie: opts?.cookieHeader ?? `${COOKIE_NAME}=${rawSessionId}`,
+          Cookie: opts?.cookieHeader ?? `${sessionCookieName()}=${rawSessionId}`,
           Origin: buildPublicOrigin().origin,
           ...opts?.headers,
         },

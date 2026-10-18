@@ -922,59 +922,82 @@ describe("install.sh: the systemd user manager agents' apps run on", () => {
   });
 });
 
-// The one piece of install.sh that reads the office's session cookie. It runs
-// the REAL awk program out of the source against synthetic jars, because the
-// property that matters is a behavior (which name wins), not a substring.
-describe("install.sh - session cookie jar parse", () => {
-  const awkProgram = (() => {
-    const start = SRC.indexOf("raw=$(awk '");
-    expect(start).toBeGreaterThan(-1);
-    const from = start + "raw=$(awk '".length;
-    const end = SRC.indexOf("'", from);
-    expect(end).toBeGreaterThan(from);
-    return SRC.slice(from, end);
-  })();
+// The one piece of install.sh that reads the office's session cookie, and its
+// copy in control-plane/remote/mint-invite.sh. It runs the REAL awk program out
+// of each source against synthetic jars, under both awks a box can have,
+// because the property that matters is a behavior (which name wins), not a
+// substring.
+const MINT_INVITE_SRC = readFileSync(
+  new URL("../control-plane/remote/mint-invite.sh", import.meta.url),
+  "utf8",
+);
+for (const [label, source] of [
+  ["install.sh", SRC],
+  ["mint-invite.sh", MINT_INVITE_SRC],
+] as const) {
+  describe(`${label} - session cookie jar parse`, () => {
+    const awkProgram = (() => {
+      const start = source.indexOf("raw=$(awk '");
+      expect(start).toBeGreaterThan(-1);
+      const from = start + "raw=$(awk '".length;
+      const end = source.indexOf("'", from);
+      expect(end).toBeGreaterThan(from);
+      return source.slice(from, end);
+    })();
 
-  async function runAwk(jar: string): Promise<string> {
-    const path = `${process.env.TMPDIR ?? "/tmp"}/isomux-cookiejar-${Bun.hash(jar)}.txt`;
-    await Bun.write(path, jar);
-    const proc = Bun.spawn(["awk", awkProgram, path], { stdout: "pipe" });
-    const out = await new Response(proc.stdout).text();
-    await proc.exited;
-    return out.trim();
-  }
+    const awks = ["mawk", "gawk"].filter((awk) => Bun.which(awk) !== null);
 
-  // Netscape jar rows: domain, flag, path, secure, expiry, NAME, VALUE.
-  const row = (name: string, value: string) =>
-    `#HttpOnly_127.0.0.1\tFALSE\t/\tTRUE\t9999999999\t${name}\t${value}`;
-  const HOST = "__Host-isomux_session";
-  const LEGACY = "isomux_session";
+    async function runAwk(jar: string): Promise<string> {
+      const path = `${process.env.TMPDIR ?? "/tmp"}/isomux-cookiejar-${Bun.hash(jar)}.txt`;
+      await Bun.write(path, jar);
+      const outs = new Set<string>();
+      for (const awk of awks.length > 0 ? awks : ["awk"]) {
+        const proc = Bun.spawn([awk, awkProgram, path], { stdout: "pipe" });
+        outs.add((await new Response(proc.stdout).text()).trim());
+        await proc.exited;
+      }
+      if (outs.size !== 1) throw new Error(`awks disagree: ${[...outs]}`);
+      return [...outs][0]!;
+    }
 
-  it("prefers the __Host- name over the legacy one, in either row order", async () => {
-    // curl writes both when a jar outlives the office's move to HTTPS. The
-    // prefix that wins here has to be the one the server itself selects, or
-    // the installer resolves the wrong session and mints an invite for the
-    // wrong user.
-    expect(
-      await runAwk(`${row(HOST, "HOSTVAL")}\n${row(LEGACY, "OLDVAL")}\n`),
-    ).toBe("HOSTVAL");
-    expect(
-      await runAwk(`${row(LEGACY, "OLDVAL")}\n${row(HOST, "HOSTVAL")}\n`),
-    ).toBe("HOSTVAL");
+    // Netscape jar rows: domain, flag, path, secure, expiry, NAME, VALUE.
+    const row = (name: string, value: string) =>
+      `#HttpOnly_127.0.0.1\tFALSE\t/\tTRUE\t9999999999\t${name}\t${value}`;
+    const OWN_HOST = "__Host-isomux_session_0123456789ab";
+    const OWN_PLAIN = "isomux_session_0123456789ab";
+    const SHARED_HOST = "__Host-isomux_session";
+    const SHARED = "isomux_session";
+    // The server's order for an HTTPS office, highest first.
+    const ORDER = [OWN_HOST, OWN_PLAIN, SHARED_HOST, SHARED];
+
+    it("picks the server's order, in every row order", async () => {
+      // A jar that outlives an update holds the shared names next to the
+      // office's own. The prefix that wins here has to be the one the server
+      // itself selects, or the script resolves the wrong session and mints an
+      // invite for the wrong user.
+      for (let top = 0; top < ORDER.length; top++) {
+        const names = ORDER.slice(top);
+        const rows = names.map((name) => row(name, `V-${name}`));
+        const expected = `V-${names[0]}`;
+        expect(await runAwk(`${rows.join("\n")}\n`)).toBe(expected);
+        expect(await runAwk(`${rows.reverse().join("\n")}\n`)).toBe(
+          expected,
+        );
+      }
+    });
+
+    it("reads a jar with only one name, for each name", async () => {
+      for (const name of ORDER) {
+        expect(await runAwk(`${row(name, "ONLY")}\n`)).toBe("ONLY");
+      }
+    });
+
+    it("ignores a look-alike name, so the caller can die", async () => {
+      expect(await runAwk(`${row("other_cookie", "X")}\n`)).toBe("");
+      expect(await runAwk(`${row("isomux_session_id", "X")}\n`)).toBe("");
+    });
   });
-
-  it("still reads a legacy-only jar - every pre-HTTPS install has one", async () => {
-    expect(await runAwk(`${row(LEGACY, "OLDVAL")}\n`)).toBe("OLDVAL");
-  });
-
-  it("reads a __Host--only jar", async () => {
-    expect(await runAwk(`${row(HOST, "HOSTVAL")}\n`)).toBe("HOSTVAL");
-  });
-
-  it("is empty when the jar holds no session cookie, so the caller can die", async () => {
-    expect(await runAwk(`${row("other_cookie", "X")}\n`)).toBe("");
-  });
-});
+}
 
 // The unit heredoc is UNQUOTED, because it expands $SERVICE_USER, $SERVICE_HOME
 // and $INSTALL_DIR. That also means everything else inside it is expanded - and

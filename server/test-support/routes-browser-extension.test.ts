@@ -1,4 +1,5 @@
 import { writeFileSync } from "node:fs";
+import { sessionCookieName } from "../auth.ts";
 import { join } from "node:path";
 import { mayUseExtension } from "../isomux-office";
 import { getUserByName } from "../users";
@@ -467,7 +468,7 @@ test("extension ZIP download is self-authenticated and metadata is the current m
   // Safe GETs use the existing cookie/SameSite + no-CORS boundary, not the write CSRF gate.
   const foreign = await fetch(server.baseUrl + path, {
     headers: {
-      Cookie: `isomux_session=${owner.rawSessionId}`,
+      Cookie: `${sessionCookieName()}=${owner.rawSessionId}`,
       Origin: "https://foreign.example",
     },
   });
