@@ -3800,16 +3800,11 @@ export async function demoApi(
   }
   // asks.reply / asks.dismiss - close the ask and send
   // the answer to its agent as a member message, as the server does.
-  const askMatch = pathname.match(
-    /^\/api\/asks\/([^/]+)\/(reply|dismiss)$/,
-  );
+  const askMatch = pathname.match(/^\/api\/asks\/([^/]+)\/(reply|dismiss)$/);
   if (askMatch && method === "POST") {
     const entries = demoAskEntries();
-    const entry = entries.find(
-      (e) => e.id === decodeURIComponent(askMatch[1]),
-    );
-    if (!entry)
-      throw new ApiError(404, "not_found", "No such open ask.");
+    const entry = entries.find((e) => e.id === decodeURIComponent(askMatch[1]));
+    if (!entry) throw new ApiError(404, "not_found", "No such open ask.");
     const dismissed = askMatch[2] === "dismiss";
     const sent = (body as { text?: unknown } | undefined)?.text;
     const text = dismissed ? "Dismissed" : typeof sent === "string" ? sent : "";

@@ -2045,10 +2045,8 @@ function plainTextParams(
   const key = describeIsomuxRoute(method, path);
   if (key === "apiCall.agents.sendMessage") return MESSAGE_PLAIN_TEXT_PARAMS;
   if (key === "apiCall.inbox.messageBoss") return INBOX_PLAIN_TEXT_PARAMS;
-  if (key === "apiCall.asks.create")
-    return ASK_CREATE_PLAIN_TEXT_PARAMS;
-  if (key === "apiCall.asks.edit")
-    return ASK_EDIT_PLAIN_TEXT_PARAMS;
+  if (key === "apiCall.asks.create") return ASK_CREATE_PLAIN_TEXT_PARAMS;
+  if (key === "apiCall.asks.edit") return ASK_EDIT_PLAIN_TEXT_PARAMS;
   return null;
 }
 

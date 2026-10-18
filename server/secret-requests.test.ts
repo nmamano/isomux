@@ -71,7 +71,8 @@ function setup(agents: Record<string, string | null> = { a1: "u-alice" }) {
       asks,
       audience: {
         isOfficeOwner: (userId) => userId === "u-owner",
-        agentRoomId: (agentId) => (Object.hasOwn(agents, agentId) ? "r1" : null),
+        agentRoomId: (agentId) =>
+          Object.hasOwn(agents, agentId) ? "r1" : null,
         canSeeRoom: () => true,
       },
       onChanged: async () => {
@@ -186,9 +187,7 @@ describe("the agent's ask", () => {
     expect(codeOf("a1", { ...ASK, hosts: ["api.anthropic.com"] })).toBe(
       "host_not_allowed",
     );
-    expect(codeOf("a1", { ...ASK, name: "not a name" })).toBe(
-      "invalid_secret",
-    );
+    expect(codeOf("a1", { ...ASK, name: "not a name" })).toBe("invalid_secret");
     expect(codeOf("a1", { ...ASK, name: "AKIAIOSFODNN7EXAMPLE" })).toBe(
       "invalid_secret",
     );

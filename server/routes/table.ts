@@ -846,12 +846,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/asks/:askId/reply",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     plainText: { params: ASK_REPLY_PLAIN_TEXT_PARAMS },
-    emits: [
-      "ask_removed",
-      "log_entry",
-      "interaction_added",
-      "agent_updated",
-    ],
+    emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   }),
   defineRoute<AskDismissReq, NoContent>({
     opId: "asks.dismiss",
@@ -859,12 +854,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/asks/:askId/dismiss",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
-    emits: [
-      "ask_removed",
-      "log_entry",
-      "interaction_added",
-      "agent_updated",
-    ],
+    emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   }),
   defineRoute<AffordancePreviewUrlReq, OkTrue>({
     opId: "agents.previewUrl",

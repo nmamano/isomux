@@ -847,9 +847,7 @@ function createManagers(startOpts: StartServerOpts): void {
   // agents), and delivery. The store and delivery call each other through
   // these closures.
   askStore = createAskStore({
-    persistence: createAskFilePersistence(
-      join(STATE_ROOT, "asks.json"),
-    ),
+    persistence: createAskFilePersistence(join(STATE_ROOT, "asks.json")),
     onChange: (change) => pushAskChange(change),
   });
   pagerSettings = createPagerSettingsStore(

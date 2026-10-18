@@ -65,9 +65,7 @@ describe("loading", () => {
       quarantine: () => true,
     };
     const store = createAskStore({ persistence });
-    expect(() => store.listAll()).toThrow(
-      AsksUnavailableError,
-    );
+    expect(() => store.listAll()).toThrow(AsksUnavailableError);
   });
 
   it("leaves memory unchanged when a write fails", () => {
@@ -121,9 +119,17 @@ describe("the three shapes", () => {
       },
       true,
     ],
-    ["office secret", { ...BASE, secret: { ...SECRET, scope: "office" } }, true],
+    [
+      "office secret",
+      { ...BASE, secret: { ...SECRET, scope: "office" } },
+      true,
+    ],
     ["plain with no member", BASE, false],
-    ["personal secret with no member", { ...BASE, secret: { ...SECRET, scope: "personal" } }, false],
+    [
+      "personal secret with no member",
+      { ...BASE, secret: { ...SECRET, scope: "personal" } },
+      false,
+    ],
     [
       "office secret naming a member",
       { ...BASE, memberUserId: "u1", secret: { ...SECRET, scope: "office" } },
@@ -171,9 +177,7 @@ describe("the three shapes", () => {
 });
 
 describe("who sees an ask", () => {
-  const audience = (
-    over: Partial<AskAudienceDeps> = {},
-  ): AskAudienceDeps => ({
+  const audience = (over: Partial<AskAudienceDeps> = {}): AskAudienceDeps => ({
     isOfficeOwner: (userId) => userId === "u-owner",
     agentRoomId: (agentId) => (agentId === "a1" ? "r1" : null),
     canSeeRoom: () => true,

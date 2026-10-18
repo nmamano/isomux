@@ -93,7 +93,12 @@ async function boot() {
         type: "full_state",
         agents: [agent],
         rooms: [
-          { id: "r1", name: "First room", prompt: null, canCloseWhenEmpty: true },
+          {
+            id: "r1",
+            name: "First room",
+            prompt: null,
+            canCloseWhenEmpty: true,
+          },
         ],
         office: { name: "Test Office" },
         recentCwds: [],
@@ -124,7 +129,8 @@ async function boot() {
 
 const asksButton = (view: ReturnType<typeof render>) =>
   [...view.container.querySelectorAll("button")].find(
-    (b) => b.querySelector(".nav-action-label")?.textContent === en["asks.title"],
+    (b) =>
+      b.querySelector(".nav-action-label")?.textContent === en["asks.title"],
   );
 
 it("counts the asks the page lists, opens /asks, and opens a chat from it", async () => {

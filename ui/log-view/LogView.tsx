@@ -2579,11 +2579,7 @@ export function LogView({
               style={{ display: "none" }}
               onChange={(e) => handleFileSelect(e.target.files)}
             />
-            <AsksStack
-              key={agent.id}
-              agentId={agent.id}
-              isMobile={isMobile}
-            />
+            <AsksStack key={agent.id} agentId={agent.id} isMobile={isMobile} />
             <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
             {editError !== null && (
               <div

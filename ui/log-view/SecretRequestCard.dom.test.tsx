@@ -38,9 +38,8 @@ function card(outcomes: Map<string, "saved" | "declined"> = new Map()) {
 }
 
 const hasForm = (view: ReturnType<typeof render>) =>
-  view.container.querySelector(
-    "[data-masked-credential], textarea, button",
-  ) !== null;
+  view.container.querySelector("[data-masked-credential], textarea, button") !==
+  null;
 const outcome = (view: ReturnType<typeof render>) =>
   view.container.querySelector("[data-outcome]")?.getAttribute("data-outcome");
 

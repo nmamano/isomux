@@ -240,10 +240,7 @@ export function OfficeView({
     asks,
     membersChat,
   } = useAppState();
-  const askCountByAgent = useMemo(
-    () => askCounts(asks),
-    [asks],
-  );
+  const askCountByAgent = useMemo(() => askCounts(asks), [asks]);
   const openAsks = useMemo(
     () => visibleAsks(asks, agents).length,
     [asks, agents],
@@ -1002,9 +999,7 @@ export function OfficeView({
                               onContextMenu(e.clientX, e.clientY, agent)
                             }
                             needsAttention={needsAttention.has(agent.id)}
-                            askCount={askCountByAgent.get(
-                              agent.id,
-                            )}
+                            askCount={askCountByAgent.get(agent.id)}
                             onSwap={(a, b) => {
                               const rid = currentRoomId;
                               if (rid)

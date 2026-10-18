@@ -148,9 +148,7 @@ describe("the agent's own list", () => {
 
     const base = `/api/agents/${w.asker.id}/asks`;
     const listed = await call(w.srv, "GET", base, w.as(w.asker.id));
-    expect((listed.body as AskEntry[]).map((e) => e.id)).toEqual([
-      created.id,
-    ]);
+    expect((listed.body as AskEntry[]).map((e) => e.id)).toEqual([created.id]);
     const edited = await call(
       w.srv,
       "PATCH",
@@ -604,9 +602,7 @@ describe("the member's answer", () => {
     const mine = await call(w.srv, "GET", "/api/asks", {
       rawSessionId: w.owner.rawSessionId,
     });
-    expect((mine.body as AskEntry[]).map((e) => e.id)).toEqual([
-      created.id,
-    ]);
+    expect((mine.body as AskEntry[]).map((e) => e.id)).toEqual([created.id]);
   });
 });
 
@@ -646,9 +642,7 @@ describe("live and durable", () => {
     server = await w.srv.restart();
     const owner = { rawSessionId: w.owner.rawSessionId };
     const after = await call(server, "GET", "/api/asks", owner);
-    expect((after.body as AskEntry[]).map((e) => e.id)).toEqual([
-      created.id,
-    ]);
+    expect((after.body as AskEntry[]).map((e) => e.id)).toEqual([created.id]);
     await server.agentManager.kill(w.asker.id);
     const gone = await call(server, "GET", "/api/asks", owner);
     expect(gone.body).toEqual([]);
@@ -796,12 +790,9 @@ describe("a secret request is an ask", () => {
     expect(await ids(pat.rawSessionId)).toEqual([personal]);
     expect(await ids(w.owner.rawSessionId)).toEqual([office]);
     // The agent reads no member on the office request.
-    const own = await call(
-      w.srv,
-      "GET",
-      `/api/agents/${agentId}/asks`,
-      { bearer: getAgentTokenRaw(agentId)! },
-    );
+    const own = await call(w.srv, "GET", `/api/agents/${agentId}/asks`, {
+      bearer: getAgentTokenRaw(agentId)!,
+    });
     expect(
       (own.body as (AskEntry & { member: string | null })[]).map((e) => [
         e.secret?.requestId,
@@ -830,9 +821,9 @@ describe("a secret request is an ask", () => {
     const after = await call(server, "GET", "/api/asks", {
       rawSessionId: w.owner.rawSessionId,
     });
-    expect(
-      (after.body as AskEntry[]).map((e) => e.secret?.requestId),
-    ).toEqual([requestId]);
+    expect((after.body as AskEntry[]).map((e) => e.secret?.requestId)).toEqual([
+      requestId,
+    ]);
     const saved = await save(
       server,
       w.asker.id,
@@ -854,7 +845,12 @@ describe("a secret request is an ask", () => {
     const w = await world();
     const requestId = await request(w.srv, w.asker.id);
     const [entry] = (
-      await call(w.srv, "GET", `/api/agents/${w.asker.id}/asks`, w.as(w.asker.id))
+      await call(
+        w.srv,
+        "GET",
+        `/api/agents/${w.asker.id}/asks`,
+        w.as(w.asker.id),
+      )
     ).body as AskEntry[];
     const deleted = await call(
       w.srv,

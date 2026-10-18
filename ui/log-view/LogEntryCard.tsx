@@ -538,9 +538,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       // An answer to an ask: the link above it, and a dismiss in the
       // viewer's language (the agent reads the English word).
       const ask = askRefOf(entry);
-      const content = ask?.dismissed
-        ? t("asks.dismissed")
-        : entry.content;
+      const content = ask?.dismissed ? t("asks.dismissed") : entry.content;
       if (isEditing) {
         return (
           <EditableUserMessage
@@ -557,9 +555,7 @@ export const LogEntryCard = memo(function LogEntryCard({
         <UserMessage
           content={content}
           beforeContent={
-            ask ? (
-              <AskLink ask={ask} isMobile={isMobile} />
-            ) : undefined
+            ask ? <AskLink ask={ask} isMobile={isMobile} /> : undefined
           }
           renderedContent={
             tasks && onOpenTask ? (

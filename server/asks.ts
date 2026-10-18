@@ -42,9 +42,7 @@ export interface AskPersistence {
   quarantine(): boolean;
 }
 
-export function createAskFilePersistence(
-  path: string,
-): AskPersistence {
+export function createAskFilePersistence(path: string): AskPersistence {
   return {
     load() {
       let text: string;
@@ -126,9 +124,7 @@ function isAskEntry(v: unknown): v is AskEntry {
     typeof r.memberUserId === "string" && r.memberUserId.length > 0;
   if (r.secret === undefined) return hasMember;
   if (!isSecretAskRequest(r.secret)) return false;
-  return r.secret.scope === "office"
-    ? r.memberUserId === undefined
-    : hasMember;
+  return r.secret.scope === "office" ? r.memberUserId === undefined : hasMember;
 }
 
 export interface AskAudienceDeps {
@@ -199,9 +195,7 @@ export interface AskStore {
   removeAgent(agentId: string): number;
 }
 
-export function createAskStore(
-  deps: AskStoreDeps,
-): AskStore {
+export function createAskStore(deps: AskStoreDeps): AskStore {
   const now = deps.now ?? Date.now;
   let entries: AskEntry[] = [];
   let available = true;
@@ -233,9 +227,7 @@ export function createAskStore(
       try {
         deps.onChange?.({ ...change, entry: { ...change.entry } });
       } catch (err) {
-        console.error(
-          `[asks] a change listener threw: ${errMessage(err)}`,
-        );
+        console.error(`[asks] a change listener threw: ${errMessage(err)}`);
       }
     }
   }
@@ -322,8 +314,6 @@ export function askReplyNote(ref: {
     flat.length > ASK_PROMPT_EXCERPT
       ? `${flat.slice(0, ASK_PROMPT_EXCERPT - 1)}…`
       : flat;
-  const verb = ref.dismissed
-    ? "Dismissed your ask"
-    : "Reply to your ask";
+  const verb = ref.dismissed ? "Dismissed your ask" : "Reply to your ask";
   return `[${verb} ${ref.id}: ${JSON.stringify(excerpt)}] `;
 }

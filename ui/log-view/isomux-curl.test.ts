@@ -2340,10 +2340,7 @@ describe("parseIsomuxCurl ask routes", () => {
         `curl -s -X PATCH "${BASE}/abcd1234" ${AUTH} -d '{"text":"Go?"}'`,
         "apiCall.asks.edit",
       ],
-      [
-        `curl -s -X DELETE "${BASE}/abcd1234" ${AUTH}`,
-        "apiCall.asks.delete",
-      ],
+      [`curl -s -X DELETE "${BASE}/abcd1234" ${AUTH}`, "apiCall.asks.delete"],
     ];
     for (const [cmd, key] of cases)
       expect(parseIsomuxCurl(cmd)!.actionKey).toBe(key);

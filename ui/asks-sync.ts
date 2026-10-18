@@ -13,8 +13,7 @@ import type { AskEntry } from "../shared/types.ts";
  * which bumps asksFetchSeq and so re-runs this effect.
  */
 export function useAsksSync(): void {
-  const { hydrationEpoch, asksFetchSeq, asksRevision } =
-    useAppState();
+  const { hydrationEpoch, asksFetchSeq, asksRevision } = useAppState();
   const dispatch = useDispatch();
   const revision = asksRevision;
   useEffect(() => {
@@ -46,9 +45,7 @@ export function asksFor(
 }
 
 /** Open asks per agent, for the desk dots. */
-export function askCounts(
-  entries: readonly AskEntry[],
-): Map<string, number> {
+export function askCounts(entries: readonly AskEntry[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const e of entries)
     counts.set(e.agentId, (counts.get(e.agentId) ?? 0) + 1);

@@ -141,9 +141,7 @@ export function createSecretRequests(deps: SecretRequestDeps) {
     agentId: string,
     requestId: string,
   ): SecretRequestResult<{ entry: SecretAsk; scope: SecretScope }> {
-    const entry = openRequests().find(
-      (e) => e.secret.requestId === requestId,
-    );
+    const entry = openRequests().find((e) => e.secret.requestId === requestId);
     if (!entry || entry.agentId !== agentId)
       return { ok: false, status: 404, code: "not_found" };
     const scope = scopeOf(entry);
@@ -233,7 +231,10 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       code: "too_many_requests",
       message: `at most ${SECRET_REQUESTS_OPEN_MAX} open requests per agent`,
     };
-    if (open.filter((e) => e.agentId === agentId).length >= SECRET_REQUESTS_OPEN_MAX)
+    if (
+      open.filter((e) => e.agentId === agentId).length >=
+      SECRET_REQUESTS_OPEN_MAX
+    )
       return tooMany;
     const secret: SecretAskRequest = {
       requestId: crypto.randomUUID(),

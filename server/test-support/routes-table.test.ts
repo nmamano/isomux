@@ -1170,7 +1170,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.diff": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.editFile": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.terminalCommand": { caps: ["self:affordance"], emits: ["log_entry"] },
-  "agents.secretRequest": { caps: ["self:affordance"], emits: ["ask_upserted"] },
+  "agents.secretRequest": {
+    caps: ["self:affordance"],
+    emits: ["ask_upserted"],
+  },
   "secretRequests.save": {
     caps: ["user:env"],
     emits: ["log_entry", "ask_removed"],
@@ -1199,21 +1202,11 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "asks.reply": {
     caps: ["agent:converse", "api:send-message"],
-    emits: [
-      "ask_removed",
-      "log_entry",
-      "interaction_added",
-      "agent_updated",
-    ],
+    emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   },
   "asks.dismiss": {
     caps: ["agent:converse", "api:send-message"],
-    emits: [
-      "ask_removed",
-      "log_entry",
-      "interaction_added",
-      "agent_updated",
-    ],
+    emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   },
   "agents.previewUrl": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.browser": { caps: ["self:affordance"], emits: ["log_entry"] },

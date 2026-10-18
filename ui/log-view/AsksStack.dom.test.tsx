@@ -100,9 +100,7 @@ it("shows this agent's asks only, oldest first, open on a desktop", async () => 
 it("starts collapsed on a phone, with the count and the oldest prompt, and opens on a tap", async () => {
   const view = mount(true);
   await waitFor(() =>
-    expect(view.container.querySelector("[data-asks-stack]")).not.toBe(
-      null,
-    ),
+    expect(view.container.querySelector("[data-asks-stack]")).not.toBe(null),
   );
   const bar = view.container.querySelector<HTMLElement>(
     "[data-asks-stack=collapsed] button",
@@ -160,9 +158,7 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
     fireEvent.click(dismiss);
     await new Promise((r) => setTimeout(r, 0));
   });
-  expect(posts.map((p) => p.path)).toEqual([
-    "/api/asks/bbbb0002/dismiss",
-  ]);
+  expect(posts.map((p) => p.path)).toEqual(["/api/asks/bbbb0002/dismiss"]);
   expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
   expect(card.querySelector("[role=alert]")?.textContent).toContain(
     "agent_stopped",

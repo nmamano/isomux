@@ -75,9 +75,7 @@ function guarded(handler: RouteHandler): RouteHandler {
   };
 }
 
-export function askHandlers(
-  deps: AsksDeps,
-): Record<string, RouteHandler> {
+export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const { store } = deps;
   // Reply and dismiss in flight, so a second click (or a second browser)
   // cannot send the message twice.
@@ -105,10 +103,7 @@ export function askHandlers(
   };
 
   // The caller's open entry while it can still reach the agent, or null.
-  const addressedTo = (
-    identity: Identity,
-    id: string,
-  ): AskEntry | null => {
+  const addressedTo = (identity: Identity, id: string): AskEntry | null => {
     const entry = store.get(id);
     return entry && askVisibleTo(entry, identity.userId, audience)
       ? entry
@@ -146,11 +141,7 @@ export function askHandlers(
           "This ask is a secret request. Save or decline it instead.",
         );
       if (delivering.has(entry.id))
-        return fail(
-          409,
-          "ask_busy",
-          "An answer to this ask is being sent.",
-        );
+        return fail(409, "ask_busy", "An answer to this ask is being sent.");
       delivering.add(entry.id);
       try {
         const result = await deps.deliver(ctx.identity, entry, text, {

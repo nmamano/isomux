@@ -48,9 +48,7 @@ export function askOrigins(logs: LogEntry[]): Map<string, string> {
   return origins;
 }
 
-export const AskOrigins = createContext<ReadonlyMap<string, string>>(
-  new Map(),
-);
+export const AskOrigins = createContext<ReadonlyMap<string, string>>(new Map());
 
 function CheckIcon() {
   return (
