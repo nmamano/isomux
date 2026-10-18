@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const RUN_SH = join(import.meta.dir, "run.sh");
+const GIT = Bun.which("git")!;
 let base: string;
 
 beforeEach(() => {
@@ -29,6 +30,7 @@ beforeEach(() => {
     `case "$1 $2" in
   "build "*) [[ $STUB_MODE == build-fails ]] && exit 17; cat >/dev/null; exit 0 ;;
   "image inspect") echo "sha256:0 linux/amd64" ;;
+  "run "*) [[ $STUB_MODE == checks-fail ]] && exit 1 ;;
 esac
 exit 0`,
   );
@@ -37,13 +39,21 @@ exit 0`,
     `case "$1 $2" in
   "cluster get") [[ $STUB_MODE == cluster-exists ]] && exit 0; exit 1 ;;
   "cluster create") printf 'contexts:\\n- name: k3d-isomux-verify\\n' >> "$KUBECONFIG"; exit 0 ;;
+  "cluster delete") sed -i '/k3d-isomux-verify/d' "$KUBECONFIG"; exit 0 ;;
 esac
 exit 0`,
   );
+  // The CSI driver clone gets a no-op deploy script.
+  stub(
+    "git",
+    `[[ $1 == clone ]] || exec "${GIT}" "$@"
+d="\${@: -1}/deploy/kubernetes-latest"; mkdir -p "$d"; printf '#!/bin/sh\\n' > "$d/deploy.sh"; chmod +x "$d/deploy.sh"`,
+  );
   // deploy/container/build.sh exports the source with python3 first.
   stub("python3", 'touch "$3"; echo 0000000');
-  // The first kubectl call in run.sh up fails, after the cluster exists.
-  stub("kubectl", "exit 1");
+  // Unless the checks fail instead, the first kubectl call in run.sh up fails,
+  // after the cluster exists.
+  stub("kubectl", `[[ $STUB_MODE == checks-fail ]]`);
 });
 
 afterEach(() => rmSync(base, { recursive: true, force: true }));
@@ -88,10 +98,17 @@ describe("run.sh kubernetes cleanup", () => {
     expect(r.deletes).toEqual([]);
   }, 60_000);
 
-  it("deletes the cluster it created when a later step fails", async () => {
+  it("deletes the cluster once when up fails after creating it", async () => {
     const r = await run("created-then-fails");
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("FAIL at step cluster ");
+    expect(r.deletes).toEqual(["k3d cluster delete isomux-verify"]);
+  }, 60_000);
+
+  it("deletes the cluster it created when a step after up fails", async () => {
+    const r = await run("checks-fail");
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("FAIL at step office-checks");
     expect(r.deletes).toEqual(["k3d cluster delete isomux-verify"]);
   }, 60_000);
 });

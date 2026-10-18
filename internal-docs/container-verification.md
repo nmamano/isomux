@@ -47,7 +47,8 @@ The new container installer acceptance remained pending when the hosting guide w
 
 Setup: [Kubernetes guide](../docs/hosting/kubernetes.md), base in
 `deploy/kubernetes`, local overlay and script in `deploy/kubernetes-verify`
-(`run.sh up`, `run.sh client`, `run.sh down`). Design:
+(`run.sh up`, `run.sh client`, `run.sh down`). A failed or interrupted `up`
+deletes the cluster; after a successful one, run `run.sh down` when done. Design:
 [kubernetes-design.md](kubernetes-design.md).
 
 On 2026-09-26, on this office box (Ubuntu 24.04, kernel 6.8, Docker 29.1.3):

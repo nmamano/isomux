@@ -2,7 +2,9 @@
 # Local k3d cluster for checking deploy/kubernetes. This is a local gate, not
 # EKS proof: Traefik replaces the ALB and the hostpath CSI driver replaces EBS.
 #
-#   run.sh up                  create the cluster and apply the overlay
+#   run.sh up                  create the cluster and apply the overlay; a
+#                              failed or interrupted `up` deletes the cluster,
+#                              and after a successful one it runs until `down`
 #   run.sh client CMD...       run CMD in a client container that resolves the
 #                              office hosts and trusts the test CA (/work/ca.pem);
 #                              this directory is at /verify
@@ -49,9 +51,29 @@ certificates() {
     openssl dgst -sha256 -binary | base64 > "$work/spki.txt"
 }
 
+down() {
+  k3d cluster delete "$CLUSTER"
+  # A create that was cut short leaves the network and k3d's stopped check
+  # container.
+  if docker network inspect "k3d-$CLUSTER" >/dev/null 2>&1; then
+    docker network rm "k3d-$CLUSTER" >/dev/null
+  fi
+  docker ps -a --no-trunc --filter status=exited --filter "ancestor=$K3S_IMAGE" \
+    --format '{{.ID}} {{.Command}}' | awk '/system\/edac/ { print $1 }' | xargs -r docker rm >/dev/null
+  if [[ -f $work/pulled ]]; then
+    docker image rm "$(cat "$work/pulled")" >/dev/null
+    rm "$work/pulled"
+  fi
+}
+
 case ${1:-} in
 up)
   certificates
+  if k3d cluster get "$CLUSTER" >/dev/null 2>&1; then
+    echo "cluster $CLUSTER already exists; \`$0 down\` deletes it" >&2
+    exit 1
+  fi
+  trap down EXIT
   k3d cluster create "$CLUSTER" --image "$K3S_IMAGE" --agents 0 \
     --servers-memory 10g --k3s-node-label "isomux.com/office-node=true@server:0" --wait
   kubectl apply -k "https://github.com/kubernetes-csi/external-snapshotter/client/config/crd?ref=$SNAPSHOTTER_REF"
@@ -77,6 +99,8 @@ up)
     --from-literal=ISOMUX_SETUP_KEY="$(cat "$work/setup-key")" --dry-run=client -o yaml | kubectl apply -f -
   kubectl kustomize "$here" | sed "s|$RELEASED|$IMAGE|g" | kubectl apply -f -
   kubectl -n isomux rollout status deployment/isomux --timeout=10m
+  trap - EXIT
+  echo "cluster $CLUSTER is up; \`$0 down\` deletes it" >&2
   ;;
 client)
   shift
@@ -92,11 +116,7 @@ claim)
     https://office.k8s.test/setup'
   ;;
 down)
-  k3d cluster delete "$CLUSTER"
-  if [[ -f $work/pulled ]]; then
-    docker image rm "$(cat "$work/pulled")" >/dev/null
-    rm "$work/pulled"
-  fi
+  down
   ;;
 *)
   echo "usage: $0 up|client CMD...|claim|down" >&2
