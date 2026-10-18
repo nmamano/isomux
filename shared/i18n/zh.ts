@@ -1323,6 +1323,7 @@ App 的一些原则：
   "asks.badge.one": "{count} 条请示",
   "asks.badge.other": "{count} 条请示",
   "asks.answerFailed": "未发送：{error}",
+  "asks.empty": "没有待处理的请示。",
   "apiCall.tasks.listOpen": "列出未完成任务",
   "apiCall.tasks.listOpenGlobal": "列出未完成任务（仅限办公室全局）",
   "apiCall.tasks.listOpenInRoom": "列出一个房间的未完成任务",

@@ -1,0 +1,130 @@
+// The Asks page (ui/components/AsksView.tsx) over a real reducer: groups by
+// agent with the longest wait first, the agent's name opens its chat, an ask
+// from an agent the client does not have stays out, and a group goes with its
+// last card.
+import { afterAll, beforeEach, expect, it } from "bun:test";
+import { setUpDomTestFile } from "../test-support/dom.ts";
+
+setUpDomTestFile();
+
+const { act, render, fireEvent } = await import("@testing-library/react");
+const { useReducer, createElement } = await import("react");
+const { AsksView } = await import("./AsksView.tsx");
+const { StateCtx, DispatchCtx, initialState, reducer } =
+  await import("../store.tsx");
+const { setApiShim } = await import("../api.ts");
+type AskEntry = import("../../shared/types.ts").AskEntry;
+type AppState = typeof initialState;
+
+const NOW = Date.now();
+const ask = (id: string, agentId: string, ageMin: number): AskEntry => ({
+  id,
+  agentId,
+  memberUserId: "u1",
+  prompt: `Question ${id}?`,
+  createdAt: NOW - ageMin * 60_000,
+  updatedAt: NOW - ageMin * 60_000,
+});
+
+let posts: string[] = [];
+beforeEach(() => {
+  posts = [];
+  setApiShim(async (method, path) => {
+    if (method === "POST") posts.push(path);
+    return undefined;
+  });
+});
+afterAll(() => setApiShim(null));
+
+function mount(asks: AskEntry[]) {
+  const seeded: AppState = {
+    ...initialState,
+    asks,
+    rooms: [
+      { id: "r1", name: "Room One" },
+      { id: "r2", name: "Room Two" },
+    ] as AppState["rooms"],
+    agents: [
+      { id: "a1", name: "Scout", roomId: "r1" },
+      { id: "a2", name: "Ranger", roomId: "r2" },
+    ] as AppState["agents"],
+  };
+  const focused: string[] = [];
+  function Harness() {
+    const [state, dispatch] = useReducer(reducer, seeded);
+    return createElement(
+      StateCtx.Provider,
+      { value: state },
+      createElement(
+        DispatchCtx.Provider,
+        { value: dispatch },
+        createElement(AsksView, {
+          onClose: () => {},
+          onFocusAgent: (id: string) => focused.push(id),
+        }),
+      ),
+    );
+  }
+  const view = render(createElement(Harness));
+  return { view, focused };
+}
+
+const groupIds = (view: ReturnType<typeof render>) =>
+  [...view.container.querySelectorAll<HTMLElement>("[data-asks-group]")].map(
+    (el) => el.dataset.asksGroup,
+  );
+const cardIds = (view: ReturnType<typeof render>, agentId: string) =>
+  [
+    ...view.container.querySelectorAll<HTMLElement>(
+      `[data-asks-group="${agentId}"] [data-ask]`,
+    ),
+  ].map((el) => el.dataset.ask);
+
+it("groups by agent, longest wait first, cards oldest first, with the room", () => {
+  const { view } = mount([
+    ask("a1new", "a1", 5),
+    ask("a2old", "a2", 90),
+    ask("a1old", "a1", 30),
+  ]);
+  expect(groupIds(view)).toEqual(["a2", "a1"]);
+  expect(cardIds(view, "a1")).toEqual(["a1old", "a1new"]);
+  const header = view.container.querySelector('[data-asks-group="a2"]')!;
+  expect(header.textContent).toContain("Ranger");
+  expect(header.textContent).toContain("Room Two");
+});
+
+it("leaves out an ask whose agent the client does not have", () => {
+  const { view } = mount([ask("seen", "a1", 5), ask("hidden", "gone", 50)]);
+  expect(groupIds(view)).toEqual(["a1"]);
+  expect(view.container.querySelector('[data-ask="hidden"]')).toBeNull();
+});
+
+it("opens the agent's chat from its name", async () => {
+  const { view, focused } = mount([ask("q1", "a2", 5)]);
+  const name = view.container.querySelector<HTMLButtonElement>(
+    '[data-asks-agent="a2"]',
+  )!;
+  expect(name.tagName).toBe("BUTTON");
+  await act(async () => fireEvent.click(name));
+  expect(focused).toEqual(["a2"]);
+});
+
+it("drops a group with its last card, then shows the empty state", async () => {
+  const { view } = mount([ask("onlyA", "a1", 5), ask("onlyB", "a2", 10)]);
+  expect(view.container.querySelector("[data-asks-empty]")).toBeNull();
+  const reply = (id: string) =>
+    view.container
+      .querySelector(`[data-ask="${id}"]`)!
+      .querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  await act(async () => fireEvent.click(reply("onlyA")));
+  expect(posts).toEqual(["/api/asks/onlyA/reply"]);
+  expect(groupIds(view)).toEqual(["a2"]);
+  // The form's other button is Dismiss; Show more sits outside the form.
+  const dismiss = view.container
+    .querySelector('[data-ask="onlyB"]')!
+    .querySelector<HTMLButtonElement>('form button[type="button"]')!;
+  await act(async () => fireEvent.click(dismiss));
+  expect(posts).toEqual(["/api/asks/onlyA/reply", "/api/asks/onlyB/dismiss"]);
+  expect(groupIds(view)).toEqual([]);
+  expect(view.container.querySelector("[data-asks-empty]")).not.toBeNull();
+});

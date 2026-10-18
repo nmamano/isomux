@@ -1488,6 +1488,7 @@ Cosas que puedes hacer por él:
   "asks.badge.one": "{count} petición",
   "asks.badge.other": "{count} peticiones",
   "asks.answerFailed": "No enviado: {error}",
+  "asks.empty": "No hay peticiones abiertas.",
   "apiCall.tasks.listOpen": "Listar tareas abiertas",
   "apiCall.tasks.listOpenGlobal":
     "Listar tareas abiertas (solo las globales de la oficina)",

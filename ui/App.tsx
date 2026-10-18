@@ -28,6 +28,7 @@ import {
 } from "./integrations/IntegrationsView.tsx";
 import { PagerView, type PagerSelectRequest } from "./components/PagerView.tsx";
 import { usePagerSync } from "./pager-sync.ts";
+import { AsksView } from "./components/AsksView.tsx";
 import { useAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
@@ -77,7 +78,8 @@ function pageFromEntry(state: unknown): Page | null | undefined {
     entry.page === "skills" ||
     entry.page === "integrations" ||
     entry.page === "settings" ||
-    entry.page === "pager"
+    entry.page === "pager" ||
+    entry.page === "asks"
     ? entry.page
     : undefined;
 }
@@ -184,6 +186,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     () => setPagerSelectRequest(null),
     [],
   );
+  const [asksOpen, setAsksOpen] = useState(bootPage === "asks");
   usePagerSync();
   useAsksSync();
 
@@ -257,6 +260,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     else if (saved.panel === "skills") setSkillsOpen(true);
     else if (saved.panel === "integrations") setIntegrationsOpen(true);
     else if (saved.panel === "pager") setPagerOpen(true);
+    else if (saved.panel === "asks") setAsksOpen(true);
     // "users" is the old name for the same page; a spot saved by an earlier
     // build still reopens it.
     else if (saved.panel === "settings" || saved.panel === "users")
@@ -293,7 +297,9 @@ export function App({ routing = true }: { routing?: boolean }) {
                   ? "integrations"
                   : pagerOpen
                     ? "pager"
-                    : null,
+                    : asksOpen
+                      ? "asks"
+                      : null,
     });
   }, [
     persistEnabled,
@@ -307,6 +313,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     skillsOpen,
     integrationsOpen,
     pagerOpen,
+    asksOpen,
     usersOpen,
     lobbyOpen,
   ]);
@@ -446,6 +453,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     skillsOpen ||
     integrationsOpen ||
     pagerOpen ||
+    asksOpen ||
     usersOpen
       ? "away"
       : focusedAgentId
@@ -520,6 +528,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         setOpen: setPagerOpen,
         clear: () => setPagerSelectRequest(null),
       },
+      asks: { setOpen: setAsksOpen, clear: () => {} },
     }),
     [],
   );
@@ -587,6 +596,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     skillsOpen,
     integrationsOpen,
     pagerOpen,
+    asksOpen,
   };
   const pageBelow = pageUnder(pageFlags);
   const page = pageForFlags(pageFlags);
@@ -673,6 +683,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           skillsOpen,
           integrationsOpen,
           pagerOpen,
+          asksOpen,
         },
       );
       if (pageUpdate !== null) {
@@ -691,6 +702,8 @@ export function App({ routing = true }: { routing?: boolean }) {
             setIntegrationsOpen(pageUpdate.integrationsOpen);
           if (pageUpdate.pagerOpen !== undefined)
             setPagerOpen(pageUpdate.pagerOpen);
+          if (pageUpdate.asksOpen !== undefined)
+            setAsksOpen(pageUpdate.asksOpen);
           // "s" opens the settings of the room you are standing in; the lobby
           // has no room row, so it opens the office row instead (Nil, 2026-09-14).
           if (pageUpdate.usersOpen)
@@ -822,6 +835,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     tasksOpen,
     cronjobsOpen,
     pagerOpen,
+    asksOpen,
     openSettings,
     lobbyOpen,
     backRoomOpen,
@@ -963,6 +977,14 @@ export function App({ routing = true }: { routing?: boolean }) {
             openSettings({ kind: "section", section: "pager" });
           }}
         />
+      ) : page === "asks" ? (
+        <AsksView
+          onClose={closePage}
+          onFocusAgent={(agentId) => {
+            setAsksOpen(false);
+            dispatch({ type: "focus", agentId });
+          }}
+        />
       ) : focusedAgent ? (
         <LogView
           key={focusedAgent.id}
@@ -1003,6 +1025,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           onOpenSkills={() => setSkillsOpen(true)}
           onOpenIntegrations={() => openIntegrations()}
           onOpenPager={() => setPagerOpen(true)}
+          onOpenAsks={() => setAsksOpen(true)}
           onOpenUpdate={() =>
             openSettings({ kind: "section", section: "updates" })
           }

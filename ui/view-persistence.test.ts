@@ -139,6 +139,7 @@ describe("parseSavedView (strict)", () => {
       "users",
       "pager",
       "integrations",
+      "asks",
     ] as const) {
       expect(parseSavedView(JSON.stringify({ user: "u", panel }))?.panel).toBe(
         panel,

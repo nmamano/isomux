@@ -46,6 +46,7 @@ import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import {
   TasksIcon,
+  AsksIcon,
   ClockIcon,
   AppsIcon,
   SkillsIcon,
@@ -70,7 +71,7 @@ import { Vignette } from "./Vignette.tsx";
 import { BackRoomScreen } from "./back-room/BackRoomScreen.tsx";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
 import { inDefaultTaskList } from "../../shared/task-board.ts";
-import { askCounts } from "../asks-sync.ts";
+import { askCounts, visibleAsks } from "../asks-sync.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
@@ -186,6 +187,8 @@ interface OfficeViewProps {
   onOpenSkills?: () => void;
   // Absent in fixtures that render the office without the pager.
   onOpenPager?: () => void;
+  // Absent in fixtures that render the office without the Asks page.
+  onOpenAsks?: () => void;
   // Absent in fixtures that render the office without the Integrations page.
   onOpenIntegrations?: () => void;
   onOpenUpdate: () => void;
@@ -211,6 +214,7 @@ export function OfficeView({
   onOpenApps,
   onOpenSkills,
   onOpenPager,
+  onOpenAsks,
   onOpenIntegrations,
   onOpenUpdate,
   onSwipeLeft,
@@ -239,6 +243,10 @@ export function OfficeView({
   const askCountByAgent = useMemo(
     () => askCounts(asks),
     [asks],
+  );
+  const openAsks = useMemo(
+    () => visibleAsks(asks, agents).length,
+    [asks, agents],
   );
   const openPages = useMemo(
     () => openPagesFor(pager, sessionContext?.userId ?? null),
@@ -448,6 +456,18 @@ export function OfficeView({
       title: t("nav.tasksShortcut"),
       onClick: onOpenTasks,
     },
+    ...(onOpenAsks
+      ? [
+          {
+            id: "asks",
+            icon: AsksIcon,
+            label: t("asks.title"),
+            title: openAsks ? i18n.tn("asks.badge", openAsks) : t("asks.title"),
+            onClick: onOpenAsks,
+            badge: openAsks,
+          },
+        ]
+      : []),
     {
       id: "cronjobs",
       icon: ClockIcon,

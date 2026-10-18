@@ -54,3 +54,17 @@ export function askCounts(
     counts.set(e.agentId, (counts.get(e.agentId) ?? 0) + 1);
   return counts;
 }
+
+/**
+ * The asks the Asks page lists and its nav badge counts: those whose agent is
+ * in the agents slice. GET /api/asks filters on room access, but an agent in
+ * a room the member hides never reaches the client, so its desk and chat
+ * cannot show the ask either.
+ */
+export function visibleAsks(
+  entries: readonly AskEntry[],
+  agents: readonly { id: string }[],
+): AskEntry[] {
+  const ids = new Set(agents.map((a) => a.id));
+  return entries.filter((e) => ids.has(e.agentId));
+}

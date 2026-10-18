@@ -13,7 +13,8 @@ export type Page =
   | "skills"
   | "integrations"
   | "settings"
-  | "pager";
+  | "pager"
+  | "asks";
 
 /**
  * The page a pathname names, or null for the office.
@@ -42,6 +43,8 @@ export function pageForPath(pathname: string): Page | null {
       return "settings";
     case "/pager":
       return "pager";
+    case "/asks":
+      return "asks";
     // "users" is what the settings page was called before it was renamed, and
     // the saved-spot parser still reads that name (ui/view-persistence.ts).
     // Accepted so an old link keeps working, never produced.
@@ -104,6 +107,7 @@ export interface PageFlags {
   skillsOpen: boolean;
   integrationsOpen: boolean;
   pagerOpen: boolean;
+  asksOpen: boolean;
 }
 
 /** Shared by history and the rendered page switch. Flags can overlap. */
@@ -122,7 +126,9 @@ export function pageForFlags(flags: PageFlags): Page | null {
               ? "integrations"
               : flags.pagerOpen
                 ? "pager"
-                : null;
+                : flags.asksOpen
+                  ? "asks"
+                  : null;
 }
 
 /** The flag that holds a page open. */
@@ -142,6 +148,8 @@ export function flagForPage(page: Page): keyof PageFlags {
       return "integrationsOpen";
     case "pager":
       return "pagerOpen";
+    case "asks":
+      return "asksOpen";
   }
 }
 
@@ -175,6 +183,7 @@ export interface PageShortcutUpdate {
   skillsOpen?: boolean;
   integrationsOpen?: boolean;
   pagerOpen?: boolean;
+  asksOpen?: boolean;
   usersOpen?: true;
 }
 
@@ -206,6 +215,7 @@ export function pageShortcut(
       skillsOpen: false,
       integrationsOpen: false,
       pagerOpen: false,
+      asksOpen: false,
     };
   }
   // Integrations sets every page flag in one update, unlike "t" (task
@@ -220,6 +230,7 @@ export function pageShortcut(
       skillsOpen: false,
       integrationsOpen: true,
       pagerOpen: false,
+      asksOpen: false,
     };
   }
   // Settings only opens; leaving it must pass its own unsaved-edit guard.

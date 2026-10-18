@@ -25,6 +25,7 @@ const PATHS: Record<Page, string> = {
   integrations: "/integrations",
   settings: "/settings",
   pager: "/pager",
+  asks: "/asks",
 };
 const PAGES = Object.keys(PATHS) as Page[];
 
@@ -143,6 +144,7 @@ const office: PageFlags = {
   skillsOpen: false,
   integrationsOpen: false,
   pagerOpen: false,
+  asksOpen: false,
 };
 
 // Apply the returned setters as React does, including functional updates.
@@ -205,6 +207,27 @@ describe("page shortcuts and rendered-page precedence", () => {
     expect(shown.pagerOpen).toBe(false);
   });
 
+  it("leaves the Asks page for Apps on a", () => {
+    const shown = pressPageKey({ ...office, asksOpen: true }, "a");
+    expect(pageForFlags(shown)).toBe("apps");
+    expect(shown.asksOpen).toBe(false);
+  });
+
+  it("leaves the Asks page for Integrations on i", () => {
+    const shown = pressPageKey({ ...office, asksOpen: true }, "i");
+    expect(pageForFlags(shown)).toBe("integrations");
+    expect(shown.asksOpen).toBe(false);
+  });
+
+  it("shows the Asks page under every other page", () => {
+    for (const page of PAGES) {
+      if (page === "asks") continue;
+      expect(
+        pageForFlags({ ...office, asksOpen: true, [flagForPage(page)]: true }),
+      ).toBe(page);
+    }
+  });
+
   it("leaves the Skills page for Apps on a", () => {
     const shown = pressPageKey({ ...office, skillsOpen: true }, "a");
     expect(pageForFlags(shown)).toBe("apps");
@@ -259,6 +282,7 @@ describe("page shortcuts and rendered-page precedence", () => {
       appsOpen: true,
       skillsOpen: true,
       pagerOpen: true,
+      asksOpen: true,
     };
     expect(pressPageKey(every, "i")).toEqual({
       ...office,
@@ -306,6 +330,7 @@ describe("page shortcuts and rendered-page precedence", () => {
         skillsOpen: true,
         integrationsOpen: true,
         pagerOpen: true,
+        asksOpen: true,
       }),
     ).toBe("settings");
   });
@@ -333,6 +358,10 @@ describe("pageUnder", () => {
     state = pressPageKey(pressPageKey(office, "a"), "t");
     expect(pageForFlags(state)).toBe("tasks");
     expect(pageUnder(state)).toBe("apps");
+    // Tasks over the Asks page (the bar button, then t).
+    state = pressPageKey({ ...office, asksOpen: true }, "t");
+    expect(pageForFlags(state)).toBe("tasks");
+    expect(pageUnder(state)).toBe("asks");
   });
 
   // The invariant pageUnder rests on: every shortcut, from every flags state a
@@ -404,6 +433,7 @@ describe("pageUnder", () => {
       skillsOpen: true,
       integrationsOpen: true,
       pagerOpen: true,
+      asksOpen: true,
     };
     expect(pageUnder(all)).toBe("tasks");
     expect(pageUnder({ ...all, usersOpen: false })).toBe("cronjobs");

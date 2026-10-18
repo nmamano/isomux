@@ -1105,7 +1105,7 @@ const demoApps: (AppWire & { canManage: true })[] = [
   },
 ];
 
-// Asks from Michael to the viewer, the ones his chat shows him
+// Asks to the viewer. Michael's are the ones his chat shows him
 // opening: short prompts and a long one, so the stack shows its clamp and,
 // on a desktop, its maximum height. Built on the first list so they can
 // name the viewer.
@@ -1149,6 +1149,15 @@ function demoAskEntries(): AskEntry[] {
       prompt: "Do you still need the QA report by Friday?",
       createdAt: now - 15 * 60_000,
       updatedAt: now - 15 * 60_000,
+    },
+    // One from the second room, so the Asks page shows two rooms.
+    {
+      id: "dea0ac05",
+      agentId: "demo-angela",
+      memberUserId: member,
+      prompt: "Can I move the cat photo archive to the shared drive?",
+      createdAt: now - 3 * 60 * 60_000,
+      updatedAt: now - 3 * 60 * 60_000,
     },
   ];
   return demoAsks;

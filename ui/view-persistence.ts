@@ -76,7 +76,8 @@ export type SavedPanel =
   | "integrations"
   | "settings"
   | "users"
-  | "pager";
+  | "pager"
+  | "asks";
 
 export interface SavedView {
   user: string; // lowercased owner username; loads reject on mismatch
@@ -104,7 +105,8 @@ function readPanel(x: unknown): SavedPanel | null | undefined {
     x === "integrations" ||
     x === "settings" ||
     x === "users" ||
-    x === "pager"
+    x === "pager" ||
+    x === "asks"
     ? x
     : undefined;
 }
