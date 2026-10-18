@@ -11,9 +11,9 @@
 // every field rule stays in the handler.
 
 import type {
-  ActionableCreateReq,
-  ActionableEditReq,
-  ActionableReplyReq,
+  AskCreateReq,
+  AskEditReq,
+  AskReplyReq,
   ApiTokenInboxSendReq,
   SendMessageReq,
 } from "./contract-shapes.ts";
@@ -41,14 +41,14 @@ export const MESSAGE_PLAIN_TEXT_PARAMS = {
 } as const satisfies PlainTextParams<SendMessageReq>;
 export const INBOX_PLAIN_TEXT_PARAMS =
   {} as const satisfies PlainTextParams<ApiTokenInboxSendReq>;
-export const ACTIONABLE_CREATE_PLAIN_TEXT_PARAMS = {
+export const ASK_CREATE_PLAIN_TEXT_PARAMS = {
   member: "string",
-} as const satisfies PlainTextParams<ActionableCreateReq>;
-export const ACTIONABLE_EDIT_PLAIN_TEXT_PARAMS =
-  {} as const satisfies PlainTextParams<ActionableEditReq>;
+} as const satisfies PlainTextParams<AskCreateReq>;
+export const ASK_EDIT_PLAIN_TEXT_PARAMS =
+  {} as const satisfies PlainTextParams<AskEditReq>;
 // device is set by the chat's JSON body only; a text/plain caller has none.
-export const ACTIONABLE_REPLY_PLAIN_TEXT_PARAMS =
-  {} as const satisfies PlainTextParams<ActionableReplyReq>;
+export const ASK_REPLY_PLAIN_TEXT_PARAMS =
+  {} as const satisfies PlainTextParams<AskReplyReq>;
 
 export type PlainTextForm =
   // Not the plain-text form: parse the body as JSON, as for any route.

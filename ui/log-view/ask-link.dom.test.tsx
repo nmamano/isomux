@@ -1,5 +1,5 @@
-// An answer to an actionable in the agent's chat: a one-line link above the
-// member's message that jumps to the agent's "Create actionable" card, and a
+// An answer to an ask in the agent's chat: a one-line link above the
+// member's message that jumps to the agent's "Create ask" card, and a
 // dismiss shown in the viewer's language. Also the count dot on the desk.
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -15,7 +15,7 @@ type LogEntry = import("../../shared/types.ts").LogEntry;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 
 const CREATE =
-  "curl -s -X POST \"localhost:4000/api/agents/a1/actionables\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nGo?\nEOF";
+  "curl -s -X POST \"localhost:4000/api/agents/a1/asks\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nGo?\nEOF";
 
 function logs(withCard: boolean): LogEntry[] {
   const card: LogEntry[] = [
@@ -46,7 +46,7 @@ function logs(withCard: boolean): LogEntry[] {
       content: "yes",
       metadata: {
         username: "Tester",
-        actionable: { id: "abcd1234", prompt: "Go?" },
+        ask: { id: "abcd1234", prompt: "Go?" },
       },
     },
     {
@@ -57,7 +57,7 @@ function logs(withCard: boolean): LogEntry[] {
       content: "Dismissed",
       metadata: {
         username: "Tester",
-        actionable: { id: "abcd1234", prompt: "Go?", dismissed: true },
+        ask: { id: "abcd1234", prompt: "Go?", dismissed: true },
       },
     },
   ];
@@ -68,7 +68,7 @@ function Transcript({ entries }: { entries: LogEntry[] }) {
   return <ChatTranscript logs={entries} view={view} isMobile={false} />;
 }
 
-it("links an answer to the card that created its actionable, and the click scrolls there", () => {
+it("links an answer to the card that created its ask, and the click scrolls there", () => {
   const scrolled: string[] = [];
   const proto = HTMLElement.prototype as unknown as {
     scrollIntoView: (this: HTMLElement) => void;
@@ -83,7 +83,7 @@ it("links an answer to the card that created its actionable, and the click scrol
   try {
     const view = render(onLanguage("en", <Transcript entries={logs(true)} />));
     const link = view.container.querySelector<HTMLElement>(
-      '[data-log-entry-id="reply"] [data-actionable-link="abcd1234"]',
+      '[data-log-entry-id="reply"] [data-ask-link="abcd1234"]',
     )!;
     expect(link.textContent).toContain("Go?");
     fireEvent.click(link.querySelector("button")!);
@@ -98,7 +98,7 @@ it("links an answer to the card that created its actionable, and the click scrol
 it("shows the link as text when the create card is not in the chat", () => {
   const view = render(onLanguage("en", <Transcript entries={logs(false)} />));
   const link = view.container.querySelector(
-    '[data-log-entry-id="reply"] [data-actionable-link="abcd1234"]',
+    '[data-log-entry-id="reply"] [data-ask-link="abcd1234"]',
   )!;
   expect(link).not.toBe(null);
   expect(link.querySelector("button")).toBe(null);
@@ -140,7 +140,7 @@ const agent = {
   },
 } as unknown as AgentInfo;
 
-it("puts the count of open actionables on the desk's nameplate, and nothing at zero", () => {
+it("puts the count of open asks on the desk's nameplate, and nothing at zero", () => {
   const desk = (count: number) =>
     render(
       onLanguage(
@@ -149,16 +149,16 @@ it("puts the count of open actionables on the desk's nameplate, and nothing at z
           agent={agent}
           onClick={() => {}}
           onContextMenu={() => {}}
-          actionableCount={count}
+          askCount={count}
         />,
       ),
     );
   const two = desk(2);
-  const dot = two.container.querySelector("[data-actionable-dot]")!;
+  const dot = two.container.querySelector("[data-ask-dot]")!;
   expect(dot.textContent).toBe("2");
   expect(dot.getAttribute("aria-label")).toContain("2");
   two.unmount();
   const none = desk(0);
-  expect(none.container.querySelector("[data-actionable-dot]")).toBe(null);
+  expect(none.container.querySelector("[data-ask-dot]")).toBe(null);
   none.unmount();
 });

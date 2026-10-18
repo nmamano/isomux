@@ -40,7 +40,7 @@ import type {
   OfficeWire,
   TaskItem,
   PagerEntry,
-  ActionableEntry,
+  AskEntry,
   AppListWire,
   CronjobListWire,
   CronjobRun,
@@ -222,8 +222,8 @@ export interface EventPayloads {
   app_upserted: { app: AppListWire };
   app_deleted: { name: string };
   pager_upserted: { entry: PagerEntry };
-  actionable_upserted: { entry: ActionableEntry };
-  actionable_removed: { id: string };
+  ask_upserted: { entry: AskEntry };
+  ask_removed: { id: string };
   // Webhooks: per-recipient, like cronjobs: the hook owner, office owners and
   // members of the hook's room. Never the secret. See
   // server/events/webhook-delta.ts.
@@ -471,12 +471,12 @@ export const EVENT_REGISTRY = {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },
-  // Only the member an actionable is for hears it (pushActionableChange).
-  actionable_upserted: {
+  // Only the member an ask is for hears it (pushAskChange).
+  ask_upserted: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },
-  actionable_removed: {
+  ask_removed: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },

@@ -19,7 +19,7 @@ import {
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
 import { SecretRequestOutcomes } from "./SecretRequestCard.tsx";
-import { ActionableOrigins, actionableOrigins } from "./actionable-link.tsx";
+import { AskOrigins, askOrigins } from "./ask-link.tsx";
 
 // The settled secret requests, from the system entries that close them.
 function secretRequestOutcomes(
@@ -182,10 +182,10 @@ export function ChatTranscript({
   };
 }) {
   const outcomes = useMemo(() => secretRequestOutcomes(logs), [logs]);
-  const origins = useMemo(() => actionableOrigins(logs), [logs]);
+  const origins = useMemo(() => askOrigins(logs), [logs]);
   return (
     <SecretRequestOutcomes.Provider value={outcomes}>
-      <ActionableOrigins.Provider value={origins}>
+      <AskOrigins.Provider value={origins}>
         {logs.map((entry) => {
           if (entry.metadata?.interactionFallback === true) return null;
           if (view.groupedChildIds.has(entry.id)) return null;
@@ -224,7 +224,7 @@ export function ChatTranscript({
         })}
         {interaction}
         {activity && <ActivityIndicator {...activity} />}
-      </ActionableOrigins.Provider>
+      </AskOrigins.Provider>
     </SecretRequestOutcomes.Provider>
   );
 }

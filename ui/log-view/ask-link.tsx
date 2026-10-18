@@ -1,18 +1,18 @@
-// The one-line link above a member message that answers an actionable
-// (internal-docs/actionables-design.md). The message's metadata names the
-// actionable; a click scrolls to the agent's "Create actionable" card, found
+// The one-line link above a member message that answers an ask
+// (internal-docs/asks-design.md). The message's metadata names the
+// ask; a click scrolls to the agent's "Create ask" card, found
 // by the id in that call's result. With no such card in the loaded chat the
 // line is plain text.
 
 import { createContext, useContext } from "react";
-import type { ActionableRef, LogEntry } from "../../shared/types.ts";
+import type { AskRef, LogEntry } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { describeIsomuxRoute } from "./isomux-curl.ts";
 import { isomuxRequestForToolCall } from "./tool-call-groups.ts";
 
-/** The actionable a user_message answers, from its metadata, or null. */
-export function actionableRefOf(entry: LogEntry): ActionableRef | null {
-  const raw = entry.metadata?.actionable;
+/** The ask a user_message answers, from its metadata, or null. */
+export function askRefOf(entry: LogEntry): AskRef | null {
+  const raw = entry.metadata?.ask;
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.id !== "string" || typeof r.prompt !== "string") return null;
@@ -22,17 +22,17 @@ export function actionableRefOf(entry: LogEntry): ActionableRef | null {
 const CREATED_ID = /"id"\s*:\s*"([0-9a-f]{8})"/;
 
 /**
- * Actionable id → the log entry id of the tool call that created it. A call
+ * Ask id → the log entry id of the tool call that created it. A call
  * counts when it is the create route and its result carries the new id.
  */
-export function actionableOrigins(logs: LogEntry[]): Map<string, string> {
+export function askOrigins(logs: LogEntry[]): Map<string, string> {
   const callByToolId = new Map<unknown, string>();
   for (const entry of logs) {
     if (entry.kind !== "tool_call") continue;
     const req = isomuxRequestForToolCall(entry.content, entry.metadata?.input);
     if (
       req &&
-      describeIsomuxRoute(req.method, req.path) === "apiCall.actionables.create"
+      describeIsomuxRoute(req.method, req.path) === "apiCall.asks.create"
     )
       callByToolId.set(entry.metadata?.toolId, entry.id);
   }
@@ -48,7 +48,7 @@ export function actionableOrigins(logs: LogEntry[]): Map<string, string> {
   return origins;
 }
 
-export const ActionableOrigins = createContext<ReadonlyMap<string, string>>(
+export const AskOrigins = createContext<ReadonlyMap<string, string>>(
   new Map(),
 );
 
@@ -72,15 +72,15 @@ function CheckIcon() {
   );
 }
 
-export function ActionableLink({
-  actionable,
+export function AskLink({
+  ask,
   isMobile,
 }: {
-  actionable: ActionableRef;
+  ask: AskRef;
   isMobile?: boolean;
 }) {
   const { t } = useI18n();
-  const origin = useContext(ActionableOrigins).get(actionable.id);
+  const origin = useContext(AskOrigins).get(ask.id);
   // Scroll to the card and ring it for a moment, so the eye finds it.
   const jump = () => {
     if (!origin) return;
@@ -101,12 +101,12 @@ export function ActionableLink({
   const label = (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
       <CheckIcon />
-      {t("actionables.link")}
+      {t("asks.link")}
     </span>
   );
   return (
     <div
-      data-actionable-link={actionable.id}
+      data-ask-link={ask.id}
       style={{
         display: "flex",
         alignItems: "center",
@@ -152,7 +152,7 @@ export function ActionableLink({
           textOverflow: "ellipsis",
         }}
       >
-        {actionable.prompt.replace(/\s+/g, " ")}
+        {ask.prompt.replace(/\s+/g, " ")}
       </span>
     </div>
   );

@@ -79,11 +79,11 @@ import {
   type PagerStore,
 } from "./pager-store.ts";
 import {
-  createActionableFilePersistence,
-  createActionableStore,
-  type ActionableChange,
-  type ActionableStore,
-} from "./actionables.ts";
+  createAskFilePersistence,
+  createAskStore,
+  type AskChange,
+  type AskStore,
+} from "./asks.ts";
 import {
   createPagerSettingsFilePersistence,
   createPagerSettingsStore,
@@ -156,8 +156,8 @@ import type {
   LogEntry,
   TaskItem,
   PagerEntry,
-  ActionableEntry,
-  ActionableRef,
+  AskEntry,
+  AskRef,
   WebhookRecord,
   WebhookTarget,
   WebhookWire,
@@ -282,7 +282,7 @@ import {
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { pagerHandlers } from "./routes/handlers/pager.ts";
-import { actionableHandlers } from "./routes/handlers/actionables.ts";
+import { askHandlers } from "./routes/handlers/asks.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
 import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
@@ -680,7 +680,7 @@ setMcpPlaceholderProvider((scope, name) =>
 );
 let scheduledMessageManager: ScheduledMessageManager;
 let pagerStore: PagerStore;
-let actionableStore: ActionableStore | undefined;
+let askStore: AskStore | undefined;
 let pagerSettings: PagerSettingsStore;
 let pagerDelivery: PagerDeliveryService;
 let webPushStore: WebPushStore;
@@ -834,11 +834,11 @@ function createManagers(startOpts: StartServerOpts): void {
   // credential and lives in its own file, never in the env injected into
   // agents), and delivery. The store and delivery call each other through
   // these closures.
-  actionableStore = createActionableStore({
-    persistence: createActionableFilePersistence(
-      join(STATE_ROOT, "actionables.json"),
+  askStore = createAskStore({
+    persistence: createAskFilePersistence(
+      join(STATE_ROOT, "asks.json"),
     ),
-    onChange: (change) => pushActionableChange(change),
+    onChange: (change) => pushAskChange(change),
   });
   pagerSettings = createPagerSettingsStore(
     createPagerSettingsFilePersistence(join(STATE_ROOT, "pager-settings.json")),
@@ -3061,8 +3061,8 @@ function buildExecutorDeps(
   );
 
   register(
-    actionableHandlers({
-      store: actionableStore!,
+    askHandlers({
+      store: askStore!,
       agent: (agentId) => {
         const agent = agentManager.getAgent(agentId);
         return agent
@@ -3078,7 +3078,7 @@ function buildExecutorDeps(
         const user = getUserById(userId);
         return !!user && accessibleRoomIdsFor(user).has(roomId);
       },
-      deliver: deliverActionableAnswer,
+      deliver: deliverAskAnswer,
     }),
   );
 
@@ -6096,11 +6096,11 @@ function pushPagerEntryToEachWs(entry: PagerEntry) {
   }
 }
 
-// Push ONE actionable change to the sockets of the member it is for, and to no
+// Push ONE ask change to the sockets of the member it is for, and to no
 // one else. An upsert also needs the member's access to the agent's room, the
-// rule GET /api/actionables applies; a removal goes to the member regardless,
+// rule GET /api/asks applies; a removal goes to the member regardless,
 // so a stack never keeps an entry that closed.
-function pushActionableChange(change: ActionableChange) {
+function pushAskChange(change: AskChange) {
   const { entry } = change;
   const agent = agentManager.getAgent(entry.agentId);
   for (const ws of browsers) {
@@ -6108,19 +6108,19 @@ function pushActionableChange(change: ActionableChange) {
     if (change.kind === "removed") {
       officeSend(
         ws,
-        JSON.stringify({ type: "actionable_removed", id: entry.id }),
+        JSON.stringify({ type: "ask_removed", id: entry.id }),
       );
       continue;
     }
     const user = getUserById(entry.memberUserId);
     if (!user || !agent || !accessibleRoomIdsFor(user).has(agent.roomId))
       continue;
-    officeSend(ws, JSON.stringify({ type: "actionable_upserted", entry }));
+    officeSend(ws, JSON.stringify({ type: "ask_upserted", entry }));
   }
 }
 
 // A member's message to an agent: the one wrapper over sendMessage for the
-// chat send, the API-token send and an actionable's answer. Resolves at the
+// chat send, the API-token send and an ask's answer. Resolves at the
 // acceptance decision (task 51de8814), never at turn completion: sendMessage
 // owns the echo / queue / recovery / slash / approval-reply overload and
 // streams the turn over WS.
@@ -6133,7 +6133,7 @@ function sendMemberMessage(
   opts: {
     sendNow?: boolean;
     clientMessageId?: string;
-    actionable?: ActionableRef;
+    ask?: AskRef;
   } = {},
 ): Promise<UserSendAcceptance> {
   return new Promise((resolve) => {
@@ -6167,24 +6167,24 @@ function sendMemberMessage(
   });
 }
 
-// A reply or dismiss of an actionable, delivered the way a typed member
+// A reply or dismiss of an ask, delivered the way a typed member
 // message is (an API token through its own send record, as on the message
 // route). Resolves at the acceptance decision.
-function deliverActionableAnswer(
+function deliverAskAnswer(
   identity: Identity,
-  entry: ActionableEntry,
+  entry: AskEntry,
   text: string,
   opts: { dismissed: boolean; device: string | undefined },
 ): Promise<UserSendAcceptance> {
   const username = attributionFor(identity).username;
-  const actionable = {
+  const ask = {
     id: entry.id,
     prompt: entry.prompt,
     ...(opts.dismissed ? { dismissed: true } : {}),
   };
   const send = (device: string | undefined) =>
     sendMemberMessage(entry.agentId, text, username, device, undefined, {
-      actionable,
+      ask,
     });
   if (identity.scope !== "api") return send(opts.device);
   const display = agentManager.getAgentDisplay(entry.agentId);
@@ -6616,12 +6616,12 @@ function emitAgentEvent(event: AgentEvent): void {
       });
       break;
     case "agent_removed":
-      // The agent's open actionables go with it.
+      // The agent's open asks go with it.
       try {
-        actionableStore?.removeAgent(event.agentId);
+        askStore?.removeAgent(event.agentId);
       } catch (err) {
         console.error(
-          `[actionables] could not remove ${event.agentId}'s entries:`,
+          `[asks] could not remove ${event.agentId}'s entries:`,
           errMessage(err),
         );
       }

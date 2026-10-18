@@ -70,7 +70,7 @@ import { Vignette } from "./Vignette.tsx";
 import { BackRoomScreen } from "./back-room/BackRoomScreen.tsx";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
 import { inDefaultTaskList } from "../../shared/task-board.ts";
-import { actionableCounts } from "../actionables-sync.ts";
+import { askCounts } from "../asks-sync.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
@@ -233,12 +233,12 @@ export function OfficeView({
     sessionContext,
     lobbyOpen,
     pager,
-    actionables,
+    asks,
     membersChat,
   } = useAppState();
-  const actionableCountByAgent = useMemo(
-    () => actionableCounts(actionables),
-    [actionables],
+  const askCountByAgent = useMemo(
+    () => askCounts(asks),
+    [asks],
   );
   const openPages = useMemo(
     () => openPagesFor(pager, sessionContext?.userId ?? null),
@@ -665,7 +665,7 @@ export function OfficeView({
             roomName={rooms.find((r) => r.id === currentRoomId)?.name ?? ""}
             agents={backAgents}
             needsAttention={needsAttention}
-            actionableCounts={actionableCountByAgent}
+            askCounts={askCountByAgent}
             isMobile={isMobile}
             onBack={() => onCloseBackRoom?.()}
             onSpawn={() => onSpawnBack?.()}
@@ -982,7 +982,7 @@ export function OfficeView({
                               onContextMenu(e.clientX, e.clientY, agent)
                             }
                             needsAttention={needsAttention.has(agent.id)}
-                            actionableCount={actionableCountByAgent.get(
+                            askCount={askCountByAgent.get(
                               agent.id,
                             )}
                             onSwap={(a, b) => {

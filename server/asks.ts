@@ -1,10 +1,10 @@
-// Actionables: a prompt from an agent to one member, answered when the member
-// has time (internal-docs/actionables-design.md). The store holds open entries
-// only, in ~/.isomux/actionables.json; a reply, a dismiss or the agent's delete
+// Asks: a prompt from an agent to one member, answered when the member
+// has time (internal-docs/asks-design.md). The store holds open entries
+// only, in ~/.isomux/asks.json; a reply, a dismiss or the agent's delete
 // removes the entry.
 //
 // Load posture (the pager store's):
-//   - no file                 → no actionables (a new or older install)
+//   - no file                 → no asks (a new or older install)
 //   - unparsable / bad shape  → the file is moved aside and the store starts
 //                               empty; if it cannot be moved aside, the store
 //                               refuses every operation
@@ -18,29 +18,29 @@
 import { readFileSync, renameSync } from "fs";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { errMessage } from "../shared/errors.ts";
-import { generateActionableId, type ActionableEntry } from "../shared/types.ts";
+import { generateAskId, type AskEntry } from "../shared/types.ts";
 
 // Sanity bounds only.
-export const ACTIONABLE_PROMPT_MAX = 4000;
-export const ACTIONABLE_MAX_OPEN_PER_AGENT = 50;
+export const ASK_PROMPT_MAX = 4000;
+export const ASK_MAX_OPEN_PER_AGENT = 50;
 
-export type ActionableLoadResult =
+export type AskLoadResult =
   | { kind: "missing" }
   | { kind: "data"; value: unknown }
   | { kind: "corrupt" }
   | { kind: "unreadable" };
 
-export interface ActionablePersistence {
-  load(): ActionableLoadResult;
+export interface AskPersistence {
+  load(): AskLoadResult;
   // Durable write. MUST THROW on failure.
-  save(entries: ActionableEntry[]): void;
+  save(entries: AskEntry[]): void;
   // Move a corrupt file aside. False when it could not be moved.
   quarantine(): boolean;
 }
 
-export function createActionableFilePersistence(
+export function createAskFilePersistence(
   path: string,
-): ActionablePersistence {
+): AskPersistence {
   return {
     load() {
       let text: string;
@@ -49,7 +49,7 @@ export function createActionableFilePersistence(
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT")
           return { kind: "missing" };
-        console.error(`[actionables] cannot read ${path}: ${errMessage(err)}`);
+        console.error(`[asks] cannot read ${path}: ${errMessage(err)}`);
         return { kind: "unreadable" };
       }
       try {
@@ -65,11 +65,11 @@ export function createActionableFilePersistence(
       const aside = `${path}.corrupt-${Date.now()}`;
       try {
         renameSync(path, aside);
-        console.error(`[actionables] ${path} is corrupt; moved it to ${aside}`);
+        console.error(`[asks] ${path} is corrupt; moved it to ${aside}`);
         return true;
       } catch (err) {
         console.error(
-          `[actionables] ${path} is corrupt and could not be moved aside: ${errMessage(err)}`,
+          `[asks] ${path} is corrupt and could not be moved aside: ${errMessage(err)}`,
         );
         return false;
       }
@@ -77,13 +77,13 @@ export function createActionableFilePersistence(
   };
 }
 
-export class ActionablesUnavailableError extends Error {
+export class AsksUnavailableError extends Error {
   constructor() {
-    super("The actionables store is unavailable.");
+    super("The asks store is unavailable.");
   }
 }
 
-function isActionableEntry(v: unknown): v is ActionableEntry {
+function isAskEntry(v: unknown): v is AskEntry {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
   return (
@@ -105,45 +105,45 @@ export function checkPrompt(
     return { ok: false, message: "text is required" };
   if (text.trim().length === 0)
     return { ok: false, message: "text must not be empty" };
-  if (text.length > ACTIONABLE_PROMPT_MAX)
+  if (text.length > ASK_PROMPT_MAX)
     return {
       ok: false,
-      message: `text must be at most ${ACTIONABLE_PROMPT_MAX} characters`,
+      message: `text must be at most ${ASK_PROMPT_MAX} characters`,
     };
   return { ok: true, prompt: text };
 }
 
-export type ActionableChange =
-  | { kind: "upserted"; entry: ActionableEntry }
-  | { kind: "removed"; entry: ActionableEntry };
+export type AskChange =
+  | { kind: "upserted"; entry: AskEntry }
+  | { kind: "removed"; entry: AskEntry };
 
-export interface ActionableStoreDeps {
-  persistence: ActionablePersistence;
+export interface AskStoreDeps {
+  persistence: AskPersistence;
   now?: () => number;
   // After a committed change. A throw is logged and swallowed.
-  onChange?(change: ActionableChange): void;
+  onChange?(change: AskChange): void;
 }
 
-export interface ActionableStore {
-  get(id: string): ActionableEntry | null;
-  listForAgent(agentId: string): ActionableEntry[];
-  listForMember(memberUserId: string): ActionableEntry[];
+export interface AskStore {
+  get(id: string): AskEntry | null;
+  listForAgent(agentId: string): AskEntry[];
+  listForMember(memberUserId: string): AskEntry[];
   create(input: {
     agentId: string;
     memberUserId: string;
     prompt: string;
-  }): { ok: true; entry: ActionableEntry } | { ok: false; code: "too_many" };
-  edit(id: string, prompt: string): ActionableEntry | null;
-  remove(id: string): ActionableEntry | null;
+  }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
+  edit(id: string, prompt: string): AskEntry | null;
+  remove(id: string): AskEntry | null;
   // Every entry of a removed agent. Returns how many went.
   removeAgent(agentId: string): number;
 }
 
-export function createActionableStore(
-  deps: ActionableStoreDeps,
-): ActionableStore {
+export function createAskStore(
+  deps: AskStoreDeps,
+): AskStore {
   const now = deps.now ?? Date.now;
-  let entries: ActionableEntry[] = [];
+  let entries: AskEntry[] = [];
   let available = true;
 
   const loaded = deps.persistence.load();
@@ -154,7 +154,7 @@ export function createActionableStore(
   } else if (loaded.kind === "data") {
     if (
       Array.isArray(loaded.value) &&
-      loaded.value.every((v) => isActionableEntry(v))
+      loaded.value.every((v) => isAskEntry(v))
     ) {
       entries = loaded.value;
     } else {
@@ -163,10 +163,10 @@ export function createActionableStore(
   }
 
   function check(): void {
-    if (!available) throw new ActionablesUnavailableError();
+    if (!available) throw new AsksUnavailableError();
   }
 
-  function commit(next: ActionableEntry[], changes: ActionableChange[]): void {
+  function commit(next: AskEntry[], changes: AskChange[]): void {
     deps.persistence.save(next);
     entries = next;
     for (const change of changes) {
@@ -174,7 +174,7 @@ export function createActionableStore(
         deps.onChange?.({ ...change, entry: { ...change.entry } });
       } catch (err) {
         console.error(
-          `[actionables] a change listener threw: ${errMessage(err)}`,
+          `[asks] a change listener threw: ${errMessage(err)}`,
         );
       }
     }
@@ -201,11 +201,11 @@ export function createActionableStore(
     create({ agentId, memberUserId, prompt }) {
       check();
       const open = entries.filter((e) => e.agentId === agentId).length;
-      if (open >= ACTIONABLE_MAX_OPEN_PER_AGENT)
+      if (open >= ASK_MAX_OPEN_PER_AGENT)
         return { ok: false, code: "too_many" };
       const at = now();
-      const entry: ActionableEntry = {
-        id: generateActionableId(entries.map((e) => e.id)),
+      const entry: AskEntry = {
+        id: generateAskId(entries.map((e) => e.id)),
         agentId,
         memberUserId,
         prompt,
@@ -251,19 +251,19 @@ export function createActionableStore(
 
 // The bracket the agent reads before the member's words, with the prompt cut
 // to 80 characters so a long prompt does not crowd out the answer.
-export const ACTIONABLE_PROMPT_EXCERPT = 80;
-export function actionableReplyNote(ref: {
+export const ASK_PROMPT_EXCERPT = 80;
+export function askReplyNote(ref: {
   id: string;
   prompt: string;
   dismissed?: boolean;
 }): string {
   const flat = ref.prompt.replace(/\s+/g, " ").trim();
   const excerpt =
-    flat.length > ACTIONABLE_PROMPT_EXCERPT
-      ? `${flat.slice(0, ACTIONABLE_PROMPT_EXCERPT - 1)}…`
+    flat.length > ASK_PROMPT_EXCERPT
+      ? `${flat.slice(0, ASK_PROMPT_EXCERPT - 1)}…`
       : flat;
   const verb = ref.dismissed
-    ? "Dismissed your actionable"
-    : "Reply to your actionable";
+    ? "Dismissed your ask"
+    : "Reply to your ask";
   return `[${verb} ${ref.id}: ${JSON.stringify(excerpt)}] `;
 }

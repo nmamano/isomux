@@ -1,5 +1,5 @@
-// The stack of open actionables above the chat input
-// (internal-docs/actionables-design.md): one agent's entries for this member,
+// The stack of open asks above the chat input
+// (internal-docs/asks-design.md): one agent's entries for this member,
 // oldest first, open on a desktop and collapsed on a phone, and an answer that
 // posts to the member route and closes the card only when the server took it.
 import { afterAll, beforeEach, expect, it } from "bun:test";
@@ -13,8 +13,8 @@ const { useEffect } = await import("react");
 const { StoreProvider, useDispatch } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
-const { ActionablesStack } = await import("./ActionablesStack.tsx");
-type ActionableEntry = import("../../shared/types.ts").ActionableEntry;
+const { AsksStack } = await import("./AsksStack.tsx");
+type AskEntry = import("../../shared/types.ts").AskEntry;
 
 const NOW = Date.now();
 const entry = (
@@ -22,7 +22,7 @@ const entry = (
   agentId: string,
   prompt: string,
   ageMin: number,
-): ActionableEntry => ({
+): AskEntry => ({
   id,
   agentId,
   memberUserId: "u1",
@@ -64,7 +64,7 @@ afterAll(() => setApiShim(null));
 function Seed({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch();
   useEffect(() => {
-    dispatch({ type: "actionables_loaded", entries: ENTRIES, revision: 0 });
+    dispatch({ type: "asks_loaded", entries: ENTRIES, revision: 0 });
   }, [dispatch]);
   return <>{children}</>;
 }
@@ -73,26 +73,26 @@ function mount(isMobile: boolean) {
   return render(
     <StoreProvider>
       <Seed>
-        <ActionablesStack agentId="a1" isMobile={isMobile} />
+        <AsksStack agentId="a1" isMobile={isMobile} />
       </Seed>
     </StoreProvider>,
   );
 }
 
 const cards = (root: HTMLElement) =>
-  [...root.querySelectorAll<HTMLElement>("[data-actionable]")].map(
-    (c) => c.dataset.actionable,
+  [...root.querySelectorAll<HTMLElement>("[data-ask]")].map(
+    (c) => c.dataset.ask,
   );
 
-it("shows this agent's actionables only, oldest first, open on a desktop", async () => {
+it("shows this agent's asks only, oldest first, open on a desktop", async () => {
   const view = mount(false);
   await waitFor(() =>
     expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]),
   );
   expect(
     view.container
-      .querySelector("[data-actionables-stack]")
-      ?.getAttribute("data-actionables-stack"),
+      .querySelector("[data-asks-stack]")
+      ?.getAttribute("data-asks-stack"),
   ).toBe("open");
   view.unmount();
 });
@@ -100,12 +100,12 @@ it("shows this agent's actionables only, oldest first, open on a desktop", async
 it("starts collapsed on a phone, with the count and the oldest prompt, and opens on a tap", async () => {
   const view = mount(true);
   await waitFor(() =>
-    expect(view.container.querySelector("[data-actionables-stack]")).not.toBe(
+    expect(view.container.querySelector("[data-asks-stack]")).not.toBe(
       null,
     ),
   );
   const bar = view.container.querySelector<HTMLElement>(
-    "[data-actionables-stack=collapsed] button",
+    "[data-asks-stack=collapsed] button",
   )!;
   expect(cards(view.container)).toEqual([]);
   expect(bar.textContent).toContain("2");
@@ -122,7 +122,7 @@ it("replies with the field's text and closes the card once the server took it", 
   const view = mount(false);
   await waitFor(() => expect(cards(view.container).length).toBe(2));
   const card = view.container.querySelector<HTMLElement>(
-    '[data-actionable="aaaa0001"]',
+    '[data-ask="aaaa0001"]',
   )!;
   const field = card.querySelector("input")!;
   // Prefilled, so one click answers.
@@ -132,7 +132,7 @@ it("replies with the field's text and closes the card once the server took it", 
     fireEvent.submit(card.querySelector("form")!);
   });
   expect(posts).toEqual([
-    { path: "/api/actionables/aaaa0001/reply", body: { text: prefilled } },
+    { path: "/api/asks/aaaa0001/reply", body: { text: prefilled } },
   ]);
   // Still there while the request is open.
   expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
@@ -151,7 +151,7 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
   const view = mount(false);
   await waitFor(() => expect(cards(view.container).length).toBe(2));
   const card = view.container.querySelector<HTMLElement>(
-    '[data-actionable="bbbb0002"]',
+    '[data-ask="bbbb0002"]',
   )!;
   const dismiss = card.querySelector<HTMLButtonElement>(
     "button[type=button]:last-of-type",
@@ -161,7 +161,7 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
     await new Promise((r) => setTimeout(r, 0));
   });
   expect(posts.map((p) => p.path)).toEqual([
-    "/api/actionables/bbbb0002/dismiss",
+    "/api/asks/bbbb0002/dismiss",
   ]);
   expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
   expect(card.querySelector("[role=alert]")?.textContent).toContain(

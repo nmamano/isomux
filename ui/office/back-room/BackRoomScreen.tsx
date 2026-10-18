@@ -114,7 +114,7 @@ function Figure({
   at,
   z,
   unread,
-  actionableCount,
+  askCount,
   draggable,
   onOpen,
   onMenu,
@@ -124,8 +124,8 @@ function Figure({
   at: Point;
   z: number;
   unread: boolean;
-  // Open actionables from this agent to the viewer: the count dot.
-  actionableCount: number;
+  // Open asks from this agent to the viewer: the count dot.
+  askCount: number;
   draggable: boolean;
   onOpen: () => void;
   onMenu: (x: number, y: number) => void;
@@ -249,11 +249,11 @@ function Figure({
             its right edge, clear of the name. It reaches 5 units above the
             plate; the nearest plate above is a table behind, about 34 units
             higher, so the dot stays clear of it. */}
-        {actionableCount > 0 && (
+        {askCount > 0 && (
           <span
-            data-actionable-dot=""
+            data-ask-dot=""
             role="img"
-            aria-label={tn("actionables.badge", actionableCount)}
+            aria-label={tn("asks.badge", askCount)}
             style={{
               position: "absolute",
               top: -5,
@@ -271,7 +271,7 @@ function Figure({
               boxShadow: "0 0 0 1.5px var(--bg-base)",
             }}
           >
-            {actionableCount}
+            {askCount}
           </span>
         )}
         <span
@@ -313,7 +313,7 @@ export function BackRoomScreen({
   roomName,
   agents,
   needsAttention,
-  actionableCounts,
+  askCounts,
   isMobile,
   onBack,
   onSpawn,
@@ -328,8 +328,8 @@ export function BackRoomScreen({
   /** The room's back agents. */
   agents: AgentInfo[];
   needsAttention: Set<string>;
-  /** Open actionables per agent, for this member. */
-  actionableCounts?: ReadonlyMap<string, number>;
+  /** Open asks per agent, for this member. */
+  askCounts?: ReadonlyMap<string, number>;
   isMobile: boolean;
   onBack: () => void;
   onSpawn: () => void;
@@ -653,7 +653,7 @@ export function BackRoomScreen({
             at={at}
             z={j * 10 + 3}
             unread={needsAttention.has(agent.id)}
-            actionableCount={actionableCounts?.get(agent.id) ?? 0}
+            askCount={askCounts?.get(agent.id) ?? 0}
             // HTML5 drag is a mouse gesture, as on the front's desks.
             draggable={!isMobile}
             onDrag={(on) => setDragged(on ? agent : null)}

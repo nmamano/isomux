@@ -45,8 +45,8 @@ import type {
   Translator,
 } from "../../shared/i18n/translate.ts";
 import {
-  ACTIONABLE_CREATE_PLAIN_TEXT_PARAMS,
-  ACTIONABLE_EDIT_PLAIN_TEXT_PARAMS,
+  ASK_CREATE_PLAIN_TEXT_PARAMS,
+  ASK_EDIT_PLAIN_TEXT_PARAMS,
   INBOX_PLAIN_TEXT_PARAMS,
   MESSAGE_PLAIN_TEXT_PARAMS,
   isTextPlain,
@@ -814,11 +814,11 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/agents", "apiCall.agents.list"],
   ["GET", "/api/agents", "apiCall.agents.list"],
   ["POST", "/api/agents/*/messages", "apiCall.agents.sendMessage"],
-  ["POST", "/api/agents/*/actionables", "apiCall.actionables.create"],
-  ["GET", "/api/agents/*/actionables", "apiCall.actionables.list"],
-  ["GET", "/api/agents/*/actionables/*", "apiCall.actionables.get"],
-  ["PATCH", "/api/agents/*/actionables/*", "apiCall.actionables.edit"],
-  ["DELETE", "/api/agents/*/actionables/*", "apiCall.actionables.delete"],
+  ["POST", "/api/agents/*/asks", "apiCall.asks.create"],
+  ["GET", "/api/agents/*/asks", "apiCall.asks.list"],
+  ["GET", "/api/agents/*/asks/*", "apiCall.asks.get"],
+  ["PATCH", "/api/agents/*/asks/*", "apiCall.asks.edit"],
+  ["DELETE", "/api/agents/*/asks/*", "apiCall.asks.delete"],
   ["GET", "/api/me/api-tokens", "apiCall.apiTokens.list"],
   ["POST", "/api/me/api-tokens", "apiCall.apiTokens.create"],
   ["DELETE", "/api/me/api-tokens/*", "apiCall.apiTokens.revoke"],
@@ -2045,10 +2045,10 @@ function plainTextParams(
   const key = describeIsomuxRoute(method, path);
   if (key === "apiCall.agents.sendMessage") return MESSAGE_PLAIN_TEXT_PARAMS;
   if (key === "apiCall.inbox.messageBoss") return INBOX_PLAIN_TEXT_PARAMS;
-  if (key === "apiCall.actionables.create")
-    return ACTIONABLE_CREATE_PLAIN_TEXT_PARAMS;
-  if (key === "apiCall.actionables.edit")
-    return ACTIONABLE_EDIT_PLAIN_TEXT_PARAMS;
+  if (key === "apiCall.asks.create")
+    return ASK_CREATE_PLAIN_TEXT_PARAMS;
+  if (key === "apiCall.asks.edit")
+    return ASK_EDIT_PLAIN_TEXT_PARAMS;
   return null;
 }
 

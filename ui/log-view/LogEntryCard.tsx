@@ -38,7 +38,7 @@ import {
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
 import { failedEditText } from "../../shared/failed-edit.ts";
-import { ActionableLink, actionableRefOf } from "./actionable-link.tsx";
+import { AskLink, askRefOf } from "./ask-link.tsx";
 import {
   parseReviewFindings,
   type ReviewFinding,
@@ -535,11 +535,11 @@ export const LogEntryCard = memo(function LogEntryCard({
         i18n,
         entry.metadata,
       );
-      // An answer to an actionable: the link above it, and a dismiss in the
+      // An answer to an ask: the link above it, and a dismiss in the
       // viewer's language (the agent reads the English word).
-      const actionable = actionableRefOf(entry);
-      const content = actionable?.dismissed
-        ? t("actionables.dismissed")
+      const ask = askRefOf(entry);
+      const content = ask?.dismissed
+        ? t("asks.dismissed")
         : entry.content;
       if (isEditing) {
         return (
@@ -557,8 +557,8 @@ export const LogEntryCard = memo(function LogEntryCard({
         <UserMessage
           content={content}
           beforeContent={
-            actionable ? (
-              <ActionableLink actionable={actionable} isMobile={isMobile} />
+            ask ? (
+              <AskLink ask={ask} isMobile={isMobile} />
             ) : undefined
           }
           renderedContent={
@@ -586,7 +586,7 @@ export const LogEntryCard = memo(function LogEntryCard({
           }
           attachments={entry.attachments}
           agentId={entry.agentId}
-          canEdit={canEdit && fromHuman && !actionable}
+          canEdit={canEdit && fromHuman && !ask}
           onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined}
           timestamp={entry.timestamp}
         />

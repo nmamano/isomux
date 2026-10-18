@@ -1,29 +1,29 @@
-// The actionables' client half (internal-docs/actionables-design.md): the
-// snapshot behind the store's actionables slice, and the per-agent view of it.
+// The asks' client half (internal-docs/asks-design.md): the
+// snapshot behind the store's asks slice, and the per-agent view of it.
 
 import { useEffect } from "react";
 import { useAppState, useDispatch } from "./store.tsx";
 import { apiFetch } from "./api.ts";
-import type { ActionableEntry } from "../shared/types.ts";
+import type { AskEntry } from "../shared/types.ts";
 
 /**
- * Keep the store's actionables slice filled. Mounted once, by App. Keyed on
+ * Keep the store's asks slice filled. Mounted once, by App. Keyed on
  * hydrationEpoch for the reason usePagerSync is: every reconnect may have
  * missed deltas. A snapshot that a delta overtook is refused by the reducer,
- * which bumps actionablesFetchSeq and so re-runs this effect.
+ * which bumps asksFetchSeq and so re-runs this effect.
  */
-export function useActionablesSync(): void {
-  const { hydrationEpoch, actionablesFetchSeq, actionablesRevision } =
+export function useAsksSync(): void {
+  const { hydrationEpoch, asksFetchSeq, asksRevision } =
     useAppState();
   const dispatch = useDispatch();
-  const revision = actionablesRevision;
+  const revision = asksRevision;
   useEffect(() => {
     if (hydrationEpoch === 0) return;
     let cancelled = false;
-    apiFetch<ActionableEntry[]>("GET", "/api/actionables").then(
+    apiFetch<AskEntry[]>("GET", "/api/asks").then(
       (entries) => {
         if (cancelled || !Array.isArray(entries)) return;
-        dispatch({ type: "actionables_loaded", entries, revision });
+        dispatch({ type: "asks_loaded", entries, revision });
       },
       () => {},
     );
@@ -32,22 +32,22 @@ export function useActionablesSync(): void {
     };
     // revision is deliberately not a dependency: see usePagerSync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch, hydrationEpoch, actionablesFetchSeq]);
+  }, [dispatch, hydrationEpoch, asksFetchSeq]);
 }
 
-/** One agent's open actionables for this member, oldest first. */
-export function actionablesFor(
-  entries: readonly ActionableEntry[],
+/** One agent's open asks for this member, oldest first. */
+export function asksFor(
+  entries: readonly AskEntry[],
   agentId: string,
-): ActionableEntry[] {
+): AskEntry[] {
   return entries
     .filter((e) => e.agentId === agentId)
     .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
 }
 
-/** Open actionables per agent, for the desk dots. */
-export function actionableCounts(
-  entries: readonly ActionableEntry[],
+/** Open asks per agent, for the desk dots. */
+export function askCounts(
+  entries: readonly AskEntry[],
 ): Map<string, number> {
   const counts = new Map<string, number>();
   for (const e of entries)

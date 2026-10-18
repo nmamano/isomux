@@ -23,14 +23,14 @@ export function DeskUnit({
   onSwap,
   stateChangedAt,
   workingSince,
-  actionableCount = 0,
+  askCount = 0,
 }: {
   agent: AgentInfo;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   needsAttention?: boolean;
-  // Open actionables from this agent to the viewing member: the count dot.
-  actionableCount?: number;
+  // Open asks from this agent to the viewing member: the count dot.
+  askCount?: number;
   onSwap?: (sourceDesk: number, targetDesk: number) => void;
   stateChangedAt?: number;
   workingSince?: number;
@@ -301,13 +301,13 @@ export function DeskUnit({
             position: "relative",
           }}
         >
-          {/* Open actionables for the viewer: a count on the corner, apart
+          {/* Open asks for the viewer: a count on the corner, apart
               from the word badges (unread, a pending prompt) inside. */}
-          {actionableCount > 0 && (
+          {askCount > 0 && (
             <span
-              data-actionable-dot=""
+              data-ask-dot=""
               role="img"
-              aria-label={tn("actionables.badge", actionableCount)}
+              aria-label={tn("asks.badge", askCount)}
               style={{
                 position: "absolute",
                 top: -7,
@@ -325,7 +325,7 @@ export function DeskUnit({
                 boxShadow: "0 0 0 2px var(--bg-base)",
               }}
             >
-              {actionableCount}
+              {askCount}
             </span>
           )}
           <StatusLight state={agent.state} size={8} elapsedMs={elapsedMs} />

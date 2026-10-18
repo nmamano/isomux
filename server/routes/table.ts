@@ -1,7 +1,7 @@
 import {
-  ACTIONABLE_CREATE_PLAIN_TEXT_PARAMS,
-  ACTIONABLE_EDIT_PLAIN_TEXT_PARAMS,
-  ACTIONABLE_REPLY_PLAIN_TEXT_PARAMS,
+  ASK_CREATE_PLAIN_TEXT_PARAMS,
+  ASK_EDIT_PLAIN_TEXT_PARAMS,
+  ASK_REPLY_PLAIN_TEXT_PARAMS,
   INBOX_PLAIN_TEXT_PARAMS,
   MESSAGE_PLAIN_TEXT_PARAMS,
   type PlainTextParams,
@@ -100,7 +100,7 @@ import type {
   LogEntry,
   UpdateStatusWire,
   MembersChatMessage,
-  ActionableEntry,
+  AskEntry,
 } from "../../shared/types.ts";
 import type {
   SpawnReq,
@@ -173,11 +173,11 @@ import type {
   SecretRotateReq,
   SecretUpdateReq,
   SecretRequestReq,
-  ActionableCreateReq,
-  ActionableEditReq,
-  ActionableReplyReq,
-  ActionableDismissReq,
-  ActionableAgentWire,
+  AskCreateReq,
+  AskEditReq,
+  AskReplyReq,
+  AskDismissReq,
+  AskAgentWire,
   SecretRequestRes,
   SecretRequestSaveReq,
   SecretRequestAnswerRes,
@@ -787,79 +787,79 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:env", memberScope),
     emits: ["log_entry"],
   }),
-  // Actionables (internal-docs/actionables-design.md): the agent manages its
+  // Asks (internal-docs/asks-design.md): the agent manages its
   // own list (self:affordance, :id must be the token's agent); the member the
-  // actionable is for answers it. The handlers check that member and its room
+  // ask is for answers it. The handlers check that member and its room
   // access against live state, the same 404 for anyone else.
-  defineRoute<ActionableCreateReq, ActionableAgentWire>({
-    opId: "agents.createActionable",
+  defineRoute<AskCreateReq, AskAgentWire>({
+    opId: "agents.createAsk",
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
-    path: "/api/agents/:id/actionables",
+    path: "/api/agents/:id/asks",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
-    plainText: { params: ACTIONABLE_CREATE_PLAIN_TEXT_PARAMS },
-    emits: ["actionable_upserted"],
+    plainText: { params: ASK_CREATE_PLAIN_TEXT_PARAMS },
+    emits: ["ask_upserted"],
   }),
-  defineRoute<void, ActionableAgentWire[]>({
-    opId: "agents.listActionables",
+  defineRoute<void, AskAgentWire[]>({
+    opId: "agents.listAsks",
     method: "GET",
-    path: "/api/agents/:id/actionables",
+    path: "/api/agents/:id/asks",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: [],
   }),
-  defineRoute<void, ActionableAgentWire>({
-    opId: "agents.getActionable",
+  defineRoute<void, AskAgentWire>({
+    opId: "agents.getAsk",
     method: "GET",
-    path: "/api/agents/:id/actionables/:actionableId",
+    path: "/api/agents/:id/asks/:askId",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: [],
   }),
-  defineRoute<ActionableEditReq, ActionableAgentWire>({
-    opId: "agents.editActionable",
+  defineRoute<AskEditReq, AskAgentWire>({
+    opId: "agents.editAsk",
     audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
-    path: "/api/agents/:id/actionables/:actionableId",
+    path: "/api/agents/:id/asks/:askId",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
-    plainText: { params: ACTIONABLE_EDIT_PLAIN_TEXT_PARAMS },
-    emits: ["actionable_upserted"],
+    plainText: { params: ASK_EDIT_PLAIN_TEXT_PARAMS },
+    emits: ["ask_upserted"],
   }),
   defineRoute<void, NoContent>({
-    opId: "agents.deleteActionable",
+    opId: "agents.deleteAsk",
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
-    path: "/api/agents/:id/actionables/:actionableId",
+    path: "/api/agents/:id/asks/:askId",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
-    emits: ["actionable_removed"],
+    emits: ["ask_removed"],
   }),
-  defineRoute<void, ActionableEntry[]>({
-    opId: "actionables.list",
+  defineRoute<void, AskEntry[]>({
+    opId: "asks.list",
     method: "GET",
-    path: "/api/actionables",
+    path: "/api/asks",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     emits: [],
   }),
-  defineRoute<ActionableReplyReq, NoContent>({
-    opId: "actionables.reply",
+  defineRoute<AskReplyReq, NoContent>({
+    opId: "asks.reply",
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
-    path: "/api/actionables/:actionableId/reply",
+    path: "/api/asks/:askId/reply",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
-    plainText: { params: ACTIONABLE_REPLY_PLAIN_TEXT_PARAMS },
+    plainText: { params: ASK_REPLY_PLAIN_TEXT_PARAMS },
     emits: [
-      "actionable_removed",
+      "ask_removed",
       "log_entry",
       "interaction_added",
       "agent_updated",
     ],
   }),
-  defineRoute<ActionableDismissReq, NoContent>({
-    opId: "actionables.dismiss",
+  defineRoute<AskDismissReq, NoContent>({
+    opId: "asks.dismiss",
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
-    path: "/api/actionables/:actionableId/dismiss",
+    path: "/api/asks/:askId/dismiss",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     emits: [
-      "actionable_removed",
+      "ask_removed",
       "log_entry",
       "interaction_added",
       "agent_updated",

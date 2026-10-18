@@ -1,9 +1,9 @@
-// The agent's open actionables for this member, stacked above the chat input
-// (internal-docs/actionables-design.md). Each card is the agent's prompt, a
+// The agent's open asks for this member, stacked above the chat input
+// (internal-docs/asks-design.md). Each card is the agent's prompt, a
 // reply field prefilled with the catalog's "done", Reply and Dismiss. The
 // stack scrolls past a maximum height and collapses to one bar: open by
 // default on a desktop, collapsed on a phone. The server closes an answered
-// actionable and pushes actionable_removed; the card also goes on a 204, so
+// ask and pushes ask_removed; the card also goes on a 204, so
 // the click shows its result without waiting for the push.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -12,12 +12,12 @@ import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { getDevice } from "../device-settings.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
-import type { ActionableEntry } from "../../shared/types.ts";
+import type { AskEntry } from "../../shared/types.ts";
 import type {
-  ActionableDismissReq,
-  ActionableReplyReq,
+  AskDismissReq,
+  AskReplyReq,
 } from "../../shared/contract-shapes.ts";
-import { actionablesFor } from "../actionables-sync.ts";
+import { asksFor } from "../asks-sync.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 
 // The stack's height before it scrolls: about two and a half cards on a
@@ -68,16 +68,16 @@ function CountPill({ count, isMobile }: { count: number; isMobile: boolean }) {
   );
 }
 
-function ActionableCard({
+function AskCard({
   entry,
   isMobile,
 }: {
-  entry: ActionableEntry;
+  entry: AskEntry;
   isMobile: boolean;
 }) {
   const { t, language } = useI18n();
   const dispatch = useDispatch();
-  const [reply, setReply] = useState(() => t("actionables.replyDefault"));
+  const [reply, setReply] = useState(() => t("asks.replyDefault"));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -103,19 +103,19 @@ function ActionableCard({
     const device = getDevice() || undefined;
     try {
       if (dismiss)
-        await apiFetch("POST", `/api/actionables/${entry.id}/dismiss`, {
+        await apiFetch("POST", `/api/asks/${entry.id}/dismiss`, {
           ...(device ? { device } : {}),
-        } satisfies ActionableDismissReq);
+        } satisfies AskDismissReq);
       else
-        await apiFetch("POST", `/api/actionables/${entry.id}/reply`, {
+        await apiFetch("POST", `/api/asks/${entry.id}/reply`, {
           text: reply,
           ...(device ? { device } : {}),
-        } satisfies ActionableReplyReq);
-      dispatch({ type: "actionable_removed", id: entry.id });
+        } satisfies AskReplyReq);
+      dispatch({ type: "ask_removed", id: entry.id });
     } catch (err) {
       setBusy(false);
       setError(
-        t("actionables.answerFailed", {
+        t("asks.answerFailed", {
           error: err instanceof ApiError ? err.message : String(err),
         }),
       );
@@ -125,7 +125,7 @@ function ActionableCard({
   const buttonPad = isMobile ? "8px 14px" : "5px 14px";
   return (
     <div
-      data-actionable={entry.id}
+      data-ask={entry.id}
       style={{
         padding: isMobile ? "9px 10px 10px 11px" : "8px 10px 9px 11px",
         borderRadius: 8,
@@ -140,7 +140,7 @@ function ActionableCard({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             ref={promptRef}
-            data-actionable-prompt=""
+            data-ask-prompt=""
             style={{
               color: "var(--text-primary)",
               fontSize,
@@ -200,7 +200,7 @@ function ActionableCard({
           value={reply}
           disabled={busy}
           onChange={(e) => setReply(e.target.value)}
-          aria-label={t("actionables.reply")}
+          aria-label={t("asks.reply")}
           style={{
             flex: 1,
             minWidth: 0,
@@ -232,7 +232,7 @@ function ActionableCard({
             flexShrink: 0,
           }}
         >
-          {t("actionables.reply")}
+          {t("asks.reply")}
         </button>
         <button
           type="button"
@@ -249,7 +249,7 @@ function ActionableCard({
             flexShrink: 0,
           }}
         >
-          {t("actionables.dismiss")}
+          {t("asks.dismiss")}
         </button>
       </form>
       {error && (
@@ -268,7 +268,7 @@ function ActionableCard({
   );
 }
 
-export function ActionablesStack({
+export function AsksStack({
   agentId,
   isMobile,
 }: {
@@ -276,8 +276,8 @@ export function ActionablesStack({
   isMobile: boolean;
 }) {
   const { t } = useI18n();
-  const { actionables } = useAppState();
-  const entries = actionablesFor(actionables, agentId);
+  const { asks } = useAppState();
+  const entries = asksFor(asks, agentId);
   const [collapsed, setCollapsed] = useState(isMobile);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Fade the bottom edge while more cards wait below it.
@@ -286,7 +286,7 @@ export function ActionablesStack({
     const el = bodyRef.current;
     setMoreBelow(!!el && el.scrollTop + el.clientHeight < el.scrollHeight - 2);
   };
-  useEffect(measure, [entries.length, collapsed, actionables]);
+  useEffect(measure, [entries.length, collapsed, asks]);
 
   if (entries.length === 0) return null;
   const toggleStyle = {
@@ -298,7 +298,7 @@ export function ActionablesStack({
 
   if (collapsed)
     return (
-      <div data-actionables-stack="collapsed" style={{ marginBottom: 10 }}>
+      <div data-asks-stack="collapsed" style={{ marginBottom: 10 }}>
         <button
           type="button"
           aria-expanded={false}
@@ -339,7 +339,7 @@ export function ActionablesStack({
   const fade =
     "linear-gradient(to bottom, black calc(100% - 28px), transparent)";
   return (
-    <div data-actionables-stack="open" style={{ marginBottom: 10 }}>
+    <div data-asks-stack="open" style={{ marginBottom: 10 }}>
       <button
         type="button"
         aria-expanded={true}
@@ -356,13 +356,13 @@ export function ActionablesStack({
         }}
       >
         <Chevron open size={isMobile ? 12 : 10} />
-        <span>{t("actionables.title")}</span>
+        <span>{t("asks.title")}</span>
         <CountPill count={entries.length} isMobile={isMobile} />
       </button>
       <div
         ref={bodyRef}
         onScroll={measure}
-        data-actionables-body=""
+        data-asks-body=""
         style={{
           maxHeight: isMobile ? MAX_HEIGHT_MOBILE : MAX_HEIGHT_DESKTOP,
           overflowY: "auto",
@@ -370,7 +370,7 @@ export function ActionablesStack({
         }}
       >
         {entries.map((entry) => (
-          <ActionableCard key={entry.id} entry={entry} isMobile={isMobile} />
+          <AskCard key={entry.id} entry={entry} isMobile={isMobile} />
         ))}
       </div>
     </div>

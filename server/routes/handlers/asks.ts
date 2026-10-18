@@ -1,14 +1,14 @@
-// Actionable handlers (internal-docs/actionables-design.md).
+// Ask handlers (internal-docs/asks-design.md).
 //
-// Agent routes (/api/agents/:id/actionables...): the route guard proves the
+// Agent routes (/api/agents/:id/asks...): the route guard proves the
 // token's agent is :id, so an agent reaches only its own list. Member routes
-// (/api/actionables...): only the member the actionable is for, while that
+// (/api/asks...): only the member the ask is for, while that
 // member can still reach the agent's room; anyone else gets the same 404 as an
 // unknown id.
 //
 // A reply or a dismiss is a member message to the agent through the path a
 // typed message takes, so it wakes or resumes the agent the same way and is
-// refused only where a typed message would be. The actionable closes after the
+// refused only where a typed message would be. The ask closes after the
 // message is accepted; a refused message leaves it open.
 //
 // The store emits the per-recipient events on commit, so these handlers never
@@ -22,22 +22,22 @@ import {
   type RouteHandler,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import type { ActionableEntry } from "../../../shared/types.ts";
-import type { ActionableAgentWire } from "../../../shared/contract-shapes.ts";
+import type { AskEntry } from "../../../shared/types.ts";
+import type { AskAgentWire } from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
-  ActionablesUnavailableError,
-  ACTIONABLE_MAX_OPEN_PER_AGENT,
+  AsksUnavailableError,
+  ASK_MAX_OPEN_PER_AGENT,
   checkPrompt,
-  type ActionableStore,
-} from "../../actionables.ts";
+  type AskStore,
+} from "../../asks.ts";
 
 // The member message text of a dismiss. The chat shows it translated from the
 // entry's metadata; the agent reads these words.
-export const ACTIONABLE_DISMISSED_TEXT = "Dismissed";
+export const ASK_DISMISSED_TEXT = "Dismissed";
 
-export interface ActionablesDeps {
-  store: ActionableStore;
+export interface AsksDeps {
+  store: AskStore;
   // The agent as it is now, or null when it is gone.
   agent(
     agentId: string,
@@ -48,11 +48,11 @@ export interface ActionablesDeps {
   memberName(userId: string): string | null;
   // Whether a member can reach a room.
   memberCanSeeRoom(userId: string, roomId: string): boolean;
-  // Deliver the member's message to the agent, carrying the actionable.
+  // Deliver the member's message to the agent, carrying the ask.
   // Resolves at the acceptance decision, as a typed member message does.
   deliver(
     identity: Identity,
-    entry: ActionableEntry,
+    entry: AskEntry,
     text: string,
     opts: { dismissed: boolean; device: string | undefined },
   ): Promise<UserSendAcceptance>;
@@ -63,28 +63,28 @@ function guarded(handler: RouteHandler): RouteHandler {
     try {
       return await handler(ctx);
     } catch (err) {
-      if (err instanceof ActionablesUnavailableError)
-        return fail(500, "actionables_unavailable", err.message);
+      if (err instanceof AsksUnavailableError)
+        return fail(500, "asks_unavailable", err.message);
       throw err;
     }
   };
 }
 
-export function actionableHandlers(
-  deps: ActionablesDeps,
+export function askHandlers(
+  deps: AsksDeps,
 ): Record<string, RouteHandler> {
   const { store } = deps;
   // Reply and dismiss in flight, so a second click (or a second browser)
   // cannot send the message twice.
   const delivering = new Set<string>();
 
-  const wire = (entry: ActionableEntry): ActionableAgentWire => ({
+  const wire = (entry: AskEntry): AskAgentWire => ({
     ...entry,
     member: deps.memberName(entry.memberUserId) ?? entry.memberUserId,
   });
 
   // The agent's own open entry, or null.
-  const own = (agentId: string, id: string): ActionableEntry | null => {
+  const own = (agentId: string, id: string): AskEntry | null => {
     const entry = store.get(id);
     return entry && entry.agentId === agentId ? entry : null;
   };
@@ -93,7 +93,7 @@ export function actionableHandlers(
   const addressedTo = (
     identity: Identity,
     id: string,
-  ): ActionableEntry | null => {
+  ): AskEntry | null => {
     const entry = store.get(id);
     if (!entry || !identity.userId || entry.memberUserId !== identity.userId)
       return null;
@@ -103,7 +103,7 @@ export function actionableHandlers(
     return entry;
   };
 
-  const notFound = () => fail(404, "not_found", "No such open actionable.");
+  const notFound = () => fail(404, "not_found", "No such open ask.");
 
   const answer =
     (dismissed: boolean): RouteHandler =>
@@ -117,19 +117,19 @@ export function actionableHandlers(
           "api_attribution_not_supported",
           "device is not supported for API token senders.",
         );
-      let text = ACTIONABLE_DISMISSED_TEXT;
+      let text = ASK_DISMISSED_TEXT;
       if (!dismissed) {
         if (typeof body.text !== "string" || body.text.trim().length === 0)
           return fail(400, "invalid_text", "text is required");
         text = body.text;
       }
-      const entry = addressedTo(ctx.identity, ctx.params.actionableId);
+      const entry = addressedTo(ctx.identity, ctx.params.askId);
       if (!entry) return notFound();
       if (delivering.has(entry.id))
         return fail(
           409,
-          "actionable_busy",
-          "An answer to this actionable is being sent.",
+          "ask_busy",
+          "An answer to this ask is being sent.",
         );
       delivering.add(entry.id);
       try {
@@ -144,7 +144,7 @@ export function actionableHandlers(
           // The agent has the message; a retry would send it twice. The entry
           // stays open until the store can write again.
           console.error(
-            `[actionables] ${entry.id} was answered but could not be closed:`,
+            `[asks] ${entry.id} was answered but could not be closed:`,
             err,
           );
         }
@@ -155,7 +155,7 @@ export function actionableHandlers(
     };
 
   return {
-    "agents.createActionable": guarded((ctx) => {
+    "agents.createAsk": guarded((ctx) => {
       const body = (ctx.body ?? {}) as Record<string, unknown>;
       const checked = checkPrompt(body.text);
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
@@ -192,36 +192,36 @@ export function actionableHandlers(
       if (!result.ok)
         return fail(
           429,
-          "too_many_actionables",
-          `At most ${ACTIONABLE_MAX_OPEN_PER_AGENT} open actionables per agent. Delete one first.`,
+          "too_many_asks",
+          `At most ${ASK_MAX_OPEN_PER_AGENT} open asks per agent. Delete one first.`,
         );
       return created(wire(result.entry));
     }),
 
-    "agents.listActionables": guarded((ctx) =>
+    "agents.listAsks": guarded((ctx) =>
       ok(store.listForAgent(ctx.params.id).map(wire)),
     ),
 
-    "agents.getActionable": guarded((ctx) => {
-      const entry = own(ctx.params.id, ctx.params.actionableId);
+    "agents.getAsk": guarded((ctx) => {
+      const entry = own(ctx.params.id, ctx.params.askId);
       return entry ? ok(wire(entry)) : notFound();
     }),
 
-    "agents.editActionable": guarded((ctx) => {
+    "agents.editAsk": guarded((ctx) => {
       const body = (ctx.body ?? {}) as Record<string, unknown>;
       const checked = checkPrompt(body.text);
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
-      if (!own(ctx.params.id, ctx.params.actionableId)) return notFound();
-      const entry = store.edit(ctx.params.actionableId, checked.prompt);
+      if (!own(ctx.params.id, ctx.params.askId)) return notFound();
+      const entry = store.edit(ctx.params.askId, checked.prompt);
       return entry ? ok(wire(entry)) : notFound();
     }),
 
-    "agents.deleteActionable": guarded((ctx) => {
-      if (!own(ctx.params.id, ctx.params.actionableId)) return notFound();
-      return store.remove(ctx.params.actionableId) ? noContent() : notFound();
+    "agents.deleteAsk": guarded((ctx) => {
+      if (!own(ctx.params.id, ctx.params.askId)) return notFound();
+      return store.remove(ctx.params.askId) ? noContent() : notFound();
     }),
 
-    "actionables.list": guarded((ctx) => {
+    "asks.list": guarded((ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return ok([]);
       return ok(
@@ -232,7 +232,7 @@ export function actionableHandlers(
       );
     }),
 
-    "actionables.reply": guarded(answer(false)),
-    "actionables.dismiss": guarded(answer(true)),
+    "asks.reply": guarded(answer(false)),
+    "asks.dismiss": guarded(answer(true)),
   };
 }

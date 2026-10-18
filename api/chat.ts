@@ -250,7 +250,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Pager
 - Agents and apps can page their manager or owner when a person must act. The page goes to the member's Discord and repeats until someone acks or resolves it.
 - The Pager view in the office bar lists every page the member can see, with ack and resolve. A badge counts their open pages.
-- An agent can leave a member a question that can wait (an actionable). It stays above the chat input, with a reply field, until the member replies or dismisses it. A dot on the agent's desk counts them.
+- An agent can leave a member a question that can wait (an ask). It stays above the chat input, with a reply field, until the member replies or dismisses it. A dot on the agent's desk counts them.
 
 ### Other
 - Voice-to-text prompting (HTTPS or localhost) and text-to-speech responses. Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.

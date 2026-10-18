@@ -75,7 +75,7 @@ import type {
   UserRole,
   MembersChatMessage,
   PagerEntry,
-  ActionableEntry,
+  AskEntry,
   WebhookDelivery,
   WebhookWire,
 } from "../shared/types.ts";
@@ -813,8 +813,8 @@ const DEMO_LOGS: {
         content:
           "Here's your speech:\n\n---\n\nI know what you're thinking. \"Oh great, another all-hands.\" And yes, I've been told I do too many of these. But that's because I care too much.\n\nThis team shipped more this quarter than anyone thought possible. And I'm not gonna stand up here and take credit for that. Even though I could.\n\nYou stayed late debugging that cursed production issue. You reviewed PRs at midnight. You brought donuts the next morning. I ate three of those donuts. We all played our part.\n\nWe don't just work together. We *show up* for each other. And that's like finding a really good parking spot at Costco.\n\nSo look around this room. These are your people. I'm your people. Let's keep building.\n\n---\n\nWant me to add specific shout-outs, or adjust the tone for a more formal audience?",
       },
-      // Two actionables for the viewer (demoActionableEntries): the chat's
-      // "Actionable" link on an answer jumps back to these cards.
+      // Two asks for the viewer (demoAskEntries): the chat's
+      // "Ask" link on an answer jumps back to these cards.
       {
         kind: "tool_call",
         content: "Bash",
@@ -822,7 +822,7 @@ const DEMO_LOGS: {
           toolId: "tool-michael-1",
           input: {
             command:
-              "curl -s -X POST \"localhost:4000/api/agents/demo-michael/actionables\" -H \"Authorization: Bearer $ISOMUX_AGENT_TOKEN\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nCan I book the conference room for the all-hands on Friday?\nEOF",
+              "curl -s -X POST \"localhost:4000/api/agents/demo-michael/asks\" -H \"Authorization: Bearer $ISOMUX_AGENT_TOKEN\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nCan I book the conference room for the all-hands on Friday?\nEOF",
           },
         },
       },
@@ -838,7 +838,7 @@ const DEMO_LOGS: {
           toolId: "tool-michael-2",
           input: {
             command:
-              'curl -s -X POST "localhost:4000/api/agents/demo-michael/actionables" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H \'Content-Type: text/plain\' --data-binary @- <<\'EOF\'\nTwo versions of the speech are ready. The casual one keeps the Costco line and the donut story; the formal one is safer if corporate dials in. Which one goes out Friday? Reply "formal" or "casual", or tell me what to change. I\'ll hold the slide deck until you pick, since the closing slide depends on the tone.\nEOF',
+              'curl -s -X POST "localhost:4000/api/agents/demo-michael/asks" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H \'Content-Type: text/plain\' --data-binary @- <<\'EOF\'\nTwo versions of the speech are ready. The casual one keeps the Costco line and the donut story; the formal one is safer if corporate dials in. Which one goes out Friday? Reply "formal" or "casual", or tell me what to change. I\'ll hold the slide deck until you pick, since the closing slide depends on the tone.\nEOF',
           },
         },
       },
@@ -854,7 +854,7 @@ const DEMO_LOGS: {
           toolId: "tool-michael-3",
           input: {
             command:
-              "curl -s -X POST \"localhost:4000/api/agents/demo-michael/actionables\" -H \"Authorization: Bearer $ISOMUX_AGENT_TOKEN\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nWho gives the opening toast, Jim or Dwight?\nEOF",
+              "curl -s -X POST \"localhost:4000/api/agents/demo-michael/asks\" -H \"Authorization: Bearer $ISOMUX_AGENT_TOKEN\" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'\nWho gives the opening toast, Jim or Dwight?\nEOF",
           },
         },
       },
@@ -983,7 +983,7 @@ const DEMO_LOGS: {
 ];
 
 // "thinking", then the canned reply after a beat: what the demo does with an
-// answered actionable, as with a typed message.
+// answered ask, as with a typed message.
 function demoChatReply(id: string): void {
   const prev = pendingReplies.get(id);
   if (prev) clearTimeout(prev);
@@ -1105,17 +1105,17 @@ const demoApps: (AppWire & { canManage: true })[] = [
   },
 ];
 
-// Actionables from Michael to the viewer, the ones his chat shows him
+// Asks from Michael to the viewer, the ones his chat shows him
 // opening: short prompts and a long one, so the stack shows its clamp and,
 // on a desktop, its maximum height. Built on the first list so they can
 // name the viewer.
-let demoActionables: ActionableEntry[] | null = null;
+let demoAsks: AskEntry[] | null = null;
 
-function demoActionableEntries(): ActionableEntry[] {
-  if (demoActionables) return demoActionables;
+function demoAskEntries(): AskEntry[] {
+  if (demoAsks) return demoAsks;
   const now = Date.now();
   const member = sessionContext?.userId ?? "demo-user";
-  demoActionables = [
+  demoAsks = [
     {
       id: "dea0ac01",
       agentId: "demo-michael",
@@ -1151,7 +1151,7 @@ function demoActionableEntries(): ActionableEntry[] {
       updatedAt: now - 15 * 60_000,
     },
   ];
-  return demoActionables;
+  return demoAsks;
 }
 
 // Pages, built on the first list so they can name the viewer and the demo's
@@ -2752,9 +2752,9 @@ export async function demoApi(
     // pager.list - the client filters, so the demo returns every page.
     case "GET /api/pager":
       return [...demoPagerEntries()];
-    // actionables.list - the viewer's open actionables.
-    case "GET /api/actionables":
-      return [...demoActionableEntries()];
+    // asks.list - the viewer's open asks.
+    case "GET /api/asks":
+      return [...demoAskEntries()];
     // apps.list - the Apps tab fetches on open and polls while it is open.
     case "GET /api/apps":
       return [...demoApps];
@@ -3789,27 +3789,27 @@ export async function demoApi(
   if (method === "GET" && /^\/api\/agents\/[^/]+\/sessions$/.test(pathname)) {
     return { sessions: [], currentSessionId: null };
   }
-  // actionables.reply / actionables.dismiss - close the actionable and send
+  // asks.reply / asks.dismiss - close the ask and send
   // the answer to its agent as a member message, as the server does.
-  const actionableMatch = pathname.match(
-    /^\/api\/actionables\/([^/]+)\/(reply|dismiss)$/,
+  const askMatch = pathname.match(
+    /^\/api\/asks\/([^/]+)\/(reply|dismiss)$/,
   );
-  if (actionableMatch && method === "POST") {
-    const entries = demoActionableEntries();
+  if (askMatch && method === "POST") {
+    const entries = demoAskEntries();
     const entry = entries.find(
-      (e) => e.id === decodeURIComponent(actionableMatch[1]),
+      (e) => e.id === decodeURIComponent(askMatch[1]),
     );
     if (!entry)
-      throw new ApiError(404, "not_found", "No such open actionable.");
-    const dismissed = actionableMatch[2] === "dismiss";
+      throw new ApiError(404, "not_found", "No such open ask.");
+    const dismissed = askMatch[2] === "dismiss";
     const sent = (body as { text?: unknown } | undefined)?.text;
     const text = dismissed ? "Dismissed" : typeof sent === "string" ? sent : "";
-    demoActionables = entries.filter((e) => e.id !== entry.id);
-    shimEmit({ type: "actionable_removed", id: entry.id });
+    demoAsks = entries.filter((e) => e.id !== entry.id);
+    shimEmit({ type: "ask_removed", id: entry.id });
     shimEmit({
       type: "log_entry",
       entry: makeLogEntry(entry.agentId, "user_message", text, {
-        actionable: {
+        ask: {
           id: entry.id,
           prompt: entry.prompt,
           ...(dismissed ? { dismissed: true } : {}),

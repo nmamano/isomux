@@ -31,7 +31,7 @@ import type {
   WebhookScheme,
   WebhookTarget,
   PagerDeliveryFailure,
-  ActionableEntry,
+  AskEntry,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 
@@ -711,27 +711,27 @@ export interface ApiTokenInboxSendReq {
   text: string;
 }
 
-// Actionables (internal-docs/actionables-design.md). `text` is the prompt on
+// Asks (internal-docs/asks-design.md). `text` is the prompt on
 // create and edit and the answer on reply, so each route also takes the
 // text/plain form.
-export interface ActionableCreateReq {
+export interface AskCreateReq {
   text: string;
   // A member's username. Absent means the agent's manager.
   member?: string;
 }
-export interface ActionableEditReq {
+export interface AskEditReq {
   text: string;
 }
-export interface ActionableReplyReq {
+export interface AskReplyReq {
   text: string;
   // The member's device label, as on a chat message (user sessions only).
   device?: string;
 }
-export interface ActionableDismissReq {
+export interface AskDismissReq {
   device?: string;
 }
 // What an agent reads back: the stored entry plus the target's username.
-export type ActionableAgentWire = ActionableEntry & { member: string };
+export type AskAgentWire = AskEntry & { member: string };
 
 export interface ApiTokenInboxSendRes {
   messageId: string;

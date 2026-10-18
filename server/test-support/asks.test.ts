@@ -1,16 +1,16 @@
-// Actionables end to end on the real server (internal-docs/actionables-design.md):
+// Asks end to end on the real server (internal-docs/asks-design.md):
 // an agent opens one through its token, only the member it is for sees and
 // answers it, and the answer reaches the agent as that member's message,
-// linked to the actionable. FakeBackend only.
+// linked to the ask. FakeBackend only.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
-import { actionableReplyNote } from "../actionables.ts";
-import { ACTIONABLE_DISMISSED_TEXT } from "../routes/handlers/actionables.ts";
-import type { ActionableEntry, AgentInfo } from "../../shared/types.ts";
+import { askReplyNote } from "../asks.ts";
+import { ASK_DISMISSED_TEXT } from "../routes/handlers/asks.ts";
+import type { AskEntry, AgentInfo } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
 
@@ -125,16 +125,16 @@ async function world() {
 async function open(
   w: Awaited<ReturnType<typeof world>>,
   prompt: string,
-): Promise<ActionableEntry & { member: string }> {
+): Promise<AskEntry & { member: string }> {
   const r = await call(
     w.srv,
     "POST",
-    `/api/agents/${w.asker.id}/actionables`,
+    `/api/agents/${w.asker.id}/asks`,
     w.as(w.asker.id),
     { text: `${prompt}\n` },
   );
   expect(r.status).toBe(201);
-  return r.body as ActionableEntry & { member: string };
+  return r.body as AskEntry & { member: string };
 }
 
 describe("the agent's own list", () => {
@@ -146,9 +146,9 @@ describe("the agent's own list", () => {
     expect(created.memberUserId).toBe(w.ownerId);
     expect(created.member).toBe(w.owner.username);
 
-    const base = `/api/agents/${w.asker.id}/actionables`;
+    const base = `/api/agents/${w.asker.id}/asks`;
     const listed = await call(w.srv, "GET", base, w.as(w.asker.id));
-    expect((listed.body as ActionableEntry[]).map((e) => e.id)).toEqual([
+    expect((listed.body as AskEntry[]).map((e) => e.id)).toEqual([
       created.id,
     ]);
     const edited = await call(
@@ -159,14 +159,14 @@ describe("the agent's own list", () => {
       { text: "Pull it per agent?" },
     );
     expect(edited.status).toBe(200);
-    expect((edited.body as ActionableEntry).prompt).toBe("Pull it per agent?");
+    expect((edited.body as AskEntry).prompt).toBe("Pull it per agent?");
     const read = await call(
       w.srv,
       "GET",
       `${base}/${created.id}`,
       w.as(w.asker.id),
     );
-    expect((read.body as ActionableEntry).prompt).toBe("Pull it per agent?");
+    expect((read.body as AskEntry).prompt).toBe("Pull it per agent?");
 
     const deleted = await call(
       w.srv,
@@ -184,10 +184,10 @@ describe("the agent's own list", () => {
     expect(gone.status).toBe(404);
   });
 
-  it("never lets one agent's token reach another agent's actionables", async () => {
+  it("never lets one agent's token reach another agent's asks", async () => {
     const w = await world();
     const created = await open(w, "Mine only?");
-    const theirs = `/api/agents/${w.asker.id}/actionables`;
+    const theirs = `/api/agents/${w.asker.id}/asks`;
     // Through the owner's path: the guard refuses a token that is not :id.
     for (const [method, path, body] of [
       ["GET", theirs, undefined],
@@ -200,7 +200,7 @@ describe("the agent's own list", () => {
       expect(`${method} ${r.status}`).toBe(`${method} 403`);
     }
     // Through its own path with the other agent's id: not its entry.
-    const own = `/api/agents/${w.other.id}/actionables/${created.id}`;
+    const own = `/api/agents/${w.other.id}/asks/${created.id}`;
     for (const [method, body] of [
       ["GET", undefined],
       ["PATCH", { text: "spoof" }],
@@ -212,7 +212,7 @@ describe("the agent's own list", () => {
     const listed = await call(
       w.srv,
       "GET",
-      `/api/agents/${w.other.id}/actionables`,
+      `/api/agents/${w.other.id}/asks`,
       w.as(w.other.id),
     );
     expect(listed.body).toEqual([]);
@@ -223,12 +223,12 @@ describe("the agent's own list", () => {
       `${theirs}/${created.id}`,
       w.as(w.asker.id),
     );
-    expect((read.body as ActionableEntry).prompt).toBe("Mine only?");
+    expect((read.body as AskEntry).prompt).toBe("Mine only?");
   });
 
   it("refuses an empty prompt, an unknown member and a full list", async () => {
     const w = await world();
-    const base = `/api/agents/${w.asker.id}/actionables`;
+    const base = `/api/agents/${w.asker.id}/asks`;
     const empty = await call(w.srv, "POST", base, w.as(w.asker.id), {
       text: "  ",
     });
@@ -250,13 +250,13 @@ describe("the agent's own list", () => {
 });
 
 describe("the member's answer", () => {
-  it("reaches the agent as the member's message, linked to the actionable, and closes it", async () => {
+  it("reaches the agent as the member's message, linked to the ask, and closes it", async () => {
     const w = await world();
     const created = await open(w, "Pull the spend breakdown?");
     const r = await call(
       w.srv,
       "POST",
-      `/api/actionables/${created.id}/reply`,
+      `/api/asks/${created.id}/reply`,
       { rawSessionId: w.owner.rawSessionId },
       { json: { text: "yes, per agent" } },
     );
@@ -268,17 +268,17 @@ describe("the member's answer", () => {
     const sent = sentTexts(w.srv, w.asker.id).find((t) =>
       t.includes("per agent"),
     )!;
-    // The member's label, then the note naming the actionable, then the words.
+    // The member's label, then the note naming the ask, then the words.
     expect(sent).toBe(
-      `[${w.owner.username}] ${actionableReplyNote(created)}yes, per agent`,
+      `[${w.owner.username}] ${askReplyNote(created)}yes, per agent`,
     );
-    expect(actionableReplyNote(created)).toContain(created.id);
+    expect(askReplyNote(created)).toContain(created.id);
     const entry = w.srv.agentManager
       .getAgentLogs(w.asker.id)
       .find(
         (e) => e.kind === "user_message" && e.content === "yes, per agent",
       )!;
-    expect(entry.metadata?.actionable).toEqual({
+    expect(entry.metadata?.ask).toEqual({
       id: created.id,
       prompt: "Pull the spend breakdown?",
     });
@@ -286,7 +286,7 @@ describe("the member's answer", () => {
     const after = await call(
       w.srv,
       "GET",
-      `/api/agents/${w.asker.id}/actionables/${created.id}`,
+      `/api/agents/${w.asker.id}/asks/${created.id}`,
       w.as(w.asker.id),
     );
     expect(after.status).toBe(404);
@@ -298,7 +298,7 @@ describe("the member's answer", () => {
     const r = await call(
       w.srv,
       "POST",
-      `/api/actionables/${created.id}/dismiss`,
+      `/api/asks/${created.id}/dismiss`,
       { rawSessionId: w.owner.rawSessionId },
       { json: {} },
     );
@@ -313,16 +313,16 @@ describe("the member's answer", () => {
     const entry = w.srv.agentManager
       .getAgentLogs(w.asker.id)
       .find((e) => e.kind === "user_message")!;
-    expect(entry.metadata?.actionable).toEqual({
+    expect(entry.metadata?.ask).toEqual({
       id: created.id,
       prompt: "Book the room?",
       dismissed: true,
     });
     // The agent reads the dismiss note, which is not the reply note.
-    const dismissNote = actionableReplyNote({ ...created, dismissed: true });
-    expect(dismissNote).not.toBe(actionableReplyNote(created));
+    const dismissNote = askReplyNote({ ...created, dismissed: true });
+    expect(dismissNote).not.toBe(askReplyNote(created));
     expect(sent).toBe(
-      `[${w.owner.username}] ${dismissNote}${ACTIONABLE_DISMISSED_TEXT}`,
+      `[${w.owner.username}] ${dismissNote}${ASK_DISMISSED_TEXT}`,
     );
   });
 
@@ -357,7 +357,7 @@ describe("the member's answer", () => {
     const r = await call(
       w.srv,
       "POST",
-      `/api/actionables/${created.id}/reply`,
+      `/api/asks/${created.id}/reply`,
       { rawSessionId: w.owner.rawSessionId },
       { json: { text: "1" } },
     );
@@ -365,7 +365,7 @@ describe("the member's answer", () => {
     expect(session.approvals).toEqual([]);
     expect(agentOf(w.srv, w.asker.id).pendingPrompt).toBe("permission");
     const queued = agentOf(w.srv, w.asker.id).queue ?? [];
-    expect(queued.map((m) => m.actionable?.id)).toEqual([created.id]);
+    expect(queued.map((m) => m.ask?.id)).toEqual([created.id]);
 
     // The member answers the prompt, and the turn ends: the reply goes out,
     // with its note, on the flush that follows.
@@ -378,7 +378,7 @@ describe("the member's answer", () => {
     );
     await waitUntil(() => session.approvals.length === 1, "approved");
     session.completeTurn({ text: "done" });
-    const delivered = `[${w.owner.username}] ${actionableReplyNote(created)}1`;
+    const delivered = `[${w.owner.username}] ${askReplyNote(created)}1`;
     await waitUntil(
       () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(delivered)),
       "reply flushed after the prompt",
@@ -405,7 +405,7 @@ describe("the member's answer", () => {
     const r = await call(
       w.srv,
       "POST",
-      `/api/actionables/${created.id}/reply`,
+      `/api/asks/${created.id}/reply`,
       { rawSessionId: w.owner.rawSessionId },
       { json: { text: "1" } },
     );
@@ -414,7 +414,7 @@ describe("the member's answer", () => {
     expect(agentOf(w.srv, w.asker.id).pendingPrompt).toBe("model");
     expect(agentOf(w.srv, w.asker.id).modelFamily).toBe(before);
     const queued = agentOf(w.srv, w.asker.id).queue ?? [];
-    expect(queued.map((m) => m.actionable?.id)).toEqual([created.id]);
+    expect(queued.map((m) => m.ask?.id)).toEqual([created.id]);
 
     // The member picks a model. The flow ends on an idle agent, and the reply
     // goes out with no other message needed.
@@ -426,7 +426,7 @@ describe("the member's answer", () => {
       { json: { text: "1" } },
     );
     expect(pick.status).toBe(200);
-    const delivered = `[${w.owner.username}] ${actionableReplyNote(created)}1`;
+    const delivered = `[${w.owner.username}] ${askReplyNote(created)}1`;
     await waitUntil(
       () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(delivered)),
       "reply flushed after the pick",
@@ -440,7 +440,7 @@ describe("the member's answer", () => {
     const r = await call(
       w.srv,
       "POST",
-      `/api/actionables/${created.id}/reply`,
+      `/api/asks/${created.id}/reply`,
       { rawSessionId: w.owner.rawSessionId },
       { json: { text: "/clear" } },
     );
@@ -456,7 +456,7 @@ describe("the member's answer", () => {
           (e) =>
             e.kind === "user_message" &&
             e.content === "/clear" &&
-            !!e.metadata?.actionable,
+            !!e.metadata?.ask,
         ),
     ).toBe(true);
   });
@@ -480,12 +480,12 @@ describe("the member's answer", () => {
     const r = await call(
       w.srv,
       "POST",
-      `/api/actionables/${created.id}/reply`,
+      `/api/asks/${created.id}/reply`,
       { rawSessionId: w.owner.rawSessionId },
       { json: { text: "yes" } },
     );
     expect(r.status).toBe(204);
-    const delivered = `[${w.owner.username}] ${actionableReplyNote(created)}yes`;
+    const delivered = `[${w.owner.username}] ${askReplyNote(created)}yes`;
     await waitUntil(
       () => sentTexts(w.srv, w.asker.id).includes(delivered),
       "reply woke the agent",
@@ -518,12 +518,12 @@ describe("the member's answer", () => {
     const r = await call(
       w.srv,
       "POST",
-      `/api/actionables/${created.id}/reply`,
+      `/api/asks/${created.id}/reply`,
       { rawSessionId: w.owner.rawSessionId },
       { json: { text: "yes" } },
     );
     expect(r.status).toBe(204);
-    const delivered = `[${w.owner.username}] ${actionableReplyNote(created)}yes`;
+    const delivered = `[${w.owner.username}] ${askReplyNote(created)}yes`;
     await waitUntil(
       () => sentTexts(w.srv, w.asker.id).includes(delivered),
       "reply resumed the agent",
@@ -569,7 +569,7 @@ describe("the member's answer", () => {
     const reply = await call(
       w.srv,
       "POST",
-      `/api/actionables/${created.id}/reply`,
+      `/api/asks/${created.id}/reply`,
       { rawSessionId: w.owner.rawSessionId },
       { json: { text: "yes" } },
     );
@@ -577,7 +577,7 @@ describe("the member's answer", () => {
     const still = await call(
       w.srv,
       "GET",
-      `/api/agents/${w.asker.id}/actionables/${created.id}`,
+      `/api/agents/${w.asker.id}/asks/${created.id}`,
       w.as(w.asker.id),
     );
     expect(still.status).toBe(200);
@@ -587,7 +587,7 @@ describe("the member's answer", () => {
     const w = await world();
     const created = await open(w, "Only for Nil?");
     const other = await w.srv.seedMember("Pat");
-    const listed = await call(w.srv, "GET", "/api/actionables", {
+    const listed = await call(w.srv, "GET", "/api/asks", {
       rawSessionId: other.rawSessionId,
     });
     expect(listed.body).toEqual([]);
@@ -595,16 +595,16 @@ describe("the member's answer", () => {
       const r = await call(
         w.srv,
         "POST",
-        `/api/actionables/${created.id}/${verb}`,
+        `/api/asks/${created.id}/${verb}`,
         { rawSessionId: other.rawSessionId },
         { json: verb === "reply" ? { text: "done" } : {} },
       );
       expect(`${verb} ${r.status}`).toBe(`${verb} 404`);
     }
-    const mine = await call(w.srv, "GET", "/api/actionables", {
+    const mine = await call(w.srv, "GET", "/api/asks", {
       rawSessionId: w.owner.rawSessionId,
     });
-    expect((mine.body as ActionableEntry[]).map((e) => e.id)).toEqual([
+    expect((mine.body as AskEntry[]).map((e) => e.id)).toEqual([
       created.id,
     ]);
   });
@@ -619,38 +619,38 @@ describe("live and durable", () => {
     const theirs = await w.srv.connectWs(pat.rawSessionId);
     const created = await open(w, "Live?");
     for (const ws of [mine, second]) {
-      const up = await ws.waitFor("actionable_upserted");
-      expect((up.entry as ActionableEntry).id).toBe(created.id);
+      const up = await ws.waitFor("ask_upserted");
+      expect((up.entry as AskEntry).id).toBe(created.id);
     }
     await call(
       w.srv,
       "POST",
-      `/api/actionables/${created.id}/reply`,
+      `/api/asks/${created.id}/reply`,
       { rawSessionId: w.owner.rawSessionId },
       { json: { text: "done" } },
     );
     for (const ws of [mine, second]) {
-      const removed = await ws.waitFor("actionable_removed");
+      const removed = await ws.waitFor("ask_removed");
       expect(removed.id).toBe(created.id);
     }
     expect(
       theirs.messages.some((m) =>
-        String((m as { type?: string }).type).startsWith("actionable_"),
+        String((m as { type?: string }).type).startsWith("ask_"),
       ),
     ).toBe(false);
   });
 
-  it("keeps open actionables across a restart, and drops them with their agent", async () => {
+  it("keeps open asks across a restart, and drops them with their agent", async () => {
     const w = await world();
     const created = await open(w, "Still there?");
     server = await w.srv.restart();
     const owner = { rawSessionId: w.owner.rawSessionId };
-    const after = await call(server, "GET", "/api/actionables", owner);
-    expect((after.body as ActionableEntry[]).map((e) => e.id)).toEqual([
+    const after = await call(server, "GET", "/api/asks", owner);
+    expect((after.body as AskEntry[]).map((e) => e.id)).toEqual([
       created.id,
     ]);
     await server.agentManager.kill(w.asker.id);
-    const gone = await call(server, "GET", "/api/actionables", owner);
+    const gone = await call(server, "GET", "/api/asks", owner);
     expect(gone.body).toEqual([]);
   });
 });

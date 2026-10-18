@@ -2324,25 +2324,25 @@ describe("parseIsomuxCurl python -c tails and one-line curl functions", () => {
   });
 });
 
-describe("parseIsomuxCurl actionable routes", () => {
+describe("parseIsomuxCurl ask routes", () => {
   const AUTH = `-H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`;
-  const BASE = "localhost:4000/api/agents/agent-1/actionables";
+  const BASE = "localhost:4000/api/agents/agent-1/asks";
 
-  test("an agent's own actionable routes each get their label", () => {
+  test("an agent's own ask routes each get their label", () => {
     const cases: [string, RouteLabelKey][] = [
       [
         `curl -s -X POST "${BASE}" ${AUTH} -d '{"text":"Go?"}'`,
-        "apiCall.actionables.create",
+        "apiCall.asks.create",
       ],
-      [`curl -s "${BASE}" ${AUTH}`, "apiCall.actionables.list"],
-      [`curl -s "${BASE}/abcd1234" ${AUTH}`, "apiCall.actionables.get"],
+      [`curl -s "${BASE}" ${AUTH}`, "apiCall.asks.list"],
+      [`curl -s "${BASE}/abcd1234" ${AUTH}`, "apiCall.asks.get"],
       [
         `curl -s -X PATCH "${BASE}/abcd1234" ${AUTH} -d '{"text":"Go?"}'`,
-        "apiCall.actionables.edit",
+        "apiCall.asks.edit",
       ],
       [
         `curl -s -X DELETE "${BASE}/abcd1234" ${AUTH}`,
-        "apiCall.actionables.delete",
+        "apiCall.asks.delete",
       ],
     ];
     for (const [cmd, key] of cases)

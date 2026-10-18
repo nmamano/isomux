@@ -554,7 +554,7 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     // A missed trigger leaves an idle agent with a queued message and no
     // flush coming. The /model pick that answers to the current model used
     // to be the real construction; answering a prompt now flushes
-    // (actionables lane b1036), so the test strands the message directly.
+    // (asks lane b1036), so the test strands the message directly.
     server.agentManager._testStrandMessage(recv.id, {
       sender: {
         kind: "agent",

@@ -306,9 +306,9 @@ describe("route table: plain-text form", () => {
     ]);
     expect(optedIn).toEqual([
       ["agents.sendMessage", ["steer", "deliverAt", "clientMessageId"]],
-      ["agents.createActionable", ["member"]],
-      ["agents.editActionable", []],
-      ["actionables.reply", []],
+      ["agents.createAsk", ["member"]],
+      ["agents.editAsk", []],
+      ["asks.reply", []],
       ["apiTokenInbox.send", []],
     ]);
   });
@@ -1173,37 +1173,37 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.secretRequest": { caps: ["self:affordance"], emits: ["log_entry"] },
   "secretRequests.save": { caps: ["user:env"], emits: ["log_entry"] },
   "secretRequests.decline": { caps: ["user:env"], emits: ["log_entry"] },
-  "agents.createActionable": {
+  "agents.createAsk": {
     caps: ["self:affordance"],
-    emits: ["actionable_upserted"],
+    emits: ["ask_upserted"],
   },
-  "agents.listActionables": { caps: ["self:affordance"], emits: [] },
-  "agents.getActionable": { caps: ["self:affordance"], emits: [] },
-  "agents.editActionable": {
+  "agents.listAsks": { caps: ["self:affordance"], emits: [] },
+  "agents.getAsk": { caps: ["self:affordance"], emits: [] },
+  "agents.editAsk": {
     caps: ["self:affordance"],
-    emits: ["actionable_upserted"],
+    emits: ["ask_upserted"],
   },
-  "agents.deleteActionable": {
+  "agents.deleteAsk": {
     caps: ["self:affordance"],
-    emits: ["actionable_removed"],
+    emits: ["ask_removed"],
   },
-  "actionables.list": {
+  "asks.list": {
     caps: ["agent:converse", "api:send-message"],
     emits: [],
   },
-  "actionables.reply": {
+  "asks.reply": {
     caps: ["agent:converse", "api:send-message"],
     emits: [
-      "actionable_removed",
+      "ask_removed",
       "log_entry",
       "interaction_added",
       "agent_updated",
     ],
   },
-  "actionables.dismiss": {
+  "asks.dismiss": {
     caps: ["agent:converse", "api:send-message"],
     emits: [
-      "actionable_removed",
+      "ask_removed",
       "log_entry",
       "interaction_added",
       "agent_updated",
@@ -1831,9 +1831,9 @@ const API_REACHABLE_OPIDS = [
   "agents.listSessions",
   "secretRequests.save",
   "secretRequests.decline",
-  "actionables.list",
-  "actionables.reply",
-  "actionables.dismiss",
+  "asks.list",
+  "asks.reply",
+  "asks.dismiss",
   "agents.contextUsage",
   "agents.subscriptionUsage",
   "agents.logs",

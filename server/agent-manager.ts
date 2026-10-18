@@ -31,7 +31,7 @@ import type {
   ProviderAccountWire,
   ProviderAccountProvider,
   QueuedMessage,
-  ActionableRef,
+  AskRef,
   RoomWire,
   SecretRequestPayload,
   SkillInfo,
@@ -52,7 +52,7 @@ import {
   LOBBY_ROOM,
   LOBBY_ROOM_ID,
 } from "../shared/types.ts";
-import { actionableReplyNote } from "./actionables.ts";
+import { askReplyNote } from "./asks.ts";
 import {
   formatPrefix,
   formatAgentSenderPrefix,
@@ -6801,8 +6801,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     ) {
       return `[Handoff from your previous session] `;
     }
-    if (m.actionable && m.sender.kind === "user") {
-      return `${senderPrefixText(m.sender, receiverAgentId)}${actionableReplyNote(m.actionable)}`;
+    if (m.ask && m.sender.kind === "user") {
+      return `${senderPrefixText(m.sender, receiverAgentId)}${askReplyNote(m.ask)}`;
     }
     if (m.scheduledFor === undefined || m.sender.kind !== "agent") {
       return senderPrefixText(m.sender, receiverAgentId);
@@ -6861,8 +6861,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Self-handoff provenance: mirror the flush-prefix
       // marker into the persisted log entry, matching the scheduled path.
       if (m.handoff) meta = { ...(meta ?? {}), handoff: true };
-      // The chat's link back to the actionable this message answers.
-      if (m.actionable) meta = { ...(meta ?? {}), actionable: m.actionable };
+      // The chat's link back to the ask this message answers.
+      if (m.ask) meta = { ...(meta ?? {}), ask: m.ask };
       if (extraMeta) meta = { ...(meta ?? {}), ...extraMeta };
       // The chat already shows a direct send that a swap cut and that was
       // queued again.
@@ -7033,9 +7033,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       typeof r.queuedAt !== "number"
     )
       return false;
-    // The flush prefix reads an actionable's id and prompt.
-    if (r.actionable !== undefined) {
-      const a = r.actionable as Record<string, unknown> | null;
+    // The flush prefix reads an ask's id and prompt.
+    if (r.ask !== undefined) {
+      const a = r.ask as Record<string, unknown> | null;
       if (
         typeof a !== "object" ||
         a === null ||
@@ -7230,8 +7230,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // (requeueSwappedSend). Not marked as queued during a busy turn: it was
       // sent before that turn. `echoed`: the chat already shows it.
       resend?: { echoed: boolean };
-      // QueuedMessage.actionable.
-      actionable?: ActionableRef;
+      // QueuedMessage.ask.
+      ask?: AskRef;
     },
     // Agent-initiated steering. Set by the inter-agent send
     // route when the sender passed "steer":true. Deliberately an option on THIS
@@ -7297,7 +7297,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         : {}),
       ...(msg.scheduledSenderGone ? { scheduledSenderGone: true } : {}),
       ...(msg.handoff ? { handoff: true } : {}),
-      ...(msg.actionable ? { actionable: msg.actionable } : {}),
+      ...(msg.ask ? { ask: msg.ask } : {}),
       ...(msg.resend?.echoed ? { echoed: true } : {}),
       ...(boundarySteer ? { steer: true } : {}),
       attachments: msg.attachments,
@@ -8057,10 +8057,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       onAccepted?: (result: UserSendAcceptance) => void;
       claimedChoice?: ClaimedChoiceInteraction;
       clientMessageId?: string;
-      // A reply to, or dismissal of, one of the agent's actionables
-      // (server/actionables.ts). Never read as a slash command or as the
+      // A reply to, or dismissal of, one of the agent's asks
+      // (server/asks.ts). Never read as a slash command or as the
       // answer to a pending prompt.
-      actionable?: ActionableRef;
+      ask?: AskRef;
     },
   ) {
     if (!agents.has(agentId)) {
@@ -8108,7 +8108,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       await sendMessageInner(agentId, text, username, device, attachments, {
         sendNow: opts?.sendNow,
         claimedChoice: opts?.claimedChoice,
-        actionable: opts?.actionable,
+        ask: opts?.ask,
         accept: () => settle({ ok: true }),
         refuse: settle,
       });
@@ -8145,14 +8145,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     opts: {
       sendNow?: boolean;
       claimedChoice?: ClaimedChoiceInteraction;
-      actionable?: ActionableRef;
+      ask?: AskRef;
       accept: () => void;
       refuse: (result: Exclude<UserSendAcceptance, { ok: true }>) => void;
     },
   ) {
-    const { accept, refuse, actionable } = opts;
-    const userMeta = actionable
-      ? { ...(buildUserMeta(username, device) ?? {}), actionable }
+    const { accept, refuse, ask } = opts;
+    const userMeta = ask
+      ? { ...(buildUserMeta(username, device) ?? {}), ask }
       : buildUserMeta(username, device);
     const promptGone = {
       ok: false,
@@ -8184,15 +8184,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // early-return path below must therefore exclude a claimed choice.
     const claimedChoice =
       opts?.claimedChoice ??
-      (actionable ? null : claimTypedChoiceInteraction(managed, text));
+      (ask ? null : claimTypedChoiceInteraction(managed, text));
 
     // Route through queue when busy. Multi-step pending flows (permission /
     // resume / model / effort) need the existing path because the user's reply
     // is interpreted as a pick. Slash commands also pass through so /clear,
     // /new etc. can preempt rather than queue.
-    // An actionable reply is the member's answer, typed in a field that is
+    // An ask reply is the member's answer, typed in a field that is
     // not the composer: "/clear" there is text, not a command.
-    const isSlash = !actionable && text.startsWith("/");
+    const isSlash = !ask && text.startsWith("/");
     // A new message retries a queue kept after a backend failure. The release
     // starts that flush before this message is handled, so the queue goes
     // first unless the flush waits (usage-cap read, in-flight sample); then
@@ -8206,9 +8206,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // An armed automatic handoff counts as busy: the message waits in the
     // queue for the fresh session.
     const busy = turnRunning || managed.autoHandoffPhase !== null;
-    // An actionable reply also waits behind a pending prompt: the flush that
+    // An ask reply also waits behind a pending prompt: the flush that
     // follows the prompt delivers it, so it is never read as the answer.
-    const queueIt = actionable
+    const queueIt = ask
       ? busy || inMultiStepFlow(managed)
       : busy && !claimedChoice && !inMultiStepFlow(managed) && !isSlash;
     if (queueIt) {
@@ -8216,7 +8216,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         sender: { kind: "user", username, device },
         text,
         attachments,
-        ...(actionable ? { actionable } : {}),
+        ...(ask ? { ask } : {}),
       });
       if (!result.ok) {
         addLogEntry(
@@ -9020,7 +9020,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // of the message, so the member prefix would turn it into plain text.
     const prefix = nativeCommand
       ? ""
-      : `${formatPrefix({ username, device })}${actionable ? actionableReplyNote(actionable) : ""}`;
+      : `${formatPrefix({ username, device })}${ask ? askReplyNote(ask) : ""}`;
     const prefixedText = prefix ? `${prefix}${text}` : text;
     try {
       await runAgentTurn({
@@ -9043,7 +9043,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           attachments,
           username,
           device,
-          actionable,
+          ask,
         })
       )
         return;
@@ -10386,7 +10386,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       attachments?: Attachment[];
       username?: string;
       device?: string;
-      actionable?: ActionableRef;
+      ask?: AskRef;
     },
   ): boolean {
     if (!(err instanceof SwappedBeforeSendError)) return false;
@@ -10396,7 +10396,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       text: msg.text,
       ...(msg.sdkText ? { sdkText: msg.sdkText } : {}),
       ...(msg.native ? { native: true } : {}),
-      ...(msg.actionable ? { actionable: msg.actionable } : {}),
+      ...(msg.ask ? { ask: msg.ask } : {}),
       attachments: msg.attachments,
       resend: { echoed: err.reason !== "carry" },
     });
