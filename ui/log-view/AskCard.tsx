@@ -4,11 +4,11 @@
 // page both draw it, so a new kind of ask shows on both. The card goes on a
 // 204, without waiting for ask_removed. An ask with a link to an office page
 // or an agent's chat has a button that opens it (ui/office-link.tsx); the ask
-// stays open. An ask with options has a button for each, and a tap sends it
-// as the reply. An ask's files, editor files and commands are the chat's own
-// cards, in that order; their buttons open this agent's panel through the
-// store, as in chat (on the Inbox they also open the agent's chat), and
-// answer nothing.
+// stays open. An ask with options has a button for each; a tap puts it in the
+// reply field, focused, for the member to edit and send. An ask's files,
+// editor files and commands are the chat's own cards, in that order; their
+// buttons open this agent's panel through the store, as in chat (on the Inbox
+// they also open the agent's chat), and answer nothing.
 //
 // The reply draft lives in the store per ask (askDrafts), so it outlives the
 // card. While the field holds the untouched default, focus and click select
@@ -171,8 +171,13 @@ function ReplyAskCard({
   const untouched = draft === undefined;
   const reply = draft ?? t("asks.replyDefault");
   const [busy, setBusy] = useState(false);
-  // One answer at a time: a second tap in the same frame still sees busy false.
+  // One answer at a time: a second submit in the same frame still sees busy
+  // false.
   const sending = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Set by an option tap; the next commit focuses the field. No deps: a tap
+  // on the option the field already holds leaves the draft the same.
+  const pendingFocus = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
@@ -186,6 +191,20 @@ function ReplyAskCard({
     : "agentId" in link
       ? (agents.find((a) => a.id === link.agentId)?.name ?? null)
       : t(officeLinkLabel(link));
+
+  useLayoutEffect(() => {
+    if (!pendingFocus.current) return;
+    pendingFocus.current = false;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  });
+
+  function fillOption(option: string) {
+    pendingFocus.current = true;
+    dispatch({ type: "set_ask_draft", askId: entry.id, text: option });
+  }
 
   // Show more only when the clamp cuts the prompt.
   useLayoutEffect(() => {
@@ -212,9 +231,9 @@ function ReplyAskCard({
     if (untouched) el.setSelectionRange(0, el.value.length);
   }
 
-  async function answer(dismiss: boolean, text = reply) {
+  async function answer(dismiss: boolean) {
     if (sending.current) return;
-    if (!dismiss && text.trim() === "") return;
+    if (!dismiss && reply.trim() === "") return;
     sending.current = true;
     setBusy(true);
     setError(null);
@@ -228,7 +247,7 @@ function ReplyAskCard({
         } satisfies AskDismissReq);
       } else
         await apiFetch("POST", `/api/asks/${entry.id}/reply`, {
-          text,
+          text: reply,
           ...(device ? { device } : {}),
         } satisfies AskReplyReq);
       dispatch({ type: "ask_removed", id: entry.id });
@@ -346,7 +365,7 @@ function ReplyAskCard({
               type="button"
               data-ask-option=""
               disabled={busy}
-              onClick={() => void answer(false, option)}
+              onClick={() => fillOption(option)}
               style={{
                 maxWidth: "100%",
                 padding: buttonPad,
@@ -377,6 +396,7 @@ function ReplyAskCard({
         style={{ display: "flex", gap: 6, marginTop: 7, alignItems: "center" }}
       >
         <input
+          ref={inputRef}
           value={reply}
           disabled={busy}
           data-ask-reply-input=""

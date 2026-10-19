@@ -135,7 +135,7 @@ it("drops a group with its last card, then shows the empty state", async () => {
   expect(view.container.querySelector("[data-asks-empty]")).not.toBeNull();
 });
 
-it("answers with an option the card draws", async () => {
+it("fills the reply field with a tapped option, and Reply sends it", async () => {
   const { view } = mount([
     { ...ask("pick", "a1", 5), options: ["Yes", "No"] },
     ask("open", "a2", 10),
@@ -146,6 +146,13 @@ it("answers with an option the card draws", async () => {
   ];
   expect(options.map((b) => b.textContent)).toEqual(["Yes", "No"]);
   await act(async () => fireEvent.click(options[1]));
+  expect(posts).toEqual([]);
+  expect(card.querySelector<HTMLInputElement>("form input")!.value).toBe("No");
+  await act(async () =>
+    fireEvent.click(
+      card.querySelector<HTMLButtonElement>('button[type="submit"]')!,
+    ),
+  );
   expect(posts).toEqual(["/api/asks/pick/reply"]);
   expect(bodies).toEqual([{ text: "No" }]);
   expect(groupIds(view)).toEqual(["a2"]);

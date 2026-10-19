@@ -298,8 +298,21 @@ it("draws no link without an opener", async () => {
 const optionButtons = (card: HTMLElement) => [
   ...card.querySelectorAll<HTMLButtonElement>("[data-ask-option]"),
 ];
+// The reply field of one card.
+const field = (root: HTMLElement, id: string) =>
+  root.querySelector<HTMLInputElement>(`[data-ask="${id}"] form input`)!;
+const selection = (el: HTMLInputElement) => [
+  el.selectionStart,
+  el.selectionEnd,
+];
+// The focused element as "<card>/<tag>": a scalar, since a failed toBe on two
+// DOM nodes serialises both.
+const focused = () => {
+  const el = document.activeElement;
+  return `${el?.closest<HTMLElement>("[data-ask]")?.dataset.ask}/${el?.tagName}`;
+};
 
-it("draws a button per option above the reply field, and a tap replies with that option", async () => {
+it("draws a button per option above the reply field, and a tap fills the field for the member to edit and send", async () => {
   let release: () => void = () => {};
   answer = () => new Promise((resolve) => (release = () => resolve(undefined)));
   const view = mount(true, "a4");
@@ -318,18 +331,49 @@ it("draws a button per option above the reply field, and a tap replies with that
     "Jim",
     "Dwight",
   ]);
-  // The row sits before the form, and the field stays for another answer.
+  // The row sits before the form.
   const row = card.querySelector("[data-ask-options]")!;
   const form = card.querySelector("form")!;
   expect(
     row.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  expect(form.querySelector("input")).not.toBe(null);
+  const input = field(view.container, "ffff0006");
+  expect(focused()).not.toBe("ffff0006/INPUT");
+
+  // A tap sends nothing: the field holds the option, focused, with the caret
+  // at the end, so typing adds to it.
   await act(async () => {
     fireEvent.click(optionButtons(card)[1]);
   });
+  expect(posts).toEqual([]);
+  expect(input.value).toBe("Dwight");
+  expect(focused()).toBe("ffff0006/INPUT");
+  expect(selection(input)).toEqual([6, 6]);
+
+  // A tap on the option the field already holds focuses it again.
+  act(() => input.blur());
+  await act(async () => {
+    fireEvent.click(optionButtons(card)[1]);
+  });
+  expect(focused()).toBe("ffff0006/INPUT");
+  expect(selection(input)).toEqual([6, 6]);
+
+  // Another tap replaces what the member typed.
+  fireEvent.change(input, { target: { value: "Dwight, with a speech" } });
+  await act(async () => {
+    fireEvent.click(optionButtons(card)[0]);
+  });
+  expect(input.value).toBe("Jim");
+  expect(selection(input)).toEqual([3, 3]);
+  expect(posts).toEqual([]);
+
+  // The member edits it and sends the field's text.
+  fireEvent.change(input, { target: { value: "Jim, briefly" } });
+  await act(async () => {
+    fireEvent.submit(form);
+  });
   expect(posts).toEqual([
-    { path: "/api/asks/ffff0006/reply", body: { text: "Dwight" } },
+    { path: "/api/asks/ffff0006/reply", body: { text: "Jim, briefly" } },
   ]);
   // Every option waits while the answer is in flight.
   expect(optionButtons(card).map((b) => b.disabled)).toEqual([true, true]);
@@ -341,19 +385,19 @@ it("draws a button per option above the reply field, and a tap replies with that
   view.unmount();
 });
 
-it("sends one answer when two taps land before the card draws again", async () => {
+it("sends one answer when two submits land before the card draws again", async () => {
   answer = () => new Promise(() => {});
   const view = mount(false, "a4");
   await waitFor(() => expect(cards(view.container)).toEqual(["ffff0006"]));
   const card = view.container.querySelector<HTMLElement>(
     '[data-ask="ffff0006"]',
   )!;
-  const [jim, dwight] = optionButtons(card);
-  // One act: no render between the taps, so the buttons are still enabled.
+  fireEvent.change(field(view.container, "ffff0006"), {
+    target: { value: "Jim" },
+  });
+  // One act: no render between the submits, so the form still reads idle.
   await act(async () => {
-    fireEvent.click(jim);
-    fireEvent.click(jim);
-    fireEvent.click(dwight);
+    fireEvent.submit(card.querySelector("form")!);
     fireEvent.submit(card.querySelector("form")!);
   });
   expect(posts).toEqual([
@@ -369,7 +413,7 @@ it("draws no option row for an ask without options", async () => {
   view.unmount();
 });
 
-it("leaves the options live after a refused tap, so the next tap posts again", async () => {
+it("keeps the field and leaves the card live after a refused reply, so the next reply posts again", async () => {
   let refuse = true;
   answer = async () => {
     if (refuse) throw new ApiError(409, "ask_busy", "ask_busy");
@@ -380,17 +424,30 @@ it("leaves the options live after a refused tap, so the next tap posts again", a
   const card = view.container.querySelector<HTMLElement>(
     '[data-ask="ffff0006"]',
   )!;
+  const form = card.querySelector("form")!;
+  const input = field(view.container, "ffff0006");
   await act(async () => {
     fireEvent.click(optionButtons(card)[0]);
+  });
+  await act(async () => {
+    fireEvent.submit(form);
     await new Promise((r) => setTimeout(r, 0));
   });
-  // Refused: the card stays with the reason, and its buttons are enabled.
+  // Refused: the card stays with the reason and the text, and is live.
   expect(cards(view.container)).toEqual(["ffff0006"]);
   expect(card.querySelector("[role=alert]")?.textContent).toContain("ask_busy");
+  expect(input.value).toBe("Jim");
+  expect(input.disabled).toBe(false);
   expect(optionButtons(card).map((b) => b.disabled)).toEqual([false, false]);
+  expect(
+    card.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled,
+  ).toBe(false);
   refuse = false;
   await act(async () => {
     fireEvent.click(optionButtons(card)[1]);
+  });
+  await act(async () => {
+    fireEvent.submit(form);
     await new Promise((r) => setTimeout(r, 0));
   });
   expect(posts).toEqual([
@@ -400,20 +457,6 @@ it("leaves the options live after a refused tap, so the next tap posts again", a
   expect(cards(view.container)).toEqual([]);
   view.unmount();
 });
-
-// The reply field of one card.
-const field = (root: HTMLElement, id: string) =>
-  root.querySelector<HTMLInputElement>(`[data-ask="${id}"] form input`)!;
-const selection = (el: HTMLInputElement) => [
-  el.selectionStart,
-  el.selectionEnd,
-];
-// The focused element as "<card>/<tag>": a scalar, since a failed toBe on two
-// DOM nodes serialises both.
-const focused = () => {
-  const el = document.activeElement;
-  return `${el?.closest<HTMLElement>("[data-ask]")?.dataset.ask}/${el?.tagName}`;
-};
 
 it("keeps a typed reply, per ask, when the member leaves the chat and comes back", async () => {
   const view = mount(false);

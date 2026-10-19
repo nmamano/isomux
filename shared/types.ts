@@ -1197,8 +1197,8 @@ export interface AskEntry {
   // The office page where the member acts, as one of OFFICE_LINK_PATHS
   // (shared/office-links.ts). Never on a secret request.
   link?: string;
-  // Answers the member can tap; a tap sends the option as the reply. Never on
-  // a secret request.
+  // Answers the member can tap; a tap puts the option in the reply field.
+  // Never on a secret request.
   options?: string[];
   // Chat affordances on the card (server/agent-reference/asks.md): commands
   // for the member's terminal panel, files for the editor card, and files
