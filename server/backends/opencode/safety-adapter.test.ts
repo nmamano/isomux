@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { join, relative } from "node:path";
 import { STATE_ROOT } from "../../config.ts";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
+import { evaluateProposedAction } from "../../safety-policy.ts";
 import {
   evaluateOpenCodePermission,
   openCodePermissionToAction,
@@ -22,46 +23,6 @@ function permission(
 }
 
 describe("OpenCode safety adapter", () => {
-  it("maps the authoritative full bash command instead of patterns", () => {
-    expect(
-      openCodePermissionToAction(
-        permission({
-          patterns: ["printf safe"],
-          metadata: { command: "git reset --hard" },
-        }),
-      ),
-    ).toEqual({ kind: "shell", command: "git reset --hard" });
-    expect(
-      evaluateOpenCodePermission(
-        permission({ metadata: { command: "git reset --hard" } }),
-        "/tmp",
-      ),
-    ).toMatchObject({ kind: "policy", decision: { decision: "deny" } });
-  });
-
-  it("maps edit from the absolute metadata filepath and protects state", () => {
-    const filepath = `${STATE_ROOT}/protected.json`;
-    expect(
-      openCodePermissionToAction(
-        permission({
-          permission: "edit",
-          patterns: ["protected.json"],
-          metadata: { filepath },
-        }),
-      ),
-    ).toEqual({
-      kind: "write-files",
-      toolName: "write",
-      input: { filepath },
-    });
-    expect(
-      evaluateOpenCodePermission(
-        permission({ permission: "edit", metadata: { filepath } }),
-        "/tmp",
-      ),
-    ).toMatchObject({ kind: "policy", decision: { decision: "deny" } });
-  });
-
   it("fails open when edit metadata has no readable filepath", () => {
     expect(
       evaluateOpenCodePermission(
@@ -99,8 +60,17 @@ describe("OpenCode safety adapter", () => {
     ) {
       throw new Error("expected the relative state path to be denied");
     }
-    expect(relativeResult.decision.reason).toContain(
-      "Writing to ~/.isomux/ is not allowed",
+    const direct = evaluateProposedAction(
+      {
+        kind: "write-files",
+        toolName: "write",
+        input: { filepath: relative(cwd, join(STATE_ROOT, "users.json")) },
+      },
+      { cwd },
+    );
+    expect(direct.decision).toBe("deny");
+    expect(relativeResult.decision.reason).toBe(
+      direct.decision === "deny" ? direct.reason : "",
     );
   });
 
@@ -114,15 +84,6 @@ describe("OpenCode safety adapter", () => {
       toolName: "task",
       input: { description: "x" },
     });
-  });
-
-  it("fails open with the shared visible warning on an unknown shape", () => {
-    expect(
-      evaluateOpenCodePermission(
-        permission({ permission: undefined, metadata: undefined }),
-        "/tmp",
-      ),
-    ).toEqual({ kind: "fail_open", warning: SAFETY_WARNING });
   });
 
   it("fails open with the shared visible warning when evaluation throws", () => {

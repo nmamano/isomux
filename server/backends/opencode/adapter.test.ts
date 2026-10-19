@@ -8,12 +8,13 @@ import type { CreateSessionOptions, NormalizedEvent } from "../types.ts";
 import {
   buildOpenCodePromptParts,
   createOpenCodeBackend,
-  createOpenCodeTracerBackend,
-  permissionAgent,
   OPENCODE_ONE_SHOT_DIR,
 } from "./adapter.ts";
 import { OpenCodeSupervisor } from "./supervisor.ts";
-import { openCodeModelUnavailableFailure } from "./transport.ts";
+import {
+  OPENCODE_AUTH_FAILURE,
+  openCodeModelUnavailableFailure,
+} from "./transport.ts";
 import { STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import permissionRejectMessage from "./fixtures/permission-reject-message.json";
@@ -148,43 +149,6 @@ const opts: CreateSessionOptions = {
   permissionMode: "default",
 };
 
-describe("OpenCode permission profile selection", () => {
-  it("keeps a default live session on the asking profile", () => {
-    expect(
-      permissionAgent({ permissionMode: "default", interactive: true }),
-    ).toBe(undefined);
-  });
-
-  it("selects the interactive bypass profile only for an explicit interactive caller", () => {
-    expect(
-      permissionAgent({
-        permissionMode: "bypassPermissions",
-        interactive: true,
-      }),
-    ).toBe("isomux-interactive-bypass");
-  });
-
-  it("keeps an unattended bypass caller on the narrower cron profile", () => {
-    expect(permissionAgent({ permissionMode: "bypassPermissions" })).toBe(
-      "isomux-cron",
-    );
-    expect(
-      permissionAgent({
-        permissionMode: "bypassPermissions",
-        interactive: false,
-      }),
-    ).toBe("isomux-cron");
-  });
-});
-
-async function collect(
-  stream: AsyncIterable<NormalizedEvent>,
-): Promise<NormalizedEvent[]> {
-  const events: NormalizedEvent[] = [];
-  for await (const event of stream) events.push(event);
-  return events;
-}
-
 async function rejected(promise: Promise<unknown>): Promise<Error> {
   try {
     await promise;
@@ -195,74 +159,16 @@ async function rejected(promise: Promise<unknown>): Promise<Error> {
   throw new Error("Expected promise to reject.");
 }
 
-describe("OpenCode deterministic tracer", () => {
-  it("is registered with only the capabilities this tracer proves", () => {
+describe("OpenCode auth detection", () => {
+  // A login card for a model the account cannot use would mislead.
+  it("reads only the authentication failure as an auth error", () => {
     const backend = getBackend("opencode");
-    expect(backend.capabilities).toEqual({
-      fork: true,
-      hooks: false,
-      skills: false,
-      canUseTool: true,
-      topicGen: true,
-      edit: true,
-      mcp: false,
-      autoHandoff: true,
-      limitResume: false,
-    });
-    expect(() => backend.inspectStoredSession("stored", opts)).toThrow(
-      "environment identity is required",
-    );
-    expect(createOpenCodeTracerBackend().capabilities).toMatchObject({
-      fork: false,
-      edit: false,
-      topicGen: false,
-    });
-  });
-
-  it("emits one deterministic reply through the normalized event contract", async () => {
-    const backend = createOpenCodeTracerBackend();
-    const session = backend.createSession(opts);
-    await session.send("hello");
-    session.close();
-    expect(await collect(session.stream())).toEqual([
-      {
-        kind: "system_init",
-        sessionId: "opencode-tracer-1",
-        model: "opencode/fake",
-      },
-      { kind: "assistant_text", text: "OpenCode tracer reply." },
-      { kind: "turn_completed", status: "completed" },
-    ]);
-  });
-
-  it("renders backend guidance without API-key advice", async () => {
-    const backend = createOpenCodeTracerBackend({ failAuth: true });
-    const session = backend.createSession(opts);
-    await session.send("hello");
-    session.close();
-    const events = await collect(session.stream());
-    expect(events.at(-1)).toEqual({
-      kind: "turn_completed",
-      status: "failed",
-      error: "OpenCode authentication is not configured.",
-    });
-    const instructions = await backend.getLoginInstructions();
-    expect(instructions).toEqual({
-      kind: "login",
-      cardEligible: false,
-      text: expect.any(String),
-    });
-    // The guidance names the variable and points at the Integrations page,
-    // not at the Settings panes it replaced.
-    const text = (instructions as { text: string }).text;
-    expect(text).toContain("OPENCODE_API_KEY");
-    expect(text).toContain("Integrations");
-    expect(text).not.toContain("Settings →");
-    const modelFailure = openCodeModelUnavailableFailure(
-      "opencode-go/deepseek-v4-pro",
-    );
-    expect(backend.detectAuthError(modelFailure)).toBe(false);
-    expect(getBackend("opencode").detectAuthError(modelFailure)).toBe(false);
+    expect(backend.detectAuthError(OPENCODE_AUTH_FAILURE)).toBe(true);
+    expect(
+      backend.detectAuthError(
+        openCodeModelUnavailableFailure("opencode-go/deepseek-v4-pro"),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -912,33 +818,18 @@ describe("OpenCode pinned transport", () => {
     ]);
   });
 
-  it("refuses a production session without stable environment identity", () => {
+  it("refuses every entry without stable environment identity", async () => {
     const backend = createOpenCodeBackend();
+    const refusal = "OpenCode session environment identity is required.";
     expect(() =>
       backend.createSession({ ...opts, modelFamily: "gate/gate-model" }),
-    ).toThrow("OpenCode session environment identity is required.");
-  });
-
-  it("refuses model discovery without stable environment identity", async () => {
-    let failure: unknown;
-    try {
-      await createOpenCodeBackend().listModels({ cwd: "/tmp" });
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toBe(
-      "OpenCode session environment identity is required.",
+    ).toThrow(refusal);
+    expect(() => backend.inspectStoredSession("stored", opts)).toThrow(refusal);
+    const listed = await backend.listModels({ cwd: "/tmp" }).then(
+      () => null,
+      (error: unknown) => (error as Error).message,
     );
-  });
-
-  it("rejects a legacy tracer model with a repair instruction", () => {
-    const backend = createOpenCodeBackend({
-      supervisor: {} as OpenCodeSupervisor,
-    });
-    expect(() => backend.createSession(opts)).toThrow(
-      "Open agent settings and select a connected model",
-    );
+    expect(listed).toBe(refusal);
   });
 
   // Task d4a7031e: the turn's previous-settings line is in the member's
@@ -1104,12 +995,19 @@ describe("OpenCode pinned transport", () => {
       systemPrompt: "updated after resume",
       modelFamily: "gamma/model-three",
     });
+    // An unattended bypass caller (a cron run) gets the narrower profile.
+    const unattended = backend.resumeSession("session-cron", {
+      ...opts,
+      modelFamily: "alpha/model-one",
+      permissionMode: "bypassPermissions",
+    });
     const firstInit = first.stream()[Symbol.asyncIterator]().next();
     const secondInit = second.stream()[Symbol.asyncIterator]().next();
     const resumedInit = resumed.stream()[Symbol.asyncIterator]().next();
     await first.send("first");
     await second.send("second");
     await resumed.send("resumed");
+    await unattended.send("unattended");
     expect(await firstInit).toEqual({
       done: false,
       value: {
@@ -1138,21 +1036,30 @@ describe("OpenCode pinned transport", () => {
       { providerID: "alpha", modelID: "model-one" },
       { providerID: "beta", modelID: "model-two" },
       { providerID: "gamma", modelID: "model-three" },
+      { providerID: "alpha", modelID: "model-one" },
     ]);
     expect(promptAgents).toEqual([
       undefined,
       "isomux-interactive-bypass",
       undefined,
+      "isomux-cron",
     ]);
-    expect(promptSystems).toEqual(["test", "test", "updated after resume"]);
+    expect(promptSystems).toEqual([
+      "test",
+      "test",
+      "updated after resume",
+      "test",
+    ]);
     expect(promptParts).toEqual([
       [{ type: "text", text: "first" }],
       [{ type: "text", text: "second" }],
       [{ type: "text", text: "resumed" }],
+      [{ type: "text", text: "unattended" }],
     ]);
     first.close();
     second.close();
     resumed.close();
+    unattended.close();
   }, 10_000);
 
   // Real subprocess contract: run with bun run test:opencode.

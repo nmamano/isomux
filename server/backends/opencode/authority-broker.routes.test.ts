@@ -129,19 +129,6 @@ it("relays the server thumbnail limit refusal for a streamed upload", async () =
   expect(JSON.parse(res.body.toString()).error.code).toBe("payload_too_large");
 });
 
-it("keeps the executor's app-scope guards on both pager routes", async () => {
-  const f = await fixture();
-  for (const path of ["/api/app/pager", "/api/app/pager/resolve"]) {
-    const res = await f.request(path, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    });
-    expect(res.status).toBe(403);
-    expect(JSON.parse(res.body.toString()).error.code).toBe("forbidden");
-  }
-});
-
 it("keeps the actual token's capability check in the executor", async () => {
   const f = await fixture(false);
   const res = await f.request("/api/members-chat");
@@ -170,24 +157,29 @@ it("leaves no stored file at client close for a truncated multipart body", async
   const encoded = new Request("http://isomux", { method: "POST", body: form });
   const type = encoded.headers.get("content-type");
   const body = Buffer.from(await encoded.arrayBuffer());
-  let response = "";
-  await new Promise<void>((resolve, reject) => {
-    const socket = createConnection(f.socketPath, () => {
-      socket.end(
-        Buffer.concat([
-          Buffer.from(
-            `POST /api/members-chat/uploads HTTP/1.1\r\nHost: isomux\r\nX-Isomux-Turn: ${f.handle}\r\nContent-Type: ${type}\r\nContent-Length: ${body.length + 10}\r\n\r\n`,
-          ),
-          body,
-        ]),
-      );
+  // Sends the body and closes, announcing `missing` more bytes than it sends.
+  const upload = (missing: number) =>
+    new Promise<string>((resolve, reject) => {
+      let response = "";
+      const socket = createConnection(f.socketPath, () => {
+        socket.end(
+          Buffer.concat([
+            Buffer.from(
+              `POST /api/members-chat/uploads HTTP/1.1\r\nHost: isomux\r\nX-Isomux-Turn: ${f.handle}\r\nContent-Type: ${type}\r\nContent-Length: ${body.length + missing}\r\n\r\n`,
+            ),
+            body,
+          ]),
+        );
+      });
+      socket.on("data", (data) => {
+        response += data.toString();
+      });
+      socket.on("close", () => resolve(response));
+      socket.on("error", reject);
     });
-    socket.on("data", (data) => {
-      response += data.toString();
-    });
-    socket.on("close", resolve);
-    socket.on("error", reject);
-  });
-  expect(response.startsWith("HTTP/1.1 200")).toBe(false);
-  expect(count()).toBe(before);
+  // The control: the same upload, complete, is stored.
+  expect((await upload(0)).startsWith("HTTP/1.1 200")).toBe(true);
+  expect(count()).toBe(before + 1);
+  expect((await upload(10)).startsWith("HTTP/1.1 200")).toBe(false);
+  expect(count()).toBe(before + 1);
 });

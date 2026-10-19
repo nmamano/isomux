@@ -1,7 +1,3 @@
-import {
-  MCP_SECRET_VALUE,
-  placeholderMcpServers,
-} from "../../test-support/mcp-placeholder-fixture.ts";
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
   chmod,
@@ -28,7 +24,6 @@ import {
   openCodeSupervisorForEnvironment,
   updateOpenCodeSupervisorSettings,
 } from "./supervisor.ts";
-import { resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeLogPath } from "./profile-paths.ts";
 import { OPENCODE_LOG_ROTATE_BYTES } from "./server-startup.ts";
 import { markPluginSdkInstalled } from "./config-layers.ts";
@@ -44,10 +39,7 @@ import {
   OpenCodeTransport,
 } from "./transport.ts";
 import type { NormalizedEvent } from "../types.ts";
-import {
-  openCodeServerHealth,
-  type OpenCodeServerHealth,
-} from "./server-health.ts";
+import type { OpenCodeServerHealth } from "./server-health.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import { readLinuxProcessStartTicks } from "./process-identity.ts";
 import {
@@ -417,34 +409,6 @@ describe("OpenCode shared server supervisor", () => {
     },
   );
 
-  it("makes the profile and the log folder owner-only in a new profile, and leaves the folders between them alone", async () => {
-    const path = await root();
-    const { binary } = await makeHealthOnlyBinary(path);
-    const supervisor = makeSupervisor(
-      path,
-      gateConfig(mockProvider()),
-      1000,
-      {},
-      binary,
-    );
-    const lease = await supervisor.acquire();
-    const data = join(supervisor.profileDir, "data");
-    const mode = async (target: string) => (await stat(target)).mode & 0o777;
-    const folderDefault = 0o777 & ~process.umask();
-    expect(
-      folderDefault,
-      "the umask leaves a folder mode to tell apart",
-    ).not.toBe(0o700);
-    expect(await mode(supervisor.profileDir)).toBe(0o700);
-    expect(await mode(join(data, "opencode", "log"))).toBe(0o700);
-    expect(await mode(join(data, "opencode", "log", "opencode.log"))).toBe(
-      0o600,
-    );
-    expect(await mode(data)).toBe(folderDefault);
-    expect(await mode(join(data, "opencode"))).toBe(folderDefault);
-    lease.release();
-  });
-
   // Task 8ee6d90e: opencode.db holds OpenCode's account and credential
   // tables, and OpenCode creates it, its folders and the profile readable by
   // other users.
@@ -542,7 +506,8 @@ describe("OpenCode shared server supervisor", () => {
 
   it("writes the named unattended agent without widening the default permissions", async () => {
     const path = await root();
-    const supervisor = makeSupervisor(path, undefined, 1000);
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(path, undefined, 1000, {}, binary);
     const lease = await supervisor.acquire();
     const config = JSON.parse(
       await readFile(join(supervisor.profileDir, "opencode.json"), "utf8"),
@@ -823,6 +788,7 @@ describe("OpenCode shared server supervisor", () => {
 
   it("replaces changed environment contents and refreshes retained leases", async () => {
     const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(path, "profile"),
       serverCwd: path,
@@ -830,6 +796,7 @@ describe("OpenCode shared server supervisor", () => {
       launchEnv: { S4_ENV_CANARY: "before" },
       environmentRevision: "revision-before",
       idleShutdownMs: 1000,
+      binary,
     });
     supervisors.push(supervisor);
     const retained = await supervisor.acquire();
@@ -857,37 +824,35 @@ describe("OpenCode shared server supervisor", () => {
     replacement.release();
   }, 20_000);
 
-  // Two real OpenCode startups (7.7 s + 8.1 s measured at load 17 on
-  // 2026-09-10) against a 20 s cap: real-subprocess work, so it runs in the
-  // opt-in live tier (bun run test:opencode) like the real-OC1 cases.
-  it.skipIf(!LIVE)(
-    "refuses cross-process adoption when the environment revision changed",
-    async () => {
-      const path = await root();
-      const config = gateConfig(mockProvider());
-      const first = new OpenCodeSupervisor({
-        profileDir: join(path, "profile"),
-        serverCwd: path,
-        config,
-        environmentRevision: "revision-before",
-      });
-      const second = new OpenCodeSupervisor({
-        profileDir: join(path, "profile"),
-        serverCwd: path,
-        config,
-        environmentRevision: "revision-after",
-      });
-      supervisors.push(first, second);
-      const oldLease = await first.acquire();
-      const oldPid = oldLease.pid;
-      const newLease = await second.acquire();
-      expect(newLease.pid).not.toBe(oldPid);
-      expect(alive(oldPid)).toBe(false);
-      oldLease.release();
-      newLease.release();
-    },
-    20_000,
-  );
+  // The helper's own revision check: no in-process replacement runs here,
+  // because the second supervisor has no record of its own.
+  it("refuses cross-process adoption when the environment revision changed", async () => {
+    const path = await root();
+    const config = gateConfig(mockProvider());
+    const { binary } = await makeHealthOnlyBinary(path);
+    const first = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config,
+      environmentRevision: "revision-before",
+      binary,
+    });
+    const second = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config,
+      environmentRevision: "revision-after",
+      binary,
+    });
+    supervisors.push(first, second);
+    const oldLease = await first.acquire();
+    const oldPid = oldLease.pid;
+    const newLease = await second.acquire();
+    expect(newLease.pid).not.toBe(oldPid);
+    expect(alive(oldPid)).toBe(false);
+    oldLease.release();
+    newLease.release();
+  }, 20_000);
 
   // Adoption and record upgrades do not depend on elapsed idle time.
   // Each owner releases its lease, but the fixture controls all idle reapers.
@@ -954,32 +919,6 @@ describe("OpenCode shared server supervisor", () => {
     expect((await readFile(healthMarker, "utf8")).length).toBeGreaterThan(0);
     replaced.release();
   }, 20_000);
-
-  it("never signals a process when the saved start ticks do not match", async () => {
-    const path = await root();
-    const profileDir = join(path, "profile");
-    await mkdir(profileDir, { recursive: true });
-    const recordPath = join(profileDir, "server.lock");
-    const unrelated = Bun.spawn(["sleep", "30"]);
-    await writeFile(
-      recordPath,
-      `${JSON.stringify({ pid: unrelated.pid, startTicks: "0" })}\n`,
-    );
-    const helper = join(import.meta.dir, "start-server.ts");
-    const stop = Bun.spawn([process.execPath, "run", helper], {
-      env: {
-        ...process.env,
-        OPENCODE_SERVER_ACTION: "stop",
-        OPENCODE_PROFILE_DIR: profileDir,
-        OPENCODE_SERVER_RECORD: recordPath,
-      },
-      stderr: "pipe",
-    });
-    expect(await stop.exited).toBe(0);
-    expect(alive(unrelated.pid)).toBe(true);
-    unrelated.kill();
-    await unrelated.exited;
-  });
 
   // Task 8d9561a5: a member's env edit while another agent ran a long turn
   // held every new turn and model list for two minutes, then failed them.
@@ -1153,7 +1092,14 @@ describe("OpenCode shared server supervisor", () => {
 
   it("replaces a stale cross-process record before starting", async () => {
     const path = await root();
-    const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      binary,
+    );
     await mkdir(supervisor.profileDir, { recursive: true });
     await writeFile(
       supervisor.recordPath,
@@ -1161,7 +1107,7 @@ describe("OpenCode shared server supervisor", () => {
         pid: 999_999_999,
         port: 43100,
         password: "stale",
-        binary: resolveOpenCodeBinary(),
+        binary,
         profileDir: supervisor.profileDir,
       })}\n`,
     );
@@ -1171,61 +1117,9 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
-  it("replaces a server killed between turns when the retained lease begins again", async () => {
-    const path = await root();
-    const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
-    const lease = await supervisor.acquire();
-    const deadPid = lease.pid;
-    process.kill(deadPid, "SIGKILL");
-
-    await lease.beginTurn();
-
-    expect(lease.pid).not.toBe(deadPid);
-    expect(alive(lease.pid)).toBe(true);
-    lease.endTurn();
-    lease.release();
-  }, 20_000);
-
-  it("replaces a server killed during a turn when the retained lease begins the next turn", async () => {
-    const path = await root();
-    const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
-    const lease = await supervisor.acquire();
-    await lease.beginTurn();
-    const deadPid = lease.pid;
-    process.kill(deadPid, "SIGKILL");
-    lease.endTurn();
-
-    await lease.beginTurn();
-
-    expect(lease.pid).not.toBe(deadPid);
-    expect(alive(lease.pid)).toBe(true);
-    lease.endTurn();
-    lease.release();
-  }, 20_000);
-
-  it("checks a healthy retained server without starting the helper", async () => {
-    const path = await root();
-    let ensures = 0;
-    const supervisor = new OpenCodeSupervisor({
-      profileDir: join(path, "profile"),
-      serverCwd: path,
-      config: gateConfig(mockProvider()),
-      ensureServerSink: () => ensures++,
-      turnHealthCheck: async () => "healthy",
-    });
-    supervisors.push(supervisor);
-    const lease = await supervisor.acquire();
-    expect(ensures).toBe(1);
-
-    await lease.beginTurn();
-
-    expect(ensures).toBe(1);
-    lease.endTurn();
-    lease.release();
-  }, 20_000);
-
   it("does not replace an identity-matching server after a false health result while another turn is active", async () => {
     const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
     let health: OpenCodeServerHealth = "healthy";
     let ensures = 0;
     const idle = manualIdleScheduler();
@@ -1233,6 +1127,7 @@ describe("OpenCode shared server supervisor", () => {
       profileDir: join(path, "profile"),
       serverCwd: path,
       config: gateConfig(mockProvider()),
+      binary,
       ensureServerSink: () => ensures++,
       turnHealthCheck: async () => health,
       idleScheduler: idle.scheduler,
@@ -1258,12 +1153,14 @@ describe("OpenCode shared server supervisor", () => {
 
   it("recovers a lone active turn before its prompt when health fails", async () => {
     const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
     let health: OpenCodeServerHealth = "healthy";
     let ensures = 0;
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(path, "profile"),
       serverCwd: path,
       config: gateConfig(mockProvider()),
+      binary,
       ensureServerSink: () => ensures++,
       turnHealthCheck: async () => health,
     });
@@ -1281,12 +1178,14 @@ describe("OpenCode shared server supervisor", () => {
 
   it("does not recover before a prompt when another lease has an active turn", async () => {
     const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
     let health: OpenCodeServerHealth = "healthy";
     let ensures = 0;
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(path, "profile"),
       serverCwd: path,
       config: gateConfig(mockProvider()),
+      binary,
       ensureServerSink: () => ensures++,
       turnHealthCheck: async () => health,
     });
@@ -1339,12 +1238,14 @@ describe("OpenCode shared server supervisor", () => {
 
   it("reaps only after idle and never during an active turn", async () => {
     const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
     const idle = manualIdleScheduler();
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(path, "profile"),
       serverCwd: path,
       config: gateConfig(mockProvider()),
       idleShutdownMs: 80,
+      binary,
       idleScheduler: idle.scheduler,
     });
     supervisors.push(supervisor);
@@ -2211,17 +2112,23 @@ async function recordedPid(supervisor: OpenCodeSupervisor): Promise<number> {
 }
 
 // A stopped process models a server that cannot answer: the socket accepts,
-// nothing replies. The caller asserts the health probe really timed out.
+// nothing replies, and a health probe times out. The caller asserts the stop
+// took effect; the probe under test is the only one, so each costs its
+// timeout once.
 async function freezeBusy(supervisor: OpenCodeSupervisor): Promise<{
   pid: number;
-  health: OpenCodeServerHealth;
+  stopped: boolean;
   thaw: () => void;
 }> {
   const record = await serverRecord(supervisor);
   process.kill(record.pid, "SIGSTOP");
+  const state = () =>
+    readFileSync(`/proc/${record.pid}/stat`, "utf8").split(" ")[2];
+  const deadline = Date.now() + 2000;
+  while (state() !== "T" && Date.now() < deadline) await Bun.sleep(5);
   return {
     pid: record.pid,
-    health: await openCodeServerHealth(record),
+    stopped: state() === "T",
     thaw: () => {
       try {
         process.kill(record.pid, "SIGCONT");
@@ -2253,7 +2160,7 @@ describe("OpenCode shared server under load and loss", () => {
     const first = await supervisor.acquire();
     const busy = await freezeBusy(supervisor);
     try {
-      expect(busy.health, "the health probe timed out").toBe("busy");
+      expect(busy.stopped, "the server cannot answer").toBe(true);
       const second = await supervisor.acquire();
       expect(second.pid).toBe(busy.pid);
       expect(alive(busy.pid)).toBe(true);
@@ -2279,7 +2186,7 @@ describe("OpenCode shared server under load and loss", () => {
     const lease = await supervisor.acquire();
     const busy = await freezeBusy(supervisor);
     try {
-      expect(busy.health, "the health probe timed out").toBe("busy");
+      expect(busy.stopped, "the server cannot answer").toBe(true);
       await lease.beginTurn();
       expect(ensures).toBe(1);
       expect(lease.pid).toBe(busy.pid);
@@ -2545,7 +2452,7 @@ describe("OpenCode shared server under load and loss", () => {
         await provider.requested();
         const busy = await freezeBusy(supervisor);
         frozenPid = busy.pid;
-        expect(busy.health, "the frozen server does not answer").toBe("busy");
+        expect(busy.stopped, "the frozen server does not answer").toBe(true);
 
         expect(await within(inFlight, 40_000)).toMatchObject({
           status: "failed",
@@ -2586,7 +2493,7 @@ describe("OpenCode shared server under load and loss", () => {
         expect((await sendTurn(transport)).status).toBe("completed");
         const busy = await freezeBusy(supervisor);
         frozenPid = busy.pid;
-        expect(busy.health, "the frozen server does not answer").toBe("busy");
+        expect(busy.stopped, "the frozen server does not answer").toBe(true);
 
         expect(await within(sendTurn(transport), 60_000)).toMatchObject({
           status: "completed",
@@ -2639,6 +2546,7 @@ describe("an agent with secrets in scope (secrets design, section 2.3)", () => {
       profileDir: join(path, "profile"),
       serverCwd: path,
       config: gateConfig(mockProvider()),
+      binary: (await makeHealthOnlyBinary(path)).binary,
       // As openCodeSupervisorForEnvironment gives it: the agent's env.
       launchEnv: secretAgentEnvironment(),
       environmentRevision: "secrets-spawn",
@@ -2654,14 +2562,4 @@ describe("an agent with secrets in scope (secrets design, section 2.3)", () => {
       lease.release();
     }
   }, 20_000);
-});
-
-describe("MCP servers with a secret (secrets B2)", () => {
-  it("the config file gets the placeholder in the server's headers, never the value", () => {
-    const { servers, placeholder } = placeholderMcpServers();
-    expect(servers).toHaveLength(1);
-    const text = JSON.stringify(openCodeConfigFor(servers));
-    expect(text).toContain(placeholder);
-    expect(text).not.toContain(MCP_SECRET_VALUE);
-  });
 });

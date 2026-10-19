@@ -70,12 +70,9 @@ export function parseLinuxProcessHop(
 // The pid, parent and start identity of a live process, or null when any of
 // them cannot be read. startTicks is opaque: kernel start ticks on Linux, the
 // microsecond start time on macOS. Other hosts always get null.
-export function readProcessHop(
-  pid: number,
-  platform: NodeJS.Platform = process.platform,
-): ProcessHop | null {
-  if (platform === "darwin") return readDarwinProcessHop(pid);
-  if (platform !== "linux") return null;
+export function readProcessHop(pid: number): ProcessHop | null {
+  if (process.platform === "darwin") return readDarwinProcessHop(pid);
+  if (process.platform !== "linux") return null;
   try {
     return parseLinuxProcessHop(pid, readFileSync(`/proc/${pid}/stat`, "utf8"));
   } catch {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   linuxProcessIdentityMatches,
+  parseLinuxProcessHop,
   parseLinuxProcessState,
   parseLinuxProcessStartTicks,
   readLinuxProcessStartTicks,
@@ -10,7 +11,8 @@ describe("Linux process identity", () => {
   it("parses start ticks after a comm containing spaces and close-parens", () => {
     const fields = [
       "S",
-      ...Array.from({ length: 18 }, (_, i) => String(i + 1)),
+      "4321",
+      ...Array.from({ length: 17 }, (_, i) => String(i + 2)),
       "424242",
       "23",
     ];
@@ -20,6 +22,10 @@ describe("Linux process identity", () => {
     expect(parseLinuxProcessState(`99 (a) b (c) ${fields.join(" ")}`)).toBe(
       "S",
     );
+    // The authority broker walks ancestry with this parser.
+    expect(
+      parseLinuxProcessHop(99, `99 (a) b (c) ${fields.join(" ")}`),
+    ).toEqual({ pid: 99, parentPid: 4321, startTicks: "424242" });
   });
 
   it("matches both pid and kernel start ticks", () => {

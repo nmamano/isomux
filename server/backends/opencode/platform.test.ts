@@ -24,16 +24,6 @@ async function root(): Promise<string> {
 }
 
 describe("OpenCode on an unsupported host", () => {
-  it("is supported only on Linux and macOS", () => {
-    expect(openCodeUnsupportedReason("linux")).toBeNull();
-    expect(openCodeUnsupportedReason("darwin")).toBeNull();
-    for (const platform of ["win32", "freebsd"] as const) {
-      const reason = openCodeUnsupportedReason(platform);
-      expect(reason).not.toBeNull();
-      expect(() => resolveOpenCodeBinary(platform)).toThrow(reason!);
-    }
-  });
-
   it.skipIf(process.platform !== "darwin")(
     "resolves the pinned darwin binary on macOS",
     () => {
@@ -43,20 +33,23 @@ describe("OpenCode on an unsupported host", () => {
     },
   );
 
-  it("refuses a lease with the reason and touches nothing on disk", async () => {
-    const profileDir = join(await root(), "profile");
-    const supervisor = new OpenCodeSupervisor({
-      profileDir,
-      platform: "win32",
+  // An allow-list: an unknown host is refused like Windows.
+  for (const platform of ["win32", "freebsd"] as const)
+    it(`refuses a lease on ${platform} with the reason and touches nothing on disk`, async () => {
+      const profileDir = join(await root(), "profile");
+      const supervisor = new OpenCodeSupervisor({ profileDir, platform });
+      try {
+        const refusal = await supervisor.acquire().then(
+          () => null,
+          (error: unknown) => (error as Error).message,
+        );
+        expect(refusal, "the lease is refused").not.toBeNull();
+        expect(refusal).toBe(openCodeUnsupportedReason(platform));
+      } finally {
+        await supervisor.shutdown();
+      }
+      expect(existsSync(profileDir)).toBe(false);
     });
-    const refusal = await supervisor.acquire().then(
-      () => null,
-      (error: unknown) => (error as Error).message,
-    );
-    expect(refusal).toBe(openCodeUnsupportedReason("win32"));
-    await supervisor.shutdown();
-    expect(existsSync(profileDir)).toBe(false);
-  });
 
   it("fails a turn with the reason, not a reduced error name", async () => {
     const supervisor = new OpenCodeSupervisor({

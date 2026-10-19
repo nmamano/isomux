@@ -143,7 +143,7 @@ export interface DiscoveredOpenCodeModel {
   supportedEfforts: { level: EffortLevel }[];
 }
 
-export function openCodeModelIsFree(rawCost: unknown): boolean {
+function openCodeModelIsFree(rawCost: unknown): boolean {
   const cost = asRecord(rawCost);
   const cache = asRecord(cost.cache);
   const values: unknown[] = [];
@@ -2482,7 +2482,7 @@ export type OpenCodeProviderFailure =
   | "model_unavailable"
   | null;
 
-export function classifyOpenCodeError(
+function classifyOpenCodeError(
   error: SafeOpenCodeError,
   selectedModel: string,
   connectedProviders: string[],

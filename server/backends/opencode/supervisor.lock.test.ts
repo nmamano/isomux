@@ -91,17 +91,6 @@ describe("OpenCode server record lock", () => {
     for (const lease of leases) lease.release();
   }, 30_000);
 
-  it("adopts a running server, so the server does not hold the lock", async () => {
-    const path = await root();
-    const { binary, launches } = await healthOnlyBinary(path);
-    const first = await supervisor(path, binary).acquire();
-    const second = await supervisor(path, binary).acquire();
-    expect(second.pid).toBe(first.pid);
-    expect(await launched(launches)).toEqual([String(first.pid)]);
-    first.release();
-    second.release();
-  }, 30_000);
-
   it("stops under the lock and starts again", async () => {
     const path = await root();
     const { binary, launches } = await healthOnlyBinary(path);
@@ -173,32 +162,54 @@ await Bun.sleep(1500);`,
     );
     const { binary } = await healthOnlyBinary(path);
     await supervisor(path, binary).shutdown();
+    expect(await readFile(recordPath, "utf8"), "the stop ran").toBe("");
     expect(alive(unrelated.pid)).toBe(true);
     unrelated.kill();
     await unrelated.exited;
   });
 
+  // The helper locks the record itself only on macOS (supervisor.ts). Here
+  // the record's folder is missing, so the lock cannot be taken; the same
+  // run without the self-lock starts a server, so the refusal is the lock's.
   it("refuses to start when it cannot take the lock", async () => {
     const path = await root();
     const helper = join(import.meta.dir, "start-server.ts");
     const { binary, launches } = await healthOnlyBinary(path);
-    const run = Bun.spawn([process.execPath, "run", helper], {
-      env: {
-        ...process.env,
-        OPENCODE_SERVER_LOCK: "self",
-        OPENCODE_PROFILE_DIR: join(path, "profile"),
-        OPENCODE_SERVER_RECORD: join(path, "missing", "server.lock"),
-        OPENCODE_BINARY: binary,
-        OPENCODE_SERVER_PASSWORD: "test-only",
-        OPENCODE_SERVER_CWD: path,
-        OPENCODE_CONFIG: join(path, "opencode.json"),
-        OPENCODE_ENVIRONMENT_REVISION: "test",
-        OPENCODE_CONFIG_REVISION: "test",
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    expect(await run.exited).not.toBe(0);
-    expect(await readFile(launches, "utf8").catch(() => "")).toBe("");
+    const config = join(path, "opencode.json");
+    await writeFile(config, `${JSON.stringify({ autoupdate: false })}\n`);
+    const run = (record: string, lock: "self" | undefined) =>
+      Bun.spawn([process.execPath, "run", helper], {
+        env: {
+          ...process.env,
+          OPENCODE_SERVER_LOCK: lock,
+          OPENCODE_PROFILE_DIR: join(path, "profile"),
+          OPENCODE_SERVER_RECORD: record,
+          OPENCODE_BINARY: binary,
+          OPENCODE_SERVER_PASSWORD: "test-only",
+          OPENCODE_SERVER_CWD: path,
+          OPENCODE_CONFIG: config,
+          OPENCODE_SAFETY_ROOTS: JSON.stringify({
+            home: path,
+            env: { ISOMUX_HOME: join(path, "state") },
+          }),
+          OPENCODE_ENVIRONMENT_REVISION: "test",
+          OPENCODE_CONFIG_REVISION: "test",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    const missing = join(path, "missing", "server.lock");
+    // A launched server cannot write its record here, so nothing else stops
+    // it: this test does.
+    try {
+      expect(await run(missing, "self").exited).not.toBe(0);
+      expect(await readFile(launches, "utf8").catch(() => "")).toBe("");
+      // The control: without the self-lock, the same run launches a server.
+      await run(missing, undefined).exited;
+      expect(await launched(launches)).toHaveLength(1);
+    } finally {
+      for (const pid of await launched(launches).catch(() => []))
+        if (pid) process.kill(Number(pid), "SIGKILL");
+    }
   });
 });

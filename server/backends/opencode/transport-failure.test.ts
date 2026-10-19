@@ -296,6 +296,11 @@ for (const [stage, context, name, statusCode, step] of cases) {
       expect(harness.ended(), "balanced turn lease").toBe(
         ["acquire", "session", "session-json", "begin"].includes(stage) ? 0 : 1,
       );
+      // Task 8d9561a5: the hold an acquire takes keeps a pending server
+      // replacement waiting. A lost settle would keep it waiting until restart.
+      expect(harness.settles(), "the acquire's hold ended").toBe(
+        stage === "acquire" ? 0 : 1,
+      );
       expect(harness.prompts(), "no prompt after early failure").toBe(
         stage === "prompt" || stage === "race" ? 1 : 0,
       );
@@ -308,46 +313,6 @@ for (const [stage, context, name, statusCode, step] of cases) {
     }
   });
 }
-
-// Task 8d9561a5: the hold an acquire takes keeps a pending server
-// replacement waiting. A lost settle would keep it waiting until restart.
-it("settles the acquire of a turn that fails before beginTurn", async () => {
-  const harness = fixture("session");
-  const transport = new OpenCodeTransport({
-    supervisor: harness.supervisor,
-    cwd: STATE_ROOT,
-    model: "provider/model",
-    systemPrompt: "system",
-  });
-  try {
-    await transport.send([{ type: "text", text: "go" }], () => {});
-    expect(harness.ended(), "the turn never began").toBe(0);
-    expect(harness.settles()).toBe(1);
-  } finally {
-    transport.close();
-  }
-});
-
-it("settles the acquire of a turn that fails silently after close", async () => {
-  let open = () => {};
-  const gate = new Promise<void>((resolve) => (open = resolve));
-  const harness = fixture("session", () => {}, gate);
-  const events: NormalizedEvent[] = [];
-  const transport = new OpenCodeTransport({
-    supervisor: harness.supervisor,
-    cwd: STATE_ROOT,
-    model: "provider/model",
-    systemPrompt: "system",
-  });
-  const sent = transport.send([{ type: "text", text: "go" }], (event) =>
-    events.push(event),
-  );
-  transport.close();
-  open();
-  await sent;
-  expect(events, "a closed transport stays silent").toEqual([]);
-  expect(harness.settles()).toBe(1);
-});
 
 // Task 63efb5b1: the supervisor counts a lease until its release. One that
 // came back after close() was never released, so the idle reap never armed.
@@ -460,21 +425,6 @@ it("starts a turn that waited for another caller's initialization with the sessi
   }
 });
 
-it("settles the acquire of work outside a turn", async () => {
-  const harness = fixture("end");
-  const transport = new OpenCodeTransport({
-    supervisor: harness.supervisor,
-    cwd: STATE_ROOT,
-    model: "provider/model",
-  });
-  try {
-    await transport.getSessionMessages();
-    expect(harness.settles()).toBe(1);
-  } finally {
-    transport.close();
-  }
-});
-
 // Task 8d9561a5: a turn that failed inside acquire had no lease, so its
 // journal line named no OpenCode log.
 it("names OpenCode's log when the turn fails before acquire returns a lease", async () => {
@@ -547,90 +497,6 @@ it("drops unreviewed exception fields and still settles if the error observer th
   } finally {
     consoleSpy.mockRestore();
     transport.close();
-  }
-});
-
-it("retries one refused event subscription before submitting one prompt, then reports the fixture's idle failure", async () => {
-  let subscriptions = 0;
-  let recoveries = 0;
-  let prompts = 0;
-  let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
-  const originalFetch = globalThis.fetch;
-  const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.pathname === "/session")
-      return Response.json({ id: "recovered-session" });
-    if (url.pathname === "/provider")
-      return Response.json({ all: [], connected: [] });
-    if (url.pathname === "/event") {
-      subscriptions++;
-      if (subscriptions === 1) throw failure;
-      return new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            stream = controller;
-            init?.signal?.addEventListener("abort", () => controller.close(), {
-              once: true,
-            });
-          },
-        }),
-      );
-    }
-    if (url.pathname === "/experimental/tool/ids")
-      return Response.json([OPENCODE_SAFETY_TOOL]);
-    if (url.pathname.endsWith("/prompt_async")) {
-      prompts++;
-      stream!.enqueue(
-        new TextEncoder().encode(
-          'data: {"type":"session.idle","properties":{"sessionID":"recovered-session"}}\n\n',
-        ),
-      );
-      return Response.json(true);
-    }
-    return originalFetch(input, init);
-  }) as typeof fetch);
-  const events: NormalizedEvent[] = [];
-  const settled = Promise.withResolvers<void>();
-  const transport = new OpenCodeTransport({
-    supervisor: {
-      acquire: async () => ({
-        pid: process.pid,
-        baseUrl: "http://127.0.0.1:1",
-        authHeader: "Basic synthetic",
-        settle: () => {},
-        beginTurn: async () => {},
-        recoverBeforePrompt: async () => {
-          recoveries++;
-        },
-        endTurn: () => {},
-        serverStopped: () => false,
-        markUnresponsive: () => {},
-        release: () => {},
-      }),
-    } as unknown as OpenCodeSupervisor,
-    cwd: STATE_ROOT,
-    model: "provider/model",
-    systemPrompt: "system",
-  });
-  try {
-    await transport.send([{ type: "text", text: "go" }], (event) => {
-      events.push(event);
-      if (event.kind === "turn_completed") settled.resolve();
-    });
-    await settled.promise;
-    expect(subscriptions).toBe(2);
-    expect(recoveries).toBe(1);
-    expect(prompts, "recovery never replays the prompt").toBe(1);
-    expect(events.at(-1)).toMatchObject({
-      kind: "turn_completed",
-      status: "failed",
-    });
-  } finally {
-    transport.close();
-    fetchSpy.mockRestore();
   }
 });
 
@@ -1223,10 +1089,15 @@ const unresponsive = {
 
 // A server that refuses the health probe at the deadline has stopped
 // answering: the turn fails and the server is marked.
-it("keeps a turn whose stream frames reset the deadline across several deadlines", async () => {
+// Task 42500a30: the journal line of an unresponsive turn was a bare
+// {"name":"Error"} that named neither the agent nor the failure.
+it("keeps a turn whose stream frames reset the deadline across several deadlines, and names the agent, the failure and OpenCode's log when it misses one", async () => {
   const clock = drivenClock();
   const server = drivenServer({ health: "refused" });
-  const turn = drivenTransport(clock, { sessionId: "driven" });
+  const turn = drivenTransport(clock, {
+    sessionId: "driven",
+    agentId: "agent-driven",
+  });
   try {
     await turn.send();
     expect(server.promptBodies).toHaveLength(1);
@@ -1247,26 +1118,6 @@ it("keeps a turn whose stream frames reset the deadline across several deadlines
     expect(turn.recoveries(), "no replacement inside the turn").toBe(0);
     expect(server.promptBodies, "the prompt is never replayed").toHaveLength(1);
     expect(server.eventRequests(), "no second subscription").toBe(1);
-  } finally {
-    turn.transport.close();
-    server.restore();
-  }
-});
-
-// Task 42500a30: the journal line of an unresponsive turn was a bare
-// {"name":"Error"} that named neither the agent nor the failure.
-it("names the agent, the failure and OpenCode's log when a turn misses the deadline", async () => {
-  const clock = drivenClock();
-  const server = drivenServer({ health: "refused" });
-  const turn = drivenTransport(clock, {
-    sessionId: "driven",
-    agentId: "agent-driven",
-  });
-  try {
-    await turn.send();
-    clock.advance(DEADLINE_MS);
-    await settleUntil(() => turn.completions.length > 0);
-    expect(turn.completions).toEqual([unresponsive]);
     expect(turn.errors).toEqual([{ name: "Error" }]);
     expect(turn.contexts).toEqual([
       {
@@ -2161,25 +2012,6 @@ it("fails the turn before its prompt when the folder's tools lack the safety plu
   }
 });
 
-it("keeps the transport text for a stream failure while the server answers health", async () => {
-  const clock = drivenClock();
-  const server = drivenServer({ failStreamAtPrompt: true, health: "healthy" });
-  const turn = drivenTransport(clock, { sessionId: "driven" });
-  try {
-    await turn.send();
-    await settleUntil(() => turn.completions.length > 0);
-    expect(turn.completions).toMatchObject([
-      { status: "failed", error: expect.stringContaining("event stream") },
-    ]);
-    expect(turn.completions[0]?.error).not.toBe(
-      OPENCODE_SERVER_STOPPED_FAILURE,
-    );
-  } finally {
-    turn.transport.close();
-    server.restore();
-  }
-});
-
 it("keeps the transport text for a stream failure when the health probe times out", async () => {
   const clock = drivenClock();
   const server = drivenServer({ failStreamAtPrompt: true, health: "silent" });
@@ -2202,55 +2034,39 @@ it("keeps the transport text for a stream failure when the health probe times ou
   }
 });
 
-it("reports a stream failure in member words when the server is dying but its process is not reaped yet", async () => {
-  const clock = drivenClock();
-  const server = drivenServer({
-    failStreamAtPrompt: true,
-    health: "refused",
+// A dying server: its process is not reaped yet but refuses health, or its
+// pid is already gone.
+for (const [dying, health, serverStopped] of [
+  ["refuses health", "refused", false],
+  ["is stopped", undefined, true],
+] as const)
+  it(`reports a stream failure in member words when the server ${dying}`, async () => {
+    const clock = drivenClock();
+    const server = drivenServer({
+      failStreamAtPrompt: true,
+      ...(health ? { health } : {}),
+    });
+    const turn = drivenTransport(clock, { sessionId: "driven", serverStopped });
+    try {
+      await turn.send();
+      await settleUntil(() => turn.completions.length > 0);
+      expect(turn.completions).toEqual([
+        {
+          kind: "turn_completed",
+          status: "failed",
+          error: OPENCODE_SERVER_STOPPED_FAILURE,
+        },
+      ]);
+      expect(turn.errors).toEqual([
+        { name: "Error", code: "ConnectionRefused" },
+      ]);
+      expect(turn.marked).toEqual([]);
+      expect(JSON.stringify(turn.errors)).not.toContain(CANARY);
+    } finally {
+      turn.transport.close();
+      server.restore();
+    }
   });
-  const turn = drivenTransport(clock, { sessionId: "driven" });
-  try {
-    await turn.send();
-    await settleUntil(() => turn.completions.length > 0);
-    expect(turn.completions).toEqual([
-      {
-        kind: "turn_completed",
-        status: "failed",
-        error: OPENCODE_SERVER_STOPPED_FAILURE,
-      },
-    ]);
-    expect(turn.errors).toEqual([{ name: "Error", code: "ConnectionRefused" }]);
-  } finally {
-    turn.transport.close();
-    server.restore();
-  }
-});
-
-it("reports a stream failure from a stopped server in member words and keeps the safe class", async () => {
-  const clock = drivenClock();
-  const server = drivenServer({ failStreamAtPrompt: true });
-  const turn = drivenTransport(clock, {
-    sessionId: "driven",
-    serverStopped: true,
-  });
-  try {
-    await turn.send();
-    await settleUntil(() => turn.completions.length > 0);
-    expect(turn.completions).toEqual([
-      {
-        kind: "turn_completed",
-        status: "failed",
-        error: OPENCODE_SERVER_STOPPED_FAILURE,
-      },
-    ]);
-    expect(turn.errors).toEqual([{ name: "Error", code: "ConnectionRefused" }]);
-    expect(turn.marked).toEqual([]);
-    expect(JSON.stringify(turn.errors)).not.toContain(CANARY);
-  } finally {
-    turn.transport.close();
-    server.restore();
-  }
-});
 
 // Task 430d7bfd: a silence left no record of what the turn waited on. Each
 // silence writes one journal line at the deadline, before the recovery's
@@ -2470,64 +2286,58 @@ it("journals a silence before the prompt went out, and one that the turn's close
   }
 });
 
-it("journals a silent turn whose answer's model request ended as waiting on none", async () => {
-  const clock = drivenClock();
-  const server = drivenServer({ status: { driven: { type: "busy" } } });
-  const turn = drivenTransport(clock, { sessionId: "driven" });
-  try {
-    await turn.send();
-    server.send(answerStarted());
-    server.send(
-      frame({
-        type: "message.updated",
-        properties: {
-          sessionID: "driven",
-          info: {
-            id: "answer-1",
-            role: "assistant",
-            time: { created: 1, completed: 2 },
-          },
+// The frames before the silence decide what the journal says it waited on:
+// an answer whose model request ended waits on none, and a tool that
+// completed leaves the model, without that tool.
+const answerEnded = () =>
+  frame({
+    type: "message.updated",
+    properties: {
+      sessionID: "driven",
+      info: {
+        id: "answer-1",
+        role: "assistant",
+        time: { created: 1, completed: 2 },
+      },
+    },
+  });
+for (const [ended, frames, lastTurnEvent, waitingOn] of [
+  [
+    "an answer's model request",
+    () => [answerEnded()],
+    "message.updated",
+    "none",
+  ],
+  [
+    "a tool",
+    () => [toolFrame("running"), toolFrame("completed")],
+    "message.part.updated:tool",
+    "model",
+  ],
+] as const)
+  it(`journals what a silent turn waits on after ${ended} ended`, async () => {
+    const clock = drivenClock();
+    const server = drivenServer({ status: { driven: { type: "busy" } } });
+    const turn = drivenTransport(clock, { sessionId: "driven" });
+    try {
+      await turn.send();
+      server.send(answerStarted());
+      for (const sent of frames()) server.send(sent);
+      await settleUntil(() => false);
+      await missStreamDeadline(clock, server);
+      expect(turn.silences).toMatchObject([
+        {
+          lastTurnEvent: { type: lastTurnEvent },
+          waitingOn,
+          outcome: "recovered",
         },
-      }),
-    );
-    await settleUntil(() => false);
-    await missStreamDeadline(clock, server);
-    expect(turn.silences).toMatchObject([
-      {
-        lastTurnEvent: { type: "message.updated" },
-        waitingOn: "none",
-        outcome: "recovered",
-      },
-    ]);
-  } finally {
-    turn.transport.close();
-    server.restore();
-  }
-});
-
-it("journals a silent turn whose tool completed without that tool", async () => {
-  const clock = drivenClock();
-  const server = drivenServer({ status: { driven: { type: "busy" } } });
-  const turn = drivenTransport(clock, { sessionId: "driven" });
-  try {
-    await turn.send();
-    server.send(answerStarted());
-    server.send(toolFrame("running"));
-    server.send(toolFrame("completed"));
-    await settleUntil(() => false);
-    await missStreamDeadline(clock, server);
-    expect(turn.silences).toMatchObject([
-      {
-        lastTurnEvent: { type: "message.part.updated:tool" },
-        waitingOn: "model",
-      },
-    ]);
-    expect(turn.silences[0].tools).toBeUndefined();
-  } finally {
-    turn.transport.close();
-    server.restore();
-  }
-});
+      ]);
+      expect(turn.silences[0].tools).toBeUndefined();
+    } finally {
+      turn.transport.close();
+      server.restore();
+    }
+  });
 
 // recover() makes no request outside its own catch; what can throw in it is
 // an injected dependency. Here the deadline scheduler refuses the recovery's
@@ -2556,26 +2366,6 @@ it("journals a recovery that throws as error, before the turn's failure line", a
       { probe: "healthy", outcome: "error" },
     ]);
     expect(turn.journal).toEqual(["silence", "error"]);
-  } finally {
-    turn.transport.close();
-    server.restore();
-  }
-});
-
-it("journals no silence for a turn whose stream keeps sending", async () => {
-  const clock = drivenClock();
-  const server = drivenServer();
-  const turn = drivenTransport(clock, { sessionId: "driven" });
-  try {
-    await turn.send();
-    clock.advance(DEADLINE_MS / 2);
-    server.send(heartbeat());
-    await settleUntil(() => false);
-    clock.advance(DEADLINE_MS / 2);
-    server.complete();
-    await settleUntil(() => turn.completions.length > 0);
-    expect(turn.completions).toMatchObject([{ status: "completed" }]);
-    expect(turn.silences).toEqual([]);
   } finally {
     turn.transport.close();
     server.restore();

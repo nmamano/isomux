@@ -137,10 +137,6 @@ export interface OpenCodeSupervisorOptions {
     ): ReturnType<typeof setTimeout>;
     clearTimeout(timer: ReturnType<typeof setTimeout>): void;
   };
-  processIdentityMatches?: (
-    pid: number,
-    startTicks: string | undefined,
-  ) => boolean;
   turnHealthCheck?: (
     record: OpenCodeServerEndpoint,
   ) => Promise<OpenCodeServerHealth>;
@@ -172,9 +168,6 @@ export class OpenCodeSupervisor {
   private readonly idleScheduler: NonNullable<
     OpenCodeSupervisorOptions["idleScheduler"]
   >;
-  private readonly processIdentityMatches: NonNullable<
-    OpenCodeSupervisorOptions["processIdentityMatches"]
-  >;
   private readonly turnHealthCheck: NonNullable<
     OpenCodeSupervisorOptions["turnHealthCheck"]
   >;
@@ -204,8 +197,6 @@ export class OpenCodeSupervisor {
         setTimeout(() => void callback(), delayMs),
       clearTimeout,
     };
-    this.processIdentityMatches =
-      options.processIdentityMatches ?? processIdentityMatches;
     this.turnHealthCheck = options.turnHealthCheck ?? openCodeServerHealth;
     this.ensureServerSink = options.ensureServerSink ?? (() => undefined);
   }
@@ -227,7 +218,7 @@ export class OpenCodeSupervisor {
         replacement !== "pending" ||
         replaceMarked ||
         !record ||
-        !this.processIdentityMatches(record.pid, record.startTicks)
+        !processIdentityMatches(record.pid, record.startTicks)
       )
         await this.ensureServer(replaceMarked);
     } catch (error) {
@@ -302,7 +293,7 @@ export class OpenCodeSupervisor {
         const record = this.record;
         return (
           record?.pid !== pid ||
-          !this.processIdentityMatches(pid, record.startTicks) ||
+          !processIdentityMatches(pid, record.startTicks) ||
           !processIsRunning(pid)
         );
       },
@@ -481,10 +472,7 @@ export class OpenCodeSupervisor {
     beforePrompt = false,
   ): Promise<void> {
     const record = this.record;
-    if (
-      !record ||
-      !this.processIdentityMatches(record.pid, record.startTicks)
-    ) {
+    if (!record || !processIdentityMatches(record.pid, record.startTicks)) {
       await this.ensureServer();
       return;
     }

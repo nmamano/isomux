@@ -91,13 +91,13 @@ describe("OpenCode stored session inspection", () => {
   it("fails loudly on schema drift and corruption", () => {
     const root = mkdtempSync(join(tmpdir(), "isomux-opencode-storage-bad-"));
     roots.push(root);
-    const drift = join(root, "drift.db");
-    const database = new Database(drift);
-    database.exec("CREATE TABLE session (id TEXT)");
-    database.exec("CREATE TABLE message (id TEXT)");
-    database.close();
-    expect(() => inspectOpenCodeDatabase(drift, "session")).toThrow(
-      "unsupported schema",
+    // Only a column the inspection never queries is gone: the column check,
+    // not a failed query, refuses it.
+    const drifted = fixture();
+    drifted.database.exec("ALTER TABLE session DROP COLUMN time_archived");
+    drifted.database.close();
+    expect(() => inspectOpenCodeDatabase(drifted.path, "session")).toThrow(
+      /session table schema drifted/,
     );
     const corrupt = join(root, "corrupt.db");
     writeFileSync(corrupt, "not sqlite");

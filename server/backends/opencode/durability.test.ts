@@ -21,6 +21,8 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const streams = new Map();
+// Ids differ per server process: a resume that made a new session on the
+// replacement would find no stored context.
 let nextSession = 0;
 const send = (controller, value) => controller.enqueue(
   new TextEncoder().encode(\`data: \${JSON.stringify(value)}\\n\\n\`),
@@ -30,7 +32,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   if (url.pathname === "/global/health")
     return Response.json({ healthy: true, version: "1.18.35" });
   if (url.pathname === "/session" && request.method === "POST")
-    return Response.json({ id: \`session-\${++nextSession}\` });
+    return Response.json({ id: \`session-\${process.pid}-\${++nextSession}\` });
   if (url.pathname === "/event") {
     let subscriber;
     return new Response(new ReadableStream({

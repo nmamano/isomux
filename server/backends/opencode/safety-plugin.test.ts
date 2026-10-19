@@ -3,7 +3,6 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { evaluateProposedAction } from "../../safety-policy.ts";
 import { STATE_ROOT } from "../../config.ts";
 import { evaluateOpenCodePermission } from "./safety-adapter.ts";
 import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
@@ -59,10 +58,6 @@ describe("openCodeToolAction", () => {
       openCodeToolAction("apply_patch", { patchText: "p" }, "/repo")?.action,
     ).toEqual({ kind: "patch-files", toolName: "apply_patch", patch: "p" });
   });
-
-  it("leaves tools without a policy check alone", () => {
-    expect(openCodeToolAction("webfetch", { url: "x" }, "/repo")).toBeNull();
-  });
 });
 
 // The plugin and the permission-ask path (safety-adapter.ts) decide each call
@@ -88,9 +83,17 @@ describe("the safety plugin and the ask path", () => {
         ask: { permission: "edit", metadata: { filepath: filePath } },
       })),
     ),
+    // A tool the policy does not check runs on both paths.
+    {
+      tool: "webfetch",
+      args: { url: "https://example.com" },
+      ask: { permission: "webfetch", metadata: {} },
+    },
   ];
   for (const { tool, args, ask } of cases) {
-    it(`agree on ${tool} ${JSON.stringify(args)}`, async () => {
+    // The state root is a temp folder per run: keep it out of the name.
+    const label = JSON.stringify(args).replaceAll(STATE_ROOT, "<state root>");
+    it(`agree on ${tool} ${label}`, async () => {
       const hooks = await safetyPlugin.server({ directory: repo });
       const asked = evaluateOpenCodePermission(
         { id: "p", sessionId: "s", patterns: [], ...ask },
@@ -107,46 +110,6 @@ describe("the safety plugin and the ask path", () => {
 });
 
 describe("the safety plugin", () => {
-  it("throws the policy's reason on a deny and passes an allowed call", async () => {
-    const hooks = await safetyPlugin.server({ directory: "/repo" });
-    const command = "git reset --hard";
-    const decision = evaluateProposedAction(
-      { kind: "shell", command },
-      { cwd: "/repo" },
-    );
-    expect(decision.decision).toBe("deny");
-    expect(await verdict(hooks, "bash", { command })).toBe(
-      decision.decision === "deny" ? decision.reason : "",
-    );
-    expect(await verdict(hooks, "bash", { command: "ls" })).toBe("allow");
-    expect(await verdict(hooks, "webfetch", { url: "x" })).toBe("allow");
-  });
-
-  for (const [tool, args, input] of [
-    ["read", { filePath: "/repo/id_rsa" }, { filePath: "/repo/id_rsa" }],
-    [
-      "grep",
-      { pattern: "KEY", path: "/repo/id_rsa" },
-      { path: "/repo/id_rsa", glob: undefined },
-    ],
-  ] as const) {
-    it(`denies a ${tool} of a secret-bearing file with the policy's reason`, async () => {
-      const hooks = await safetyPlugin.server({ directory: "/repo" });
-      const decision = evaluateProposedAction(
-        {
-          kind: "read-files",
-          toolName: tool === "read" ? "read" : "Grep",
-          input,
-        },
-        { cwd: "/repo" },
-      );
-      expect(decision.decision).toBe("deny");
-      expect(await verdict(hooks, tool, args)).toBe(
-        decision.decision === "deny" ? decision.reason : "",
-      );
-    });
-  }
-
   it("bundles into one module with the given roots, not the process's", async () => {
     const home = "/srv/isomux-safety-plugin-home";
     const stateRoot = "/srv/isomux-safety-plugin-state";

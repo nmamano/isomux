@@ -120,7 +120,7 @@ const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "bypassPermissions", label: "Bypass all permissions" },
 ];
 
-export function permissionAgent(
+function permissionAgent(
   opts: Pick<CreateSessionOptions, "permissionMode" | "interactive">,
 ): string | undefined {
   if (opts.permissionMode === "bypassPermissions") {

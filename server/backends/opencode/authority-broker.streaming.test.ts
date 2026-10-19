@@ -126,6 +126,10 @@ it("refuses transfer encoding, invalid lengths and oversized heads without forwa
     socket.write(f.head(header));
     expect((await done).status).toBe(expected);
   }
+  // An absolute-form target names another origin.
+  const { socket, done } = f.connect();
+  socket.write(f.head("", "http://example.com/agents", "GET"));
+  expect((await done).status).toBe(400);
   expect(f.seen).toEqual([]);
 });
 

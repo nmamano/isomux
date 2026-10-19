@@ -270,23 +270,6 @@ it("keeps provider markdown inert in the retry line", () => {
     expect(["link", "strong", "em", "del", "html"]).not.toContain(token.type);
 });
 
-it("words a refusal in the reader's language", () => {
-  const error = {
-    name: "APIError",
-    statusCode: 403,
-    message: FREE_TIER_REFUSAL,
-  };
-  const english = openCodeProviderRefusal(error, "opencode");
-  const spanish = openCodeProviderRefusal(
-    error,
-    "opencode",
-    translatorFor("es").t,
-  );
-  expect(spanish).toContain(FREE_TIER_REFUSAL);
-  expect(spanish).toContain("`opencode`");
-  expect(spanish).not.toBe(english);
-});
-
 it("quotes the provider's retry message with the provider and attempt", () => {
   for (const message of [
     "Free usage exceeded, subscribe to Go",

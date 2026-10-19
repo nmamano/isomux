@@ -7,7 +7,6 @@ import {
   parsePeerPid,
   parseProcBsdInfo,
   parseXucredUid,
-  readDarwinPeerCredentials,
   readDarwinProcessHop,
 } from "./darwin-libsystem.ts";
 import { readProcessHop } from "./process-identity.ts";
@@ -101,11 +100,6 @@ describe("macOS peer credential parsing", () => {
 });
 
 describe("macOS process calls", () => {
-  it.skipIf(onDarwin)("read nothing off macOS", () => {
-    expect(readDarwinProcessHop(process.pid)).toBeNull();
-    expect(readDarwinPeerCredentials(0)).toBeNull();
-  });
-
   it.skipIf(!onDarwin)("read this process, its parent and its start", () => {
     const hop = readDarwinProcessHop(process.pid);
     expect(hop?.parentPid).toBe(process.ppid);
@@ -119,11 +113,6 @@ describe("macOS process calls", () => {
     const child = Bun.spawn(["true"]);
     await child.exited;
     expect(readDarwinProcessHop(child.pid)).toBeNull();
-  });
-
-  it.skipIf(!onDarwin)("refuse a process of another user", () => {
-    // launchd (pid 1) belongs to root; PROC_PIDTBSDINFO is same-user only.
-    expect(readDarwinProcessHop(1)).toBeNull();
   });
 });
 

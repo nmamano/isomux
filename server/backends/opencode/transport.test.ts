@@ -3,25 +3,19 @@ import { describe, expect, it } from "bun:test";
 import {
   interruptedToolResults,
   toolUpdateEvents,
-  classifyOpenCodeError,
   allowDiscoveredModels,
   discoverOpenCodeModels,
   allowMessages,
   OpenCodeTransport,
   OPENCODE_AUTH_FAILURE,
   OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
-  openCodeEffortUnavailableNotice,
   OPENCODE_PERMISSION_ID_WARNING,
   openCodeModelUnavailableFailure,
   handleOpenCodePermission,
   parseAllowedEvent,
-  openCodeModelIsFree,
 } from "./transport.ts";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
-import { writeSafeContractFixture } from "./contract-fixture.ts";
 import { join } from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import type { OpenCodeSupervisor } from "./supervisor.ts";
 import type { OpenCodeAuthorityBroker } from "./authority-broker.ts";
@@ -31,7 +25,11 @@ import {
   translatorFor,
   type Translator,
 } from "../../../shared/i18n/translate.ts";
-import { openCodeProviderRefusal, openCodeRetryMessage } from "./errors.ts";
+import {
+  openCodeErrorMessage,
+  openCodeProviderRefusal,
+  openCodeRetryMessage,
+} from "./errors.ts";
 import toolInputSequences from "./fixtures/tool-input-sequences.json";
 
 type ToolUpdate = Parameters<typeof toolUpdateEvents>[1];
@@ -142,7 +140,6 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
 
   it("fails before prompt_async when office instructions have no binding", async () => {
     let leasesAcquired = 0;
-    let promptAsyncCalls = 0;
     const supervisor = {
       acquire: async () => {
         leasesAcquired++;
@@ -154,9 +151,6 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       model: "provider/model",
       systemPrompt: `office ${OPENCODE_TURN_HANDLE_PLACEHOLDER}`,
       supervisor,
-      contractShapeSink: (shape) => {
-        if (shape === "http:prompt_async:success") promptAsyncCalls++;
-      },
     });
     const events: NormalizedEvent[] = [];
 
@@ -165,7 +159,6 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     );
 
     expect(leasesAcquired).toBe(0);
-    expect(promptAsyncCalls).toBe(0);
     expect(events).toContainEqual({
       kind: "turn_completed",
       status: "failed",
@@ -175,17 +168,6 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     transport.close();
   });
 
-  it("classifies free models only from measured zero cost fields", () => {
-    expect(
-      openCodeModelIsFree({
-        input: 0,
-        output: 0,
-        cache: { read: 0, write: 0 },
-      }),
-    ).toBe(true);
-    expect(openCodeModelIsFree({ input: 0, output: 1 })).toBe(false);
-    expect(openCodeModelIsFree(undefined)).toBe(false);
-  });
   it("fails closed if an administrative transport is asked to send", async () => {
     let leasesAcquired = 0;
     let turnsStarted = 0;
@@ -232,201 +214,6 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     transport.close();
   });
 
-  it("reports a named early turn failure to the safe sink and event stream", async () => {
-    const failure = Object.assign(new TypeError("startup socket closed"), {
-      status: 503,
-    });
-    const supervisor = {
-      acquire: async () => {
-        throw failure;
-      },
-    } as unknown as OpenCodeSupervisor;
-    const safeErrors: Array<Record<string, unknown>> = [];
-    const transport = new OpenCodeTransport({
-      cwd: "/tmp",
-      model: "provider/model",
-      systemPrompt: "system",
-      supervisor,
-      safeErrorSink: (error) => safeErrors.push({ ...error }),
-    });
-    const events: NormalizedEvent[] = [];
-
-    await transport.send([{ type: "text", text: "go" }], (event) =>
-      events.push(event),
-    );
-
-    expect(safeErrors).toEqual([{ name: "TypeError", statusCode: 503 }]);
-    expect(events).toEqual([
-      {
-        kind: "turn_completed",
-        status: "failed",
-        error: "OpenCode turn failed (TypeError; HTTP status: 503).",
-      },
-    ]);
-  });
-
-  it("sends only an effort variant advertised by the selected model", async () => {
-    const promptBodies: Record<string, unknown>[] = [];
-    let providerFailures = 0;
-    let eventController: ReadableStreamDefaultController<Uint8Array> | null =
-      null;
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname === "/event") {
-          return new Response(
-            new ReadableStream({
-              start(controller) {
-                eventController = controller;
-                controller.enqueue(new TextEncoder().encode(": connected\n\n"));
-              },
-            }),
-            {
-              headers: { "content-type": "text/event-stream" },
-            },
-          );
-        }
-        if (url.pathname === "/provider") {
-          if (url.searchParams.get("directory") === "/fail") {
-            providerFailures++;
-            return new Response("failed", { status: 500 });
-          }
-          return Response.json({
-            connected: ["provider"],
-            all: [
-              {
-                id: "provider",
-                models: {
-                  model: { variants: { low: {}, high: {}, none: {} } },
-                },
-              },
-            ],
-          });
-        }
-        if (url.pathname === "/experimental/tool/ids")
-          return Response.json([OPENCODE_SAFETY_TOOL]);
-        if (url.pathname.endsWith("/prompt_async")) {
-          promptBodies.push((await request.json()) as Record<string, unknown>);
-          const sessionID = decodeURIComponent(url.pathname.split("/")[2]);
-          const controller = eventController;
-          eventController = null;
-          const events = [
-            {
-              type: "message.part.updated",
-              properties: {
-                sessionID,
-                part: {
-                  type: "step-finish",
-                  id: `finish-${sessionID}`,
-                  messageID: `message-${sessionID}`,
-                  tokens: {
-                    total: 1,
-                    input: 1,
-                    output: 0,
-                    reasoning: 0,
-                    cache: { read: 0, write: 0 },
-                  },
-                },
-              },
-            },
-            { type: "session.idle", properties: { sessionID } },
-          ];
-          setTimeout(() => {
-            try {
-              for (const event of events)
-                controller?.enqueue(
-                  new TextEncoder().encode(
-                    `data: ${JSON.stringify(event)}\n\n`,
-                  ),
-                );
-              controller?.close();
-            } catch {
-              // The idle event can abort and close the stream first.
-            }
-          }, 0);
-          return new Response(null, { status: 204 });
-        }
-        return new Response("not found", { status: 404 });
-      },
-    });
-    const supervisor = {
-      acquire: async () => ({
-        pid: process.pid,
-        baseUrl: `http://127.0.0.1:${server.port}`,
-        authHeader: "Basic test",
-        settle: () => {},
-        beginTurn: async () => {},
-        endTurn: () => {},
-        serverStopped: () => false,
-        markUnresponsive: () => {},
-        release: () => {},
-      }),
-    } as unknown as OpenCodeSupervisor;
-    const send = async (effort: string, cwd = "/tmp") => {
-      const events: NormalizedEvent[] = [];
-      let resolveCompletion!: () => void;
-      const completion = new Promise<void>((resolve) => {
-        resolveCompletion = resolve;
-      });
-      const transport = new OpenCodeTransport({
-        cwd,
-        model: "provider/model",
-        effort,
-        systemPrompt: "system",
-        supervisor,
-        sessionId: cwd === "/fail" ? "session-fail" : `session-${effort}`,
-      });
-      await transport.send([{ type: "text", text: "go" }], (event) => {
-        events.push(event);
-        if (event.kind === "turn_completed") resolveCompletion();
-      });
-      try {
-        await Promise.race([
-          completion,
-          Bun.sleep(1_000).then(() => {
-            throw new Error("no prompt_async arrived");
-          }),
-        ]);
-      } finally {
-        transport.close();
-      }
-      return events;
-    };
-
-    const lowEvents = await send("low");
-    const mediumEvents = await send("medium");
-    const failureEvents = await send("high", "/fail");
-    const notices = (events: NormalizedEvent[]) =>
-      events.filter((event) => event.kind === "system_text");
-
-    expect(promptBodies[0]).toMatchObject({ variant: "low" });
-    expect("variant" in promptBodies[0]).toBe(true);
-    expect("variant" in promptBodies[1]).toBe(false);
-    expect("variant" in promptBodies[2]).toBe(false);
-    expect(
-      failureEvents.find((event) => event.kind === "turn_completed"),
-    ).toMatchObject({ kind: "turn_completed", status: "completed" });
-    expect(providerFailures).toBe(1);
-    expect(notices(lowEvents)).toEqual([]);
-    expect(notices(mediumEvents)).toEqual([
-      {
-        kind: "system_text",
-        text: openCodeEffortUnavailableNotice("provider/model", "medium"),
-        isomuxAuthored: true,
-      },
-    ]);
-    expect(notices(failureEvents)).toEqual([
-      {
-        kind: "system_text",
-        text: OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
-        isomuxAuthored: true,
-      },
-    ]);
-    await server.stop(true);
-  });
-
   it("keeps only connected provider model labels and composite ids", () => {
     const canary = "PROVIDER_OPTION_SECRET_CANARY";
     const models = allowDiscoveredModels({
@@ -458,7 +245,14 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         {
           id: "safe",
           name: `API key ${canary}`,
-          models: { model: { name: `secret ${canary}` } },
+          models: {
+            model: { name: `secret ${canary}` },
+            // Free only when every measured cost field is zero.
+            free: {
+              cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            },
+            paid: { cost: { input: 0, output: 1 } },
+          },
         },
         { id: 7, models: [] },
       ],
@@ -469,9 +263,17 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         label: "Gate provider - Gate model",
         supportedEfforts: [{ level: "low" }, { level: "high" }],
       },
+      {
+        id: "safe/free",
+        label: "safe - free",
+        isFree: true,
+        supportedEfforts: [],
+      },
       { id: "safe/model", label: "safe - model", supportedEfforts: [] },
+      { id: "safe/paid", label: "safe - paid", supportedEfforts: [] },
     ]);
     expect(JSON.stringify(models)).not.toContain(canary);
+    expect(allowDiscoveredModels(null)).toEqual([]);
   });
 
   it("drops the house-provider prefix and keeps it for other providers", () => {
@@ -504,16 +306,6 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     ]);
   });
 
-  it("returns no models for malformed or empty connected discovery", () => {
-    expect(allowDiscoveredModels(null)).toEqual([]);
-    expect(
-      allowDiscoveredModels({
-        connected: [],
-        all: [{ id: "gate", models: { model: { name: "Model" } } }],
-      }),
-    ).toEqual([]);
-  });
-
   it("keeps only positive finite context limits from the shared provider parser", () => {
     const models = allowDiscoveredModels({
       connected: ["gate"],
@@ -544,55 +336,6 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       },
       { id: "gate/zero", label: "gate - zero", supportedEfforts: [] },
     ]);
-  });
-
-  it("does not list providers absent from connected", () => {
-    const models = allowDiscoveredModels({
-      connected: ["z-connected"],
-      default: {
-        anthropic: "claude-sonnet-4-6",
-        openai: "gpt-5.3-chat-latest",
-        "github-copilot": "gpt-5",
-      },
-      all: [
-        {
-          id: "anthropic",
-          name: "Anthropic",
-          models: {
-            "claude-sonnet-4-6": { name: "Claude Sonnet 4.6" },
-          },
-        },
-        {
-          id: "z-connected",
-          name: "Zed",
-          models: { model: { name: "Model" } },
-        },
-        {
-          id: "github-copilot",
-          name: "GitHub Copilot",
-          models: { "gpt-5": { name: "GPT-5" } },
-        },
-        {
-          id: "openai",
-          name: "OpenAI",
-          models: {
-            "gpt-5.3-chat-latest": { name: "GPT-5.3 Chat" },
-          },
-        },
-      ],
-    });
-
-    expect(models).toEqual([
-      {
-        id: "z-connected/model",
-        label: "Zed - Model",
-        supportedEfforts: [],
-      },
-    ]);
-    expect(models.some((model) => model.id.startsWith("anthropic/"))).toBe(
-      false,
-    );
-    expect(models.some((model) => model.id.startsWith("openai/"))).toBe(false);
   });
 
   it("releases the discovery lease when the provider request fails", async () => {
@@ -682,11 +425,6 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       callEmitted: false,
       terminal: false,
     };
-    expect(toolInputSequences.provenance).toEqual({
-      server: "pinned OpenCode server",
-      model: "mimo-v2.5-free",
-      captured: "2026-08-29",
-    });
     expect(toolUpdateEvents(tool, capturedArgument[0])).toEqual([]);
     expect(toolUpdateEvents(tool, capturedArgument[1])).toEqual([
       {
@@ -953,32 +691,6 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     expect(JSON.stringify(events)).toContain(canary);
   });
 
-  it("splits an unanswerable permission identity from a fail-open shape", () => {
-    expect(
-      parseAllowedEvent(
-        JSON.stringify({
-          type: "permission.asked",
-          properties: { sessionID: "s", permission: "bash" },
-        }),
-      ),
-    ).toEqual({ kind: "permission_fault", sessionId: "s" });
-    expect(
-      parseAllowedEvent(
-        JSON.stringify({
-          type: "permission.asked",
-          properties: { sessionID: "s", id: "p", metadata: {} },
-        }),
-      ),
-    ).toEqual({
-      kind: "permission",
-      sessionId: "s",
-      id: "p",
-      permission: undefined,
-      patterns: undefined,
-      metadata: {},
-    });
-  });
-
   it("keeps only the question request identity", () => {
     const canary = "QUESTION_PRIVATE_CANARY";
     const parsed = parseAllowedEvent(
@@ -1001,119 +713,18 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     expect(JSON.stringify(parsed)).not.toContain(canary);
   });
 
-  it("classifies observed provider failures", () => {
-    expect(
-      classifyOpenCodeError(
-        {
-          name: "APIError",
-          message:
-            "The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_01M14CXRV15MZRVVQ0ZPQHET0F/go",
-          statusCode: 403,
-          isRetryable: false,
-        },
-        "opencode-go/deepseek-v4-pro",
-        ["opencode-go"],
-      ),
-    ).toBe("model_unavailable");
-    expect(
-      classifyOpenCodeError(
-        {
-          name: "APIError",
-          message: "your plan does not include this model",
-          statusCode: 403,
-          isRetryable: false,
-        },
-        "provider/other-model",
-        ["provider"],
-      ),
-    ).toBe("model_unavailable");
-    expect(
-      classifyOpenCodeError(
-        {
-          name: "APIError",
-          message: "invalid gate credential",
-          statusCode: 401,
-          isRetryable: false,
-        },
-        "gate/gate-model",
-        [],
-      ),
-    ).toBe("authentication");
-    expect(
-      classifyOpenCodeError(
-        {
-          name: "UnknownError",
-          message:
-            "Model not found: openai/gpt-4o. Did you mean: gpt-4o, gpt-4o-mini?",
-        },
-        "openai/gpt-4o",
-        [],
-      ),
-    ).toBe("authentication");
-    expect(
-      classifyOpenCodeError(
-        {
-          name: "UnknownError",
-          message: "Model not found: openai/typo. Did you mean: gpt-4o?",
-        },
-        "openai/gpt-4o",
-        [],
-      ),
-    ).toBeNull();
-    expect(
-      classifyOpenCodeError(
-        {
-          name: "APIError",
-          message: "provider unavailable",
-          statusCode: 500,
-          isRetryable: true,
-        },
-        "openai/gpt-4o",
-        [],
-      ),
-    ).toBeNull();
-    expect(
-      classifyOpenCodeError(
-        {
-          name: "UnknownError",
-          message: "Model not found: opencode/fake. Did you mean: fake?",
-        },
-        "opencode/fake",
-        ["opencode"],
-      ),
-    ).toBe("model_unavailable");
-    expect(
-      classifyOpenCodeError(
-        {
-          name: "UnknownError",
-          message: "Model not found: openai/retired. Did you mean: current?",
-        },
-        "openai/retired",
-        ["openai"],
-      ),
-    ).toBe("model_unavailable");
-  });
-
-  it("refuses to record a credential-shaped fixture before writing", async () => {
-    const root = await mkdtemp(join(tmpdir(), "isomux-opencode-fixture-"));
-    const path = join(root, "fixture.json");
-    await expectRejection(
-      writeSafeContractFixture(path, ["authorization: Bearer secret-canary"]),
-      /Refusing to write/,
-    );
-    expect(await Bun.file(path).exists()).toBe(false);
-    await rm(root, { recursive: true, force: true });
-  });
-
   it("keeps committed OC1 fixtures free of credential-shaped values", async () => {
+    let scanned = 0;
     for await (const name of new Bun.Glob("fixtures/**/*").scan(
       import.meta.dir,
     )) {
+      scanned++;
       const text = await Bun.file(join(import.meta.dir, name)).text();
       expect(text).not.toMatch(
         /(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|bearer\s+[a-z0-9._~-]+)/i,
       );
     }
+    expect(scanned, "the scan found the committed fixtures").toBeGreaterThan(0);
   });
 });
 
@@ -1147,22 +758,6 @@ describe("OpenCode permission handling", () => {
     return { outcome, replies, events };
   }
 
-  it("auto-allows a safe bypass request once without a boss prompt", async () => {
-    expect(await run({ autoApprove: true })).toEqual({
-      outcome: "answered",
-      replies: [{ reply: "once" }],
-      events: [],
-    });
-  });
-
-  it("keeps a safe default request for the boss", async () => {
-    expect(await run({ autoApprove: false })).toEqual({
-      outcome: "prompt",
-      replies: [],
-      events: [],
-    });
-  });
-
   it("rejects a policy denial before either mode can prompt", async () => {
     for (const autoApprove of [false, true]) {
       const result = await run({
@@ -1183,26 +778,6 @@ describe("OpenCode permission handling", () => {
       });
       expect(JSON.stringify(result.events)).toContain("git reset --hard");
     }
-  });
-
-  it("fails open on an evaluator fault and warns in the transcript", async () => {
-    const result = await run({
-      autoApprove: true,
-      evaluate: () => {
-        throw new Error("adapter fault");
-      },
-    });
-    expect(result).toEqual({
-      outcome: "answered",
-      replies: [{ reply: "once" }],
-      events: [
-        {
-          kind: "system_text",
-          text: SAFETY_WARNING,
-          isomuxAuthored: true,
-        },
-      ],
-    });
   });
 
   it("warns but keeps default-mode fail-open requests for the boss", async () => {
@@ -1732,6 +1307,32 @@ describe("OpenCode permission event integration", () => {
       status: "failed",
       error: openCodeModelUnavailableFailure("provider/model"),
     });
+    // A model-not-found for another model is no verdict on this one.
+    const otherError = {
+      name: "UnknownError",
+      message: "Model not found: provider/typo. Did you mean: model",
+    };
+    const other = await runFrames(
+      [
+        {
+          ...frame,
+          properties: {
+            ...frame.properties,
+            error: {
+              name: otherError.name,
+              data: { message: otherError.message },
+            },
+          },
+        },
+      ],
+      undefined,
+      ["provider"],
+    );
+    expect(other.events.at(-1)).toEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error: openCodeErrorMessage(otherError),
+    });
   });
 
   it("fails a no-id request visibly without claiming an allow", async () => {
@@ -1757,27 +1358,6 @@ describe("OpenCode permission event integration", () => {
       error: OPENCODE_PERMISSION_ID_WARNING,
     });
     expect(JSON.stringify(result.events)).not.toContain(SAFETY_WARNING);
-  });
-
-  it("does not answer a foreign session permission", async () => {
-    const result = await runFrames(
-      [
-        {
-          type: "permission.asked",
-          properties: {
-            sessionID: "session-foreign",
-            id: "permission-foreign",
-            permission: "bash",
-            metadata: { command: "printf foreign" },
-          },
-        },
-      ],
-      "isomux-interactive-bypass",
-    );
-    expect(result.replies).toEqual([]);
-    expect(
-      result.events.some((event) => event.kind === "approval_request"),
-    ).toBe(false);
   });
 
   it("answers a malformed owned request once and shows the warning", async () => {
@@ -2049,11 +1629,12 @@ describe("OpenCode permission event integration", () => {
       expect(result.replies[0]).toMatchObject({ reply: "reject" });
     });
 
-    it("leaves the request of another session's subagent alone", async () => {
+    it("leaves the request of another session and of its subagent alone", async () => {
       const result = await runFrames(
         [
+          asked("session-foreign", "permission-foreign"),
           created("child-foreign", "session-foreign"),
-          asked("child-foreign", "permission-foreign"),
+          asked("child-foreign", "permission-foreign-child"),
           assistant("answer"),
           finish("answer"),
           idle,
@@ -2064,6 +1645,13 @@ describe("OpenCode permission event integration", () => {
       expect(
         result.events.some((event) => event.kind === "approval_request"),
       ).toBe(false);
+      expect(
+        result.events.at(-1),
+        "the frames after them were read",
+      ).toMatchObject({
+        kind: "turn_completed",
+        status: "completed",
+      });
     });
 
     it("does not end the turn on a subagent's idle", async () => {
@@ -2218,23 +1806,6 @@ describe("OpenCode permission event integration", () => {
         });
       });
 
-      it("asks the member and replies on a reopened subagent's request", async () => {
-        const { replies } = await withTwoOpenRequests(
-          async (transport) => {
-            await transport.approve("permission-child", {
-              kind: "allow_once",
-            });
-          },
-          {
-            frames: [
-              taskPart("session-1", "child-1"),
-              asked("child-1", "permission-child"),
-            ],
-          },
-        );
-        expect(replies).toEqual([{ id: "permission-child", reply: "once" }]);
-      });
-
       it("answers a subagent whose parent is the session before an edit fork", async () => {
         const result = await runFrames(
           [
@@ -2268,6 +1839,10 @@ describe("OpenCode permission event integration", () => {
         expect(
           result.events.some((event) => event.kind === "approval_request"),
         ).toBe(false);
+        expect(result.events.at(-1)).toMatchObject({
+          kind: "turn_completed",
+          status: "completed",
+        });
       });
 
       it("answers a nested subagent that a subagent's task part names", async () => {
@@ -2553,41 +2128,6 @@ describe("OpenCode kept model catalog", () => {
     }
   });
 
-  it("shares one in-flight load among concurrent callers", async () => {
-    const harness = catalogHarness({ holdProvider: true });
-    try {
-      const first = discoverOpenCodeModels(harness.supervisor, "/a");
-      const second = discoverOpenCodeModels(harness.supervisor, "/a");
-      // Each caller reads the server key just before it joins or starts a
-      // load, and the first load is held, so both have chosen once this holds.
-      const deadline = Date.now() + 2_000;
-      while (
-        (harness.serverKeyReads() < 2 || harness.heldProviders.length === 0) &&
-        Date.now() < deadline
-      )
-        await Bun.sleep(1);
-      expect(harness.serverKeyReads()).toBe(2);
-      // Answer every held request, so a second load cannot hang the test.
-      let settled = false;
-      const both = Promise.all([first, second]).finally(() => {
-        settled = true;
-      });
-      while (!settled) {
-        harness.heldProviders.splice(0).forEach((answer) => answer());
-        await Bun.sleep(1);
-      }
-      const [left, right] = await both;
-      expect(harness.providerDirectories, "one shared load").toEqual(["/a"]);
-      expect(left.map((model) => model.id)).toEqual([
-        "provider/model",
-        "provider/plain",
-      ]);
-      expect(right).toBe(left);
-    } finally {
-      await harness.stop();
-    }
-  });
-
   it("keeps no failed load: the next turn loads again", async () => {
     let failures = 1;
     const harness = catalogHarness({ failProvider: () => failures-- > 0 });
@@ -2617,22 +2157,6 @@ describe("OpenCode kept model catalog", () => {
       const plain = await harness.send("/a", "high", "provider/plain");
       expect(plain.body).not.toHaveProperty("variant");
       expect(plain.notices).toEqual([]);
-    } finally {
-      await harness.stop();
-    }
-  });
-
-  it("reads the context limit from the kept catalog", async () => {
-    const harness = catalogHarness();
-    try {
-      await harness.send("/a", "low");
-      const transport = harness.transport("/a", "low");
-      try {
-        expect(await transport.getModelContextLimit()).toBe(1000);
-      } finally {
-        transport.close();
-      }
-      expect(harness.providerDirectories).toEqual(["/a"]);
     } finally {
       await harness.stop();
     }

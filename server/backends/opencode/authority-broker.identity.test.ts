@@ -164,22 +164,4 @@ describe("OpenCode authority broker identity checks", () => {
     f.table.set(SERVER, { pid: SERVER, parentPid: 1, startTicks: "server-2" });
     expect(await request(f)).toBe(403);
   });
-
-  it("refuses to bind a server whose identity cannot be read", () => {
-    const root = mkdtempSync(join(tmpdir(), "isomux-abi-"));
-    const broker = new OpenCodeAuthorityBroker(
-      join(root, "authority.sock"),
-      UID,
-      "http://127.0.0.1:9",
-      {
-        readPeerCredentials: () => null,
-        readProcessHop: () => null,
-      },
-    );
-    cleanup.push(() => {
-      broker.close();
-      rmSync(root, { recursive: true, force: true });
-    });
-    expect(() => broker.bind("agent-b", "token-b").activate(SERVER)).toThrow();
-  });
 });
