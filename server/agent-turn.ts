@@ -46,6 +46,9 @@ export interface RunAgentTurnOpts {
    *  UsageCapError on a refusal. flushQueue decides per item itself and
    *  leaves this unset. */
   usageCapped?: boolean;
+  /** The human who sent the input directly, for the language of the usage
+   *  heads-up entry. Unset: the agent's manager's language. */
+  usageCapUsername?: string;
   /** sdkText is a slash command the engine expands itself, which it does
    *  only when the command starts the message. No notice goes ahead of it;
    *  every armed notice waits for the next turn. */
@@ -69,6 +72,12 @@ type AgentTurnDeps = {
   ) => string;
   /** Shows a delivered settings notice to members in the chat. */
   logSettingsNotice: (managed: ManagedAgent, arm: SettingsNoticeArm) => void;
+  /** Shows the member usage heads-up in the chat, once per day. */
+  logUsageHeadsUp: (
+    managed: ManagedAgent,
+    headsUp: { dayStartMs: number },
+    username?: string,
+  ) => void;
 };
 
 let deps: AgentTurnDeps | null = null;
@@ -122,6 +131,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   // the token above, before the await, so a Stop or swap during the provider
   // read fails the recheck instead of passing on the replacement session.
   const sessionAtEntry = managed.sessionManager.session;
+  let usageHeadsUp: { dayStartMs: number } | undefined;
   if (opts.usageCapped && sessionAtEntry && memberUsageCap().isEnabled()) {
     const admission = await memberUsageCap().admit(
       managed.billingAccount ?? null,
@@ -133,6 +143,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     if (admission.kind === "refused") {
       throw new UsageCapError(admission.retryAtMs);
     }
+    if (admission.kind === "admitted") usageHeadsUp = admission.headsUp;
   }
 
   // The bounded await inside buildContextNoticeBlock caps the added latency
@@ -309,6 +320,9 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
         console.error(`[runAgentTurn] onSendAccepted threw:`, err);
       }
     }
+    // After the input's entries, so it reads under the member's message.
+    if (usageHeadsUp)
+      deps.logUsageHeadsUp(managed, usageHeadsUp, opts.usageCapUsername);
     await turn;
   } catch (err) {
     thrown = err;

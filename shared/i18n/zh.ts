@@ -2377,6 +2377,8 @@ App 的一些原则：
     "用量限制已重置。Isomux 已让智能体继续。",
   "systemEntries.usageCap.pace":
     "成员轮次已暂停：办公室用量已达到成员今天的上限。将于{when}恢复。",
+  "systemEntries.usageCap.headsUp":
+    "办公室用量已接近成员今天的上限。达到上限后，成员轮次将暂停。",
   "systemEntries.agentStopped": "智能体已停止：{status}。",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "智能体后端在本轮运行中停止。对话已保存，可以继续。",

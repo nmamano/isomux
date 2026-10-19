@@ -5,7 +5,7 @@ Task 6de8f530. Design approved by Isomux PM on 2026-10-02. Source base `cd3be963
 Nil's rulings (2026-10-02): the cap follows the weekly limit of the owner's
 subscription as a moving limit tied to the position in the week. The cap is
 hard. The check runs at the start of a turn; a running turn may complete. A
-heads-up before the cap is a follow-up, not in this lane.
+heads-up before the cap is a follow-up (section 5, task e5ea2f79).
 
 Nil's rulings after the first version (2026-10-02, a2be4639): a failed
 reading does not block members: the last good reading counts if it is under an
@@ -260,6 +260,21 @@ it as `retryAtMs`.
 
 The cap lifts with no action: the next admission that passes runs. Refused
 work is not replayed.
+
+### Heads-up (task e5ea2f79)
+
+A member-driven turn that is admitted while use is within a quarter of a
+day's allowance below today's line (`share / 7 / 4` points) gets one system
+entry in the agent's chat, after the input's entries:
+
+> Office usage is close to today's member limit. Member turns pause when it is reached.
+
+Only the agent gates write it (`runAgentTurn` with `usageCapped`, and
+`flushQueue`), once per agent per day of the weekly window
+(`managed.usageHeadsUpDay`, in memory, so a restart can show it once more that
+day). A member with several agents sees it in each chat. It carries no usage
+figures: members never see the office account's numbers. Cron runs, the owner
+and the agent's prompt get no heads-up.
 
 ## 6. Settings and prompt
 

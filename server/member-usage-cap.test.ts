@@ -4,6 +4,7 @@ import {
   createMemberUsageCap,
   evaluateLine,
   usageCapText,
+  usageHeadsUpText,
 } from "./member-usage-cap.ts";
 import {
   createOfficeUsageReader,
@@ -57,6 +58,42 @@ describe("evaluateLine", () => {
     expect(evaluateLine(65, resetsAt, dayStart(7), 70).retryAtMs).toBe(
       resetsAt,
     );
+  });
+});
+
+// The heads-up (task e5ea2f79): members are warned once use comes within a
+// quarter of a day's allowance (share / 7 / 4) of today's line.
+describe("evaluateLine heads-up", () => {
+  const resetsAt = NOW + WEEK_MS;
+  const dayStart = (day: number) => NOW + (day - 1) * DAY_MS;
+
+  it("starts a quarter of a day's allowance below today's line, at any share", () => {
+    for (const share of [80, 20]) {
+      const line = share / 7;
+      const band = share / 28;
+      const at = (used: number) => evaluateLine(used, resetsAt, NOW, share);
+      expect(at(line - band + 0.01)).toMatchObject({
+        allowed: true,
+        headsUp: true,
+        dayStartMs: dayStart(1),
+      });
+      expect(at(line - band - 0.01)).toMatchObject({
+        allowed: true,
+        headsUp: false,
+      });
+      // At or over the line it is a refusal, not a heads-up.
+      expect(at(line)).toMatchObject({ allowed: false, headsUp: false });
+    }
+  });
+
+  it("moves with the day: a new day's step clears it", () => {
+    // Share 80: day 1's band starts at 8.57%, day 2's at 20%.
+    expect(evaluateLine(9, resetsAt, dayStart(2) - 1, 80).headsUp).toBe(true);
+    expect(evaluateLine(9, resetsAt, dayStart(2), 80)).toMatchObject({
+      headsUp: false,
+      dayStartMs: dayStart(2),
+    });
+    expect(evaluateLine(21, resetsAt, dayStart(2), 80).headsUp).toBe(true);
   });
 });
 
@@ -236,6 +273,28 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
+describe("createMemberUsageCap heads-up", () => {
+  // `over` is day 4 of a week that resets at NOW + WEEK_MS / 2; with the 80%
+  // share the line is about 45.7% and the band starts about 42.9%.
+  const day4Start = NOW + WEEK_MS / 2 - WEEK_MS + 3 * DAY_MS;
+
+  it("carries the heads-up only on a weekly reading inside the band", async () => {
+    const t = cap([
+      { ...over, usedPercent: 44 },
+      under,
+      { kind: "no_limit", observedAtMs: NOW },
+      { kind: "failed" },
+    ]);
+    expect(await t.cap.admit(OFFICE)).toEqual({
+      kind: "admitted",
+      headsUp: { dayStartMs: day4Start },
+    });
+    expect(await t.cap.admit(OFFICE)).toEqual({ kind: "admitted" });
+    expect(await t.cap.admit(OFFICE)).toEqual({ kind: "exempt" });
+    expect(await t.cap.admit(OFFICE)).toEqual({ kind: "admitted" });
+  });
+});
+
 describe("createMemberUsageCap invalidation", () => {
   it("neither returns nor records an answer an invalidation overtook", async () => {
     const releases: ((o: OfficeWeeklyOutcome) => void)[] = [];
@@ -323,5 +382,15 @@ describe("usageCapText", () => {
     const text = usageCapText(english, { retryAtMs: NOW + 3 * 3600_000 }, NOW);
     expect(text).toContain("3");
     expect(text).not.toContain("{");
+  });
+});
+
+describe("usageHeadsUpText", () => {
+  it("renders a sentence with no usage figures", () => {
+    const text = usageHeadsUpText(english);
+    expect(text).toBe(english.t("systemEntries.usageCap.headsUp"));
+    expect(text).not.toBe("systemEntries.usageCap.headsUp");
+    // Members never see the office account's numbers (owner-only status).
+    expect(text).not.toMatch(/[0-9{]/);
   });
 });

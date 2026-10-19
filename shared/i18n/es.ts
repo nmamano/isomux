@@ -2635,6 +2635,8 @@ Cosas que puedes hacer por él:
     "El límite de uso se restableció. Isomux reanudó el agente.",
   "systemEntries.usageCap.pace":
     "Los turnos de los miembros están en pausa: el uso de la oficina ha llegado al límite de hoy para los miembros. Se reanudan {when}.",
+  "systemEntries.usageCap.headsUp":
+    "El uso de la oficina está cerca del límite de hoy para los miembros. Los turnos de los miembros se pausan cuando se alcanza.",
   "systemEntries.agentStopped": "El agente se detuvo: {status}.",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "El backend del agente se detuvo durante el turno. La conversación está guardada y se puede retomar.",

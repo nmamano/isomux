@@ -2610,6 +2610,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Usage limit reset. Isomux resumed the agent.",
   "systemEntries.usageCap.pace":
     "Member turns are paused: office usage has reached today's member limit. They resume {when}.",
+  "systemEntries.usageCap.headsUp":
+    "Office usage is close to today's member limit. Member turns pause when it is reached.",
   "systemEntries.agentStopped": "Agent stopped: {status}.",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "The agent backend stopped during the turn. The conversation is saved and can be resumed.",

@@ -2635,6 +2635,8 @@ Coses que pots fer per ell:
     "El límit d'ús s'ha restablert. Isomux ha reprès l'agent.",
   "systemEntries.usageCap.pace":
     "Els torns dels membres estan en pausa: l'ús de l'oficina ha arribat al límit d'avui per als membres. Es reprenen {when}.",
+  "systemEntries.usageCap.headsUp":
+    "L'ús de l'oficina és a prop del límit d'avui per als membres. Els torns dels membres es posen en pausa quan s'hi arriba.",
   "systemEntries.agentStopped": "L'agent s'ha aturat: {status}.",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "El backend de l'agent s'ha aturat durant el torn. La conversa està desada i es pot reprendre.",

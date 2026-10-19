@@ -37,6 +37,7 @@ import { claudeProjectDir } from "../cwd-utils.ts";
 import { setTestManagedOfficeEnv } from "./managed-office-env.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import type { OfficeSettingsRes } from "../../shared/contract-shapes.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -75,9 +76,15 @@ const UNREADABLE = (): OfficeWeeklyOutcome => ({ kind: "failed" });
 
 // Swap in a cap over a scripted reader. `reading` is read on every admission.
 function installCap(opts: { enabled?: boolean } = {}) {
-  const state: { reading: () => OfficeWeeklyOutcome; reads: number } = {
+  const state: {
+    reading: () => OfficeWeeklyOutcome;
+    reads: number;
+    // Moves the cap's clock (not the reading's window), as time passing does.
+    clockOffsetMs: number;
+  } = {
     reading: AHEAD,
     reads: 0,
+    clockOffsetMs: 0,
   };
   setMemberUsageCapForTests(
     createMemberUsageCap({
@@ -95,6 +102,7 @@ function installCap(opts: { enabled?: boolean } = {}) {
       save: saveMemberUsageCap,
       loadShare: loadMemberUsageShare,
       saveShare: saveMemberUsageShare,
+      now: () => Date.now() + state.clockOffsetMs,
     }),
   );
   return state;
@@ -315,6 +323,162 @@ describe("member usage cap: queued input", () => {
     expect(batch).not.toContain("agent queued");
     expect(queueOf(srv, agent.id) ?? []).toEqual([]);
     expect(errors(srv, agent.id)).toHaveLength(1);
+  });
+});
+
+// The heads-up (task e5ea2f79): a member-driven turn that starts within a
+// quarter of a day's allowance of today's line runs, and the agent's chat gets
+// one system entry about it per day of the weekly window.
+describe("member usage cap: heads-up", () => {
+  const HEADS_UP = translatorFor("en").t("systemEntries.usageCap.headsUp");
+  const DAY_MS = WEEK_MS / 7;
+  // A pinned week, so every reading in a test falls on the same day. Day 4:
+  // the line is about 45.7% and the band starts about 42.9%. Day 5 (the cap's
+  // clock one day on): the line is about 57.1%, the band about 54.3%.
+  function pinnedWeek() {
+    const resetsAtMs = Date.now() + WEEK_MS / 2;
+    const at = (usedPercent: number) => () => ({
+      kind: "weekly" as const,
+      usedPercent,
+      resetsAtMs,
+      observedAtMs: Date.now(),
+    });
+    return { near: at(44), behind: at(40), nextDayNear: at(56) };
+  }
+  const headsUps = (srv: TestServer, agentId: string) =>
+    srv.agentManager
+      .getAgentLogs(agentId)
+      .filter((e) => e.kind === "system" && e.content === HEADS_UP);
+
+  async function runTurn(
+    srv: TestServer,
+    agentId: string,
+    text: string,
+    username: string,
+  ) {
+    void srv.agentManager.sendMessage(agentId, text, username);
+    await waitUntil(
+      () => sentTexts(srv, agentId).some((t) => t.includes(text)),
+      2000,
+      `turn "${text}" sent`,
+    );
+    srv.fakeBackend.sessionForAgent(agentId)!.completeTurn();
+    await waitUntil(() => stateOf(srv, agentId) === "waiting_for_response");
+  }
+
+  it("warns a member once per day, and never on the owner's input", async () => {
+    expect(HEADS_UP).not.toBe("systemEntries.usageCap.headsUp");
+    const { srv } = await boot();
+    const agent = await spawnFor(srv, "AliceBot", "Alice");
+    const cap = installCap();
+    const week = pinnedWeek();
+    expectCappedSetup(cap);
+
+    // Behind the band: no heads-up.
+    cap.reading = week.behind;
+    await runTurn(srv, agent.id, "member far", "Alice");
+    expect(headsUps(srv, agent.id)).toHaveLength(0);
+
+    // Inside the band: the turn runs and the chat gets one entry, after the
+    // member's message.
+    cap.reading = week.near;
+    await runTurn(srv, agent.id, "member near", "Alice");
+    expect(headsUps(srv, agent.id)).toHaveLength(1);
+    const logs = srv.agentManager.getAgentLogs(agent.id);
+    const asked = logs.findIndex(
+      (e) => e.kind === "user_message" && e.content.includes("member near"),
+    );
+    expect(asked).toBeGreaterThanOrEqual(0);
+    expect(logs.indexOf(headsUps(srv, agent.id)[0])).toBeGreaterThan(asked);
+
+    // Same day: no second entry. The owner is never capped, so never warned.
+    await runTurn(srv, agent.id, "member near again", "Alice");
+    await runTurn(srv, agent.id, "owner near", "Boss");
+    expect(headsUps(srv, agent.id)).toHaveLength(1);
+
+    // The next day of the window warns again.
+    cap.clockOffsetMs = DAY_MS;
+    cap.reading = week.nextDayNear;
+    await runTurn(srv, agent.id, "member next day", "Alice");
+    expect(headsUps(srv, agent.id)).toHaveLength(2);
+    expect(errors(srv, agent.id)).toHaveLength(0);
+  });
+
+  it("writes nothing for a turn whose send fails, so the day's heads-up is still owed", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({
+        storedSessionState: "missing",
+        session: { manualSend: true },
+      }),
+    });
+    server = srv;
+    await srv.seedOwner("Boss");
+    await srv.seedMember("Alice");
+    const agent = await spawnFor(srv, "AliceBot", "Alice");
+    const cap = installCap();
+    cap.reading = pinnedWeek().near;
+
+    void srv.agentManager.sendMessage(agent.id, "member lost", "Alice");
+    await waitUntil(() => sentTexts(srv, agent.id).length === 1);
+    srv.fakeBackend
+      .sessionForAgent(agent.id)!
+      .failSends(new Error("send failed"));
+    await waitUntil(
+      () => stateOf(srv, agent.id) !== "thinking",
+      2000,
+      "failed turn settled",
+    );
+    expect(headsUps(srv, agent.id)).toHaveLength(0);
+
+    void srv.agentManager.sendMessage(agent.id, "member kept", "Alice");
+    await waitUntil(
+      () => sentTexts(srv, agent.id).some((t) => t.includes("member kept")),
+      2000,
+      "second turn sent",
+    );
+    srv.fakeBackend.sessionForAgent(agent.id)!.releaseSends();
+    await waitUntil(
+      () =>
+        headsUps(srv, agent.id).length > 0 || errors(srv, agent.id).length > 1,
+      2000,
+      "accepted turn warned",
+    );
+    expect(headsUps(srv, agent.id)).toHaveLength(1);
+  });
+
+  it("warns after a queued batch's messages", async () => {
+    const { srv } = await boot();
+    const agent = await spawnFor(srv, "AliceBot", "Alice");
+    const cap = installCap();
+    const week = pinnedWeek();
+    cap.reading = week.behind;
+
+    // Hold the agent busy with the owner's turn so the member's message queues.
+    void srv.agentManager.sendMessage(agent.id, "first", "Boss");
+    await waitUntil(() => sentTexts(srv, agent.id).length === 1);
+    void srv.agentManager.sendMessage(agent.id, "member queued", "Alice");
+    await waitUntil(() => (queueOf(srv, agent.id) ?? []).length === 1);
+
+    cap.reading = week.near;
+    srv.fakeBackend.sessionForAgent(agent.id)!.completeTurn();
+    // A queued item leaves the queue once its send is accepted, which is
+    // where the heads-up is written; wait for that, not for the entry, so a
+    // missing heads-up fails on its assertion.
+    await waitUntil(
+      () =>
+        (queueOf(srv, agent.id) ?? []).length === 0 &&
+        sentTexts(srv, agent.id).length === 2,
+      2000,
+      "batch sent",
+    );
+    expect(sentTexts(srv, agent.id)[1] ?? "").toContain("member queued");
+    expect(headsUps(srv, agent.id)).toHaveLength(1);
+    const logs = srv.agentManager.getAgentLogs(agent.id);
+    const queued = logs.findIndex(
+      (e) => e.kind === "user_message" && e.content.includes("member queued"),
+    );
+    expect(queued).toBeGreaterThanOrEqual(0);
+    expect(logs.indexOf(headsUps(srv, agent.id)[0])).toBeGreaterThan(queued);
   });
 });
 

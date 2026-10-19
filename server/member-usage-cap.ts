@@ -50,7 +50,9 @@ export type BillingAccount = {
 } | null;
 
 export type Admission =
-  | { kind: "admitted" }
+  // headsUp: the reading is close to today's line. dayStartMs is the start of
+  // today in the weekly window, so a chat shows the heads-up once per day.
+  | { kind: "admitted"; headsUp?: { dayStartMs: number } }
   | { kind: "exempt" }
   | { kind: "refused"; retryAtMs: number };
 
@@ -79,7 +81,13 @@ export function evaluateLine(
   resetsAtMs: number,
   now: number,
   share: number,
-): { allowed: boolean; linePercent: number; retryAtMs: number } {
+): {
+  allowed: boolean;
+  linePercent: number;
+  retryAtMs: number;
+  headsUp: boolean;
+  dayStartMs: number;
+} {
   const weekStart = resetsAtMs - WEEK_MS;
   const line = (day: number) => (share * day) / 7;
   const today = Math.min(
@@ -95,10 +103,14 @@ export function evaluateLine(
       break;
     }
   }
+  const allowed = usedPercent < line(today);
   return {
-    allowed: usedPercent < line(today),
+    allowed,
     linePercent: line(today),
     retryAtMs,
+    // The heads-up band: a quarter of a day's allowance below today's line.
+    headsUp: allowed && line(today) - usedPercent <= share / 7 / 4,
+    dayStartMs: weekStart + (today - 1) * DAY_MS,
   };
 }
 
@@ -129,6 +141,11 @@ export function usageCapText(
   return translator.t("systemEntries.usageCap.pace", {
     when: until.kind === "formatted" ? until.text : "",
   });
+}
+
+// No usage figures: members never see the office account's numbers.
+export function usageHeadsUpText(translator: Translator): string {
+  return translator.t("systemEntries.usageCap.headsUp");
 }
 
 export interface MemberUsageCap {
@@ -200,9 +217,10 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
       now(),
       share,
     );
-    return line.allowed
-      ? { kind: "admitted" }
-      : { kind: "refused", retryAtMs: line.retryAtMs };
+    if (!line.allowed) return { kind: "refused", retryAtMs: line.retryAtMs };
+    return line.headsUp
+      ? { kind: "admitted", headsUp: { dayStartMs: line.dayStartMs } }
+      : { kind: "admitted" };
   }
 
   return {

@@ -313,6 +313,7 @@ import {
   memberUsageCap,
   UsageCapError,
   usageCapText,
+  usageHeadsUpText,
   type BillingAccount,
 } from "./member-usage-cap.ts";
 import { permissionInputSummary } from "./permission-audit.ts";
@@ -619,6 +620,7 @@ export function createAgentManager(deps: ManagerDeps) {
           settingsNoticeText(logWords(managed.info.id), managed, arm),
           { notice: "settings" },
         ),
+      logUsageHeadsUp,
     });
   }
 
@@ -3465,6 +3467,22 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!memberUsageCap().isEnabled() || !managerCapped(managed.info.userId))
       return;
     await memberUsageCap().admit(nextBillingAccount(managed));
+  }
+
+  // The member usage heads-up: office usage is close to today's member line.
+  // One entry per chat per day of the weekly window.
+  function logUsageHeadsUp(
+    managed: ManagedAgent,
+    headsUp: { dayStartMs: number },
+    username?: string,
+  ): void {
+    if (managed.usageHeadsUpDay === headsUp.dayStartMs) return;
+    managed.usageHeadsUpDay = headsUp.dayStartMs;
+    addLogEntry(
+      managed.info.id,
+      "system",
+      usageHeadsUpText(logTranslator(managed, username)),
+    );
   }
 
   // A turn the member usage cap refused before send: say why in the chat and
@@ -7780,6 +7798,7 @@ export function createAgentManager(deps: ManagerDeps) {
       const capped = memberUsageCap().isEnabled()
         ? items.filter((m) => queuedItemCapped(managed, m))
         : [];
+      let usageHeadsUp: { dayStartMs: number } | undefined;
       if (capped.length > 0) {
         const tokenAtGate = managed.sessionManager.turnCancelToken;
         const sessionAtGate = managed.sessionManager.session;
@@ -7797,6 +7816,7 @@ export function createAgentManager(deps: ManagerDeps) {
         const refused = new Set<QueuedMessage>(
           admission.kind === "refused" ? capped : [],
         );
+        if (admission.kind === "admitted") usageHeadsUp = admission.headsUp;
         if (admission.kind === "refused") {
           drainQueueItems(agentId, managed, refused);
           addLogEntry(
@@ -7874,6 +7894,7 @@ export function createAgentManager(deps: ManagerDeps) {
             // session.send resolves.
             logDeliveredItems(agentId, managed, items);
             drainQueueItems(agentId, managed, new Set(items));
+            if (usageHeadsUp) logUsageHeadsUp(managed, usageHeadsUp);
           },
         });
       } catch (err) {
@@ -9214,6 +9235,7 @@ export function createAgentManager(deps: ManagerDeps) {
         attachments,
         humanInput: true,
         usageCapped: directInputCapped(username),
+        usageCapUsername: username,
         nativeCommand,
       });
     } catch (err) {
@@ -11510,6 +11532,7 @@ export function createAgentManager(deps: ManagerDeps) {
           attachments: targetEntry.attachments,
           humanInput: true,
           usageCapped: directInputCapped(username),
+          usageCapUsername: username,
         });
         // runAgentTurn has called beginTurn, so the agent is busy and this
         // release does not flush: the queue follows at the edited turn's end.

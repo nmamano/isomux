@@ -1282,6 +1282,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         sdkText: prefixedSkillPrompt,
         humanInput: true,
         usageCapped: directInputCapped(username),
+        usageCapUsername: username,
       });
     } catch (err) {
       // runAgentTurn re-throws whatever the underlying turn threw and has
