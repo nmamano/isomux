@@ -1,0 +1,67 @@
+name: IndexNow
+
+# After each Production deploy of isomux.com, send IndexNow the sitemap URLs
+# whose built page changed since the previous deploy (scripts/indexnow.ts).
+# Vercel's Git integration posts the GitHub deployment status that starts it.
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+  deployments: read
+
+jobs:
+  ping:
+    if: >-
+      github.repository == 'nmamano/isomux' &&
+      github.event.deployment.environment == 'Production' &&
+      github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the deployed commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.deployment.sha }}
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Build the docs of this deploy
+        run: bun install --frozen-lockfile && bun run build:docs
+
+      - name: Find the previous deploy
+        id: base
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOYMENT_ID: ${{ github.event.deployment.id }}
+        # On its own line so a failed lookup fails the step; inside echo it
+        # would exit 0 and ping every page.
+        run: |
+          sha=$(bun scripts/indexnow.ts base-sha "$DEPLOYMENT_ID")
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # A base that does not build makes every page count as changed.
+      - name: Build the docs of the previous deploy
+        id: base_build
+        if: steps.base.outputs.sha != ''
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
+          cd "$RUNNER_TEMP/base"
+          bun install --frozen-lockfile
+          bun run build:docs
+
+      - name: Ping IndexNow
+        env:
+          BASE_BUILT: ${{ steps.base_build.outcome == 'success' }}
+        run: |
+          if [ "$BASE_BUILT" = true ]; then
+            bun scripts/indexnow.ts ping --head site --base "$RUNNER_TEMP/base/site"
+          else
+            bun scripts/indexnow.ts ping --head site
+          fi

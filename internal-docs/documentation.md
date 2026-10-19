@@ -36,7 +36,7 @@ Keep these consistent across all surfaces below.
 - **Update when:** headline features change. Always update this file, the README and the two translated copies in the same commit so they don't drift.
 - **Languages:** the English file is the source. Every edit to it is repeated in the Spanish, Catalan and Simplified Chinese copies in the same commit; a copy that keeps an English sentence is a bug, not a fallback. All four carry the same five `rel=alternate hreflang` links and the same language menu in the footer (a `<details>` that names the page's language and links the others). `scripts/site-i18n-check.test.ts` holds the eight pages to that.
 - **Footer:** one layout on the landing, hosted, about, enterprise, AI instructions and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in all fourteen. The about, enterprise, AI instructions and legal pages are English only and carry no language menu.
-- **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`). `cleanUrls` serves the copies at `/es` and `/ca`; both appear in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`).
+- **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`). `cleanUrls` serves the copies at `/es` and `/ca`; both appear in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`). After each Production deploy, `.github/workflows/indexnow.yml` sends IndexNow the sitemap URLs whose built page changed, was added or was removed since the previous deploy (`scripts/indexnow.ts`; key file `site/<key>.txt`).
 
 ## 2b. Hosted landing page (isomux.com/hosted)
 

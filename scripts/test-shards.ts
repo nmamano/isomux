@@ -77,11 +77,12 @@ export function workerCount(threads = availableParallelism()): number {
 // process of its own, so a slow file never waits behind others.
 const DOM_FILE = /\.dom\.test\.[a-z]+$/;
 
-// These files rebuild site/docs in beforeAll (build-docs deletes the
-// directory first), so in two processes at once one reads pages the other
-// has just removed (red in CI on 2026-10-07). They share one process.
+// These files rebuild site/docs (build-docs deletes the directory first),
+// so in two processes at once one reads pages the other has just removed
+// (red in CI on 2026-10-07). They share one process.
 export const DOCS_BUILD_FILES = [
   "scripts/hosting-docs.test.ts",
+  "scripts/indexnow.test.ts",
   "scripts/site-i18n-check.test.ts",
 ];
 
