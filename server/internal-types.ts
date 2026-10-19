@@ -364,7 +364,14 @@ export interface ManagedAgent {
   // (and on disk) until that session's turn_completed drains them; a claim
   // whose session is no longer the installed one is stale and its items flush
   // again (at-least-once). Object references, not queue ids: ids are reused.
-  boundaryClaim?: { session: BackendSession; items: Set<QueuedMessage> };
+  // A push session (BackendSession.steer, Codex) claims items as `pending`
+  // under their steer id until the engine records them; turn_completed
+  // releases what is still pending instead of draining it.
+  boundaryClaim?: {
+    session: BackendSession;
+    items: Set<QueuedMessage>;
+    pending?: Map<string, QueuedMessage[]>;
+  };
   // clientMessageId → expiresAtMs. Per-receiver dedup window for HTTP retries.
   // 5 min TTL; entries are pruned lazily inside enqueueMessage. Persisted with
   // the queue so a retry arriving after a restart still dedupes against a

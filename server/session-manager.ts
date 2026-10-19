@@ -343,10 +343,14 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         //     miss its timestamp. Active-tool state is per turn and cleared at
         //     every terminal boundary, so the miss cannot leak into later
         //     observability or watchdog decisions.
+        // steer_delivered also passes: the engine recorded a pushed steer in
+        // the turn, so the model has it whatever the interrupt does, and the
+        // queue must not send it again.
         if (
           this.aborting &&
           ev.kind !== "turn_completed" &&
-          ev.kind !== "error"
+          ev.kind !== "error" &&
+          ev.kind !== "steer_delivered"
         )
           continue;
         this.deps.processNormalizedEvent(this.agentId, ev);

@@ -1,6 +1,6 @@
 # Messaging
 
-Send to another agent with `POST /api/agents/:id/messages`: the body is the message as `text/plain`, and options go in the query: `steer=1`, `clientMessageId=<id>`. The token supplies sender identity. A response with `queued:true` waits for the current turn to finish; an idle recipient receives it now. To reach a busy recipient during its current turn, add `steer=1`: a Claude agent receives it when its running tool calls end; other agents are interrupted. When starting an exchange, make sure one side steers and tell the peer. Otherwise both sides can continue on stale information. `clientMessageId` makes retries safe for five minutes.
+Send to another agent with `POST /api/agents/:id/messages`: the body is the message as `text/plain`, and options go in the query: `steer=1`, `clientMessageId=<id>`. The token supplies sender identity. A response with `queued:true` waits for the current turn to finish; an idle recipient receives it now. To reach a busy recipient during its current turn, add `steer=1`: a Claude or Codex agent receives it without being interrupted; an OpenCode agent is interrupted. When starting an exchange, make sure one side steers and tell the peer. Otherwise both sides can continue on stale information. `clientMessageId` makes retries safe for five minutes.
 
 To stop another agent's current turn without a message, use `POST /api/agents/:id/abort` with `{}`. It also denies a permission prompt the agent is parked on. Every agent can stop an agent it can message.
 

@@ -46,6 +46,7 @@ import {
   CODEX_LIMIT_RESET_READ_MS,
   CODEX_TURN_ERROR_WATCHDOG_MS,
   CodexSession,
+  codexBackend,
   mergeRateLimitSnapshots,
   commandTokensForPrefixMatch,
   normalizeCodexSubscriptionUsage,
@@ -96,6 +97,8 @@ class FakeCodexTransport implements CodexTransport {
   // thread/start and thread/resume answer with this modelProvider when set.
   modelProvider: string | null = null;
   settingsUpdateError: Error | null = null;
+  // When set, request("turn/steer") rejects with it (codex refuses the steer).
+  turnSteerError: Error | null = null;
   // account/rateLimits/read: resolves with this payload, or rejects when the
   // error is set (unauthenticated / API-key-only logins).
   rateLimitsReadResponse: unknown = null;
@@ -156,6 +159,8 @@ class FakeCodexTransport implements CodexTransport {
     }
     if (method === "thread/settings/update" && this.settingsUpdateError)
       return Promise.reject(this.settingsUpdateError);
+    if (method === "turn/steer" && this.turnSteerError)
+      return Promise.reject(this.turnSteerError);
     if (method === "turn/start" && this.holdTurnStart) {
       this.turnStartPending = true;
       return new Promise<T>((resolve) => {
@@ -4595,5 +4600,131 @@ describe("CodexSession ChatGPT token refresh request", () => {
     expect(call).toBeDefined();
     // The instructions come with auth_needed; the error does not repeat them.
     expect(render("en", call!)).not.toContain("login --device-auth");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent steers go into the running turn with turn/steer (task 85706f13,
+// internal-docs/steer-delivery-design.md). Probed on codex 0.160 (2026-10-19):
+// codex accepts the text only while expectedTurnId is the active turn, lets
+// the running tool finish, and records the text as a userMessage item whose
+// clientId is our clientUserMessageId. Acceptance is not delivery: an
+// interrupt before the record drops the text.
+// ---------------------------------------------------------------------------
+describe("CodexSession steer (turn/steer)", () => {
+  function turnStarted(fake: FakeCodexTransport, id: string): void {
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id },
+    });
+  }
+  function turnCompleted(fake: FakeCodexTransport, id: string): void {
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id, status: "completed" },
+    });
+  }
+  function steerRequests(fake: FakeCodexTransport) {
+    return fake.requests
+      .filter((r) => r.method === "turn/steer")
+      .map((r) => r.params as Record<string, unknown>);
+  }
+  function userMessage(
+    method: "item/started" | "item/completed",
+    fake: FakeCodexTransport,
+    id: string,
+    clientId: string | null,
+  ): void {
+    fake.fireNotification(method, {
+      threadId: FIXTURE_THREAD_ID,
+      item: {
+        type: "userMessage",
+        id,
+        clientId,
+        content: [{ type: "text", text: "x", text_elements: [] }],
+      },
+    });
+  }
+
+  it("the Codex backend delivers agent steers without aborting", () => {
+    // The enqueue path reads this flag; without it every steer still aborts.
+    expect(codexBackend.toolBoundaryDelivery).toBe(true);
+  });
+
+  it("steers the active turn, with that turn as the precondition and the steer id as client id", async () => {
+    const { session, fake } = await bootstrapped();
+    await session.send("first");
+    turnStarted(fake, "turn-1");
+    expect(await session.steer("hello from Sender", "steer-a")).toBe(true);
+    turnCompleted(fake, "turn-1");
+
+    // The next turn is the precondition now, not the first one.
+    await session.send("second");
+    turnStarted(fake, "turn-2");
+    expect(await session.steer("again", "steer-b")).toBe(true);
+
+    const reqs = steerRequests(fake);
+    expect(reqs).toHaveLength(2);
+    expect(reqs[0]).toMatchObject({
+      threadId: FIXTURE_THREAD_ID,
+      expectedTurnId: "turn-1",
+      clientUserMessageId: "steer-a",
+    });
+    expect(reqs[1]).toMatchObject({
+      expectedTurnId: "turn-2",
+      clientUserMessageId: "steer-b",
+    });
+    const input = reqs[0].input as { type: string; text?: string }[];
+    expect(
+      input.some((i) => i.type === "text" && i.text === "hello from Sender"),
+    ).toBe(true);
+  });
+
+  it("answers false with no request when no turn is active", async () => {
+    const { session, fake } = await bootstrapped();
+    // Before any turn.
+    expect(await session.steer("early", "steer-a")).toBe(false);
+    // After the turn ended.
+    await session.send("first");
+    turnStarted(fake, "turn-1");
+    turnCompleted(fake, "turn-1");
+    expect(await session.steer("late", "steer-b")).toBe(false);
+    expect(steerRequests(fake)).toEqual([]);
+  });
+
+  it("answers false, never rejects, when codex refuses the steer", async () => {
+    const { session, fake } = await bootstrapped();
+    await session.send("first");
+    turnStarted(fake, "turn-1");
+    fake.turnSteerError = new Error(
+      "expected active turn id turn-1 but found turn-2",
+    );
+    expect(await session.steer("hello", "steer-a")).toBe(false);
+    // The refusal came from codex, not from a missing turn.
+    expect(steerRequests(fake)).toHaveLength(1);
+  });
+
+  it("reports steer_delivered once, when codex records the steer it was given", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("first");
+    turnStarted(fake, "turn-1");
+    expect(await session.steer("hello", "steer-a")).toBe(true);
+
+    // Not ours: no client id, and a client id this session never sent.
+    userMessage("item/started", fake, "u-0", null);
+    userMessage("item/started", fake, "u-1", "steer-zzz");
+    // Ours: started, then completed - one event.
+    userMessage("item/started", fake, "u-2", "steer-a");
+    userMessage("item/completed", fake, "u-2", "steer-a");
+    turnCompleted(fake, "turn-1");
+
+    const delivered = expectKind(
+      await nextEvent(it, "steer_delivered"),
+      "steer_delivered",
+    );
+    expect(delivered.steerId).toBe("steer-a");
+    // The next event is the turn's end: nothing for the foreign messages
+    // before it, and no second steer_delivered.
+    expectKind(await nextEvent(it, "turn_completed"), "turn_completed");
   });
 });

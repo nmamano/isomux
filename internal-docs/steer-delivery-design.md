@@ -3,6 +3,7 @@
 > Status: SHIPPED in lane steer-interrupt (2026-09-26), as ruled by the PM: §3.1's acceptance is "our callback
 > returned the text" (no transcript read), and §5 is settled. Tasks 0a248523 (P0, steer read as a human rejection) and 7529b23b (P3, deliver
 > at the next tool boundary). Builds on `message-steering-design.md` §2.1, which shipped the `steer` flag.
+> Codex receivers joined in task 85706f13 (2026-10-19): §3.4 delivers their steers with `turn/steer`.
 
 ## 1. The failure, reproduced
 
@@ -48,13 +49,25 @@ the ordinary idle flush delivers it as the next turn. isomux keeps sole ownershi
 (hook callback and `flushQueue` both run on isomux's event loop) is not end-to-end exactly-once; §3.1 states the
 acceptance boundary and the failure policy.
 
-Codex: the app-server protocol has `turn/steer` ("steers an already-active turn") with an `expectedTurnId`
-precondition that fails when that turn is no longer active, so accept-or-queue is atomic. Not probed live yet.
-OpenCode: the transport uses only `prompt_async` and `abort`; whether `prompt_async` on a busy session folds in
-mid-turn is unchecked. Both keep today's abort in this lane.
+Codex (probed 2026-10-19, codex 0.160.0 app-server, model gpt-6-luna, scratch CODEX_HOME; task 85706f13):
+`turn/steer` with `expectedTurnId` answers at once and does not cut the running tool (a 20-step script ran to the
+end). Codex records the text as a `userMessage` item in the same turn, right after the running tool's result,
+with `clientId` set to the `clientUserMessageId` we sent, and the model goes on in that turn. A steer that lands
+while the final reply streams is recorded after the reply, and codex samples again in the same turn: there is no
+follow-on turn. The recorded item came before `turn/completed` in 4 of 4 runs that recorded one. A wrong turn id
+or no active turn is refused (JSON-RPC -32600). Acceptance is not delivery: a steer accepted and then interrupted
+1 s later was never recorded, and the model did not know of it in the next turn.
+
+OpenCode (probed 2026-10-19, pinned 1.18.35 with a provider mock, and its source at tag v1.18.35): a
+`prompt_async` on a busy session folds in. The running tool finishes, and the next model request carries the
+tool result and the new user message in the same run. But there is no "only if still busy" precondition: a prompt
+that races the end of the run starts a fresh run on its own (43 of 48 timed race trials), which is the unowned
+follow-on turn of the July attempt, and the source shows a narrow window where such a prompt gets no reply at
+all. OpenCode therefore keeps the abort.
 
 
 Probe scripts: `internal-docs/evidence/steer-delivery-0926/` (`probe.ts` for the table above, `probe2.ts` for §3.1).
+The Codex and OpenCode probes of 2026-10-19 were scratch runs and are not kept.
 
 ## 3. Proposal
 
@@ -118,7 +131,7 @@ What the receiver sees, as the CLI renders it:
 
 ```
 <system-reminder>
-PostToolBatch hook additional context: [Isomux: delivered between your tool calls; nothing was interrupted.]
+PostToolBatch hook additional context: [Isomux: delivered during your turn; nothing was interrupted.]
 
 "Sender" (agent id: …) from Room "…" FYI from Sender: …
 </system-reminder>
@@ -128,7 +141,7 @@ The tool it was running finished and its real result is in context.
 
 ### 3.2 Every abort path: the delivered message names the cause (0a248523)
 
-Paths that still abort: human Send now, and agent steers at Codex or OpenCode receivers.
+Paths that still abort: human Send now, and agent steers at OpenCode receivers.
 
 **Marker.** When `sendNow` issues an abort against a busy receiver, it stamps every item then in the queue with
 `interruptCause`: `"agent_steer"` when the steer branch called it, `"member_send_now"` for the button, the route and
@@ -156,16 +169,57 @@ The receiver rule is conditioned on the server marker only, and only for the int
 A real human permission denial followed by an ordinary agent message carries no note. A real denial earlier in the
 same turn stays a denial even when a steer follows it.
 
+The sender half of that line has since moved to the messaging page of the agent reference
+(`server/agent-reference/messaging.md`), which since task 85706f13 reads "a Claude or Codex agent receives it without being
+interrupted; an OpenCode agent is interrupted."
+
+### 3.4 Codex: agent steers go in with `turn/steer` (85706f13)
+
+The Codex backend declares the same `toolBoundaryDelivery` capability, so the enqueue branch of §3.1 is unchanged:
+the item is marked `steer`, the ack is `{queued:false, steered:true}`, nothing is aborted or rate limited. Claude
+pulls (the hook asks for the queue); Codex is pushed to. The session decides which: a session with
+`BackendSession.steer(text, steerId)` is pushed to, and the orchestrator never branches on the agent type.
+
+**Push.** When a steer is queued, and again at each main-thread `tool_call`, `pushBoundarySteer` applies the same
+session gate and eligible-batch rule as the hook and builds the same text (`TOOL_BOUNDARY_NOTE`, then each item).
+It claims the items as *pending* under a fresh steer id (hidden from the visible queue, not cancellable, not
+stamped by Send now, not offered again) and calls `steer()`. `CodexSession.steer` sends `turn/steer` with the
+active turn as `expectedTurnId` and the steer id as `clientUserMessageId`; it answers false, never throws, with no
+active turn or when codex refuses. The `tool_call` retry covers a steer that came before codex named the turn.
+
+**Delivery is the record, not the acceptance (§2 Codex probe).** The adapter emits `steer_delivered` for the
+first `userMessage` item whose `clientId` is a steer id it sent. Only then does the orchestrator log the items
+(`delivery: "tool_boundary"`, same metadata as the hook), at the point where codex put it. Codex does not cut a
+running command, but it runs a long command as a call plus polls and can record the steer at a poll while the
+command still runs (§6 live check). The chat then shows the steer before the command card, because the adapter
+reports a command only when it ends. `steer_delivered` passes the hot-abort event filter in `session-manager.ts`: when codex records
+a steer after a member's Send now has sent `turn/interrupt`, the model has it, and the flush must not send it
+again.
+
+**Release.** A refusal (`steer()` false) releases the pending items to the queue. `turn_completed` drains the
+recorded items and releases what is still pending (dropped by an interrupt or a failed turn), and the flush that
+follows delivers it. A late answer or a late record is a no-op: both are bound to the claim object and the steer
+id, and a drained or replaced claim no longer holds them. A capacity retry emits no `turn_completed`, so pending
+items wait for the final turn end and then flush. A session that ends or is replaced makes the claim stale, as in
+§3.1.
+
+At-least-once, as for Claude: a record that codex sends after `turn/completed` for a steer the orchestrator
+already released is a duplicate to the model (one chat entry, from the flush). In the probe the record always came
+first (4 of 4).
+
+**Edit and fork.** On Codex the steer is a backend user message inside a turn. Its text starts with the note and
+the sender prefix, so it never matches a member's text, and `editMessage` already excludes `tool_boundary` entries.
+
 ## 4. What changes for callers
 
 | Surface | Before | After |
 |---|---|---|
-| Ack `steered:true` | turn aborted | Claude receiver: delivered at its next batch boundary, or as its next turn if the turn ends first or the queue holds a member/skill/handoff item. Codex/OpenCode: turn aborted (unchanged). Shape unchanged. |
-| Ack `queued:false` on a steer | "does not wait for the current turn" | Claude receiver: can wait for the rest of the turn (long tool call, no further boundary, ineligible batch) |
+| Ack `steered:true` | turn aborted | Claude receiver: delivered at its next batch boundary, or as its next turn if the turn ends first or the queue holds a member/skill/handoff item. Codex receiver (since 85706f13): delivered at its next step (after the running tool or reply, or at the next poll of a long command, which keeps running), or as its next turn if codex refuses it or drops it. OpenCode: turn aborted (unchanged). Shape unchanged. |
+| Ack `queued:false` on a steer | "does not wait for the current turn" | Claude or Codex receiver: can wait for the rest of the turn (long tool call, no further boundary, ineligible batch) |
 | Rate limit (3/min/receiver) | counts steers that interrupted | unchanged meaning: boundary steers interrupt nothing, so they are neither counted nor refused |
-| Long tool call at the receiver (for example a 15-minute suite) | steer cuts it | steer waits for it |
+| Long tool call at the receiver (for example a 15-minute suite) | steer cuts it | Claude: steer waits for it. Codex: the command keeps running and the steer can go in at its next poll. OpenCode: steer cuts it |
 | Ordinary agent that must stop a Claude agent now | steer | no path; privileged agents and members keep `/abort` and Send now. Since task f4452169 (Nil, 2026-10-02) every agent may `/abort` any agent it may message; agent stops share the steer window and leave the target a stop notice |
-| Chat log | "Agent interrupted." then the message | the message appears after the tool result, no interruption line |
+| Chat log | "Agent interrupted." then the message | no interruption line. Claude: the message appears after the tool result. Codex: where codex recorded it, which for a long command can be before the command card (the adapter reports a command when it ends) |
 | Curl card label for a steer | "Interrupt {who} with a message" | "Message {who} mid-turn" (en; es, ca, zh follow) |
 
 ## 5. Decisions (PM, 2026-09-26)
@@ -173,7 +227,8 @@ same turn stays a denial even when a steer follows it.
 1. Accepted: for Claude receivers a steer no longer interrupts. No hard-interrupt option; members keep Send now and
    privileged agents keep `/abort`. The PM takes the contract change to Nil.
 2. The rate limit counts only steers that abort.
-3. Codex `turn/steer`: a follow-up task. Codex and OpenCode keep the abort plus the §3.2 note.
+3. Codex `turn/steer`: a follow-up task. Codex and OpenCode keep the abort plus the §3.2 note. Done for Codex in
+   task 85706f13 (§3.4, 2026-10-19); OpenCode keeps the abort (§2).
 
 ## 6. Verification
 
@@ -190,6 +245,12 @@ same turn stays a denial even when a steer follows it.
   - a claim whose session ends before `turn_completed` is delivered again;
   - boundary steers are not rate limited;
   - edit of a member message with the same text as a boundary-delivered agent message forks at the right message.
+- Unit, Codex push (`steer-boundary.test.ts` "steer at a push session", `codex/adapter.test.ts` "CodexSession
+  steer"): pending until recorded and logged only then; refusal released to the flush; accepted but never recorded
+  is flushed once and a late record logs nothing; a late answer touches no later steer; two steers are two pushes;
+  the `tool_call` retry; a member item blocks the push; Send now with the record before or without the record;
+  session replacement redelivers. Adapter: the `turn/steer` params, false with no turn or on refusal, one
+  `steer_delivered` for our own client id only.
 - Unit, abort paths: non-capable backend steer and member Send now each carry their note; the note is consumed with
   its delivery, and a later plain queue gets none. The failed-abort restore is not unit-tested (it needs a failing
   session replacement).
@@ -200,3 +261,11 @@ same turn stays a denial even when a steer follows it.
   with `delivery: "tool_boundary"`; the Receiver ran steps 2 and 3, wrote "progress.txt has 30 step lines.", and
   closed with "While the script was running, the agent Sender sent a note … I didn't act on it." It asked nobody
   anything.
+- Live, Codex (task 85706f13, 2026-10-19): in-process manager with the real Codex backend and system prompt, fresh
+  `ISOMUX_HOME`, model gpt-5.6-luna. The Receiver runs `bash slow.sh 12` as step 1 of 3; at step 5 an agent steers
+  it with the §1 FYI text. Two runs, the same result: ack `{"queued":false,"steered":true}`; no "Agent interrupted."
+  line; the script ran all 12 steps; the steer was logged with `delivery: "tool_boundary"` and the sender metadata
+  about 10 s after the steer, while the script still ran (codex runs a long command as a call plus polls, and
+  recorded the text at a poll boundary; the chat shows it before the Bash card, which codex reports only when the
+  command ends); the Receiver did steps 2 and 3 and replied with the line count. It asked nobody anything and did
+  not treat the steer as injected text.

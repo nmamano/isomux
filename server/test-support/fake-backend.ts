@@ -80,6 +80,11 @@ export interface FakeSessionConfig {
   manualSend?: boolean;
   // When set, setPlanMode() rejects with it.
   planModeError?: Error;
+  // When true, the session implements BackendSession.steer() (a push session,
+  // like Codex). Each call lands in steerCalls; it stays pending until the
+  // test resolves it, unless steerAnswer auto-resolves it.
+  steerPush?: boolean;
+  steerAnswer?: boolean;
   // When true, close() marks the session closed (pushes ignored, closed
   // observable) but does NOT end the stream - a parked stream() stays parked
   // until the test calls endStream() explicitly. Models a wedged subprocess
@@ -100,6 +105,16 @@ export class FakeSession implements BackendSession {
   readonly planModeCalls: boolean[] = [];
   abortCount = 0;
   closed = false;
+  // Every steer() call, in order (steerPush sessions only). resolve() answers
+  // the call: true = the engine accepted it for the active turn.
+  readonly steerCalls: {
+    text: string;
+    steerId: string;
+    resolve: (ok: boolean) => void;
+  }[] = [];
+  // Present only when FakeSessionConfig.steerPush is set: the orchestrator
+  // tells push sessions apart by this method.
+  steer?: (text: string, steerId: string) => Promise<boolean>;
 
   private buffer: NormalizedEvent[] = [];
   private resolveWake: (() => void) | null = null;
@@ -133,6 +148,14 @@ export class FakeSession implements BackendSession {
     this.manualSend = cfg.manualSend ?? false;
     this.hangOnClose = cfg.hangOnClose ?? false;
     this.planModeError = cfg.planModeError;
+    if (cfg.steerPush) {
+      const answer = cfg.steerAnswer;
+      this.steer = (text, steerId) =>
+        new Promise<boolean>((resolve) => {
+          this.steerCalls.push({ text, steerId, resolve });
+          if (answer !== undefined) resolve(answer);
+        });
+    }
     if (cfg.autoSystemInit ?? true) {
       this.push({
         kind: "system_init",

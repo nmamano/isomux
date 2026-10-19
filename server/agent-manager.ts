@@ -566,7 +566,7 @@ export const CARRIED_NOTE_ONE =
 export const CARRIED_NOTE_OTHER =
   "[Note: these messages were sent before a conversation change, so they may refer to context you do not have.]";
 export const TOOL_BOUNDARY_NOTE =
-  "[Isomux: delivered between your tool calls; nothing was interrupted.]";
+  "[Isomux: delivered during your turn; nothing was interrupted.]";
 
 export function createAgentManager(deps: ManagerDeps) {
   const getBackend = deps.resolveBackend;
@@ -5138,6 +5138,8 @@ export function createAgentManager(deps: ManagerDeps) {
           input: ev.input,
           ...(ev.subagent ? { subagent: ev.subagent } : {}),
         });
+        // A steer a push session could not take yet goes in at this call's end.
+        if (!ev.subagent) pushBoundarySteer(agentId);
         break;
       }
       case "tool_result": {
@@ -5489,6 +5491,11 @@ export function createAgentManager(deps: ManagerDeps) {
         // Nothing left to ask: the turn goes on without an answer.
         if (!managed.pendingPermission && managed.sessionManager.pendingTurn)
           updateState(agentId, "thinking");
+        break;
+      }
+      case "steer_delivered": {
+        const managed = agents.get(agentId);
+        if (managed) onSteerDelivered(agentId, managed, ev.steerId);
         break;
       }
       case "input_request": {
@@ -7125,20 +7132,14 @@ export function createAgentManager(deps: ManagerDeps) {
     );
   }
 
-  // The PostToolBatch callback (backends/claude.ts toolBoundaryHooks), bound to
-  // the session it was created with. When the queue holds a steer and the whole
-  // queue is eligible, it claims the queue, logs the items, and returns the text
-  // the model reads before its next request. The items stay queued (and on
-  // disk) until that session's turn_completed drains them. Must not throw: a
-  // failure releases what it claimed and delivers nothing.
-  function takeToolBoundaryMessage(
-    agentId: string,
-    session: BackendSession | null,
-  ): string | null {
-    const managed = agents.get(agentId);
-    if (!managed || !session) return null;
+  // Whether `session` may take the queue inside its running turn now: it is
+  // the installed session, a turn is running and nothing is switching it.
+  function boundaryTakeable(
+    managed: ManagedAgent,
+    session: BackendSession,
+  ): boolean {
     const sm = managed.sessionManager;
-    if (
+    return !(
       sm.session !== session ||
       !sm.pendingTurn ||
       sm.aborting ||
@@ -7151,26 +7152,61 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.autoHandoffPhase ||
       // Nor the old session's last tool batch a held queue.
       managed.queueHolds.size > 0
-    )
-      return null;
+    );
+  }
+
+  // The unclaimed queue when a boundary delivery may take it: it holds a
+  // steer and every item is eligible. Null otherwise.
+  function boundaryBatch(managed: ManagedAgent): QueuedMessage[] | null {
     const items = unclaimedQueue(managed);
     if (!items.some((m) => m.steer) || !items.every(boundaryEligible))
       return null;
-    const claim =
-      managed.boundaryClaim?.session === session
-        ? managed.boundaryClaim
-        : { session, items: new Set<QueuedMessage>() };
+    return items;
+  }
+
+  // What the model reads for a boundary delivery, from either path.
+  function boundaryText(agentId: string, items: QueuedMessage[]): string {
+    const parts = [TOOL_BOUNDARY_NOTE];
+    for (const m of items) {
+      const lines = m.attachments
+        ? formatAttachmentLines(
+            resolveAttachmentNotices(agentId, m.attachments),
+          )
+        : [];
+      parts.push([queuedItemText(m, agentId), ...lines].join("\n"));
+    }
+    return parts.join("\n\n");
+  }
+
+  // The claim of `session`, created when the installed claim belongs to
+  // another session or there is none.
+  function claimFor(
+    managed: ManagedAgent,
+    session: BackendSession,
+  ): NonNullable<ManagedAgent["boundaryClaim"]> {
+    return managed.boundaryClaim?.session === session
+      ? managed.boundaryClaim
+      : { session, items: new Set<QueuedMessage>() };
+  }
+
+  // The PostToolBatch callback (backends/claude.ts toolBoundaryHooks), bound to
+  // the session it was created with. When the queue holds a steer and the whole
+  // queue is eligible, it claims the queue, logs the items, and returns the text
+  // the model reads before its next request. The items stay queued (and on
+  // disk) until that session's turn_completed drains them. Must not throw: a
+  // failure releases what it claimed and delivers nothing.
+  function takeToolBoundaryMessage(
+    agentId: string,
+    session: BackendSession | null,
+  ): string | null {
+    const managed = agents.get(agentId);
+    if (!managed || !session || !boundaryTakeable(managed, session))
+      return null;
+    const items = boundaryBatch(managed);
+    if (!items) return null;
+    const claim = claimFor(managed, session);
     try {
-      const parts = [TOOL_BOUNDARY_NOTE];
-      for (const m of items) {
-        const lines = m.attachments
-          ? formatAttachmentLines(
-              resolveAttachmentNotices(agentId, m.attachments),
-            )
-          : [];
-        parts.push([queuedItemText(m, agentId), ...lines].join("\n"));
-      }
-      const text = parts.join("\n\n");
+      const text = boundaryText(agentId, items);
       for (const m of items) claim.items.add(m);
       managed.boundaryClaim = claim;
       logDeliveredItems(agentId, managed, items, { delivery: "tool_boundary" });
@@ -7186,11 +7222,97 @@ export function createAgentManager(deps: ManagerDeps) {
     }
   }
 
+  // Push sessions (BackendSession.steer, Codex): offer the eligible queue to
+  // the running turn. The items are claimed as pending under a fresh steer id
+  // and logged only when the engine records them (onSteerDelivered); a
+  // refusal releases them for the turn-end flush. Called when a steer is
+  // queued and at each main-thread tool call, so a steer the engine could not
+  // take yet (no turn id) is offered again. Must not throw.
+  function pushBoundarySteer(agentId: string): void {
+    const managed = agents.get(agentId);
+    const session = managed?.sessionManager.session;
+    if (
+      !managed ||
+      !session ||
+      typeof session.steer !== "function" ||
+      !boundaryTakeable(managed, session)
+    )
+      return;
+    const items = boundaryBatch(managed);
+    if (!items) return;
+    const claim = claimFor(managed, session);
+    const steerId = `isomux-steer-${crypto.randomUUID()}`;
+    let sent: Promise<boolean>;
+    try {
+      const text = boundaryText(agentId, items);
+      for (const m of items) claim.items.add(m);
+      (claim.pending ??= new Map()).set(steerId, items);
+      managed.boundaryClaim = claim;
+      emitQueueUpdate(agentId, managed);
+      sent = session.steer(text, steerId);
+    } catch (err) {
+      releasePendingSteer(agentId, managed, claim, steerId);
+      console.error(
+        `Steer push failed for ${agentId}; the queue waits for the turn to end:`,
+        errMessage(err),
+      );
+      return;
+    }
+    void sent.then(
+      (ok) => {
+        if (!ok) releasePendingSteer(agentId, managed, claim, steerId);
+      },
+      () => releasePendingSteer(agentId, managed, claim, steerId),
+    );
+  }
+
+  // The engine refused a pushed steer: its items are ordinary queued items
+  // again. A no-op once the claim was drained or replaced (the turn ended, the
+  // session changed) or the steer was recorded: the answer came too late to
+  // touch items a flush or a later push now holds.
+  function releasePendingSteer(
+    agentId: string,
+    managed: ManagedAgent,
+    claim: NonNullable<ManagedAgent["boundaryClaim"]>,
+    steerId: string,
+  ): void {
+    const items = claim.pending?.get(steerId);
+    if (!items || managed.boundaryClaim !== claim) return;
+    claim.pending!.delete(steerId);
+    for (const m of items) claim.items.delete(m);
+    emitQueueUpdate(agentId, managed);
+  }
+
+  // The engine recorded the pending steer `steerId` in the running turn: log
+  // its items as the hook path does. No busy-turn gate: an interrupt can
+  // already have moved the state while the engine still recorded the text.
+  // Only the installed session's claim counts; an unknown or released steer
+  // id logs nothing.
+  function onSteerDelivered(
+    agentId: string,
+    managed: ManagedAgent,
+    steerId: string,
+  ): void {
+    if (liveClaimed(managed).size === 0) return;
+    const claim = managed.boundaryClaim!;
+    const items = claim.pending?.get(steerId);
+    if (!items) return;
+    claim.pending!.delete(steerId);
+    logDeliveredItems(agentId, managed, items, { delivery: "tool_boundary" });
+  }
+
   // turn_completed of the installed session: its boundary deliveries are done.
+  // Pushed steers the engine never recorded were dropped with the turn: they
+  // are released, and the flush that follows delivers them.
   function drainBoundaryClaim(agentId: string, managed: ManagedAgent): void {
-    const claimed = liveClaimed(managed);
+    const claimed = new Set(liveClaimed(managed));
+    const pending = managed.boundaryClaim?.pending;
     managed.boundaryClaim = undefined;
+    let released = false;
+    for (const items of pending?.values() ?? [])
+      for (const m of items) released = claimed.delete(m) || released;
     if (claimed.size > 0) drainQueueItems(agentId, managed, claimed);
+    else if (released) emitQueueUpdate(agentId, managed);
   }
 
   function emitQueueUpdate(agentId: string, managed: ManagedAgent) {
@@ -7599,6 +7721,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // receiver's ability to finish a turn) neither applies nor counts it.
       // The next main-thread tool batch delivers it, or the turn-end flush.
       if (boundarySteer) {
+        pushBoundarySteer(agentId);
         return { ok: true, queued: false, messageId: id, steered: true };
       }
       if (steerRateLimited(managed)) {

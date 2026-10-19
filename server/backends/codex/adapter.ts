@@ -480,8 +480,10 @@ function findTurnIndexContainingItemId(
 }
 
 // Fork a thread so that the child ends before the turn that holds
-// targetItemId. A user message starts its own turn, so that turn and every
-// later one are excluded (thread/fork beforeTurnId). null forks the whole
+// targetItemId. The edit target is a message isomux sent with turn/start, so
+// it opens its turn, and that turn and every later one are excluded
+// (thread/fork beforeTurnId). An agent steer is a userMessage inside a running
+// turn (turn/steer), but it is never an edit target. null forks the whole
 // history. Returns the child thread id. Codex 0.160 has no thread/rollback,
 // so the fork must not be rolled back after the fact.
 export async function forkThreadBeforeItem(
@@ -913,6 +915,8 @@ export class CodexSession implements BackendSession {
   private client: CodexTransport;
   private threadId: string | null = null;
   private activeTurnId: string | null = null;
+  // Steer ids sent with turn/steer that codex has not recorded yet.
+  private readonly pendingSteerIds = new Set<string>();
   private buffer: NormalizedEvent[] = [];
   private resolveWake: (() => void) | null = null;
   private ended = false;
@@ -1622,6 +1626,38 @@ export class CodexSession implements BackendSession {
     this.pendingApprovals.clear();
   }
 
+  // turn/steer with the active turn as expectedTurnId: codex accepts the text
+  // only while that turn runs, and records it (a userMessage item whose
+  // clientId is steerId, surfaced as steer_delivered) after the running tool.
+  async steer(text: string, steerId: string): Promise<boolean> {
+    const threadId = this.threadId;
+    const turnId = this.activeTurnId;
+    if (!threadId || !turnId) return false;
+    this.pendingSteerIds.add(steerId);
+    try {
+      await this.client.request("turn/steer", {
+        threadId,
+        input: [{ type: "text", text, text_elements: [] }],
+        expectedTurnId: turnId,
+        clientUserMessageId: steerId,
+      });
+      return true;
+    } catch {
+      this.pendingSteerIds.delete(steerId);
+      return false;
+    }
+  }
+
+  // Codex recorded a steer this session sent: its userMessage item carries
+  // the steer id as clientId. Started and completed both carry it; the first
+  // one reports it.
+  private noteSteerRecorded(item: unknown): void {
+    const it = item as { type?: unknown; clientId?: unknown } | null;
+    if (it?.type !== "userMessage" || typeof it.clientId !== "string") return;
+    if (!this.pendingSteerIds.delete(it.clientId)) return;
+    this.enqueue({ kind: "steer_delivered", steerId: it.clientId });
+  }
+
   canAbortInPlace(): boolean {
     return (
       !this.closed &&
@@ -2122,6 +2158,9 @@ export class CodexSession implements BackendSession {
           break;
         }
         this.clearTurnWatchdog();
+        // A steer the turn did not record was dropped with it; the
+        // orchestrator delivers it again (agent-manager drainBoundaryClaim).
+        this.pendingSteerIds.clear();
         const rawStatus = mapTurnStatus(turn?.status);
         const capacityError = this.capacityErrorThisAttempt;
         // Codex can deliver completed items after turn/completed. This gate
@@ -2246,11 +2285,14 @@ export class CodexSession implements BackendSession {
       }
 
       case "item/started":
-        // Carries the full ThreadItem but we wait for completion.
+        // Carries the full ThreadItem but we wait for completion, except for
+        // the record of a steer.
+        this.noteSteerRecorded(params?.item);
         break;
       case "item/completed": {
         const item = params?.item;
         if (item) {
+          this.noteSteerRecorded(item);
           if (this.turnInFlight || this.turnStarting)
             this.completedItemsThisAttempt += 1;
           this.translateCompletedItem(item);
@@ -3304,6 +3346,7 @@ function toBackendModel(m: CodexProtocolModel): BackendModel {
 
 export const codexBackend: Backend = {
   capabilities: CAPABILITIES,
+  toolBoundaryDelivery: true,
   planMode: true,
 
   getModelOptions(): ModelOption[] {

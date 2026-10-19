@@ -198,6 +198,10 @@ export type NormalizedEvent =
   // or the turn ended. The orchestrator drops the request, or closes its card,
   // and records no member choice for it.
   | { kind: "approval_withdrawn"; approvalId: string }
+  // The engine recorded a BackendSession.steer() text in the running turn:
+  // the model reads it before its next request. `steerId` is the id that
+  // steer() was called with.
+  | { kind: "steer_delivered"; steerId: string }
   // A usage limit stopped the running turn, and the engine reported when the
   // limit resets (epoch ms). Emitted before that turn's turn_completed, and
   // only when the reset time is known (server/limit-resume.ts).
@@ -459,6 +463,14 @@ export interface BackendSession {
   // returns true when both threadId and the active turnId are set.
   canAbortInPlace(): boolean;
 
+  // Push sessions of backends that declare `toolBoundaryDelivery` (Codex):
+  // put `text` into the running turn at the engine's next step. Resolves true
+  // when the engine accepted it for the active turn, false when no turn is
+  // active or the engine refused; never rejects. Acceptance is not delivery:
+  // the session emits steer_delivered with `steerId` when the engine records
+  // the text, and an interrupt before then drops it.
+  steer?(text: string, steerId: string): Promise<boolean>;
+
   // Turn the engine's native plan mode on or off. Present only on sessions
   // of backends that declare `planMode`.
   setPlanMode?(on: boolean): Promise<void>;
@@ -549,8 +561,10 @@ export type ForkSessionBeforeMessageResult =
 
 export interface Backend {
   readonly capabilities: BackendCapabilities;
-  // True when createSession/resumeSession honor `takeToolBoundaryMessage`, so
-  // an agent steer can wait for the running tool batch instead of aborting.
+  // True when an agent steer can wait for the running tool batch instead of
+  // aborting. The session decides how: it implements steer() (push, Codex),
+  // or createSession/resumeSession honor `takeToolBoundaryMessage` (pull,
+  // Claude).
   readonly toolBoundaryDelivery?: boolean;
   // True when the engine has a native plan mode: sessions implement
   // setPlanMode and createSession/resumeSession honor `planMode`.

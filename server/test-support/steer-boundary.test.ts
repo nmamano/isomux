@@ -399,6 +399,376 @@ describe("steer at a backend with tool-boundary delivery", () => {
   });
 });
 
+// Codex has no hook to pull from: the manager pushes the eligible queue into
+// the running turn (BackendSession.steer -> turn/steer) and logs it only when
+// the engine reports that it recorded it (steer_delivered). Acceptance is not
+// delivery: a turn that ends first drops the text, and the turn-end flush
+// sends it instead (probe, 2026-10-19).
+describe("steer at a push session (Codex turn/steer)", () => {
+  // steerAnswer unset: each steer() call waits for the test to answer it.
+  function pushBackend(
+    session: FakeBackendConfig["session"] = {},
+  ): FakeBackend {
+    return new FakeBackend({
+      toolBoundaryDelivery: true,
+      session: {
+        onSend: (_t, _a, s) => s.push({ kind: "assistant_text", text: "..." }),
+        steerPush: true,
+        ...session,
+      },
+    });
+  }
+
+  async function steerCall(session: FakeSession, n: number) {
+    await waitUntil(
+      () => session.steerCalls.length >= n,
+      2000,
+      `steer call ${n}`,
+    );
+    return session.steerCalls[n - 1];
+  }
+
+  function userEntries(logs: LogEntry[], text: string): LogEntry[] {
+    return logs.filter((e) => e.kind === "user_message" && e.content === text);
+  }
+
+  function sentCount(fake: FakeBackend, id: string, text: string): number {
+    return allSent(fake, id).filter((t) => t.includes(text)).length;
+  }
+
+  async function settle(mgr: Manager, session: FakeSession, id: string) {
+    session.completeTurn();
+    await waitUntil(
+      () => stateOf(mgr, id) === "waiting_for_response",
+      2000,
+      "idle",
+    );
+    await sleep(100);
+  }
+
+  it("pushes the steer into the running turn and logs it when the engine records it", async () => {
+    const fake = pushBackend();
+    const { mgr, logs } = makeManager(fake);
+    const info = await spawn(mgr, "codex");
+    const session = await startTurn(mgr, fake, info.id);
+
+    const r = steer(mgr, info.id, "urgent") as { messageId: string };
+    expect(r).toMatchObject({ ok: true, queued: false, steered: true });
+    const call = await steerCall(session, 1);
+    expect(call.text.startsWith(TOOL_BOUNDARY_NOTE)).toBe(true);
+    expect(call.text).toContain("urgent");
+    expect(call.text).toContain("agent-sender");
+    // Nothing was cut.
+    expect(session.abortCount).toBe(0);
+    expect(session.closed).toBe(false);
+    expect(fake.createSessionCount).toBe(1);
+
+    // Pending: hidden from the queue, not cancellable, still on disk.
+    expect(visibleQueue(mgr, info.id)).toEqual([]);
+    expect(mgr.cancelQueued(info.id, r.messageId)).toBe(false);
+    expect(persistedQueue(info.id)).toHaveLength(1);
+
+    // Accepted is not delivered: no chat entry yet.
+    call.resolve(true);
+    await sleep(50);
+    expect(userEntries(logs, "urgent")).toEqual([]);
+
+    session.push({ kind: "steer_delivered", steerId: call.steerId });
+    await waitUntil(
+      () => userEntries(logs, "urgent").length === 1,
+      2000,
+      "logged at the record",
+    );
+    const [entry] = userEntries(logs, "urgent");
+    expect(entry.metadata?.delivery).toBe("tool_boundary");
+    expect(entry.metadata?.sender_agent_id).toBe("agent-sender");
+    // A repeated record logs nothing more.
+    session.push({ kind: "steer_delivered", steerId: call.steerId });
+
+    await settle(mgr, session, info.id);
+    expect(userEntries(logs, "urgent")).toHaveLength(1);
+    expect(sentCount(fake, info.id, "urgent")).toBe(0);
+    expect(persistedQueue(info.id)).toEqual([]);
+  });
+
+  it("a refused steer goes back to the queue and the turn-end flush sends it", async () => {
+    const fake = pushBackend({ steerAnswer: false });
+    const { mgr, logs } = makeManager(fake);
+    const info = await spawn(mgr, "codex");
+    const session = await startTurn(mgr, fake, info.id);
+
+    expect(steer(mgr, info.id, "urgent")).toMatchObject({ steered: true });
+    await steerCall(session, 1);
+    await waitUntil(
+      () => visibleQueue(mgr, info.id).length === 1,
+      2000,
+      "released to the queue",
+    );
+    expect(session.abortCount).toBe(0);
+
+    session.completeTurn();
+    await waitUntil(
+      () => sentCount(fake, info.id, "urgent") === 1,
+      2000,
+      "flushed",
+    );
+    const entries = userEntries(logs, "urgent");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].metadata?.delivery).toBeUndefined();
+  });
+
+  it("an accepted steer that the turn's end drops is sent once by the flush; a late record logs nothing", async () => {
+    const fake = pushBackend();
+    const { mgr, logs } = makeManager(fake);
+    const info = await spawn(mgr, "codex");
+    const session = await startTurn(mgr, fake, info.id);
+
+    steer(mgr, info.id, "urgent");
+    const call = await steerCall(session, 1);
+    call.resolve(true);
+    await sleep(20);
+
+    session.completeTurn();
+    await waitUntil(
+      () => sentCount(fake, info.id, "urgent") === 1,
+      2000,
+      "flushed",
+    );
+    // Codex can send items after turn/completed.
+    session.push({ kind: "steer_delivered", steerId: call.steerId });
+    await sleep(100);
+    const entries = userEntries(logs, "urgent");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].metadata?.delivery).toBeUndefined();
+    expect(sentCount(fake, info.id, "urgent")).toBe(1);
+  });
+
+  it("an answer that comes after the turn ended touches nothing, not even a later steer", async () => {
+    const fake = pushBackend();
+    const { mgr, logs } = makeManager(fake);
+    const info = await spawn(mgr, "codex");
+    const session = await startTurn(mgr, fake, info.id);
+
+    steer(mgr, info.id, "urgent");
+    const first = await steerCall(session, 1);
+    // The turn ends before codex answers; the flush starts the next turn.
+    session.completeTurn();
+    await waitUntil(
+      () =>
+        sentCount(fake, info.id, "urgent") === 1 &&
+        stateOf(mgr, info.id) === "thinking",
+      2000,
+      "flushed into a new turn",
+    );
+
+    const r2 = steer(mgr, info.id, "second") as { messageId: string };
+    const second = await steerCall(session, 2);
+    expect(second.steerId).not.toBe(first.steerId);
+    expect(second.text).toContain("second");
+    expect(second.text).not.toContain("urgent");
+
+    // The stale refusal arrives now. The pending second steer stays pending.
+    first.resolve(false);
+    await sleep(50);
+    expect(visibleQueue(mgr, info.id)).toEqual([]);
+    expect(mgr.cancelQueued(info.id, r2.messageId)).toBe(false);
+
+    second.resolve(true);
+    session.push({ kind: "steer_delivered", steerId: second.steerId });
+    await waitUntil(
+      () => userEntries(logs, "second").length === 1,
+      2000,
+      "second logged",
+    );
+    await settle(mgr, session, info.id);
+    expect(sentCount(fake, info.id, "urgent")).toBe(1);
+    expect(sentCount(fake, info.id, "second")).toBe(0);
+    expect(userEntries(logs, "urgent")).toHaveLength(1);
+    expect(userEntries(logs, "second")).toHaveLength(1);
+  });
+
+  it("two steers in one turn are two pushes; the second does not resend the first", async () => {
+    const fake = pushBackend();
+    const { mgr, logs } = makeManager(fake);
+    const info = await spawn(mgr, "codex");
+    const session = await startTurn(mgr, fake, info.id);
+
+    steer(mgr, info.id, "one");
+    const a = await steerCall(session, 1);
+    steer(mgr, info.id, "two");
+    const b = await steerCall(session, 2);
+    expect(b.steerId).not.toBe(a.steerId);
+    expect(b.text).toContain("two");
+    expect(b.text).not.toContain("one");
+
+    a.resolve(true);
+    b.resolve(true);
+    session.push({ kind: "steer_delivered", steerId: a.steerId });
+    session.push({ kind: "steer_delivered", steerId: b.steerId });
+    await waitUntil(
+      () =>
+        userEntries(logs, "one").length === 1 &&
+        userEntries(logs, "two").length === 1,
+      2000,
+      "both logged",
+    );
+    await settle(mgr, session, info.id);
+    expect(sentCount(fake, info.id, "one")).toBe(0);
+    expect(sentCount(fake, info.id, "two")).toBe(0);
+  });
+
+  it("a refused steer is offered again at the next tool call", async () => {
+    const fake = pushBackend();
+    const { mgr, logs } = makeManager(fake);
+    const info = await spawn(mgr, "codex");
+    const session = await startTurn(mgr, fake, info.id);
+
+    steer(mgr, info.id, "urgent");
+    // For example: codex has not started the turn yet, so there is no turn id.
+    (await steerCall(session, 1)).resolve(false);
+    await waitUntil(
+      () => visibleQueue(mgr, info.id).length === 1,
+      2000,
+      "released",
+    );
+
+    session.push({
+      kind: "tool_call",
+      toolUseId: "call-1",
+      name: "Bash",
+      input: { command: "ls" },
+    });
+    const retry = await steerCall(session, 2);
+    expect(retry.text).toContain("urgent");
+    retry.resolve(true);
+    session.push({ kind: "steer_delivered", steerId: retry.steerId });
+    await waitUntil(
+      () => userEntries(logs, "urgent").length === 1,
+      2000,
+      "logged",
+    );
+    expect(userEntries(logs, "urgent")[0].metadata?.delivery).toBe(
+      "tool_boundary",
+    );
+    await settle(mgr, session, info.id);
+    expect(sentCount(fake, info.id, "urgent")).toBe(0);
+  });
+
+  it("a queue holding a member message is not pushed; both go in the turn-end flush", async () => {
+    const fake = pushBackend();
+    const { mgr } = makeManager(fake);
+    const info = await spawn(mgr, "codex");
+    const session = await startTurn(mgr, fake, info.id);
+
+    void mgr.sendMessage(info.id, "from the member");
+    await waitUntil(
+      () => visibleQueue(mgr, info.id).length === 1,
+      2000,
+      "member message queued",
+    );
+    expect(steer(mgr, info.id, "urgent")).toMatchObject({ steered: true });
+    await sleep(50);
+    expect(session.steerCalls).toEqual([]);
+    expect(session.abortCount).toBe(0);
+
+    session.completeTurn();
+    await waitUntil(
+      () =>
+        session.sent.some(
+          (m) =>
+            m.text.includes("from the member") && m.text.includes("urgent"),
+        ),
+      2000,
+      "both flushed together",
+    );
+  });
+
+  describe("a member's Send now while a steer is pending", () => {
+    // Codex interrupts in place: the session stays, and the interrupted
+    // turn_completed ends the turn.
+    async function sendNowAndInterrupt(
+      mgr: Manager,
+      session: FakeSession,
+      id: string,
+      beforeTurnEnd: () => void,
+    ) {
+      void mgr.sendMessage(id, "change of plan", "Boss", undefined, undefined, {
+        sendNow: true,
+      });
+      await waitUntil(() => session.abortCount === 1, 2000, "interrupt sent");
+      beforeTurnEnd();
+      session.completeTurn({ status: "interrupted" });
+      await waitUntil(
+        () => session.sent.some((m) => m.text.includes("change of plan")),
+        3000,
+        "member message delivered",
+      );
+      await sleep(100);
+    }
+
+    it("recorded before the interrupt ended the turn: logged once, not sent again", async () => {
+      const fake = pushBackend({ abortInPlace: true });
+      const { mgr, logs } = makeManager(fake);
+      const info = await spawn(mgr, "codex");
+      const session = await startTurn(mgr, fake, info.id);
+
+      steer(mgr, info.id, "urgent");
+      const call = await steerCall(session, 1);
+      call.resolve(true);
+      await sendNowAndInterrupt(mgr, session, info.id, () =>
+        session.push({ kind: "steer_delivered", steerId: call.steerId }),
+      );
+
+      expect(fake.sessionForAgent(info.id)).toBe(session);
+      const entries = userEntries(logs, "urgent");
+      expect(entries).toHaveLength(1);
+      expect(entries[0].metadata?.delivery).toBe("tool_boundary");
+      expect(sentCount(fake, info.id, "urgent")).toBe(0);
+    });
+
+    it("dropped by the interrupt: the flush sends it once, with the member's message", async () => {
+      const fake = pushBackend({ abortInPlace: true });
+      const { mgr, logs } = makeManager(fake);
+      const info = await spawn(mgr, "codex");
+      const session = await startTurn(mgr, fake, info.id);
+
+      steer(mgr, info.id, "urgent");
+      (await steerCall(session, 1)).resolve(true);
+      await sendNowAndInterrupt(mgr, session, info.id, () => {});
+
+      expect(fake.sessionForAgent(info.id)).toBe(session);
+      const flushed = session.sent.find((m) =>
+        m.text.includes("change of plan"),
+      )!.text;
+      expect(flushed).toContain("urgent");
+      expect(sentCount(fake, info.id, "urgent")).toBe(1);
+      expect(userEntries(logs, "urgent")).toHaveLength(1);
+    });
+  });
+
+  it("a pending steer whose session is replaced is delivered by the next session", async () => {
+    const fake = pushBackend();
+    const { mgr } = makeManager(fake);
+    const info = await spawn(mgr, "codex");
+    const session = await startTurn(mgr, fake, info.id);
+
+    steer(mgr, info.id, "urgent");
+    (await steerCall(session, 1)).resolve(true);
+    await sleep(20);
+    // A member Stop that replaces the session (no in-place interrupt).
+    await mgr.abort(info.id);
+    await waitUntil(
+      () =>
+        fake.sessionForAgent(info.id) !== session &&
+        fake
+          .sessionForAgent(info.id)!
+          .sent.some((m) => m.text.includes("urgent")),
+      3000,
+      "redelivered",
+    );
+  });
+});
+
 describe("paths that still abort name the cause", () => {
   it("an agent steer at a backend without boundary delivery gets the agent note", async () => {
     const fake = fakeBackend();
