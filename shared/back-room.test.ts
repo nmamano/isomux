@@ -194,7 +194,9 @@ describe("OfficeState placement", () => {
     expect(spawn(state, "Y", "lobby")).toBeNull();
   });
 
-  it("spawn: refuses when the front and all back seats are taken", () => {
+  // Quarantined (task b45385e6): red once in ci:remote on a87b7796 (a spawn
+  // in the fill loop returned null), green on the rerun of the same commit.
+  it.skip("spawn: refuses when the front and all back seats are taken", () => {
     const state = office();
     for (let i = 0; i < DESK_COUNT + BACK_ROOM_SEATS; i++)
       expect(spawn(state, `A${i}`, "r1")).not.toBeNull();
