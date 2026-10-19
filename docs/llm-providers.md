@@ -20,7 +20,7 @@ OPENAI_API_KEY=sk-...
 OPENCODE_API_KEY=sk-...
 ```
 
-Isomux stores personal and office-wide variables in managed files under `~/.isomux/`. Personal variables override office-wide variables. A change reaches idle agents at once and busy ones at the end of their turn; an open terminal keeps its old environment until it restarts. An agent whose conversation cannot resume picks up the change at `/clear`. Other per-user variables work the same way: for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials.
+Isomux stores personal and office-wide variables in managed files under `~/.isomux/`. Personal variables override office-wide variables. Other per-user variables work the same way: for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials.
 
 ## Claude on Amazon Bedrock
 
