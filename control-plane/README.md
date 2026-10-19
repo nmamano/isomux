@@ -1434,7 +1434,10 @@ and the `.deployment` marker stay on the old volume. With an empty
 The export refuses while a run is not revoked (its key is the only way to finish
 or revoke it) and while either DNS challenge journal
 (`<state root>/certificate-dns-intents`, `/data/certificate-dns-intents`) holds
-a file; the refusal names each one and says how to clear it. It lstats every
+a file; the refusal names each one and says how to clear it. A lego run killed
+mid-challenge leaves its TXT record and its file in the data-directory journal.
+The provisioner removes each such file older than an hour, with its record,
+when it starts and before each renewal. It lstats every
 path it reads and refuses a symlink or a file that is not regular. The import
 re-validates the document field by field and refuses a volume that holds
 anything.

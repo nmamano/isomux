@@ -189,6 +189,146 @@ describe("one-office certificate credentials", () => {
   });
 });
 
+// DNS challenge leftovers of a killed lego run are reaped inside the one
+// renewal slot (task 0f37f6e6), so a reap can never race a live challenge in
+// this process, and a reap problem never fails a renewal.
+describe("reaping DNS leftovers in the renewal slot", () => {
+  const CSR =
+    "-----BEGIN CERTIFICATE REQUEST-----\nfake\n-----END CERTIFICATE REQUEST-----\n";
+  const NOTHING = { removed: 0, failed: 0, unreadable: 0 };
+  // A renewal that does not answer at once is waiting on the held reap: say
+  // so instead of letting the test time out.
+  const answerSoon = <T>(p: Promise<T>) =>
+    Promise.race([
+      p,
+      new Promise<"no answer">((resolve) =>
+        setTimeout(() => resolve("no answer"), 1000),
+      ),
+    ]);
+  async function until(cond: () => boolean): Promise<void> {
+    for (let i = 0; i < 500 && !cond(); i++)
+      await new Promise((r) => setTimeout(r, 2));
+    if (!cond()) throw new Error("condition never held");
+  }
+
+  test("reaps before issuing, and holds the slot while it reaps", async () => {
+    await office("inst-reap-a", "reap-a");
+    const { token } = await issueCertificateCredential(store, "inst-reap-a");
+    const order: string[] = [];
+    let releaseReap!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseReap = resolve;
+    });
+    const service = new CertificateService(
+      store,
+      {
+        issue: async () => {
+          order.push("issue");
+          return { certificatePem: "chain" };
+        },
+      },
+      {
+        reapDnsOrphans: async () => {
+          order.push("reap");
+          await held;
+          return NOTHING;
+        },
+      },
+    );
+    let settled = false;
+    const first = service.renew(token, CSR).finally(() => {
+      settled = true;
+    });
+    await until(() => order.length > 0 || settled);
+    expect(order).toEqual(["reap"]);
+    expect(await answerSoon(service.renew(token, CSR))).toEqual({
+      status: "busy",
+    });
+    expect(order).toEqual(["reap"]);
+    releaseReap();
+    expect(await first).toEqual({ status: "ok", certificatePem: "chain" });
+    expect(order).toEqual(["reap", "issue"]);
+  });
+
+  test("a failing reap does not fail the renewal", async () => {
+    await office("inst-reap-b", "reap-b");
+    const { token } = await issueCertificateCredential(store, "inst-reap-b");
+    let issued = 0;
+    let reaped = false;
+    const service = new CertificateService(
+      store,
+      {
+        issue: async () => {
+          issued++;
+          return { certificatePem: "chain" };
+        },
+      },
+      {
+        reapDnsOrphans: async () => {
+          reaped = true;
+          throw new Error("cloudflare down");
+        },
+      },
+    );
+    expect(await service.renew(token, CSR)).toEqual({
+      status: "ok",
+      certificatePem: "chain",
+    });
+    expect(reaped).toBe(true);
+    expect(issued).toBe(1);
+  });
+
+  test("a reap on its own takes the slot, and skips while a renewal holds it", async () => {
+    await office("inst-reap-c", "reap-c");
+    const { token } = await issueCertificateCredential(store, "inst-reap-c");
+    let reaps = 0;
+    let issuing = false;
+    let releaseIssue!: () => void;
+    const issueHeld = new Promise<void>((resolve) => {
+      releaseIssue = resolve;
+    });
+    let releaseReap: (() => void) | null = null;
+    const service = new CertificateService(
+      store,
+      {
+        issue: async () => {
+          issuing = true;
+          await issueHeld;
+          return { certificatePem: "chain" };
+        },
+      },
+      {
+        reapDnsOrphans: async () => {
+          reaps++;
+          if (releaseReap === null) return NOTHING;
+          await new Promise<void>((resolve) => {
+            releaseReap = resolve;
+          });
+          return NOTHING;
+        },
+      },
+    );
+    const renewal = service.renew(token, CSR);
+    await until(() => issuing);
+    expect(reaps).toBe(1);
+    // A renewal holds the slot: the reap returns without reaping.
+    await service.reapDnsOrphans();
+    expect(reaps).toBe(1);
+    releaseIssue();
+    expect(await renewal).toMatchObject({ status: "ok" });
+
+    // A reap on its own holds the slot: a renewal meanwhile is busy.
+    releaseReap = () => {};
+    const reap = service.reapDnsOrphans();
+    await until(() => reaps === 2);
+    expect(await answerSoon(service.renew(token, CSR))).toEqual({
+      status: "busy",
+    });
+    releaseReap();
+    await reap;
+  });
+});
+
 describe("the office's renewal calls on the seam", () => {
   const ENDPOINT =
     "https://provisioner.example.com/internal/certificates/renew";

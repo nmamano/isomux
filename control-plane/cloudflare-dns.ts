@@ -1,5 +1,6 @@
 import {
   closeSync,
+  existsSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -7,6 +8,7 @@ import {
   readdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
@@ -46,6 +48,17 @@ export interface CloudflareDnsOptions {
   intentsDir: string;
   fetch?: (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>;
   now?: () => number;
+  /** Abort each Cloudflare request after this long. Unset means no limit. */
+  requestTimeoutMs?: number;
+}
+
+/** A journal file this old names a challenge no live lego run still owns. */
+export const DNS_ORPHAN_AGE_MS = 60 * 60 * 1000;
+
+export interface ReapResult {
+  removed: number;
+  failed: number;
+  unreadable: number;
 }
 
 interface Intent {
@@ -118,6 +131,9 @@ export class CloudflareDns {
       `${this.opts.baseUrl.replace(/\/$/, "")}/zones/${encodeURIComponent(this.opts.zoneId)}${path}`,
       {
         ...init,
+        ...(this.opts.requestTimeoutMs === undefined
+          ? {}
+          : { signal: AbortSignal.timeout(this.opts.requestTimeoutMs) }),
         headers: {
           Authorization: `Bearer ${this.opts.apiToken}`,
           "Content-Type": "application/json",
@@ -281,22 +297,46 @@ export class CloudflareDns {
     rmSync(file, { force: true });
   }
 
-  async reapOrphans(olderThanMs: number): Promise<number> {
-    let removed = 0;
-    let names;
+  /**
+   * Removes what a killed run left: each journal older than `olderThanMs`
+   * with its TXT records, and each old half-written journal file (a present()
+   * writes its TXT only after the first journal write lands). A failed cleanup
+   * keeps its journal for the next reap; a journal that does not read stays,
+   * as it may name a record nothing else finds.
+   */
+  async reapOrphans(olderThanMs: number): Promise<ReapResult> {
+    const result: ReapResult = { removed: 0, failed: 0, unreadable: 0 };
+    let entries;
     try {
-      names = readdirSync(this.opts.intentsDir, { withFileTypes: true });
+      entries = readdirSync(this.opts.intentsDir, { withFileTypes: true });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return result;
       throw error;
     }
-    for (const name of names) {
-      if (!name.isFile() || !name.name.endsWith(".json")) continue;
-      const intent = readIntent(join(this.opts.intentsDir, name.name));
-      if (!intent || this.now() - intent.createdAt < olderThanMs) continue;
-      await this.cleanup(intent.name, intent.content);
-      removed++;
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const file = join(this.opts.intentsDir, entry.name);
+      if (entry.name.endsWith(".partial")) {
+        // A live writer renames its own file away; that is not an error.
+        const mtimeMs = statSync(file, { throwIfNoEntry: false })?.mtimeMs;
+        if (mtimeMs !== undefined && this.now() - mtimeMs >= olderThanMs)
+          rmSync(file, { force: true });
+        continue;
+      }
+      if (!entry.name.endsWith(".json")) continue;
+      const intent = readIntent(file);
+      if (!intent) {
+        if (existsSync(file)) result.unreadable++;
+        continue;
+      }
+      if (this.now() - intent.createdAt < olderThanMs) continue;
+      try {
+        await this.cleanup(intent.name, intent.content);
+        result.removed++;
+      } catch {
+        result.failed++;
+      }
     }
-    return removed;
+    return result;
   }
 }

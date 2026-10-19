@@ -89,7 +89,8 @@ import {
 import { CertificateService } from "./certificate-service.ts";
 import { certificateTargetFromEnv } from "./certificate-target.ts";
 import { obtainCertificateWithLego } from "./lego-acme.ts";
-import { CloudflareDns } from "./cloudflare-dns.ts";
+import { CloudflareDns, DNS_ORPHAN_AGE_MS } from "./cloudflare-dns.ts";
+import { dnsHookIntentsDir } from "./cloudflare-dns-hook.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
 import { PROVIDER_DEPENDENT_KINDS, tickerHandlerRoster } from "./run-roster.ts";
 import { sweepProvisioningStarts } from "./provisioning-start.ts";
@@ -816,6 +817,15 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
         "ISOMUX_ACME_EMAIL and ISOMUX_CF_TOKEN are required for hosted certificate renewal",
       );
     }
+    // Reaps the journal the DNS hook writes, in the hook's zone. Each request
+    // is bounded, as the reap holds the one renewal slot.
+    const challengeDns = new CloudflareDns({
+      baseUrl: certificateTarget.cloudflareBaseUrl,
+      zoneId: certificateTarget.zoneId,
+      apiToken: process.env.ISOMUX_CF_TOKEN ?? "",
+      intentsDir: dnsHookIntentsDir(process.env),
+      requestTimeoutMs: 10_000,
+    });
     const certificateService = new CertificateService(
       store,
       {
@@ -848,8 +858,12 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
       {
         endpoint: process.env.ISOMUX_CERTIFICATE_ENDPOINT,
         report: (line) => reporter.line(line),
+        reapDnsOrphans: () => challengeDns.reapOrphans(DNS_ORPHAN_AGE_MS),
       },
     );
+    // Before the seam serves: what a run killed by an earlier stop left, once
+    // an hour old.
+    await certificateService.reapDnsOrphans();
     seam = startMintSeam({
       store,
       hold,

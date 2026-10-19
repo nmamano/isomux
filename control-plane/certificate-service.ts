@@ -2,6 +2,7 @@ import type { Store } from "./store.ts";
 import { authenticateCertificateCredential } from "./certificate-credentials.ts";
 import { clearAttention, raiseAttention } from "./attention.ts";
 import { redactCredentialShapes } from "./report.ts";
+import type { ReapResult } from "./cloudflare-dns.ts";
 
 export const CERTIFICATE_RENEW_PATH = "/internal/certificates/renew";
 export const CERTIFICATE_STATUS_PATH = "/internal/certificates/status";
@@ -71,17 +72,27 @@ export interface CertificateIssuer {
 }
 
 export class CertificateService {
-  private readonly active = new Set<string>();
+  /** lego owns one central ACME account directory, so one renewal or DNS
+   * reap at a time holds this, even when two different offices ask together. */
+  private busy = false;
   /** This provisioner's renewal URL, sent with every certificate. Unset when
    * the configured value is not a valid endpoint. */
   readonly endpoint: string | undefined;
   private readonly report: (line: string) => void;
+  private readonly reapOrphans: (() => Promise<ReapResult>) | undefined;
   constructor(
     private readonly store: Store,
     private readonly issuer: CertificateIssuer,
-    opts: { endpoint?: string; report?: (line: string) => void } = {},
+    opts: {
+      endpoint?: string;
+      report?: (line: string) => void;
+      /** Removes DNS challenge leftovers of killed lego runs. Runs only while
+       * this service holds its one renewal slot. */
+      reapDnsOrphans?: () => Promise<ReapResult>;
+    } = {},
   ) {
     this.report = opts.report ?? (() => {});
+    this.reapOrphans = opts.reapDnsOrphans;
     const parsed = parseCertificateEndpoint(opts.endpoint);
     this.endpoint = "url" in parsed ? parsed.url.href : undefined;
     if (opts.endpoint && "reason" in parsed)
@@ -102,6 +113,34 @@ export class CertificateService {
     const office = instanceId ? ` office=${instanceId}` : "";
     const why = cause === undefined ? "" : ` cause=${JSON.stringify(cause)}`;
     this.report(`certificate ${call}: ${outcome}${office} via=${via}${why}`);
+  }
+
+  /** Reaps DNS challenge leftovers now, unless a renewal holds the slot. */
+  async reapDnsOrphans(): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    try {
+      await this.reapInSlot();
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** Never throws: a reap problem is reported and left for the next reap. */
+  private async reapInSlot(): Promise<void> {
+    if (!this.reapOrphans) return;
+    try {
+      const { removed, failed, unreadable } = await this.reapOrphans();
+      if (removed + failed + unreadable > 0) {
+        this.report(
+          `certificate dns: leftovers removed=${removed} failed=${failed} unreadable=${unreadable}`,
+        );
+      }
+    } catch (error) {
+      this.report(
+        `certificate dns: leftover reap failed cause=${JSON.stringify(failureCause(error))}`,
+      );
+    }
   }
 
   async renew(
@@ -151,11 +190,12 @@ export class CertificateService {
     | { status: "busy" }
     | { status: "failed"; cause: string }
   > {
-    // lego owns one central ACME account directory. One process may mutate it
-    // at a time, even when two different offices ask together.
-    if (this.active.size > 0) return { status: "busy" };
-    this.active.add(identity.row.instance_id);
+    if (this.busy) return { status: "busy" };
+    this.busy = true;
     try {
+      // Inside the slot, no challenge of this process is live, so the reap
+      // cannot delete a record a running lego just adopted.
+      await this.reapInSlot();
       const result = await this.issuer.issue({
         instanceId: identity.row.instance_id,
         names: identity.names,
@@ -183,7 +223,7 @@ export class CertificateService {
       });
       return { status: "failed", cause: failureCause(error) };
     } finally {
-      this.active.delete(identity.row.instance_id);
+      this.busy = false;
     }
   }
 

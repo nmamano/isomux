@@ -22,7 +22,9 @@
 //                       export: its key is the only way to finish or revoke it.
 //   certificate-dns-intents, in the state root and in the data directory (the
 //                       lego hook's default): any entry REFUSES the export, as
-//                       it names a challenge record nobody has removed yet.
+//                       it names a challenge record nobody has removed yet. The
+//                       provisioner removes a data-directory entry an hour old
+//                       at start and before each renewal.
 //   keys/, certificates/ never opened. The new host's lego registers a new ACME
 //                       account on first use.
 //   .deployment         the new host writes its own on its first start.
@@ -230,19 +232,23 @@ export function exportState(data: string, now = new Date()): StateExport {
     );
   }
 
-  for (const dir of [
-    path.join(root, DNS_INTENTS_NAME),
-    path.join(data, DNS_INTENTS_NAME),
-  ]) {
+  // The provisioner reaps only the hook's journal (cloudflare-dns-hook.ts).
+  const hookJournal = path.join(data, DNS_INTENTS_NAME);
+  for (const dir of [path.join(root, DNS_INTENTS_NAME), hookJournal]) {
     if (!entry(dir, "dir")) continue;
     const pending = fs.readdirSync(dir).length;
     if (pending > 0) {
+      const manual =
+        `delete the TXT record a file names from the zone, then the file, ` +
+        `and export again.`;
       reasons.push(
         `${pending} certificate DNS challenge file(s) in ${dir}. Each names a ` +
-          `TXT record that may still be in the DNS zone. Start the old ` +
-          `provisioner and let its certificate request finish (lego's cleanup ` +
-          `removes the record and the file), or delete the TXT record a file ` +
-          `names from the zone and then the file, and export again.`,
+          `TXT record that may still be in the DNS zone. ` +
+          (dir === hookJournal
+            ? `Start the old provisioner once each file is an hour old: at ` +
+              `start it removes them with their records. Stop it and export ` +
+              `again. Or ${manual}`
+            : `To clear them, ${manual}`),
       );
     }
   }

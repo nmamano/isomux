@@ -705,6 +705,13 @@ export const AUDITED_CMDRUN_SURFACES = [
   "obtainCertificateWithLego",
   // Reads environment values for the lego error redaction. No table.
   "credentialValues",
+  // The DNS challenge leftover reap (task 0f37f6e6): a journal directory and
+  // Cloudflare calls. `reapDnsOrphans` takes the renewal slot and calls only
+  // the reaper. No table.
+  "CloudflareDns",
+  "dnsHookIntentsDir",
+  "challengeDns.reapOrphans",
+  "certificateService.reapDnsOrphans",
   "Bun.spawn",
   "Promise.all",
   "Response",

@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CloudflareDns,
+  DNS_ORPHAN_AGE_MS,
   type ARecord,
   type TxtRecord,
 } from "./cloudflare-dns.ts";
@@ -11,7 +18,19 @@ import {
 let dir = "";
 afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
 
-function fake(initial: (TxtRecord | ARecord)[] = []) {
+function fake(
+  initial: (TxtRecord | ARecord)[] = [],
+  options: {
+    now?: () => number;
+    requestTimeoutMs?: number;
+    // Wraps each request: return undefined to answer normally.
+    intercept?: (
+      method: string,
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response> | undefined;
+  } = {},
+) {
   const records = [...initial];
   let next = 1;
   const calls: { method: string; url: string; body?: unknown }[] = [];
@@ -23,6 +42,8 @@ function fake(initial: (TxtRecord | ARecord)[] = []) {
           ? input.href
           : input.url;
     const method = init?.method ?? "GET";
+    const intercepted = options.intercept?.(method, url, init);
+    if (intercepted) return intercepted;
     const rawBody = typeof init?.body === "string" ? init.body : undefined;
     calls.push({ method, url, body: rawBody && JSON.parse(rawBody) });
     if (method === "GET") {
@@ -77,7 +98,10 @@ function fake(initial: (TxtRecord | ARecord)[] = []) {
     apiToken: "fake",
     intentsDir: dir,
     fetch: request,
-    now: () => 10_000,
+    now: options.now ?? (() => 10_000),
+    ...(options.requestTimeoutMs !== undefined
+      ? { requestTimeoutMs: options.requestTimeoutMs }
+      : {}),
   });
   return { dns, records, calls };
 }
@@ -210,5 +234,111 @@ describe("permanent office A records", () => {
       /unsafe office DNS name/,
     );
     expect(calls).toHaveLength(0);
+  });
+});
+
+// A killed lego run leaves its TXT record and its journal (task 0f37f6e6).
+// reapOrphans removes both once the journal is older than the threshold, so
+// a run still in progress elsewhere on the same volume is never touched.
+describe("reaping a killed run's leftovers", () => {
+  const AGE = DNS_ORPHAN_AGE_MS;
+
+  test("removes an old journal with its record, and keeps a younger one", async () => {
+    let now = Date.now();
+    const t = fake([], { now: () => now });
+    await t.dns.present("_acme.old.example", "old-value");
+    now += 2;
+    await t.dns.present("_acme.young.example", "young-value");
+    expect(t.records).toHaveLength(2);
+
+    // The old journal is just over the age, the young one just under.
+    now += AGE - 1;
+    expect(await t.dns.reapOrphans(AGE)).toEqual({
+      removed: 1,
+      failed: 0,
+      unreadable: 0,
+    });
+    expect(t.records.map((r) => r.name)).toEqual(["_acme.young.example"]);
+    expect(readdirSync(dir)).toHaveLength(1);
+  });
+
+  test("deletes an old half-written journal file and keeps a young one", async () => {
+    const base = Date.now();
+    const t = fake([], { now: () => base });
+    await t.dns.present("_acme.done.example", "v");
+    await t.dns.cleanup("_acme.done.example", "v");
+    const old = join(dir, "aaaa.json.123.partial");
+    const young = join(dir, "bbbb.json.456.partial");
+    writeFileSync(old, "{");
+    writeFileSync(young, "{");
+    const seconds = (ms: number) => ms / 1000;
+    utimesSync(old, seconds(base - 3 * AGE), seconds(base - 3 * AGE));
+    utimesSync(young, seconds(base - 60_000), seconds(base - 60_000));
+    // Neither is a record: nothing is removed from the zone.
+    expect(await t.dns.reapOrphans(AGE)).toEqual({
+      removed: 0,
+      failed: 0,
+      unreadable: 0,
+    });
+    expect(readdirSync(dir)).toEqual(["bbbb.json.456.partial"]);
+  });
+
+  test("goes on after a cleanup fails, and keeps an unreadable journal", async () => {
+    let now = Date.now();
+    let failing = "";
+    const t = fake([], {
+      now: () => now,
+      intercept: (method, url) =>
+        method === "DELETE" && url.endsWith(`/${failing}`)
+          ? Promise.resolve(
+              Response.json(
+                { success: false, errors: [{ message: "down" }] },
+                { status: 500 },
+              ),
+            )
+          : undefined,
+    });
+    await t.dns.present("_acme.a.example", "a");
+    await t.dns.present("_acme.b.example", "b");
+    failing = t.records.find((r) => r.name === "_acme.a.example")!.id;
+    writeFileSync(join(dir, "garbage.json"), "not an intent");
+    now += AGE + 1;
+    expect(await t.dns.reapOrphans(AGE)).toEqual({
+      removed: 1,
+      failed: 1,
+      unreadable: 1,
+    });
+    // The failed one keeps its record and its journal for the next reap.
+    expect(t.records.map((r) => r.name)).toEqual(["_acme.a.example"]);
+    expect(readdirSync(dir).sort()).toHaveLength(2);
+    expect(readdirSync(dir)).toContain("garbage.json");
+  });
+
+  test("gives up on a request that never answers", async () => {
+    let now = Date.now();
+    let hang = false;
+    const t = fake([], {
+      now: () => now,
+      requestTimeoutMs: 50,
+      // Never settles, except through the request's abort signal.
+      intercept: (_method, _url, init) =>
+        hang
+          ? new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(new Error("aborted")),
+              );
+            })
+          : undefined,
+    });
+    await t.dns.present("_acme.slow.example", "slow");
+    hang = true;
+    now += AGE + 1;
+    const started = performance.now();
+    expect(await t.dns.reapOrphans(AGE)).toEqual({
+      removed: 0,
+      failed: 1,
+      unreadable: 0,
+    });
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 });

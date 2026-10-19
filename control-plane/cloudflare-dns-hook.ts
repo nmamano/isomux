@@ -15,6 +15,11 @@ export function assertAuthorizedChallenge(
   }
 }
 
+/** The directory the hook journals each challenge in. */
+export function dnsHookIntentsDir(env: NodeJS.ProcessEnv): string {
+  return env.ISOMUX_DNS_INTENTS_DIR ?? "/data/certificate-dns-intents";
+}
+
 async function main(): Promise<void> {
   const [verb, fqdn, value] = process.argv.slice(2);
   if ((verb !== "present" && verb !== "cleanup") || !fqdn || !value)
@@ -42,7 +47,7 @@ export async function runDnsHook(
     baseUrl: target.cloudflareBaseUrl,
     zoneId: target.zoneId,
     apiToken: token,
-    intentsDir: env.ISOMUX_DNS_INTENTS_DIR ?? "/data/certificate-dns-intents",
+    intentsDir: dnsHookIntentsDir(env),
     fetch: fetchImpl,
   });
   if (verb === "present") await dns.present(fqdn, value);
