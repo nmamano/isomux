@@ -22,7 +22,6 @@
 
 import { isUniqueViolation, type Store } from "./store.ts";
 import {
-  accountByEmail,
   casAccount,
   ensureAccount,
   getAccount,
@@ -199,15 +198,31 @@ export async function accountByGoogleSubject(
  * The partial unique index is the final arbiter - a race that gets past these
  * reads still ends in a constraint failure rather than two accounts sharing an
  * identity.
+ *
+ * An address Google has not verified proves nothing, so it reaches only the
+ * account its subject is already bound to: it neither binds onto an account by
+ * address nor creates one. Since email sign-in, an account can exist that no
+ * Google subject made, and an unverified claim on its address would otherwise
+ * take it - or pre-create it, so that the real owner's later email sign-in
+ * lands in an account the claimant can enter.
  */
 export async function bindGoogleSubject(
   store: Store,
-  args: { subject: string; email: string; now?: () => number },
+  args: {
+    subject: string;
+    email: string;
+    emailVerified: boolean;
+    now?: () => number;
+  },
 ): Promise<AccountRow> {
   const newId = () => `acct-${crypto.randomUUID()}`;
   return store.tx(async () => {
     const bySubject = await accountByGoogleSubject(store, args.subject);
-    const byEmail = await accountByEmail(store, args.email);
+    if (bySubject && !args.emailVerified) return bySubject;
+    if (!args.emailVerified) {
+      throw new SubjectBindingConflict(`Google has not verified ${args.email}`);
+    }
+    const byEmail = await accountByAddress(store, args.email);
     if (bySubject && byEmail && bySubject.id !== byEmail.id) {
       throw new SubjectBindingConflict(
         `this Google account is already signed in as ${bySubject.email}; ` +
@@ -254,6 +269,42 @@ export async function accountForDevSignIn(
   return store.tx(() =>
     ensureAccount(store, { id: `acct-${crypto.randomUUID()}`, email }),
   );
+}
+
+/**
+ * The account an address names, whatever case either side wrote it in.
+ *
+ * Google keeps the case a customer typed and an email sign-in lowercases, so an
+ * exact match would let the two sign-ins make two accounts for one inbox. Two
+ * rows that differ only in case can predate this; the exact spelling wins.
+ */
+async function accountByAddress(
+  store: Store,
+  email: string,
+): Promise<AccountRow | null> {
+  return store.sqlGet<AccountRow>(
+    "select * from accounts where lower(email) = lower($1) " +
+      "order by (email = $1) desc, created_at limit 1",
+    [email],
+  );
+}
+
+/**
+ * The account behind an email sign-in link, created on first use.
+ *
+ * A redeemed link proves control of the inbox, the same authority a verified
+ * Google address carries, so it reaches the account with that address also when
+ * a Google subject is bound to it.
+ */
+export async function accountForEmailSignIn(
+  store: Store,
+  email: string,
+): Promise<AccountRow> {
+  return store.tx(async () => {
+    const existing = await accountByAddress(store, email);
+    if (existing) return existing;
+    return ensureAccount(store, { id: `acct-${crypto.randomUUID()}`, email });
+  });
 }
 
 /**

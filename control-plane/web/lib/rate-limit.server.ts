@@ -115,7 +115,7 @@ export function clientKey(headers: Headers): string {
 
 // The same precedence as languageForRequest (cookie, then Accept-Language),
 // read from the request itself so this file needs no request scope.
-function languageOf(headers: Headers): SupportedLanguageCode {
+export function languageOf(headers: Headers): SupportedLanguageCode {
   const cookie = headers.get("cookie") ?? "";
   for (const part of cookie.split(";")) {
     const [name, ...value] = part.trim().split("=");

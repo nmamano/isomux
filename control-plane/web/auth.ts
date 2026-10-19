@@ -1,11 +1,15 @@
-// Sign-in, and the two providers that reach it.
+// Sign-in, and the providers that reach it.
 //
-// Google is the product's identity provider, and it is configured ONLY when its
-// credentials are present: an absent client id means the provider is genuinely
-// not there - no route, no button - rather than present and broken. No Google
-// OAuth client exists yet, so every test in this slice signs in through the dev
-// provider, which is gated twice, on an explicit flag AND on not being a
-// production build.
+// Google and the email link are the customer's two ways in, and each is
+// configured ONLY when its credentials are present: an absent client id or mail
+// key means the provider is genuinely not there - no route, no button - rather
+// than present and broken. The dev provider is gated twice, on an explicit flag
+// AND on not being a production build.
+//
+// The email link (lib/signin-link-request.server.ts mails it) is a Credentials
+// provider, not Auth.js's built-in email provider, which needs a database
+// adapter. Its only credential is a signed, single-use token; the address it
+// signs in as is the one inside the token, never a field of the post.
 //
 // THE SESSION CARRIES AN ACCOUNT ID, NOT AN EMAIL. Both providers resolve to a
 // durable account before a session exists, and every read and write downstream
@@ -24,6 +28,7 @@ import { inspect } from "node:util";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { identityForSignIn } from "./lib/services.server";
+import { deploymentSignInTokens } from "./lib/signin-link.server";
 import { redactLogText } from "../report";
 
 const devAuthEnabled =
@@ -34,6 +39,8 @@ const googleConfigured = !!(
   process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET
 );
 
+const emailLinkConfigured = !!process.env.AUTH_RESEND_KEY;
+
 const providers: NextAuthConfig["providers"] = [];
 
 if (googleConfigured) {
@@ -41,6 +48,27 @@ if (googleConfigured) {
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
       clientSecret: process.env.AUTH_GOOGLE_SECRET,
+    }),
+  );
+}
+
+if (emailLinkConfigured) {
+  providers.push(
+    Credentials({
+      id: "email-link",
+      name: "Email link",
+      credentials: { token: { type: "text" } },
+      async authorize(raw) {
+        const token = typeof raw.token === "string" ? raw.token : "";
+        const redeemed = deploymentSignInTokens()?.redeem(token);
+        if (!redeemed?.ok) return null;
+        const identity = await identityForSignIn({
+          provider: "email-link",
+          email: redeemed.email,
+        });
+        if (!identity.ok) return null;
+        return { id: identity.accountId, email: redeemed.email };
+      },
     }),
   );
 }
@@ -64,6 +92,7 @@ if (devAuthEnabled) {
 
 export const devSignInAvailable = devAuthEnabled;
 export const googleSignInAvailable = googleConfigured;
+export const emailSignInAvailable = emailLinkConfigured;
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers,
@@ -93,6 +122,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         provider: "google",
         subject,
         email,
+        emailVerified: profile?.email_verified === true,
       });
       if (!identity.ok) return false;
       user.id = identity.accountId;

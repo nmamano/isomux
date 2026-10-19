@@ -1,13 +1,14 @@
 # Set up Hosted Isomux
 
-Hosted Isomux is the paid option. You need a Google account to sign in, a payment
-method, and an AI provider account. The service supplies the server and office
+Hosted Isomux is the paid option. You need an email address or a Google account
+to sign in, a payment method, and an AI provider account. The service supplies the server and office
 address. You do not need to buy a domain or install Isomux on your computer.
 
 ## Sign in and choose an office
 
 1. Open [Hosted Isomux](https://cloud.isomux.com) and select **Sign in**.
-2. Select **Continue with Google** and complete sign-in.
+2. Enter your email address, select **Email me a sign-in link**, and open the
+   link in the email. Or select **Continue with Google**.
 3. Select **Set one up**. Enter an office name and check the address preview.
    The address cannot be changed after setup.
 4. Choose a plan. Check the current price and resources in the form before

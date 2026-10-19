@@ -1936,9 +1936,10 @@ tax code before any live Product is changed.
 
 Stripe owns tax collection, customer tax IDs, statement descriptors, invoices,
 Checkout confirmation text, receipts and subscription-related customer emails
-for Managed Payments. As checked 2026-08-16, the control plane has no customer
-mailer: its dunning ladder records state, raises internal attention and requests
-suspension, so it does not duplicate Stripe's customer emails. Adding customer
+for Managed Payments. The control plane's one customer mail is the email
+sign-in link (see "What is in the app"); as checked 2026-08-16, its dunning
+ladder records state, raises internal attention and requests suspension, so it
+does not duplicate Stripe's customer emails. Adding customer
 dunning email copy later is a policy decision, not an implementation default.
 
 Test-mode evidence from 2026-08-16:
@@ -2180,7 +2181,19 @@ webhook path out of the storefront's module graph.
 - Auth.js with Google configured only when its credentials are present, so a
   missing client id means the provider is absent rather than broken. A
   credentials provider gated on `CONTROL_PLANE_DEV_AUTH=1` AND a non-production
-  build drives every test, because no Google OAuth client exists yet. Sessions
+  build drives every test, because no Google OAuth client exists yet.
+- Email sign-in for customers without Google, configured only when
+  `AUTH_RESEND_KEY` is set (the sign-in page shows the form only when
+  `/api/auth/providers` lists `email-link`). `POST /api/signin/email` mails a
+  link through Resend (`lib/signin-mail.server.ts`) after an origin check, a
+  per-IP limit and a per-address limit. The link carries a signed token in its
+  FRAGMENT, valid 15 minutes and spent once; the used-token record lives in the
+  process's memory, like the rate limits (`lib/signin-link.server.ts`). The link
+  page signs in only on a click, because mail scanners open links first. The
+  `email-link` Credentials provider redeems the token and reaches the account
+  with that address, case-insensitively, also when Google made it; a later
+  Google sign-in binds onto an email-made account only when Google reports the
+  address verified (`signup.ts` `bindGoogleSubject`). Sessions
   are JWTs with no database adapter: an adapter would make Auth.js a second
   writer of `accounts`. The account surface signs out through an Auth.js server
   action, so the framework's CSRF token protects the cookie-clearing request.
@@ -2227,8 +2240,9 @@ When a language is added to `shared/languages.ts`, add it here too.
 
 Precedence, highest first: the `isomux_lang` cookie the switch writes, then the
 request's `Accept-Language`, then English. There is NO stored customer language
-and no column for one - this deployment sends no customer email (see the
-Managed Payments section), so nothing needs a language that outlives a browser.
+and no column for one - the one customer email, the sign-in link, goes out in
+the language of the request that asked for it, so nothing needs a language that
+outlives a browser.
 
 Two resolution paths, because the pages render two different ways:
 

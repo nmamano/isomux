@@ -273,17 +273,17 @@
 
       <h2>What we collect</h2>
       <p>
-        <strong>At signup:</strong> your email address and the identifier Google
-        assigns to your account. The office name you pick becomes your web
-        address. Addresses with HTTPS certificates land in public certificate
-        logs, so pick a name you don't mind strangers seeing. Your browser
-        creates a server administrator key. We receive its public half and
-        install it on your server so you can access it with the private half.
-        The private key is not sent to us. We keep the public key only while we
-        set up your server. After that, we keep only its fingerprint, which
-        confirms which key was installed. For safety reasons, Isomux agents and
-        the built-in terminal cannot act as a privileged user. Only you can do
-        so with the administrator key.
+        <strong>At signup:</strong> your email address and, if you sign in with
+        Google, the identifier Google assigns to your account. The office name
+        you pick becomes your web address. Addresses with HTTPS certificates
+        land in public certificate logs, so pick a name you don't mind strangers
+        seeing. Your browser creates a server administrator key. We receive its
+        public half and install it on your server so you can access it with the
+        private half. The private key is not sent to us. We keep the public key
+        only while we set up your server. After that, we keep only its
+        fingerprint, which confirms which key was installed. For safety reasons,
+        Isomux agents and the built-in terminal cannot act as a privileged user.
+        Only you can do so with the administrator key.
       </p>
       <p>
         <strong>Payment:</strong> Stripe handles the card. We never see or store
@@ -352,6 +352,13 @@
           <tr>
             <td>Stripe</td>
             <td>Payments and invoices.</td>
+          </tr>
+          <tr>
+            <td>Resend</td>
+            <td>
+              Sends the sign-in links we email you. It receives your email
+              address and the link.
+            </td>
           </tr>
           <tr>
             <td>Contabo</td>

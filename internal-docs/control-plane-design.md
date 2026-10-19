@@ -910,8 +910,9 @@ responding".
 
 ## Where it runs
 
-Next.js on Vercel with Auth.js and Google as the only identity provider (no
-password reset, no email deliverability), managed Postgres, and a **separate
+Next.js on Vercel with Auth.js, Google and an emailed sign-in link as the
+identity providers (no passwords, so no password reset; the link is sent through
+Resend, added 2026-10-19 for customers without Google), managed Postgres, and a **separate
 always-on provisioner** holding the provider credentials, the key master and
 the tick loop.
 

@@ -1120,26 +1120,44 @@ export async function revealInvite(
 }
 
 /**
- * The account a sign-in resolves to, for BOTH providers.
+ * The account a sign-in resolves to, for every provider.
  *
  * Returns an account id, which is what the session then carries. A Google
  * sign-in binds by subject and returns the account that subject is bound to -
  * so a changed email reaches the SAME account rather than making a second one.
+ * An email-link sign-in reaches the account with that address, Google-made or
+ * not (signup.ts accountForEmailSignIn).
  * A refusal is returned as a value: a sign-in that cannot be bound must not
  * become a session.
  */
 export async function identityForSignIn(args: {
-  provider: "google" | "dev";
+  provider: "google" | "dev" | "email-link";
   subject?: string;
   email: string;
+  /** Google's email_verified claim; read only for provider "google". */
+  emailVerified?: boolean;
 }): Promise<{ ok: true; accountId: string } | { ok: false; reason: string }> {
-  const { bindGoogleSubject, accountForDevSignIn, SubjectBindingConflict } =
-    await import("../../signup");
+  const {
+    bindGoogleSubject,
+    accountForDevSignIn,
+    accountForEmailSignIn,
+    SubjectBindingConflict,
+  } = await import("../../signup");
   try {
     if (args.provider === "google") {
       if (!args.subject) return { ok: false, reason: "no Google subject" };
       const account = await withStore((store) =>
-        bindGoogleSubject(store, { subject: args.subject!, email: args.email }),
+        bindGoogleSubject(store, {
+          subject: args.subject!,
+          email: args.email,
+          emailVerified: args.emailVerified === true,
+        }),
+      );
+      return { ok: true, accountId: account.id };
+    }
+    if (args.provider === "email-link") {
+      const account = await withStore((store) =>
+        accountForEmailSignIn(store, args.email),
       );
       return { ok: true, accountId: account.id };
     }

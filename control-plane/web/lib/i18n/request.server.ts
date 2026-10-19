@@ -3,10 +3,10 @@
 // Precedence, highest first (PM ruling, 2026-09-06): the cookie the language
 // switch writes, then the browser's Accept-Language header, then English. An
 // explicit choice a header could beat is not a choice. There is no stored
-// customer language: this deployment sends no customer email, so nothing needs
-// a language that outlives a browser (control-plane/README.md, "the control
-// plane has no customer mailer"), and an unused column on a governed table is a
-// schema we would then have to keep.
+// customer language: the one customer email, the sign-in link, goes out in the
+// language of the request that asked for it, so nothing needs a language that
+// outlives a browser, and an unused column on a governed table is a schema we
+// would then have to keep.
 //
 // Server-only, by the `.server.ts` convention this app already uses for
 // `lib/services.server.ts`: `next/headers` throws in a client component, and

@@ -31,6 +31,25 @@ export const ca: Catalog = {
 
   "signIn.heading": "Inicia la sessió",
   "signIn.google": "Continua amb Google",
+  "signIn.emailLabel": "Correu electrònic",
+  "signIn.emailSubmit": "Envia'm un enllaç d'inici de sessió",
+  "signIn.emailSent":
+    "Hem enviat un enllaç d'inici de sessió a {email}. Funciona una vegada, durant {minutes} minuts.",
+  "signIn.emailInvalid": "Escriu una adreça de correu electrònic.",
+  "signIn.emailUnavailable": "L'inici de sessió per correu no està disponible.",
+  "signIn.emailFailed":
+    "No hem pogut enviar el correu. Torna-ho a provar més tard.",
+  "signIn.linkFailed":
+    "Aquest enllaç d'inici de sessió ha caducat o ja s'ha fet servir. Demana'n un de nou.",
+  "signIn.linkHeading": "Inicia la sessió",
+  "signIn.linkSignInAs": "Inicia la sessió com a {email}",
+  "signIn.linkInvalid":
+    "Aquest enllaç d'inici de sessió no és vàlid. <signin>Demana'n un de nou</signin>.",
+  "signIn.mailSubject": "El teu enllaç d'inici de sessió d'Isomux",
+  "signIn.mailIntro":
+    "Obre aquest enllaç per iniciar la sessió a Hosted Isomux:",
+  "signIn.mailNote":
+    "Funciona una vegada, durant {minutes} minuts. Si no l'has demanat, ignora aquest correu.",
 
   "signup.heading": "Configura la teva oficina",
   "signup.continue": "Continua el registre",

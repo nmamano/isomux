@@ -33,6 +33,25 @@ export const es: Catalog = {
 
   "signIn.heading": "Iniciar sesión",
   "signIn.google": "Continuar con Google",
+  "signIn.emailLabel": "Correo electrónico",
+  "signIn.emailSubmit": "Enviarme un enlace de inicio de sesión",
+  "signIn.emailSent":
+    "Hemos enviado un enlace de inicio de sesión a {email}. Funciona una vez, durante {minutes} minutos.",
+  "signIn.emailInvalid": "Escribe una dirección de correo electrónico.",
+  "signIn.emailUnavailable":
+    "El inicio de sesión por correo no está disponible.",
+  "signIn.emailFailed":
+    "No hemos podido enviar el correo. Vuelve a intentarlo más tarde.",
+  "signIn.linkFailed":
+    "Ese enlace de inicio de sesión ha caducado o ya se ha usado. Pide uno nuevo.",
+  "signIn.linkHeading": "Iniciar sesión",
+  "signIn.linkSignInAs": "Iniciar sesión como {email}",
+  "signIn.linkInvalid":
+    "Este enlace de inicio de sesión no es válido. <signin>Pide uno nuevo</signin>.",
+  "signIn.mailSubject": "Tu enlace de inicio de sesión de Isomux",
+  "signIn.mailIntro": "Abre este enlace para iniciar sesión en Hosted Isomux:",
+  "signIn.mailNote":
+    "Funciona una vez, durante {minutes} minutos. Si no lo has pedido, ignora este correo.",
 
   "signup.heading": "Configura tu oficina",
   "signup.continue": "Continuar el registro",

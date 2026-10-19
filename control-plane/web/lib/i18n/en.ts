@@ -34,6 +34,23 @@ export const en = {
   // ------------------------------------------------------------- sign in
   "signIn.heading": "Sign in",
   "signIn.google": "Continue with Google",
+  "signIn.emailLabel": "Email",
+  "signIn.emailSubmit": "Email me a sign-in link",
+  "signIn.emailSent":
+    "We sent a sign-in link to {email}. It works once, for {minutes} minutes.",
+  "signIn.emailInvalid": "Enter one email address.",
+  "signIn.emailUnavailable": "Email sign-in is not available.",
+  "signIn.emailFailed": "We could not send the email. Try again later.",
+  "signIn.linkFailed":
+    "That sign-in link has expired or was already used. Ask for a new one.",
+  "signIn.linkHeading": "Sign in",
+  "signIn.linkSignInAs": "Sign in as {email}",
+  "signIn.linkInvalid":
+    "This sign-in link is not valid. <signin>Ask for a new one</signin>.",
+  "signIn.mailSubject": "Your Isomux sign-in link",
+  "signIn.mailIntro": "Open this link to sign in to Hosted Isomux:",
+  "signIn.mailNote":
+    "It works once, for {minutes} minutes. If you did not ask for it, ignore this email.",
 
   // ------------------------------------------------------------- sign up
   "signup.heading": "Set up your office",

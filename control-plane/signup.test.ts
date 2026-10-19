@@ -12,6 +12,7 @@ import {
   MAX_NEW_OFFICES_PER_WINDOW,
   NEW_OFFICE_WINDOW_MS,
   accountForDevSignIn,
+  accountForEmailSignIn,
   bindGoogleSubject,
   checkoutInputsFor,
   checkoutKeysFor,
@@ -520,10 +521,12 @@ describe("google subject binding", () => {
     const first = await bindGoogleSubject(store, {
       subject: "sub-1",
       email: "a@example.com",
+      emailVerified: true,
     });
     const again = await bindGoogleSubject(store, {
       subject: "sub-1",
       email: "a@example.com",
+      emailVerified: true,
     });
     expect(again.id).toBe(first.id);
     expect(again.google_subject).toBe("sub-1");
@@ -534,13 +537,19 @@ describe("google subject binding", () => {
     await bindGoogleSubject(store, {
       subject: "sub-1",
       email: "a@example.com",
+      emailVerified: true,
     });
     await bindGoogleSubject(store, {
       subject: "sub-2",
       email: "b@example.com",
+      emailVerified: true,
     });
     expect(
-      bindGoogleSubject(store, { subject: "sub-1", email: "b@example.com" }),
+      bindGoogleSubject(store, {
+        subject: "sub-1",
+        email: "b@example.com",
+        emailVerified: true,
+      }),
     ).rejects.toThrow(SubjectBindingConflict);
   });
 
@@ -549,9 +558,14 @@ describe("google subject binding", () => {
     await bindGoogleSubject(store, {
       subject: "sub-1",
       email: "a@example.com",
+      emailVerified: true,
     });
     expect(
-      bindGoogleSubject(store, { subject: "sub-9", email: "a@example.com" }),
+      bindGoogleSubject(store, {
+        subject: "sub-9",
+        email: "a@example.com",
+        emailVerified: true,
+      }),
     ).rejects.toThrow(SubjectBindingConflict);
     expect((await accountByEmail(store, "a@example.com"))?.google_subject).toBe(
       "sub-1",
@@ -563,10 +577,12 @@ describe("google subject binding", () => {
     await bindGoogleSubject(store, {
       subject: "sub-1",
       email: "a@example.com",
+      emailVerified: true,
     });
     const other = await bindGoogleSubject(store, {
       subject: "sub-2",
       email: "b@example.com",
+      emailVerified: true,
     });
     expect(
       store.sqlRun("update accounts set google_subject = $1 where id = $2", [
@@ -574,6 +590,92 @@ describe("google subject binding", () => {
         other.id,
       ]),
     ).rejects.toThrow();
+  });
+});
+
+// An email sign-in proves control of an inbox, which is the authority Google's
+// verified email carries: both sign-ins reach one account per address, in
+// either order and whatever case each side wrote the address in. An address
+// Google has not verified proves nothing, so it may reach only an account its
+// subject is already bound to.
+describe("email sign-in and Google share one account per address", () => {
+  test("an email sign-in reaches the Google-made account, whatever the case", async () => {
+    const store = await tempStore();
+    const google = await bindGoogleSubject(store, {
+      subject: "sub-1",
+      email: "User@Proton.Me",
+      emailVerified: true,
+    });
+    const viaLink = await accountForEmailSignIn(store, "user@proton.me");
+    expect(viaLink.id).toBe(google.id);
+    expect(viaLink.google_subject).toBe("sub-1");
+  });
+
+  test("a new address makes one account, which a later Google sign-in binds to", async () => {
+    const store = await tempStore();
+    const first = await accountForEmailSignIn(store, "user@proton.me");
+    expect(first.email).toBe("user@proton.me");
+    expect(first.google_subject).toBeNull();
+    expect((await accountForEmailSignIn(store, "user@proton.me")).id).toBe(
+      first.id,
+    );
+    // Google writes the address with the case the customer gave it.
+    const google = await bindGoogleSubject(store, {
+      subject: "sub-1",
+      email: "User@Proton.Me",
+      emailVerified: true,
+    });
+    expect(google.id).toBe(first.id);
+    expect(google.google_subject).toBe("sub-1");
+    expect((await store.sqlAll("select id from accounts")).length).toBe(1);
+  });
+
+  test("an unverified Google address cannot take an account by its address", async () => {
+    const store = await tempStore();
+    const byLink = await accountForEmailSignIn(store, "user@proton.me");
+    const refused = await bindGoogleSubject(store, {
+      subject: "sub-attacker",
+      email: "user@proton.me",
+      emailVerified: false,
+    }).catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(SubjectBindingConflict);
+    const after = await accountByEmail(store, "user@proton.me");
+    expect(after?.id).toBe(byLink.id);
+    expect(after?.google_subject).toBeNull();
+  });
+
+  test("an unverified Google address cannot create an account a later email sign-in would land in", async () => {
+    const store = await tempStore();
+    const refused = await bindGoogleSubject(store, {
+      subject: "sub-attacker",
+      email: "user@proton.me",
+      emailVerified: false,
+    }).catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(SubjectBindingConflict);
+    expect(await store.sqlAll("select id from accounts")).toEqual([]);
+    // The control: the same call verified does create it, so the refusal
+    // above was the verification and not the fixture.
+    const made = await bindGoogleSubject(store, {
+      subject: "sub-attacker",
+      email: "user@proton.me",
+      emailVerified: true,
+    });
+    expect(made.google_subject).toBe("sub-attacker");
+  });
+
+  test("a subject already bound still signs in when Google reports the address unverified", async () => {
+    const store = await tempStore();
+    const first = await bindGoogleSubject(store, {
+      subject: "sub-1",
+      email: "a@example.com",
+      emailVerified: true,
+    });
+    const again = await bindGoogleSubject(store, {
+      subject: "sub-1",
+      email: "a@example.com",
+      emailVerified: false,
+    });
+    expect(again.id).toBe(first.id);
   });
 });
 
@@ -701,6 +803,7 @@ describe("the tenant key survives a changed email", () => {
     const first = await bindGoogleSubject(store, {
       subject: "sub-1",
       email: "before@example.com",
+      emailVerified: true,
     });
     const out = await reserveOffice(store, {
       accountId: first.id,
@@ -713,6 +816,7 @@ describe("the tenant key survives a changed email", () => {
     const later = await bindGoogleSubject(store, {
       subject: "sub-1",
       email: "after@example.com",
+      emailVerified: true,
     });
     expect(later.id).toBe(first.id);
     // The office is still reachable, and no second account was made for the
