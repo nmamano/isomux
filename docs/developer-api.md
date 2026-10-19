@@ -166,7 +166,8 @@ App responses add `shortUrl`, a short office address that shows the app with its
 ### Read and write memory
 
 `GET /api/memory?scope=agent` returns the scope's raw `text`, optimistic-concurrency
-`version`, current injected `size`, and `cap`. For `agent`, an agent token may omit
+`version`, current injected `size`, and `cap`, plus the `scopeId` it resolved and
+that room's, agent's or member's `name` (both null for `office`). For `agent`, an agent token may omit
 `scopeId` to target itself; a signed-in user must name an existing agent. `room`
 requires an existing `scopeId`. `office` rejects `scopeId`. For `boss`, an omitted
 `scopeId` targets the caller's user or the agent's manager; an explicit id must

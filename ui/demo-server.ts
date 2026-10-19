@@ -2592,6 +2592,8 @@ export async function demoApi(
       version: versionOf(text),
       size: injectedMemorySize(text),
       cap: MEMORY_CAPS[scope as keyof typeof MEMORY_CAPS],
+      scopeId: scope === "office" ? null : scopeId,
+      name: null,
     } satisfies MemoryReadRes;
   }
   if (route === "PUT /api/memory") {

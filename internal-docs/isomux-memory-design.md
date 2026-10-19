@@ -190,10 +190,14 @@ Three verbs, two writers.
 
 ### The three verbs
 
-- **`GET /api/memory?scope=&scopeId=`** (READ) → `{ text, version, size, cap }`: the
+- **`GET /api/memory?scope=&scopeId=`** (READ) → `{ text, version, size, cap, scopeId, name }`: the
   verbatim file, an optimistic-concurrency `version` (short sha256 of the file
-  bytes; a missing file hashes `""` to a fixed sentinel), and the current injected
-  size and cap.
+  bytes; a missing file hashes `""` to a fixed sentinel), the current injected
+  size and cap, and the resolved target: its `scopeId` and its name: the room or
+  member name its auto-load label shows, or the agent's name (both null for
+  office). A valid id for
+  the wrong room reads cleanly, so the name is what lets a reader join a READ to
+  the block in its prompt.
 - **`POST /api/memory` `{ scope, scopeId?, text }`** (APPEND) →
   `{ item, version, size, cap }`:
   the safe default. Appends one `- {Creator}, {date}: {text}` line - or

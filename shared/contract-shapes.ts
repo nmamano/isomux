@@ -1306,12 +1306,16 @@ export interface MemoryReplaceReq {
   version: string;
 }
 
-// READ response: the verbatim file text + its optimistic-concurrency version.
+// READ response: the verbatim file text + its optimistic-concurrency version,
+// and the scope it resolved: scopeId (null for office) and its name: the room
+// or member name its auto-load label shows, or the agent's name (null for office).
 export interface MemoryReadRes {
   text: string;
   version: string;
   size: number;
   cap: number;
+  scopeId: string | null;
+  name: string | null;
 }
 
 // APPEND response: the new line + the post-write version.

@@ -747,3 +747,169 @@ describe("routes/memory REST: op-log", () => {
     });
   });
 });
+
+// READ names the scope it resolved, so a reader can join a read to the block
+// injected into its prompt: that block labels each scope by NAME, the API takes
+// an ID. A valid id of the WRONG room must read as a different room.
+describe("routes/memory REST: READ names the resolved scope", () => {
+  function asNamed(body: unknown): {
+    scopeId: string | null;
+    name: string | null;
+  } {
+    return body as { scopeId: string | null; name: string | null };
+  }
+  // The label line directly above `note` in the prompt's memory block.
+  function labelAbove(prompt: string, note: string): string {
+    const lines = prompt.split("\n");
+    const at = lines.findIndex((l) => l.includes(note));
+    if (at < 1) throw new Error(`note not in prompt: ${note}`);
+    return lines[at - 1];
+  }
+
+  it("a room or member read carries the name its injected block shows; another room's valid id reads as that other room", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const alpha = srv.agentManager.createRoom("Alpha Lab");
+    const beta = srv.agentManager.createRoom("Beta Lab");
+    const bot = await srv.agentManager.spawn(
+      "MemBot",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      alpha,
+      undefined,
+      undefined,
+      undefined,
+      "Boss",
+      "claude",
+      undefined,
+      ownerId,
+    );
+    if (!bot) throw new Error("spawn returned null");
+    const token = mintAgentToken(bot.id, ownerId);
+    for (const [scope, scopeId, text] of [
+      ["room", alpha, "alpha room note"],
+      ["room", beta, "beta room note"],
+      ["boss", ownerId, "boss member note"],
+    ]) {
+      const r = await api(srv, "/api/memory", {
+        method: "POST",
+        bearer: token,
+        body: { scope, scopeId, text },
+      });
+      expect(r.status).toBe(201);
+    }
+    const promptRes = await api(srv, `/api/agents/${bot.id}/system-prompt`, {
+      bearer: token,
+    });
+    expect(promptRes.status).toBe(200);
+    const prompt = (promptRes.body as { prompt: string }).prompt;
+    // Enabling condition: the agent's own room is injected, the other is not.
+    expect(prompt).toContain("alpha room note");
+    expect(prompt).not.toContain("beta room note");
+
+    const own = await api(srv, `/api/memory?scope=room&scopeId=${alpha}`, {
+      bearer: token,
+    });
+    const other = await api(srv, `/api/memory?scope=room&scopeId=${beta}`, {
+      bearer: token,
+    });
+    expect(own.status).toBe(200);
+    expect(other.status).toBe(200);
+    expect(asNamed(own.body).scopeId).toBe(alpha);
+    expect(asNamed(other.body).scopeId).toBe(beta);
+    const ownName = asNamed(own.body).name;
+    const otherName = asNamed(other.body).name;
+    expect(typeof ownName).toBe("string");
+    expect(typeof otherName).toBe("string");
+    const roomLabel = labelAbove(prompt, "alpha room note");
+    expect(roomLabel).toContain(`"${ownName}"`);
+    expect(roomLabel).not.toContain(`"${otherName}"`);
+
+    // Member scope, defaulted from the agent's manager.
+    const boss = await api(srv, "/api/memory?scope=boss", { bearer: token });
+    expect(boss.status).toBe(200);
+    expect(asNamed(boss.body).scopeId).toBe(ownerId);
+    const bossName = asNamed(boss.body).name;
+    expect(typeof bossName).toBe("string");
+    expect(labelAbove(prompt, "boss member note")).toContain(`"${bossName}"`);
+
+    // The name is read live: after a rename the read and the next prompt agree.
+    expect(srv.agentManager.renameRoom(alpha, "Gamma Lab")).toBe(true);
+    const renamed = await api(srv, `/api/memory?scope=room&scopeId=${alpha}`, {
+      bearer: token,
+    });
+    const renamedName = asNamed(renamed.body).name;
+    expect(renamedName).not.toBe(ownName);
+    const nextPrompt = (
+      (await api(srv, `/api/agents/${bot.id}/system-prompt`, { bearer: token }))
+        .body as { prompt: string }
+    ).prompt;
+    expect(labelAbove(nextPrompt, "alpha room note")).toContain(
+      `"${renamedName}"`,
+    );
+  });
+
+  it("agent, member and office reads name their resolved target; unknown ids keep their 404 codes", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Member");
+    const ownerId = getUserByName("Boss")!.id;
+    const memberId = getUserByName("Member")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const peer = await spawnAgent(srv, "PeerBot");
+    const token = mintAgentToken(bot.id, ownerId);
+
+    const self = await api(srv, "/api/memory?scope=agent", { bearer: token });
+    expect(self.status).toBe(200);
+    expect(asNamed(self.body)).toMatchObject({
+      scopeId: bot.id,
+      name: bot.name,
+    });
+    const cross = await api(srv, `/api/memory?scope=agent&scopeId=${peer.id}`, {
+      bearer: token,
+    });
+    expect(asNamed(cross.body)).toMatchObject({
+      scopeId: peer.id,
+      name: peer.name,
+    });
+
+    // A member cookie: omitted scopeId defaults to its own user; explicit
+    // other user resolves to that user.
+    const mine = await api(srv, "/api/memory?scope=boss", {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(mine.status).toBe(200);
+    expect(asNamed(mine.body)).toMatchObject({
+      scopeId: memberId,
+      name: getUserByName("Member")!.name,
+    });
+    const theirs = await api(srv, `/api/memory?scope=boss&scopeId=${ownerId}`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(asNamed(theirs.body)).toMatchObject({
+      scopeId: ownerId,
+      name: getUserByName("Boss")!.name,
+    });
+
+    const office = await api(srv, "/api/memory?scope=office", {
+      bearer: token,
+    });
+    expect(office.status).toBe(200);
+    expect(asNamed(office.body)).toMatchObject({ scopeId: null, name: null });
+
+    for (const [query, code] of [
+      ["scope=room&scopeId=deadbeef", "room_not_found"],
+      ["scope=agent&scopeId=deadbeef", "agent_not_found"],
+      ["scope=boss&scopeId=deadbeef", "user_not_found"],
+    ]) {
+      const r = await api(srv, `/api/memory?${query}`, { bearer: token });
+      expect(r.status).toBe(404);
+      expect(errCode(r.body)).toBe(code);
+    }
+  });
+});

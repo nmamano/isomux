@@ -71,15 +71,18 @@ export interface MemoryDeps {
   authorFor(identity: Identity): string | null;
   // Strict identifier guard (rejects path traversal in a caller-supplied scopeId).
   isSafeScopeId(id: string): boolean;
-  // Target-EXISTENCE checks. Existence only - there is deliberately NO access
-  // gate; never reuse requiresRoomAccess.
-  roomExists(roomId: string): boolean;
-  agentExists(agentId: string): boolean;
-  userExists(userId: string): boolean;
+  // Target-EXISTENCE checks: the target's display name, or null when it does
+  // not exist. Existence only - there is deliberately NO access gate; never
+  // reuse requiresRoomAccess.
+  roomName(roomId: string): string | null;
+  agentName(agentId: string): string | null;
+  userName(userId: string): string | null;
 }
 
+// `name` is the room or member name the auto-load label shows, or the agent's
+// name (null for office), so a reader can join a READ to the block in its prompt.
 type Target =
-  | { scope: MemoryScope; scopeId: string | null }
+  | { scope: MemoryScope; scopeId: string | null; name: string | null }
   | { error: ReturnType<typeof fail> };
 
 export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
@@ -101,7 +104,11 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
     if (scope === "agent") {
       if (rawScopeId === undefined || rawScopeId === null) {
         if (identity.scope === "agent" && identity.agentId) {
-          return { scope: "agent", scopeId: identity.agentId };
+          return {
+            scope: "agent",
+            scopeId: identity.agentId,
+            name: deps.agentName(identity.agentId),
+          };
         }
         return {
           error: fail(
@@ -114,10 +121,11 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
         return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
       }
-      if (!deps.agentExists(rawScopeId)) {
+      const name = deps.agentName(rawScopeId);
+      if (name === null) {
         return { error: fail(404, "agent_not_found", "no such agent") };
       }
-      return { scope: "agent", scopeId: rawScopeId };
+      return { scope: "agent", scopeId: rawScopeId, name };
     }
     if (scope === "room") {
       if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
@@ -129,10 +137,11 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           ),
         };
       }
-      if (!deps.roomExists(rawScopeId)) {
+      const name = deps.roomName(rawScopeId);
+      if (name === null) {
         return { error: fail(404, "room_not_found", "no such room") };
       }
-      return { scope: "room", scopeId: rawScopeId };
+      return { scope: "room", scopeId: rawScopeId, name };
     }
     if (scope === "office") {
       if (rawScopeId !== undefined && rawScopeId !== null) {
@@ -144,7 +153,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           ),
         };
       }
-      return { scope: "office", scopeId: null };
+      return { scope: "office", scopeId: null, name: null };
     }
     if (scope === "boss") {
       if (rawScopeId === undefined || rawScopeId === null) {
@@ -160,18 +169,20 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
             ),
           };
         }
-        if (!deps.userExists(own)) {
+        const name = deps.userName(own);
+        if (name === null) {
           return { error: fail(404, "user_not_found", "no such user") };
         }
-        return { scope: "boss", scopeId: own };
+        return { scope: "boss", scopeId: own, name };
       }
       if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
         return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
       }
-      if (!deps.userExists(rawScopeId)) {
+      const name = deps.userName(rawScopeId);
+      if (name === null) {
         return { error: fail(404, "user_not_found", "no such user") };
       }
-      return { scope: "boss", scopeId: rawScopeId };
+      return { scope: "boss", scopeId: rawScopeId, name };
     }
     return {
       error: fail(
@@ -195,6 +206,8 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         ...memory,
         size: injectedSize(memory.text),
         cap: MEMORY_CAPS[target.scope],
+        scopeId: target.scopeId,
+        name: target.name,
       });
     },
 

@@ -3411,11 +3411,14 @@ function buildExecutorDeps(
         return null;
       },
       isSafeScopeId,
-      // EXISTENCE only - no access gate (permissive model).
-      roomExists: (roomId) =>
-        agentManager.getOrdinaryRooms().some((r) => r.id === roomId),
-      agentExists: (agentId) => agentManager.getAgentDisplay(agentId) != null,
-      userExists: (userId) => getUserById(userId) != null,
+      // EXISTENCE only - no access gate (permissive model). Room and member
+      // names are the ones the auto-load labels use.
+      roomName: (roomId) =>
+        agentManager.getOrdinaryRooms().find((r) => r.id === roomId)?.name ??
+        null,
+      agentName: (agentId) =>
+        agentManager.getAgentDisplay(agentId)?.name ?? null,
+      userName: (userId) => getUserById(userId)?.name ?? null,
     }),
   );
 
