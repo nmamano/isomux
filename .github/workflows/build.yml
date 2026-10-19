@@ -79,6 +79,12 @@ jobs:
       - name: Run tests
         run: bun scripts/test-shards.ts
 
+      # The "opencode live" stage of `bun run ci`: real OpenCode turns from the
+      # opencode-v1 package against mock providers, so it needs no key.
+      - name: Run the OpenCode live tier
+        timeout-minutes: 5
+        run: bun run test:opencode:ci
+
   # The control-plane web app (`bun run ci:web`) is part of the local pre-push
   # gate (`bun run ci`), so it must be enforced here too - otherwise the hook
   # checks something GitHub never does and the two gates drift. Its own job so

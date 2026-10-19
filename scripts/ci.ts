@@ -16,6 +16,7 @@ type StageName =
   | "tsc"
   | "build:ui"
   | "bun test"
+  | "opencode live"
   | "ci:web"
   | "container";
 
@@ -44,6 +45,10 @@ const stages: Array<{ name: StageName; command: string[] }> = [
   },
   { name: "build:ui", command: ["bun", "run", "build:ui"] },
   { name: "bun test", command: ["bun", "scripts/test-shards.ts"] },
+  // The OpenCode live tier on a pinned server and mock providers: no key, no
+  // model credits. It runs after bun test, never beside it: its first-reply
+  // waits fail under load.
+  { name: "opencode live", command: ["bun", "run", "test:opencode:ci"] },
   { name: "ci:web", command: ["bun", "run", "ci:web"] },
   // The release image check (build, smoke, Compose) on the committed HEAD.
   // The release workflow runs the same scripts; without this stage they
@@ -55,8 +60,13 @@ const stages: Array<{ name: StageName; command: string[] }> = [
 // 1153.47s on 2026-09-10,
 // /tmp/isomux-pre-push-20260910T041043.log (load averages not recorded).
 export const BUN_TEST_CEILING_MS = 2 * 1_153_470;
+// Twice a measured `bun run test:opencode:ci`: 132.02s on 2026-10-19,
+// /tmp/t-feafdecb/ceil.log (load average 1.26 at the start).
+const OPENCODE_LIVE_CEILING_MS = 2 * 132_020;
 export function ceilingFor(name: StageName): number | undefined {
-  return name === "bun test" ? BUN_TEST_CEILING_MS : undefined;
+  if (name === "bun test") return BUN_TEST_CEILING_MS;
+  if (name === "opencode live") return OPENCODE_LIVE_CEILING_MS;
+  return undefined;
 }
 
 const children = new Set<ReturnType<typeof Bun.spawn>>();
@@ -238,7 +248,21 @@ export async function runPipeline(
       ? stage("bun test")
       : skipped("bun test", "build:ui failed"),
   );
-  return Promise.all([format, lint, types, build, tests, web, container]);
+  const openCode = tests.then((result): Promise<StageResult> | StageResult =>
+    result.status === "passed"
+      ? stage("opencode live")
+      : skipped("opencode live", `bun test ${result.status}`),
+  );
+  return Promise.all([
+    format,
+    lint,
+    types,
+    build,
+    tests,
+    openCode,
+    web,
+    container,
+  ]);
 }
 
 async function main(): Promise<void> {

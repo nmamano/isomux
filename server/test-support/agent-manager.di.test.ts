@@ -1261,7 +1261,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
 
   // Real subprocess credential scrub: run with bun run test:opencode.
   it.skipIf(!LIVE)(
-    "keeps provider credentials out of Connections guidance and agent logs, then recovers after a managed key change and /clear",
+    "keeps provider credentials out of auth guidance and agent logs, then recovers after a managed key change and /clear",
     async () => {
       const apiKey = `sk-${"S2_MANUAL_LOGIN_CANARY"}`;
       const newKey = `recovered-${apiKey}`;
@@ -1455,6 +1455,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
       });
       try {
         lease = await measure("server start", () => supervisor.acquire());
+        // Keep the lease to read the server pid, but end the hold acquire()
+        // takes: a held server waits out the replacement that the key change
+        // below asks for, and an agent holds one only during a turn.
+        lease.settle();
         startedPids.add(lease.pid);
         const firstPid = lease.pid;
         const productionBackend = createOpenCodeBackend({
@@ -1471,7 +1475,6 @@ describe("AgentManager DI (temp-state isolated)", () => {
         const isGuidance = (entry: { kind: string; content: string }) =>
           entry.kind === "system" &&
           entry.content.includes("OPENCODE_API_KEY") &&
-          /connections/i.test(entry.content) &&
           entry.content.includes("/clear");
         const guidanceLogged = Promise.withResolvers<void>();
         let settled = Promise.withResolvers<void>();
@@ -1535,7 +1538,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
                 () =>
                   reject(
                     new Error(
-                      "Connections guidance never arrived after the auth-failed turn settled",
+                      "Auth guidance never arrived after the auth-failed turn settled",
                     ),
                   ),
                 5000,
@@ -1556,7 +1559,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         const logs = mgr.getAgentLogs(info!.id);
         expect(
           logs.some(isGuidance),
-          "system guidance names the key, Connections and /clear",
+          "system guidance names the key and /clear",
         ).toBe(true);
         expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(
           false,

@@ -17,7 +17,6 @@ import {
 } from "./transport.ts";
 import { STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
-import permissionRejectMessage from "./fixtures/permission-reject-message.json";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
 
@@ -1410,7 +1409,7 @@ describe("OpenCode pinned transport", () => {
                     : prompt.includes("FAIL")
                       ? "printf failed-before-exit; exit 7"
                       : prompt.includes("DENY")
-                        ? "git reset --hard"
+                        ? "printf denied > gate-denied.txt"
                         : "printf allowed > gate-allowed.txt";
               const edit = prompt.includes("EDIT");
               const toolName = edit ? "edit" : "bash";
@@ -1621,17 +1620,17 @@ describe("OpenCode pinned transport", () => {
       kind: "turn_completed",
       status: "completed",
     });
-    expect(denied.filter((event) => event.kind === "tool_result")).toHaveLength(
-      1,
-    );
+    // The policy allows this write, so OpenCode asks and the member denies.
+    // The office policy's own block runs in the safety plugin, before any
+    // ask (supervisor.test.ts covers it on a real server).
     expect(
-      denied.some(
-        (event) =>
-          event.kind === "tool_result" &&
-          event.content.startsWith(permissionRejectMessage.errorPrefix) &&
-          event.content.includes("BLOCKED by isomux safety hooks"),
-      ),
-    ).toBe(true);
+      denied.filter((event) => event.kind === "approval_request"),
+    ).toHaveLength(1);
+    expect(
+      denied
+        .filter((event) => event.kind === "tool_result")
+        .map((event) => event.kind === "tool_result" && event.isError),
+    ).toEqual([true]);
     expect(denied.at(-1)).toMatchObject({
       kind: "turn_completed",
       status: "completed",

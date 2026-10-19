@@ -260,9 +260,14 @@ it.skipIf(!LIVE)(
 );
 
 it.skipIf(!LIVE)(
-  "drops a real provider-error canary before normalized events and agent JSONL",
+  "shows a real provider refusal without the provider key or headers in logs, agent JSONL or server logs",
   async () => {
+    // Task 1a963907: the member reads the provider's own words, redacted.
+    // The mock echoes the key it received, as some providers do.
     const canary = "OPENCODE_PROVIDER_ERROR_SECRET_CANARY";
+    const apiKey = `opencode-live-key-${crypto.randomUUID()}`;
+    const plain = "ProviderPlainMarker7";
+    const authorizations: string[] = [];
     const mock = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -275,8 +280,15 @@ it.skipIf(!LIVE)(
           });
         }
         if (url.pathname === "/v1/chat/completions") {
+          const authorization = request.headers.get("authorization") ?? "";
+          authorizations.push(authorization);
           return Response.json(
-            { error: { message: canary, type: "provider_error" } },
+            {
+              error: {
+                message: `${plain} rejected ${authorization}`,
+                type: "provider_error",
+              },
+            },
             { status: 400, headers: { "x-provider-secret": canary } },
           );
         }
@@ -304,7 +316,7 @@ it.skipIf(!LIVE)(
               },
             },
             options: {
-              apiKey: "invalid-test-key",
+              apiKey,
               baseURL: `http://127.0.0.1:${mock.port}/v1`,
             },
           },
@@ -318,7 +330,7 @@ it.skipIf(!LIVE)(
     });
     try {
       const reply = expectedLog("provider error", (content) =>
-        /HTTP\s+400/.test(content),
+        content.includes(plain),
       );
       const mgr = createAgentManager({
         eventSink: reply.sink,
@@ -355,15 +367,17 @@ it.skipIf(!LIVE)(
       expect(warmLease.pid).toBe(warmPid);
       expect(alive(warmPid)).toBe(true);
       warmLease.release();
+      // The echoed key reached the provider's message.
+      expect(authorizations).toContain(`Bearer ${apiKey}`);
       expect(
         mgr
           .getAgentLogs(info!.id)
           .some(
-            (entry) =>
-              entry.kind === "error" && /HTTP\s+400/.test(entry.content),
+            (entry) => entry.kind === "error" && entry.content.includes(plain),
           ),
       ).toBe(true);
       expect(normalized).not.toContain(canary);
+      expect(normalized).not.toContain(apiKey);
       expect(
         mgr
           .getAgentLogs(info!.id)
@@ -372,9 +386,9 @@ it.skipIf(!LIVE)(
       let scannedFiles = 0;
       for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
         scannedFiles++;
-        expect(await Bun.file(`${STATE_ROOT}/${path}`).text()).not.toContain(
-          canary,
-        );
+        const text = await Bun.file(`${STATE_ROOT}/${path}`).text();
+        expect(text).not.toContain(canary);
+        expect(text).not.toContain(apiKey);
       }
       expect(
         scannedFiles,
@@ -382,9 +396,9 @@ it.skipIf(!LIVE)(
       ).toBeGreaterThan(0);
       for (const name of ["server.stdout.log", "server.stderr.log"]) {
         const file = Bun.file(`${supervisor.profileDir}/${name}`);
-        expect((await file.exists()) ? await file.text() : "").not.toContain(
-          canary,
-        );
+        const text = (await file.exists()) ? await file.text() : "";
+        expect(text).not.toContain(canary);
+        expect(text).not.toContain(apiKey);
       }
       await mgr.kill(info!.id);
     } finally {
