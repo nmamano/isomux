@@ -16,9 +16,9 @@ Merges into local main need no approval from Nil. Inside a task, the worker and 
 
 ## What the loop picks
 
-Credits are limited, so the loop works only on what Nil wants now. The priority field is the queue: the loop app takes P0 first, then P1 down to P3, the oldest first within a priority, and never P4.
+Credits are limited, so the loop works only on what Nil wants now. The priority field is the queue: the loop app takes P0 first, then P1 down to P3, the oldest first within a priority, and never a backlog task (P4 on the board).
 
-The loop picks only tasks that Nil has reviewed. Agents set a priority when they file, so a priority alone does not show Nil's intent. Nil's review sets the priority and the class tag. A task without a tag is unreviewed, and the loop never picks it.
+The loop picks only tasks that Nil has reviewed. Agents set a priority when they file, so a priority alone does not show Nil's intent. Nil's review sets the priority and the class tag. A P0-P3 task without a tag is unreviewed. The loop never picks a task without a tag.
 
 When the queue has no reviewed `ready` task, the loop stops. Idle credits cost nothing; credits spent on work Nil did not choose are waste.
 
@@ -41,11 +41,11 @@ Rules:
 - A class and a priority come only from Nil's decisions. Agents file tasks without a tag.
 - One exception: a worker may raise its own task from `go` to `design`, never the reverse.
 - Only Nil's words move a task from `nil` to `ready`.
-- P4 (backlog) tasks get no tag until Nil promotes them.
+- A backlog task has P4 and no tag. Nil brings it in from the app's Backlog tab with a priority and a class.
 
 ## Curation
 
-Isomux Curator (isomux-curator skill) sits at a front desk, and Nil talks to it about what the loop picks and how tasks rank. For each unreviewed task, it proposes a priority and a verdict (`go`, `design`, `hold` or `obsolete`), with one line of why. A verdict other than obsolete is the task's class and can carry a new title or scope. It argues against the task first. It reviewed the whole open board once and then reviews each new task; when Nil's direction changes, it proposes new priorities for the tasks the change affects. It writes Nil's decisions to the board.
+Isomux Curator (isomux-curator skill) sits at a front desk, and Nil talks to it about what the loop picks and how tasks rank. For each unreviewed task, it proposes a verdict (`go`, `design`, `hold`, `backlog` or `obsolete`), with one line of why. `go`, `design` and `hold` are classes and come with a priority from P0 to P3; `backlog` writes P4 and no tag. A verdict other than obsolete can carry a new title or scope. It argues against the task first. It reviewed the whole open board once and then reviews each new task; when Nil's direction changes, it proposes new priorities for the tasks the change affects. It writes Nil's decisions to the board.
 
 ## Nil's queue: the loop app
 
