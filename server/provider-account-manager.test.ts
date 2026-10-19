@@ -18,6 +18,19 @@ const disconnectedAccountClient = () => ({
   close: async () => {},
 });
 
+// Refusal tests must never fall back to the real account clients: if the
+// refusal regresses, a real client spawns the provider CLI on the refused
+// directory (for Codex, the box's ~/.codex), merges isomux's safety hook into
+// it and starts a real login there.
+const accountClientsThatMustNotBuild = () => {
+  let built = 0;
+  const factory = (() => {
+    built++;
+    return disconnectedAccountClient();
+  }) as never;
+  return { codex: factory, claude: factory, built: () => built };
+};
+
 describe("ProviderAccountManager", () => {
   it("evicts a timed-out shared probe so a second read starts a fresh probe", async () => {
     let starts = 0;
@@ -1321,17 +1334,14 @@ describe("ProviderAccountManager", () => {
   });
 
   it("refuses the resolved office Claude directory independently of office-file candidates", async () => {
+    const clients = accountClientsThatMustNotBuild();
     const manager = new ProviderAccountManager(
       () => {},
-      (() => ({
-        start: async () => {},
-        read: async () => ({ connected: false }),
-        close: async () => {},
-      })) as never,
+      clients.codex,
       undefined,
       undefined,
       () => ({ CLAUDE_CONFIG_DIR: "/tmp/resolved-office-claude" }),
-      undefined,
+      clients.claude,
       () => ({ CLAUDE_CONFIG_DIR: "/tmp/resolved-office-claude" }),
       () => ({}),
       () => ({ CLAUDE_CONFIG_DIR: "/tmp/resolved-office-claude" }),
@@ -1343,6 +1353,7 @@ describe("ProviderAccountManager", () => {
       "personal",
       "browser",
     );
+    expect(clients.built()).toBe(0);
     expect(result).toMatchObject({
       ok: false,
       message:
@@ -1391,13 +1402,14 @@ describe("ProviderAccountManager", () => {
   });
 
   it("refuses the box's external Codex CLI directory", async () => {
+    const clients = accountClientsThatMustNotBuild();
     const manager = new ProviderAccountManager(
       () => {},
-      undefined,
+      clients.codex,
       undefined,
       undefined,
       () => ({ CODEX_HOME: resolve(homedir(), ".codex") }),
-      undefined,
+      clients.claude,
       () => ({}),
       () => ({}),
       () => ({ CODEX_HOME: resolve(homedir(), ".codex") }),
@@ -1409,6 +1421,7 @@ describe("ProviderAccountManager", () => {
       "personal",
       "browser",
     );
+    expect(clients.built()).toBe(0);
     expect(result).toMatchObject({
       ok: false,
       message:
@@ -1417,13 +1430,14 @@ describe("ProviderAccountManager", () => {
   });
 
   it("refuses another member's provisioned Codex home", async () => {
+    const clients = accountClientsThatMustNotBuild();
     const manager = new ProviderAccountManager(
       () => {},
-      undefined,
+      clients.codex,
       undefined,
       undefined,
       () => ({ CODEX_HOME: "/tmp/provider-homes/user-b/codex" }),
-      undefined,
+      clients.claude,
       () => ({}),
       () => ({}),
       (userId): Record<string, string> =>
@@ -1439,6 +1453,7 @@ describe("ProviderAccountManager", () => {
       "personal",
       "browser",
     );
+    expect(clients.built()).toBe(0);
     expect(result).toMatchObject({
       ok: false,
       message:
@@ -1498,22 +1513,14 @@ describe("ProviderAccountManager", () => {
       if (processValue.CODEX_HOME)
         process.env.CODEX_HOME = processValue.CODEX_HOME;
       else delete process.env.CODEX_HOME;
+      const clients = accountClientsThatMustNotBuild();
       const manager = new ProviderAccountManager(
         () => {},
-        (() => ({
-          start: async () => {},
-          login: async () => ({
-            loginId: "login",
-            authUrl: "https://example.com/oauth/",
-          }),
-          waitForCompletion: () => new Promise(() => {}),
-          read: async () => ({ connected: false }),
-          close: async () => {},
-        })) as never,
+        clients.codex,
         undefined,
         undefined,
         () => ({ CODEX_HOME: value }),
-        undefined,
+        clients.claude,
         () => ({ CODEX_HOME: "/tmp/office-codex" }),
         () => officeFile,
         (userId) =>
@@ -1529,6 +1536,7 @@ describe("ProviderAccountManager", () => {
           "personal",
           "browser",
         );
+        expect(clients.built()).toBe(0);
         expect(result).toMatchObject({ ok: false, message });
       } finally {
         if (previous === undefined) delete process.env.CODEX_HOME;
@@ -1539,13 +1547,14 @@ describe("ProviderAccountManager", () => {
 
   for (const value of ["relative/codex", "~/.codex", "$HOME/.codex"] as const) {
     it(`refuses Codex personal login for non-absolute ${value}`, async () => {
+      const clients = accountClientsThatMustNotBuild();
       const manager = new ProviderAccountManager(
         () => {},
-        undefined,
+        clients.codex,
         undefined,
         undefined,
         () => ({ CODEX_HOME: value }),
-        undefined,
+        clients.claude,
         () => ({}),
         () => ({}),
         () => ({ CODEX_HOME: value }),
@@ -1557,6 +1566,7 @@ describe("ProviderAccountManager", () => {
         "personal",
         "browser",
       );
+      expect(clients.built()).toBe(0);
       expect(result).toMatchObject({
         ok: false,
         message: "CODEX_HOME must be an absolute directory.",
