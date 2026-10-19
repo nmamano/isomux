@@ -153,7 +153,6 @@ These entries are unchanged. The shared page components keep their existing copy
 | `common.field.workingDirectory` | `Working Directory` | `Directorio de trabajo` | `Directori de treball` |
 | `common.justNow` | `just now` | `ahora mismo` | `ara mateix` |
 | `common.loading` | `Loading…` | `Cargando…` | `Carregant…` |
-| `common.loadingDots` | `Loading...` | `Cargando...` | `Carregant...` |
 | `common.loadingMemory` | `Loading memory…` | `Cargando la memoria…` | `Carregant la memòria…` |
 | `common.memory` | `Memory` | `Memoria` | `Memòria` |
 | `common.model.checkFailed` | `The available models could not be checked. Reopen this dialog to try again.` | `No se han podido comprobar los modelos disponibles. Vuelve a abrir este diálogo para intentarlo de nuevo.` | `No s'han pogut comprovar els models disponibles. Torna a obrir aquest diàleg per provar-ho de nou.` |

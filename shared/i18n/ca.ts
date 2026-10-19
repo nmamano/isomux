@@ -345,7 +345,6 @@ Coses que pots fer per ell:
   "common.cancel": "Cancel·la",
   "common.close": "Tanca",
   "common.loading": "Carregant…",
-  "common.loadingDots": "Carregant...",
   "common.loadingMemory": "Carregant la memòria…",
   "common.memory": "Memòria",
   "common.memorySize": "{size} / {cap} caràcters",
@@ -393,7 +392,7 @@ Coses que pots fer per ell:
     "Et segueixen a tots els dispositius des dels quals inicies la sessió. La configuració específica d'aquest navegador és a Dispositiu.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
-    "L'idioma en què escriuen els teus agents, i el que fan servir l'entrada de veu i la lectura en veu alta. Els agents l'apliquen a la conversa següent. La resta de la interfície continua en anglès de moment.",
+    "L'idioma de la interfície, del que escriuen els teus agents i de l'entrada de veu i la lectura en veu alta. Els agents l'apliquen a la conversa següent.",
   "preferences.saved": "Desat.",
   "preferences.saveFailed": "No s'ha pogut desar",
 
@@ -2972,8 +2971,6 @@ Coses que pots fer per ell:
   "preAuth.claim.errorTooManyTries":
     "Massa claus de configuració incorrectes. Torna-ho a provar d'aquí a un minut.",
   "preAuth.invite.titleAccept": "acceptar la invitació",
-  "preAuth.invite.bootstrapIntro":
-    "Ets la primera persona que reclama aquesta oficina. Tria un nom per mostrar - apareixerà al costat de tot el que diguis.",
   "preAuth.invite.heading": "Obre la teva invitació d'Isomux",
   "preAuth.invite.headingNamed":
     "Obre la teva invitació a l'oficina Isomux: {office}",

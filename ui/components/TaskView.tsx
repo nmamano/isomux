@@ -1766,7 +1766,7 @@ export function TaskView({
                         fontSize: 13,
                       }}
                     >
-                      {tasksLoaded ? t("tasks.empty") : t("common.loadingDots")}
+                      {tasksLoaded ? t("tasks.empty") : t("common.loading")}
                     </td>
                   </tr>
                 ) : (

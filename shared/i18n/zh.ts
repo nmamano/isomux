@@ -330,7 +330,6 @@ App 的一些原则：
   "common.cancel": "取消",
   "common.close": "关闭",
   "common.loading": "正在加载…",
-  "common.loadingDots": "正在加载…",
   "common.loadingMemory": "正在加载记忆…",
   "common.memory": "记忆",
   "common.memorySize": "{size} / {cap} 个字符",
@@ -376,7 +375,7 @@ App 的一些原则：
     "这些设置会同步到登录的所有设备。仅适用于此浏览器的设置位于「设备」。",
   "preferences.language": "语言",
   "preferences.languageHint":
-    "智能体回复以及语音输入和播放使用的语言。智能体会在下一次对话中采用此设置。界面的其余部分目前仍使用英语。",
+    "界面、智能体所写内容以及语音输入和播放使用的语言。智能体会在下一次对话中采用此设置。",
   "preferences.saved": "已保存。",
   "preferences.saveFailed": "无法保存",
   "settings.selectHint": "从列表中选择一项设置",
@@ -2655,8 +2654,6 @@ App 的一些原则：
   "preAuth.claim.errorKey": "设置密钥缺失或不正确。",
   "preAuth.claim.errorTooManyTries": "错误的设置密钥过多。请一分钟后再试。",
   "preAuth.invite.titleAccept": "接受邀请",
-  "preAuth.invite.bootstrapIntro":
-    "你是第一个认领此办公室的人。请选择显示名称，它会出现在你发送的所有内容旁边。",
   "preAuth.invite.heading": "打开 Isomux 邀请",
   "preAuth.invite.headingNamed": "打开 Isomux 办公室「{office}」的邀请",
   "preAuth.invite.clickHint": "点击下方按钮将在此设备上登录。",

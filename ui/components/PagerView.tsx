@@ -584,7 +584,7 @@ export function PagerView({
         {!pagerLoaded ? (
           pagerLoadFailed ? null : (
             <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
-              {t("common.loadingDots")}
+              {t("common.loading")}
             </div>
           )
         ) : shown.length === 0 ? (

@@ -637,7 +637,7 @@ function CronjobsTable({
         style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}
       >
         {!loaded
-          ? t("common.loadingDots")
+          ? t("common.loading")
           : filtered
             ? t("schedules.noMatch")
             : t("schedules.empty")}
@@ -914,7 +914,7 @@ function RunsTable({
       <div
         style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}
       >
-        {loaded ? t("schedules.runsEmpty") : t("common.loadingDots")}
+        {loaded ? t("schedules.runsEmpty") : t("common.loading")}
       </div>
     );
   }

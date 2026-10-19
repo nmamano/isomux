@@ -239,7 +239,7 @@ export function WebhooksView({
           />
         ) : (
           <p style={{ color: "var(--text-muted)", fontSize: 12 }}>
-            {webhooksLoaded ? t("webhooks.notFound") : t("common.loadingDots")}
+            {webhooksLoaded ? t("webhooks.notFound") : t("common.loading")}
           </p>
         )}
       </div>
@@ -320,7 +320,7 @@ function WebhooksTable({
         style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}
       >
         {!webhooksLoaded
-          ? t("common.loadingDots")
+          ? t("common.loading")
           : webhooks.length > 0
             ? t("webhooks.noMatch")
             : t("webhooks.empty")}
@@ -779,7 +779,7 @@ function WebhookDetail({
           </p>
         )}
         {deliveries === null ? (
-          !deliveriesError && <p style={hintStyle}>{t("common.loadingDots")}</p>
+          !deliveriesError && <p style={hintStyle}>{t("common.loading")}</p>
         ) : deliveries.length === 0 ? (
           <p style={hintStyle}>{t("webhooks.deliveries.empty")}</p>
         ) : (

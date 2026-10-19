@@ -1152,7 +1152,7 @@ function renderAcceptPage(
       <div class="login-bg" aria-hidden="true"></div>
       <main class="card">
         <h1>${t("common.welcomeNewOffice")}</h1>
-        <p>${t("preAuth.invite.bootstrapIntro")}</p>
+        <p>${t("preAuth.claim.intro")}</p>
         <form method="POST" action="/auth/accept">
           <input type="hidden" name="token" value="${safeToken}" />
           <label>${t("common.displayName")} <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>

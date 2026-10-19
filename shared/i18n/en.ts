@@ -355,9 +355,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.cancel": "Cancel",
   "common.close": "Close",
   "common.loading": "Loading…",
-  // Three periods, not the ellipsis of common.loading above: two surfaces
-  // spell the word this way and ruling 6 freezes both spellings.
-  "common.loadingDots": "Loading...",
   "common.loadingMemory": "Loading memory…",
   "common.memory": "Memory",
   "common.memorySize": "{size} / {cap} characters",
@@ -405,7 +402,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "These follow you to every device you sign in from. Settings that are about this browser in particular live under Device.",
   "preferences.language": "Language",
   "preferences.languageHint":
-    "The language your agents write in, and the language your voice input and playback use. Agents pick it up on their next conversation. The rest of the interface stays in English for now.",
+    "The language of the interface, of what your agents write, and of voice input and playback. Agents pick it up on their next conversation.",
   "preferences.saved": "Saved.",
   "preferences.saveFailed": "Could not save",
 
@@ -2943,8 +2940,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "preAuth.claim.errorTooManyTries":
     "Too many wrong setup keys. Try again in a minute.",
   "preAuth.invite.titleAccept": "accept invite",
-  "preAuth.invite.bootstrapIntro":
-    "You're the first person to claim this office. Pick a display name - it'll appear next to anything you say.",
   "preAuth.invite.heading": "Open your Isomux invite",
   "preAuth.invite.headingNamed":
     "Open your invite to the Isomux office: {office}",

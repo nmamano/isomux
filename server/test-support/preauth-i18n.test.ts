@@ -62,6 +62,11 @@ function setLanguage(username: string, language: "es" | "ca" | null): void {
   if (!result.ok) throw new Error(`could not set language: ${result.error}`);
 }
 
+/** The paragraph right after a page's <h1>: the intro of the first-owner pages. */
+function introAfterHeading(html: string): string {
+  return html.match(/<\/h1>\s*<p>([^<]*)<\/p>/)?.[1] ?? "";
+}
+
 // The four header cases the slice owes, per page.
 const HEADERS: Array<[label: string, header: string | null, lang: string]> = [
   ["Spanish", "es", "es"],
@@ -136,6 +141,7 @@ describe("the invite-accept page", () => {
     server = await startTestServer();
     const token = await bootstrapInviteToken();
     const seen: Record<string, string> = {};
+    const intros: Record<string, { invite: string; claim: string }> = {};
     for (const [label, header, lang] of HEADERS) {
       const { status, html } = await page(server, `/i/${token}`, header);
       expect({ label, status }).toEqual({ label, status: 200 });
@@ -144,19 +150,28 @@ describe("the invite-accept page", () => {
         lang: true,
       });
       seen[label] = html;
+      // No owner yet, so / is the claim page in the same language.
+      const claim = await page(server, "/", header);
+      intros[label] = {
+        invite: introAfterHeading(html),
+        claim: introAfterHeading(claim.html),
+      };
     }
-    expect(seen.Spanish).toContain(
-      "Elige un nombre para mostrar - aparecerá junto a todo lo que digas.",
-    );
-    expect(seen.Catalan).toContain(
-      "Tria un nom per mostrar - apareixerà al costat de tot el que diguis.",
-    );
+    // The bootstrap invite and the claim page greet the same first owner
+    // with one intro, in every language.
+    for (const [label] of HEADERS) {
+      expect(intros[label].claim.length).toBeGreaterThan(0);
+      expect({ label, invite: intros[label].invite }).toEqual({
+        label,
+        invite: intros[label].claim,
+      });
+    }
+    // ...and it is translated, not English on every page.
+    expect(intros.Spanish.invite).not.toBe(intros.English.invite);
+    expect(intros.Catalan.invite).not.toBe(intros.English.invite);
+    expect(intros.Catalan.invite).not.toBe(intros.Spanish.invite);
     expect(seen.Catalan).toContain('content="Isomux - configuració inicial"');
     for (const html of [seen.English, seen["no header"]]) {
-      // The hyphen spelling, one character from the claim page's semicolon.
-      expect(html).toContain(
-        "<p>You're the first person to claim this office. Pick a display name - it'll appear next to anything you say.</p>",
-      );
       expect(html).toContain(
         'content="Open this link to claim ownership of an Isomux office."',
       );

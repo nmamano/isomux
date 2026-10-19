@@ -2444,7 +2444,7 @@ export function LogView({
                       .
                     </>
                   ) : (
-                    i18n.t("common.loadingDots")
+                    i18n.t("common.loading")
                   )}
                 </div>
               )}

@@ -344,7 +344,6 @@ Cosas que puedes hacer por él:
   "common.cancel": "Cancelar",
   "common.close": "Cerrar",
   "common.loading": "Cargando…",
-  "common.loadingDots": "Cargando...",
   "common.loadingMemory": "Cargando la memoria…",
   "common.memory": "Memoria",
   "common.memorySize": "{size} / {cap} caracteres",
@@ -393,7 +392,7 @@ Cosas que puedes hacer por él:
     "Te siguen a todos los dispositivos desde los que inicias sesión. Los ajustes propios de este navegador están en Dispositivo.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
-    "El idioma en que escriben tus agentes, y el que usan tu entrada de voz y la lectura en voz alta. Los agentes lo aplican en su siguiente conversación. El resto de la interfaz sigue en inglés por ahora.",
+    "El idioma de la interfaz, de lo que escriben tus agentes y de la entrada de voz y la lectura en voz alta. Los agentes lo aplican en su siguiente conversación.",
   "preferences.saved": "Guardado.",
   "preferences.saveFailed": "No se pudo guardar",
 
@@ -2972,8 +2971,6 @@ Cosas que puedes hacer por él:
   "preAuth.claim.errorTooManyTries":
     "Demasiadas claves de configuración incorrectas. Inténtalo de nuevo en un minuto.",
   "preAuth.invite.titleAccept": "aceptar invitación",
-  "preAuth.invite.bootstrapIntro":
-    "Eres la primera persona que reclama esta oficina. Elige un nombre para mostrar - aparecerá junto a todo lo que digas.",
   "preAuth.invite.heading": "Abre tu invitación de Isomux",
   "preAuth.invite.headingNamed":
     "Abre tu invitación a la oficina Isomux: {office}",
