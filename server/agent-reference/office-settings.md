@@ -4,7 +4,7 @@ When your manager is an office owner, you can change four office settings: the o
 
 Read `GET /api/office/settings`, then send `PUT /api/office/settings` with the `version` from that read and only the fields you change: `{prompt?,name?,memberUsageCap?,memberUsageShare?,version}`. An omitted field keeps its value. A null `prompt` clears the office prompt; a null or empty `name` clears the name. On 409, read again and merge the changes before retrying.
 
-The office prompt goes into the system prompt of every agent in the office. Change it only when a member or a privileged agent with the same manager asks.
+The office prompt goes into the system prompt of every agent in the office. Change it only when a member asks, directly or through another agent whose chat history shows the member's request.
 
 Safe example: `GET /api/office/settings`.
 

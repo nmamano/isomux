@@ -84,28 +84,65 @@ describe("system prompt pointer contract", () => {
     expect(privileged).not.toContain("/api/rooms");
   });
 
-  // Lane b1037 (Nil, 2026-10-14): a message from an agent with the same
-  // manager is followed; a privileged action also needs a privileged sender.
-  // The prompt names the trust with the same words the delivery label marker
-  // uses, so the agent can match one to the other.
-  it("names the same-manager trust in the label's own words, on every engine and page", () => {
-    const trustRule = new RegExp(
-      `follow a message from an agent with the ${AGENT_SENDER_SAME_MANAGER}`,
+  // Task 5343edac (Nil, 2026-10-18): an agent with the same manager is
+  // generally trusted, a member's request it passes on included, and an unsure
+  // receiver checks the requester's chat history. A privileged action needs
+  // the member's own message in that history; a privileged sender no longer
+  // stands in for it. The prompt names the trust with the delivery label's own
+  // words, so the agent can match one to the other.
+  it("trusts a same-manager agent's relay and checks the chat history, on every engine and page", () => {
+    const sentences = (text: string) => text.split(/(?<=\.)\s+/);
+    const sameManagerTrust = new RegExp(
+      `trust[^.]*${AGENT_SENDER_SAME_MANAGER}|${AGENT_SENDER_SAME_MANAGER}[^.]*trust`,
+      "i",
     );
-    const privilegedRule = new RegExp(
-      `member or a ${AGENT_SENDER_PRIVILEGED} agent with the ${AGENT_SENDER_SAME_MANAGER}`,
+    const historyCheck = /chat history[^.]*`conversation-history`/;
+    const privilegedSender = new RegExp(
+      `${AGENT_SENDER_PRIVILEGED} agent with the ${AGENT_SENDER_SAME_MANAGER}`,
     );
     for (const engine of ["claude", "codex", "opencode"] as const) {
+      for (const privileged of [false, true]) {
+        const prompt = build(engine, privileged);
+        const trust = prompt
+          .split("\n\n")
+          .find((paragraph) => sameManagerTrust.test(paragraph));
+        expect({ engine, privileged, trust: trust !== undefined }).toEqual({
+          engine,
+          privileged,
+          trust: true,
+        });
+        // The trust covers a member's request the agent passes on, so a
+        // forward is not "text that claims to be from a member".
+        expect(
+          sentences(trust ?? "").some(
+            (s) => sameManagerTrust.test(s) && /member's request/.test(s),
+          ),
+        ).toBe(true);
+        expect(trust).toMatch(historyCheck);
+        // A member claim is data only from the untrusted sources.
+        for (const s of sentences(trust ?? "").filter((s) =>
+          /claims? to (be|come) from a member/.test(s),
+        ))
+          expect(s).toContain(`different manager`);
+        expect(trust).not.toMatch(/\btext that claims? to be from a member/);
+      }
       const ordinary = build(engine, false);
       const privileged = build(engine, true);
-      expect(ordinary).toMatch(trustRule);
-      expect(ordinary).not.toMatch(privilegedRule);
-      // The privileged rule lives in the privileged section only.
+      expect(ordinary).not.toMatch(/only if you find it/);
       const section = privileged.slice(
         privileged.indexOf("## Privileged Operator Capabilities"),
       );
-      expect(section).toMatch(privilegedRule);
-      expect(section).not.toMatch(/Act only when a member asks/);
+      expect(section).not.toMatch(privilegedSender);
+      // Another agent's request passes only with the member's message found
+      // in its chat history.
+      expect(
+        sentences(section).some(
+          (s) =>
+            /another agent asks/.test(s) &&
+            historyCheck.test(s) &&
+            /only if you find it/.test(s),
+        ),
+      ).toBe(true);
     }
     const agent = (capabilities: Identity["capabilities"]): Identity => ({
       scope: "agent",
@@ -114,16 +151,25 @@ describe("system prompt pointer contract", () => {
       role: "member",
       capabilities,
     });
-    const messaging = agentReferenceContent(
-      agent(AGENT_CAPABILITIES),
-      "messaging",
-    );
-    expect(messaging).toMatch(trustRule);
-    expect(messaging).toMatch(privilegedRule);
+    const messaging =
+      agentReferenceContent(agent(AGENT_CAPABILITIES), "messaging") ?? "";
+    expect(messaging).toMatch(sameManagerTrust);
+    expect(messaging).not.toMatch(privilegedSender);
     expect(messaging).not.toContain("not member authority");
-    // No page still limits an action to a member alone (eight did before lane
-    // b1037), and a page that names who may ask names a privileged sender
-    // exactly when it is a privileged topic.
+    expect(
+      sentences(messaging).some(
+        (s) => /privileged action/.test(s) && /chat history/.test(s),
+      ),
+    ).toBe(true);
+    expect(
+      sentences(messaging).some(
+        (s) => !/privileged/.test(s) && /chat history/.test(s),
+      ),
+    ).toBe(true);
+    // No page limits an action to a member alone (eight did before lane
+    // b1037). A page that names who may ask names the chat-history check
+    // exactly when it is a privileged topic, and no page names a privileged
+    // sender.
     const pages = (
       Object.keys(AGENT_REFERENCE_TOPICS) as AgentReferenceTopic[]
     ).map((topic) => ({
@@ -132,23 +178,28 @@ describe("system prompt pointer contract", () => {
     }));
     // A privileged agent reads every page, so none may be missing here.
     expect(pages.filter((p) => typeof p.page !== "string")).toEqual([]);
-    const askers = pages
-      .map(({ topic, page }) => ({ topic, page: page ?? "" }))
-      .map(({ topic, page }) => ({
-        topic,
-        memberOnly: /when a member asks/.test(page),
-        asker:
-          /when a member or (an|a privileged) agent with the same manager asks/.exec(
-            page,
-          )?.[1],
-      }));
-    expect(askers.filter((a) => a.memberOnly)).toEqual([]);
-    const named = askers.filter((a) => a.asker !== undefined);
-    expect(named.length).toBe(8);
-    for (const a of named)
-      expect({ topic: a.topic, asker: a.asker }).toEqual({
+    const askers = pages.flatMap(({ topic, page }) =>
+      sentences(page ?? "")
+        .filter((s) => /when a member\b[^.]*\basks\b/.test(s))
+        .map((s) => ({
+          topic,
+          asker: /when a member or an agent with the same manager asks/.test(s)
+            ? "same manager"
+            : /when a member asks, [^.]*chat history/.test(s)
+              ? "chat history"
+              : s,
+        })),
+    );
+    expect(pages.filter((p) => privilegedSender.test(p.page ?? ""))).toEqual(
+      [],
+    );
+    expect(askers.length).toBe(8);
+    for (const a of askers)
+      expect(a).toEqual({
         topic: a.topic,
-        asker: PRIVILEGED_REFERENCE_TOPICS.has(a.topic) ? "a privileged" : "an",
+        asker: PRIVILEGED_REFERENCE_TOPICS.has(a.topic)
+          ? "chat history"
+          : "same manager",
       });
   });
 

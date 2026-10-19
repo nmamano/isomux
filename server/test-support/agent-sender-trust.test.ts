@@ -1,6 +1,6 @@
 // Lane b1037 (Nil, 2026-10-14): an agent follows a message from an agent with
-// the same manager, and a privileged action needs a privileged sender with the
-// same manager. The receiver tells them apart by the label alone, so:
+// the same manager, and the label also says whether the sender is privileged.
+// The receiver tells them apart by the label alone, so:
 //
 // - the server writes the marker at delivery, from the sender's live token and
 //   the receiver's manager, never from the message;
