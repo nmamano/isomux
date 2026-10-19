@@ -708,7 +708,10 @@ export class OpenCodeTransport {
             : {}),
         };
         this.activeTurn = false;
-        // A request still open when the turn ends can never be answered.
+        // A request still open when the turn ends can never be answered, so
+        // OpenCode gets a reject and does not wait on it. A request that
+        // arrives late is refused in the same way (consumeEvents).
+        void this.rejectPendingPermission();
         for (const id of this.pendingPermissions.keys())
           sink({ kind: "approval_withdrawn", approvalId: id });
         this.pendingPermissions.clear();
@@ -1461,6 +1464,16 @@ export class OpenCodeTransport {
             if (event.kind === "permission") {
               if (seenPermissions.has(event.id)) continue;
               seenPermissions.add(event.id);
+              // After the turn settles, no member can answer a request and
+              // no one reads what its tool does, so it is refused unseen.
+              const refuseLate = (): void =>
+                void this.replyPermission(event.id, "reject").catch(
+                  () => undefined,
+                );
+              if (signal.aborted) {
+                refuseLate();
+                continue;
+              }
               const handled = await handleOpenCodePermission(event, {
                 cwd: this.cwd,
                 autoApprove: !!this.agent,
@@ -1470,6 +1483,10 @@ export class OpenCodeTransport {
                 sink,
               });
               if (handled === "answered") continue;
+              if (signal.aborted) {
+                refuseLate();
+                continue;
+              }
               const permissionName =
                 typeof event.permission === "string"
                   ? event.permission

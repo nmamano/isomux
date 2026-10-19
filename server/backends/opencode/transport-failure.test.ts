@@ -675,39 +675,50 @@ it("does not report intentional closure as a turn failure", async () => {
   }
 });
 
-it("delivers and answers a late approval after the turn settles", async () => {
-  const harness = fixture("late-permission");
-  const events: NormalizedEvent[] = [];
-  const transport = new OpenCodeTransport({
-    supervisor: harness.supervisor,
-    cwd: STATE_ROOT,
-    model: "provider/model",
-    systemPrompt: "system",
+// Nil, 2026-10-19 (task 9251ff1d): a request that reaches the transport after
+// its turn settled is refused like one still open when the turn ends. Nobody
+// reads the stream any more, so it gets no card and OpenCode gets a reject.
+for (const agent of [undefined, "build"]) {
+  it(`refuses a request that arrives after the turn settles${agent ? " in agent mode" : ""}`, async () => {
+    const harness = fixture("late-permission");
+    const events: NormalizedEvent[] = [];
+    const transport = new OpenCodeTransport({
+      supervisor: harness.supervisor,
+      cwd: STATE_ROOT,
+      model: "provider/model",
+      systemPrompt: "system",
+      ...(agent ? { agent } : {}),
+    });
+    try {
+      await transport.send([{ type: "text", text: "go" }], (event) =>
+        events.push(event),
+      );
+      // The stream pump hands the late frame on a few ticks after send() ends.
+      await settleUntil(
+        () =>
+          harness.permissionReplies.length > 0 ||
+          events.some((event) => event.kind === "approval_request"),
+      );
+      expect(
+        events.map((event) => event.kind),
+        "the turn failed first, and no card followed it",
+      ).toEqual(["system_init", "turn_completed"]);
+      // MUTANT (agent mode): the safety handler runs on the late request and
+      // allows it with "once", so OpenCode runs the tool unseen.
+      expect(
+        harness.permissionReplies,
+        "the late request reached the transport and OpenCode got a reject",
+      ).toEqual([{ reply: "reject" }]);
+      await transport.approve("late", { kind: "allow_once" });
+      expect(
+        harness.permissionReplies,
+        "an answer after the refusal sends nothing",
+      ).toEqual([{ reply: "reject" }]);
+    } finally {
+      transport.close();
+    }
   });
-  try {
-    await transport.send([{ type: "text", text: "go" }], (event) =>
-      events.push(event),
-    );
-    // The stream pump hands the late frame on a few ticks after send() ends.
-    for (
-      let turn = 0;
-      turn < 20 && !events.some((event) => event.kind === "approval_request");
-      turn++
-    )
-      await new Promise((resolve) => setImmediate(resolve));
-    expect(
-      events.map((event) => event.kind),
-      "late approval remains visible after completion",
-    ).toEqual(["system_init", "turn_completed", "approval_request"]);
-    await transport.approve("late", { kind: "deny" });
-    expect(
-      harness.permissionReplies,
-      "late approval remains answerable",
-    ).toEqual([{ reply: "reject" }]);
-  } finally {
-    transport.close();
-  }
-});
+}
 
 // A virtual clock for the event-stream deadline: time moves only on advance().
 function drivenClock() {
@@ -803,6 +814,8 @@ function drivenServer(
   const requested = new Set<string>();
   const log: string[] = [];
   const promptBodies: Record<string, unknown>[] = [];
+  // Every permission reply, with the request id from its path.
+  const replies: Record<string, unknown>[] = [];
   const hold = (init?: RequestInit) =>
     new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener(
@@ -928,6 +941,14 @@ function drivenServer(
         );
       return Response.json(true);
     }
+    if (
+      url.pathname.startsWith("/permission/") &&
+      url.pathname.endsWith("/reply")
+    )
+      replies.push({
+        id: decodeURIComponent(url.pathname.split("/")[2]),
+        ...JSON.parse(init?.body as string),
+      });
     if (url.pathname === "/permission/asked/reply") {
       await new Promise<void>((resolve) => (releaseReply = resolve));
       return Response.json(true);
@@ -955,9 +976,12 @@ function drivenServer(
     releaseProvider: () =>
       heldProviders.splice(0).forEach((answer) => answer()),
     promptBodies,
+    replies,
     replyPending: () => releaseReply !== undefined,
     releaseReply: () => releaseReply?.(),
     send: (bytes: Uint8Array) => stream!.enqueue(bytes),
+    // The stream breaks while the server still answers.
+    fail: () => stream!.error(failure),
     complete() {
       stream!.enqueue(
         frame({
@@ -1058,12 +1082,14 @@ function drivenTransport(
   const notices: string[] = [];
   const texts: string[] = [];
   const approvals: string[] = [];
+  const withdrawn: string[] = [];
   return {
     transport,
     supervisor,
     marked,
     texts,
     approvals,
+    withdrawn,
     recoveries: () => recoveries,
     completions,
     notices,
@@ -1077,6 +1103,8 @@ function drivenTransport(
         if (event.kind === "system_text") notices.push(event.text);
         if (event.kind === "assistant_text") texts.push(event.text);
         if (event.kind === "approval_request") approvals.push(event.approvalId);
+        if (event.kind === "approval_withdrawn")
+          withdrawn.push(event.approvalId);
       }),
   };
 }
@@ -1592,6 +1620,82 @@ it("keeps a turn whose stream frames arrive while a permission reply is pending"
     await settleUntil(() => turn.completions.length > 0);
     expect(turn.completions).toMatchObject([{ status: "completed" }]);
     expect(turn.marked).toEqual([]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+const askedBash = (id: string, metadata?: object) =>
+  frame({
+    type: "permission.asked",
+    properties: {
+      sessionID: "driven",
+      id,
+      permission: "bash",
+      patterns: ["pwd"],
+      ...(metadata ? { metadata } : {}),
+    },
+  });
+
+// Task 9251ff1d: the turn end withdrew the card, but OpenCode waited on the
+// request for ever.
+it("rejects to OpenCode a request still open when its stream fails", async () => {
+  const clock = drivenClock();
+  const server = drivenServer();
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  try {
+    await turn.send();
+    server.send(askedBash("open", { command: "pwd" }));
+    await settleUntil(() => turn.approvals.length > 0);
+    expect(turn.approvals, "the request is open").toEqual(["open"]);
+    server.fail();
+    await settleUntil(
+      () => turn.completions.length > 0 && server.replies.length > 0,
+    );
+    expect(turn.completions).toMatchObject([{ status: "failed" }]);
+    expect(turn.withdrawn).toEqual(["open"]);
+    // MUTANT: the turn end only withdraws the card.
+    expect(server.replies).toEqual([{ id: "open", reply: "reject" }]);
+  } finally {
+    turn.transport.close();
+    server.restore();
+  }
+});
+
+// Task 9251ff1d: the turn can end between the safety check of a request and
+// its card. A request with no command fails the check open, and its warning
+// is the moment to end the turn.
+it("refuses a request whose turn ends while its safety check runs", async () => {
+  const clock = drivenClock();
+  const server = drivenServer();
+  const turn = drivenTransport(clock, { sessionId: "driven" });
+  const events: NormalizedEvent[] = [];
+  let endOnNotice = false;
+  let endedInCheck = false;
+  try {
+    await turn.transport.send([{ type: "text", text: "go" }], (event) => {
+      events.push(event);
+      if (endOnNotice && event.kind === "system_text") {
+        endOnNotice = false;
+        endedInCheck = true;
+        turn.transport.close();
+      }
+    });
+    endOnNotice = true;
+    server.send(askedBash("unchecked"));
+    await settleUntil(
+      () =>
+        server.replies.length > 0 ||
+        events.some((event) => event.kind === "approval_request"),
+    );
+    expect(endedInCheck, "the turn ended inside the safety check").toBe(true);
+    // MUTANT: no check after the safety handler says "prompt" shows the card
+    // after the turn ended.
+    expect(events.some((event) => event.kind === "approval_request")).toBe(
+      false,
+    );
+    expect(server.replies).toEqual([{ id: "unchecked", reply: "reject" }]);
   } finally {
     turn.transport.close();
     server.restore();
