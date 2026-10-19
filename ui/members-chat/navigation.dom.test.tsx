@@ -7,24 +7,17 @@ const { StateCtx, StoreProvider, useAppState, useDispatch } =
   await import("../store.tsx");
 const { LobbyChat } = await import("./LobbyChat.tsx");
 const { RoomTabBar } = await import("../office/RoomTabBar.tsx");
-const { useMembersChatHydration } =
-  await import("./useMembersChatHydration.ts");
 const { setApiShim } = await import("../api.ts");
 const { connect, setShim } = await import("../ws.ts");
 const { LanguageProvider } = await import("../i18n.tsx");
 let dispatch: ReturnType<typeof useDispatch>;
-let mobile = true;
-let enabled = true;
 function Content() {
-  const { loadFailed, retry } = useMembersChatHydration(enabled);
   const { lobbyOpen, isMobile } = useAppState();
   return createElement(
     Fragment,
     null,
     createElement(RoomTabBar),
-    lobbyOpen &&
-      isMobile &&
-      createElement(LobbyChat, { loadFailed, onRetry: retry }),
+    lobbyOpen && isMobile && createElement(LobbyChat),
   );
 }
 function Harness() {
@@ -35,7 +28,7 @@ function Harness() {
   }, [send]);
   return createElement(
     StateCtx.Provider,
-    { value: { ...state, isMobile: mobile } },
+    { value: { ...state, isMobile: true } },
     createElement(LanguageProvider, null, createElement(Content)),
   );
 }
@@ -63,7 +56,23 @@ const message = {
   attachments: [],
   timestamp: 1,
 };
-it("hydrates the closed chat, moves its dot to the mobile floating button, clears on a read pointer, and closes back to the scene", async () => {
+// A reconnect: full_state with the caller's summary, or without one (an older
+// server). One room, so the reducer does not open the lobby by itself.
+const fullState = (membersChat?: {
+  readPointer: string | null;
+  unread: number;
+  latestId: string | null;
+}) =>
+  dispatch({
+    type: "full_state",
+    agents: [],
+    recentCwds: [],
+    office: { prompt: null, name: null },
+    rooms: [{ id: "r1", name: "Room", prompt: null, canCloseWhenEmpty: true }],
+    killedAgents: [],
+    ...(membersChat ? { membersChat } : {}),
+  });
+it("shows the full_state unread on the closed chat, fetches the page only while the chat is open, and moves the dot to the mobile button", async () => {
   const reads: unknown[] = [];
   let pages = 0;
   setApiShim(async (method, path, body) => {
@@ -85,23 +94,27 @@ it("hydrates the closed chat, moves its dot to the mobile floating button, clear
   const view = render(
     createElement(StoreProvider, null, createElement(Harness)),
   );
+  act(() => fullState({ readPointer: null, unread: 1, latestId: message.id }));
   await act(async () => {});
-  expect(pages).toBe(1);
+  expect(pages).toBe(0);
   const lobby = view.getByRole("button", { name: /Lobby/ });
-  expect(
-    lobby.querySelector("[data-lobby-unread]")?.getAttribute("aria-label"),
-  ).toBe("Unread message: 1");
+  expect(lobby.querySelector("[data-lobby-unread]") !== null).toBe(true);
   expect(view.queryByRole("dialog")).toBeNull();
-  expect(reads).toEqual([]);
   fireEvent.click(lobby);
+  await act(async () => {});
+  expect(pages).toBe(0);
   const entry = view.getByRole("button", { name: /Members chat/ });
-  expect(entry.querySelector("[data-lobby-unread]")).not.toBeNull();
+  expect(entry.querySelector("[data-lobby-unread]") !== null).toBe(true);
   expect(lobby.querySelector("[data-lobby-unread]")).toBeNull();
   expect(view.container.querySelectorAll("[data-lobby-unread]").length).toBe(1);
   fireEvent.click(entry);
-  expect(view.getByRole("dialog", { name: "Members chat" })).not.toBeNull();
-  expect(view.getByPlaceholderText("Message the members…")).not.toBeNull();
+  await act(async () => {});
+  expect(view.getByRole("dialog")).not.toBeNull();
   expect(pages).toBe(1);
+  // A reconnect while open refetches: full_state leaves the page unloaded.
+  act(() => fullState({ readPointer: null, unread: 1, latestId: message.id }));
+  await act(async () => {});
+  expect(pages).toBe(2);
   act(() =>
     dispatch({ type: "members_chat_read", readPointer: message.id, unread: 0 }),
   );
@@ -111,37 +124,44 @@ it("hydrates the closed chat, moves its dot to the mobile floating button, clear
   fireEvent.click(view.getByRole("button", { name: "Back" }));
   expect(view.baseElement.querySelector('[role="dialog"]') === null).toBe(true);
   expect(document.activeElement === entry).toBe(true);
+  // Closed again: a reconnect takes the count from full_state, no page.
+  act(() => fullState({ readPointer: message.id, unread: 2, latestId: "x" }));
+  await act(async () => {});
+  expect(pages).toBe(2);
+  expect(entry.querySelector("[data-lobby-unread]") !== null).toBe(true);
+  // Reopening after that reconnect fetches the page it missed.
   fireEvent.click(entry);
-  expect(view.getByRole("dialog")).not.toBeNull();
+  await act(async () => {});
+  expect(pages).toBe(3);
   act(() => dispatch({ type: "set_lobby_open", open: false }));
   expect(view.queryByRole("dialog")).toBeNull();
   act(() => dispatch({ type: "set_lobby_open", open: true }));
   expect(view.queryByRole("dialog")).toBeNull();
-  act(() =>
-    dispatch({
-      type: "members_chat_message",
-      message: { ...message, id: "202609-00000002" },
-    }),
-  );
-  expect(view.getByRole("img", { name: "Unread message: 1" })).not.toBeNull();
-  expect(reads).toEqual([]);
-  act(() =>
-    dispatch({
-      type: "full_state",
-      agents: [],
-      recentCwds: [],
-      office: { prompt: null, name: null },
-      rooms: [],
-      killedAgents: [],
-    }),
-  );
-  await act(async () => {});
-  expect(pages).toBe(2);
   expect(reads).toEqual([]);
 });
-it("does not hydrate when disabled, and contains a load failure", async () => {
-  enabled = false;
-  mobile = true;
+it("keeps the last unread when full_state carries no summary", async () => {
+  setApiShim(async () => {
+    throw new Error("no page fetch expected");
+  });
+  const view = render(
+    createElement(StoreProvider, null, createElement(Harness)),
+  );
+  act(() => fullState({ readPointer: null, unread: 3, latestId: message.id }));
+  act(() => fullState());
+  await act(async () => {});
+  expect(
+    view
+      .getByRole("button", { name: /Lobby/ })
+      .querySelector("[data-lobby-unread]") !== null,
+  ).toBe(true);
+  act(() =>
+    fullState({ readPointer: message.id, unread: 0, latestId: message.id }),
+  );
+  expect(view.container.querySelector("[data-lobby-unread]") === null).toBe(
+    true,
+  );
+});
+it("contains a load failure in the open chat and retries", async () => {
   let calls = 0;
   setApiShim(async () => {
     calls++;
@@ -150,17 +170,14 @@ it("does not hydrate when disabled, and contains a load failure", async () => {
   const view = render(
     createElement(StoreProvider, null, createElement(Harness)),
   );
+  act(() => fullState({ readPointer: null, unread: 0, latestId: null }));
   await act(async () => {});
   expect(calls).toBe(0);
-  enabled = true;
-  view.rerender(createElement(StoreProvider, null, createElement(Harness)));
-  await act(async () => {});
-  expect(calls).toBe(1);
   fireEvent.click(view.getByRole("button", { name: "Lobby" }));
   fireEvent.click(view.getByRole("button", { name: "Members chat" }));
-  expect(view.getByRole("alert").textContent).toContain(
-    "Could not load the chat",
-  );
+  await act(async () => {});
+  expect(calls).toBe(1);
+  expect(view.getByRole("alert")).not.toBeNull();
   setApiShim(async () => {
     calls++;
     return { messages: [], hasMore: false, readPointer: null, unread: 0 };

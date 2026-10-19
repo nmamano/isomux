@@ -475,15 +475,18 @@ deferral, fetched expiry, paid linkage and provisioning, no synthetic event
 evidence, no poll-created dunning episode, complete-but-unpaid gating, and
 per-candidate failure isolation.
 
-Members chat mobile navigation and unread hydration are covered by
+Members chat mobile navigation, the unread count from `full_state` and the
+page fetch only while the chat is open are covered by
 `ui/members-chat/navigation.dom.test.tsx`; `read.dom.test.tsx` in the same
 folder covers the visible-tab and at-bottom read rule on both widths.
 `mobile.i18n.dom.test.tsx` checks the entry, unread label and Back in English,
-Spanish and Catalan. The hydration hook runs from OfficeView, so its scoped
-checks include the App render tests as well as the office and chat tests.
+Spanish and Catalan. The hydration hook runs from OfficeView (desktop panel)
+and LobbyChat (mobile), so its scoped checks include the App render tests as
+well as the office and chat tests.
 
-`ui/members-chat/desktop.dom.test.tsx` covers hide/show, browser persistence
-and the zoom-control inset. `desktop-read.dom.test.tsx` checks incoming unread
+`ui/members-chat/desktop.dom.test.tsx` covers hide/show, browser persistence,
+the zoom-control inset, the unsaved minimize choice from the `full_state`
+summary and the page fetch only while the desktop chat is shown. `desktop-read.dom.test.tsx` checks incoming unread
 while hidden and proves that showing the same message sends a read request.
 `desktop-controls.dom.test.tsx` checks translated controls and mobile behavior
 with the desktop preference set to hidden.

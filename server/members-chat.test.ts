@@ -285,6 +285,34 @@ describe("read pointer and unread count", () => {
     store.delete(ids[1]);
     expect(store.unreadCount("u-pau")).toBe(1);
   });
+
+  it("summary finds the newest live id across months and caps the count", () => {
+    const aug = postN(2);
+    clock = SEP;
+    const [sep] = postN(1);
+    store.setReadPointer("u-pau", aug[0]);
+    expect(store.summary("u-pau")).toEqual({
+      readPointer: aug[0],
+      unread: 2,
+      latestId: sep,
+    });
+    // The newest month holds no live message: the walk goes back a month.
+    store.delete(sep);
+    expect(store.summary("u-pau")).toEqual({
+      readPointer: aug[0],
+      unread: 1,
+      latestId: aug[1],
+    });
+    store.delete(aug[1]);
+    store.delete(aug[0]);
+    expect(store.summary("u-pau").latestId).toBeNull();
+    const more = postN(MEMBERS_CHAT_UNREAD_CAP + 5);
+    expect(store.summary("u-nil")).toEqual({
+      readPointer: null,
+      unread: MEMBERS_CHAT_UNREAD_CAP,
+      latestId: more.at(-1)!,
+    });
+  });
 });
 
 describe("attachments", () => {

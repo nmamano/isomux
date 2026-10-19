@@ -280,13 +280,11 @@ export function OfficeView({
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
   const decorateScene = useContext(SceneDecorationContext);
-  const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
-    useMembersChatHydration(!embed);
   const [savedChatHidden, setChatHidden] = useState(getMembersChatHidden);
   // With no saved choice, an empty chat starts minimized so a new office
-  // shows its doors. Decided once, when the history first loads.
-  if (savedChatHidden === null && membersChat.loaded)
-    setChatHidden(membersChat.messages.length === 0);
+  // shows its doors. Decided once, from the first full_state summary.
+  if (savedChatHidden === null && membersChat.latestId !== undefined)
+    setChatHidden(membersChat.latestId === null);
   const chatHidden = savedChatHidden ?? true;
   const [chatViewportWidth, setChatViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1440 : window.innerWidth,
@@ -316,6 +314,9 @@ export function OfficeView({
     setMembersChatWidth(next);
   }
   const desktopChatVisible = lobbyOpen && !isMobile && !embed && !chatHidden;
+  // The mobile chat runs its own hydration (LobbyChat).
+  const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
+    useMembersChatHydration(desktopChatVisible);
   function changeChatHidden(hidden: boolean) {
     setChatHidden(hidden);
     setMembersChatHidden(hidden);
@@ -1074,12 +1075,7 @@ export function OfficeView({
             {!embed && <Vignette />}
           </div>
         )}
-        {!embed && lobbyOpen && isMobile && (
-          <LobbyChat
-            loadFailed={membersChatLoadFailed}
-            onRetry={retryMembersChat}
-          />
-        )}
+        {!embed && lobbyOpen && isMobile && <LobbyChat />}
         {!embed && lobbyOpen && !isMobile && chatHidden && (
           <MembersChatButton onClick={() => changeChatHidden(false)} />
         )}

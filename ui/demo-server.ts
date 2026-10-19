@@ -3978,6 +3978,12 @@ export function sendInitialState() {
     // menu just stays empty.
     killedAgents: [],
     interactions: [],
+    // The demo viewer has read the whole seeded chat (GET /api/members-chat).
+    membersChat: {
+      readPointer: demoMembersChat.at(-1)?.id ?? null,
+      unread: 0,
+      latestId: demoMembersChat.at(-1)?.id ?? null,
+    },
   });
   shimEmit({ type: "tasks", tasks: s.tasks });
   shimEmit({

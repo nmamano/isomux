@@ -310,6 +310,66 @@ describe("members chat REST: read pointer", () => {
     laptop.close();
     ownerWs.close();
   });
+
+  it("full_state carries each user's own pointer, unread and newest live id", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Nil");
+    const member = await server.seedMember("Pau");
+    const summaryAt = async (session: string) => {
+      const socket = await server!.connectWs(session);
+      const full = await socket.waitFor("full_state");
+      socket.close();
+      return full.membersChat;
+    };
+    expect(await summaryAt(owner.rawSessionId)).toEqual({
+      readPointer: null,
+      unread: 0,
+      latestId: null,
+    });
+
+    const a = (await post(server, owner.rawSessionId, "a"))
+      .body as MembersChatMessage;
+    const b = (await post(server, owner.rawSessionId, "b"))
+      .body as MembersChatMessage;
+    const c = (await post(server, member.rawSessionId, "c"))
+      .body as MembersChatMessage;
+    await api(server, "/api/members-chat/read", {
+      method: "POST",
+      body: { lastReadId: a.id },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(await summaryAt(owner.rawSessionId)).toEqual({
+      readPointer: a.id,
+      unread: 2,
+      latestId: c.id,
+    });
+    // Same count as GET: every live message after the pointer, own included.
+    expect(await summaryAt(member.rawSessionId)).toEqual({
+      readPointer: null,
+      unread: 3,
+      latestId: c.id,
+    });
+
+    // A deleted message is neither the newest id nor unread.
+    expect(
+      (
+        await api(server, `/api/members-chat/${c.id}`, {
+          method: "DELETE",
+          rawSessionId: member.rawSessionId,
+        })
+      ).status,
+    ).toBe(204);
+    expect(await summaryAt(owner.rawSessionId)).toEqual({
+      readPointer: a.id,
+      unread: 1,
+      latestId: b.id,
+    });
+    expect(await summaryAt(member.rawSessionId)).toEqual({
+      readPointer: null,
+      unread: 2,
+      latestId: b.id,
+    });
+  });
 });
 
 describe("members chat REST: attachments", () => {

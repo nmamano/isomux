@@ -42,6 +42,7 @@ import {
   type Attachment,
   type MembersChatMessage,
   type MembersChatReactor,
+  type MembersChatSummary,
   MAX_UPLOAD_BYTES,
 } from "../shared/types.ts";
 import { atomicWriteFileSync, sanitizeFilename } from "./persistence.ts";
@@ -139,6 +140,8 @@ export interface MembersChatStore {
   // Returns the pointer now on disk.
   setReadPointer(userId: string, lastReadId: string): string | null;
   unreadCount(userId: string): number;
+  // The user's pointer, unread count and the newest live id, in one pass.
+  summary(userId: string): MembersChatSummary;
   saveAttachment(
     data: Buffer,
     mediaType: string,
@@ -482,10 +485,14 @@ export function createMembersChatStore(
   }
 
   function unreadCount(userId: string): number {
-    const pointer = getReadPointer(userId);
+    return countAfter(getReadPointer(userId), listMonths());
+  }
+
+  // Live messages after the pointer, up to the cap. `months` ascending.
+  function countAfter(pointer: string | null, months: string[]): number {
     const pos = pointer ? positionOf(pointer) : null;
     let count = 0;
-    for (const month of listMonths()) {
+    for (const month of months) {
       if (pos && month < pos.month) continue;
       const folded = fold(month);
       const start = pos && month === pos.month ? pos.index + 1 : 0;
@@ -542,6 +549,26 @@ export function createMembersChatStore(
     return existsSync(p) ? p : null;
   }
 
+  function summary(userId: string): MembersChatSummary {
+    const readPointer = getReadPointer(userId);
+    const months = listMonths();
+    return {
+      readPointer,
+      unread: countAfter(readPointer, months),
+      latestId: newestLiveId(months),
+    };
+  }
+
+  function newestLiveId(months: string[]): string | null {
+    for (let m = months.length - 1; m >= 0; m--) {
+      const folded = fold(months[m]);
+      for (let i = folded.order.length - 1; i >= 0; i--) {
+        if (folded.byId.has(folded.order[i])) return folded.order[i];
+      }
+    }
+    return null;
+  }
+
   return {
     setPinned,
     post,
@@ -553,6 +580,7 @@ export function createMembersChatStore(
     getReadPointer,
     setReadPointer,
     unreadCount,
+    summary,
     saveAttachment,
     attachmentPath,
   };

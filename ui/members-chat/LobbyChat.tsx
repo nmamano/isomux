@@ -3,6 +3,7 @@ import { Portal } from "../components/Portal.tsx";
 import { useI18n } from "../i18n.tsx";
 import { MembersChatPanel } from "./MembersChatPanel.tsx";
 import { MembersChatButton } from "./MembersChatButton.tsx";
+import { useMembersChatHydration } from "./useMembersChatHydration.ts";
 
 function MobileChatPanel({
   loadFailed,
@@ -102,14 +103,10 @@ function MobileChatPanel({
 }
 
 // Mounted only on the mobile lobby. Leaving the lobby also forgets open state.
-export function LobbyChat({
-  loadFailed,
-  onRetry,
-}: {
-  loadFailed: boolean;
-  onRetry?: () => void;
-}) {
+// Fetches the chat page only while open.
+export function LobbyChat() {
   const [open, setOpen] = useState(false);
+  const { loadFailed, retry } = useMembersChatHydration(open);
   const entryRef = useRef<HTMLButtonElement>(null);
   function close() {
     setOpen(false);
@@ -122,7 +119,7 @@ export function LobbyChat({
           <MobileChatPanel
             entryRef={entryRef}
             loadFailed={loadFailed}
-            onRetry={onRetry}
+            onRetry={retry}
             onClose={close}
           />
         </Portal>

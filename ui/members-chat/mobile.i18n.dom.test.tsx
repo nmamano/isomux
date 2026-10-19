@@ -1,10 +1,16 @@
-import { expect, it } from "bun:test";
+import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
-const { render, fireEvent } = await import("@testing-library/react");
+const { act, render, fireEvent } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { LobbyChat } = await import("./LobbyChat.tsx");
+const { setApiShim } = await import("../api.ts");
+// The open chat fetches its page; a failure shows the retry label.
+setApiShim(async () => {
+  throw new Error("offline");
+});
+afterAll(() => setApiShim(null));
 for (const [language, title, back, unread, singular, retry] of [
   [
     "en",
@@ -31,26 +37,19 @@ for (const [language, title, back, unread, singular, retry] of [
     "Torna-ho a provar",
   ],
 ] as const) {
-  it(`opens and closes members chat with ${language} labels`, () => {
+  it(`opens and closes members chat with ${language} labels`, async () => {
     const bar = (count: number) =>
-      onLanguage(
-        language,
-        createElement(LobbyChat, {
-          loadFailed: true,
-          onRetry: () => {},
-        }),
-        {
-          isMobile: true,
-          lobbyOpen: true,
-          membersChat: {
-            messages: [],
-            loaded: true,
-            hasMore: false,
-            unread: count,
-            readPointer: null,
-          },
+      onLanguage(language, createElement(LobbyChat), {
+        isMobile: true,
+        lobbyOpen: true,
+        membersChat: {
+          messages: [],
+          loaded: false,
+          hasMore: false,
+          unread: count,
+          readPointer: null,
         },
-      );
+      });
     const view = render(bar(2));
     const dot = view.getByRole("img", { name: unread });
     expect(dot.getAttribute("title")).toBe(unread);
@@ -59,6 +58,7 @@ for (const [language, title, back, unread, singular, retry] of [
       view.getByRole("img", { name: singular }).getAttribute("title"),
     ).toBe(singular);
     fireEvent.click(view.getByRole("button", { name: `${title} ${singular}` }));
+    await act(async () => {});
     const panel = view.getByRole("dialog", { name: title });
     expect(panel).not.toBeNull();
     expect(document.activeElement?.textContent).toBe(back);

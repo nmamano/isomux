@@ -877,6 +877,15 @@ export interface MembersChatReply {
   excerpt: string;
 }
 
+// The caller's members-chat state at connect, carried on full_state so a
+// client shows the unread count without fetching a page.
+export interface MembersChatSummary {
+  readPointer: string | null;
+  unread: number;
+  // Newest live message id, or null when the chat is empty.
+  latestId: string | null;
+}
+
 export interface MembersChatMessage {
   id: string; // "YYYYMM-xxxxxxxx": the month names the file that holds it
   // Who posted: a person in the browser, that person's API token, or one of
@@ -2151,6 +2160,8 @@ export type ServerMessage =
       // older servers, where every engine is available.
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
+      // Absent on older servers.
+      membersChat?: MembersChatSummary;
     }
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the agent's pre-removal roomId; delivery is scoped to sessions

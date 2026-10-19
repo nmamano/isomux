@@ -2,8 +2,9 @@ import { useCallback, useEffect, useEffectEvent, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import * as chatApi from "./api.ts";
 
-// Load unread state even when the chat is closed. Only the visible panel
-// advances the read pointer. full_state invalidates loaded after reconnect.
+// Load the chat page while a panel is open; full_state carries the unread
+// count. Only the visible panel advances the read pointer. full_state
+// invalidates loaded after reconnect.
 export function useMembersChatHydration(enabled: boolean) {
   const {
     membersChat: { loaded, messages, pinsRevision = 0, pinsStale = false },

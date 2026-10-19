@@ -34,6 +34,7 @@ import type {
   AgentChoiceInteraction,
   KilledAgentSummary,
   LogEntry,
+  MembersChatSummary,
   SessionInfo,
   ServerMessage,
   SkillInfo,
@@ -95,6 +96,9 @@ export interface MembersChatState {
   loaded: boolean;
   readPointer: string | null;
   unread: number;
+  // Newest live id at the last full_state (null: the chat was empty);
+  // undefined until a full_state carries the summary.
+  latestId?: string | null;
 }
 
 export interface AppState {
@@ -162,10 +166,11 @@ export interface AppState {
   rooms: RoomWire[];
   tasks: TaskItem[];
   // The members chat (humans-only stream on the Lobby tab). Hydrated by a REST
-  // page fetch from the panel, kept live by the members_chat_* wire events.
-  // `loaded` drops on every full_state so a reconnect refetches; `unread` is the
-  // server's count after the caller's read pointer, bumped locally for a new
-  // message from someone else until the next markRead answer.
+  // page fetch while a chat panel is open, kept live by the members_chat_*
+  // wire events. `loaded` drops on every full_state so an open panel
+  // refetches; `unread` is the server's count after the caller's read pointer,
+  // from full_state or a page, bumped locally for a new message from someone
+  // else until the next markRead answer.
   membersChat: MembersChatState;
   // The Lobby tab is CLIENT state: no room, never in officeState or in any
   // access list. Open when the viewer clicked it, or landed on it because they
@@ -326,6 +331,7 @@ type Action =
       interactions?: AgentChoiceInteraction[];
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
+      membersChat?: MembersChatSummary;
     }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string; roomId: string }
@@ -724,9 +730,18 @@ export function reducer(state: AppState, action: Action): AppState {
             }
           : null,
         hydrationEpoch: state.hydrationEpoch + 1,
-        // A reconnect may have missed posts: the panel refetches when loaded
-        // drops, and the badge keeps the last known count until it answers.
-        membersChat: { ...state.membersChat, loaded: false },
+        // A reconnect may have missed posts: an open panel refetches when
+        // loaded drops. The summary sets the badge; an older server sends
+        // none, and the badge keeps the last known count.
+        membersChat: {
+          ...state.membersChat,
+          ...(action.membersChat && {
+            readPointer: action.membersChat.readPointer,
+            unread: action.membersChat.unread,
+            latestId: action.membersChat.latestId,
+          }),
+          loaded: false,
+        },
         needsAttention: new Set(),
         slashCommands: new Map(),
         stateChangedAt: new Map(

@@ -370,7 +370,10 @@ import {
   membersChatHandlers,
   type MembersChatAuthor,
 } from "./routes/handlers/members-chat.ts";
-import { createMembersChatStore } from "./members-chat.ts";
+import {
+  createMembersChatStore,
+  type MembersChatStore,
+} from "./members-chat.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
@@ -695,6 +698,9 @@ setMcpPlaceholderProvider((scope, name) =>
 let scheduledMessageManager: ScheduledMessageManager;
 let pagerStore: PagerStore;
 let askStore: AskStore | undefined;
+// Members chat: the humans-only stream on the Lobby tab. The store is
+// month-file JSONL under <STATE_ROOT>/members-chat (server/members-chat.ts).
+let membersChat: MembersChatStore;
 // Who sees and answers an ask (askVisibleTo), read live: GET /api/asks,
 // pushAskChange, the member answer routes and the secret request routes.
 const askAudience: AskAudienceDeps = {
@@ -858,6 +864,7 @@ function createManagers(startOpts: StartServerOpts): void {
   // credential and lives in its own file, never in the env injected into
   // agents), and delivery. The store and delivery call each other through
   // these closures.
+  membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
   askStore = createAskStore({
     persistence: createAskFilePersistence(join(STATE_ROOT, "asks.json")),
     onChange: (change) => pushAskChange(change),
@@ -3620,10 +3627,8 @@ function buildExecutorDeps(
     }),
   );
 
-  // Members chat: the humans-only stream on the Lobby tab. The store is
-  // month-file JSONL under <STATE_ROOT>/members-chat (server/members-chat.ts);
-  // the author snapshot is token-derived here, never from the body.
-  const membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
+  // Members chat: the author snapshot is token-derived here, never from the
+  // body.
   const membersChatAuthorFor = (
     identity: Identity,
   ): MembersChatAuthor | null => {
@@ -6033,6 +6038,8 @@ function sendProjectedFullState(
         : { opencode: "needs_linux" },
       unavailableFeatures:
         appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
+      // Every office session is a person, who holds chat:members.
+      membersChat: membersChat.summary(session.userId),
     } satisfies ServerMessage),
   );
   // Fence the replay so the client knows the replayed transcript is complete
