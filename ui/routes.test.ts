@@ -10,10 +10,12 @@ import {
   pagerIdForSearch,
   pageForLocation,
   mcpSignInForSearch,
+  integrationsTabForPath,
   type Page,
   type PageFlags,
   type PageShortcutInput,
 } from "./routes.ts";
+import { INTEGRATIONS_TABS } from "../shared/office-links.ts";
 
 // Each page and its canonical path. The cronjobs page is "Automations" on
 // screen, and its path says so. The pager and asks pages are the Inbox's two
@@ -92,6 +94,43 @@ describe("pageForPath", () => {
     expect(pageForPath("/constructor")).toBeNull();
     expect(pageForPath("/__proto__")).toBeNull();
     expect(pageForPath("/toString")).toBeNull();
+  });
+});
+
+// A pasted /integrations/<tab> URL opens that tab (task df206fe3). The
+// address bar never shows one: the boot rewrites it to /integrations.
+describe("the Integrations tab paths", () => {
+  it("open the Integrations page on the tab they name", () => {
+    for (const tab of INTEGRATIONS_TABS) {
+      for (const path of [`/integrations/${tab}`, `/integrations/${tab}/`]) {
+        expect(pageForPath(path)).toBe("integrations");
+        expect(integrationsTabForPath(path)).toBe(tab);
+      }
+    }
+  });
+
+  it("name no tab for the page's own path or any other page", () => {
+    expect(integrationsTabForPath("/integrations")).toBeNull();
+    expect(integrationsTabForPath("/integrations/")).toBeNull();
+    for (const page of PAGES)
+      expect(integrationsTabForPath(PATHS[page])).toBeNull();
+    expect(integrationsTabForPath("/")).toBeNull();
+  });
+
+  it("match segment by segment, like the other routes", () => {
+    for (const path of [
+      "/integrations/nope",
+      "/integrations/mcp/x",
+      "/integrations//mcp",
+      "/Integrations/mcp",
+      "/integrations/MCP",
+      "integrations/mcp",
+      "/tasks/mcp",
+      "/integrations/constructor",
+    ]) {
+      expect(pageForPath(path)).toBeNull();
+      expect(integrationsTabForPath(path)).toBeNull();
+    }
   });
 });
 

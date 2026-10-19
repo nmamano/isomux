@@ -871,8 +871,7 @@ App 的一些原则：
     "Claude、Codex 和 OpenCode 智能体运行所用的账号和密钥。",
   "integrations.tabIntro.mcp": "智能体可以调用的工具，例如 Linear 或 Sentry。",
   "integrations.tabIntro.secrets": "GitHub 等服务的 API 密钥和令牌。",
-  "integrations.tabIntro.variables":
-    "智能体可以读取的普通设置，例如时区。请把密钥放在“密钥”中。",
+  "integrations.tabIntro.variables": "智能体可以读取的普通设置，例如时区。",
   "integrations.secretsHonesty":
     "Isomux 会阻止智能体读取已保存的密钥，但本办公室在智能体与其文件之间没有严格隔离。",
   "integrations.secrets.modelKeys":
@@ -1006,7 +1005,7 @@ App 的一些原则：
   "integrations.variables.modelKeys":
     "<code>ANTHROPIC_API_KEY</code> 等模型 API 密钥放在这里，而不是“密钥”中：Isomux 从不把密钥发送给模型提供商。",
   "integrations.variables.looksLikeKey":
-    "这看起来像密钥。请将其保存为密钥，这样智能体永远看不到它的值。",
+    "智能体可以读取变量的值。如果没有智能体需要原始值，请将其保存为密钥。",
   "integrations.variables.exists": "已有同名变量。",
   "integrations.variables.addHeading.self": "添加变量",
   "integrations.variables.addHeading.member": "为 {member} 添加变量",

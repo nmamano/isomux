@@ -966,7 +966,7 @@ Coses que pots fer per ell:
   "integrations.tabIntro.secrets":
     "Claus d'API i tokens de serveis com GitHub.",
   "integrations.tabIntro.variables":
-    "Paràmetres simples que els agents poden llegir, com una zona horària. Posa les claus a Secrets.",
+    "Paràmetres simples que els agents poden llegir, com una zona horària.",
   "integrations.secretsHonesty":
     "Isomux impedeix que els agents llegeixin els secrets desats, però aquesta oficina no té cap mur ferm entre els agents i els seus fitxers.",
   "integrations.secrets.modelKeys":
@@ -1112,7 +1112,7 @@ Coses que pots fer per ell:
   "integrations.variables.modelKeys":
     "Les claus d'API de models, com <code>ANTHROPIC_API_KEY</code>, van aquí, no a Secrets: Isomux mai no envia un secret a un proveïdor de models.",
   "integrations.variables.looksLikeKey":
-    "Sembla una clau. Desa-la com a secret perquè els agents no en vegin mai el valor.",
+    "Els agents poden llegir el valor d'una variable. Si cap agent no necessita el valor real, desa'l com a secret.",
   "integrations.variables.exists": "Ja hi ha una variable amb aquest nom.",
   "integrations.variables.addHeading.self": "Afegeix una variable",
   "integrations.variables.addHeading.member":

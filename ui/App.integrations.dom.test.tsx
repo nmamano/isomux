@@ -23,6 +23,9 @@ const { setApiShim } = await import("./api.ts");
 const { IntegrationsFake } =
   await import("./test-support/integrations-fake.ts");
 const { translatorFor } = await import("../shared/i18n/translate.ts");
+const { getIntegrationsTab, setIntegrationsTab } =
+  await import("./device-settings.ts");
+const { INTEGRATIONS_TABS } = await import("../shared/office-links.ts");
 const { createElement } = await import("react");
 afterAll(() => setApiShim(null));
 
@@ -111,6 +114,26 @@ describe("the Integrations page in the office", () => {
     const view = await app();
     expect(page(view)).not.toBeNull();
     expect(member(view)).toBeNull();
+  });
+
+  it("opens a pasted tab URL on that tab, not the saved one, and shows /integrations", async () => {
+    // No saved spot: an earlier case leaves the page saved, and the restore
+    // would open it whatever the path says.
+    localStorage.clear();
+    setIntegrationsTab("mcp");
+    window.history.replaceState(null, "", "/integrations/variables");
+    const view = await app();
+    expect(page(view)).not.toBeNull();
+    const selected = [
+      ...view.baseElement.querySelectorAll(
+        '[data-integrations-tab][aria-selected="true"]',
+      ),
+    ].map((el) => el.getAttribute("data-integrations-tab"));
+    expect(selected).toEqual(["variables"]);
+    expect(window.location.pathname).toBe("/integrations");
+    expect(pushState).not.toHaveBeenCalled();
+    // The tab counts as picked, so a reload of /integrations opens it again.
+    expect(getIntegrationsTab(INTEGRATIONS_TABS)).toBe("variables");
   });
 
   it("leaves Integrations out of Settings: no sidebar row, no section on a member's profile", async () => {

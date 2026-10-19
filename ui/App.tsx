@@ -54,6 +54,7 @@ import {
   pageForPath,
   pagerIdForSearch,
   mcpSignInForSearch,
+  integrationsTabForPath,
   pathForPage,
   pageForFlags,
   pageUnder,
@@ -167,12 +168,17 @@ export function App({ routing = true }: { routing?: boolean }) {
   );
   // One-shot: what the Integrations page opens on, beyond its defaults: an
   // MCP sign-in that came back carries its result (read once, like the pager
-  // id below), and a door that names a tab carries the tab. The page takes it
-  // on mount and clears it.
+  // id below), and a door or a URL that names a tab carries the tab. The page
+  // takes it on mount and clears it.
   const [integrationsRequest, setIntegrationsRequest] =
     useState<IntegrationsRequest | null>(() => {
       const signIn = mcpSignInForSearch(window.location.search);
-      return signIn === null ? null : { signIn };
+      const tab = integrationsTabForPath(window.location.pathname);
+      if (signIn === null && tab === null) return null;
+      return {
+        ...(signIn === null ? {} : { signIn }),
+        ...(tab === null ? {} : { tab }),
+      };
     });
   const clearIntegrationsRequest = useCallback(
     () => setIntegrationsRequest(null),

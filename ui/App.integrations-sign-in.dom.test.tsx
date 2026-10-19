@@ -111,8 +111,11 @@ const only = (view: View) => {
 };
 
 describe("back from an MCP sign-in", () => {
-  for (const path of ["/integrations", "/settings"])
+  // A tab path names a tab too (task df206fe3): the sign-in result wins.
+  for (const path of ["/integrations", "/settings", "/integrations/variables"])
     it(`lands on the MCP servers tab from ${path}, on the member's row`, async () => {
+      // No saved spot: the restore would open the page whatever the path says.
+      localStorage.clear();
       rememberSignIn({
         server: "linear",
         target: { kind: "member", username: "Beth" },

@@ -960,7 +960,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.tabIntro.secrets":
     "API keys and tokens for services such as GitHub.",
   "integrations.tabIntro.variables":
-    "Plain settings that agents can read, such as a time zone. Put keys in Secrets.",
+    "Plain settings that agents can read, such as a time zone.",
   "integrations.secretsHonesty":
     "Isomux blocks agents from reading saved secrets, but this office has no hard wall between agents and its files.",
   "integrations.secrets.modelKeys":
@@ -1100,7 +1100,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.variables.modelKeys":
     "Model API keys such as <code>ANTHROPIC_API_KEY</code> go here, not in Secrets: Isomux never sends a secret to a model provider.",
   "integrations.variables.looksLikeKey":
-    "This looks like a key. Save it as a secret so agents never see the value.",
+    "Agents can read a variable's value. If no agent needs the raw value, save this as a secret instead.",
   "integrations.variables.exists": "A variable with this name exists.",
   "integrations.variables.addHeading.self": "Add a variable",
   "integrations.variables.addHeading.member": "Add a variable for {member}",

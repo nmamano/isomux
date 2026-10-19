@@ -4,9 +4,16 @@
 // here, and App's wiring is covered by the render tests instead.
 //
 // Agent chats and settings sections are deliberately NOT routes (ruling 3), so
-// a chat, a settings section and the office all share one path, "/".
+// a chat, a settings section and the office all share one path, "/". An
+// Integrations tab path (/integrations/mcp) opens its tab but is never
+// written: the address bar shows /integrations (task df206fe3).
 
-import { pathForPage, type Page } from "../shared/office-links.ts";
+import {
+  officeLinkFor,
+  pathForPage,
+  type IntegrationsTab,
+  type Page,
+} from "../shared/office-links.ts";
 
 // The page list lives in shared/office-links.ts, where the server reads it
 // to check an ask's link.
@@ -61,9 +68,18 @@ export function pageForPath(pathname: string): Page | null {
     // an old link keeps working, never produced.
     case "/cronjobs":
       return "cronjobs";
+    // The Integrations tab paths (/integrations/mcp), from the one tab list.
     default:
-      return null;
+      return integrationsTabForPath(pathname) === null ? null : "integrations";
   }
+}
+
+/** The Integrations tab a pathname names (`/integrations/<tab>`), or null.
+ *  Accepted, never produced: the page writes /integrations. */
+export function integrationsTabForPath(
+  pathname: string,
+): IntegrationsTab | null {
+  return officeLinkFor(pathname.replace(/\/+$/, ""))?.tab ?? null;
 }
 
 // The longest id the deep link accepts. Ids are 16 hex characters (8 on older
