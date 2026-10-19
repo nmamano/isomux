@@ -92,6 +92,8 @@ Two facts set the boundary: whether a proxy sits in front of Isomux, and whether
 Every shape supports [Claude on Amazon Bedrock](llm-providers.md#claude-on-amazon-bedrock).
 The operator supplies AWS credentials, region, and model access; the installer does not configure AWS.
 
+In every shape, voice input and read aloud use the browser's speech services, which can send the audio or the reply text to the browser vendor ([security audit, section 8.9](security-audit.md#89-browser-speech)).
+
 **Hosted Isomux** in the first two rows is [the paid managed service](https://isomux.com/hosted), where we run the server for you.
 
 ## Proxy and real domain

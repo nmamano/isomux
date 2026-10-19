@@ -4,7 +4,7 @@ navTitle: Security audit
 
 # Isomux security audit
 
-**Date:** 2026-10-03, last updated 2026-10-14. This audit replaces the audit of 2026-05-17.
+**Date:** 2026-10-03, last updated 2026-10-19. This audit replaces the audit of 2026-05-17.
 
 **Method:** Static review of the Isomux source. No live attack tests were done.
 
@@ -318,6 +318,15 @@ For a registered MCP server that needs the MCP authorization flow, Isomux is the
 
 A member can write a note for agents on a variable, a secret or an MCP server. An agent reads, through `GET /api/agent-connections`, the kind, name, hosts and note of each connection it gets: the office's and its member's, never another member's. The answer holds no value, URL path or query. The agent reference tells agents that a note never overrides a chat message or the system prompt.
 
+### 8.9 Browser speech
+
+Voice input and read aloud use the speech services of the member's browser. The browser sends the audio and the text to these services directly; the office server does not take part.
+
+- **Voice input.** Isomux does not ask the browser to recognize speech on the device. Thus the browser can send the audio to its vendor's speech service. Chrome sends it to Google.
+- **Read aloud.** Isomux prefers a voice whose name contains "Google". In desktop Chrome, these voices are remote: Chrome sends the reply text to Google, which makes the audio.
+
+No office setting turns these features off.
+
 ---
 
 ## 9. Findings
@@ -337,6 +346,7 @@ A member can write a note for agents on a variable, a secret or an MCP server. A
 | 11  | Info     | The sign-in link page and the accept form have no rate limit (section 4.5).                                                                                                                                                        | Accepted.                                                                                                                 |
 | 12  | Info     | On macOS, `claude auth status` runs without Claude Code's own telemetry opt-out (section 8.4). Isomux has no telemetry.                                                                                                            | Open.                                                                                                                     |
 | 13  | Info     | The browser extension socket accepts any Chrome extension origin, which a client outside a browser can send. The real control is the pairing code (256 bits, one use, five minutes) and the paired credential (256 bits).          | Accepted.                                                                                                                 |
+| 14  | Info     | Voice input and read aloud use the browser's speech services, which can send the audio or the reply text to the browser vendor. No office setting turns them off (section 8.9).                                                    | Open.                                                                                                                     |
 
 ---
 
