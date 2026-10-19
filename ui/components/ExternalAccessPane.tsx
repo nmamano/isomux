@@ -16,7 +16,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type { AccessSettings } from "../../shared/contract-shapes.ts";
-import { normalizePublicOrigin } from "../../shared/public-origin.ts";
 import { useI18n } from "../i18n.tsx";
 import { dialogInput, dialogSaveBtn, disabledLook } from "./dialog-styles.ts";
 import {
@@ -34,7 +33,6 @@ import {
 } from "../device-settings.ts";
 
 const ORIGIN_PATTERN = "https://<host>";
-const LOCALHOST_ORIGIN = "http://localhost";
 
 export function ExternalAccessPane({
   closeRef,
@@ -65,11 +63,6 @@ function ExternalAccessSection({
   const [hosted, setHosted] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [urlInput, setUrlInput] = useState("");
-  const [envOriginSet, setEnvOriginSet] = useState(false);
-  // The normalized env value, or null when the env var is absent OR set but
-  // invalid (in which case envOriginSet is true while envOrigin is null -
-  // the UI uses that combination to flag the invalid case).
-  const [envOrigin, setEnvOrigin] = useState<string | null>(null);
   const [boundLoopback, setBoundLoopback] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,8 +91,6 @@ function ExternalAccessSection({
         setHosted(s.hosted);
         setEnabled(nextEnabled);
         setUrlInput(nextUrl);
-        setEnvOriginSet(!!s.envOriginSet);
-        setEnvOrigin(typeof s.envOrigin === "string" ? s.envOrigin : null);
         setBoundLoopback(!!s.boundLoopback);
         setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
         setExternalAccessLayout({ hosted: s.hosted, enabled: nextEnabled });
@@ -208,23 +199,12 @@ function ExternalAccessSection({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   });
 
-  // Apply the same normalization the server uses, so the env-conflict /
-  // env-match notes don't flash a false warning when the operator types
-  // an equivalent-but-unnormalized URL (e.g. with a trailing slash).
-  // Returns null when the input doesn't parse as a valid public origin,
-  // in which case neither the match nor the conflict note renders.
-  const normalizedInput = normalizePublicOrigin(urlInput);
-
   if (loaded ? hosted : held.hosted) {
     return (
       <div style={cardStyle} aria-busy={!loaded}>
         <div style={subLabel}>{t("settings.externalAccess.publicUrl")}</div>
         <p>
-          {loaded ? (
-            (envOrigin ?? urlInput)
-          ) : (
-            <span style={hint}>{t("common.loading")}</span>
-          )}
+          {loaded ? urlInput : <span style={hint}>{t("common.loading")}</span>}
         </p>
         <p style={hint}>{t("settings.externalAccess.managed")}</p>
       </div>
@@ -274,34 +254,6 @@ function ExternalAccessSection({
           </p>
         </>
       )}
-      {envOriginSet && !envOrigin && (
-        <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
-          {rich("settings.externalAccess.envInvalid", {
-            pattern: ORIGIN_PATTERN,
-            localhost: LOCALHOST_ORIGIN,
-            code: (chunk) => <code>{chunk}</code>,
-          })}
-        </p>
-      )}
-      {envOrigin && enabled && normalizedInput === envOrigin && (
-        <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
-          {rich("settings.externalAccess.envMatches", {
-            origin: envOrigin,
-            code: (chunk) => <code>{chunk}</code>,
-          })}
-        </p>
-      )}
-      {envOrigin &&
-        enabled &&
-        normalizedInput &&
-        normalizedInput !== envOrigin && (
-          <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
-            {rich("settings.externalAccess.envConflict", {
-              origin: envOrigin,
-              code: (chunk) => <code>{chunk}</code>,
-            })}
-          </p>
-        )}
       {error && (
         <p
           style={{ fontSize: 11, color: "var(--red-text)", margin: "6px 0 0" }}

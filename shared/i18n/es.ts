@@ -789,12 +789,6 @@ Cosas que puedes hacer por él:
   "settings.externalAccess.publicUrl": "URL pública",
   "settings.externalAccess.urlHint":
     "Patrón: {pattern} (la dirección que abrirás desde el portátil o el móvil). Guardar no cambia por sí solo la interfaz donde escucha el servidor - reinicia isomux para aplicarlo.",
-  "settings.externalAccess.envInvalid":
-    "Nota: <code>ISOMUX_PUBLIC_ORIGIN</code> está definida en el entorno pero no es un origen público válido, así que el servidor la ignora. Quítala de tu archivo de entorno o ponle <code>{pattern}</code> o <code>{localhost}</code>.",
-  "settings.externalAccess.envMatches":
-    "Nota: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> está definida en el entorno y coincide con esta URL pública. La variable de entorno está obsoleta - quítala de tu archivo de entorno cuando hayas guardado este valor en la configuración de la oficina.",
-  "settings.externalAccess.envConflict":
-    "Nota: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> está definida en el entorno. Al reiniciar tendría prioridad sobre cualquier valor distinto guardado aquí, así que se rechazará el guardado hasta que iguales esta URL al valor del entorno o quites la variable del entorno del servicio.",
   "settings.externalAccess.discardPrompt":
     "¿Descartar los cambios de acceso externo sin guardar?",
   "settings.externalAccess.updateFailed":

@@ -447,7 +447,7 @@ Request bodies and the reduced wire projections, aliased in code against `shared
 - `UserSelfWire` `UserRecord`: the caller's own full record (env/access/prompt/view prefs); delivered only to that user.
 - `UserAdminWire` `UserRecord`: any user's full record; delivered only to owners. Same shape as `UserSelfWire`, separated by recipient so the audience contract is explicit.
 - Existing `shared/types.ts` types used verbatim as responses: `AgentInfo`, `RoomWire`, `TaskItem`, `Cronjob`, `CronjobRun`, `SessionInfo` (per-agent conversation list item), `SessionWire`, `InviteWire`, `OfficeSettings`, `KilledAgentSummary`, `LogEntry`, `BackendModelWire`, `Attachment`.
-- `AccessSettings` (the `office.getAccess` response) `{ externalAccess: boolean, publicOrigin: string | null, envOriginSet: boolean, envOrigin: string | null, boundLoopback: boolean }`.
+- `AccessSettings` (the `office.getAccess` response) `{ externalAccess: boolean, publicOrigin: string | null, boundLoopback: boolean }`.
 
 **Request bodies:**
 

@@ -8,7 +8,7 @@
 //   - /help modal copy: VPN copy on a localhost boot; "open <origin>" when an
 //     origin is active.
 //
-// "Active" means buildPublicOrigin() resolves env/config, which requires a
+// "Active" means buildPublicOrigin() resolves the config origin, which requires a
 // claimed office AND externalAccess captured at boot - a loopback-only bind
 // forces the localhost fallback. The config path is exercised through the real
 // Access route + restart (not by poking module state) because that gate - a
@@ -125,15 +125,25 @@ describe("public-origin-derived copy (C3-a)", () => {
     expect(help).not.toContain(VPN_TIP);
   });
 
-  it("env origin wins over config at boot and lands in the prompt line", async () => {
+  it("a leftover ISOMUX_PUBLIC_ORIGIN is ignored: the config origin lands in the prompt line", async () => {
     const ENV_ORIGIN = "https://env.example";
     const prevEnv = process.env.ISOMUX_PUBLIC_ORIGIN;
+    process.env.ISOMUX_PUBLIC_ORIGIN = ENV_ORIGIN;
     try {
       const srv0 = await startTestServer();
       server = srv0;
-      // Set the env AFTER the Access PUT - the route 409s on a conflicting
-      // env origin - but BEFORE the restart that re-evaluates it.
       const owner = await srv0.seedOwner("Boss");
+      const access = async (srv: TestServer) =>
+        (
+          await srv.http("/api/office/access", {
+            rawSessionId: owner.rawSessionId,
+          })
+        ).json() as Promise<{ externalAccess: boolean; publicOrigin: unknown }>;
+      // Boot copies nothing from the env into office-config.json.
+      expect(await access(srv0)).toMatchObject({
+        externalAccess: false,
+        publicOrigin: null,
+      });
       const r = await srv0.http("/api/office/access", {
         method: "PUT",
         rawSessionId: owner.rawSessionId,
@@ -141,13 +151,12 @@ describe("public-origin-derived copy (C3-a)", () => {
         body: JSON.stringify({ externalAccess: true, publicOrigin: ORIGIN }),
       });
       expect(r.status).toBe(200);
-      process.env.ISOMUX_PUBLIC_ORIGIN = ENV_ORIGIN;
       const srv = await srv0.restart();
       server = srv;
 
       const prompt = buildSystemPrompt("A1", "agent-1", "Test Room", "room-1");
-      expect(prompt).toContain(`${HUMAN_LINE} ${ENV_ORIGIN}`);
-      expect(prompt).not.toContain(ORIGIN);
+      expect(prompt).toContain(`${HUMAN_LINE} ${ORIGIN}`);
+      expect(prompt).not.toContain(ENV_ORIGIN);
     } finally {
       if (prevEnv === undefined) delete process.env.ISOMUX_PUBLIC_ORIGIN;
       else process.env.ISOMUX_PUBLIC_ORIGIN = prevEnv;

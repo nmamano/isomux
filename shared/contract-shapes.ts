@@ -53,8 +53,6 @@ export interface AccessSettings {
   hosted: boolean;
   externalAccess: boolean;
   publicOrigin: string | null;
-  envOriginSet: boolean;
-  envOrigin: string | null;
   boundLoopback: boolean;
 }
 

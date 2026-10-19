@@ -714,12 +714,6 @@ App 的一些原则：
   "settings.externalAccess.publicUrl": "公共 URL",
   "settings.externalAccess.urlHint":
     "格式：{pattern}（在笔记本电脑或手机上打开的地址）。保存本身不会更改当前运行的服务器的绑定地址，请重启 isomux 以应用更改。",
-  "settings.externalAccess.envInvalid":
-    "注意：环境中设置了 <code>ISOMUX_PUBLIC_ORIGIN</code>，但它不是有效的公共源地址，因此服务器会忽略它。请从环境文件中移除它，或将其设为 <code>{pattern}</code> 或 <code>{localhost}</code>。",
-  "settings.externalAccess.envMatches":
-    "注意：环境中设置的 <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> 与此公共 URL 一致。此环境变量已弃用，请在保存此办公室配置值后从环境文件中移除它。",
-  "settings.externalAccess.envConflict":
-    "注意：环境中设置了 <code>ISOMUX_PUBLIC_ORIGIN={origin}</code>。重启后，它会覆盖此处保存的任何不同值。因此，在将此 URL 改为与环境值一致或从服务环境中移除此变量之前，保存将被拒绝。",
   "settings.externalAccess.discardPrompt": "放弃未保存的外部访问更改？",
   "settings.externalAccess.updateFailed": "更新设置失败",
   "settings.externalAccess.restartNote":

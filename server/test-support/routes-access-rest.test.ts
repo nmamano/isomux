@@ -135,10 +135,8 @@ describe("routes/office access REST: getAccess", () => {
     expect(r.status).toBe(200);
     const a = r.body as AccessSettings;
     expect(a.hosted).toBe(false);
-    expect(a.externalAccess).toBe(false); // fresh: no config, no env
+    expect(a.externalAccess).toBe(false); // fresh: no config
     expect(a.publicOrigin).toBe(null);
-    expect(a.envOriginSet).toBe(false);
-    expect(a.envOrigin).toBe(null);
     expect(typeof a.boundLoopback).toBe("boolean");
 
     expect(
@@ -291,11 +289,10 @@ describe("routes/office access REST: setAccess", () => {
     ).toBe(401);
   });
 
-  it("enable against a conflicting ISOMUX_PUBLIC_ORIGIN env -> 409, config NOT changed", async () => {
+  it("a leftover ISOMUX_PUBLIC_ORIGIN does not block a save", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    const before = loadServerConfig();
     const prevEnv = process.env.ISOMUX_PUBLIC_ORIGIN;
     process.env.ISOMUX_PUBLIC_ORIGIN = "https://env.example";
     try {
@@ -304,14 +301,10 @@ describe("routes/office access REST: setAccess", () => {
         rawSessionId: owner.rawSessionId,
         body: { externalAccess: true, publicOrigin: "https://typed.example" },
       });
-      expect(r.status).toBe(409);
-      expect((r.body as { error?: { code?: string } }).error?.code).toBe(
-        "set_access_failed",
-      );
-      // The save is gated BEFORE persistence - config is untouched.
+      expect(r.status).toBe(200);
       const after = loadServerConfig();
-      expect(after.externalAccess).toBe(before.externalAccess);
-      expect(after.publicOrigin).toBe(before.publicOrigin);
+      expect(after.externalAccess).toBe(true);
+      expect(after.publicOrigin).toBe("https://typed.example");
     } finally {
       if (prevEnv === undefined) delete process.env.ISOMUX_PUBLIC_ORIGIN;
       else process.env.ISOMUX_PUBLIC_ORIGIN = prevEnv;
@@ -430,7 +423,7 @@ it.each(["https://custom.example", "https://isomux.app.evil.com"])(
   },
 );
 
-it("hosted no-op keeps its stored signal when the environment overrides the address", async () => {
+it("a leftover ISOMUX_PUBLIC_ORIGIN is not the hosted address; the stored one is a no-op", async () => {
   const srv = await startTestServer({
     startServer: { installKind: "self-hosted" },
   });
@@ -455,11 +448,23 @@ it("hosted no-op keeps its stored signal when the environment overrides the addr
       await api(srv, "/api/office/access", { rawSessionId: owner.rawSessionId })
     ).body as AccessSettings;
     expect(access.hosted).toBe(true);
-    expect(access.envOrigin).toBe("https://env.example");
+    expect(access.publicOrigin).toBe("https://office.isomux.app");
+    const toEnv = await api(srv, "/api/office/access", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: { externalAccess: true, publicOrigin: "https://env.example" },
+    });
+    expect(toEnv.status).toBe(403);
+    expect((toEnv.body as { error?: { code?: string } }).error?.code).toBe(
+      "hosted_access_managed",
+    );
     const r = await api(srv, "/api/office/access", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,
-      body: { externalAccess: true, publicOrigin: "https://ENV.example/" },
+      body: {
+        externalAccess: true,
+        publicOrigin: "https://office.isomux.app/",
+      },
     });
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ signInUrl: null, restartRequired: false });
@@ -468,15 +473,6 @@ it("hosted no-op keeps its stored signal when the environment overrides the addr
       (await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId }))
         .body,
     ).toEqual(invitesBefore);
-    expect(
-      (
-        (
-          await api(srv, "/api/office/access", {
-            rawSessionId: owner.rawSessionId,
-          })
-        ).body as AccessSettings
-      ).hosted,
-    ).toBe(true);
   } finally {
     if (prevEnv === undefined) delete process.env.ISOMUX_PUBLIC_ORIGIN;
     else process.env.ISOMUX_PUBLIC_ORIGIN = prevEnv;

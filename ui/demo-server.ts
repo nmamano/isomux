@@ -2793,8 +2793,6 @@ export async function demoApi(
       return {
         externalAccess: false,
         publicOrigin: null,
-        envOriginSet: false,
-        envOrigin: null,
         hosted: false,
         boundLoopback: true,
       };

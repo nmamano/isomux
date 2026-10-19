@@ -22,7 +22,7 @@ Implemented in the `auth-redesign` branch. The pre-implementation analysis (orig
 
 A successful claim mid-process changes neither policy. This eliminates a class of bug where the response that issues a new cookie would inherit Secure attributes from a configured but unreachable HTTPS public origin and be rejected by the browser on the HTTP loopback connection. A proxy-fronted office can keep its listener on loopback without replacing its HTTPS origin.
 
-**Env var deprecation**: `ISOMUX_PUBLIC_ORIGIN` is honored at boot, then migrated into `office-config.json#publicOrigin` on first observation (with `externalAccess: true` written alongside, preserving the bind for pre-redesign networked installs). A deprecation message asks the operator to remove the env var. The migration is one-shot per upgrade - subsequent boots read the JSON value.
+**Env var removal**: `ISOMUX_PUBLIC_ORIGIN` was migrated into `office-config.json#publicOrigin` at boot from 2026-05-19, with a deprecation message, and every release tag carried that migration. Task 3d5bc018 removed the env var: the server no longer reads it, and `office-config.json#publicOrigin` is the only source of the public origin.
 
 ## Threat model anchor
 

@@ -3603,9 +3603,7 @@ claim_owner() {
 # rebinds and starts minting URLs at https://DOMAIN.
 #
 # This deliberately goes through the office-access REST surface (persisted
-# to office-config.json) rather than the ISOMUX_PUBLIC_ORIGIN env var: the
-# env var is deprecated (the server migrates it to office-config.json and
-# rejects a conflicting value on save).
+# to office-config.json), the one place the server reads the origin from.
 configure_public_access() {
   step configure-public-access
   if [[ -n $DRY_RUN ]]; then

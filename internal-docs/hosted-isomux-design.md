@@ -86,7 +86,7 @@ The hostability foundation is better than expected:
   onboarding with one-time 256-bit tokens, owner/member roles, per-device
   session revocation (`server/auth.ts`, `server/auth-middleware.ts`). No
   password system needed; the invite model is ideal for a hosted handoff.
-- **Public exposure anticipated**: `ISOMUX_PUBLIC_ORIGIN`, HSTS + security
+- **Public exposure anticipated**: an operator-set public origin, HSTS + security
   headers, origin validation against the operator-set origin (not Host
   headers). `docs/self-hosted.md` already prescribes the Caddy pattern.
 - **Headless bootstrap works today**: pre-claim, the server binds loopback
@@ -112,8 +112,7 @@ Ubuntu VPS into a working, HTTPS-served isomux:
 2. Write and enable a systemd unit (system-level or a dedicated user with
    lingering; today's docs assume a user service).
 3. Install Caddy; reverse-proxy `:443 -> 127.0.0.1:4000` with automatic
-   Let's Encrypt; set the public origin via `PUT /api/office/access` (the
-   `ISOMUX_PUBLIC_ORIGIN` env var is deprecated).
+   Let's Encrypt; set the public origin via `PUT /api/office/access`.
 4. Harden: ufw (443 + optionally 22), SSH keys only, unattended-upgrades.
 5. Claim owner + mint invite via loopback; POST the resulting invite URL and
    a health status back to the control plane callback.

@@ -18,7 +18,6 @@ import type {
   SessionContext,
 } from "../shared/types.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
-import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { discardSetupKey } from "./setup-key.ts";
 import { officeIdFile, readOrCreateOfficeId } from "./office-id.ts";
 import {
@@ -1656,15 +1655,10 @@ export function isSessionCookieName(name: string): boolean {
   return SESSION_COOKIE_NAME_PATTERN.test(name);
 }
 
-// Precedence: process.env.ISOMUX_PUBLIC_ORIGIN > office-config.json's
-// `publicOrigin` (registered via setPublicOriginFallback at boot) >
-// localhost fallback. Both env and config are operator-authored; we never
-// infer the origin from request headers. Both go through the same
-// validator - a malformed env value falls through to config rather than
-// poisoning the Origin allowlist with e.g. `https://host/path`.
+// Precedence: office-config.json's `publicOrigin` (registered via
+// setPublicOriginFallback at boot) > localhost fallback. The config value is
+// operator-authored; we never infer the origin from request headers.
 let cachedFallbackOrigin: string | null = null;
-let envEvaluated = false;
-let envCachedOrigin: string | null = null;
 
 export function setPublicOriginFallback(origin: string | null): void {
   cachedFallbackOrigin = origin;
@@ -1687,26 +1681,6 @@ function loopbackPort(): string {
 }
 function loopbackOrigin(): string {
   return `http://localhost:${loopbackPort()}`;
-}
-
-function evaluateEnvOrigin(): string | null {
-  if (envEvaluated) return envCachedOrigin;
-  envEvaluated = true;
-  const raw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim();
-  if (!raw) {
-    envCachedOrigin = null;
-    return null;
-  }
-  const normalized = normalizePublicOrigin(raw);
-  if (!normalized) {
-    console.error(
-      `[auth] ISOMUX_PUBLIC_ORIGIN="${raw}" is not a valid public origin (need https://<host> or http://localhost; no path/query/fragment); ignoring`,
-    );
-    envCachedOrigin = null;
-    return null;
-  }
-  envCachedOrigin = normalized;
-  return normalized;
 }
 
 // Captured once at boot via freezeBootState(). Three predicates derive from
@@ -1762,7 +1736,7 @@ export function isOutsideReachabilityBlocked(): boolean {
 export function buildPublicOrigin(): {
   origin: string;
   isHttps: boolean;
-  source: "env" | "config" | "localhost";
+  source: "config" | "localhost";
 } {
   // Outside reachability blocked (pre-claim, or external access off): the
   // configured public origin can't be reached anyway. Using it here would
@@ -1770,19 +1744,11 @@ export function buildPublicOrigin(): {
   // (configured origin is HTTPS) and the browser would reject the cookie on
   // the actual HTTP loopback connection. Force the localhost fallback so
   // cookie attributes, allowed-origin checks, and minted URLs all match the
-  // connection. The env/JSON value re-engages on the next process boot when
+  // connection. The JSON value re-engages on the next process boot when
   // external access can be turned on. The listener bind is separate policy.
   if (isOutsideReachabilityBlocked()) {
     const fallback = loopbackOrigin();
     return { origin: fallback, isHttps: false, source: "localhost" };
-  }
-  const envOrigin = evaluateEnvOrigin();
-  if (envOrigin) {
-    return {
-      origin: envOrigin,
-      isHttps: envOrigin.startsWith("https://"),
-      source: "env",
-    };
   }
   if (cachedFallbackOrigin) {
     return {
@@ -2312,8 +2278,6 @@ export function _testResetState() {
   invitesNeedsPersist = false;
   lastPersist = 0;
   cachedFallbackOrigin = null;
-  envEvaluated = false;
-  envCachedOrigin = null;
   boundLoopbackPort = null;
   // Re-read from the state root on next use, as a restart does.
   officeId = undefined;

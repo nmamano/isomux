@@ -1055,8 +1055,7 @@ export function saveRecentCwd(cwd: string) {
 // fold the .md content into the JSON and leave the .md in place as a one-time backup.
 //
 // The same file also carries deployment-level keys not edited via the UI
-// (currently `publicOrigin`, used as a fallback for `ISOMUX_PUBLIC_ORIGIN`
-// when the env var is unset - see docs/security-audit.md "Public origin"). Those keys
+// (currently `publicOrigin` - see docs/security-audit.md "Public origin"). Those keys
 // are NOT part of OfficeSettings; `loadOfficeConfig`/`saveOfficeConfig`
 // only surface prompt + envFile + name + experimental settings to the
 // UI-mutated office state. Save uses
@@ -1160,17 +1159,16 @@ function saveOfficeConfigField(key: string, value: unknown): void {
 }
 
 // Server/deployment config that shares office-config.json but isn't part of
-// the UI-mutated OfficeSettings. Currently just `publicOrigin`, used as a
-// fallback when `ISOMUX_PUBLIC_ORIGIN` is unset in the environment. Server
-// reads at boot only; writes are operator-authored (direct file edit, or
-// future tooling that runs outside the agent safety-hook sandbox).
+// the UI-mutated OfficeSettings. Server reads at boot only; writes are
+// operator-authored (direct file edit, or future tooling that runs outside
+// the agent safety-hook sandbox).
 
 export interface ServerConfig {
   publicOrigin: string | null;
   // `null` means the JSON didn't carry the field at all (legacy / unset).
-  // Callers decide the migration default: a present `publicOrigin` or
-  // `ISOMUX_PUBLIC_ORIGIN` env var implies the operator was on a networked
-  // install pre-redesign, so externalAccess should effectively be true.
+  // Callers decide the migration default: a present `publicOrigin` implies
+  // the operator was on a networked install pre-redesign, so externalAccess
+  // should effectively be true.
   externalAccess: boolean | null;
   // Operator/deployment-authored. The server reads this field but never writes
   // it, so Access-pane saves preserve the deployment's bind choice.

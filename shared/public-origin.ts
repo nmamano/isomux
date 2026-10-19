@@ -1,7 +1,6 @@
-// Shared validator/normalizer for ISOMUX_PUBLIC_ORIGIN-equivalent values.
-// Used server-side both when reading `ISOMUX_PUBLIC_ORIGIN` from the
-// environment and when loading the `publicOrigin` fallback from
-// office-config.json. Pure and side-effect-free so any future tooling
+// Shared validator/normalizer for public origin values: the `publicOrigin`
+// in office-config.json and the Public URL an owner saves in the Access
+// pane. Pure and side-effect-free so any future tooling
 // (e.g. a setup helper running outside the agent safety sandbox) can
 // import it without dragging in server boot.
 //

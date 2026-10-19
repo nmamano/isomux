@@ -72,8 +72,8 @@ export async function _testRunOwnerCreatedHook(
   await onOwnerCreated?.({ username });
 }
 
-// Origin check. Reverse proxies are configured by the operator setting
-// ISOMUX_PUBLIC_ORIGIN; we do not infer the origin from Host/X-Forwarded-Host
+// Origin check. Reverse proxies are configured by the operator setting the
+// office's public origin (office-config.json `publicOrigin`); we do not infer the origin from Host/X-Forwarded-Host
 // because that's how WebSocket-hijacking bugs happen.
 //
 // Exact match, with no loopback exemption, stops a hostile page from driving a
@@ -431,7 +431,7 @@ export function handleInvitePeek(
 
 // POST /auth/accept - actually consume the invite, create the session,
 // set the cookie. `name` is only required for null-username invites
-// (bootstrap, etc.). Origin must match ISOMUX_PUBLIC_ORIGIN.
+// (bootstrap, etc.). Origin must match the office's public origin.
 export async function handleAccept(
   req: Request,
   officeName: string | null,

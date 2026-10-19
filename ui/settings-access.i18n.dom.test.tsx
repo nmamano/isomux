@@ -40,8 +40,6 @@ setApiShim(async (_method, path) => {
     return {
       externalAccess: false,
       publicOrigin: null,
-      envOriginSet: false,
-      envOrigin: null,
       boundLoopback: true,
     };
   if (path.startsWith("/api/me/provider-accounts")) return { accounts: [] };

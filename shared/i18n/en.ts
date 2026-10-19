@@ -787,12 +787,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.externalAccess.publicUrl": "Public URL",
   "settings.externalAccess.urlHint":
     "Pattern: {pattern} (the address you'll open from your laptop / phone). Saving doesn't change the running server's bind on its own - restart isomux to apply.",
-  "settings.externalAccess.envInvalid":
-    "Note: <code>ISOMUX_PUBLIC_ORIGIN</code> is set in the environment but not a valid public origin, so the server ignores it. Remove it from your env file or set it to <code>{pattern}</code> or <code>{localhost}</code>.",
-  "settings.externalAccess.envMatches":
-    "Note: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> is set in the environment and matches this Public URL. The env var is deprecated - remove it from your env file once this office-config value is saved.",
-  "settings.externalAccess.envConflict":
-    "Note: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> is set in the environment. After restart it would override any different value saved here, so the save will be refused until you either match this URL to the env value or remove the env var from your service environment.",
   "settings.externalAccess.discardPrompt":
     "Discard unsaved external-access changes?",
   "settings.externalAccess.updateFailed": "Failed to update settings",

@@ -546,57 +546,20 @@ function bootPrelude(): void {
   // member edit (a rename) can run.
   loadAuthState();
 
-  // Resolve access settings from office-config.json + the deprecated
-  // ISOMUX_PUBLIC_ORIGIN env var, write any migration / backfill back to disk,
-  // then lock the boot-time state. Cookie/origin policy and listener binding
-  // are frozen independently so a claim cannot change either mid-process.
+  // Resolve access settings from office-config.json, write any backfill back
+  // to disk, then lock the boot-time state. Cookie/origin policy and listener
+  // binding are frozen independently so a claim cannot change either
+  // mid-process.
   {
-    let cfg = loadServerConfig();
-    const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim();
-    const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
-
-    // Env-var migration. ISOMUX_PUBLIC_ORIGIN is deprecated; copy its value
-    // into office-config.json (only when JSON's slot is empty, never clobber
-    // an explicit JSON value) and warn the operator. The env var still wins
-    // for THIS boot via buildPublicOrigin's precedence chain - the message
-    // tells the operator that removing the env var will silently start
-    // using the JSON value, which matches what we wrote.
-    let configDirty = false;
-    if (envOrigin) {
-      if (cfg.publicOrigin === null) {
-        console.log(
-          `[auth] ISOMUX_PUBLIC_ORIGIN is deprecated. Migrating "${envOrigin}" into office-config.json so it survives without the env var. Remove ISOMUX_PUBLIC_ORIGIN from your env on your next deploy.`,
-        );
-        cfg = { ...cfg, publicOrigin: envOrigin };
-        configDirty = true;
-      } else if (cfg.publicOrigin === envOrigin) {
-        console.log(
-          `[auth] ISOMUX_PUBLIC_ORIGIN env var is redundant with office-config.json#publicOrigin (${cfg.publicOrigin}) and is deprecated. Remove it from your env on your next deploy.`,
-        );
-      } else {
-        console.error(
-          `[auth] ISOMUX_PUBLIC_ORIGIN ("${envOrigin}") differs from office-config.json#publicOrigin ("${cfg.publicOrigin}"). The env var is deprecated; isomux uses the env value for THIS boot but will use the JSON value once the env var is removed. Reconcile by editing one and removing the other.`,
-        );
-      }
-    } else if (envRaw) {
-      // Env set but invalid. evaluateEnvOrigin (and normalizePublicOrigin
-      // here) already logged the rejection; nothing to migrate.
-    }
+    const cfg = loadServerConfig();
 
     // External-access backfill. When the field is absent from JSON
-    // (pre-redesign install), default to true if any publicOrigin source
-    // exists so the office stays reachable at its old address after the
-    // upgrade. Write the resolved value back so subsequent boots don't
-    // re-run this inference.
-    let externalAccess: boolean;
-    if (cfg.externalAccess !== null) {
-      externalAccess = cfg.externalAccess;
-    } else {
-      externalAccess = cfg.publicOrigin !== null || envOrigin !== null;
-      configDirty = true;
-    }
-
-    if (configDirty) {
+    // (pre-redesign install), default to true if a publicOrigin exists so the
+    // office stays reachable at its old address after the upgrade. Write the
+    // resolved value back so subsequent boots don't re-run this inference.
+    let externalAccess = cfg.externalAccess;
+    if (externalAccess === null) {
+      externalAccess = cfg.publicOrigin !== null;
       try {
         saveServerConfig({
           publicOrigin: cfg.publicOrigin,
@@ -1731,23 +1694,14 @@ async function revokeSessionForUserRecord(
 
 // Effective access policy for the owner UI. Mirrors the boot-time inference
 // exactly: an explicit cfg.externalAccess wins; otherwise external is implied by
-// a saved publicOrigin OR a VALID env origin. envOriginSet is the raw "is the
-// env var defined at all" flag (so the UI can show "set but invalid").
+// a saved publicOrigin.
 function computeAccessSettings(installKind: InstallKind): AccessSettings {
   const cfg = loadServerConfig();
-  const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim() ?? "";
-  const envOriginSet = envRaw.length > 0;
-  const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
-  const effectiveExternal =
-    cfg.externalAccess !== null
-      ? cfg.externalAccess
-      : cfg.publicOrigin !== null || envOrigin !== null;
+  const effectiveExternal = cfg.externalAccess ?? cfg.publicOrigin !== null;
   return {
     hosted: isHostedAccess(installKind, cfg.publicOrigin),
     externalAccess: effectiveExternal,
     publicOrigin: cfg.publicOrigin,
-    envOriginSet,
-    envOrigin,
     // Kept for wire compatibility: this field reports whether outside access
     // is blocked, not the listener's raw interface selection.
     boundLoopback: isOutsideReachabilityBlocked(),
@@ -1762,14 +1716,12 @@ type ApplyAccessResult =
       publicOrigin: string | null;
       signInUrl: string | null;
       restartRequired: boolean;
-      envOrigin: string | null;
     }
   | {
       ok: false;
       status: HandlerErrorStatus;
       error: string;
       code?: string;
-      envOrigin?: string;
     };
 
 // A hosted box accepts only an unchanged, already-enabled address, except the
@@ -1790,7 +1742,6 @@ async function applyAccessSettings(
     current.hosted &&
     !current.externalAccess &&
     current.publicOrigin === null &&
-    current.envOrigin === null &&
     externalAccess &&
     isHostedOfficeOrigin(origin);
   if (current.hosted && !hostedFirstEnable) {
@@ -1798,7 +1749,7 @@ async function applyAccessSettings(
       !current.externalAccess ||
       !externalAccess ||
       !origin ||
-      origin !== (current.envOrigin ?? current.publicOrigin)
+      origin !== current.publicOrigin
     ) {
       return {
         ok: false,
@@ -1812,7 +1763,6 @@ async function applyAccessSettings(
       ok: true,
       externalAccess: true,
       publicOrigin: current.publicOrigin,
-      envOrigin: current.envOrigin,
       signInUrl: null,
       restartRequired: false,
     };
@@ -1830,16 +1780,6 @@ async function applyAccessSettings(
       ok: false,
       status: 400,
       error: "Enabling external access requires a public URL.",
-    };
-  }
-  const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim() ?? "";
-  const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
-  if (externalAccess && envOrigin && origin && envOrigin !== origin) {
-    return {
-      ok: false,
-      status: 409,
-      error: `ISOMUX_PUBLIC_ORIGIN is still set to ${envOrigin}. Remove it from the service environment or set the Public URL to the same value, then save again.`,
-      envOrigin,
     };
   }
   try {
@@ -1872,7 +1812,6 @@ async function applyAccessSettings(
     publicOrigin: origin,
     signInUrl,
     restartRequired: true,
-    envOrigin,
   };
 }
 
@@ -8411,16 +8350,14 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
 function logBootBanners(): void {
   // The public origin is the canonical URL the server expects browsers to hit.
   // We compare it against the Origin header on WS upgrades and unsafe HTTP
-  // requests, and bake it into invite URLs. Resolution precedence is env >
+  // requests, and bake it into invite URLs. Resolution precedence is
   // office-config.json `publicOrigin` > localhost fallback. Pre-claim we
   // force the localhost fallback so the cookie attributes match the bind;
   // any configured value re-engages once an owner exists.
   {
     const resolved = buildPublicOrigin();
     // Pre-claim: the banner below covers everything, no need for a separate
-    // log line. Env-var source: the ISOMUX_PUBLIC_ORIGIN deprecation warning
-    // (emitted earlier when the env is set) is the only signal needed; no
-    // additional log here, since the var itself is deprecated.
+    // log line.
     if (!isProcessPreClaim()) {
       if (resolved.source === "config") {
         console.log(

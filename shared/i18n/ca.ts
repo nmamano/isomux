@@ -785,12 +785,6 @@ Coses que pots fer per ell:
   "settings.externalAccess.publicUrl": "URL pública",
   "settings.externalAccess.urlHint":
     "Patró: {pattern} (l'adreça que obriràs des del portàtil o el mòbil). Desar no canvia per si sol la interfície on escolta el servidor - reinicia isomux per aplicar-ho.",
-  "settings.externalAccess.envInvalid":
-    "Nota: <code>ISOMUX_PUBLIC_ORIGIN</code> està definida a l'entorn però no és un origen públic vàlid, així que el servidor la ignora. Treu-la del teu fitxer d'entorn o posa-li <code>{pattern}</code> o <code>{localhost}</code>.",
-  "settings.externalAccess.envMatches":
-    "Nota: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> està definida a l'entorn i coincideix amb aquesta URL pública. La variable d'entorn està obsoleta - treu-la del teu fitxer d'entorn quan hagis desat aquest valor a la configuració de l'oficina.",
-  "settings.externalAccess.envConflict":
-    "Nota: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> està definida a l'entorn. En reiniciar tindria prioritat sobre qualsevol valor diferent desat aquí, així que es rebutjarà el desament fins que igualis aquesta URL al valor de l'entorn o treguis la variable de l'entorn del servei.",
   "settings.externalAccess.discardPrompt":
     "Vols descartar els canvis d'accés extern sense desar?",
   "settings.externalAccess.updateFailed":
