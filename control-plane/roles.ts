@@ -1128,18 +1128,20 @@ export async function readRolePosture(
 export function matrixSql(): string {
   // A column grant is not in table_privileges. column_privileges lists a table
   // grant once per column too, so only the column rows no table grant covers
-  // are added.
+  // are added. table_privileges is read ONCE: as a correlated subquery the
+  // view ran again for every column row, 1.8 s per call against 80 ms
+  // (measured 2026-10-19).
   return (
-    "select grantee as role, table_name as table, privilege_type as verb, " +
-    "null::text as column " +
+    "with t as materialized (select grantee, table_name, privilege_type " +
     "from information_schema.table_privileges " +
-    "where grantee = any($1) and table_schema = 'public' " +
+    "where grantee = any($1) and table_schema = 'public') " +
+    "select grantee as role, table_name as table, privilege_type as verb, " +
+    "null::text as column from t " +
     "union all " +
     "select c.grantee, c.table_name, c.privilege_type, c.column_name " +
     "from information_schema.column_privileges c " +
     "where c.grantee = any($1) and c.table_schema = 'public' " +
-    "and not exists (select 1 from information_schema.table_privileges t " +
-    " where t.grantee = c.grantee and t.table_schema = c.table_schema " +
+    "and not exists (select 1 from t where t.grantee = c.grantee " +
     " and t.table_name = c.table_name and t.privilege_type = c.privilege_type)"
   );
 }

@@ -56,11 +56,11 @@ import {
 import { GOVERNED_SETTINGS, Store } from "./store.ts";
 import {
   LOCAL_DATABASE_URL,
-  PG_TEST_HOOK_TIMEOUT_MS,
+  PG_DROP_DATABASE_HOOK_TIMEOUT_MS,
   TARGET_IS_LOCAL,
   inCleanupPool,
 } from "./testing/pg.ts";
-import { withRoleSuiteLock } from "./testing/role-suite-lock.ts";
+import { ownedScratchDatabase } from "./testing/case-owner.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
 
@@ -88,27 +88,27 @@ let TEST_PROVISIONER_ROLE = "";
 let TEST_PROBE_MEMBER = "";
 
 /**
- * A database per case, and a LOCK around every case that mutates a role.
+ * A database per case, its own owner, and its own role names.
  *
  * The database is for the schema; it does NOT isolate roles, and an earlier
  * version of this comment claimed it did. Roles are cluster-wide: two cases
  * governing `cp_web` in parallel would be one case watching the other's
  * catalog, whatever database each was connected to. So every mutating case runs
  * through `serial`, which is the only thing here that makes a BEFORE snapshot
- * mean anything. `serial` also holds `withRoleSuiteLock`, because the owner
- * role is shared with every other process on the cluster.
+ * mean anything. Other processes cannot see `serial`, so each case also
+ * governs role names and an owner (`ownedScratchDatabase`) no other process
+ * uses.
  */
 let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
-  const run = (): Promise<T> =>
-    withRoleSuiteLock(async () => {
-      const names = caseNames();
-      TEST_ROSTER = names.roster;
-      TEST_WEB_ROLE = names.roster[0].role;
-      TEST_PROVISIONER_ROLE = names.roster[1].role;
-      TEST_PROBE_MEMBER = names.probeMember;
-      return fn();
-    });
+  const run = (): Promise<T> => {
+    const names = caseNames();
+    TEST_ROSTER = names.roster;
+    TEST_WEB_ROLE = names.roster[0].role;
+    TEST_PROVISIONER_ROLE = names.roster[1].role;
+    TEST_PROBE_MEMBER = names.probeMember;
+    return fn();
+  };
   const next = queue.then(run, run);
   queue = next.then(
     () => undefined,
@@ -123,6 +123,7 @@ const databases: {
   name: string;
   roster: readonly RolePosture[];
   probe: string;
+  owner: string;
 }[] = [];
 let productionRolesBefore: Record<string, unknown>[] = [];
 
@@ -163,8 +164,8 @@ describe("injected runtime roster metadata", () => {
 });
 
 /** What a refused call said, awaited: a case that moved on while the call was
- * still running would read the catalog mid-call, and release the role-suite
- * lock under it. */
+ * still running would read the catalog mid-call, and let the next case start
+ * under it. */
 const NO_REFUSAL = "it did not refuse";
 async function refusal(work: Promise<unknown>): Promise<string> {
   return work.then(
@@ -174,12 +175,14 @@ async function refusal(work: Promise<unknown>): Promise<string> {
 }
 
 async function scratchDatabase(): Promise<string> {
-  const name = `cp_gov_${Math.random().toString(36).slice(2, 10)}`;
-  await admin.query(`create database ${name}`);
-  databases.push({ name, roster: TEST_ROSTER, probe: TEST_PROBE_MEMBER });
-  const url = new URL(LOCAL_DATABASE_URL);
-  url.pathname = `/${name}`;
-  return url.toString();
+  const { name, owner, dsn } = await ownedScratchDatabase(admin, "cp_gov");
+  databases.push({
+    name,
+    roster: TEST_ROSTER,
+    probe: TEST_PROBE_MEMBER,
+    owner,
+  });
+  return dsn;
 }
 
 async function ask<T extends pg.QueryResultRow>(
@@ -216,34 +219,32 @@ async function dropRoles(
 }
 
 afterAll(async () => {
-  // Under the case lock: a database drop waits for a forced checkpoint, and
-  // measured 2026-10-03 one waited 19.7s while other processes' cases were
-  // creating databases, against 115ms with the engine idle.
-  await withRoleSuiteLock(() =>
-    inCleanupPool(databases, async (entry) => {
-      const { name, roster, probe } = entry;
-      const url = new URL(LOCAL_DATABASE_URL);
-      url.pathname = `/${name}`;
-      if ([WEB_ROLE, PROVISIONER_ROLE].includes(probe)) {
-        throw new Error("refusing to drop a production runtime role");
-      }
-      await admin
-        .query(`revoke ${roster[0].role} from ${probe}`)
-        .catch(() => {});
-      await admin.query(`drop role if exists ${probe}`).catch(() => {});
-      await dropRoles(url.toString(), roster);
-      await admin
-        .query(
-          "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
-          [name],
-        )
-        .catch(() => {});
-      await admin.query(`drop database if exists ${name}`).catch(() => {});
-    }),
-  );
-  const testNames = databases.flatMap(({ roster, probe }) => [
+  await inCleanupPool(databases, async (entry) => {
+    const { name, roster, probe, owner } = entry;
+    const url = new URL(LOCAL_DATABASE_URL);
+    url.pathname = `/${name}`;
+    if (
+      [probe, owner].some((role) => [WEB_ROLE, PROVISIONER_ROLE].includes(role))
+    ) {
+      throw new Error("refusing to drop a production runtime role");
+    }
+    await admin.query(`revoke ${roster[0].role} from ${probe}`).catch(() => {});
+    await admin.query(`drop role if exists ${probe}`).catch(() => {});
+    await dropRoles(url.toString(), roster);
+    await admin
+      .query(
+        "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
+        [name],
+      )
+      .catch(() => {});
+    await admin.query(`drop database if exists ${name}`).catch(() => {});
+    // Last: the database and the runtime roles are gone.
+    await admin.query(`drop role if exists ${owner}`).catch(() => {});
+  });
+  const testNames = databases.flatMap(({ roster, probe, owner }) => [
     ...roster.map((entry) => entry.role),
     probe,
+    owner,
   ]);
   const leftovers = await admin.query<{ n: string }>(
     "select count(*)::text as n from pg_roles where rolname = any($1)",
@@ -252,9 +253,8 @@ afterAll(async () => {
   expect(leftovers.rows[0]?.n).toBe("0");
   expect(await productionRoleSnapshot()).toEqual(productionRolesBefore);
   await admin.end().catch(() => {});
-  // This hook drops one database per case. Under the full suite it ran past
-  // the 30 s budget on 2026-10-08 (task e7851de6), so it gets four budgets.
-}, 4 * PG_TEST_HOOK_TIMEOUT_MS);
+  // This hook drops one database per case: see PG_DROP_DATABASE_HOOK_TIMEOUT_MS.
+}, PG_DROP_DATABASE_HOOK_TIMEOUT_MS);
 
 suite("a fresh, empty database", () => {
   // THE ONE THAT WAS BROKEN. Nothing in this repo had ever run the posture
@@ -327,6 +327,40 @@ suite("a fresh, empty database", () => {
         expect(await refusal(applyGrantMatrix(dsn, TEST_ROSTER))).not.toBe(
           NO_REFUSAL,
         );
+        await dropRoles(dsn);
+      }),
+    30_000,
+  );
+});
+
+suite("each case governs an owner of its own", () => {
+  // Governing writes the bounds onto the owner cluster-wide, and every process
+  // on the local engine connects as the LOCAL_DATABASE_URL user. A case that
+  // governed that user would collide with every other process doing the same.
+  test(
+    "the owner is a superuser of this case, not the shared connection user",
+    () =>
+      serial(async () => {
+        const dsn = await scratchDatabase();
+        await bootstrapDatabase(dsn, TEST_ROSTER);
+        const [owner] = await ask<{
+          name: string;
+          superuser: boolean;
+          ownsDatabase: boolean;
+          config: string[] | null;
+        }>(
+          dsn,
+          "select r.rolname as name, r.rolsuper as superuser, " +
+            'd.datdba = r.oid as "ownsDatabase", r.rolconfig as config ' +
+            "from pg_roles r, pg_database d " +
+            "where r.rolname = current_user and d.datname = current_database()",
+        );
+        expect(boundsAreExact(owner.config ?? [], GOVERNED_SETTINGS)).toBe(
+          true,
+        );
+        expect(owner.name).not.toBe(new URL(LOCAL_DATABASE_URL).username);
+        expect(owner.superuser).toBe(true);
+        expect(owner.ownsDatabase).toBe(true);
         await dropRoles(dsn);
       }),
     30_000,

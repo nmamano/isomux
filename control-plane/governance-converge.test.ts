@@ -26,6 +26,7 @@ import {
 import {
   PROVISIONER_ROLE,
   WEB_ROLE,
+  boundsAreExact,
   grantKeys,
   matrixSql,
   residueIsInert,
@@ -35,14 +36,14 @@ import {
   type MatrixRow,
   type RolePosture,
 } from "./roles.ts";
-import { Store } from "./store.ts";
+import { GOVERNED_SETTINGS, Store } from "./store.ts";
 import {
   LOCAL_DATABASE_URL,
-  PG_TEST_HOOK_TIMEOUT_MS,
+  PG_DROP_DATABASE_HOOK_TIMEOUT_MS,
   TARGET_IS_LOCAL,
   inCleanupPool,
 } from "./testing/pg.ts";
-import { withRoleSuiteLock } from "./testing/role-suite-lock.ts";
+import { ownedScratchDatabase } from "./testing/case-owner.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
 
@@ -73,18 +74,17 @@ let TEST_PROVISIONER_ROLE = "";
 /** The current matrix, under this case's role names. */
 let TEST_CURRENT: readonly RolePosture[] = [];
 
-/** Every case that touches a role runs alone, under names of its own. The
- * owner role is still shared, so `withRoleSuiteLock` keeps it alone across
- * processes too. */
+/** Every case that touches a role runs alone, under names of its own, and
+ * governs an owner of its own (`ownedScratchDatabase`), so no other process
+ * shares a role with it. */
 let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
-  const run = (): Promise<T> =>
-    withRoleSuiteLock(async () => {
-      const names = [uniqueRole("cp_rw"), uniqueRole("cp_rp")];
-      [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE] = names;
-      TEST_CURRENT = renamed(runtimeRoles(), names);
-      return fn();
-    });
+  const run = (): Promise<T> => {
+    const names = [uniqueRole("cp_rw"), uniqueRole("cp_rp")];
+    [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE] = names;
+    TEST_CURRENT = renamed(runtimeRoles(), names);
+    return fn();
+  };
   const next = queue.then(run, run);
   queue = next.then(
     () => undefined,
@@ -96,6 +96,8 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 const admin = new pg.Pool({ connectionString: LOCAL_DATABASE_URL, max: 2 });
 admin.on("error", () => {});
 const databases: string[] = [];
+/** Each scratch database's owner, dropped after every other role. */
+const owners: string[] = [];
 const liveRuntimes = new Map<string, Map<string, pg.Client>>();
 let productionRolesBefore: Record<string, unknown>[] = [];
 
@@ -114,12 +116,10 @@ beforeAll(async () => {
 });
 
 async function scratchDatabase(): Promise<string> {
-  const name = `cp_cv_${Math.random().toString(36).slice(2, 10)}`;
-  await admin.query(`create database ${name}`);
+  const { name, owner, dsn } = await ownedScratchDatabase(admin, "cp_cv");
   databases.push(name);
-  const url = new URL(LOCAL_DATABASE_URL);
-  url.pathname = `/${name}`;
-  return url.toString();
+  owners.push(owner);
+  return dsn;
 }
 
 async function ask<T extends pg.QueryResultRow>(
@@ -154,32 +154,29 @@ afterAll(async () => {
   const failures: unknown[] = [];
   try {
     await Promise.all([...liveRuntimes.keys()].map(closeRuntimes));
-    // Under the case lock, for the reason governance-apply.test.ts gives: a
-    // database drop waits for a checkpoint, slow while other cases run.
-    await withRoleSuiteLock(async () => {
-      await inCleanupPool(databases, async (name) => {
-        try {
-          await admin.query(
-            "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
-            [name],
-          );
-          await admin.query(`drop database if exists ${name}`);
-        } catch (error) {
-          failures.push(error);
-        }
-      });
-      for (const role of createdRoles) {
-        if (role === WEB_ROLE || role === PROVISIONER_ROLE) {
-          throw new Error(`refusing to drop production runtime role ${role}`);
-        }
-        await admin
-          .query(`drop role if exists ${role}`)
-          .catch((error: unknown) => failures.push(error));
+    await inCleanupPool(databases, async (name) => {
+      try {
+        await admin.query(
+          "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
+          [name],
+        );
+        await admin.query(`drop database if exists ${name}`);
+      } catch (error) {
+        failures.push(error);
       }
     });
+    // The owners last: the databases and the runtime roles are gone.
+    for (const role of [...createdRoles, ...owners]) {
+      if (role === WEB_ROLE || role === PROVISIONER_ROLE) {
+        throw new Error(`refusing to drop production runtime role ${role}`);
+      }
+      await admin
+        .query(`drop role if exists ${role}`)
+        .catch((error: unknown) => failures.push(error));
+    }
     const leftovers = await admin.query<{ n: string }>(
       "select count(*)::text as n from pg_roles where rolname = any($1)",
-      [createdRoles],
+      [[...createdRoles, ...owners]],
     );
     expect(leftovers.rows[0]?.n).toBe("0");
     expect(await productionRoleSnapshot()).toEqual(productionRolesBefore);
@@ -189,7 +186,8 @@ afterAll(async () => {
   } finally {
     await admin.end().catch(() => {});
   }
-}, PG_TEST_HOOK_TIMEOUT_MS);
+  // This hook drops one database per case: see PG_DROP_DATABASE_HOOK_TIMEOUT_MS.
+}, PG_DROP_DATABASE_HOOK_TIMEOUT_MS);
 
 /** A schema-ready database governed and deployed as the Hosted VPS is: the
  * catalog carrying exactly the current matrix, both runtime roles able to log
@@ -291,6 +289,38 @@ async function roleState(dsn: string) {
     [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
   );
 }
+
+suite("each case governs an owner of its own", () => {
+  // As in governance-apply.test.ts: the bounds land on the owner cluster-wide,
+  // so the owner must be this case's, not the shared connection user.
+  test(
+    "the owner is a superuser of this case, not the shared connection user",
+    () =>
+      serial(async () => {
+        const dsn = await asDeployed();
+        const [owner] = await ask<{
+          name: string;
+          superuser: boolean;
+          ownsDatabase: boolean;
+          config: string[] | null;
+        }>(
+          dsn,
+          "select r.rolname as name, r.rolsuper as superuser, " +
+            'd.datdba = r.oid as "ownsDatabase", r.rolconfig as config ' +
+            "from pg_roles r, pg_database d " +
+            "where r.rolname = current_user and d.datname = current_database()",
+        );
+        expect(boundsAreExact(owner.config ?? [], GOVERNED_SETTINGS)).toBe(
+          true,
+        );
+        expect(owner.name).not.toBe(new URL(LOCAL_DATABASE_URL).username);
+        expect(owner.superuser).toBe(true);
+        expect(owner.ownsDatabase).toBe(true);
+        await closeRuntimes(dsn);
+      }),
+    60_000,
+  );
+});
 
 suite("converging the matrix on a deployed database", () => {
   test(

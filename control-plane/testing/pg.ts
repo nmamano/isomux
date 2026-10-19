@@ -395,6 +395,14 @@ export async function seedRawSchema(dsn: string, sql: string): Promise<void> {
 // timeout at 5 s so a stuck connection fails fast.
 export const PG_TEST_HOOK_TIMEOUT_MS = 30_000;
 
+// A hook that drops databases. DROP DATABASE waits for an immediate
+// checkpoint, and that checkpoint fsyncs everything the run has written so
+// far, so the wait depends on the other files running at the same time, not
+// on this hook. It ran past 30 s on 2026-10-08 (task e7851de6); measured
+// 2026-10-19 under full-suite load, the first drops waited 21-24 s against
+// 3.3 s for all of them with the engine idle.
+export const PG_DROP_DATABASE_HOOK_TIMEOUT_MS = 4 * PG_TEST_HOOK_TIMEOUT_MS;
+
 /**
  * Close every store this test opened and give its schemas back.
  *

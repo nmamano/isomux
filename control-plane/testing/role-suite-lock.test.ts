@@ -1,6 +1,6 @@
-// The cross-process lock the governance suites hold around each case.
+// The cross-process lock a fixed-name role suite holds around each case.
 //
-// A key of this file's own, so a governance suite running in another process
+// A key of this file's own, so a role suite running in another process
 // neither waits on these cases nor makes them flaky. The lock's behaviour does
 // not depend on which key it is.
 
