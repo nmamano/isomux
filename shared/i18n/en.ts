@@ -2382,9 +2382,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.theme.description": "Change color theme",
   "commands.vim.description": "Toggle vim keybindings",
   "commands.terminalSetup.description": "Configure terminal integration",
-  "commands.reloadPlugins.description": "Reload installed plugins",
+  "commands.reloadPlugins.description": "Reload plugins and config",
   "commands.reloadPlugins.message":
     "To reload plugins, open the built-in terminal (click the terminal icon on the agent's desk), run `claude`, and type `/reload-plugins`.",
+  "commands.reloadPlugins.done": "Plugins and config reload at the next turn.",
+  "commands.reloadPlugins.pending":
+    "Plugins and config reload once no OpenCode turn is running.",
+  "commands.reloadPlugins.failed": "Plugins and config did not reload: {error}",
   "commands.tasks.description": "List/manage background tasks",
   "commands.doctor.description": "Check installation health",
   "commands.feedback.description": "Report bugs to Anthropic",

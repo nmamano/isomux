@@ -104,8 +104,9 @@ export interface OpenCodeLease {
   // The running server has older revisions than the current env, secrets or
   // MCP config, the rule replaceServerIfRequested uses: its replacement
   // waits for this server's turns and held work, so a turn that runs now
-  // uses the previous settings. The server.replace marker, which no Isomux
-  // path writes, is not read here: this getter is sync.
+  // uses the previous settings. False while only a member's reload waits:
+  // the /reload-plugins reply says that wait. The server.replace marker is
+  // not read here: this getter is sync.
   readonly replacementPending: boolean;
   // Ends the hold acquire() takes. Until then, or until beginTurn counts the
   // turn, or release(), a pending replacement does not stop this server.
@@ -155,6 +156,8 @@ export class OpenCodeSupervisor {
   private shutdownPromise: Promise<void> | null = null;
   private record: ServerRecord | null = null;
   private unresponsive: { pid: number; afterPrompt: boolean } | null = null;
+  // A member's reload waits for the replacement, like a stale record.
+  private reloadRequested = false;
   readonly profileDir: string;
   readonly recordPath: string;
   private resolvedBinary: string | undefined;
@@ -275,7 +278,7 @@ export class OpenCodeSupervisor {
           // A start this entry joined, or a turn that ended during it, can
           // leave a stale server that only this entry holds: replace it now.
           if (
-            this.recordStale() &&
+            this.replacementRequested() &&
             (await this.replaceServerIfRequested(1)) === "replaced"
           )
             await this.validateServerForTurn(this.activeTurns > 0);
@@ -357,6 +360,16 @@ export class OpenCodeSupervisor {
       environmentRevision,
     );
     if (configChanged || envChanged) this.replaceOnceIdle();
+  }
+
+  // A member's reload: a new server process, the only way OpenCode 1.18.35
+  // loads an edited plugin again (disposing a folder instance reloads config
+  // only, measured 2026-10-19). "reloaded": the server stopped, and retained
+  // leases have a new one. "pending": the last turn or hold to end replaces it.
+  async requestReload(): Promise<"reloaded" | "pending"> {
+    this.reloadRequested = true;
+    if (this.activeTurns > 0 || this.holds > 0) return "pending";
+    return (await this.replaceIdleServer()) ? "reloaded" : "pending";
   }
 
   shutdown(): Promise<void> {
@@ -547,7 +560,8 @@ export class OpenCodeSupervisor {
   }
 
   // A replacement is requested while the running server has other revisions
-  // than the current ones, or while the marker exists. It never stops a
+  // than the current ones, after a member's reload, or while the marker
+  // exists. It never stops a
   // running turn or held work and never waits for them: meanwhile it stays
   // pending, and new turns and acquires use the current server. The last turn
   // or hold to end replaces it (replaceOnceIdle). ownHolds: the caller's own
@@ -557,7 +571,10 @@ export class OpenCodeSupervisor {
   ): Promise<"none" | "pending" | "replaced"> {
     const marker = join(this.profileDir, "server.replace");
     if (!this.replacementPromise) {
-      if (!this.recordStale() && !(await getAgentHost().fs.exists(marker)))
+      if (
+        !this.replacementRequested() &&
+        !(await getAgentHost().fs.exists(marker))
+      )
         return "none";
     }
     // Another caller can have started the replacement during that await.
@@ -565,6 +582,9 @@ export class OpenCodeSupervisor {
       if (this.activeTurns > 0 || this.holds > ownHolds) return "pending";
       this.replacementPromise = (async () => {
         await this.shutdown();
+        // A reload asked for during the shutdown is met too: the next server
+        // starts after it.
+        this.reloadRequested = false;
         await getAgentHost().fs.rm(marker);
       })().finally(() => {
         this.replacementPromise = null;
@@ -586,6 +606,10 @@ export class OpenCodeSupervisor {
     );
   }
 
+  private replacementRequested(): boolean {
+    return this.recordStale() || this.reloadRequested;
+  }
+
   private hold(): () => void {
     this.holds++;
     let held = true;
@@ -602,14 +626,18 @@ export class OpenCodeSupervisor {
   // at acquire.
   private replaceOnceIdle(): void {
     if (this.activeTurns > 0 || this.holds > 0) return;
-    void (async () => {
-      if ((await this.replaceServerIfRequested()) !== "replaced") return;
-      if (this.leases > 0 && !this.record) await this.ensureServer();
-    })().catch(() => {
+    void this.replaceIdleServer().catch(() => {
       console.error(
         "[opencode] Server replacement after the last turn failed.",
       );
     });
+  }
+
+  // True when the replacement ran.
+  private async replaceIdleServer(): Promise<boolean> {
+    if ((await this.replaceServerIfRequested()) !== "replaced") return false;
+    if (this.leases > 0 && !this.record) await this.ensureServer();
+    return true;
   }
 
   private async readRecord(): Promise<ServerRecord | null> {
@@ -702,6 +730,25 @@ export function updateOpenCodeSupervisorSettings(
       environmentRevision,
       openCodeConfigFor(mcpServers),
     );
+}
+
+// A member's /reload-plugins for the server of this environment key. With no
+// supervisor in this process, no server of this process runs, but one an
+// earlier process left would be adopted with the old plugins: the
+// server.replace marker makes the next acquire stop it instead. No profile
+// folder: nothing ever ran, and none is created.
+export async function reloadOpenCodeServer(
+  environmentKey: string,
+): Promise<"reloaded" | "pending"> {
+  const supervisor = environmentSupervisors.get(supervisorKey(environmentKey));
+  if (supervisor) return supervisor.requestReload();
+  const { profileDir } = openCodeProfilePaths(environmentKey);
+  const host = getAgentHost();
+  if (await host.fs.exists(profileDir))
+    await host.fs.writeText(join(profileDir, "server.replace"), "", {
+      mode: 0o600,
+    });
+  return "reloaded";
 }
 
 export function openCodeSupervisorForEnvironment(

@@ -2437,9 +2437,16 @@ Cosas que puedes hacer por él:
   "commands.vim.description": "Activar o desactivar los atajos de vim",
   "commands.terminalSetup.description":
     "Configurar la integración con el terminal",
-  "commands.reloadPlugins.description": "Recargar los plugins instalados",
+  "commands.reloadPlugins.description":
+    "Recargar los plugins y la configuración",
   "commands.reloadPlugins.message":
     "Para recargar los plugins, abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente), ejecuta `claude` y escribe `/reload-plugins`.",
+  "commands.reloadPlugins.done":
+    "Los plugins y la configuración se recargan en el próximo turno.",
+  "commands.reloadPlugins.pending":
+    "Los plugins y la configuración se recargan cuando no haya ningún turno de OpenCode en curso.",
+  "commands.reloadPlugins.failed":
+    "Los plugins y la configuración no se recargaron: {error}",
   "commands.tasks.description":
     "Listar o gestionar las tareas en segundo plano",
   "commands.doctor.description": "Comprobar el estado de la instalación",

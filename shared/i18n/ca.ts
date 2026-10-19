@@ -2437,9 +2437,15 @@ Coses que pots fer per ell:
   "commands.terminalSetup.description":
     "Configurar la integració amb el terminal",
   "commands.reloadPlugins.description":
-    "Tornar a carregar els plugins instal·lats",
+    "Tornar a carregar els plugins i la configuració",
   "commands.reloadPlugins.message":
     "Per tornar a carregar els plugins, obre el terminal integrat (fes clic a la icona de terminal de l'escriptori de l'agent), executa `claude` i escriu `/reload-plugins`.",
+  "commands.reloadPlugins.done":
+    "Els plugins i la configuració es tornen a carregar al proper torn.",
+  "commands.reloadPlugins.pending":
+    "Els plugins i la configuració es tornen a carregar quan no hi hagi cap torn d'OpenCode en curs.",
+  "commands.reloadPlugins.failed":
+    "Els plugins i la configuració no s'han tornat a carregar: {error}",
   "commands.tasks.description": "Llistar o gestionar les tasques en segon pla",
   "commands.doctor.description": "Comprovar l'estat de la instal·lació",
   "commands.feedback.description": "Informar d'errors a Anthropic",

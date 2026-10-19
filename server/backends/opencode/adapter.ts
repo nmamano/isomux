@@ -45,6 +45,7 @@ import {
   OPENCODE_CRON_AGENT,
   OPENCODE_INTERACTIVE_BYPASS_AGENT,
   openCodeSupervisorForEnvironment,
+  reloadOpenCodeServer,
   updateOpenCodeSupervisorSettings,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
@@ -580,6 +581,10 @@ export function createOpenCodeBackend(
         opts.mcpServers,
       );
     },
+    reloadPlugins: (opts) =>
+      options.supervisor
+        ? options.supervisor.requestReload()
+        : reloadOpenCodeServer(opts.environmentKey),
     async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
       const supervisor = supervisorFor(opts);
       const models = await discoverOpenCodeModels(supervisor, opts.cwd);

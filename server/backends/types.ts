@@ -583,6 +583,13 @@ export interface Backend {
     mcpServers: AgentMcpServer[];
   }): void;
 
+  // Loads the engine's plugins and config again for the shared server of
+  // this environment: "reloaded" when it happened now, "pending" when it
+  // waits for the turns and held work on that server.
+  reloadPlugins?(opts: {
+    environmentKey: string;
+  }): Promise<"reloaded" | "pending">;
+
   // Fetch the auth-appropriate model list from the underlying backend. For
   // Codex this calls `model/list` over the JSON-RPC App Server; for backends
   // without a runtime model API this returns the static getModelOptions()

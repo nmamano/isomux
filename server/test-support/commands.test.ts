@@ -30,6 +30,7 @@ const EXPECTED_AUTORUN = new Set([
   "plan",
   "diff",
   "isomux-diff",
+  "reload-plugins",
 ]);
 
 // Commands that need (or primarily want) an argument, so they must stay

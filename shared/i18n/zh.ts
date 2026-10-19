@@ -2201,9 +2201,13 @@ App 的一些原则：
   "commands.theme.description": "更改颜色主题",
   "commands.vim.description": "切换 vim 快捷键",
   "commands.terminalSetup.description": "配置终端集成",
-  "commands.reloadPlugins.description": "重新加载已安装的插件",
+  "commands.reloadPlugins.description": "重新加载插件和配置",
   "commands.reloadPlugins.message":
     "要重新加载插件，请打开内置终端（点击智能体工位上的终端图标），运行 `claude`，然后输入 `/reload-plugins`。",
+  "commands.reloadPlugins.done": "插件和配置将在下一轮重新加载。",
+  "commands.reloadPlugins.pending":
+    "插件和配置将在没有 OpenCode 轮次运行时重新加载。",
+  "commands.reloadPlugins.failed": "插件和配置未能重新加载：{error}",
   "commands.tasks.description": "列出或管理后台任务",
   "commands.doctor.description": "检查安装状态",
   "commands.feedback.description": "向 Anthropic 报告缺陷",

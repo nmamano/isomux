@@ -124,14 +124,13 @@ export const COMMAND_DESCRIPTION_KEYS = {
 /** Every command name the catalog carries a description for. */
 export type CatalogCommandName = keyof typeof COMMAND_DESCRIPTION_KEYS;
 
-// The six unsupported commands whose refusal is written for them rather than
+// The unsupported commands whose refusal is written for them rather than
 // taken from the type-aware default in unsupportedMessage(). Which commands
 // have one is registry metadata (shared/commands.ts keeps the flag); the prose
 // itself is only ever in the catalog.
 export const COMMAND_MESSAGE_KEYS = {
   compact: "commands.compact.message",
   cost: "commands.cost.message",
-  "reload-plugins": "commands.reloadPlugins.message",
   exit: "commands.exit.message",
   plugin: "commands.plugin.message",
   loop: "commands.loop.message",

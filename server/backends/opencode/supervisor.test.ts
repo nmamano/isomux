@@ -22,9 +22,10 @@ import {
   OpenCodeSupervisor,
   openCodeConfigFor,
   openCodeSupervisorForEnvironment,
+  reloadOpenCodeServer,
   updateOpenCodeSupervisorSettings,
 } from "./supervisor.ts";
-import { openCodeLogPath } from "./profile-paths.ts";
+import { openCodeLogPath, openCodeProfilePaths } from "./profile-paths.ts";
 import { OPENCODE_LOG_ROTATE_BYTES } from "./server-startup.ts";
 import { markPluginSdkInstalled } from "./config-layers.ts";
 import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
@@ -1478,6 +1479,181 @@ describe("OpenCode shared server supervisor", () => {
     expect(await dies(priorPid), "replaced at the last turn's end").toBe(true);
     next.release();
     long.release();
+  }, 20_000);
+
+  // Task a93c05af: a member's /reload-plugins. OpenCode loads an edited plugin
+  // again only in a new server process, so a reload is a replacement, under
+  // the same rule as saved settings: never under a turn or held work.
+  it("reloads an idle server at once, and a retained lease gets the new server", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      {},
+      binary,
+    );
+    const retained = await supervisor.acquire();
+    // An idle transport has settled its acquire: nothing holds the server.
+    retained.settle();
+    const priorPid = retained.pid;
+    const priorKey = retained.serverKey;
+    expect(alive(priorPid)).toBe(true);
+    expect(await launches(launchMarker)).toBe(1);
+
+    expect(await supervisor.requestReload()).toBe("reloaded");
+    // Done when the call returns, not at some later turn.
+    expect(alive(priorPid), "the reload stops the server").toBe(false);
+    expect(retained.pid, "a retained lease follows the reload").not.toBe(
+      priorPid,
+    );
+    expect(alive(retained.pid)).toBe(true);
+    expect(retained.serverKey, "a new process gets a new key").not.toBe(
+      priorKey,
+    );
+    expect(retained.replacementPending).toBe(false);
+    expect(await launches(launchMarker)).toBe(2);
+    // The new server is final: the next turn starts no third one.
+    const next = await supervisor.acquire();
+    await next.beginTurn();
+    expect(next.pid).toBe(retained.pid);
+    next.endTurn();
+    expect(await launches(launchMarker)).toBe(2);
+    next.release();
+    retained.release();
+  }, 20_000);
+
+  it("defers a reload while a turn runs, runs new turns on the current server meanwhile, and replaces it when the last turn ends", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      {},
+      binary,
+    );
+    const long = await supervisor.acquire();
+    await long.beginTurn();
+    const priorPid = long.pid;
+    expect(long.replacementPending).toBe(false);
+
+    expect(await supervisor.requestReload()).toBe("pending");
+    // No "previous settings" notice: the member's settings did not change,
+    // and the /reload-plugins reply already says the reload waits.
+    expect(long.replacementPending).toBe(false);
+    expect(await dies(priorPid, 500), "the running turn keeps its server").toBe(
+      false,
+    );
+    const during = await supervisor.acquire();
+    await during.beginTurn();
+    expect(during.pid, "a turn meanwhile runs on the current server").toBe(
+      priorPid,
+    );
+    expect(during.replacementPending).toBe(false);
+    expect(await launches(launchMarker)).toBe(1);
+
+    during.endTurn();
+    expect(await dies(priorPid, 500), "another turn still runs").toBe(false);
+    long.endTurn();
+    expect(await dies(priorPid), "the last turn's end replaces it").toBe(true);
+    const after = await supervisor.acquire();
+    await after.beginTurn();
+    expect(after.pid).not.toBe(priorPid);
+    after.endTurn();
+    // The reload is done: its turn started no third server.
+    expect(await launches(launchMarker)).toBe(2);
+    after.release();
+    during.release();
+    long.release();
+  }, 20_000);
+
+  it("defers a reload while an acquired lease holds the server, and replaces it when the hold ends", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      {},
+      binary,
+    );
+    // A session start: acquire, then POST /session before its turn counts.
+    const held = await supervisor.acquire();
+    const priorPid = held.pid;
+    expect(await supervisor.requestReload()).toBe("pending");
+    expect(held.replacementPending).toBe(false);
+    expect(await dies(priorPid, 500), "the hold keeps the server").toBe(false);
+    held.settle();
+    expect(await dies(priorPid), "the hold's end replaces it").toBe(true);
+    held.release();
+  }, 20_000);
+
+  // A server another Isomux process left running (a crash) is adopted by
+  // the next supervisor of its profile. A reload with no supervisor in this
+  // process must stop that adoption, or the edited plugin stays stale.
+  it("reloads with no supervisor in this process: the next supervisor of the profile replaces a leftover server instead of adopting it", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const environmentKey = `reload-leftover-${crypto.randomUUID()}`;
+    const leftoverOptions = {
+      profileDir: openCodeProfilePaths(environmentKey).profileDir,
+      serverCwd: path,
+      config: { share: "disabled" },
+      // Longer than the test: the leftover outlives its supervisor's leases.
+      idleShutdownMs: 60_000,
+      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      binary,
+    };
+    const fresh = () => {
+      const supervisor = new OpenCodeSupervisor(leftoverOptions);
+      supervisors.push(supervisor);
+      return supervisor;
+    };
+    const crashed = await fresh().acquire();
+    crashed.settle();
+    crashed.release();
+    const leftoverPid = crashed.pid;
+    // Enabling condition: without a reload, a new supervisor adopts it.
+    const adopting = await fresh().acquire();
+    expect(adopting.pid, "an unchanged leftover is adopted").toBe(leftoverPid);
+    adopting.settle();
+    adopting.release();
+
+    expect(await reloadOpenCodeServer(environmentKey)).toBe("reloaded");
+    const next = await fresh().acquire();
+    expect(next.pid).not.toBe(leftoverPid);
+    expect(alive(leftoverPid), "the leftover is stopped").toBe(false);
+    next.settle();
+    next.release();
+  }, 20_000);
+
+  it("reloads with no supervisor and no profile: nothing runs, and no profile is created", async () => {
+    const environmentKey = `reload-none-${crypto.randomUUID()}`;
+    const { profileDir } = openCodeProfilePaths(environmentKey);
+    expect(existsSync(profileDir)).toBe(false);
+    expect(await reloadOpenCodeServer(environmentKey)).toBe("reloaded");
+    expect(existsSync(profileDir)).toBe(false);
+  });
+
+  // The supervisor this process keeps for the key does the reload, so its
+  // turns, holds and "previous settings" notice apply. A reload that only
+  // left a request for the next supervisor would leave it on disk.
+  it("reloads through the supervisor this process has for the key", async () => {
+    const environmentKey = `reload-existing-${crypto.randomUUID()}`;
+    const supervisor = openCodeSupervisorForEnvironment(
+      environmentKey,
+      {},
+      "rev",
+    );
+    supervisors.push(supervisor);
+    await mkdir(supervisor.profileDir, { recursive: true });
+    expect(await reloadOpenCodeServer(environmentKey)).toBe("reloaded");
+    // The request a supervisor reads at its next acquire (server.replace).
+    expect(existsSync(join(supervisor.profileDir, "server.replace"))).toBe(
+      false,
+    );
   }, 20_000);
 
   it("defers a requested replacement while a turn runs instead of failing", async () => {

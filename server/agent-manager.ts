@@ -6857,6 +6857,14 @@ export function createAgentManager(deps: ManagerDeps) {
     planModeAvailable: (managed) =>
       getBackend(managed.info.agentType).planMode === true,
     setPlanMode,
+    reloadEnginePlugins: async (managed) => {
+      const backend = getBackend(managed.info.agentType);
+      if (!backend.reloadPlugins)
+        throw new Error("This engine has no plugin reload.");
+      return backend.reloadPlugins({
+        environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+      });
+    },
   });
 
   // === Message queue ===

@@ -263,6 +263,11 @@ interface HandlerDeps {
   // later session through ManagedAgent.planMode. Rejects when the engine
   // refuses, leaving the flag as it was.
   setPlanMode: (managed: ManagedAgent, on: boolean) => Promise<void>;
+  // Asks the agent's engine to load its plugins and config again. Throws
+  // when the engine has no reload.
+  reloadEnginePlugins: (
+    managed: ManagedAgent,
+  ) => Promise<"reloaded" | "pending">;
   // Defer-to-queue path for slash commands that arrive while the agent is busy.
   enqueueMessage: (
     agentId: string,
@@ -680,6 +685,60 @@ export function createCommandHandling(deps: HandlerDeps) {
         choices,
       );
       deps.updateState(agentId, "waiting_for_response");
+      return true;
+    },
+
+    // OpenCode loads plugins and config once per server, so a member who
+    // edits one asks for a new server. Claude loads them per session and
+    // keeps its pointer to the Claude CLI.
+    async reloadPlugins(agentId, managed, _args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
+      deps.emitEphemeralLog(
+        agentId,
+        "user_message",
+        rawText,
+        buildMeta(username, device),
+      );
+      const engine = managed.info.agentType;
+      if (engine === "claude") {
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          t("commands.reloadPlugins.message"),
+        );
+        return true;
+      }
+      if (!runsOnEngine(commands["reload-plugins"], engine)) {
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          t("commands.unsupported.engine", {
+            name: "reload-plugins",
+            engines: (commands["reload-plugins"].engines ?? [])
+              .map((e) => ENGINE_NAMES[e])
+              .join(", "),
+          }),
+        );
+        return true;
+      }
+      try {
+        const outcome = await deps.reloadEnginePlugins(managed);
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          t(
+            outcome === "reloaded"
+              ? "commands.reloadPlugins.done"
+              : "commands.reloadPlugins.pending",
+          ),
+        );
+      } catch (err) {
+        deps.emitEphemeralLog(
+          agentId,
+          "error",
+          t("commands.reloadPlugins.failed", { error: errMessage(err) }),
+        );
+      }
       return true;
     },
 

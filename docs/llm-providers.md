@@ -52,4 +52,4 @@ CODEX_HOME=/home/<linux-user>/.isomux-users/<user>/.codex
 OPENCODE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/opencode
 ```
 
-OpenCode agents load user-level plugins and config from `OPENCODE_CONFIG_DIR`, else from `~/.config/opencode` of the OS user that runs the agents. Isomux's own OpenCode settings take precedence. Changes load after Isomux restarts or your variables change on the Integrations page.
+OpenCode agents load user-level plugins and config from `OPENCODE_CONFIG_DIR`, else from `~/.config/opencode` of the OS user that runs the agents. Isomux's own OpenCode settings take precedence. Changes load after you send `/reload-plugins` to an OpenCode agent, after Isomux restarts, or when your variables change on the Integrations page.
