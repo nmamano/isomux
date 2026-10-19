@@ -231,6 +231,23 @@ export const isOfficeOwnerIdentity = (identity: Identity): boolean =>
 export const officeOwner: Guard = ({ identity }) =>
   isOfficeOwnerIdentity(identity) ? ALLOW : FORBIDDEN;
 
+// An office owner's reach, the one answer for every guard that gives it: an
+// owner by session role, or an agent (an app with a live owner agent counts as
+// that agent) or API token whose user is an office owner by the live record,
+// checked on each request and never by Identity.role. Cron identities and
+// ownerless apps never get it through a matching userId.
+export function hasOfficeOwnerReach(
+  identity: Identity,
+  deps: Pick<GuardDeps, "isOfficeOwnerUserId">,
+): boolean {
+  if (isOfficeOwnerIdentity(identity)) return true;
+  return (
+    (actsForAgent(identity) || identity.scope === "api") &&
+    identity.userId !== null &&
+    deps.isOfficeOwnerUserId(identity.userId)
+  );
+}
+
 // Owner-only managed-env reads - the office variables, and the name-only read of
 // another user's - but an API token has its issuing user's reach. Keep this
 // separate from officeOwner: widening officeOwner to API scope would silently
@@ -264,8 +281,7 @@ export function isEnvOwnerIdentity(
 // other deny. Stage 1 (user:create) keeps ordinary agents, runs and apps out.
 export const ownerProxyMemberCreate: Guard = ({ identity, body, deps }) => {
   if (!actsForAgent(identity) && identity.scope !== "api") return FORBIDDEN;
-  if (identity.userId === null || !deps.isOfficeOwnerUserId(identity.userId))
-    return FORBIDDEN;
+  if (!hasOfficeOwnerReach(identity, deps)) return FORBIDDEN;
   if (typeof body !== "object" || body === null) return FORBIDDEN;
   // Member role only. Room grants are allowed: the manager is an office owner,
   // who reaches every room, and the member still has no sign-in until a human
@@ -330,21 +346,6 @@ export const officeEnvReader: Guard = ({ identity }) =>
 // the PRIVILEGED agent set holds integration:manage. They are separate from
 // the env guards above, which also guard the value routes and admit no agent.
 
-// The one owner question of the integration guards: an owner by cookie or by
-// their API token (isEnvOwnerIdentity), or an agent whose manager is an office
-// owner, checked live on each request, never by role.
-export function isIntegrationOwnerIdentity(
-  identity: Identity,
-  isOfficeOwnerUserId: GuardDeps["isOfficeOwnerUserId"],
-): boolean {
-  if (isEnvOwnerIdentity(identity, isOfficeOwnerUserId)) return true;
-  return (
-    actsForAgent(identity) &&
-    identity.userId !== null &&
-    isOfficeOwnerUserId(identity.userId)
-  );
-}
-
 // A human, their API token or their agent, with an owning user.
 function isIntegrationCaller(identity: Identity): boolean {
   return (
@@ -355,13 +356,9 @@ function isIntegrationCaller(identity: Identity): boolean {
   );
 }
 
-// Office changes, and another member's variable names: an owner.
+// Office changes, and another member's variable names: an owner's reach.
 export const integrationOfficeOwner: Guard = ({ identity, deps }) =>
-  isIntegrationOwnerIdentity(identity, (userId) =>
-    deps.isOfficeOwnerUserId(userId),
-  )
-    ? ALLOW
-    : FORBIDDEN;
+  hasOfficeOwnerReach(identity, deps) ? ALLOW : FORBIDDEN;
 
 // A member's items: the member (or their agent), or an owner for any member.
 // The handler resolves :username; an unknown one is its 404.
@@ -380,18 +377,11 @@ export const integrationOfficeReader: Guard = ({ identity }) =>
   isIntegrationCaller(identity) ? ALLOW : FORBIDDEN;
 
 // The office.getSettings and office.setSettings routes (cap office:settings):
-// an owner, the owner's API token, or an agent whose manager is an office
-// owner, checked live on each request (Nil, 2026-10-14). Stage 1 checks the
-// privileged flag: of the agent sets, only PRIVILEGED holds office:settings.
-// Separate from officeOwner, which stays USER-only for the other owner routes.
-export const officeSettingsOwner: Guard = ({ identity, deps }) => {
-  if (isOfficeOwnerIdentity(identity)) return ALLOW;
-  return (actsForAgent(identity) || identity.scope === "api") &&
-    identity.userId !== null &&
-    deps.isOfficeOwnerUserId(identity.userId)
-    ? ALLOW
-    : FORBIDDEN;
-};
+// an owner's reach (Nil, 2026-10-14). Stage 1 checks the privileged flag: of
+// the agent sets, only PRIVILEGED holds office:settings. Separate from
+// officeOwner, which stays USER-only for the other owner routes.
+export const officeSettingsOwner: Guard = ({ identity, deps }) =>
+  hasOfficeOwnerReach(identity, deps) ? ALLOW : FORBIDDEN;
 
 // USER edit/delete: self OR office owner. Both branches are USER-gated (each of
 // officeOwner and selfUser requires scope === "user").
@@ -410,7 +400,7 @@ export const proxyMemberPrompt: Guard = ({ identity, params, deps }) => {
     return FORBIDDEN;
   const target = deps.userIdForUsername(params.username);
   return target !== null &&
-    (target === identity.userId || deps.isOfficeOwnerUserId(identity.userId))
+    (target === identity.userId || hasOfficeOwnerReach(identity, deps))
     ? ALLOW
     : FORBIDDEN;
 };
@@ -536,11 +526,8 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
 // question a caller might want answered, and registration is the only place it
 // gets an answer.
 //
-// An agent or API token whose user is an office owner deliberately gets the
-// same office-wide app control.
-// This is a separate AGENT/API branch (an app with a live owner agent counts as
-// that agent): officeOwner stays USER-only, and cron identities and ownerless
-// apps do not inherit the grant through a matching userId.
+// An office owner's reach (hasOfficeOwnerReach), which includes their agents
+// and API tokens, deliberately gets office-wide app control.
 // Enumeration through apps.list uses a separate visibility seam.
 export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
   return (ctx) => {
@@ -550,14 +537,7 @@ export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
       identity.scope === "api" ||
       (actsForAgent(identity) && identityHasCapability(identity, "app:read"));
     if (!participates) return FORBIDDEN;
-    if (officeOwner(ctx).ok) return ALLOW;
-    if (
-      (actsForAgent(identity) || identity.scope === "api") &&
-      identity.userId !== null &&
-      deps.isOfficeOwnerUserId(identity.userId)
-    ) {
-      return ALLOW;
-    }
+    if (hasOfficeOwnerReach(identity, deps)) return ALLOW;
     const name = params[nameParamName];
     if (!name) return FORBIDDEN;
     const ownerUserId = deps.appOwnerUserId(name);
@@ -587,14 +567,7 @@ export function webhookOwnerOrOfficeOwner(idParamName = "id"): Guard {
     if (!id) return FORBIDDEN;
     const ownerUserId = deps.webhookOwnerUserId(id);
     if (ownerUserId === null) return FORBIDDEN;
-    if (officeOwner(ctx).ok) return ALLOW;
-    if (
-      (actsForAgent(identity) || identity.scope === "api") &&
-      identity.userId !== null &&
-      deps.isOfficeOwnerUserId(identity.userId)
-    ) {
-      return ALLOW;
-    }
+    if (hasOfficeOwnerReach(identity, deps)) return ALLOW;
     return ownerUserId === identity.userId ? ALLOW : FORBIDDEN;
   };
 }
@@ -930,17 +903,10 @@ export function or(...guards: readonly Guard[]): Guard {
   };
 }
 
-// Audit authority is separate from officeOwner so existing owner-only routes
-// do not acquire agent reach. The manager's owner status is checked live.
-export const auditOwner: Guard = ({ identity, deps }) => {
-  if (identity.scope === "user")
-    return identity.role === "owner" ? ALLOW : FORBIDDEN;
-  return (actsForAgent(identity) || identity.scope === "api") &&
-    identity.userId &&
-    deps.isOfficeOwnerUserId(identity.userId)
-    ? ALLOW
-    : FORBIDDEN;
-};
+// Audit authority: an owner's reach. Separate from officeOwner so existing
+// owner-only routes do not acquire agent reach.
+export const auditOwner: Guard = ({ identity, deps }) =>
+  hasOfficeOwnerReach(identity, deps) ? ALLOW : FORBIDDEN;
 
 // Member UI helpers also serve remote API tokens owned by the member.
 export const memberScope: Guard = ({ identity }) =>

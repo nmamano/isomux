@@ -8,10 +8,7 @@
 
 import type { RouteHandler } from "../executor.ts";
 import type { SecretScope } from "../../secret-store.ts";
-import {
-  isIntegrationOwnerIdentity,
-  type GuardDeps,
-} from "../../identity/guards.ts";
+import { hasOfficeOwnerReach, type GuardDeps } from "../../identity/guards.ts";
 
 type Ctx = Parameters<RouteHandler>[0];
 
@@ -33,5 +30,5 @@ export function callerIsIntegrationOwner(
   ctx: Ctx,
   isOfficeOwnerUserId: GuardDeps["isOfficeOwnerUserId"],
 ): boolean {
-  return isIntegrationOwnerIdentity(ctx.identity, isOfficeOwnerUserId);
+  return hasOfficeOwnerReach(ctx.identity, { isOfficeOwnerUserId });
 }

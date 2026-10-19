@@ -50,6 +50,12 @@ import {
   logSearchAccess,
   killedAgentLogAccess,
   taskDelete,
+  integrationOfficeOwner,
+  officeSettingsOwner,
+  auditOwner,
+  webhookOwnerOrOfficeOwner,
+  ownerProxyMemberCreate,
+  proxyMemberPrompt,
   and,
   or,
   type GuardDeps,
@@ -1300,4 +1306,111 @@ describe("guard catalog: an APP identity is denied everywhere", () => {
       expect(requiresRoomAccess(ref)(appCtx)).toEqual(DENY);
     }
   });
+});
+
+// --- office-owner reach ------------------------------------------------------
+// One question, asked by seven guards: is the caller an office owner, or an
+// agent, an app with a live owner agent, or an API token whose user is an
+// office owner right now? A human's answer comes from the session role; every
+// other caller's comes from the live user record, never from Identity.role.
+// The proxy guards (ownerProxyMemberCreate, proxyMemberPrompt) admit the
+// non-human half only: a human owner acts as themself.
+//
+// Every resource below belongs to someone else, so reach alone decides.
+
+describe("office-owner reach: one answer across the guards", () => {
+  const deps = makeDeps({
+    isOfficeOwnerUserId: (userId) => userId === "u-owner",
+    appOwnerUserId: () => "u-other",
+    webhookOwnerUserId: () => "u-other",
+    userIdForUsername: () => "u-other",
+  });
+  const params = { name: "hello", id: "h-1", username: "bob" };
+  const body = { role: "member" };
+
+  const reachGuards = {
+    integrationOfficeOwner,
+    officeSettingsOwner,
+    auditOwner,
+    appOwnerOrOfficeOwner: appOwnerOrOfficeOwner("name"),
+    webhookOwnerOrOfficeOwner: webhookOwnerOrOfficeOwner("id"),
+  };
+  const proxyGuards = { ownerProxyMemberCreate, proxyMemberPrompt };
+
+  const ownerAgent: Identity = {
+    scope: "agent",
+    userId: "u-owner",
+    agentId: "a-owner",
+    role: "member",
+    capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+  };
+  // [caller, reach guards allow, proxy guards allow]
+  const rows: Array<[string, Identity, boolean, boolean]> = [
+    ["an owner", userOwner, true, false],
+    ["a member", userMember, false, false],
+    [
+      "a human whose session says owner while the live record does not",
+      { ...userOwner, userId: "u-demoted" },
+      true,
+      false,
+    ],
+    ["an owner's agent", ownerAgent, true, true],
+    [
+      "a member's agent",
+      { ...ownerAgent, userId: "u-mem", agentId: "a-mem" },
+      false,
+      false,
+    ],
+    [
+      "a member's agent that carries role owner",
+      { ...ownerAgent, userId: "u-mem", agentId: "a-mem", role: "owner" },
+      false,
+      false,
+    ],
+    ["an agent with no user", { ...ownerAgent, userId: null }, false, false],
+    [
+      "an app with an owner's agent as its owner agent",
+      {
+        ...app,
+        ownerAgentId: "a-owner",
+        capabilities: [...APP_CAPABILITIES, ...PRIVILEGED_AGENT_CAPABILITIES],
+      },
+      true,
+      true,
+    ],
+    ["an owner's app with no owner agent", app, false, false],
+    [
+      "a cron run of an owner's job",
+      { ...run, userId: "u-owner" },
+      false,
+      false,
+    ],
+    [
+      "an owner's API token",
+      { ...api, userId: "u-owner", role: "owner" },
+      true,
+      true,
+    ],
+    ["a member's API token", api, false, false],
+    [
+      "a member's API token that carries role owner",
+      { ...api, role: "owner" },
+      false,
+      false,
+    ],
+  ];
+
+  for (const [who, identity, reach, proxy] of rows) {
+    it(`${who}: reach ${reach ? "allows" : "denies"}, proxy ${proxy ? "allows" : "denies"}`, () => {
+      const c = ctx(identity, params, body, deps);
+      const got = Object.fromEntries([
+        ...Object.entries(reachGuards).map(([n, g]) => [n, g(c).ok]),
+        ...Object.entries(proxyGuards).map(([n, g]) => [n, g(c).ok]),
+      ]);
+      expect(got).toEqual({
+        ...Object.fromEntries(Object.keys(reachGuards).map((n) => [n, reach])),
+        ...Object.fromEntries(Object.keys(proxyGuards).map((n) => [n, proxy])),
+      });
+    });
+  }
 });
