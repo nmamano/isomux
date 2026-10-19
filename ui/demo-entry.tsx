@@ -9,6 +9,7 @@ import { setApiShim } from "./api.ts";
 import {
   demoApi,
   handleCommand,
+  seedDemoDeviceDefaults,
   sendInitialState,
   setEmbedMode,
 } from "./demo-server.ts";
@@ -26,6 +27,7 @@ setApiShim(demoApi);
 // Hardcode username so the modal is skipped.
 // Safe: demo runs at isomux.com/demo, real app is self-hosted (different origin).
 localStorage.setItem("isomux-username", "Ricky");
+seedDemoDeviceDefaults();
 
 const isMobile =
   /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test";
 import type {
   BackupStatusWire,
   StorageUsageWire,
@@ -11,11 +11,22 @@ import type {
   LogEntry,
   MembersChatMessage,
 } from "../shared/types.ts";
-import { cronjobRunStreamId } from "../shared/types.ts";
+import type { PresenceInfo, ServerMessage } from "../shared/types.ts";
+import { cronjobRunStreamId, ordinaryRooms } from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
 import { MEMORY_CAPS } from "../shared/memory-caps.ts";
-import { DEMO_ROOM_NAMES, demoApi } from "./demo-server.ts";
+import {
+  DEMO_ROOM_NAMES,
+  demoApi,
+  seedDemoDeviceDefaults,
+  sendInitialState,
+} from "./demo-server.ts";
+import { addRawListener, removeRawListener } from "./ws.ts";
+import {
+  getMembersChatHidden,
+  setMembersChatHidden,
+} from "./device-settings.ts";
 
 function sumBucket(rows: UsageBucketWire[]): UsageBucketWire {
   return rows.reduce(
@@ -427,4 +438,76 @@ it("shows demo task history and restores a deleted task once", async () => {
   expect(
     demoApi("POST", `/api/tasks/${task.id}/restore`, undefined),
   ).rejects.toMatchObject({ status: 409 });
+});
+
+// Task d587f975: Stephen's phone ghost walks the whole office, so a visitor
+// sees it reach Angela in the second room. The lobby is not a room he visits.
+it("cycles Stephen's ghost through every room agent and never the lobby", () => {
+  const seen: ServerMessage[] = [];
+  const listen = (data: string) => seen.push(JSON.parse(data));
+  addRawListener(listen);
+  jest.useFakeTimers();
+  let roomAgents: { id: string; roomId: string }[] = [];
+  try {
+    sendInitialState();
+    const full = seen.find((m) => m.type === "full_state");
+    if (full?.type !== "full_state") throw new Error("no full_state sent");
+    const roomIds = new Set(ordinaryRooms(full.rooms).map((r) => r.id));
+    roomAgents = full.agents.filter((a) => roomIds.has(a.roomId));
+    // The conditions this test needs: agents in more than one room, and an
+    // agent outside every room (the lobby receptionist).
+    expect(new Set(roomAgents.map((a) => a.roomId)).size).toBeGreaterThan(1);
+    expect(full.agents.length).toBeGreaterThan(roomAgents.length);
+    jest.advanceTimersByTime(4000 * roomAgents.length);
+  } finally {
+    jest.useRealTimers();
+    removeRawListener(listen);
+  }
+  const stops: PresenceInfo[] = seen.flatMap((m) =>
+    m.type === "presence_list" ? m.entries : [],
+  );
+  const roomOf = new Map(roomAgents.map((a) => [a.id, a.roomId]));
+  for (const stop of stops)
+    expect(stop.currentRoomId).toBe(roomOf.get(stop.focusedAgentId ?? "")!);
+  expect([...new Set(stops.map((s) => s.focusedAgentId))].sort()).toEqual(
+    roomAgents.map((a) => a.id).sort(),
+  );
+});
+
+describe("demo device defaults", () => {
+  const store = new Map<string, string>();
+  const realLocalStorage = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "localStorage",
+  );
+  beforeEach(() => {
+    store.clear();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, String(v)),
+        removeItem: (k: string) => void store.delete(k),
+      },
+    });
+  });
+  afterEach(() => {
+    if (realLocalStorage)
+      Object.defineProperty(globalThis, "localStorage", realLocalStorage);
+    // @ts-expect-error - removing the stub installed above
+    else delete globalThis.localStorage;
+  });
+
+  // Task d587f975: the demo opens with the lobby members chat minimized.
+  it("minimizes the members chat when this browser has no saved choice", () => {
+    expect(getMembersChatHidden()).toBe(null);
+    seedDemoDeviceDefaults();
+    expect(getMembersChatHidden()).toBe(true);
+  });
+
+  it("keeps a visitor's saved choice to show the members chat", () => {
+    setMembersChatHidden(false);
+    seedDemoDeviceDefaults();
+    expect(getMembersChatHidden()).toBe(false);
+  });
 });

@@ -88,6 +88,7 @@ import {
   cronjobRunStreamId,
   generateCronjobId,
   generateUserId,
+  ordinaryRooms,
 } from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
@@ -99,6 +100,10 @@ import {
   normalizeHexColor,
 } from "../shared/avatar.ts";
 import { shimEmit } from "./ws.ts";
+import {
+  getMembersChatHidden,
+  setMembersChatHidden,
+} from "./device-settings.ts";
 import { demoSecretsRoute } from "./demo-secrets.ts";
 import { demoMcpServerRows, demoMcpServersRoute } from "./demo-mcp-servers.ts";
 import { nextVariableNotes } from "../shared/connection-notes.ts";
@@ -284,6 +289,12 @@ export const DEMO_ROOM_SKINS: ReadonlyArray<RoomSkin | undefined> = [
 
 export function setEmbedMode() {
   embedMode = true;
+}
+
+// The demo opens with the lobby members chat minimized, unless this browser
+// already chose.
+export function seedDemoDeviceDefaults(): void {
+  if (getMembersChatHidden() === null) setMembersChatHidden(true);
 }
 
 // Per-backend defaults for demo agents. A real server takes capabilities from
@@ -673,31 +684,33 @@ function seedOffice() {
 }
 
 // Demo presence: a single ghost for "Stephen (phone)" that cycles
-// through every agent in the office every 6 seconds, advertising a
+// through every agent in the office rooms every 4 seconds, advertising a
 // different focusedAgentId / currentRoomId on each tick. Clients render
 // the ghost SE of whichever desk Stephen's "looking at"; when the
 // cycle lands on an agent in a room the viewer isn't on, the ghost
 // simply doesn't render (matches real-presence behavior) until the
-// viewer switches rooms or the cycle moves on. Re-emitting the entire
-// presence_list on each tick is what the real server does too - the
-// shape is identical, just constructed inline here.
+// viewer switches rooms or the cycle moves on. The lobby receptionist is
+// not a stop. Re-emitting the entire presence_list on each tick is what
+// the real server does too - the shape is identical, just constructed
+// inline here.
 const STEPHEN_PHONE_CONNECTION_ID = "demo-stephen-phone";
 let cycleIndex = 0;
 let cycleTimer: ReturnType<typeof setInterval> | null = null;
 
+// Read live on each tick, so agents spawned or moved since are included.
+function stephenStops(): AgentInfo[] {
+  const { rooms, agents } = state.getState();
+  return ordinaryRooms(rooms).flatMap((room) =>
+    agents.filter((a) => a.roomId === room.id),
+  );
+}
+
 function emitStephenPresence() {
   const stephen = users.get("stephen");
   if (!stephen) return;
-  // Cycle only through agents in the first room. The seed has Angela in
-  // the second room, and the client-side currentRoomId filter would
-  // (correctly) hide the ghost whenever the cycle landed on her, which
-  // reads as a 6-second blank gap in a single-room demo view.
-  const firstRoomId = state.getState().rooms[0]?.id;
-  const agents = state
-    .getState()
-    .agents.filter((a) => a.roomId === firstRoomId);
-  if (agents.length === 0) return;
-  const agent = agents[cycleIndex % agents.length];
+  const stops = stephenStops();
+  if (stops.length === 0) return;
+  const agent = stops[cycleIndex % stops.length];
   const entry: PresenceInfo = {
     connectionId: STEPHEN_PHONE_CONNECTION_ID,
     userId: stephen.id,
@@ -725,10 +738,7 @@ function startStephenGhostCycle() {
   // than 4 seconds later.
   emitStephenPresence();
   cycleTimer = setInterval(() => {
-    const firstRoomId = state.getState().rooms[0]?.id;
-    const total = state
-      .getState()
-      .agents.filter((a) => a.roomId === firstRoomId).length;
+    const total = stephenStops().length;
     if (total === 0) return;
     cycleIndex = (cycleIndex + 1) % total;
     emitStephenPresence();

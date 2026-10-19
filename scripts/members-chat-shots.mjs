@@ -45,6 +45,11 @@ try {
       await context.addInitScript(() => {
         localStorage.setItem("isomux-mobile-view", "list");
       });
+    } else {
+      // The demo opens with the desktop chat minimized; these shots show it.
+      await context.addInitScript(() => {
+        localStorage.setItem("isomux-members-chat-hidden", "false");
+      });
     }
     const page = await context.newPage();
     const errors = [];
