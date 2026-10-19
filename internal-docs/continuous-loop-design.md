@@ -30,7 +30,7 @@ Class:
 
 - `auto`: the loop can do it from start to finish.
 - `decide`: needs Nil's design call, or a choice between drafts. The loop researches it and sends a decision packet. It does not implement before Nil chooses.
-- `authority`: needs an action the loop never does (Stripe, Hosted, customers, secrets, releases, logins).
+- `hold` (label "On hold"): the loop never touches it (Stripe, Hosted, customers, secrets, releases, logins).
 
 The class `taste` is gone: copy and looks merge and are signed off before the push, and a choice between drafts is `decide`.
 
