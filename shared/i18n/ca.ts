@@ -2674,6 +2674,8 @@ Coses que pots fer per ell:
     "El backend de l'agent s'ha terminat amb SIGTERM (codi de sortida {code}). La causa més probable és la protecció contra manca de memòria d'aquesta màquina. La conversa està desada i es pot reprendre.",
   "systemEntries.backendFailure.sigkill":
     "El backend de l'agent s'ha matat amb SIGKILL (codi de sortida {code}). La causa més probable és la protecció contra manca de memòria d'aquesta màquina. La conversa està desada i es pot reprendre.",
+  "systemEntries.backendFailure.serverStopped":
+    "El backend de l'agent s'ha aturat perquè el servidor d'Isomux s'estava aturant o reiniciant (codi de sortida {code}). La conversa està desada i es pot reprendre.",
   "systemEntries.backendFailure.signal":
     "El backend de l'agent s'ha aturat amb el senyal {signal} (codi de sortida {code}). La conversa està desada i es pot reprendre.",
   "systemEntries.backendFailure.providerCapacity":

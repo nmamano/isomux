@@ -38,6 +38,7 @@
 // would have widened the suppression the sentence comparison used to draw.
 
 import type { Translator } from "../shared/i18n/translate.ts";
+import { serverStopping } from "./server-stop.ts";
 
 // A process killed by signal N exits with code 128+N (POSIX shell convention,
 // which is what the SDK reports). 192 is the top of the useful range - beyond it
@@ -45,8 +46,9 @@ import type { Translator } from "../shared/i18n/translate.ts";
 const SIGNAL_EXIT_MIN = 129;
 const SIGNAL_EXIT_MAX = 192;
 
-// The two we can name a likely cause for. Both are what the box's OOM killer
-// (earlyoom here) uses: SIGTERM first, SIGKILL if the process ignores it.
+// The two we can name a likely cause for when the office is not stopping. Both
+// are what the box's OOM killer (earlyoom here) uses: SIGTERM first, SIGKILL if
+// the process ignores it.
 const SIGTERM_EXIT = 143;
 const SIGKILL_EXIT = 137;
 
@@ -61,6 +63,7 @@ export type BackendFailureId =
   | `sigterm:${number}`
   | `sigkill:${number}`
   | `signal:${number}`
+  | `server-stopped:${number}`
   | "stopped-during-turn"
   | "provider-capacity"
   | "unclassified";
@@ -105,6 +108,17 @@ export function humanizeBackendFailure(
   const exitMatch = EXIT_CODE_RE.exec(raw);
   if (exitMatch) {
     const code = Number(exitMatch[1]);
+    const signalExit = code >= SIGNAL_EXIT_MIN && code <= SIGNAL_EXIT_MAX;
+    // A stopping office takes its backends down with it: systemd signals the
+    // whole control group, and the server sees the exits while its stop hooks
+    // run (server-stop.ts). Name the stop, not out-of-memory protection.
+    if (signalExit && serverStopping()) {
+      return {
+        text: t("systemEntries.backendFailure.serverStopped", { code }),
+        raw,
+        id: `server-stopped:${code}`,
+      };
+    }
     if (code === SIGTERM_EXIT) {
       return {
         text: t("systemEntries.backendFailure.sigterm", { code: SIGTERM_EXIT }),
@@ -119,7 +133,7 @@ export function humanizeBackendFailure(
         id: `sigkill:${SIGKILL_EXIT}`,
       };
     }
-    if (code >= SIGNAL_EXIT_MIN && code <= SIGNAL_EXIT_MAX) {
+    if (signalExit) {
       return {
         text: t("systemEntries.backendFailure.signal", {
           signal: code - 128,

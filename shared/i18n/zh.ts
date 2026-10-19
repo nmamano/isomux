@@ -2413,6 +2413,8 @@ App 的一些原则：
     "智能体后端被 SIGTERM 终止（退出码 {code}）。可能是此机器的内存不足保护所致。对话已保存，可以继续。",
   "systemEntries.backendFailure.sigkill":
     "智能体后端被 SIGKILL 终止（退出码 {code}）。可能是此机器的内存不足保护所致。对话已保存，可以继续。",
+  "systemEntries.backendFailure.serverStopped":
+    "智能体后端已停止，因为 Isomux 服务器正在关闭或重启（退出码 {code}）。对话已保存，可以继续。",
   "systemEntries.backendFailure.signal":
     "智能体后端被信号 {signal} 停止（退出码 {code}）。对话已保存，可以继续。",
   "systemEntries.backendFailure.providerCapacity":

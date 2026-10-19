@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { getAgentHost } from "../../agent-host.ts";
 import { ADMIN_SOCKET_PATH, STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
+import { runAtServerStop } from "../../server-stop.ts";
 import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
 import { OPENCODE_SAFETY_TOOL } from "./safety-plugin-tool.ts";
@@ -701,21 +702,12 @@ export function openCodeSupervisorForEnvironment(
   return supervisor;
 }
 
-let shuttingDown = false;
-function reapAtSignal(signal: "SIGINT" | "SIGTERM"): void {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  void Promise.all([
+// Reap the OpenCode servers before the office process exits.
+runAtServerStop(() =>
+  Promise.all([
     openCodeSupervisor.shutdown(),
     ...[...environmentSupervisors.values()].map((supervisor) =>
       supervisor.shutdown(),
     ),
-  ]).finally(() => {
-    process.off(signal, signal === "SIGINT" ? onSigint : onSigterm);
-    process.kill(process.pid, signal);
-  });
-}
-const onSigint = () => reapAtSignal("SIGINT");
-const onSigterm = () => reapAtSignal("SIGTERM");
-process.once("SIGINT", onSigint);
-process.once("SIGTERM", onSigterm);
+  ]),
+);

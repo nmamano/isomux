@@ -2651,6 +2651,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The agent backend was terminated by SIGTERM (exit code {code}). The likely cause is the out-of-memory protection on this machine. The conversation is saved and can be resumed.",
   "systemEntries.backendFailure.sigkill":
     "The agent backend was killed by SIGKILL (exit code {code}). The likely cause is the out-of-memory protection on this machine. The conversation is saved and can be resumed.",
+  "systemEntries.backendFailure.serverStopped":
+    "The agent backend stopped because the Isomux server was shutting down or restarting (exit code {code}). The conversation is saved and can be resumed.",
   "systemEntries.backendFailure.signal":
     "The agent backend was stopped by signal {signal} (exit code {code}). The conversation is saved and can be resumed.",
   "systemEntries.backendFailure.providerCapacity":

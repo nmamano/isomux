@@ -2676,6 +2676,8 @@ Cosas que puedes hacer por él:
     "El backend del agente se terminó con SIGTERM (código de salida {code}). La causa más probable es la protección contra falta de memoria de esta máquina. La conversación está guardada y se puede retomar.",
   "systemEntries.backendFailure.sigkill":
     "El backend del agente se mató con SIGKILL (código de salida {code}). La causa más probable es la protección contra falta de memoria de esta máquina. La conversación está guardada y se puede retomar.",
+  "systemEntries.backendFailure.serverStopped":
+    "El backend del agente se detuvo porque el servidor de Isomux se estaba apagando o reiniciando (código de salida {code}). La conversación está guardada y se puede retomar.",
   "systemEntries.backendFailure.signal":
     "El backend del agente se detuvo con la señal {signal} (código de salida {code}). La conversación está guardada y se puede retomar.",
   "systemEntries.backendFailure.providerCapacity":
