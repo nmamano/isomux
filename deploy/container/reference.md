@@ -66,7 +66,10 @@ a session. The probe accepts those two codes. A passing probe checks the HTTP
 listener, not provider or app readiness. Do not use `/health` after setup.
 
 The supervisor preserves running and stopped app intent. Office restart keeps
-apps running; container replacement interrupts all processes. Office and app
+apps running; container replacement interrupts all processes. The office
+restarts 2 seconds after it exits; the delay doubles with each exit up to 60
+seconds and resets after a 60-second run. Each office exit and each supervision failure writes
+one line to container stderr. Office and app
 logs and worker diagnostics are private files under
 `/var/data/home/.isomux/container-runtime`. `docker logs` carries the office
 output and container supervisor diagnostics; app output stays in the files.

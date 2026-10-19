@@ -38,7 +38,7 @@ export function createContainerAppSupervisor(
         "supervisor_failed",
         "Container supervisor is unavailable",
       );
-    let result: { ok: boolean; value?: T; error?: string };
+    let result: { ok: boolean; value?: T; error?: string; fatal?: boolean };
     try {
       result = JSON.parse(reply.stdout) as typeof result;
     } catch {
@@ -47,6 +47,12 @@ export function createContainerAppSupervisor(
         "Invalid supervisor response",
       );
     }
+    // A fatal reply is fixed supervisor text; the container stops after it.
+    if (!result.ok && result.fatal)
+      throw new AppSupervisorError(
+        "supervisor_failed",
+        `Container supervisor stopped: ${result.error}`,
+      );
     if (!result.ok)
       throw new AppSupervisorError(
         "supervisor_failed",

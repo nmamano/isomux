@@ -20,6 +20,12 @@ and WebSockets passed. The reboot and snapshot-restore results above apply to
 Actual provider completion was blocked by Bedrock billing. ALB, Fargate, and
 missing-volume startup refusal on real AWS were not verified.
 
+On 2026-10-19, `deploy/container/check.sh` passed on revision `54036c6c`
+(container supervisor hardening, task 61256a1e) with Docker 29.1.3 on Linux
+amd64: `smoke.py`, including office restart and app deletion, and
+`compose-check.py`. The Render service check was not run; it needs Nil's
+Render account.
+
 Run the local image check with `python3 deploy/container/smoke.py IMAGE`. It
 creates isolated containers and a temporary volume, disables networking, and
 checks setup, native executables, PTY, browser rendering, app HTTP/WebSockets,

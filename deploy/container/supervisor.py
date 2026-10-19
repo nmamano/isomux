@@ -27,13 +27,26 @@ LOG_BYTES = 2 * 1024 * 1024
 RESTART_DELAY = 2
 START_LIMIT = 5
 START_WINDOW = 60
+# Seconds an app monitor has to start its app before it gets one SIGTERM.
+READY_TIMEOUT = 30
+# Office restart delay: doubles per exit up to the maximum, and returns to the
+# start value after a run of at least OFFICE_STABLE_RUN seconds.
+OFFICE_BACKOFF_START = 2
+OFFICE_BACKOFF_MAX = 60
+OFFICE_STABLE_RUN = 60
+# Office output read per loop turn, so that the control socket is still served.
+OFFICE_DRAIN_BYTES = 1024 * 1024
+STOP_SIGNALS = {signal.SIGTERM, signal.SIGINT}
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
+
+
+class SupervisionFatal(Exception):
+    """Stops the container. Messages are fixed text, never app data."""
 
 
 def write_json(path, value):
     tmp = path.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf8") as out:
-        os.chmod(tmp, 0o600)
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf8") as out:
         json.dump(value, out)
         out.flush()
         os.fsync(out.fileno())
@@ -45,9 +58,13 @@ def write_json(path, value):
         os.close(fd)
 
 
+def open_log(path):
+    return open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), "ab", buffering=0)
+
+
 def prctl(option, value):
     if ctypes.CDLL(None, use_errno=True).prctl(option, value, 0, 0, 0) != 0:
-        raise RuntimeError("Required Linux process supervision is unavailable")
+        raise SupervisionFatal("Required Linux process supervision is unavailable")
 
 
 def descendants():
@@ -100,6 +117,11 @@ def worker(root, name):
     prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
     if os.getppid() != parent:
         return 1
+    # The supervisor starts this process with the stop signals blocked, so a
+    # stop sent before the handlers existed is pending and arrives here. The
+    # handler only sets a flag: a blocking call after this point is retried
+    # after the signal (PEP 475), so a stop does not interrupt it.
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, STOP_SIGNALS)
     definition = json.loads((root / "definitions.json").read_text())[name]["definition"]
     env = dict(definition["env"])
     # Deliberately narrow inheritance. Deployment credentials and supervisor setup
@@ -108,6 +130,10 @@ def worker(root, name):
     token_path = root / f"{name}.token.json"
     if token_path.exists():
         env["ISOMUX_APP_TOKEN"] = json.loads(token_path.read_text())
+    if stopping:
+        # Stopped before the app started: nothing to clean up.
+        write_json(root / f"{name}.exit.json", {"code": 1})
+        return 0
     try:
         child = subprocess.Popen(["/bin/sh", "-c", definition["command"]],
                                  cwd=definition["cwd"], env=env, stdin=subprocess.DEVNULL,
@@ -119,8 +145,7 @@ def worker(root, name):
     write_json(root / f"{name}.ready.json", {"ready": True})
     os.set_blocking(child.stdout.fileno(), False)
     log_path = root / f"{name}.log"
-    log = open(log_path, "ab", buffering=0)
-    os.chmod(log_path, 0o600)
+    log = open_log(log_path)
     failed = False
     cleanup_at = None
     exit_code = None
@@ -131,8 +156,7 @@ def worker(root, name):
                 if log.tell() + len(chunk) > LOG_BYTES:
                     log.close()
                     os.replace(log_path, root / f"{name}.log.1")
-                    log = open(log_path, "ab", buffering=0)
-                    os.chmod(log_path, 0o600)
+                    log = open_log(log_path)
                 log.write(chunk)
             if exit_code is None:
                 exit_code = child.poll()
@@ -173,8 +197,10 @@ class Supervisor:
         self.file = root / "definitions.json"
         self.records = json.loads(self.file.read_text()) if self.file.exists() else {}
         if not isinstance(self.records, dict):
-            raise RuntimeError("Invalid supervisor state")
+            raise SupervisionFatal("Invalid supervisor state")
         self.live = {}
+        # name -> [launch time, readiness SIGTERM sent]
+        self.launched = {}
         self.runtime = {}
         self.attempts = {}
         self.next_start = {}
@@ -183,9 +209,9 @@ class Supervisor:
             self.name(name)
             self.validate_definition(record["definition"])
             if record["definition"]["name"] != name:
-                raise RuntimeError("Invalid app identity")
+                raise SupervisionFatal("Invalid app identity")
             if type(record["wanted"]) is not bool:
-                raise RuntimeError("Invalid start intent")
+                raise SupervisionFatal("Invalid start intent")
             self.runtime[name] = {"state": "stopped", "restartCount": 0}
             if record["wanted"]:
                 self.launch(name)
@@ -222,35 +248,44 @@ class Supervisor:
         starts.append(now)
         self.attempts[name] = starts
         (self.root / f"{name}.exit.json").unlink(missing_ok=True)
-        ready = self.root / f"{name}.ready.json"
-        ready.unlink(missing_ok=True)
-        # Worker exceptions go to a private local diagnostic file, never container logs.
-        with open(self.root / f"{name}.worker.log", "wb") as log:
-            proc = subprocess.Popen([sys.executable, __file__, "worker", str(self.root), name],
-                                    stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+        (self.root / f"{name}.ready.json").unlink(missing_ok=True)
+        # The worker inherits blocked stop signals and unblocks them after it
+        # installs its cleanup handler, so it can be signalled at any time.
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
+        try:
+            # Worker exceptions go to a private local diagnostic file, never container logs.
+            with open(self.root / f"{name}.worker.log", "wb") as log:
+                proc = subprocess.Popen([sys.executable, __file__, "worker", str(self.root), name],
+                                        stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
         self.live[name] = proc
+        self.launched[name] = [now, False]
         self.runtime.setdefault(name, {"restartCount": 0})["state"] = "starting"
         self.next_start.pop(name, None)
-        # Stop/restart cannot signal a worker before it installs its cleanup
-        # handler. A receipt from a failed spawn also completes this handshake.
-        deadline = time.monotonic() + 3
-        while not ready.exists() and proc.poll() is None:
-            if time.monotonic() > deadline:
-                raise RuntimeError("App monitor did not become ready")
-            time.sleep(0.01)
-        if ready.exists():
-            self.runtime[name]["state"] = "running"
 
     def tick(self):
         for name, proc in list(self.live.items()):
             if proc.poll() is None:
+                launched = self.launched[name]
+                if self.runtime[name]["state"] != "starting":
+                    continue
+                if (self.root / f"{name}.ready.json").exists():
+                    self.runtime[name]["state"] = "running"
+                elif not launched[1] and time.monotonic() - launched[0] > READY_TIMEOUT:
+                    # One SIGTERM, never SIGKILL: a killed monitor writes no
+                    # receipt, which would stop the container. The exit receipt
+                    # takes the crash path, so a wanted app retries.
+                    proc.terminate()
+                    launched[1] = True
                 continue
+            del self.live[name]
+            del self.launched[name]
             receipt = self.root / f"{name}.exit.json"
             if proc.returncode != 0 or not receipt.exists():
                 # An unproven cleanup is fatal to the container, never "stopped".
-                raise RuntimeError("App monitor exited without proving cleanup")
+                raise SupervisionFatal("App monitor exited without proving cleanup")
             code = json.loads(receipt.read_text())["code"]
-            del self.live[name]
             self.runtime[name]["state"] = "failed" if code else "stopped"
             if code and self.records[name]["wanted"]:
                 self.runtime[name]["restartCount"] += 1
@@ -268,7 +303,7 @@ class Supervisor:
             deadline = time.monotonic() + 12
             while proc.poll() is None:
                 if time.monotonic() > deadline:
-                    raise RuntimeError("App cleanup did not finish; name and port remain reserved")
+                    raise SupervisionFatal("App cleanup did not finish; name and port remain reserved")
                 time.sleep(0.02)
             # tick validates the cleanup receipt. Temporarily suppress auto restart.
             wanted = self.records[name]["wanted"]
@@ -375,9 +410,16 @@ class Supervisor:
         raise ValueError("Unknown operation")
 
 
-def receive(connection):
+def receive(connection, timeout=2):
+    # One deadline for the whole request: a client that sends slowly cannot
+    # hold the supervisor loop longer than this.
+    deadline = time.monotonic() + timeout
     data = bytearray()
     while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Request timed out")
+        connection.settimeout(remaining)
         chunk = connection.recv(min(65536, MAX_FRAME + 1 - len(data)))
         if not chunk:
             break
@@ -409,6 +451,10 @@ def serve(root, office_command):
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     office = None
+    office_eof = False
+    office_started = 0
+    office_delay = 0
+    office_at = 0
     office_log = open(root / "office.log", "ab") if office_command else None
     if office_command:
         # A slow log reader must never stall supervision.
@@ -416,44 +462,81 @@ def serve(root, office_command):
             os.set_blocking(sys.stdout.fileno(), False)
         except OSError:
             pass
-    office_at = 0
+
+    def drain():
+        """Copy waiting office output; return True at end of file."""
+        nonlocal office_log
+        total = 0
+        while total < OFFICE_DRAIN_BYTES:
+            try:
+                chunk = os.read(office.stdout.fileno(), 65536)
+            except BlockingIOError:
+                return False
+            if not chunk:
+                return True
+            total += len(chunk)
+            if office_log.tell() + len(chunk) > LOG_BYTES:
+                office_log.close()
+                os.replace(root / "office.log", root / "office.log.1")
+                office_log = open(root / "office.log", "ab")
+            office_log.write(chunk)
+            office_log.flush()
+            # Cluster log pipelines read the container stdout; app
+            # output stays in private files. Bytes that a full stdout
+            # cannot take are dropped there, never from office.log.
+            try:
+                os.write(sys.stdout.fileno(), chunk)
+            except OSError:
+                pass
+        return False
+
     try:
         while not stopping:
             supervisor.tick()
-            if office_command and (office is None or office.poll() is not None) and time.monotonic() >= office_at:
-                if office is not None:
-                    office.stdout.close()
+            if office is not None and office.poll() is not None:
+                drain()
+                office.stdout.close()
+                ran = time.monotonic() - office_started
+                if office_delay == 0 or ran >= OFFICE_STABLE_RUN:
+                    office_delay = OFFICE_BACKOFF_START
+                else:
+                    office_delay = min(office_delay * 2, OFFICE_BACKOFF_MAX)
+                office_at = time.monotonic() + office_delay
+                code = office.returncode
+                status = f"signal {-code}" if code < 0 else f"status {code}"
+                sys.stderr.write(f"Office exited with {status}; restarting in {office_delay:g} s\n")
+                sys.stderr.flush()
+                office = None
+            if office_command and office is None and time.monotonic() >= office_at:
                 office = subprocess.Popen(office_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                 os.set_blocking(office.stdout.fileno(), False)
-                office_at = time.monotonic() + 2
-            if office is not None:
-                chunk = office.stdout.read(65536)
-                if chunk:
-                    if office_log.tell() + len(chunk) > LOG_BYTES:
-                        office_log.close()
-                        os.replace(root / "office.log", root / "office.log.1")
-                        office_log = open(root / "office.log", "ab")
-                    office_log.write(chunk)
-                    office_log.flush()
-                    # Cluster log pipelines read the container stdout; app
-                    # output stays in private files. Bytes that a full stdout
-                    # cannot take are dropped there, never from office.log.
-                    try:
-                        os.write(sys.stdout.fileno(), chunk)
-                    except OSError:
-                        pass
-            if not select.select([server], [], [], 0.05)[0]:
+                office_started = time.monotonic()
+                office_eof = False
+            readable = [server]
+            if office is not None and not office_eof:
+                readable.append(office.stdout)
+            ready = select.select(readable, [], [], 0.05)[0]
+            if office is not None and office.stdout in ready:
+                office_eof = drain()
+            if server not in ready:
                 continue
             connection, _ = server.accept()
             with connection:
-                connection.settimeout(2)
                 try:
                     request = receive(connection)
                     response = {"ok": True, "value": supervisor.call(request)}
+                except SupervisionFatal as error:
+                    # Tell the caller why before the container stops.
+                    try:
+                        connection.settimeout(2)
+                        connection.sendall(json.dumps({"ok": False, "fatal": True, "error": str(error)}).encode())
+                    except OSError:
+                        pass
+                    raise
                 except (ValueError, KeyError, TypeError, OSError):
                     response = {"ok": False, "error": "Invalid request or supervisor storage failure"}
-                # RuntimeError is fatal: process cleanup was not proved.
                 try:
+                    connection.settimeout(2)
                     connection.sendall(json.dumps(response).encode())
                 except (BrokenPipeError, TimeoutError):
                     pass
@@ -475,13 +558,13 @@ def serve(root, office_command):
             office_log.close()
 
 
-def main():
+def run(argv):
     os.umask(0o077)
-    mode = sys.argv[1]
+    mode = argv[1]
     if mode == "client":
         with socket.socket(socket.AF_UNIX) as connection:
             connection.settimeout(18)
-            connection.connect(sys.argv[2])
+            connection.connect(argv[2])
             data = sys.stdin.buffer.read(MAX_FRAME + 1)
             if len(data) > MAX_FRAME:
                 return 1
@@ -493,18 +576,26 @@ def main():
             sys.stdout.buffer.write(b"".join(parts))
         return 0
     if mode == "worker":
-        return worker(Path(sys.argv[2]), sys.argv[3])
+        return worker(Path(argv[2]), argv[3])
     if mode == "serve":
-        serve(Path(sys.argv[2]), sys.argv[3:])
+        serve(Path(argv[2]), argv[3:])
         return 0
     return 1
 
 
-if __name__ == "__main__":
+def main():
     try:
-        sys.exit(main())
+        return run(sys.argv)
+    except SupervisionFatal as error:
+        # Fixed text: names the reason and carries no app data.
+        sys.stderr.write(f"Container supervision failed: {error}\n")
+        return 1
     except Exception:
         # Detailed exceptions can contain app-authored data. Keep them out of
         # container stdout/stderr; a failed control operation is visible via RPC.
         sys.stderr.write("Container supervision failed\n")
-        sys.exit(1)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
