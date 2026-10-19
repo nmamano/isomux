@@ -1,40 +1,33 @@
-// Changing the matrix on a database that is ALREADY governed, and getting back.
-//
-// This is not the same operation as putting the posture on for the first time,
-// and the difference is the whole reason the path exists. Production has
-// carried the governed owner pair and both runtime roles since G2, so
-// `govern`'s before-state - an owner carrying NOTHING - cannot truthfully hold
-// there; and `ungovern` drops both roles, which is an outage lever rather than
-// the reverse of one incremental grant change.
+// Converging the runtime grants of a database that is ALREADY governed and
+// deployed: what every Hosted redeploy does (`cli.ts regovern`, run by
+// deploy.sh after the owner migrations).
 //
 // The properties, each staged against a real engine:
 //
-//   - forward moves the catalog to EXACTLY the current matrix, and the verbs
-//     the audit removed are gone rather than merely unused;
-//   - reverse restores EXACTLY the old matrix, in one transaction;
-//   - a round trip leaves the catalog byte for byte where it started;
-//   - every precondition refuses BEFORE anything is written - the before-matrix
-//     inexact, the owner's configuration not already ours, a runtime identity
-//     with a membership or ownership edge, a budget that has drifted.
+//   - a catalog that already carries the matrix is not written at all;
+//   - a catalog that lacks part of the matrix, or holds more than it, ends at
+//     EXACTLY the matrix, with live sessions of LOGIN roles connected, and the
+//     result names every privilege that was granted and revoked;
+//   - every structural precondition refuses BEFORE anything is written - the
+//     owner's configuration not already ours, a runtime identity with a
+//     membership or ownership edge, a budget or bound that has drifted, PUBLIC
+//     holding privileges, CREATE on the schema, a sequence privilege.
 //
 // LOCAL ENGINE ONLY, like the other role suites: these create and drop
 // cluster-wide roles.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import pg from "pg";
-import { applyGovernance, reapplyIsExact, reapplyMatrix } from "./bootstrap.ts";
 import {
-  PROVISIONER_GRANTS,
+  applyGovernance,
+  convergeMatrix,
+  convergeIsExact,
+} from "./bootstrap.ts";
+import {
   PROVISIONER_ROLE,
-  PRIOR_PROVISIONER_GRANTS,
-  PRIOR_WEB_GRANTS,
-  WEB_GRANTS,
   WEB_ROLE,
-  grantMatrixStatements,
   grantKeys,
-  judgeMatrix,
   matrixSql,
-  priorRuntimeRoles,
   residueIsInert,
   roleIdentitySql,
   runtimeRoles,
@@ -58,7 +51,7 @@ const suite = TARGET_IS_LOCAL ? describe : describe.skip;
  * every process on the box. A suite that governs the literal `cp_web` collides
  * with any other process doing the same, which `serial` cannot see. So every
  * role here, runtime pair and auxiliaries alike, is a fresh name owned by this
- * process and recorded, and cleanup proves each one gone. The rosters keep the
+ * process and recorded, and cleanup proves each one gone. The roster keeps the
  * production budgets and grants; only the names differ.
  */
 const createdRoles: string[] = [];
@@ -77,10 +70,8 @@ function renamed(
 
 let TEST_WEB_ROLE = "";
 let TEST_PROVISIONER_ROLE = "";
-/** The current matrix and the one production held on 2026-08-21. */
+/** The current matrix, under this case's role names. */
 let TEST_CURRENT: readonly RolePosture[] = [];
-let TEST_PRIOR: readonly RolePosture[] = [];
-const testRosters = () => ({ prior: TEST_PRIOR, current: TEST_CURRENT });
 
 /** Every case that touches a role runs alone, under names of its own. The
  * owner role is still shared, so `withRoleSuiteLock` keeps it alone across
@@ -92,7 +83,6 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
       const names = [uniqueRole("cp_rw"), uniqueRole("cp_rp")];
       [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE] = names;
       TEST_CURRENT = renamed(runtimeRoles(), names);
-      TEST_PRIOR = renamed(priorRuntimeRoles(), names);
       return fn();
     });
   const next = queue.then(run, run);
@@ -124,7 +114,7 @@ beforeAll(async () => {
 });
 
 async function scratchDatabase(): Promise<string> {
-  const name = `cp_re_${Math.random().toString(36).slice(2, 10)}`;
+  const name = `cp_cv_${Math.random().toString(36).slice(2, 10)}`;
   await admin.query(`create database ${name}`);
   databases.push(name);
   const url = new URL(LOCAL_DATABASE_URL);
@@ -144,10 +134,6 @@ async function ask<T extends pg.QueryResultRow>(
   } finally {
     await pool.end().catch(() => {});
   }
-}
-
-async function run(dsn: string, statements: readonly string[]): Promise<void> {
-  for (const statement of statements) await ask(dsn, statement);
 }
 
 async function closeRuntimes(dsn: string): Promise<void> {
@@ -205,13 +191,13 @@ afterAll(async () => {
   }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
-/** A schema-ready database governed exactly as PRODUCTION is today: the roles
- * in place and the catalog carrying the PRIOR matrix. */
-async function asProductionIsToday(): Promise<string> {
+/** A schema-ready database governed and deployed as the Hosted VPS is: the
+ * catalog carrying exactly the current matrix, both runtime roles able to log
+ * in, and a live session open as each. */
+async function asDeployed(): Promise<string> {
   const dsn = await scratchDatabase();
   await (await Store.open(dsn)).close();
   await applyGovernance(dsn, TEST_CURRENT);
-  await run(dsn, grantMatrixStatements(TEST_PRIOR));
   const password = crypto.randomUUID().replace(/-/g, "");
   for (const role of [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]) {
     await ask(dsn, `alter role ${role} login password '${password}'`);
@@ -231,68 +217,24 @@ async function asProductionIsToday(): Promise<string> {
   return dsn;
 }
 
-async function runtimeSelects(
-  dsn: string,
-  role: string,
-  table: "stripe_events" | "reinstatement_attempts",
-  allowed: boolean,
-): Promise<void> {
+/** Whether the live session of `role` may run `sql`. Every probe matches no
+ * row, so nothing moves either way: the privilege check fires before the row
+ * count matters. A refusal must be 42501 and nothing else. */
+async function liveMay(dsn: string, role: string, sql: string) {
   const live = liveRuntimes.get(dsn)?.get(role);
-  if (!live) throw new Error(`the production fixture has no live ${role}`);
-  const result = await live.query(`select 1 from ${table} limit 1`).then(
+  if (!live) throw new Error(`the deployed fixture has no live ${role}`);
+  const result = await live.query(sql).then(
     () => ({ allowed: true, code: "" }),
     (error: { code?: string }) => ({ allowed: false, code: error.code ?? "" }),
   );
-  expect(result.allowed).toBe(allowed);
-  if (!allowed) expect(result.code).toBe("42501");
+  if (!result.allowed) expect(result.code).toBe("42501");
+  return result.allowed;
 }
-
-async function provisionerInsertsStripeEvent(
-  dsn: string,
-  allowed: boolean,
-): Promise<void> {
-  const live = liveRuntimes.get(dsn)?.get(TEST_PROVISIONER_ROLE);
-  if (!live) throw new Error("the production fixture has no live provisioner");
-  const result = await live
-    .query(
-      "insert into stripe_events " +
-        "(id, type, created, received_at, outcome) values ($1, $2, $3, $4, $5)",
-      [crypto.randomUUID(), "test.event", 1, 1, "accepted"],
-    )
-    .then(
-      () => ({ allowed: true, code: "" }),
-      (error: { code?: string }) => ({
-        allowed: false,
-        code: error.code ?? "",
-      }),
-    );
-  expect(result.allowed).toBe(allowed);
-  if (!allowed) expect(result.code).toBe("42501");
-}
-
-async function webUpdatesReservation(
-  dsn: string,
-  allowed: boolean,
-): Promise<void> {
-  const live = liveRuntimes.get(dsn)?.get(TEST_WEB_ROLE);
-  if (!live) throw new Error("the production fixture has no live web role");
-  // Zero rows match, so nothing moves either way: the privilege check fires
-  // before the row count matters, which is all this probe needs.
-  const result = await live
-    .query(
-      "update name_reservations set updated_at = updated_at where id = $1",
-      ["probe-no-such-row"],
-    )
-    .then(
-      () => ({ allowed: true, code: "" }),
-      (error: { code?: string }) => ({
-        allowed: false,
-        code: error.code ?? "",
-      }),
-    );
-  expect(result.allowed).toBe(allowed);
-  if (!allowed) expect(result.code).toBe("42501");
-}
+const WEB_UPDATES_RESERVATION =
+  "update name_reservations set updated_at = updated_at where id = 'probe-no-row'";
+const PROVISIONER_DEFERS_CHECKOUT =
+  "update name_reservations set checkout_state = checkout_state where id = 'probe-no-row'";
+const WEB_DELETES_ACCOUNT = "delete from accounts where id = 'probe-no-row'";
 
 /** Every direct grant both runtime roles hold, as a sorted set of strings, so
  * two catalogs can be compared rather than described. */
@@ -319,146 +261,142 @@ function matrixFor(roster: readonly RolePosture[]): string[] {
     .sort();
 }
 
-suite("the incremental matrix change", () => {
+/** The row version of every catalog row a grant statement rewrites: each
+ * relation in the schema, and the schema itself. A GRANT or REVOKE updates the
+ * row even when the ACL it writes is the one already there, so an unchanged
+ * xmin is the proof that nothing was written - which an unchanged matrix
+ * cannot be, since a re-grant of the same matrix leaves it identical. */
+async function catalogRowVersions(dsn: string): Promise<string[]> {
+  const rows = await ask<{ v: string }>(
+    dsn,
+    "select relname || ' ' || xmin::text as v from pg_class " +
+      "where relnamespace = 'public'::regnamespace " +
+      "union all select 'schema ' || xmin::text from pg_namespace " +
+      "where nspname = 'public' order by 1",
+  );
+  return rows.map((r) => r.v);
+}
+
+async function roleState(dsn: string) {
+  return ask<{
+    role: string;
+    limit: number;
+    config: string[] | null;
+    canLogin: boolean;
+  }>(
+    dsn,
+    "select rolname as role, rolconnlimit as limit, rolconfig as config, " +
+      'rolcanlogin as "canLogin" ' +
+      "from pg_roles where rolname = any($1) order by rolname",
+    [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
+  );
+}
+
+suite("converging the matrix on a deployed database", () => {
   test(
-    "forward lands exactly the current matrix from production's observed baseline",
+    "a catalog that already carries the matrix is not written",
     () =>
       serial(async () => {
-        const dsn = await asProductionIsToday();
-        const before = await matrixOf(dsn);
-        expect(before).toEqual(matrixFor(TEST_PRIOR));
-        const rows = await ask<{ role: string; table: string; verb: string }>(
-          dsn,
-          matrixSql(),
-          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
-        );
-        expect(judgeMatrix(rows, TEST_WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(
-          true,
-        );
-        expect(
-          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS)
-            .exact,
-        ).toBe(true);
-        expect(before).not.toContain(
-          `${TEST_WEB_ROLE}:name_reservations:UPDATE`,
-        );
-        // Grants already in the baseline stay exercisable; the pending one
-        // refuses. Together they prove the live sessions test real privilege.
-        await provisionerInsertsStripeEvent(dsn, true);
-        await runtimeSelects(
-          dsn,
-          TEST_WEB_ROLE,
-          "reinstatement_attempts",
-          true,
-        );
-        await webUpdatesReservation(dsn, false);
+        const dsn = await asDeployed();
+        expect(await matrixOf(dsn)).toEqual(matrixFor(TEST_CURRENT));
+        const versions = await catalogRowVersions(dsn);
+        expect(versions.length).toBeGreaterThan(10);
 
-        const applied = await reapplyMatrix(dsn, "forward", testRosters());
-        expect(applied.exact).toBe(true);
-        for (const [, verdict] of [...applied.direct, ...applied.effective]) {
+        const result = await convergeMatrix(dsn, TEST_CURRENT);
+        expect(result.moved).toBe(false);
+        expect(result.statements).toBe(0);
+        expect(result.granted).toEqual([]);
+        expect(result.revoked).toEqual([]);
+        // The read-back is the full one even when nothing moved.
+        expect(result.exact).toBe(true);
+        expect(result.direct.map(([role]) => role).sort()).toEqual(
+          [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE].sort(),
+        );
+        expect(result.effective.map(([role]) => role).sort()).toEqual(
+          [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE].sort(),
+        );
+        expect(result.loginUnchanged.map(([, ok]) => ok)).toEqual([true, true]);
+
+        expect(await catalogRowVersions(dsn)).toEqual(versions);
+        await closeRuntimes(dsn);
+      }),
+    60_000,
+  );
+
+  test(
+    "missing and extra privileges end at exactly the matrix, and the result names each",
+    () =>
+      serial(async () => {
+        const dsn = await asDeployed();
+        const web = TEST_WEB_ROLE;
+        const prov = TEST_PROVISIONER_ROLE;
+        // Two the matrix grants and the catalog lacks - a table verb and a
+        // column grant, the shape of the 2026-10-08 Checkout poll grant - and
+        // three the matrix does not grant: a matrix verb, a verb the matrix
+        // never uses, and a column grant.
+        for (const statement of [
+          `revoke update on name_reservations from ${web}`,
+          `revoke update (checkout_state) on name_reservations from ${prov}`,
+          `grant delete on accounts to ${web}`,
+          `grant truncate on audit_events to ${prov}`,
+          `grant update (account_id) on name_reservations to ${prov}`,
+        ]) {
+          await ask(dsn, statement);
+        }
+        expect(await liveMay(dsn, web, WEB_UPDATES_RESERVATION)).toBe(false);
+        expect(await liveMay(dsn, prov, PROVISIONER_DEFERS_CHECKOUT)).toBe(
+          false,
+        );
+        expect(await liveMay(dsn, web, WEB_DELETES_ACCOUNT)).toBe(true);
+        const rolesBefore = await roleState(dsn);
+
+        const result = await convergeMatrix(dsn, TEST_CURRENT);
+        expect(result.moved).toBe(true);
+        expect(result.statements).toBeGreaterThan(0);
+        expect(result.granted).toEqual(
+          [
+            `${web} name_reservations update`,
+            `${prov} name_reservations update(checkout_state)`,
+          ].sort(),
+        );
+        expect(result.revoked).toEqual(
+          [
+            `${web} accounts delete`,
+            `${prov} audit_events truncate`,
+            `${prov} name_reservations update(account_id)`,
+          ].sort(),
+        );
+        expect(result.exact).toBe(true);
+        for (const [, verdict] of [...result.direct, ...result.effective]) {
           expect(verdict.missing).toBe(0);
           expect(verdict.excess).toBe(0);
         }
-        // Acceptance says the WHOLE posture, not the half the transaction
-        // touched: a run that only re-read what it wrote could not see a
-        // transaction that did more than it meant to.
-        expect(applied.schemaUsageOnly.map(([, ok]) => ok)).toEqual([
+        expect(result.schemaUsageOnly.map(([, ok]) => ok)).toEqual([
           true,
           true,
         ]);
-        expect(applied.sequencePrivilegesHeld).toBe(0);
-        expect(applied.noMemberships.map(([, ok]) => ok)).toEqual([true, true]);
+        expect(result.sequencePrivilegesHeld).toBe(0);
+        expect(result.noMemberships.map(([, ok]) => ok)).toEqual([true, true]);
+        expect(result.loginUnchanged.map(([, ok]) => ok)).toEqual([true, true]);
 
-        const after = await matrixOf(dsn);
-        expect(after).toEqual(matrixFor(TEST_CURRENT));
-        expect(after).toContain(`${TEST_WEB_ROLE}:name_reservations:UPDATE`);
-        expect(before).not.toContain(
-          `${TEST_PROVISIONER_ROLE}:name_reservations(version):UPDATE`,
-        );
-        expect(after).toContain(
-          `${TEST_PROVISIONER_ROLE}:name_reservations(version):UPDATE`,
-        );
-        await webUpdatesReservation(dsn, true);
-        await closeRuntimes(dsn);
-      }),
-    60_000,
-  );
-
-  test(
-    "reverse restores exactly the old matrix",
-    () =>
-      serial(async () => {
-        const dsn = await asProductionIsToday();
-        await reapplyMatrix(dsn, "forward", testRosters());
-        await webUpdatesReservation(dsn, true);
-        const applied = await reapplyMatrix(dsn, "reverse", testRosters());
-        await webUpdatesReservation(dsn, false);
-        expect(applied.exact).toBe(true);
-        expect(applied.schemaUsageOnly.map(([, ok]) => ok)).toEqual([
-          true,
-          true,
-        ]);
-        expect(applied.sequencePrivilegesHeld).toBe(0);
-        expect(applied.noMemberships.map(([, ok]) => ok)).toEqual([true, true]);
-        const rows = await ask<{ role: string; table: string; verb: string }>(
-          dsn,
-          matrixSql(),
-          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
-        );
-        expect(
-          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS)
-            .exact,
-        ).toBe(true);
-        expect(judgeMatrix(rows, TEST_WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(
+        expect(await matrixOf(dsn)).toEqual(matrixFor(TEST_CURRENT));
+        // The sessions that were open before the change see it on their next
+        // statement.
+        expect(await liveMay(dsn, web, WEB_UPDATES_RESERVATION)).toBe(true);
+        expect(await liveMay(dsn, prov, PROVISIONER_DEFERS_CHECKOUT)).toBe(
           true,
         );
-        // The provisioner's prior (measured 2026-08-24) lacks the Checkout
-        // poll's reservation columns, so both roles read as moved-away-from.
-        expect(
-          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PROVISIONER_GRANTS).exact,
-        ).toBe(false);
-        expect(judgeMatrix(rows, TEST_WEB_ROLE, WEB_GRANTS).exact).toBe(false);
-        expect(await matrixOf(dsn)).toEqual(matrixFor(TEST_PRIOR));
-        await closeRuntimes(dsn);
-      }),
-    60_000,
-  );
+        expect(await liveMay(dsn, web, WEB_DELETES_ACCOUNT)).toBe(false);
+        // The roles themselves - login, budget, bounds - are not touched.
+        expect(await roleState(dsn)).toEqual(rolesBefore);
 
-  test(
-    "a round trip leaves the catalog where it started",
-    () =>
-      serial(async () => {
-        const dsn = await asProductionIsToday();
-        const start = await matrixOf(dsn);
-        await reapplyMatrix(dsn, "forward", testRosters());
-        await reapplyMatrix(dsn, "reverse", testRosters());
-        expect(await matrixOf(dsn)).toEqual(start);
-        await closeRuntimes(dsn);
-      }),
-    60_000,
-  );
-
-  test(
-    "the roles themselves are not touched",
-    () =>
-      serial(async () => {
-        const dsn = await asProductionIsToday();
-        const roleState = async () =>
-          ask<{
-            role: string;
-            limit: number;
-            config: string[] | null;
-            canLogin: boolean;
-          }>(
-            dsn,
-            "select rolname as role, rolconnlimit as limit, rolconfig as config, " +
-              'rolcanlogin as "canLogin" ' +
-              "from pg_roles where rolname = any($1) order by rolname",
-            [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
-          );
-        const before = await roleState();
-        await reapplyMatrix(dsn, "forward", testRosters());
-        expect(await roleState()).toEqual(before);
+        // And a second run finds nothing to do.
+        const again = await convergeMatrix(dsn, TEST_CURRENT);
+        expect(again.moved).toBe(false);
+        expect(again.statements).toBe(0);
+        expect(again.granted).toEqual([]);
+        expect(again.revoked).toEqual([]);
+        expect(again.exact).toBe(true);
         await closeRuntimes(dsn);
       }),
     60_000,
@@ -468,7 +406,7 @@ suite("the incremental matrix change", () => {
 /**
  * The FOLD, on its own.
  *
- * `reapplyMatrix` reads five kinds of fact and decides one boolean from them.
+ * `convergeMatrix` reads five kinds of fact and decides one boolean from them.
  * The facts are checked against a real engine above; the decision cannot be,
  * because "the transaction granted CREATE on the schema" is not a state a
  * database can be put into from outside. So the verdict is a pure function and
@@ -487,7 +425,7 @@ describe("the acceptance verdict counts every fact it reports", () => {
   };
 
   test("all green is exact", () => {
-    expect(reapplyIsExact(green)).toBe(true);
+    expect(convergeIsExact(green)).toBe(true);
   });
 
   const spoiled: [string, Partial<typeof green>][] = [
@@ -507,7 +445,7 @@ describe("the acceptance verdict counts every fact it reports", () => {
   ];
   for (const [name, patch] of spoiled) {
     test(`${name} alone makes it inexact`, () => {
-      expect(reapplyIsExact({ ...green, ...patch })).toBe(false);
+      expect(convergeIsExact({ ...green, ...patch })).toBe(false);
     });
   }
 });
@@ -579,25 +517,27 @@ suite("a role created by a non-superuser owner", () => {
 });
 
 suite("it refuses before writing anything", () => {
-  /** Every refusal case asserts the SAME two things: it threw, and the catalog
-   * did not move. A precondition that refuses after mutating has already done
-   * the thing it was guarding. */
+  /** Every refusal case asserts the SAME two things: it threw for the named
+   * reason, and the catalog did not move. The catalog is staged one grant
+   * short of the matrix first, so a run that wrote before it refused would
+   * show: on an exact catalog a re-grant leaves the matrix as it was. */
   const refuses = async (
     stage: (dsn: string) => Promise<void>,
     /** WHICH refusal. A case that only asserts "it threw" passes for any
      * reason at all, including one the staging accidentally caused - which is
      * how a precondition test stops testing its own precondition. */
     because: RegExp,
-    direction: "forward" | "reverse" = "forward",
-    rosters: () => ReturnType<typeof testRosters> = testRosters,
+    roster: () => readonly RolePosture[] = () => TEST_CURRENT,
   ): Promise<void> => {
-    const dsn = await asProductionIsToday();
+    const dsn = await asDeployed();
+    await ask(dsn, `revoke update on name_reservations from ${TEST_WEB_ROLE}`);
     await stage(dsn);
     const before = await matrixOf(dsn);
+    expect(before).not.toEqual(matrixFor(TEST_CURRENT));
     // Awaited to completion before the catalog is read again: the claim is
     // that the refusal left nothing behind, and reading while the call was
     // still running would not be that claim.
-    const message = await reapplyMatrix(dsn, direction, rosters()).then(
+    const message = await convergeMatrix(dsn, roster()).then(
       () => "it did not refuse",
       (err: Error) => err.message,
     );
@@ -607,60 +547,14 @@ suite("it refuses before writing anything", () => {
   };
 
   test(
-    "when the two rosters do not name the same roles",
+    "when a role the roster names does not exist",
     () =>
       serial(() =>
         refuses(
           async () => {},
-          /do not name the same roles/,
-          "forward",
-          () => ({
-            prior: TEST_PRIOR,
-            current: renamed(runtimeRoles(), [
-              TEST_WEB_ROLE,
-              uniqueRole("cp_rx"),
-            ]),
-          }),
+          /missing from the deployed posture/,
+          () => renamed(runtimeRoles(), [TEST_WEB_ROLE, uniqueRole("cp_rx")]),
         ),
-      ),
-    60_000,
-  );
-
-  test(
-    "when the catalog is not exactly the matrix being moved away from",
-    () =>
-      serial(() =>
-        refuses(async (dsn) => {
-          await ask(
-            dsn,
-            `grant delete on accounts to ${TEST_PROVISIONER_ROLE}`,
-          );
-        }, /does not carry exactly the matrix/),
-      ),
-    60_000,
-  );
-
-  test(
-    "when the web role already holds the reservation persist grant",
-    () =>
-      serial(() =>
-        refuses(async (dsn) => {
-          await ask(
-            dsn,
-            `grant update on name_reservations to ${TEST_WEB_ROLE}`,
-          );
-        }, /does not carry exactly the matrix/),
-      ),
-    60_000,
-  );
-
-  test(
-    "when the forward change has already been applied",
-    () =>
-      serial(() =>
-        refuses(async (dsn) => {
-          await reapplyMatrix(dsn, "forward", testRosters());
-        }, /does not carry exactly the matrix/),
       ),
     60_000,
   );
@@ -727,18 +621,21 @@ suite("it refuses before writing anything", () => {
     60_000,
   );
 
-  // THE CLASS A MATRIX READ CANNOT SEE. A role that can CREATE on the schema
-  // can make a table the matrix has never heard of, so a posture change made
-  // while that is true would be a boundary stated about the wrong thing.
-  // A BEFORE-STATE THAT CAN ALREADY DO MORE THAN THE OLD MATRIX. The direct
-  // grants are untouched here - the privilege is PUBLIC's - so this is the case
-  // the effective read exists for. In practice the PUBLIC sweep in
-  // `reapplyPreflight` reaches it first, which is why the message is that one:
-  // the two guards
-  // overlap on purpose, and the property (refused, nothing written) is what is
-  // being asserted rather than which read caught it.
   test(
-    "when PUBLIC can do something the matrix does not carry",
+    "when a role's bounds have drifted",
+    () =>
+      serial(() =>
+        refuses(async (dsn) => {
+          await ask(dsn, `alter role ${TEST_WEB_ROLE} set lock_timeout = '5s'`);
+        }, /not exactly the role/),
+      ),
+    60_000,
+  );
+
+  // A privilege that is PUBLIC's reaches every role whatever the matrix
+  // grants, and this build does not edit the public ACL.
+  test(
+    "when PUBLIC holds a privilege on this build's tables",
     () =>
       serial(() =>
         refuses(async (dsn) => {
@@ -748,6 +645,9 @@ suite("it refuses before writing anything", () => {
     60_000,
   );
 
+  // THE CLASS A MATRIX READ CANNOT SEE. A role that can CREATE on the schema
+  // can make a table the matrix has never heard of, so a posture change made
+  // while that is true would be a boundary stated about the wrong thing.
   test(
     "when a runtime role holds CREATE on the schema",
     () =>
@@ -764,23 +664,12 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, "create sequence cp_reapply_probe_seq");
+          await ask(dsn, "create sequence cp_converge_probe_seq");
           await ask(
             dsn,
-            `grant usage on sequence cp_reapply_probe_seq to ${TEST_PROVISIONER_ROLE}`,
+            `grant usage on sequence cp_converge_probe_seq to ${TEST_PROVISIONER_ROLE}`,
           );
         }, /CREATE on the schema, or a sequence privilege/),
-      ),
-    60_000,
-  );
-
-  test(
-    "when a role's bounds have drifted",
-    () =>
-      serial(() =>
-        refuses(async (dsn) => {
-          await ask(dsn, `alter role ${TEST_WEB_ROLE} set lock_timeout = '5s'`);
-        }, /not exactly the role/),
       ),
     60_000,
   );

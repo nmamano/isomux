@@ -177,6 +177,13 @@ export function grantKeys(grant: TableGrant): string[] {
  *                   - all provisioner verbs. The web reads them to render.
  *   DELETE, anywhere - nothing in this build deletes a row. Confirmed by
  *                     search: there is no `delete from` in product code.
+ *
+ * EVERY REDEPLOY CONVERGES the deployed database to exactly this matrix and
+ * `PROVISIONER_GRANTS` (`convergeMatrix`, run by deploy.sh). A grant added here
+ * reaches the database before the release that needs it starts. A grant removed
+ * here follows the migration rule: stop using it in one deploy and remove it in
+ * a later one, because the previous release still serves while the grants
+ * converge, and deploy.sh's rollback does not grant it back.
  */
 export const WEB_GRANTS: readonly TableGrant[] = [
   {
@@ -817,155 +824,6 @@ export const AUDITED_CMDRUN_HELPER_SURFACES: Readonly<
   scheduleCapabilities: ["PROVIDER_DEPENDENT_KINDS.every", "ticker.handles"],
 };
 
-/**
- * THE MATRIX THE PREVIOUS POSTURE APPLIED, kept because a re-apply has to prove
- * its own before-state.
- *
- * Re-measured from the production catalog on 2026-08-24 (information_schema
- * role_table_grants): by then the reinstatement verbs and the provisioner's
- * reconciler grants had already landed, so the only pending move is the web
- * role's name_reservations UPDATE. The
- * incremental re-apply (`reapplyMatrix`) refuses unless the catalog carries
- * EXACTLY this, and its rollback is this set restored - so both directions are
- * a destination rather than a diff nobody wrote down. Delete it when the
- * re-apply has landed and production carries the current matrix.
- */
-export const PRIOR_WEB_GRANTS: readonly TableGrant[] = [
-  {
-    table: "accounts",
-    verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "name_reservations",
-    verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "instances",
-    verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "provider_assets",
-    verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "operations",
-    verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "attention_reasons",
-    verbs: ["select", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "audit_events",
-    verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "instance_liveness",
-    verbs: ["select"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "sequences",
-    verbs: ["select", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "subscriptions",
-    verbs: ["select"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "reinstatement_attempts",
-    verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-];
-
-export const PRIOR_PROVISIONER_GRANTS: readonly TableGrant[] = [
-  {
-    table: "subscriptions",
-    verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "reinstatement_attempts",
-    verbs: ["select", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "certificate_credentials",
-    verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "instances",
-    verbs: ["select", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "provider_assets",
-    verbs: ["select", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "operations",
-    verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "create_intents",
-    verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "instance_liveness",
-    verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "attention_reasons",
-    verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "audit_events",
-    verbs: ["insert"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "name_reservations",
-    verbs: ["select"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "sequences",
-    verbs: ["select", "update"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "accounts",
-    verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "schema_meta",
-    verbs: ["select"],
-    because: "as measured in production 2026-08-24",
-  },
-  {
-    table: "stripe_events",
-    verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-24",
-  },
-];
-
 export interface RolePosture {
   role: string;
   budget: number;
@@ -979,19 +837,6 @@ export function runtimeRoles(): RolePosture[] {
       role: PROVISIONER_ROLE,
       budget: PROVISIONER_BUDGET,
       grants: PROVISIONER_GRANTS,
-    },
-  ];
-}
-
-/** The same two roles carrying the matrix production held on 2026-08-21, which
- * an incremental re-apply proves before it writes and restores if it reverses. */
-export function priorRuntimeRoles(): RolePosture[] {
-  return [
-    { role: WEB_ROLE, budget: WEB_BUDGET, grants: PRIOR_WEB_GRANTS },
-    {
-      role: PROVISIONER_ROLE,
-      budget: PROVISIONER_BUDGET,
-      grants: PRIOR_PROVISIONER_GRANTS,
     },
   ];
 }
@@ -1150,52 +995,6 @@ export function grantMatrixStatements(
         out.push(`grant update (${columns}) on ${table} to ${named}`);
       }
     }
-  }
-  return out;
-}
-
-/**
- * THE EXACT REVERSE of the two phases, for a posture no deployment is using yet.
- *
- * `connection limit -1` plus a `reset` of the bounds is a rollback of the
- * NUMBERS and leaves the roles and their grants standing, which is the right
- * lever once a deployment authenticates as them - dropping a role a running
- * machine is connecting as would be an outage, not a rollback. Before that
- * point the reverse can be exact, and this is it: revoke first, then drop.
- *
- * ORDER IS THE WHOLE THING. `DROP ROLE` answers 2BP01 while any grant still
- * hangs off the role (measured 2026-08-11, on a live branch), and `DROP OWNED
- * BY` needs a membership the owner does not have (42501, same run). So the
- * privileges come off explicitly, one statement per object class, and only then
- * does the role go.
- *
- * The owner's two bounds are reset, which returns it to the state this build
- * found it in: `ownerConfigIsAcceptable` refuses to govern an owner carrying
- * anything else, so "empty, or exactly our pair" is the only thing that can
- * have preceded us.
- */
-export function ungovernStatements(args: {
-  ownerRole: string;
-  bounds: readonly Bound[];
-}): string[] {
-  const out: string[] = [];
-  for (const { role } of runtimeRoles()) {
-    const named = assertIdentifier(role);
-    out.push(
-      `revoke all privileges on all tables in schema public from ${named}`,
-    );
-    out.push(
-      `revoke all privileges on all sequences in schema public from ${named}`,
-    );
-    out.push(`revoke all privileges on schema public from ${named}`);
-    out.push(`alter role ${named} connection limit -1`);
-    out.push(`alter role ${named} reset all`);
-    out.push(`drop role if exists ${named}`);
-  }
-  for (const [name] of args.bounds) {
-    out.push(
-      `alter role ${assertIdentifier(args.ownerRole)} reset ${assertIdentifier(name)}`,
-    );
   }
   return out;
 }

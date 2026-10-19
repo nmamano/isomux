@@ -11,8 +11,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   ALL_VERBS,
-  PRIOR_PROVISIONER_GRANTS,
-  PRIOR_WEB_GRANTS,
   PROVISIONER_BUDGET,
   PROVISIONER_GRANTS,
   PROVISIONER_POOL,
@@ -214,40 +212,6 @@ describe("the matrix is exactly what the deployed command reaches", () => {
     for (const entry of PROVISIONER_REACHABLE) {
       expect(entry.via.length).toBeGreaterThan(20);
     }
-  });
-
-  test("the prior web matrix lacks only the reservation persist and the identity read", () => {
-    const prior = new Set(keysOf(PRIOR_WEB_GRANTS));
-    expect(keysOf(WEB_GRANTS).filter((key) => !prior.has(key))).toEqual([
-      "name_reservations:update",
-      "schema_meta:select",
-    ]);
-    const current = new Set(keysOf(WEB_GRANTS));
-    expect(keysOf(PRIOR_WEB_GRANTS).filter((key) => !current.has(key))).toEqual(
-      [],
-    );
-  });
-
-  test("the prior provisioner matrix lacks only the Checkout poll's columns", () => {
-    // Measured 2026-08-24, before the poll's grant existed.
-    const prior = new Set(keysOf(PRIOR_PROVISIONER_GRANTS));
-    const current = new Set(keysOf(PROVISIONER_GRANTS));
-    expect([...current].filter((key) => !prior.has(key)).sort()).toEqual(
-      POLL_COLUMN_KEYS,
-    );
-    expect([...prior].filter((key) => !current.has(key)).sort()).toEqual([]);
-  });
-
-  // This derived set follows the destination on purpose, so Lane A can extend
-  // it. It proves the relationship, not the production measurement; the
-  // literal guard above and the production preflight protect that transcription.
-  test("the prior provisioner matrix lacks exactly the destination additions", () => {
-    const prior = provisionerMatrixAgainstReachable(PRIOR_PROVISIONER_GRANTS);
-    const measured = new Set(keysOf(PRIOR_PROVISIONER_GRANTS));
-    expect(prior.missing).toEqual(
-      keysOf(PROVISIONER_GRANTS).filter((key) => !measured.has(key)),
-    );
-    expect(prior.excess).toEqual([]);
   });
 });
 

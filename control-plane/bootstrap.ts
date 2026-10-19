@@ -31,11 +31,10 @@ import type { SqlArgs } from "./store.ts";
 import {
   ALL_VERBS,
   type EffectiveRow,
+  type MatrixRow,
   type MatrixVerdict,
-  PROVISIONER_ROLE,
   type RoleIdentity,
   type RolePosture,
-  WEB_ROLE,
   boundsAreExact,
   effectivePrivilegeSql,
   governanceStatements,
@@ -46,14 +45,12 @@ import {
   ownerConfigIsAcceptable,
   schemaPrivilegeSql,
   sequencePrivilegeSql,
-  priorRuntimeRoles,
   residueIsInert,
   roleIdentitySql,
   governedRoleCount,
   readRolePosture,
   rolePostureStatements,
   runtimeRoles,
-  ungovernStatements,
   validateRuntimeRoster,
 } from "./roles.ts";
 
@@ -637,32 +634,29 @@ export async function applyGovernance(
 }
 
 /**
- * CHANGE THE MATRIX ON A DATABASE THAT IS ALREADY GOVERNED, in one transaction.
+ * CONVERGE THE RUNTIME GRANTS OF A DEPLOYED DATABASE TO THIS BUILD'S MATRIX, in
+ * one transaction. deploy.sh runs it on every redeploy, after the owner
+ * migrations, through `cli.ts regovern`.
  *
- * IT IS NOT `applyGovernance` AND IT IS NOT `ungovern`, and the reason is what
- * production actually holds. `applyGovernance` is written for a database this
- * build has not governed yet: it requires the owner to carry NOTHING, which
- * production cannot satisfy - the owner has carried the governed pair since
- * G2, so `owner_config_empty_before` cannot truthfully pass and the honest
- * before-state has to be "already exactly ours" instead. And `ungovern` is not
- * the rollback for one incremental grant: it drops both roles, which is an
- * outage lever rather than a reverse of a matrix change.
+ * IT IS NOT `applyGovernance`. That one is written for a database this build
+ * has not governed yet: it requires the owner to carry NOTHING, and a deployed
+ * owner carries the governed pair, while its runtime roles can log in.
  *
- * SO THE BEFORE-STATE IS AN EXACT DESTINATION TOO. The catalog must carry
- * EXACTLY the matrix this change is moving away from - not "at least" it - and
- * both directions run the same convergent statements, so the reverse is the
- * forward with the two rosters swapped. A run that finds anything else refuses
- * before it writes, which is what makes "one transaction restoring the old
- * exact matrix" a true description of the rollback rather than a hope.
+ * ANY BEFORE-MATRIX IS ACCEPTED, and the destination is exact. Two matrix
+ * changes between deploys, a reverted change, a deploy of an older commit and a
+ * restored older dump all leave a known matrix that is not this build's, and
+ * each one converges. A privilege granted by hand and not in the matrix is
+ * revoked, and the result names it.
  *
- * EVERY PRECONDITION IS READ BEFORE ANY STATEMENT: the roles inert (NOLOGIN,
- * nothing connected as them, owning nothing), their budgets and bounds exact,
- * the owner carrying exactly the governed pair, PUBLIC holding nothing, and the
- * before-matrix exact. The read-back afterwards is DIRECT and EFFECTIVE, so
- * what the caller reports is what the engine says a role can do rather than
- * what this function asked for.
+ * EVERY STRUCTURAL PRECONDITION IS READ BEFORE ANY STATEMENT: the deployed
+ * identities (no membership, no ownership, a readable backend count), their
+ * budgets and bounds exact, the owner carrying exactly the governed pair,
+ * PUBLIC holding nothing, and no privilege outside the table matrix. A drift
+ * there refuses, because the matrix cannot describe it. The read-back
+ * afterwards is DIRECT and EFFECTIVE, so what the caller reports is what the
+ * engine says a role can do rather than what this function asked for.
  */
-export interface ReapplyResult {
+export interface ConvergeFacts {
   statements: number;
   /** Per role, the two read-backs after the transaction. */
   direct: [string, MatrixVerdict][];
@@ -691,7 +685,7 @@ export interface ReapplyResult {
  * whether a fact counts, untested while every fact around it was checked. Every
  * field below has to be able to fail the verdict on its own.
  */
-export function reapplyIsExact(facts: {
+export function convergeIsExact(facts: {
   direct: readonly [string, MatrixVerdict][];
   effective: readonly [string, MatrixVerdict][];
   schemaUsageOnly: readonly [string, boolean][];
@@ -709,7 +703,7 @@ export function reapplyIsExact(facts: {
 }
 
 /**
- * Refuse an incremental grant move unless the runtime identities are still the
+ * Refuse to converge the grants unless the runtime identities are still the
  * identities this build governs.
  *
  * This differs from the fresh-govern preflight in exactly two facts. A deployed
@@ -719,7 +713,7 @@ export function reapplyIsExact(facts: {
  * ownership edge would let this transaction change a boundary outside the
  * matrix it reads.
  */
-async function reapplyPreflight(
+async function convergePreflight(
   pool: pg.Pool,
   dsn: string,
   roster: readonly RolePosture[],
@@ -736,7 +730,7 @@ async function reapplyPreflight(
   }
   if (identities.length !== roster.length) {
     throw new Error(
-      "refusing to re-apply the matrix: a runtime role is missing from the " +
+      "refusing to converge the matrix: a runtime role is missing from the " +
         "deployed posture",
     );
   }
@@ -757,7 +751,7 @@ async function reapplyPreflight(
       identity.backends < 0
     ) {
       throw new Error(
-        "refusing to re-apply the matrix: a runtime role is not exactly the " +
+        "refusing to converge the matrix: a runtime role is not exactly the " +
           "deployed identity this posture was approved for - it belongs to " +
           "another role, has a member other than its owner, owns an object, " +
           "or its live backend count is unreadable",
@@ -778,7 +772,7 @@ async function reapplyPreflight(
   }
   if (held > 0) {
     throw new Error(
-      "refusing to re-apply the matrix: PUBLIC holds privileges on this " +
+      "refusing to converge the matrix: PUBLIC holds privileges on this " +
         "build's tables, so every role would have them whatever the matrix " +
         "grants. This build does not edit the public ACL - resolve it by hand " +
         "first.",
@@ -822,21 +816,33 @@ async function readNonTablePosture(
   };
 }
 
+export type ConvergeResult = ConvergeFacts & {
+  /** False when the catalog already held exactly the matrix: nothing written. */
+  moved: boolean;
+  /** What the transaction added and removed, as `role table verb`, or
+   * `role table update(column)` for a column grant. Read from the catalog
+   * before and after, not from the statements. */
+  granted: string[];
+  revoked: string[];
+};
+
+/** One direct privilege as the diff names it. */
+function diffKey(row: MatrixRow): string {
+  const verb = row.verb.toLowerCase();
+  return row.column
+    ? `${row.role} ${row.table} ${verb}(${row.column})`
+    : `${row.role} ${row.table} ${verb}`;
+}
+
 /**
- * Production moves between the literal rosters. Tests pass a pair with
+ * Production converges to the literal roster. Tests pass one with
  * collision-free names: the names are cluster-global, so a suite that governs
  * `cp_web` collides with every other process on the same cluster.
  */
-export async function reapplyMatrix(
+export async function convergeMatrix(
   dsn: string,
-  direction: "forward" | "reverse",
-  rosters: {
-    prior: readonly RolePosture[];
-    current: readonly RolePosture[];
-  } = { prior: priorRuntimeRoles(), current: runtimeRoles() },
-): Promise<ReapplyResult> {
-  const from = direction === "forward" ? rosters.prior : rosters.current;
-  const to = direction === "forward" ? rosters.current : rosters.prior;
+  roster: readonly RolePosture[] = runtimeRoles(),
+): Promise<ConvergeResult> {
   const pool = await openPool(dsn);
   const ask = async <T extends pg.QueryResultRow>(
     sql: string,
@@ -850,26 +856,14 @@ export async function reapplyMatrix(
   };
   try {
     const { owner, config } = await ownerState(pool, dsn);
-    const identities = [from, to].map((roster) =>
-      validateRuntimeRoster(roster, owner)
-        .map((entry) => entry.role)
-        .sort()
-        .join(","),
-    );
-    if (identities[0] !== identities[1]) {
-      throw new Error(
-        "refusing to re-apply the matrix: the two rosters do not name the " +
-          "same roles, so the change would not move one posture between two " +
-          "matrices",
-      );
-    }
+    validateRuntimeRoster(roster, owner);
     // The deployed identities retain every governed membership and ownership
     // boundary, and PUBLIC holds nothing on this build's tables. LOGIN and live
     // backends are expected here; this step preserves rather than owns them.
-    await reapplyPreflight(pool, dsn, to);
+    await convergePreflight(pool, dsn, roster);
     if (!boundsAreExact(config, GOVERNED_SETTINGS)) {
       throw new Error(
-        "refusing to re-apply the matrix: the owner role does not already " +
+        "refusing to converge the matrix: the owner role does not already " +
           "carry exactly the governed bounds. A governed database is the only " +
           "thing this step knows how to change, and a database in any other " +
           "state is a governance run rather than an incremental one.",
@@ -879,9 +873,9 @@ export async function reapplyMatrix(
       (sql, args) => ask(sql, args),
       GOVERNED_SETTINGS,
       owner,
-      to,
+      roster,
     );
-    for (const { role, budget } of to) {
+    for (const { role, budget } of roster) {
       const facts = posture.get(role);
       if (
         !facts?.present ||
@@ -890,49 +884,21 @@ export async function reapplyMatrix(
         facts.memberships !== 0
       ) {
         throw new Error(
-          "refusing to re-apply the matrix: a runtime role is not exactly the " +
+          "refusing to converge the matrix: a runtime role is not exactly the " +
             "role this posture was approved for - its budget, its bounds, its " +
             "memberships have moved. Changing what it may " +
             "touch while what it IS has drifted is not an incremental step.",
         );
       }
     }
-    const roleNames = to.map((r) => r.role);
-    const before = await ask<{ role: string; table: string; verb: string }>(
-      matrixSql(),
-      [roleNames],
-    );
-    // DIRECT AND EFFECTIVE, both. The direct read lists grants whose grantee is
-    // the role itself; the effective one answers what the role can actually do,
-    // which accounts for PUBLIC and for memberships. A before-state proved on
-    // the first alone would let a role that can already do more than the old
-    // matrix through, and the change would then be measured from a state
-    // nobody had established.
-    const beforeEffective = await ask<EffectiveRow>(effectivePrivilegeSql(), [
-      roleNames,
-      [...EXPECTED_TABLES],
-      [...ALL_VERBS],
-    ]);
-    for (const { role, grants } of from) {
-      if (
-        !judgeMatrix(before, role, grants).exact ||
-        !judgeEffective(beforeEffective, role, grants).exact
-      ) {
-        throw new Error(
-          "refusing to re-apply the matrix: the catalog does not carry " +
-            "exactly the matrix this change moves away from, so neither the " +
-            "change nor its reverse would be a known destination. Resolve the " +
-            "difference by hand first.",
-        );
-      }
-    }
+    const roleNames = roster.map((r) => r.role);
     const nonTableBefore = await readNonTablePosture(ask, roleNames);
     if (
       !nonTableBefore.schemaUsageOnly.every(([, ok]) => ok) ||
       nonTableBefore.sequencePrivilegesHeld !== 0
     ) {
       throw new Error(
-        "refusing to re-apply the matrix: a runtime role holds something " +
+        "refusing to converge the matrix: a runtime role holds something " +
           "outside the table matrix - CREATE on the schema, or a sequence " +
           "privilege. A role that can create a table can make one this matrix " +
           "has never heard of, so changing what it may touch while that is " +
@@ -940,16 +906,26 @@ export async function reapplyMatrix(
       );
     }
 
-    const statements = await inTransaction(
-      pool,
-      dsn,
-      grantMatrixStatements(to),
+    // DIRECT AND EFFECTIVE, both, and read only to decide and to report: any
+    // before-matrix is a state this step can converge from. Exact on both
+    // means there is nothing to write, and nothing is written - a re-grant of
+    // the same matrix would still rewrite every ACL row.
+    const before = await ask<MatrixRow>(matrixSql(), [roleNames]);
+    const beforeEffective = await ask<EffectiveRow>(effectivePrivilegeSql(), [
+      roleNames,
+      [...EXPECTED_TABLES],
+      [...ALL_VERBS],
+    ]);
+    const alreadyExact = roster.every(
+      ({ role, grants }) =>
+        judgeMatrix(before, role, grants).exact &&
+        judgeEffective(beforeEffective, role, grants).exact,
     );
+    const statements = alreadyExact
+      ? 0
+      : await inTransaction(pool, dsn, grantMatrixStatements(roster));
 
-    const after = await ask<{ role: string; table: string; verb: string }>(
-      matrixSql(),
-      [roleNames],
-    );
+    const after = await ask<MatrixRow>(matrixSql(), [roleNames]);
     const effectiveRows = await ask<EffectiveRow>(effectivePrivilegeSql(), [
       roleNames,
       [...EXPECTED_TABLES],
@@ -957,10 +933,14 @@ export async function reapplyMatrix(
     ]);
     const direct: [string, MatrixVerdict][] = [];
     const effective: [string, MatrixVerdict][] = [];
-    for (const { role, grants } of to) {
+    for (const { role, grants } of roster) {
       direct.push([role, judgeMatrix(after, role, grants)]);
       effective.push([role, judgeEffective(effectiveRows, role, grants)]);
     }
+    const beforeKeys = new Set(before.map(diffKey));
+    const afterKeys = new Set(after.map(diffKey));
+    const granted = [...afterKeys].filter((k) => !beforeKeys.has(k)).sort();
+    const revoked = [...beforeKeys].filter((k) => !afterKeys.has(k)).sort();
     // THE WHOLE POSTURE AFTER, not the half this transaction meant to move.
     // Acceptance that only re-reads what was written cannot see a transaction
     // that did more than it intended.
@@ -969,7 +949,7 @@ export async function reapplyMatrix(
       (sql, args) => ask(sql, args),
       GOVERNED_SETTINGS,
       owner,
-      to,
+      roster,
     );
     const noMemberships: [string, boolean][] = roleNames.map((role) => [
       role,
@@ -987,88 +967,13 @@ export async function reapplyMatrix(
       noMemberships,
       loginUnchanged,
     };
-    return { statements, ...facts, exact: reapplyIsExact(facts) };
-  } finally {
-    await pool.end().catch(() => {});
-  }
-}
-
-/**
- * Undo the posture exactly, while no deployment authenticates as either role.
- *
- * REFUSES IF EITHER ROLE CAN LOG IN, which is the dependency check that matters:
- * a login role is one a deployment may be holding open, and dropping it turns a
- * rollback into an outage. It also refuses if either role still has a live
- * backend. Both are read before anything is written, and the whole reverse runs
- * as ONE transaction.
- */
-export async function ungovern(dsn: string): Promise<{
-  statements: number;
-  rolesLeft: number;
-  ownerConfigEntries: number;
-  grantsLeft: number;
-  backendsLeft: number;
-}> {
-  const pool = await openPool(dsn);
-  try {
-    const { owner } = await ownerState(pool, dsn);
-    const guard = await pool
-      .query<{
-        login: string;
-        backends: string;
-      }>(
-        "select count(*) filter (where r.rolcanlogin)::text as login, " +
-          "(select count(*)::text from pg_stat_activity a join pg_roles ar " +
-          " on ar.rolname = a.usename where ar.rolname = any($1)) as backends " +
-          "from pg_roles r where r.rolname = any($1)",
-        [[WEB_ROLE, PROVISIONER_ROLE]],
-      )
-      .catch((err: unknown) => {
-        throw redactConnectionDetails(err, dsn);
-      });
-    if (Number(guard.rows[0]?.login ?? 0) > 0) {
-      throw new Error(
-        "refusing to remove the posture: one of the runtime roles can log in, " +
-          "so a deployment may be authenticating as it. Roll the deployment " +
-          "back to the owner DSN first; the numeric lever (connection limit -1 " +
-          "and a reset of the bounds) is the rollback that is safe while a role " +
-          "is in use.",
-      );
-    }
-    if (Number(guard.rows[0]?.backends ?? 0) > 0) {
-      throw new Error(
-        "refusing to remove the posture: a runtime role still holds a backend",
-      );
-    }
-    const statements = await inTransaction(
-      pool,
-      dsn,
-      ungovernStatements({ ownerRole: owner, bounds: GOVERNED_SETTINGS }),
-    );
-    const left = await pool.query<{ n: string }>(
-      "select count(*)::text as n from pg_roles where rolname = any($1)",
-      [[WEB_ROLE, PROVISIONER_ROLE]],
-    );
-    // The evidence the caller refuses on. Read AFTER the transaction, from the
-    // catalog, so a rollback that half-worked cannot report success.
-    const after = await pool.query<{ config: string[] | null }>(
-      "select rolconfig as config from pg_roles where rolname = current_user",
-    );
-    const grants = await pool.query<{ n: string }>(
-      "select count(*)::text as n from information_schema.table_privileges " +
-        "where grantee = any($1)",
-      [[WEB_ROLE, PROVISIONER_ROLE]],
-    );
-    const backends = await pool.query<{ n: string }>(
-      "select count(*)::text as n from pg_stat_activity where usename = any($1)",
-      [[WEB_ROLE, PROVISIONER_ROLE]],
-    );
     return {
       statements,
-      rolesLeft: Number(left.rows[0]?.n ?? -1),
-      ownerConfigEntries: (after.rows[0]?.config ?? []).length,
-      grantsLeft: Number(grants.rows[0]?.n ?? -1),
-      backendsLeft: Number(backends.rows[0]?.n ?? -1),
+      ...facts,
+      exact: convergeIsExact(facts),
+      moved: !alreadyExact,
+      granted,
+      revoked,
     };
   } finally {
     await pool.end().catch(() => {});

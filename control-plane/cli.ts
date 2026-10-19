@@ -31,6 +31,7 @@ import { AuditLog } from "./audit.ts";
 import { DATABASE_IDENTITY_ENV, proveDatabaseIdentity } from "./boot.ts";
 import {
   bootstrapDatabase,
+  convergeMatrix,
   writeDatabaseIdentity,
   OWNER_MIGRATIONS,
   reportBootstrap,
@@ -1087,6 +1088,30 @@ async function cmdMigrate(
   reporter.line(`${migration.ready}: ready`);
 }
 
+/**
+ * Converge the runtime grants to this build's matrix, as the owner. deploy.sh
+ * runs it on every redeploy, after the migrations. Each line it prints names a
+ * role, a table and a verb, never a value; exit 1 unless the read-back is
+ * exact.
+ */
+async function cmdRegovern(): Promise<void> {
+  const result = await convergeMatrix(databaseUrl());
+  reporter.line(
+    `regovern: moved ${result.moved}, statements ${result.statements}`,
+  );
+  for (const grant of result.granted) reporter.line(`granted: ${grant}`);
+  for (const grant of result.revoked) reporter.line(`revoked: ${grant}`);
+  for (const [role, verdict] of [...result.direct, ...result.effective]) {
+    if (!verdict.exact) {
+      reporter.line(
+        `not exact: ${role} missing ${verdict.missing}, excess ${verdict.excess}`,
+      );
+    }
+  }
+  reporter.line(`regovern exact: ${result.exact}`);
+  if (!result.exact) process.exit(1);
+}
+
 /** Every owner migration in order; the first failure stops the rest. */
 async function cmdMigrateAll(): Promise<void> {
   for (const migration of OWNER_MIGRATIONS) {
@@ -1432,6 +1457,8 @@ async function main(): Promise<void> {
       return cmdSetDatabaseIdentity();
     case "migrate-all":
       return cmdMigrateAll();
+    case "regovern":
+      return cmdRegovern();
     case "operator":
       return cmdOperator(args);
     case "attention":
@@ -1445,7 +1472,7 @@ async function main(): Promise<void> {
       if (migration) return cmdMigrate(migration);
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|set-database-identity|migrate-all|" +
+          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|set-database-identity|migrate-all|regovern|" +
           `${OWNER_MIGRATIONS.map((m) => m.command).join("|")}> [--flags]`,
       );
       process.exit(2);

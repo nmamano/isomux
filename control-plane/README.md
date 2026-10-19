@@ -86,6 +86,7 @@ bun control-plane/cli.ts status  --run <runId>
 bun control-plane/cli.ts expiry-test --run <runId> --variant boundary|powered-off [--seconds N]
 bun control-plane/cli.ts bootstrap                # an empty database -> schema-ready
 bun control-plane/cli.ts set-database-identity    # owner writes CONTROL_PLANE_DB_IDENTITY into the database
+bun control-plane/cli.ts regovern                 # owner converges the runtime grants to the matrix
 bun control-plane/restore-check.ts fingerprint    # counts, hashes and definitions of CONTROL_PLANE_DB
 bun control-plane/restore-check.ts compare <source.json> <target.json>
 bun control-plane/state-move.ts export [--data /data] > state.json   # the key-free provisioner state, for a move
@@ -1054,19 +1055,27 @@ Two rules about that write, and both are about not lying:
   the rename fails. A write interrupted halfway would otherwise destroy the
   proof of the last deploy in the act of recording the current one.
 
-### Re-applying the matrix on a database that is already governed
+### Converging the runtime grants on every redeploy
 
-A matrix change has to reach production, and `govern` is not the program
-that can take it there. `govern` requires the owner to carry NOTHING before it
-writes - the baseline that makes `ungovern` an exact reverse - and production
-has carried the governed pair since G2, so `owner_config_empty_before` cannot
-truthfully pass. And `ungovern` is not this change's rollback: it drops both
-roles, which is an outage lever rather than the reverse of one incremental
-grant.
+`regovern` (`convergeMatrix` in `bootstrap.ts`) brings the runtime grants of a
+deployed database to exactly this build's matrix. `deploy.sh` runs it on every
+redeploy, after `migrate-all` (a grant names a table a migration may add) and
+while the previous release still serves. A refusal fails the deploy before any
+app container is replaced. The deploy log gets each privilege it granted or
+revoked, as `<role> <table> <verb>` or `<role> <table> update(<column>)`.
 
-The command was `exercises/neon.ts regovern [--reverse]`, removed with Neon on
-2026-10-15. `reapplyMatrix` in `bootstrap.ts` remains, with no command in front
-of it.
+It accepts any before-matrix: two matrix changes between deploys, a reverted
+change, a deploy of an older commit and a restored older dump all converge. A
+privilege granted by hand and not in `roles.ts` is revoked at the next deploy.
+When the catalog already holds exactly the matrix, it writes nothing.
+
+To remove a grant, follow the migration rule: stop using it in one deploy and
+remove it from the matrix in a later one. The previous release still serves
+while the grants converge, and the deploy's rollback does not grant anything
+back.
+
+`bootstrap` is not this step: it creates the roles, and its preflight refuses
+runtime roles that can log in. A deployed database has both.
 
 **One exemption, measured on the provider rather than reasoned about.** Both
 runtime roles have the OWNER as a member, with admin option, and that is not a
@@ -1076,8 +1085,7 @@ owner IS one and records no such row, so no rehearsal here could have seen it -
 it was found by the pre-live probe (Neon suites branch AND production, both
 2026-08-12: one member each, the owner, with admin option, `belongs_to` and
 every ownership count zero). Left unexempted, `residueIsInert` was false for
-both roles and every governance re-application - `regovern` and a re-run of
-`govern` alike - refused before it started.
+both roles and every governance step refused before it started.
 
 So `roleIdentitySql` counts `members_other_than_owner` and the predicate uses
 that; `members_of_it` is still read and still reported. The exemption grants
@@ -1085,41 +1093,34 @@ nothing - the owner already owns every table the matrix names, and the
 membership is what lets a non-superuser owner ALTER or DROP the role it
 created - and it is ONE-DIRECTIONAL: `belongs_to`, our role being a member of
 something else, stays zero-tolerance. A member that is not the owner still
-refuses. `governance-reapply.test.ts` stages the condition on a real engine by
+refuses. `governance-converge.test.ts` stages the condition on a real engine by
 having a non-superuser CREATEROLE role create a role, and asserts the same row
 reads as inert from the creator's session and as a third party from anyone
 else's.
 
 It refuses BEFORE writing unless: the owner already carries exactly the governed
-bounds, both runtime roles are NOLOGIN with nothing connected as them and own
-nothing, their budgets, bounds and memberships are exactly the approved posture,
-PUBLIC holds nothing on this build's tables, the catalog carries EXACTLY the
-matrix the change moves away from - DIRECTLY and EFFECTIVELY, because a
-before-state proved on direct grants alone would miss a role that can already do
-more - and neither role holds anything outside the table matrix: schema USAGE
-without CREATE, and no privilege on any sequence. That last pair is the class a
-matrix read cannot see, and it is what G2's own evidence checked: a role that
-can CREATE on the schema can make a table this matrix has never heard of.
+bounds, neither runtime role belongs to a role, has a member other than the
+owner or owns anything (LOGIN and live sessions are expected), their budgets,
+bounds and memberships are exactly the approved posture, PUBLIC holds nothing
+on this build's tables, and neither role holds anything outside the table
+matrix: schema USAGE without CREATE, and no privilege on any sequence. That
+last pair is the class a matrix read cannot see: a role that can CREATE on the
+schema can make a table this matrix has never heard of. Such a drift stops the
+deploy, because the matrix cannot describe it.
 
-It then applies the new matrix in ONE transaction, proves every user table's row
-count unchanged and `accounts` still exactly 1 on production, and reads back the
-WHOLE posture rather than the half it moved - direct and effective matrices,
-schema privileges, sequence privileges and memberships. Acceptance that only
+It then applies the matrix in ONE transaction and reads back the WHOLE posture
+rather than the half it moved - direct and effective matrices, schema
+privileges, sequence privileges, memberships and logins. Acceptance that only
 re-read what it wrote could not see a transaction that did more than it meant
-to. Any false claim is a non-zero exit. `--reverse` is the same program with the two
-rosters swapped: one transaction restoring the old exact matrix, with the roles
-left exactly as they are.
+to. Any false claim is a non-zero exit.
 
-**Both pre-live predicates closed 2026-08-12**, each a provider question
-answered by measurement rather than argument:
+**The pre-live predicate closed 2026-08-12**, a provider question answered by
+measurement rather than argument:
 
 - Catalog visibility: Neon reports the same shape the local Postgres 18
   measured - 0 rows for the invisible class, all rows for the visible one,
   42501 where refusal was expected - so the schema-check change holds on the
   provider it was written for.
-- `regovern` was rehearsed against the Neon suites branch, forward and reverse,
-  with digest-proved exact restoration, and then applied to production. The
-  rehearsal-then-production ordering was a gate, and it was kept.
 
 ## Deployed: Hosted Isomux on one Docker host
 
@@ -1210,8 +1211,10 @@ database volume. It generates every password, the identity and the seam token
 `isomux` database it owns, runs `bootstrap` as `cp_owner`, gives `cp_web` and
 `cp_provisioner` their logins (after bootstrap, whose preflight refuses runtime
 roles that can log in), and stamps the identity with `set-database-identity`.
-Every later run only builds, replaces the two app containers and checks them.
-It never bootstraps, regrants, resets a password or stamps the identity. A
+Every later run builds, runs the owner migrations, converges the runtime grants
+(`regovern`, see "Converging the runtime grants on every redeploy"), replaces
+the two app containers and checks them. It never bootstraps, creates a role,
+changes a login, resets a password or stamps the identity. A
 restored database carries its source's identity row, and `restore.sh` stamps
 this install's over it.
 

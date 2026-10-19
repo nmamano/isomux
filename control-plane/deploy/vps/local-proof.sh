@@ -11,8 +11,9 @@
 # then a normal run that starts the apps, whose provisioner must take the
 # imported create latch into its database. A third run is a redeploy that must
 # keep the database identity, the generated credentials, the data and the
-# provisioner state, and must build the commit's bytes even when the cached
-# release tree was changed. Around them it checks each container's resource
+# provisioner state, must build the commit's bytes even when the cached
+# release tree was changed, and must bring runtime grants that drifted back to
+# the commit's matrix. Around them it checks each container's resource
 # ceiling, and that deploy.sh refuses an unfinished or incomplete install (exit
 # 3 and 4) before it builds or creates anything. Last, auto-deploy.sh ticks
 # from a local origin, under the lock that a manual deploy.sh meanwhile cannot
@@ -240,7 +241,26 @@ docker image tag "$(docker image ls -q --filter "reference=$project-web" | head 
 stale_release=$work/root/releases/$(printf '0%.0s' {1..40})
 mkdir "$stale_release"
 
+# Runtime grants that are not the commit's matrix: one it grants is missing,
+# as on a database bootstrapped before the grant landed, and one it does not
+# grant is there.
+grants() {
+  echo "select has_column_privilege('cp_provisioner', 'name_reservations', 'checkout_state', 'update')::text || ' ' || has_table_privilege('cp_web', 'accounts', 'delete')::text;" | sql
+}
+sql <<'EOF'
+revoke update (checkout_state) on name_reservations from cp_provisioner;
+grant delete on accounts to cp_web;
+EOF
+[[ $(grants) == "false true" ]] || die "the stale grants were not staged"
+deploy_logs_before=$(find "$work/root" -maxdepth 1 -name 'deploy-*.log' | sort)
+
 "$here/deploy.sh" "$commit"
+[[ $(grants) == "true false" ]] || die "the redeploy did not converge the runtime grants to the matrix"
+redeploy_log=$(comm -13 <(echo "$deploy_logs_before") <(find "$work/root" -maxdepth 1 -name 'deploy-*.log' | sort))
+grep -q 'cp_provisioner name_reservations update(checkout_state)' "$redeploy_log" &&
+  grep -q 'cp_web accounts delete' "$redeploy_log" ||
+  die "the redeploy log does not name the grants it moved"
+say "grants: the redeploy converged them to the matrix and logged what moved"
 [[ $(docker image ls --filter "reference=$project-*" --format '{{.Repository}}:{{.Tag}}' | grep -vc ':older$') -eq 4 ]] ||
   die "the redeploy did not keep both the new and the previous images"
 [[ -z $(docker image ls -q "$project-web:older") && ! -e $stale_release ]] ||

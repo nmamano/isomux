@@ -11,8 +11,9 @@
 # The first run on a host (no generated/ directory and neither named volume)
 # generates every database password, the seam token and the database identity,
 # creates the roles, bootstraps the schema and stamps the identity. Every later
-# run builds, runs every owner migration with the new image, replaces the two
-# app containers and checks them: it never bootstraps, regrants, resets a
+# run builds, runs every owner migration with the new image, converges the
+# runtime grants to the commit's matrix, replaces the two app containers and
+# checks them: it never bootstraps, creates a role, changes a login, resets a
 # password or stamps the identity.
 #
 # --prepare does the first install and stops before any app starts: no
@@ -300,6 +301,11 @@ else
   dc run --rm -T owner bun control-plane/cli.ts migrate-all >>"$log" 2>&1 ||
     die "the migrations of $commit failed; see $log"
   say "db: migrations applied"
+  # After the migrations, because a grant names a table a migration may add.
+  # The log gets each privilege it granted or revoked.
+  dc run --rm -T owner bun control-plane/cli.ts regovern >>"$log" 2>&1 ||
+    die "the runtime grants of $commit did not converge; see $log"
+  say "db: runtime grants converged"
 fi
 if $prepare; then
   say "PASS $project prepared at $commit: no app started"
