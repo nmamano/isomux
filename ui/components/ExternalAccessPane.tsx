@@ -266,7 +266,7 @@ function ExternalAccessSection({
             value={urlInput}
             disabled={!loaded}
             onChange={(e) => setUrlInput(e.target.value)}
-            placeholder={loaded ? "https://auntie.tailnet.ts.net" : undefined}
+            placeholder={loaded ? "https://office.example.com" : undefined}
             style={dialogInput}
           />
           <p style={hint}>

@@ -46,7 +46,7 @@ function isLoopbackOrLiteral(hostname: string): boolean {
 }
 
 // Tailscale's MagicDNS namespace, which is a separate refusal from the one
-// above: a name like `auntie.parrot-fish.ts.net` is real and resolvable, and
+// above: a name like `office.your-tailnet.ts.net` is real and resolvable, and
 // an office served there is genuinely on HTTPS. What it cannot do is carry
 // CHILDREN - MagicDNS has no wildcard records and a Tailscale certificate
 // covers the node's own name only - so deriving a domain here would hand every
