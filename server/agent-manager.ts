@@ -156,6 +156,7 @@ import { buildSystemPrompt } from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { randomOutfit } from "../shared/outfit-options.ts";
 import { getAgentHost } from "./agent-host.ts";
+import { usageAccountKey, usageKeyOnDirectory } from "./usage-account.ts";
 import { capturePreview, type PreviewCaptureDeps } from "./preview-capture.ts";
 import type { BrowserResult } from "./browser-actions.ts";
 import {
@@ -4500,6 +4501,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // exactly where it was.
   function resetSubscriptionUsage(managed: ManagedAgent): void {
     managed.subscriptionGen++;
+    // The engine's keys go with it; the next use derives the new engine's.
+    managed.launchedUsageKey = undefined;
+    managed.idleUsageKey = undefined;
     clearSubscriptionUsage(managed);
   }
 
@@ -4509,6 +4513,109 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function clearSubscriptionUsage(managed: ManagedAgent): void {
     managed.subscriptionUsage = null;
     broadcastSubscriptionUsage(managed);
+  }
+
+  // The latest reading per usage account (server/usage-account.ts), or an
+  // authoritative "no allowance here" (wire null), so every agent on the
+  // account shows it (task 967a09d1). `atMs` orders them: the provider
+  // observation time of a reading, the commit time of a clear.
+  const accountUsage = new Map<
+    string,
+    { wire: SubscriptionUsageWire | null; atMs: number }
+  >();
+
+  // The usage account of the agent: the installed session's launch key, else
+  // the account its next session would run under. No side effects and never
+  // throws - buildSessionEnv would probe and pin a session root.
+  function usageKeyOf(managed: ManagedAgent): string | null {
+    if (
+      managed.sessionManager.session &&
+      managed.launchedUsageKey !== undefined
+    )
+      return managed.launchedUsageKey;
+    const sessionId = managed.sessionManager.sessionId ?? null;
+    if (managed.idleUsageKey?.sessionId === sessionId)
+      return managed.idleUsageKey.key;
+    const agentType = managed.info.agentType;
+    let key: string | null;
+    try {
+      const env =
+        buildEnvForUserId(managed.info.userId) ?? getAgentHost().baseEnv();
+      if (agentType === "claude" && sessionId) {
+        // A legacy session with no recorded root resumes on whichever root
+        // holds it: no guess.
+        const dir = getSessionClaudeConfigDir(managed.info.id, sessionId);
+        key = dir
+          ? usageAccountKey(agentType, { ...env, CLAUDE_CONFIG_DIR: dir })
+          : null;
+      } else {
+        key = usageAccountKey(agentType, env);
+      }
+    } catch {
+      // Not cached: an env that cannot load now is retried at the next use.
+      return null;
+    }
+    managed.idleUsageKey = { sessionId, key };
+    return key;
+  }
+
+  // Point the agent at its current usage account (`key`, default derived).
+  // Another account than the one its reading belongs to orphans every read in
+  // flight and shows that account's reading, or none.
+  function syncUsageKey(
+    managed: ManagedAgent,
+    key: string | null = usageKeyOf(managed),
+  ): string | null {
+    if (managed.subscriptionKey === key) return key;
+    const first = managed.subscriptionKey === undefined;
+    managed.subscriptionKey = key;
+    if (!first) managed.subscriptionGen++;
+    if (key === null) {
+      // An engine without shared readings keeps its own.
+      if (!first) clearSubscriptionUsage(managed);
+      return key;
+    }
+    const entry = accountUsage.get(key);
+    if (entry) showSubscriptionReading(managed, entry.wire, false);
+    else if (!first) clearSubscriptionUsage(managed);
+    return key;
+  }
+
+  // Show a committed reading, or clear it when `wire` is null. `always`
+  // broadcasts an unchanged reading too, so the popover's age stays true.
+  function showSubscriptionReading(
+    managed: ManagedAgent,
+    wire: SubscriptionUsageWire | null,
+    always: boolean,
+  ): void {
+    if (!wire) {
+      // Skip the broadcast when nothing was shown.
+      if (managed.subscriptionUsage !== null) clearSubscriptionUsage(managed);
+      return;
+    }
+    const shouldBroadcast =
+      always ||
+      displayedSubscriptionChanged(managed.info.subscriptionUsage, wire);
+    managed.subscriptionUsage = wire;
+    if (shouldBroadcast) broadcastSubscriptionUsage(managed);
+  }
+
+  // A sign-in or sign-out at `dir` (ProviderAccountManager.onAccountChanged):
+  // the directory may now hold another account, so no reading taken before
+  // is its. A personal one also moves the member's next sessions.
+  function providerAccountChanged(
+    provider: ProviderAccountProvider,
+    dir: string,
+  ): void {
+    for (const key of [...accountUsage.keys()])
+      if (usageKeyOnDirectory(key, provider, dir)) accountUsage.delete(key);
+    for (const managed of agents.values()) {
+      managed.idleUsageKey = undefined;
+      const key = syncUsageKey(managed);
+      if (key === null || !usageKeyOnDirectory(key, provider, dir)) continue;
+      managed.subscriptionGen++;
+      clearSubscriptionUsage(managed);
+    }
   }
 
   // Fire-and-forget refresh. A sample commits only if BOTH guards still hold:
@@ -4569,12 +4676,39 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (managed.subscriptionGen !== token.gen) return;
     if (token.seq <= managed.subscriptionCommittedSeq) return;
     managed.subscriptionCommittedSeq = token.seq;
-    if (!usage || usage.windows.length === 0) {
-      // Authoritative absence. Skip the broadcast when nothing was shown.
-      if (managed.subscriptionUsage === null) return;
-      clearSubscriptionUsage(managed);
+    const key = syncUsageKey(managed);
+    // The agent moved to another account while the read was out.
+    if (managed.subscriptionGen !== token.gen) return;
+    const wire =
+      usage && usage.windows.length > 0
+        ? subscriptionWire(usage, observedAtMs)
+        : null;
+    // Turn-boundary samples ALWAYS broadcast, even when every displayed value
+    // is unchanged: the popover tells the user how old the reading is, and a
+    // deduped broadcast would freeze that timestamp while the number quietly
+    // stayed fresh. Only the high-frequency usage_update path dedupes, and it
+    // can afford to - a turn boundary follows soon after. Same split the
+    // fullness sampler uses, for the same reason.
+    const always = source !== "usage_update";
+    if (key === null) {
+      showSubscriptionReading(managed, wire, always);
       return;
     }
+    // A reading older than the account's latest (another agent's, or a
+    // clear) loses; that one is already on every agent of the account.
+    const atMs = wire ? wire.observedAtMs : Date.now();
+    const latest = accountUsage.get(key);
+    if (latest && latest.atMs > atMs) return;
+    accountUsage.set(key, { wire, atMs });
+    for (const other of agents.values())
+      if (syncUsageKey(other) === key)
+        showSubscriptionReading(other, wire, always);
+  }
+
+  function subscriptionWire(
+    usage: SubscriptionUsage,
+    observedAtMs: number | undefined,
+  ): SubscriptionUsageWire {
     const windows: SubscriptionWindowWire[] = usage.windows.map((w) => ({
       label: w.label,
       // Clamp again at the wire boundary: the adapters clamp too, but a
@@ -4583,24 +4717,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       resetsAtMs: w.resetsAtMs,
     }));
     const committedAtMs = Date.now();
-    const wire: SubscriptionUsageWire = {
+    return {
       plan: usage.plan,
       windows,
       primaryIndex: pickPrimaryWindow(windows),
       sampledAtMs: committedAtMs,
       observedAtMs: observedAtMs ?? committedAtMs,
     };
-    // Turn-boundary samples ALWAYS broadcast, even when every displayed value
-    // is unchanged: the popover tells the user how old the reading is, and a
-    // deduped broadcast would freeze that timestamp while the number quietly
-    // stayed fresh. Only the high-frequency usage_update path dedupes, and it
-    // can afford to - a turn boundary follows soon after. Same split the
-    // fullness sampler uses, for the same reason.
-    const shouldBroadcast =
-      source !== "usage_update" ||
-      displayedSubscriptionChanged(managed.info.subscriptionUsage, wire);
-    managed.subscriptionUsage = wire;
-    if (shouldBroadcast) broadcastSubscriptionUsage(managed);
   }
 
   async function getAgentSubscriptionUsage(
@@ -4608,6 +4731,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): Promise<AgentSubscriptionUsageResp> {
     const managed = agents.get(agentId);
     if (!managed) return { available: false, reason: "no_session" };
+    syncUsageKey(managed);
     const session = managed.sessionManager.session;
     if (!session) {
       const snap = managed.subscriptionUsage;
@@ -5647,6 +5771,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function envChanged(change: SecretSetChange): void {
     for (const [agentId, managed] of agents) {
       if (!envChangeReaches(change, managed.info.userId)) continue;
+      // The next session may run on another account; a live one moves at
+      // its release.
+      managed.idleUsageKey = undefined;
+      if (!managed.sessionManager.session) syncUsageKey(managed);
       if (managed.ptySidecar) {
         managed.ptyEnvStale = true;
         terminalStatus(agentId);
@@ -6397,6 +6525,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       isClaudeCloudSelected(env ?? getAgentHost().baseEnv());
     managed.claudeApiKeySource = undefined;
     managed.billingAccount = billingAccountFor(managed.info.agentType, env);
+    managed.launchedUsageKey = usageAccountKey(
+      managed.info.agentType,
+      env ?? getAgentHost().baseEnv(),
+    );
+    syncUsageKey(managed, managed.launchedUsageKey);
     // The boundary callback is bound to the session it is created with, so a
     // hook still firing in a closed or replaced session cannot claim the queue
     // of the session that replaced it.
@@ -6610,6 +6743,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
 
     for (const event of events) emit(event);
+    // A new agent shows the latest reading of its account at once.
+    syncUsageKey(managed);
     // Send commands immediately so autocomplete works before SDK init
     emit({
       type: "slash_commands",
@@ -11822,6 +11957,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     validateCwd,
     buildEnvForUserId,
     refreshLimitedClaudeFamilies,
+    providerAccountChanged,
     buildOpenCodeLaunchEnvironmentForUserId,
     pushOpenCodeSettings,
     environmentSourceKeyForUserId,

@@ -222,18 +222,29 @@ export interface ManagedAgent {
   // to, or null when there is none (Claude API-key/Bedrock/Vertex sessions,
   // Codex before any rate-limit payload, backend call failed). Deliberately
   // NOT tied to contextGen: quota is account-scoped, so /clear, fork and
-  // resume leave it alone. In-memory only; lost on server restart and
-  // repopulated at the end of the next turn.
+  // resume leave it alone. Every agent on the same account shows the latest
+  // reading any of them took (task 967a09d1). In-memory only; lost on server
+  // restart and repopulated at the end of the next turn on the account.
   subscriptionUsage: SubscriptionUsageWire | null;
   // ACCOUNT-identity generation token. Bumped SYNCHRONOUSLY (never after an
   // await) by every path that can change which account the agent's backend
-  // talks to - engine switch, cross-engine resume, and the rollback of a
-  // failed one. A refresh captures it at initiation and commits only if it
-  // still matches, so a Claude read started before a switch to Codex can't
-  // repopulate Claude figures afterwards. Deliberately NOT bumped by /clear,
-  // fork, same-engine resume, or a same-engine model change: none of those
-  // change the account, and the quota doesn't reset when a conversation does.
+  // talks to - engine switch, cross-engine resume, the rollback of a failed
+  // one, a usage account key change (another directory or auth variable) and
+  // a sign-in or sign-out in the agent's directory. A refresh captures it at
+  // initiation and commits only if it still matches, so a Claude read started
+  // before a switch to Codex can't repopulate Claude figures afterwards.
+  // Deliberately NOT bumped by /clear, fork, same-engine resume, or a
+  // same-engine model change that stay on one account: the quota doesn't
+  // reset when a conversation does.
   subscriptionGen: number;
+  // The usage account key (server/usage-account.ts) of the installed session,
+  // captured at its launch.
+  launchedUsageKey?: string | null;
+  // The key derived for the agent while it has no session, and the stored
+  // session id it was derived for.
+  idleUsageKey?: { sessionId: string | null; key: string | null };
+  // The key `subscriptionUsage` belongs to. Undefined until first resolved.
+  subscriptionKey?: string | null;
   // Monotonic sample-initiation counter plus the highest seq committed, so a
   // slow older refresh can never overwrite a newer reading - in either
   // direction: an authoritative CLEAR commits through the same guard. Same

@@ -106,11 +106,13 @@ function makeManager(
   return mgr;
 }
 
+let spawned = 0;
 async function spawn(
   mgr: ReturnType<typeof createAgentManager>,
+  agentType: AgentInfo["agentType"] = "claude",
 ): Promise<AgentInfo> {
   const info = await mgr.spawn(
-    "Worker",
+    `Worker ${++spawned}`,
     STATE_ROOT,
     "default",
     undefined,
@@ -120,7 +122,7 @@ async function spawn(
     undefined,
     undefined,
     undefined,
-    "claude",
+    agentType,
   );
   if (!info) throw new Error("spawn returned null");
   return info;
@@ -822,5 +824,277 @@ describe("subscription usage", () => {
     expect(
       await unavailableMgr.getAgentSubscriptionUsage(unavailable.id),
     ).toEqual({ available: false, reason: "provider_unavailable" });
+  });
+});
+
+// Task 967a09d1: the reading belongs to the provider ACCOUNT, so every agent
+// on that account shows the latest one any of them took - also an agent that
+// has not run a turn since the server started. The account is the engine, the
+// config directory the session runs under and the account-selecting
+// variables; another directory or another API key is another account.
+describe("subscription usage shared by the agents of one account", () => {
+  let accountSuffix = 0;
+  function accountDir(): string {
+    return join(STATE_ROOT, `usage-account-${++accountSuffix}`);
+  }
+  function useAccount(dir: string, extra: Record<string, string> = {}): void {
+    setTestManagedOfficeEnv({
+      CLAUDE_CONFIG_DIR: dir,
+      CODEX_HOME: join(STATE_ROOT, "codex-home"),
+      ...extra,
+    });
+  }
+
+  // One backend for every agent; each turn's sample is whatever `next` holds
+  // when that agent reads, and `reads` counts the reads.
+  function scriptedBackend(): {
+    fake: FakeBackend;
+    set: (next: () => Promise<SubscriptionUsageResult>) => void;
+    reads: () => number;
+  } {
+    let next: () => Promise<SubscriptionUsageResult> = async () => ({
+      kind: "unknown",
+    });
+    let reads = 0;
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: () => {
+          reads++;
+          return next();
+        },
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    return { fake, set: (n) => (next = n), reads: () => reads };
+  }
+
+  const percent = (
+    mgr: ReturnType<typeof createAgentManager>,
+    id: string,
+  ): number | undefined =>
+    mgr.getAgent(id)?.subscriptionUsage?.windows[0]?.usedPercent;
+
+  it("an agent shows the reading another agent of the account took, with its observation time", async () => {
+    useAccount(accountDir());
+    const events: { type: string; agentId?: string; changes?: unknown }[] = [];
+    const b = scriptedBackend();
+    const mgr = makeManager(b.fake, (e) => events.push(e));
+    const taker = await spawn(mgr);
+    const live = await spawn(mgr);
+    const idle = await spawn(mgr);
+    // `live` has its own session, which has learned nothing yet.
+    await runTurn(mgr, live.id, "no reading here");
+    expect(mgr.getCurrentSessionId(live.id)).toBeTruthy();
+    expect(percent(mgr, live.id)).toBeUndefined();
+
+    const observedAtMs = Date.now() - 1_000;
+    b.set(async () => observedReading(40, observedAtMs));
+    await runTurn(mgr, taker.id, "take a reading");
+    await waitUntil(() => percent(mgr, taker.id) === 40, "taker reading");
+    await waitUntil(
+      () => percent(mgr, live.id) === 40 && percent(mgr, idle.id) === 40,
+      "reading reached the other agents of the account",
+    );
+    expect(mgr.getAgent(live.id)?.subscriptionUsage?.observedAtMs).toBe(
+      observedAtMs,
+    );
+    expect(mgr.getAgent(idle.id)?.subscriptionUsage?.observedAtMs).toBe(
+      observedAtMs,
+    );
+    // The browser learns it through agent_updated for each agent.
+    for (const id of [live.id, idle.id])
+      expect(
+        events.some(
+          (e) =>
+            e.type === "agent_updated" &&
+            e.agentId === id &&
+            (e.changes as { subscriptionUsage?: unknown })?.subscriptionUsage !=
+              null,
+        ),
+      ).toBe(true);
+    // The self-check of an agent with no session serves it as cached, with
+    // its true age.
+    expect(mgr.getCurrentSessionId(idle.id)).toBeFalsy();
+    expect(await mgr.getAgentSubscriptionUsage(idle.id)).toMatchObject({
+      available: true,
+      observedAtMs,
+      freshness: "cached",
+      staleReason: "no_session",
+    });
+  });
+
+  it("another config directory or another API key is another account", async () => {
+    const b = scriptedBackend();
+    const mgr = makeManager(b.fake);
+    const shared = accountDir();
+    // Both sessions start while the office env points elsewhere; they keep
+    // the account they started with.
+    useAccount(accountDir());
+    const otherDir = await spawn(mgr);
+    await runTurn(mgr, otherDir.id, "other directory");
+    useAccount(shared, { ANTHROPIC_API_KEY: "sk-other-account" });
+    const otherKey = await spawn(mgr);
+    await runTurn(mgr, otherKey.id, "same directory, API key");
+
+    useAccount(shared);
+    const taker = await spawn(mgr);
+    const sibling = await spawn(mgr);
+    b.set(async () => reading(40));
+    await runTurn(mgr, taker.id, "take a reading");
+    await waitUntil(
+      () => percent(mgr, sibling.id) === 40,
+      "reading reached the agent of the same account",
+    );
+    expect(mgr.getCurrentSessionId(otherDir.id)).toBeTruthy();
+    expect(mgr.getCurrentSessionId(otherKey.id)).toBeTruthy();
+    expect(mgr.getAgent(otherDir.id)?.subscriptionUsage).toBeFalsy();
+    expect(mgr.getAgent(otherKey.id)?.subscriptionUsage).toBeFalsy();
+  });
+
+  it("an older reading does not replace a newer one on the account", async () => {
+    useAccount(accountDir());
+    const b = scriptedBackend();
+    const mgr = makeManager(b.fake);
+    const first = await spawn(mgr);
+    const second = await spawn(mgr);
+    const newer = Date.now() - 1_000;
+    b.set(async () => observedReading(40, newer));
+    await runTurn(mgr, first.id, "newer reading");
+    await waitUntil(() => percent(mgr, second.id) === 40, "shared");
+
+    // The second agent's backend answers from an older observation (a
+    // throttle cache, a push that arrived late).
+    const readsBefore = b.reads();
+    b.set(async () => observedReading(70, newer - 60_000));
+    await runTurn(mgr, second.id, "older reading");
+    await waitUntil(() => b.reads() > readsBefore, "older reading taken");
+    await sleep(50);
+    for (const id of [first.id, second.id]) {
+      expect(percent(mgr, id)).toBe(40);
+      expect(mgr.getAgent(id)?.subscriptionUsage?.observedAtMs).toBe(newer);
+    }
+  });
+
+  it("an authoritative 'no allowance' clears every agent of the account", async () => {
+    useAccount(accountDir());
+    const b = scriptedBackend();
+    const mgr = makeManager(b.fake);
+    const first = await spawn(mgr);
+    const second = await spawn(mgr);
+    const idle = await spawn(mgr);
+    b.set(async () => observedReading(40, Date.now() - 1_000));
+    await runTurn(mgr, first.id, "reading");
+    await waitUntil(
+      () => percent(mgr, second.id) === 40 && percent(mgr, idle.id) === 40,
+      "shared",
+    );
+
+    b.set(async () => ({ kind: "unavailable" }));
+    await runTurn(mgr, second.id, "no allowance");
+    await waitUntil(
+      () =>
+        [first.id, second.id, idle.id].every(
+          (id) => mgr.getAgent(id)?.subscriptionUsage === null,
+        ),
+      "every agent of the account cleared",
+    );
+  });
+
+  it("a session started under another directory shows that account, and a read from the old one does not land", async () => {
+    const b = scriptedBackend();
+    const mgr = makeManager(b.fake);
+    const dirOne = accountDir();
+    const dirTwo = accountDir();
+    useAccount(dirTwo);
+    const onTwo = await spawn(mgr);
+    b.set(async () => reading(25));
+    await runTurn(mgr, onTwo.id, "reading on two");
+    await waitUntil(() => percent(mgr, onTwo.id) === 25, "account two");
+
+    useAccount(dirOne);
+    const mover = await spawn(mgr);
+    b.set(async () => reading(40));
+    await runTurn(mgr, mover.id, "reading on one");
+    await waitUntil(() => percent(mgr, mover.id) === 40, "account one");
+    // A read against account one is still in flight when the agent moves.
+    let release: ((v: SubscriptionUsageResult) => void) | null = null;
+    b.set(
+      () =>
+        new Promise<SubscriptionUsageResult>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await runTurn(mgr, mover.id, "read in flight");
+    await waitUntil(() => release !== null, "read in flight");
+
+    useAccount(dirTwo);
+    await mgr.newConversation(mover.id);
+    b.set(async () => ({ kind: "unknown" }));
+    await runTurn(mgr, mover.id, "first turn on two");
+    await waitUntil(
+      () => percent(mgr, mover.id) === 25,
+      "mover shows account two's reading",
+    );
+
+    release!(reading(63));
+    await sleep(50);
+    expect(percent(mgr, mover.id)).toBe(25);
+    expect(percent(mgr, onTwo.id)).toBe(25);
+  });
+
+  it("a sign-in or sign-out at a directory drops its reading for every agent on it", async () => {
+    const b = scriptedBackend();
+    const mgr = makeManager(b.fake);
+    const signedDir = accountDir();
+    useAccount(accountDir());
+    const elsewhere = await spawn(mgr);
+    b.set(async () => reading(25));
+    await runTurn(mgr, elsewhere.id, "other account");
+    await waitUntil(() => percent(mgr, elsewhere.id) === 25, "other account");
+
+    // The office env names the directory unnormalized; the account manager
+    // reports it resolved.
+    useAccount(`${signedDir}/`);
+    const live = await spawn(mgr);
+    const idle = await spawn(mgr);
+    b.set(async () => reading(40));
+    await runTurn(mgr, live.id, "reading");
+    await waitUntil(() => percent(mgr, idle.id) === 40, "shared");
+
+    mgr.providerAccountChanged("claude", signedDir);
+    await waitUntil(
+      () =>
+        mgr.getAgent(live.id)?.subscriptionUsage == null &&
+        mgr.getAgent(idle.id)?.subscriptionUsage == null,
+      "both agents of the directory cleared",
+    );
+    expect(percent(mgr, elsewhere.id)).toBe(25);
+    // The old account's reading is gone, not only hidden: a new agent on the
+    // directory does not pick it up.
+    const late = await spawn(mgr);
+    expect(await mgr.getAgentSubscriptionUsage(late.id)).toMatchObject({
+      available: false,
+    });
+    expect(mgr.getAgent(late.id)?.subscriptionUsage).toBeFalsy();
+
+    // The new account's first reading is shared again.
+    b.set(async () => reading(55));
+    await runTurn(mgr, live.id, "new account reading");
+    await waitUntil(
+      () => percent(mgr, idle.id) === 55 && percent(mgr, late.id) === 55,
+      "new account shared",
+    );
+  });
+
+  it("OpenCode agents do not share readings", async () => {
+    const b = scriptedBackend();
+    const mgr = makeManager(b.fake);
+    const taker = await spawn(mgr, "opencode");
+    const sibling = await spawn(mgr, "opencode");
+    b.set(async () => reading(40));
+    await runTurn(mgr, taker.id, "reading");
+    await waitUntil(() => percent(mgr, taker.id) === 40, "own reading");
+    await sleep(50);
+    expect(mgr.getAgent(sibling.id)?.subscriptionUsage).toBeFalsy();
   });
 });

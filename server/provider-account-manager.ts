@@ -117,6 +117,10 @@ export class ProviderAccountManager {
   >();
   private probes = new Map<string, Promise<ProviderAccountWire>>();
   private cacheGenerations = new Map<string, number>();
+  // Told when a sign-in or sign-out changes the account at `dir`. The office
+  // points it at the agent manager.
+  onAccountChanged: (provider: ProviderAccountProvider, dir: string) => void =
+    () => {};
 
   constructor(
     private readonly emit: (
@@ -822,6 +826,7 @@ export class ProviderAccountManager {
         memberUsageCap().invalidate(active.target.provider);
       if (active.target.provider === "claude")
         clearClaudeConnectors(active.target.dir);
+      this.onAccountChanged(active.target.provider, active.target.dir);
       this.emit(active.userId, await this.list(active.userId));
     } catch (err) {
       if (this.active.get(key) === active) {
@@ -936,6 +941,7 @@ export class ProviderAccountManager {
       this.deactivatePersonal(userId, provider);
     if (scope === "office") memberUsageCap().invalidate(provider);
     if (provider === "claude") clearClaudeConnectors(target.dir);
+    this.onAccountChanged(provider, target.dir);
 
     const affectedUsers = scope === "office" ? this.users() : [{ id: userId }];
     const prefix = `${target.key}:${scope}:`;

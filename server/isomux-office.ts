@@ -788,6 +788,9 @@ function createManagers(startOpts: StartServerOpts): void {
     undefined,
     startOpts.createClaudeAccountClient,
   );
+  // agentManager is created just below.
+  providerAccountManager.onAccountChanged = (provider, dir) =>
+    agentManager?.providerAccountChanged(provider, dir);
   agentManager =
     startOpts.agentManager ??
     createProductionAgentManager({

@@ -401,10 +401,14 @@ describe("ProviderAccountManager", () => {
       () => ({}),
       () => [{ id: "user-a" }, { id: "user-b" }],
     );
+    // Usage readings of the account in this directory go stale (task 967a09d1).
+    const changed: Array<[string, string]> = [];
+    manager.onAccountChanged = (provider, dir) => changed.push([provider, dir]);
     await manager.list("user-a");
     await manager.list("user-b");
 
     const result = await manager.disconnect("user-a", "codex", "office");
+    expect(changed).toEqual([["codex", "/tmp/isomux-codex"]]);
 
     expect(result.ok).toBe(true);
     if (result.ok)
@@ -462,8 +466,11 @@ describe("ProviderAccountManager", () => {
       () => {},
       () => order.push("deactivate"),
     );
+    const changed: Array<[string, string]> = [];
+    manager.onAccountChanged = (provider, dir) => changed.push([provider, dir]);
 
     const result = await manager.disconnect("user-a", "claude", "personal");
+    expect(changed).toEqual([["claude", home]]);
 
     expect(result.ok).toBe(true);
     if (result.ok)
@@ -1233,11 +1240,16 @@ describe("ProviderAccountManager", () => {
       () => false,
       (userId, provider) => activated.push([userId, provider]),
     );
+    const changed: Array<[string, string]> = [];
+    manager.onAccountChanged = (provider, dir) => changed.push([provider, dir]);
     await manager.startLogin("user-a", "claude", "personal", "browser");
     expect(activated).toEqual([]);
+    // Starting a sign-in changes no account; completing it does.
+    expect(changed).toEqual([]);
     complete();
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 0));
     expect(activated).toEqual([["user-a", "claude"]]);
+    expect(changed).toEqual([["claude", "/tmp/provider-homes/user-a/claude"]]);
   });
 
   it("closes and releases an abandoned Claude login after its deadline", async () => {

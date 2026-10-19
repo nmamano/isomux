@@ -118,7 +118,7 @@ before landing.
 | Provider/account authoritatively unavailable | Clear the old sample through the guarded commit path. Return `provider_unavailable`, empty windows and null sample fields. This also covers a successful response with no usable window. |
 | Transient refresh failure or unknown answer | Preserve the valid same-account sample and its observation time. Return available cache with `refresh_failed`, or unavailable with that reason if there is no sample. Do not infer that a subscription has expired. |
 | Account/provider changes while a read is pending | Clear synchronously, increment generation, and discard old-generation completions. Return `account_changed` until the new identity has a valid sample; never fall back to the old account. |
-| Account identity cannot be verified after a possible change | Quarantine the old reading and return `identity_unverified`. A failed usage RPC alone is not a possible identity change. See identity gap below. |
+| Account identity cannot be verified after a possible change | Quarantine the old reading and return `identity_unverified`. A failed usage RPC alone is not a possible identity change. See Account identity below. |
 | OpenCode | Return `provider_unavailable` without opening a session. Both current OpenCode adapter variants return unavailable (`server/backends/opencode/adapter.ts:201`, `:291`). Do not substitute token usage or cost for subscription allowance. |
 
 Reason precedence: identity change/unverified identity first; known unsupported
@@ -127,25 +127,22 @@ otherwise no measurement. A successful identity-valid sample clears an earlier
 reason. Store the last authoritative absence/identity reset reason separately
 from the sample so a later no-session read does not hide what is known.
 
-### Identity gap that must be closed
+### Account identity
 
-The current generation resets only on engine switch, cross-engine resume and
-rollback (`server/agent-manager.ts:7472`, `:7690`, `:7712`). The code does not
-prove that a same-engine CLI login or an environment credential change still
-uses the same account. The filing's claim that account changes reset the cache
-is too broad. Reusing these guards is necessary but insufficient for a promise
-that prior-account data cannot leak.
-
-Before implementation, specify an internal account binding: provider plus
-environment source/revision plus provider-auth identity when available.
-Invalidate both manager and adapter caches on a binding change, not just the
-manager value. Carry that binding and generation with every in-flight read.
-Never expose the binding in this endpoint. A changed credential source with
-no confirmed account identity must return `identity_unverified`; fresh data
-can become available once the provider confirms the new binding. Same-account
-session release retains its sample. An external CLI login that Isomux does
-not observe is a remaining limitation until the provider identity check is
-defined. Do not claim this requirement is already satisfied by the code.
+The generation resets on engine switch, cross-engine resume and rollback,
+and since task 967a09d1 also when the agent's usage account key changes and
+on a sign-in or sign-out in its directory. The key
+(`server/usage-account.ts`) is the provider, the resolved config directory
+and a hash of the variables that select an account without that directory
+(API keys, tokens, cloud switches, base URLs). A live session's key comes
+from its launch env; a session-less agent's from the root its stored
+session recorded (none for a legacy session without one) or the member's
+env. Every agent on one key shows the latest reading any of them took; an
+older observation never replaces a newer one, and an authoritative "no
+allowance" clears the whole key. `ProviderAccountManager.onAccountChanged`
+drops a directory's readings after a sign-in or sign-out there. An external
+CLI login into the same directory, which Isomux does not observe, stays a
+limitation. The key never leaves the server.
 
 ## Filing audit
 
@@ -156,7 +153,7 @@ defined. Do not claim this requirement is already satisfied by the code.
 | Fresh backend sampling needs a session | Manager sampling requires a session (`server/agent-manager.ts:3469`); that does not mean a network read is fresh. Adapter caches can answer it. |
 | Unknown/failed reads preserve last sample | Correct: catch and unknown return before commit (`server/agent-manager.ts:3478`). |
 | Authoritative unavailable clears | Correct with generation/sequence guards: `server/agent-manager.ts:3506`–`:3513`. |
-| Provider/account identity changes reset | Correct for engine transitions only; same-engine account changes are not guarded by these call sites. See identity gap. |
+| Provider/account identity changes reset | Correct for engine transitions only; same-engine account changes were not guarded by these call sites (task 967a09d1 adds the key and sign-in resets; see Account identity). |
 | Cache starts empty after restart | Correct: restored managed records initialize usage null and counters zero (`server/agent-manager.ts:1942`); fresh spawn also does (`:4880`). |
 | Codex pushed cache plus initial read fallback | Correct with qualification: `server/backends/codex/adapter.ts:1180` reads when the bucket map is empty. `:1243` single-flights but does not permanently suppress another empty-map read after settlement. Failed requests can retry. Push merge is at `:1593`. |
 | Claude throttled SDK RPC | Correct: `server/backends/claude.ts:511`; 60-second initiation interval at `:355`, shared in-flight call at `:526`, failed RPC is not cached. A normalized unknown reply can be cached because only exceptions bypass `lastUsage`. |
