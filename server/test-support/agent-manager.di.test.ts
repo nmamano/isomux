@@ -24,16 +24,14 @@ import type { RoomWire } from "../../shared/types.ts";
 import { DEFAULT_EFFORT, effortLevelsFor } from "../../shared/types.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 import {
-  loadAgents,
   ensureSessionClaudeConfigDir,
   type PersistedAgent,
 } from "../persistence.ts";
 import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "../backends/types.ts";
-import {
-  createOpenCodeBackend,
-  createOpenCodeTracerBackend,
-} from "../backends/opencode/adapter.ts";
+import { createOpenCodeBackend } from "../backends/opencode/adapter.ts";
+import { OPENCODE_AUTH_FAILURE } from "../backends/opencode/transport.ts";
+import { authSignal } from "../backends/auth-signal.ts";
 import { openCodeSupervisorForEnvironment } from "../backends/opencode/supervisor.ts";
 import { openCodeProfilePaths } from "../backends/opencode/profile-paths.ts";
 import { processIsRunning } from "../backends/opencode/process-identity.ts";
@@ -607,75 +605,6 @@ describe("AgentManager DI (temp-state isolated)", () => {
     }
   });
 
-  it("runs the OpenCode first-reply tracer through normal logs and persistence", async () => {
-    const { calls, resolveBackend } = spyResolver(
-      createOpenCodeTracerBackend(),
-    );
-    const { events, sink } = capture();
-    const mgr = createAgentManager({
-      resolveBackend,
-      officeState: new OfficeState({ rooms: rooms("room-opencode") }),
-      initialRooms: [],
-      eventSink: sink,
-    });
-    mgr.configureAgentTurnDeps();
-    const info = await mgr.spawn(
-      "OpenCode tracer",
-      STATE_ROOT,
-      "default",
-      undefined,
-      undefined,
-      "room-opencode",
-      undefined,
-      "opencode/fake",
-      "high",
-      undefined,
-      "opencode",
-    );
-    expect(info?.agentType).toBe("opencode");
-    expect(info?.dormant).toBe(true);
-    expect(calls).toContain("opencode");
-
-    const queued = mgr.enqueueMessage(info!.id, {
-      sender: { kind: "user", username: "tester" },
-      text: "hello",
-    });
-    expect(queued.ok).toBe(true);
-    const deadline = Date.now() + 2000;
-    while (
-      !mgr
-        .getAgentLogs(info!.id)
-        .some((entry) => entry.content === "OpenCode tracer reply.") &&
-      Date.now() < deadline
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-
-    expect(
-      mgr
-        .getAgentLogs(info!.id)
-        .some((entry) => entry.content === "OpenCode tracer reply."),
-    ).toBe(true);
-    expect(
-      events.some(
-        (event) =>
-          event.type === "log_entry" &&
-          event.entry.agentId === info!.id &&
-          event.entry.content === "OpenCode tracer reply.",
-      ),
-    ).toBe(true);
-    expect(mgr.listSessions(info!.id)[0]?.agentType).toBe("opencode");
-    expect(
-      loadAgents()
-        .flatMap((room) => room.agents)
-        .find((agent) => agent.id === info!.id)?.agentType,
-    ).toBe("opencode");
-    expect(await mgr.demoteToLazy(info!.id)).toBe(true);
-  });
-
-  // The gated real-server first-reply guard moved to
-  // agent-manager.opencode.live.test.ts (`bun run test:opencode`).
-
   it("uses the selected backend's stored-session fact for silent restore", async () => {
     const persisted = {
       id: "agent-opencode-empty",
@@ -810,24 +739,47 @@ describe("AgentManager DI (temp-state isolated)", () => {
     ).toBe(true);
   });
 
-  it("surfaces OpenCode missing auth as Connections guidance without a terminal card", async () => {
-    const backend = createOpenCodeTracerBackend({ failAuth: true });
+  it("surfaces OpenCode missing auth as the backend's guidance without a terminal card", async () => {
+    // The production OpenCode auth detection and guidance behind a scripted
+    // session that fails its turn the way the OpenCode transport does.
+    const opencode = createOpenCodeBackend();
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_text, _attachments, session) => {
+          for (const event of authSignal(
+            {
+              kind: "turn_completed",
+              status: "failed",
+              error: OPENCODE_AUTH_FAILURE,
+            },
+            (text) => opencode.detectAuthError(text),
+          ))
+            session.push(event);
+        },
+      },
+    });
+    Object.assign(fake, {
+      detectAuthError: (text: string) => opencode.detectAuthError(text),
+      getLoginInstructions: (
+        opts?: Parameters<Backend["getLoginInstructions"]>[0],
+      ) => opencode.getLoginInstructions(opts),
+    });
     const mgr = createAgentManager({
-      resolveBackend: () => backend,
+      resolveBackend: () => fake,
       officeState: new OfficeState({ rooms: rooms("room-opencode-auth") }),
       initialRooms: [],
     });
     mgr.configureAgentTurnDeps();
     const info = await mgr.spawn(
-      "OpenCode auth tracer",
+      "OpenCode auth",
       STATE_ROOT,
       "default",
       undefined,
       undefined,
       "room-opencode-auth",
       undefined,
-      "opencode/fake",
-      "high",
+      undefined,
+      undefined,
       undefined,
       "opencode",
     );
@@ -835,20 +787,19 @@ describe("AgentManager DI (temp-state isolated)", () => {
       sender: { kind: "user", username: "tester" },
       text: "hello",
     });
-    // The guidance names the key and the Integrations page that holds it.
-    const guidance = (content: string) =>
-      content.includes("OPENCODE_API_KEY") &&
-      content.includes("Integrations") &&
-      !content.includes("Settings →");
+    const { text: guidance } = await opencode.getLoginInstructions();
     const deadline = Date.now() + 2000;
     while (
-      !mgr.getAgentLogs(info!.id).some((entry) => guidance(entry.content)) &&
+      !mgr.getAgentLogs(info!.id).some((entry) => entry.content === guidance) &&
       Date.now() < deadline
     ) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     const logs = mgr.getAgentLogs(info!.id);
-    expect(logs.some((entry) => guidance(entry.content))).toBe(true);
+    expect(
+      logs.some((entry) => entry.content === guidance),
+      "the OpenCode guidance is logged",
+    ).toBe(true);
     expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(false);
     expect(await mgr.demoteToLazy(info!.id)).toBe(true);
   });

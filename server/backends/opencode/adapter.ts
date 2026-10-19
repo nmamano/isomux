@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import { logOpenCodeError, logOpenCodeStreamSilence } from "./errors.ts";
 // OpenCode backend boundary. The production singleton uses the pinned OC1
-// server transport. createOpenCodeTracerBackend remains as the deterministic
-// no-process test double that proved the S1a orchestrator seam.
+// server transport.
 
 import type {
   ApprovalDecision,
@@ -15,7 +14,6 @@ import type {
   CreateSessionOptions,
   ForkSessionBeforeMessageResult,
   ListModelsOptions,
-  ModelOption,
   NormalizedEvent,
   NormalizedMessage,
   OneShotOptions,
@@ -25,7 +23,6 @@ import type {
   StoredSessionState,
   SubscriptionUsageResult,
 } from "../types.ts";
-import { authSignal } from "../auth-signal.ts";
 import {
   translatorFor,
   type Translator,
@@ -34,12 +31,10 @@ import { OPENCODE_TRACER_MODEL } from "../../../shared/types.ts";
 import {
   detectOpenCodeAuthError,
   discoverOpenCodeModels,
-  OPENCODE_AUTH_FAILURE,
   OpenCodeTransport,
   splitModel,
   type OpenCodeContextBreakdown,
   type OpenCodeSafeErrorSink,
-  type OpenCodeStreamSilenceSink,
 } from "./transport.ts";
 import {
   OPENCODE_CRON_AGENT,
@@ -112,19 +107,6 @@ const CAPABILITIES: BackendCapabilities = {
   // No engine signal for a usage limit stop and its reset time.
   limitResume: false,
 };
-const TRACER_CAPABILITIES: BackendCapabilities = {
-  ...CAPABILITIES,
-  fork: false,
-  edit: false,
-  canUseTool: false,
-  topicGen: false,
-  autoHandoff: false,
-};
-
-const TRACER_MODELS: ModelOption[] = [
-  { value: OPENCODE_TRACER_MODEL, label: "OpenCode tracer" },
-];
-
 const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "default", label: "Ask" },
   { value: "bypassPermissions", label: "Bypass all permissions" },
@@ -141,15 +123,10 @@ function permissionAgent(
   return undefined;
 }
 
-interface TracerOptions {
-  failAuth?: boolean;
-}
-
 export interface OpenCodeBackendOptions {
   supervisor?: OpenCodeSupervisor;
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: OpenCodeSafeErrorSink;
-  streamSilenceSink?: OpenCodeStreamSilenceSink;
   bindingAgentSink?: (sessionId: string, agent: string | undefined) => void;
   oneShotTimeoutMs?: number;
 }
@@ -185,7 +162,6 @@ class OpenCodeServerSession implements BackendSession {
     contractShapeSink?: (shape: string) => void,
     safeErrorSink?: OpenCodeSafeErrorSink,
     private readonly onSessionId?: (sessionId: string) => void,
-    streamSilenceSink?: OpenCodeStreamSilenceSink,
   ) {
     this.agentId = opts.agentId;
     this.transport = new OpenCodeTransport({
@@ -200,7 +176,7 @@ class OpenCodeServerSession implements BackendSession {
       sessionId,
       contractShapeSink,
       safeErrorSink,
-      streamSilenceSink,
+      streamSilenceSink: logOpenCodeStreamSilence,
       words: opts.words,
       completedStepSink: (breakdown) => {
         this.latestContextBreakdown = breakdown;
@@ -313,182 +289,10 @@ export function buildOpenCodePromptParts(
   return parts;
 }
 
-class OpenCodeTracerSession implements BackendSession {
-  private readonly events: NormalizedEvent[] = [];
-  private wake: (() => void) | null = null;
-  private ended = false;
-
-  constructor(
-    private readonly sessionId: string,
-    private readonly failAuth: boolean,
-  ) {
-    this.push({
-      kind: "system_init",
-      sessionId,
-      model: OPENCODE_TRACER_MODEL,
-    });
-  }
-
-  private push(event: NormalizedEvent): void {
-    if (this.ended) return;
-    this.events.push(event);
-    const wake = this.wake;
-    this.wake = null;
-    wake?.();
-  }
-
-  async *stream(): AsyncIterable<NormalizedEvent> {
-    while (true) {
-      while (this.events.length > 0) yield this.events.shift()!;
-      if (this.ended) return;
-      await new Promise<void>((resolve) => {
-        this.wake = resolve;
-      });
-    }
-  }
-
-  async getContextUsage(): Promise<ContextUsage | null> {
-    return null;
-  }
-
-  async getSubscriptionUsage(_options?: {
-    forceRefresh?: boolean;
-  }): Promise<SubscriptionUsageResult> {
-    return { kind: "unavailable" };
-  }
-
-  async send(_text: string, _attachments?: AttachmentSpec[]): Promise<void> {
-    if (this.failAuth) {
-      for (const ev of authSignal(
-        {
-          kind: "turn_completed",
-          status: "failed",
-          error: OPENCODE_AUTH_FAILURE,
-        },
-        detectOpenCodeAuthError,
-      ))
-        this.push(ev);
-      return;
-    }
-    this.push({
-      kind: "assistant_text",
-      text: "OpenCode tracer reply.",
-    });
-    this.push({ kind: "turn_completed", status: "completed" });
-  }
-
-  async approve(
-    _approvalId: string,
-    _decision: ApprovalDecision,
-  ): Promise<void> {
-    throw new Error(
-      "OpenCode permissions are not available in the tracer backend.",
-    );
-  }
-
-  async abort(): Promise<void> {}
-
-  canAbortInPlace(): boolean {
-    return false;
-  }
-
-  close(): void {
-    if (this.ended) return;
-    this.ended = true;
-    const wake = this.wake;
-    this.wake = null;
-    wake?.();
-  }
-}
-
-export function createOpenCodeTracerBackend(
-  options: TracerOptions = {},
-): Backend {
-  let nextSessionId = 0;
-  return {
-    capabilities: TRACER_CAPABILITIES,
-
-    getModelOptions(): ModelOption[] {
-      return TRACER_MODELS;
-    },
-
-    getPermissionModes(): PermissionModeOption[] {
-      return PERMISSION_MODES;
-    },
-
-    async listModels(_opts: ListModelsOptions): Promise<BackendModel[]> {
-      return [
-        {
-          id: OPENCODE_TRACER_MODEL,
-          label: "OpenCode tracer",
-          isDefault: true,
-          supportedEfforts: [],
-        },
-      ];
-    },
-
-    createSession(_opts: CreateSessionOptions): BackendSession {
-      return new OpenCodeTracerSession(
-        `opencode-tracer-${++nextSessionId}`,
-        options.failAuth ?? false,
-      );
-    },
-
-    resumeSession(
-      sessionId: string,
-      _opts: CreateSessionOptions,
-    ): BackendSession {
-      return new OpenCodeTracerSession(sessionId, options.failAuth ?? false);
-    },
-
-    inspectStoredSession(
-      _sessionId: string,
-      _opts: { cwd: string; env?: Record<string, string | undefined> },
-    ): StoredSessionState {
-      return "durable";
-    },
-
-    checkSessionResumable(): string | null {
-      return null;
-    },
-
-    async forkSessionBeforeMessage(): Promise<ForkSessionBeforeMessageResult> {
-      return { kind: "fresh" };
-    },
-
-    async getSessionMessages(): Promise<NormalizedMessage[]> {
-      return [];
-    },
-
-    async oneShotPrompt(
-      _prompt: string,
-      _opts: OneShotOptions,
-    ): Promise<string> {
-      throw new Error(
-        "OpenCode one-shot prompts are not available in the tracer backend.",
-      );
-    },
-
-    detectAuthError(text: string): boolean {
-      return detectOpenCodeAuthError(text);
-    },
-
-    async getLoginInstructions(opts) {
-      return {
-        kind: "login",
-        cardEligible: false,
-        text: authGuidance(opts?.words),
-      };
-    },
-  };
-}
-
 export function createOpenCodeBackend(
   options: OpenCodeBackendOptions = {},
 ): Backend {
   const safeErrorSink = options.safeErrorSink ?? logOpenCodeError;
-  const streamSilenceSink =
-    options.streamSilenceSink ?? logOpenCodeStreamSilence;
   const bindings = new Map<
     string,
     {
@@ -605,7 +409,6 @@ export function createOpenCodeBackend(
         safeErrorSink,
         (sessionId) =>
           setBinding(sessionId, { cwd: opts.cwd, supervisor, model, agent }),
-        streamSilenceSink,
       );
     },
     resumeSession(
@@ -630,7 +433,6 @@ export function createOpenCodeBackend(
             model,
             agent,
           }),
-        streamSilenceSink,
       );
     },
     inspectStoredSession(sessionId, opts): StoredSessionState {
@@ -717,8 +519,6 @@ export function createOpenCodeBackend(
         undefined,
         options.contractShapeSink,
         safeErrorSink,
-        undefined,
-        streamSilenceSink,
       );
       const timeoutError = new Error("OpenCode one-shot prompt timed out.");
       let timeout: ReturnType<typeof setTimeout> | undefined;

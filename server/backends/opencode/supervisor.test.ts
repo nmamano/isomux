@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { afterAll, afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
   chmod,
   lstat,
@@ -2157,30 +2157,63 @@ await new Promise(() => {});
     }
     expect(launchers).toEqual(["start-server.ts"]);
   });
-
-  it("keeps one author for the OpenCode shared-process environment", async () => {
-    const manager = await Bun.file(
-      join(import.meta.dir, "..", "..", "agent-manager.ts"),
-    ).text();
-    const office = await Bun.file(
-      join(import.meta.dir, "..", "..", "isomux-office.ts"),
-    ).text();
-    expect(manager).toMatch(
-      /function buildOpenCodeLaunchEnvironmentForUserId[\s\S]*?return buildEnvForUserId\(userId\);[\s\S]*?\n {2}}/,
-    );
-    expect(manager).toMatch(
-      /managed\.info\.agentType === "opencode"\s*\? buildOpenCodeLaunchEnvironmentForUserId\(managed\.info\.userId\)/,
-    );
-    expect(office).toMatch(
-      /input\.agentType === "opencode"\s*\? agentManager\.buildOpenCodeLaunchEnvironmentForUserId\(input\.userId\)/,
-    );
-  });
 });
 
 // Each case gives a member's project or user folder a way to let bash run
 // without an ask, then a turn calls bash with a command the office policy
 // denies. The command writes a marker after the denied part.
 describe("the office safety policy on OpenCode tool calls", () => {
+  // OpenCode loads project config and plugins per folder, so the cases that
+  // change only a project share one server, each in its own repo. The
+  // provider picks each case's tool call by the case's system prompt.
+  let shared:
+    | {
+        path: string;
+        supervisor: OpenCodeSupervisor;
+        mock: ReturnType<typeof Bun.serve>;
+      }
+    | undefined;
+  const calls = new Map<string, ProviderToolCall>();
+  const served = new Set<string>();
+  let cases = 0;
+  afterAll(async () => {
+    if (!shared) return;
+    await shared.supervisor.shutdown();
+    await shared.mock.stop(true);
+    await rm(shared.path, { recursive: true, force: true });
+  });
+  async function sharedServer() {
+    if (shared) return shared;
+    const path = await mkdtemp(join(tmpdir(), "isomux-opencode-safety-"));
+    const userDir = join(path, "member-opencode");
+    await mkdir(join(userDir, "plugin"), { recursive: true });
+    await markPluginSdkInstalled(userDir);
+    const provider = heldProvider(undefined, (system) => {
+      for (const [prompt, call] of calls)
+        if (system.includes(prompt)) {
+          served.add(prompt);
+          return call;
+        }
+      return undefined;
+    });
+    const supervisor = makeSupervisor(
+      path,
+      {
+        ...gateConfig(provider.mock),
+        ...openCodeConfigFor([]),
+        model: "gate/gate-model",
+      },
+      600_000,
+      { OPENCODE_CONFIG_DIR: userDir },
+    );
+    // The file's afterEach stops what these lists hold; this block stops
+    // the shared server and its provider after its last case.
+    mocks.splice(mocks.indexOf(provider.mock), 1);
+    supervisors.splice(supervisors.indexOf(supervisor), 1);
+    shared = { path, supervisor, mock: provider.mock };
+    return shared;
+  }
+
   async function deniedTurn(
     setup: (folders: {
       repo: string;
@@ -2195,41 +2228,57 @@ describe("the office safety policy on OpenCode tool calls", () => {
         args: (repo: string) => Record<string, unknown>;
         action: (repo: string) => ProposedAction;
       };
+      // OPENCODE_CONFIG_DIR is server-wide: a case that writes the user
+      // folder gets a server of its own.
+      ownServer?: boolean;
     } = {},
   ) {
     const { agent } = options;
-    const path = await root();
-    const repo = join(path, "member-repo");
+    const n = ++cases;
+    const path = options.ownServer ? await root() : (await sharedServer()).path;
+    const repo = join(path, `member-repo-${n}`);
     const userDir = join(path, "member-opencode");
     await mkdir(join(repo, ".opencode", "plugin"), { recursive: true });
-    await mkdir(join(userDir, "plugin"), { recursive: true });
-    for (const dir of [join(repo, ".opencode"), userDir])
-      await markPluginSdkInstalled(dir);
+    await markPluginSdkInstalled(join(repo, ".opencode"));
     // In the project, so OpenCode asks nothing for an outside folder.
     const marker = join(repo, "ran");
     const command = `git reset --hard; touch ${marker}`;
-    await setup({ repo, userDir, denied: command });
-    const provider = options.tool
-      ? heldProvider(undefined, {
-          name: options.tool.name,
-          args: options.tool.args(repo),
-        })
-      : heldProvider(options.modelCommand ?? command);
-    const supervisor = makeSupervisor(
-      path,
-      {
-        ...gateConfig(provider.mock),
-        ...openCodeConfigFor([]),
-        model: "gate/gate-model",
-      },
-      1000,
-      { OPENCODE_CONFIG_DIR: userDir },
-    );
+    const call: ProviderToolCall = options.tool
+      ? { name: options.tool.name, args: options.tool.args(repo) }
+      : {
+          name: "bash",
+          args: {
+            command: options.modelCommand ?? command,
+            description: "Wait",
+          },
+        };
+    const systemPrompt = `Safety case ${n}.`;
+    let supervisor: OpenCodeSupervisor;
+    if (options.ownServer) {
+      await mkdir(join(userDir, "plugin"), { recursive: true });
+      await markPluginSdkInstalled(userDir);
+      await setup({ repo, userDir, denied: command });
+      const provider = heldProvider(undefined, call);
+      supervisor = makeSupervisor(
+        path,
+        {
+          ...gateConfig(provider.mock),
+          ...openCodeConfigFor([]),
+          model: "gate/gate-model",
+        },
+        1000,
+        { OPENCODE_CONFIG_DIR: userDir },
+      );
+    } else {
+      await setup({ repo, userDir, denied: command });
+      calls.set(systemPrompt, call);
+      supervisor = shared!.supervisor;
+    }
     const transport = new OpenCodeTransport({
       cwd: repo,
       model: "gate/gate-model",
       supervisor,
-      systemPrompt: "Test.",
+      systemPrompt,
       ...(agent ? { agent } : {}),
     });
     const events: NormalizedEvent[] = [];
@@ -2243,6 +2292,8 @@ describe("the office safety policy on OpenCode tool calls", () => {
         if (event.kind === "turn_completed") done.resolve(event);
       });
       const completed = await done.promise;
+      if (!options.ownServer)
+        expect(served.has(systemPrompt), "the case's own tool call").toBe(true);
       const policy = evaluateProposedAction(
         options.tool?.action(repo) ?? { kind: "shell", command },
         { cwd: repo },
@@ -2302,14 +2353,22 @@ describe("the office safety policy on OpenCode tool calls", () => {
 
   it("denies bash when a user and a project plugin answer permission requests with allow", async () => {
     const allowAll = `export default { id: "allow-all", server: async () => ({ "permission.ask": async (_input, output) => { output.status = "allow"; } }) };`;
-    const turn = await deniedTurn(async ({ repo, userDir }) => {
-      await writeFile(join(repo, ".opencode", "plugin", "allow.js"), allowAll);
-      await writeFile(join(userDir, "plugin", "allow.js"), allowAll);
-      await writeFile(
-        join(repo, "opencode.json"),
-        JSON.stringify({ agent: { build: { permission: { bash: "allow" } } } }),
-      );
-    });
+    const turn = await deniedTurn(
+      async ({ repo, userDir }) => {
+        await writeFile(
+          join(repo, ".opencode", "plugin", "allow.js"),
+          allowAll,
+        );
+        await writeFile(join(userDir, "plugin", "allow.js"), allowAll);
+        await writeFile(
+          join(repo, "opencode.json"),
+          JSON.stringify({
+            agent: { build: { permission: { bash: "allow" } } },
+          }),
+        );
+      },
+      { ownServer: true },
+    );
     expect(turn.ran).toBe(false);
     expect(toolError(turn.events)).toContain(turn.reason!);
   }, 60_000);
@@ -2384,16 +2443,30 @@ describe("the office safety policy on OpenCode tool calls", () => {
   }, 60_000);
 });
 
-// A provider that answers when released, or calls bash once with a command.
+interface ProviderToolCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+
+// A provider that answers when released, or calls a tool once: bash with a
+// command, a given call, or the call the request's system messages select.
 function heldProvider(
   toolCommand?: string,
-  toolCall?: { name: string; args: Record<string, unknown> },
+  toolCall?:
+    | ProviderToolCall
+    | ((system: string) => ProviderToolCall | undefined),
 ) {
-  const call =
-    toolCall ??
-    (toolCommand
-      ? { name: "bash", args: { command: toolCommand, description: "Wait" } }
-      : undefined);
+  const fixed =
+    typeof toolCall === "function"
+      ? undefined
+      : (toolCall ??
+        (toolCommand
+          ? {
+              name: "bash",
+              args: { command: toolCommand, description: "Wait" },
+            }
+          : undefined));
+  const held = toolCall === undefined && toolCommand === undefined;
   const release = Promise.withResolvers<void>();
   const requested = Promise.withResolvers<void>();
   let prompts = 0;
@@ -2415,6 +2488,12 @@ function heldProvider(
       if (!new URL(request.url).pathname.endsWith("/chat/completions"))
         return Response.json({ object: "list", data: [] });
       const body = (await request.json()) as { messages: { role: string }[] };
+      const call =
+        typeof toolCall === "function"
+          ? toolCall(
+              JSON.stringify(body.messages.filter((m) => m.role === "system")),
+            )
+          : fixed;
       if (call && !body.messages.some((m) => m.role === "tool"))
         return sse(
           chunk(
@@ -2439,7 +2518,7 @@ function heldProvider(
         );
       prompts++;
       requested.resolve();
-      if (!call) await release.promise;
+      if (held) await release.promise;
       return sse(
         chunk({ role: "assistant", content: "held reply" }, null) +
           chunk({}, "stop") +

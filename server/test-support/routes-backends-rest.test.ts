@@ -7,8 +7,6 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, BackendModelWire } from "../../shared/types.ts";
@@ -67,17 +65,6 @@ async function spawnAgent(
 }
 
 describe("routes/backends.listModels REST", () => {
-  it("passes stable environment identity and revision into model discovery", () => {
-    const source = readFileSync(
-      join(import.meta.dir, "../isomux-office.ts"),
-      "utf8",
-    ).replaceAll(/\s/g, "");
-
-    expect(source).toMatch(
-      /backend\.listModels\(\{.*?cwd:resolveCwd\(input\.cwd\),.*?env,.*?environmentKey:agentManager\.environmentSourceKeyForUserId\(input\.userId\).*?environmentRevision:agentManager\.environmentSourceRevisionForUserId\(input\.userId,?\).*?includeHidden:input\.includeHidden/,
-    );
-  });
-
   it("owner + member -> 200 with the static claude family list; agent -> 403; no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;

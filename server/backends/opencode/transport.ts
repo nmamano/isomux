@@ -1879,8 +1879,8 @@ export class OpenCodeTransport {
   private async classifyProviderFailure(
     error: SafeOpenCodeError,
   ): Promise<OpenCodeProviderFailure> {
-    if (error.statusCode === 401 || error.statusCode === 403)
-      return classifyOpenCodeError(error, this.model, []);
+    if (error.statusCode === 403) return "model_unavailable";
+    if (error.statusCode === 401) return "authentication";
     if (
       error.name !== "UnknownError" ||
       !error.message?.startsWith(openCodeModelNotFoundPrefix(this.model))
@@ -1889,7 +1889,9 @@ export class OpenCodeTransport {
     try {
       const response = await this.request("/provider");
       const connected = allowConnectedProviders(await response.json());
-      return classifyOpenCodeError(error, this.model, connected);
+      return connected.includes(splitModel(this.model)[0])
+        ? "model_unavailable"
+        : "authentication";
     } catch {
       return null;
     }
@@ -2241,7 +2243,7 @@ function allowTransportError(error: unknown): SafeOpenCodeError {
     typeof value.name === "string" && names.includes(value.name)
       ? value.name
       : "UnknownError";
-  const status = value.statusCode ?? value.status;
+  const status = value.statusCode;
   const codes = [
     "ConnectionRefused",
     "ECONNREFUSED",
@@ -2501,22 +2503,6 @@ export type OpenCodeProviderFailure =
   | "authentication"
   | "model_unavailable"
   | null;
-
-function classifyOpenCodeError(
-  error: SafeOpenCodeError,
-  selectedModel: string,
-  connectedProviders: string[],
-): OpenCodeProviderFailure {
-  if (error.statusCode === 403) return "model_unavailable";
-  if (error.statusCode === 401) return "authentication";
-  if (error.name !== "UnknownError" || !error.message) return null;
-  const providerID = splitModel(selectedModel)[0];
-  if (!error.message.startsWith(openCodeModelNotFoundPrefix(selectedModel)))
-    return null;
-  return connectedProviders.includes(providerID)
-    ? "model_unavailable"
-    : "authentication";
-}
 
 function allowConnectedProviders(raw: unknown): string[] {
   const connected = asRecord(raw).connected;

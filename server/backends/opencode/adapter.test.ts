@@ -13,6 +13,7 @@ import {
 import { OpenCodeSupervisor } from "./supervisor.ts";
 import {
   OPENCODE_AUTH_FAILURE,
+  OPENCODE_EVENT_STREAM_DEADLINE_MS,
   openCodeModelUnavailableFailure,
 } from "./transport.ts";
 import { STATE_ROOT } from "../../config.ts";
@@ -424,6 +425,120 @@ describe("OpenCode pinned transport", () => {
     } finally {
       logged.mockRestore();
     }
+  });
+
+  it("journals a silent event stream through the default production sink", async () => {
+    // The stream deadline is virtual; every other timer keeps its real clock.
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    const deadlines = new Map<unknown, () => void>();
+    const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: Bun.TimerHandler,
+      ms?: number,
+      ...args: unknown[]
+    ) => {
+      if (ms !== OPENCODE_EVENT_STREAM_DEADLINE_MS)
+        return realSetTimeout(fn, ms, ...args);
+      // A real handle keeps clearTimeout's contract without a live deadline.
+      const handle = realSetTimeout(() => {}, 2_147_483_647);
+      deadlines.set(handle, () => (fn as (...a: unknown[]) => void)(...args));
+      return handle;
+    }) as typeof setTimeout);
+    const clear = spyOn(globalThis, "clearTimeout").mockImplementation((id) => {
+      deadlines.delete(id);
+      (realClearTimeout as (value: typeof id) => void)(id);
+    });
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    cleanup.push(() => {
+      for (const handle of deadlines.keys())
+        realClearTimeout(handle as ReturnType<typeof setTimeout>);
+      timer.mockRestore();
+      clear.mockRestore();
+      logged.mockRestore();
+    });
+    // The stream answers and then sends nothing. A health probe gets a 404,
+    // so the silence ends with the server marked.
+    const requests: string[] = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        const { pathname } = new URL(request.url);
+        requests.push(pathname);
+        if (pathname === "/provider")
+          return Response.json({
+            connected: ["gate"],
+            all: [
+              { id: "gate", name: "Gate", models: { free: { name: "Free" } } },
+            ],
+          });
+        if (pathname === "/session" && request.method === "POST")
+          return Response.json({ id: "silent-session" });
+        if (pathname === "/event")
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(": connected\n\n");
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        if (pathname === "/experimental/tool/ids")
+          return Response.json([OPENCODE_SAFETY_TOOL]);
+        if (pathname.endsWith("/prompt_async")) return Response.json(true);
+        return new Response("not found", { status: 404 });
+      },
+    });
+    cleanup.push(() => server.stop(true));
+    const supervisor = {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authHeader: "Basic test",
+        settle: () => {},
+        beginTurn: async () => {},
+        endTurn: () => {},
+        serverStopped: () => false,
+        markUnresponsive: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor;
+    const backend = createOpenCodeBackend({ supervisor });
+    const session = backend.createSession({
+      ...opts,
+      modelFamily: "gate/free",
+    });
+    try {
+      await session.send("wait");
+      const until = Date.now() + 2_000;
+      while (
+        !requests.some((path) => path.endsWith("/prompt_async")) ||
+        deadlines.size !== 1
+      ) {
+        if (Date.now() > until) break;
+        await Bun.sleep(5);
+      }
+      expect(
+        requests.some((path) => path.endsWith("/prompt_async")),
+        "the prompt went out",
+      ).toBe(true);
+      expect(deadlines.size, "one armed stream deadline").toBe(1);
+      for (const fire of [...deadlines.values()]) fire();
+      for await (const event of session.stream()) {
+        if (event.kind === "turn_completed") {
+          expect(event.status).toBe("failed");
+          break;
+        }
+      }
+    } finally {
+      session.close();
+    }
+    const silences = logged.mock.calls.filter(
+      (args) =>
+        args[0] === "[opencode]" &&
+        JSON.parse(String(args[1])).event === "event_stream_silent",
+    );
+    expect(silences).toHaveLength(1);
   });
 
   const topicFrames = [

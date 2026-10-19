@@ -116,6 +116,7 @@ describe("OpenCode server record lock", () => {
     const owner = supervisor(path, binary);
     const recordPath = join(path, "profile", "server.lock");
     await mkdir(join(path, "profile"), { recursive: true });
+    // The holder keeps the lock until its stdin closes.
     const holder =
       process.platform === "darwin"
         ? Bun.spawn(
@@ -125,9 +126,9 @@ describe("OpenCode server record lock", () => {
               `const { lockDarwinFileUntilExit } = await import(${JSON.stringify(join(import.meta.dir, "darwin-libsystem.ts"))});
 if (!lockDarwinFileUntilExit(${JSON.stringify(recordPath)})) process.exit(9);
 console.log("locked");
-await Bun.sleep(1500);`,
+await Bun.stdin.text();`,
             ],
-            { stdout: "pipe" },
+            { stdin: "pipe", stdout: "pipe" },
           )
         : Bun.spawn(
             [
@@ -136,18 +137,25 @@ await Bun.sleep(1500);`,
               recordPath,
               "sh",
               "-c",
-              "echo locked; sleep 1.5",
+              "echo locked; cat > /dev/null",
             ],
-            { stdout: "pipe" },
+            { stdin: "pipe", stdout: "pipe" },
           );
     const reader = holder.stdout.getReader();
     const { value } = await reader.read();
     expect(new TextDecoder().decode(value).trim()).toBe("locked");
-    const started = performance.now();
-    await owner.shutdown();
-    const waited = performance.now() - started;
+    let released = false;
+    let settled = false;
+    const shutdown = owner.shutdown().then(() => {
+      settled = true;
+      return released;
+    });
+    await Bun.sleep(200);
+    expect(settled, "shutdown still waits for the lock").toBe(false);
+    released = true;
+    await holder.stdin.end();
+    expect(await shutdown, "shutdown ended after the holder let go").toBe(true);
     expect(await holder.exited).toBe(0);
-    expect(waited).toBeGreaterThan(1000);
   }, 30_000);
 
   it("never signals a process whose saved identity does not match", async () => {
