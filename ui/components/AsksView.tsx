@@ -124,7 +124,12 @@ export function AsksView({
                   </span>
                 </div>
                 {entries.map((entry) => (
-                  <AskCard key={entry.id} entry={entry} isMobile={isMobile} />
+                  <AskCard
+                    key={entry.id}
+                    entry={entry}
+                    isMobile={isMobile}
+                    onFocusAgent={onFocusAgent}
+                  />
                 ))}
               </section>
             ))

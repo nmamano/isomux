@@ -628,6 +628,8 @@ export function LogView({
     isMobile,
     connected,
     sidePanels,
+    pendingEditorPaths,
+    pendingTerminalCommands,
     presences,
     sessionContext,
     interactions,
@@ -704,9 +706,6 @@ export function LogView({
     readPanelWidth("editor", 600),
   );
   const terminalContainerRef = useRef<HTMLDivElement>(null);
-  const [pendingTerminalCommand, setPendingTerminalCommand] = useState<
-    string | null
-  >(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const commitTerminalWidth = useCallback((w: number) => {
     setTerminalWidth(w);
@@ -781,36 +780,29 @@ export function LogView({
     },
     [dispatch, agent.id, sidePanels],
   );
-  // Path to focus when the editor is opened or re-targeted. Cleared after the
-  // panel reads it so the user can later switch to other tabs without
-  // jumping back here.
-  const [editorInitialPath, setEditorInitialPath] = useState<string | null>(
-    null,
-  );
+  // Path to focus when the editor is opened or re-targeted, and the command
+  // the terminal panel sends after it receives the first owner event. Both
+  // live in the store per agent, so an ask card on the Inbox can set them
+  // before this chat mounts; the panel clears each once it has used it.
+  const editorInitialPath = pendingEditorPaths.get(agent.id) ?? null;
+  const pendingTerminalCommand = pendingTerminalCommands.get(agent.id) ?? null;
   const openInEditor = useCallback(
-    (path: string) => {
-      setEditorInitialPath(path);
-      dispatch({ type: "set_side_panel", agentId: agent.id, panel: "editor" });
-    },
+    (path: string) =>
+      dispatch({ type: "open_in_editor", agentId: agent.id, path }),
     [dispatch, agent.id],
   );
-  // The panel owns terminal status and sends this command after it receives the
-  // first owner event. Repeated clicks replace this pending value, so a cold
-  // panel opens with one command instead of racing a mount timer.
   const copyToTerminal = useCallback(
-    (command: string) => {
-      setPendingTerminalCommand(command);
-      dispatch({
-        type: "set_side_panel",
-        agentId: agent.id,
-        panel: "terminal",
-      });
-    },
+    (command: string) =>
+      dispatch({ type: "copy_to_terminal", agentId: agent.id, command }),
     [dispatch, agent.id],
   );
   const handleTerminalCommandHandled = useCallback(
-    () => setPendingTerminalCommand(null),
-    [],
+    () => dispatch({ type: "terminal_command_handled", agentId: agent.id }),
+    [dispatch, agent.id],
+  );
+  const handleEditorPathOpened = useCallback(
+    () => dispatch({ type: "editor_path_opened", agentId: agent.id }),
+    [dispatch, agent.id],
   );
   const [showAvatar, setShowAvatar] = useState(
     () => localStorage.getItem("isomux-show-avatar") !== "false",
@@ -3266,7 +3258,7 @@ export function LogView({
               agentId={agent.id}
               initialPath={editorInitialPath}
               onClose={() => setEditorOpen(false)}
-              onPathOpened={() => setEditorInitialPath(null)}
+              onPathOpened={handleEditorPathOpened}
               onCite={insertBlockIntoDraft}
             />
           </div>
@@ -3337,7 +3329,7 @@ export function LogView({
             agentId={agent.id}
             initialPath={editorInitialPath}
             onClose={() => setEditorOpen(false)}
-            onPathOpened={() => setEditorInitialPath(null)}
+            onPathOpened={handleEditorPathOpened}
             // Full-screen overlay over the composer: close it, as the
             // terminal does, so the inserted cite is visible.
             onCite={(block) => {

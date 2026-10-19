@@ -105,6 +105,20 @@ const BASE = {
   updatedAt: 1,
 };
 
+// One of each chat affordance, in the stored form.
+const AFFORDANCES = {
+  commands: ["bun test"],
+  editFiles: [{ cwd: "/w", path: "/w/notes.md" }],
+  readFiles: [
+    {
+      filename: "ab12.png",
+      originalName: "plot.png",
+      mediaType: "image/png",
+      size: 7,
+    },
+  ],
+};
+
 describe("the three shapes", () => {
   // Plain and personal secret asks name one member; an office secret ask
   // names none. Any other mix is a corrupt file.
@@ -190,6 +204,53 @@ describe("the three shapes", () => {
       },
       false,
     ],
+    // Chat affordances: the shape is checked on load, the bounds on write.
+    [
+      "commands, editor files and read files",
+      { ...BASE, memberUserId: "u1", ...AFFORDANCES },
+      true,
+    ],
+    [
+      "more affordances than a write takes",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        commands: Array.from({ length: 11 }, (_, i) => `echo ${i}`),
+      },
+      true,
+    ],
+    ["empty commands", { ...BASE, memberUserId: "u1", commands: [] }, false],
+    [
+      "commands not a list",
+      { ...BASE, memberUserId: "u1", commands: "ls" },
+      false,
+    ],
+    [
+      "an editor file with no path",
+      { ...BASE, memberUserId: "u1", editFiles: [{ cwd: "/w" }] },
+      false,
+    ],
+    [
+      "a read file with no filename",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        readFiles: [{ originalName: "a.png", mediaType: "image/png", size: 1 }],
+      },
+      false,
+    ],
+    ...(["commands", "editFiles", "readFiles"] as const).map(
+      (key): [string, unknown, boolean] => [
+        `secret with ${key}`,
+        {
+          ...BASE,
+          memberUserId: "u1",
+          secret: { ...SECRET, scope: "personal" },
+          [key]: AFFORDANCES[key],
+        },
+        false,
+      ],
+    ),
   ];
   for (const [label, entry, loads] of shapes)
     it(`${loads ? "loads" : "moves aside"} a file with a ${label} entry`, () => {

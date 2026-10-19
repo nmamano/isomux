@@ -50,6 +50,7 @@ export function TerminalCommandCard({
         </span>
         <CopyButton getText={getText} />
         <button
+          data-panel-action=""
           onClick={() => onCopy(payload.command)}
           style={{
             padding: "4px 12px",

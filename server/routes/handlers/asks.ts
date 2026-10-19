@@ -25,12 +25,25 @@ import {
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import { ASK_DISMISSED_TEXT, type AskEntry } from "../../../shared/types.ts";
+import {
+  MAX_READ_FILE_BYTES,
+  TERMINAL_COMMAND_MAX_LEN,
+  type CommandCheck,
+  type EditFileCheck,
+  type PathRefusal,
+  type ReadFileCheck,
+} from "../../affordance-checks.ts";
+import type { AskReadFileCopy } from "../../agent-manager.ts";
 import type { AskAgentWire } from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
   askVisibleTo,
   AsksUnavailableError,
+  ASK_AFFORDANCE_KEYS,
+  ASK_AFFORDANCES_MAX,
   ASK_MAX_OPEN_PER_AGENT,
+  type AskAffordanceEdit,
+  type AskAffordances,
   checkOptions,
   checkPrompt,
   type AskAudienceDeps,
@@ -58,6 +71,14 @@ export interface AsksDeps {
   // Whether a member can reach a room.
   memberCanSeeRoom(userId: string, roomId: string): boolean;
   isOfficeOwner(userId: string): boolean;
+  // An ask's chat affordances: the chat's checks, paths against the agent's
+  // cwd, and the copy of a read file. Null when the agent is gone.
+  affordances: {
+    checkCommand(raw: string): CommandCheck;
+    probeEditFile(agentId: string, rawPath: string): EditFileCheck | null;
+    probeReadFile(agentId: string, rawPath: string): ReadFileCheck | null;
+    copyReadFile(agentId: string, absPath: string): AskReadFileCopy | null;
+  };
   // Deliver the member's message to the agent, carrying the ask.
   // Resolves at the acceptance decision, as a typed member message does.
   deliver(
@@ -66,6 +87,52 @@ export interface AsksDeps {
     text: string,
     opts: { dismissed: boolean; device: string | undefined },
   ): Promise<UserSendAcceptance>;
+}
+
+type HandlerResult = Awaited<ReturnType<RouteHandler>>;
+
+const COMMAND_REFUSALS: Record<
+  Exclude<CommandCheck, { ok: true }>["kind"],
+  string
+> = {
+  empty: "a command must not be empty",
+  too_long: `a command must be at most ${TERMINAL_COMMAND_MAX_LEN} characters`,
+  multi_line: "a command must be one line; join steps with && or ;",
+};
+
+// An ask's refused path as an HTTP error: a credential store is forbidden,
+// anything else is the affordance's own 422.
+function pathRefused(
+  refusal: Pick<PathRefusal, "kind" | "path" | "size" | "message">,
+  code: "invalid_edit_file" | "invalid_read_file",
+): HandlerResult {
+  const { path } = refusal;
+  switch (refusal.kind) {
+    case "credential":
+      return fail(
+        403,
+        "forbidden_path",
+        `${path} is a credential store. An ask cannot show it.`,
+      );
+    case "bad_path":
+      return fail(422, code, "a path must not be empty");
+    case "not_found":
+      return fail(422, code, `${path} does not exist`);
+    case "not_file":
+      return fail(422, code, `${path} is not a file`);
+    case "binary":
+      return fail(422, code, `${path} is binary; the editor opens text only`);
+    case "too_large":
+      return fail(
+        422,
+        code,
+        code === "invalid_read_file"
+          ? `${path} is ${refusal.size} bytes, over ${MAX_READ_FILE_BYTES}`
+          : `${path} is ${refusal.size} bytes, too large for the editor`,
+      );
+    case "io_error":
+      return fail(422, code, `cannot read ${path}: ${refusal.message ?? ""}`);
+  }
 }
 
 function guarded(handler: RouteHandler): RouteHandler {
@@ -127,6 +194,121 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     fail(422, "invalid_options", message);
   const secretRequest = (message: string) =>
     fail(409, "secret_request", message);
+  const tooManyAsks = () =>
+    fail(
+      429,
+      "too_many_asks",
+      `At most ${ASK_MAX_OPEN_PER_AGENT} open asks per agent. Delete one first.`,
+    );
+
+  const invalidAffordances = (message: string) =>
+    fail(422, "invalid_affordances", message);
+
+  // The lists a create or edit sends, before any path is looked at: each a
+  // list of strings, an empty list only on an edit (it removes the list), and
+  // at most ASK_AFFORDANCES_MAX in total with the lists an edit keeps.
+  function affordanceLists(
+    body: Record<string, unknown>,
+    prev: AskEntry | null,
+  ):
+    | { ok: true; lists: { [K in keyof AskAffordances]?: string[] } }
+    | { ok: false; result: HandlerResult } {
+    const lists: { [K in keyof AskAffordances]?: string[] } = {};
+    let total = 0;
+    for (const key of ASK_AFFORDANCE_KEYS) {
+      const value = body[key];
+      if (value === undefined) {
+        total += prev?.[key]?.length ?? 0;
+        continue;
+      }
+      if (!Array.isArray(value) || !value.every((v) => typeof v === "string"))
+        return {
+          ok: false,
+          result: invalidAffordances(`${key} must be a list of strings`),
+        };
+      if (value.length === 0 && !prev)
+        return {
+          ok: false,
+          result: invalidAffordances(`${key} must not be empty`),
+        };
+      lists[key] = value;
+      total += value.length;
+    }
+    if (total > ASK_AFFORDANCES_MAX)
+      return {
+        ok: false,
+        result: invalidAffordances(
+          `an ask takes at most ${ASK_AFFORDANCES_MAX} commands and files in total`,
+        ),
+      };
+    return { ok: true, lists };
+  }
+
+  // The chat's checks on every sent item, then the copies of the read
+  // files: a refusal before the copies leaves the files dir as it was. A
+  // sent empty list becomes null (remove).
+  function resolveAffordances(
+    agentId: string,
+    lists: { [K in keyof AskAffordances]?: string[] },
+  ):
+    | { ok: true; affordances: AskAffordanceEdit }
+    | { ok: false; result: HandlerResult } {
+    const gone = {
+      ok: false as const,
+      result: fail(404, "not_found", "No such agent."),
+    };
+    const out: AskAffordanceEdit = {};
+    const commands: string[] = [];
+    for (const raw of lists.commands ?? []) {
+      const checked = deps.affordances.checkCommand(raw);
+      if (!checked.ok)
+        return {
+          ok: false,
+          result: fail(422, "invalid_command", COMMAND_REFUSALS[checked.kind]),
+        };
+      commands.push(checked.command);
+    }
+    const editFiles = [];
+    for (const raw of lists.editFiles ?? []) {
+      const probe = deps.affordances.probeEditFile(agentId, raw);
+      if (!probe) return gone;
+      if (!probe.ok)
+        return { ok: false, result: pathRefused(probe, "invalid_edit_file") };
+      editFiles.push(probe.file);
+    }
+    const readPaths: string[] = [];
+    for (const raw of lists.readFiles ?? []) {
+      const probe = deps.affordances.probeReadFile(agentId, raw);
+      if (!probe) return gone;
+      if (!probe.ok)
+        return { ok: false, result: pathRefused(probe, "invalid_read_file") };
+      readPaths.push(probe.path);
+    }
+    const readFiles = [];
+    for (const path of readPaths) {
+      const copied = deps.affordances.copyReadFile(agentId, path);
+      if (!copied) return gone;
+      if (!copied.ok)
+        return {
+          ok: false,
+          result:
+            copied.kind === "save_failed"
+              ? fail(
+                  422,
+                  "invalid_read_file",
+                  `could not save a copy of ${path}`,
+                )
+              : pathRefused(copied, "invalid_read_file"),
+        };
+      readFiles.push(copied.attachment);
+    }
+    if (lists.commands) out.commands = commands.length > 0 ? commands : null;
+    if (lists.editFiles)
+      out.editFiles = editFiles.length > 0 ? editFiles : null;
+    if (lists.readFiles)
+      out.readFiles = readFiles.length > 0 ? readFiles : null;
+    return { ok: true, affordances: out };
+  }
 
   const answer =
     (dismissed: boolean): RouteHandler =>
@@ -200,6 +382,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         if (!checkedOptions.ok) return invalidOptions(checkedOptions.message);
         options = checkedOptions.options;
       }
+      const lists = affordanceLists(body, null);
+      if (!lists.ok) return lists.result;
       const agent = deps.agent(ctx.params.id);
       if (!agent) return fail(404, "not_found", "No such agent.");
       let memberUserId: string;
@@ -223,20 +407,21 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           "member_no_access",
           "That member cannot reach this agent's room.",
         );
+      if (store.listForAgent(ctx.params.id).length >= ASK_MAX_OPEN_PER_AGENT)
+        return tooManyAsks();
+      const resolved = resolveAffordances(ctx.params.id, lists.lists);
+      if (!resolved.ok) return resolved.result;
       const result = store.create({
         agentId: ctx.params.id,
         memberUserId,
         prompt: checked.prompt,
         ...(body.link !== undefined ? { link: body.link as string } : {}),
         ...(options ? { options } : {}),
+        // On a create every sent list is non-empty, so none is null.
+        affordances: resolved.affordances as AskAffordances,
         ...(agent.sessionId ? { sessionId: agent.sessionId } : {}),
       });
-      if (!result.ok)
-        return fail(
-          429,
-          "too_many_asks",
-          `At most ${ASK_MAX_OPEN_PER_AGENT} open asks per agent. Delete one first.`,
-        );
+      if (!result.ok) return tooManyAsks();
       return created(wire(result.entry));
     }),
 
@@ -275,11 +460,16 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         return secretRequest(
           "A secret request cannot be edited. Delete it to withdraw it.",
         );
+      const lists = affordanceLists(body, prev);
+      if (!lists.ok) return lists.result;
+      const resolved = resolveAffordances(ctx.params.id, lists.lists);
+      if (!resolved.ok) return resolved.result;
       const entry = store.edit(
         ctx.params.askId,
         checked.prompt,
         body.link === "" ? null : (body.link as string | undefined),
         options,
+        resolved.affordances,
       );
       return entry ? ok(wire(entry)) : notFound();
     }),

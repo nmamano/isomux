@@ -4,7 +4,14 @@
 // linked to the ask. FakeBackend only.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { readFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  truncateSync,
+  writeFileSync,
+} from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -13,6 +20,7 @@ import { getUserByName, updateUserById } from "../users.ts";
 import { askReplyNote } from "../asks.ts";
 import { ASK_DISMISSED_TEXT } from "../routes/handlers/asks.ts";
 import type { AskEntry, AgentInfo } from "../../shared/types.ts";
+import type { AskAgentWire } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
 
@@ -1392,5 +1400,307 @@ describe("a secret request is an ask", () => {
     expect(
       (await save(w.srv, w.asker.id, requestId, w.owner.rawSessionId)).status,
     ).toBe(404);
+  });
+});
+
+describe("chat affordances on an ask", () => {
+  // The case that prompted the task: a git command with spaces, && and dashes.
+  const CMD = "git branch -D t-a t-b && git push origin --delete t-a t-b";
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+  const stored = (w: Awaited<ReturnType<typeof world>>, id: string) =>
+    (
+      JSON.parse(
+        readFileSync(join(w.srv.stateRoot, "asks.json"), "utf-8"),
+      ) as AskEntry[]
+    ).find((e) => e.id === id);
+  // Files in the agent's cwd, which is the temp state root.
+  function seed(w: Awaited<ReturnType<typeof world>>) {
+    const cwd = agentOf(w.srv, w.asker.id).cwd;
+    writeFileSync(join(cwd, "plot.png"), PNG);
+    writeFileSync(join(cwd, "notes.md"), "# notes\n");
+    writeFileSync(join(cwd, "other.md"), "other\n");
+    writeFileSync(join(cwd, "third.md"), "third\n");
+    return cwd;
+  }
+  const filesDir = (w: Awaited<ReturnType<typeof world>>) => {
+    const dir = join(w.srv.stateRoot, "logs", w.asker.id, "files");
+    return existsSync(dir) ? readdirSync(dir).sort() : [];
+  };
+  const affordances = (e: AskEntry) => ({
+    commands: e.commands ?? null,
+    editFiles: e.editFiles ?? null,
+    readFiles:
+      e.readFiles?.map((a) => [a.originalName, a.mediaType, a.size]) ?? null,
+  });
+
+  it("takes a command, an editor file and a read file through the query, and the member sees them", async () => {
+    const w = await world();
+    const cwd = seed(w);
+    const ws = await w.srv.connectWs(w.owner.rawSessionId);
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const made = await call(
+      w.srv,
+      "POST",
+      `${base}?command=${encodeURIComponent(`${CMD}  `)}&editFile=notes.md&readFile=plot.png&readFile=${encodeURIComponent(join(cwd, "notes.md"))}`,
+      w.as(w.asker.id),
+      { text: "Delete the merged branches?\n" },
+    );
+    expect(made.status).toBe(201);
+    const entry = made.body as AskEntry;
+    // Trailing whitespace trimmed; a relative path resolves against the
+    // agent's cwd; the list keeps its order.
+    const want = {
+      commands: [CMD],
+      editFiles: [{ cwd, path: join(cwd, "notes.md") }],
+      readFiles: [
+        ["plot.png", "image/png", PNG.length],
+        ["notes.md", expect.any(String), 8],
+      ],
+    };
+    expect(affordances(entry)).toEqual(want);
+    expect(
+      affordances((await ws.waitFor("ask_upserted")).entry as AskEntry),
+    ).toEqual(want);
+    expect(affordances(stored(w, entry.id)!)).toEqual(want);
+    const [listed] = (
+      await call(w.srv, "GET", "/api/asks", {
+        rawSessionId: w.owner.rawSessionId,
+      })
+    ).body as AskEntry[];
+    expect(affordances(listed)).toEqual(want);
+
+    // The chip is a snapshot: the agent rewrites the file after the ask, and
+    // the member still gets the bytes the agent meant.
+    writeFileSync(join(cwd, "plot.png"), "changed");
+    const res = await w.srv.http(
+      `/api/files/${w.asker.id}/${entry.readFiles![0].filename}`,
+      { method: "GET", rawSessionId: w.owner.rawSessionId },
+    );
+    expect(res.status).toBe(200);
+    expect(Buffer.from(await res.arrayBuffer()).equals(PNG)).toBe(true);
+  });
+
+  it("takes them as JSON too, with absolute paths", async () => {
+    const w = await world();
+    const cwd = seed(w);
+    const made = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/asks`,
+      w.as(w.asker.id),
+      {
+        json: {
+          text: "Look?",
+          commands: ["bun test", "ls -la\t"],
+          editFiles: [join(cwd, "notes.md")],
+          readFiles: [join(cwd, "plot.png")],
+        },
+      },
+    );
+    expect(made.status).toBe(201);
+    expect(affordances(made.body as AskEntry)).toEqual({
+      commands: ["bun test", "ls -la"],
+      editFiles: [{ cwd, path: join(cwd, "notes.md") }],
+      readFiles: [["plot.png", "image/png", PNG.length]],
+    });
+  });
+
+  it("an edit keeps a list it omits, replaces one it sends, and removes one with [] or a lone empty value", async () => {
+    const w = await world();
+    const cwd = seed(w);
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const made = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: {
+        text: "Look?",
+        commands: [CMD],
+        editFiles: ["notes.md"],
+        readFiles: ["plot.png"],
+      },
+    });
+    const id = (made.body as AskEntry).id;
+    const patch = (path: string, body: { json?: unknown; text?: string }) =>
+      call(w.srv, "PATCH", `${base}/${id}${path}`, w.as(w.asker.id), body);
+    const full = affordances(made.body as AskEntry);
+
+    // Text only, and a link change: all three stay.
+    expect(
+      affordances((await patch("", { text: "Look now?" })).body as AskEntry),
+    ).toEqual(full);
+    expect(
+      affordances(
+        (await patch("?link=/tasks", { text: "Look?" })).body as AskEntry,
+      ),
+    ).toEqual(full);
+
+    // A list replaces that list only. A new read file is a new snapshot.
+    writeFileSync(join(cwd, "plot.png"), Buffer.concat([PNG, PNG]));
+    const replaced = await patch("", {
+      json: {
+        text: "Look?",
+        commands: ["bun test"],
+        readFiles: ["plot.png"],
+      },
+    });
+    expect(replaced.status).toBe(200);
+    expect(affordances(replaced.body as AskEntry)).toEqual({
+      commands: ["bun test"],
+      editFiles: full.editFiles,
+      readFiles: [["plot.png", "image/png", PNG.length * 2]],
+    });
+    const query = await patch(`?editFile=other.md&editFile=notes.md`, {
+      text: "Look?",
+    });
+    expect((query.body as AskEntry).editFiles).toEqual([
+      { cwd, path: join(cwd, "other.md") },
+      { cwd, path: join(cwd, "notes.md") },
+    ]);
+
+    // Removal deletes the key, from the answer and from the file.
+    const noCommands = await patch("?command=", { text: "Look?" });
+    expect(noCommands.status).toBe(200);
+    expect("commands" in (noCommands.body as object)).toBe(false);
+    expect("commands" in stored(w, id)!).toBe(false);
+    const noEdit = await patch("", { json: { text: "Look?", editFiles: [] } });
+    expect("editFiles" in (noEdit.body as object)).toBe(false);
+    const noRead = await patch("?readFile=", { text: "Look?" });
+    expect("readFiles" in (noRead.body as object)).toBe(false);
+    expect(stored(w, id)).toBeDefined();
+    expect(
+      ["commands", "editFiles", "readFiles"].filter((k) => k in stored(w, id)!),
+    ).toEqual([]);
+  });
+
+  it("refuses a bad affordance with its own code, on create and on edit, and changes nothing", async () => {
+    const w = await world();
+    const cwd = seed(w);
+    mkdirSync(join(cwd, "adir"), { recursive: true });
+    writeFileSync(join(cwd, "blob.bin"), Buffer.from([0, 1, 0, 2, 0, 3]));
+    // One byte over the editor's 1 MB cap, and over read-file's 20 MB cap
+    // (sparse, so it costs no disk).
+    writeFileSync(join(cwd, "big.txt"), "x".repeat(1_000_001));
+    writeFileSync(join(cwd, "huge.bin"), "");
+    truncateSync(join(cwd, "huge.bin"), 20 * 1024 * 1024 + 1);
+    mkdirSync(join(w.srv.stateRoot, "secrets"), { recursive: true });
+    const secretFile = join(w.srv.stateRoot, "secrets", "office.json");
+    writeFileSync(secretFile, "{}");
+
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const created = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: {
+        text: "Look?",
+        commands: ["bun test"],
+        editFiles: ["notes.md"],
+        readFiles: ["plot.png"],
+      },
+    });
+    expect(created.status).toBe(201);
+    const before = created.body as AskAgentWire;
+    const copiesBefore = filesDir(w);
+
+    const bad: [string, Record<string, unknown>, string][] = [
+      ["blank command", { commands: ["  "] }, "422 invalid_command"],
+      ["empty command", { commands: [""] }, "422 invalid_command"],
+      ["two lines", { commands: ["ls\nrm -rf x"] }, "422 invalid_command"],
+      ["a CR", { commands: ["ls\rpwd"] }, "422 invalid_command"],
+      ["4097 chars", { commands: ["x".repeat(4097)] }, "422 invalid_command"],
+      ["missing edit", { editFiles: ["missing.md"] }, "422 invalid_edit_file"],
+      ["empty edit path", { editFiles: [""] }, "422 invalid_edit_file"],
+      ["edit a directory", { editFiles: ["adir"] }, "422 invalid_edit_file"],
+      ["edit a binary", { editFiles: ["blob.bin"] }, "422 invalid_edit_file"],
+      ["edit over 1 MB", { editFiles: ["big.txt"] }, "422 invalid_edit_file"],
+      ["missing read", { readFiles: ["missing.png"] }, "422 invalid_read_file"],
+      ["empty read path", { readFiles: [""] }, "422 invalid_read_file"],
+      ["read a directory", { readFiles: ["adir"] }, "422 invalid_read_file"],
+      ["read over 20 MB", { readFiles: ["huge.bin"] }, "422 invalid_read_file"],
+      ["edit a credential", { editFiles: [secretFile] }, "403 forbidden_path"],
+      ["read a credential", { readFiles: [secretFile] }, "403 forbidden_path"],
+      ["not a list", { commands: "ls" }, "422 invalid_affordances"],
+      ["not strings", { readFiles: [1] }, "422 invalid_affordances"],
+      ["null", { editFiles: null }, "422 invalid_affordances"],
+      // A good read file next to a bad command: the command's check runs
+      // before any copy.
+      [
+        "good file, bad command",
+        { readFiles: ["plot.png", "notes.md"], commands: ["a\nb"] },
+        "422 invalid_command",
+      ],
+    ];
+    for (const [label, extra, want] of bad) {
+      const post = await call(w.srv, "POST", base, w.as(w.asker.id), {
+        json: { text: "Which?", ...extra },
+      });
+      expect(`${label}: ${post.status} ${post.code}`).toBe(`${label}: ${want}`);
+      const patch = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${before.id}`,
+        w.as(w.asker.id),
+        { json: { text: "Changed?", ...extra } },
+      );
+      expect(`${label}: ${patch.status} ${patch.code}`).toBe(
+        `${label}: ${want}`,
+      );
+    }
+    // The query form refuses the same way.
+    const viaQuery = await call(
+      w.srv,
+      "POST",
+      `${base}?editFile=missing.md`,
+      w.as(w.asker.id),
+      { text: "Which?" },
+    );
+    expect(`${viaQuery.status} ${viaQuery.code}`).toBe("422 invalid_edit_file");
+    // Nothing changed: one ask, as it was, and no file was copied.
+    const listed = (await call(w.srv, "GET", base, w.as(w.asker.id)))
+      .body as AskEntry[];
+    expect(listed).toEqual([before]);
+    // The file holds the entry; `member` is added on the wire only.
+    const { member: _member, ...entry } = before;
+    expect(stored(w, before.id)).toEqual(entry);
+    expect(filesDir(w)).toEqual(copiesBefore);
+  });
+
+  it("takes 10 in total and refuses 11, and a create has nothing to remove", async () => {
+    const w = await world();
+    seed(w);
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const ten = {
+      commands: ["a", "b", "c", "d"],
+      editFiles: ["notes.md", "other.md", "third.md"],
+      readFiles: ["plot.png", "notes.md", "other.md"],
+    };
+    const ok = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Ten?", ...ten },
+    });
+    expect(ok.status).toBe(201);
+    const id = (ok.body as AskEntry).id;
+    const eleven = { ...ten, commands: [...ten.commands, "e"] };
+    const post = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Eleven?", ...eleven },
+    });
+    expect(`${post.status} ${post.code}`).toBe("422 invalid_affordances");
+    // On an edit the total counts the lists the edit keeps.
+    const patch = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}`,
+      w.as(w.asker.id),
+      { json: { text: "Eleven?", commands: eleven.commands } },
+    );
+    expect(`${patch.status} ${patch.code}`).toBe("422 invalid_affordances");
+    for (const [path, body] of [
+      [`${base}?command=`, { text: "Which?" }],
+      [base, { json: { text: "Which?", readFiles: [] } }],
+    ] as const) {
+      const r = await call(w.srv, "POST", path, w.as(w.asker.id), body);
+      expect(`${path} ${r.status} ${r.code}`).toBe(
+        `${path} 422 invalid_affordances`,
+      );
+    }
+    const listed = (await call(w.srv, "GET", base, w.as(w.asker.id)))
+      .body as AskEntry[];
+    expect(listed.map((e) => [e.prompt, e.commands])).toEqual([
+      ["Ten?", ten.commands],
+    ]);
   });
 });

@@ -723,6 +723,11 @@ export interface AskCreateReq {
   link?: string;
   // 2 to 4 answers the member can tap (ASK_OPTIONS_MIN..MAX in server/asks.ts).
   options?: string[];
+  // Chat affordances, at most ASK_AFFORDANCES_MAX in total: single-line
+  // commands, and paths resolved against the agent's cwd.
+  commands?: string[];
+  editFiles?: string[];
+  readFiles?: string[];
 }
 export interface AskEditReq {
   text: string;
@@ -730,6 +735,10 @@ export interface AskEditReq {
   link?: string;
   // Absent keeps the ask's options; [] removes them.
   options?: string[];
+  // For each: absent keeps the ask's list; [] removes it.
+  commands?: string[];
+  editFiles?: string[];
+  readFiles?: string[];
 }
 export interface AskReplyReq {
   text: string;

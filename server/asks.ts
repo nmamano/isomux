@@ -22,6 +22,8 @@ import {
   generateAskId,
   type AskEntry,
   type AskRef,
+  type Attachment,
+  type FilePayload,
   type SecretAskRequest,
 } from "../shared/types.ts";
 
@@ -31,6 +33,8 @@ export const ASK_MAX_OPEN_PER_AGENT = 50;
 export const ASK_OPTIONS_MIN = 2;
 export const ASK_OPTIONS_MAX = 4;
 export const ASK_OPTION_MAX_CHARS = 80;
+// Commands, editor files and read files together.
+export const ASK_AFFORDANCES_MAX = 10;
 
 export type AskLoadResult =
   | { kind: "missing" }
@@ -107,6 +111,22 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
   );
 }
 
+// A non-empty list whose every element passes `item`.
+function isListOf<T>(v: unknown, item: (x: unknown) => boolean): v is T[] {
+  return Array.isArray(v) && v.length > 0 && v.every(item);
+}
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null;
+const isFilePayload = (v: unknown) =>
+  isObject(v) && typeof v.cwd === "string" && typeof v.path === "string";
+const isAttachment = (v: unknown) =>
+  isObject(v) &&
+  typeof v.filename === "string" &&
+  v.filename !== "" &&
+  typeof v.originalName === "string" &&
+  typeof v.mediaType === "string" &&
+  typeof v.size === "number";
+
 // Three shapes: a plain ask and a personal secret request are for one
 // member; an office secret request is for every office owner and names no
 // member. A secret request has no link and no options.
@@ -143,8 +163,23 @@ function isAskEntry(v: unknown): v is AskEntry {
     )
   )
     return false;
+  // Chat affordances: the shape only, as for options.
+  if (
+    (r.commands !== undefined &&
+      !isListOf(r.commands, (c) => typeof c === "string" && c !== "")) ||
+    (r.editFiles !== undefined && !isListOf(r.editFiles, isFilePayload)) ||
+    (r.readFiles !== undefined && !isListOf(r.readFiles, isAttachment))
+  )
+    return false;
   if (r.secret === undefined) return hasMember;
-  if (r.link !== undefined || r.options !== undefined) return false;
+  if (
+    r.link !== undefined ||
+    r.options !== undefined ||
+    r.commands !== undefined ||
+    r.editFiles !== undefined ||
+    r.readFiles !== undefined
+  )
+    return false;
   if (!isSecretAskRequest(r.secret)) return false;
   return r.secret.scope === "office" ? r.memberUserId === undefined : hasMember;
 }
@@ -213,6 +248,22 @@ export function checkOptions(
   return { ok: true, options };
 }
 
+// An ask's chat affordances as they are stored. On an edit, an absent list
+// keeps the ask's list and null removes it.
+export interface AskAffordances {
+  commands?: string[];
+  editFiles?: FilePayload[];
+  readFiles?: Attachment[];
+}
+export type AskAffordanceEdit = {
+  [K in keyof AskAffordances]?: AskAffordances[K] | null;
+};
+export const ASK_AFFORDANCE_KEYS = [
+  "commands",
+  "editFiles",
+  "readFiles",
+] as const satisfies readonly (keyof AskAffordances)[];
+
 export type AskChange =
   | { kind: "upserted"; entry: AskEntry }
   | { kind: "removed"; entry: AskEntry };
@@ -237,14 +288,17 @@ export interface AskStore {
     secret?: SecretAskRequest;
     link?: string;
     options?: string[];
+    affordances?: AskAffordances;
     sessionId?: string;
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
-  // link and options: undefined keeps the ask's value, null removes it.
+  // link, options and each affordance list: undefined keeps the ask's value,
+  // null removes it.
   edit(
     id: string,
     prompt: string,
     link?: string | null,
     options?: string[] | null,
+    affordances?: AskAffordanceEdit,
   ): AskEntry | null;
   remove(id: string): AskEntry | null;
   // Every entry of a removed agent. Returns how many went.
@@ -311,6 +365,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       secret,
       link,
       options,
+      affordances,
       sessionId,
     }) {
       check();
@@ -328,13 +383,14 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(secret ? { secret } : {}),
         ...(link !== undefined ? { link } : {}),
         ...(options !== undefined ? { options } : {}),
+        ...affordances,
         ...(sessionId ? { sessionId } : {}),
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);
       return { ok: true, entry: { ...entry } };
     },
-    edit(id, prompt, link, options) {
+    edit(id, prompt, link, options, affordances = {}) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
@@ -343,6 +399,13 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       else if (link !== undefined) entry.link = link;
       if (options === null) delete entry.options;
       else if (options !== undefined) entry.options = options;
+      const { commands, editFiles, readFiles } = affordances;
+      if (commands === null) delete entry.commands;
+      else if (commands !== undefined) entry.commands = commands;
+      if (editFiles === null) delete entry.editFiles;
+      else if (editFiles !== undefined) entry.editFiles = editFiles;
+      if (readFiles === null) delete entry.readFiles;
+      else if (readFiles !== undefined) entry.readFiles = readFiles;
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit(
         entries.map((e) => (e.id === id ? entry : e)),

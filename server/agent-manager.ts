@@ -117,6 +117,15 @@ import {
   type AgentHistoryEntry,
 } from "./persistence.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
+import {
+  checkTerminalCommand,
+  probeEditFile,
+  probeReadFile,
+  MAX_READ_FILE_BYTES,
+  TERMINAL_COMMAND_MAX_LEN,
+  type CommandCheck,
+  type PathRefusal,
+} from "./affordance-checks.ts";
 import { autocompleteCommands } from "./commands.ts";
 import { english, translatorForUserId, translatorForUsername } from "./i18n.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
@@ -129,7 +138,7 @@ import { formatDecimal } from "../shared/i18n/number.ts";
 import { join, basename, resolve } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
-import { rmSync, statSync, readFileSync, existsSync } from "fs";
+import { rmSync, statSync, readFileSync } from "fs";
 import {
   resolveCwd,
   validateCwd,
@@ -156,10 +165,7 @@ import {
   type OpenFileResult,
   type SaveFileResult,
 } from "./file-editor.ts";
-import {
-  isCredentialStorePath,
-  CREDENTIAL_PATH_MESSAGE,
-} from "./credential-store-paths.ts";
+import { CREDENTIAL_PATH_MESSAGE } from "./credential-store-paths.ts";
 import {
   discoverUserSkills,
   discoverProjectSkills,
@@ -402,6 +408,21 @@ export function backendSessionHasFixedCwd(
 // assembled return object below. (See handoff note re: ReturnType vs a
 // hand-written interface.)
 export type AgentManager = ReturnType<typeof createAgentManager>;
+
+// The chat's terminal-command answer for each refusal (an HTTP 400 body).
+const TERMINAL_COMMAND_ERRORS: Record<
+  Exclude<CommandCheck, { ok: true }>["kind"],
+  string
+> = {
+  empty: "empty command",
+  too_long: `command too long (max ${TERMINAL_COMMAND_MAX_LEN} chars)`,
+  multi_line: "command must be single-line; join steps with && or ;",
+};
+
+export type AskReadFileCopy =
+  | { ok: true; attachment: Attachment }
+  | { ok: false; kind: "io_error"; path: string; message: string }
+  | { ok: false; kind: "save_failed"; path: string };
 
 /**
  * A backend id as its product name. Proper nouns, so the same in every
@@ -2844,93 +2865,70 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return info.userId;
   }
 
+  // The system line for a path an affordance refused, in the agent's
+  // language. bad_path never gets here: the chat ops answer it with a 400.
+  function pathRefusalText(
+    agentId: string,
+    refusal: Pick<PathRefusal, "kind" | "path" | "size" | "message">,
+    opening: "edit" | "read",
+  ): string {
+    const words = logWords(agentId);
+    const path = refusal.path;
+    switch (refusal.kind) {
+      case "not_found":
+        return words("commands.isomuxEdit.notFound", { path });
+      case "not_file":
+        return words("commands.isomuxEdit.notFile", { path });
+      case "binary":
+        return words("commands.isomuxEdit.binary", { path });
+      case "credential":
+        return words("commands.isomuxEdit.credential", { path });
+      case "too_large":
+        return opening === "edit"
+          ? editorTooLargeText(agentId, path, refusal.size ?? 0)
+          : readTooLargeText(agentId, path, refusal.size ?? 0);
+      default:
+        return words(
+          opening === "edit"
+            ? "systemEntries.fileOpenFailed"
+            : "systemEntries.fileReadFailed",
+          { path, message: refusal.message ?? "" },
+        );
+    }
+  }
+
   // Run the same path-resolution as /isomux-edit and emit an `edit-request` log
   // entry so the member can open the file in the editor side panel. Mirrors
   // emitAgentDiff. The card shows an [Open in editor] button - the panel never
   // auto-opens (matches the rejected "server auto-opens panel" decision).
+  // Don't open here - the user will trigger that. The probe makes a typo'd
+  // path a system message instead of a dead card.
   function emitAgentEditRequest(
     agentId: string,
     rawPath: string,
   ): { ok: true } | { ok: false; status: number; error: string } {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
-    const resolved = resolveEditorPath(rawPath, managed.info.cwd);
-    if (resolved.kind === "bad_path") {
-      return { ok: false, status: 400, error: "missing or empty path" };
-    }
-    // Don't open here - the user will trigger that. We do a cheap existence
-    // check so a typo'd path produces a system message instead of a dead card.
-    const probe = openEditorFileImpl(resolved.path);
-    if (probe.kind === "not_found") {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("commands.isomuxEdit.notFound", {
-          path: resolved.path,
-        }),
-      );
+    const probe = probeEditFile(rawPath, managed.info.cwd);
+    if (!probe.ok) {
+      if (probe.kind === "bad_path")
+        return { ok: false, status: 400, error: "missing or empty path" };
+      addLogEntry(agentId, "system", pathRefusalText(agentId, probe, "edit"));
       return { ok: true };
     }
-    if (probe.kind === "not_file") {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("commands.isomuxEdit.notFile", {
-          path: resolved.path,
-        }),
-      );
-      return { ok: true };
-    }
-    if (probe.kind === "binary") {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("commands.isomuxEdit.binary", {
-          path: resolved.path,
-        }),
-      );
-      return { ok: true };
-    }
-    if (probe.kind === "too_large") {
-      addLogEntry(
-        agentId,
-        "system",
-        editorTooLargeText(agentId, resolved.path, probe.size),
-      );
-      return { ok: true };
-    }
-    if (probe.kind === "io_error") {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("systemEntries.fileOpenFailed", {
-          path: resolved.path,
-          message: probe.message,
-        }),
-      );
-      return { ok: true };
-    }
-    if (probe.kind === "credential") {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("commands.isomuxEdit.credential", {
-          path: resolved.path,
-        }),
-      );
-      return { ok: true };
-    }
-    addLogEntry(agentId, "edit-request", resolved.path, undefined, undefined, {
-      file: { cwd: managed.info.cwd, path: resolved.path },
-    });
+    addLogEntry(
+      agentId,
+      "edit-request",
+      probe.file.path,
+      undefined,
+      undefined,
+      { file: probe.file },
+    );
     return { ok: true };
   }
 
   // Validate a command string and emit a `terminal-command` log entry so the
   // member sees a [Copy to terminal] card. Mirrors emitAgentEditRequest.
-  // Single-line only at first; agents that need multiple steps can join with
-  // `&&` / `;` or set up a one-line wrapper.
-  const TERMINAL_COMMAND_MAX_LEN = 4096;
   function emitAgentTerminalCommand(
     agentId: string,
     rawCommand: string,
@@ -2939,25 +2937,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
     if (typeof rawCommand !== "string")
       return { ok: false, status: 400, error: "command must be a string" };
-    const command = rawCommand.replace(/\s+$/u, "");
-    if (!command) return { ok: false, status: 400, error: "empty command" };
-    if (command.length > TERMINAL_COMMAND_MAX_LEN) {
+    const checked = checkTerminalCommand(rawCommand);
+    if (!checked.ok)
       return {
         ok: false,
         status: 400,
-        error: `command too long (max ${TERMINAL_COMMAND_MAX_LEN} chars)`,
+        error: TERMINAL_COMMAND_ERRORS[checked.kind],
       };
-    }
-    if (/[\r\n]/u.test(command)) {
-      return {
-        ok: false,
-        status: 400,
-        error: "command must be single-line; join steps with && or ;",
-      };
-    }
-    addLogEntry(agentId, "terminal-command", command, undefined, undefined, {
-      terminal: { command },
-    });
+    addLogEntry(
+      agentId,
+      "terminal-command",
+      checked.command,
+      undefined,
+      undefined,
+      { terminal: { command: checked.command } },
+    );
     return { ok: true };
   }
 
@@ -2980,95 +2974,81 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     );
   }
 
-  // Display cap for POST /api/agents/:id/read-file. Independent from the editor
-  // panel's 1 MB text cap (file-editor.ts) - this one bounds binary/image
-  // display payloads served through /api/files.
-  const MAX_READ_FILE_BYTES = 20 * 1024 * 1024;
+  // Copy a path that passed probeReadFile into the agent's files dir
+  // (hash-deduped via saveFile). The read-file chip and an ask's read file
+  // both show this copy, so the member sees the bytes of the moment the agent
+  // sent it. Null when the agent is gone.
+  function copyAskReadFile(
+    agentId: string,
+    absPath: string,
+  ): AskReadFileCopy | null {
+    if (!agents.has(agentId)) return null;
+    let data: Buffer;
+    try {
+      data = readFileSync(absPath);
+    } catch (err) {
+      return {
+        ok: false,
+        kind: "io_error",
+        path: absPath,
+        message: errMessage(err),
+      };
+    }
+    const originalName = basename(absPath);
+    const mediaType = mimeTypeForFilename(originalName);
+    const attachment = savePersistedFile(
+      agentId,
+      data,
+      mediaType,
+      originalName,
+    );
+    return attachment
+      ? { ok: true, attachment }
+      : { ok: false, kind: "save_failed", path: absPath };
+  }
 
-  // Resolve a path against the agent's cwd, copy it into the agent's files dir
-  // (hash-deduped via saveFile), and emit a `file-view` log entry so the UI
-  // renders the attachment inline. Replaces the older convention of asking
-  // agents to Read an image so the Claude SDK's tool_result image extraction
-  // would surface it. Mirrors emitAgentEditRequest's error-surface pattern:
-  // path/size/io failures become system messages, not HTTP errors.
+  // Resolve a path against the agent's cwd, copy it into the agent's files dir,
+  // and emit a `file-view` log entry so the UI renders the attachment inline.
+  // Replaces the older convention of asking agents to Read an image so the
+  // Claude SDK's tool_result image extraction would surface it. Mirrors
+  // emitAgentEditRequest's error-surface pattern: path/size/io failures become
+  // system messages, not HTTP errors.
   function emitAgentReadFile(
     agentId: string,
     rawPath: string,
   ): { ok: true } | { ok: false; status: number; error: string } {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, status: 404, error: "agent not found" };
-    const resolved = resolveEditorPath(rawPath, managed.info.cwd);
-    if (resolved.kind === "bad_path") {
-      return { ok: false, status: 400, error: "missing or empty path" };
+    const probe = probeReadFile(rawPath, managed.info.cwd);
+    if (!probe.ok) {
+      if (probe.kind === "bad_path")
+        return { ok: false, status: 400, error: "missing or empty path" };
+      if (probe.kind === "credential")
+        return { ok: false, status: 403, error: CREDENTIAL_PATH_MESSAGE };
+      addLogEntry(agentId, "system", pathRefusalText(agentId, probe, "read"));
+      return { ok: true };
     }
-    const absPath = resolved.path;
-    if (isCredentialStorePath(absPath)) {
-      return { ok: false, status: 403, error: CREDENTIAL_PATH_MESSAGE };
-    }
-    if (!existsSync(absPath)) {
+    const copied = copyAskReadFile(agentId, probe.path);
+    if (!copied) return { ok: false, status: 404, error: "agent not found" };
+    if (!copied.ok) {
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId)("commands.isomuxEdit.notFound", { path: absPath }),
+        copied.kind === "save_failed"
+          ? logWords(agentId)("systemEntries.fileSaveFailed", {
+              path: probe.path,
+            })
+          : pathRefusalText(agentId, copied, "read"),
       );
       return { ok: true };
     }
-    let st;
-    try {
-      st = statSync(absPath);
-    } catch (err) {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("systemEntries.fileReadFailed", {
-          path: absPath,
-          message: err instanceof Error ? err.message : String(err),
-        }),
-      );
-      return { ok: true };
-    }
-    if (!st.isFile()) {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("commands.isomuxEdit.notFile", { path: absPath }),
-      );
-      return { ok: true };
-    }
-    if (st.size > MAX_READ_FILE_BYTES) {
-      addLogEntry(
-        agentId,
-        "system",
-        readTooLargeText(agentId, absPath, st.size),
-      );
-      return { ok: true };
-    }
-    let data: Buffer;
-    try {
-      data = readFileSync(absPath);
-    } catch (err) {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("systemEntries.fileReadFailed", {
-          path: absPath,
-          message: err instanceof Error ? err.message : String(err),
-        }),
-      );
-      return { ok: true };
-    }
-    const originalName = basename(absPath);
-    const mediaType = mimeTypeForFilename(originalName);
-    const att = savePersistedFile(agentId, data, mediaType, originalName);
-    if (!att) {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("systemEntries.fileSaveFailed", { path: absPath }),
-      );
-      return { ok: true };
-    }
-    addLogEntry(agentId, "file-view", originalName, undefined, [att]);
+    addLogEntry(
+      agentId,
+      "file-view",
+      copied.attachment.originalName,
+      undefined,
+      [copied.attachment],
+    );
     return { ok: true };
   }
 
@@ -11772,6 +11752,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emitAgentTerminalCommand,
     emitAgentSecretRequestSettled,
     emitAgentReadFile,
+    copyAskReadFile,
     emitAgentDiff,
     emitAgentPreviewUrl,
     runAgentBrowserAction,

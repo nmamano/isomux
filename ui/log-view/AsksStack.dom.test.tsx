@@ -10,7 +10,9 @@ setUpDomTestFile();
 const { act, render, fireEvent, waitFor } =
   await import("@testing-library/react");
 const { useEffect } = await import("react");
-const { StoreProvider, useDispatch } = await import("../store.tsx");
+const { StoreProvider, useDispatch, useAppState, FeaturesProvider } =
+  await import("../store.tsx");
+const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
@@ -61,6 +63,26 @@ const ENTRIES: AskEntry[] = [
     },
   },
   entry("iiii0009", "a5", "Tag it?", 10),
+  // Agent a6's ask carries chat affordances.
+  {
+    ...entry("jjjj0010", "a6", "Delete the merged branches?", 6),
+    commands: ["git branch -D t-a && git push origin --delete t-a"],
+    editFiles: [{ cwd: "/w", path: "/w/notes.md" }],
+    readFiles: [
+      {
+        filename: "ab12.png",
+        originalName: "plot.png",
+        mediaType: "image/png",
+        size: 7,
+      },
+      {
+        filename: "cd34.txt",
+        originalName: "log.txt",
+        mediaType: "text/plain",
+        size: 3,
+      },
+    ],
+  },
 ];
 
 // No socket: the store's provider would open one.
@@ -489,4 +511,114 @@ it("sends a typed reason with a dismiss, and nothing for the default or a blank 
     ]);
     view.unmount();
   }
+});
+
+// What the store holds for agent a6 after a click.
+type Seen = { editor?: string; terminal?: string; panel?: string };
+let seen: Seen = {};
+function Probe() {
+  const state = useAppState();
+  useEffect(() => {
+    seen = {
+      editor: state.pendingEditorPaths.get("a6"),
+      terminal: state.pendingTerminalCommands.get("a6"),
+      panel: state.sidePanels.get("a6"),
+    };
+  });
+  return null;
+}
+function mountAffordances(features = PRODUCTION_FEATURES) {
+  seen = {};
+  return render(
+    <StoreProvider>
+      <FeaturesProvider features={features}>
+        <Seed>
+          <AsksStack agentId="a6" isMobile={false} />
+          <Probe />
+        </Seed>
+      </FeaturesProvider>
+    </StoreProvider>,
+  );
+}
+const ASK = '[data-ask="jjjj0010"]';
+
+it("draws an ask's files, then its editor card, then its command, as the chat draws them", async () => {
+  const view = mountAffordances();
+  await waitFor(() => expect(cards(view.container)).toEqual(["jjjj0010"]));
+  const card = view.container.querySelector<HTMLElement>(ASK)!;
+  const order = [
+    ...card.querySelectorAll<HTMLElement>(
+      "img, a[href^='/api/files/'], [data-ask-edit-file], [data-ask-command]",
+    ),
+  ].map((el) =>
+    el.tagName === "IMG"
+      ? `img ${el.getAttribute("src")}`
+      : el.tagName === "A"
+        ? `chip ${el.getAttribute("href")}`
+        : el.dataset.askEditFile !== undefined
+          ? `edit ${el.dataset.askEditFile}`
+          : `command ${el.dataset.askCommand}`,
+  );
+  expect(order).toEqual([
+    "img /api/files/a6/ab12.png",
+    "chip /api/files/a6/cd34.txt",
+    "edit /w/notes.md",
+    "command git branch -D t-a && git push origin --delete t-a",
+  ]);
+  // Above the reply field.
+  const form = card.querySelector("form")!;
+  const cmd = card.querySelector("[data-ask-command]")!;
+  expect(
+    cmd.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  view.unmount();
+});
+
+it("a click on the editor card or the command card hands it to that agent's panel", async () => {
+  const view = mountAffordances();
+  await waitFor(() => expect(cards(view.container)).toEqual(["jjjj0010"]));
+  const card = view.container.querySelector<HTMLElement>(ASK)!;
+  await act(async () => {
+    fireEvent.click(
+      card.querySelector("[data-ask-edit-file] button[data-panel-action]")!,
+    );
+  });
+  expect(seen).toEqual({
+    editor: "/w/notes.md",
+    terminal: undefined,
+    panel: "editor",
+  });
+  await act(async () => {
+    fireEvent.click(
+      card.querySelector("[data-ask-command] button[data-panel-action]")!,
+    );
+  });
+  expect(seen).toEqual({
+    editor: "/w/notes.md",
+    terminal: "git branch -D t-a && git push origin --delete t-a",
+    panel: "terminal",
+  });
+  // A click answers nothing.
+  expect(posts).toEqual([]);
+  view.unmount();
+});
+
+it("shows the path and the command with no panel button when the office has no editor or terminal", async () => {
+  const view = mountAffordances({
+    ...PRODUCTION_FEATURES,
+    editor: false,
+    terminal: false,
+  });
+  await waitFor(() => expect(cards(view.container)).toEqual(["jjjj0010"]));
+  const card = view.container.querySelector<HTMLElement>(ASK)!;
+  expect(card.textContent).toContain("notes.md");
+  expect(card.textContent).toContain(
+    "git branch -D t-a && git push origin --delete t-a",
+  );
+  expect(card.querySelectorAll("[data-panel-action]").length).toBe(0);
+  // The files still show: they need no panel.
+  expect(
+    card.querySelectorAll("img[src='/api/files/a6/ab12.png']").length,
+  ).toBe(1);
+  view.unmount();
 });

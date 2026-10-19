@@ -55,6 +55,7 @@ export function EditRequestCard({
           {display}
         </span>
         <button
+          data-panel-action=""
           onClick={() => onOpen(payload.path)}
           style={{
             padding: "4px 12px",

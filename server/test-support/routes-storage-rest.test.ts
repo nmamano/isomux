@@ -22,6 +22,7 @@ import { join } from "path";
 import { resetStorageUsageCache } from "../storage-usage.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { getUserByName } from "../users.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -427,6 +428,70 @@ describe("routes/storage.prune REST", () => {
     expect(plan.candidates.map((c) => c.path)).not.toContain(relative);
     expect(plan.skipped.some((s) => s.reason === "active-session")).toBe(true);
     expect(existsSync(path)).toBe(true);
+  });
+
+  // An ask's read file is a copy that no transcript names (task dc79ace0).
+  it("keeps the file an open ask copied, and prunes it once the ask closes", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName(owner.username)!.id;
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await srv.agentManager.spawn(
+      "Asker",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      room.id,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "claude",
+      undefined,
+      ownerId,
+    );
+    if (!agent) throw new Error("spawn failed");
+    const bearer = getAgentTokenRaw(agent.id)!;
+    writeFileSync(join(srv.stateRoot, "plot.png"), "png bytes");
+    const made = await api(srv, `/api/agents/${agent.id}/asks`, {
+      method: "POST",
+      bearer,
+      body: { text: "Look?", readFiles: ["plot.png"] },
+    });
+    expect(made.status).toBe(201);
+    const readFiles = made.body!.readFiles as { filename: string }[];
+    expect(readFiles?.length).toBe(1);
+    const [att] = readFiles;
+    const files = join(srv.stateRoot, "logs", agent.id, "files");
+    const copy = join(files, att.filename);
+    // An orphan beside it shows the prune reaches this agent's files.
+    const orphan = join(files, "orphan.png");
+    writeFileSync(orphan, "old");
+    const aged = (Date.now() - 400 * DAY_MS) / 1000;
+    for (const p of [copy, orphan]) utimesSync(p, aged, aged);
+    const prune = () =>
+      api(srv, "/api/storage/prune", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { target: "attachments", olderThanDays: 30, apply: true },
+      });
+
+    const open = await prune();
+    expect(open.status).toBe(200);
+    expect((open.body!.applied as { deleted: number }).deleted).toBe(1);
+    expect([existsSync(orphan), existsSync(copy)]).toEqual([false, true]);
+
+    const deleted = await api(
+      srv,
+      `/api/agents/${agent.id}/asks/${made.body!.id as string}`,
+      { method: "DELETE", bearer },
+    );
+    expect(deleted.status).toBe(204);
+    const closed = await prune();
+    expect((closed.body!.applied as { deleted: number }).deleted).toBe(1);
+    expect(existsSync(copy)).toBe(false);
   });
 });
 

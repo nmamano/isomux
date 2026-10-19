@@ -80,6 +80,7 @@ import {
 } from "./pager-store.ts";
 import {
   askVisibleTo,
+  AsksUnavailableError,
   createAskFilePersistence,
   createAskStore,
   type AskAudienceDeps,
@@ -499,6 +500,11 @@ import {
 import type { TaskChange } from "../shared/office-state.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
 import { OfficeOutbox } from "./office-ws-outbox.ts";
+import {
+  checkTerminalCommand,
+  probeEditFile,
+  probeReadFile,
+} from "./affordance-checks.ts";
 import {
   actsForAgent,
   identityHasCapability,
@@ -3113,6 +3119,19 @@ function buildExecutorDeps(
       memberName: (userId) => getUserById(userId)?.name ?? null,
       memberCanSeeRoom: askAudience.canSeeRoom,
       isOfficeOwner: askAudience.isOfficeOwner,
+      affordances: {
+        checkCommand: checkTerminalCommand,
+        probeEditFile: (agentId, rawPath) => {
+          const agent = agentManager.getAgent(agentId);
+          return agent ? probeEditFile(rawPath, agent.cwd) : null;
+        },
+        probeReadFile: (agentId, rawPath) => {
+          const agent = agentManager.getAgent(agentId);
+          return agent ? probeReadFile(rawPath, agent.cwd) : null;
+        },
+        copyReadFile: (agentId, absPath) =>
+          agentManager.copyAskReadFile(agentId, absPath),
+      },
       deliver: deliverAskAnswer,
     }),
   );
@@ -5651,9 +5670,19 @@ function buildExecutorDeps(
   // UNKNOWN, not empty, and the pruner fails closed on it. Collapsing the two
   // would let an unreadable queue read as "nothing is owed" during exactly the
   // boot window where the live queue is also empty.
+  //
+  // An open ask's read files are copies no transcript names either, so they
+  // are owed the same way; an unavailable asks store is unknown too.
   const queuedAttachmentsByAgent = (): Map<string, Set<string>> | null => {
     const durable = peekMessageQueuesRaw();
     if (!durable.ok) return null;
+    let asks;
+    try {
+      asks = askStore?.listAll() ?? [];
+    } catch (err) {
+      if (err instanceof AsksUnavailableError) return null;
+      throw err;
+    }
     const byAgent = new Map<string, Set<string>>();
     const add = (agentId: string, filename: unknown) => {
       if (typeof filename !== "string" || filename === "") return;
@@ -5666,6 +5695,8 @@ function buildExecutorDeps(
         for (const att of queued.attachments ?? []) add(agent.id, att.filename);
       }
     }
+    for (const ask of asks)
+      for (const att of ask.readFiles ?? []) add(ask.agentId, att.filename);
     for (const [agentId, record] of Object.entries(durable.records)) {
       const queue = (record as { queue?: unknown })?.queue;
       if (!Array.isArray(queue)) continue;

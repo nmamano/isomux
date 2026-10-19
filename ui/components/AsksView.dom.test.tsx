@@ -55,8 +55,10 @@ function mount(asks: AskEntry[]) {
     ] as AppState["agents"],
   };
   const focused: string[] = [];
+  const latest: { state: AppState } = { state: seeded };
   function Harness() {
     const [state, dispatch] = useReducer(reducer, seeded);
+    latest.state = state;
     return createElement(
       StateCtx.Provider,
       { value: state },
@@ -70,7 +72,7 @@ function mount(asks: AskEntry[]) {
     );
   }
   const view = render(createElement(Harness));
-  return { view, focused };
+  return { view, focused, latest };
 }
 
 const groupIds = (view: ReturnType<typeof render>) =>
@@ -173,4 +175,34 @@ it("moves with Tab from one agent's reply field to the next agent's, in page ord
   });
   expect(free).toBe(false);
   expect(focused()).toBe("first/INPUT");
+});
+
+it("hands an editor or command card to the ask's agent and opens that agent's chat", async () => {
+  const { view, focused, latest } = mount([
+    {
+      ...ask("acts", "a2", 5),
+      commands: ["bun test"],
+      editFiles: [{ cwd: "/w", path: "/w/notes.md" }],
+    },
+  ]);
+  const card = view.container.querySelector('[data-ask="acts"]')!;
+  await act(async () =>
+    fireEvent.click(
+      card.querySelector("[data-ask-edit-file] button[data-panel-action]")!,
+    ),
+  );
+  expect(focused).toEqual(["a2"]);
+  expect(latest.state.pendingEditorPaths.get("a2")).toBe("/w/notes.md");
+  expect(latest.state.sidePanels.get("a2")).toBe("editor");
+  await act(async () =>
+    fireEvent.click(
+      card.querySelector("[data-ask-command] button[data-panel-action]")!,
+    ),
+  );
+  expect(focused).toEqual(["a2", "a2"]);
+  expect(latest.state.pendingTerminalCommands.get("a2")).toBe("bun test");
+  expect(latest.state.sidePanels.get("a2")).toBe("terminal");
+  // Nothing was answered, and the card stays.
+  expect(posts).toEqual([]);
+  expect(cardIds(view, "a2")).toEqual(["acts"]);
 });

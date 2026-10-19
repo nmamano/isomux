@@ -5,6 +5,9 @@
 // 204, without waiting for ask_removed. An ask with a link to an office page
 // has a button that opens it (ui/office-link.tsx); the ask stays open. An
 // ask with options has a button for each, and a tap sends it as the reply.
+// An ask's files, editor files and commands are the chat's own cards, in that
+// order; their buttons open this agent's panel through the store, as in chat
+// (on the Inbox they also open the agent's chat), and answer nothing.
 //
 // The reply draft lives in the store per ask (askDrafts), so it outlives the
 // card. While the field holds the untouched default, focus and click select
@@ -20,7 +23,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { apiFetch, ApiError } from "../api.ts";
-import { useAppState, useDispatch } from "../store.tsx";
+import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { getDevice } from "../device-settings.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
@@ -33,6 +36,9 @@ import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { SecretAskCard } from "./SecretAskCard.tsx";
 import { officeLinkFor } from "../../shared/office-links.ts";
 import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
+import { FileViewCard } from "./FileViewCard.tsx";
+import { EditRequestCard } from "./EditRequestCard.tsx";
+import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 
 const PROMPT_LINES = 3;
 
@@ -54,27 +60,108 @@ function tabToReplyField(e: KeyboardEvent<HTMLInputElement>) {
   next.focus();
 }
 
-// One ask, of either kind.
+// One ask, of either kind. `onFocusAgent` is set where the ask's chat is not
+// on screen (the Inbox): a click on a terminal or editor card opens it.
 export function AskCard({
   entry,
   isMobile,
+  onFocusAgent,
 }: {
   entry: AskEntry;
   isMobile: boolean;
+  onFocusAgent?: (agentId: string) => void;
 }) {
   return entry.secret ? (
     <SecretAskCard entry={entry} secret={entry.secret} isMobile={isMobile} />
   ) : (
-    <ReplyAskCard entry={entry} isMobile={isMobile} />
+    <ReplyAskCard
+      entry={entry}
+      isMobile={isMobile}
+      onFocusAgent={onFocusAgent}
+    />
+  );
+}
+
+// A path or command with no panel to send it to: the text only.
+function PlainAffordance({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        margin: "8px 0",
+        fontFamily: "'JetBrains Mono',monospace",
+        fontSize: 13,
+        color: "var(--text-secondary)",
+        wordBreak: "break-all",
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+function AskAffordances({
+  entry,
+  isMobile,
+  onFocusAgent,
+}: {
+  entry: AskEntry;
+  isMobile: boolean;
+  onFocusAgent?: (agentId: string) => void;
+}) {
+  const dispatch = useDispatch();
+  const features = useFeatures();
+  const { agentId, readFiles, editFiles, commands } = entry;
+  if (!readFiles && !editFiles && !commands) return null;
+  const openInEditor = (path: string) => {
+    dispatch({ type: "open_in_editor", agentId, path });
+    onFocusAgent?.(agentId);
+  };
+  const copyToTerminal = (command: string) => {
+    dispatch({ type: "copy_to_terminal", agentId, command });
+    onFocusAgent?.(agentId);
+  };
+  return (
+    <div style={{ marginTop: 4 }}>
+      {readFiles && (
+        <FileViewCard
+          attachments={readFiles}
+          agentId={agentId}
+          isMobile={isMobile}
+        />
+      )}
+      {editFiles?.map((file, i) => (
+        <div key={i} data-ask-edit-file={file.path}>
+          {features.editor ? (
+            <EditRequestCard payload={file} onOpen={openInEditor} />
+          ) : (
+            <PlainAffordance text={file.path} />
+          )}
+        </div>
+      ))}
+      {commands?.map((command, i) => (
+        <div key={i} data-ask-command={command}>
+          {features.terminal ? (
+            <TerminalCommandCard
+              payload={{ command }}
+              onCopy={copyToTerminal}
+            />
+          ) : (
+            <PlainAffordance text={command} />
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
 function ReplyAskCard({
   entry,
   isMobile,
+  onFocusAgent,
 }: {
   entry: AskEntry;
   isMobile: boolean;
+  onFocusAgent?: (agentId: string) => void;
 }) {
   const { t, language } = useI18n();
   const dispatch = useDispatch();
@@ -235,6 +322,11 @@ function ReplyAskCard({
           {age}
         </span>
       </div>
+      <AskAffordances
+        entry={entry}
+        isMobile={isMobile}
+        onFocusAgent={onFocusAgent}
+      />
       {entry.options && entry.options.length > 0 && (
         <div
           data-ask-options=""

@@ -1200,6 +1200,13 @@ export interface AskEntry {
   // Answers the member can tap; a tap sends the option as the reply. Never on
   // a secret request.
   options?: string[];
+  // Chat affordances on the card (server/agent-reference/asks.md): commands
+  // for the member's terminal panel, files for the editor card, and files
+  // copied into the agent's files dir when the ask was made or edited. Never
+  // on a secret request.
+  commands?: string[];
+  editFiles?: FilePayload[];
+  readFiles?: Attachment[];
   // The agent's session when it opened the ask. The reply note names it when
   // the reply reaches a later session.
   sessionId?: string;

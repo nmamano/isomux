@@ -142,6 +142,12 @@ export interface AppState {
   // the panel reopens automatically when the member returns. `undefined` means
   // never opened a panel; missing entries default to closed.
   sidePanels: Map<string, "terminal" | "editor">;
+  // agentId → the path the editor panel opens next, and the command the
+  // terminal panel types next. Set by a chat or ask card (open_in_editor,
+  // copy_to_terminal, which also open the panel); the panel clears it when
+  // it has used it (editor_path_opened, terminal_command_handled).
+  pendingEditorPaths: Map<string, string>;
+  pendingTerminalCommands: Map<string, string>;
   recentCwds: string[]; // persisted recent working directories
   slashCommands: Map<
     string,
@@ -360,6 +366,10 @@ type Action =
       agentId: string;
       panel: "terminal" | "editor" | null;
     }
+  | { type: "open_in_editor"; agentId: string; path: string }
+  | { type: "copy_to_terminal"; agentId: string; command: string }
+  | { type: "editor_path_opened"; agentId: string }
+  | { type: "terminal_command_handled"; agentId: string }
   | {
       type: "slash_commands";
       agentId: string;
@@ -788,6 +798,10 @@ export function reducer(state: AppState, action: Action): AppState {
       needsAttention.delete(action.agentId);
       const sidePanels = new Map(state.sidePanels);
       sidePanels.delete(action.agentId);
+      const pendingEditorPaths = new Map(state.pendingEditorPaths);
+      pendingEditorPaths.delete(action.agentId);
+      const pendingTerminalCommands = new Map(state.pendingTerminalCommands);
+      pendingTerminalCommands.delete(action.agentId);
       return {
         ...state,
         agents: state.agents.filter((a) => a.id !== action.agentId),
@@ -796,6 +810,8 @@ export function reducer(state: AppState, action: Action): AppState {
         logsReplay,
         needsAttention,
         sidePanels,
+        pendingEditorPaths,
+        pendingTerminalCommands,
         interactions: state.interactions.filter(
           (interaction) => interaction.agentId !== action.agentId,
         ),
@@ -974,6 +990,34 @@ export function reducer(state: AppState, action: Action): AppState {
         sidePanels.set(action.agentId, action.panel);
       }
       return { ...state, sidePanels };
+    }
+    case "open_in_editor": {
+      const pendingEditorPaths = new Map(state.pendingEditorPaths);
+      pendingEditorPaths.set(action.agentId, action.path);
+      const sidePanels = new Map(state.sidePanels);
+      sidePanels.set(action.agentId, "editor");
+      return { ...state, pendingEditorPaths, sidePanels };
+    }
+    // A repeated click replaces the pending command, so a cold panel opens
+    // with one command instead of racing a mount timer.
+    case "copy_to_terminal": {
+      const pendingTerminalCommands = new Map(state.pendingTerminalCommands);
+      pendingTerminalCommands.set(action.agentId, action.command);
+      const sidePanels = new Map(state.sidePanels);
+      sidePanels.set(action.agentId, "terminal");
+      return { ...state, pendingTerminalCommands, sidePanels };
+    }
+    case "editor_path_opened": {
+      if (!state.pendingEditorPaths.has(action.agentId)) return state;
+      const pendingEditorPaths = new Map(state.pendingEditorPaths);
+      pendingEditorPaths.delete(action.agentId);
+      return { ...state, pendingEditorPaths };
+    }
+    case "terminal_command_handled": {
+      if (!state.pendingTerminalCommands.has(action.agentId)) return state;
+      const pendingTerminalCommands = new Map(state.pendingTerminalCommands);
+      pendingTerminalCommands.delete(action.agentId);
+      return { ...state, pendingTerminalCommands };
     }
     case "slash_commands": {
       const slashCommands = new Map(state.slashCommands);
@@ -1632,6 +1676,8 @@ export const initialState: AppState = {
   drafts: new Map(),
   askDrafts: new Map(),
   sidePanels: new Map(),
+  pendingEditorPaths: new Map(),
+  pendingTerminalCommands: new Map(),
   recentCwds: [],
   slashCommands: new Map(),
   stateChangedAt: new Map(),
