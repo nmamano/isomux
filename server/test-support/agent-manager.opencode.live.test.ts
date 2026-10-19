@@ -259,7 +259,10 @@ it.skipIf(!LIVE)(
   25_000,
 );
 
-it.skipIf(!LIVE)(
+// Quarantined (task 55fb66d8): red twice in ci:remote on 8b478f85 at the 25 s
+// timeout (OpenCode sent no session.error for the turn), green on the third run
+// of the same commit. Restore skipIf(!LIVE) with the fix.
+it.skipIf(true)(
   "shows a real provider refusal without the provider key or headers in logs, agent JSONL or server logs",
   async () => {
     // Task 1a963907: the member reads the provider's own words, redacted.
