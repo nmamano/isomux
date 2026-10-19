@@ -30,7 +30,7 @@ export function openCodeConfigOverride(
   safetyPlugin: string,
 ): Record<string, unknown> {
   const plugin = [
-    ...(Array.isArray(config.plugin) ? config.plugin : []),
+    ...(Array.isArray(config.plugin) ? (config.plugin as unknown[]) : []),
     safetyPlugin,
   ];
   const mcp = config.mcp;

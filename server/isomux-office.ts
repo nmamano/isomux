@@ -5909,7 +5909,7 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
     return ra !== rb ? ra - rb : a - b;
   });
   const rooms: RoomWire[] = [];
-  const globalToVisible: number[] = new Array(all.length).fill(-1);
+  const globalToVisible = new Array<number>(all.length).fill(-1);
   for (const i of visibleGlobal) {
     globalToVisible[i] = rooms.length;
     rooms.push(all[i]);

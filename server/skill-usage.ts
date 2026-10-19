@@ -39,7 +39,7 @@ let store: SkillUsageStore | null = null;
 function sanitize(raw: unknown): SkillUsageStore {
   const out = nullProto<Record<string, number>>();
   if (raw === null || typeof raw !== "object") return out;
-  for (const [userId, counts] of Object.entries(raw)) {
+  for (const [userId, counts] of Object.entries(raw) as [string, unknown][]) {
     if (counts === null || typeof counts !== "object") continue;
     const clean = nullProto<number>();
     let any = false;

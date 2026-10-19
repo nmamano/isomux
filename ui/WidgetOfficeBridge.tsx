@@ -15,7 +15,11 @@ export function WidgetOfficeBridge({ boot }: { boot: AppWidgetBoot }) {
   const [entryMarker] = useState(() => crypto.randomUUID());
   useEffect(() => {
     const backToApp = (event: PopStateEvent) => {
-      if (event.state?.isomuxAppWrapper !== entryMarker) return;
+      if (
+        (event.state as { isomuxAppWrapper?: unknown } | null)
+          ?.isomuxAppWrapper !== entryMarker
+      )
+        return;
       // The office's listener must not clear the saved chat before the reload.
       event.stopImmediatePropagation();
       window.location.reload();

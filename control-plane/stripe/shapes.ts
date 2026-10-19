@@ -224,7 +224,8 @@ function invoiceSubscriptionOf(o: Raw): string | null {
  */
 function discountOf(o: Raw): SubscriptionSnapshot["discount"] {
   const candidates: unknown[] = [];
-  if (Array.isArray(o.discounts)) candidates.push(...o.discounts);
+  if (Array.isArray(o.discounts))
+    candidates.push(...(o.discounts as unknown[]));
   if (o.discount) candidates.push(o.discount);
 
   let best: SubscriptionSnapshot["discount"] = null;

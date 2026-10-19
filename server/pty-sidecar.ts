@@ -69,10 +69,25 @@ function stop() {
   process.stdin.pause();
 }
 
+// What server/terminal.ts writes to this process, one JSON object a line.
+type ParentMessage =
+  | {
+      type: "spawn";
+      shell?: string;
+      cols?: number;
+      rows?: number;
+      cwd?: string;
+      env?: Record<string, string | undefined>;
+    }
+  | { type: "input"; data?: unknown }
+  | { type: "resize"; cols: number; rows: number }
+  | { type: "status" }
+  | { type: "kill" };
+
 input.on("line", (line) => {
-  let msg;
+  let msg: ParentMessage;
   try {
-    msg = JSON.parse(line);
+    msg = JSON.parse(line) as ParentMessage;
   } catch {
     return;
   }

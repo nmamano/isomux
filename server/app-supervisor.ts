@@ -932,7 +932,10 @@ export function createAppSupervisor(
     // A failed read is reported as `unknown`, never as `stopped`: "I could not
     // ask systemd" and "systemd says it is not running" are different facts,
     // and only one of them should look like a deliberate state on the Apps tab.
-    const byUnit = r.code === 0 ? parseSystemctlShow(r.stdout) : new Map();
+    const byUnit =
+      r.code === 0
+        ? parseSystemctlShow(r.stdout)
+        : new Map<string, AppRuntime>();
     for (const appName of appNames) {
       const runtime = byUnit.get(unitName(appName)) ?? UNKNOWN_RUNTIME;
       const startError = startErrors.get(appName);

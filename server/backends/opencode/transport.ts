@@ -1286,7 +1286,7 @@ export class OpenCodeTransport {
       // A permission asked while the stream was silent. The loop below drops
       // other sessions' requests and the ones it already handled.
       const asked = Array.isArray(permissions)
-        ? permissions.map((properties) => ({
+        ? (permissions as unknown[]).map((properties) => ({
             type: "permission.asked",
             properties,
           }))
@@ -1906,7 +1906,9 @@ function turnReplayFrames(
       type: "message.updated",
       properties: { sessionID: sessionId, info },
     });
-    for (const part of Array.isArray(message.parts) ? message.parts : []) {
+    for (const part of Array.isArray(message.parts)
+      ? (message.parts as unknown[])
+      : []) {
       frames.push({
         type: "message.part.updated",
         properties: { sessionID: sessionId, part },

@@ -34,7 +34,11 @@ if (phase === "first") {
     resultPath,
     JSON.stringify({
       sessionId,
-      serverPid: JSON.parse(await readFile(supervisor.recordPath, "utf8")).pid,
+      serverPid: (
+        JSON.parse(await readFile(supervisor.recordPath, "utf8")) as {
+          pid: number;
+        }
+      ).pid,
     }),
   );
   process.kill(process.pid, "SIGKILL");
@@ -53,8 +57,10 @@ if (phase === "first") {
     .map((event) => event.text)
     .join("");
   session.close();
-  const adoptedPid = JSON.parse(
-    await readFile(supervisor.recordPath, "utf8"),
+  const adoptedPid = (
+    JSON.parse(await readFile(supervisor.recordPath, "utf8")) as {
+      pid: number;
+    }
   ).pid;
   await supervisor.shutdown();
   await writeFile(resultPath, JSON.stringify({ ...prior, adoptedPid, text }));

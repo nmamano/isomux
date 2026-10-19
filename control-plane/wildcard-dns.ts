@@ -42,7 +42,7 @@ export function sameWildcardAnswers(
   answers: DnsAnswers,
 ): boolean {
   const sorted = (value: unknown): unknown =>
-    Array.isArray(value) ? [...value].sort() : value;
+    Array.isArray(value) ? [...(value as unknown[])].sort() : value;
   return (
     JSON.stringify(sorted(evidence.a ?? null)) ===
       JSON.stringify([...answers.a].sort()) &&

@@ -65,7 +65,9 @@ export function migrateCronjobsPromptFromOfficeConfig() {
   try {
     const officePath = join(ISOMUX_DIR, "office-config.json");
     if (!existsSync(officePath)) return;
-    const parsed = JSON.parse(readFileSync(officePath, "utf-8"));
+    const parsed = JSON.parse(readFileSync(officePath, "utf-8")) as {
+      cronjobsPrompt?: unknown;
+    };
     if (
       typeof parsed.cronjobsPrompt === "string" &&
       parsed.cronjobsPrompt.trim()

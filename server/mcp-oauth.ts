@@ -235,7 +235,7 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
 
   function json(answer: Answer): Record<string, unknown> {
     try {
-      const parsed = JSON.parse(answer.text);
+      const parsed: unknown = JSON.parse(answer.text);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
         return parsed as Record<string, unknown>;
     } catch {

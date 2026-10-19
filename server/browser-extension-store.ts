@@ -30,7 +30,7 @@ export function browserName(name: string): string | undefined {
 // Only selected credentials survive restart. Pairing codes are single-use and
 // live in memory, so a restarted office cannot redeem an old code.
 export class BrowserExtensionStore {
-  private records: Record<string, PairedBrowser[]> = Object.create(null);
+  private records = Object.create(null) as Record<string, PairedBrowser[]>;
   private codes = new Map<
     string,
     { member: string; expiresAt: number; name: string }
@@ -72,7 +72,9 @@ export class BrowserExtensionStore {
             this.preserveSource = true;
             continue;
           }
-          const kept = browsers.filter(
+          const kept = (
+            browsers as (Record<keyof PairedBrowser, unknown> | null)[]
+          ).filter(
             (b): b is PairedBrowser =>
               !!b &&
               typeof b === "object" &&
@@ -128,7 +130,7 @@ export class BrowserExtensionStore {
       // Only a genuinely absent file gets the migration default. Never log
       // browser state or error content. Invalid state requires fresh pairing.
       if ((error as { code?: string }).code === "ENOENT") return;
-      this.records = Object.create(null);
+      this.records = Object.create(null) as Record<string, PairedBrowser[]>;
       this.preserveSource = true;
     }
   }

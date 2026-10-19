@@ -113,7 +113,7 @@ export function readHookPayloads(path: string): unknown[] {
     return readFileSync(path, "utf8")
       .split("\n")
       .filter(Boolean)
-      .map((line) => JSON.parse(line));
+      .map((line): unknown => JSON.parse(line));
   } catch {
     return [];
   }

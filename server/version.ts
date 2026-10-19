@@ -58,7 +58,10 @@ function imageVersion(root: string): VersionInfo {
   try {
     const path = join(root, "version-info.json");
     if (statSync(path).size > 4096) return unknown;
-    const v = JSON.parse(readFileSync(path, "utf8"));
+    const v = JSON.parse(readFileSync(path, "utf8")) as Record<
+      keyof VersionInfo,
+      unknown
+    > | null;
     if (
       !v ||
       typeof v !== "object" ||

@@ -36,7 +36,7 @@ export function nextVariableNotes(
 ):
   | { ok: true; notes: Record<string, string> }
   | { ok: false; name: string | null; reason: "invalid" | "too_long" } {
-  const notes: Record<string, string> = Object.create(null);
+  const notes = Object.create(null) as Record<string, string>;
   if (requested === undefined) {
     for (const [name, note] of Object.entries(saved))
       if (Object.hasOwn(values, name)) notes[name] = note;

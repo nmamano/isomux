@@ -852,10 +852,10 @@ export function loadAgents(): Room[] {
   try {
     if (!existsSync(AGENTS_FILE)) return [defaultRoom()];
     const content = readFileSync(AGENTS_FILE, "utf-8");
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(content) as unknown;
     if (!Array.isArray(parsed) || parsed.length === 0) return [defaultRoom()];
 
-    const first = parsed[0];
+    const first: unknown = parsed[0];
 
     if (
       first &&
@@ -863,7 +863,7 @@ export function loadAgents(): Room[] {
       "name" in first &&
       "agents" in first
     ) {
-      rooms = parsed;
+      rooms = parsed as (Room & { envFile?: string })[];
     } else if (Array.isArray(first)) {
       rooms = (parsed as PersistedAgent[][]).map((agents, i) => ({
         id: generateRoomId(),
@@ -1187,7 +1187,9 @@ export interface ServerConfig {
 function readOfficeConfigRaw(): Record<string, unknown> {
   try {
     if (!existsSync(OFFICE_CONFIG_FILE)) return {};
-    const parsed = JSON.parse(readFileSync(OFFICE_CONFIG_FILE, "utf-8"));
+    const parsed: unknown = JSON.parse(
+      readFileSync(OFFICE_CONFIG_FILE, "utf-8"),
+    );
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : {};

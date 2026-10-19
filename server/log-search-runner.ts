@@ -212,7 +212,7 @@ export function runSearchInChild(
           | { ok: true; result: SearchResult }
           | { ok: false; error: string };
         try {
-          data = JSON.parse(out);
+          data = JSON.parse(out) as typeof data;
         } catch {
           console.error("[log-search] child produced unreadable output");
           settle({

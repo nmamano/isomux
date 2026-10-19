@@ -271,7 +271,7 @@ function mergeHooksFile(
   if (current !== undefined && !Array.isArray(current)) {
     throw new Error("hooks.json PreToolUse value is not an array");
   }
-  const matchers = Array.isArray(current) ? [...current] : [];
+  const matchers = Array.isArray(current) ? [...(current as unknown[])] : [];
   const ownedIndices = matchers
     .map((matcher, index) =>
       isIsomuxShapedMatcher(matcher, hookPath) ? index : -1,

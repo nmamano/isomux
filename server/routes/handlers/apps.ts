@@ -351,7 +351,7 @@ async function thumbnailFromPath(
   }
   let body: Partial<AffordanceReadFileReq> | null;
   try {
-    body = JSON.parse(new TextDecoder().decode(raw.bytes));
+    body = JSON.parse(new TextDecoder().decode(raw.bytes)) as typeof body;
   } catch {
     return {
       ok: false,

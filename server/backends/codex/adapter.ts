@@ -330,7 +330,10 @@ async function listThreadTurns(
       const items = (raw as { items?: unknown })?.items;
       turns.push({
         id,
-        items: itemsView === "full" && Array.isArray(items) ? [...items] : [],
+        items:
+          itemsView === "full" && Array.isArray(items)
+            ? [...(items as unknown[])]
+            : [],
       });
       seenIds.add(id);
     }

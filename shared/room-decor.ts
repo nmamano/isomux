@@ -81,7 +81,7 @@ export function parseRoomDecorPatch(
     return { ok: false, reason: "decor must be an object or null" };
   }
   const patch: Record<string, string | null> = {};
-  for (const [slot, v] of Object.entries(value)) {
+  for (const [slot, v] of Object.entries(value) as [string, unknown][]) {
     if (!isRoomDecorSlot(slot)) {
       return {
         ok: false,

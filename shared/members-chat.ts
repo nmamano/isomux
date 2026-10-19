@@ -1,4 +1,4 @@
-import { Lexer, defaults, type Token } from "marked";
+import { Lexer, defaults, type MarkedToken, type Token } from "marked";
 import type { Attachment, MembersChatMessage } from "./types.ts";
 
 // A plain-text snapshot shared by the server, composer and demo. Count Unicode
@@ -17,7 +17,7 @@ export function membersChatExcerpt(
 // excerpts stay raw; unsupported markup stays literal, as it does in the chat.
 export function membersChatPreview(content: string): string {
   const text = (tokens: Token[]): string =>
-    tokens
+    (tokens as MarkedToken[])
       .map((token) => {
         if (
           (token.type === "strong" ||

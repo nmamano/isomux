@@ -273,7 +273,7 @@ async function rpcAnswer(response: Response, id: number): Promise<unknown> {
     return found;
   }
   const body = parseJson((await readBody(response)).text);
-  const messages = Array.isArray(body) ? body : [body];
+  const messages: unknown[] = Array.isArray(body) ? body : [body];
   const answer = messages.find((message) => field(message, "id") === id);
   if (answer === undefined) throw new Failure("unexpected");
   return answer;

@@ -40,15 +40,6 @@ export default tseslint.config(
       },
     },
     rules: {
-      // The codebase has accumulated `any` usage around SDK boundaries.
-      // The `no-unsafe-*` family flags every downstream use, drowning real
-      // findings. Disable until a typing cleanup pass lands; the
-      // `no-explicit-any` warning below keeps the source of the issue visible.
-      "@typescript-eslint/no-unsafe-argument": "off",
-      "@typescript-eslint/no-unsafe-assignment": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/no-unsafe-member-access": "off",
-      "@typescript-eslint/no-unsafe-return": "off",
       "@typescript-eslint/no-explicit-any": "warn",
       "no-empty": ["error", { allowEmptyCatch: true }],
       // Most async methods here exist to satisfy a Promise-returning interface
@@ -68,6 +59,19 @@ export default tseslint.config(
           destructuredArrayIgnorePattern: "^_",
         },
       ],
+    },
+  },
+  {
+    // The no-unsafe-* family stays on for production code and is off for
+    // test code only: tests read response bodies and fixtures as `any`, and a
+    // wrong shape there fails the test itself.
+    files: ["**/*.test.{ts,tsx}", "server/test-support/**"],
+    rules: {
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
     },
   },
   {

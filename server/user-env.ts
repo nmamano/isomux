@@ -186,7 +186,7 @@ function readNotes(
   path: string,
   values: ManagedEnvValues | null,
 ): ManagedEnvNotes {
-  const notes: ManagedEnvNotes = Object.create(null);
+  const notes = Object.create(null) as ManagedEnvNotes;
   if (!values || !existsSync(path)) return notes;
   let parsed: unknown;
   try {

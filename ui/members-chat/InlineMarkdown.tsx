@@ -1,12 +1,13 @@
 import { useMemo, type ReactNode } from "react";
-import { Lexer, defaults, type Token } from "marked";
+import { Lexer, defaults, type MarkedToken, type Token } from "marked";
 
 // The full log renderer also runs HTML, SVG, Mermaid and code hooks. Keep
 // this small inline grammar separate, and let React escape all source text.
 // Pass options to the static lexer; Marked instance options do not reach it.
 
 function renderTokens(tokens: Token[]): ReactNode[] {
-  return tokens.map((token, index) => {
+  // No extensions are registered, so every token is a built-in one.
+  return (tokens as MarkedToken[]).map((token, index) => {
     if (token.type === "strong" && token.tokens)
       return <strong key={index}>{renderTokens(token.tokens)}</strong>;
     if (token.type === "em" && token.tokens)

@@ -709,13 +709,13 @@ export function reducer(state: AppState, action: Action): AppState {
         logs:
           holding && focusedId
             ? new Map([[focusedId, heldLogs ?? []]])
-            : new Map(),
+            : new Map<string, LogEntry[]>(),
         logEntryIds:
           holding && focusedId
             ? new Map([
                 [focusedId, state.logEntryIds.get(focusedId) ?? new Set()],
               ])
-            : new Map(),
+            : new Map<string, Set<string>>(),
         logsReplay: holding
           ? {
               logs: new Map(),

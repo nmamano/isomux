@@ -78,7 +78,9 @@ const unresponsivePid = Number(process.env.OPENCODE_SERVER_UNRESPONSIVE_PID);
 // with the Isomux server's roots: this helper's HOME and environment carry the
 // member's variables. A server that loaded another build is not adopted.
 const safetyPluginText = await buildOpenCodeSafetyPlugin(
-  JSON.parse(required("OPENCODE_SAFETY_ROOTS")),
+  JSON.parse(required("OPENCODE_SAFETY_ROOTS")) as Parameters<
+    typeof buildOpenCodeSafetyPlugin
+  >[0],
 );
 const safetyPlugin = createHash("sha256")
   .update(safetyPluginText)
@@ -214,7 +216,7 @@ if (prior) await stop(prior);
 const userConfigDir = openCodeUserConfigDir(process.env);
 const configOverride = JSON.stringify(
   openCodeConfigOverride(
-    JSON.parse(await readFile(configPath, "utf8")),
+    JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>,
     pathToFileURL(safetyPluginPath).href,
   ),
 );

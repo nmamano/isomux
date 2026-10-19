@@ -43,11 +43,6 @@ export default tseslint.config(
       "react-hooks/set-state-in-effect": "warn",
       "react-hooks/set-state-in-render": "warn",
       "react-hooks/purity": "warn",
-      "@typescript-eslint/no-unsafe-argument": "off",
-      "@typescript-eslint/no-unsafe-assignment": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/no-unsafe-member-access": "off",
-      "@typescript-eslint/no-unsafe-return": "off",
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/require-await": "off",
       "@typescript-eslint/no-unused-vars": [
@@ -69,6 +64,18 @@ export default tseslint.config(
         "error",
         "error-handling-correctness-only",
       ],
+    },
+  },
+  // Same rule as the root config: the no-unsafe-* family is off for test code
+  // only. Globstars, for the same invoking-cwd reason as the ignores above.
+  {
+    files: ["**/*.test.{ts,tsx}", "**/e2e/**"],
+    rules: {
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
     },
   },
 );

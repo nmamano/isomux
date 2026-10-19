@@ -124,8 +124,11 @@ export function readLegacyUserPrefs(): {
   let notifRooms: NotifRoomsSetting = [];
   if (raw) {
     try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        Array.isArray(parsed) &&
+        parsed.every((x): x is string => typeof x === "string")
+      ) {
         notifRooms = parsed;
       }
       // Legacy "all" sentinel collapses to []; the user can re-enable
@@ -170,8 +173,10 @@ function readUsagePinMap(): Record<string, UsagePin> {
   if (typeof localStorage === "undefined") return {};
   try {
     const raw = localStorage.getItem(KEY_USAGE_PIN);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? parsed : {};
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, UsagePin>)
+      : {};
   } catch {
     return {};
   }

@@ -74,7 +74,7 @@ function readTabs(agentId: string): string[] {
   try {
     const raw = localStorage.getItem(TABS_KEY(agentId));
     if (!raw) return [];
-    const arr = JSON.parse(raw);
+    const arr: unknown = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
     return arr.filter((p): p is string => typeof p === "string");
   } catch {
@@ -102,7 +102,7 @@ function readRecent(agentId: string): string[] {
   try {
     const raw = localStorage.getItem(RECENT_KEY(agentId));
     if (!raw) return [];
-    const arr = JSON.parse(raw);
+    const arr: unknown = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
     return arr
       .filter((p): p is string => typeof p === "string")

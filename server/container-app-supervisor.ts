@@ -40,7 +40,7 @@ export function createContainerAppSupervisor(
       );
     let result: { ok: boolean; value?: T; error?: string };
     try {
-      result = JSON.parse(reply.stdout);
+      result = JSON.parse(reply.stdout) as typeof result;
     } catch {
       throw new AppSupervisorError(
         "supervisor_failed",

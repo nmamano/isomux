@@ -33,7 +33,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import pg from "pg";
-import type { Pool, PoolClient, PoolConfig } from "pg";
+import type { Pool, PoolClient, PoolConfig, QueryResult } from "pg";
 import { ASSET_GONE_REASON, LIFECYCLE_ASSET_GONE } from "./lifecycle.ts";
 
 export type Clock = () => number;
@@ -670,7 +670,7 @@ const TYPES: PoolConfig["types"] = {
   getTypeParser: (oid: number, format?: "text" | "binary") =>
     oid === INT8_OID
       ? (value: string | null) => (value === null ? null : Number(value))
-      : pg.types.getTypeParser(oid, format),
+      : (pg.types.getTypeParser(oid, format) as (value: string) => unknown),
 };
 
 /**
@@ -1231,7 +1231,9 @@ export class Store {
       throw redactConnectionDetails(err, this.url);
     }
     // A multi-statement simple query answers with one result per statement.
-    const results = Array.isArray(answer) ? answer : [answer];
+    const results = (Array.isArray(answer) ? answer : [answer]) as QueryResult<
+      Record<string, unknown>
+    >[];
     const last = results[results.length - 1];
 
     // A COMMIT ISSUED ON AN ABORTED TRANSACTION SUCCEEDS AND COMMITS NOTHING:

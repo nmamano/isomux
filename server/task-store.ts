@@ -16,7 +16,7 @@ function stored(task: TaskItem | StoredTask): StoredTask {
 function normalize(records: unknown): StoredTask[] {
   if (!Array.isArray(records)) throw new Error("Task import must be an array");
   const ids = new Set<string>();
-  return records.map((value) => {
+  return (records as (Record<string, unknown> | null)[]).map((value) => {
     if (
       !value ||
       typeof value.id !== "string" ||
@@ -76,7 +76,7 @@ function loadFromStore(store: AuditStore, root: string): StoredTask[] {
     store.db.query("SELECT record FROM tasks ORDER BY rowid").all() as {
       record: string;
     }[]
-  ).map((r) => JSON.parse(r.record));
+  ).map((r) => JSON.parse(r.record) as StoredTask);
 }
 export function loadTasks(): StoredTask[] {
   return loadFromStore(officeAuditStore(), STATE_ROOT);
@@ -105,7 +105,9 @@ export function createTaskStore(
       const row = store.db
         .query("SELECT record FROM tasks WHERE id=?")
         .get(change.task.id) as { record: string } | null;
-      const before: Record<string, unknown> = row ? JSON.parse(row.record) : {};
+      const before = row
+        ? (JSON.parse(row.record) as Record<string, unknown>)
+        : {};
       const after = change.kind === "deleted" ? {} : stored(change.task);
       const taskChanges: Record<string, { old: unknown; new: unknown }> = {};
       for (const key of new Set([
