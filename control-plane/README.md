@@ -1414,7 +1414,7 @@ never started. A fresh bootstrap can order a table's columns differently from
 the old database, so the data does not go into the bootstrap's tables. In one
 transaction, the script drops them, restores the dump's tables as `cp_owner`
 and grants the bootstrap's privileges again. It commits only when every table
-has the bootstrap's owner and privileges. Then the owner stamps this install's
+has the bootstrap's owner and privileges, and every column its privileges. Then the owner stamps this install's
 identity, and `restore-check.ts compare` must find the copy equal to the
 source. A failure before the commit leaves the database as it was, and a newer
 dump can be restored until the apps first start.

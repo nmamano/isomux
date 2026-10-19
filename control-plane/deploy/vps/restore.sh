@@ -12,8 +12,9 @@
 # database, so a data-only restore does not compare equal. In one transaction,
 # this drops the bootstrap's tables, restores the dump's tables owned by
 # cp_owner, and grants the bootstrap's privileges again; it commits only when
-# every table's owner and privileges are the bootstrap's. Then the owner stamps
-# this install's identity, and the restored copy is compared with the source.
+# every table's owner and privileges, and every column's privileges, are the
+# bootstrap's. Then the owner stamps this install's identity, and the restored
+# copy is compared with the source.
 # A failure before the commit leaves the database as it was, and the script can
 # run again until the apps first start.
 set -euo pipefail
@@ -46,17 +47,26 @@ dc() { docker compose --env-file "$root/release.env" -f "$root/current/control-p
 log=$root/restore-$(date -u +%Y%m%dT%H%M%SZ).log
 
 psql_db() { dc exec -T db psql -X -q -At -v ON_ERROR_STOP=1 -U postgres -d isomux "$@"; }
-# Every table's owner and sorted privileges, one line per table.
-acl="select coalesce(string_agg(c.relname || ' ' || pg_get_userbyid(c.relowner) || ' ' ||
-  coalesce((select string_agg(a::text, ',' order by a::text) from unnest(c.relacl) a), ''),
-  E'\n' order by c.relname), '')
-  from pg_catalog.pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p')"
+# Every table's owner and sorted privileges, one line per table, and one line
+# per column that has privileges of its own.
+acl="with t as (select c.oid, c.relname, c.relowner, c.relacl from pg_catalog.pg_class c
+    where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p'))
+  select coalesce(string_agg(line, E'\n' order by line), '') from (
+    select t.relname || ' ' || pg_get_userbyid(t.relowner) || ' ' ||
+      coalesce((select string_agg(a::text, ',' order by a::text) from unnest(t.relacl) a), '') as line
+      from t
+    union all
+    select t.relname || '(' || f.attname || ') ' ||
+      (select string_agg(a::text, ',' order by a::text) from unnest(f.attacl) a)
+      from t join pg_catalog.pg_attribute f on f.attrelid = t.oid
+      where f.attnum > 0 and not f.attisdropped and cardinality(f.attacl) > 0) lines"
 
 grants=$(dc exec -T db pg_dump -U postgres -d isomux -s | grep -E '^(GRANT|REVOKE) ') ||
   die "the prepared database has no grants to keep"
 expected=$(psql_db -c "$acl")
-[[ $expected != *'$acl$'* ]] || die "a table name holds the quoting tag"
-say "kept: the bootstrap's $(wc -l <<<"$grants") grants on $(wc -l <<<"$expected") tables"
+[[ $expected != *'$acl$'* ]] || die "a table or column name holds the quoting tag"
+columns=$(grep -c '^[^ ]*(' <<<"$expected" || true)
+say "kept: the bootstrap's $(wc -l <<<"$grants") grants on $(($(wc -l <<<"$expected") - columns)) tables and $columns columns"
 
 # pg_restore writes the restore as SQL, and psql runs all of it in one
 # transaction. When pg_restore fails, the stream ends before the commit and
