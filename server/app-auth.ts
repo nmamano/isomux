@@ -37,6 +37,7 @@ import { appRegistrationGeneration } from "./app-registry.ts";
 import { buildPublicOrigin, revalidateByHash } from "./auth.ts";
 import type { SessionLookup } from "./auth.ts";
 import type { AppRecord } from "../shared/types.ts";
+import type { AppMember } from "./app-proxy.ts";
 import {
   AUTH_REQUIRED_BODY,
   BAD_REQUEST_BODY,
@@ -815,10 +816,14 @@ export function appHostWsAuthGate(
   });
 }
 
+export type AppHostGateResult =
+  | { ok: true; member: AppMember | null }
+  | { ok: false; response: Response };
+
 export function appHostAuthGate(
   req: Request,
-  ctx: AppHostContext,
-): Response | null {
+  ctx: AppHostContext & { memberName: (userId: string) => string | null },
+): AppHostGateResult {
   const rawCookie = readAppCookie(req);
   const session = validateAppSession(rawCookie, {
     label: ctx.app.hostLabel,
@@ -827,16 +832,25 @@ export function appHostAuthGate(
     now: ctx.now,
   });
   if (session && ctx.canAccess(ctx.app, session.userId)) {
-    return null;
+    const name = ctx.memberName(session.userId);
+    // Never relay an admitted member without the member headers: an app may
+    // read their absence as "no member". canAccess already refuses a user
+    // whose record is gone, so this only guards a future change to it.
+    if (name !== null) {
+      return { ok: true, member: { id: session.userId, name } };
+    }
   }
   if (previewSessionAllows(rawCookie, ctx.app, ctx.now ?? Date.now())) {
-    return null;
+    return { ok: true, member: null };
   }
-  return noAppSessionAnswer(req, {
-    label: ctx.app.hostLabel,
-    rawCookie,
-    upgrade: false,
-  });
+  return {
+    ok: false,
+    response: noAppSessionAnswer(req, {
+      label: ctx.app.hostLabel,
+      rawCookie,
+      upgrade: false,
+    }),
+  };
 }
 
 // A label with no live app gets the answer that a live app gives a caller with

@@ -202,6 +202,7 @@ async function open(
     apps: appRegistry.list(),
     supervisor: srv.appSupervisor,
     canAccess: () => true,
+    memberName: () => "Member",
     upgrade: (_req, data) => {
       captured = data.relay;
       return true;
@@ -444,6 +445,7 @@ describe("app-ws relay: the cap counts SOCKETS, not relay objects", () => {
       apps: appRegistry.list(),
       supervisor: srv.appSupervisor,
       canAccess: () => true,
+      memberName: () => "Member",
       maxPerApp: 1,
       upgrade: (_r, data) => {
         relay = data.relay;
@@ -486,6 +488,7 @@ describe("app-ws relay: the cap counts SOCKETS, not relay objects", () => {
         apps: appRegistry.list(),
         supervisor: srv.appSupervisor,
         canAccess: () => true,
+        memberName: () => "Member",
         upgrade: () => {
           if (mode === "throw") throw new Error("runtime seam blew up");
           return false;
@@ -747,6 +750,7 @@ describe("app-ws relay: the window before the socket opens", () => {
       apps: appRegistry.list(),
       supervisor: srv.appSupervisor,
       canAccess: () => true,
+      memberName: () => "Member",
       upgrade: (_r, data) => {
         captured = data.relay;
         return true;

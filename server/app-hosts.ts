@@ -173,6 +173,8 @@ export interface AppHostDeps {
   // half-performed.
   upgrade?: (req: Request, data: AppRelayWsData, headers?: Headers) => boolean;
   canAccess: (app: AppRecord, userId: string) => boolean;
+  // The member's display name, or null when the user record is gone.
+  memberName: (userId: string) => string | null;
 }
 
 // The office's request entry point calls this FIRST, before the URL is parsed
@@ -319,6 +321,7 @@ function dispatchAppHostRequest(
       peer: deps.peer,
       registry,
       canAccess: deps.canAccess,
+      memberName: deps.memberName,
       upgrade: (request, data, headers) => {
         // No upgrade seam, no upgrade: an office that did not supply one cannot
         // hand a socket to anything, and pretending otherwise would 101 a
@@ -329,8 +332,13 @@ function dispatchAppHostRequest(
     });
   }
 
-  const gate = appHostAuthGate(req, { host, app, canAccess: deps.canAccess });
-  if (gate !== null) return gate;
+  const gate = appHostAuthGate(req, {
+    host,
+    app,
+    canAccess: deps.canAccess,
+    memberName: deps.memberName,
+  });
+  if (!gate.ok) return gate.response;
 
   // The icon is app-host content too. Keep it behind the same per-request
   // authorization as the relay so a live label is not an existence oracle.
@@ -347,5 +355,6 @@ function dispatchAppHostRequest(
     apps,
     supervisor: deps.supervisor ?? productionSupervisor,
     peer: deps.peer,
+    member: gate.member,
   });
 }

@@ -14,8 +14,9 @@
 //     scratch directory must not be handed the credential that opens itself,
 //     let alone one that opens the office. The two office session cookie names
 //     go the same way, for the same money.
-//   - the app never sees a client's `X-Forwarded-*`. The relay writes those,
-//     and a header the relay owns is worthless if a client can pre-fill it.
+//   - the app never sees a client's `X-Forwarded-*` or `X-Isomux-*`. The relay
+//     writes those, including the signed-in member's id and name, and a header
+//     the relay owns is worthless if a client can pre-fill it.
 //   - the browser never sees the app's hop-by-hop headers. The relay keeps
 //     encoded bytes and their Content-Encoding and Content-Length together.
 //   - nothing at all is sent to an app that is not RUNNING. A stopped app's
@@ -87,6 +88,11 @@ const RELAY_OWNED_REQUEST_HEADERS = new Set([
   "x-forwarded-port",
   "x-forwarded-proto",
 ]);
+
+// The whole X-Isomux- namespace is the relay's too, so a header added to it
+// later cannot be pre-filled by a client while nobody remembers to strip it.
+// An app therefore cannot use X-Isomux-* headers of its own.
+const RELAY_OWNED_HEADER_PREFIX = "x-isomux-";
 
 // Cookies that never leave the office, whoever sent them.
 //
@@ -209,6 +215,13 @@ export function forwardedForValue(peer: string | null): string | null {
   return mapped ? mapped[1] : peer;
 }
 
+// The signed-in member behind a relayed request. Null when there is none: a
+// screenshot capture, or a request the office makes itself.
+export interface AppMember {
+  id: string;
+  name: string;
+}
+
 // The headers the app sees. `peerAddress` is the TCP peer of the office's own
 // listener - which, on every deployment that has app hostnames, is the local
 // terminator rather than the browser. That is deliberate and it is the honest
@@ -217,10 +230,16 @@ export function forwardedForValue(peer: string | null): string | null {
 // truth by relaying it. An app therefore learns who connected to the office,
 // not who the user is. Absent peer -> no header at all, rather than a literal
 // "unknown" sitting where an address belongs.
+//
+// `member` is who the app gets to know about instead: the member the gate
+// admitted, as X-Isomux-Member-Id and X-Isomux-Member-Name. The name is
+// percent-encoded because a display name may be non-ASCII and a header value
+// may not.
 export function buildUpstreamHeaders(
   req: Request,
   appHost: string,
   peerAddress: string | null | undefined,
+  member: AppMember | null,
 ): Headers {
   const drop = connectionNominated(req.headers);
   const out = new Headers();
@@ -228,6 +247,7 @@ export function buildUpstreamHeaders(
     const lower = name.toLowerCase();
     if (HOP_BY_HOP.has(lower) || drop.has(lower)) continue;
     if (RELAY_OWNED_REQUEST_HEADERS.has(lower)) continue;
+    if (lower.startsWith(RELAY_OWNED_HEADER_PREFIX)) continue;
     if (lower === "cookie") continue; // handled below
     out.set(name, value);
   }
@@ -242,6 +262,10 @@ export function buildUpstreamHeaders(
   out.set("X-Forwarded-Proto", "https");
   const forwardedFor = forwardedForValue(peerAddress ?? null);
   if (forwardedFor !== null) out.set("X-Forwarded-For", forwardedFor);
+  if (member !== null) {
+    out.set("X-Isomux-Member-Id", member.id);
+    out.set("X-Isomux-Member-Name", encodeURIComponent(member.name));
+  }
   return out;
 }
 
@@ -279,6 +303,8 @@ export interface RelayContext {
   // question, and a socket that has already gone away is not an error case
   // worth failing a response over.
   peer?: () => string | null | undefined;
+  // The member the gate admitted. Absent or null: no member headers.
+  member?: AppMember | null;
   // Test seams, so a stall can be provoked in milliseconds instead of five
   // minutes and a cap in two requests instead of five hundred.
   stallMs?: number;
@@ -393,7 +419,12 @@ export async function relayToApp(
     try {
       upstream = await fetch(target, {
         method: req.method,
-        headers: buildUpstreamHeaders(req, ctx.host, peerAddress(ctx)),
+        headers: buildUpstreamHeaders(
+          req,
+          ctx.host,
+          peerAddress(ctx),
+          ctx.member ?? null,
+        ),
         // Streamed, never buffered: an upload of any size and an SSE response
         // both have to work, and neither can if a body is read into memory
         // first. A `Content-Length` the client sent is preserved above, so the

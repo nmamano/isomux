@@ -262,6 +262,8 @@ export interface AppWsRelayContext {
   upgrade: (req: Request, data: AppRelayWsData, headers?: Headers) => boolean;
   registry?: AppRegistry;
   canAccess: (app: AppRecord, userId: string) => boolean;
+  // The member's display name, or null when the user record is gone.
+  memberName: (userId: string) => string | null;
   // Test seams. Same shape as the HTTP relay's: a cap provable in three sockets
   // rather than sixty-five, a revalidation observable in milliseconds.
   maxPerApp?: number;
@@ -778,6 +780,10 @@ export async function relayWsToApp(
   if (!ctx.canAccess(ctx.app, authenticated.userId)) {
     return neutral(401, AUTH_REQUIRED_BODY);
   }
+  // The member is fixed for the socket's life; the revalidation timer closes
+  // it on lost access. No name, no relay, as in the HTTP gate.
+  const memberName = ctx.memberName(authenticated.userId);
+  if (memberName === null) return neutral(401, AUTH_REQUIRED_BODY);
 
   // 2. Origin. Cheap, and it fails a cross-origin attempt before the app hears
   // about it at all.
@@ -828,7 +834,7 @@ export async function relayWsToApp(
   const headers: Record<string, string> = {};
   // ONE hygiene builder, shared with the HTTP relay: hop-by-hop headers and the
   // ones a `Connection` line nominates are dropped, the relay-owned
-  // `X-Forwarded-*` are rewritten rather than passed through, `Host` is the
+  // `X-Forwarded-*` and `X-Isomux-*` are rewritten rather than passed through, `Host` is the
   // verified app host, and the Cookie header loses all three isomux credentials
   // (the app must never see what admits to it). The upstream then owns every
   // header that belongs to the handshake itself - key, version, Connection,
@@ -837,6 +843,7 @@ export async function relayWsToApp(
     req,
     ctx.host,
     peerAddress(ctx),
+    { id: authenticated.userId, name: memberName },
   )) {
     headers[name] = value;
   }

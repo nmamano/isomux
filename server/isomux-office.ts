@@ -7333,6 +7333,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       const appHostResponse = handleAppHostRequest(req, {
         supervisor: appSupervisor,
         canAccess: canUserAccessApp,
+        memberName: (userId) => getUserById(userId)?.name ?? null,
         // A thunk, not a value: reading the peer is only worth doing for a
         // request that is actually being relayed, and this runs in front of
         // every request the office serves.
