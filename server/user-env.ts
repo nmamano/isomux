@@ -87,6 +87,21 @@ function validate(values: ManagedEnvValues): void {
   }
 }
 
+// True when two variable sets differ in a name or a value. Notes are not
+// part of a set: a notes-only save changes no agent's environment.
+export function managedEnvValuesDiffer(
+  a: ManagedEnvValues | null,
+  b: ManagedEnvValues | null,
+): boolean {
+  const left = a ?? {};
+  const right = b ?? {};
+  const names = Object.keys(left);
+  if (names.length !== Object.keys(right).length) return true;
+  return names.some(
+    (name) => !Object.hasOwn(right, name) || left[name] !== right[name],
+  );
+}
+
 export function serializeManagedUserEnv(values: ManagedEnvValues): string {
   validate(values);
   return Object.entries(values)

@@ -1896,8 +1896,8 @@ Cosas que puedes hacer por él:
   "panels.terminal.interrupt": "Interrumpir",
   "panels.terminal.interruptHint": "Interrumpir el comando en primer plano",
   "panels.terminal.restart": "Reiniciar",
-  "panels.terminal.secretsStale":
-    "Los secretos cambiaron. Reinicia este terminal para usarlos.",
+  "panels.terminal.envStale":
+    "Los secretos o las variables cambiaron. Reinicia este terminal para usarlos.",
   "panels.terminal.restartHint": "Reiniciar la terminal",
   "panels.terminal.close": "Cerrar la terminal",
   "panels.terminal.sendToChat": "Enviar al chat",
@@ -2690,8 +2690,8 @@ Cosas que puedes hacer por él:
   "systemEntries.interrupted": "Agente interrumpido.",
   "systemEntries.wake.idle":
     "Se retomó tu sesión (se había liberado por inactividad para ahorrar memoria).",
-  "systemEntries.wake.secrets":
-    "Se retomó tu sesión con los secretos actuales.",
+  "systemEntries.wake.env":
+    "Se retomó tu sesión con los secretos y las variables actuales.",
   "systemEntries.wake.afterRestart":
     "Se retomó tu sesión después de reiniciar el servidor.",
   "systemEntries.wake.afterBackendEnded":

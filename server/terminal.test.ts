@@ -237,7 +237,7 @@ describe("the secrets notice", () => {
       ptySidecar: null,
       ptyBuffer: "",
       // Left over from a terminal that a change reached before.
-      ptySecretsStale: true,
+      ptyEnvStale: true,
     } as unknown as ManagedAgent;
     let push!: (line: string) => void;
     const stdout = new ReadableStream<Uint8Array>({
@@ -260,7 +260,7 @@ describe("the secrets notice", () => {
       buildEnvForUserId: () => ({}),
     };
     expect(openTerminal("agent-terminal", deps)).toBe(true);
-    expect(managed.ptySecretsStale).toBe(false);
+    expect(managed.ptyEnvStale).toBe(false);
     const status = JSON.stringify({
       type: "status",
       process: "bash",
@@ -269,12 +269,12 @@ describe("the secrets notice", () => {
     push(status);
     await new Promise((r) => setTimeout(r, 20));
     // The agent manager marks the terminal when its secrets change.
-    managed.ptySecretsStale = true;
+    managed.ptyEnvStale = true;
     push(status);
     await new Promise((r) => setTimeout(r, 20));
     const statuses = events.filter((e) => e.type === "terminal_status");
     expect(statuses).toHaveLength(2);
-    expect(statuses[0]).not.toHaveProperty("secretsStale");
-    expect(statuses[1]).toMatchObject({ secretsStale: true });
+    expect(statuses[0]).not.toHaveProperty("envStale");
+    expect(statuses[1]).toMatchObject({ envStale: true });
   });
 });

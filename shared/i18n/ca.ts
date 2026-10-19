@@ -1897,8 +1897,8 @@ Coses que pots fer per ell:
   "panels.terminal.interrupt": "Interromp",
   "panels.terminal.interruptHint": "Interromp l'ordre en primer pla",
   "panels.terminal.restart": "Reinicia",
-  "panels.terminal.secretsStale":
-    "Els secrets han canviat. Reinicia aquest terminal per fer-los servir.",
+  "panels.terminal.envStale":
+    "Els secrets o les variables han canviat. Reinicia aquest terminal per fer-los servir.",
   "panels.terminal.restartHint": "Reinicia la terminal",
   "panels.terminal.close": "Tanca la terminal",
   "panels.terminal.sendToChat": "Envia al xat",
@@ -2688,8 +2688,8 @@ Coses que pots fer per ell:
   "systemEntries.interrupted": "Agent interromput.",
   "systemEntries.wake.idle":
     "S'ha reprès la teva sessió (s'havia alliberat per inactivitat per estalviar memòria).",
-  "systemEntries.wake.secrets":
-    "S'ha reprès la teva sessió amb els secrets actuals.",
+  "systemEntries.wake.env":
+    "S'ha reprès la teva sessió amb els secrets i les variables actuals.",
   "systemEntries.wake.afterRestart":
     "S'ha reprès la teva sessió després de reiniciar el servidor.",
   "systemEntries.wake.afterBackendEnded":

@@ -106,7 +106,7 @@ async function world() {
       agentRoomId: (agentId) => mgr.getAgent(agentId)?.roomId ?? null,
       canSeeRoom: () => true,
     },
-    onChanged: async () => mgr.secretsChanged([{ kind: "user", userId: USER }]),
+    onChanged: async () => mgr.envChanged([{ kind: "user", userId: USER }]),
     placeholderOf,
     agentUserId: (agentId) =>
       mgr.getAgent(agentId)

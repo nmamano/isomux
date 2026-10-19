@@ -329,8 +329,9 @@ export function TerminalPanel({
   const { mode } = useTheme();
   const { t } = useI18n();
   const [exited, setExited] = useState<number | null>(null);
-  // The agent's secrets changed after this shell started (server flag).
-  const [secretsStale, setSecretsStale] = useState(false);
+  // The agent's secrets or variables changed after this shell started
+  // (server flag).
+  const [envStale, setEnvStale] = useState(false);
   const [owner, setOwner] = useState<{
     process: string;
     shell: boolean;
@@ -392,7 +393,7 @@ export function TerminalPanel({
           advancePendingCommand({ type: "output", data: msg.data });
         } else if (msg.type === "terminal_status" && msg.agentId === agentId) {
           setOwner({ process: msg.process, shell: msg.shell });
-          setSecretsStale(msg.secretsStale === true);
+          setEnvStale(msg.envStale === true);
           setCommandIssue(null);
           const status = {
             type: "status" as const,
@@ -414,7 +415,7 @@ export function TerminalPanel({
             });
         } else if (msg.type === "terminal_exit" && msg.agentId === agentId) {
           setOwner(null);
-          setSecretsStale(false);
+          setEnvStale(false);
           setExited(msg.exitCode);
           advancePendingCommand({ type: "exit" });
         }
@@ -912,7 +913,7 @@ export function TerminalPanel({
         </div>
       </div>
 
-      {secretsStale && (
+      {envStale && (
         <div
           role="status"
           style={{
@@ -924,7 +925,7 @@ export function TerminalPanel({
             flexShrink: 0,
           }}
         >
-          {t("panels.terminal.secretsStale")}
+          {t("panels.terminal.envStale")}
         </div>
       )}
 

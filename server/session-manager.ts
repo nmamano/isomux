@@ -43,8 +43,8 @@ export type DormantReason =
   | "boot"
   | "fresh"
   | "stream-ended"
-  // Released because the set of secrets in its scope changed.
-  | "secrets"
+  // Released because the secrets or variables in its scope changed.
+  | "env"
   | null;
 
 // The per-turn deferred record. `promise` is the same promise `resolve` /

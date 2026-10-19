@@ -422,6 +422,7 @@ import { storageHandlers } from "./routes/handlers/storage.ts";
 import { usageHandlers } from "./routes/handlers/usage.ts";
 import { STATE_ROOT } from "./config.ts";
 import {
+  managedEnvValuesDiffer,
   managedOfficeEnvExists,
   managedUserEnvExists,
   managedUserEnvPath,
@@ -676,7 +677,7 @@ const secretsRuntime = createSecretsRuntime({
       fields: [],
       secretUse: { host: use.host, method: use.method, path: use.path },
     }),
-  onSetChanged: (change) => agentManager?.secretsChanged(change),
+  onSetChanged: (change) => agentManager?.envChanged(change),
   onValues: setSecretValuesForRedaction,
   log: (code) => console.log(`[secret-proxy] ${code}`),
   oauthOwned: (scope) => {
@@ -3899,8 +3900,13 @@ function buildExecutorDeps(
       notes,
       readManagedUserEnvNotes(userId),
     );
+    const before = readManagedUserEnv(userId);
     writeManagedUserEnv(userId, values);
     writeManagedUserEnvNotes(userId, nextNotes);
+    // The member's agents get the new variables: idle ones now, busy ones
+    // at the end of their turn.
+    if (managedEnvValuesDiffer(before, readManagedUserEnv(userId)))
+      agentManager.envChanged([{ kind: "user", userId }]);
     // Agents first: a client that sees the new session_context has the
     // agent records that go with it.
     agentManager.refreshLimitedClaudeFamilies(userId);
@@ -3915,8 +3921,11 @@ function buildExecutorDeps(
       notes,
       readManagedOfficeEnvNotes(),
     );
+    const before = readManagedOfficeEnv();
     writeManagedOfficeEnv(values);
     writeManagedOfficeEnvNotes(nextNotes);
+    if (managedEnvValuesDiffer(before, readManagedOfficeEnv()))
+      agentManager.envChanged([{ kind: "office" }]);
     // The office variables can change which account (or billing) the
     // office sign-in is: drop the usage cap's readings for both.
     memberUsageCap().invalidate("claude");
@@ -6653,7 +6662,7 @@ function emitAgentEvent(event: AgentEvent): void {
         agentId: event.agentId,
         process: event.process,
         shell: event.shell,
-        ...(event.secretsStale ? { secretsStale: true as const } : {}),
+        ...(event.envStale ? { envStale: true as const } : {}),
       });
       break;
     case "terminal_exit":

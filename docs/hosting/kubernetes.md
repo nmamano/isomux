@@ -231,7 +231,7 @@ kubectl -n isomux rollout restart deployment/isomux
 ```
 
 In **Integrations → Variables**, on the Office-wide card, add only
-these, with no keys, and then `/clear` Claude agents:
+these, with no keys:
 
 ```text
 CLAUDE_CODE_USE_BEDROCK=1

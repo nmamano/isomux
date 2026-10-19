@@ -1856,8 +1856,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "panels.terminal.interrupt": "Interrupt",
   "panels.terminal.interruptHint": "Interrupt the foreground command",
   "panels.terminal.restart": "Restart",
-  "panels.terminal.secretsStale":
-    "Secrets changed. Restart this terminal to use them.",
+  "panels.terminal.envStale":
+    "Secrets or variables changed. Restart this terminal to use them.",
   "panels.terminal.restartHint": "Restart the terminal",
   "panels.terminal.close": "Close terminal",
   "panels.terminal.sendToChat": "Send to chat",
@@ -2664,8 +2664,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.interrupted": "Agent interrupted.",
   "systemEntries.wake.idle":
     "Resumed your session (it was released while idle to save memory).",
-  "systemEntries.wake.secrets":
-    "Resumed your session with the current secrets.",
+  "systemEntries.wake.env":
+    "Resumed your session with the current secrets and variables.",
   "systemEntries.wake.afterRestart":
     "Resumed your session after the server restarted.",
   "systemEntries.wake.afterBackendEnded":

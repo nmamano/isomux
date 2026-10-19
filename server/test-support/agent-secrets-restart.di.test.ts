@@ -128,20 +128,20 @@ describe("which agents a secrets change reaches", () => {
     const bob = await spawnLive(mgr, "Bob", "u-bob");
     const unowned = await spawnLive(mgr, "Nobody", null);
 
-    mgr.secretsChanged([{ kind: "user", userId: "u-alice" }]);
+    mgr.envChanged([{ kind: "user", userId: "u-alice" }]);
     await waitUntil(() => dormant(mgr, alice), "alice released");
     expect(dormant(mgr, bob)).toBe(false);
     expect(dormant(mgr, unowned)).toBe(false);
 
     await wake(mgr, alice);
-    mgr.secretsChanged([{ kind: "office" }]);
+    mgr.envChanged([{ kind: "office" }]);
     await waitUntil(
       () => [alice, bob, unowned].every((id) => dormant(mgr, id)),
       "office change released all",
     );
 
     for (const id of [alice, bob, unowned]) await wake(mgr, id);
-    mgr.secretsChanged("all");
+    mgr.envChanged("all");
     await waitUntil(
       () => [alice, bob, unowned].every((id) => dormant(mgr, id)),
       "port change released all",
@@ -169,7 +169,7 @@ describe("when the release happens", () => {
       revision: "first-secret",
     }));
     try {
-      mgr.secretsChanged([{ kind: "office" }]);
+      mgr.envChanged([{ kind: "office" }]);
       expect(dormant(mgr, id)).toBe(true);
       send(mgr, id, "after");
       await waitUntil(() => live(mgr, id), "woke");
@@ -184,7 +184,7 @@ describe("when the release happens", () => {
 
     expect(fake.resumeSessionCount).toBe(resumes + 1);
     expect(mgr.getCurrentSessionId(id)).toBe(sessionId);
-    const wakeText = english.t("systemEntries.wake.secrets");
+    const wakeText = english.t("systemEntries.wake.env");
     expect(
       mgr.getAgentLogs(id).some((e) => String(e.content ?? "") === wakeText),
     ).toBe(true);
@@ -202,7 +202,7 @@ describe("when the release happens", () => {
       () => fake.sessionForAgent(id)!.sent.some((m) => m.text.includes("hold")),
       "busy",
     );
-    mgr.secretsChanged([{ kind: "user", userId: "u-alice" }]);
+    mgr.envChanged([{ kind: "user", userId: "u-alice" }]);
     expect(dormant(mgr, id)).toBe(false);
     fake.sessionForAgent(id)!.completeTurn({ text: "done" });
     await waitUntil(() => dormant(mgr, id), "released at turn end");
@@ -220,7 +220,7 @@ describe("when the release happens", () => {
     );
     const busySession = fake.sessionForAgent(id)!;
 
-    mgr.secretsChanged([{ kind: "office" }]);
+    mgr.envChanged([{ kind: "office" }]);
     // Busy: not released yet.
     expect(dormant(mgr, id)).toBe(false);
     send(mgr, id, "queued-next");

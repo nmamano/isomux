@@ -3736,11 +3736,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.lastActiveAt = Date.now();
     }
 
-    // A process that a secrets change marked while it was busy is released
+    // A process that an environment change marked while it was busy is released
     // at the end of its turn. A queued message does not wait for this: the
     // flush releases it itself before it sends.
-    if (state !== prev && isQueueIdleState(state) && managed.secretsStale)
-      releaseForSecrets(agentId);
+    if (state !== prev && isQueueIdleState(state) && managed.envStale)
+      releaseForEnv(agentId);
 
     // Trigger queue flush on transition into an idle state (and only when the
     // queue actually has items waiting). Swapping into the same state is a
@@ -5467,11 +5467,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     reason: ManagedAgent["dormantReason"],
     sessionId: string,
   ): { log: string; note: string | null } {
-    // The agent hears of it too: its environment has the current secrets.
-    if (reason === "secrets")
+    // The agent hears of it too: its environment has the current secrets and
+    // variables.
+    if (reason === "env")
       return {
-        log: t("systemEntries.wake.secrets"),
-        note: english.t("systemEntries.wake.secrets"),
+        log: t("systemEntries.wake.env"),
+        note: english.t("systemEntries.wake.env"),
       };
     if (reason !== "boot" && reason !== "stream-ended")
       return { log: t("systemEntries.wake.idle"), note: null };
@@ -5579,11 +5580,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return true;
   }
 
-  // Secrets (internal-docs/secrets-design.md, 2.6 and appendix D). A change
-  // of the set of secrets in a scope reaches the agents of that scope: an
-  // office change and "all" reach every agent, a member change only the
-  // agents that member spawned.
-  function secretChangeReaches(
+  // Environment changes (internal-docs/secrets-design.md, 2.6 and appendix
+  // D). A change of the set of secrets, or of the variables, in a scope
+  // reaches the agents of that scope: an office change and "all" reach every
+  // agent, a member change only the agents that member spawned.
+  function envChangeReaches(
     change: SecretSetChange,
     userId: string | null | undefined,
   ): boolean {
@@ -5595,10 +5596,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     );
   }
 
-  // The process may be released for a secrets change: idle, with nothing
+  // The process may be released for an environment change: idle, with nothing
   // in flight, and a conversation that resumes. A conversation that cannot
   // resume keeps its process (and its old environment) until /clear.
-  function canReleaseForSecrets(managed: ManagedAgent): boolean {
+  function canReleaseForEnv(managed: ManagedAgent): boolean {
     return (
       managed.sessionManager.session !== null &&
       isQueueIdleState(managed.info.state) &&
@@ -5614,43 +5615,40 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // process with the current environment and resumes the same conversation.
   // Called right before a turn would start (flushQueue, sendMessage), so no
   // turn starts on a marked process.
-  function releaseForSecretsNow(agentId: string, managed: ManagedAgent): void {
-    if (!managed.secretsStale || !canReleaseForSecrets(managed)) return;
-    managed.secretsStale = false;
-    managed.dormantReason = "secrets";
+  function releaseForEnvNow(agentId: string, managed: ManagedAgent): void {
+    if (!managed.envStale || !canReleaseForEnv(managed)) return;
+    managed.envStale = false;
+    managed.dormantReason = "env";
     void managed.sessionManager
       .closeAndDrainSession(managed)
       .catch((err: unknown) =>
-        console.error(
-          `[secrets] release failed for ${agentId}:`,
-          errMessage(err),
-        ),
+        console.error(`[env] release failed for ${agentId}:`, errMessage(err)),
       );
   }
 
   // Releases a marked process once its turn has settled.
-  function releaseForSecrets(agentId: string): void {
+  function releaseForEnv(agentId: string): void {
     const managed = agents.get(agentId);
     if (!managed) return;
     const pending = managed.sessionManager.pendingTurn;
     if (pending)
       void pending.promise
         .catch(() => {})
-        .then(() => releaseForSecretsNow(agentId, managed));
-    else releaseForSecretsNow(agentId, managed);
+        .then(() => releaseForEnvNow(agentId, managed));
+    else releaseForEnvNow(agentId, managed);
   }
 
-  function secretsChanged(change: SecretSetChange): void {
+  function envChanged(change: SecretSetChange): void {
     for (const [agentId, managed] of agents) {
-      if (!secretChangeReaches(change, managed.info.userId)) continue;
+      if (!envChangeReaches(change, managed.info.userId)) continue;
       if (managed.ptySidecar) {
-        managed.ptySecretsStale = true;
+        managed.ptyEnvStale = true;
         terminalStatus(agentId);
       }
       if (!managed.sessionManager.session) continue;
-      managed.secretsStale = true;
+      managed.envStale = true;
       // Idle now: release now. Busy: the end of the turn releases it.
-      if (isQueueIdleState(managed.info.state)) releaseForSecrets(agentId);
+      if (isQueueIdleState(managed.info.state)) releaseForEnv(agentId);
     }
   }
 
@@ -7549,9 +7547,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (inMultiStepFlow(managed)) return;
         if (managed.messageQueue.length === 0) return;
       }
-      // A process marked by a secrets change is released here, so the
+      // A process marked by an environment change is released here, so the
       // branch below wakes a new one.
-      releaseForSecretsNow(agentId, managed);
+      releaseForEnvNow(agentId, managed);
       if (!managed.sessionManager.session && !signedOutProvider(managed)) {
         // A session swap is mid-drain (replaceSession's closeAndDrainSession
         // nulls the session before awaiting the old consumer). Don't race it
@@ -8310,9 +8308,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return;
     }
 
-    // A process marked by a secrets change is released before this message
+    // A process marked by an environment change is released before this message
     // uses it; the wake below starts a new one.
-    if (!claimedChoice && !isSlash) releaseForSecretsNow(agentId, managed);
+    if (!claimedChoice && !isSlash) releaseForEnvNow(agentId, managed);
 
     // If the prior session ended owing a response, write the gap breadcrumb
     // before any new entries land. Parity with the SDK's lazy synthetic
@@ -11756,7 +11754,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     },
     getOrdinaryRooms,
     demoteToLazy,
-    secretsChanged,
+    envChanged,
     sweepIdleAgents,
     sweepStuckFlushes,
     getAgent,

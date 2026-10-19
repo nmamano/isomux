@@ -20,7 +20,7 @@ OPENAI_API_KEY=sk-...
 OPENCODE_API_KEY=sk-...
 ```
 
-Isomux stores personal and office-wide variables in managed files under `~/.isomux/`. Personal variables override office-wide variables when an agent starts or resumes a conversation. Other per-user variables work the same way: for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials.
+Isomux stores personal and office-wide variables in managed files under `~/.isomux/`. Personal variables override office-wide variables. A change reaches idle agents at once and busy ones at the end of their turn; an open terminal keeps its old environment until it restarts. An agent whose conversation cannot resume picks up the change at `/clear`. Other per-user variables work the same way: for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials.
 
 ## Claude on Amazon Bedrock
 
@@ -33,8 +33,6 @@ AWS_BEARER_TOKEN_BEDROCK=ABSK...
 ```
 
 The bearer token is a Bedrock API key from the AWS console (Bedrock → API keys). If you use an IAM access key instead, replace that line with `AWS_ACCESS_KEY_ID=AKIA...` and `AWS_SECRET_ACCESS_KEY=...`, plus `AWS_SESSION_TOKEN=...` if the credentials are temporary.
-
-Then `/clear` Claude agents to pick up the variables.
 
 Agents run the same Claude models as with a Claude login. To use a different model, add `ANTHROPIC_DEFAULT_SONNET_MODEL` (or `_HAIKU_`, `_OPUS_`, `_FABLE_`) with its ID to the same environment variables.
 

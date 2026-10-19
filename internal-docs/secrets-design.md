@@ -111,7 +111,7 @@ A method or path filter does not prove an operation safe. So a secret may go to 
 | Add a secret, reissue a placeholder | Knows the new placeholder at once. | Get it, and the proxy and trust variables, only when they start again. |
 
 - **Moving a variable to a secret does not secure a value that agents already had.** Running processes, Codex shell snapshots, transcripts and any copy keep it. The list tells the member to rotate the value at the provider after the move.
-- A change of the set of secrets in a scope restarts that scope's agent processes and its OpenCode server on their next turn; a value rotation restarts nothing (appendix D).
+- A change of the set of secrets in a scope restarts that scope's agent processes and its OpenCode server on their next turn; a value rotation restarts nothing (appendix D). A change of a scope's variables releases its agents by the same rule.
 
 ## 3. Caller identity
 
@@ -207,7 +207,7 @@ Tool support: [curl](https://curl.se/docs/sslcerts.html) reads `CURL_CA_BUNDLE` 
 
 **Redirects.** The proxy never follows a redirect; it returns it to the client. A client that follows it to another origin makes a new request, which gets the value only if the destination rule passes for that origin.
 
-**Restarts.** A change of the set of secrets in a scope (add, delete, reissue) marks that scope's agents: their next turn starts a new process, as a changed variable does today with `/clear` (shared/i18n/en.ts:831), and the OpenCode server of the profile is replaced. Terminals that are open keep their environment until they are reopened, and the terminal card says so.
+**Restarts.** A change of the set of secrets in a scope (add, delete, reissue) marks that scope's agents: their next turn starts a new process, and the OpenCode server of the profile is replaced. Terminals that are open keep their environment until they are reopened, and the terminal card says so. A save of a scope's variables that adds, removes or changes a value marks the same agents the same way; a notes-only save marks none (server/isomux-office.ts, replaceUserEnv and replaceOfficeEnv).
 
 **OpenCode profile identity.** Today the source key hashes the paths of the env files and the revision hashes their contents (server/env-loader.ts:176-209). Two members with secrets but no env files would share the default profile. So the key also hashes the logical path of the member's own secrets file once it exists (the store deletes it only when the member is removed; office files never join the key; integrations A2 adds its MCP servers file by the same rule). The revision also hashes each secret's scope, name, generation and placeholder, and the proxy port. Adding, deleting and reissuing change the revision and replace the server; a value rotation or an edit of hosts or form does not, because the proxy reads them per request.
 

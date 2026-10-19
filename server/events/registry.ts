@@ -147,7 +147,7 @@ export interface EventPayloads {
     agentId: string;
     process: string;
     shell: boolean;
-    secretsStale?: true;
+    envStale?: true;
   };
   terminal_exit: { agentId: string; exitCode: number };
   room_created: { room: RoomWire };

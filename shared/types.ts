@@ -2213,7 +2213,7 @@ export type ServerMessage =
       shell: boolean;
       // The secrets in the agent's scope changed after this terminal started:
       // it keeps its old environment until it restarts.
-      secretsStale?: true;
+      envStale?: true;
     }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
   | {

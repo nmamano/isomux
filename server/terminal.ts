@@ -78,7 +78,7 @@ export function openTerminal(
 
   managed.ptySidecar = sidecar;
   // A new terminal starts with the current environment.
-  managed.ptySecretsStale = false;
+  managed.ptyEnvStale = false;
   if (actor)
     recordAudit({
       actor,
@@ -143,9 +143,7 @@ export function openTerminal(
               agentId,
               process: msg.process,
               shell: msg.shell,
-              ...(managed.ptySecretsStale
-                ? { secretsStale: true as const }
-                : {}),
+              ...(managed.ptyEnvStale ? { envStale: true as const } : {}),
             });
           } else if (msg.type === "exit") {
             console.log(

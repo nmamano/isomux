@@ -1,5 +1,5 @@
 // The terminal panel says when the agent's secrets changed after its shell
-// started: the server sets secretsStale on terminal_status, and a restart
+// started: the server sets envStale on terminal_status, and a restart
 // (a new shell) clears it.
 
 import { describe, expect, it } from "bun:test";
@@ -39,11 +39,11 @@ describe("the secrets notice", () => {
         agentId: AGENT,
         process: "bash",
         shell: true,
-        secretsStale: true,
+        envStale: true,
       }),
     );
     await settle();
-    expect(notice()?.textContent).toBe(en["panels.terminal.secretsStale"]);
+    expect(notice()?.textContent).toBe(en["panels.terminal.envStale"]);
 
     // Restarted: the new shell's status has no flag.
     act(() =>
