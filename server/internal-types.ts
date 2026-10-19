@@ -217,7 +217,10 @@ export interface ManagedAgent {
   // Recovery copy held until the first event proves whether this wake failed
   // only because its provider needs sign-in. That auth path has one notice.
   pendingFreshRecoveryNotice: boolean;
-  authNoticeEmittedThisWake: boolean;
+  // The backend said this turn needs sign-in (auth_needed), or the send was
+  // stopped as signed out. One sign-in card per turn, and the turn's end
+  // leaves the desk waiting instead of red. Reset when a turn begins.
+  authNeededThisTurn: boolean;
   // Latest committed reading for the ACCOUNT this agent's backend is signed in
   // to, or null when there is none (Claude API-key/Bedrock/Vertex sessions,
   // Codex before any rate-limit payload, backend call failed). Deliberately
@@ -496,6 +499,18 @@ export class BackendSignedOutError extends BackendNotConfiguredError {
   constructor(message: string) {
     super(message);
     this.name = "BackendSignedOutError";
+  }
+}
+
+/**
+ * A turn failed after its backend sent auth_needed. The turn's error line and
+ * the sign-in card are already in the chat, so the caller that owns the turn
+ * keeps the desk waiting and writes nothing. Keeps the backend's message.
+ */
+export class AuthNeededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthNeededError";
   }
 }
 

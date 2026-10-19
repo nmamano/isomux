@@ -413,11 +413,13 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     const fakeBackend = new FakeBackend({
       // A failed turn whose error text reads as an auth failure.
       session: {
-        onSend: (_t, _a, s) =>
+        onSend: (_t, _a, s) => {
+          s.push({ kind: "auth_needed" });
           s.completeTurn({
             status: "failed",
             error: "Error: not logged in. Run /login to authenticate.",
-          }),
+          });
+        },
       },
       isAuthError: (t) => /not logged in|\/login/i.test(t),
       loginInstructions: { text: LOGIN, commands: [LOGIN_CMD] },

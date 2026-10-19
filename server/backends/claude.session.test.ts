@@ -438,6 +438,19 @@ describe("ClaudeSession stream", () => {
     expect(done.done).toBe(true);
   });
 
+  it("signals sign-in ahead of an auth-shaped conversation error", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    conv.throwNext(new Error("401 Unauthorized"));
+    expect(await nextEvent(it)).toEqual({ kind: "auth_needed" });
+    expect(await nextEvent(it)).toEqual({
+      kind: "error",
+      message: "401 Unauthorized",
+    });
+    expect((await it.next()).done).toBe(true);
+  });
+
   it("swallows mid-stream throw when the session was closed", async () => {
     const fake = new FakeSdkClient();
     const { session, conv } = makeSession(fake);
@@ -508,7 +521,6 @@ describe("ClaudeSession approval flow", () => {
     expect(await nextEvent(stream)).toEqual({
       kind: "system_text",
       text: 'Isomux allowed an unexpected SDK permission request because this agent uses bypassPermissions. Tool: Bash. Input: {"command":"API_TOKEN=[REDACTED] printf ok"}.',
-      isomuxAuthored: true,
     });
     expect(await result).toEqual({
       behavior: "allow",
@@ -1059,7 +1071,6 @@ describe("createClaudeBackend - provider refusal", () => {
           provider: "vertex",
           message: "403 Request not allowed",
         }),
-        isomuxAuthored: true,
       });
       session.close();
     });

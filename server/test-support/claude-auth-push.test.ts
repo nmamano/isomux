@@ -25,7 +25,8 @@ it("pushes a full fresh snapshot before auth guidance without rereading Codex", 
     isAuthError: (text) => text.includes("Not logged in"),
     session: {
       onSend: (_text, _attachments, session) => {
-        session.push({ kind: "system_text", text: "Not logged in" });
+        session.push({ kind: "auth_needed" });
+        session.push({ kind: "auth_needed" });
         session.push({
           kind: "turn_completed",
           status: "failed",

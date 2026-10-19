@@ -289,8 +289,27 @@ describe("translateSDKMessage - assistant", () => {
         content: [{ type: "text", text: "Not logged in" }],
       },
     });
-    expect(events).toEqual([{ kind: "system_text", text: "Not logged in" }]);
+    expect(events).toEqual([{ kind: "auth_needed" }]);
   });
+
+  // Bedrock and Vertex own authentication: their words pass through, and
+  // Claude's sign-in card does not apply.
+  for (const provider of ["bedrock", "vertex"])
+    it(`passes a ${provider} sign-in notice through as text`, () => {
+      const events = translate(
+        {
+          type: "assistant",
+          error: "authentication_failed",
+          message: {
+            model: "<synthetic>",
+            content: [{ type: "text", text: "Not logged in" }],
+          },
+        },
+        noopSink,
+        { provider },
+      );
+      expect(events).toEqual([{ kind: "system_text", text: "Not logged in" }]);
+    });
 
   // Task 2bd836d5. Claude Code turns every 401 and 403 from the API into a
   // synthetic authentication_failed message (CLI 2.1.293, read from the
@@ -326,7 +345,6 @@ describe("translateSDKMessage - assistant", () => {
           {
             kind: "system_text",
             text: refusalLine("bedrock"),
-            isomuxAuthored: true,
           },
         ]);
         expect(JSON.stringify(events)).not.toContain(SECRET.slice(7));
@@ -346,12 +364,10 @@ describe("translateSDKMessage - assistant", () => {
       expect(event).toEqual({
         kind: "system_text",
         text: refusalLine("vertex", spanish),
-        isomuxAuthored: true,
       });
       expect(event).not.toEqual({
         kind: "system_text",
         text: refusalLine("vertex"),
-        isomuxAuthored: true,
       });
     });
 
@@ -361,7 +377,7 @@ describe("translateSDKMessage - assistant", () => {
         translate(synthetic(text, "authentication_failed"), noopSink, {
           provider: "anthropic",
         }),
-      ).toEqual([{ kind: "system_text", text }]);
+      ).toEqual([{ kind: "auth_needed" }]);
     });
 
     // The match keys on the CLI's typed error code, not on text alone: a
@@ -691,6 +707,19 @@ describe("translateSDKMessage - result", () => {
       status: "failed",
       error: "Agent stopped: error_during_execution. err1, err2",
     });
+  });
+
+  it("an auth-shaped failure is a sign-in signal ahead of the failed turn", () => {
+    const events = translate({
+      type: "result",
+      subtype: "error_during_execution",
+      errors: ["401 Unauthorized"],
+    });
+    expect(events.map((ev) => ev.kind)).toEqual([
+      "auth_needed",
+      "turn_completed",
+    ]);
+    expect(events[1]).toMatchObject({ status: "failed" });
   });
 
   it("error subtype without errors yields empty error suffix", () => {

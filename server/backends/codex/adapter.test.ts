@@ -1217,7 +1217,6 @@ describe("CodexSession turn lifecycle", () => {
     );
     expect(ev.status).toBe("completed");
     expect(ev.error).toBeUndefined();
-    expect(ev.causedByAuth).toBeUndefined();
   });
 
   it("turn/completed interrupted -> turn_completed interrupted", async () => {
@@ -2264,7 +2263,6 @@ describe("CodexSession session-scoped prefix allows", () => {
     expect(note.text).toBe(
       "Auto-approved by a command-prefix rule for this session.",
     );
-    expect(note.isomuxAuthored).toBe(true);
     expect(await resp).toEqual({ decision: "accept" });
   });
 
@@ -2676,10 +2674,10 @@ describe("CodexSession session-scoped prefix allows", () => {
     expect(ev.allowPrefixExample).toBe("rg --files");
   });
 
-  it("rule notices are marked Isomux-authored so they skip auth sniffing", async () => {
-    // The orchestrator scans system_text for provider auth trouble with a
-    // regex that includes 401/403. These lines quote commands and rules, so
-    // they must never be read that way - a rule about a 401 is not a login.
+  it("rule notices that quote auth words stay notices, with no auth_needed", async () => {
+    // These lines quote commands and rules, so they must never read as a
+    // sign-in failure - a rule about a 401 is not a login. Each next event is
+    // the notice itself: an auth_needed ahead of it fails expectKind.
     const { session, it: stream, fake } = await bootstrapped();
     const resp = fireExecApproval(fake, "auth-1", "grep 401 authentication", [
       "grep",
@@ -2693,14 +2691,9 @@ describe("CodexSession session-scoped prefix allows", () => {
       "system_text",
     );
     expect(granted.text).toContain("401");
-    expect(granted.isomuxAuthored).toBe(true);
     // And the auto-approval breadcrumb that follows.
     const next = fireExecApproval(fake, "auth-2", "grep 401 403", null);
-    const note = expectKind(
-      await nextEvent(stream, "system_text"),
-      "system_text",
-    );
-    expect(note.isomuxAuthored).toBe(true);
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
     expect(await next).toEqual({ decision: "accept" });
     // The refusal path carries user text too.
     const bad = fireExecApproval(fake, "auth-3", "curl unauthorized", [
@@ -2717,7 +2710,7 @@ describe("CodexSession session-scoped prefix allows", () => {
       await nextEvent(stream, "system_text"),
       "system_text",
     );
-    expect(refused.isomuxAuthored).toBe(true);
+    expect(refused.text).toContain("not authenticated");
   });
 
   it("an auto-approved request leaves nothing parked for close() to unwind", async () => {
@@ -2884,32 +2877,28 @@ describe("CodexSession auto-declined server requests", () => {
 
 // ---------------------------------------------------------------------------
 // Auth coalescing - the representative case (per design review). After
-// turn/started, an auth-shaped stderr burst produces exactly ONE system_text,
-// triggers exactly ONE best-effort turn/interrupt, and the resulting
-// turn_completed is failed + causedByAuth with a non-auth-shaped summary so the
-// orchestrator's auth-detect regex does not re-fire.
+// turn/started, an auth-shaped stderr burst produces exactly ONE auth_needed
+// and no system_text, triggers exactly ONE best-effort turn/interrupt, and the
+// resulting turn_completed is failed with no error: the sign-in card explains
+// it.
 // ---------------------------------------------------------------------------
 describe("CodexSession auth coalescing", () => {
-  it("collapses an auth-error stderr burst into one signal + one interrupt + a failed/causedByAuth turn", async () => {
+  it("collapses an auth-error stderr burst into one auth_needed + one interrupt + a failed turn", async () => {
     const { session, fake, it } = await bootstrapped();
     await session.send("do the thing");
     fake.fireNotification("turn/started", { turn: { id: "turn-1" } });
 
-    // First auth-shaped stderr: one system_text + one self-interrupt.
+    // First auth-shaped stderr: one auth_needed + one self-interrupt.
     fake.fireStderr("ERROR: 401 Unauthorized while connecting to OpenAI");
-    const sysText = expectKind(
-      await nextEvent(it, "auth system_text"),
-      "system_text",
-    );
-    expect(sysText.text).toContain("401");
+    expectKind(await nextEvent(it, "auth_needed"), "auth_needed");
     expect(fake.interruptCount()).toBe(1);
 
-    // Second auth-shaped stderr in the SAME turn: coalesced, no new system_text.
+    // Second auth-shaped stderr in the SAME turn: coalesced, nothing new.
     fake.fireStderr("ERROR: 401 Unauthorized (retry 2)");
 
     // The interrupt lands as turn/completed interrupted; the adapter remaps it
-    // to failed + causedByAuth. The next stream event being turn_completed (not
-    // a second system_text) proves the retry was coalesced.
+    // to failed. The next stream event being turn_completed (not a second
+    // auth_needed or the stderr line) proves the retry was coalesced.
     fake.fireNotification("turn/completed", {
       turn: { status: "interrupted", error: null },
     });
@@ -2918,11 +2907,46 @@ describe("CodexSession auth coalescing", () => {
       "turn_completed",
     );
     expect(done.status).toBe("failed");
-    expect(done.causedByAuth).toBe(true);
-    expect(done.error).toContain("after an auth error");
-    // The rewritten summary is NOT auth-shaped, so it won't re-trigger detection.
-    expect(done.error).not.toMatch(/401|unauthorized/i);
+    expect(done.error).toBeUndefined();
     expect(fake.interruptCount()).toBe(1);
+  });
+
+  // Only the sign-in failure loses its line: a turn that ends on another
+  // error after the signal keeps that error.
+  it("keeps a turn's own error after an auth signal it did not interrupt", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("do the thing");
+    // No turn/started yet: the adapter has no turn id to interrupt.
+    fake.fireStderr("ERROR: 401 Unauthorized while connecting to OpenAI");
+    expectKind(await nextEvent(it, "auth_needed"), "auth_needed");
+    expect(fake.interruptCount()).toBe(0);
+    fake.fireNotification("turn/completed", {
+      turn: { status: "failed", error: { message: "model exploded" } },
+    });
+    const done = expectKind(
+      await nextEvent(it, "turn_completed"),
+      "turn_completed",
+    );
+    expect(done.status).toBe("failed");
+    expect(done.error).toContain("model exploded");
+  });
+
+  it("a retrying auth-shaped provider error is a sign-in signal, not a notice", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("do the thing");
+    fake.fireNotification("turn/started", { turn: { id: "turn-1" } });
+    fake.fireNotification("error", {
+      error: { message: "401 Unauthorized" },
+      willRetry: true,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-1",
+    });
+    expectKind(await nextEvent(it, "auth_needed"), "auth_needed");
+    // Nothing else was queued: the next event is the next thing Codex sends.
+    fake.fireStderr("marker");
+    expect(expectKind(await nextEvent(it, "marker"), "system_text").text).toBe(
+      "[codex stderr] marker",
+    );
   });
 });
 
@@ -3257,18 +3281,21 @@ describe("CodexSession turn watchdog", () => {
       turn: { id: "turn-1" },
     });
     fake.fireStderr("ERROR: 401 Unauthorized while connecting to OpenAI");
-    expectKind(await nextEvent(it, "auth notice"), "system_text");
+    expectKind(await nextEvent(it, "auth signal"), "auth_needed");
     terminalError(fake, "401 Unauthorized");
-    expectKind(await nextEvent(it, "terminal error"), "error");
+    // The terminal error keeps its line; a second auth_needed ahead of it is
+    // allowed (the orchestrator shows one card per turn).
+    let ev = await nextEvent(it, "terminal error");
+    if (ev.kind === "auth_needed") ev = await nextEvent(it, "terminal error");
+    expect(expectKind(ev, "error").message).toContain("401");
     await watchdog.runNext();
     const done = expectKind(
       await nextEvent(it, "watchdog end"),
       "turn_completed",
     );
     expect(done.status).toBe("failed");
-    expect(done.causedByAuth).toBe(true);
-    // Not auth-shaped, so agent-manager's auth detect does not fire again.
-    expect(done.error).not.toMatch(/401|unauthori[zs]ed/i);
+    // The sign-in card explains the failure: no second line for it.
+    expect(done.error).toBeUndefined();
   });
 });
 
@@ -4411,7 +4438,6 @@ describe("CodexSession provider refusals", () => {
         error: refusalLine(provider, REFUSED),
         providerRefusal: true,
       });
-      expect(done.causedByAuth).toBeUndefined();
       // Nothing else was queued for the refusal: the next event is the
       // next thing Codex sends.
       fake.fireStderr("marker");
@@ -4542,7 +4568,7 @@ describe("CodexSession provider refusals", () => {
     expect(fake.interruptCount()).toBe(0);
     // The auth gate was open: a 401 in the same turn still interrupts it.
     fake.fireStderr("ERROR codex_api: unexpected status 401 Unauthorized");
-    expectKind(await nextEvent(it, "401 stderr"), "system_text");
+    expectKind(await nextEvent(it, "401 stderr"), "auth_needed");
     expect(fake.interruptCount()).toBe(1);
   });
 });

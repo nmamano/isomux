@@ -412,10 +412,8 @@ describe("provider auth affordances", () => {
       },
       session: {
         onSend: (_text, _attachments, session) => {
-          session.push({
-            kind: "system_text",
-            text: "Not logged in · Please run /login",
-          });
+          session.push({ kind: "auth_needed" });
+          session.push({ kind: "auth_needed" });
           session.push({
             kind: "turn_completed",
             status: "failed",
@@ -608,11 +606,13 @@ describe("provider auth affordances", () => {
           commands: ["claude"],
         },
         session: {
-          onSend: (_text, _attachments, session) =>
+          onSend: (_text, _attachments, session) => {
+            session.push({ kind: "auth_needed" });
             session.completeTurn({
               status: "failed",
               error: "401 Unauthorized",
-            }),
+            });
+          },
         },
       });
       const { mgr, agentId } = await harness({
@@ -856,10 +856,7 @@ describe("provider auth affordances", () => {
       },
       session: {
         onSend: (_text, _attachments, session) => {
-          session.push({
-            kind: "system_text",
-            text: "Not logged in · Please run /login",
-          });
+          session.push({ kind: "auth_needed" });
           session.failStream(new Error("401 subprocess exit"));
         },
       },
@@ -902,7 +899,7 @@ describe("provider auth affordances", () => {
       },
       session: {
         onSend: (_text, _attachments, session) =>
-          session.push({ kind: "system_text", text: "Not logged in" }),
+          session.push({ kind: "auth_needed" }),
       },
     });
     const { mgr, agentId } = await harness({
@@ -945,7 +942,7 @@ describe("provider auth affordances", () => {
       },
       session: {
         onSend: (_text, _attachments, session) =>
-          session.push({ kind: "system_text", text: "Not logged in" }),
+          session.push({ kind: "auth_needed" }),
       },
     });
     const { mgr, agentId } = await harness({
@@ -1342,14 +1339,9 @@ describe("Claude auth-error status checks", () => {
             session.completeTurn({ text: "ok" });
             return;
           }
-          session.push({
-            kind: "system_text",
-            text: "Not logged in · Please run /login",
-          });
-          session.push({
-            kind: "system_text",
-            text: "Not logged in · Please run /login",
-          });
+          session.push({ kind: "auth_needed" });
+          session.push({ kind: "auth_needed" });
+          session.push({ kind: "auth_needed" });
           session.push({
             kind: "turn_completed",
             status: "failed",
@@ -1492,14 +1484,8 @@ describe("Claude auth-error status checks", () => {
       isAuthError: (text) => claudeBackend.detectAuthError(text),
       session: {
         onSend: (_text, _attachments, session) => {
-          session.push({
-            kind: "system_text",
-            text: "Not logged in · Please run /login",
-          });
-          session.push({
-            kind: "system_text",
-            text: "Not logged in · Please run /login",
-          });
+          session.push({ kind: "auth_needed" });
+          session.push({ kind: "auth_needed" });
           session.push({ kind: "turn_completed", status: "completed" });
         },
       },
@@ -1553,11 +1539,13 @@ describe("Claude auth-error status checks", () => {
         isAuthError: (text) => claudeBackend.detectAuthError(text),
         session: {
           autoSystemInit: initialized,
-          onSend: (_text, _attachments, session) =>
+          onSend: (_text, _attachments, session) => {
+            session.push({ kind: "auth_needed" });
             session.completeTurn({
               status: "failed",
               error: "401 unauthorized",
-            }),
+            });
+          },
         },
       });
       const { mgr, agentId } = await harness({
@@ -1679,6 +1667,7 @@ describe("Claude auth-error status checks", () => {
           if (_text.endsWith("before sign-in")) {
             session.completeTurn({ text: "Existing account turn" });
           } else if (session.opts.env?.CLAUDE_CONFIG_DIR !== personalDir) {
+            session.push({ kind: "auth_needed" });
             session.completeTurn({
               status: "failed",
               error: "401 unauthorized",

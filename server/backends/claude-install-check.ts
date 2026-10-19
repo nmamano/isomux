@@ -84,9 +84,13 @@ export function isClaudeCodeAuthenticated(env?: {
 export function isClaudeCloudSelected(env: {
   [key: string]: string | undefined;
 }): boolean {
-  return [env.CLAUDE_CODE_USE_BEDROCK, env.CLAUDE_CODE_USE_VERTEX].some(
-    cloudFlag,
-  );
+  return isClaudeCloudProvider(claudeProviderId(env));
+}
+
+// Bedrock and Vertex: the clouds that own authentication and access for a
+// Claude session. Takes a claudeProviderId.
+export function isClaudeCloudProvider(id: string | undefined): boolean {
+  return id === "bedrock" || id === "vertex";
 }
 
 type CloudEnv = { [key: string]: string | undefined };

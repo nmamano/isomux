@@ -5,6 +5,7 @@ import {
   openCodeRetryMessage,
 } from "./errors.ts";
 import type { NormalizedEvent } from "../types.ts";
+import { authSignal } from "../auth-signal.ts";
 import type {
   ApprovalDecision,
   NormalizedMessage,
@@ -48,6 +49,12 @@ export const OPENCODE_PERMISSION_ID_WARNING =
 
 export const OPENCODE_AUTH_FAILURE =
   "OpenCode authentication is not configured.";
+
+// The one OpenCode sign-in predicate: the turn's auth signal and the
+// backend's detectAuthError both use it.
+export function detectOpenCodeAuthError(text: string): boolean {
+  return text.includes(OPENCODE_AUTH_FAILURE);
+}
 
 export const OPENCODE_SERVER_STOPPED_FAILURE =
   "The OpenCode server stopped during this turn. Send your message again.";
@@ -301,7 +308,6 @@ export async function handleOpenCodePermission(
       options.sink({
         kind: "system_text",
         text: SAFETY_WARNING,
-        isomuxAuthored: true,
       });
     }
     if (!options.autoApprove) return "prompt";
@@ -313,7 +319,6 @@ export async function handleOpenCodePermission(
     options.sink({
       kind: "system_text",
       text: result.decision.reason,
-      isomuxAuthored: true,
     });
     return "answered";
   }
@@ -772,7 +777,6 @@ export class OpenCodeTransport {
         emit({
           kind: "system_text",
           text: this.words("systemEntries.openCodePreviousSettings"),
-          isomuxAuthored: true,
         });
       this.authorityBinding?.activate(this.lease!.pid);
       this.activeTurn = true;
@@ -827,8 +831,7 @@ export class OpenCodeTransport {
         emit({ kind: "turn_completed", status: "interrupted" });
         return;
       }
-      if (notice)
-        emit({ kind: "system_text", text: notice, isomuxAuthored: true });
+      if (notice) emit({ kind: "system_text", text: notice });
       step = "prompt";
       const [providerID, modelID] = splitModel(this.model);
       this.promptSent = true;
@@ -1009,10 +1012,11 @@ export class OpenCodeTransport {
     let hasCompletedStep = false;
     let overflowPending = false;
     let settled = false;
+    // A turn that ends on a sign-in failure sends auth_needed first.
     const settle = (event: NormalizedEvent): void => {
       if (settled) return;
       settled = true;
-      sink(event);
+      for (const out of authSignal(event, detectOpenCodeAuthError)) sink(out);
     };
     const fail = (error: unknown, context: string): void => {
       if (settled) return;
@@ -1387,7 +1391,6 @@ export class OpenCodeTransport {
                   splitModel(this.model)[0],
                   this.words,
                 ),
-                isomuxAuthored: true,
               });
             }
             if (
@@ -1492,7 +1495,6 @@ export class OpenCodeTransport {
               sink({
                 kind: "system_text",
                 text: OPENCODE_PERMISSION_ID_WARNING,
-                isomuxAuthored: true,
               });
               settle({
                 kind: "turn_completed",
@@ -1752,7 +1754,6 @@ export class OpenCodeTransport {
               options.notice?.({
                 kind: "system_text",
                 text: OPENCODE_FOLDER_SETUP_NOTICE,
-                isomuxAuthored: true,
               });
             } catch {
               /* A notice cannot end the wait. */

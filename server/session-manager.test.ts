@@ -15,7 +15,11 @@ import {
   type SessionHost,
   type SessionManagerDeps,
 } from "./session-manager.ts";
-import { TurnSupersededError, type AgentEvent } from "./internal-types.ts";
+import {
+  AuthNeededError,
+  TurnSupersededError,
+  type AgentEvent,
+} from "./internal-types.ts";
 import { backendStoppedDuringTurn } from "./backend-failure-text.ts";
 import { english, translatorForLanguage } from "./i18n.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
@@ -61,8 +65,11 @@ function fakeDeps(readerWords: { t: Translator["t"] } = english) {
   const diagnostics = {
     reconciled: 0,
     diagnosed: 0,
-    authChecked: [] as string[],
+    authAsked: 0,
   };
+  // What the manager answers when the consumer asks whether this turn already
+  // needed sign-in.
+  const auth = { needed: false };
   const waiters: { n: number; resolve: () => void }[] = [];
   // createSession recorder: `create.onCall` observes each call at call time,
   // `create.throwWith` makes the next call throw synchronously.
@@ -102,9 +109,9 @@ function fakeDeps(readerWords: { t: Translator["t"] } = english) {
       diagnostics.diagnosed++;
       return null;
     },
-    handleDetectedAuthError: (_host, errorText) => {
-      diagnostics.authChecked.push(errorText);
-      return false;
+    authNeededThisTurn: () => {
+      diagnostics.authAsked++;
+      return auth.needed;
     },
     updateState: (_agentId, state) => {
       stateUpdates.push(state);
@@ -125,6 +132,7 @@ function fakeDeps(readerWords: { t: Translator["t"] } = english) {
     logged,
     stateUpdates,
     diagnostics,
+    auth,
     whenProcessed,
     create,
     created,
@@ -282,7 +290,7 @@ describe("SessionManager consumer: stream end", () => {
     expect(diagnostics).toEqual({
       reconciled: 0,
       diagnosed: 0,
-      authChecked: [],
+      authAsked: 0,
     });
   });
 
@@ -438,11 +446,11 @@ describe("SessionManager.replaceWith", () => {
 
 // The visible "Stream error: " line is isomux's own framing, so it follows the
 // reader; the SUFFIX inside it is the backend's own text and does not. The raw
-// wrapper still goes to the metadata and to the auth matcher unchanged, because
-// those read the backend's wording (internal-docs/i18n-loop.md, S7).
+// wrapper still goes to the metadata unchanged, because it keeps the backend's
+// wording (internal-docs/i18n-loop.md, S7).
 describe("SessionManager consumer: an unclassified stream failure", () => {
-  it("localizes the prefix, keeps the backend suffix, and leaves the diagnostics raw", async () => {
-    const { deps, logged, diagnostics } = fakeDeps(translatorForLanguage("ca"));
+  it("localizes the prefix and keeps the backend suffix", async () => {
+    const { deps, logged } = fakeDeps(translatorForLanguage("ca"));
     const sm = new SessionManager<TestHost>("a1", deps);
     const h = host({ info: { state: "thinking", dormant: false } });
     const session = fakeSession();
@@ -463,11 +471,61 @@ describe("SessionManager consumer: an unclassified stream failure", () => {
     // An unclassified failure carries no rewritten-text metadata, exactly as
     // before.
     expect(entry!.metadata).toBeUndefined();
-    // The auth matcher still sees the ORIGINAL bytes: it keys on the backend's
-    // own wording, so handing it a translated line would silently stop
-    // recognizing auth failures.
-    expect(diagnostics.authChecked).toContain("Stream error: ECONNRESET");
     // The stamp is the language-independent identity, not the sentence.
     expect(sm.lastBackendFailure).toBe("unclassified");
   });
+});
+
+// The adapter says when a turn needs sign-in (auth_needed); a stream failure
+// only asks the manager whether this turn already did. The failure text is
+// auth-shaped in both cases, so a text sniff fails the second one.
+describe("SessionManager consumer: a stream failure and sign-in", () => {
+  for (const needed of [true, false]) {
+    it(`leaves the desk ${needed ? "waiting when the turn needed sign-in" : "in error otherwise"}`, async () => {
+      const { deps, stateUpdates, diagnostics, auth } = fakeDeps();
+      auth.needed = needed;
+      const sm = new SessionManager<TestHost>("a1", deps);
+      const h = host({ info: { state: "thinking", dormant: false } });
+      const session = fakeSession();
+      sm.installSession(h, session);
+      const consumer = consumerOf(sm);
+      const turn = sm.createTurnDeferred();
+      turn.catch(() => {});
+
+      session.failStream(new Error("401 Unauthorized"));
+      await consumer;
+
+      expect(diagnostics.authAsked).toBe(1);
+      expect(stateUpdates).toEqual([needed ? "waiting_for_response" : "error"]);
+    });
+
+    // The turn's owner tells a sign-in failure from a crash by the error it
+    // gets, so the answer has to be known before the turn is rejected.
+    it(`rejects the turn with ${needed ? "AuthNeededError, keeping the message" : "the original error"}`, async () => {
+      const { deps, auth } = fakeDeps();
+      auth.needed = needed;
+      const sm = new SessionManager<TestHost>("a1", deps);
+      const h = host({ info: { state: "thinking", dormant: false } });
+      const session = fakeSession();
+      sm.installSession(h, session);
+      const consumer = consumerOf(sm);
+      const turn = sm.createTurnDeferred();
+      const rejected = turn.then(
+        () => null,
+        (err: unknown) => err,
+      );
+      const original = new Error("401 Unauthorized");
+
+      session.failStream(original);
+      await consumer;
+
+      const err = await rejected;
+      if (needed) {
+        expect(err).toBeInstanceOf(AuthNeededError);
+        expect((err as Error).message).toBe("401 Unauthorized");
+      } else {
+        expect(err === original).toBe(true);
+      }
+    });
+  }
 });

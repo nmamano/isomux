@@ -25,8 +25,10 @@ import type {
   StoredSessionState,
   SubscriptionUsageResult,
 } from "../types.ts";
+import { authSignal } from "../auth-signal.ts";
 import { OPENCODE_TRACER_MODEL } from "../../../shared/types.ts";
 import {
+  detectOpenCodeAuthError,
   discoverOpenCodeModels,
   OPENCODE_AUTH_FAILURE,
   OpenCodeTransport,
@@ -349,11 +351,15 @@ class OpenCodeTracerSession implements BackendSession {
 
   async send(_text: string, _attachments?: AttachmentSpec[]): Promise<void> {
     if (this.failAuth) {
-      this.push({
-        kind: "turn_completed",
-        status: "failed",
-        error: OPENCODE_AUTH_FAILURE,
-      });
+      for (const ev of authSignal(
+        {
+          kind: "turn_completed",
+          status: "failed",
+          error: OPENCODE_AUTH_FAILURE,
+        },
+        detectOpenCodeAuthError,
+      ))
+        this.push(ev);
       return;
     }
     this.push({
@@ -456,7 +462,7 @@ export function createOpenCodeTracerBackend(
     },
 
     detectAuthError(text: string): boolean {
-      return text.includes(OPENCODE_AUTH_FAILURE);
+      return detectOpenCodeAuthError(text);
     },
 
     async getLoginInstructions() {
@@ -751,7 +757,7 @@ export function createOpenCodeBackend(
       }
     },
     detectAuthError(text: string): boolean {
-      return text.includes(OPENCODE_AUTH_FAILURE);
+      return detectOpenCodeAuthError(text);
     },
     async getLoginInstructions() {
       return {

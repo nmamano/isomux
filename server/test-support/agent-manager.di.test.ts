@@ -862,21 +862,11 @@ describe("AgentManager DI (temp-state isolated)", () => {
       },
       session: {
         onSend: (_text, _attachments, session) => {
-          session.push({
-            kind: "system_text",
-            text: "[codex stderr] 401 Unauthorized",
-          });
-          session.push({
-            kind: "system_text",
-            text: "[codex stderr] 401 Unauthorized retry",
-          });
-          session.push({
-            kind: "turn_completed",
-            status: "failed",
-            error:
-              "Codex turn failed after an auth error; see the prior Codex auth notice.",
-            causedByAuth: true,
-          });
+          // The Codex adapter's shape for a stderr 401 burst: a signal per
+          // auth-shaped line it let through, then a failed turn with no error.
+          session.push({ kind: "auth_needed" });
+          session.push({ kind: "auth_needed" });
+          session.push({ kind: "turn_completed", status: "failed" });
         },
       },
     });
@@ -933,12 +923,6 @@ describe("AgentManager DI (temp-state isolated)", () => {
     expect(notice[0].content).toBe(
       "Codex could not run this message because it is not signed in. Sign in below to continue.",
     );
-    expect(logs.some((entry) => entry.content.includes("[codex stderr]"))).toBe(
-      false,
-    );
-    expect(
-      logs.some((entry) => entry.content.includes("prior Codex auth notice")),
-    ).toBe(false);
     expect(
       logs.filter((entry) => entry.kind === "terminal-command"),
     ).toHaveLength(0);
@@ -953,13 +937,8 @@ describe("AgentManager DI (temp-state isolated)", () => {
       },
       session: {
         onSend: (_text, _attachments, session) => {
-          session.push({ kind: "system_text", text: "401 Unauthorized" });
-          session.push({
-            kind: "turn_completed",
-            status: "failed",
-            error: "auth wake failed",
-            causedByAuth: true,
-          });
+          session.push({ kind: "auth_needed" });
+          session.push({ kind: "turn_completed", status: "failed" });
         },
       },
     });
@@ -1144,7 +1123,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         },
         session: {
           onSend: (_text, _attachments, session) => {
-            session.push({ kind: "system_text", text: "401 Unauthorized" });
+            session.push({ kind: "auth_needed" });
           },
         },
       });
@@ -1209,7 +1188,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       loginInstructions: { text: "Codex is signed in. Type /clear." },
       session: {
         onSend: (_text, _attachments, session) => {
-          session.push({ kind: "system_text", text: "401 Unauthorized" });
+          session.push({ kind: "auth_needed" });
         },
       },
     });

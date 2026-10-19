@@ -147,6 +147,9 @@ interface ActiveRun {
   // every error entry of the turn keeps the edited text (FAILED_EDIT_TEXT_KEY),
   // so a turn that fails late still offers the text back.
   failedEditText?: string;
+  // The backend sent auth_needed in this activation: its end writes the
+  // login hint.
+  authNeeded?: boolean;
 }
 
 export type CronjobEvent =
@@ -880,6 +883,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
         writeLog(active, "error", ev.message);
         break;
       }
+      case "auth_needed": {
+        active.authNeeded = true;
+        break;
+      }
     }
   }
 
@@ -1094,16 +1101,13 @@ How to answer questions about Isomux itself: the source lives at https://github.
               ? null
               : (ev.error ?? `Run stopped: ${ev.status}`);
           if (ev.status !== "completed")
-            await writeLoginHintIfAuthError(
-              active,
-              ev.error ?? `Run stopped: ${ev.status}.`,
-            );
+            await writeLoginHintIfAuthNeeded(active);
           finalizeRun(active, status, errorReason);
           return;
         }
         if (ev.kind === "error") {
           // processNormalizedEvent already wrote the error LogEntry; terminate.
-          await writeLoginHintIfAuthError(active, ev.message);
+          await writeLoginHintIfAuthNeeded(active);
           finalizeRun(active, "failed", ev.message);
           return;
         }
@@ -1129,12 +1133,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // terminal] card to render. The hint belongs to this run, so nothing is
   // written once the run is gone (a hard timeout can finalize it during the
   // await), and a failed lookup writes nothing.
-  async function writeLoginHintIfAuthError(
-    active: ActiveRun,
-    errorText: string,
-  ): Promise<void> {
+  async function writeLoginHintIfAuthNeeded(active: ActiveRun): Promise<void> {
+    if (!active.authNeeded) return;
     const backend = getBackend(active.agentType);
-    if (!backend.detectAuthError(errorText)) return;
     try {
       const instructions = await backend.getLoginInstructions({
         env: bestEffortRunEnv(active),

@@ -48,6 +48,7 @@ import {
   providerRefusal,
   providerText,
 } from "../provider-text.ts";
+import { authSignal } from "../auth-signal.ts";
 import { effectiveCodexSandbox } from "./sandbox-probe.ts";
 import type { SubagentOrigin } from "../../../shared/types.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
@@ -204,6 +205,12 @@ function isCodexRefusal(info: unknown): boolean {
 // turn before the refusal reaches the member.
 const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|401/i;
+
+// The one Codex sign-in predicate: the session's auth signals and
+// codexBackend.detectAuthError both use it.
+function detectCodexAuthError(text: string): boolean {
+  return AUTH_ERROR_PATTERNS.test(text);
+}
 
 // Per-thread config overrides, sent with every thread/start and
 // thread/resume (the `config` map takes dotted keys, same as `-c`).
@@ -1162,7 +1169,7 @@ export class CodexSession implements BackendSession {
           await this.setCollaborationMode(plan);
         } catch (err) {
           on = threadInPlanMode;
-          this.enqueue({ kind: "system_text", text: errMessage(err) });
+          this.enqueueSignalled({ kind: "system_text", text: errMessage(err) });
         }
         this.enqueue({ kind: "plan_mode", on });
       }
@@ -1321,7 +1328,7 @@ export class CodexSession implements BackendSession {
       // also close the gate so any remaining auth-shaped notification
       // for this dead turn stays silent.
       const message = errMessage(err);
-      if (AUTH_ERROR_PATTERNS.test(message)) {
+      if (detectCodexAuthError(message)) {
         this.enqueueAuthAwareSystemText(
           `Codex auth error during turn start: ${message}`,
         );
@@ -1483,20 +1490,17 @@ export class CodexSession implements BackendSession {
         // retype a prefix that looks obviously correct and it fails again.
         this.enqueue({
           kind: "system_text",
-          isomuxAuthored: true,
           text: `No session rule was added: Isomux only matches rules against plain commands (no quoting, chaining, redirection, globbing or expansion). Allowed once.`,
         });
       } else if (tokensStartWith(pending.commandTokens, typed)) {
         this.rememberAllowPrefix(typed, pending.cwd);
         this.enqueue({
           kind: "system_text",
-          isomuxAuthored: true,
           text: this.grantedText(typed, pending.cwd),
         });
       } else {
         this.enqueue({
           kind: "system_text",
-          isomuxAuthored: true,
           text: `\`${typed.join(" ")}\` is not the start of the command being approved, so no session rule was added - this command was allowed once.`,
         });
       }
@@ -1505,7 +1509,6 @@ export class CodexSession implements BackendSession {
     this.rememberAllowPrefix(pending.suggestedPrefix, pending.cwd);
     this.enqueue({
       kind: "system_text",
-      isomuxAuthored: true,
       text: this.grantedText(pending.suggestedPrefix, pending.cwd),
     });
   }
@@ -1600,7 +1603,7 @@ export class CodexSession implements BackendSession {
         turnId: this.activeTurnId,
       });
     } catch (err) {
-      this.enqueue({
+      this.enqueueSignalled({
         kind: "system_text",
         text: `Codex interrupt failed: ${errMessage(err)}`,
       });
@@ -1892,24 +1895,32 @@ export class CodexSession implements BackendSession {
     });
   }
 
-  // Funnel for system_text emissions whose payload may carry codex-sourced
-  // text (stderr, advisory notifications, error messages). Applies the
-  // per-turn auth-coalescing gate so any auth-shaped string - regardless of
-  // which codex path produced it - counts as the one allowed signal per
-  // user-initiated turn. Hardcoded system_text (image notices, model-not-
-  // supported, auto-declined cards, etc.) bypasses this helper because we
-  // know its content is safe.
+  // Funnel for codex text that streams within a turn and can repeat (stderr,
+  // advisory and retrying error notifications). Applies the per-turn
+  // auth-coalescing gate: the first auth-shaped string of a user-initiated
+  // turn becomes the turn's one auth_needed (the text itself is dropped; the
+  // sign-in card explains it), and the rest are silent. Other text goes out
+  // as system_text.
   private enqueueAuthAwareSystemText(text: string): void {
-    if (AUTH_ERROR_PATTERNS.test(text)) {
+    if (detectCodexAuthError(text)) {
       if (!this.authSignalsAllowedThisTurn) return;
       if (this.authSignalEmittedThisTurn) return;
       this.authSignalEmittedThisTurn = true;
+      this.enqueue({ kind: "auth_needed" });
       // Short-circuit codex's websocket retry budget. The retries are doomed,
       // and without an interrupt the agent sits in "thinking" for ~12s
       // before turn/completed lands - misleading UX (the model never ran).
       this.requestSelfInterruptForAuth();
+      return;
     }
     this.enqueue({ kind: "system_text", text });
+  }
+
+  // One codex-sourced event that is not part of a repeating stream: an
+  // auth-shaped one is preceded (error, failed turn) or replaced (text) by
+  // auth_needed. Text Isomux wrote itself uses plain enqueue.
+  private enqueueSignalled(ev: NormalizedEvent): void {
+    for (const out of authSignal(ev, detectCodexAuthError)) this.enqueue(out);
   }
 
   // Fire-and-forget turn/interrupt when an auth signal latches. Best-effort:
@@ -1990,13 +2001,10 @@ export class CodexSession implements BackendSession {
     // summary used for the stderr-driven path; the codex-emitted error
     // on a client-interrupt is usually empty or unhelpful.
     const status = wasSelfInterruptForAuth ? "failed" : rawStatus;
-    // Substitute the turn-level error to a non-auth-shaped summary so
-    // agent-manager's auth-detect path doesn't re-fire on the same root
-    // cause. The user still has the concrete 401 detail from the earlier
-    // [codex stderr] system_text. Whole-string substitution (not
-    // keyword-stripping) keeps the rewritten message readable.
-    const turnLevelAuthShaped =
-      !!rawError && AUTH_ERROR_PATTERNS.test(rawError);
+    // The turn failed on the sign-in failure this turn already signalled
+    // (auth_needed): it ends with no error, and the sign-in card explains
+    // it. A turn that ends on some other error keeps it.
+    const turnLevelAuthShaped = !!rawError && detectCodexAuthError(rawError);
     const causedByAuth =
       this.authSignalEmittedThisTurn &&
       (wasSelfInterruptForAuth || turnLevelAuthShaped);
@@ -2007,27 +2015,29 @@ export class CodexSession implements BackendSession {
     this.refusalThisAttempt = null;
     // Any other error text can quote the provider: bounded and redacted.
     const error = causedByAuth
-      ? "Codex turn failed after an auth error; see the prior Codex auth notice."
+      ? undefined
       : (refusal ?? providerText(rawError) ?? fallbackError);
     // Close the per-turn auth-coalescing gate now that the turn has
     // settled. Next user send opens it again in send().
     this.authSignalsAllowedThisTurn = false;
     this.authSignalEmittedThisTurn = false;
     this.selfInterruptedForAuth = false;
-    const turnCompleted: NormalizedEvent = {
-      kind: "turn_completed",
-      status,
-      error: capacityError ?? error,
-      // Signal causedByAuth so agent-manager keeps the agent in
-      // waiting_for_response (auth issue → user needs to sign in)
-      // instead of "error" (which would imply something crashed).
-      // The error string itself is rewritten to a non-auth-shaped
-      // summary above, so the orchestrator's auth-detect regex
-      // wouldn't catch it.
-      ...(causedByAuth ? { causedByAuth: true } : {}),
-      ...(capacityError ? { causedByProviderCapacity: true } : {}),
-      ...(refusal !== null && !capacityError ? { providerRefusal: true } : {}),
-    };
+    // An auth-shaped turn error with no signal earlier in the turn gets its
+    // auth_needed now, ahead of the turn's end.
+    const signalled = authSignal(
+      {
+        kind: "turn_completed",
+        status,
+        error: capacityError ?? error,
+        ...(capacityError ? { causedByProviderCapacity: true } : {}),
+        ...(refusal !== null && !capacityError
+          ? { providerRefusal: true }
+          : {}),
+      },
+      detectCodexAuthError,
+    );
+    const turnCompleted = signalled.pop()!;
+    for (const ev of signalled) this.enqueue(ev);
     const usageLimited =
       this.usageLimitThisTurn ||
       turnError?.codexErrorInfo === "usageLimitExceeded";
@@ -2260,7 +2270,6 @@ export class CodexSession implements BackendSession {
             this.enqueue({
               kind: "system_text",
               text: LATE_TOOL_RESULT_NOTICE,
-              isomuxAuthored: true,
             });
           }
         }
@@ -2349,11 +2358,11 @@ export class CodexSession implements BackendSession {
         // The text can quote the provider, so it is bounded and redacted.
         const shown = providerText(message);
         if (shown !== null) {
-          this.enqueue(
-            notification?.willRetry === true
-              ? { kind: "system_text", text: inertMarkdown(shown) }
-              : { kind: "error", message: shown },
-          );
+          // A retrying error repeats like stderr, so it takes the per-turn
+          // auth gate; a terminal one is a single event.
+          if (notification?.willRetry === true)
+            this.enqueueAuthAwareSystemText(inertMarkdown(shown));
+          else this.enqueueSignalled({ kind: "error", message: shown });
         }
         break;
       }
@@ -2613,7 +2622,7 @@ export class CodexSession implements BackendSession {
           });
         } else if (item.status === "failed") {
           const result = typeof item.result === "string" ? item.result : "";
-          this.enqueue({
+          this.enqueueSignalled({
             kind: "system_text",
             text: result
               ? `Codex image generation failed: ${result}`
@@ -2764,7 +2773,6 @@ export class CodexSession implements BackendSession {
         if (this.matchSessionPrefix(req.method, params)) {
           this.enqueue({
             kind: "system_text",
-            isomuxAuthored: true,
             text: `Auto-approved by a command-prefix rule for this session.`,
           });
           return {
@@ -2860,7 +2868,7 @@ export class CodexSession implements BackendSession {
       case "account/chatgptAuthTokens/refresh":
         // We don't have a token store; respond with an error so codex falls
         // back to user-facing login flow.
-        this.enqueue({
+        this.enqueueSignalled({
           kind: "error",
           message: `Codex requested a ChatGPT auth token refresh, but Isomux has no token store. ${LOGIN_INSTRUCTIONS}`,
         });
@@ -3623,7 +3631,7 @@ export const codexBackend: Backend = {
   },
 
   detectAuthError(text: string): boolean {
-    return AUTH_ERROR_PATTERNS.test(text);
+    return detectCodexAuthError(text);
   },
 
   // Without credentials Codex still takes the turn and retries the provider

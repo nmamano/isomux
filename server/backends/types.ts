@@ -221,14 +221,6 @@ export type NormalizedEvent =
       costMode?: "turn";
       usageId?: string;
       error?: string;
-      // Set by backends that know the turn failed due to an auth issue but
-      // have already coalesced/rewritten `error` so it no longer matches
-      // AUTH_ERROR_PATTERNS (Codex does this to prevent the orchestrator
-      // from re-emitting the login card after the stderr-driven path
-      // already did). Orchestrator uses this for state decisions (auth-
-      // failed turns leave the agent in waiting_for_response, not error)
-      // without re-running the auth-detect regex on the rewritten string.
-      causedByAuth?: boolean;
       // The backend stayed healthy, but the provider refused the turn after
       // bounded capacity retries. The orchestrator keeps the session usable.
       causedByProviderCapacity?: boolean;
@@ -252,6 +244,10 @@ export type NormalizedEvent =
   | { kind: "compacted"; summary?: string }
   // Backend-level error (stream / RPC failure, etc.).
   | { kind: "error"; message: string; code?: string }
+  // The provider refused the member's credentials. The backend decides this
+  // (server/backends/auth-signal.ts) and sends it before the error or
+  // turn_completed it belongs to; the orchestrator shows the sign-in card.
+  | { kind: "auth_needed" }
   // Whether the engine's native plan mode is on, as the engine reports it.
   // Backends emit it when the mode is known or changes (Claude also leaves
   // plan mode by itself when the member approves ExitPlanMode).
@@ -259,12 +255,8 @@ export type NormalizedEvent =
   // Free-text system breadcrumb (e.g. Codex auto-decline notice for an
   // elicitation request). Renders as a system-kind log entry.
   //
-  // The orchestrator sniffs every system_text for auth trouble, because most
-  // of them are relayed provider output (Codex's stderr is the reason that
-  // exists). `isomuxAuthored` marks the ones Isomux wrote itself: they can
-  // quote a command or a rule the user typed, and a quoted `401` is not a
-  // sign-in problem. Set it ONLY for text Isomux composed - never for
-  // anything relayed from a backend.
+  // The orchestrator never reads it for sign-in trouble: a backend sends
+  // auth_needed for that.
   //
   // `claudeAccessDenied` marks Claude's refusal to let a signed-in account use
   // Claude Code (SDK assistant error `oauth_org_not_allowed`). The code does
@@ -272,7 +264,6 @@ export type NormalizedEvent =
   | {
       kind: "system_text";
       text: string;
-      isomuxAuthored?: true;
       claudeAccessDenied?: true;
     }
   // Background-task lifecycle breadcrumb (Claude-only at v1). Emitted when a

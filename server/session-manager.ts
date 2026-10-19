@@ -23,6 +23,7 @@ import {
   humanizeBackendFailure,
 } from "./backend-failure-text.ts";
 import {
+  AuthNeededError,
   SessionSwappedError,
   TurnSupersededError,
   type AgentEvent,
@@ -106,16 +107,18 @@ export interface SessionManagerDeps<H extends SessionHost> {
   // (internal-docs/i18n-loop.md, S7).
   logWords: (agentId: string) => Translator["t"];
   // Stream-error diagnostics over manager-only state, called by the error
-  // branch in this order: the pending fixed-cwd reset marker (has / delete /
-  // clear the stale auto-resume state), the Claude-only process-exit hints
-  // (null for other engines), and auth detection (emits the login
-  // instructions when true and returns the classification for updateState).
+  // branch in this order: whether this turn already needed sign-in (the
+  // backend's auth_needed; the stream failure text is never sniffed), asked
+  // first because the answer picks the turn's rejection (AuthNeededError) and
+  // later the desk state; the pending fixed-cwd reset marker (has / delete /
+  // clear the stale auto-resume state); and the Claude-only process-exit
+  // hints (null for other engines).
   reconcilePendingFixedCwdReset: (host: H) => void;
   diagnoseProcessExitHints: (
     host: H,
     sessionId: string | null,
   ) => string | null;
-  handleDetectedAuthError: (host: H, errorText: string) => boolean;
+  authNeededThisTurn: (host: H) => boolean;
   // Post-swap dead-turn normalization.
   updateState: (agentId: string, state: AgentState) => void;
   // Post-swap flush kick.
@@ -439,7 +442,11 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       const turn = this.pendingTurn;
       this.clearLiveTurn(host);
       this.pendingTurn = null;
-      if (turn) turn.reject(err);
+      // Asked before the rejection: the owning caller keeps the desk waiting
+      // for a turn that needed sign-in (AuthNeededError).
+      const authNeeded = this.deps.authNeededThisTurn(host);
+      if (turn)
+        turn.reject(authNeeded ? new AuthNeededError(errMessage(err)) : err);
 
       // A fresh fixed-cwd session can error before it ever
       // emits system_init (an out-of-band stream failure; the adapter normally
@@ -454,9 +461,8 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         `Agent ${this.agentId} stream error:`,
         errMessage(err),
       );
-      // TWO strings, on purpose. `errorText` keeps the original bytes: the
-      // metadata diagnostic and handleDetectedAuthError below both read it,
-      // and the auth matcher keys on the backend's own wording. `errorLine` is
+      // TWO strings, on purpose. `errorText` keeps the original bytes for the
+      // metadata diagnostic, which keeps the backend's own wording. `errorLine` is
       // the same framing worded for the reader, and is the only one that
       // reaches the chat (internal-docs/i18n-loop.md, S7). The suffix inside
       // both is the backend's text either way - only the wrapper is ours.
@@ -490,14 +496,11 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       const hints = this.deps.diagnoseProcessExitHints(host, this.sessionId);
       if (hints) this.deps.addLogEntry(this.agentId, "system", hints);
       // Same rationale as the "error"-event path in processNormalizedEvent:
-      // auth errors aren't agent failures, surface them as
-      // waiting_for_response to match the (rare)
-      // bundled-codex-binary-doesn't-resolve case in
-      // surfaceBackendNotConfigured, and avoid an erroneous red-desk signal.
-      const isAuthError = this.deps.handleDetectedAuthError(host, errorText);
+      // a turn that needed sign-in is not an agent failure, so the desk waits
+      // for the member instead of showing red.
       this.deps.updateState(
         this.agentId,
-        isAuthError ? "waiting_for_response" : "error",
+        authNeeded ? "waiting_for_response" : "error",
       );
     }
   }

@@ -23,6 +23,7 @@ import * as cronPersistence from "../cronjob-persistence.ts";
 import { makeFakeCronPersistence } from "./fake-cron-persistence.ts";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
+import type { NormalizedEvent } from "../backends/types.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import {
   resolveToken,
@@ -529,52 +530,77 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     fake.sessions.forEach((session) => session.close());
   });
 
-  it("writes the login hint for an auth failure before it finalizes the run", async () => {
-    const fake = new FakeBackend({
-      isAuthError: (text) => text.includes("401"),
-      loginInstructions: { kind: "login", text: "sign-in hint" },
-      session: {
-        onSend: (_text, _attachments, session) =>
-          session.push({ kind: "error", message: "401 unauthorized" }),
-      },
-    });
-    const events: CronEvent[] = [];
-    const statusAtHint: Array<string | undefined> = [];
-    const mgr = createCronjobManager(
-      baseDeps({
-        resolveBackend: () => fake,
-        eventSink: (event) => {
-          events.push(event);
-          if (event.type === "log_entry" && event.entry.kind === "system")
-            statusAtHint.push(mgr.findRun(job.id, run.id)?.status);
+  // The adapter says when a run needs sign-in (auth_needed); the run's
+  // terminal event only decides when the hint is written. The fake still calls
+  // "401" auth-shaped, so the last case fails if cron sniffs the text again.
+  const authCases: Array<[string, NormalizedEvent[], boolean]> = [
+    [
+      "an error after auth_needed",
+      [{ kind: "auth_needed" }, { kind: "error", message: "401 unauthorized" }],
+      true,
+    ],
+    [
+      "a failed turn with no error after auth_needed",
+      [{ kind: "auth_needed" }, { kind: "turn_completed", status: "failed" }],
+      true,
+    ],
+    [
+      "an auth-shaped error with no auth_needed",
+      [{ kind: "error", message: "401 unauthorized" }],
+      false,
+    ],
+  ];
+  for (const [name, events, hinted] of authCases) {
+    it(`${hinted ? "writes" : "does not write"} the login hint for ${name}`, async () => {
+      const fake = new FakeBackend({
+        isAuthError: (text) => text.includes("401"),
+        loginInstructions: { kind: "login", text: "sign-in hint" },
+        session: {
+          onSend: (_text, _attachments, session) => session.pushAll(events),
         },
-      }),
-    );
-    const job = mgr.addCronjob(intervalInput("AuthHint"));
-    const run = mgr.runCronjobNow(job.id, "Nil")!;
-    try {
-      const deadline = Date.now() + 2000;
-      while (
-        mgr.findRun(job.id, run.id)?.status === "running" &&
-        Date.now() < deadline
-      ) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
-      expect(mgr.findRun(job.id, run.id)?.status).toBe("failed");
-      const entries = events.flatMap((event) =>
-        event.type === "log_entry" ? [event.entry] : [],
+      });
+      expect(fake.detectAuthError("401 unauthorized")).toBe(true);
+      const emitted: CronEvent[] = [];
+      const statusAtHint: Array<string | undefined> = [];
+      const mgr = createCronjobManager(
+        baseDeps({
+          resolveBackend: () => fake,
+          eventSink: (event) => {
+            emitted.push(event);
+            if (
+              event.type === "log_entry" &&
+              event.entry.content === "sign-in hint"
+            )
+              statusAtHint.push(mgr.findRun(job.id, run.id)?.status);
+          },
+        }),
       );
-      expect(
-        entries.map((entry) => [entry.kind, entry.content]).slice(-2),
-      ).toEqual([
-        ["error", "401 unauthorized"],
-        ["system", "sign-in hint"],
-      ]);
-      expect(statusAtHint).toEqual(["running"]);
-    } finally {
-      fake.sessions.forEach((session) => session.close());
-    }
-  });
+      const job = mgr.addCronjob(intervalInput(`AuthHint ${name}`));
+      const run = mgr.runCronjobNow(job.id, "Nil")!;
+      try {
+        const deadline = Date.now() + 2000;
+        while (
+          mgr.findRun(job.id, run.id)?.status === "running" &&
+          Date.now() < deadline
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        expect(mgr.findRun(job.id, run.id)?.status).toBe("failed");
+        const entries = emitted.flatMap((event) =>
+          event.type === "log_entry" ? [event.entry] : [],
+        );
+        // Written once, as the run's last entry, before the run finalizes.
+        expect(statusAtHint).toEqual(hinted ? ["running"] : []);
+        if (hinted)
+          expect(entries.at(-1)).toMatchObject({
+            kind: "system",
+            content: "sign-in hint",
+          });
+      } finally {
+        fake.sessions.forEach((session) => session.close());
+      }
+    });
+  }
 
   it("drops a login hint that resolves after the run was torn down", async () => {
     let releaseHint: () => void = () => {};
@@ -583,7 +609,10 @@ describe("CronjobManager DI (temp-state isolated)", () => {
       isAuthError: (text) => text.includes("401"),
       session: {
         onSend: (_text, _attachments, session) =>
-          session.push({ kind: "error", message: "401 unauthorized" }),
+          session.pushAll([
+            { kind: "auth_needed" },
+            { kind: "error", message: "401 unauthorized" },
+          ]),
       },
     });
     fake.getLoginInstructions = () => {

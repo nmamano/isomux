@@ -99,6 +99,7 @@ import {
 import {
   claudeProviderId,
   claudeSignInState,
+  isClaudeCloudProvider,
   isClaudeCloudSelected,
   isClaudeCodeInstalled,
   limitedClaudeFamilies,
@@ -133,6 +134,7 @@ import {
   providerRefusal,
   providerText,
 } from "./provider-text.ts";
+import { authSignal } from "./auth-signal.ts";
 
 function loginInstructions(command: string): string {
   return `To authenticate Claude Code:
@@ -165,6 +167,23 @@ function loginCommand(env?: { [key: string]: string | undefined }): string {
 // (task 2bd836d5; translateSDKMessage quotes it).
 const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|401/i;
+
+// The one Claude sign-in predicate: the session's auth signals and the
+// backend's detectAuthError both use it.
+function detectClaudeAuthError(text: string): boolean {
+  return AUTH_ERROR_PATTERNS.test(text);
+}
+
+// Bedrock and Vertex own authentication and access failures: their words
+// pass through, and Claude's sign-in guidance applies only to other
+// providers. `provider` is the session's claudeProviderId.
+function claudeAuthSignal(
+  ev: NormalizedEvent,
+  provider: string | undefined,
+): NormalizedEvent[] {
+  if (isClaudeCloudProvider(provider)) return [ev];
+  return authSignal(ev, detectClaudeAuthError);
+}
 
 const CAPABILITIES: BackendCapabilities = {
   fork: true,
@@ -962,7 +981,11 @@ export class ClaudeSession implements BackendSession {
         .setPermissionMode("plan")
         .catch((err) => {
           this.memberPlanMode = false;
-          this.enqueue({ kind: "system_text", text: errMessage(err) });
+          for (const ev of claudeAuthSignal(
+            { kind: "system_text", text: errMessage(err) },
+            this.translateOptions.provider,
+          ))
+            this.enqueue(ev);
           this.enqueue({ kind: "plan_mode", on: false });
         })
         .finally(() => {
@@ -1031,10 +1054,11 @@ export class ClaudeSession implements BackendSession {
       }
     } catch (err) {
       if (!this.closed) {
-        this.enqueue({
-          kind: "error",
-          message: errMessage(err),
-        });
+        for (const ev of claudeAuthSignal(
+          { kind: "error", message: errMessage(err) },
+          this.translateOptions.provider,
+        ))
+          this.enqueue(ev);
       }
     } finally {
       this.ended = true;
@@ -1072,7 +1096,6 @@ export class ClaudeSession implements BackendSession {
           "Isomux allowed an unexpected SDK permission request because this " +
           `agent uses bypassPermissions. Tool: ${toolName}. Input: ` +
           `${JSON.stringify(permissionInputSummary(toolName, input))}.`,
-        isomuxAuthored: true,
       });
       return Promise.resolve({ behavior: "allow", updatedInput: input });
     }
@@ -1281,9 +1304,8 @@ function subagentOriginOf(msg: {
 // from the bundled binary 2026-10-19): "Failed to authenticate. API Error:
 // 403 <body>" in SDK mode, "Please run /login · API Error: 403 <body>"
 // otherwise. A 403 is the provider refusing the request, not a sign-in
-// failure (task 2bd836d5): the member reads the provider's words. The line is
-// Isomux's own, so the orchestrator does not sniff it for sign-in trouble. A
-// 401 stays on the sign-in path.
+// failure (task 2bd836d5): the member reads the provider's words, and the
+// line raises no auth_needed. A 401 stays on the sign-in path.
 const CLAUDE_REFUSAL = /\bAPI Error: (403\b.*)$/s;
 
 function claudeProviderRefusal(
@@ -1339,7 +1361,11 @@ export function* translateSDKMessage(
         };
       } else if (subtype === "local_command_output") {
         const { content } = msg;
-        if (content) yield { kind: "system_text", text: content };
+        if (content)
+          yield* claudeAuthSignal(
+            { kind: "system_text", text: content },
+            options.provider,
+          );
       } else if (subtype === "permission_denied") {
         // Auto-denied tool call (SDK >= 0.3.x): the deny short-circuit in
         // canUseTool - auto-mode classifier, deny rule, dontAsk - emits this
@@ -1393,18 +1419,21 @@ export function* translateSDKMessage(
             ? claudeProviderRefusal(block.text, options)
             : null;
           if (refusal !== null) {
-            yield { kind: "system_text", text: refusal, isomuxAuthored: true };
+            yield { kind: "system_text", text: refusal };
             continue;
           }
-          yield isSynthetic
-            ? {
-                kind: "system_text",
-                text: block.text,
-                ...(claudeAccessDenied
-                  ? { claudeAccessDenied: true as const }
-                  : {}),
-              }
-            : { kind: "assistant_text", text: block.text };
+          if (!isSynthetic) yield { kind: "assistant_text", text: block.text };
+          else if (claudeAccessDenied)
+            yield {
+              kind: "system_text",
+              text: block.text,
+              claudeAccessDenied: true,
+            };
+          else
+            yield* claudeAuthSignal(
+              { kind: "system_text", text: block.text },
+              options.provider,
+            );
         } else if (block.type === "tool_use") {
           yield {
             kind: "tool_call",
@@ -1512,13 +1541,16 @@ export function* translateSDKMessage(
       } else {
         const { errors } = msg;
         const errorText = `Agent stopped: ${subtype}. ${errors?.join(", ") || ""}`;
-        yield {
-          kind: "turn_completed",
-          status: "failed",
-          usage,
-          cost,
-          error: errorText,
-        };
+        yield* claudeAuthSignal(
+          {
+            kind: "turn_completed",
+            status: "failed",
+            usage,
+            cost,
+            error: errorText,
+          },
+          options.provider,
+        );
       }
       break;
     }
@@ -2093,7 +2125,7 @@ export function createClaudeBackend(
     },
 
     detectAuthError(text: string): boolean {
-      return AUTH_ERROR_PATTERNS.test(text);
+      return detectClaudeAuthError(text);
     },
 
     async getLoginInstructions(opts?: {

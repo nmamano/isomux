@@ -221,6 +221,7 @@ import {
   BackendNotConfiguredError,
   BackendSignedOutError,
   ProviderCapacityError,
+  AuthNeededError,
   SessionSwappedError,
   SwappedBeforeSendError,
   TurnSupersededError,
@@ -645,24 +646,10 @@ export function createAgentManager(deps: ManagerDeps) {
 
 Once complete, it takes effect immediately for all Isomux agents.`;
 
-  // A 403 is the provider refusing the request, not a sign-in failure
-  // (task 2bd836d5).
-  const AUTH_ERROR_PATTERNS =
-    /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|401/i;
-  function isAuthError(text: string): boolean {
-    return AUTH_ERROR_PATTERNS.test(text);
-  }
-
-  // Per-agent auth-error check + login instructions. Routes through the agent's
-  // backend so a Codex agent sees Codex's login message, not Claude's. Falls
-  // back to the orchestrator-local check + Claude instructions for callers that
-  // don't have an agent context (legacy paths or paths where the agent's
-  // backend is genuinely uncertain).
-  function detectAgentAuthError(
-    managed: ManagedAgent | undefined,
-    text: string,
-  ): boolean {
-    if (!managed) return isAuthError(text);
+  // Auth-error check for a one-shot result (topic generation), which runs
+  // outside the session stream. Session events never need it: the backend
+  // sends auth_needed (server/backends/auth-signal.ts).
+  function detectAgentAuthError(managed: ManagedAgent, text: string): boolean {
     let env: Record<string, string | undefined> | undefined;
     try {
       env = buildEnvForUserId(managed.info.userId);
@@ -858,8 +845,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agentId: string,
     managed: ManagedAgent | undefined,
   ): void {
-    if (managed?.authNoticeEmittedThisWake) return;
-    if (managed) managed.authNoticeEmittedThisWake = true;
+    if (managed?.authNeededThisTurn) return;
+    if (managed) managed.authNeededThisTurn = true;
     void (async () => {
       // Credentials that exist were rejected and get the connection check.
       // With none at all, Claude gets the same single notice as Codex.
@@ -1235,11 +1222,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             logWords(managed.info.id),
           )
         : null,
-    handleDetectedAuthError: (managed, errorText) => {
-      const isAuthError = detectAgentAuthError(managed, errorText);
-      if (isAuthError) emitDetectedAuthInstructions(managed.info.id, managed);
-      return isAuthError;
-    },
+    authNeededThisTurn: (managed) => managed.authNeededThisTurn,
     updateState,
     flushQueue,
     getConsumerDrainTimeoutMs: () => consumerDrainTimeoutMs,
@@ -2596,7 +2579,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       limitStopResetsAtMs: null,
       limitResumeAt: null,
       pendingFreshRecoveryNotice: false,
-      authNoticeEmittedThisWake: false,
+      authNeededThisTurn: false,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,
@@ -3258,7 +3241,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (!managed) return;
     stopConnectorRereads(agentId);
     managed.lastActiveAt = Date.now();
-    managed.authNoticeEmittedThisWake = false;
+    managed.authNeededThisTurn = false;
     // A usage limit stop belongs to the turn that reported it.
     managed.limitStopResetsAtMs = null;
     if (managed.info.turnHadHumanInput !== opts.humanInput) {
@@ -3764,6 +3747,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
+  // A caller's turn failed after its backend sent auth_needed: the event
+  // handler already wrote the error line and the sign-in card. Consume the
+  // echo stamp that handler armed for this catch, so it cannot hide a later
+  // failure, and keep the desk waiting for the member.
+  function keepWaitingForSignIn(agentId: string, managed: ManagedAgent) {
+    managed.sessionManager.lastBackendFailure = null;
+    updateState(agentId, "waiting_for_response");
+  }
+
   // Log a failed turn from the TURN-OWNING CALLER's catch (sendMessage,
   // flushQueue). `frame` wraps anything we could not classify, keeping each
   // caller's existing wording for ordinary failures.
@@ -4225,7 +4217,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.limitStopResetsAtMs = null;
     dropLimitResume(managed.info.id, managed);
     managed.pendingFreshRecoveryNotice = false;
-    managed.authNoticeEmittedThisWake = false;
+    managed.authNeededThisTurn = false;
     // Null the slot so nothing ever waits on an orphaned old-conversation
     // request (it still self-discards at commit via the gen check).
     managed.contextSampleInFlight = null;
@@ -5006,22 +4998,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         break;
       }
       case "system_text": {
-        // Claude's SDK emits its "Not logged in · Please run /login" notice as
-        // a synthetic assistant message that the claude adapter routes here as
-        // system_text. Without auth-error detection at this layer, the user
-        // saw the terse SDK line with no context. Run the same detection +
-        // login-instruction append the error / turn_completed paths use so
-        // the chat has actionable next steps either way.
-        //
-        // Isomux-authored breadcrumbs skip the sniff: they quote commands and
-        // rules (a command containing `401` is not a sign-in problem), and
-        // being ours they can never BE a provider auth notice.
-        const managedForAuth = agents.get(agentId);
-        if (
-          ev.claudeAccessDenied &&
-          managedForAuth?.info.agentType === "claude"
-        ) {
-          managedForAuth.pendingFreshRecoveryNotice = false;
+        // Sign-in trouble never arrives here: the backend sends auth_needed
+        // instead (server/backends/auth-signal.ts).
+        const managed = agents.get(agentId);
+        if (ev.claudeAccessDenied && managed?.info.agentType === "claude") {
+          managed.pendingFreshRecoveryNotice = false;
           addLogEntry(
             agentId,
             "system",
@@ -5030,24 +5011,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           );
           break;
         }
-        const providerAuthSignal =
-          (managedForAuth?.info.agentType === "codex" ||
-            managedForAuth?.info.agentType === "claude") &&
-          !ev.isomuxAuthored &&
-          detectAgentAuthError(managedForAuth, ev.text);
-        if (providerAuthSignal) {
-          if (managedForAuth) managedForAuth.pendingFreshRecoveryNotice = false;
-          emitDetectedAuthInstructions(agentId, managedForAuth);
-        } else {
-          flushPendingFreshRecoveryNotice(agentId, managedForAuth);
-          addLogEntry(agentId, "system", ev.text);
-          if (
-            !ev.isomuxAuthored &&
-            detectAgentAuthError(managedForAuth, ev.text)
-          ) {
-            emitDetectedAuthInstructions(agentId, managedForAuth);
-          }
-        }
+        flushPendingFreshRecoveryNotice(agentId, managed);
+        addLogEntry(agentId, "system", ev.text);
+        break;
+      }
+      case "auth_needed": {
+        // The backend decided this turn needs sign-in (server/backends/
+        // auth-signal.ts). The error or turn_completed that follows reads
+        // managed.authNeededThisTurn; emitDetectedAuthInstructions sets it.
+        const managed = agents.get(agentId);
+        if (managed) managed.pendingFreshRecoveryNotice = false;
+        emitDetectedAuthInstructions(agentId, managed);
         break;
       }
       case "task_lifecycle":
@@ -5268,7 +5242,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               isHotAbortDirty || providerRefusal
                 ? { text: errorText, id: "unclassified" }
                 : humanizeBackendFailure(logWords(agentId), errorText);
-            if (ev.causedByAuth !== true)
+            // The backend sent auth_needed earlier in this turn: the sign-in
+            // card is already in the chat. A turn it ended with no words of
+            // its own (Codex after its stderr 401) adds no error line.
+            const isAuthError = managed?.authNeededThisTurn === true;
+            const silentAuthEnd = isAuthError && ev.error === undefined;
+            if (!silentAuthEnd)
               addLogEntry(
                 agentId,
                 "error",
@@ -5278,27 +5257,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             // Arm the caller-catch echo suppressor (see ManagedAgent.
             // lastBackendFailure): the turn rejection below wakes the owning
             // caller, whose catch would otherwise repeat this same sentence.
-            if (managed && ev.causedByAuth !== true)
+            if (managed && !silentAuthEnd)
               managed.sessionManager.lastBackendFailure = failure.id;
-            // Auth detection: trust the backend's `causedByAuth` flag when set
-            // (Codex sets it after rewriting the error string to avoid double-
-            // emission of the login card). Fall back to regex on the raw error
-            // text for backends that don't set the flag - `errorText`, never
-            // `failure.text`, which no longer carries the backend's wording.
-            const isAuthError =
-              ev.causedByAuth === true ||
-              (!providerRefusal && detectAgentAuthError(managed, errorText));
-            if (isAuthError) {
-              if (managed) managed.pendingFreshRecoveryNotice = false;
-            } else {
-              flushPendingFreshRecoveryNotice(agentId, managed);
-            }
-            // Only emit when the regex path caught it - if the backend already
-            // coalesced (causedByAuth=true), the login card was emitted earlier
-            // in the turn and re-emitting here would duplicate it.
-            if (ev.causedByAuth !== true && isAuthError) {
-              emitDetectedAuthInstructions(agentId, managed);
-            }
+            if (!isAuthError) flushPendingFreshRecoveryNotice(agentId, managed);
             // Auth-failed turns: leave the agent in waiting_for_response so the
             // desk reads "member needs to sign in," not "agent crashed." Non-auth
             // failures still flip to "error" so genuine failures surface.
@@ -5395,12 +5356,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         break;
       case "error": {
         const managed = agents.get(agentId);
-        const isAuthError = detectAgentAuthError(managed, ev.message);
-        if (isAuthError) {
-          if (managed) managed.pendingFreshRecoveryNotice = false;
-        } else {
-          flushPendingFreshRecoveryNotice(agentId, managed);
-        }
+        // auth_needed came first when this error is a sign-in failure.
+        const isAuthError = managed?.authNeededThisTurn === true;
+        if (!isAuthError) flushPendingFreshRecoveryNotice(agentId, managed);
         // The backend's raw string ("Claude Code process exited
         // with code 143") goes to metadata; chat gets the explained version.
         // Everything below still classifies on ev.message.
@@ -5427,16 +5385,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           );
           if (hints) addLogEntry(agentId, "system", hints);
         }
-        if (isAuthError) {
-          emitDetectedAuthInstructions(agentId, managed);
-        }
         // Reject any in-flight turn so sendMessage / executeSkill don't hang.
         const turn = managed?.sessionManager.pendingTurn;
         if (managed) managed.sessionManager.clearLiveTurn(managed);
         if (turn) {
           managed.sessionManager.pendingTurn = null;
           try {
-            turn.reject(new Error(ev.message));
+            // The owning caller's catch keeps the desk waiting for a turn
+            // that needed sign-in (AuthNeededError).
+            turn.reject(
+              isAuthError
+                ? new AuthNeededError(ev.message)
+                : new Error(ev.message),
+            );
           } catch {}
         }
         // Auth errors aren't agent failures - the agent is fine, the user just
@@ -6685,7 +6646,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       limitStopResetsAtMs: null,
       limitResumeAt: null,
       pendingFreshRecoveryNotice: false,
-      authNoticeEmittedThisWake: false,
+      authNeededThisTurn: false,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,
@@ -7973,6 +7934,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }
         if (err instanceof ProviderCapacityError) {
           updateState(agentId, "waiting_for_response");
+          return;
+        }
+        if (err instanceof AuthNeededError) {
+          keepWaitingForSignIn(agentId, managed);
           return;
         }
         console.error(`Agent ${agentId} flush error:`, errMessage(err));
@@ -9266,6 +9231,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         updateState(agentId, "waiting_for_response");
         return;
       }
+      if (err instanceof AuthNeededError) {
+        keepWaitingForSignIn(agentId, managed);
+        return;
+      }
       console.error(`Agent ${agentId} send error:`, errMessage(err));
       addCallerFailureEntry(agentId, managed, err, (raw) =>
         logWords(agentId)("systemEntries.genericError", { error: raw }),
@@ -10540,6 +10509,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       updateState(agentId, "waiting_for_response");
       return;
     }
+    if (err instanceof AuthNeededError) {
+      keepWaitingForSignIn(agentId, managed);
+      return;
+    }
     console.error(
       `Agent ${agentId} auto-handoff brief error:`,
       errMessage(err),
@@ -11140,7 +11113,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // engine. Each attempt gets its own notice, as each send does.
     const signedOut = signedOutProvider(managed);
     if (signedOut) {
-      managed.authNoticeEmittedThisWake = false;
+      managed.authNeededThisTurn = false;
       surfaceBackendNotConfigured(
         agentId,
         managed,

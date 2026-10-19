@@ -772,10 +772,7 @@ describe("OpenCode permission handling", () => {
       expect(result.replies[0]).toMatchObject({ reply: "reject" });
       expect(result.replies[0]?.message).toContain("git reset --hard");
       expect(result.events).toHaveLength(1);
-      expect(result.events[0]).toMatchObject({
-        kind: "system_text",
-        isomuxAuthored: true,
-      });
+      expect(result.events[0]).toMatchObject({ kind: "system_text" });
       expect(JSON.stringify(result.events)).toContain("git reset --hard");
     }
   });
@@ -800,7 +797,6 @@ describe("OpenCode permission handling", () => {
           {
             kind: "system_text",
             text: SAFETY_WARNING,
-            isomuxAuthored: true,
           },
         ],
       });
@@ -822,7 +818,7 @@ describe("OpenCode permission handling", () => {
     });
     expect(first.replies).toEqual([{ reply: "once" }]);
     expect(first.events).toEqual([
-      { kind: "system_text", text: SAFETY_WARNING, isomuxAuthored: true },
+      { kind: "system_text", text: SAFETY_WARNING },
     ]);
     expect(second.replies).toEqual([{ reply: "once" }]);
     expect(second.events).toEqual([]);
@@ -1148,7 +1144,6 @@ describe("OpenCode permission event integration", () => {
       const retries = result.events.filter((e) => e.kind === "system_text");
       expect(retries).toHaveLength(5);
       for (const [i, entry] of retries.entries()) {
-        expect(entry.isomuxAuthored).toBe(true);
         expect(entry.text).toMatch(new RegExp(`\\b${i + 1}\\b.*\\b5\\b`));
       }
       for (const i of [0, 1, 2]) {
@@ -1275,11 +1270,16 @@ describe("OpenCode permission event integration", () => {
         },
       },
     ]);
-    expect(result.events.at(-1)).toEqual({
-      kind: "turn_completed",
-      status: "failed",
-      error: "OpenCode authentication is not configured.",
-    });
+    // The sign-in signal comes first: the orchestrator reads it when the
+    // failed turn arrives.
+    expect(result.events.slice(-2)).toEqual([
+      { kind: "auth_needed" },
+      {
+        kind: "turn_completed",
+        status: "failed",
+        error: "OpenCode authentication is not configured.",
+      },
+    ]);
   });
 
   it("classifies model-not-found through connected-provider discovery", async () => {
@@ -1350,7 +1350,6 @@ describe("OpenCode permission event integration", () => {
     expect(result.events).toContainEqual({
       kind: "system_text",
       text: OPENCODE_PERMISSION_ID_WARNING,
-      isomuxAuthored: true,
     });
     expect(result.events).toContainEqual({
       kind: "turn_completed",
@@ -1378,7 +1377,6 @@ describe("OpenCode permission event integration", () => {
     expect(result.events).toContainEqual({
       kind: "system_text",
       text: SAFETY_WARNING,
-      isomuxAuthored: true,
     });
   });
 
@@ -2139,7 +2137,6 @@ describe("OpenCode kept model catalog", () => {
         {
           kind: "system_text",
           text: OPENCODE_EFFORT_CATALOG_UNAVAILABLE,
-          isomuxAuthored: true,
         },
       ]);
       const loaded = await harness.send("/a", "high");
