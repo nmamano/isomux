@@ -1,7 +1,7 @@
-// An ask's link to an office page (shared/office-links.ts). App provides the
-// opener, which goes through the same doors as the rest of the office, so
-// history and the page stack behave the same. With no opener the card draws
-// no link.
+// An ask's link to an office page or an agent's chat (shared/office-links.ts).
+// App provides the opener, which goes through the same doors as the rest of
+// the office, so history and the page stack behave the same. With no opener
+// the card draws no link.
 
 import { createContext } from "react";
 import type { PlainMessageKey } from "../shared/i18n/translate.ts";
@@ -9,6 +9,7 @@ import type {
   IntegrationsTab,
   OfficeLink,
   Page,
+  PageLink,
 } from "../shared/office-links.ts";
 
 export const OfficeLinkOpener = createContext<
@@ -35,6 +36,6 @@ const TAB_LABEL: Record<IntegrationsTab, PlainMessageKey> = {
 };
 
 /** The catalog key of the page or tab a link opens. */
-export function officeLinkLabel(link: OfficeLink): PlainMessageKey {
+export function officeLinkLabel(link: PageLink): PlainMessageKey {
   return link.tab ? TAB_LABEL[link.tab] : PAGE_LABEL[link.page];
 }

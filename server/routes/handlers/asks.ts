@@ -50,8 +50,9 @@ import {
   type AskStore,
 } from "../../asks.ts";
 import {
+  AGENT_LINK_PREFIX,
   OFFICE_LINK_PATHS,
-  officeLinkFor,
+  askLinkFor,
 } from "../../../shared/office-links.ts";
 
 export { ASK_DISMISSED_TEXT };
@@ -188,8 +189,20 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     fail(
       422,
       "invalid_link",
-      `link must be one of: ${OFFICE_LINK_PATHS.join(", ")}`,
+      `link must be one of: ${OFFICE_LINK_PATHS.join(", ")}, or ${AGENT_LINK_PREFIX}<agentId> for an agent the member can reach`,
     );
+  // A link to an agent's chat names an agent the member can reach; a page
+  // link needs no check past its form.
+  const linkReachable = (link: unknown, memberUserId: string | undefined) => {
+    const parsed = askLinkFor(link);
+    if (!parsed || !("agentId" in parsed)) return true;
+    const target = deps.agent(parsed.agentId);
+    return (
+      !!target &&
+      !!memberUserId &&
+      deps.memberCanSeeRoom(memberUserId, target.roomId)
+    );
+  };
   const invalidOptions = (message: string) =>
     fail(422, "invalid_options", message);
   const secretRequest = (message: string) =>
@@ -374,7 +387,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
       if (body.member !== undefined && typeof body.member !== "string")
         return fail(422, "invalid_request", "member must be a username");
-      if (body.link !== undefined && !officeLinkFor(body.link))
+      if (body.link !== undefined && !askLinkFor(body.link))
         return invalidLink();
       let options: string[] | undefined;
       if (body.options !== undefined) {
@@ -407,6 +420,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           "member_no_access",
           "That member cannot reach this agent's room.",
         );
+      if (body.link !== undefined && !linkReachable(body.link, memberUserId))
+        return invalidLink();
       if (store.listForAgent(ctx.params.id).length >= ASK_MAX_OPEN_PER_AGENT)
         return tooManyAsks();
       const resolved = resolveAffordances(ctx.params.id, lists.lists);
@@ -439,11 +454,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       const checked = checkPrompt(body.text);
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
       // Absent keeps the link and "" removes it.
-      if (
-        body.link !== undefined &&
-        body.link !== "" &&
-        !officeLinkFor(body.link)
-      )
+      if (body.link !== undefined && body.link !== "" && !askLinkFor(body.link))
         return invalidLink();
       // Absent keeps the options and [] removes them.
       let options: string[] | null | undefined;
@@ -460,6 +471,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         return secretRequest(
           "A secret request cannot be edited. Delete it to withdraw it.",
         );
+      if (
+        body.link !== undefined &&
+        body.link !== "" &&
+        !linkReachable(body.link, prev.memberUserId)
+      )
+        return invalidLink();
       const lists = affordanceLists(body, prev);
       if (!lists.ok) return lists.result;
       const resolved = resolveAffordances(ctx.params.id, lists.lists);

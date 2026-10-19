@@ -417,6 +417,144 @@ describe("a link to an office page", () => {
   });
 });
 
+// An ask's link to an agent's chat (task 9aaec0eb): the agent must exist
+// and the ask's member must reach its room, on create and on edit.
+describe("a link to an agent", () => {
+  // Pat reaches the asker's room only; Far sits in a room Pat cannot reach.
+  async function farWorld() {
+    const w = await world();
+    const elsewhere = w.srv.agentManager.createRoom("Elsewhere");
+    const far = await w.srv.agentManager.spawn(
+      "Far",
+      w.srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      elsewhere,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "claude",
+      undefined,
+      w.ownerId,
+    );
+    if (!far) throw new Error("spawn Far failed");
+    const pat = await w.srv.seedMember("Pat");
+    const patId = getUserByName(pat.username)!.id;
+    expect(updateUserById(patId, { allowedRooms: [w.room.id] })).toBeTruthy();
+    return { ...w, far, pat };
+  }
+  const links = async (w: Awaited<ReturnType<typeof farWorld>>) =>
+    (
+      (
+        await call(
+          w.srv,
+          "GET",
+          `/api/agents/${w.asker.id}/asks`,
+          w.as(w.asker.id),
+        )
+      ).body as AskEntry[]
+    ).map((e) => [e.prompt, e.link ?? null]);
+
+  it("takes an agent the member reaches, in any room, on create and on edit", async () => {
+    const w = await farWorld();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    // The manager reaches every room, Far's too.
+    const far = await call(
+      w.srv,
+      "POST",
+      `${base}?link=/agents/${w.far.id}`,
+      w.as(w.asker.id),
+      { text: "Say go in Far's chat?" },
+    );
+    expect(`${far.status} ${far.code}`).toBe("201 undefined");
+    expect((far.body as AskEntry).link).toBe(`/agents/${w.far.id}`);
+    // Pat reaches the asker's room, so Other's chat.
+    const other = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: {
+        text: "Say go in Other's chat?",
+        member: w.pat.username,
+        link: `/agents/${w.other.id}`,
+      },
+    });
+    expect(`${other.status} ${other.code}`).toBe("201 undefined");
+    // An edit moves a page link to an agent.
+    const paged = await call(
+      w.srv,
+      "POST",
+      `${base}?link=/tasks`,
+      w.as(w.asker.id),
+      { text: "Look at the board?" },
+    );
+    const id = (paged.body as AskEntry).id;
+    const edited = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}?link=/agents/${w.far.id}`,
+      w.as(w.asker.id),
+      { text: "Look at Far's chat?" },
+    );
+    expect(`${edited.status} ${edited.code}`).toBe("200 undefined");
+    expect(await links(w)).toEqual([
+      ["Say go in Far's chat?", `/agents/${w.far.id}`],
+      ["Say go in Other's chat?", `/agents/${w.other.id}`],
+      ["Look at Far's chat?", `/agents/${w.far.id}`],
+    ]);
+  });
+
+  it("refuses an unknown agent and an agent the member cannot reach, on create and on edit, and changes nothing", async () => {
+    const w = await farWorld();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    // Pat's open ask, with a link to an agent Pat reaches.
+    const pats = await call(
+      w.srv,
+      "POST",
+      `${base}?member=${w.pat.username}&link=/agents/${w.other.id}`,
+      w.as(w.asker.id),
+      { text: "Say go in Other's chat?" },
+    );
+    expect(pats.status).toBe(201);
+    const id = (pats.body as AskEntry).id;
+    const refused: string[] = [];
+    for (const [member, link] of [
+      [w.owner.username, "/agents/agent-gone"],
+      [w.pat.username, "/agents/agent-gone"],
+      [w.pat.username, `/agents/${w.far.id}`],
+    ]) {
+      const post = await call(
+        w.srv,
+        "POST",
+        `${base}?member=${member}&link=${encodeURIComponent(link)}`,
+        w.as(w.asker.id),
+        { text: "Where?" },
+      );
+      refused.push(`create ${member} ${link} ${post.status} ${post.code}`);
+    }
+    // The edit checks against the ask's member, Pat, not the manager.
+    for (const link of ["/agents/agent-gone", `/agents/${w.far.id}`]) {
+      const patch = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${id}`,
+        w.as(w.asker.id),
+        { json: { text: "Where?", link } },
+      );
+      refused.push(`edit ${link} ${patch.status} ${patch.code}`);
+    }
+    expect(refused).toEqual([
+      `create ${w.owner.username} /agents/agent-gone 422 invalid_link`,
+      `create ${w.pat.username} /agents/agent-gone 422 invalid_link`,
+      `create ${w.pat.username} /agents/${w.far.id} 422 invalid_link`,
+      `edit /agents/agent-gone 422 invalid_link`,
+      `edit /agents/${w.far.id} 422 invalid_link`,
+    ]);
+    expect(await links(w)).toEqual([
+      ["Say go in Other's chat?", `/agents/${w.other.id}`],
+    ]);
+  });
+});
+
 describe("options the member can tap", () => {
   const stored = (w: Awaited<ReturnType<typeof world>>, id: string) =>
     (

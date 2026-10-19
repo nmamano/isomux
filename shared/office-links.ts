@@ -4,9 +4,10 @@
 // against OFFICE_LINK_PATHS and the UI opens the page officeLinkFor names, so
 // a new page or tab is a link target with no second list.
 //
-// A link is an office page name in path form. The Integrations tab forms
-// (/integrations/mcp) are link targets only, not URL routes: the address bar
-// resolves them as the office (pageForPath).
+// A link is an office page name in path form, or an agent's chat as
+// /agents/<agentId> (task 9aaec0eb). The Integrations tab forms
+// (/integrations/mcp) and the agent form are link targets only, not URL
+// routes: the address bar resolves them as the office (pageForPath).
 
 export const OFFICE_PAGES = [
   "tasks",
@@ -38,12 +39,18 @@ export function pathForPage(page: Page | null): string {
   return `/${page}`;
 }
 
-export interface OfficeLink {
+export interface PageLink {
   page: Page;
   tab?: IntegrationsTab;
 }
 
-const LINKS: ReadonlyArray<{ path: string; link: OfficeLink }> = [
+export interface AgentLink {
+  agentId: string;
+}
+
+export type OfficeLink = PageLink | AgentLink;
+
+const LINKS: ReadonlyArray<{ path: string; link: PageLink }> = [
   ...OFFICE_PAGES.map((page) => ({ path: pathForPage(page), link: { page } })),
   ...INTEGRATIONS_TABS.map((tab) => ({
     path: `${pathForPage("integrations")}/${tab}`,
@@ -51,12 +58,25 @@ const LINKS: ReadonlyArray<{ path: string; link: OfficeLink }> = [
   })),
 ];
 
-/** Every value an ask's `link` accepts. */
+/** Every office page path an ask's `link` accepts. */
 export const OFFICE_LINK_PATHS: readonly string[] = LINKS.map((l) => l.path);
 
 /** The page a link names, or null. Exact match only: no aliases, no trailing
  *  slash, no query. */
-export function officeLinkFor(path: unknown): OfficeLink | null {
+export function officeLinkFor(path: unknown): PageLink | null {
   const found = LINKS.find((l) => l.path === path);
   return found ? { ...found.link } : null;
+}
+
+/** The agent-chat form of an ask's link: `/agents/<agentId>`. */
+export const AGENT_LINK_PREFIX = "/agents/";
+
+/** The page or agent an ask's link names, or null. The agent form takes one
+ *  non-empty segment; whether the agent exists is the caller's check. */
+export function askLinkFor(path: unknown): OfficeLink | null {
+  if (typeof path === "string" && path.startsWith(AGENT_LINK_PREFIX)) {
+    const agentId = path.slice(AGENT_LINK_PREFIX.length);
+    return agentId && !agentId.includes("/") ? { agentId } : null;
+  }
+  return officeLinkFor(path);
 }

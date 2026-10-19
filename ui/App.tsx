@@ -583,16 +583,28 @@ export function App({ routing = true }: { routing?: boolean }) {
   // An ask's link opens its page on top of the chat or the Inbox it was
   // clicked on, so Close and Back return there. The page's one-shot state is
   // cleared first, so Settings opens on no stale row. The Inbox's tabs do not
-  // stack: a link to one from the other switches the tab.
+  // stack: a link to one from the other switches the tab. A link to an agent
+  // closes every page and opens that agent's chat in its room, as the app
+  // widget's office door does (WidgetOfficeBridge); a back agent's chat
+  // reopens the back screen through focusedInBack.
   const openOfficeLink = useCallback(
     (link: OfficeLink) => {
+      if ("agentId" in link) {
+        const agent = agents.find((a) => a.id === link.agentId);
+        if (!agent) return;
+        applyPage(null);
+        setBackRoomOpen(false);
+        dispatch({ type: "set_current_room", roomId: agent.roomId });
+        dispatch({ type: "focus", agentId: agent.id });
+        return;
+      }
       pageState[link.page].clear();
       if (link.tab) setIntegrationsRequest({ tab: link.tab });
       if (link.page === "pager" || link.page === "asks")
         openInboxTab(link.page);
       else pageState[link.page].setOpen(true);
     },
-    [pageState, openInboxTab],
+    [pageState, openInboxTab, agents, applyPage, dispatch],
   );
 
   const goHome = useCallback(() => {

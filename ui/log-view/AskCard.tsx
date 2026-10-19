@@ -3,11 +3,12 @@
 // instead (SecretAskCard). The asks stack above the chat input and the Asks
 // page both draw it, so a new kind of ask shows on both. The card goes on a
 // 204, without waiting for ask_removed. An ask with a link to an office page
-// has a button that opens it (ui/office-link.tsx); the ask stays open. An
-// ask with options has a button for each, and a tap sends it as the reply.
-// An ask's files, editor files and commands are the chat's own cards, in that
-// order; their buttons open this agent's panel through the store, as in chat
-// (on the Inbox they also open the agent's chat), and answer nothing.
+// or an agent's chat has a button that opens it (ui/office-link.tsx); the ask
+// stays open. An ask with options has a button for each, and a tap sends it
+// as the reply. An ask's files, editor files and commands are the chat's own
+// cards, in that order; their buttons open this agent's panel through the
+// store, as in chat (on the Inbox they also open the agent's chat), and
+// answer nothing.
 //
 // The reply draft lives in the store per ask (askDrafts), so it outlives the
 // card. While the field holds the untouched default, focus and click select
@@ -34,7 +35,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { SecretAskCard } from "./SecretAskCard.tsx";
-import { officeLinkFor } from "../../shared/office-links.ts";
+import { askLinkFor } from "../../shared/office-links.ts";
 import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
@@ -165,7 +166,8 @@ function ReplyAskCard({
 }) {
   const { t, language } = useI18n();
   const dispatch = useDispatch();
-  const draft = useAppState().askDrafts.get(entry.id);
+  const { askDrafts, agents } = useAppState();
+  const draft = askDrafts.get(entry.id);
   const untouched = draft === undefined;
   const reply = draft ?? t("asks.replyDefault");
   const [busy, setBusy] = useState(false);
@@ -176,8 +178,14 @@ function ReplyAskCard({
   const [clamped, setClamped] = useState(false);
   const promptRef = useRef<HTMLDivElement>(null);
   const openLink = useContext(OfficeLinkOpener);
-  // A link this UI does not know is not drawn.
-  const link = officeLinkFor(entry.link);
+  // A link this UI does not know is not drawn, nor one to an agent the store
+  // does not have.
+  const link = askLinkFor(entry.link);
+  const linkLabel = !link
+    ? null
+    : "agentId" in link
+      ? (agents.find((a) => a.id === link.agentId)?.name ?? null)
+      : t(officeLinkLabel(link));
 
   // Show more only when the clamp cuts the prompt.
   useLayoutEffect(() => {
@@ -290,7 +298,7 @@ function ReplyAskCard({
                 : t("cards.toolResult.showMore")}
             </button>
           )}
-          {link && openLink && (
+          {link && linkLabel !== null && openLink && (
             <div style={{ marginTop: 2 }}>
               <button
                 type="button"
@@ -306,7 +314,7 @@ function ReplyAskCard({
                   cursor: "pointer",
                 }}
               >
-                {t("asks.openLink", { page: t(officeLinkLabel(link)) })}
+                {t("asks.openLink", { page: linkLabel })}
               </button>
             </div>
           )}

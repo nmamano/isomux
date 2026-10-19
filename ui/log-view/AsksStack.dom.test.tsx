@@ -83,7 +83,18 @@ const ENTRIES: AskEntry[] = [
       },
     ],
   },
+  // Agent a7's asks link to agents' chats: one this UI knows, one it does not.
+  {
+    ...entry("kkkk0011", "a7", "Say go in Scout's chat?", 8),
+    link: "/agents/a1",
+  },
+  {
+    ...entry("llll0012", "a7", "Say go in Ghost's chat?", 7),
+    link: "/agents/ghost",
+  },
 ];
+// The one agent the store knows: the target of a7's first link.
+const SCOUT = { id: "a1", name: "Scout", roomId: "r2", desk: 0 } as never;
 
 // No socket: the store's provider would open one.
 setShim(() => {});
@@ -113,6 +124,7 @@ afterAll(() => setApiShim(null));
 function Seed({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch();
   useEffect(() => {
+    dispatch({ type: "agent_added", agent: SCOUT });
     dispatch({ type: "asks_loaded", entries: ENTRIES, revision: 0 });
   }, [dispatch]);
   return <>{children}</>;
@@ -253,6 +265,25 @@ it("draws a button for an office page it knows, and a click opens that page", as
   expect(opened).toEqual([{ page: "integrations", tab: "mcp" }]);
   // The ask stays open, and nothing was posted.
   expect(cards(view.container)).toEqual(["dddd0004", "eeee0005"]);
+  expect(posts).toEqual([]);
+  view.unmount();
+});
+
+it("draws a button for an agent it knows, named for the agent, and a click opens that agent", async () => {
+  const opened: OfficeLink[] = [];
+  const view = mount(false, "a7", (link) => opened.push(link));
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  // The agent the store does not have draws nothing.
+  expect(linkButtons(view.container)).toEqual([["kkkk0011", "/agents/a1"]]);
+  const button = view.container.querySelector<HTMLButtonElement>(
+    "[data-ask-office-link]",
+  )!;
+  expect(button.tagName).toBe("BUTTON");
+  expect(button.textContent).toContain("Scout");
+  expect(button.textContent).not.toBe("Scout");
+  fireEvent.click(button);
+  expect(opened).toEqual([{ agentId: "a1" }]);
+  expect(cards(view.container)).toEqual(["kkkk0011", "llll0012"]);
   expect(posts).toEqual([]);
   view.unmount();
 });
