@@ -618,3 +618,175 @@ for (const variant of ["phone", "no chat target"] as const) {
     }
   });
 }
+
+// A scroll model for the widget log: scrollHeight is set by the test, any
+// scrollTop change is clamped and fires scroll as a browser does, and
+// scrollIntoView on a node inside the log moves it to the bottom.
+function scrollModel(log: HTMLElement) {
+  const viewport = 200;
+  let top = 0;
+  const model = {
+    height: 1000,
+    get top() {
+      return top;
+    },
+    get gap() {
+      return model.height - viewport - top;
+    },
+    // The member scrolls the log.
+    scrollTo(value: number) {
+      log.scrollTop = value;
+    },
+  };
+  Object.defineProperty(log, "scrollHeight", { get: () => model.height });
+  Object.defineProperty(log, "clientHeight", { get: () => viewport });
+  Object.defineProperty(log, "scrollTop", {
+    get: () => top,
+    set: (value: number) => {
+      const next = Math.max(0, Math.min(value, model.height - viewport));
+      if (next === top) return;
+      top = next;
+      log.dispatchEvent(new Event("scroll"));
+    },
+  });
+  const original = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "scrollIntoView",
+  );
+  Element.prototype.scrollIntoView = function (this: Element) {
+    if (log.contains(this)) log.scrollTop = model.height;
+  };
+  const restore = () => {
+    if (original)
+      Object.defineProperty(Element.prototype, "scrollIntoView", original);
+    else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  };
+  return { model, restore };
+}
+
+function textEntry(n: number): import("../shared/types.ts").LogEntry {
+  return {
+    id: `m${n}`,
+    agentId: "one",
+    timestamp: n,
+    kind: "text",
+    content: `message ${n}`,
+  };
+}
+
+it("follows new messages only while the member is at the bottom of the log", async () => {
+  sessionStorage.clear();
+  let logs = [textEntry(1)];
+  const view = render(<WidgetChat {...props} logs={logs} open={false} />);
+  const log = view.container.querySelector<HTMLElement>('[role="log"]')!;
+  const { model, restore } = scrollModel(log);
+  const arrive = (open = true) => {
+    logs = [...logs, textEntry(logs.length + 1)];
+    model.height += 100;
+    view.rerender(<WidgetChat {...props} logs={logs} open={open} />);
+  };
+  try {
+    view.rerender(<WidgetChat {...props} logs={logs} open />);
+    expect(model.gap).toBe(0);
+    arrive();
+    expect(model.gap).toBe(0);
+
+    // Scrolled up to read: a new message and an unrelated re-render keep the view.
+    model.scrollTo(300);
+    arrive();
+    expect(model.top).toBe(300);
+    view.rerender(
+      <WidgetChat
+        {...props}
+        logs={logs}
+        open
+        agent={{ ...agent, state: "thinking" }}
+      />,
+    );
+    expect(model.top).toBe(300);
+
+    // Back at the bottom: follows again.
+    model.scrollTo(model.height);
+    arrive();
+    expect(model.gap).toBe(0);
+
+    // A small move up near the bottom still follows.
+    model.scrollTo(model.top - 20);
+    expect(model.gap).toBe(20);
+    arrive();
+    expect(model.gap).toBe(0);
+
+    // Content grew under the pinned view before its scroll event: no move up,
+    // so it still follows.
+    model.height += 300;
+    fireEvent.scroll(log);
+    expect(model.gap).toBe(300);
+    arrive();
+    expect(model.gap).toBe(0);
+
+    // Scrolled up, closed, a message arrives, reopened: back at the bottom.
+    model.scrollTo(200);
+    view.rerender(<WidgetChat {...props} logs={logs} open={false} />);
+    arrive(false);
+    expect(model.top).toBe(200);
+    view.rerender(<WidgetChat {...props} logs={logs} open />);
+    expect(model.gap).toBe(0);
+  } finally {
+    restore();
+    view.unmount();
+  }
+});
+
+for (const echo of ["before", "after"] as const) {
+  it(`shows the member's own message after a send from an earlier position (echo ${echo} the reply)`, async () => {
+    sessionStorage.clear();
+    let respond: (ok: boolean) => void = () => {};
+    setApiShim(
+      () =>
+        new Promise((resolve, reject) => {
+          respond = (ok) => (ok ? resolve({}) : reject(new Error("offline")));
+        }),
+    );
+    let logs = [textEntry(1)];
+    const view = render(<WidgetChat {...props} logs={logs} open={false} />);
+    const log = view.container.querySelector<HTMLElement>('[role="log"]')!;
+    const { model, restore } = scrollModel(log);
+    const echoMessage = () => {
+      logs = [...logs, textEntry(logs.length + 1)];
+      model.height += 100;
+      view.rerender(<WidgetChat {...props} logs={logs} open />);
+    };
+    const submit = async (value: string) => {
+      await act(async () => {
+        fireEvent.change(view.getByRole("textbox"), { target: { value } });
+      });
+      await act(async () => {
+        fireEvent.submit(view.container.querySelector("form")!);
+      });
+    };
+    try {
+      view.rerender(<WidgetChat {...props} logs={logs} open />);
+      model.scrollTo(300);
+
+      // A failed send leaves the member where they were, and still reading.
+      await submit("lost");
+      await act(async () => respond(false));
+      expect((view.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+        "lost",
+      );
+      expect(model.top).toBe(300);
+      echoMessage();
+      expect(model.top).toBe(300);
+
+      await submit("hello");
+      if (echo === "before") echoMessage();
+      await act(async () => respond(true));
+      expect((view.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+      if (echo === "after") echoMessage();
+      expect(model.gap).toBe(0);
+    } finally {
+      restore();
+      view.unmount();
+    }
+  });
+}

@@ -410,11 +410,19 @@ export function WidgetChat({
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  // The log follows new entries only while the member is at the bottom, as
+  // LogView does. Opening the panel and a sent message return to the bottom.
+  const follow = useRef(true);
+  const lastScrollTop = useRef(0);
+  const wasOpen = useRef(false);
+  const scrollToEnd = () => end.current?.scrollIntoView?.({ block: "end" });
   useEffect(() => {
     if (open) textarea.current?.focus();
   }, [open]);
   useEffect(() => {
-    if (open) end.current?.scrollIntoView?.({ block: "end" });
+    if (open && !wasOpen.current) follow.current = true;
+    wasOpen.current = open;
+    if (open && follow.current) scrollToEnd();
   }, [logs, open]);
   useEffect(() => {
     if (draft.key !== key) return;
@@ -532,6 +540,8 @@ export function WidgetChat({
         failed: false,
       };
       setDraft((current) => (current.key === key ? next : current));
+      follow.current = true;
+      scrollToEnd();
     } catch {
       setDraft((current) =>
         current.key === key
@@ -593,7 +603,20 @@ export function WidgetChat({
         )}
       </header>
       <p className="app-widget-notice">{t("appWidget.notice")}</p>
-      <div className="app-widget-log" role="log">
+      <div
+        className="app-widget-log"
+        role="log"
+        onScroll={(event) => {
+          const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
+          // Only a move up leaves the bottom; content that grew under a
+          // pinned view widens the gap without a move.
+          const movedUp = scrollTop < lastScrollTop.current;
+          lastScrollTop.current = scrollTop;
+          follow.current =
+            scrollHeight - scrollTop - clientHeight < 50 ||
+            (follow.current && !movedUp);
+        }}
+      >
         <ChatTranscript
           logs={logs}
           view={transcript}
