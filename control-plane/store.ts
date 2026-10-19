@@ -2475,6 +2475,26 @@ export class Store {
     );
   }
 
+  /**
+   * Put off this office's next check without taking a reading: next_check_at
+   * moves and the claim is released, while rung, strikes and checked_at stay
+   * as they were. Fenced like recordLiveness.
+   */
+  async deferLiveness(
+    instanceId: string,
+    expectedVersion: number,
+    holder: string,
+    nextAt: number,
+  ): Promise<LivenessRow | null> {
+    return this.sqlGet<LivenessRow>(
+      "update instance_liveness set next_check_at = $1, claim_until = null, " +
+        "claim_holder = null, version = version + 1, updated_at = $2 " +
+        "where instance_id = $3 and version = $4 and claim_holder = $5 " +
+        "returning *",
+      [nextAt, this.now(), instanceId, expectedVersion, holder],
+    );
+  }
+
   // ---------------------------------------------- certificate-contact checks
 
   /** Claim this live office's daily check without touching its lifecycle CAS. */

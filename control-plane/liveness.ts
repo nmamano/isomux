@@ -54,6 +54,63 @@ export interface LivenessDeps {
   fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
+/**
+ * Known-good hosts outside our infrastructure, from two operators. When an
+ * office fails, the prober checks these: if none answers, the failure is the
+ * prober's own network, not the office.
+ */
+export const CONTROL_HOSTS = ["one.one.one.one", "dns.google"] as const;
+
+export interface ControlResult {
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * Can the prober reach the outside world? ok when ANY control host resolves
+ * and accepts on 443 within `timeoutMs` (lookup and connect together).
+ */
+export async function probeControl(
+  deps: Pick<LivenessDeps, "lookup" | "connect"> = {},
+  hosts: readonly string[] = CONTROL_HOSTS,
+  timeoutMs = 5_000,
+): Promise<ControlResult> {
+  const lookup =
+    deps.lookup ??
+    (async (h: string) => (await dns.lookup(h, { family: 4 })).address);
+  const connect = deps.connect ?? tcpConnect;
+  // dns.lookup has no timeout of its own, and a broken resolver is exactly
+  // when this runs, so one deadline covers the lookup and the connect.
+  const reach = async (host: string): Promise<string | null> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+    });
+    try {
+      await Promise.race([
+        (async () => {
+          await lookup(host);
+          await connect(host, 443, timeoutMs);
+        })(),
+        deadline,
+      ]);
+      return null;
+    } catch (err) {
+      return `${host}: ${messageOf(err)}`;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const failures = await Promise.all(hosts.map(reach));
+  const failed = failures.filter((f): f is string => f !== null);
+  return failed.length < hosts.length
+    ? { ok: true, detail: "a control host is reachable" }
+    : { ok: false, detail: failed.join("; ") };
+}
+
 function tcpConnect(
   host: string,
   port: number,

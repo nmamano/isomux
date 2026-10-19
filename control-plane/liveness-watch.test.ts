@@ -7,6 +7,7 @@ import * as path from "node:path";
 import {
   LIVENESS_CLAIM_MS,
   LIVENESS_INTERVAL_MS,
+  type ControlResult,
   type Rung,
 } from "./liveness.ts";
 import { LIVENESS_REASON, watchLiveness } from "./liveness-watch.ts";
@@ -30,10 +31,21 @@ interface Bed {
   store: Store;
   instanceId: string;
   now: { value: number };
-  /** One pass with a scripted probe outcome. */
-  pass(rung: Rung, holder?: string): Promise<number>;
+  /** One pass with a scripted probe outcome. The control probe passes unless
+   * the pass is given one. */
+  pass(rung: Rung, holder?: string, opts?: PassOptions): Promise<number>;
   reasons(): Promise<string[]>;
 }
+
+interface PassOptions {
+  control?: () => Promise<ControlResult>;
+  report?: (line: string) => void;
+}
+
+const CONTROL_UP = async (): Promise<ControlResult> => ({
+  ok: true,
+  detail: "control reachable",
+});
 
 async function bed(): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-liveness-"));
@@ -66,9 +78,12 @@ async function bed(): Promise<Bed> {
     store,
     instanceId: "inst-1",
     now,
-    pass: async (rung, holder = "prober-a") =>
+    pass: async (rung, holder = "prober-a", opts = {}) =>
       await watchLiveness(store, {
         holder,
+        // Never the default: it would reach the real network from a test.
+        control: opts.control ?? CONTROL_UP,
+        report: opts.report,
         // The ladder itself is tested in liveness.test.ts; here the probe is
         // scripted so the COUNTING is what is under test.
         lookup: async () =>
@@ -227,4 +242,147 @@ test("only live offices are probed", async () => {
   // progressing normally.
   expect(await b.pass("tcp")).toBe(0);
   expect(await b.store.getLiveness("inst-1")).toBeNull();
+});
+
+// A failed reading while the prober cannot reach the outside world either is
+// the prober's outage, not the office's (2026-10-18: the VPS lost its network
+// for six minutes and every live office was raised). Such a reading takes no
+// strike and moves no attention; the next check is still put off by the normal
+// interval, so an outage does not turn into a probe storm.
+describe("a prober outage is not the office's failure", () => {
+  const OUTAGE_DETAIL = "one.one.one.one: timed out; dns.google: timed out";
+
+  function controlDown() {
+    const calls = { n: 0 };
+    const control = async (): Promise<ControlResult> => {
+      calls.n++;
+      return { ok: false, detail: OUTAGE_DETAIL };
+    };
+    return { calls, control };
+  }
+
+  test("no strike and no raise; the last real reading and the strike count stay, the next check moves on", async () => {
+    const b = await bed();
+    const down = controlDown();
+
+    // First-ever reading during an outage: nothing to keep but the empty row.
+    await b.pass("dns", "prober-a", { control: down.control });
+    expect(down.calls.n).toBe(1);
+    let row = (await b.store.getLiveness("inst-1"))!;
+    expect(row.strikes).toBe(0);
+    expect(row.checked_at).toBeNull();
+
+    // One real failure, then a long outage.
+    b.now.value += LIVENESS_INTERVAL_MS;
+    await b.pass("tcp");
+    const real = (await b.store.getLiveness("inst-1"))!;
+    expect(real.strikes).toBe(1);
+    expect(real.rung).toBe("tcp");
+
+    for (let i = 0; i < 5; i++) {
+      b.now.value += LIVENESS_INTERVAL_MS;
+      expect(await b.pass("dns", "prober-a", { control: down.control })).toBe(
+        1,
+      );
+      row = (await b.store.getLiveness("inst-1"))!;
+      expect(row.strikes).toBe(1);
+      expect(row.rung).toBe("tcp");
+      expect(row.checked_at).toBe(real.checked_at);
+      expect(row.next_check_at).toBe(b.now.value + LIVENESS_INTERVAL_MS);
+      expect(row.claim_holder).toBeNull();
+      expect(row.claim_until).toBeNull();
+      expect(await b.reasons()).toEqual([]);
+    }
+    expect(down.calls.n).toBe(6);
+  });
+
+  test("an outage neither resets nor adds strikes: the next real failure is still the third", async () => {
+    const b = await bed();
+    const down = controlDown();
+    for (let i = 0; i < 2; i++) {
+      await b.pass("tls");
+      b.now.value += LIVENESS_INTERVAL_MS;
+    }
+    await b.pass("dns", "prober-a", { control: down.control });
+    expect(down.calls.n).toBe(1);
+    expect(await b.reasons()).toEqual([]);
+    b.now.value += LIVENESS_INTERVAL_MS;
+    await b.pass("tls");
+    expect(await b.reasons()).toEqual(["critical"]);
+  });
+
+  test("a control probe that throws counts as an outage, not as a reachable network", async () => {
+    // We cannot tell the network is fine, so the office gets no strike.
+    const b = await bed();
+    let calls = 0;
+    const control = async (): Promise<ControlResult> => {
+      calls++;
+      throw new Error("control crashed");
+    };
+    for (let i = 0; i < 3; i++) {
+      await b.pass("tcp", "prober-a", { control });
+      b.now.value += LIVENESS_INTERVAL_MS;
+    }
+    expect(calls).toBe(3);
+    expect((await b.store.getLiveness("inst-1"))!.strikes).toBe(0);
+    expect(await b.reasons()).toEqual([]);
+  });
+
+  test("an open raise stays open through an outage, and only a real ok clears it, without a control probe", async () => {
+    const b = await bed();
+    const down = controlDown();
+    for (let i = 0; i < 3; i++) {
+      await b.pass("tcp");
+      b.now.value += LIVENESS_INTERVAL_MS;
+    }
+    expect(await b.reasons()).toEqual(["critical"]);
+    for (let i = 0; i < 2; i++) {
+      await b.pass("dns", "prober-a", { control: down.control });
+      b.now.value += LIVENESS_INTERVAL_MS;
+    }
+    expect(down.calls.n).toBe(2);
+    expect(await b.reasons()).toEqual(["critical"]);
+    expect((await b.store.getInstance("inst-1"))!.attention_state).toBe(
+      "needs_operator",
+    );
+    // An ok reading needs no control: it is never gated.
+    await b.pass("ok", "prober-a", { control: down.control });
+    expect(down.calls.n).toBe(2);
+    expect(await b.reasons()).toEqual([]);
+  });
+
+  test("the outage is reported per office, with the control's own detail", async () => {
+    const b = await bed();
+    const lines: string[] = [];
+    await b.pass("dns", "prober-a", {
+      control: controlDown().control,
+      report: (line) => lines.push(line),
+    });
+    expect(
+      lines.filter(
+        (l) => l.includes("cp1.test.isomux.app") && l.includes(OUTAGE_DETAIL),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("a prober that lost its claim during the outage does not release the winner's claim", async () => {
+    const b = await bed();
+    // While prober-a waits on the control, its claim expires and prober-b
+    // takes the row. prober-a's deferral is fenced out like a reading would be.
+    const control = async (): Promise<ControlResult> => {
+      b.now.value += LIVENESS_CLAIM_MS + 1_000;
+      const taken = await b.store.claimLiveness(
+        "inst-1",
+        "prober-b",
+        b.now.value + LIVENESS_CLAIM_MS,
+        b.now.value,
+      );
+      expect(taken).not.toBeNull();
+      return { ok: false, detail: OUTAGE_DETAIL };
+    };
+    await b.pass("dns", "prober-a", { control });
+    const row = (await b.store.getLiveness("inst-1"))!;
+    expect(row.claim_holder).toBe("prober-b");
+    expect(row.claim_until).toBe(b.now.value + LIVENESS_CLAIM_MS);
+  });
 });

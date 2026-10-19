@@ -11,13 +11,18 @@
 // HUMAN, because the failure may be ours - our DNS, our certificate, our
 // provisioning - and restarting somebody's server on a probe we got wrong is a
 // worse outcome than an alert nobody needed.
+//
+// A failed reading counts against the office only if the prober can reach the
+// outside world: when the control probe fails too, the outage is the prober's.
 
 import { raiseAttentionIn, clearAttentionIn } from "./attention.ts";
 import {
   LIVENESS_CLAIM_MS,
   LIVENESS_INTERVAL_MS,
   LIVENESS_STRIKES,
+  probeControl,
   probeLiveness,
+  type ControlResult,
   type LivenessDeps,
   type Rung,
   strikesAfter,
@@ -39,6 +44,9 @@ const NO_OPERATION = "";
 export interface WatchDeps extends LivenessDeps {
   holder: string;
   report?: (line: string) => void;
+  /** The control probe run after each failing reading. Separate from
+   * lookup/connect so a scripted office failure does not also fail it. */
+  control?: () => Promise<ControlResult>;
 }
 
 /**
@@ -54,6 +62,7 @@ export async function watchLiveness(
   deps: WatchDeps,
 ): Promise<number> {
   let probed = 0;
+  const control = deps.control ?? (() => probeControl());
   for (const instance of await store.listInstances()) {
     if (instance.service_state !== "live") continue;
     const now = store.now();
@@ -87,6 +96,39 @@ export async function watchLiveness(
       rung = "tcp";
     }
     probed++;
+
+    if (rung !== "ok") {
+      // Checked right after each failing reading, not once per pass: one slow
+      // office can hold a pass long enough for an earlier verdict to go stale.
+      let outage: string | null;
+      try {
+        const result = await control();
+        outage = result.ok ? null : result.detail;
+      } catch (err) {
+        // We cannot tell the network is fine, so the office is not blamed.
+        outage = `control probe threw: ${messageOf(err)}`;
+      }
+      if (outage !== null) {
+        // The prober cannot reach the outside world either, so this reading
+        // says nothing about the office: no strike, no attention, and the
+        // customer keeps seeing the last real reading.
+        const deferred = await store.deferLiveness(
+          instance.id,
+          claimed.version,
+          deps.holder,
+          store.now() + LIVENESS_INTERVAL_MS,
+        );
+        deps.report?.(
+          deferred
+            ? `liveness for ${instance.name} failed at rung ${rung} while the ` +
+                `control probe also failed (${outage}); counted as a prober ` +
+                `outage, no strike`
+            : `liveness for ${instance.name} was written by another prober; ` +
+                `discarding this reading rather than replaying it`,
+        );
+        continue;
+      }
+    }
 
     const strikes = strikesAfter(claimed.strikes, rung);
     const checkedAt = store.now();
