@@ -110,16 +110,18 @@ export function SignInForm() {
           }}
         >
           <h2>Developer sign-in</h2>
-          <label>
-            Email{" "}
-            <input
-              name="email"
-              type="email"
-              data-testid="dev-email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>{" "}
+          <p>
+            <label>
+              Email{" "}
+              <input
+                name="email"
+                type="email"
+                data-testid="dev-email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </label>
+          </p>
           <button
             className="btn-primary"
             type="submit"
@@ -180,18 +182,20 @@ function EmailLinkRequest({ t }: { t: Translator["t"] }) {
         void request();
       }}
     >
-      <label>
-        {t("signIn.emailLabel")}{" "}
-        <input
-          name="email"
-          type="email"
-          autoComplete="email"
-          required
-          data-testid="email-link-address"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      </label>{" "}
+      <p>
+        <label>
+          {t("signIn.emailLabel")}{" "}
+          <input
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            data-testid="email-link-address"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
+      </p>
       <button className="btn-primary" type="submit" disabled={busy}>
         {t("signIn.emailSubmit")}
       </button>

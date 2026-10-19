@@ -178,30 +178,75 @@ h3 {
   background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='2,10 16,18 16,30 2,22' fill='%23209050'/><polygon points='30,10 16,18 16,30 30,22' fill='%23186840'/><polygon points='16,8 24,12.5 16,17 8,12.5' fill='%230d1117'/><text x='16' y='14.5' text-anchor='middle' font-size='6' font-family='monospace' font-weight='bold' fill='%23E6F5EC'>%3E_</text><polygon points='16,2 2,10 8,12.5 16,8' fill='%233AC874'/><polygon points='16,2 30,10 24,12.5 16,8' fill='%234BE88A'/><polygon points='2,10 16,18 16,17 8,12.5' fill='%2330B76A'/><polygon points='30,10 16,18 16,17 24,12.5' fill='%2341D57E'/></svg>");
 }
 
-/* The language switch sits at the far end of the bar, opposite the mark. The
-   language NAMES are never translated, so the buttons read the same in every
-   language and only the current one is marked. */
+/* The language switch sits at the far end of the bar, opposite the mark: the
+   landing's language menu (site/footer.css .lang-switch), opening downward and
+   aligned to the right edge because it sits at the top right. The language
+   NAMES are never translated, so they read the same in every language. */
 .language-switch {
   margin-left: auto;
-  display: flex;
-  gap: 4px;
-}
-.language-switch button {
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 2px 8px;
-  font: inherit;
+  position: relative;
   font-size: 0.85rem;
-  color: var(--text-dim);
+}
+.language-switch summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  user-select: none;
+}
+.language-switch summary::-webkit-details-marker {
+  display: none;
+}
+.language-switch summary:hover {
+  border-color: var(--accent);
+}
+.language-switch svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.language-switch .language-chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s;
+}
+.language-switch details[open] .language-chevron {
+  transform: rotate(180deg);
+}
+.language-switch .language-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.language-switch .language-menu button {
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
-.language-switch button:hover {
-  color: var(--text);
-}
-.language-switch button[aria-current="true"] {
-  color: var(--text);
-  border-color: var(--border);
+.language-switch .language-menu button:hover,
+.language-switch .language-menu button:focus-visible {
+  background: var(--bg-card);
+  color: var(--accent);
 }
 
 /* ---------- Page column ---------- */

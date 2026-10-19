@@ -229,11 +229,23 @@ async function main(): Promise<void> {
     say(
       "## A real mouse click on the switch changes the language and remembers",
     );
+    // The switch is a menu: a real click opens it, a second one chooses.
+    const summary = await page.waitForSelector(
+      '[data-testid="language-switch"] summary',
+    );
+    const summaryBox = await summary.boundingBox();
+    check("the switch is on the page with a real box", !!summaryBox);
+    await page.mouse.click(
+      summaryBox!.x + summaryBox!.width / 2,
+      summaryBox!.y + summaryBox!.height / 2,
+    );
     const spanishButton = await page.waitForSelector(
       '[data-testid="language-es"]',
+      { state: "visible" },
     );
     const box = await spanishButton.boundingBox();
-    check("the switch is on the page with a real box", !!box);
+    check("the open menu offers Spanish with a real box", !!box);
+    await shot(page, "signin-switch-open");
     await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
     const clickedLang = await settledLang(page, "es");
     check(
