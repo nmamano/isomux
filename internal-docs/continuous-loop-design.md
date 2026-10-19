@@ -49,11 +49,12 @@ Isomux Curator (isomux-curator skill) sits at a front desk, and Nil talks to it 
 
 ## Nil's queue: the loop app
 
-The loop app is Nil's only queue for loop work. It has no asks and no relay through Isomux PM. Made for the phone, it holds three kinds of item:
+The loop app is Nil's only queue for loop work. It has no asks and no relay through Isomux PM. Made for the phone, it holds four kinds of item:
 
 - Triage cards: the curator's proposal for a task, with accept, another priority, another verdict, and an optional note. The curator applies the note with judgement: the note says how much of the task to rewrite.
 - Design packets from workers: the question, 2 to 4 options with exactly one recommended, a markdown body, and images (screenshots of a prototype, diagrams). Nil taps an option, obsolete, research more, or "none: see note".
-- The Sign-off tab: copy changes (old next to new) and screenshots from merged work. Its "Approve and push" button sends Isomux Main the push go.
+- The Sign-off tab: copy changes (old next to new) and screenshots from merged work, which wait for Nil to approve or reject them.
+- The Push tab: merges not pushed yet, either approved or with nothing to sign off. Its "Push" button sends Isomux Main the push go.
 
 The app sends each triage and packet decision to the curator, which writes it to the board. A chosen packet option makes the task `[go | ready]`; research more makes it `[design | ready]`. An item that Nil rejects at sign-off is reverted by Isomux Main, and its task goes back to `ready` with Nil's note.
 
@@ -104,4 +105,4 @@ When merged server changes wait to go live, Isomux Main tells the PM. The PM pau
 
 ## Status (2026-10-19)
 
-Running: the curator and its 10-minute wake, Triage with design packets, the Backlog tab, dispatch, the tick, the Sign-off tab and the Push state, Isomux Main, and Workers and Reviewers 1-2. Next: a pilot that measures tasks merged, quarantines, items in Nil's queue, Nil's rework, allowance used, and the usage-limit path, which the pilot must test on purpose.
+Running: the curator and its 10-minute wake, Triage with design packets, the Backlog tab, dispatch, the tick, the Sign-off and Push tabs, Isomux Main, and Workers and Reviewers 1-2. Next: a pilot that measures tasks merged, quarantines, items in Nil's queue, Nil's rework, allowance used, and the usage-limit path, which the pilot must test on purpose.
