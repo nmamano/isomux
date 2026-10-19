@@ -1,3 +1,5 @@
+import { isAbsolute, resolve } from "path";
+
 // Backend login files are both protected from agent reads and omitted from
 // office backups. Keep the two consumers on this shared list: adding a backend
 // credential location must update both policies in the same change.
@@ -33,6 +35,10 @@ export const BACKEND_CREDENTIAL_PATHS: readonly BackendCredentialPath[] = [
     pattern: /(^|\/)\.credentials\.json$/,
     archivePatterns: (root) => anywhere(root, ".credentials.json"),
   },
+  // auth.json is a generic name (locale files, fixtures), so unlike the
+  // Claude entry this one matches only the directory shapes Isomux uses. A
+  // member who sets CODEX_HOME elsewhere is covered by codexLoginFile in the
+  // safety policy; the backup archive excludes only the shapes below.
   {
     id: "codex-login",
     pattern:
@@ -72,4 +78,13 @@ export const BACKEND_CREDENTIAL_PATHS: readonly BackendCredentialPath[] = [
 
 export function isBackendCredentialPath(path: string): boolean {
   return BACKEND_CREDENTIAL_PATHS.some((entry) => entry.pattern.test(path));
+}
+
+// The Codex login inside a CODEX_HOME the agent runs with, or null when the
+// value is unset or not an absolute path.
+export function codexLoginFile(
+  codexHome: string | null | undefined,
+): string | null {
+  const home = codexHome?.trim();
+  return home && isAbsolute(home) ? resolve(home, "auth.json") : null;
 }

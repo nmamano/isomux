@@ -97,14 +97,22 @@ export function policyDecisionToCodexOutput(
   };
 }
 
-export function evaluateCodexHookEnvelope(value: unknown): CodexHookOutput {
+// codexHome defaults to the hook's own environment: Codex runs the hook with
+// the app-server's env, so CODEX_HOME there is the agent's.
+export function evaluateCodexHookEnvelope(
+  value: unknown,
+  codexHome: string | undefined = process.env.CODEX_HOME,
+): CodexHookOutput {
   const input = parseEnvelope(value);
   const cwdValid =
     typeof input.cwd === "string" &&
     input.cwd.length > 0 &&
     isAbsolute(input.cwd);
   return policyDecisionToCodexOutput(
-    evaluateProposedAction(codexEnvelopeToAction(input), { cwd: input.cwd }),
+    evaluateProposedAction(codexEnvelopeToAction(input), {
+      cwd: input.cwd,
+      codexHome,
+    }),
     cwdValid ? undefined : MISSING_CWD_WARNING,
   );
 }

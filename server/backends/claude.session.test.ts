@@ -1245,6 +1245,46 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
       hookSpecificOutput: { permissionDecision: "deny" },
     });
   });
+
+  it("the safety hooks refuse the login in the session's CODEX_HOME", async () => {
+    // task be7f9436: a custom-named home is matched by the path the session
+    // env names, so the env must reach the hooks.
+    const codexHome = "/tmp/t-be7f9436-claude/my-codex";
+    const readDecision = async (
+      env: Record<string, string>,
+      takeToolBoundaryMessage?: () => null,
+    ) => {
+      const fake = new FakeSdkClient();
+      createClaudeBackend(fake).createSession({
+        ...createOpts,
+        env,
+        ...(takeToolBoundaryMessage ? { takeToolBoundaryMessage } : {}),
+      });
+      const hook = fake.createCalls[0].opts.hooks!.PreToolUse!.find(
+        (matcher) => matcher.matcher === "Read",
+      )!.hooks[0];
+      const output = await hook(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: "Read",
+          tool_input: { file_path: `${codexHome}/auth.json` },
+          cwd: "/tmp",
+        } as Parameters<typeof hook>[0],
+        undefined,
+        { signal: new AbortController().signal },
+      );
+      return (
+        (output as { hookSpecificOutput?: { permissionDecision?: string } })
+          .hookSpecificOutput?.permissionDecision ?? "allow"
+      );
+    };
+    // Both hook shapes buildSdkOpts builds: with and without the tool-boundary
+    // callback the orchestrator passes.
+    for (const take of [undefined, () => null]) {
+      expect(await readDecision({ CODEX_HOME: codexHome }, take)).toBe("deny");
+      expect(await readDecision({}, take)).toBe("allow");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1409,10 +1449,15 @@ describe("tool-boundary delivery hook", () => {
     backend.createSession({ ...base, takeToolBoundaryMessage: () => null });
     expect(fake.createCalls[0].opts.hooks?.PostToolBatch).toBeUndefined();
     expect(fake.createCalls[1].opts.hooks?.PostToolBatch).toHaveLength(1);
-    // The safety hooks stay in place next to it.
-    expect(fake.createCalls[1].opts.hooks?.PreToolUse).toEqual(
-      fake.createCalls[0].opts.hooks?.PreToolUse,
-    );
+    // The safety hooks stay in place next to it: the same tools, each with
+    // its hook. (Each session builds its own callbacks, so compare the shape.)
+    const shape = (i: number) =>
+      fake.createCalls[i].opts.hooks?.PreToolUse?.map((m) => [
+        m.matcher,
+        m.hooks.length,
+      ]);
+    expect(shape(0)?.length).toBeGreaterThan(0);
+    expect(shape(1)).toEqual(shape(0));
   });
 });
 

@@ -381,14 +381,14 @@ describe("standalone Codex safety hook", () => {
       [
         "Codex adapter forwards no cwd",
         await mutantHook("codex-cwd-missing", undefined, (source) =>
-          source.replace("{ cwd: input.cwd }", "{ cwd: undefined }"),
+          source.replace("cwd: input.cwd,", "cwd: undefined,"),
         ),
         protectedByCwd,
       ],
       [
         "Codex adapter forwards constant /tmp cwd",
         await mutantHook("codex-cwd-constant", undefined, (source) =>
-          source.replace("{ cwd: input.cwd }", '{ cwd: "/tmp" }'),
+          source.replace("cwd: input.cwd,", 'cwd: "/tmp",'),
         ),
         protectedByCwd,
       ],

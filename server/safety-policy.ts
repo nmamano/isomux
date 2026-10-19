@@ -16,8 +16,14 @@
 
 import { homedir } from "os";
 import { basename, isAbsolute, join, normalize, resolve } from "path";
-import { isBackendCredentialPath } from "./backend-credential-paths.ts";
-import { isCredentialStorePath } from "./credential-store-paths.ts";
+import {
+  codexLoginFile,
+  isBackendCredentialPath,
+} from "./backend-credential-paths.ts";
+import {
+  isCredentialStorePath,
+  realOrNearest,
+} from "./credential-store-paths.ts";
 import { STATE_ROOT } from "./config.ts";
 
 // The write-protection root follows the active state root, so a test that
@@ -39,7 +45,9 @@ export type ProposedAction =
   | { kind: "patch-files"; toolName: string; patch: unknown }
   | { kind: "uncovered-tool"; toolName: string; input: unknown };
 
-export type PolicyContext = { cwd?: unknown };
+// codexHome is the CODEX_HOME the agent runs with; its auth.json is a login
+// even when the directory name matches none of the known shapes.
+export type PolicyContext = { cwd?: unknown; codexHome?: string | null };
 
 const ALLOW: PolicyDecision = Object.freeze({ decision: "allow" });
 
@@ -702,12 +710,16 @@ function readerPathOperands(args: ShellWord[], g: ReaderGrammar): string[] {
  *  (`echo "$(cat .env)"`) or a `bash -c` payload is still seen. Input
  *  redirections are kept here (`cat < .env`) and only here - the kill guard has
  *  no use for them, so its call keeps the parser's default behaviour. */
-function bashSensitiveReadTarget(command: string, cwd: unknown): string | null {
+function bashSensitiveReadTarget(
+  command: string,
+  cwd: unknown,
+  codexHome: string | null | undefined,
+): string | null {
   for (const cmd of collectCommands(command, true)) {
     const grammar = READER_GRAMMAR[cmd.name];
     if (!grammar) continue;
     for (const path of readerPathOperands(cmd.args, grammar)) {
-      if (isSensitiveFile(path, cwd)) return path;
+      if (isSensitiveFile(path, cwd, codexHome)) return path;
     }
   }
   return null;
@@ -1123,7 +1135,30 @@ function usesAdminSocket(command: string): boolean {
 /** Suffixes that indicate a template/example file, not real secrets */
 const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
 
-function isSensitiveFile(filePath: string, cwd: unknown): boolean {
+// The shell form an agent most often uses for the Codex login. Only this
+// variable is expanded: the other checks match names, not values.
+const CODEX_HOME_PREFIX = /^\$(?:CODEX_HOME|\{CODEX_HOME\})(?=\/|$)/;
+
+// The Codex login in the agent's own CODEX_HOME, whatever the directory is
+// called (backend-credential-paths.ts), also through a symlink.
+function isCodexLogin(
+  path: string,
+  cwd: unknown,
+  codexHome: string | null | undefined,
+): boolean {
+  const login = codexLoginFile(codexHome);
+  if (login === null) return false;
+  const expanded = path.replace(CODEX_HOME_PREFIX, () => codexHome!.trim());
+  const resolved = resolvePath(expanded, cwd);
+  if (resolved === null) return false;
+  return resolved === login || realOrNearest(resolved) === realOrNearest(login);
+}
+
+function isSensitiveFile(
+  filePath: string,
+  cwd: unknown,
+  codexHome: string | null | undefined,
+): boolean {
   // A glob arrives here too (Grep's `glob: "*.pem"` selects the same files a
   // path would). A trailing wildcard is not part of any real name, so drop it
   // and match what is left: `.env*` is a request for `.env`. This is still
@@ -1134,6 +1169,7 @@ function isSensitiveFile(filePath: string, cwd: unknown): boolean {
   // Checked before SAFE_SUFFIXES: a backend login is never a template, and the
   // suffix check returns early, so anything it matched could never be reached.
   if (isBackendCredentialPath(path)) return true;
+  if (isCodexLogin(path, cwd, codexHome)) return true;
   // The secret store and the managed variable files. Accident protection, not
   // a boundary: see credential-store-paths.ts.
   const resolved = resolvePath(path, cwd);
@@ -2594,7 +2630,11 @@ function shellWriteDecision(
   return decision;
 }
 
-function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
+function checkBashSafety(
+  commandValue: unknown,
+  cwd: unknown,
+  codexHome: string | null | undefined,
+): PolicyDecision {
   const command = commandValue;
   if (typeof command !== "string" || !command) return allow();
 
@@ -2633,7 +2673,7 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
   const storeSearch = bashStoreSearchRoot(command, cwd);
   if (storeSearch !== null) return denyStoreSearch(storeSearch, "Bash");
 
-  const secretTarget = bashSensitiveReadTarget(command, cwd);
+  const secretTarget = bashSensitiveReadTarget(command, cwd, codexHome);
   if (secretTarget) {
     return denyMessage(
       `"${basename(secretTarget)}" may contain secrets. Agents are not allowed ` +
@@ -2843,6 +2883,7 @@ function checkSensitiveFileRead(
   toolName: string,
   toolInput: unknown,
   cwd: unknown,
+  codexHome: string | null | undefined,
 ): PolicyDecision {
   const filePaths = collectToolPaths(toolName, toolInput);
   if (filePaths === null)
@@ -2852,7 +2893,7 @@ function checkSensitiveFileRead(
     );
 
   for (const filePath of filePaths) {
-    if (isSensitiveFile(filePath, cwd))
+    if (isSensitiveFile(filePath, cwd, codexHome))
       return denySecretRead(filePath, toolName);
   }
 
@@ -2879,9 +2920,14 @@ export function evaluateProposedAction(
 ): PolicyDecision {
   switch (action.kind) {
     case "shell":
-      return checkBashSafety(action.command, context.cwd);
+      return checkBashSafety(action.command, context.cwd, context.codexHome);
     case "read-files":
-      return checkSensitiveFileRead(action.toolName, action.input, context.cwd);
+      return checkSensitiveFileRead(
+        action.toolName,
+        action.input,
+        context.cwd,
+        context.codexHome,
+      );
     case "write-files":
       return checkWriteEditSafety(action.toolName, action.input, context.cwd);
     case "read-and-write-files": {
@@ -2892,7 +2938,12 @@ export function evaluateProposedAction(
       );
       return writeDecision.decision === "deny"
         ? writeDecision
-        : checkSensitiveFileRead(action.toolName, action.input, context.cwd);
+        : checkSensitiveFileRead(
+            action.toolName,
+            action.input,
+            context.cwd,
+            context.codexHome,
+          );
     }
     case "patch-files":
       return checkPatchSafety(action.toolName, action.patch, context.cwd);

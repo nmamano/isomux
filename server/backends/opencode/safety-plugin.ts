@@ -95,7 +95,10 @@ export default {
     ) => {
       const call = openCodeToolAction(input.tool, output.args, directory);
       if (!call) return;
-      const decision = evaluateProposedAction(call.action, { cwd: call.cwd });
+      const decision = evaluateProposedAction(call.action, {
+        cwd: call.cwd,
+        codexHome: process.env.CODEX_HOME,
+      });
       if (decision.decision === "deny") throw new Error(decision.reason);
     },
   }),

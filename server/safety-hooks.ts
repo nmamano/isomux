@@ -24,39 +24,47 @@ function toClaudeDecision(decision: PolicyDecision): HookJSONOutput {
   };
 }
 
+type ToAction = (input: PreToolUseHookInput) => ProposedAction;
+
 function callbackFor(
-  toAction: (input: PreToolUseHookInput) => ProposedAction,
+  toAction: ToAction,
+  codexHome: string | null | undefined,
 ): HookCallback {
   return async (input) =>
     toClaudeDecision(
       evaluateProposedAction(toAction(input as PreToolUseHookInput), {
         cwd: (input as PreToolUseHookInput).cwd,
+        codexHome,
       }),
     );
 }
 
-const shell = callbackFor((input) => ({
+const shellAction: ToAction = (input) => ({
   kind: "shell",
   command: (input.tool_input as { command?: unknown })?.command,
-}));
+});
 
 function fileAction(
   kind: "read-files" | "write-files" | "read-and-write-files",
-) {
-  return callbackFor((input) => ({
+): ToAction {
+  return (input) => ({
     kind,
     toolName: input.tool_name,
     input: input.tool_input,
-  }));
+  });
 }
 
-const readFiles = fileAction("read-files");
-const writeFiles = fileAction("write-files");
-const readAndWriteFiles = fileAction("read-and-write-files");
-
-export function createSafetyHooks(): Partial<
-  Record<HookEvent, HookCallbackMatcher[]>
-> {
+// codexHome is the session's CODEX_HOME (safety-policy.ts PolicyContext).
+export function createSafetyHooks(
+  codexHome?: string | null,
+): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+  const shell = callbackFor(shellAction, codexHome);
+  const readFiles = callbackFor(fileAction("read-files"), codexHome);
+  const writeFiles = callbackFor(fileAction("write-files"), codexHome);
+  const readAndWriteFiles = callbackFor(
+    fileAction("read-and-write-files"),
+    codexHome,
+  );
   return {
     // One entry per Claude tool name. The adapter maps provider names to core
     // action kinds; the core owns which checks each action kind runs.

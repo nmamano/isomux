@@ -26,7 +26,7 @@ export const CREDENTIAL_PATH_MESSAGE =
 
 // The real path of the deepest part that exists, with the rest appended, so a
 // symlink anywhere above a file that does not exist yet is still resolved.
-function realOrNearest(path: string): string {
+export function realOrNearest(path: string): string {
   let head = path;
   const tail: string[] = [];
   for (;;) {

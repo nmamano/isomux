@@ -1911,10 +1911,10 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     cwd: opts.cwd,
     hooks: opts.takeToolBoundaryMessage
       ? {
-          ...createSafetyHooks(),
+          ...createSafetyHooks(env.CODEX_HOME),
           PostToolBatch: toolBoundaryHooks(opts.takeToolBoundaryMessage),
         }
-      : createSafetyHooks(),
+      : createSafetyHooks(env.CODEX_HOME),
     // AskUserQuestion has no usable UI in isomux: the canUseTool approval
     // shows only "Allow/Deny" without rendering the question text, and the
     // headless tool execution returns empty answers - which the agent then
