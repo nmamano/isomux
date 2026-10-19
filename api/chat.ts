@@ -253,6 +253,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - An agent can leave a member a question that can wait (an ask). It stays above the chat input, with a reply field, until the member replies or dismisses it. A dot on the agent's desk counts them.
 
 ### Other
+- Office language: each person picks English, Spanish, Catalan or Simplified Chinese under Settings → You → Preferences, and the whole office reads in it
 - Voice-to-text prompting (HTTPS or localhost) and text-to-speech responses. Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.
 - Per-member profiles - your notification preferences, credentials, and personal preferences follow you wherever you log in from
 - Managed variables for config and provider API keys: on the Integrations page (Variables tab), office owners edit office-wide variables and each member edits personal ones. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. A change applies to the agent's next session.
