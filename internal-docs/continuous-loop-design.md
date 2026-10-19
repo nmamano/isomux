@@ -1,26 +1,24 @@
 # Continuous loop
 
-Board task 178dbb5a. Updated to Nil's rulings of 2026-10-18.
+Board task 178dbb5a. Updated to Nil's rulings of 2026-10-18. The skills named below hold the steps; this doc holds the design.
 
 ## Goal
 
-Agents work the Isomux room's backlog without Nil present, for as long as reviewed `ready` tasks remain. When a task needs Nil, the loop parks it in Nil's attention queue and takes the next task. Nil goes through the queue at his own pace. Nothing in the loop waits on a clock or a deadline.
+Agents work the Isomux room's backlog without Nil present, for as long as reviewed `ready` tasks remain. When a task needs Nil, the loop puts it in Nil's queue in the loop app and takes the next task. Nil goes through the queue at his own pace. Nothing in the loop waits on a clock or a deadline.
 
 ## What Nil owns
 
-- Design go/no-go on new features.
-- Sign-off of copy (the customer-facing prose listed in the isomux-lead-session skill, Phase 5).
+- Design go/no-go: the `decide` tasks.
+- Sign-off of copy and of changes a user can see, before the push.
 - The push.
 
-Inside a task, the worker and reviewer make the smaller choices themselves and record them in the report. Nil sees them at review time, and a wrong choice gets redone.
-
-Merges into local main need no approval from Nil (Nil, 2026-10-18).
+Merges into local main need no approval from Nil. Inside a task, the worker and reviewer make the smaller choices and record them in the hand-off. Nil sees them at sign-off, and a wrong choice gets redone.
 
 ## What the loop picks
 
 Credits are limited, so the loop works only on what Nil wants now. The priority field is the queue: the loop app takes P0 first, then P1 down to P3, the oldest first within a priority, and never P4.
 
-The loop picks only tasks that Nil has reviewed. Agents (Isomux PM, workers, Isomux Comms) set a priority when they file, so a priority alone does not show Nil's intent. Nil's review sets the priority and the class tag below. A task without a tag is unreviewed, and the loop never picks it. This covers old tasks whose priority Nil no longer trusts and new tasks that nobody has looked at yet.
+The loop picks only tasks that Nil has reviewed. Agents set a priority when they file, so a priority alone does not show Nil's intent. Nil's review sets the priority and the class tag. A task without a tag is unreviewed, and the loop never picks it.
 
 When the queue has no reviewed `ready` task, the loop stops. Idle credits cost nothing; credits spent on work Nil did not choose are waste.
 
@@ -31,91 +29,79 @@ Each open task in the room has a title prefix `[<class> | <state>]`.
 Class:
 
 - `auto`: the loop can do it from start to finish.
-- `decide`: needs Nil's design go/no-go. The loop may research it and write a decision packet (the question, the options, its recommendation). It does not implement before the go.
-- `taste`: the result is mainly copy or visual design that Nil must approve (landing, site, docs prose, look of a feature).
-- `authority`: needs an action the loop never does (Stripe, Hosted, customers, secrets, releases, logins). The loop does not touch it.
+- `decide`: needs Nil's design call, or a choice between drafts. The loop researches it and sends a decision packet. It does not implement before Nil chooses.
+- `authority`: needs an action the loop never does (Stripe, Hosted, customers, secrets, releases, logins).
 
-State: `ready` when an agent can take the task now. Otherwise a short reason for the wait, for example `nil`, `soak until 10-25`, `after <task id>`. The list of reasons is open.
+The class `taste` is gone: copy and looks merge and are signed off before the push, and a choice between drafts is `decide`.
 
-Examples: `[auto | ready] Codex usage_update double-counts after session resume`, `[decide | nil] Support local models`.
+State: `ready` when an agent can take the task now. Otherwise a short reason for the wait, for example `nil`, `merging`, `after <task id>`. The list of reasons is open.
 
 Rules:
 
-- A tag comes only from Nil's review, in the triage view of the loop app. Agents file tasks without a tag. The room prompt says so.
-- After the review, loop agents change only the state (for example `merging`, or `nil` when a task parks), never the class or the priority.
+- A class and a priority come only from Nil's decisions. Agents file tasks without a tag.
+- One exception: a worker may raise its own task from `auto` to `decide`, never the reverse.
 - Only Nil's words move a task from `nil` to `ready`.
 - P4 (backlog) tasks get no tag until Nil promotes them.
 
 ## Curation
 
-Isomux Curator prepares Nil's review. It sits at a front desk, and Nil talks to it about what the loop picks and how tasks rank. For each unreviewed task, it proposes a priority, a class, and one outcome: keep, rescope (with the new scope) or obsolete (with the reason), each with one line of why. It argues against the task first: did a merge already solve it, does a current goal need it, has it been untouched for months, does a different scope fit what Nil values now.
+Isomux Curator (isomux-curator skill) sits at a front desk, and Nil talks to it about what the loop picks and how tasks rank. For each unreviewed task, it proposes a priority, a class and an outcome (keep, rescope or obsolete), with one line of why. It argues against the task first. It reviewed the whole open board once and then reviews each new task; when Nil's direction changes, it proposes new priorities for the tasks the change affects. It writes Nil's decisions to the board.
 
-It runs once on the whole open board (Nil wants every task reviewed again, also the ones that have a priority), and after that on each new task. When Nil's direction changes (a pilot, a launch, a trending topic), Nil tells the curator, and it proposes new priorities for the tasks the change affects.
+## Nil's queue: the loop app
 
-Nil decides in the triage view of the loop app: one card per task with the proposal, made for the phone, with accept, another priority, obsolete, and an optional note. The app sends each decision to the curator, and the curator writes it to the board. Triage is in the app, not in asks, because of its volume: about 280 open tasks (2026-10-18) against a cap of 50 open asks per agent.
+The loop app is Nil's only queue for loop work. It has no asks and no relay through Isomux PM. Made for the phone, it holds three kinds of item:
 
-## Nil's attention queue
+- Triage cards: the curator's proposal for a task, with accept, another priority, obsolete, and an optional note.
+- Decision packets from workers: the question, 2 to 4 options with exactly one recommended, a markdown body, and images (screenshots of a prototype, diagrams). Nil taps an option.
+- The Sign-off tab: copy changes (old next to new) and screenshots from merged work. Its "Approve and push" button sends Isomux Main the push go.
 
-Each item that needs Nil is an ask from Isomux PM to Nil (internal-docs/asks-design.md). It waits on the Asks page until Nil replies or dismisses it. The PM creates one per item when a worker or Isomux Main reports it, and writes Nil's answer into the task.
-
-Item kinds:
-
-- A decision packet for a `decide` task, recommendation first.
-- A `taste` branch, with screenshots.
-- Copy from merged work, for sign-off.
-- Push approval, when main has signed-off work that is not pushed.
-
-An ask holds at most 4000 characters. Copy that fits goes into the ask verbatim. Longer copy goes into the copy view of the loop app (the full text, old next to new), and the ask holds a one-line summary and a link to it; ask cards render web links. Nil answers in the ask either way.
-
-An agent has at most 50 open asks. If the queue gets near that, the PM bundles items of the same kind.
+The app sends each triage and packet decision to the curator, which writes it to the board. A chosen packet option makes the task `[auto | ready]`. An item that Nil rejects at sign-off is reverted by Isomux Main, and its task goes back to `ready` with Nil's note.
 
 ## Roles
 
-There is no Isomux Lead in the loop (Nil, 2026-10-18). The board is the only state.
+The board is the loop's only state.
 
-- **Isomux PM**: Nil's only contact, as today. It owns Nil's attention queue and does every restart.
-- **Isomux Curator**: proposes the review of every unreviewed task and writes Nil's triage decisions to the board. It owns the loop app.
-- **Isomux Main** (skill isomux-main): the only agent that writes to main. It merges approved branches, runs CI, and quarantines flaky tests. It writes no other code.
-- **Workers and reviewers** (skills isomux-loop-worker and isomux-loop-review): the existing persistent pairs (Worker N with Reviewer N), with the existing edit-token protocol. A worker takes one task at a time and checks on its own reviewer. The worker writes the tests. When the reviewer finds a gap in them, the reviewer may write the missing test itself.
+- **Isomux Curator**: the front desk for the loop (above). It owns the loop app.
+- **Isomux PM** (isomux-manager-session skill): restarts, errands and escalations. It is not in the path of loop work.
+- **Isomux Main** (isomux-main skill): the only agent that writes to main. It merges approved branches after CI, quarantines flaky tests, pushes on Nil's go, and reverts what he rejects. It writes no feature code.
+- **Workers and reviewers 1-2** (isomux-loop-worker and isomux-loop-review skills): two persistent pairs, Worker N with Reviewer N, under the edit-token protocol. Two pairs, not six, because the loop runs around the clock and fewer parallel tasks mean fewer merge conflicts. The app's worker setting raises the number when the ready queue grows while the allowance has room.
+- **Isomux Ad-hoc Worker** (isomux-adhoc skill): errands from the PM outside the loop. Its code also merges through Isomux Main.
 
-The loop runs 2 pairs at a time (Workers 1-2 with Reviewers 1-2), not 6 (Nil, 2026-10-18): it runs around the clock, and fewer parallel tasks mean fewer merge conflicts. It adds pairs only if the pilot shows the ready queue growing while the weekly allowance has room.
+Isomux Lead and Workers and Reviewers 3-6 are killed. The PM revives them for a batch that Nil asks for (isomux-lead-session skill).
 
-## The loop app
+Automatic handoff is on for all loop agents, so a full context continues in a fresh session. Workers, reviewers and Isomux Main also start fresh at the start of each task, and Main again when its merge queue is empty.
 
-One app holds the deterministic parts of the loop: the triage view, the copy view, dispatch and the tick. Its owner agent is Isomux Curator, and an app has the same reach as the agent that owns it (task c0204eb6), so the app reads and writes the board and messages workers.
+## The loop app's engine
 
-Dispatch: every 2 minutes the app takes the oldest highest-priority `[auto|decide|taste | ready]` task with no assignee and gives it to a worker that holds no in_progress task. It sets the assignee and messages the worker.
+Dispatch: every 2 minutes the app gives the oldest highest-priority `[auto|decide | ready]` task with no assignee to a free worker. It sets the assignee and messages the worker.
 
-The tick: once an hour the app messages each worker that holds a task, and Isomux Main when tasks wait to merge. No agent can be trusted to have reached the gate it was sent to: a usage-limit hit, a restart, an error or an interruption can stop it short. The tick makes each one check where it stands and continue.
+The tick: once an hour the app messages each worker that holds a task, and Isomux Main when tasks wait to merge. A usage-limit hit, a restart, an error or an interruption can stop an agent short of its gate; the tick makes it check where it stands and continue. Isomux also resumes an agent that a usage limit stopped about a minute after the window resets (task a254f3f3).
 
-Isomux resumes an agent that a usage limit stopped about a minute after the window resets (task a254f3f3). The tick catches what that misses. The pilot must test this path on purpose.
-
-The loop runs Claude Opus on Nil's subscription and may use the whole allowance for now (Nil, 2026-10-18). Later, Nil may set a limit.
+The loop runs Claude Opus on Nil's subscription and may use the whole allowance for now.
 
 ## A task's path
 
-1. The loop app assigns a `ready` task to a free worker and messages it.
-2. The worker and reviewer work as they do today. The reviewer approves a commit hash.
-3. A question that does not change the task's scope: the worker and reviewer decide, and the hand-off records the choice. A question that changes the scope or the design: the worker parks the task as `[<class> | nil]` with the question and a recommendation, keeps the branch, and sends the packet to the PM.
-4. The worker hands off: it sets the state to `merging` and messages Isomux Main with the approved hash.
-5. Isomux Main rebases the branch on main, squashes it to one commit, formats it, and runs `bun run ci:remote` on that commit. On green, it fast-forwards main and marks the task done. It merges one branch at a time.
-6. On red: Isomux Main runs CI again once. If the second run is green, the test is flaky: it quarantines the test (`test.skip` with a task id; the task to fix and re-enable it is P1) and merges. If the branch caused the red, it sets the task back to `ready` with a note, and any free worker picks it up from the kept branch.
+1. The app assigns a `ready` task to a free worker.
+2. The worker and its reviewer agree the design first.
+3. `auto`: if the design adds types or functions, the worker commits them as stubs. The reviewer writes the tests, shows they fail on today's code, and commits them. The worker writes the code and no tests; a missing case goes back to the reviewer. The isomux-test-audit skill is the bar for every test. The reviewer approves a commit hash.
+4. `decide`: the worker researches the question, builds a prototype or a drawing where a picture helps, and sends a packet to the app. The task parks as `[decide | nil]` with the branch kept, and comes back to the queue as a card. It produces no merge.
+5. A question that changes an `auto` task's scope or design turns it into `decide` (step 4).
+6. The worker hands the approved hash to Isomux Main and sets the state to `merging`. If the diff changes copy or what a user sees, the worker also files a sign-off item in the app.
+7. Isomux Main rebases the branch on main, squashes it to one commit, formats it and runs CI on that commit. On green, it fast-forwards main and marks the task done. It merges one branch at a time.
+8. On red, Main runs CI again once. Green the second time: it quarantines the flaky test (`test.skip` with a P1 task to fix it) and merges. Red again because of the branch: the task goes back to `ready` with a note, and a free worker continues on the kept branch.
 
-A `taste` task stays on its branch, not merged, until Nil approves it. Copy inside an `auto` task (a docs line, a prompt string) merges, and goes into Nil's queue for sign-off before the push.
+Follow-ups: one task must not spawn many. A small fix in the task's area (a stale comment, a wrong file list, a test the change made weak, dead code it exposed) is done in that task. A new task is only for a defect outside the scope or a question for Nil, and only after a board search finds no open task that covers it.
 
 ## CI
 
-Isomux Main runs `ci:remote` on Nil's desktop for every merge, about 5 minutes per run (2026-10-07). The rule to run CI only at batch end came from RAM pressure on this box, and the desktop removes it. When the desktop cannot run it, `ci:remote` falls back to a local `bun run ci` (about 17 minutes) and merges slow down.
+Isomux Main runs `ci:remote` on Nil's desktop for every merge, about 5 minutes per run (2026-10-07). When the desktop cannot run it, `ci:remote` falls back to a local `bun run ci` (about 17 minutes) and merges slow down.
+
+The cronjob "Isomux nightly live tests" runs `test:live`, `test:opencode` and `test:systemd` on main every night at 03:00 PT. CI skips these suites, which an environment variable turns on.
 
 ## Restarts
 
 When merged server changes wait to go live, Isomux Main tells the PM. The PM pauses dispatch in the app, restarts once the office is idle, and resumes dispatch. The tick catches any agent the restart stopped short.
 
-## Setup
+## Status (2026-10-19)
 
-1. Create the curator agent and the loop app with its triage view first, so Nil can start the review before the rest exists.
-2. The curator proposes a review of every open P0-P3 task; Nil goes through them in the app.
-3. Add the tag rule to the Isomux room prompt.
-4. Write the skills for the curator, Isomux Main, workers and reviewers. Done 2026-10-18.
-5. Create Isomux Main (done), and add the copy view, dispatch and the tick to the app.
-6. Run a pilot. Measure: tasks merged, quarantines, items in Nil's queue, Nil's rework, allowance used, and the limit-hit path.
+Running: the curator, the triage view, dispatch, the tick, Isomux Main, and Workers and Reviewers 1-2. Not yet in the app code: decision packets and the Sign-off tab. Next: a pilot that measures tasks merged, quarantines, items in Nil's queue, Nil's rework, allowance used, and the usage-limit path, which the pilot must test on purpose.
