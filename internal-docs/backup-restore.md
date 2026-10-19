@@ -24,9 +24,12 @@ a live SQLite file or reuse its old WAL/SHM files. The server sets WAL mode each
 time it opens the database, including after restore.
 
 An old backup with only `tasks.json` is imported when the database has no tasks.
-The server commits the import in one transaction and keeps `tasks.json` as a frozen copy
-for code rollback. Tasks created on old code after a rollback do not come back on the next upgrade.
-The import does not backfill audit
+The server commits the import in one transaction and keeps `tasks.json` on that boot,
+so a code rollback to a release without the import still reads the board. A later boot
+deletes `tasks.json` when the database knows every task in it, as a task row or
+in the audit log. If the file has a task the database does not know (for example,
+one made on old code after a rollback), the server keeps the file and logs a warning;
+that task does not come back on the board. The import does not backfill audit
 rows. A malformed source is preserved as `tasks.json.corrupt-<timestamp>`; the
 server logs both paths and opens an empty board. An old `memory/.oplog.jsonl` is kept untouched, with no import.
 

@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
+  chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   existsSync,
@@ -86,7 +88,7 @@ describe("task audit transactions", () => {
     expect(audit.list({ limit: 1 }).nextBefore).toBe(rows[0].sequence);
   });
 });
-it("imports old backup tasks once, normalizes them, and preserves the original", () => {
+it("imports old backup tasks once, keeps the source on the import boot, and retires it on the next boot", () => {
   const { root, audit, db } = setup();
   const path = join(root, "tasks.json");
   const source = JSON.stringify([
@@ -101,8 +103,8 @@ it("imports old backup tasks once, normalizes them, and preserves the original",
     },
   ]);
   writeFileSync(path, source);
-  importLegacyTasks(audit, root);
-  expect(existsSync(path)).toBe(true);
+  const taskStore = createTaskStore(() => audit, root);
+  expect(taskStore.load().map((task) => task.id)).toEqual(["old"]);
   expect(readFileSync(path, "utf8")).toBe(source);
   expect(
     JSON.parse(
@@ -118,7 +120,6 @@ it("imports old backup tasks once, normalizes them, and preserves the original",
     createdAt: 1,
   });
   expect(audit.list().items).toHaveLength(0);
-  const taskStore = createTaskStore(() => audit, root);
   const state = new OfficeState();
   state.setTasksDirect([
     {
@@ -136,8 +137,8 @@ it("imports old backup tasks once, normalizes them, and preserves the original",
     state.updateTask("old", { title: "changed" }),
   );
   expect(() => taskStore.load()).not.toThrow();
+  expect(existsSync(path)).toBe(false);
   expect(taskStore.load()[0].title).toBe("changed");
-  expect(readFileSync(path, "utf8")).toBe(source);
   expect(
     readdirSync(root).some((name) => name.startsWith("tasks.json.corrupt-")),
   ).toBe(false);
@@ -221,4 +222,105 @@ it("quarantines duplicate legacy task ids and preserves the original bytes", () 
   expect(files).toHaveLength(1);
   expect(readFileSync(join(root, files[0]), "utf8")).toBe(source);
   expect(db.query("SELECT * FROM tasks").all()).toHaveLength(0);
+});
+
+describe("frozen tasks.json copy after the import", () => {
+  const legacy = (ids: string[]) =>
+    JSON.stringify(ids.map((id) => ({ id, title: id })));
+  // The import boot: the tasks table is empty at entry, so the file stays.
+  function imported(ids: string[], subdir?: string) {
+    const env = setup();
+    const legacyRoot = subdir ? join(env.root, subdir) : env.root;
+    mkdirSync(legacyRoot, { recursive: true });
+    const path = join(legacyRoot, "tasks.json");
+    writeFileSync(path, legacy(ids));
+    const taskStore = createTaskStore(() => env.audit, legacyRoot);
+    expect(taskStore.load().map((task) => task.id)).toEqual(ids);
+    expect(readFileSync(path, "utf8")).toBe(legacy(ids));
+    return { ...env, legacyRoot, path, taskStore };
+  }
+  const corrupt = (root: string) =>
+    readdirSync(root).filter((name) => name.startsWith("tasks.json.corrupt-"));
+  function logged<T>(fn: () => T) {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      return {
+        result: fn(),
+        warned: warn.mock.calls.length,
+        errors: error.mock.calls.length,
+      };
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  }
+
+  it("counts a task deleted after the import as known and retires the file", () => {
+    const { path, taskStore, db, audit } = imported(["kept", "gone"]);
+    const state = new OfficeState();
+    state.setTasksDirect(
+      (
+        db.query("SELECT record FROM tasks ORDER BY rowid").all() as {
+          record: string;
+        }[]
+      ).map((row) => JSON.parse(row.record)),
+    );
+    state.beforeTaskChange = taskStore.change;
+    withAuditContextSync(actor, "tasks.delete", () => state.deleteTask("gone"));
+    expect(db.query("SELECT id FROM tasks").all()).toEqual([{ id: "kept" }]);
+    expect(audit.list({ targetId: "gone" }).items).toHaveLength(1);
+    expect(existsSync(path)).toBe(true);
+    expect(taskStore.load().map((task) => task.id)).toEqual(["kept"]);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("keeps a file with a task the database never saw, and warns", () => {
+    // Old code after a rollback wrote a new task into tasks.json.
+    const { path, taskStore, root } = imported(["old"]);
+    writeFileSync(path, legacy(["old", "made-after-rollback"]));
+    const { result, warned } = logged(() => taskStore.load());
+    expect(result.map((task) => task.id)).toEqual(["old"]);
+    expect(readFileSync(path, "utf8")).toBe(
+      legacy(["old", "made-after-rollback"]),
+    );
+    expect(warned).toBe(1);
+    expect(corrupt(root)).toHaveLength(0);
+  });
+
+  for (const [name, source] of [
+    ["not JSON", "not json"],
+    ["not an array", JSON.stringify({ id: "old", title: "old" })],
+    ["an entry without a title", JSON.stringify([{ id: "old" }])],
+    [
+      "a duplicate id",
+      JSON.stringify([
+        { id: "old", title: "old" },
+        { id: "old", title: "old" },
+      ]),
+    ],
+  ] as const)
+    it(`keeps an unverifiable file (${name}) when the board is not empty`, () => {
+      const { path, taskStore, root } = imported(["old"]);
+      writeFileSync(path, source);
+      const { result } = logged(() => taskStore.load());
+      expect(result.map((task) => task.id)).toEqual(["old"]);
+      expect(readFileSync(path, "utf8")).toBe(source);
+      expect(corrupt(root)).toHaveLength(0);
+    });
+
+  it("loads the board when the file cannot be deleted", () => {
+    const { path, taskStore, legacyRoot } = imported(["old"], "legacy");
+    chmodSync(legacyRoot, 0o555);
+    try {
+      // Precondition: the directory refuses new entries, so unlink fails too.
+      expect(() => writeFileSync(join(legacyRoot, "probe"), "")).toThrow();
+      const { result, errors } = logged(() => taskStore.load());
+      expect(result.map((task) => task.id)).toEqual(["old"]);
+      expect(existsSync(path)).toBe(true);
+      expect(errors).toBeGreaterThan(0);
+    } finally {
+      chmodSync(legacyRoot, 0o755);
+    }
+  });
 });

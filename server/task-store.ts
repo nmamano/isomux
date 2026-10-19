@@ -1,6 +1,6 @@
 // The live board belongs to OfficeState. This store commits a proposed change
 // and its history before OfficeState applies it or emits an event.
-import { existsSync, readFileSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { TaskItem } from "../shared/types.ts";
 import type { TaskChange } from "../shared/office-state.ts";
@@ -67,10 +67,44 @@ export function importLegacyTasks(store: AuditStore, root = STATE_ROOT): void {
     const insert = store.db.query("INSERT INTO tasks(id,record) VALUES (?,?)");
     for (const task of tasks) insert.run(task.id, JSON.stringify(task));
   })();
-  // Keep the source byte for byte so older code can read it after rollback.
-  // The nonempty tasks table above prevents a second import on later boots.
+  // Keep the source on the import boot so the code that ran before it can
+  // still read the board after a rollback. A later boot retires it.
+}
+// Deletes tasks.json on a boot after the import, when the database knows every
+// task in it. A task only the file has (made on old code after a rollback)
+// keeps the file. A failed delete loses nothing, so it never fails the boot.
+function retireLegacyTasks(store: AuditStore, root: string): void {
+  const path = join(root, "tasks.json");
+  const count = store.db.query("SELECT count(*) AS n FROM tasks").get() as {
+    n: number;
+  };
+  if (!count.n || !existsSync(path)) return;
+  let tasks: StoredTask[];
+  try {
+    tasks = normalize(JSON.parse(readFileSync(path, "utf8")));
+  } catch (error) {
+    console.warn(`[tasks] kept ${path}: it is not a valid task list`, error);
+    return;
+  }
+  const known = store.db.query(
+    "SELECT 1 FROM tasks WHERE id=?1 UNION ALL SELECT 1 FROM audit_targets WHERE target=?1 LIMIT 1",
+  );
+  const unknown = tasks.filter((task) => !known.get(task.id)).length;
+  if (unknown) {
+    console.warn(
+      `[tasks] kept ${path}: ${unknown} task(s) in it are not on the board`,
+    );
+    return;
+  }
+  try {
+    unlinkSync(path);
+  } catch (error) {
+    console.error(`[tasks] could not delete ${path}`, error);
+  }
 }
 function loadFromStore(store: AuditStore, root: string): StoredTask[] {
+  // Retire before the import, so the import boot keeps the file.
+  retireLegacyTasks(store, root);
   importLegacyTasks(store, root);
   return (
     store.db.query("SELECT record FROM tasks ORDER BY rowid").all() as {
