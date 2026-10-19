@@ -87,6 +87,7 @@ import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { noTranslate } from "../no-translate.ts";
+import { composerMaxHeight, fitComposer } from "../composer-height.ts";
 
 // Header label for an agent parked on a two-step prompt. It
 // sits where the activity indicator would be if a turn were running - which is
@@ -1338,8 +1339,7 @@ export function LogView({
   })();
 
   function autoResize(el: HTMLTextAreaElement) {
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+    fitComposer(el, isMobile);
   }
 
   const SpeechRecognition =
@@ -2934,7 +2934,7 @@ export function LogView({
                     resize: "none",
                     padding: "0 0 4px",
                     lineHeight: "20px",
-                    maxHeight: 200,
+                    maxHeight: composerMaxHeight(isMobile),
                     overflowY: "auto",
                   }}
                 />

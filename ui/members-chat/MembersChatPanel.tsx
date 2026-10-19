@@ -44,6 +44,7 @@ import { ThumbsUpReaction } from "./ThumbsUpReaction.tsx";
 import { UserMessage, EditableUserMessage } from "../log-view/LogEntryCard.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { getDevice } from "../device-settings.ts";
+import { composerMaxHeight, fitComposer } from "../composer-height.ts";
 import * as chatApi from "./api.ts";
 import {
   MEMBERS_CHAT_FILES_BASE,
@@ -1038,8 +1039,7 @@ export function MembersChatPanel({
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
-                e.target.style.height = "auto";
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
+                fitComposer(e.target, isMobile);
               }}
               onPaste={handlePaste}
               onKeyDown={(e) => {
@@ -1069,7 +1069,7 @@ export function MembersChatPanel({
                 resize: "none",
                 padding: "0 0 4px",
                 lineHeight: "20px",
-                maxHeight: 200,
+                maxHeight: composerMaxHeight(isMobile),
                 overflowY: "auto",
               }}
             />

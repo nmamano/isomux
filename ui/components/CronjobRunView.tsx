@@ -19,6 +19,7 @@ import { sendAttempt, takeAttempt } from "../log-view/outbox.ts";
 import { OutboxRows } from "../log-view/OutboxRows.tsx";
 import { errMessage } from "../../shared/errors.ts";
 import { useWebhookList } from "./WebhooksView.tsx";
+import { composerMaxHeight, fitComposer } from "../composer-height.ts";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -333,8 +334,7 @@ export function CronjobRunView({
   }
 
   function autoResize(el: HTMLTextAreaElement) {
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+    fitComposer(el, isMobile);
   }
 
   function handleSend() {
@@ -816,7 +816,7 @@ export function CronjobRunView({
                   resize: "none",
                   padding: "0 0 4px",
                   lineHeight: "20px",
-                  maxHeight: 200,
+                  maxHeight: composerMaxHeight(isMobile),
                   overflowY: "auto",
                 }}
               />
