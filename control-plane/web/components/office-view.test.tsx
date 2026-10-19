@@ -24,7 +24,7 @@ const baseView: ProgressView = {
   instanceId: "instance-test",
   officeName: "test-office",
   hostname: "test-office.example.test",
-  sshCommand: null,
+  sshTarget: null,
   plan: "V153",
   tier: {
     label: "Entry",
@@ -470,4 +470,46 @@ test("an ended office does not poll as if it were still being built", () => {
     false,
   );
   expect(progressBusy({ ...baseView, ended: true }, true)).toBe(true);
+});
+
+test("the SSH command names the private key with a localized placeholder", () => {
+  // Spanish, so a placeholder left in English or hard-coded in the page shows.
+  const spanish = webTranslatorFor("es");
+  const render = (view: ProgressView) =>
+    renderToStaticMarkup(
+      <OfficeView language="es" initial={view} instanceId={view.instanceId} />,
+    );
+  const unescaped = (html: string) =>
+    html
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&quot;", '"')
+      .replaceAll("&#x27;", "'")
+      .replaceAll("&amp;", "&");
+  const target = "owner@test-office.example.test";
+  const html = render({ ...baseView, sshTarget: target });
+
+  // Everything up to the first </p>: a note nested in this <p> shows up here.
+  const commandBlock = /data-testid="ssh-command">(.*?)<\/p>/.exec(html)?.[1];
+  expect(commandBlock).toBeDefined();
+  const command = /<code>(.*?)<\/code>/.exec(commandBlock!)?.[1];
+  expect(unescaped(command ?? "")).toBe(
+    `ssh -i <${spanish.t("office.sshKeyPath")}> ${target}`,
+  );
+  expect(spanish.t("office.sshKeyPath")).not.toBe(
+    english.t("office.sshKeyPath"),
+  );
+  expect(commandBlock).not.toContain("<p");
+
+  const note = /data-testid="ssh-key-note">([^<]*)<\/p>/.exec(html)?.[1];
+  expect(unescaped(note ?? "")).toBe(spanish.t("office.sshKeyNote"));
+  expect(spanish.t("office.sshKeyNote")).not.toBe(
+    english.t("office.sshKeyNote"),
+  );
+
+  // No login to show: neither the command nor the note about its key.
+  const hidden = render({ ...baseView, sshTarget: null });
+  expect(hidden).toContain('data-testid="handoff"');
+  expect(hidden).not.toContain('data-testid="ssh-command"');
+  expect(hidden).not.toContain('data-testid="ssh-key-note"');
 });

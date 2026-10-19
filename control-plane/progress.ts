@@ -187,7 +187,7 @@ export interface ProgressView {
   instanceId: string;
   officeName: string;
   hostname: string;
-  sshCommand: string | null;
+  sshTarget: string | null;
   plan: string;
   tier: import("./plans.ts").PlanDisplay;
   serviceState: ServiceState;
@@ -694,9 +694,9 @@ export async function projectionFor(
     instanceId: instance.id,
     officeName: reservation.name,
     hostname: instance.name,
-    sshCommand:
+    sshTarget:
       !ended && instance.customer_ssh_key_fingerprint && instance.ssh_login_user
-        ? `ssh ${instance.ssh_login_user}@${instance.name}`
+        ? `${instance.ssh_login_user}@${instance.name}`
         : null,
     plan: reservation.plan,
     tier: planDisplayForProviderProduct(instance.plan),

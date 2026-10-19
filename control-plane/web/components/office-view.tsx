@@ -725,13 +725,18 @@ export function OfficeView({
         <>
           <h2>{i18n.t("office.gettingInHeading")}</h2>
           <section className="card" data-testid="handoff">
-            {view.sshCommand && (
-              <p data-testid="ssh-command">
-                {i18n.rich("office.sshAccess", {
-                  command: view.sshCommand,
-                  cmd: (chunk) => <code>{chunk}</code>,
-                })}
-              </p>
+            {view.sshTarget && (
+              <>
+                <p data-testid="ssh-command">
+                  {i18n.rich("office.sshAccess", {
+                    command: `ssh -i <${i18n.t("office.sshKeyPath")}> ${view.sshTarget}`,
+                    cmd: (chunk) => <code>{chunk}</code>,
+                  })}
+                </p>
+                <p className="note" data-testid="ssh-key-note">
+                  {i18n.t("office.sshKeyNote")}
+                </p>
+              </>
             )}
             {view.access.state !== "not_started" &&
               (view.access.state !== "gone" ||

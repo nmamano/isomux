@@ -91,6 +91,8 @@ export const zh: Catalog = {
   "office.otherWorkHeading": "此办公室的其他工作",
   "office.gettingInHeading": "进入办公室",
   "office.sshAccess": "SSH 访问命令：<cmd>{command}</cmd>",
+  "office.sshKeyPath": "私钥文件路径",
+  "office.sshKeyNote": "私钥就是你注册时保存的服务器管理员密钥。",
   "office.attention.heading": "我们需要检查设置",
   "office.attention.seen": "（我们已看到）",
   "office.attention.note":

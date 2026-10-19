@@ -124,6 +124,9 @@ export const en = {
   "office.otherWorkHeading": "Other work on this office",
   "office.gettingInHeading": "Getting in",
   "office.sshAccess": "Your SSH access: <cmd>{command}</cmd>",
+  "office.sshKeyPath": "path to your private key",
+  "office.sshKeyNote":
+    "Your private key is the server administrator key you saved at signup.",
 
   "office.attention.heading": "We need to check your setup",
   "office.attention.seen": " (we have seen it)",

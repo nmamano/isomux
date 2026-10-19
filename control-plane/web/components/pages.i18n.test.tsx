@@ -160,7 +160,7 @@ const baseView: ProgressView = {
   instanceId: "instance-i18n",
   officeName: "acme",
   hostname: "acme.isomux.app",
-  sshCommand: null,
+  sshTarget: null,
   plan: "V153",
   tier: {
     label: "Entry",

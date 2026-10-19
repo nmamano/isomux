@@ -320,7 +320,9 @@ describe("a deleted office", () => {
     // The same rows before the box is gone: the fixture is a ready office.
     const live = await read();
     expect(live).toMatchObject({ ready: true, ended: false });
-    expect(live.sshCommand).not.toBeNull();
+    // Only the login: the page builds the command, so a server that still
+    // sends "ssh owner@host" would render "ssh -i <key> ssh owner@host".
+    expect(live.sshTarget).toBe(`owner@${live.hostname}`);
     expect(live.attention).toHaveLength(1);
 
     await store.sqlRun(
@@ -331,7 +333,7 @@ describe("a deleted office", () => {
     expect(gone).toMatchObject({
       ready: false,
       ended: true,
-      sshCommand: null,
+      sshTarget: null,
       attention: [],
     });
   });

@@ -118,6 +118,9 @@ export const ca: Catalog = {
   "office.otherWorkHeading": "Altres tasques en aquesta oficina",
   "office.gettingInHeading": "Com entrar-hi",
   "office.sshAccess": "El teu accés SSH: <cmd>{command}</cmd>",
+  "office.sshKeyPath": "camí a la teva clau privada",
+  "office.sshKeyNote":
+    "La teva clau privada és la clau d'administrador del servidor que vas desar en registrar-te.",
 
   "office.attention.heading": "Hem de revisar la teva configuració",
   "office.attention.seen": " (ja ho hem vist)",
