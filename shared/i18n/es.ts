@@ -27,7 +27,7 @@ export const es: Catalog = {
   "audit.kind.member": "Miembro",
   "audit.kind.agent": "Agente",
   "audit.kind.apiToken": "Token API",
-  "audit.kind.cronjob": "Cronjob",
+  "audit.kind.cronjob": "Programación",
   "audit.kind.webhook": "Webhook",
   "audit.kind.adminCli": "CLI de administración",
   "audit.kind.setup": "Configuración",
@@ -1356,7 +1356,7 @@ Cosas que puedes hacer por él:
     "El agente usa las conexiones a proveedores y las variables personales de este miembro. Consulta la página Integraciones.",
   "dialogs.agent.privileged": "Acceso de operador con privilegios",
   "dialogs.agent.privilegedHint":
-    "Permite a este agente actuar por ti en toda la oficina: crear y eliminar agentes y dirigir sus conversaciones, gestionar salas, cronjobs e integraciones, y publicar en el chat de miembros. Si eres propietario de la oficina, también puede añadir miembros y cambiar la configuración de la oficina. Actúa como sí mismo, con tu acceso.",
+    "Permite a este agente actuar por ti en toda la oficina: crear y eliminar agentes y dirigir sus conversaciones, gestionar salas, programaciones e integraciones, y publicar en el chat de miembros. Si eres propietario de la oficina, también puede añadir miembros y cambiar la configuración de la oficina. Actúa como sí mismo, con tu acceso.",
   "dialogs.agent.privilegedRestart":
     "Al guardar se reinicia la sesión del agente.",
   "dialogs.agent.autoHandoff": "Traspaso automático",
@@ -1406,9 +1406,8 @@ Cosas que puedes hacer por él:
   "dialogs.agent.systemPromptTitle": "Prompt de sistema completo",
   "dialogs.agent.systemPromptLoadFailed":
     "No se pudo cargar el prompt de sistema.",
-  "dialogs.agent.cronjobPromptTitle": "Prompt de la programación (cron job)",
-  "dialogs.agent.showCronjobPrompt":
-    "Mostrar prompt de la programación (cron job)",
+  "dialogs.agent.cronjobPromptTitle": "Prompt de la programación",
+  "dialogs.agent.showCronjobPrompt": "Mostrar prompt de la programación",
   "dialogs.agent.helpTitle": "Ayuda",
   "dialogs.agent.showHelp": "Mostrar ayuda",
   "dialogs.agent.customInstructionsPlaceholder":

@@ -903,7 +903,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
   function openCodeDeletedJobError(): Error {
     return new Error(
-      "Cannot resume this OpenCode run because its cronjob was deleted and its shared environment profile can no longer be resolved.",
+      "Cannot resume this OpenCode run because its schedule was deleted and its shared environment profile can no longer be resolved.",
     );
   }
 

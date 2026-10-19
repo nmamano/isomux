@@ -242,8 +242,8 @@ const REFUSAL_DETAIL: Record<string, string> = {
 };
 
 const CRONJOB_DETAIL = {
-  missing: "cronjob deleted",
-  forbidden: "the hook owner no longer owns the cronjob",
+  missing: "schedule deleted",
+  forbidden: "the hook owner no longer owns the schedule",
 } as const;
 
 export function createWebhookIngress(deps: WebhookIngressDeps): WebhookIngress {
@@ -404,7 +404,7 @@ export function createWebhookIngress(deps: WebhookIngressDeps): WebhookIngress {
           err,
         );
         limiter.releaseDaily(record.id);
-        return unavailable("cronjob run failed to start");
+        return unavailable("schedule run failed to start");
       }
       if (!started) {
         limiter.releaseDaily(record.id);

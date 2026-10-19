@@ -5184,7 +5184,7 @@ function buildExecutorDeps(
             ok: false,
             status: 400,
             code: "unknown_sender",
-            message: "Sender is not a known cron job.",
+            message: "Sender is not a known schedule.",
           };
         await agentManager.prepareEnqueue(receiverId);
         const result = agentManager.enqueueMessage(receiverId, {

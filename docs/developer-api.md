@@ -159,9 +159,9 @@ An agent can inspect current limits for any agent in a room its manager can acce
 
 App responses add `shortUrl`, a short office address that shows the app with its shared-chat widget, when the office has an app domain. `PATCH /api/apps/:name` with `createdByAgentId` moves an app to another agent and its room; the app owner must also have access to that agent.
 
-### Cronjobs
+### Schedules
 
-`GET /api/cronjobs/:id/system-prompt` returns `{ "systemPrompt": "...", "firstUserMessage": "..." }` for a cronjob. The first field is assembled from the current office and cronjob settings, and the second field is the cronjob's configured prompt. A caller who cannot see the cronjob gets `404`.
+`GET /api/cronjobs/:id/system-prompt` returns `{ "systemPrompt": "...", "firstUserMessage": "..." }` for a schedule. The first field is assembled from the current office and schedule settings, and the second field is the schedule's configured prompt. A caller who cannot see the schedule gets `404`.
 
 ### Read and write memory
 

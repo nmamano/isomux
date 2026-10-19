@@ -38,6 +38,7 @@ import {
 import {
   CODEX_MODELS,
   MODEL_FAMILIES,
+  cronjobRunStreamId,
   type AgentBackendType,
 } from "../../shared/types.ts";
 import {
@@ -693,7 +694,9 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     fake.sessions.forEach((session) => session.close());
   });
 
-  it("explains why a deleted OpenCode cronjob cannot resume", async () => {
+  // The test above is the control: the same OpenCode run resumes while its
+  // job exists. Here the only change is the delete.
+  it("refuses to resume a run of a deleted OpenCode cronjob and logs the refusal", async () => {
     const { events, sink } = capture();
     const fake = new FakeBackend({
       session: {
@@ -714,19 +717,24 @@ describe("CronjobManager DI (temp-state isolated)", () => {
       if (mgr.findRun(job.id, run.id)?.status === "completed") break;
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
+    expect(mgr.findRun(job.id, run.id)?.status).toBe("completed");
     expect(mgr.deleteCronjob(job.id)).toBe(true);
-    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+    const result = await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
 
+    // The precheck refuses (409 run_not_resumable), not the resume attempt
+    // (500 resume_failed), and the run transcript gets exactly that refusal.
     expect(fake.resumeSessionCount).toBe(0);
-    expect(
-      events.some(
-        (event) =>
-          event.type === "log_entry" &&
-          event.entry.content.includes(
-            "cronjob was deleted and its shared environment profile can no longer be resolved",
-          ),
-      ),
-    ).toBe(true);
+    expect(result).toMatchObject({ ok: false, code: "run_not_resumable" });
+    const message = result.ok ? "" : result.message;
+    expect(message.length).toBeGreaterThan(0);
+    const runErrors = events.flatMap((event) =>
+      event.type === "log_entry" &&
+      event.entry.kind === "error" &&
+      event.entry.agentId === cronjobRunStreamId(run.id)
+        ? [event.entry.content]
+        : [],
+    );
+    expect(runErrors).toEqual([message]);
     fake.sessions.forEach((session) => session.close());
   });
 

@@ -175,6 +175,33 @@ describe("the catalogs", () => {
     }
   });
 
+  // Nil, 2026-10-13: "cronjob" is not an Isomux term; the product says
+  // "schedule". Identifiers keep the old name (the /isomux-cronjob-system-prompt
+  // command, routes, wire fields), so a code span may still carry it.
+  it("calls a schedule a schedule, never a cronjob, outside a code span", () => {
+    const prose = (text: string) =>
+      text.replace(/`[^`]*`|<code>[\s\S]*?<\/code>/g, "");
+    const cronjob = /\bcron[ -]?jobs?\b/i;
+    for (const code of [DEFAULT_LANGUAGE, ...OTHER_LANGUAGES]) {
+      const catalog = CATALOGS[code];
+      for (const key of ENGLISH_KEYS)
+        expect(
+          prose(catalog[key as keyof typeof en]),
+          `${code} ${key}`,
+        ).not.toMatch(cronjob);
+    }
+    // The exclusion is in use, and it leaves the prose around a span.
+    const values = Object.values(en) as string[];
+    expect(
+      values.filter((v) => cronjob.test(v) && !cronjob.test(prose(v))).length,
+    ).toBeGreaterThan(0);
+    expect(
+      values.filter(
+        (v) => /`[^`]*cronjob/i.test(v) && /\bschedules?\b/i.test(prose(v)),
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("names keys by surface and meaning, never by the English text", () => {
     for (const key of ENGLISH_KEYS) {
       expect(key).toMatch(/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/);

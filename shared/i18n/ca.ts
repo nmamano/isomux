@@ -27,7 +27,7 @@ export const ca: Catalog = {
   "audit.kind.member": "Membre",
   "audit.kind.agent": "Agent",
   "audit.kind.apiToken": "Token API",
-  "audit.kind.cronjob": "Cronjob",
+  "audit.kind.cronjob": "Programació",
   "audit.kind.webhook": "Webhook",
   "audit.kind.adminCli": "CLI d’administració",
   "audit.kind.setup": "Configuració",
@@ -1358,7 +1358,7 @@ Coses que pots fer per ell:
     "L’agent fa servir les connexions a proveïdors i les variables personals d’aquest membre. Consulta la pàgina Integracions.",
   "dialogs.agent.privileged": "Accés d'operador amb privilegis",
   "dialogs.agent.privilegedHint":
-    "Permet a aquest agent actuar per tu a tota l’oficina: crear i eliminar agents i dirigir les seves converses, gestionar sales, cronjobs i integracions, i publicar al xat de membres. Si ets propietari de l’oficina, també pot afegir membres i canviar la configuració de l’oficina. Actua com a si mateix, amb el teu accés.",
+    "Permet a aquest agent actuar per tu a tota l’oficina: crear i eliminar agents i dirigir les seves converses, gestionar sales, programacions i integracions, i publicar al xat de membres. Si ets propietari de l’oficina, també pot afegir membres i canviar la configuració de l’oficina. Actua com a si mateix, amb el teu accés.",
   "dialogs.agent.privilegedRestart":
     "En desar es reinicia la sessió de l'agent.",
   "dialogs.agent.autoHandoff": "Traspàs automàtic",
@@ -1408,9 +1408,8 @@ Coses que pots fer per ell:
   "dialogs.agent.systemPromptTitle": "Prompt de sistema complet",
   "dialogs.agent.systemPromptLoadFailed":
     "No s'ha pogut carregar el prompt de sistema.",
-  "dialogs.agent.cronjobPromptTitle": "Prompt de la programació (cron job)",
-  "dialogs.agent.showCronjobPrompt":
-    "Mostra el prompt de la programació (cron job)",
+  "dialogs.agent.cronjobPromptTitle": "Prompt de la programació",
+  "dialogs.agent.showCronjobPrompt": "Mostra el prompt de la programació",
   "dialogs.agent.helpTitle": "Ajuda",
   "dialogs.agent.showHelp": "Mostra l'ajuda",
   "dialogs.agent.customInstructionsPlaceholder":

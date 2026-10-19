@@ -231,7 +231,7 @@ export function webhookTargetPrecondition(
       : fail(
           403,
           "forbidden",
-          "target.cronjobId must name a cronjob that you manage and that the hook owner created",
+          "target.cronjobId must name a schedule that you manage and that the hook owner created",
         );
   };
 }

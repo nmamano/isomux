@@ -372,7 +372,7 @@ export function conversationHandlers(
         return fail(
           400,
           "attachments_not_supported",
-          "attachments are not supported for cron job senders.",
+          "attachments are not supported for schedule senders.",
         );
       }
       if (
@@ -398,7 +398,7 @@ export function conversationHandlers(
         return fail(
           400,
           "sender_agent_not_supported",
-          "senderAgentId is not supported for cron job senders.",
+          "senderAgentId is not supported for schedule senders.",
         );
       }
       if (ctx.identity.scope === "agent") {

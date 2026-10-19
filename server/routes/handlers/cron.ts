@@ -238,7 +238,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       const projected = deps.projectCronjobFor(ctx.identity, job);
       return projected
         ? created(projected)
-        : fail(500, "internal_error", "created cronjob is not visible");
+        : fail(500, "internal_error", "created schedule is not visible");
     },
 
     "cron.update": (ctx) => {

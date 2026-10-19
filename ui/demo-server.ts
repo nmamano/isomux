@@ -3810,10 +3810,10 @@ export async function demoApi(
     const cronjob = cronjobs.find(
       (candidate) => candidate.id === decodeURIComponent(cronjobPromptMatch[1]),
     );
-    if (!cronjob) throw new ApiError(404, "not_found", "Cronjob not found");
+    if (!cronjob) throw new ApiError(404, "not_found", "Schedule not found");
     return {
       systemPrompt:
-        "# Isomux demo cronjob\n\nThis read-only preview shows the cronjob system prompt.",
+        "# Isomux demo schedule\n\nThis read-only preview shows the schedule system prompt.",
       firstUserMessage: cronjob.prompt,
     };
   }

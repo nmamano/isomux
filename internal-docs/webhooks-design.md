@@ -224,7 +224,7 @@ The target is checked at create and update time, and again at each dispatch. The
 - Cronjob target: the caller must pass `cronjobOwnerOrOfficeOwner` for that cronjob. An ordinary agent does not hold `cron:manage`, so it cannot target a cronjob. A webhook therefore never lets an ordinary agent start a run that it cannot start itself. At dispatch time, the cronjob must exist and the hook owner must still own it or be an office owner.
 - Agent target: the agent must exist, and the hook owner (the user, not the calling agent) must have room access to it. This is the rule that `messageTargetAgentId` uses for apps. At dispatch time the same check runs again.
 
-A failed check at dispatch time gives `target_unavailable`. The log row says why, for example "cronjob deleted". Log rows follow the hook's visibility (section 7).
+A failed check at dispatch time gives `target_unavailable`. The log row says why, for example "schedule deleted". Log rows follow the hook's visibility (section 7).
 
 ## 5. Dedup
 

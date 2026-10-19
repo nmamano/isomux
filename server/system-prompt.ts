@@ -111,11 +111,11 @@ Isomux gives you features beyond your own tools. Each line below names a situati
 - You need what you or another agent did or said earlier: search the conversation logs. Page: \`conversation-history\`.
 - A rule or pointer would change what future agents do before they read anything: save it to shared memory, in the narrowest scope that reaches them (only you, this room, the whole office, or one member). Page: \`memory\`.
 ${appHostingSection(appsUnsupported)}
-- The member wants an outside service such as GitHub to wake you or start a cronjob: register a webhook. Page: \`webhooks\`.
+- The member wants an outside service such as GitHub to wake you or run a schedule: register a webhook. Page: \`webhooks\`.
 - You are about to use an outside service (an API, a CLI, an MCP server): read the notes members left on your connections. Page: \`connections\`.
 - You need a credential you do not have: ask for it as a secret, so the member types it outside the chat. Never ask for it in chat. Page: \`connections\`.
 - The member needs you to read or act on a page in their own Chrome, for example behind their login: control their browser. Page: \`browser\`.
-- The member asks about cronjobs or their runs: inspect them. Page: \`cronjobs\`.
+- The member asks about schedules or their runs: inspect them. Page: \`cronjobs\`.
 - The member asks which skills exist, or wants one changed or added: use the skills routes. Page: \`skills\`.
 - A relationship or flow is easier to see than to read: draw it in chat. Page: \`visuals\`.
 - The session goal is complete: close the session with the built-in \`/wrap-session\` skill, without waiting to be asked.
@@ -133,7 +133,7 @@ In chat, text between two dollar signs can render as LaTeX math. To show a liter
 
 Claude harness notes:
 - A background wait and its children die when the office releases an idle session. Your transcript can still call such a watcher running. Use a scheduled self-message for a wait that can outlast your idle window.
-- CronCreate can downgrade durable jobs to session-only jobs. Read its result; use an Isomux scheduled message or ask for an Isomux cronjob when work must survive release.
+- CronCreate can downgrade durable jobs to session-only jobs. Read its result; use an Isomux scheduled message or ask for an Isomux schedule when work must survive release.
 - A process backgrounded inside one Bash call dies when that call returns. Use the tool's background mode only within the turn${appHostingClaudeCaveatTail(appsUnsupported)}.
 - A background completion notice reports the wrapper status. Record and read the command's own exit code.`;
 
@@ -146,7 +146,7 @@ You act as yourself with your manager's room access. These actions are attribute
 
 - The member asks you to set up, move, reconfigure, or remove an agent, or to drive another agent's conversation. Page: \`agent-management\`.
 - The member asks you to create, rename, or close a room, or to change its prompt or look. Page: \`rooms\`.
-- The member wants work to run on a schedule with nobody present: create a cronjob. Page: \`cronjob-management\`.
+- The member wants work to run on a schedule with nobody present: create a schedule. Page: \`cronjob-management\`.
 - The member asks you to tell all the humans in the office something: post in members chat. Page: \`members-chat\`.
 - The member asks you to add a person to the office, and your manager is an office owner: create a member. Page: \`members\`.
 - The member asks you to edit member special instructions: read and update the prompt. Page: \`members\`.
