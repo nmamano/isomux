@@ -136,23 +136,6 @@ import {
 } from "./provider-text.ts";
 import { authSignal } from "./auth-signal.ts";
 
-function loginInstructions(command: string): string {
-  return `To authenticate Claude Code:
-1. Open the built-in terminal
-2. Run \`${command}\`
-3. Type \`/login\`
-4. Follow the auth flow
-
-Once complete, it takes effect immediately for all Isomux agents.
-
-Alternative: add \`ANTHROPIC_API_KEY\` on the Integrations page (Variables tab), then \`/clear\`.`;
-}
-
-// Surfaced when an auth-error fires (or the user types /login) but the
-// office already has a valid Claude auth (credentials.json or a macOS Keychain
-// login present, or ANTHROPIC_API_KEY in env). Symmetric with the Codex auto-clear hint.
-const ALREADY_AUTHED_INSTRUCTIONS = `Claude Code is signed in. Type \`/clear\` to refresh this agent's session and pick up the new auth.`;
-
 // The terminal sign-in and sign-out run `claude` when the member has it on
 // PATH, and otherwise the binary bundled with the Agent SDK, so they never
 // need an install.
@@ -2130,25 +2113,27 @@ export function createClaudeBackend(
 
     async getLoginInstructions(opts?: {
       env?: { [key: string]: string | undefined };
+      words?: Translator["t"];
     }): Promise<LoginInstructions> {
       // Short-circuit: if the office is already signed in (credentials.json
       // present, a macOS Keychain login, API key, or cloud provider selected),
       // the user can /clear a dead session - no walkthrough needed. Symmetric
-      // with Codex's ALREADY_AUTHED hint. The check honors the agent's merged
+      // with Codex's signed-in hint. The check honors the agent's merged
       // env so managed ANTHROPIC_API_KEY counts as authed. An "unknown" answer
       // gets the walkthrough below.
+      const words = opts?.words ?? translatorFor("en").t;
       if ((await claudeSignInState(opts?.env)) === "signed_in") {
         return {
           kind: "already_authed",
           cardEligible: false,
-          text: ALREADY_AUTHED_INSTRUCTIONS,
+          text: words("systemEntries.loginInstructions.claudeSignedIn"),
         };
       }
       const command = loginCommand(opts?.env);
       return {
         kind: "login",
         cardEligible: true,
-        text: loginInstructions(command),
+        text: words("systemEntries.loginInstructions.claude", { command }),
         commands: [command],
       };
     },

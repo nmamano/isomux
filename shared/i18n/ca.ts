@@ -38,7 +38,6 @@ export const ca: Catalog = {
   "audit.memory.room": "Memòria de la sala",
   "audit.memory.agent": "Memòria de l’agent",
   "audit.memory.member": "Memòria del membre",
-  "audit.loading": "Carregant…",
   "audit.older": "Anteriors",
   "audit.history": "Historial",
   "audit.taskCreated": "ha creat la tasca",
@@ -110,7 +109,6 @@ export const ca: Catalog = {
   "browser.expires": "Caduca a les {time}",
   "browser.expired": "El codi ha caducat. Crea’n un de nou.",
   "browser.copy": "Copia el codi",
-  "browser.copied": "Copiat",
   "browser.pairHelp":
     "Obre Isomux Browser i introdueix l’adreça d’aquesta oficina i el codi de vinculació.",
   "browser.office": "Adreça de l’oficina",
@@ -288,7 +286,6 @@ Coses que pots fer per ell:
   "templates.receptionist.label": "Recepcionista d’Isomux",
   "templates.receptionist.description": "Ajuda amb Isomux i aquesta oficina.",
   "lobby.receptionistName": "Recepcionista",
-  "lobby.askHint": "Pregunta sobre Isomux o aquesta oficina",
   "lobby.welcome": "BENVINGUTS",
   "lobby.poster": "L'OFICINA",
   "common.lobby": "Vestíbul",
@@ -297,7 +294,6 @@ Coses que pots fer per ell:
   "lobby.employeeLine1": "EMPLEAT",
   "lobby.employeeLine2": "DEL MINUT",
   "lobby.openChat": "{name} - fes clic per obrir el xat",
-  "membersChat.authorAgent": "{name} · agent",
   "membersChat.authorApi": "{name} · token d'API",
   "membersChat.authorApiDevice": '{name} · token d\'API "{device}"',
   "membersChat.deleteAgain": "Fes clic de nou per eliminar",
@@ -450,7 +446,6 @@ Coses que pots fer per ell:
   "settings.profile.tuck": "Recull {room}",
   "settings.profile.notificationsFor": "Notificacions de {room}",
   "settings.profile.devicesFor": "Notificacions push de {room}",
-  "settings.profile.agentContext": "Context per als agents",
   "settings.profile.promptConflict":
     "Les instruccions especials han canviat en un altre lloc. Es conserva el teu esborrany. Revisa el text actual abans de tornar a desar.",
   "settings.profile.currentPrompt": "Instruccions especials actuals",
@@ -823,7 +818,6 @@ Coses que pots fer per ell:
   "settings.secrets.formHeaderNamed": "Capçalera {header}",
   "settings.secrets.rotate": "Substituir el valor",
   "settings.secrets.saveValue": "Desar el valor",
-  "settings.secrets.edit": "Editar",
   "settings.secrets.reissue": "Nou substitut",
   "settings.secrets.reissueConfirm":
     "El substitut actual de {name} deixa de funcionar ara. Els agents reben el nou en el proper inici.",
@@ -1983,7 +1977,6 @@ Coses que pots fer per ell:
   "office.zoom.reset": "Restableix la vista (0)",
   "office.zoom.resetAria": "Restableix la vista",
   "office.openWebsite": "Obre isomux.com",
-  "office.skin.label": "Aspecte de la sala",
   "office.skin.office": "Oficina",
   "office.skin.hospital": "Hospital",
   "office.decor.preset": "Preajust",
@@ -2326,14 +2319,10 @@ Coses que pots fer per ell:
   "tasks.showAllAgents": "Mostra tots els agents",
   "tasks.showLess": "mostra'n menys",
   "tasks.moreAgents": "+{count} més",
-  "tasks.discardPrompt": "Vols descartar els canvis sense desar?",
   "tasks.saveConflict":
     "Aquesta tasca ha canviat mentre l'editaves, així que els canvis no s'han desat.",
-  "tasks.discard": "Descarta",
   "tasks.create": "Crea",
-  "tasks.confirmDelete": "Ho confirmes?",
   "tasks.globalShort": "Global",
-  "tasks.heading": "Tasques",
   "tasks.shownCount": "{count} a la vista",
   "tasks.quickAdd": "Afegeix una tasca ràpida…",
   "tasks.fileIn": "arxiva a",
@@ -2408,7 +2397,6 @@ Coses que pots fer per ell:
   "commands.compact.message":
     "`/compact` encara no està disponible a Isomux. L'SDK compacta el context automàticament.",
   "commands.branch.description": "Ramificar la conversa en una sessió nova",
-  "commands.fork.description": "Ramificar la conversa en una sessió nova",
   "commands.export.description": "Exportar la conversa a un fitxer",
   "commands.plan.description": "Activar o desactivar el mode de planificació",
   "commands.rename.description": "Reanomenar la sessió actual",
@@ -2427,16 +2415,12 @@ Coses que pots fer per ell:
   "commands.extraUsage.description": "Opcions d'ús addicional",
   "commands.rateLimitOptions.description":
     "Configuració del límit de peticions",
-  "commands.diff.description":
-    "Veure els canvis sense confirmar al cwd de l'agent (o passa-hi un directori)",
   "commands.rewind.description": "Desfer els canvis i revertir la conversa",
-  "commands.checkpoint.description": "Desfer els canvis i revertir la conversa",
   "commands.copy.description": "Copiar l'última resposta al porta-retalls",
   "commands.files.description": "Llistar els fitxers que hi ha al context",
   "commands.addDir.description": "Afegir més directoris de treball",
   "commands.btw.description": "Preguntar sense embrutar el context principal",
   "commands.config.description": "Obrir la interfície de configuració",
-  "commands.settings.description": "Obrir la interfície de configuració",
   "commands.hooks.description": "Gestionar els hooks del cicle de vida",
   "commands.permissions.description": "Gestionar els permisos de les eines",
   "commands.keybindings.description": "Editar les dreceres de teclat",
@@ -2449,7 +2433,6 @@ Coses que pots fer per ell:
   "commands.privacySettings.description":
     "Gestionar la configuració de privadesa",
   "commands.theme.description": "Canviar el tema de color",
-  "commands.color.description": "Canviar el tema de color",
   "commands.vim.description": "Activar o desactivar les dreceres de vim",
   "commands.terminalSetup.description":
     "Configurar la integració amb el terminal",
@@ -2458,10 +2441,8 @@ Coses que pots fer per ell:
   "commands.reloadPlugins.message":
     "Per tornar a carregar els plugins, obre el terminal integrat (fes clic a la icona de terminal de l'escriptori de l'agent), executa `claude` i escriu `/reload-plugins`.",
   "commands.tasks.description": "Llistar o gestionar les tasques en segon pla",
-  "commands.bashes.description": "Llistar o gestionar les tasques en segon pla",
   "commands.doctor.description": "Comprovar l'estat de la instal·lació",
   "commands.feedback.description": "Informar d'errors a Anthropic",
-  "commands.bug.description": "Informar d'errors a Anthropic",
   "commands.releaseNotes.description": "Veure les notes de la versió",
   "commands.heapdump.description": "Bolcar el heap per depurar",
   "commands.status.description": "Veure l'estat del sistema",
@@ -2523,7 +2504,6 @@ Coses que pots fer per ell:
   "commands.unsupported.unknownCommand":
     "Ordre desconeguda `/{name}`. Escriu `/help` per veure les ordres disponibles.",
   "commands.clear.failed": "No s'ha pogut esborrar la conversa: {error}",
-  "commands.clear.done": "Conversa esborrada.",
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
   "commands.context.noSession": "No hi ha cap sessió activa.",
   "commands.context.unavailable":
@@ -2590,20 +2570,16 @@ Coses que pots fer per ell:
   "commands.isomuxEdit.usage":
     "Ús: {usage}. El camí pot ser relatiu (es resol des de {cwd}), absolut o `~/...`.",
   "commands.isomuxEdit.emptyPath": "Camí buit.",
-  "commands.isomuxEdit.notFound": "`{path}` no existeix.",
-  "commands.isomuxEdit.notFile": "`{path}` no és un fitxer.",
-  "commands.isomuxEdit.binary":
+  "systemEntries.pathRefusal.notFound": "`{path}` no existeix.",
+  "systemEntries.pathRefusal.notFile": "`{path}` no és un fitxer.",
+  "systemEntries.pathRefusal.binary":
     "`{path}` és un fitxer binari: el plafó de l'editor només admet text.",
-  "commands.isomuxEdit.tooLarge":
+  "systemEntries.pathRefusal.tooLarge":
     "`{path}` ocupa {size}, massa per al plafó de l'editor (el límit és 1 MB).",
-  "commands.isomuxEdit.ioError": "No s'ha pogut obrir `{path}`: {message}",
-  "commands.isomuxEdit.credential":
+  "systemEntries.pathRefusal.credential":
     "`{path}` conté credencials, així que no s'obre al plafó de l'editor.",
   "commands.isomuxDiff.notDirectory": "`{path}` no és un directori.",
-  "commands.isomuxDiff.notRepo": "`{path}` no és un repositori de git.",
-  "commands.isomuxDiff.gitError": "No s'ha pogut executar git diff a `{path}`:",
-  "commands.isomuxDiff.clean":
-    "L'arbre de treball de `{path}` està net: no hi ha canvis sense confirmar.",
+  "systemEntries.diffNotRepo": "`{path}` no és un repositori de git.",
   "commands.usage.meter":
     "Consulta el mesurador d'ús a la capçalera del xat per veure els límits de la subscripció i quan es restableixen.",
   "commands.usage.unavailable":
@@ -2638,7 +2614,6 @@ Coses que pots fer per ell:
     "Respon `{replySpec}` per triar fins on ho permets, per exemple `{index} {example}`.",
   "choices.permission.denyByMessage":
     "O escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
-  "systemEntries.conversationCleared": "Conversa esborrada.",
   "systemEntries.newConversation": "Conversa nova iniciada.",
   "systemEntries.autoHandoff.writingTokens":
     "El context és a {thousands}k tokens. S'està escrivint un resum de traspàs per a una sessió nova.",
@@ -2727,7 +2702,7 @@ Coses que pots fer per ell:
   "systemEntries.freshSessionBeforeFlush":
     "S'ha iniciat una sessió nova abans de buidar la cua de missatges.",
   "systemEntries.flushStartFailed":
-    "No s'ha pogut iniciar la sessió per buidar la cua: {error}",
+    "No s'ha pogut iniciar la sessió per buidar la cua: {error}\nEscriu /clear per començar de zero, o /resume per triar una altra sessió.",
   "systemEntries.restartingForSettings":
     "Es reinicia la sessió per aplicar la configuració; els missatges en cua sortiran després del reinici.",
   "systemEntries.settingsNotice.changed":
@@ -2794,7 +2769,8 @@ Coses que pots fer per ell:
   "systemEntries.permissionResolveFailed":
     "No s'ha pogut resoldre el permís: {error}",
   "systemEntries.resumedSession": "Sessió represa: {label}",
-  "systemEntries.resumeFailed": "No s'ha pogut reprendre: {error}",
+  "systemEntries.resumeFailed":
+    "No s'ha pogut reprendre: {error}\nEscriu /clear per començar de zero, o /resume per triar una altra sessió.",
   "systemEntries.resumeCancelled": "Represa cancel·lada.",
   "systemEntries.resumeCwdUnavailable":
     "El directori desat de la sessió `{stored}` no està disponible ({error}); es reprèn a `{previous}`.",
@@ -2850,7 +2826,77 @@ Coses que pots fer per ell:
   "systemEntries.claudeSession.invalid":
     "No es pot accedir a aquesta conversa de Claude.",
   "systemEntries.claudeSession.missing":
+    "No es pot reprendre la sessió de Claude {session}…: no s’ha trobat el seu fitxer. Camins comprovats: {paths}.",
+  "systemEntries.loginInstructions.generic":
+    "Per autenticar-te:\n1. Obre la terminal integrada\n2. Executa `claude`\n3. Escriu `/login`\n4. Segueix el procés d'autenticació\n\nQuan acabis, s'aplica de seguida a tots els agents d'Isomux.",
+  "systemEntries.loginInstructions.claude":
+    "Per autenticar Claude Code:\n1. Obre la terminal integrada\n2. Executa `{command}`\n3. Escriu `/login`\n4. Segueix el procés d'autenticació\n\nQuan acabis, s'aplica de seguida a tots els agents d'Isomux.\n\nAlternativa: afegeix `ANTHROPIC_API_KEY` a la pàgina Integracions (pestanya Variables) i després fes servir `/clear`.",
+  "systemEntries.loginInstructions.claudeSignedIn":
+    "Claude Code té la sessió iniciada. Escriu `/clear` per renovar la sessió d'aquest agent i aplicar la nova autenticació.",
+  "systemEntries.loginInstructions.codex":
+    "Per iniciar la sessió a Codex, fes clic a [Copia a la terminal] a la targeta de sota:\n\n- `{command} login --device-auth`\n\nPrem Retorn per executar-lo, segueix les indicacions i després fes servir `/clear` en aquesta conversa per aplicar la nova autenticació. Els altres agents de Codex l'apliquen al seu proper `/clear`.\n\nAlternativa: afegeix `OPENAI_API_KEY` a la pàgina Integracions (pestanya Variables) i després fes servir `/clear`.",
+  "systemEntries.loginInstructions.codexSignedIn":
+    "Codex té la sessió iniciada. Escriu `/clear` per renovar la sessió d'aquest agent i aplicar la nova autenticació.",
+  "systemEntries.loginInstructions.openCode":
+    "Afegeix `OPENCODE_API_KEY` a la pàgina Integracions (pestanya Variables) i després fes servir `/clear`, o fes servir un agent amb el motor Claude o Codex.",
+  "systemEntries.codexTokenRefresh":
+    "Codex ha demanat renovar el seu inici de sessió de ChatGPT, i Isomux no ho pot fer.",
+  "systemEntries.codexSession.missing":
+    "No es pot reprendre el fil de Codex {thread}…: no s'ha trobat cap fitxer de rollout a {dir}. Sol passar quan el fil es va iniciar, però el seu procés va acabar abans de rebre un torn de l'usuari.",
+  "systemEntries.openCodeSession.empty":
+    "No es pot reprendre la sessió d'OpenCode {session}: no té missatges desats.",
+  "systemEntries.openCodeSession.missing":
+    "No es pot reprendre la sessió d'OpenCode {session}: no és al perfil d'OpenCode seleccionat.",
+  "systemEntries.claudeExit.cwdMissing":
+    "Causa probable: el cwd `{cwd}` ja no existeix. Fes clic al nom de l'agent a la capçalera de la vista del registre per apuntar-lo a un directori vàlid.",
+  "systemEntries.cwdInvalid.missing":
+    "El cwd no és vàlid: el directori no existeix: {path}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
+  "systemEntries.cwdInvalid.notDirectory":
+    "El cwd no és vàlid: no és un directori: {path}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
+  "systemEntries.cwdInvalid.inaccessible":
+    "El cwd no és vàlid: no es pot accedir a {path}: {message}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
+  "systemEntries.scheduleRun.resumeSkipped":
+    "No es pot reprendre una execució omesa: mai no va obrir cap sessió.",
+  "systemEntries.scheduleRun.resumeNoInit":
+    "No es pot reprendre: l'execució original mai no va arribar a iniciar el motor.",
+  "systemEntries.scheduleRun.resumeCwd.missing":
+    "No es pot reprendre: el cwd no és vàlid: el directori no existeix: {path}",
+  "systemEntries.scheduleRun.resumeCwd.notDirectory":
+    "No es pot reprendre: el cwd no és vàlid: no és un directori: {path}",
+  "systemEntries.scheduleRun.resumeCwd.inaccessible":
+    "No es pot reprendre: el cwd no és vàlid: no es pot accedir a {path}: {message}",
+  "systemEntries.scheduleRun.envFailed":
+    "No s'ha pogut preparar l'entorn: {error}",
+  "systemEntries.scheduleRun.openCodeJobDeleted":
+    "No es pot reprendre aquesta execució d'OpenCode perquè la seva programació es va eliminar i ja no es pot resoldre el seu perfil d'entorn compartit.",
+  "systemEntries.scheduleRun.sendFailed": "No s'ha pogut enviar: {error}",
+  "systemEntries.scheduleRun.editBusy":
+    "No es pot editar mentre l'execució està ocupada.",
+  "systemEntries.scheduleRun.editSkipped":
+    "No es pot editar una execució omesa: mai no va obrir cap sessió.",
+  "systemEntries.scheduleRun.editNoInit":
+    "No es pot editar: l'execució original mai no va arribar a iniciar el motor.",
+  "systemEntries.scheduleRun.editCwd.missing":
+    "No es pot editar: el cwd no és vàlid: el directori no existeix: {path}",
+  "systemEntries.scheduleRun.editCwd.notDirectory":
+    "No es pot editar: el cwd no és vàlid: no és un directori: {path}",
+  "systemEntries.scheduleRun.editCwd.inaccessible":
+    "No es pot editar: el cwd no és vàlid: no es pot accedir a {path}: {message}",
+  "systemEntries.scheduleRun.editFailed": "No es pot editar: {error}",
+  "systemEntries.scheduleRun.editMessageNotFound":
+    "No es pot editar: no s'ha trobat el missatge.",
+  "systemEntries.scheduleRun.loadMessagesFailed":
+    "No s'han pogut carregar els missatges de la sessió: {error}",
+  "systemEntries.scheduleRun.editMessageNotInSession":
+    "No es pot editar: no s'ha trobat el missatge a la sessió del motor.",
+  "systemEntries.scheduleRun.editNoFork":
+    "No es pot editar: el motor ha retornat una sessió nova (sense branca vinculada).",
+  "systemEntries.scheduleRun.forkFailed": "No s'ha pogut ramificar: {error}",
+  "systemEntries.scheduleRun.forkStartFailed":
+    "No s'ha pogut iniciar la conversa ramificada: {error}",
+  "systemEntries.claudeSession.missingAfterExit":
     "No es pot reprendre la sessió de Claude {session}…: no s’ha trobat el seu fitxer. Camins comprovats: {paths}. Fes servir /resume per seleccionar una altra conversa o inicia una conversa nova.",
+  "systemEntries.scheduleRun.resumeFailed": "No s'ha pogut reprendre: {error}",
   "systemEntries.claudeAuth.connected":
     "Aquesta conversa pot continuar fent servir les credencials amb què es va iniciar. Inicia una conversa nova (`/clear`) per fer servir la connexió actual de Claude.",
   "systemEntries.claudeAuth.incomplete":
@@ -2924,7 +2970,6 @@ Coses que pots fer per ell:
     "_Es mostren els {shown} agents més grans de {total} amb dades desades._",
   "storageReport.nothingDeleted":
     "_Aquí no s'esborra res automàticament. Les transcripcions i els adjunts només s'eliminen quan el propietari de l'oficina ho demana._",
-  "storageReport.unknownSize": "mida desconeguda",
 
   // --- S9: the pre-sign-in pages the server renders itself -----------------
   // The claim page, the invite-accept page, the login page and the three
@@ -3128,11 +3173,9 @@ Coses que pots fer per ell:
   "skills.notUsed": "No s'executa",
   "skills.shadowed":
     "No s'executa a {engine}. Primer va una habilitat amb el mateix nom:",
-  "skills.field.file": "Fitxer",
   "skills.field.project": "Projecte",
   "skills.field.alias": "També s'executa com a",
   "skills.field.engines": "Funciona en",
-  "skills.field.uses": "Els teus usos",
   "skills.delete.title": "Vols eliminar /{name}?",
   "skills.delete.folder":
     "S’eliminarà la carpeta de l’habilitat, inclosos els scripts i els recursos. S’eliminen els enllaços, però es conserven les destinacions.",

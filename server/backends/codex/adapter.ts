@@ -135,19 +135,13 @@ import type { PlanType } from "./_generated/PlanType.ts";
 // card never disagree - `~/.isomux/bin/codex` at the default root (byte-for-
 // byte prod), the active wrapper path under an ISOMUX_HOME override.
 const codexLoginCmd = codexWrapperCommandForShell();
-const LOGIN_INSTRUCTIONS = `To sign in to Codex, click [Copy to terminal] on the card below:
-
-- \`${codexLoginCmd} login --device-auth\`
-
-Press Enter to run, follow the prompts, then \`/clear\` this conversation to apply the new auth. Other codex agents apply on their next \`/clear\`.
-
-Alternative: add \`OPENAI_API_KEY\` on the Integrations page (Variables tab), then \`/clear\`.`;
-
-// Surfaced when an auth-error fires but the office already has a valid
-// codex auth (auth.json present, or OPENAI_API_KEY in env). The user's
-// signed in; their session just predates the login, so a /clear is all
-// they need.
-const ALREADY_AUTHED_INSTRUCTIONS = `Codex is signed in. Type \`/clear\` to refresh this agent's session and pick up the new auth.`;
+// The sign-in walkthrough in the reader's words. The JSON-RPC reply to a
+// token refresh request is for the engine, so it carries the English one.
+function loginInstructions(words: Translator["t"]): string {
+  return words("systemEntries.loginInstructions.codex", {
+    command: codexLoginCmd,
+  });
+}
 
 // A provider refusal as the member line (task 2bd836d5), or null when the
 // error is not one: a 401 and "unauthorized" stay on the sign-in path, and
@@ -2868,11 +2862,19 @@ export class CodexSession implements BackendSession {
       case "account/chatgptAuthTokens/refresh":
         // We don't have a token store; respond with an error so codex falls
         // back to user-facing login flow.
-        this.enqueueSignalled({
+        // auth_needed brings the sign-in walkthrough, so the error states
+        // the problem only. Isomux wrote this text, so it signals directly
+        // rather than through authSignal.
+        this.enqueue({ kind: "auth_needed" });
+        this.enqueue({
           kind: "error",
-          message: `Codex requested a ChatGPT auth token refresh, but Isomux has no token store. ${LOGIN_INSTRUCTIONS}`,
+          message: (this.opts.words ?? translatorFor("en").t)(
+            "systemEntries.codexTokenRefresh",
+          ),
         });
-        throw new Error(`No token store: ${LOGIN_INSTRUCTIONS}`);
+        throw new Error(
+          `No token store: ${loginInstructions(translatorFor("en").t)}`,
+        );
 
       // Untested at v1: attestation/generate (codex requests an attestation
       // token for upstream OpenAI calls). Falls to method-not-found via PASS
@@ -3401,9 +3403,9 @@ export const codexBackend: Backend = {
     // rollouts surface through Codex's own thread/resume error with a more
     // specific message.
     if (!codexRolloutFileExists(sessionId, opts.env)) {
-      return (
-        `Cannot resume Codex thread ${sessionId.slice(0, 8)}…: no rollout file found under ${codexSessionsDir(opts.env)}. ` +
-        `This usually means the thread was started but never received a user turn before its process exited.`
+      return (opts.words ?? translatorFor("en").t)(
+        "systemEntries.codexSession.missing",
+        { thread: sessionId.slice(0, 8), dir: codexSessionsDir(opts.env) },
       );
     }
     return null;
@@ -3642,18 +3644,22 @@ export const codexBackend: Backend = {
 
   async getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
+    words?: Translator["t"];
   }): Promise<LoginInstructions> {
+    const words = opts?.words ?? translatorFor("en").t;
+    // Signed in already (auth.json present, or OPENAI_API_KEY in env): the
+    // session predates the login, so a /clear is all the member needs.
     if (isCodexAuthenticated(opts?.env)) {
       return {
         kind: "already_authed",
         cardEligible: false,
-        text: ALREADY_AUTHED_INSTRUCTIONS,
+        text: words("systemEntries.loginInstructions.codexSignedIn"),
       };
     }
     return {
       kind: "login",
       cardEligible: true,
-      text: LOGIN_INSTRUCTIONS,
+      text: loginInstructions(words),
       commands: getCodexLoginCommands(),
     };
   },

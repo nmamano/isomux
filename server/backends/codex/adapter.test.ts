@@ -33,6 +33,7 @@ import { STATE_ROOT } from "../../config.ts";
 import { translatorFor } from "../../../shared/i18n/translate.ts";
 import { inertMarkdown, providerText } from "../provider-text.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
+import { callFor, render, spyWords } from "../../test-support/spy-words.ts";
 import {
   buildCodexUserInput,
   CODEX_THREAD_CONFIG_OVERRIDES,
@@ -4570,5 +4571,29 @@ describe("CodexSession provider refusals", () => {
     fake.fireStderr("ERROR codex_api: unexpected status 401 Unauthorized");
     expectKind(await nextEvent(it, "401 stderr"), "auth_needed");
     expect(fake.interruptCount()).toBe(1);
+  });
+});
+
+// Codex asks Isomux to refresh a ChatGPT token, and Isomux has no token
+// store. The member needs to sign in again: the session says so with
+// auth_needed, which brings the translated sign-in instructions, and its
+// error states the problem only, in the session's words (task beb6089b).
+describe("CodexSession ChatGPT token refresh request", () => {
+  it("signals sign-in and states the problem in the session's words", async () => {
+    const { t, calls } = spyWords();
+    const { fake, it } = await bootstrapped(undefined, { words: t });
+    await expectRejection(
+      fake.fireServerRequest({
+        id: "refresh-1",
+        method: "account/chatgptAuthTokens/refresh",
+      }),
+      /./,
+    );
+    expectKind(await nextEvent(it, "auth_needed"), "auth_needed");
+    const error = expectKind(await nextEvent(it, "refresh error"), "error");
+    const call = callFor(calls, error.message);
+    expect(call).toBeDefined();
+    // The instructions come with auth_needed; the error does not repeat them.
+    expect(render("en", call!)).not.toContain("login --device-auth");
   });
 });

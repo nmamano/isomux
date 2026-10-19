@@ -338,7 +338,7 @@ export function AuditPane() {
       </form>
       {error && <p role="alert">{error}</p>}
       {loading ? (
-        <p>{t("audit.loading")}</p>
+        <p>{t("common.loading")}</p>
       ) : (
         <AuditRows
           items={page.items}

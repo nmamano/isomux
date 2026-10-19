@@ -911,7 +911,7 @@ function TaskDetailPanel({
             }}
           >
             <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
-              {t("tasks.discardPrompt")}
+              {t("common.discardPrompt")}
             </span>
             <button
               onClick={onClose}
@@ -926,7 +926,7 @@ function TaskDetailPanel({
                 cursor: "pointer",
               }}
             >
-              {t("tasks.discard")}
+              {t("common.discard")}
             </button>
             <button
               onClick={() => {
@@ -989,7 +989,7 @@ function TaskDetailPanel({
                 cursor: "pointer",
               }}
             >
-              {t(confirmDelete ? "tasks.confirmDelete" : "common.delete")}
+              {t(confirmDelete ? "common.confirmQuestion" : "common.delete")}
             </button>
           )}
         </div>
@@ -1456,7 +1456,7 @@ export function TaskView({
                 letterSpacing: "-0.02em",
               }}
             >
-              {t("tasks.heading")}
+              {t("common.tasks")}
             </span>
             <span
               style={{

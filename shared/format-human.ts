@@ -9,9 +9,8 @@
 // What is left here is AGENT-FACING or structural. Every human-facing size,
 // count and timestamp moved to shared/i18n/number.ts and shared/i18n/time.ts,
 // which render in the reader's language; formatSize stays because
-// server/attachment-prompt.ts writes for an agent, which always reads English
-// (internal-docs/i18n-loop.md, S7). formatRelativeTime left with its last
-// caller, the /isomux-storage report.
+// server/attachment-prompt.ts writes for an agent, which always reads English.
+// formatRelativeTime left with its last caller, the /isomux-storage report.
 
 // Deterministic human-readable size. Binary units, one decimal above bytes.
 export function formatSize(bytes: number): string {

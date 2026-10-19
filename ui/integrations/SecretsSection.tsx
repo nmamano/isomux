@@ -320,7 +320,7 @@ function SecretItem({
               {t("settings.secrets.rotate")}
             </Btn>
             <Btn small onClick={() => open("edit")} data-secret-edit>
-              {t("settings.secrets.edit")}
+              {t("common.edit")}
             </Btn>
             <Btn
               small

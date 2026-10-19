@@ -123,7 +123,7 @@ export function BrowserPane() {
                             );
                         }}
                       >
-                        {t(extensionsCopied ? "browser.copied" : "common.copy")}
+                        {t(extensionsCopied ? "common.copied" : "common.copy")}
                       </button>
                     </>
                   ),
@@ -217,7 +217,7 @@ export function BrowserPane() {
                     );
                 }}
               >
-                {t(officeCopied ? "browser.copied" : "common.copy")}
+                {t(officeCopied ? "common.copied" : "common.copy")}
               </button>
             </div>
             <label style={dialogLabel} htmlFor="browser-name">
@@ -279,7 +279,7 @@ export function BrowserPane() {
                       );
                     }}
                   >
-                    {t(copied ? "browser.copied" : "common.copy")}
+                    {t(copied ? "common.copied" : "common.copy")}
                   </button>
                 </div>
                 <p style={hint}>

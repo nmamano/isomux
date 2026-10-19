@@ -595,7 +595,7 @@ function McpItem({
               onClick={() => setMode({ kind: "edit", name: row.name })}
               data-mcp-edit
             >
-              {t("settings.secrets.edit")}
+              {t("common.edit")}
             </Btn>
             <Btn
               small

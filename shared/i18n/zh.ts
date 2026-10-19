@@ -34,7 +34,6 @@ export const zh: Catalog = {
   "audit.memory.room": "房间记忆",
   "audit.memory.agent": "智能体记忆",
   "audit.memory.member": "成员记忆",
-  "audit.loading": "加载中…",
   "audit.older": "更早",
   "audit.history": "历史记录",
   "audit.taskCreated": "创建了任务",
@@ -100,7 +99,6 @@ export const zh: Catalog = {
   "browser.expires": "到期时间：{time}",
   "browser.expired": "配对码已过期。请创建新配对码。",
   "browser.copy": "复制配对码",
-  "browser.copied": "已复制",
   "browser.pairHelp": "打开 Isomux Browser，输入此办公室地址和配对码。",
   "browser.office": "办公室地址",
   "browser.pair": "配对 Chrome",
@@ -276,7 +274,6 @@ App 的一些原则：
   "templates.receptionist.label": "Isomux 接待员",
   "templates.receptionist.description": "提供 Isomux 和本办公室的使用帮助。",
   "lobby.receptionistName": "接待员",
-  "lobby.askHint": "询问 Isomux 或本办公室的相关问题",
   "lobby.welcome": "欢迎",
   "lobby.poster": "办公室",
   "common.lobby": "大厅",
@@ -285,7 +282,6 @@ App 的一些原则：
   "lobby.employeeLine1": "本分钟",
   "lobby.employeeLine2": "最佳员工",
   "lobby.openChat": "{name}：点击打开聊天",
-  "membersChat.authorAgent": "{name} · 智能体",
   "membersChat.authorApi": "{name} · API 令牌",
   "membersChat.authorApiDevice": "{name} · API 令牌「{device}」",
   "membersChat.deleteAgain": "再次点击以删除",
@@ -430,7 +426,6 @@ App 的一些原则：
   "settings.profile.tuck": "收起 {room}",
   "settings.profile.notificationsFor": "{room} 的通知",
   "settings.profile.devicesFor": "{room} 的推送通知",
-  "settings.profile.agentContext": "智能体上下文",
   "settings.profile.promptConflict":
     "特别指令已在其他位置更改。你的草稿已保留。请查看当前文本后再保存。",
   "settings.profile.currentPrompt": "当前特别指令",
@@ -747,7 +742,6 @@ App 的一些原则：
   "settings.secrets.formHeaderNamed": "{header} 请求头",
   "settings.secrets.rotate": "替换值",
   "settings.secrets.saveValue": "保存值",
-  "settings.secrets.edit": "编辑",
   "settings.secrets.reissue": "新占位值",
   "settings.secrets.reissueConfirm":
     "{name} 的当前占位值会立即失效。智能体下次启动时会拿到新的占位值。",
@@ -1773,7 +1767,6 @@ App 的一些原则：
   "office.zoom.reset": "重置视图 (0)",
   "office.zoom.resetAria": "重置视图",
   "office.openWebsite": "打开 isomux.com",
-  "office.skin.label": "房间外观",
   "office.skin.office": "办公室",
   "office.skin.hospital": "医院",
   "office.decor.preset": "预设",
@@ -2101,13 +2094,9 @@ App 的一些原则：
   "tasks.showAllAgents": "显示所有智能体",
   "tasks.showLess": "显示更少",
   "tasks.moreAgents": "另有 {count} 个",
-  "tasks.discardPrompt": "放弃未保存的更改？",
   "tasks.saveConflict": "此任务在你编辑时已被更改，因此你的更改未保存。",
-  "tasks.discard": "放弃",
   "tasks.create": "创建",
-  "tasks.confirmDelete": "确认？",
   "tasks.globalShort": "全局",
-  "tasks.heading": "任务",
   "tasks.shownCount": "显示 {count} 个",
   "tasks.quickAdd": "快速添加任务…",
   "tasks.fileIn": "归入",
@@ -2177,7 +2166,6 @@ App 的一些原则：
   "commands.compact.message":
     "Isomux 尚不支持 `/compact`。SDK 会自动压缩上下文。",
   "commands.branch.description": "将对话派生到新会话",
-  "commands.fork.description": "将对话派生到新会话",
   "commands.export.description": "将对话导出到文件",
   "commands.plan.description": "切换计划模式",
   "commands.rename.description": "重命名当前会话",
@@ -2194,15 +2182,12 @@ App 的一些原则：
   "commands.stats.description": "随时间变化的使用情况",
   "commands.extraUsage.description": "额外用量选项",
   "commands.rateLimitOptions.description": "速率限制配置",
-  "commands.diff.description": "查看智能体 cwd 中未提交的更改（也可传入目录）",
   "commands.rewind.description": "撤销更改并回退对话",
-  "commands.checkpoint.description": "撤销更改并回退对话",
   "commands.copy.description": "将上一条回复复制到剪贴板",
   "commands.files.description": "列出上下文中的文件",
   "commands.addDir.description": "添加其他工作目录",
   "commands.btw.description": "提问而不影响主上下文",
   "commands.config.description": "打开设置界面",
-  "commands.settings.description": "打开设置界面",
   "commands.hooks.description": "管理生命周期钩子",
   "commands.permissions.description": "管理工具权限",
   "commands.keybindings.description": "编辑快捷键绑定",
@@ -2214,17 +2199,14 @@ App 的一些原则：
   "commands.sandbox.description": "管理 sandbox 设置",
   "commands.privacySettings.description": "管理隐私设置",
   "commands.theme.description": "更改颜色主题",
-  "commands.color.description": "更改颜色主题",
   "commands.vim.description": "切换 vim 快捷键",
   "commands.terminalSetup.description": "配置终端集成",
   "commands.reloadPlugins.description": "重新加载已安装的插件",
   "commands.reloadPlugins.message":
     "要重新加载插件，请打开内置终端（点击智能体工位上的终端图标），运行 `claude`，然后输入 `/reload-plugins`。",
   "commands.tasks.description": "列出或管理后台任务",
-  "commands.bashes.description": "列出或管理后台任务",
   "commands.doctor.description": "检查安装状态",
   "commands.feedback.description": "向 Anthropic 报告缺陷",
-  "commands.bug.description": "向 Anthropic 报告缺陷",
   "commands.releaseNotes.description": "查看版本说明",
   "commands.heapdump.description": "转储堆以供调试",
   "commands.status.description": "显示系统状态",
@@ -2276,7 +2258,6 @@ App 的一些原则：
   "commands.unsupported.unknownCommand":
     "未知命令 `/{name}`。输入 `/help` 查看可用命令。",
   "commands.clear.failed": "清除对话失败：{error}",
-  "commands.clear.done": "对话已清除。",
   "commands.context.header":
     "**{model}**：{used} / {max} 个 token（{percent}%）",
   "commands.context.noSession": "没有活动会话。",
@@ -2338,18 +2319,16 @@ App 的一些原则：
   "commands.isomuxEdit.usage":
     "用法：{usage}。路径可以是相对路径（相对于 {cwd} 解析）、绝对路径或 `~/...`。",
   "commands.isomuxEdit.emptyPath": "路径为空。",
-  "commands.isomuxEdit.notFound": "`{path}` 不存在。",
-  "commands.isomuxEdit.notFile": "`{path}` 不是文件。",
-  "commands.isomuxEdit.binary": "`{path}` 是二进制文件，编辑器面板仅支持文本。",
-  "commands.isomuxEdit.tooLarge":
+  "systemEntries.pathRefusal.notFound": "`{path}` 不存在。",
+  "systemEntries.pathRefusal.notFile": "`{path}` 不是文件。",
+  "systemEntries.pathRefusal.binary":
+    "`{path}` 是二进制文件，编辑器面板仅支持文本。",
+  "systemEntries.pathRefusal.tooLarge":
     "`{path}` 大小为 {size}，超过编辑器面板的 1 MB 限制。",
-  "commands.isomuxEdit.ioError": "打开 `{path}` 失败：{message}",
-  "commands.isomuxEdit.credential":
+  "systemEntries.pathRefusal.credential":
     "`{path}` 含有凭据，因此不会在编辑器面板中打开。",
   "commands.isomuxDiff.notDirectory": "`{path}` 不是目录。",
-  "commands.isomuxDiff.notRepo": "`{path}` 不是 git 仓库。",
-  "commands.isomuxDiff.gitError": "在 `{path}` 中运行 git diff 失败：",
-  "commands.isomuxDiff.clean": "`{path}` 中的工作树干净，没有未提交的更改。",
+  "systemEntries.diffNotRepo": "`{path}` 不是 git 仓库。",
   "commands.usage.meter": "查看聊天顶部的用量指示器，了解订阅限额和重置时间。",
   "commands.usage.unavailable": "此智能体不提供订阅用量。",
   "commands.usage.office":
@@ -2378,7 +2357,6 @@ App 的一些原则：
     "回复 `{replySpec}` 以选择允许的范围，例如 `{index} {example}`。",
   "choices.permission.denyByMessage":
     "也可以输入其他消息，以该消息作为拒绝理由。",
-  "systemEntries.conversationCleared": "对话已清除。",
   "systemEntries.newConversation": "新对话已开始。",
   "systemEntries.autoHandoff.writingTokens":
     "上下文已达 {thousands}k 个 token。正在为新会话撰写交接简报。",
@@ -2455,7 +2433,8 @@ App 的一些原则：
   "systemEntries.freshSessionAfterRestoreFailure":
     "已开始新会话（无法恢复原会话）。",
   "systemEntries.freshSessionBeforeFlush": "已在发送队列消息之前开始新会话。",
-  "systemEntries.flushStartFailed": "无法启动会话以发送队列消息：{error}",
+  "systemEntries.flushStartFailed":
+    "无法启动会话以发送队列消息：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
   "systemEntries.restartingForSettings":
     "正在重启会话以应用设置；队列消息将在重启后发送。",
   "systemEntries.settingsNotice.changed":
@@ -2504,7 +2483,8 @@ App 的一些原则：
   "systemEntries.permissionSessionGone": "无法处理权限请求，会话已不存在。",
   "systemEntries.permissionResolveFailed": "处理权限请求失败：{error}",
   "systemEntries.resumedSession": "已继续会话：{label}",
-  "systemEntries.resumeFailed": "继续失败：{error}",
+  "systemEntries.resumeFailed":
+    "继续失败：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
   "systemEntries.resumeCancelled": "已取消继续会话。",
   "systemEntries.resumeCwdUnavailable":
     "会话保存的目录 `{stored}` 不可用（{error}）；将在 `{previous}` 中继续。",
@@ -2552,7 +2532,72 @@ App 的一些原则：
     "此对话沿用开始时的 Claude 账户。请开始新对话（`/clear`）以使用新账户。",
   "systemEntries.claudeSession.invalid": "无法访问此 Claude 对话。",
   "systemEntries.claudeSession.missing":
+    "无法继续 Claude 会话 {session}…：未找到其文件。已检查路径：{paths}。",
+  "systemEntries.loginInstructions.generic":
+    "身份验证步骤：\n1. 打开内置终端\n2. 运行 `claude`\n3. 输入 `/login`\n4. 按照验证流程操作\n\n完成后立即对所有 Isomux 智能体生效。",
+  "systemEntries.loginInstructions.claude":
+    "验证 Claude Code 身份：\n1. 打开内置终端\n2. 运行 `{command}`\n3. 输入 `/login`\n4. 按照验证流程操作\n\n完成后立即对所有 Isomux 智能体生效。\n\n也可以在「集成」页面（「变量」标签页）添加 `ANTHROPIC_API_KEY`，然后输入 `/clear`。",
+  "systemEntries.loginInstructions.claudeSignedIn":
+    "Claude Code 已登录。输入 `/clear` 刷新此智能体的会话，以使用新的身份验证。",
+  "systemEntries.loginInstructions.codex":
+    "要登录 Codex，请点击下方卡片上的 [复制到终端]：\n\n- `{command} login --device-auth`\n\n按 Enter 运行并按提示操作，然后在此对话中输入 `/clear` 以使用新的身份验证。其他 Codex 智能体会在下次 `/clear` 时生效。\n\n也可以在「集成」页面（「变量」标签页）添加 `OPENAI_API_KEY`，然后输入 `/clear`。",
+  "systemEntries.loginInstructions.codexSignedIn":
+    "Codex 已登录。输入 `/clear` 刷新此智能体的会话，以使用新的身份验证。",
+  "systemEntries.loginInstructions.openCode":
+    "请在「集成」页面（「变量」标签页）添加 `OPENCODE_API_KEY`，然后输入 `/clear`，或改用 Claude 或 Codex 引擎的智能体。",
+  "systemEntries.codexTokenRefresh":
+    "Codex 请求刷新其 ChatGPT 登录，但 Isomux 无法执行此操作。",
+  "systemEntries.codexSession.missing":
+    "无法继续 Codex 线程 {thread}…：在 {dir} 下未找到 rollout 文件。这通常表示该线程已启动，但其进程在收到用户回合之前就退出了。",
+  "systemEntries.openCodeSession.empty":
+    "无法继续 OpenCode 会话 {session}：它没有已存储的消息。",
+  "systemEntries.openCodeSession.missing":
+    "无法继续 OpenCode 会话 {session}：所选 OpenCode 配置文件中没有该会话。",
+  "systemEntries.claudeExit.cwdMissing":
+    "可能原因：cwd `{cwd}` 已不存在。点击日志视图标题栏中的智能体名称，将其指向有效目录。",
+  "systemEntries.cwdInvalid.missing":
+    "cwd 无效：目录不存在：{path}。点击日志视图标题栏中的智能体名称进行修正。",
+  "systemEntries.cwdInvalid.notDirectory":
+    "cwd 无效：不是目录：{path}。点击日志视图标题栏中的智能体名称进行修正。",
+  "systemEntries.cwdInvalid.inaccessible":
+    "cwd 无效：无法访问 {path}：{message}。点击日志视图标题栏中的智能体名称进行修正。",
+  "systemEntries.scheduleRun.resumeSkipped":
+    "无法继续已跳过的运行：它从未打开会话。",
+  "systemEntries.scheduleRun.resumeNoInit":
+    "无法继续：原始运行从未完成引擎初始化。",
+  "systemEntries.scheduleRun.resumeCwd.missing":
+    "无法继续：cwd 无效：目录不存在：{path}",
+  "systemEntries.scheduleRun.resumeCwd.notDirectory":
+    "无法继续：cwd 无效：不是目录：{path}",
+  "systemEntries.scheduleRun.resumeCwd.inaccessible":
+    "无法继续：cwd 无效：无法访问 {path}：{message}",
+  "systemEntries.scheduleRun.envFailed": "无法构建环境：{error}",
+  "systemEntries.scheduleRun.openCodeJobDeleted":
+    "无法继续此 OpenCode 运行：其定时任务已删除，共享环境配置文件也无法再解析。",
+  "systemEntries.scheduleRun.sendFailed": "发送失败：{error}",
+  "systemEntries.scheduleRun.editBusy": "运行繁忙时无法编辑。",
+  "systemEntries.scheduleRun.editSkipped":
+    "无法编辑已跳过的运行：它从未打开会话。",
+  "systemEntries.scheduleRun.editNoInit":
+    "无法编辑：原始运行从未完成引擎初始化。",
+  "systemEntries.scheduleRun.editCwd.missing":
+    "无法编辑：cwd 无效：目录不存在：{path}",
+  "systemEntries.scheduleRun.editCwd.notDirectory":
+    "无法编辑：cwd 无效：不是目录：{path}",
+  "systemEntries.scheduleRun.editCwd.inaccessible":
+    "无法编辑：cwd 无效：无法访问 {path}：{message}",
+  "systemEntries.scheduleRun.editFailed": "无法编辑：{error}",
+  "systemEntries.scheduleRun.editMessageNotFound": "无法编辑：未找到消息。",
+  "systemEntries.scheduleRun.loadMessagesFailed": "加载会话消息失败：{error}",
+  "systemEntries.scheduleRun.editMessageNotInSession":
+    "无法编辑：在引擎会话中找不到该消息。",
+  "systemEntries.scheduleRun.editNoFork":
+    "无法编辑：引擎返回了新会话（没有关联的派生）。",
+  "systemEntries.scheduleRun.forkFailed": "派生失败：{error}",
+  "systemEntries.scheduleRun.forkStartFailed": "无法启动派生会话：{error}",
+  "systemEntries.claudeSession.missingAfterExit":
     "无法继续 Claude 会话 {session}…：未找到其文件。已检查路径：{paths}。请使用 /resume 选择其他对话，或开始新对话。",
+  "systemEntries.scheduleRun.resumeFailed": "继续失败：{error}",
   "systemEntries.claudeAuth.connected":
     "此对话可能仍在使用开始时的凭据。请开始新对话（`/clear`）以使用当前 Claude 登录。",
   "systemEntries.claudeAuth.incomplete":
@@ -2620,7 +2665,6 @@ App 的一些原则：
     "_显示有存储数据的 {total} 个智能体中占用空间最多的 {shown} 个。_",
   "storageReport.nothingDeleted":
     "_此处的内容不会自动删除。只有办公室所有者要求时，才会移除对话记录和附件。_",
-  "storageReport.unknownSize": "大小未知",
   "common.continue": "继续",
   "common.displayName": "显示名称",
   "common.returnToOffice": "返回办公室",
@@ -2803,11 +2847,9 @@ App 的一些原则：
   "skills.noDescription": "没有描述。",
   "skills.notUsed": "不会运行",
   "skills.shadowed": "不会在 {engine} 上运行。同名技能优先：",
-  "skills.field.file": "文件",
   "skills.field.project": "项目",
   "skills.field.alias": "也可用",
   "skills.field.engines": "运行于",
-  "skills.field.uses": "你的使用次数",
   "skills.delete.title": "删除 /{name}？",
   "skills.delete.folder":
     "这会删除技能文件夹，包括脚本和资源。链接会被删除，但链接目标会保留。",

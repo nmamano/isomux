@@ -16,12 +16,13 @@ import {
 import type { Identity } from "./identity/index.ts";
 import { _testResetUsers, claimUser, updateUserById } from "./users.ts";
 
-// "Conversation cleared." in each language - a key S7 added, so it exercises
+// "Resume cancelled." in each language - a key S7 added, so it exercises
 // the new catalog rather than an older slice's.
-const EN = "Conversation cleared.";
-const ES = "Conversación borrada.";
-const CA = "Conversa esborrada.";
-const KEY = "systemEntries.conversationCleared" as const;
+const EN = "Resume cancelled.";
+const ES = "Retomada cancelada.";
+const CA = "Represa cancel·lada.";
+const ZH = "已取消继续会话。";
+const KEY = "systemEntries.resumeCancelled" as const;
 
 function seed(
   name: string,
@@ -154,7 +155,7 @@ describe("translatorForRequest - the pre-sign-in pages", () => {
 
 it("uses Chinese for a member by name, ID and direct preference", () => {
   const id = seed("Lin", "zh");
-  expect(translatorForUsername("Lin").t(KEY)).toBe("对话已清除。");
-  expect(translatorForUserId(id).t(KEY)).toBe("对话已清除。");
-  expect(translatorForLanguage("zh").t(KEY)).toBe("对话已清除。");
+  expect(translatorForUsername("Lin").t(KEY)).toBe(ZH);
+  expect(translatorForUserId(id).t(KEY)).toBe(ZH);
+  expect(translatorForLanguage("zh").t(KEY)).toBe(ZH);
 });

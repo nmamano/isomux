@@ -52,7 +52,6 @@ export const en = {
   "audit.memory.room": "Room memory",
   "audit.memory.agent": "Agent memory",
   "audit.memory.member": "Member memory",
-  "audit.loading": "Loading…",
   "audit.older": "Older",
   "audit.history": "History",
   "audit.taskCreated": "created",
@@ -121,7 +120,6 @@ export const en = {
   "browser.expires": "Expires at {time}",
   "browser.expired": "Pairing code expired. Create a new code.",
   "browser.copy": "Copy code",
-  "browser.copied": "Copied",
   "browser.pairHelp":
     "Open Isomux Browser and enter this office address and the pairing code.",
   "browser.office": "Office address",
@@ -299,7 +297,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "templates.receptionist.label": "Isomux Receptionist",
   "templates.receptionist.description": "Help with Isomux and this office.",
   "lobby.receptionistName": "Receptionist",
-  "lobby.askHint": "Ask about Isomux or this office",
   "lobby.welcome": "WELCOME",
   "lobby.poster": "THE OFFICE",
   "common.lobby": "Lobby",
@@ -308,7 +305,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "lobby.employeeLine1": "EMPLOYEE OF",
   "lobby.employeeLine2": "THE MINUTE",
   "lobby.openChat": "{name} - click to open the chat",
-  "membersChat.authorAgent": "{name} · agent",
   "membersChat.authorApi": "{name} · API token",
   "membersChat.authorApiDevice": '{name} · API token "{device}"',
   "membersChat.deleteAgain": "Click again to delete",
@@ -462,7 +458,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.profile.tuck": "Tuck {room}",
   "settings.profile.notificationsFor": "Notifications for {room}",
   "settings.profile.devicesFor": "Push notifications for {room}",
-  "settings.profile.agentContext": "Agent Context",
   "settings.profile.promptConflict":
     "Special instructions changed elsewhere. Your draft is kept. Review the current text before you save again.",
   "settings.profile.currentPrompt": "Current special instructions",
@@ -821,7 +816,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.secrets.formHeaderNamed": "{header} header",
   "settings.secrets.rotate": "Replace value",
   "settings.secrets.saveValue": "Save value",
-  "settings.secrets.edit": "Edit",
   "settings.secrets.reissue": "New stand-in",
   "settings.secrets.reissueConfirm":
     "The current stand-in for {name} stops working now. Agents get the new one at their next start.",
@@ -1938,7 +1932,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "office.zoom.reset": "Reset view (0)",
   "office.zoom.resetAria": "Reset view",
   "office.openWebsite": "Open isomux.com",
-  "office.skin.label": "Room look",
   "office.skin.office": "Office",
   "office.skin.hospital": "Hospital",
   "office.decor.preset": "Preset",
@@ -2272,14 +2265,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "tasks.showAllAgents": "Show all agents",
   "tasks.showLess": "show less",
   "tasks.moreAgents": "+{count} more",
-  "tasks.discardPrompt": "Discard unsaved changes?",
   "tasks.saveConflict":
     "This task changed while you were editing, so your changes were not saved.",
-  "tasks.discard": "Discard",
   "tasks.create": "Create",
-  "tasks.confirmDelete": "Confirm?",
   "tasks.globalShort": "Global",
-  "tasks.heading": "Tasks",
   "tasks.shownCount": "{count} shown",
   "tasks.quickAdd": "Quick add a task…",
   "tasks.fileIn": "file in",
@@ -2358,7 +2347,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.compact.message":
     "`/compact` is not yet supported in Isomux. Context is auto-compacted by the SDK.",
   "commands.branch.description": "Branch conversation into new session",
-  "commands.fork.description": "Branch conversation into new session",
   "commands.export.description": "Export conversation to file",
   "commands.plan.description": "Toggle plan mode",
   "commands.rename.description": "Rename current session",
@@ -2375,16 +2363,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.stats.description": "Usage patterns over time",
   "commands.extraUsage.description": "Extra usage options",
   "commands.rateLimitOptions.description": "Rate limit configuration",
-  "commands.diff.description":
-    "Peek uncommitted changes in the agent's cwd (or pass a directory)",
   "commands.rewind.description": "Undo changes and revert conversation",
-  "commands.checkpoint.description": "Undo changes and revert conversation",
   "commands.copy.description": "Copy last response to clipboard",
   "commands.files.description": "List files in context",
   "commands.addDir.description": "Add additional working directories",
   "commands.btw.description": "Ask without polluting main context",
   "commands.config.description": "Open settings interface",
-  "commands.settings.description": "Open settings interface",
   "commands.hooks.description": "Manage lifecycle hooks",
   "commands.permissions.description": "Manage tool permissions",
   "commands.keybindings.description": "Edit key bindings",
@@ -2396,17 +2380,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.sandbox.description": "Manage sandbox settings",
   "commands.privacySettings.description": "Manage privacy settings",
   "commands.theme.description": "Change color theme",
-  "commands.color.description": "Change color theme",
   "commands.vim.description": "Toggle vim keybindings",
   "commands.terminalSetup.description": "Configure terminal integration",
   "commands.reloadPlugins.description": "Reload installed plugins",
   "commands.reloadPlugins.message":
     "To reload plugins, open the built-in terminal (click the terminal icon on the agent's desk), run `claude`, and type `/reload-plugins`.",
   "commands.tasks.description": "List/manage background tasks",
-  "commands.bashes.description": "List/manage background tasks",
   "commands.doctor.description": "Check installation health",
   "commands.feedback.description": "Report bugs to Anthropic",
-  "commands.bug.description": "Report bugs to Anthropic",
   "commands.releaseNotes.description": "View release notes",
   "commands.heapdump.description": "Dump heap for debugging",
   "commands.status.description": "Show system status",
@@ -2465,7 +2446,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
 
   // /clear (also /reset, /new)
   "commands.clear.failed": "Failed to clear conversation: {error}",
-  "commands.clear.done": "Conversation cleared.",
 
   // /context
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
@@ -2550,22 +2530,18 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.isomuxEdit.usage":
     "Usage: {usage}. Path can be relative (resolves against {cwd}), absolute, or `~/...`.",
   "commands.isomuxEdit.emptyPath": "Empty path.",
-  "commands.isomuxEdit.notFound": "`{path}` does not exist.",
-  "commands.isomuxEdit.notFile": "`{path}` is not a file.",
-  "commands.isomuxEdit.binary":
+  "systemEntries.pathRefusal.notFound": "`{path}` does not exist.",
+  "systemEntries.pathRefusal.notFile": "`{path}` is not a file.",
+  "systemEntries.pathRefusal.binary":
     "`{path}` is a binary file - the editor panel only supports text.",
-  "commands.isomuxEdit.tooLarge":
+  "systemEntries.pathRefusal.tooLarge":
     "`{path}` is {size} - too large for the editor panel (1 MB limit).",
-  "commands.isomuxEdit.ioError": "Failed to open `{path}`: {message}",
-  "commands.isomuxEdit.credential":
+  "systemEntries.pathRefusal.credential":
     "`{path}` holds credentials, so it does not open in the editor panel.",
 
   // /isomux-diff (also /diff)
   "commands.isomuxDiff.notDirectory": "`{path}` is not a directory.",
-  "commands.isomuxDiff.notRepo": "`{path}` is not a git repository.",
-  "commands.isomuxDiff.gitError": "Failed to run git diff in `{path}`:",
-  "commands.isomuxDiff.clean":
-    "Working tree clean in `{path}` - no uncommitted changes.",
+  "systemEntries.diffNotRepo": "`{path}` is not a git repository.",
 
   // /usage
   "commands.usage.meter":
@@ -2613,7 +2589,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // Lifecycle entries the server writes into an agent's log. Most have no
   // actor - a backend event or a route call produced them - so they are worded
   // for the agent's owner (internal-docs/i18n-loop.md, S7).
-  "systemEntries.conversationCleared": "Conversation cleared.",
   "systemEntries.newConversation": "New conversation started.",
   "systemEntries.autoHandoff.writingTokens":
     "Context is at {thousands}k tokens. Writing a handoff brief for a fresh session.",
@@ -2699,7 +2674,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.freshSessionBeforeFlush":
     "Started a fresh session before flushing queued messages.",
   "systemEntries.flushStartFailed":
-    "Cannot start session to flush queue: {error}",
+    "Cannot start session to flush queue: {error}\nType /clear to start fresh, or /resume to pick another session.",
   "systemEntries.restartingForSettings":
     "Restarting session to apply settings; queued messages will send after the restart.",
   "systemEntries.settingsNotice.changed":
@@ -2764,7 +2739,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.permissionResolveFailed":
     "Failed to resolve permission: {error}",
   "systemEntries.resumedSession": "Resumed session: {label}",
-  "systemEntries.resumeFailed": "Failed to resume: {error}",
+  "systemEntries.resumeFailed":
+    "Failed to resume: {error}\nType /clear to start fresh, or /resume to pick another session.",
   "systemEntries.resumeCancelled": "Resume cancelled.",
   "systemEntries.resumeCwdUnavailable":
     "Session's saved directory `{stored}` is unavailable ({error}); resuming in `{previous}`.",
@@ -2818,7 +2794,74 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.claudeSession.invalid":
     "Cannot access this Claude conversation.",
   "systemEntries.claudeSession.missing":
+    "Cannot resume Claude session {session}…: its file was not found. Paths checked: {paths}.",
+  "systemEntries.loginInstructions.generic":
+    "To authenticate:\n1. Open the built-in terminal\n2. Run `claude`\n3. Type `/login`\n4. Follow the auth flow\n\nOnce complete, it takes effect immediately for all Isomux agents.",
+  "systemEntries.loginInstructions.claude":
+    "To authenticate Claude Code:\n1. Open the built-in terminal\n2. Run `{command}`\n3. Type `/login`\n4. Follow the auth flow\n\nOnce complete, it takes effect immediately for all Isomux agents.\n\nAlternative: add `ANTHROPIC_API_KEY` on the Integrations page (Variables tab), then `/clear`.",
+  "systemEntries.loginInstructions.claudeSignedIn":
+    "Claude Code is signed in. Type `/clear` to refresh this agent's session and pick up the new auth.",
+  "systemEntries.loginInstructions.codex":
+    "To sign in to Codex, click [Copy to terminal] on the card below:\n\n- `{command} login --device-auth`\n\nPress Enter to run, follow the prompts, then `/clear` this conversation to apply the new auth. Other codex agents apply on their next `/clear`.\n\nAlternative: add `OPENAI_API_KEY` on the Integrations page (Variables tab), then `/clear`.",
+  "systemEntries.loginInstructions.codexSignedIn":
+    "Codex is signed in. Type `/clear` to refresh this agent's session and pick up the new auth.",
+  "systemEntries.loginInstructions.openCode":
+    "Add `OPENCODE_API_KEY` on the Integrations page (Variables tab), then `/clear`, or use an agent with the Claude or Codex backend.",
+  "systemEntries.codexTokenRefresh":
+    "Codex asked to refresh its ChatGPT sign-in, which Isomux cannot do.",
+  "systemEntries.codexSession.missing":
+    "Cannot resume Codex thread {thread}…: no rollout file found under {dir}. This usually means the thread was started but never received a user turn before its process exited.",
+  "systemEntries.openCodeSession.empty":
+    "Cannot resume OpenCode session {session}: it has no stored messages.",
+  "systemEntries.openCodeSession.missing":
+    "Cannot resume OpenCode session {session}: it is missing from the selected OpenCode profile.",
+  "systemEntries.claudeExit.cwdMissing":
+    "Likely cause: cwd `{cwd}` no longer exists. Click the agent name in the log view header to point it at a valid directory.",
+  "systemEntries.cwdInvalid.missing":
+    "cwd is invalid: Directory does not exist: {path}. Click the agent name in the log view header to fix it.",
+  "systemEntries.cwdInvalid.notDirectory":
+    "cwd is invalid: Not a directory: {path}. Click the agent name in the log view header to fix it.",
+  "systemEntries.cwdInvalid.inaccessible":
+    "cwd is invalid: Cannot access {path}: {message}. Click the agent name in the log view header to fix it.",
+  "systemEntries.scheduleRun.resumeSkipped":
+    "Cannot resume a skipped run - it never opened a session.",
+  "systemEntries.scheduleRun.resumeNoInit":
+    "Cannot resume: the original run never reached backend init.",
+  "systemEntries.scheduleRun.resumeCwd.missing":
+    "Cannot resume: cwd is invalid: Directory does not exist: {path}",
+  "systemEntries.scheduleRun.resumeCwd.notDirectory":
+    "Cannot resume: cwd is invalid: Not a directory: {path}",
+  "systemEntries.scheduleRun.resumeCwd.inaccessible":
+    "Cannot resume: cwd is invalid: Cannot access {path}: {message}",
+  "systemEntries.scheduleRun.envFailed": "Cannot build env: {error}",
+  "systemEntries.scheduleRun.openCodeJobDeleted":
+    "Cannot resume this OpenCode run because its schedule was deleted and its shared environment profile can no longer be resolved.",
+  "systemEntries.scheduleRun.sendFailed": "Failed to send: {error}",
+  "systemEntries.scheduleRun.editBusy": "Cannot edit while the run is busy.",
+  "systemEntries.scheduleRun.editSkipped":
+    "Cannot edit a skipped run - it never opened a session.",
+  "systemEntries.scheduleRun.editNoInit":
+    "Cannot edit: the original run never reached backend init.",
+  "systemEntries.scheduleRun.editCwd.missing":
+    "Cannot edit: cwd is invalid: Directory does not exist: {path}",
+  "systemEntries.scheduleRun.editCwd.notDirectory":
+    "Cannot edit: cwd is invalid: Not a directory: {path}",
+  "systemEntries.scheduleRun.editCwd.inaccessible":
+    "Cannot edit: cwd is invalid: Cannot access {path}: {message}",
+  "systemEntries.scheduleRun.editFailed": "Cannot edit: {error}",
+  "systemEntries.scheduleRun.editMessageNotFound":
+    "Cannot edit: message not found.",
+  "systemEntries.scheduleRun.loadMessagesFailed":
+    "Failed to load session messages: {error}",
+  "systemEntries.scheduleRun.editMessageNotInSession":
+    "Cannot edit: could not locate message in backend session.",
+  "systemEntries.scheduleRun.editNoFork":
+    "Cannot edit: backend returned a fresh session (no linked fork).",
+  "systemEntries.scheduleRun.forkFailed": "Fork failed: {error}",
+  "systemEntries.scheduleRun.forkStartFailed": "Failed to start fork: {error}",
+  "systemEntries.claudeSession.missingAfterExit":
     "Cannot resume Claude session {session}…: its file was not found. Paths checked: {paths}. Use /resume to select another conversation, or start a new conversation.",
+  "systemEntries.scheduleRun.resumeFailed": "Failed to resume: {error}",
   "systemEntries.claudeAuth.connected":
     "This conversation may still use the credentials it started with. Start a new conversation (`/clear`) to use the current Claude sign-in.",
   "systemEntries.claudeAuth.incomplete":
@@ -2896,7 +2939,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "_Showing the {shown} largest of {total} agents with stored data._",
   "storageReport.nothingDeleted":
     "_Nothing here is deleted automatically. Transcripts and attachments are only removed when an office owner asks for it._",
-  "storageReport.unknownSize": "unknown size",
 
   // --- S9: the pre-sign-in pages the server renders itself -----------------
   // The claim page, the invite-accept page, the login page and the three
@@ -3099,11 +3141,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "skills.notUsed": "Does not run",
   "skills.shadowed":
     "Does not run on {engine}. A skill with the same name comes first:",
-  "skills.field.file": "File",
   "skills.field.project": "Project",
   "skills.field.alias": "Also runs as",
   "skills.field.engines": "Runs on",
-  "skills.field.uses": "Your uses",
   "skills.delete.title": "Delete /{name}?",
   "skills.delete.folder":
     "This deletes the skill folder, including scripts and resources. Links are removed; their targets remain.",

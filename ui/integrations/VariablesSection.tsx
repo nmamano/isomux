@@ -320,9 +320,7 @@ function VariableItem({
               onClick={() => setMode({ kind: "edit", name: variable.name })}
               data-env-edit
             >
-              {replaceOnly
-                ? t("settings.secrets.rotate")
-                : t("settings.secrets.edit")}
+              {replaceOnly ? t("settings.secrets.rotate") : t("common.edit")}
             </Btn>
             <Btn
               small

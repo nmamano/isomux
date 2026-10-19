@@ -61,9 +61,7 @@ export interface StorageReportOptions {
  * formatBytes returns null for that case rather than inventing a reading.
  */
 function size(i18n: Translator, bytes: number): string {
-  return (
-    formatBytes(i18n.language, bytes) ?? i18n.t("storageReport.unknownSize")
-  );
+  return formatBytes(i18n.language, bytes) ?? i18n.t("common.unknownSize");
 }
 
 /**

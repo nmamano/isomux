@@ -640,6 +640,8 @@ export interface Backend {
     env?: { [key: string]: string | undefined };
     environmentKey?: string;
     modelFamily?: string;
+    // The reader's words for the instructions text; English when absent.
+    words?: Translator["t"];
   }): Promise<LoginInstructions>;
 
   // The terminal command that signs the engine out, without the config

@@ -170,6 +170,7 @@ export function humanizeBackendFailure(
     };
   }
 
+  // Unclassified: the engine's own words, shown as the engine wrote them.
   return { text: raw, id: "unclassified" };
 }
 

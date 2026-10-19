@@ -241,6 +241,21 @@ describe("the command registry and the catalog", () => {
       expect(ENGLISH_KEYS, key).toContain(key);
   });
 
+  // An alias and its command say the same thing in the same role, so they
+  // share one key: two keys with one English text drift apart in translation
+  // (task beb6089b).
+  it("describes commands with the same English through one key", () => {
+    const keyByText = new Map<string, string>();
+    const duplicates: string[] = [];
+    for (const key of new Set(Object.values(COMMAND_DESCRIPTION_KEYS))) {
+      const text = en[key];
+      const first = keyByText.get(text);
+      if (first) duplicates.push(`${first} = ${key}`);
+      else keyByText.set(text, key);
+    }
+    expect(duplicates).toEqual([]);
+  });
+
   it("only gives a custom message to a command the registry has", () => {
     for (const name of Object.keys(COMMAND_MESSAGE_KEYS))
       expect(commands[name], name).toBeDefined();

@@ -21,6 +21,10 @@ import {
   isCodexAuthenticated,
 } from "./codex/native-bin.ts";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import { opencodeBackend } from "./opencode/adapter.ts";
+import type { LoginInstructions } from "./types.ts";
+import type { Translator } from "../../shared/i18n/translate.ts";
+import { callFor, render, spyWords } from "../test-support/spy-words.ts";
 
 const tempDirs: string[] = [];
 afterAll(() => {
@@ -171,5 +175,78 @@ describe("isCodexAuthenticated env-detect", () => {
   it("auth.json present in CODEX_HOME counts as authed", () => {
     const home = tempCodexHome(true);
     expect(isCodexAuthenticated({ CODEX_HOME: home })).toBe(true);
+  });
+});
+
+// The sign-in walkthrough is written to the chat for a person, so each
+// backend words it in the reader's language when the caller passes words,
+// and in English when it does not (task beb6089b). The terminal command is a
+// value in the sentence: a translation never changes the command it names.
+describe("getLoginInstructions in the reader's words", () => {
+  function tempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-login-words-"));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  async function wordedAndEnglish(
+    get: (words?: Translator["t"]) => Promise<LoginInstructions>,
+  ) {
+    const { t, calls } = spyWords();
+    const worded = await get(t);
+    const english = await get();
+    const call = callFor(calls, worded.text);
+    expect(call).toBeDefined();
+    expect(english.text).toBe(render("en", call!));
+    // The words change the text only: the kind and the cards stay.
+    expect(worded.kind).toBe(english.kind);
+    expect(worded.commands).toEqual(english.commands);
+    return { worded, call: call! };
+  }
+
+  it("claudeBackend, signed out: the walkthrough, with the command as a value", async () => {
+    const env = { PATH: tempDir(), CLAUDE_CONFIG_DIR: tempDir() };
+    const { worded, call } = await wordedAndEnglish((words) =>
+      claudeBackend.getLoginInstructions({ env, words }),
+    );
+    expect(worded.kind).toBe("login");
+    expect(Object.values(call.params ?? {})).toContain(worded.commands![0]);
+  });
+
+  it("claudeBackend, signed in: the /clear hint", async () => {
+    const env = { ANTHROPIC_API_KEY: "sk-ant-test" };
+    const { worded } = await wordedAndEnglish((words) =>
+      claudeBackend.getLoginInstructions({ env, words }),
+    );
+    expect(worded.kind).toBe("already_authed");
+  });
+
+  it("codexBackend, signed out: the walkthrough, with the command as a value", async () => {
+    const env = { CODEX_HOME: tempCodexHome(false) };
+    const { worded, call } = await wordedAndEnglish((words) =>
+      codexBackend.getLoginInstructions({ env, words }),
+    );
+    expect(worded.kind).toBe("login");
+    const command = worded.commands![0];
+    expect(
+      Object.values(call.params ?? {}).some(
+        (value) => String(value).length > 0 && command.includes(String(value)),
+      ),
+    ).toBe(true);
+  });
+
+  it("codexBackend, signed in: the /clear hint", async () => {
+    const env = { OPENAI_API_KEY: "sk-test" };
+    const { worded } = await wordedAndEnglish((words) =>
+      codexBackend.getLoginInstructions({ env, words }),
+    );
+    expect(worded.kind).toBe("already_authed");
+  });
+
+  it("opencodeBackend: the API key guidance", async () => {
+    const { worded } = await wordedAndEnglish((words) =>
+      opencodeBackend.getLoginInstructions({ words }),
+    );
+    expect(worded.kind).toBe("login");
   });
 });

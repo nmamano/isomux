@@ -1,0 +1,330 @@
+// The text a person reads when an agent's session cannot start, or when it
+// needs sign-in, is in that person's language (task beb6089b):
+//   - a bad cwd, per cause, in the owner's words;
+//   - a resume failure shows exactly one "/resume" hint, from the entry
+//     around it, whichever path wrote it;
+//   - the sign-in walkthrough is in the owner's words on the auth path and in
+//     the typist's words on /login, also when the backend cannot give one.
+// The FakeBackend renders its walkthrough through whatever words it gets, as
+// every real backend does (server/backends/auth-detect.test.ts); what these
+// tests check is the words the orchestrator passes and writes.
+import { afterEach, describe, expect, it } from "bun:test";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+
+import { OfficeState } from "../../shared/office-state.ts";
+import type { RoomWire } from "../../shared/types.ts";
+import { translatorFor, type Translator } from "../../shared/i18n/translate.ts";
+import type { SupportedLanguageCode } from "../../shared/languages.ts";
+import { createAgentManager } from "../agent-manager.ts";
+import { createMember, deleteUserById, updateUserById } from "../users.ts";
+import { FakeBackend } from "./fake-backend.ts";
+
+type Manager = ReturnType<typeof createAgentManager>;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function waitUntil(pred: () => boolean, label: string): Promise<void> {
+  const deadline = Date.now() + 3000;
+  for (;;) {
+    if (pred()) return;
+    if (Date.now() > deadline) throw new Error(`waitUntil timed out: ${label}`);
+    await sleep(5);
+  }
+}
+
+const ROOM = "room-start-i18n";
+function rooms(): RoomWire[] {
+  return [{ id: ROOM, name: ROOM, prompt: null, canCloseWhenEmpty: false }];
+}
+
+const cleanups: (() => void)[] = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+});
+
+function tempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "isomux-start-i18n-"));
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+let memberCount = 0;
+/** A member on `language`. */
+// An owner, so the office sign-in is not withheld from them.
+function member(language: SupportedLanguageCode): { id: string; name: string } {
+  const made = createMember(`Start I18n ${process.pid} ${++memberCount}`, {
+    role: "owner",
+  });
+  if (!made.ok) throw new Error(made.error);
+  cleanups.push(() => deleteUserById(made.user.id));
+  const r = updateUserById(made.user.id, { language });
+  if (!r.ok) throw new Error(r.error);
+  return { id: made.user.id, name: made.user.name };
+}
+
+function manager(fake: FakeBackend): Manager {
+  const mgr = createAgentManager({
+    resolveBackend: () => fake,
+    officeState: new OfficeState({ rooms: rooms() }),
+    initialRooms: [],
+  });
+  mgr.configureAgentTurnDeps();
+  return mgr;
+}
+
+async function spawnAgent(
+  mgr: Manager,
+  name: string,
+  cwd: string,
+  owner?: { id: string; name: string },
+): Promise<string> {
+  const info = await mgr.spawn(
+    name,
+    cwd,
+    "default",
+    undefined,
+    undefined,
+    ROOM,
+    undefined,
+    undefined,
+    undefined,
+    owner?.name,
+    "codex",
+    undefined,
+    owner?.id ?? null,
+  );
+  if (!info) throw new Error("spawn returned null");
+  return info.id;
+}
+
+const errors = (mgr: Manager, id: string) =>
+  mgr
+    .getAgentLogs(id)
+    .filter((entry) => entry.kind === "error")
+    .map((entry) => entry.content);
+
+const systemTexts = (mgr: Manager, id: string) =>
+  mgr
+    .getAgentLogs(id)
+    .filter((entry) => entry.kind === "system")
+    .map((entry) => entry.content);
+
+const resumeHints = (text: string) => text.split("/resume").length - 1;
+
+// The part of `entry` that `key` wraps as {error}, or null when the entry is
+// not that key's text in `language`.
+function wrapped(
+  language: SupportedLanguageCode,
+  key: "systemEntries.sessionStartFailed",
+  entry: string,
+): string | null {
+  const [prefix, suffix] = translatorFor(language)
+    .t(key, { error: "\u0000" })
+    .split("\u0000");
+  if (!entry.startsWith(prefix) || !entry.endsWith(suffix)) return null;
+  return entry.slice(prefix.length, entry.length - suffix.length);
+}
+
+describe("a bad cwd at session start", () => {
+  type Cause = "missing" | "not_directory" | "inaccessible";
+  // Spawn checks the cwd, so each cause is made after the spawn.
+  function breakCwd(cause: Cause, cwd: string): void {
+    if (cause === "missing") rmSync(cwd, { recursive: true });
+    if (cause === "not_directory") {
+      rmSync(cwd, { recursive: true });
+      writeFileSync(cwd, "not a directory");
+    }
+    if (cause === "inaccessible") {
+      const parent = join(cwd, "..");
+      chmodSync(parent, 0o000);
+      cleanups.push(() => chmodSync(parent, 0o755));
+    }
+  }
+  // The cwd lives one level down, so "inaccessible" can lock its parent.
+  function agentCwd(): string {
+    const cwd = join(tempDir(), "work");
+    mkdirSync(cwd);
+    return cwd;
+  }
+
+  async function startFailure(
+    cause: Cause,
+    owner?: { id: string; name: string },
+  ): Promise<{ entry: string; cwd: string }> {
+    const fake = new FakeBackend();
+    const mgr = manager(fake);
+    const cwd = agentCwd();
+    const id = await spawnAgent(mgr, `Cwd ${cause}`, cwd, owner);
+    breakCwd(cause, cwd);
+    void mgr.sendMessage(id, "hi", owner?.name).catch(() => {});
+    await waitUntil(() => errors(mgr, id).length > 0, "start failure");
+    expect(fake.createSessionCount + fake.resumeSessionCount).toBe(0);
+    return { entry: errors(mgr, id)[0], cwd };
+  }
+
+  for (const cause of ["missing", "not_directory", "inaccessible"] as const) {
+    it(`words the ${cause} cause in the owner's language`, async () => {
+      const spanish = await startFailure(cause, member("es"));
+      const english = await startFailure(cause);
+      const spanishCause = wrapped(
+        "es",
+        "systemEntries.sessionStartFailed",
+        spanish.entry,
+      );
+      const englishCause = wrapped(
+        "en",
+        "systemEntries.sessionStartFailed",
+        english.entry,
+      );
+      expect(spanishCause).not.toBeNull();
+      expect(englishCause).not.toBeNull();
+      // Each names its own path; with the paths taken out, the two sentences
+      // differ only when the cause is translated.
+      expect(spanishCause).toContain(spanish.cwd);
+      expect(englishCause).toContain(english.cwd);
+      expect(spanishCause!.replaceAll(spanish.cwd, "<cwd>")).not.toBe(
+        englishCause!.replaceAll(english.cwd, "<cwd>"),
+      );
+    });
+  }
+});
+
+describe("a resume failure", () => {
+  const PROBLEM = "The stored fake session is missing.";
+
+  // An agent with a durable session and no live process: its next message
+  // resumes, so the resume check runs.
+  async function dormantWithSession(): Promise<{
+    fake: FakeBackend;
+    mgr: Manager;
+    id: string;
+    sessionId: string;
+  }> {
+    const fake = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+    });
+    const mgr = manager(fake);
+    const id = await spawnAgent(mgr, "Resume hint", tempDir());
+    mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "wake",
+    });
+    await waitUntil(
+      () =>
+        mgr.getCurrentSessionId(id) !== null &&
+        mgr.getAgent(id)?.state === "waiting_for_response",
+      "first turn done",
+    );
+    expect(await mgr.demoteToLazy(id)).toBe(true);
+    const sessionId = mgr.getCurrentSessionId(id)!;
+    fake.setSessionResumableError(sessionId, PROBLEM);
+    return { fake, mgr, id, sessionId };
+  }
+
+  async function failureEntry(mgr: Manager, id: string): Promise<string> {
+    await waitUntil(
+      () => errors(mgr, id).some((text) => text.includes(PROBLEM)),
+      "resume failure",
+    );
+    return errors(mgr, id).find((text) => text.includes(PROBLEM))!;
+  }
+
+  it("on a queued message's wake: one /resume hint", async () => {
+    const { mgr, id } = await dormantWithSession();
+    mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "again",
+    });
+    expect(resumeHints(await failureEntry(mgr, id))).toBe(1);
+  });
+
+  it("on a direct send's wake: one /resume hint", async () => {
+    const { mgr, id } = await dormantWithSession();
+    void mgr.sendMessage(id, "again", "tester").catch(() => {});
+    expect(resumeHints(await failureEntry(mgr, id))).toBe(1);
+  });
+
+  it("on an explicit resume: one /resume hint", async () => {
+    const { mgr, id, sessionId } = await dormantWithSession();
+    await mgr.resume(id, sessionId);
+    expect(resumeHints(await failureEntry(mgr, id))).toBe(1);
+  });
+});
+
+describe("the sign-in walkthrough", () => {
+  // Any key: the fake only has to render through the words it gets.
+  const KEY = "systemEntries.resumeCancelled" as const;
+  const GENERIC = "systemEntries.loginInstructions.generic";
+  const words = (language: SupportedLanguageCode) =>
+    translatorFor(language).t as unknown as (key: string) => string;
+
+  function fakeWith(
+    getText: (words: Translator["t"] | undefined) => string,
+  ): FakeBackend {
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_t, _a, session) => {
+          session.push({ kind: "auth_needed" });
+          session.push({ kind: "turn_completed", status: "failed" });
+        },
+      },
+    });
+    fake.getLoginInstructions = async (opts) => ({
+      kind: "login",
+      cardEligible: false,
+      text: getText(opts?.words),
+    });
+    return fake;
+  }
+
+  async function authFailure(fake: FakeBackend): Promise<string[]> {
+    const mgr = manager(fake);
+    const owner = member("es");
+    const id = await spawnAgent(mgr, "Sign-in", tempDir(), owner);
+    const before = systemTexts(mgr, id).length;
+    mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: owner.name },
+      text: "hi",
+    });
+    await waitUntil(
+      () => systemTexts(mgr, id).length > before,
+      "walkthrough written",
+    );
+    // Nothing else follows it: give a second entry time to land.
+    await sleep(50);
+    return systemTexts(mgr, id).slice(before);
+  }
+
+  it("is in the owner's language on the auth path", async () => {
+    expect(words("es")(KEY)).not.toBe(words("en")(KEY));
+    const texts = await authFailure(
+      fakeWith((given) => (given ?? translatorFor("en").t)(KEY)),
+    );
+    expect(texts).toEqual([words("es")(KEY)]);
+  });
+
+  it("falls back to the generic walkthrough in the owner's language", async () => {
+    const fake = fakeWith(() => {
+      throw new Error("sign-in state unknown");
+    });
+    const texts = await authFailure(fake);
+    expect(texts).toEqual([words("es")(GENERIC)]);
+    expect(words("es")(GENERIC)).not.toBe(words("en")(GENERIC));
+  });
+
+  it("is in the typist's language on /login", async () => {
+    const fake = fakeWith((given) => (given ?? translatorFor("en").t)(KEY));
+    const mgr = manager(fake);
+    const owner = member("es");
+    const typist = member("ca");
+    const id = await spawnAgent(mgr, "Login typist", tempDir(), owner);
+    const before = systemTexts(mgr, id).length;
+    void mgr.sendMessage(id, "/login", typist.name).catch(() => {});
+    await waitUntil(
+      () => systemTexts(mgr, id).length > before,
+      "walkthrough written",
+    );
+    expect(systemTexts(mgr, id).slice(before)).toEqual([words("ca")(KEY)]);
+  });
+});

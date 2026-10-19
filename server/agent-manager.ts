@@ -142,6 +142,8 @@ import { rmSync, statSync, readFileSync } from "fs";
 import {
   resolveCwd,
   validateCwd,
+  cwdProblem,
+  type CwdProblem,
   claudeSessionFileExists,
   claudeSessionInterruptedByShutdown,
   moveClaudeSessionFile,
@@ -638,14 +640,6 @@ export function createAgentManager(deps: ManagerDeps) {
     return owner.id;
   }
 
-  const LOGIN_INSTRUCTIONS = `To authenticate:
-1. Open the built-in terminal
-2. Run \`claude\`
-3. Type \`/login\`
-4. Follow the auth flow
-
-Once complete, it takes effect immediately for all Isomux agents.`;
-
   // Auth-error check for a one-shot result (topic generation), which runs
   // outside the session stream. Session events never need it: the backend
   // sends auth_needed (server/backends/auth-signal.ts).
@@ -698,15 +692,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (managed.info.agentType === "codex") return !isCodexAuthenticated(env);
     return false;
   }
+  // In the words of the person who typed /login, else the agent's owner.
   async function agentLoginInstructions(
     managed: ManagedAgent | undefined,
+    username?: string,
   ): Promise<LoginInstructions> {
-    if (!managed)
-      return {
-        kind: "login",
-        cardEligible: false,
-        text: LOGIN_INSTRUCTIONS,
-      };
+    const words = managed
+      ? logWords(managed.info.id, username)
+      : translatorForUsername(username).t;
+    const generic: LoginInstructions = {
+      kind: "login",
+      cardEligible: false,
+      text: words("systemEntries.loginInstructions.generic"),
+    };
+    if (!managed) return generic;
     // Resolve the merged env (process.env + office variables + managed personal variables, in
     // override order) so the backend can recognize env-var auth (e.g. Codex
     // OPENAI_API_KEY in the user's managed variables) and skip the full sign-in
@@ -726,6 +725,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         env,
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
         modelFamily: managed.info.modelFamily,
+        words,
       });
     } catch (err) {
       // The sign-in state is unknown: give the generic guidance.
@@ -733,7 +733,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         `[auth] login instructions failed for ${managed.info.agentType}:`,
         errMessage(err),
       );
-      return { kind: "login", cardEligible: false, text: LOGIN_INSTRUCTIONS };
+      return generic;
     }
   }
 
@@ -1769,6 +1769,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           cwdMoveEnv,
         );
         if (!moved.ok) {
+          // These two errors reach a person only as the edit route's API
+          // error (edit_failed), so they stay English like every API error.
           officeState.updateAgent(agentId, snapshot);
           // Reverse a partial move so the file ends up where the rolled-back
           // mirror says it is. If the reverse itself fails the on-disk location no
@@ -2884,13 +2886,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const path = refusal.path;
     switch (refusal.kind) {
       case "not_found":
-        return words("commands.isomuxEdit.notFound", { path });
+        return words("systemEntries.pathRefusal.notFound", { path });
       case "not_file":
-        return words("commands.isomuxEdit.notFile", { path });
+        return words("systemEntries.pathRefusal.notFile", { path });
       case "binary":
-        return words("commands.isomuxEdit.binary", { path });
+        return words("systemEntries.pathRefusal.binary", { path });
       case "credential":
-        return words("commands.isomuxEdit.credential", { path });
+        return words("systemEntries.pathRefusal.credential", { path });
       case "too_large":
         return opening === "edit"
           ? editorTooLargeText(agentId, path, refusal.size ?? 0)
@@ -3192,7 +3194,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId)("commands.isomuxDiff.notRepo", {
+          logWords(agentId)("systemEntries.diffNotRepo", {
             path: result.cwd,
           }),
         );
@@ -3493,7 +3495,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     bytes: number,
   ): string {
     const i18n = logI18n(agentId);
-    return i18n.t("commands.isomuxEdit.tooLarge", {
+    return i18n.t("systemEntries.pathRefusal.tooLarge", {
       path,
       size: `${formatDecimal(i18n.language, bytes / 1024, 1)} KB`,
     });
@@ -6371,6 +6373,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
+  // Why the agent's cwd cannot start a session, in the owner's words.
+  function cwdInvalidText(agentId: string, problem: CwdProblem): string {
+    const words = logWords(agentId);
+    const path = problem.path;
+    switch (problem.kind) {
+      case "missing":
+        return words("systemEntries.cwdInvalid.missing", { path });
+      case "not_directory":
+        return words("systemEntries.cwdInvalid.notDirectory", { path });
+      case "inaccessible":
+        return words("systemEntries.cwdInvalid.inaccessible", {
+          path,
+          message: problem.message ?? "",
+        });
+    }
+  }
+
   function createSession(
     managed: ManagedAgent,
     resumeSessionId?: string,
@@ -6388,14 +6407,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     );
     // Preflight checks so failures surface as readable errors instead of the
     // backend's opaque process-exit messages.
-    try {
-      validateCwd(managed.info.cwd);
-    } catch (err) {
-      throw new Error(
-        `cwd is invalid: ${errMessage(err)}. Click the agent name in the log view header to fix it.`,
-        { cause: err },
-      );
-    }
+    const cwdIssue = cwdProblem(managed.info.cwd);
+    if (cwdIssue) throw new Error(cwdInvalidText(managed.info.id, cwdIssue));
     // Compute env once for both the backend-owned resume preflight and the
     // session options.
     const env = buildSessionEnv(managed, resumeSessionId ?? null);
@@ -6426,11 +6439,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         env,
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
       });
-      if (resumeError) {
-        throw new Error(
-          `${resumeError} Use /resume to pick another session, or start a new conversation.`,
-        );
-      }
+      // The problem only: the entry that shows it gives the /resume hint.
+      if (resumeError) throw new Error(resumeError);
     }
     // A live agent's roomId always resolves to a real room; roomById
     // logs loud and we fail fast (vs silently building a prompt for room 0).
@@ -6768,7 +6778,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     beginTurn,
     openChoiceInteraction,
     emitLoginInstructionsFor: (agentId, managed, username) => {
-      void agentLoginInstructions(managed).then((instructions) => {
+      void agentLoginInstructions(managed, username).then((instructions) => {
         if (managed && agents.get(agentId) !== managed) return;
         if (instructions.kind === "already_authed") {
           void emitAlreadySignedInAffordance(

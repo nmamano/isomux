@@ -388,21 +388,40 @@ export function moveClaudeSessionFile(
   return { ok: true, moved };
 }
 
-// Resolve and verify a cwd. Throws if the directory does not exist or is not a directory.
-export function validateCwd(cwd: string): string {
-  const resolved = resolveCwd(cwd);
+// Why a cwd cannot be used, or null when it can: the resolved path, and for
+// "inaccessible" the OS error message as the OS wrote it.
+export type CwdProblem = {
+  kind: "missing" | "not_directory" | "inaccessible";
+  path: string;
+  message?: string;
+};
+
+export function cwdProblem(cwd: string): CwdProblem | null {
+  const path = resolveCwd(cwd);
   let stat;
   try {
-    stat = statSync(resolved);
+    stat = statSync(path);
   } catch (err) {
-    if (errCode(err) === "ENOENT")
-      throw new Error(`Directory does not exist: ${resolved}`, { cause: err });
-    throw new Error(`Cannot access ${resolved}: ${errMessage(err)}`, {
-      cause: err,
-    });
+    if (errCode(err) === "ENOENT") return { kind: "missing", path };
+    return { kind: "inaccessible", path, message: errMessage(err) };
   }
-  if (!stat.isDirectory()) throw new Error(`Not a directory: ${resolved}`);
-  return resolved;
+  return stat.isDirectory() ? null : { kind: "not_directory", path };
+}
+
+// Resolve and verify a cwd. Throws if the directory does not exist or is not a
+// directory. The English is for API callers (spawn, edit, validate), which
+// read English; a log entry words the cwdProblem cause in the reader's language.
+export function validateCwd(cwd: string): string {
+  const problem = cwdProblem(cwd);
+  if (!problem) return resolveCwd(cwd);
+  switch (problem.kind) {
+    case "missing":
+      throw new Error(`Directory does not exist: ${problem.path}`);
+    case "inaccessible":
+      throw new Error(`Cannot access ${problem.path}: ${problem.message}`);
+    case "not_directory":
+      throw new Error(`Not a directory: ${problem.path}`);
+  }
 }
 
 // Produce a human-readable hint for why the Claude CLI subprocess may have died,
@@ -419,13 +438,9 @@ export function diagnoseProcessExit(
   env?: { [key: string]: string | undefined },
   t: Translator["t"] = translatorFor("en").t,
 ): string | null {
-  try {
-    validateCwd(cwd);
-  } catch {
-    return `Likely cause: cwd \`${cwd}\` no longer exists. Click the agent name in the log view header to point it at a valid directory.`;
-  }
+  if (cwdProblem(cwd)) return t("systemEntries.claudeExit.cwdMissing", { cwd });
   if (sessionId && !claudeSessionFileExists(cwd, sessionId, env)) {
-    return t("systemEntries.claudeSession.missing", {
+    return t("systemEntries.claudeSession.missingAfterExit", {
       session: sessionId.slice(0, 8),
       paths: join(claudeProjectDir(cwd, env), `${sessionId}.jsonl`),
     });

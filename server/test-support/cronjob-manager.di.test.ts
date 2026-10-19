@@ -21,7 +21,7 @@ import {
 import { failedEditText } from "../../shared/failed-edit.ts";
 import * as cronPersistence from "../cronjob-persistence.ts";
 import { makeFakeCronPersistence } from "./fake-cron-persistence.ts";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { NormalizedEvent } from "../backends/types.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
@@ -31,7 +31,10 @@ import {
   _testResetTokens,
 } from "../identity/tokens.ts";
 import { STATE_ROOT } from "../config.ts";
-import { createMember, deleteUserById } from "../users.ts";
+import { createMember, deleteUserById, updateUserById } from "../users.ts";
+import { tmpdir } from "os";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
   setMemberUsageCapForTests,
   type MemberUsageCap,
@@ -1616,5 +1619,172 @@ describe('CronjobManager: the "none" schedule', () => {
     reader.startCronjobScheduler();
     expect(saves).toBe(0);
     expect(reader.listCronjobs()).toEqual(onDisk);
+  });
+});
+
+// What a schedule run writes for a person is in that person's language
+// (task beb6089b): the typist's on a follow-up or an edit, else the
+// schedule owner's. The API answer stays English (ruling 2).
+describe("CronjobManager run text in the reader's language", () => {
+  const cleanups: (() => void)[] = [];
+  afterEach(() => {
+    for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+  });
+
+  let made = 0;
+  function member(language: SupportedLanguageCode | null) {
+    const r = createMember(`Cron I18n ${process.pid} ${++made}`, {
+      role: "member",
+    });
+    if (!r.ok) throw new Error(r.error);
+    cleanups.push(() => deleteUserById(r.user.id));
+    const u = updateUserById(r.user.id, { language });
+    if (!u.ok) throw new Error(u.error);
+    return { id: r.user.id, name: r.user.name };
+  }
+
+  const waitFor = async (pred: () => boolean, label: string) => {
+    for (let i = 0; i < 400; i++) {
+      if (pred()) return;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`waitFor timed out: ${label}`);
+  };
+
+  // A completed run in its own cwd, ready for a follow-up or an edit.
+  async function completedRun(over: Partial<AddCronjobInput> = {}) {
+    const root = mkdtempSync(join(tmpdir(), "isomux-cron-i18n-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const cwd = join(root, "work");
+    mkdirSync(cwd);
+    const fake = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },
+    });
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, eventSink: sink }),
+    );
+    const job = mgr.addCronjob({ ...intervalInput("I18nRun"), cwd, ...over });
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    await waitFor(
+      () => mgr.findRun(job.id, run.id)?.status === "completed",
+      "run completed",
+    );
+    const errors = () =>
+      events.flatMap((event) =>
+        event.type === "log_entry" && event.entry.kind === "error"
+          ? [event.entry.content]
+          : [],
+      );
+    const leaf = () => {
+      const r = mgr.findRun(job.id, run.id)!;
+      return r.currentSessionId ?? r.rootSessionId;
+    };
+    return { fake, mgr, job, run, cwd, errors, events, leaf };
+  }
+
+  it("writes the sign-in hint in the schedule owner's language", async () => {
+    const KEY = "systemEntries.resumeCancelled" as const;
+    const owner = member("es");
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_t, _a, s) =>
+          s.pushAll([
+            { kind: "auth_needed" },
+            { kind: "turn_completed", status: "failed" },
+          ]),
+      },
+    });
+    // Renders through the words it gets, as every real backend does.
+    fake.getLoginInstructions = async (opts) => ({
+      kind: "login",
+      cardEligible: false,
+      text: (opts?.words ?? translatorFor("en").t)(KEY),
+    });
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, eventSink: sink }),
+    );
+    const job = mgr.addCronjob({
+      ...intervalInput("I18nHint"),
+      username: owner.name,
+      userId: owner.id,
+    });
+    const run = mgr.runCronjobNow(job.id, owner.name)!;
+    try {
+      await waitFor(
+        () => mgr.findRun(job.id, run.id)?.status === "failed",
+        "run failed",
+      );
+      const last = events
+        .flatMap((event) => (event.type === "log_entry" ? [event.entry] : []))
+        .at(-1);
+      expect(translatorFor("es").t(KEY)).not.toBe(translatorFor("en").t(KEY));
+      expect(last?.content).toBe(translatorFor("es").t(KEY));
+    } finally {
+      fake.sessions.forEach((session) => session.close());
+    }
+  });
+
+  it("words a follow-up's missing cwd for the typist, and answers the API in English", async () => {
+    const { mgr, job, run, cwd, errors } = await completedRun();
+    rmSync(cwd, { recursive: true });
+    const english = await mgr.sendRunMessage(
+      job.id,
+      run.id,
+      "again",
+      member(null).name,
+    );
+    const spanish = await mgr.sendRunMessage(
+      job.id,
+      run.id,
+      "again",
+      member("es").name,
+    );
+    expect(english.ok).toBe(false);
+    expect(spanish.ok).toBe(false);
+    if (english.ok || spanish.ok) return;
+    const [englishEntry, spanishEntry] = errors();
+    expect(englishEntry).toContain(cwd);
+    expect(spanishEntry).toContain(cwd);
+    expect(spanishEntry).not.toBe(englishEntry);
+    // The API answer is the English entry, whoever typed.
+    expect(english.message).toBe(englishEntry);
+    expect(spanish.message).toBe(englishEntry);
+  });
+
+  it("words an edit's missing cwd for the typist", async () => {
+    const { mgr, job, run, cwd, errors } = await completedRun();
+    rmSync(cwd, { recursive: true });
+    await mgr.editRunMessage(
+      job.id,
+      run.id,
+      "any-entry",
+      "x",
+      member(null).name,
+    );
+    await mgr.editRunMessage(
+      job.id,
+      run.id,
+      "any-entry",
+      "x",
+      member("es").name,
+    );
+    const [englishEntry, spanishEntry] = errors();
+    expect(englishEntry).toContain(cwd);
+    expect(spanishEntry).toContain(cwd);
+    expect(spanishEntry).not.toBe(englishEntry);
+  });
+
+  // The backend's sentence states the whole problem; a prefix in front of it
+  // would say "cannot" twice.
+  it("shows the backend's resume problem as it is, on a follow-up and on an edit", async () => {
+    const PROBLEM = "The stored fake session is missing.";
+    const { fake, mgr, job, run, errors, leaf } = await completedRun();
+    fake.setSessionResumableError(leaf(), PROBLEM);
+    const typist = member(null).name;
+    await mgr.sendRunMessage(job.id, run.id, "again", typist);
+    await mgr.editRunMessage(job.id, run.id, "any-entry", "x", typist);
+    expect(errors()).toEqual([PROBLEM, PROBLEM]);
   });
 });

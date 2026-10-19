@@ -11,6 +11,10 @@
 // which holds this table and the registry in shared/commands.ts to exactly the
 // same name set in both directions.
 //
+// A command that another command describes in the same words (an alias such
+// as /bug for /feedback) points at that command's key: two keys with one
+// English text drift apart in translation.
+//
 // Command NAMES are not in the catalog: they are what the user types
 // (ruling 11). Only the words describing them are.
 //
@@ -38,7 +42,7 @@ export const COMMAND_DESCRIPTION_KEYS = {
   "isomux-storage": "commands.isomuxStorage.description",
   compact: "commands.compact.description",
   branch: "commands.branch.description",
-  fork: "commands.fork.description",
+  fork: "commands.branch.description",
   export: "commands.export.description",
   plan: "commands.plan.description",
   rename: "commands.rename.description",
@@ -53,15 +57,15 @@ export const COMMAND_DESCRIPTION_KEYS = {
   stats: "commands.stats.description",
   "extra-usage": "commands.extraUsage.description",
   "rate-limit-options": "commands.rateLimitOptions.description",
-  diff: "commands.diff.description",
+  diff: "commands.isomuxDiff.description",
   rewind: "commands.rewind.description",
-  checkpoint: "commands.checkpoint.description",
+  checkpoint: "commands.rewind.description",
   copy: "commands.copy.description",
   files: "commands.files.description",
   "add-dir": "commands.addDir.description",
   btw: "commands.btw.description",
   config: "commands.config.description",
-  settings: "commands.settings.description",
+  settings: "commands.config.description",
   hooks: "commands.hooks.description",
   permissions: "commands.permissions.description",
   keybindings: "commands.keybindings.description",
@@ -73,15 +77,15 @@ export const COMMAND_DESCRIPTION_KEYS = {
   sandbox: "commands.sandbox.description",
   "privacy-settings": "commands.privacySettings.description",
   theme: "commands.theme.description",
-  color: "commands.color.description",
+  color: "commands.theme.description",
   vim: "commands.vim.description",
   "terminal-setup": "commands.terminalSetup.description",
   "reload-plugins": "commands.reloadPlugins.description",
   tasks: "commands.tasks.description",
-  bashes: "commands.bashes.description",
+  bashes: "commands.tasks.description",
   doctor: "commands.doctor.description",
   feedback: "commands.feedback.description",
-  bug: "commands.bug.description",
+  bug: "commands.feedback.description",
   "release-notes": "commands.releaseNotes.description",
   heapdump: "commands.heapdump.description",
   status: "commands.status.description",

@@ -953,25 +953,25 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          t("commands.isomuxEdit.notFound", { path: resolved.path }),
+          t("systemEntries.pathRefusal.notFound", { path: resolved.path }),
         );
       } else if (probe.kind === "not_file") {
         deps.addLogEntry(
           agentId,
           "system",
-          t("commands.isomuxEdit.notFile", { path: resolved.path }),
+          t("systemEntries.pathRefusal.notFile", { path: resolved.path }),
         );
       } else if (probe.kind === "binary") {
         deps.addLogEntry(
           agentId,
           "system",
-          t("commands.isomuxEdit.binary", { path: resolved.path }),
+          t("systemEntries.pathRefusal.binary", { path: resolved.path }),
         );
       } else if (probe.kind === "too_large") {
         deps.addLogEntry(
           agentId,
           "system",
-          t("commands.isomuxEdit.tooLarge", {
+          t("systemEntries.pathRefusal.tooLarge", {
             path: resolved.path,
             size: `${formatDecimal(language, probe.size / 1024, 1)} KB`,
           }),
@@ -980,7 +980,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          t("commands.isomuxEdit.ioError", {
+          t("systemEntries.fileOpenFailed", {
             path: resolved.path,
             message: probe.message,
           }),
@@ -989,7 +989,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          t("commands.isomuxEdit.credential", { path: resolved.path }),
+          t("systemEntries.pathRefusal.credential", { path: resolved.path }),
         );
       } else {
         deps.addLogEntry(
@@ -1028,14 +1028,14 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.addLogEntry(
             agentId,
             "system",
-            t("commands.isomuxDiff.notRepo", { path: result.cwd }),
+            t("systemEntries.diffNotRepo", { path: result.cwd }),
           );
           break;
         case "git_error":
           deps.addLogEntry(
             agentId,
             "system",
-            `${t("commands.isomuxDiff.gitError", {
+            `${t("systemEntries.diffFailed", {
               path: result.cwd,
             })}\n\n\`\`\`\n${result.message}\n\`\`\``,
           );
@@ -1044,7 +1044,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.addLogEntry(
             agentId,
             "system",
-            t("commands.isomuxDiff.clean", { path: result.cwd }),
+            t("systemEntries.diffClean", { path: result.cwd }),
           );
           break;
         case "ok":

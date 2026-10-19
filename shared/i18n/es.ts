@@ -38,7 +38,6 @@ export const es: Catalog = {
   "audit.memory.room": "Memoria de la sala",
   "audit.memory.agent": "Memoria del agente",
   "audit.memory.member": "Memoria del miembro",
-  "audit.loading": "Cargando…",
   "audit.older": "Anteriores",
   "audit.history": "Historial",
   "audit.taskCreated": "creó la tarea",
@@ -110,7 +109,6 @@ export const es: Catalog = {
   "browser.expires": "Caduca a las {time}",
   "browser.expired": "El código ha caducado. Crea uno nuevo.",
   "browser.copy": "Copiar código",
-  "browser.copied": "Copiado",
   "browser.pairHelp":
     "Abre Isomux Browser e introduce la dirección de esta oficina y el código de vinculación.",
   "browser.office": "Dirección de la oficina",
@@ -288,7 +286,6 @@ Cosas que puedes hacer por él:
   "templates.receptionist.label": "Recepcionista de Isomux",
   "templates.receptionist.description": "Ayuda con Isomux y esta oficina.",
   "lobby.receptionistName": "Recepcionista",
-  "lobby.askHint": "Pregunta sobre Isomux o esta oficina",
   "lobby.welcome": "BIENVENIDOS",
   "lobby.poster": "LA OFICINA",
   "common.lobby": "Vestíbulo",
@@ -297,7 +294,6 @@ Cosas que puedes hacer por él:
   "lobby.employeeLine1": "EMPLEADO",
   "lobby.employeeLine2": "DEL MINUTO",
   "lobby.openChat": "{name} - haz clic para abrir el chat",
-  "membersChat.authorAgent": "{name} · agente",
   "membersChat.authorApi": "{name} · token de API",
   "membersChat.authorApiDevice": '{name} · token de API "{device}"',
   "membersChat.deleteAgain": "Haz clic de nuevo para eliminar",
@@ -450,7 +446,6 @@ Cosas que puedes hacer por él:
   "settings.profile.tuck": "Recoger {room}",
   "settings.profile.notificationsFor": "Notificaciones de {room}",
   "settings.profile.devicesFor": "Notificaciones push de {room}",
-  "settings.profile.agentContext": "Contexto para agentes",
   "settings.profile.promptConflict":
     "Las instrucciones especiales cambiaron en otro lugar. Tu borrador se conserva. Revisa el texto actual antes de volver a guardar.",
   "settings.profile.currentPrompt": "Instrucciones especiales actuales",
@@ -827,7 +822,6 @@ Cosas que puedes hacer por él:
   "settings.secrets.formHeaderNamed": "Cabecera {header}",
   "settings.secrets.rotate": "Reemplazar el valor",
   "settings.secrets.saveValue": "Guardar el valor",
-  "settings.secrets.edit": "Editar",
   "settings.secrets.reissue": "Nuevo sustituto",
   "settings.secrets.reissueConfirm":
     "El sustituto actual de {name} deja de funcionar ahora. Los agentes reciben el nuevo en su próximo inicio.",
@@ -1982,7 +1976,6 @@ Cosas que puedes hacer por él:
   "office.zoom.reset": "Restablecer la vista (0)",
   "office.zoom.resetAria": "Restablecer la vista",
   "office.openWebsite": "Abrir isomux.com",
-  "office.skin.label": "Aspecto de la sala",
   "office.skin.office": "Oficina",
   "office.skin.hospital": "Hospital",
   "office.decor.preset": "Preajuste",
@@ -2324,14 +2317,10 @@ Cosas que puedes hacer por él:
   "tasks.showAllAgents": "Mostrar todos los agentes",
   "tasks.showLess": "mostrar menos",
   "tasks.moreAgents": "+{count} más",
-  "tasks.discardPrompt": "¿Descartar los cambios sin guardar?",
   "tasks.saveConflict":
     "Esta tarea cambió mientras la editabas, así que tus cambios no se guardaron.",
-  "tasks.discard": "Descartar",
   "tasks.create": "Crear",
-  "tasks.confirmDelete": "¿Confirmar?",
   "tasks.globalShort": "Global",
-  "tasks.heading": "Tareas",
   "tasks.shownCount": "{count} a la vista",
   "tasks.quickAdd": "Añadir una tarea rápida…",
   "tasks.fileIn": "archivar en",
@@ -2408,7 +2397,6 @@ Cosas que puedes hacer por él:
     "`/compact` todavía no está disponible en Isomux. El SDK compacta el contexto automáticamente.",
   "commands.branch.description":
     "Ramificar la conversación en una sesión nueva",
-  "commands.fork.description": "Ramificar la conversación en una sesión nueva",
   "commands.export.description": "Exportar la conversación a un archivo",
   "commands.plan.description": "Activar o desactivar el modo de planificación",
   "commands.rename.description": "Renombrar la sesión actual",
@@ -2427,18 +2415,13 @@ Cosas que puedes hacer por él:
   "commands.extraUsage.description": "Opciones de uso adicional",
   "commands.rateLimitOptions.description":
     "Configuración del límite de peticiones",
-  "commands.diff.description":
-    "Ver los cambios sin confirmar en el cwd del agente (o pasa un directorio)",
   "commands.rewind.description":
-    "Deshacer los cambios y revertir la conversación",
-  "commands.checkpoint.description":
     "Deshacer los cambios y revertir la conversación",
   "commands.copy.description": "Copiar la última respuesta al portapapeles",
   "commands.files.description": "Listar los archivos que hay en el contexto",
   "commands.addDir.description": "Añadir más directorios de trabajo",
   "commands.btw.description": "Preguntar sin ensuciar el contexto principal",
   "commands.config.description": "Abrir la interfaz de ajustes",
-  "commands.settings.description": "Abrir la interfaz de ajustes",
   "commands.hooks.description": "Gestionar los hooks del ciclo de vida",
   "commands.permissions.description":
     "Gestionar los permisos de las herramientas",
@@ -2451,7 +2434,6 @@ Cosas que puedes hacer por él:
   "commands.sandbox.description": "Gestionar los ajustes del sandbox",
   "commands.privacySettings.description": "Gestionar los ajustes de privacidad",
   "commands.theme.description": "Cambiar el tema de color",
-  "commands.color.description": "Cambiar el tema de color",
   "commands.vim.description": "Activar o desactivar los atajos de vim",
   "commands.terminalSetup.description":
     "Configurar la integración con el terminal",
@@ -2460,11 +2442,8 @@ Cosas que puedes hacer por él:
     "Para recargar los plugins, abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente), ejecuta `claude` y escribe `/reload-plugins`.",
   "commands.tasks.description":
     "Listar o gestionar las tareas en segundo plano",
-  "commands.bashes.description":
-    "Listar o gestionar las tareas en segundo plano",
   "commands.doctor.description": "Comprobar el estado de la instalación",
   "commands.feedback.description": "Informar de errores a Anthropic",
-  "commands.bug.description": "Informar de errores a Anthropic",
   "commands.releaseNotes.description": "Ver las notas de la versión",
   "commands.heapdump.description": "Volcar el heap para depurar",
   "commands.status.description": "Ver el estado del sistema",
@@ -2526,7 +2505,6 @@ Cosas que puedes hacer por él:
   "commands.unsupported.unknownCommand":
     "Comando desconocido `/{name}`. Escribe `/help` para ver los comandos disponibles.",
   "commands.clear.failed": "No se pudo borrar la conversación: {error}",
-  "commands.clear.done": "Conversación borrada.",
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
   "commands.context.noSession": "No hay ninguna sesión activa.",
   "commands.context.unavailable":
@@ -2593,20 +2571,16 @@ Cosas que puedes hacer por él:
   "commands.isomuxEdit.usage":
     "Uso: {usage}. La ruta puede ser relativa (se resuelve desde {cwd}), absoluta o `~/...`.",
   "commands.isomuxEdit.emptyPath": "Ruta vacía.",
-  "commands.isomuxEdit.notFound": "`{path}` no existe.",
-  "commands.isomuxEdit.notFile": "`{path}` no es un archivo.",
-  "commands.isomuxEdit.binary":
+  "systemEntries.pathRefusal.notFound": "`{path}` no existe.",
+  "systemEntries.pathRefusal.notFile": "`{path}` no es un archivo.",
+  "systemEntries.pathRefusal.binary":
     "`{path}` es un archivo binario: el panel del editor solo admite texto.",
-  "commands.isomuxEdit.tooLarge":
+  "systemEntries.pathRefusal.tooLarge":
     "`{path}` ocupa {size}, demasiado para el panel del editor (el límite es 1 MB).",
-  "commands.isomuxEdit.ioError": "No se pudo abrir `{path}`: {message}",
-  "commands.isomuxEdit.credential":
+  "systemEntries.pathRefusal.credential":
     "`{path}` contiene credenciales, así que no se abre en el panel del editor.",
   "commands.isomuxDiff.notDirectory": "`{path}` no es un directorio.",
-  "commands.isomuxDiff.notRepo": "`{path}` no es un repositorio de git.",
-  "commands.isomuxDiff.gitError": "No se pudo ejecutar git diff en `{path}`:",
-  "commands.isomuxDiff.clean":
-    "El árbol de trabajo de `{path}` está limpio: no hay cambios sin confirmar.",
+  "systemEntries.diffNotRepo": "`{path}` no es un repositorio de git.",
   "commands.usage.meter":
     "Consulta el medidor de uso en la cabecera del chat para ver los límites de la suscripción y cuándo se restablecen.",
   "commands.usage.unavailable":
@@ -2640,7 +2614,6 @@ Cosas que puedes hacer por él:
     "Responde `{replySpec}` para elegir cuánto permites, por ejemplo `{index} {example}`.",
   "choices.permission.denyByMessage":
     "O escribe cualquier otro mensaje para denegar con ese motivo.",
-  "systemEntries.conversationCleared": "Conversación borrada.",
   "systemEntries.newConversation": "Conversación nueva iniciada.",
   "systemEntries.autoHandoff.writingTokens":
     "El contexto está en {thousands}k tokens. Escribiendo un resumen de traspaso para una sesión nueva.",
@@ -2728,7 +2701,7 @@ Cosas que puedes hacer por él:
   "systemEntries.freshSessionBeforeFlush":
     "Se inició una sesión nueva antes de vaciar la cola de mensajes.",
   "systemEntries.flushStartFailed":
-    "No se pudo iniciar la sesión para vaciar la cola: {error}",
+    "No se pudo iniciar la sesión para vaciar la cola: {error}\nEscribe /clear para empezar de cero, o /resume para elegir otra sesión.",
   "systemEntries.restartingForSettings":
     "Se reinicia la sesión para aplicar los ajustes; los mensajes en cola saldrán después del reinicio.",
   "systemEntries.settingsNotice.changed":
@@ -2793,7 +2766,8 @@ Cosas que puedes hacer por él:
   "systemEntries.permissionResolveFailed":
     "No se pudo resolver el permiso: {error}",
   "systemEntries.resumedSession": "Sesión retomada: {label}",
-  "systemEntries.resumeFailed": "No se pudo retomar: {error}",
+  "systemEntries.resumeFailed":
+    "No se pudo retomar: {error}\nEscribe /clear para empezar de cero, o /resume para elegir otra sesión.",
   "systemEntries.resumeCancelled": "Retomada cancelada.",
   "systemEntries.resumeCwdUnavailable":
     "El directorio guardado de la sesión `{stored}` no está disponible ({error}); se retoma en `{previous}`.",
@@ -2850,7 +2824,77 @@ Cosas que puedes hacer por él:
   "systemEntries.claudeSession.invalid":
     "No se puede acceder a esta conversación de Claude.",
   "systemEntries.claudeSession.missing":
+    "No se puede reanudar la sesión de Claude {session}…: no se encontró su archivo. Rutas comprobadas: {paths}.",
+  "systemEntries.loginInstructions.generic":
+    "Para autenticarte:\n1. Abre la terminal integrada\n2. Ejecuta `claude`\n3. Escribe `/login`\n4. Sigue el proceso de autenticación\n\nAl terminar, se aplica de inmediato a todos los agentes de Isomux.",
+  "systemEntries.loginInstructions.claude":
+    "Para autenticar Claude Code:\n1. Abre la terminal integrada\n2. Ejecuta `{command}`\n3. Escribe `/login`\n4. Sigue el proceso de autenticación\n\nAl terminar, se aplica de inmediato a todos los agentes de Isomux.\n\nAlternativa: añade `ANTHROPIC_API_KEY` en la página Integraciones (pestaña Variables) y luego usa `/clear`.",
+  "systemEntries.loginInstructions.claudeSignedIn":
+    "Claude Code tiene la sesión iniciada. Escribe `/clear` para renovar la sesión de este agente y aplicar la nueva autenticación.",
+  "systemEntries.loginInstructions.codex":
+    "Para iniciar sesión en Codex, haz clic en [Copiar en la terminal] en la tarjeta de abajo:\n\n- `{command} login --device-auth`\n\nPulsa Intro para ejecutarlo, sigue las indicaciones y luego usa `/clear` en esta conversación para aplicar la nueva autenticación. Los demás agentes de Codex la aplican en su próximo `/clear`.\n\nAlternativa: añade `OPENAI_API_KEY` en la página Integraciones (pestaña Variables) y luego usa `/clear`.",
+  "systemEntries.loginInstructions.codexSignedIn":
+    "Codex tiene la sesión iniciada. Escribe `/clear` para renovar la sesión de este agente y aplicar la nueva autenticación.",
+  "systemEntries.loginInstructions.openCode":
+    "Añade `OPENCODE_API_KEY` en la página Integraciones (pestaña Variables) y luego usa `/clear`, o usa un agente con el motor Claude o Codex.",
+  "systemEntries.codexTokenRefresh":
+    "Codex pidió renovar su inicio de sesión de ChatGPT, y Isomux no puede hacerlo.",
+  "systemEntries.codexSession.missing":
+    "No se puede reanudar el hilo de Codex {thread}…: no se encontró ningún archivo de rollout en {dir}. Suele pasar cuando el hilo se inició, pero su proceso terminó antes de recibir un turno del usuario.",
+  "systemEntries.openCodeSession.empty":
+    "No se puede reanudar la sesión de OpenCode {session}: no tiene mensajes guardados.",
+  "systemEntries.openCodeSession.missing":
+    "No se puede reanudar la sesión de OpenCode {session}: no está en el perfil de OpenCode seleccionado.",
+  "systemEntries.claudeExit.cwdMissing":
+    "Causa probable: el cwd `{cwd}` ya no existe. Haz clic en el nombre del agente en la cabecera de la vista del registro para apuntarlo a un directorio válido.",
+  "systemEntries.cwdInvalid.missing":
+    "El cwd no es válido: el directorio no existe: {path}. Haz clic en el nombre del agente en la cabecera de la vista del registro para corregirlo.",
+  "systemEntries.cwdInvalid.notDirectory":
+    "El cwd no es válido: no es un directorio: {path}. Haz clic en el nombre del agente en la cabecera de la vista del registro para corregirlo.",
+  "systemEntries.cwdInvalid.inaccessible":
+    "El cwd no es válido: no se puede acceder a {path}: {message}. Haz clic en el nombre del agente en la cabecera de la vista del registro para corregirlo.",
+  "systemEntries.scheduleRun.resumeSkipped":
+    "No se puede retomar una ejecución omitida: nunca abrió una sesión.",
+  "systemEntries.scheduleRun.resumeNoInit":
+    "No se puede retomar: la ejecución original nunca llegó a iniciar el motor.",
+  "systemEntries.scheduleRun.resumeCwd.missing":
+    "No se puede retomar: el cwd no es válido: el directorio no existe: {path}",
+  "systemEntries.scheduleRun.resumeCwd.notDirectory":
+    "No se puede retomar: el cwd no es válido: no es un directorio: {path}",
+  "systemEntries.scheduleRun.resumeCwd.inaccessible":
+    "No se puede retomar: el cwd no es válido: no se puede acceder a {path}: {message}",
+  "systemEntries.scheduleRun.envFailed":
+    "No se pudo preparar el entorno: {error}",
+  "systemEntries.scheduleRun.openCodeJobDeleted":
+    "No se puede retomar esta ejecución de OpenCode porque su programación se eliminó y ya no se puede resolver su perfil de entorno compartido.",
+  "systemEntries.scheduleRun.sendFailed": "No se pudo enviar: {error}",
+  "systemEntries.scheduleRun.editBusy":
+    "No se puede editar mientras la ejecución está ocupada.",
+  "systemEntries.scheduleRun.editSkipped":
+    "No se puede editar una ejecución omitida: nunca abrió una sesión.",
+  "systemEntries.scheduleRun.editNoInit":
+    "No se puede editar: la ejecución original nunca llegó a iniciar el motor.",
+  "systemEntries.scheduleRun.editCwd.missing":
+    "No se puede editar: el cwd no es válido: el directorio no existe: {path}",
+  "systemEntries.scheduleRun.editCwd.notDirectory":
+    "No se puede editar: el cwd no es válido: no es un directorio: {path}",
+  "systemEntries.scheduleRun.editCwd.inaccessible":
+    "No se puede editar: el cwd no es válido: no se puede acceder a {path}: {message}",
+  "systemEntries.scheduleRun.editFailed": "No se puede editar: {error}",
+  "systemEntries.scheduleRun.editMessageNotFound":
+    "No se puede editar: no se encontró el mensaje.",
+  "systemEntries.scheduleRun.loadMessagesFailed":
+    "No se pudieron cargar los mensajes de la sesión: {error}",
+  "systemEntries.scheduleRun.editMessageNotInSession":
+    "No se puede editar: no se encontró el mensaje en la sesión del motor.",
+  "systemEntries.scheduleRun.editNoFork":
+    "No se puede editar: el motor devolvió una sesión nueva (sin rama vinculada).",
+  "systemEntries.scheduleRun.forkFailed": "No se pudo ramificar: {error}",
+  "systemEntries.scheduleRun.forkStartFailed":
+    "No se pudo iniciar la conversación ramificada: {error}",
+  "systemEntries.claudeSession.missingAfterExit":
     "No se puede reanudar la sesión de Claude {session}…: no se encontró su archivo. Rutas comprobadas: {paths}. Usa /resume para seleccionar otra conversación o inicia una conversación nueva.",
+  "systemEntries.scheduleRun.resumeFailed": "No se pudo retomar: {error}",
   "systemEntries.claudeAuth.connected":
     "Esta conversación puede seguir usando las credenciales con las que se inició. Inicia una conversación nueva (`/clear`) para usar la conexión actual de Claude.",
   "systemEntries.claudeAuth.incomplete":
@@ -2925,7 +2969,6 @@ Cosas que puedes hacer por él:
     "_Se muestran los {shown} agentes más grandes de {total} con datos guardados._",
   "storageReport.nothingDeleted":
     "_Aquí no se borra nada automáticamente. Las transcripciones y los adjuntos solo se eliminan cuando el propietario de la oficina lo pide._",
-  "storageReport.unknownSize": "tamaño desconocido",
 
   // --- S9: the pre-sign-in pages the server renders itself -----------------
   // The claim page, the invite-accept page, the login page and the three
@@ -3128,11 +3171,9 @@ Cosas que puedes hacer por él:
   "skills.notUsed": "No se ejecuta",
   "skills.shadowed":
     "No se ejecuta en {engine}. Primero va una habilidad con el mismo nombre:",
-  "skills.field.file": "Archivo",
   "skills.field.project": "Proyecto",
   "skills.field.alias": "También se ejecuta como",
   "skills.field.engines": "Funciona en",
-  "skills.field.uses": "Tus usos",
   "skills.delete.title": "¿Eliminar /{name}?",
   "skills.delete.folder":
     "Se eliminará la carpeta de la habilidad, incluidos sus scripts y recursos. Se eliminan los enlaces, pero se conservan sus destinos.",

@@ -26,6 +26,10 @@ import type {
   SubscriptionUsageResult,
 } from "../types.ts";
 import { authSignal } from "../auth-signal.ts";
+import {
+  translatorFor,
+  type Translator,
+} from "../../../shared/i18n/translate.ts";
 import { OPENCODE_TRACER_MODEL } from "../../../shared/types.ts";
 import {
   detectOpenCodeAuthError,
@@ -59,8 +63,11 @@ import {
   resolveAttachmentNotices,
 } from "../../attachment-prompt.ts";
 
-const AUTH_GUIDANCE =
-  "Add `OPENCODE_API_KEY` on the Integrations page (Variables tab), then `/clear`, or use an agent with the Claude or Codex backend.";
+function authGuidance(words: Translator["t"] | undefined): string {
+  return (words ?? translatorFor("en").t)(
+    "systemEntries.loginInstructions.openCode",
+  );
+}
 
 // Where OpenCode compacts a session on its own, on its default path:
 // SessionCompaction.isOverflow fires when a step's total tokens reach the
@@ -465,11 +472,11 @@ export function createOpenCodeTracerBackend(
       return detectOpenCodeAuthError(text);
     },
 
-    async getLoginInstructions() {
+    async getLoginInstructions(opts) {
       return {
         kind: "login",
         cardEligible: false,
-        text: AUTH_GUIDANCE,
+        text: authGuidance(opts?.words),
       };
     },
   };
@@ -630,9 +637,12 @@ export function createOpenCodeBackend(
         opts.environmentKey,
       );
       if (state === "durable") return null;
-      return state === "empty"
-        ? `Cannot resume OpenCode session ${sessionId}: it has no stored messages.`
-        : `Cannot resume OpenCode session ${sessionId}: it is missing from the selected OpenCode profile.`;
+      return (opts.words ?? translatorFor("en").t)(
+        state === "empty"
+          ? "systemEntries.openCodeSession.empty"
+          : "systemEntries.openCodeSession.missing",
+        { session: sessionId },
+      );
     },
     async forkSessionBeforeMessage(
       sessionId: string,
@@ -759,11 +769,11 @@ export function createOpenCodeBackend(
     detectAuthError(text: string): boolean {
       return detectOpenCodeAuthError(text);
     },
-    async getLoginInstructions() {
+    async getLoginInstructions(opts) {
       return {
         kind: "login",
         cardEligible: false,
-        text: AUTH_GUIDANCE,
+        text: authGuidance(opts?.words),
       };
     },
   };

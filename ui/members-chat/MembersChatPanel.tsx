@@ -68,7 +68,7 @@ export function describeMembersChatAuthor(
 } {
   if (m.kind === "agent")
     return {
-      label: t("membersChat.authorAgent", { name: m.userName }),
+      label: t("common.sender.agent", { name: m.userName }),
       nonHuman: true,
     };
   if (m.kind === "api") {

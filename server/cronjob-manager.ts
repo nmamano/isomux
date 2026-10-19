@@ -2,7 +2,8 @@ import {
   claudeConfigRoot,
   resolveClaudeSessionRoot,
 } from "./claude-session-root.ts";
-import { translatorForUserId, translatorForUsername } from "./i18n.ts";
+import type { Translator } from "../shared/i18n/translate.ts";
+import { english, translatorForUserId, translatorForUsername } from "./i18n.ts";
 import {
   createMcpServerSources,
   mcpServersForUserId,
@@ -51,7 +52,12 @@ import {
   type LogEntry,
   type Schedule,
 } from "../shared/types.ts";
-import { validateCwd, resolveCwd } from "./cwd-utils.ts";
+import {
+  cwdProblem,
+  validateCwd,
+  resolveCwd,
+  type CwdProblem,
+} from "./cwd-utils.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
@@ -909,9 +915,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   function openCodeDeletedJobError(): Error {
-    return new Error(
-      "Cannot resume this OpenCode run because its schedule was deleted and its shared environment profile can no longer be resolved.",
-    );
+    return new Error(english.t("systemEntries.scheduleRun.openCodeJobDeleted"));
   }
 
   function resolveRunEnvironment(
@@ -1140,6 +1144,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       const instructions = await backend.getLoginInstructions({
         env: bestEffortRunEnv(active),
         modelFamily: active.modelFamily,
+        words: readerWords(active.jobId),
       });
       if (activeRuns.get(active.runId) !== active) return;
       writeLog(active, "system", instructions.text);
@@ -1891,30 +1896,28 @@ How to answer questions about Isomux itself: the source lives at https://github.
         code: "run_busy",
         message: "The run is busy. Send again when it stops.",
       };
-    if (run.status === "skipped") {
-      const message =
-        "Cannot resume a skipped run - it never opened a session.";
-      emitRunErrorEntry(jobId, runId, message);
-      return notResumable(message);
-    }
+    // The entry is in the typist's words; the API answer is English
+    // (API errors stay English).
+    const words = readerWords(jobId, username);
+    const refuse = (
+      say: (words: Translator["t"]) => string,
+    ): UserSendAcceptance => {
+      emitRunErrorEntry(jobId, runId, say(words));
+      return notResumable(say(english.t));
+    };
+    if (run.status === "skipped")
+      return refuse((t) => t("systemEntries.scheduleRun.resumeSkipped"));
     const leaf = run.currentSessionId ?? run.rootSessionId;
-    if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
-      const message =
-        "Cannot resume: the original run never reached backend init.";
-      emitRunErrorEntry(jobId, runId, message);
-      return notResumable(message);
-    }
-    try {
-      validateCwd(run.cwdSnapshot);
-    } catch (err) {
-      const message = `Cannot resume: cwd is invalid: ${errMessage(err)}`;
-      emitRunErrorEntry(jobId, runId, message);
-      return notResumable(message);
-    }
-    const precheckError = checkResumableSession(run, leaf);
+    if (leaf.startsWith("pending-") || leaf.startsWith("skipped-"))
+      return refuse((t) => t("systemEntries.scheduleRun.resumeNoInit"));
+    const cwdIssue = cwdProblem(run.cwdSnapshot);
+    if (cwdIssue) return refuse((t) => runCwdText(t, cwdIssue, "resume"));
+    const precheckError = checkResumableSession(run, leaf, words);
     if (precheckError) {
       emitRunErrorEntry(jobId, runId, precheckError);
-      return notResumable(precheckError);
+      return notResumable(
+        checkResumableSession(run, leaf, english.t) ?? precheckError,
+      );
     }
 
     startingRuns.add(runId);
@@ -1942,9 +1945,20 @@ How to answer questions about Isomux itself: the source lives at https://github.
         // Resume failed before installResumedActive, so finalizeRun never runs
         // for it - revoke here so the token doesn't outlive the attempt.
         revokeRunToken(jobId, runId);
-        const message = `Failed to resume: ${errMessage(err)}`;
-        emitRunErrorEntry(jobId, runId, message);
-        return { ok: false, status: 500, code: "resume_failed", message };
+        const error = errMessage(err);
+        emitRunErrorEntry(
+          jobId,
+          runId,
+          words("systemEntries.scheduleRun.resumeFailed", { error }),
+        );
+        return {
+          ok: false,
+          status: 500,
+          code: "resume_failed",
+          message: english.t("systemEntries.scheduleRun.resumeFailed", {
+            error,
+          }),
+        };
       }
 
       // installResumedActive marks the row "running"; a refused send puts it
@@ -1963,9 +1977,20 @@ How to answer questions about Isomux itself: the source lives at https://github.
         // close the orphaned session. finalizeRun only owns the token once
         // install fully succeeds.
         abortResumedRunToken(jobId, runId, session);
-        const message = `Failed to resume: ${errMessage(err)}`;
-        emitRunErrorEntry(jobId, runId, message);
-        return { ok: false, status: 500, code: "resume_failed", message };
+        const error = errMessage(err);
+        emitRunErrorEntry(
+          jobId,
+          runId,
+          words("systemEntries.scheduleRun.resumeFailed", { error }),
+        );
+        return {
+          ok: false,
+          status: 500,
+          code: "resume_failed",
+          message: english.t("systemEntries.scheduleRun.resumeFailed", {
+            error,
+          }),
+        };
       }
       const meta: Record<string, unknown> | undefined =
         username || device
@@ -2008,7 +2033,13 @@ How to answer questions about Isomux itself: the source lives at https://github.
         } catch (err) {
           if (active.killed) return;
           console.error(`Cronjob run ${runId} send error:`, errMessage(err));
-          writeLog(active, "error", `Failed to send: ${errMessage(err)}`);
+          writeLog(
+            active,
+            "error",
+            words("systemEntries.scheduleRun.sendFailed", {
+              error: errMessage(err),
+            }),
+          );
           try {
             session.close();
           } catch {}
@@ -2022,6 +2053,44 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
   }
 
+  // The words for what a run's log tells a person: the typist's on a
+  // follow-up or an edit, else the schedule owner's.
+  function readerWords(jobId: string, username?: string): Translator["t"] {
+    if (username) return translatorForUsername(username).t;
+    const job = cronjobs.find((c) => c.id === jobId);
+    return translatorForUserId(job?.userId ?? null).t;
+  }
+
+  // Why a run's cwd cannot resume, for a follow-up or an edit.
+  function runCwdText(
+    words: Translator["t"],
+    problem: CwdProblem,
+    action: "resume" | "edit",
+  ): string {
+    const path = problem.path;
+    const message = problem.message ?? "";
+    if (action === "resume") {
+      if (problem.kind === "missing")
+        return words("systemEntries.scheduleRun.resumeCwd.missing", { path });
+      if (problem.kind === "not_directory")
+        return words("systemEntries.scheduleRun.resumeCwd.notDirectory", {
+          path,
+        });
+      return words("systemEntries.scheduleRun.resumeCwd.inaccessible", {
+        path,
+        message,
+      });
+    }
+    if (problem.kind === "missing")
+      return words("systemEntries.scheduleRun.editCwd.missing", { path });
+    if (problem.kind === "not_directory")
+      return words("systemEntries.scheduleRun.editCwd.notDirectory", { path });
+    return words("systemEntries.scheduleRun.editCwd.inaccessible", {
+      path,
+      message,
+    });
+  }
+
   // Per-backend resume-precheck: a moved/renamed cwd or missing on-disk
   // session/rollout surfaces here as a readable error, rather than letting
   // the backend return an opaque "process exited with code 1" later. Returns
@@ -2032,14 +2101,18 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // the rollout-file lookup happens under the *same* sessions/ dir the
   // actual session would use at resume - preventing a precheck pass under
   // process.env's CODEX_HOME and a resume-time failure under the user's.
-  function checkResumableSession(run: CronjobRun, leaf: string): string | null {
+  function checkResumableSession(
+    run: CronjobRun,
+    leaf: string,
+    words: Translator["t"],
+  ): string | null {
     // Build env once for both branches - Claude honors CLAUDE_CONFIG_DIR for
     // its project dir lookup, Codex honors CODEX_HOME for its sessions/ dir.
     // An environment load error is a real precheck failure: fall through to a clear
     // error rather than silently checking the wrong directory.
     const job = cronjobs.find((c) => c.id === run.cronjobId);
     if (run.agentTypeSnapshot === "opencode" && !job) {
-      return openCodeDeletedJobError().message;
+      return words("systemEntries.scheduleRun.openCodeJobDeleted");
     }
     let env: { [key: string]: string | undefined } | undefined;
     try {
@@ -2049,11 +2122,13 @@ How to answer questions about Isomux itself: the source lives at https://github.
         buildEnvForUserId(job?.userId ?? null),
       );
     } catch (err) {
-      return `Cannot build env: ${errMessage(err)}`;
+      return words("systemEntries.scheduleRun.envFailed", {
+        error: errMessage(err),
+      });
     }
     return getBackend(run.agentTypeSnapshot).checkSessionResumable(leaf, {
       cwd: run.cwdSnapshot,
-      words: translatorForUserId(job?.userId ?? null).t,
+      words,
       env,
       environmentKey: environmentSourceKeyForUserId(job?.userId ?? null),
     });
@@ -2087,31 +2162,32 @@ How to answer questions about Isomux itself: the source lives at https://github.
       emitRunErrorEntry(jobId, runId, message, {
         [FAILED_EDIT_TEXT_KEY]: newText,
       });
+    const words = readerWords(jobId, username);
     // Synchronous claim - see sendRunMessage. Without this,
     // getSessionMessages + forkSessionBeforeMessage below would race against
     // a second concurrent submission.
     if (activeRuns.has(runId) || startingRuns.has(runId)) {
-      failEdit("Cannot edit while the run is busy.");
+      failEdit(words("systemEntries.scheduleRun.editBusy"));
       return;
     }
     if (run.status === "skipped") {
-      failEdit("Cannot edit a skipped run - it never opened a session.");
+      failEdit(words("systemEntries.scheduleRun.editSkipped"));
       return;
     }
     const leaf = run.currentSessionId ?? run.rootSessionId;
     if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
-      failEdit("Cannot edit: the original run never reached backend init.");
+      failEdit(words("systemEntries.scheduleRun.editNoInit"));
       return;
     }
-    try {
-      validateCwd(run.cwdSnapshot);
-    } catch (err) {
-      failEdit(`Cannot edit: cwd is invalid: ${errMessage(err)}`);
+    const cwdIssue = cwdProblem(run.cwdSnapshot);
+    if (cwdIssue) {
+      failEdit(runCwdText(words, cwdIssue, "edit"));
       return;
     }
-    const precheckError = checkResumableSession(run, leaf);
+    // The precheck sentence states the whole problem, so it stands alone.
+    const precheckError = checkResumableSession(run, leaf, words);
     if (precheckError) {
-      failEdit(`Cannot edit: ${precheckError}`);
+      failEdit(precheckError);
       return;
     }
 
@@ -2133,7 +2209,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
         opts,
       );
     } catch (err) {
-      failEdit(`Cannot edit: ${errMessage(err)}`);
+      failEdit(
+        words("systemEntries.scheduleRun.editFailed", {
+          error: errMessage(err),
+        }),
+      );
     } finally {
       startingRuns.delete(runId);
     }
@@ -2154,6 +2234,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       emitRunErrorEntry(jobId, runId, message, {
         [FAILED_EDIT_TEXT_KEY]: newText,
       });
+    const words = readerWords(jobId, username);
     const backend = getBackend(run.agentTypeSnapshot);
     let sessionAccess: SessionAccessOptions;
     try {
@@ -2167,7 +2248,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const oldEntries = loadRunLogWithAncestors(jobId, runId, leaf);
     const targetEntry = oldEntries.find((e) => e.id === logEntryId);
     if (!targetEntry || targetEntry.kind !== "user_message") {
-      failEdit("Cannot edit: message not found.");
+      failEdit(words("systemEntries.scheduleRun.editMessageNotFound"));
       return;
     }
 
@@ -2182,7 +2263,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
         sessionAccess,
       );
     } catch (err) {
-      failEdit(`Failed to load session messages: ${errMessage(err)}`);
+      failEdit(
+        words("systemEntries.scheduleRun.loadMessagesFailed", {
+          error: errMessage(err),
+        }),
+      );
       return;
     }
     // The cronjob's original prompt is the backend's first user message but
@@ -2210,7 +2295,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       .map((e) => ({ id: e.id, text: editLogUserText(e) }));
     const location = locateEditTarget(backendUsers, logUsers, logEntryId);
     if (location.kind === "missing") {
-      failEdit("Cannot edit: could not locate message in backend session.");
+      failEdit(words("systemEntries.scheduleRun.editMessageNotInSession"));
       return;
     }
 
@@ -2234,9 +2319,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         sessionAccess,
       );
       if (forkResult.kind !== "fork") {
-        failEdit(
-          "Cannot edit: backend returned a fresh session (no linked fork).",
-        );
+        failEdit(words("systemEntries.scheduleRun.editNoFork"));
         return;
       }
       newSessionId = forkResult.sessionId;
@@ -2249,7 +2332,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
         );
       }
     } catch (err) {
-      failEdit(`Fork failed: ${errMessage(err)}`);
+      failEdit(
+        words("systemEntries.scheduleRun.forkFailed", {
+          error: errMessage(err),
+        }),
+      );
       return;
     }
 
@@ -2266,7 +2353,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
       // before this fork resume; it failed before installResumedActive, so
       // finalizeRun never runs for it - revoke here.
       revokeRunToken(jobId, runId);
-      failEdit(`Failed to start fork: ${errMessage(err)}`);
+      failEdit(
+        words("systemEntries.scheduleRun.forkStartFailed", {
+          error: errMessage(err),
+        }),
+      );
       return;
     }
 
@@ -2338,7 +2429,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
       active.failedEditText = newText;
     } catch (err) {
       abortResumedRunToken(jobId, runId, session);
-      failEdit(`Failed to start fork: ${errMessage(err)}`);
+      failEdit(
+        words("systemEntries.scheduleRun.forkStartFailed", {
+          error: errMessage(err),
+        }),
+      );
       return;
     }
     const editMeta: Record<string, unknown> | undefined =
