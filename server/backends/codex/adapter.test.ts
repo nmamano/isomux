@@ -1332,6 +1332,142 @@ describe("CodexSession token usage", () => {
       cacheCreationInputTokens: 0,
     });
   });
+
+  // A resumed thread (task da064080). Codex reports cumulative usage since
+  // thread start, and it may replay the last persisted total after the
+  // resume, under an older turn's id. Only usage of a turn this session saw
+  // start counts, and its first report counts only its own increment.
+  describe("on a resumed thread", () => {
+    type Counts = { input: number; cached: number; output: number };
+    function fireUsage(
+      fake: FakeCodexTransport,
+      turnId: string,
+      total: Counts,
+      last: Counts,
+    ): void {
+      const wire = (c: Counts) => ({
+        totalTokens: c.input + c.output,
+        inputTokens: c.input,
+        cachedInputTokens: c.cached,
+        outputTokens: c.output,
+        reasoningOutputTokens: 0,
+      });
+      fake.fireNotification("thread/tokenUsage/updated", {
+        threadId: FIXTURE_THREAD_ID,
+        turnId,
+        tokenUsage: {
+          total: wire(total),
+          last: wire(last),
+          modelContextWindow: 200000,
+        },
+      });
+    }
+    function startTurn(fake: FakeCodexTransport, id: string): void {
+      fake.fireNotification("turn/started", {
+        threadId: FIXTURE_THREAD_ID,
+        turn: { id },
+      });
+    }
+    const delta = (input: number, cacheRead: number, output: number) => ({
+      inputTokens: input,
+      outputTokens: output,
+      cacheReadInputTokens: cacheRead,
+      cacheCreationInputTokens: 0,
+    });
+    async function nextUsage(
+      it: AsyncIterator<NormalizedEvent>,
+      label: string,
+    ) {
+      return expectKind(await nextEvent(it, label), "usage_update").tokenUsage;
+    }
+    // The thread's usage before the resume, and its last turn.
+    const LIFETIME = { input: 1000, cached: 600, output: 50 };
+    const OLD_LAST = { input: 400, cached: 300, output: 10 };
+    const resumed = () => bootstrapped(undefined, { resumeThreadId: "t-1" });
+
+    it("the replay adds nothing and does not move the baseline; the next turn adds only itself", async () => {
+      const { session, fake, it } = await resumed();
+      fireUsage(fake, "turn-old", LIFETIME, OLD_LAST);
+      expect(await nextUsage(it, "replay")).toEqual(delta(0, 0, 0));
+      // The replay still refreshes context fullness.
+      expect((await session.getContextUsage())!.totalTokens).toBe(410);
+
+      startTurn(fake, "turn-1");
+      fireUsage(
+        fake,
+        "turn-1",
+        { input: 1300, cached: 800, output: 70 },
+        { input: 300, cached: 200, output: 20 },
+      );
+      expect(await nextUsage(it, "turn-1 usage")).toEqual(delta(100, 200, 20));
+
+      // A replay that comes again later is still not ours.
+      fireUsage(
+        fake,
+        "turn-old",
+        { input: 9000, cached: 5000, output: 900 },
+        OLD_LAST,
+      );
+      expect(await nextUsage(it, "late replay")).toEqual(delta(0, 0, 0));
+      fireUsage(
+        fake,
+        "turn-1",
+        { input: 1500, cached: 900, output: 95 },
+        { input: 200, cached: 100, output: 25 },
+      );
+      expect(await nextUsage(it, "turn-1 again")).toEqual(delta(100, 100, 25));
+    });
+
+    it("with no replay, the first turn's report counts only that turn", async () => {
+      const { session, fake, it } = await resumed();
+      startTurn(fake, "turn-1");
+      fireUsage(
+        fake,
+        "turn-1",
+        { input: 1300, cached: 800, output: 70 },
+        { input: 300, cached: 200, output: 20 },
+      );
+      expect(await nextUsage(it, "turn-1 usage")).toEqual(delta(100, 200, 20));
+
+      // Later reports diff against the running total, in the same turn and
+      // in the next one.
+      fireUsage(
+        fake,
+        "turn-1",
+        { input: 1500, cached: 900, output: 95 },
+        { input: 200, cached: 100, output: 25 },
+      );
+      expect(await nextUsage(it, "turn-1 again")).toEqual(delta(100, 100, 25));
+      fake.fireNotification("turn/completed", {
+        threadId: FIXTURE_THREAD_ID,
+        turn: { id: "turn-1", status: "completed" },
+      });
+      expectKind(await nextEvent(it, "turn-1 end"), "turn_completed");
+      await session.send("next");
+      startTurn(fake, "turn-2");
+      fireUsage(
+        fake,
+        "turn-2",
+        { input: 1800, cached: 1000, output: 100 },
+        { input: 300, cached: 100, output: 5 },
+      );
+      expect(await nextUsage(it, "turn-2 usage")).toEqual(delta(200, 100, 5));
+    });
+
+    it("a replay that lands after the turn started adds nothing", async () => {
+      const { fake, it } = await resumed();
+      startTurn(fake, "turn-1");
+      fireUsage(fake, "turn-old", LIFETIME, OLD_LAST);
+      expect(await nextUsage(it, "replay")).toEqual(delta(0, 0, 0));
+      fireUsage(
+        fake,
+        "turn-1",
+        { input: 1300, cached: 800, output: 70 },
+        { input: 300, cached: 200, output: 20 },
+      );
+      expect(await nextUsage(it, "turn-1 usage")).toEqual(delta(100, 200, 20));
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

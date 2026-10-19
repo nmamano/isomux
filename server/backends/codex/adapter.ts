@@ -111,6 +111,7 @@ import type { ModelListParams } from "./_generated/v2/ModelListParams.ts";
 import type { ModelListResponse } from "./_generated/v2/ModelListResponse.ts";
 import type { ThreadForkParams } from "./_generated/v2/ThreadForkParams.ts";
 import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/ThreadTokenUsageUpdatedNotification.ts";
+import type { TokenUsageBreakdown } from "./_generated/v2/TokenUsageBreakdown.ts";
 import type { AccountRateLimitsUpdatedNotification } from "./_generated/v2/AccountRateLimitsUpdatedNotification.ts";
 import type { ErrorNotification } from "./_generated/v2/ErrorNotification.ts";
 import type { GetAccountRateLimitsResponse } from "./_generated/v2/GetAccountRateLimitsResponse.ts";
@@ -503,6 +504,30 @@ export async function forkThreadBeforeItem(
     params,
   );
   return resp.thread.id;
+}
+
+// Codex TokenUsageBreakdown -> our Claude-style TokenUsage (mapping at the
+// thread/tokenUsage/updated handler). null gives all zeros.
+function codexTokenUsage(b: TokenUsageBreakdown | null): TokenUsage {
+  return {
+    inputTokens: b ? Math.max(0, b.inputTokens - b.cachedInputTokens) : 0,
+    outputTokens: b ? b.outputTokens : 0,
+    cacheReadInputTokens: b ? b.cachedInputTokens : 0,
+    cacheCreationInputTokens: 0,
+  };
+}
+
+// Per-field a - b, floored at zero.
+function subtractTokenUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    inputTokens: Math.max(0, a.inputTokens - b.inputTokens),
+    outputTokens: Math.max(0, a.outputTokens - b.outputTokens),
+    cacheReadInputTokens: Math.max(
+      0,
+      a.cacheReadInputTokens - b.cacheReadInputTokens,
+    ),
+    cacheCreationInputTokens: 0,
+  };
 }
 
 const MINUTES_PER_HOUR = 60;
@@ -973,6 +998,13 @@ export class CodexSession implements BackendSession {
     cacheReadInputTokens: 0,
     cacheCreationInputTokens: 0,
   };
+  // Resumed threads only. Codex's `total` counts from thread start, and after
+  // thread/resume codex may replay the last persisted usage under an old
+  // turnId. A notification counts toward usage only when its turnId is a turn
+  // this session saw start; the first such one sets the baseline to
+  // total - last, so the pre-resume lifetime is never emitted again.
+  private ownTurnIds = new Set<string>();
+  private resumeBaselineSet = false;
   // Latest snapshot for /context. We use the `last` (most recent turn) field
   // of the tokenUsage notification, not `total` (cumulative-since-thread-
   // start). `last.inputTokens` is the prompt size of the last turn - i.e.
@@ -2058,6 +2090,7 @@ export class CodexSession implements BackendSession {
     switch (n.method) {
       case "turn/started": {
         const turn = params?.turn as { id?: string } | undefined;
+        if (turn?.id) this.ownTurnIds.add(turn.id);
         // A late start of the turn the watchdog ended names that turn.
         if (
           this.abandonedTurn?.id === null &&
@@ -2136,33 +2169,23 @@ export class CodexSession implements BackendSession {
         const tu = notif?.tokenUsage;
         if (!tu) break;
         // `total` drives the cumulative usage_update event (lifetime billing).
-        const total = tu.total;
-        const totalInput = total.inputTokens;
-        const totalCached = total.cachedInputTokens;
-        const totalOutput = total.outputTokens;
-        const cumulative: TokenUsage = {
-          inputTokens: Math.max(0, totalInput - totalCached),
-          outputTokens: totalOutput,
-          cacheReadInputTokens: totalCached,
-          cacheCreationInputTokens: 0,
-        };
-        const delta: TokenUsage = {
-          inputTokens: Math.max(
-            0,
-            cumulative.inputTokens - this.lastCumulativeUsage.inputTokens,
-          ),
-          outputTokens: Math.max(
-            0,
-            cumulative.outputTokens - this.lastCumulativeUsage.outputTokens,
-          ),
-          cacheReadInputTokens: Math.max(
-            0,
-            cumulative.cacheReadInputTokens -
-              this.lastCumulativeUsage.cacheReadInputTokens,
-          ),
-          cacheCreationInputTokens: 0,
-        };
-        this.lastCumulativeUsage = cumulative;
+        const cumulative = codexTokenUsage(tu.total);
+        let delta: TokenUsage = codexTokenUsage(null);
+        const resumed = Boolean(this.opts.resumeThreadId);
+        // On a resumed thread, a report for a turn this session did not start
+        // (the resume replay) emits a zero delta: it still refreshes /context.
+        if (!resumed || this.ownTurnIds.has(notif.turnId)) {
+          if (resumed && !this.resumeBaselineSet) {
+            // The first report of a turn has total = pre-turn total + last.
+            this.lastCumulativeUsage = subtractTokenUsage(
+              cumulative,
+              codexTokenUsage(tu.last),
+            );
+            this.resumeBaselineSet = true;
+          }
+          delta = subtractTokenUsage(cumulative, this.lastCumulativeUsage);
+          this.lastCumulativeUsage = cumulative;
+        }
         // `last` drives the /context snapshot (current context fullness).
         const last = tu.last;
         const lastInput = last.inputTokens;
