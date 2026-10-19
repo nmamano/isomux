@@ -39,6 +39,7 @@ import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
 import { failedEditText } from "../../shared/failed-edit.ts";
 import { AskLink, askAnswerText, askRefOf } from "./ask-link.tsx";
+import { unescapeDollars } from "./plain-copy.ts";
 import {
   parseReviewFindings,
   type ReviewFinding,
@@ -163,7 +164,7 @@ export function serializeEntries(
     } else if (e.kind === "user_message") {
       parts.push(e.content);
     } else if (e.kind === "text") {
-      parts.push(e.content);
+      parts.push(unescapeDollars(e.content));
     } else if (e.kind === "tool_call") {
       const input = e.metadata?.input;
       const inputStr =

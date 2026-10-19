@@ -37,6 +37,30 @@ describe("serializeEntries", () => {
       'Please report.\n\nWorking.\n\n[To remote member "Laptop"] The report is ready.',
     );
   });
+
+  it("drops the dollar escape from agent replies only", () => {
+    // A reply renders as markdown, so its \$ shows as "$". A message and a
+    // tool input render as typed, so their \$ is what the reader sees.
+    expect(
+      serializeEntries(EN, [
+        entry("user_message", String.raw`Budget \$5?`),
+        entry("text", String.raw`It costs \$5, see ` + "`echo \\$HOME`"),
+        {
+          ...entry("tool_call", "Bash"),
+          metadata: { input: String.raw`echo \$HOME` },
+        },
+        entry("api_token_outbound", String.raw`Paid \$5.`),
+      ]),
+    ).toBe(
+      String.raw`Budget \$5?` +
+        "\n\n" +
+        "It costs $5, see `echo \\$HOME`" +
+        "\n\n**Bash**\n" +
+        String.raw`echo \$HOME` +
+        "\n\n" +
+        String.raw`Paid \$5.`,
+    );
+  });
 });
 
 describe("describeMessageSender", () => {

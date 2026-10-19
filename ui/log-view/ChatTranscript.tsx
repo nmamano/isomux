@@ -20,6 +20,7 @@ import {
 } from "./tool-call-groups.ts";
 import { SecretRequestOutcomes } from "./SecretRequestCard.tsx";
 import { AskOrigins, askOrigins } from "./ask-link.tsx";
+import { copySelectionAsPlainText } from "./plain-copy.ts";
 
 // The settled secret requests, from the system entries that close them.
 function secretRequestOutcomes(
@@ -198,6 +199,7 @@ export function ChatTranscript({
               key={entry.id}
               data-log-entry-id={entry.id}
               ref={isUserMsg ? getUserMessageRef?.(entry.id) : undefined}
+              onCopy={copySelectionAsPlainText}
             >
               {rawToolGroup ? (
                 <RawToolCallGroupCard

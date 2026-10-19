@@ -46,6 +46,7 @@ import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { getDevice } from "../device-settings.ts";
 import { composerMaxHeight, fitComposer } from "../composer-height.ts";
 import * as chatApi from "./api.ts";
+import { copySelectionAsPlainText } from "../log-view/plain-copy.ts";
 import {
   MEMBERS_CHAT_FILES_BASE,
   MEMBERS_CHAT_PAGE_LIMIT as PAGE_LIMIT,
@@ -615,6 +616,7 @@ export function MembersChatPanel({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        onCopy={copySelectionAsPlainText}
         data-members-chat-list
         style={{
           flex: 1,
