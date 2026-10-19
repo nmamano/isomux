@@ -34,7 +34,7 @@ Default `bun test` makes zero LLM calls.
 | T0 pure/unit | none | pure functions: prompt assembly, diff summary, fork-chain assembly, usage math, projection helpers | always |
 | T1 integration (FakeBackend + non-backend harnesses) | none | the main tier: orchestrator/queue/fork/persistence/OfficeState, plus auth/projection/presence/route harnesses; real temp FS, in-process server | always |
 | T2 adapter contract | none (replay) | real Claude, Codex, and OpenCode adapters translate recorded/curated event streams correctly | always; refresh on dependency bumps |
-| T3 live smoke | yes, a few | real-subscription end-to-end; assert invariants only (turn completes, a tool runs, resume works, topic non-empty and at most 8 words), never exact text | opt-in only (`test:live`) |
+| T3 live smoke | yes, a few | real-subscription end-to-end; assert invariants only (turn completes, a tool runs, session history lists the turns, resume and fork keep a planted fact, a fork before a message drops that message), never exact text | opt-in only (`test:live`) |
 
 T3 is gated behind the `ISOMUX_TEST_LIVE` env flag plus the separate `test:live` script, run manually or nightly, serial, on cheap models. Never in CI or pre-commit.
 
