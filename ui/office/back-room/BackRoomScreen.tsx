@@ -6,7 +6,8 @@
 // the front view's (measured 2026-10-15), and static ones cost nothing over
 // it. The room zooms and pans with the front's viewport code (task f0af4677).
 // On a desktop, a figure dragged onto the ladder moves to the front, the
-// mirror of the trap door (task c18ef3e8).
+// mirror of the trap door (task c18ef3e8), and onto a room tab moves to that
+// room (task 335384f8).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentInfo } from "../../../shared/types.ts";
@@ -18,7 +19,7 @@ import { StatusLight } from "../StatusLight.tsx";
 import { styleForModel } from "../../model-styles.ts";
 import { useViewport } from "../useViewport.ts";
 import { ZoomControls } from "../ZoomControls.tsx";
-import { setDraggedDesk } from "../drag-state.ts";
+import { getDraggedDesk, setDraggedDesk } from "../drag-state.ts";
 import { Vignette } from "../Vignette.tsx";
 import type { ViewportControls } from "../OfficeView.tsx";
 import {
@@ -144,6 +145,17 @@ function Figure({
     if (press.current !== null) window.clearTimeout(press.current);
     press.current = null;
   };
+  // The seat this figure put in drag-state, while its drag runs. A figure
+  // that unmounts mid-drag (its agent moved away) never gets dragend, so the
+  // unmount clears it instead, as DeskUnit does.
+  const dragStarted = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      const seat = dragStarted.current;
+      if (seat !== null && getDraggedDesk() === seat) setDraggedDesk(null);
+    },
+    [],
+  );
   return (
     <>
       <div
@@ -159,12 +171,17 @@ function Figure({
         onDragStart={(e) => {
           e.dataTransfer.setData("text/plain", agent.id);
           e.dataTransfer.effectAllowed = "move";
-          // Not a desk drag: clear a desk left over from a desk that moved
-          // away mid-drag, so the room tabs do not offer to take this one.
-          setDraggedDesk(null);
+          // The seat goes in drag-state, so the room tabs take this agent
+          // as they take a desk (task 335384f8).
+          dragStarted.current = agent.desk;
+          setDraggedDesk(agent.desk);
           onDrag(true);
         }}
-        onDragEnd={() => onDrag(false)}
+        onDragEnd={() => {
+          dragStarted.current = null;
+          setDraggedDesk(null);
+          onDrag(false);
+        }}
         onClick={() => {
           if (pressed.current) {
             pressed.current = false;

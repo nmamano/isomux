@@ -16,7 +16,10 @@ const { backRoomLayout, MIN_SCALE } = await import("./geometry.ts");
 const { computeRestView } = await import("../useViewport.ts");
 const { getDraggedDesk, setDraggedDesk } = await import("../drag-state.ts");
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  setDraggedDesk(null);
+});
 
 const OUTFIT = {
   color: "#4A90D9",
@@ -45,6 +48,31 @@ function backAgents(n: number) {
   });
 }
 
+function screenFor(
+  agents: ReturnType<typeof backAgents>,
+  unread = new Set<string>(),
+  frontFull = false,
+  askCounts?: ReadonlyMap<string, number>,
+  calls: string[] = [],
+) {
+  return onLanguage(
+    "en",
+    <BackRoomScreen
+      roomName="Studio"
+      agents={agents}
+      needsAttention={unread}
+      askCounts={askCounts}
+      isMobile={false}
+      onBack={() => calls.push("back")}
+      onSpawn={() => calls.push("spawn")}
+      onOpenAgent={(id) => calls.push(`open:${id}`)}
+      onContextMenu={(_x, _y, a) => calls.push(`menu:${a.id}`)}
+      frontFull={frontFull}
+      onDropToFront={(a) => calls.push(`front:${a.id}`)}
+    />,
+  );
+}
+
 function show(
   agents: ReturnType<typeof backAgents>,
   unread = new Set<string>(),
@@ -52,24 +80,7 @@ function show(
   askCounts?: ReadonlyMap<string, number>,
 ) {
   const calls: string[] = [];
-  const view = render(
-    onLanguage(
-      "en",
-      <BackRoomScreen
-        roomName="Studio"
-        agents={agents}
-        needsAttention={unread}
-        askCounts={askCounts}
-        isMobile={false}
-        onBack={() => calls.push("back")}
-        onSpawn={() => calls.push("spawn")}
-        onOpenAgent={(id) => calls.push(`open:${id}`)}
-        onContextMenu={(_x, _y, a) => calls.push(`menu:${a.id}`)}
-        frontFull={frontFull}
-        onDropToFront={(a) => calls.push(`front:${a.id}`)}
-      />,
-    ),
-  );
+  const view = render(screenFor(agents, unread, frontFull, askCounts, calls));
   return { view, calls };
 }
 
@@ -134,8 +145,9 @@ describe("BackRoomScreen", () => {
       fireEvent.dragStart(figures(el)[1], {
         dataTransfer: { setData: () => {} },
       });
-      // A figure is not a desk: the room tabs must not take it.
-      expect(getDraggedDesk()).toBeNull();
+      // The figure's seat replaces it, so the room tabs move this agent
+      // (task 335384f8).
+      expect(getDraggedDesk()).toBe(backAgents(2)[1].desk);
       fireEvent.dragOver(ladder, { dataTransfer: { dropEffect: "" } });
       const target = el
         .querySelector("[data-back-ladder-target]")
@@ -158,6 +170,34 @@ describe("BackRoomScreen", () => {
     const full = show(backAgents(2), new Set(), true);
     expect(drag(full.view.container)).toBe("full");
     expect(full.calls).toEqual([]);
+  });
+
+  // A figure drag is a desk drag (task 335384f8): it ends at the figure's
+  // dragend, or when the figure unmounts first because its agent moved away
+  // and its dragend never fires (as a desk does, task 39a70575).
+  it("holds the figure's seat as the dragged desk until its dragend or unmount", () => {
+    const agents = backAgents(3);
+    const start = (el: HTMLElement, i: number) =>
+      fireEvent.dragStart(figures(el)[i], {
+        dataTransfer: { setData: () => {} },
+      });
+    const { view } = show(agents);
+    start(view.container, 1);
+    expect(getDraggedDesk()).toBe(agents[1].desk);
+    fireEvent.dragEnd(figures(view.container)[1]);
+    expect(getDraggedDesk()).toBeNull();
+    // Another figure leaving keeps the drag; the dragged one ends it.
+    start(view.container, 1);
+    view.rerender(screenFor([agents[1], agents[2]]));
+    expect(getDraggedDesk()).toBe(agents[1].desk);
+    view.rerender(screenFor([agents[2]]));
+    expect(getDraggedDesk()).toBeNull();
+    // A figure that ended its own drag leaves a later drag alone.
+    start(view.container, 0);
+    fireEvent.dragEnd(figures(view.container)[0]);
+    setDraggedDesk(3);
+    view.rerender(screenFor([]));
+    expect(getDraggedDesk()).toBe(3);
   });
 
   it("darkens its edges more than the front", () => {

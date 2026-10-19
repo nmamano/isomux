@@ -234,3 +234,58 @@ it("a back figure dropped on the ladder moves to the first free front desk, unle
   expect(await dropOnLadder()).toBe("full");
   expect(moves).toEqual([{ targetRoomId: "first", desk: 1 }]);
 });
+
+// A back figure dragged from the back screen reaches the room tabs (task
+// 335384f8): the drag lights them, a drop on another room's tab moves the
+// agent there, and the figure's dragend puts them out.
+it("a back figure dragged onto another room's tab moves there", async () => {
+  const moves: unknown[] = [];
+  setApiShim(async (method, path, body) => {
+    if (method === "POST" && path.endsWith("/move")) moves.push({ path, body });
+    if (path.startsWith("/api/members-chat"))
+      return { messages: [], hasMore: false, readPointer: null, unread: 0 };
+    return {};
+  });
+  fixture.setBackRoomOpen(true);
+  const rooms = [room("first"), room("second")];
+  const view = mount(rooms);
+  await act(async () =>
+    shimEmit({
+      type: "full_state",
+      agents: [
+        agent("Back", deskOfBackSeat({ table: 0, stool: 0 }), "idle"),
+        { ...agent("S0", 0, "idle"), roomId: "second" },
+      ],
+      rooms,
+      office: { name: "Back room test", prompt: null },
+      recentCwds: [],
+      killedAgents: [],
+      interactions: [],
+    } as never),
+  );
+  const figure = () =>
+    view.container.querySelector('[data-back-figure="Back"]')!;
+  const tabTarget = (key: string) =>
+    view.container.querySelector(`[data-desk-drop="${key}"]`);
+  expect(tabTarget("second:front")).toBeNull();
+  await act(async () => {
+    fireEvent.dragStart(figure(), { dataTransfer: { setData: () => {} } });
+  });
+  expect(tabTarget("second:front")).not.toBeNull();
+  await act(async () => {
+    fireEvent.dragEnd(figure());
+  });
+  expect(tabTarget("second:front")).toBeNull();
+  await act(async () => {
+    fireEvent.dragStart(figure(), { dataTransfer: { setData: () => {} } });
+  });
+  await act(async () => {
+    fireEvent.drop(tabTarget("second:front")!);
+  });
+  expect(moves).toEqual([
+    {
+      path: "/api/agents/Back/move",
+      body: { targetRoomId: "second", desk: 1 },
+    },
+  ]);
+});

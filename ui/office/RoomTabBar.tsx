@@ -23,7 +23,7 @@ import {
 import { roomActivityDotColor, roomHasUnread } from "./room-activity.ts";
 import { selfTuckedRooms, tabBarRooms } from "./room-cycle.ts";
 import { TuckedRoomsChip } from "./TuckedRoomsChip.tsx";
-import { useDeskDrag } from "./useDeskDrag.ts";
+import { useDraggedDesk } from "./useDeskDrag.ts";
 import { getDraggedDesk } from "./drag-state.ts";
 import {
   BACK_ROOM_SEATS,
@@ -247,19 +247,23 @@ export function RoomTabBar({
   // Drag state holds room ids, so a drop is correct even when tucked rooms
   // sit between two tabs in the member's order.
   const [dragFrom, setDragFrom] = useState<string | null>(null);
-  // A desk dragged from the scene (task f0af4677): every tab takes it to
-  // that room's front, and a "Back room" target beside the tab takes it to
-  // that room's back room, where its setting is on (task b16f1e6a).
-  const deskDrag = useDeskDrag();
+  // A desk dragged from the scene (task f0af4677), or a figure from the back
+  // screen (task 335384f8): every tab takes it to that room's front, and a
+  // "Back room" target beside the tab takes it to that room's back room,
+  // where its setting is on (task b16f1e6a). The agent's own room offers
+  // only the area the agent is not in.
+  const draggedDesk = useDraggedDesk();
+  const deskDrag = draggedDesk !== null;
   const [deskOver, setDeskOver] = useState<string | null>(null);
   if (!deskDrag && deskOver !== null) setDeskOver(null);
+  const fromArea = deskDrag && isBackSeat(draggedDesk) ? "back" : "front";
   const deskTarget = (roomId: string, area: "front" | "back") => {
+    if (roomId === currentRoomId && area === fromArea) return null;
     const inRoom = agents.filter((a) => a.roomId === roomId);
     if (area === "back")
       return inRoom.filter((a) => isBackSeat(a.desk)).length < BACK_ROOM_SEATS
         ? { desk: null }
         : null;
-    if (roomId === currentRoomId) return null;
     const taken = new Set(inRoom.map((a) => a.desk));
     const desk = Array.from({ length: DESK_COUNT }, (_, d) => d).find(
       (d) => !taken.has(d),

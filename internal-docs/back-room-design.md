@@ -142,9 +142,11 @@ Approved by the Lead, 2026-10-15.
   to the back room (Nil). An empty back room leaves it closed and quiet. A click opens the back screen. A desk
   dropped on it moves to the back. The b key goes between the front and the
   back screen. Phone tap box: 60 × 44 px.
-- Room tabs during a desk drag: a drop on a tab moves the agent to that
-  room's first free front desk; a "Back room" target beside each tab moves
-  it to that room's back room. A full area takes no drop.
+- Room tabs during a desk drag, or a figure drag on the back screen: a drop
+  on a tab moves the agent to that room's first free front desk; a "Back
+  room" target beside each tab moves it to that room's back room. A full
+  area takes no drop, and the agent's own room offers only the area the
+  agent is not in (task 335384f8).
 - "Move to Room" in the agent dialog: each room offers its front and, outside
   the lobby, its back room. The agent's own room offers only the area the
   agent is not in.
@@ -184,7 +186,7 @@ Approved by the Lead, 2026-10-15.
 - On a desktop, a figure dragged onto the ladder moves to the first free
   front desk, the mirror of the trap door; during the drag the ladder shows
   "Move to front", or "Move to front (full)" and takes no drop when every
-  front desk is taken (task c18ef3e8).
+  front desk is taken (task c18ef3e8). The room tabs take the drag too.
 - The screen's edge darkens as the front's does, stronger (task c18ef3e8).
 - Navigation: a deep level over today's one-entry history model. Back from a
   back agent's log returns to the back screen; a reload lands on the front.

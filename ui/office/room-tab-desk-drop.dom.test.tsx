@@ -16,7 +16,7 @@ const { setApiShim } = await import("../api.ts");
 const { setShim, shimEmit, connect } = await import("../ws.ts");
 const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
 const { setDraggedDesk } = await import("./drag-state.ts");
-const { DESK_COUNT, BACK_ROOM_SEATS, firstFreeBackSeat } =
+const { DESK_COUNT, BACK_ROOM_SEATS, firstFreeBackSeat, deskOfBackSeat } =
   await import("../../shared/desks.ts");
 
 type RoomWire = import("../../shared/types.ts").RoomWire;
@@ -175,5 +175,36 @@ it("takes no drop on a full area or on the desk's own front", () => {
     startDeskDrag(2);
     fireEvent.drop(target(view, key));
   }
+  expect(moves).toEqual([]);
+});
+
+// A back agent dragged from the back screen (task 335384f8): its own room
+// offers only the front, as the move dialog does; other rooms as for a desk.
+it("moves a dragged back seat to its own front or to another room, never to its own back room", () => {
+  const seat = deskOfBackSeat({ table: 0, stool: 0 });
+  const view = mount([
+    agent("x", "a", seat),
+    agent("f", "a", 0),
+    agent("y", "b", 0),
+  ]);
+  for (const key of ["a:back", "a:front", "b:front", "b:back"]) {
+    startDeskDrag(seat);
+    fireEvent.drop(target(view, key));
+  }
+  expect(moves).toEqual([
+    { path: "/api/agents/x/move", body: { targetRoomId: "a", desk: 1 } },
+    { path: "/api/agents/x/move", body: { targetRoomId: "b", desk: 1 } },
+    { path: "/api/agents/x/move", body: { targetRoomId: "b", desk: null } },
+  ]);
+});
+
+it("takes no drop of a back seat on its own front when that front is full", () => {
+  const seat = deskOfBackSeat({ table: 0, stool: 0 });
+  const fullFront = Array.from({ length: DESK_COUNT }, (_, d) =>
+    agent(`a${d}`, "a", d),
+  );
+  const view = mount([agent("x", "a", seat), ...fullFront]);
+  startDeskDrag(seat);
+  fireEvent.drop(target(view, "a:front"));
   expect(moves).toEqual([]);
 });
