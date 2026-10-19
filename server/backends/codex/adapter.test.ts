@@ -43,6 +43,7 @@ import {
   codexWindowLabel,
   codexProviderRefusal,
   CODEX_LIMIT_RESET_READ_MS,
+  CODEX_TURN_ERROR_WATCHDOG_MS,
   CodexSession,
   mergeRateLimitSnapshots,
   commandTokensForPrefixMatch,
@@ -313,7 +314,7 @@ function start(
   return { session, fake, it: session.stream() };
 }
 
-function retryClock() {
+function retryClock(label = "retry") {
   const pending: Array<{
     delayMs: number;
     run: () => void;
@@ -330,7 +331,7 @@ function retryClock() {
     },
     async runNext() {
       const timer = pending.find((entry) => !entry.cancelled);
-      if (!timer) throw new Error("no pending retry timer");
+      if (!timer) throw new Error(`no pending ${label} timer`);
       timer.cancelled = true;
       timer.run();
       await Promise.resolve();
@@ -2853,6 +2854,289 @@ describe("CodexSession subprocess exit", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Turn watchdog (task 04617adf). After a terminal error notification Codex is
+// expected to send turn/completed. When our thread stays silent instead, the
+// session ends the turn itself, so the orchestrator's pending turn cannot
+// hang, and it still emits exactly one turn_completed per send.
+// ---------------------------------------------------------------------------
+describe("CodexSession turn watchdog", () => {
+  async function watched(overrides: Partial<CodexSessionInitOpts> = {}) {
+    const watchdog = retryClock("watchdog");
+    const ctx = await bootstrapped(undefined, {
+      ...overrides,
+      scheduleTurnWatchdog: (delayMs, run) =>
+        watchdog.scheduleRetry(delayMs, run),
+    });
+    return { ...ctx, watchdog };
+  }
+  const armed = (clock: ReturnType<typeof retryClock>) =>
+    clock.pending.filter((t) => !t.cancelled);
+  function terminalError(
+    fake: FakeCodexTransport,
+    message: string,
+    extra: Record<string, unknown> = {},
+  ): void {
+    fake.fireNotification("error", {
+      error: { message, ...extra },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-1",
+    });
+  }
+  // Nothing else was queued: the next event is the next thing Codex sends.
+  async function expectNothingQueued(
+    fake: FakeCodexTransport,
+    it: AsyncIterator<NormalizedEvent>,
+  ): Promise<void> {
+    fake.fireStderr("marker");
+    expect(expectKind(await nextEvent(it, "marker"), "system_text").text).toBe(
+      "[codex stderr] marker",
+    );
+  }
+
+  it("ends a turn that stays silent after a terminal error, once, and interrupts it", async () => {
+    const { session, fake, it, watchdog } = await watched();
+    await session.send("go");
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1" },
+    });
+    // A retryable error does not end the turn, so it does not arm.
+    fake.fireNotification("error", {
+      error: { message: "Reconnecting... 1/5" },
+      willRetry: true,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-1",
+    });
+    expectKind(await nextEvent(it, "retry notice"), "system_text");
+    expect(armed(watchdog)).toHaveLength(0);
+
+    terminalError(fake, "stream broke");
+    expectKind(await nextEvent(it, "terminal error"), "error");
+    expect(armed(watchdog).map((t) => t.delayMs)).toEqual([
+      CODEX_TURN_ERROR_WATCHDOG_MS,
+    ]);
+    await watchdog.runNext();
+    expect(
+      expectKind(await nextEvent(it, "watchdog end"), "turn_completed"),
+    ).toMatchObject({ status: "failed", error: "stream broke" });
+    expect(
+      fake.requests
+        .filter((r) => r.method === "turn/interrupt")
+        .map((r) => r.params),
+    ).toEqual([{ threadId: FIXTURE_THREAD_ID, turnId: "turn-1" }]);
+
+    // The abandoned turn's own completion lands after the next turn started:
+    // it must not end the new turn.
+    await session.send("again");
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1", status: "interrupted" },
+    });
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-2" },
+    });
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-2", status: "completed" },
+    });
+    expect(
+      expectKind(await nextEvent(it, "next turn"), "turn_completed").status,
+    ).toBe("completed");
+  });
+
+  it("only traffic on our own thread keeps the turn alive", async () => {
+    const { session, fake, it, watchdog } = await watched();
+    await session.send("go");
+    terminalError(fake, "stream broke");
+    expectKind(await nextEvent(it, "terminal error"), "error");
+    const first = armed(watchdog)[0];
+
+    fireItem(
+      fake,
+      { type: "agentMessage", id: "after-error", text: "still here" },
+      FIXTURE_THREAD_ID,
+    );
+    expectKind(await nextEvent(it, "our activity"), "assistant_text");
+    expect(first.cancelled).toBe(true);
+    expect(armed(watchdog).map((t) => t.delayMs)).toEqual([
+      CODEX_TURN_ERROR_WATCHDOG_MS,
+    ]);
+    const second = armed(watchdog)[0];
+
+    // A notification with no thread id and a foreign thread's traffic say
+    // nothing about our turn.
+    fake.fireNotification("warning", { message: "heads up" });
+    expectKind(await nextEvent(it, "threadless notice"), "system_text");
+    fake.fireNotification("turn/started", {
+      threadId: "thread-other",
+      turn: { id: "turn-other" },
+    });
+    expect(second.cancelled).toBe(false);
+    expect(armed(watchdog)).toHaveLength(1);
+
+    await watchdog.runNext();
+    expect(
+      expectKind(await nextEvent(it, "watchdog end"), "turn_completed"),
+    ).toMatchObject({ status: "failed", error: "stream broke" });
+  });
+
+  it("a turn/completed in time leaves the next turn alone", async () => {
+    const { session, fake, it, watchdog } = await watched();
+    await session.send("go");
+    terminalError(fake, "stream broke");
+    expectKind(await nextEvent(it, "terminal error"), "error");
+    expect(armed(watchdog)).toHaveLength(1);
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { status: "failed", error: { message: "stream broke" } },
+    });
+    expect(
+      expectKind(await nextEvent(it, "codex end"), "turn_completed"),
+    ).toMatchObject({ status: "failed", error: "stream broke" });
+
+    // Any timer still live from the first turn fires during a healthy one.
+    await session.send("next");
+    for (const timer of armed(watchdog)) {
+      timer.cancelled = true;
+      timer.run();
+    }
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { status: "completed" },
+    });
+    expect(
+      expectKind(await nextEvent(it, "next turn"), "turn_completed").status,
+    ).toBe("completed");
+  });
+
+  it("with no turn id known: no interrupt, and the first late completion is dropped", async () => {
+    const { session, fake, it, watchdog } = await watched();
+    await session.send("go");
+    terminalError(fake, "stream broke");
+    expectKind(await nextEvent(it, "terminal error"), "error");
+    await watchdog.runNext();
+    expectKind(await nextEvent(it, "watchdog end"), "turn_completed");
+    expect(fake.interruptCount()).toBe(0);
+
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { status: "interrupted" },
+    });
+    await expectNothingQueued(fake, it);
+
+    // The drop was for that one completion: the next turn ends normally.
+    await session.send("next");
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { status: "completed" },
+    });
+    expect(
+      expectKind(await nextEvent(it, "next turn"), "turn_completed").status,
+    ).toBe("completed");
+  });
+
+  it("a late turn/started names the abandoned turn", async () => {
+    const { session, fake, it, watchdog } = await watched();
+    await session.send("go");
+    terminalError(fake, "stream broke");
+    expectKind(await nextEvent(it, "terminal error"), "error");
+    await watchdog.runNext();
+    expectKind(await nextEvent(it, "watchdog end"), "turn_completed");
+
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-late" },
+    });
+    await session.send("next");
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-late", status: "interrupted" },
+    });
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-2", status: "completed" },
+    });
+    expect(
+      expectKind(await nextEvent(it, "next turn"), "turn_completed").status,
+    ).toBe("completed");
+  });
+
+  it("waits while an approval is open, and ends the turn once it is answered", async () => {
+    const { session, fake, it, watchdog } = await watched();
+    await session.send("go");
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1" },
+    });
+    const answer = fireExecApproval(fake, "wd-appr", "ls", null);
+    // A failing run closes the session first; keep that out of the report.
+    ignoreUnanswered(answer);
+    expectKind(await nextEvent(it, "approval"), "approval_request");
+    terminalError(fake, "stream broke");
+    expectKind(await nextEvent(it, "terminal error"), "error");
+
+    await watchdog.runNext();
+    expect(armed(watchdog).map((t) => t.delayMs)).toEqual([
+      CODEX_TURN_ERROR_WATCHDOG_MS,
+    ]);
+    expect(fake.interruptCount()).toBe(0);
+    await expectNothingQueued(fake, it);
+
+    await session.approve("wd-appr", { kind: "deny" });
+    await answer;
+    await watchdog.runNext();
+    expect(
+      expectKind(await nextEvent(it, "watchdog end"), "turn_completed"),
+    ).toMatchObject({ status: "failed", error: "stream broke" });
+  });
+
+  it("a capacity error ends as capacity, with no retry", async () => {
+    const retries = retryClock();
+    const { session, fake, it, watchdog } = await watched({
+      scheduleRetry: (delayMs, run) => retries.scheduleRetry(delayMs, run),
+    });
+    await session.send("go");
+    terminalError(fake, "provider full", {
+      codexErrorInfo: "serverOverloaded",
+    });
+    expect(armed(watchdog)).toHaveLength(1);
+    await watchdog.runNext();
+    expect(
+      expectKind(await nextEvent(it, "watchdog end"), "turn_completed"),
+    ).toMatchObject({
+      status: "failed",
+      error: "provider full",
+      causedByProviderCapacity: true,
+    });
+    expect(retries.pending).toHaveLength(0);
+  });
+
+  it("an auth-shaped error after the auth signal ends as an auth failure", async () => {
+    const { session, fake, it, watchdog } = await watched();
+    await session.send("go");
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1" },
+    });
+    fake.fireStderr("ERROR: 401 Unauthorized while connecting to OpenAI");
+    expectKind(await nextEvent(it, "auth notice"), "system_text");
+    terminalError(fake, "401 Unauthorized");
+    expectKind(await nextEvent(it, "terminal error"), "error");
+    await watchdog.runNext();
+    const done = expectKind(
+      await nextEvent(it, "watchdog end"),
+      "turn_completed",
+    );
+    expect(done.status).toBe("failed");
+    expect(done.causedByAuth).toBe(true);
+    // Not auth-shaped, so agent-manager's auth detect does not fire again.
+    expect(done.error).not.toMatch(/401|unauthori[zs]ed/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // file_view (imageView). Uses a temp source file (cleaned in afterAll); the
 // attachment copy lands under the test's temp STATE_ROOT (preload-managed).
 // ---------------------------------------------------------------------------
@@ -3616,6 +3900,33 @@ describe("Codex usage-limit stop", () => {
     expect(reads(fake)).toBe(0);
   });
 
+  it("the turn watchdog ends a silent usage-limited turn with the reset", async () => {
+    const watchdog = retryClock("watchdog");
+    const { session, fake, it } = await bootstrapped(undefined, {
+      scheduleTurnWatchdog: (delayMs, run) =>
+        watchdog.scheduleRetry(delayMs, run),
+    });
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: limits(),
+    });
+    await session.send("work");
+    fake.fireNotification("error", {
+      error: { message: LIMIT_TEXT, codexErrorInfo: "usageLimitExceeded" },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-1",
+    });
+    expectKind(await nextEvent(it, "error"), "error");
+    await watchdog.runNext();
+    expect(await nextEvent(it, "stop")).toEqual({
+      kind: "usage_limit_stop",
+      resetsAtMs: FIVE_HOUR_RESET * 1000,
+    });
+    expect(
+      expectKind(await nextEvent(it, "turn end"), "turn_completed").status,
+    ).toBe("failed");
+  });
+
   it("reads the limits once when the push does not show the stop, and ends the turn after the read", async () => {
     const fake = new FakeCodexTransport();
     fake.holdRateLimitsRead = true;
@@ -3997,6 +4308,29 @@ describe("CodexSession provider refusals", () => {
     fake.fireExit(1);
     expect(
       expectKind(await nextEvent(it, "exit failure"), "turn_completed"),
+    ).toMatchObject({
+      status: "failed",
+      error: refusalLine("openai", REFUSED),
+      providerRefusal: true,
+    });
+  });
+
+  it("keeps a latched refusal when the turn watchdog ends a silent turn", async () => {
+    const watchdog = retryClock("watchdog");
+    const { session, fake, it } = await bootstrapped(undefined, {
+      scheduleTurnWatchdog: (delayMs, run) =>
+        watchdog.scheduleRetry(delayMs, run),
+    });
+    await session.send("go");
+    fake.fireNotification("error", {
+      error: { message: REFUSED, codexErrorInfo: FORBIDDEN },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-silent",
+    });
+    await watchdog.runNext();
+    expect(
+      expectKind(await nextEvent(it, "watchdog end"), "turn_completed"),
     ).toMatchObject({
       status: "failed",
       error: refusalLine("openai", REFUSED),

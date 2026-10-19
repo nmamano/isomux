@@ -13,6 +13,8 @@
 //      turn/completed per turn (Completed or Failed); turn/interrupted maps
 //      to status:"interrupted". Subprocess death mid-turn synthesizes a
 //      failed turn_completed so the orchestrator's pendingTurn unblocks.
+//      A turn that stays silent after a terminal error notification is ended
+//      as failed by the turn watchdog, and its late turn/completed is dropped.
 //
 //   2. Per-thread filtering. Every codex notification with a threadId is
 //      filtered against this session's threadId. Sub-agent / review-mode
@@ -838,12 +840,22 @@ export interface CodexSessionInitOpts {
   // Deterministic timer seam for capacity-retry contract tests and the bound
   // on a usage-limited turn's rate-limit read.
   scheduleRetry?: (delayMs: number, run: () => void) => () => void;
+  // Deterministic timer seam for the turn watchdog (CODEX_TURN_ERROR_WATCHDOG_MS).
+  scheduleTurnWatchdog?: (delayMs: number, run: () => void) => () => void;
 }
 
 export const CODEX_CAPACITY_RETRY_DELAYS_MS = [5_000, 15_000, 30_000] as const;
 
 // The longest a usage-limited turn's end waits for a rate-limit read.
 export const CODEX_LIMIT_RESET_READ_MS = 3_000;
+
+// How long a turn may stay silent after a terminal error notification before
+// the session ends it as failed itself.
+export const CODEX_TURN_ERROR_WATCHDOG_MS = 60_000;
+const CODEX_TURN_WATCHDOG_FALLBACK =
+  "Codex sent an error and then stopped responding.";
+
+type TurnErrorLike = { message?: string | null; codexErrorInfo?: unknown };
 
 // When the usage limit that stopped a turn resets, from the account's
 // rate-limit snapshot (epoch ms), or null when the snapshot does not say.
@@ -919,6 +931,14 @@ export class CodexSession implements BackendSession {
   // The refusal line of this attempt's terminal error notification. Codex
   // sends the same error again on the failed turn/completed, which shows it.
   private refusalThisAttempt: string | null = null;
+  // This attempt's last terminal error notification, for the turn watchdog.
+  private terminalErrorThisAttempt: TurnErrorLike | null = null;
+  private cancelTurnWatchdog: (() => void) | null = null;
+  // The turn the watchdog ended. Its own turn/completed can still arrive,
+  // even after the next turn started, and is dropped. A known id is kept
+  // until that completion; an unknown id (null) drops the first completion
+  // while no turn is in flight, until the next successful turn/start.
+  private abandonedTurn: { id: string | null } | null = null;
   // The provider Codex reports for the thread (thread/start, thread/resume).
   private modelProvider = "openai";
   // A usage limit ended this turn (codexErrorInfo "usageLimitExceeded").
@@ -1238,6 +1258,8 @@ export class CodexSession implements BackendSession {
     this.capacityRetryCount = 0;
     this.capacityErrorThisAttempt = null;
     this.refusalThisAttempt = null;
+    this.terminalErrorThisAttempt = null;
+    this.clearTurnWatchdog();
     this.usageLimitThisTurn = false;
     this.completedItemsThisAttempt = 0;
     // Open the auth-stderr gate before turn/start. The gate must be open
@@ -1282,6 +1304,7 @@ export class CodexSession implements BackendSession {
     this.turnStarting = false;
     this.lateToolResultNoticeEmitted = false;
     this.lateToolResultNoticeArmed = false;
+    if (this.abandonedTurn?.id === null) this.abandonedTurn = null;
   }
 
   private scheduleCapacityRetry(delayMs: number, run: () => void): () => void {
@@ -1298,12 +1321,59 @@ export class CodexSession implements BackendSession {
     this.capacityRetryCount = 0;
   }
 
+  private armTurnWatchdog(): void {
+    this.cancelTurnWatchdog?.();
+    const schedule =
+      this.opts.scheduleTurnWatchdog ??
+      ((delayMs: number, run: () => void) => {
+        const timer = setTimeout(run, delayMs);
+        timer.unref?.();
+        return () => clearTimeout(timer);
+      });
+    this.cancelTurnWatchdog = schedule(CODEX_TURN_ERROR_WATCHDOG_MS, () => {
+      this.cancelTurnWatchdog = null;
+      this.fireTurnWatchdog();
+    });
+  }
+
+  private clearTurnWatchdog(): void {
+    this.cancelTurnWatchdog?.();
+    this.cancelTurnWatchdog = null;
+  }
+
+  // Codex sent a terminal error and then nothing on our thread for
+  // CODEX_TURN_ERROR_WATCHDOG_MS: end the turn as turn/completed would have.
+  private fireTurnWatchdog(): void {
+    if (this.closed) return;
+    // An open approval waits for the member, not for Codex.
+    if (this.turnStarting || this.pendingApprovals.size > 0) {
+      this.armTurnWatchdog();
+      return;
+    }
+    if (!this.turnInFlight) return;
+    const turnId = this.activeTurnId;
+    this.abandonedTurn = { id: turnId };
+    // Direct, not requestSelfInterruptForAuth: that latch remaps the status.
+    if (this.threadId && turnId) {
+      this.client
+        .request("turn/interrupt", { threadId: this.threadId, turnId })
+        .catch(() => {});
+    }
+    this.activeTurnId = null;
+    this.settleTurn(
+      "failed",
+      this.terminalErrorThisAttempt,
+      CODEX_TURN_WATCHDOG_FALLBACK,
+    );
+  }
+
   private finishCapacityBackoff(
     status: "interrupted" | "failed",
     error: string,
   ): boolean {
     if (!this.cancelCapacityRetry) return false;
     this.clearCapacityRetry();
+    this.clearTurnWatchdog();
     this.turnInFlight = false;
     this.turnStarting = false;
     this.activeTurnId = null;
@@ -1324,6 +1394,7 @@ export class CodexSession implements BackendSession {
       if (this.closed || !this.threadId) return;
       this.capacityErrorThisAttempt = null;
       this.refusalThisAttempt = null;
+      this.terminalErrorThisAttempt = null;
       this.completedItemsThisAttempt = 0;
       this.turnStarting = true;
       // The failed turn already persisted the original user item. An empty
@@ -1335,6 +1406,7 @@ export class CodexSession implements BackendSession {
           this.turnInFlight = true;
           this.lateToolResultNoticeEmitted = false;
           this.lateToolResultNoticeArmed = false;
+          if (this.abandonedTurn?.id === null) this.abandonedTurn = null;
         })
         .catch((err) => {
           this.turnStarting = false;
@@ -1532,6 +1604,7 @@ export class CodexSession implements BackendSession {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.clearTurnWatchdog();
     this.finishCapacityBackoff(
       "failed",
       "Codex session closed during provider-capacity backoff.",
@@ -1852,6 +1925,86 @@ export class CodexSession implements BackendSession {
     this.wake();
   }
 
+  // Ends the turn: one turn_completed for codex's turn/completed and for the
+  // turn watchdog alike.
+  private settleTurn(
+    rawStatus: "completed" | "interrupted" | "failed",
+    turnError: TurnErrorLike | null | undefined,
+    fallbackError?: string,
+  ): void {
+    const rawError = turnError?.message ?? undefined;
+    const capacityError = this.capacityErrorThisAttempt;
+    const wasSelfInterruptForAuth = this.selfInterruptedForAuth;
+    this.terminalErrorThisAttempt = null;
+    this.turnInFlight = false;
+    this.lateToolResultNoticeArmed = true;
+    // "Model not supported" safety net. The spawn / edit dialog now
+    // fetches model/list per-auth, so this branch should be rare -
+    // most commonly it'll fire when the user's auth tier changed since
+    // the agent was created. Re-opening settings reloads the list.
+    if (
+      rawError &&
+      /model.*not supported|not supported.*model/i.test(rawError)
+    ) {
+      this.enqueue({
+        kind: "system_text",
+        text: "This Codex model isn't available on your current login. Open the agent's settings to refresh the model list and pick one that is.",
+      });
+    }
+    // If we self-interrupted to short-circuit a doomed-by-auth turn,
+    // remap status="interrupted" → "failed" so the member sees a clear
+    // failure (not a misleading "interrupted" - which the UI treats as
+    // a user-initiated stop). Substitute the error to the same auth
+    // summary used for the stderr-driven path; the codex-emitted error
+    // on a client-interrupt is usually empty or unhelpful.
+    const status = wasSelfInterruptForAuth ? "failed" : rawStatus;
+    // Substitute the turn-level error to a non-auth-shaped summary so
+    // agent-manager's auth-detect path doesn't re-fire on the same root
+    // cause. The user still has the concrete 401 detail from the earlier
+    // [codex stderr] system_text. Whole-string substitution (not
+    // keyword-stripping) keeps the rewritten message readable.
+    const turnLevelAuthShaped =
+      !!rawError && AUTH_ERROR_PATTERNS.test(rawError);
+    const causedByAuth =
+      this.authSignalEmittedThisTurn &&
+      (wasSelfInterruptForAuth || turnLevelAuthShaped);
+    const refusal = causedByAuth
+      ? null
+      : (this.refusalThisAttempt ??
+        codexProviderRefusal(turnError, this.modelProvider, this.opts.words));
+    this.refusalThisAttempt = null;
+    // Any other error text can quote the provider: bounded and redacted.
+    const error = causedByAuth
+      ? "Codex turn failed after an auth error; see the prior Codex auth notice."
+      : (refusal ?? providerText(rawError) ?? fallbackError);
+    // Close the per-turn auth-coalescing gate now that the turn has
+    // settled. Next user send opens it again in send().
+    this.authSignalsAllowedThisTurn = false;
+    this.authSignalEmittedThisTurn = false;
+    this.selfInterruptedForAuth = false;
+    const turnCompleted: NormalizedEvent = {
+      kind: "turn_completed",
+      status,
+      error: capacityError ?? error,
+      // Signal causedByAuth so agent-manager keeps the agent in
+      // waiting_for_response (auth issue → user needs to sign in)
+      // instead of "error" (which would imply something crashed).
+      // The error string itself is rewritten to a non-auth-shaped
+      // summary above, so the orchestrator's auth-detect regex
+      // wouldn't catch it.
+      ...(causedByAuth ? { causedByAuth: true } : {}),
+      ...(capacityError ? { causedByProviderCapacity: true } : {}),
+      ...(refusal !== null && !capacityError ? { providerRefusal: true } : {}),
+    };
+    const usageLimited =
+      this.usageLimitThisTurn ||
+      turnError?.codexErrorInfo === "usageLimitExceeded";
+    this.usageLimitThisTurn = false;
+    if (usageLimited) this.endUsageLimitedTurn(turnCompleted);
+    else this.enqueue(turnCompleted);
+    this.clearCapacityRetry();
+  }
+
   private handleNotification(n: JsonRpcNotification): void {
     const params = n.params as Record<string, unknown> | null | undefined;
     // Codex settled a server request itself (for example when its turn
@@ -1893,22 +2046,46 @@ export class CodexSession implements BackendSession {
       }
       return;
     }
+    // Traffic on our thread keeps a turn alive after a terminal error;
+    // threadless pushes (account rate limits) say nothing about it.
+    if (
+      this.cancelTurnWatchdog &&
+      this.threadId &&
+      eventThreadId === this.threadId
+    )
+      this.armTurnWatchdog();
 
     switch (n.method) {
       case "turn/started": {
         const turn = params?.turn as { id?: string } | undefined;
+        // A late start of the turn the watchdog ended names that turn.
+        if (
+          this.abandonedTurn?.id === null &&
+          !this.turnInFlight &&
+          !this.turnStarting
+        ) {
+          if (turn?.id) this.abandonedTurn = { id: turn.id };
+          break;
+        }
         if (turn?.id) this.activeTurnId = turn.id;
         break;
       }
       case "turn/completed": {
         const turn = params?.turn as
-          | {
-              status?: string;
-              error?: { message?: string; codexErrorInfo?: unknown } | null;
-            }
+          | { id?: string; status?: string; error?: TurnErrorLike | null }
           | undefined;
+        const abandoned = this.abandonedTurn;
+        if (
+          abandoned &&
+          (abandoned.id === null
+            ? !this.turnInFlight
+            : turn?.id === abandoned.id)
+        ) {
+          this.abandonedTurn = null;
+          break;
+        }
+        this.clearTurnWatchdog();
         const rawStatus = mapTurnStatus(turn?.status);
-        const rawError = turn?.error?.message ?? undefined;
         const capacityError = this.capacityErrorThisAttempt;
         // Codex can deliver completed items after turn/completed. This gate
         // prevents a known completed item from being replayed. A late item can
@@ -1920,7 +2097,6 @@ export class CodexSession implements BackendSession {
           capacityError !== null &&
           this.completedItemsThisAttempt === 0 &&
           this.capacityRetryCount < CODEX_CAPACITY_RETRY_DELAYS_MS.length;
-        const wasSelfInterruptForAuth = this.selfInterruptedForAuth;
         this.activeTurnId = null;
         if (canRetryCapacity) {
           const delayMs =
@@ -1929,79 +2105,7 @@ export class CodexSession implements BackendSession {
           this.retryCapacityTurn(delayMs);
           break;
         }
-        this.turnInFlight = false;
-        this.lateToolResultNoticeArmed = true;
-        // "Model not supported" safety net. The spawn / edit dialog now
-        // fetches model/list per-auth, so this branch should be rare -
-        // most commonly it'll fire when the user's auth tier changed since
-        // the agent was created. Re-opening settings reloads the list.
-        if (
-          rawError &&
-          /model.*not supported|not supported.*model/i.test(rawError)
-        ) {
-          this.enqueue({
-            kind: "system_text",
-            text: "This Codex model isn't available on your current login. Open the agent's settings to refresh the model list and pick one that is.",
-          });
-        }
-        // If we self-interrupted to short-circuit a doomed-by-auth turn,
-        // remap status="interrupted" → "failed" so the member sees a clear
-        // failure (not a misleading "interrupted" - which the UI treats as
-        // a user-initiated stop). Substitute the error to the same auth
-        // summary used for the stderr-driven path; the codex-emitted error
-        // on a client-interrupt is usually empty or unhelpful.
-        const status = wasSelfInterruptForAuth ? "failed" : rawStatus;
-        // Substitute the turn-level error to a non-auth-shaped summary so
-        // agent-manager's auth-detect path doesn't re-fire on the same root
-        // cause. The user still has the concrete 401 detail from the earlier
-        // [codex stderr] system_text. Whole-string substitution (not
-        // keyword-stripping) keeps the rewritten message readable.
-        const turnLevelAuthShaped =
-          !!rawError && AUTH_ERROR_PATTERNS.test(rawError);
-        const causedByAuth =
-          this.authSignalEmittedThisTurn &&
-          (wasSelfInterruptForAuth || turnLevelAuthShaped);
-        const refusal = causedByAuth
-          ? null
-          : (this.refusalThisAttempt ??
-            codexProviderRefusal(
-              turn?.error,
-              this.modelProvider,
-              this.opts.words,
-            ));
-        this.refusalThisAttempt = null;
-        // Any other error text can quote the provider: bounded and redacted.
-        const error = causedByAuth
-          ? "Codex turn failed after an auth error; see the prior Codex auth notice."
-          : (refusal ?? providerText(rawError) ?? undefined);
-        // Close the per-turn auth-coalescing gate now that the turn has
-        // settled. Next user send opens it again in send().
-        this.authSignalsAllowedThisTurn = false;
-        this.authSignalEmittedThisTurn = false;
-        this.selfInterruptedForAuth = false;
-        const turnCompleted: NormalizedEvent = {
-          kind: "turn_completed",
-          status,
-          error: capacityError ?? error,
-          // Signal causedByAuth so agent-manager keeps the agent in
-          // waiting_for_response (auth issue → user needs to sign in)
-          // instead of "error" (which would imply something crashed).
-          // The error string itself is rewritten to a non-auth-shaped
-          // summary above, so the orchestrator's auth-detect regex
-          // wouldn't catch it.
-          ...(causedByAuth ? { causedByAuth: true } : {}),
-          ...(capacityError ? { causedByProviderCapacity: true } : {}),
-          ...(refusal !== null && !capacityError
-            ? { providerRefusal: true }
-            : {}),
-        };
-        const usageLimited =
-          this.usageLimitThisTurn ||
-          turn?.error?.codexErrorInfo === "usageLimitExceeded";
-        this.usageLimitThisTurn = false;
-        if (usageLimited) this.endUsageLimitedTurn(turnCompleted);
-        else this.enqueue(turnCompleted);
-        this.clearCapacityRetry();
+        this.settleTurn(rawStatus, turn?.error);
         break;
       }
 
@@ -2183,6 +2287,14 @@ export class CodexSession implements BackendSession {
         // orchestrator's pending turn or involving the auth-error funnel.
         const notification = params as ErrorNotification | null | undefined;
         const message = notification?.error.message;
+        if (
+          notification &&
+          notification.willRetry !== true &&
+          (this.turnInFlight || this.turnStarting)
+        ) {
+          this.terminalErrorThisAttempt = notification.error;
+          this.armTurnWatchdog();
+        }
         // A usage limit ends the turn; turn/completed follows and reports
         // the reset time (endUsageLimitedTurn).
         if (
@@ -2787,6 +2899,7 @@ export class CodexSession implements BackendSession {
     // The per-turn auth-coalescing gate must close on subprocess death so an
     // unlikely-but-possible later stderr (e.g. drained late) doesn't sneak
     // through with a stale-open gate.
+    this.clearTurnWatchdog();
     this.authSignalsAllowedThisTurn = false;
     this.authSignalEmittedThisTurn = false;
     this.selfInterruptedForAuth = false;
