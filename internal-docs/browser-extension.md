@@ -122,6 +122,16 @@ means the member's computer. Upload uses the byte-payload workflow below.
 uses the fixed per-offer expiry selected in the popup, defaulting to Never.
 Expiry detaches control and leaves the real page open; actions do not extend it.
 
+Chrome can leave a screenshot of a background tab unanswered while no other
+tab draws, for example with the office Integrations page in front (Chrome 151
+under Xvfb, task c04479de; real GPU Chrome is unchecked). The bridge
+(`server/browser-extension-bridge.ts`) then repeats the capture with the same
+parameters after 300 ms, 900 ms, 2.1 s and so on, and the repeat frees the
+stuck capture. The repeat copies the parameters because Chrome answers the
+stuck capture with the repeat's image. A full-page repeat
+(`captureBeyondViewport`) stays inside the action fence, because it restores
+the viewport when it finishes.
+
 Stable extension errors are `browser_not_paired`, `browser_offline`,
 `browser_control_ended`, `action_timeout`, and `action_failed`. Control loss, an action timeout or revocation
 can leave a side effect with an unknown outcome. The server never retries it.

@@ -17,6 +17,7 @@ import { buildPublicOrigin, sessionCookieName } from "./auth";
 import { openExtensionActionPopup } from "./test-support/extension-action-popup";
 import { translatorFor } from "../shared/i18n/translate";
 import { getAgentTokenRaw } from "./identity/tokens";
+import { screenshotBackgroundTab } from "./test-support/background-tab-screenshot";
 
 const wait = async (test: () => Promise<boolean>) => {
   for (let i = 0; i < 100; i++) {
@@ -177,11 +178,6 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
       (element as HTMLInputElement).value = "[redeemed]";
     });
     await settings.screenshot({ path: join(dir, "settings-connected.png") });
-    // The rest of the run keeps this page as the front tab. With the
-    // Integrations page there, screenshots of the background tabs time out in
-    // this Chrome (found in task f2d5cf9f, reported to Isomux Lead); Settings,
-    // the front page before Browser Use moved, does not stall them.
-    await settings.goto(officeOrigin + "/settings");
     let releaseNavigation!: () => void;
     let navigationReached!: () => void;
     const navigationStarted = new Promise<void>((resolve) => {
@@ -484,7 +480,7 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
           activeUnchanged: true,
         }),
       );
-      await firstPage.screenshot({ path: join(dir, "frame-controls.png") });
+      await screenshotBackgroundTab(firstPage, join(dir, "frame-controls.png"));
       console.log("Frame extension evidence:", dir);
       return;
     }
@@ -677,7 +673,7 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
     expect(await firstPage.locator("#out").getAttribute("data-trusted")).toBe(
       "true",
     );
-    await firstPage.screenshot({ path: join(dir, "inactive-click.png") });
+    await screenshotBackgroundTab(firstPage, join(dir, "inactive-click.png"));
     expect((await action(first.id, { action: "text" })).body.text).toContain(
       "first tab",
     );
@@ -803,7 +799,7 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
     ).toBe(2);
     expect(firstPage.isClosed()).toBe(false);
     expect(await targetOf(firstPage)).toBe(firstTarget);
-    await firstPage.screenshot({ path: join(dir, "retained-page.png") });
+    await screenshotBackgroundTab(firstPage, join(dir, "retained-page.png"));
     await popup.close();
     await worker.evaluate(() => {
       (

@@ -13,6 +13,8 @@ import {
   type BrowserDisplay,
 } from "../shared/browser-extension-protocol";
 
+const COMMAND_TIMED_OUT = "Browser command timed out";
+
 export const browserCredentialHash = (credential: string): string =>
   createHash("sha256").update(credential).digest("hex");
 
@@ -37,6 +39,13 @@ const grantClock: GrantClock = {
     return () => clearTimeout(timer);
   },
 };
+// Chrome can leave a capture of a background tab unanswered while no other tab
+// draws, and a second capture of the same tab releases it (Chrome 151 under
+// Xvfb, task c04479de). Each pending capture gets such kicks. The delay before
+// kick n (from 0) is captureKickDelay(n), because a kick costs a full capture.
+export const CAPTURE_KICK_MS = 300;
+export const captureKickDelay = (kicks: number): number =>
+  CAPTURE_KICK_MS * 2 ** kicks;
 type Assignment = {
   durationMinutes: BrowserGrantDuration;
   expiresAt: number | null;
@@ -509,6 +518,7 @@ export class ExtensionConnection {
     a: Assignment,
     method: string,
     params: Fields,
+    sent?: (id: number) => void,
   ): Promise<Fields> {
     this.check(a);
     if (a.recovery)
@@ -529,7 +539,7 @@ export class ExtensionConnection {
         // A timeout is not evidence of socket loss. Retain this entry until the
         // real response or ownership loss, so the next action cannot overtake it.
         pending.timedOut = true;
-        reject(new Error("Browser command timed out"));
+        reject(new Error(COMMAND_TIMED_OUT));
       }, 30_000);
       this.pending.set(id, {
         assignment: a.id,
@@ -540,6 +550,7 @@ export class ExtensionConnection {
         settled,
         timedOut: false,
       });
+      sent?.(id);
       try {
         this.peer.send({
           kind: "command",
@@ -858,11 +869,130 @@ export class ExtensionConnection {
     }
     if (!pageCommandAllowed(method, params))
       throw new Error("Unsupported page command");
-    return this.request(a, "cdp", {
-      method,
-      params,
-      sessionId: sessionId === a.session ? undefined : sessionId,
-    });
+    const target = sessionId === a.session ? undefined : sessionId;
+    if (method !== "Page.captureScreenshot")
+      return this.request(a, "cdp", { method, params, sessionId: target });
+    if (params.captureBeyondViewport === true)
+      return this.fencedCapture(a, params, target);
+    let capture: number | undefined;
+    const result = this.request(
+      a,
+      "cdp",
+      { method, params, sessionId: target },
+      (id) => {
+        capture = id;
+      },
+    );
+    if (capture !== undefined) {
+      const stop = this.kickCapture(a, capture, params, target);
+      result.then(stop, stop);
+    }
+    return result;
+  }
+
+  // A kick copies the capture's parameters: Chrome answers the stuck capture
+  // with the kick's image, so a 1x1 kick made the screenshot a 1x1 image.
+  // A viewport capture's kick is the one command outside this.pending and the
+  // action fence: it only reads, and a kick that gets no answer must not hold
+  // the next action. receive() drops its late result, because its id is not
+  // pending.
+  private kickCapture(
+    a: Assignment,
+    capture: number,
+    params: Fields,
+    sessionId: unknown,
+  ): () => void {
+    let cancel = () => {};
+    let kicks = 0;
+    const kick = () => {
+      const pending = this.pending.get(capture);
+      if (!pending || pending.timedOut) return;
+      try {
+        this.check(a);
+      } catch {
+        return;
+      }
+      if (!a.recovery) {
+        try {
+          this.peer.send({
+            kind: "command",
+            generation: this.generation,
+            id: ++this.sequence,
+            assignment: a.id,
+            method: "cdp",
+            params: { method: "Page.captureScreenshot", params, sessionId },
+          });
+        } catch {
+          this.close();
+          return;
+        }
+      }
+      cancel = this.clock.schedule(kick, captureKickDelay(++kicks));
+    };
+    cancel = this.clock.schedule(kick, captureKickDelay(0));
+    return () => cancel();
+  }
+
+  // A full-page kick copies the capture's parameters as above, but it is
+  // fenced: captureBeyondViewport restores the viewport when it finishes, so
+  // a late kick could reset it in the middle of the next action. The kicks are
+  // ordinary commands, and the capture is answered only after it and all its
+  // kicks settle. Kicks continue while any of them is unanswered, because a
+  // kick sent as the capture finishes can stick too, and the next kick frees
+  // it. Each kick still ends at its own 30 s command timeout, and the doubled
+  // delay outgrows that timeout, so at most 7 kicks go out and the chain is
+  // quiet by about 68 s even if nothing answers. Kicks after the action
+  // deadline are intended: they stay inside the fence, and they can free the
+  // retained capture so that the fence drains sooner. The capture's own
+  // failure wins; a failed kick is ignored, but a kick that times out after a
+  // good capture makes the action time out, as any stuck command does.
+  private async fencedCapture(
+    a: Assignment,
+    params: Fields,
+    sessionId: unknown,
+  ): Promise<Fields> {
+    const command = { method: "Page.captureScreenshot", params, sessionId };
+    let open = 1;
+    const settle = (sent: Promise<Fields>) =>
+      sent.then(
+        (result) => {
+          open--;
+          return { result };
+        },
+        (error: unknown) => {
+          open--;
+          return { error };
+        },
+      );
+    const capture = settle(this.request(a, "cdp", command));
+    const kicks: ReturnType<typeof settle>[] = [];
+    let cancel = () => {};
+    const kick = () => {
+      if (open === 0) return;
+      let sent: Promise<Fields>;
+      try {
+        sent = this.request(a, "cdp", command);
+      } catch {
+        return;
+      }
+      open++;
+      kicks.push(settle(sent));
+      cancel = this.clock.schedule(kick, captureKickDelay(kicks.length));
+    };
+    cancel = this.clock.schedule(kick, captureKickDelay(0));
+    const outcome = await capture;
+    let kicked: Awaited<ReturnType<typeof settle>>[] = [];
+    while (kicked.length < kicks.length) kicked = await Promise.all([...kicks]);
+    cancel();
+    if ("error" in outcome) throw outcome.error;
+    const timedOut = kicked.find(
+      (k) =>
+        "error" in k &&
+        k.error instanceof Error &&
+        k.error.message === COMMAND_TIMED_OUT,
+    );
+    if (timedOut && "error" in timedOut) throw timedOut.error;
+    return outcome.result;
   }
 
   private release(a: Assignment): void {
