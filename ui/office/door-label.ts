@@ -1,57 +1,119 @@
-// A door's room-name label, fitted to the wall it hangs on. Each door stands
-// DOOR_LABEL_END from the end of its wall, so a centred label wider than
-// twice that runs off the wall. A longer label keeps its outer end at the
-// wall end and runs along the wall towards the corner, shrinks down to
-// DOOR_LABEL_MIN_SIZE, and past DOOR_LABEL_MAX_WIDTH ends in an ellipsis.
-// The door's title and aria-label keep the full name.
+// A door's room-name label, wrapped into lines centred over the door. Each
+// line is at most DOOR_LABEL_WIDTH wide, so it never runs off the wall end.
+// The label shrinks down to DOOR_LABEL_MIN_SIZE so that its widest word fits;
+// a word too wide even then breaks by code points. Past DOOR_LABEL_MAX_LINES
+// the last line ends in an ellipsis. The door's title and aria-label keep the
+// full name.
 
 export const DOOR_LABEL_SIZE = 12;
 export const DOOR_LABEL_MIN_SIZE = 10;
-/** From the door's centre to the end of its wall, less a small margin. */
-export const DOOR_LABEL_END = 36;
-export const DOOR_LABEL_MAX_WIDTH = 140;
+/** The widest line: the door's width plus a small margin. */
+export const DOOR_LABEL_WIDTH = 72;
+export const DOOR_LABEL_MAX_LINES = 3;
+
+// Room names have no length cap, and in WallDoor each measure is a DOM write
+// and a layout. Only this many leading code points are fitted, far more than
+// three lines can show; a label cut here always ends in an ellipsis.
+const DOOR_LABEL_MAX_CODE_POINTS = 120;
+// A word that sets the size measures exactly a line at that size, give or
+// take float rounding.
+const FIT_EPSILON = 1e-9;
 
 export interface DoorLabelFit {
-  text: string;
+  lines: string[];
   size: number;
-  /** False: centred on the door. True: outer end at the wall end. */
-  atWallEnd: boolean;
 }
 
 /**
- * `prefixWidth(n)` is the drawn width of the label's first n UTF-16 units at
- * DOOR_LABEL_SIZE; `ellipsisWidth` is the width of "…" at that size.
+ * `measure(text)` is the drawn width of `text` at DOOR_LABEL_SIZE.
  */
 export function fitDoorLabel(
   label: string,
-  prefixWidth: (n: number) => number,
-  ellipsisWidth: number,
+  measure: (text: string) => number,
 ): DoorLabelFit {
-  const width = prefixWidth(label.length);
-  if (width <= 2 * DOOR_LABEL_END) {
-    return { text: label, size: DOOR_LABEL_SIZE, atWallEnd: false };
+  const trimmed = label.trim();
+  const head: string[] = [];
+  for (const cp of trimmed) {
+    if (head.length === DOOR_LABEL_MAX_CODE_POINTS) break;
+    head.push(cp);
   }
-  const shrunk = (DOOR_LABEL_SIZE * DOOR_LABEL_MAX_WIDTH) / width;
-  if (shrunk >= DOOR_LABEL_MIN_SIZE) {
-    return {
-      text: label,
-      size: Math.min(DOOR_LABEL_SIZE, shrunk),
-      atWallEnd: true,
-    };
+  const cutShort = head.join("").length < trimmed.length;
+  const words = head
+    .join("")
+    .split(/\s+/)
+    .filter((word) => word !== "");
+  if (words.length === 0) return { lines: [], size: DOOR_LABEL_SIZE };
+
+  const widths = new Map<string, number>();
+  const width = (text: string) => {
+    let w = widths.get(text);
+    if (w === undefined) {
+      w = measure(text);
+      widths.set(text, w);
+    }
+    return w;
+  };
+  const widest = Math.max(...words.map(width));
+  const size = Math.max(
+    DOOR_LABEL_MIN_SIZE,
+    Math.min(DOOR_LABEL_SIZE, (DOOR_LABEL_SIZE * DOOR_LABEL_WIDTH) / widest),
+  );
+  // The widest line, measured at DOOR_LABEL_SIZE.
+  const limit = (DOOR_LABEL_WIDTH * DOOR_LABEL_SIZE) / size;
+  const fits = (text: string) => width(text) <= limit + FIT_EPSILON;
+
+  // Lines are spans [start, end) of code points of the words joined by
+  // single spaces. The wrap stops as soon as a line past the limit starts.
+  const cps = [...words.join(" ")];
+  const text = (start: number, end: number) => cps.slice(start, end).join("");
+  const lines: [number, number][] = [];
+  let line: [number, number] | null = null;
+  const full = () => lines.length === DOOR_LABEL_MAX_LINES;
+  let at = 0;
+  for (const word of words) {
+    const start = at;
+    const end = start + [...word].length;
+    at = end + 1;
+    if (fits(word)) {
+      if (line && fits(text(line[0], end))) {
+        line[1] = end;
+        continue;
+      }
+      if (line) lines.push(line);
+      if (full()) break;
+      line = [start, end];
+      continue;
+    }
+    // Too wide even at the minimum size: break it into pieces that each
+    // fill a line. The last piece is a word like any other.
+    if (line) lines.push(line);
+    line = null;
+    let piece = start;
+    while (!full() && !fits(text(piece, end))) {
+      let stop = piece + 1;
+      while (stop < end && fits(text(piece, stop + 1))) stop++;
+      lines.push([piece, stop]);
+      piece = stop;
+    }
+    line = [piece, end];
+    if (full()) break;
   }
-  const scale = DOOR_LABEL_MIN_SIZE / DOOR_LABEL_SIZE;
-  let n = label.length - 1;
-  while (
-    n > 0 &&
-    (prefixWidth(n) + ellipsisWidth) * scale > DOOR_LABEL_MAX_WIDTH
-  )
-    n--;
-  // Never cut a surrogate pair in half.
-  const code = label.charCodeAt(n - 1);
-  if (n > 0 && code >= 0xd800 && code <= 0xdbff) n--;
+  const overflow = full() && (line !== null || at < cps.length);
+  if (line && !full()) lines.push(line);
+  if (!overflow && !cutShort) {
+    return { lines: lines.map(([s, e]) => text(s, e)), size };
+  }
+
+  // The last line is the rest of the text, cut to the longest start that
+  // fits with an ellipsis.
+  const rest = lines.pop()![0];
+  let stop = rest;
+  while (stop < cps.length && fits(`${text(rest, stop + 1)}…`)) stop++;
   return {
-    text: `${label.slice(0, n).trimEnd()}…`,
-    size: DOOR_LABEL_MIN_SIZE,
-    atWallEnd: true,
+    lines: [
+      ...lines.map(([s, e]) => text(s, e)),
+      `${text(rest, stop).trimEnd()}…`,
+    ],
+    size,
   };
 }
