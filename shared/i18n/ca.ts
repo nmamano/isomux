@@ -3200,11 +3200,11 @@ Coses que pots fer per ell:
   "appWidget.title": "Xat amb {agentName}",
   "appWidget.notice": "Compartit amb els membres de la sala de l'agent.",
   "appWidget.windowsHint":
-    "Prem Win+Shift+S i després enganxa aquí la captura de pantalla.",
+    "Per compartir una captura de pantalla: prem Win+Shift+S i després enganxa-la aquí.",
   "appWidget.macHint":
-    "Prem Shift+Command+4 i després arrossega aquí la captura de pantalla.",
+    "Per compartir una captura de pantalla: prem Shift+Command+4 i després arrossega-la aquí.",
   "appWidget.genericHint":
-    "Fes una captura de pantalla i després enganxa-la o adjunta-la aquí.",
+    "Per compartir una captura de pantalla: fes-ne una i després enganxa-la o adjunta-la aquí.",
   "appWidget.attach": "Adjunta una imatge",
   "appWidget.direct": "Obre l'app directament",
   "appWidget.unavailable": "El xat no està disponible.",

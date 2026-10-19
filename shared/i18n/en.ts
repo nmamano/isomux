@@ -3169,9 +3169,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "appWidget.title": "Chat with {agentName}",
   "appWidget.notice": "Shared with members of the agent's room.",
   "appWidget.windowsHint":
-    "Press Win+Shift+S, then paste your screenshot here.",
-  "appWidget.macHint": "Press Shift+Command+4, then drag the screenshot here.",
-  "appWidget.genericHint": "Take a screenshot, then paste or attach it here.",
+    "To share a screenshot: press Win+Shift+S, then paste it here.",
+  "appWidget.macHint":
+    "To share a screenshot: press Shift+Command+4, then drag it here.",
+  "appWidget.genericHint":
+    "To share a screenshot: take one, then paste or attach it here.",
   "appWidget.attach": "Attach image",
   "appWidget.direct": "Open app directly",
   "appWidget.unavailable": "Chat is unavailable.",

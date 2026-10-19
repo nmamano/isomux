@@ -27,9 +27,9 @@ Proposed new copy, for review (placeholders in braces):
 - Launcher: “Chat”
 - Title: “Chat with {agentName}”
 - Notice: “Shared with members of the agent's room.”
-- Windows hint: “Press Win+Shift+S, then paste your screenshot here.”
-- macOS hint: “Press Shift+Command+4, then drag the screenshot here.”
-- Other desktop/mobile hint: “Take a screenshot, then paste or attach it here.”
+- Windows hint: “To share a screenshot: press Win+Shift+S, then paste it here.”
+- macOS hint: “To share a screenshot: press Shift+Command+4, then drag it here.”
+- Other desktop/mobile hint: “To share a screenshot: take one, then paste or attach it here.”
 - File button: “Attach image”
 - Direct link: “Open app directly”
 - Unavailable state: “Chat is unavailable.”

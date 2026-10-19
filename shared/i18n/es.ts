@@ -3199,11 +3199,11 @@ Cosas que puedes hacer por él:
   "appWidget.title": "Chat con {agentName}",
   "appWidget.notice": "Compartido con los miembros de la sala del agente.",
   "appWidget.windowsHint":
-    "Pulsa Win+Shift+S y luego pega aquí la captura de pantalla.",
+    "Para compartir una captura de pantalla: pulsa Win+Shift+S y luego pégala aquí.",
   "appWidget.macHint":
-    "Pulsa Shift+Command+4 y luego arrastra aquí la captura de pantalla.",
+    "Para compartir una captura de pantalla: pulsa Shift+Command+4 y luego arrástrala aquí.",
   "appWidget.genericHint":
-    "Haz una captura de pantalla y luego pégala o adjúntala aquí.",
+    "Para compartir una captura de pantalla: haz una y luego pégala o adjúntala aquí.",
   "appWidget.attach": "Adjuntar imagen",
   "appWidget.direct": "Abrir la app directamente",
   "appWidget.unavailable": "El chat no está disponible.",
