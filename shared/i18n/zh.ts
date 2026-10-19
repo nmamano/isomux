@@ -2544,6 +2544,8 @@ App 的一些原则：
     "Claude 拒绝了凭据。请在 {location} 中登录 Claude。",
   "systemEntries.claudeAuth.disconnectedAskOwner":
     "Claude 拒绝了凭据。请让办公室所有者登录。",
+  "systemEntries.claudeAuth.signingIn":
+    "Claude 拒绝了凭据。Claude 登录正在进行中。完成后请重试该请求。",
   "systemEntries.claudeAuth.accessUnavailable":
     "此账户无法使用 Claude Code。请检查其订阅，或使用其他账户登录。",
   "systemEntries.claudeAuth.pinned":

@@ -2841,6 +2841,8 @@ Cosas que puedes hacer por él:
     "Claude rechazó las credenciales. Inicia sesión en Claude en {location}.",
   "systemEntries.claudeAuth.disconnectedAskOwner":
     "Claude rechazó las credenciales. Pide a un propietario de la oficina que inicie sesión.",
+  "systemEntries.claudeAuth.signingIn":
+    "Claude rechazó las credenciales. Hay un inicio de sesión de Claude en curso. Reintenta la solicitud cuando termine.",
   "systemEntries.claudeAuth.accessUnavailable":
     "El acceso a Claude Code no está disponible para esta cuenta. Revisa su suscripción o inicia sesión con otra cuenta.",
   "systemEntries.claudeAuth.pinned":

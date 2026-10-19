@@ -1386,6 +1386,73 @@ describe("Claude auth-error status checks", () => {
     });
   }
 
+  // A sign-in already running on the directory (task 84e98d49): no account
+  // read starts during it, and the chat says the sign-in is in progress -
+  // never "disconnected" - with the card, which follows the login live.
+  const SIGNING_IN = "systemEntries.claudeAuth.signingIn";
+  for (const c of [
+    {
+      name: "the owner's own office sign-in",
+      role: "owner",
+      scope: "office",
+      wire: { loginStatus: "waiting_external" },
+      key: SIGNING_IN,
+    },
+    {
+      name: "a member's own personal sign-in",
+      role: "member",
+      scope: "personal",
+      wire: { loginStatus: "waiting_external" },
+      key: SIGNING_IN,
+    },
+    {
+      name: "another person's office sign-in, seen by a member",
+      role: "member",
+      scope: "office",
+      wire: {
+        loginStatus: "waiting_external",
+        loginQueue: { holderName: "Boss", startedAt: 1 },
+      },
+      key: SIGNING_IN,
+    },
+    {
+      name: "a sign-in that already ended",
+      role: "owner",
+      scope: "office",
+      wire: { loginStatus: "succeeded" },
+      key: "systemEntries.claudeAuth.disconnected",
+    },
+  ] as const) {
+    it(`a not-connected account during ${c.name}`, async () => {
+      expect(english.t(SIGNING_IN)).not.toBe(SIGNING_IN);
+      const { mgr, agentId } = await harness({
+        backendType: "claude",
+        fake: rejected(),
+        target: () => ({
+          provider: "claude",
+          scope: c.scope,
+          dir: `/accounts/${c.scope}-claude`,
+        }),
+        findUser: () => ({ id: "user-a", role: c.role }),
+        accounts: async () => [claudeWire(c.scope, c.wire)],
+      });
+      mgr.enqueueMessage(agentId, {
+        sender: { kind: "user", username: "tester" },
+        text: "hello",
+      });
+      const entry = () =>
+        mgr
+          .getAgentLogs(agentId)
+          .find((e) => e.metadata?.providerLogin === "claude");
+      await settle(() => !!entry());
+      expect(entry()?.content).toBe(
+        english.t(c.key, {
+          location: english.t("systemEntries.claudeAuth.officeLocation"),
+        }),
+      );
+    });
+  }
+
   it("has the member sentence in every language", () => {
     const sentences = SUPPORTED_LANGUAGES.map(({ code }) =>
       translatorFor(code).t("systemEntries.claudeAuth.disconnectedAskOwner"),

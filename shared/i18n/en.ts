@@ -2809,6 +2809,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Claude rejected the credentials. Sign in to Claude in {location}.",
   "systemEntries.claudeAuth.disconnectedAskOwner":
     "Claude rejected the credentials. Ask an office owner to sign in.",
+  "systemEntries.claudeAuth.signingIn":
+    "Claude rejected the credentials. A Claude sign-in is in progress. Retry the request when it finishes.",
   "systemEntries.claudeAuth.accessUnavailable":
     "Claude Code access is not available for this account. Check its subscription, or sign in with another account.",
   "systemEntries.claudeAuth.pinned":

@@ -2841,6 +2841,8 @@ Coses que pots fer per ell:
     "Claude ha rebutjat les credencials. Inicia sessió a Claude a {location}.",
   "systemEntries.claudeAuth.disconnectedAskOwner":
     "Claude ha rebutjat les credencials. Demana a un propietari de l'oficina que iniciï la sessió.",
+  "systemEntries.claudeAuth.signingIn":
+    "Claude ha rebutjat les credencials. Hi ha un inici de sessió de Claude en curs. Torna a provar la sol·licitud quan acabi.",
   "systemEntries.claudeAuth.accessUnavailable":
     "L'accés a Claude Code no està disponible per a aquest compte. Revisa'n la subscripció o inicia la sessió amb un altre compte.",
   "systemEntries.claudeAuth.pinned":

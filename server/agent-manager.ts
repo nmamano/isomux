@@ -903,7 +903,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ? "systemEntries.claudeAuth.officeLocation"
           : "systemEntries.claudeAuth.personalLocation",
       );
-      if (account.accountStatus === "not_connected") {
+      if (account.loginStatus === "waiting_external") {
+        // The account cannot be read until the login on its directory ends.
+        addLogEntry(
+          agentId,
+          "system",
+          t("systemEntries.claudeAuth.signingIn"),
+          { providerLogin: "claude" },
+        );
+      } else if (account.accountStatus === "not_connected") {
         addLogEntry(
           agentId,
           "system",
