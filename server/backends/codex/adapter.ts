@@ -92,6 +92,7 @@ import type {
 } from "./safety-hook-install.ts";
 import {
   codexWrapperCommandForShell,
+  ensureCodexWrapperScript,
   getCodexLoginCommands,
   isCodexAuthenticated,
 } from "./native-bin.ts";
@@ -3397,5 +3398,10 @@ export const codexBackend: Backend = {
       text: LOGIN_INSTRUCTIONS,
       commands: getCodexLoginCommands(),
     };
+  },
+
+  logoutCommand(): string {
+    ensureCodexWrapperScript();
+    return `${codexWrapperCommandForShell()} logout`;
   },
 };

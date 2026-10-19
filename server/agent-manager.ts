@@ -1050,10 +1050,24 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       );
       return;
     }
-    const baseCommand =
-      provider === "claude"
-        ? "claude auth logout"
-        : "~/.isomux/bin/codex logout";
+    // The backend names the command, so it resolves the binary the same way
+    // its sign-in does. Without one, the member gets no command to run.
+    let baseCommand: string | undefined;
+    try {
+      let env: { [key: string]: string | undefined } | undefined;
+      try {
+        env = buildEnvForUserId(managed.info.userId);
+      } catch {
+        env = undefined;
+      }
+      baseCommand = getBackend(provider).logoutCommand?.({ env });
+    } catch (err) {
+      console.error(
+        `[auth] logout command failed for ${provider}:`,
+        errMessage(err),
+      );
+    }
+    if (!baseCommand) return;
     const variable = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
     const command = `${variable}=${quoteShellWord(resolve(target.dir))} ${baseCommand}`;
     addLogEntry(

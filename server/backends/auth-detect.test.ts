@@ -10,13 +10,16 @@
 // login-command generation (wrapper script + paths) is already covered by
 // server/backends/codex/native-bin.test.ts and not repeated.
 import { afterAll, describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import { claudeBackend } from "./claude.ts";
 import { codexBackend } from "./codex/adapter.ts";
-import { isCodexAuthenticated } from "./codex/native-bin.ts";
+import {
+  codexWrapperCommandForShell,
+  isCodexAuthenticated,
+} from "./codex/native-bin.ts";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
 
 const tempDirs: string[] = [];
@@ -108,6 +111,26 @@ describe("claudeBackend terminal sign-in", () => {
     expect(r.text).toContain(r.commands![0]);
   });
 
+  // The /logout terminal fallback resolves the binary as sign-in does.
+  it("signs out with the bundled binary when claude is not on PATH", () => {
+    const command = claudeBackend.logoutCommand!({
+      env: { PATH: tempDir(), CLAUDE_CONFIG_DIR: tempDir() },
+    });
+    expect(command.replaceAll("'", "")).toBe(
+      `${CLAUDE_NATIVE_BIN} auth logout`,
+    );
+  });
+
+  it("signs out with claude when it is on PATH", () => {
+    const bin = tempDir();
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\n");
+    chmodSync(join(bin, "claude"), 0o755);
+    const command = claudeBackend.logoutCommand!({
+      env: { PATH: bin, CLAUDE_CONFIG_DIR: tempDir() },
+    });
+    expect(command).toBe("claude auth logout");
+  });
+
   it("runs claude when it is on PATH", async () => {
     const bin = tempDir();
     writeFileSync(join(bin, "claude"), "#!/bin/sh\n");
@@ -117,6 +140,18 @@ describe("claudeBackend terminal sign-in", () => {
     });
     expect(r.kind).toBe("login");
     expect(r.commands).toEqual(["claude"]);
+  });
+});
+
+// The test preload sets ISOMUX_HOME, so the wrapper is not at
+// ~/.isomux/bin/codex here: a hard-coded path fails this case.
+describe("codexBackend terminal sign-out", () => {
+  it("runs the wrapper that sign-in writes", () => {
+    const command = codexBackend.logoutCommand!();
+    const wrapper = codexWrapperCommandForShell();
+    expect(wrapper.startsWith("~")).toBe(false);
+    expect(command).toBe(`${wrapper} logout`);
+    expect(existsSync(wrapper.replaceAll("'", ""))).toBe(true);
   });
 });
 

@@ -647,4 +647,11 @@ export interface Backend {
     environmentKey?: string;
     modelFamily?: string;
   }): Promise<LoginInstructions>;
+
+  // The terminal command that signs the engine out, without the config
+  // directory prefix the /logout fallback adds. `opts.env` is the agent's
+  // resolved spawn env, as for getLoginInstructions.
+  logoutCommand?(opts?: {
+    env?: { [key: string]: string | undefined };
+  }): string;
 }

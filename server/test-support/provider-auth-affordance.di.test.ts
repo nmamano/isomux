@@ -1004,25 +1004,26 @@ describe("provider auth affordances", () => {
     ).toHaveLength(1);
   });
 
-  it("targets Claude and Codex logout fallbacks at the active directory", async () => {
+  // The backend names the sign-out command for the agent's env (it finds
+  // the binary on that PATH); the manager points it at the active directory.
+  it("targets the backend's logout command at the active directory", async () => {
+    setTestManagedOfficeEnv({ ISOMUX_LOGOUT_PROBE: "agent-env" });
     const cases = [
       {
         backendType: "claude" as const,
         provider: "claude" as const,
         dir: "/accounts/personal claude",
-        command:
-          "CLAUDE_CONFIG_DIR='/accounts/personal claude' claude auth logout",
+        command: "CLAUDE_CONFIG_DIR='/accounts/personal claude' engine out",
       },
       {
         backendType: "codex" as const,
         provider: "codex" as const,
         dir: "/accounts/office codex",
-        command:
-          "CODEX_HOME='/accounts/office codex' ~/.isomux/bin/codex logout",
+        command: "CODEX_HOME='/accounts/office codex' engine out",
       },
     ];
     for (const testCase of cases) {
-      const fake = new FakeBackend();
+      const fake = new FakeBackend({ logoutCommand: "engine out" });
       const { mgr, agentId } = await harness({
         backendType: testCase.backendType,
         fake,
@@ -1053,7 +1054,38 @@ describe("provider auth affordances", () => {
           .getAgentLogs(agentId)
           .some((entry) => entry.content.includes(testCase.command)),
       ).toBe(true);
+      expect(fake.logoutCalls).toHaveLength(1);
+      expect(fake.logoutCalls[0].env?.ISOMUX_LOGOUT_PROBE).toBe("agent-env");
     }
+  });
+
+  it("offers no terminal command when the backend cannot name one", async () => {
+    const fake = new FakeBackend({
+      logoutCommand: () => {
+        throw new Error("no binary");
+      },
+    });
+    const { mgr, agentId } = await harness({
+      backendType: "claude",
+      fake,
+      accounts: async () => [
+        claudeWire("personal", { canBrowserLogin: false }),
+      ],
+      target: () => ({
+        provider: "claude",
+        scope: "personal",
+        dir: "/accounts/personal-claude",
+      }),
+    });
+    await mgr.sendMessage(agentId, "/logout", "tester");
+    await settle(() => fake.logoutCalls.length > 0);
+    // The fallback reached the backend, and its failure stays inside it.
+    expect(fake.logoutCalls).toHaveLength(1);
+    const logs = mgr.getAgentLogs(agentId);
+    expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(false);
+    expect(logs.some((entry) => entry.content.includes("undefined"))).toBe(
+      false,
+    );
   });
 
   it("opens the logout card and keeps OpenCode terminal-free", async () => {
@@ -1127,6 +1159,7 @@ describe("provider auth affordances", () => {
           text: "terminal fallback",
           commands: [`${provider} login`],
         },
+        logoutCommand: `${provider} logout`,
       });
       const h = await harness({
         backendType: provider,
@@ -1203,7 +1236,7 @@ describe("provider auth affordances", () => {
       await h.mgr.sendMessage(h.agentId, "/logout", "tester");
       await h.settled();
       expect(h.commands()).toEqual([
-        "CLAUDE_CONFIG_DIR='/accounts/office claude' claude auth logout",
+        "CLAUDE_CONFIG_DIR='/accounts/office claude' claude logout",
       ]);
       expect(h.card()).toBe(false);
       expect(h.asked()).toBe(false);

@@ -322,6 +322,10 @@ export interface FakeBackendConfig {
     kind?: LoginInstructions["kind"];
     cardEligible?: boolean;
   };
+  // Declares Backend.logoutCommand with this answer (default: absent).
+  logoutCommand?:
+    | string
+    | ((env: { [key: string]: string | undefined } | undefined) => string);
   // oneShotPrompt response (default deterministic). Function form receives the
   // prompt + opts so topic-gen-style assertions can vary the reply.
   oneShot?:
@@ -368,6 +372,13 @@ export class FakeBackend implements Backend {
   >();
   private sessionCounter = 0;
   readonly isKnownSignedOut?: () => boolean;
+  readonly logoutCommand?: (opts?: {
+    env?: { [key: string]: string | undefined };
+  }) => string;
+  // The opts of each logoutCommand call, in order.
+  readonly logoutCalls: Array<{
+    env?: { [key: string]: string | undefined };
+  }> = [];
 
   constructor(cfg: FakeBackendConfig = {}) {
     this.cfg = cfg;
@@ -375,6 +386,13 @@ export class FakeBackend implements Backend {
     this.toolBoundaryDelivery = cfg.toolBoundaryDelivery ?? false;
     this.planMode = cfg.planMode ?? false;
     if (cfg.signedOut) this.isKnownSignedOut = cfg.signedOut;
+    const logout = cfg.logoutCommand;
+    if (logout !== undefined) {
+      this.logoutCommand = (opts) => {
+        this.logoutCalls.push({ env: opts?.env });
+        return typeof logout === "function" ? logout(opts?.env) : logout;
+      };
+    }
   }
 
   get lastSession(): FakeSession | undefined {

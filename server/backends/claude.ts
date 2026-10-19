@@ -145,9 +145,9 @@ Alternative: add \`ANTHROPIC_API_KEY\` on the Integrations page (Variables tab),
 // login present, or ANTHROPIC_API_KEY in env). Symmetric with the Codex auto-clear hint.
 const ALREADY_AUTHED_INSTRUCTIONS = `Claude Code is signed in. Type \`/clear\` to refresh this agent's session and pick up the new auth.`;
 
-// The terminal sign-in runs `claude` when the member has it on PATH, and
-// otherwise the binary bundled with the Agent SDK, so it never needs an
-// install.
+// The terminal sign-in and sign-out run `claude` when the member has it on
+// PATH, and otherwise the binary bundled with the Agent SDK, so they never
+// need an install.
 function loginCommand(env?: { [key: string]: string | undefined }): string {
   if (isClaudeCodeInstalled(env)) return "claude";
   return /^[\w@%+=:,./-]+$/.test(CLAUDE_NATIVE_BIN)
@@ -2054,6 +2054,12 @@ export function createClaudeBackend(
         text: loginInstructions(command),
         commands: [command],
       };
+    },
+
+    logoutCommand(opts?: {
+      env?: { [key: string]: string | undefined };
+    }): string {
+      return `${loginCommand(opts?.env)} auth logout`;
     },
   };
 }
