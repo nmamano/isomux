@@ -47,7 +47,9 @@ card. Use the office's device links when adding another browser or phone.
 
 The dashboard holds billing and cancellation controls. Your administrator SSH
 key is needed for server administration and repair; Isomux agents and the
-built-in terminal do not have root access.
+built-in terminal do not have root access. Sign in as root from your own device
+with `ssh -i <key file> root@<office address>`, where the office address is the
+host name without `https://`.
 
 ## Update the office
 

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildSystemPrompt,
-  HOSTED_IDENTITY_COPY,
   hostedIdentityNote,
   memorySection,
 } from "../system-prompt.ts";
@@ -218,9 +217,11 @@ describe("dynamic prompt layers", () => {
     expect(hostedIdentityNote("self-hosted", "https://acme.isomux.app")).toBe(
       "",
     );
-    expect(hostedIdentityNote("hosted", "https://acme.isomux.app")).toContain(
-      HOSTED_IDENTITY_COPY.replace("<hostname>", "acme.isomux.app"),
-    );
+    const hosted = hostedIdentityNote("hosted", "https://acme.isomux.app");
+    // Every hostname slot is filled, including the root SSH target the owner
+    // uses from their own device.
+    expect(hosted).not.toContain("<hostname>");
+    expect(hosted).toContain("root@acme.isomux.app");
   });
 
   it("keeps lobby scope out of room-scoped features", () => {

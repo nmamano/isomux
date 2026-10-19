@@ -14,7 +14,7 @@ import {
 
 const PORT = process.env.PORT || "4000";
 export const HOSTED_IDENTITY_COPY =
-  "This office is a Hosted Isomux instance at <hostname>. It runs on a managed server, and its owner is an Isomux customer.";
+  "This office is a Hosted Isomux instance at <hostname>. Its owner is an Isomux customer, and the server is theirs to do anything with. The owner gets root by SSH from their own device with the administrator key they saved at signup: `ssh -i <key file> root@<hostname>`. That key stays off this server: never ask for it. Agents and the office terminal run as the isomux user without root, so a key added to its authorized_keys does not give root.";
 
 export function hostedIdentityNote(
   installKind: InstallKind,
@@ -27,7 +27,7 @@ export function hostedIdentityNote(
   } catch {
     return "";
   }
-  return `\n\n## Hosted Isomux\n\n${HOSTED_IDENTITY_COPY.replace("<hostname>", hostname)}\n`;
+  return `\n\n## Hosted Isomux\n\n${HOSTED_IDENTITY_COPY.replaceAll("<hostname>", hostname)}\n`;
 }
 
 // Host-aware: an office that cannot run apps (server/app-hosting.ts) says so
