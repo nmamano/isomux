@@ -176,11 +176,12 @@ const corpus: Array<{ name: string; input: Envelope }> = [
   { name: "large valid apply_patch envelope", input: largePatch },
 ];
 
-const MAC = process.platform === "darwin";
+const INTEL_MAC = process.platform === "darwin" && process.arch === "x64";
 
 describe("standalone Codex safety hook", () => {
-  // Quarantined on macOS (task b0976a10): the concurrent build timed out at 5 s there.
-  it.skipIf(MAC)(
+  // Quarantined on Intel macOS (task b0976a10): the two concurrent builds took 1.3-3.0 s
+  // of the 5 s budget there when green, then timed out on 9d968d99 (read 2026-10-19).
+  it.skipIf(INTEL_MAC)(
     "isolates concurrent compiler scratch files from the shared checkout",
     async () => {
       const repositoryRoot = join(import.meta.dir, "../../..");
