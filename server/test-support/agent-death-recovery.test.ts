@@ -1636,6 +1636,71 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     );
   });
 
+  // A second Stop while one is in flight joins it, and must report that stop's
+  // outcome, not a blanket success (cca39e92). abort() sets its in-flight flag
+  // before its first await, so a call made in the same tick joins: no timing.
+  // One case per way the stop can end.
+  for (const c of [
+    {
+      name: "the stop fails",
+      refuseDenial: true,
+      replacementWorks: false,
+      expected: { ok: false, status: 500, code: "abort_failed" },
+    },
+    {
+      name: "the replacement ends a refused denial",
+      refuseDenial: true,
+      replacementWorks: true,
+      expected: { ok: true },
+    },
+    {
+      name: "the denial lands and only the replacement fails",
+      refuseDenial: false,
+      replacementWorks: false,
+      expected: { ok: true },
+    },
+  ]) {
+    it(`a stop that joins one in flight reports its outcome when ${c.name}`, async () => {
+      server = await startTestServer({ fakeBackend: parkingBackend() });
+      const owner = await server.seedOwner();
+      const a = await spawnAgent(server, "Joined", firstRoomId(server));
+      await parkOnPermission(server, owner.rawSessionId, a.id);
+      const parked = server.fakeBackend.sessionForAgent(a.id)!;
+      const approve = parked.approve.bind(parked);
+      let denials = 0;
+      parked.approve = (...args: Parameters<typeof approve>) => {
+        denials++;
+        return c.refuseDenial
+          ? Promise.reject(new Error("backend refused the decision"))
+          : approve(...args);
+      };
+      const sessionId = (
+        await sessionIdsOf(server, owner.rawSessionId, a.id)
+      )[0];
+      if (c.replacementWorks) stubClaudeSession(server, a.cwd, sessionId);
+      else
+        server.fakeBackend.setSessionResumableError(
+          sessionId,
+          "The stored fake session is missing.",
+        );
+
+      const [first, joined] = await Promise.all([
+        server.agentManager.abort(a.id),
+        server.agentManager.abort(a.id),
+      ]);
+
+      // The second call joined: it ran no denial of its own. A call that ran
+      // its own stop instead would deny again on either branch of abort().
+      expect(denials).toBe(1);
+      // And the stop ended the way this case names.
+      expect(server.fakeBackend.sessionForAgent(a.id) !== parked).toBe(
+        c.replacementWorks,
+      );
+      expect(first).toMatchObject(c.expected);
+      expect(joined).toEqual(first);
+    });
+  }
+
   it("abort on an agent with nothing to stop returns an honest error", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner();

@@ -26,6 +26,7 @@ import {
   AuthNeededError,
   SessionSwappedError,
   TurnSupersededError,
+  type AbortResult,
   type AgentEvent,
   type SwapReason,
 } from "./internal-types.ts";
@@ -188,7 +189,9 @@ export class SessionManager<H extends SessionHost = SessionHost> {
   // (sendMessage-during-abort) of the broader concurrency hole where multiple swap
   // callers (newConversation/resume/editAgent/editMessage/`/clear`) can race and
   // orphan the loser's session. Don't remove without replacing.
-  abortPromise: Promise<void> | null = null;
+  // Resolves with the initiating abort's outcome, which a joining abort reports
+  // as its own. Never rejects.
+  abortPromise: Promise<AbortResult> | null = null;
   // The explained backend-failure sentence the STREAM CONSUMER just wrote to
   // chat, held so the turn-owning caller's catch can recognize its own echo.
   //

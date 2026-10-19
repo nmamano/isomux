@@ -9556,21 +9556,27 @@ export function createAgentManager(deps: ManagerDeps) {
     }
     // Re-entry guard: a second Stop while the first is still in flight just
     // waits for it instead of starting another abort that would reassign
-    // abortPromise and stack abortDone closures.
+    // abortPromise and stack abortDone closures. It reports the first Stop's
+    // outcome: it stopped nothing on its own.
     if (
       managed.sessionManager.aborting &&
       managed.sessionManager.abortPromise
     ) {
-      try {
-        await managed.sessionManager.abortPromise;
-      } catch {}
-      return { ok: true };
+      return await managed.sessionManager.abortPromise;
     }
     managed.sessionManager.aborting = true;
-    let abortDone!: () => void;
-    managed.sessionManager.abortPromise = new Promise<void>((res) => {
+    let abortDone!: (result: AbortResult) => void;
+    managed.sessionManager.abortPromise = new Promise<AbortResult>((res) => {
       abortDone = res;
     });
+    // What a joining Stop reports if the catch below throws: the same 500 the
+    // route executor renders for this call's own throw (fail(500, "internal")).
+    let outcome: AbortResult = {
+      ok: false,
+      status: 500,
+      code: "internal",
+      message: "internal",
+    };
 
     // Flip UI state and log the interrupt up front so the agent appears to
     // stop immediately. From the user's perspective the agent stops on Ctrl+C,
@@ -9650,7 +9656,8 @@ export function createAgentManager(deps: ManagerDeps) {
           logWords(agentId)("systemEntries.interruptedPermissionRestarted"),
         );
       }
-      return { ok: true };
+      outcome = { ok: true };
+      return outcome;
     } catch (err) {
       addLogEntry(
         agentId,
@@ -9664,23 +9671,25 @@ export function createAgentManager(deps: ManagerDeps) {
       // prompt: the backend may still be inside canUseTool. Same honest 500 the
       // no-pendingTurn branch returns, for the same reason.
       if (deniedPrompt === "failed") {
-        return {
+        outcome = {
           ok: false,
           status: 500,
           code: "abort_failed",
           message:
             "The pending permission request could not be resolved and the agent's backend could not be restarted.",
         };
+        return outcome;
       }
       // Otherwise the turn WAS cancelled (the pendingTurn rejection and the
       // token bump both already happened); only the session replacement fell
       // over, and that is logged above. Reporting a refusal here would tell the
       // caller nothing was stopped, which is false.
-      return { ok: true };
+      outcome = { ok: true };
+      return outcome;
     } finally {
       managed.sessionManager.aborting = false;
       managed.sessionManager.abortPromise = null;
-      abortDone();
+      abortDone(outcome);
     }
   }
 
@@ -11722,7 +11731,9 @@ export function createAgentManager(deps: ManagerDeps) {
     const managed = agents.get(agentId);
     if (!managed) return;
     managed.sessionManager.aborting = blocked;
-    managed.sessionManager.abortPromise = blocked ? Promise.resolve() : null;
+    managed.sessionManager.abortPromise = blocked
+      ? Promise.resolve({ ok: true })
+      : null;
   }
 
   // Test-only: how many flushes reached the automatic-handoff gate.
