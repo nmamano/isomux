@@ -1776,7 +1776,8 @@ export interface PrunePolicy {
 
 export interface PruneCandidateWire {
   // RELATIVE to the target root (logs/ or token-logs/), always ("<agentId>/<session>.jsonl",
-  // "<agentId>/files/<name>"). Never absolute: the apply pass joins it onto the
+  // "<agentId>/files/<name>", "<tokenId>.jsonl", "<tokenId>.jsonl.corrupt-<ms>").
+  // Never absolute: the apply pass joins it onto the
   // server's target root and rejects anything that escapes, so a candidate
   // cannot name a path outside the fence in the first place.
   path: string;

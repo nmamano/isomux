@@ -830,6 +830,49 @@ describe("token-log prune target", () => {
     expect(existsSync(join(dir, "junk.jsonl"))).toBe(true);
   });
 
+  // A corrupt log is renamed to <id>.jsonl.corrupt-<ms> and nothing reads it
+  // again, so it is prunable by the same age rule as a live log (task 8cd9de95).
+  // Age comes from mtime, not from the timestamp in the name.
+  it("treats a quarantined token log like a live one and leaves near-miss names alone", () => {
+    const root = tempDir();
+    const dir = join(root, "token-logs");
+    const oldQuarantine = `0123456789abcdef.jsonl.corrupt-${NOW}`;
+    const youngQuarantine = `abcdef0123456789.jsonl.corrupt-${NOW - DAY_MS}`;
+    writeAged(join(dir, oldQuarantine), "quarantined", 40);
+    writeAged(join(dir, youngQuarantine), "fresh", 1);
+    const nearMisses = [
+      "0123456789abcdef.jsonl.corrupt-",
+      "0123456789abcdef.jsonl.corrupt-12x",
+      "0123456789abcdef.jsonl.corrupt-123.tmp",
+      "0123456789abcdef.json.corrupt-123",
+      "x0123456789abcdef.jsonl.corrupt-123",
+      "api-tokens.json.corrupt-123",
+    ];
+    for (const name of nearMisses) writeAged(join(dir, name), "keep", 40);
+    mkdirSync(join(dir, "1111111111111111.jsonl.corrupt-123"));
+    const outside = join(tempDir(), "outside");
+    writeAged(outside, "outside", 50);
+    symlinkSync(outside, join(dir, "2222222222222222.jsonl.corrupt-123"));
+    const d = deps(join(root, "logs"));
+
+    const plan = planPrune("token-logs", POLICY, d);
+    expect(plan.candidates.map((c) => c.path)).toEqual([oldQuarantine]);
+    expect(plan.bytes).toBe("quarantined".length);
+    expect(plan.skipped).toEqual([
+      { reason: "too-recent", count: 1, bytes: "fresh".length },
+    ]);
+    expect(applyPrune(plan, d)).toMatchObject({
+      deleted: 1,
+      bytes: "quarantined".length,
+      refused: [],
+    });
+    expect(existsSync(join(dir, oldQuarantine))).toBe(false);
+    expect(existsSync(join(dir, youngQuarantine))).toBe(true);
+    for (const name of nearMisses)
+      expect(existsSync(join(dir, name))).toBe(true);
+    expect(existsSync(outside)).toBe(true);
+  });
+
   it("refuses path escapes, modified files and a symlinked target root", () => {
     const root = tempDir();
     const dir = join(root, "token-logs");

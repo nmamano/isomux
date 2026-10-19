@@ -520,7 +520,9 @@ function planTokenLogs(
     return finishPlan("token-logs", policy, candidates, ledger);
   }
   for (const name of names) {
-    if (!/^[a-f0-9]{16}\.jsonl$/.test(name)) continue;
+    // A quarantined corrupt log (api-tokens.ts) is never read again, so it
+    // prunes by age like a live one.
+    if (!/^[a-f0-9]{16}\.jsonl(?:\.corrupt-\d+)?$/.test(name)) continue;
     let stat;
     try {
       stat = lstatSync(join(root, name));
