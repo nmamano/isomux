@@ -19,7 +19,11 @@ import { sendAttempt, takeAttempt } from "../log-view/outbox.ts";
 import { OutboxRows } from "../log-view/OutboxRows.tsx";
 import { errMessage } from "../../shared/errors.ts";
 import { useWebhookList } from "./WebhooksView.tsx";
-import { composerMaxHeight, fitComposer } from "../composer-height.ts";
+import {
+  COMPOSER_MOBILE_FONT_SIZE,
+  composerMaxHeight,
+  fitComposer,
+} from "../composer-height.ts";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -811,7 +815,7 @@ export function CronjobRunView({
                     ? "var(--text-muted)"
                     : "var(--text-secondary)",
                   fontFamily: "var(--font-ui)",
-                  fontSize: isMobile ? 16 : 13,
+                  fontSize: isMobile ? COMPOSER_MOBILE_FONT_SIZE : 13,
                   caretColor: "var(--green)",
                   resize: "none",
                   padding: "0 0 4px",

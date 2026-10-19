@@ -44,7 +44,11 @@ import { ThumbsUpReaction } from "./ThumbsUpReaction.tsx";
 import { UserMessage, EditableUserMessage } from "../log-view/LogEntryCard.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { getDevice } from "../device-settings.ts";
-import { composerMaxHeight, fitComposer } from "../composer-height.ts";
+import {
+  COMPOSER_MOBILE_FONT_SIZE,
+  composerMaxHeight,
+  fitComposer,
+} from "../composer-height.ts";
 import * as chatApi from "./api.ts";
 import { copySelectionAsPlainText } from "../log-view/plain-copy.ts";
 import {
@@ -1066,7 +1070,7 @@ export function MembersChatPanel({
                 outline: "none",
                 color: "var(--text-secondary)",
                 fontFamily: "var(--font-ui)",
-                fontSize: isMobile ? 16 : 13,
+                fontSize: isMobile ? COMPOSER_MOBILE_FONT_SIZE : 13,
                 caretColor: "var(--green)",
                 resize: "none",
                 padding: "0 0 4px",

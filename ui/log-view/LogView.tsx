@@ -87,7 +87,11 @@ import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { noTranslate } from "../no-translate.ts";
-import { composerMaxHeight, fitComposer } from "../composer-height.ts";
+import {
+  COMPOSER_MOBILE_FONT_SIZE,
+  composerMaxHeight,
+  fitComposer,
+} from "../composer-height.ts";
 
 // Header label for an agent parked on a two-step prompt. It
 // sits where the activity indicator would be if a turn were running - which is
@@ -2929,7 +2933,7 @@ export function LogView({
                         ? "var(--text-muted)"
                         : "var(--text-secondary)",
                     fontFamily: "var(--font-ui)",
-                    fontSize: isMobile ? 16 : 13,
+                    fontSize: isMobile ? COMPOSER_MOBILE_FONT_SIZE : 13,
                     caretColor: "var(--green)",
                     resize: "none",
                     padding: "0 0 4px",
