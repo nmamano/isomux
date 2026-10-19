@@ -30,6 +30,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { STATE_ROOT } from "../../config.ts";
+import { translatorFor } from "../../../shared/i18n/translate.ts";
+import { inertMarkdown, providerText } from "../provider-text.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import {
   buildCodexUserInput,
@@ -39,6 +41,7 @@ import {
   codexResetsAtMs,
   codexUsageLimitResetMs,
   codexWindowLabel,
+  codexProviderRefusal,
   CODEX_LIMIT_RESET_READ_MS,
   CodexSession,
   mergeRateLimitSnapshots,
@@ -88,6 +91,8 @@ class FakeCodexTransport implements CodexTransport {
   // thread/resume answers with this collaborationMode (the thread's stored
   // mode); thread/settings/update rejects when the error is set.
   resumeCollaborationMode: unknown = null;
+  // thread/start and thread/resume answer with this modelProvider when set.
+  modelProvider: string | null = null;
   settingsUpdateError: Error | null = null;
   // account/rateLimits/read: resolves with this payload, or rejects when the
   // error is set (unauthenticated / API-key-only logins).
@@ -139,6 +144,9 @@ class FakeCodexTransport implements CodexTransport {
       if (this.bootstrapError) return Promise.reject(this.bootstrapError);
       return Promise.resolve({
         thread: { id: this.threadId },
+        ...(this.modelProvider !== null
+          ? { modelProvider: this.modelProvider }
+          : {}),
         ...(method === "thread/resume"
           ? { collaborationMode: this.resumeCollaborationMode }
           : {}),
@@ -3787,5 +3795,284 @@ describe("Codex usage-limit stop", () => {
         ),
       ).toBeNull();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Provider refusals (task 2bd836d5). A request the provider refuses reaches
+// the chat once, as the provider's words: bounded, redacted, and named as the
+// provider's, not Isomux's. The words come from the provider, so every other
+// Codex error text that reaches the chat is bounded and redacted too.
+// ---------------------------------------------------------------------------
+describe("CodexSession provider refusals", () => {
+  const SECRET = "sk-abcdefghijklmnopqrstuvwxyz123456";
+  // Codex 0.160 wording for a provider 4xx, with a secret, a line break and
+  // a body far over the bound.
+  const REFUSED = `unexpected status 403 Forbidden: {"error":{"message":"Request blocked.\nKey ${SECRET}"}}, url: https://api.openai.com/v1/responses, request id: req_1 ${"x".repeat(400)}`;
+  const FORBIDDEN = { httpConnectionFailed: { httpStatusCode: 403 } };
+  const en = translatorFor("en").t;
+  const refusalLine = (
+    provider: string,
+    message: string,
+    words: Translator["t"] = en,
+  ) =>
+    words("systemEntries.providerRefused", {
+      provider,
+      message: providerText(message)!,
+    });
+
+  describe("codexProviderRefusal", () => {
+    const REFUSAL_KINDS: unknown[] = [
+      "rateLimitExceeded",
+      "flexUnavailable",
+      "cyberPolicy",
+      "bioPolicy",
+      "invalidPrompt",
+      "misalignmentPolicyViolation",
+      { httpConnectionFailed: { httpStatusCode: 400 } },
+      FORBIDDEN,
+      { httpConnectionFailed: { httpStatusCode: 499 } },
+      { responseStreamConnectionFailed: { httpStatusCode: 429 } },
+      { responseTooManyFailedAttempts: { httpStatusCode: 404 } },
+    ];
+    // Sign-in (401, unauthorized), the usage limit and capacity keep their
+    // own paths; a 5xx is a provider fault; the rest are Codex's own.
+    const OTHER_KINDS: unknown[] = [
+      "unauthorized",
+      { httpConnectionFailed: { httpStatusCode: 401 } },
+      { responseStreamConnectionFailed: { httpStatusCode: 401 } },
+      { responseTooManyFailedAttempts: { httpStatusCode: 401 } },
+      "usageLimitExceeded",
+      "serverOverloaded",
+      "badRequest",
+      "contextWindowExceeded",
+      "internalServerError",
+      "other",
+      { httpConnectionFailed: { httpStatusCode: 399 } },
+      { httpConnectionFailed: { httpStatusCode: 500 } },
+      { httpConnectionFailed: { httpStatusCode: null } },
+      undefined,
+      null,
+    ];
+
+    it("names the provider and quotes its bounded, redacted words", () => {
+      for (const codexErrorInfo of REFUSAL_KINDS) {
+        const line = codexProviderRefusal(
+          { message: REFUSED, codexErrorInfo },
+          "azure-openai",
+        );
+        expect({ codexErrorInfo, line }).toEqual({
+          codexErrorInfo,
+          line: refusalLine("azure-openai", REFUSED),
+        });
+        expect(line).not.toContain(SECRET.slice(3));
+        expect(line).not.toContain("\n");
+      }
+    });
+
+    it("leaves sign-in, limits, capacity and Codex's own failures alone", () => {
+      for (const codexErrorInfo of OTHER_KINDS)
+        expect({
+          codexErrorInfo,
+          line: codexProviderRefusal(
+            { message: REFUSED, codexErrorInfo },
+            "openai",
+          ),
+        }).toEqual({ codexErrorInfo, line: null });
+    });
+
+    it("needs the provider's words", () => {
+      for (const message of [undefined, null, "", " \n\t "])
+        expect(
+          codexProviderRefusal(
+            { message, codexErrorInfo: FORBIDDEN },
+            "openai",
+          ),
+        ).toBeNull();
+      expect(codexProviderRefusal(null, "openai")).toBeNull();
+      expect(codexProviderRefusal(undefined, "openai")).toBeNull();
+    });
+
+    it("words the line in the member's language", () => {
+      const spanish = translatorFor("es").t;
+      const line = codexProviderRefusal(
+        { message: REFUSED, codexErrorInfo: FORBIDDEN },
+        "openai",
+        spanish,
+      );
+      expect(line).toBe(refusalLine("openai", REFUSED, spanish));
+      expect(line).not.toBe(refusalLine("openai", REFUSED));
+    });
+  });
+
+  // Codex 0.160 app-server sends a terminal ErrorNotification and then a
+  // failed turn/completed whose turn.error is the same TurnError
+  // (bespoke_event_handling.rs, handle_error and handle_turn_complete).
+  function fireRefusal(fake: FakeCodexTransport, turnId: string): void {
+    const error = { message: REFUSED, codexErrorInfo: FORBIDDEN };
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: turnId },
+    });
+    fake.fireNotification("error", {
+      error,
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId,
+    });
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: turnId, status: "failed", error },
+    });
+  }
+
+  for (const { name, modelProvider, provider, resume } of [
+    {
+      name: "the default provider",
+      modelProvider: null,
+      provider: "openai",
+      resume: false,
+    },
+    {
+      name: "the thread/start provider",
+      modelProvider: "azure-openai",
+      provider: "azure-openai",
+      resume: false,
+    },
+    {
+      name: "the thread/resume provider",
+      modelProvider: "azure-openai",
+      provider: "azure-openai",
+      resume: true,
+    },
+  ])
+    it(`shows a provider 403 once, as a refusal by ${name}`, async () => {
+      const fake = new FakeCodexTransport();
+      fake.modelProvider = modelProvider;
+      const { session, it } = await bootstrapped(
+        fake,
+        resume ? { resumeThreadId: "t-1" } : {},
+      );
+      await session.send("go");
+      fireRefusal(fake, "turn-refused");
+      const done = expectKind(
+        await nextEvent(it, "refused turn"),
+        "turn_completed",
+      );
+      expect(done).toMatchObject({
+        status: "failed",
+        error: refusalLine(provider, REFUSED),
+        providerRefusal: true,
+      });
+      expect(done.causedByAuth).toBeUndefined();
+      // Nothing else was queued for the refusal: the next event is the
+      // next thing Codex sends.
+      fake.fireStderr("marker");
+      expect(
+        expectKind(await nextEvent(it, "marker"), "system_text").text,
+      ).toBe("[codex stderr] marker");
+    });
+
+  it("words the refusal in the session's language", async () => {
+    const spanish = translatorFor("es").t;
+    const { session, fake, it } = await bootstrapped(undefined, {
+      words: spanish,
+    });
+    await session.send("go");
+    fireRefusal(fake, "turn-es");
+    expect(
+      expectKind(await nextEvent(it, "refused turn"), "turn_completed").error,
+    ).toBe(refusalLine("openai", REFUSED, spanish));
+  });
+
+  it("keeps a latched refusal when the subprocess exits before turn/completed", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("go");
+    fake.fireNotification("error", {
+      error: { message: REFUSED, codexErrorInfo: FORBIDDEN },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-exit",
+    });
+    fake.fireExit(1);
+    expect(
+      expectKind(await nextEvent(it, "exit failure"), "turn_completed"),
+    ).toMatchObject({
+      status: "failed",
+      error: refusalLine("openai", REFUSED),
+      providerRefusal: true,
+    });
+  });
+
+  const OTHER = `stream failed\nwhile sending key ${SECRET} ${"y".repeat(400)}`;
+
+  it("bounds and redacts a terminal error that is not a refusal", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("go");
+    fake.fireNotification("error", {
+      error: { message: OTHER, codexErrorInfo: "other" },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-other",
+    });
+    const ev = expectKind(await nextEvent(it, "terminal error"), "error");
+    expect(ev.message).toBe(providerText(OTHER)!);
+    expect(ev.message).not.toContain(SECRET.slice(3));
+  });
+
+  it("bounds and redacts a failed turn's error that is not a refusal", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("go");
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: {
+        id: "turn-other",
+        status: "failed",
+        error: { message: OTHER, codexErrorInfo: "other" },
+      },
+    });
+    const done = expectKind(
+      await nextEvent(it, "failed turn"),
+      "turn_completed",
+    );
+    expect(done.status).toBe("failed");
+    expect(done.error).toBe(providerText(OTHER)!);
+    expect(done.providerRefusal).toBeUndefined();
+  });
+
+  // A system line renders as inline markdown in the chat.
+  it("bounds, redacts and disarms a retry notice", async () => {
+    const { fake, it } = await bootstrapped();
+    const notice = `Reconnecting 2/5: [re-enter your key](https://evil.example/login)\n${SECRET} ${"z".repeat(400)}`;
+    fake.fireNotification("error", {
+      error: { message: notice },
+      willRetry: true,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-retry",
+    });
+    const ev = expectKind(await nextEvent(it, "retry notice"), "system_text");
+    expect(ev.text).toBe(inertMarkdown(providerText(notice)!));
+    expect(ev.text).not.toContain(SECRET.slice(3));
+    expect(ev.text).not.toContain("](https://");
+  });
+
+  it("does not read a 403 on stderr as a sign-in failure", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("go");
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-stderr" },
+    });
+    fake.fireStderr(
+      "ERROR codex_api: unexpected status 403 Forbidden: blocked",
+    );
+    expect(
+      expectKind(await nextEvent(it, "403 stderr"), "system_text").text,
+    ).toContain("403");
+    expect(fake.interruptCount()).toBe(0);
+    // The auth gate was open: a 401 in the same turn still interrupts it.
+    fake.fireStderr("ERROR codex_api: unexpected status 401 Unauthorized");
+    expectKind(await nextEvent(it, "401 stderr"), "system_text");
+    expect(fake.interruptCount()).toBe(1);
   });
 });

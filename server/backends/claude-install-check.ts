@@ -95,6 +95,25 @@ function cloudFlag(value: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
 }
 
+// The provider a Claude session talks to, as a refusal line names it: the
+// cloud the env selects ("bedrock", "vertex" or "foundry", the CLI's own
+// flags), the host name of a non-Anthropic ANTHROPIC_BASE_URL (a proxy
+// refuses in its own words), and "anthropic" otherwise.
+export function claudeProviderId(env: CloudEnv): string {
+  if (cloudFlag(env.CLAUDE_CODE_USE_BEDROCK)) return "bedrock";
+  if (cloudFlag(env.CLAUDE_CODE_USE_VERTEX)) return "vertex";
+  if (cloudFlag(env.CLAUDE_CODE_USE_FOUNDRY)) return "foundry";
+  let host: string;
+  try {
+    host = new URL(env.ANTHROPIC_BASE_URL ?? "").hostname.toLowerCase();
+  } catch {
+    return "anthropic";
+  }
+  return host && host !== "anthropic.com" && !host.endsWith(".anthropic.com")
+    ? host
+    : "anthropic";
+}
+
 // Claude Code 2.1.293, checked 2026-10-10: o8 validates regions without trimming.
 function awsRegion(value: string | undefined): string | undefined {
   return value && /^[a-z]{2,}(?:-[a-z0-9]+){0,4}$/i.test(value)

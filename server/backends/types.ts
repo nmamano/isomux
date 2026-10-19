@@ -232,6 +232,9 @@ export type NormalizedEvent =
       // The backend stayed healthy, but the provider refused the turn after
       // bounded capacity retries. The orchestrator keeps the session usable.
       causedByProviderCapacity?: boolean;
+      // `error` is a provider refusal line (server/backends/provider-text.ts):
+      // the orchestrator shows it as it is, without auth detection.
+      providerRefusal?: boolean;
     }
   | {
       kind: "provider_capacity_retry";

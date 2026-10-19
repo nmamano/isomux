@@ -206,8 +206,11 @@ describe("Claude auth classification by provider", () => {
     ).toBe(false);
   });
 
-  it("keeps the same 403 classified when no cloud selector is active", () => {
-    expect(classify(BEDROCK_PAYMENT_ERROR, {})).toBe(true);
+  // The control for the cases above: without a cloud selector, first-party
+  // sign-in text is classified. (A 403 is a provider refusal everywhere since
+  // task 2bd836d5.)
+  it("keeps first-party sign-in text classified when no cloud selector is active", () => {
+    expect(classify("Not logged in · Please run /login", {})).toBe(true);
   });
 
   it("does not classify first-party-shaped text under a cloud selector", () => {

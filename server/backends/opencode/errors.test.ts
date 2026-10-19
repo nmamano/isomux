@@ -7,9 +7,8 @@ import {
   openCodeErrorMessage,
   openCodeProviderRefusal,
   openCodeRetryMessage,
-  PROVIDER_TEXT_LIMIT,
-  providerText,
 } from "./errors.ts";
+import { PROVIDER_TEXT_LIMIT, providerText } from "../provider-text.ts";
 import type { OpenCodeStreamSilence } from "./transport.ts";
 
 it("gives errors a cause without copying provider text", () => {

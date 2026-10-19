@@ -19,7 +19,10 @@ import {
   flattenSessionMessageText,
   buildClaudeUserMessage,
   type ImageSink,
+  type TranslateOptions,
 } from "./claude";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+import { inertMarkdown, providerText } from "./provider-text.ts";
 import type {
   SDKMessage,
   SessionMessage,
@@ -48,8 +51,12 @@ function recordingSink(): {
   return { sink, calls };
 }
 
-function translate(msg: unknown, sink: ImageSink = noopSink) {
-  return [...translateSDKMessage(msg as SDKMessage, sink)];
+function translate(
+  msg: unknown,
+  sink: ImageSink = noopSink,
+  options?: TranslateOptions,
+) {
+  return [...translateSDKMessage(msg as SDKMessage, sink, options)];
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +290,91 @@ describe("translateSDKMessage - assistant", () => {
       },
     });
     expect(events).toEqual([{ kind: "system_text", text: "Not logged in" }]);
+  });
+
+  // Task 2bd836d5. Claude Code turns every 401 and 403 from the API into a
+  // synthetic authentication_failed message (CLI 2.1.293, read from the
+  // bundled binary 2026-10-19): "Failed to authenticate. API Error: <status>
+  // <body>" in SDK mode, "Please run /login · API Error: ..." otherwise. A 403
+  // is the provider refusing the request: the member reads its words, and the
+  // line is Isomux's own, so the orchestrator does not sniff it for sign-in.
+  describe("provider refusal", () => {
+    const SECRET = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
+    const BODY = `403 {"type":"error","error":{"type":"forbidden","message":"Request not allowed. See [your account](https://evil.example/login) ${SECRET}"}}`;
+    const synthetic = (text: string, error?: string) => ({
+      type: "assistant",
+      ...(error ? { error } : {}),
+      message: { model: "<synthetic>", content: [{ type: "text", text }] },
+    });
+    const refusalLine = (provider: string, words = translatorFor("en").t) =>
+      words("systemEntries.providerRefused", {
+        provider,
+        message: inertMarkdown(providerText(BODY)!),
+      });
+
+    it("quotes a 403 as the provider's refusal", () => {
+      for (const text of [
+        `Failed to authenticate. API Error: ${BODY}`,
+        `Please run /login \u00b7 API Error: ${BODY}`,
+      ]) {
+        const events = translate(
+          synthetic(text, "authentication_failed"),
+          noopSink,
+          { provider: "bedrock" },
+        );
+        expect(events).toEqual([
+          {
+            kind: "system_text",
+            text: refusalLine("bedrock"),
+            isomuxAuthored: true,
+          },
+        ]);
+        expect(JSON.stringify(events)).not.toContain(SECRET.slice(7));
+      }
+    });
+
+    it("words the refusal in the member's language", () => {
+      const spanish = translatorFor("es").t;
+      const [event] = translate(
+        synthetic(
+          `Failed to authenticate. API Error: ${BODY}`,
+          "authentication_failed",
+        ),
+        noopSink,
+        { provider: "vertex", words: spanish },
+      );
+      expect(event).toEqual({
+        kind: "system_text",
+        text: refusalLine("vertex", spanish),
+        isomuxAuthored: true,
+      });
+      expect(event).not.toEqual({
+        kind: "system_text",
+        text: refusalLine("vertex"),
+        isomuxAuthored: true,
+      });
+    });
+
+    it("keeps a 401 on the sign-in path", () => {
+      const text = `Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`;
+      expect(
+        translate(synthetic(text, "authentication_failed"), noopSink, {
+          provider: "anthropic",
+        }),
+      ).toEqual([{ kind: "system_text", text }]);
+    });
+
+    // The match keys on the CLI's typed error code, not on text alone: a
+    // synthetic notice that only quotes a 403 is passed on as it is.
+    it("needs the authentication_failed code", () => {
+      const text = `Failed to authenticate. API Error: ${BODY}`;
+      for (const error of [undefined, "rate_limit", "server_error"])
+        expect(
+          translate(synthetic(text, error), noopSink, {
+            provider: "anthropic",
+          }),
+        ).toEqual([{ kind: "system_text", text }]);
+    });
   });
 
   it("tool_use block emits tool_call with id/name/input", () => {

@@ -644,8 +644,10 @@ export function createAgentManager(deps: ManagerDeps) {
 
 Once complete, it takes effect immediately for all Isomux agents.`;
 
+  // A 403 is the provider refusing the request, not a sign-in failure
+  // (task 2bd836d5).
   const AUTH_ERROR_PATTERNS =
-    /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|403|401/i;
+    /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|401/i;
   function isAuthError(text: string): boolean {
     return AUTH_ERROR_PATTERNS.test(text);
   }
@@ -5135,9 +5137,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             // hot-abort-dirty strings are isomux-authored and already say what
             // happened, and they EMBED the backend's error - rewriting them
             // would drop the "during interrupt" context that makes them useful.
-            const failure: BackendFailureText = isHotAbortDirty
-              ? { text: errorText, id: "unclassified" }
-              : humanizeBackendFailure(logWords(agentId), errorText);
+            // A provider refusal is the provider's words, shown as they are:
+            // they can say "at capacity" or "unauthorized" (task 2bd836d5).
+            const providerRefusal = ev.providerRefusal === true;
+            const failure: BackendFailureText =
+              isHotAbortDirty || providerRefusal
+                ? { text: errorText, id: "unclassified" }
+                : humanizeBackendFailure(logWords(agentId), errorText);
             if (ev.causedByAuth !== true)
               addLogEntry(
                 agentId,
@@ -5157,7 +5163,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             // `failure.text`, which no longer carries the backend's wording.
             const isAuthError =
               ev.causedByAuth === true ||
-              detectAgentAuthError(managed, errorText);
+              (!providerRefusal && detectAgentAuthError(managed, errorText));
             if (isAuthError) {
               if (managed) managed.pendingFreshRecoveryNotice = false;
             } else {

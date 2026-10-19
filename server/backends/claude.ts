@@ -1,6 +1,6 @@
 import { claudeSessionStore } from "./claude/session-store.ts";
 import { withAgentSpawn } from "./claude/agent-spawn.ts";
-import { translatorFor } from "../../shared/i18n/translate.ts";
+import { translatorFor, type Translator } from "../../shared/i18n/translate.ts";
 // Claude backend.
 //
 // Owns every `@anthropic-ai/...` import. agent-manager talks to this module
@@ -97,6 +97,7 @@ import {
   claudeSessionFileExists,
 } from "../cwd-utils.ts";
 import {
+  claudeProviderId,
   claudeSignInState,
   isClaudeCloudSelected,
   isClaudeCodeInstalled,
@@ -127,6 +128,11 @@ import type {
   TokenUsage,
 } from "./types.ts";
 import type { AgentMcpServer } from "../mcp-servers.ts";
+import {
+  inertMarkdown,
+  providerRefusal,
+  providerText,
+} from "./provider-text.ts";
 
 function loginInstructions(command: string): string {
   return `To authenticate Claude Code:
@@ -155,8 +161,10 @@ function loginCommand(env?: { [key: string]: string | undefined }): string {
     : `'${CLAUDE_NATIVE_BIN.replaceAll("'", `'"'"'`)}'`;
 }
 
+// A 403 is the provider refusing the request, not a sign-in failure
+// (task 2bd836d5; translateSDKMessage quotes it).
 const AUTH_ERROR_PATTERNS =
-  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|403|401/i;
+  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|401/i;
 
 const CAPABILITIES: BackendCapabilities = {
   fork: true,
@@ -929,6 +937,7 @@ export class ClaudeSession implements BackendSession {
     resumeSessionId?: string,
     mcpServers?: AgentMcpServer[],
     planMode?: boolean,
+    private readonly translateOptions: TranslateOptions = {},
   ) {
     this.bypassPermissions = sdkOpts.permissionMode === "bypassPermissions";
     this.baseMode = sdkOpts.permissionMode ?? "default";
@@ -1006,7 +1015,11 @@ export class ClaudeSession implements BackendSession {
         for (const ev of this.usageLimitTracker.observe(msg)) {
           this.enqueue(ev);
         }
-        for (const ev of translateSDKMessage(msg, this.imageSink)) {
+        for (const ev of translateSDKMessage(
+          msg,
+          this.imageSink,
+          this.translateOptions,
+        )) {
           this.enqueue(ev);
         }
         // Background-task lifecycle breadcrumbs ride after the message's
@@ -1263,9 +1276,41 @@ function subagentOriginOf(msg: {
   };
 }
 
+// Claude Code turns every 401 and 403 from the API into a synthetic
+// authentication_failed message (Claude Code 2.1.293 with SDK 0.3.293, read
+// from the bundled binary 2026-10-19): "Failed to authenticate. API Error:
+// 403 <body>" in SDK mode, "Please run /login · API Error: 403 <body>"
+// otherwise. A 403 is the provider refusing the request, not a sign-in
+// failure (task 2bd836d5): the member reads the provider's words. The line is
+// Isomux's own, so the orchestrator does not sniff it for sign-in trouble. A
+// 401 stays on the sign-in path.
+const CLAUDE_REFUSAL = /\bAPI Error: (403\b.*)$/s;
+
+function claudeProviderRefusal(
+  text: string,
+  options: TranslateOptions,
+): string | null {
+  const quoted = CLAUDE_REFUSAL.exec(text)?.[1];
+  const message = providerText(quoted);
+  if (message === null) return null;
+  return providerRefusal(
+    options.provider ?? "anthropic",
+    inertMarkdown(message),
+    options.words,
+  );
+}
+
+export interface TranslateOptions {
+  // Translates the notices this translation writes; English when absent.
+  words?: Translator["t"];
+  // The provider a refusal line names (claudeProviderId).
+  provider?: string;
+}
+
 export function* translateSDKMessage(
   msg: SDKMessage,
   imageSink: ImageSink,
+  options: TranslateOptions = {},
 ): Generator<NormalizedEvent, void> {
   switch (msg.type) {
     case "system": {
@@ -1331,6 +1376,8 @@ export function* translateSDKMessage(
       // subscription expired.
       const claudeAccessDenied =
         isSynthetic && msg.error === "oauth_org_not_allowed";
+      const refusalPossible =
+        isSynthetic && msg.error === "authentication_failed";
       const subagent = subagentOriginOf(msg);
       // Known divergence from the original message-level deriveState: when
       // text precedes tool_use in the same assistant message, state will
@@ -1342,6 +1389,13 @@ export function* translateSDKMessage(
       // processNormalizedEvent.)
       for (const block of content) {
         if (block.type === "text" && block.text) {
+          const refusal = refusalPossible
+            ? claudeProviderRefusal(block.text, options)
+            : null;
+          if (refusal !== null) {
+            yield { kind: "system_text", text: refusal, isomuxAuthored: true };
+            continue;
+          }
           yield isSynthetic
             ? {
                 kind: "system_text",
@@ -1782,6 +1836,15 @@ export function toolBoundaryHooks(
   ];
 }
 
+// The session's refusal lines name the provider its env selects, in the
+// member's language.
+function claudeTranslateOptions(opts: CreateSessionOptions): TranslateOptions {
+  return {
+    words: opts.words,
+    provider: claudeProviderId(opts.env ?? getAgentHost().baseEnv()),
+  };
+}
+
 function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   const env = withCloudModelDefaults(opts.env ?? getAgentHost().baseEnv());
   const model = claudeModelForEnvironment(opts.modelFamily, env);
@@ -1872,6 +1935,7 @@ export function createClaudeBackend(
         undefined,
         opts.mcpServers,
         opts.planMode,
+        claudeTranslateOptions(opts),
       );
     },
 
@@ -1886,6 +1950,7 @@ export function createClaudeBackend(
         sessionId,
         opts.mcpServers,
         opts.planMode,
+        claudeTranslateOptions(opts),
       );
     },
 

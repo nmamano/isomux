@@ -1025,6 +1025,94 @@ describe("AgentManager DI (temp-state isolated)", () => {
     ).toHaveLength(2);
   });
 
+  // Task 2bd836d5: a provider refusal is the provider's words. Its text can
+  // say "unauthorized" or "at capacity", so the orchestrator shows it as it
+  // is: once, with no sign-in card and no capacity rewrite, and the failed
+  // turn leaves the agent in error.
+  it("shows a flagged provider refusal once, as it is", async () => {
+    const providerWords =
+      "Selected model is at capacity for unauthorized clients.";
+    const line = translatorFor("en").t("systemEntries.providerRefused", {
+      provider: "openai",
+      message: providerWords,
+    });
+    const fake = new FakeBackend({
+      isAuthError: (text) => /unauthorized/i.test(text),
+      loginInstructions: {
+        text: "terminal fallback",
+        commands: ["codex login --device-auth"],
+      },
+      session: {
+        onSend: (_text, _attachments, session) => {
+          session.push({
+            kind: "turn_completed",
+            status: "failed",
+            error: line,
+            providerRefusal: true,
+          });
+        },
+      },
+    });
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-codex-refusal") }),
+      initialRooms: [],
+      findUser: () => ({ id: "user-a", role: "owner" }),
+      listProviderAccounts: async () => [
+        {
+          provider: "codex",
+          scope: "office",
+          accountStatus: "not_connected",
+          loginStatus: "idle",
+          canBrowserLogin: true,
+        },
+      ],
+    });
+    mgr.configureAgentTurnDeps();
+    const info = await mgr.spawn(
+      "Codex refusal",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-codex-refusal",
+      undefined,
+      "fake",
+      "high",
+      "tester",
+      "codex",
+      undefined,
+      "user-a",
+    );
+    // A queued message: the flush that delivers it is the caller whose catch
+    // would print a rejected turn's error a second time.
+    mgr.enqueueMessage(info!.id, {
+      sender: { kind: "user", username: "tester" },
+      text: "hello",
+    });
+    const deadline = Date.now() + 2000;
+    while (
+      !(
+        fake.sessionForAgent(info!.id)?.sent.length &&
+        mgr.getAgent(info!.id)?.state !== "thinking" &&
+        mgr.getAgentLogs(info!.id).some((entry) => entry.kind === "error")
+      ) &&
+      Date.now() < deadline
+    )
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    // Let a second writer, if any, land.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const logs = mgr.getAgentLogs(info!.id);
+    expect(
+      logs
+        .filter((entry) => entry.content.includes(providerWords))
+        .map((entry) => ({ kind: entry.kind, content: entry.content })),
+    ).toEqual([{ kind: "error", content: line }]);
+    expect(logs.some((entry) => entry.metadata?.providerLogin)).toBe(false);
+    expect(mgr.getAgent(info!.id)?.state).toBe("error");
+  });
+
   it("keeps Codex terminal fallback when no browser card is actionable", async () => {
     const cases = [
       ["no user", null, async () => []],

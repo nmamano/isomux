@@ -5,6 +5,7 @@ import { join } from "path";
 
 import {
   authStatusFromCli,
+  claudeProviderId,
   claudeSignInState,
   isClaudeCodeAuthenticated,
   isClaudeCodeInstalled,
@@ -393,4 +394,58 @@ describe.skipIf(
       ]);
     }
   }, 30_000);
+});
+
+// The provider a Claude refusal line names (task 2bd836d5). The cloud flags
+// use the CLI's boolean parser, as isClaudeCloudSelected does.
+describe("claudeProviderId", () => {
+  it("names the cloud the env selects", () => {
+    expect(claudeProviderId({ CLAUDE_CODE_USE_BEDROCK: " Yes " })).toBe(
+      "bedrock",
+    );
+    expect(claudeProviderId({ CLAUDE_CODE_USE_VERTEX: "1" })).toBe("vertex");
+    expect(claudeProviderId({ CLAUDE_CODE_USE_FOUNDRY: "true" })).toBe(
+      "foundry",
+    );
+    // The cloud selects its own endpoint; ANTHROPIC_BASE_URL is not it.
+    expect(
+      claudeProviderId({
+        CLAUDE_CODE_USE_BEDROCK: "on",
+        ANTHROPIC_BASE_URL: "https://gateway.example.com",
+      }),
+    ).toBe("bedrock");
+  });
+
+  it("names Anthropic when nothing else is selected", () => {
+    for (const env of [
+      {},
+      { CLAUDE_CODE_USE_BEDROCK: "0", CLAUDE_CODE_USE_VERTEX: "false" },
+      { ANTHROPIC_BASE_URL: "https://api.anthropic.com" },
+      { ANTHROPIC_BASE_URL: "https://API.Anthropic.com/v1/" },
+      { ANTHROPIC_BASE_URL: "" },
+      { ANTHROPIC_BASE_URL: "not a url" },
+    ])
+      expect({ env, id: claudeProviderId(env) }).toEqual({
+        env,
+        id: "anthropic",
+      });
+  });
+
+  // A proxy refuses in its own words, so the line names the proxy.
+  it("names the host of a base URL that is not Anthropic's", () => {
+    expect(
+      claudeProviderId({
+        ANTHROPIC_BASE_URL: "https://llm.gateway.example.com/anthropic",
+      }),
+    ).toBe("llm.gateway.example.com");
+    expect(
+      claudeProviderId({ ANTHROPIC_BASE_URL: "https://evilanthropic.com" }),
+    ).toBe("evilanthropic.com");
+    // Credentials and the port in the URL never reach the chat.
+    expect(
+      claudeProviderId({
+        ANTHROPIC_BASE_URL: "https://user:pw-canary@proxy.example:8443/x",
+      }),
+    ).toBe("proxy.example");
+  });
 });

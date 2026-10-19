@@ -41,6 +41,11 @@ import {
   translatorFor,
   type Translator,
 } from "../../../shared/i18n/translate.ts";
+import {
+  inertMarkdown,
+  providerRefusal,
+  providerText,
+} from "../provider-text.ts";
 import { effectiveCodexSandbox } from "./sandbox-probe.ts";
 import type { SubagentOrigin } from "../../../shared/types.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
@@ -140,8 +145,62 @@ Alternative: add \`OPENAI_API_KEY\` on the Integrations page (Variables tab), th
 // they need.
 const ALREADY_AUTHED_INSTRUCTIONS = `Codex is signed in. Type \`/clear\` to refresh this agent's session and pick up the new auth.`;
 
+// A provider refusal as the member line (task 2bd836d5), or null when the
+// error is not one: a 401 and "unauthorized" stay on the sign-in path, and
+// usage limits, capacity and Codex's own failures keep their paths.
+export function codexProviderRefusal(
+  error:
+    | { message?: string | null; codexErrorInfo?: unknown }
+    | null
+    | undefined,
+  provider: string,
+  words: Translator["t"] = translatorFor("en").t,
+): string | null {
+  if (!error || !isCodexRefusal(error.codexErrorInfo)) return null;
+  const message = providerText(error.message ?? undefined);
+  return message === null ? null : providerRefusal(provider, message, words);
+}
+
+const CODEX_REFUSAL_KINDS = new Set([
+  "rateLimitExceeded",
+  "flexUnavailable",
+  "cyberPolicy",
+  // Codex 0.160 (codex-rs/protocol/src/error.rs); not in the generated
+  // CodexErrorInfo yet.
+  "bioPolicy",
+  "invalidPrompt",
+  "misalignmentPolicyViolation",
+]);
+
+// The variants that carry the provider's HTTP status.
+const CODEX_HTTP_KINDS = [
+  "httpConnectionFailed",
+  "responseStreamConnectionFailed",
+  "responseTooManyFailedAttempts",
+];
+
+function isCodexRefusal(info: unknown): boolean {
+  if (typeof info === "string") return CODEX_REFUSAL_KINDS.has(info);
+  if (!info || typeof info !== "object") return false;
+  for (const kind of CODEX_HTTP_KINDS) {
+    const variant = (info as Record<string, unknown>)[kind];
+    if (!variant || typeof variant !== "object") continue;
+    const status = (variant as { httpStatusCode?: unknown }).httpStatusCode;
+    return (
+      typeof status === "number" &&
+      status >= 400 &&
+      status <= 499 &&
+      status !== 401
+    );
+  }
+  return false;
+}
+
+// A 403 is the provider refusing the request, not a sign-in failure (task
+// 2bd836d5): Codex logs it on stderr, and a match there would interrupt the
+// turn before the refusal reaches the member.
 const AUTH_ERROR_PATTERNS =
-  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|403|401/i;
+  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|401/i;
 
 // Per-thread config overrides, sent with every thread/start and
 // thread/resume (the `config` map takes dotted keys, same as `-c`).
@@ -857,6 +916,11 @@ export class CodexSession implements BackendSession {
   // auth summary so the user sees a clear failure, not a vague "interrupted".
   private selfInterruptedForAuth = false;
   private capacityErrorThisAttempt: string | null = null;
+  // The refusal line of this attempt's terminal error notification. Codex
+  // sends the same error again on the failed turn/completed, which shows it.
+  private refusalThisAttempt: string | null = null;
+  // The provider Codex reports for the thread (thread/start, thread/resume).
+  private modelProvider = "openai";
   // A usage limit ended this turn (codexErrorInfo "usageLimitExceeded").
   private usageLimitThisTurn = false;
   private completedItemsThisAttempt = 0;
@@ -1002,6 +1066,7 @@ export class CodexSession implements BackendSession {
         // silently keeps the original policy.
         const resumeResp = await this.client.request<{
           thread: { id: string };
+          modelProvider?: string;
           collaborationMode?: { mode?: string } | null;
         }>("thread/resume", {
           threadId: this.opts.resumeThreadId,
@@ -1014,14 +1079,18 @@ export class CodexSession implements BackendSession {
           config: codexThreadConfig(this.opts.mcpServers),
         });
         this.threadId = resumeResp.thread.id;
+        if (resumeResp.modelProvider)
+          this.modelProvider = resumeResp.modelProvider;
         threadInPlanMode = resumeResp.collaborationMode?.mode === "plan";
       } else {
         const startParams = this.buildThreadStartParams(sandboxChoice.sandbox);
-        const startResp = await this.client.request<{ thread: { id: string } }>(
-          "thread/start",
-          startParams,
-        );
+        const startResp = await this.client.request<{
+          thread: { id: string };
+          modelProvider?: string;
+        }>("thread/start", startParams);
         this.threadId = startResp.thread.id;
+        if (startResp.modelProvider)
+          this.modelProvider = startResp.modelProvider;
       }
 
       this.enqueue({
@@ -1168,6 +1237,7 @@ export class CodexSession implements BackendSession {
     const input = buildCodexUserInput(text, attachments, this.opts.agentId);
     this.capacityRetryCount = 0;
     this.capacityErrorThisAttempt = null;
+    this.refusalThisAttempt = null;
     this.usageLimitThisTurn = false;
     this.completedItemsThisAttempt = 0;
     // Open the auth-stderr gate before turn/start. The gate must be open
@@ -1253,6 +1323,7 @@ export class CodexSession implements BackendSession {
       this.cancelCapacityRetry = null;
       if (this.closed || !this.threadId) return;
       this.capacityErrorThisAttempt = null;
+      this.refusalThisAttempt = null;
       this.completedItemsThisAttempt = 0;
       this.turnStarting = true;
       // The failed turn already persisted the original user item. An empty
@@ -1890,9 +1961,19 @@ export class CodexSession implements BackendSession {
         const causedByAuth =
           this.authSignalEmittedThisTurn &&
           (wasSelfInterruptForAuth || turnLevelAuthShaped);
+        const refusal = causedByAuth
+          ? null
+          : (this.refusalThisAttempt ??
+            codexProviderRefusal(
+              turn?.error,
+              this.modelProvider,
+              this.opts.words,
+            ));
+        this.refusalThisAttempt = null;
+        // Any other error text can quote the provider: bounded and redacted.
         const error = causedByAuth
           ? "Codex turn failed after an auth error; see the prior Codex auth notice."
-          : rawError;
+          : (refusal ?? providerText(rawError) ?? undefined);
         // Close the per-turn auth-coalescing gate now that the turn has
         // settled. Next user send opens it again in send().
         this.authSignalsAllowedThisTurn = false;
@@ -1910,6 +1991,9 @@ export class CodexSession implements BackendSession {
           // wouldn't catch it.
           ...(causedByAuth ? { causedByAuth: true } : {}),
           ...(capacityError ? { causedByProviderCapacity: true } : {}),
+          ...(refusal !== null && !capacityError
+            ? { providerRefusal: true }
+            : {}),
         };
         const usageLimited =
           this.usageLimitThisTurn ||
@@ -2114,11 +2198,26 @@ export class CodexSession implements BackendSession {
           this.capacityErrorThisAttempt = message;
           break;
         }
-        if (message) {
+        // A refusal waits for the failed turn/completed that repeats it, so
+        // the member reads it once.
+        if (notification?.willRetry !== true) {
+          const refusal = codexProviderRefusal(
+            notification?.error,
+            this.modelProvider,
+            this.opts.words,
+          );
+          if (refusal !== null) {
+            this.refusalThisAttempt = refusal;
+            break;
+          }
+        }
+        // The text can quote the provider, so it is bounded and redacted.
+        const shown = providerText(message);
+        if (shown !== null) {
           this.enqueue(
-            notification.willRetry === true
-              ? { kind: "system_text", text: message }
-              : { kind: "error", message },
+            notification?.willRetry === true
+              ? { kind: "system_text", text: inertMarkdown(shown) }
+              : { kind: "error", message: shown },
           );
         }
         break;
@@ -2695,11 +2794,23 @@ export class CodexSession implements BackendSession {
     // turn_completed so the orchestrator's pendingTurn unblocks.
     if (this.turnInFlight) {
       this.turnInFlight = false;
-      this.enqueue({
-        kind: "turn_completed",
-        status: "failed",
-        error: `codex subprocess exited${code != null ? ` (code ${code})` : ""}${signal ? ` (signal ${signal})` : ""} mid-turn`,
-      });
+      // A refusal latched before the exit is still the reason the turn failed.
+      const refusal = this.refusalThisAttempt;
+      this.refusalThisAttempt = null;
+      this.enqueue(
+        refusal !== null
+          ? {
+              kind: "turn_completed",
+              status: "failed",
+              error: refusal,
+              providerRefusal: true,
+            }
+          : {
+              kind: "turn_completed",
+              status: "failed",
+              error: `codex subprocess exited${code != null ? ` (code ${code})` : ""}${signal ? ` (signal ${signal})` : ""} mid-turn`,
+            },
+      );
     } else {
       this.enqueue({
         kind: "system_text",

@@ -45,14 +45,17 @@ function tempCodexHome(withAuthJson: boolean): string {
 // against its own backend.
 const AUTH_SHAPED = [
   "Error: 401 Unauthorized",
-  "request failed with status 403",
   "invalid token provided",
   "authentication failed",
 ];
+// A 403 is the provider refusing the request, not a sign-in failure: the
+// member reads the provider's words instead of a login card (task 2bd836d5).
 const BENIGN = [
   "rate limit reached, retrying",
   "tool execution failed: exit code 1",
   "Operation completed successfully",
+  "request failed with status 403",
+  "unexpected status 403 Forbidden: Request not allowed",
 ];
 
 describe("detectAuthError", () => {

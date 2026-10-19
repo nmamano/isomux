@@ -2718,7 +2718,7 @@ Cosas que puedes hacer por él:
     "Falló el gestor de interrupciones: {error}",
   "systemEntries.codexSandboxUnavailable":
     "Este contenedor no puede ejecutar el sandbox de Codex, así que los comandos se ejecutan con acceso completo dentro del contenedor.",
-  "systemEntries.openCodeProviderRefused":
+  "systemEntries.providerRefused":
     'El proveedor `{provider}` rechazó la solicitud: "{message}"',
   "systemEntries.openCodeFreeTierHint":
     "OpenCode también puede enviar esto cuando un servidor usa demasiado su nivel gratuito. Un modelo de pago u OpenCode Go lo evita.",

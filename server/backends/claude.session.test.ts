@@ -29,6 +29,7 @@ import {
   type SdkOneShotOptions,
 } from "./claude";
 import type { ContextUsage, SubscriptionUsageResult } from "./types";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 // ---------------------------------------------------------------------------
 // FakeSdkConversation - test double for SdkConversation
@@ -1014,6 +1015,54 @@ describe("createClaudeBackend.oneShotPrompt", () => {
       /oneShot failed/,
     );
   });
+});
+
+// Task 2bd836d5: the session names the provider its env selects and words
+// the refusal in the member's language, on both start paths.
+describe("createClaudeBackend - provider refusal", () => {
+  for (const path of ["createSession", "resumeSession"] as const)
+    it(`${path} words a 403 with the env's provider and the member's language`, async () => {
+      const fake = new FakeSdkClient();
+      const backend = createClaudeBackend(fake);
+      const spanish = translatorFor("es").t;
+      const opts = {
+        agentId: "refusal-agent",
+        modelFamily: "opus",
+        env: { CLAUDE_CODE_USE_VERTEX: "1" },
+        cwd: "/tmp",
+        systemPrompt: "test",
+        permissionMode: "default",
+        effort: "high",
+        words: spanish,
+      };
+      const session =
+        path === "createSession"
+          ? backend.createSession(opts)
+          : backend.resumeSession("refusal-session", opts);
+      const it = session.stream()[Symbol.asyncIterator]();
+      fake.conversations.at(-1)!.emit({
+        type: "assistant",
+        error: "authentication_failed",
+        message: {
+          model: "<synthetic>",
+          content: [
+            {
+              type: "text",
+              text: "Failed to authenticate. API Error: 403 Request not allowed",
+            },
+          ],
+        },
+      });
+      expect(await nextEvent(it)).toEqual({
+        kind: "system_text",
+        text: spanish("systemEntries.providerRefused", {
+          provider: "vertex",
+          message: "403 Request not allowed",
+        }),
+        isomuxAuthored: true,
+      });
+      session.close();
+    });
 });
 
 describe("createClaudeBackend - limited families on Bedrock and Vertex", () => {
