@@ -31,12 +31,10 @@ does not report a successful deletion without that receipt. Unexpected monitor
 death terminates the container supervisor so Docker can destroy the namespace;
 it does not free the app's port while cleanup remains unproved.
 
-Automatic restart uses a two-second delay and a five-starts-per-minute limit.
-If an app's process has not started 30 seconds after launch, the supervisor
-stops that attempt and keeps retrying; other apps and the office keep running.
-How long a started app takes to answer requests is not limited. The office restarts 2
-seconds after it exits; the delay doubles with each exit up to 60 seconds and
-resets after a 60-second run.
+Automatic app restart uses a two-second delay and a five-starts-per-minute limit.
+The supervisor stops and retries an app process that has not started 30 seconds
+after launch. When the office exits, the supervisor restarts it after a delay
+that grows with repeated exits, up to 60 seconds.
 App tokens live in private files and enter only their own app environment.
 The controller does not copy Render credentials into generated app environments.
 Office stdout/stderr go to Render service logs and to a bounded file on the
