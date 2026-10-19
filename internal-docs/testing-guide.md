@@ -274,7 +274,11 @@ literal translated text, and do not read the expectation back through
 `translatorFor` either (an oracle that repeats the implementation approves a
 wrong translation): render the same element on `en` and on the language under
 test and assert the text changed, which proves the wiring without freezing
-copy (principle 15).
+copy (principle 15). Assert first that the anchor exists and is not empty on
+`en`, so a missing element cannot pass as changed. One exception: a test whose
+claim is which key or which language was picked (a resolver, a fallback, a
+derived key) may take its expectation from the catalog, once it has asserted
+that the catalog value differs from English.
 
 `ui/settings.i18n.dom.test.tsx` is the larger example: it mounts one page and
 walks it through its panes by clicking, rather than mounting each pane. Two

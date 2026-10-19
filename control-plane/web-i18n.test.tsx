@@ -7,7 +7,10 @@
 // `web/components/pages.i18n.test.tsx`, which needs the app's own copy of React
 // and therefore has to sit inside it.
 //
-// Every assertion is a LITERAL translated string (ruling 14).
+// No assertion pins translated copy (internal-docs/testing-guide.md, principle
+// 15): a translated element is compared with the same element on English, and
+// the derivation test, whose claim is which key a kind reaches, reads that key
+// from the catalog after proving it differs from English.
 
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -40,6 +43,24 @@ function text(html: string): string {
     .replaceAll("&amp;", "&");
 }
 
+/** The label and the state word of one rendered step; both must be present. */
+function stepText(
+  html: string,
+  kind: string,
+): { label: string; state: string } {
+  const li = text(html).match(
+    new RegExp(
+      `<li data-testid="step-${kind}">(.*?) - <span data-state="[^"]*">([^<]*)</span>`,
+    ),
+  );
+  expect([
+    kind,
+    (li?.[1] ?? "").length > 0,
+    (li?.[2] ?? "").length > 0,
+  ]).toEqual([kind, true, true]);
+  return { label: li![1], state: li![2] };
+}
+
 function step(kind: string, label: string, state: string) {
   return {
     kind: kind as Kind,
@@ -57,32 +78,52 @@ describe("the step ladder", () => {
     // THE DERIVATION IS WHAT THIS PROVES. `keyForId` builds the catalog key from
     // the kind rather than from a table of kinds, so a broken transform would
     // fall back to the English label the projection sent and every other test
-    // would still pass. These are real kinds from control-plane/progress.ts.
-    const html = renderToStaticMarkup(
-      <Steps
-        i18n={webTranslatorFor("ca")}
-        testid="kinds"
-        now={null}
-        steps={[
-          step("create_instance", "Ordering your server", "done"),
-          step("reboot", "Restarting your server", "active"),
-          step(
-            "wait_for_package_manager",
-            "Waiting for the server's package manager",
-            "waiting",
-          ),
-        ]}
-      />,
+    // would still pass. These are real kinds from control-plane/progress.ts,
+    // each with the key its kind must reach.
+    const cases = [
+      [
+        "create_instance",
+        "Ordering your server",
+        "done",
+        "steps.labelCreateInstance",
+      ],
+      ["reboot", "Restarting your server", "active", "steps.labelReboot"],
+      [
+        "wait_for_package_manager",
+        "Waiting for the server's package manager",
+        "waiting",
+        "steps.labelWaitForPackageManager",
+      ],
+    ] as const;
+    const render = (language: "en" | "ca") =>
+      renderToStaticMarkup(
+        <Steps
+          i18n={webTranslatorFor(language)}
+          testid="kinds"
+          now={null}
+          steps={cases.map(([kind, label, state]) => step(kind, label, state))}
+        />,
+      );
+    const en = render("en");
+    const ca = render("ca");
+    const catalan = webTranslatorFor("ca");
+    const english = webTranslatorFor("en");
+    for (const [kind, delivered, , key] of cases) {
+      expect([key, catalan.t(key)]).not.toEqual([key, english.t(key)]);
+      expect([kind, stepText(ca, kind).label]).toEqual([kind, catalan.t(key)]);
+      // The English the projection sent is gone.
+      expect([kind, stepText(ca, kind).label]).not.toEqual([kind, delivered]);
+      expect([kind, stepText(ca, kind).state]).not.toEqual([
+        kind,
+        stepText(en, kind).state,
+      ]);
+    }
+    // Three states, three different words.
+    expect(new Set(cases.map(([kind]) => stepText(ca, kind).state)).size).toBe(
+      3,
     );
-    expect(html).toContain("Demanant el teu servidor");
-    expect(html).toContain("Reiniciant el teu servidor");
-    expect(html).toContain("Esperant el gestor de paquets del servidor");
-    expect(html).toContain("fet");
-    expect(html).toContain("en curs");
-    expect(html).toContain("sense començar");
-    // The English the projection sent is gone, and no key leaked as text.
-    expect(html).not.toContain("Ordering your server");
-    expect(html).not.toContain("steps.label");
+    // No key leaked as text.
+    expect(ca).not.toContain("steps.label");
   });
 
   test("every kind the control plane can send has a key", () => {
@@ -129,7 +170,7 @@ describe("the step ladder", () => {
         );
       // English first: this proves the label was extracted correctly, so the
       // Spanish assertion below cannot pass by comparing against the wrong
-      // string. English also stays byte-identical (ruling 6).
+      // string.
       expect([kind, text(render("en")).includes(labels[kind])]).toEqual([
         kind,
         true,
@@ -145,41 +186,39 @@ describe("the step ladder", () => {
     // `waiting-for-payment` is invented by office-view rather than sent by the
     // control plane, so it is absent from the progress.ts table the check above
     // walks. Its label is the English fallback; the key is the normal path.
-    const html = renderToStaticMarkup(
-      <Steps
-        i18n={webTranslatorFor("es")}
-        testid="synthetic"
-        now={null}
-        steps={[step("waiting-for-payment", "Waiting for payment", "active")]}
-      />,
-    );
-    expect(html).toContain("Esperando el pago");
-    expect(html).not.toContain("Waiting for payment");
-    expect(
+    const delivered = "Waiting for payment";
+    const render = (language: "en" | "es") =>
       renderToStaticMarkup(
         <Steps
-          i18n={webTranslatorFor("en")}
+          i18n={webTranslatorFor(language)}
           testid="synthetic"
           now={null}
-          steps={[step("waiting-for-payment", "Waiting for payment", "active")]}
+          steps={[step("waiting-for-payment", delivered, "active")]}
         />,
-      ),
-    ).toContain("Waiting for payment");
+      );
+    const es = stepText(render("es"), "waiting-for-payment").label;
+    expect(es).not.toBe(delivered);
+    expect(es).not.toBe(stepText(render("en"), "waiting-for-payment").label);
   });
 
   test("an unknown kind falls back to the English the projection sent", () => {
-    const html = renderToStaticMarkup(
-      <Steps
-        i18n={webTranslatorFor("ca")}
-        testid="unknown"
-        now={null}
-        steps={[
-          step("a_kind_from_the_future", "Doing something new", "active"),
-        ]}
-      />,
+    const render = (language: "en" | "ca") =>
+      renderToStaticMarkup(
+        <Steps
+          i18n={webTranslatorFor(language)}
+          testid="unknown"
+          now={null}
+          steps={[
+            step("a_kind_from_the_future", "Doing something new", "active"),
+          ]}
+        />,
+      );
+    const ca = stepText(render("ca"), "a_kind_from_the_future");
+    expect(ca.label).toBe("Doing something new");
+    // The state word is still the reader's.
+    expect(ca.state).not.toBe(
+      stepText(render("en"), "a_kind_from_the_future").state,
     );
-    expect(html).toContain("Doing something new");
-    expect(html).toContain("en curs");
   });
 
   test("a running step's spoken duration is pluralized by the reader's rules", () => {
@@ -200,16 +239,46 @@ describe("the step ladder", () => {
           ]}
         />,
       );
-      return html.match(/aria-label="([^"]*)"/)?.[1] ?? "";
+      const label = text(html).match(/aria-label="([^"]*)"/)?.[1] ?? "";
+      expect(label.length).toBeGreaterThan(0);
+      return label;
     };
-    // English is unchanged at every boundary the old code split at.
-    expect(spoken("en", 1_000)).toBe("running for 1 second");
-    expect(spoken("en", 2_000)).toBe("running for 2 seconds");
-    expect(spoken("en", 0)).toBe("running for 0 seconds");
-    expect(spoken("en", 3_600_000)).toBe("running for 1 hour");
-    expect(spoken("es", 1_000)).toBe("en marcha desde hace 1 segundo");
-    expect(spoken("ca", 120_000)).toBe("en marxa des de fa 2 minuts");
-    expect(spoken("ca", 60_000)).toBe("en marxa des de fa 1 minut");
+    // The phrase with its count taken out, so two counts compare on words only.
+    const words = (
+      language: "en" | "es" | "ca",
+      elapsedMs: number,
+      count: number,
+    ) => {
+      const label = spoken(language, elapsedMs);
+      expect([label, label.includes(String(count))]).toEqual([label, true]);
+      return label.replace(String(count), "#");
+    };
+    for (const language of ["en", "es", "ca"] as const) {
+      const one = words(language, 1_000, 1);
+      const two = words(language, 2_000, 2);
+      // One second is singular, two are plural, and zero takes the plural.
+      expect([language, one]).not.toEqual([language, two]);
+      expect([language, words(language, 0, 0)]).toEqual([language, two]);
+      // Seconds, minutes and hours are three units.
+      const units = [
+        one,
+        words(language, 60_000, 1),
+        words(language, 3_600_000, 1),
+      ];
+      expect([language, new Set(units).size]).toEqual([language, 3]);
+      // Minutes pluralize too.
+      expect([language, words(language, 120_000, 2)]).not.toEqual([
+        language,
+        words(language, 60_000, 1),
+      ]);
+    }
+    for (const language of ["es", "ca"] as const)
+      for (const elapsedMs of [1_000, 2_000, 120_000])
+        expect([language, elapsedMs, spoken(language, elapsedMs)]).not.toEqual([
+          language,
+          elapsedMs,
+          spoken("en", elapsedMs),
+        ]);
   });
 });
 

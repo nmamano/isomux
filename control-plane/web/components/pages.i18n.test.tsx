@@ -1,10 +1,12 @@
-// The storefront's pages in Spanish and Catalan (internal-docs/i18n-loop.md,
-// S11). Its sibling `control-plane/web-i18n.test.tsx` holds the parts that have
-// to name an operation kind, which no file under web/ may do.
+// The storefront's pages in Spanish, Catalan and Chinese
+// (internal-docs/i18n-loop.md, S11). Its sibling
+// `control-plane/web-i18n.test.tsx` holds the parts that have to name an
+// operation kind, which no file under web/ may do.
 //
-// Every assertion is a LITERAL translated string (ruling 14). A test that read
-// its expectation back through the translator would pass with the translator
-// broken.
+// No assertion pins translated copy (internal-docs/testing-guide.md, principle
+// 15). Each page is rendered on English too, and every text a reader meets must
+// differ from the same text on English, except the data the page carries
+// (names, hostnames, plan figures, dates), which must stay the same.
 
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -16,23 +18,68 @@ import { customerPriceLine } from "./plan-copy";
 import { webTranslatorFor } from "../lib/i18n/rich";
 import type { ProgressView } from "../lib/services.server";
 
+type Language = "en" | "es" | "ca" | "zh";
+
+function decode(html: string): string {
+  return html
+    .replaceAll("&#x27;", "'")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
+}
+
+/** The text a reader meets in a render, in document order: every text node,
+ * and the placeholder and aria-label attributes. */
+function texts(html: string): string[] {
+  return [
+    ...html.matchAll(/>([^<]+)<|\b(?:placeholder|aria-label)="([^"]*)"/gu),
+  ]
+    .map((m) => decode(m[1] ?? m[2]).trim())
+    .filter(Boolean);
+}
+
+/** The text of every link, in order. */
+function links(html: string): string[] {
+  return [...html.matchAll(/<a [^>]*>([^<]*)<\/a>/gu)].map((m) => decode(m[1]));
+}
+
+const PUNCTUATION = /^[\p{P}\s→]*$/u;
+
+/** Every text of `local` differs from the same text of the English render,
+ * except bare punctuation and the `data` the page carries, which must be the
+ * same. `data` must occur on the English render, so a stale entry fails. */
+function expectTranslated(
+  local: string,
+  en: string,
+  data: string[] = [],
+): void {
+  const localized = texts(local);
+  const english = texts(en);
+  expect(english.length).toBeGreaterThan(0);
+  expect(localized.length).toBe(english.length);
+  for (const value of data)
+    expect([value, english.includes(value)]).toEqual([value, true]);
+  for (const [index, text] of english.entries()) {
+    if (PUNCTUATION.test(text)) continue;
+    if (data.includes(text))
+      expect([index, localized[index]]).toEqual([index, text]);
+    else expect([index, localized[index]]).not.toEqual([index, text]);
+  }
+}
+
+const policyNames = links(renderToStaticMarkup(<PolicyNotice language="en" />));
+
 describe("the prerendered shells", () => {
-  test("the signed-out landing reads Catalan and Spanish", () => {
-    expect(
-      renderToStaticMarkup(<SignedOut i18n={webTranslatorFor("ca")} />),
-    ).toContain("Inicia la sessió");
-    expect(
-      renderToStaticMarkup(<SignedOut i18n={webTranslatorFor("es")} />),
-    ).toContain("Inicia sesión");
-    // The product name is not copy (ruling 11) and is the same in all three.
-    for (const language of ["en", "es", "ca", "zh"] as const) {
-      expect(
-        renderToStaticMarkup(<SignedOut i18n={webTranslatorFor(language)} />),
-      ).toContain("Hosted Isomux");
-    }
+  test("the signed-out landing reads every language", () => {
+    const render = (language: Language) =>
+      renderToStaticMarkup(<SignedOut i18n={webTranslatorFor(language)} />);
+    // The product name is not copy (ruling 11) and is the same in all of them.
+    for (const language of ["es", "ca", "zh"] as const)
+      expectTranslated(render(language), render("en"), ["Hosted Isomux"]);
   });
 
-  test("the dashboard reads Catalan, and its heading follows the English split", () => {
+  test("the dashboard reads every language, and its heading follows the English split", () => {
     const office = {
       instanceId: "i-1",
       officeName: "acme",
@@ -40,36 +87,50 @@ describe("the prerendered shells", () => {
       ready: true,
       ended: false,
     };
-    const one = renderToStaticMarkup(
-      <Dashboard
-        i18n={webTranslatorFor("ca")}
-        email="a@example.com"
-        offices={[office]}
-      />,
-    );
-    expect(one).toContain("Sessió iniciada com a a@example.com");
-    expect(one).toContain("La teva oficina");
-    expect(one).toContain("a punt");
-    expect(one).toContain("Tanca la sessió");
-
-    const two = renderToStaticMarkup(
-      <Dashboard
-        i18n={webTranslatorFor("es")}
-        email={null}
-        offices={[office, { ...office, instanceId: "i-2", ready: false }]}
-      />,
-    );
-    expect(two).toContain("Tus oficinas");
-    expect(two).toContain("aún no está lista");
-
-    // ZERO OFFICES KEEPS THE SINGULAR, in every language: the English splits at
-    // more than one, and Intl.PluralRules would have moved it.
-    const none = renderToStaticMarkup(
-      <Dashboard i18n={webTranslatorFor("ca")} email={null} offices={[]} />,
-    );
-    expect(none).toContain("La teva oficina");
-    expect(none).not.toContain("Les teves oficines");
-    expect(none).toContain("Encara no tens cap oficina.");
+    const render = (language: Language, count: 0 | 1 | 2) =>
+      renderToStaticMarkup(
+        <Dashboard
+          i18n={webTranslatorFor(language)}
+          email="a@example.com"
+          offices={[
+            office,
+            { ...office, instanceId: "i-2", ready: false },
+          ].slice(0, count)}
+        />,
+      );
+    const heading = (html: string) => {
+      const text = html.match(/<h1>([^<]*)<\/h1>/u)?.[1] ?? "";
+      expect(text.length).toBeGreaterThan(0);
+      return decode(text);
+    };
+    for (const language of ["en", "es", "ca", "zh"] as const) {
+      for (const count of [0, 1, 2] as const) {
+        const html = render(language, count);
+        expect([language, count, html.includes("a@example.com")]).toEqual([
+          language,
+          count,
+          true,
+        ]);
+        if (language !== "en")
+          expectTranslated(
+            html,
+            render("en", count),
+            count ? ["acme.isomux.app"] : [],
+          );
+      }
+      // ZERO OFFICES KEEPS THE SINGULAR, in every language: the English splits
+      // at more than one, and Intl.PluralRules would have moved it.
+      expect([language, heading(render(language, 0))]).toEqual([
+        language,
+        heading(render(language, 1)),
+      ]);
+      // Chinese writes one office and two the same way.
+      if (language !== "zh")
+        expect([language, heading(render(language, 2))]).not.toEqual([
+          language,
+          heading(render(language, 1)),
+        ]);
+    }
   });
 });
 
@@ -86,71 +147,49 @@ describe("the sign-up page", () => {
       },
     },
   ];
-
-  test("reads Catalan and keeps the plan name and specification", () => {
-    const html = renderToStaticMarkup(
+  const render = (language: Language) =>
+    renderToStaticMarkup(
       <SignupForm
-        language="ca"
+        language={language}
         domain="isomux.app"
         initialName=""
         plans={plans}
       />,
     );
-    expect(html).toContain("Tria la teva oficina");
-    expect(html).toContain("Continua al pagament");
-    expect(html).toContain("Codi promocional (opcional)");
-    expect(html).toContain("Clau privada amagada");
-    // Plan name and hardware figures are data, not copy (ruling 11).
-    expect(html).toContain("Entry");
-    expect(html).toContain("4 vCPU, 8 GB RAM, 100 GB SSD");
+
+  test("reads every language and keeps the plan name and specification", () => {
+    // Plan name, hardware figures and the example address are data, not copy
+    // (ruling 11).
+    for (const language of ["es", "ca", "zh"] as const)
+      expectTranslated(render(language), render("en"), [
+        "Entry",
+        "4 vCPU, 8 GB RAM, 100 GB SSD",
+        "your-name.isomux.app",
+        ...policyNames,
+      ]);
   });
 
-  test("reads Spanish, and the price is formatted for the reader", () => {
-    const html = renderToStaticMarkup(
-      <SignupForm
-        language="es"
-        domain="isomux.app"
-        initialName=""
-        plans={plans}
-      />,
-    );
-    expect(html).toContain("Elige tu oficina");
-    expect(html).toContain("Continuar al pago");
-    expect(html).toContain("Código promocional (opcional)");
-    // Intl puts a NO-BREAK SPACE before the symbol in both, which is why the
-    // expectation spells it: a plain space here would fail on bytes that look
-    // identical in a diff.
-    expect(customerPriceLine("es", plans[0].customerPrice)).toBe(
-      "8,00\u00a0€ por mes",
-    );
-    expect(customerPriceLine("ca", plans[0].customerPrice)).toBe(
-      "8,00\u00a0€ per mes",
-    );
-    // English is byte-identical to what this page printed before the catalog.
-    expect(customerPriceLine("en", plans[0].customerPrice)).toBe(
-      "€8.00 per month",
-    );
+  test("formats the price for the reader", () => {
+    const english = customerPriceLine("en", plans[0].customerPrice)!;
+    for (const language of ["en", "es", "ca", "zh"] as const) {
+      const line = customerPriceLine(language, plans[0].customerPrice)!;
+      const amount = new Intl.NumberFormat(language, {
+        style: "currency",
+        currency: "EUR",
+      }).format(8);
+      expect([language, line.includes(amount)]).toEqual([language, true]);
+      if (language !== "en")
+        expect([language, line]).not.toEqual([language, english]);
+    }
   });
 
   test("the policy notice keeps the English document names in every language", () => {
-    for (const [language, lead] of [
-      ["es", "Antes de pagar, revisa "],
-      ["ca", "Abans de pagar, revisa "],
-      ["zh", "付款前，请阅读 "],
-    ] as const) {
+    expect(policyNames.length).toBe(3);
+    const en = renderToStaticMarkup(<PolicyNotice language="en" />);
+    for (const language of ["es", "ca", "zh"] as const) {
       const html = renderToStaticMarkup(<PolicyNotice language={language} />);
-      expect(html).toContain(lead);
-      for (const name of [
-        "Terms of Service",
-        "Privacy Policy",
-        "Refund Policy",
-      ]) {
-        expect([language, name, html.includes(name)]).toEqual([
-          language,
-          name,
-          true,
-        ]);
-      }
+      expect([language, links(html)]).toEqual([language, policyNames]);
+      expectTranslated(html, en, policyNames);
     }
   });
 });
@@ -187,145 +226,118 @@ const baseView: ProgressView = {
   lifecycle: null,
 };
 
+// The page's data, the same in every language.
+const OFFICE_DATA = [
+  "acme.isomux.app",
+  "Entry",
+  "4 vCPU, 8 GB RAM, 100 GB SSD",
+  ...policyNames,
+];
+
+function office(language: Language, view: ProgressView): string {
+  return renderToStaticMarkup(
+    <OfficeView
+      language={language}
+      initial={view}
+      instanceId="instance-i18n"
+    />,
+  );
+}
+
 describe("the office page", () => {
   test("reads Catalan and Spanish across its sections", () => {
-    const ca = renderToStaticMarkup(
-      <OfficeView
-        language="ca"
-        initial={baseView}
-        instanceId="instance-i18n"
-      />,
-    );
-    expect(ca).toContain("La teva oficina encara no està a punt.");
-    expect(ca).toContain("Progrés");
-    expect(ca).toContain("Com entrar-hi");
-    expect(ca).toContain("El teu pla");
-    expect(ca).toContain("Reinici");
-    expect(ca).toContain("Completa el pagament");
-    // The hostname is the customer's own name for their office.
-    expect(ca).toContain("acme.isomux.app");
-    // The translated region carries its own lang for a reader with no
-    // JavaScript, because the root layout's attribute is a static "en".
-    expect(ca).toContain('<main lang="ca">');
-
-    const es = renderToStaticMarkup(
-      <OfficeView
-        language="es"
-        initial={baseView}
-        instanceId="instance-i18n"
-      />,
-    );
-    expect(es).toContain("Tu oficina aún no está lista.");
-    expect(es).toContain("Progreso");
-    expect(es).toContain("Cómo entrar");
-    expect(es).toContain("Reinicio");
-    expect(es).toContain('<main lang="es">');
+    for (const language of ["es", "ca"] as const) {
+      const html = office(language, baseView);
+      expectTranslated(html, office("en", baseView), OFFICE_DATA);
+      // The translated region carries its own lang for a reader with no
+      // JavaScript, because the root layout's attribute is a static "en".
+      expect(html).toContain(`<main lang="${language}">`);
+    }
   });
 
   test("a liveness rung and an attention class reach their translated words", () => {
-    const html = renderToStaticMarkup(
-      <OfficeView
-        language="ca"
-        initial={{
-          ...baseView,
-          ready: true,
-          liveness: {
-            rung: "tls",
-            words: "waiting for the certificate",
-            strikes: 0,
-            checkedAt: 0,
-            unreachable: false,
-          },
-          attention: [
-            {
-              reasonClass: "absolute_deadline",
-              severity: "warning",
-              raisedAt: 0,
-              acknowledged: true,
-              summary:
-                "A step has passed its time limit. We will check your setup.",
-            },
-          ],
-        }}
-        instanceId="instance-i18n"
-      />,
-    );
-    expect(html).toContain("Comprovat ara mateix: esperant el certificat.");
-    expect(html).toContain(
-      "Un pas ha superat el seu límit de temps. Revisarem la teva configuració.",
-    );
-    expect(html).toContain("(ja ho hem vist)");
-    expect(html).toContain("Hem de revisar la teva configuració");
+    const view: ProgressView = {
+      ...baseView,
+      ready: true,
+      liveness: {
+        rung: "tls",
+        words: "waiting for the certificate",
+        strikes: 0,
+        checkedAt: 0,
+        unreachable: false,
+      },
+      attention: [
+        {
+          reasonClass: "absolute_deadline",
+          severity: "warning",
+          raisedAt: 0,
+          acknowledged: true,
+          summary:
+            "A step has passed its time limit. We will check your setup.",
+        },
+      ],
+    };
+    const html = office("ca", view);
+    expectTranslated(html, office("en", view), [
+      ...OFFICE_DATA,
+      "llc@isomux.com",
+    ]);
     // The English the projection sent is gone, not merely accompanied.
     expect(html).not.toContain("waiting for the certificate");
     expect(html).not.toContain("A step has passed its time limit");
   });
 
   test("an unknown liveness rung falls back to the English the projection sent", () => {
-    const html = renderToStaticMarkup(
-      <OfficeView
-        language="ca"
-        initial={{
-          ...baseView,
-          ready: true,
-          liveness: {
-            rung: "a-rung-from-the-future",
-            words: "we could not classify the last check",
-            strikes: 0,
-            checkedAt: 0,
-            unreachable: false,
-          },
-        }}
-        instanceId="instance-i18n"
-      />,
-    );
-    expect(html).toContain(
-      "Comprovat ara mateix: we could not classify the last check.",
-    );
-    expect(html).not.toContain("liveness.label");
+    const words = "we could not classify the last check";
+    const view: ProgressView = {
+      ...baseView,
+      ready: true,
+      liveness: {
+        rung: "a-rung-from-the-future",
+        words,
+        strikes: 0,
+        checkedAt: 0,
+        unreachable: false,
+      },
+    };
+    // The check line: the reader's own prefix around the projection's words.
+    const prefix = (html: string) => {
+      const line = texts(html).find((text) => text.includes(words)) ?? "";
+      expect(line.length).toBeGreaterThan(words.length);
+      return line.slice(0, line.indexOf(words));
+    };
+    const ca = office("ca", view);
+    expect(prefix(ca).length).toBeGreaterThan(0);
+    expect(prefix(ca)).not.toBe(prefix(office("en", view)));
+    expect(ca).not.toContain("liveness.label");
   });
 
   test("the cancellation panel reads Catalan with its proven dates intact", () => {
-    const html = renderToStaticMarkup(
-      <OfficeView
-        language="ca"
-        initial={{
-          ...baseView,
-          ready: true,
-          subscription: {
-            status: "active",
-            currentPeriodEnd: Date.UTC(2026, 0, 2),
-            cancelAtPeriodEnd: true,
-            comped: false,
-            endedAt: null,
-            customerCancelled: true,
-            cancellationPolicy: "launch",
-          },
-        }}
-        instanceId="instance-i18n"
-      />,
-    );
-    expect(html).toContain(
-      "La teva subscripció està programada per acabar el 2026-01-02.",
-    );
-    expect(html).toContain("Mantén la meva oficina");
-    // Stripe's own status word and the ISO date are data (ruling 11).
-    expect(html).toContain("Entry - active");
-    expect(html).toContain("2026-01-02");
+    const view: ProgressView = {
+      ...baseView,
+      ready: true,
+      subscription: {
+        status: "active",
+        currentPeriodEnd: Date.UTC(2026, 0, 2),
+        cancelAtPeriodEnd: true,
+        comped: false,
+        endedAt: null,
+        customerCancelled: true,
+        cancellationPolicy: "launch",
+      },
+    };
+    const ca = office("ca", view);
+    const en = office("en", view);
+    // Stripe's own status word, next to the plan name, is data (ruling 11).
+    expectTranslated(ca, en, [...OFFICE_DATA.slice(0, 3), "Entry - active,"]);
+    // The ISO date is data too: the scheduled-end sentence carries it, and
+    // every text that carries it on English carries it on Catalan.
+    const scheduledEnd = (html: string) =>
+      html.match(/data-testid="cancel-scheduled"><p>([^<]*)<\/p>/u)?.[1] ?? "";
+    for (const html of [en, ca])
+      expect(scheduledEnd(html)).toContain("2026-01-02");
+    const dated = (html: string) =>
+      texts(html).map((text) => text.includes("2026-01-02"));
+    expect(dated(ca)).toEqual(dated(en));
   });
-});
-
-test("Chinese covers signup, signed-out home and the customer dashboard", () => {
-  const i18n = webTranslatorFor("zh");
-  expect(renderToStaticMarkup(<SignedOut i18n={i18n} />)).toContain("登录");
-  const signup = renderToStaticMarkup(
-    <SignupForm language="zh" domain="isomux.app" initialName="" plans={[]} />,
-  );
-  expect(signup).toContain("选择办公室");
-  expect(signup).toContain("私钥已隐藏");
-  const dashboard = renderToStaticMarkup(
-    <Dashboard i18n={i18n} email="lin@example.com" offices={[]} />,
-  );
-  expect(dashboard).toContain("已以 lin@example.com 身份登录");
-  expect(dashboard).toContain("还没有办公室。");
 });

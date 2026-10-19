@@ -48,7 +48,7 @@ export function HomeView() {
 }
 
 /** The shell a CDN holds. Exported so its test can render it on a language
- * without running an effect (ruling 14: the test asserts literal text). */
+ * without running an effect. */
 export function SignedOut({ i18n }: { i18n: WebTranslator }) {
   return (
     <main>

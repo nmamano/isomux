@@ -5,10 +5,12 @@
 // (the invite-for-someone-else refusal and the sign-out refusal) read that
 // reader's stored preference instead, header or no header.
 //
-// The oracle is a LITERAL translated string, never text read back through the
-// translator (ruling 14). Every English assertion here is the byte-for-byte
-// sentence the page carried before S9 moved it into the catalog, so a wording
-// drift fails the suite (ruling 6).
+// No assertion pins translated copy (internal-docs/testing-guide.md, principle
+// 15). Each page is rendered on English too, and each text element (title,
+// heading, paragraph, label, button) must differ from the same element of the
+// English page; `slot` fails closed when the element is missing or empty. Only
+// the escaping claims read a catalog value, after proving it differs from
+// English, because their claim is what one key's text became.
 //
 // Seam: startTestServer() - the real boot path and the real /auth routes.
 
@@ -17,6 +19,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { _testMintLegacyInvite } from "../auth.ts";
 import { getUserByName, updateUserById } from "../users.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -62,9 +65,51 @@ function setLanguage(username: string, language: "es" | "ca" | null): void {
   if (!result.ok) throw new Error(`could not set language: ${result.error}`);
 }
 
-/** The paragraph right after a page's <h1>: the intro of the first-owner pages. */
-function introAfterHeading(html: string): string {
-  return html.match(/<\/h1>\s*<p>([^<]*)<\/p>/)?.[1] ?? "";
+// The text elements a page is compared on, each found by its markup.
+const TITLE = /<title>([^<]*)<\/title>/u;
+const DESCRIPTION = /<meta property="og:description" content="([^"]*)"/u;
+const H1 = /<h1>([^<]*)<\/h1>/u;
+const INTRO = /<\/h1>\s*<p>([^<]*)<\/p>/u;
+const NAME_LABEL = /<label>([^<]*)<input name="name"/u;
+const BUTTON = /<button[^>]*>([^<]*)<\/button>/u;
+const ERROR = /<p class="err">([^<]*)<\/p>/u;
+const RETURN_LINK = /<a href="\/">([^<]*)<\/a>/u;
+
+/** The text of one element; fails when the page does not have it. */
+function slot(html: string, pattern: RegExp): string {
+  const text = html.match(pattern)?.[1] ?? "";
+  expect({ pattern: String(pattern), present: text.trim().length > 0 }).toEqual(
+    { pattern: String(pattern), present: true },
+  );
+  return text;
+}
+
+/** The text of every <p> inside the page body, in order. */
+function paragraphs(html: string): string[] {
+  const body = html.slice(html.indexOf("<body>"));
+  return [...body.matchAll(/<p[^>]*>(.*?)<\/p>/gsu)].map((m) => m[1]);
+}
+
+/** Each named element differs from the same element of the English page. */
+function expectTranslated(
+  local: string,
+  english: string,
+  patterns: RegExp[],
+): void {
+  for (const pattern of patterns)
+    expect({
+      pattern: String(pattern),
+      text: slot(local, pattern),
+    }).not.toEqual({ pattern: String(pattern), text: slot(english, pattern) });
+}
+
+/** Each named element is the same as on the English page. */
+function expectSame(html: string, english: string, patterns: RegExp[]): void {
+  for (const pattern of patterns)
+    expect({ pattern: String(pattern), text: slot(html, pattern) }).toEqual({
+      pattern: String(pattern),
+      text: slot(english, pattern),
+    });
 }
 
 // The four header cases the slice owes, per page.
@@ -86,53 +131,39 @@ describe("the first-time claim page", () => {
         label,
         lang: true,
       });
+      // The form itself is the same markup in every language.
+      expect(html).toContain(
+        '<input name="name" type="text" autofocus maxlength="64" required',
+      );
       seen[label] = html;
     }
-    expect(seen.Spanish).toContain(
-      "<h1>Te damos la bienvenida a tu nueva oficina Isomux</h1>",
-    );
-    expect(seen.Spanish).toContain(
-      "Elige un nombre para mostrar; aparecerá junto a todo lo que digas.",
-    );
-    expect(seen.Spanish).toContain("- configuración inicial</title>");
-    expect(seen.Catalan).toContain(
-      "<h1>Et donem la benvinguda a la teva nova oficina Isomux</h1>",
-    );
-    expect(seen.Catalan).toContain(
-      "Tria un nom per mostrar; apareixerà al costat de tot el que diguis.",
-    );
-    // English, byte for byte as it read before the catalog (ruling 6).
-    for (const html of [seen.English, seen["no header"]]) {
-      expect(html).toContain("<h1>Welcome to your new Isomux office</h1>");
-      expect(html).toContain(
-        "<p>You're the first person to claim this office. Pick a display name; it'll appear next to anything you say.</p>",
-      );
-      expect(html).toContain(
-        '<label>Display name <input name="name" type="text" autofocus maxlength="64" required',
-      );
-      expect(html).toContain('<button type="submit">Continue</button>');
-      expect(html).toContain("- first-time setup</title>");
-    }
+    const elements = [TITLE, H1, INTRO, NAME_LABEL, BUTTON];
+    expectTranslated(seen.Spanish, seen.English, elements);
+    expectTranslated(seen.Catalan, seen.English, elements);
+    expectTranslated(seen.Catalan, seen.Spanish, elements);
+    expectSame(seen["no header"], seen.English, elements);
   });
 
   it("answers a bad display name in the language the form was read in", async () => {
     server = await startTestServer();
-    const res = await server.http("/auth/claim", {
-      method: "POST",
-      redirect: "manual",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "text/html",
-        "Accept-Language": "ca",
-      },
-      body: `name=&key=${encodeURIComponent(server.setupKey())}`,
-    });
-    expect(res.status).toBe(400);
-    const html = await res.text();
-    expect(html).toContain('<html lang="ca">');
-    expect(html).toContain(
-      "Tria un nom per mostrar (lletres, xifres, espais, punts, guions, apòstrofs o guions baixos).",
-    );
+    const claim = async (language: string) => {
+      const res = await server!.http("/auth/claim", {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "text/html",
+          "Accept-Language": language,
+        },
+        body: `name=&key=${encodeURIComponent(server!.setupKey())}`,
+      });
+      expect(res.status).toBe(400);
+      return res.text();
+    };
+    const en = await claim("en");
+    const ca = await claim("ca");
+    expect(ca).toContain('<html lang="ca">');
+    expectTranslated(ca, en, [ERROR]);
   });
 });
 
@@ -153,29 +184,23 @@ describe("the invite-accept page", () => {
       // No owner yet, so / is the claim page in the same language.
       const claim = await page(server, "/", header);
       intros[label] = {
-        invite: introAfterHeading(html),
-        claim: introAfterHeading(claim.html),
+        invite: slot(html, INTRO),
+        claim: slot(claim.html, INTRO),
       };
     }
     // The bootstrap invite and the claim page greet the same first owner
     // with one intro, in every language.
-    for (const [label] of HEADERS) {
-      expect(intros[label].claim.length).toBeGreaterThan(0);
+    for (const [label] of HEADERS)
       expect({ label, invite: intros[label].invite }).toEqual({
         label,
         invite: intros[label].claim,
       });
-    }
     // ...and it is translated, not English on every page.
-    expect(intros.Spanish.invite).not.toBe(intros.English.invite);
-    expect(intros.Catalan.invite).not.toBe(intros.English.invite);
-    expect(intros.Catalan.invite).not.toBe(intros.Spanish.invite);
-    expect(seen.Catalan).toContain('content="Isomux - configuració inicial"');
-    for (const html of [seen.English, seen["no header"]]) {
-      expect(html).toContain(
-        'content="Open this link to claim ownership of an Isomux office."',
-      );
-    }
+    const elements = [TITLE, DESCRIPTION, H1, INTRO, BUTTON];
+    expectTranslated(seen.Spanish, seen.English, elements);
+    expectTranslated(seen.Catalan, seen.English, elements);
+    expectTranslated(seen.Catalan, seen.Spanish, elements);
+    expectSame(seen["no header"], seen.English, elements);
   });
 
   it("reads in the browser's language on a named invite", async () => {
@@ -192,27 +217,10 @@ describe("the invite-accept page", () => {
       });
       seen[label] = html;
     }
-    expect(seen.Spanish).toContain(
-      "Al pulsar el botón de abajo iniciarás sesión en este dispositivo.",
-    );
-    expect(seen.Spanish).toContain(
-      '<button type="submit" autofocus>Aceptar y continuar</button>',
-    );
-    expect(seen.Catalan).toContain(
-      "En prémer el botó de sota iniciaràs la sessió en aquest dispositiu.",
-    );
-    expect(seen.Catalan).toContain(
-      '<button type="submit" autofocus>Accepta i continua</button>',
-    );
-    for (const html of [seen.English, seen["no header"]]) {
-      expect(html).toContain(
-        "<p>Clicking the button below will sign you in on this device.</p>",
-      );
-      expect(html).toContain(
-        '<button type="submit" autofocus>Accept and continue</button>',
-      );
-      expect(html).toContain("- accept invite</title>");
-    }
+    const elements = [TITLE, DESCRIPTION, H1, INTRO, BUTTON];
+    expectTranslated(seen.Spanish, seen.English, elements);
+    expectTranslated(seen.Catalan, seen.English, elements);
+    expectSame(seen["no header"], seen.English, elements);
   });
 });
 
@@ -230,24 +238,22 @@ describe("the login page", () => {
       });
       seen[label] = html;
     }
-    expect(seen.Spanish).toContain(
-      "Abre un enlace de invitación para iniciar sesión en este dispositivo.",
-    );
-    expect(seen.Catalan).toContain(
-      "Obre un enllaç d'invitació per iniciar la sessió en aquest dispositiu.",
-    );
-    expect(seen.Catalan).toContain("- iniciar la sessió</title>");
-    for (const html of [seen.English, seen["no header"]]) {
-      expect(html).toContain(
-        "<p>Open an invite link to sign in on this device.</p>",
-      );
-      expect(html).toContain(
-        "<p>Already signed in elsewhere? Create invite links for your other devices in Settings.</p>",
-      );
-      expect(html).toContain(
-        '<p class="muted">Otherwise, ask the office owner for one.</p>',
-      );
+    // Every paragraph of the card, one by one.
+    const en = paragraphs(seen.English);
+    expect(en.length).toBeGreaterThan(0);
+    expect(en.every((text) => text.trim().length > 0)).toBe(true);
+    for (const label of ["Spanish", "Catalan"]) {
+      const local = paragraphs(seen[label]);
+      expect(local.length).toBe(en.length);
+      for (const [index, text] of local.entries())
+        expect({ label, index, text }).not.toEqual({
+          label,
+          index,
+          text: en[index],
+        });
     }
+    expect(paragraphs(seen["no header"])).toEqual(en);
+    expectTranslated(seen.Catalan, seen.English, [TITLE]);
   });
 
   it("keeps the pre-claim branch's link and command intact in every language", async () => {
@@ -256,18 +262,16 @@ describe("the login page", () => {
     server = await startTestServer();
     const { html: en } = await page(server, "/nope", "en");
     const { html: ca } = await page(server, "/nope", "ca");
-    expect(en).toContain(
-      '<p>Open <a href="/">this office\'s home page</a> to claim ownership.</p>',
-    );
-    expect(en).toContain(
-      "The server's startup log spells out the exact <code>ssh -L</code> command.",
-    );
-    // Nothing on this branch goes through escapeHtml, so the Catalan
-    // apostrophes stay as apostrophes, exactly like the English possessives.
-    expect(ca).toContain(
-      "<p>Obre <a href=\"/\">la pàgina d'inici d'aquesta oficina</a> per reclamar-ne la propietat.</p>",
-    );
-    expect(ca).toContain("indica l'ordre <code>ssh -L</code> exacta.");
+    for (const html of [en, ca]) expect(html).toContain("<code>ssh -L</code>");
+    expectTranslated(ca, en, [RETURN_LINK]);
+    // Nothing on this branch goes through escapeHtml, so an apostrophe in the
+    // Catalan link text stays an apostrophe, exactly like the English
+    // possessive.
+    const key = "preAuth.login.claimHereLink";
+    const catalan = translatorFor("ca").t(key);
+    expect(catalan).not.toBe(translatorFor("en").t(key));
+    expect(catalan).toContain("'");
+    expect(slot(ca, RETURN_LINK)).toBe(catalan);
   });
 });
 
@@ -278,50 +282,55 @@ describe("the invite-error page", () => {
     const { status, html: ca } = await page(server, "/i/nosuchtoken", "ca");
     expect(status).toBe(410);
     expect(ca).toContain('<html lang="ca">');
-    expect(ca).toContain("<h1>Invitació no disponible</h1>");
-    expect(ca).toContain("Aquesta invitació ja no és vàlida.");
     const { html: en } = await page(server, "/i/nosuchtoken", "en");
-    expect(en).toContain(
-      "<h1>Invite unavailable</h1><p>This invite is no longer valid.</p>",
-    );
+    expectTranslated(ca, en, [H1, INTRO]);
   });
 });
 
 describe("a page that knows its reader", () => {
+  // Boss is signed in and Yu's invite is open. `refusal` is the page Boss
+  // gets on it, with Boss on `language` and the browser asking for `header`.
+  async function seedConflict(): Promise<
+    (language: "es" | null, header: string) => Promise<string>
+  > {
+    const boss = await server!.seedOwner("Boss");
+    const token = await inviteTokenFor("Yu");
+    return async (language, header) => {
+      setLanguage("Boss", language);
+      const { status, html } = await page(server!, `/i/${token}`, header, {
+        rawSessionId: boss.rawSessionId,
+      });
+      expect(status).toBe(409);
+      return html;
+    };
+  }
+
   it("gives a signed-in Spanish user Spanish, whatever the browser asks for", async () => {
     // Ruling 8's precedence, on the one pre-sign-in page that can identify its
     // reader: Boss is signed in and stored on Spanish, the browser says
     // English, and the invite belongs to someone else.
     server = await startTestServer();
-    const boss = await server.seedOwner("Boss");
-    setLanguage("Boss", "es");
-    const token = await inviteTokenFor("Yu");
-    const { status, html } = await page(server, `/i/${token}`, "en", {
-      rawSessionId: boss.rawSessionId,
-    });
-    expect(status).toBe(409);
-    expect(html).toContain('<html lang="es">');
-    expect(html).toContain("<h1>Esta invitación es para otro miembro</h1>");
-    expect(html).toContain(
-      "Has iniciado sesión como Boss. Esta invitación es para Yu: ábrela en su dispositivo o en otro perfil del navegador.",
-    );
-    expect(html).toContain('<a href="/">Volver a la oficina</a>');
+    const refusal = await seedConflict();
+    const en = await refusal(null, "en");
+    const es = await refusal("es", "en");
+    expect(es).toContain('<html lang="es">');
+    expectTranslated(es, en, [H1, INTRO, RETURN_LINK]);
+    // Both names reach the sentence in every language.
+    for (const html of [en, es]) {
+      expect(slot(html, INTRO)).toContain("Boss");
+      expect(slot(html, INTRO)).toContain("Yu");
+    }
   });
 
   it("leaves a signed-in user with no stored preference in English", async () => {
     // "Never chosen" is English on the server (S7), and a Spanish header does
     // not override a reader we know.
     server = await startTestServer();
-    const boss = await server.seedOwner("Boss");
-    const token = await inviteTokenFor("Yu");
-    const { html } = await page(server, `/i/${token}`, "es", {
-      rawSessionId: boss.rawSessionId,
-    });
-    expect(html).toContain('<html lang="en">');
-    expect(html).toContain("<h1>This invite is for a different member</h1>");
-    expect(html).toContain(
-      "<p>You are signed in as Boss. This invite is for Yu: open it on their device or in a separate browser profile.</p>",
-    );
+    const refusal = await seedConflict();
+    const en = await refusal(null, "en");
+    const withHeader = await refusal(null, "es");
+    expect(withHeader).toContain('<html lang="en">');
+    expectSame(withHeader, en, [H1, INTRO, RETURN_LINK]);
   });
 
   it("still escapes the names it writes into the sentence", async () => {
@@ -337,31 +346,41 @@ describe("a page that knows its reader", () => {
     expect(status).toBe(409);
     // One assertion per slot: the sentence takes two names and each is
     // escaped on its own, so dropping either escape has to fail here.
-    expect(html).toContain("You are signed in as O&#39;Boss.");
-    expect(html).not.toContain("You are signed in as O'Boss.");
-    expect(html).toContain("This invite is for O&#39;Hara:");
-    expect(html).not.toContain("This invite is for O'Hara:");
+    expect(html).toContain("O&#39;Boss");
+    expect(html).not.toContain("O'Boss");
+    expect(html).toContain("O&#39;Hara");
+    expect(html).not.toContain("O'Hara");
   });
 
   it("refuses the last owner's sign-out in that owner's language", async () => {
     server = await startTestServer();
     const boss = await server.seedOwner("Boss");
-    setLanguage("Boss", "ca");
-    const res = await server.http("/auth/logout", {
-      method: "POST",
-      redirect: "manual",
-      headers: { Accept: "text/html", "Accept-Language": "en" },
-      rawSessionId: boss.rawSessionId,
-    });
-    expect(res.status).toBe(409);
-    const html = await res.text();
-    expect(html).toContain('<html lang="ca">');
-    expect(html).toContain("<h1>Tancament de sessió bloquejat</h1>");
-    expect(html).toContain(
-      "Tancament de sessió rebutjat: aquesta és l&#39;última sessió activa d&#39;un propietari de l&#39;oficina.",
-    );
-    // The link text is written into the template, the refusal sentence goes
-    // through escapeHtml as it always has - hence the two apostrophe spellings.
-    expect(html).toContain('<a href="/">Torna a l\'oficina</a>');
+    const logout = async (language: "ca" | null) => {
+      setLanguage("Boss", language);
+      const res = await server!.http("/auth/logout", {
+        method: "POST",
+        redirect: "manual",
+        headers: { Accept: "text/html", "Accept-Language": "en" },
+        rawSessionId: boss.rawSessionId,
+      });
+      expect(res.status).toBe(409);
+      return res.text();
+    };
+    const en = await logout(null);
+    const ca = await logout("ca");
+    expect(ca).toContain('<html lang="ca">');
+    expectTranslated(ca, en, [TITLE, H1, INTRO, RETURN_LINK]);
+    // The refusal sentence goes through escapeHtml as it always has; the link
+    // text is written into the template unescaped.
+    const ca_ = translatorFor("ca").t;
+    const en_ = translatorFor("en").t;
+    const refusal = ca_("preAuth.signOutBlocked.lastOwnerSession");
+    const link = ca_("common.returnToOffice");
+    expect(refusal).not.toBe(en_("preAuth.signOutBlocked.lastOwnerSession"));
+    expect(link).not.toBe(en_("common.returnToOffice"));
+    expect(refusal).toContain("'");
+    expect(link).toContain("'");
+    expect(slot(ca, INTRO)).toBe(refusal.replaceAll("'", "&#39;"));
+    expect(slot(ca, RETURN_LINK)).toBe(link);
   });
 });

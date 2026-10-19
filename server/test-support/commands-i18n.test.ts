@@ -3,7 +3,7 @@
 //
 //   1. a slash command typed by a user whose stored language is `es` answers in
 //      Spanish, and the same command from a user who never chose one answers in
-//      the English bytes it always did;
+//      English;
 //   2. a choice interaction the user opened (/effort) carries their language,
 //      and one opened with NO actor - a permission the BACKEND asked for -
 //      falls back to the agent owner's language;
@@ -12,8 +12,12 @@
 //      as its literal text and produces no Isomux response entry in any
 //      language.
 //
-// Oracles are literal translated strings, never text read back through the
-// translator (ruling 14).
+// Every claim is which language (or which reader's language) a text was
+// written in, so the expectation is the catalog value of its key, read through
+// `inLanguage`, which first proves that value differs from English
+// (internal-docs/testing-guide.md, principle 15 and its one exception). The
+// API error and the agent's wake notice are compared with English on the same
+// grounds.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -21,7 +25,11 @@ import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { formatAgentSenderPrefix } from "../../shared/identity.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
-import { translatorFor } from "../../shared/i18n/translate.ts";
+import {
+  translatorFor,
+  type MessageKey,
+  type ParamsFor,
+} from "../../shared/i18n/translate.ts";
 import { DOCS_URL, SKILLS_PAGE_PATH } from "../command-handlers.ts";
 
 async function waitUntil(
@@ -76,6 +84,20 @@ function setLanguage(username: string, language: "es" | "ca" | null): string {
   return user.id;
 }
 
+/** The catalog value of `key` in `language`, which must differ from English. */
+function inLanguage<K extends MessageKey>(
+  language: "es" | "ca",
+  key: K,
+  ...params: ParamsFor<K>
+): string {
+  const text = translatorFor(language).t(key, ...params);
+  expect({ key, text }).not.toEqual({
+    key,
+    text: translatorFor("en").t(key, ...params),
+  });
+  return text;
+}
+
 function systemEntries(srv: TestServer, agentId: string): string[] {
   return srv.agentManager
     .getAgentLogs(agentId)
@@ -84,7 +106,7 @@ function systemEntries(srv: TestServer, agentId: string): string[] {
 }
 
 describe("a slash command answers in the typing user's language", () => {
-  it("gives a Spanish user Spanish and a never-chose user the English bytes", async () => {
+  it("gives a Spanish user Spanish and a never-chose user English", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     setLanguage(owner.username, "es");
@@ -100,19 +122,20 @@ describe("a slash command answers in the typing user's language", () => {
     // resume" lines (/clear answers with nothing since 2026-09-13: the empty
     // state is its confirmation).
     const spanishReplies = [
-      "No hay sesiones anteriores.",
-      "No hay otras sesiones que retomar.",
+      inLanguage("es", "commands.resume.none"),
+      inLanguage("es", "commands.resume.noOthers"),
     ];
+    const { t: en } = translatorFor("en");
     const englishReplies = [
-      "No previous sessions found.",
-      "No other sessions to resume.",
+      en("commands.resume.none"),
+      en("commands.resume.noOthers"),
     ];
     await server.agentManager.sendMessage(agent.id, "/resume", owner.username);
     expect(
       systemEntries(server, agent.id).some((e) => spanishReplies.includes(e)),
     ).toBe(true);
 
-    // Same command, a user who never chose a language: the frozen English.
+    // Same command, a user who never chose a language: English.
     const member = await server.seedMember("Sam");
     expect(getUserByName(member.username)?.language).toBeNull();
     const other = await spawnAgent(server, "B", room.id, member.username);
@@ -157,7 +180,7 @@ describe("a slash command answers in the typing user's language", () => {
     expect(diffLine).toContain("`/diff`");
     // The registry carries no English description any more, so this text can
     // only have come from the catalog.
-    expect(help).toContain("Borrar el historial de la conversación");
+    expect(help).toContain(inLanguage("es", "commands.clear.description"));
   });
 
   it("/help lists no skill on any engine and links the Skills page", async () => {
@@ -203,7 +226,7 @@ describe("a slash command answers in the typing user's language", () => {
 
     await server.agentManager.sendMessage(agent.id, "/compact", owner.username);
     expect(systemEntries(server, agent.id)).toContain(
-      "`/compact` encara no està disponible a Isomux. L'SDK compacta el context automàticament.",
+      inLanguage("ca", "commands.compact.message"),
     );
   });
 });
@@ -219,12 +242,14 @@ describe("a choice interaction the user opened carries their language", () => {
     await server.agentManager.sendMessage(agent.id, "/effort", owner.username);
     const interaction = server.agentManager.getPendingInteractions()[0];
     expect(interaction?.kind).toBe("effort");
-    expect(interaction?.title).toBe("Canviar l'esforç de raonament");
+    expect(interaction?.title).toBe(inLanguage("ca", "choices.effort.title"));
     expect(interaction?.instruction).toContain(
-      "Respon amb un número per canviar",
+      inLanguage("ca", "choices.model.instruction"),
     );
     // The level labels come from the catalog too, keyed by id.
-    expect(interaction?.choices.map((c) => c.label)).toContain("Alt");
+    expect(interaction?.choices.map((c) => c.label)).toContain(
+      inLanguage("ca", "common.effort.high"),
+    );
   });
 });
 
@@ -259,10 +284,10 @@ describe("a KNOWN actor wins over the agent's owner", () => {
       member.username,
     );
     expect(systemEntries(server, agent.id)).toContain(
-      "Canvi d'esforç cancel·lat.",
+      inLanguage("ca", "systemEntries.effortCancelled"),
     );
     expect(systemEntries(server, agent.id)).not.toContain(
-      "Effort selection cancelled.",
+      translatorFor("en").t("systemEntries.effortCancelled"),
     );
   });
 
@@ -285,7 +310,7 @@ describe("a KNOWN actor wins over the agent's owner", () => {
       member.username,
     );
     expect(systemEntries(server, agent.id)).toContain(
-      "Canvi de model cancel·lat.",
+      inLanguage("ca", "systemEntries.modelCancelled"),
     );
   });
 });
@@ -329,17 +354,20 @@ describe("an actorless choice interaction falls back to the agent's owner", () =
 
     const interaction = server.agentManager.getPendingInteractions()[0];
     expect(interaction?.kind).toBe("permission");
-    expect(interaction?.title).toBe("Vol fer servir Bash");
-    expect(interaction?.instruction).toBe(
-      "Tria una opció, o escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
+    expect(interaction?.title).toBe(
+      inLanguage("ca", "choices.permission.title", { tool: "Bash" }),
     );
-    // Buttons, so Catalan takes the imperative (S1's convention).
+    expect(interaction?.instruction).toBe(
+      inLanguage("ca", "choices.permission.instruction"),
+    );
     expect(interaction?.choices.map((c) => c.label)).toEqual([
-      "Permet només aquesta vegada",
-      "Denega",
+      inLanguage("ca", "choices.permission.allowOnce"),
+      inLanguage("ca", "choices.permission.deny"),
     ]);
     // The prompt text the log shows alongside the card is the same words.
-    expect(systemEntries(server, agent.id).join("\n")).toContain("Respon:");
+    expect(systemEntries(server, agent.id).join("\n")).toContain(
+      inLanguage("ca", "choices.permission.reply"),
+    );
   });
 });
 
@@ -369,16 +397,11 @@ describe("an actorless LIFECYCLE entry falls back to the agent's owner", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(204);
+    const catalan = inLanguage("ca", "systemEntries.newConversation");
     await waitUntil(
-      () =>
-        systemEntries(server!, agent.id).some((c) =>
-          c.includes("Conversa nova iniciada."),
-        ),
+      () => systemEntries(server!, agent.id).includes(catalan),
       2000,
       "new-conversation entry in Catalan",
-    );
-    expect(systemEntries(server, agent.id)).toContain(
-      "Conversa nova iniciada.",
     );
   });
 });
@@ -424,20 +447,23 @@ describe("the dormant-wake message is split by reader", () => {
     );
 
     // The HUMAN's surface, in the reader's language.
-    const CA_WAKE =
-      "S'ha reprès la teva sessió després que el backend acabés de manera inesperada. Pot ser que alguna ordre en curs s'executés a mitges; comprova'n els efectes abans de tornar-ho a provar.";
-    expect(systemEntries(server, agent.id).join("\n")).toContain(CA_WAKE);
+    const keys = [
+      "systemEntries.wake.afterBackendEnded",
+      "systemEntries.wake.inFlightWarning",
+    ] as const;
+    const log = systemEntries(server, agent.id).join("\n");
+    for (const key of keys) expect(log).toContain(inLanguage("ca", key));
 
     // The AGENT's surface, in English, inside the wake-notice envelope.
-    const EN_WAKE =
-      "Resumed your session after the backend ended unexpectedly. Any command that was in flight may have partially run; verify its effects before retrying.";
     const sent = (server.fakeBackend.sessionForAgent(agent.id)?.sent ?? [])
       .map((m) => m.text)
       .join("\n");
     expect(sent).toContain("--- begin isomux: wake-notice ---");
-    expect(sent).toContain(EN_WAKE);
-    // And the agent never sees the reader's language.
-    expect(sent).not.toContain(CA_WAKE);
+    for (const key of keys) {
+      expect(sent).toContain(translatorFor("en").t(key));
+      // And the agent never sees the reader's language.
+      expect(sent).not.toContain(translatorFor("ca").t(key));
+    }
   });
 });
 
@@ -445,21 +471,35 @@ describe("what stays English", () => {
   it("keeps an API error English for a Spanish user (ruling 2)", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
-    setLanguage(owner.username, "es");
-    expect(getUserByName(owner.username)?.language).toBe("es");
-
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "A", room.id, owner.username);
-    const res = await server.http(`/api/agents/${agent.id}/messages`, {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: { message?: string } };
-    // A literal English message, from a request whose caller IS on Spanish.
-    expect(body.error?.message).toBe("text is required");
+    const badRequest = async () => {
+      const res = await server!.http(`/api/agents/${agent.id}/messages`, {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as {
+        error?: { code?: string; message?: string };
+      };
+      expect(body.error?.code).toBe("invalid_text");
+      return body.error?.message;
+    };
+
+    const english = await badRequest();
+    expect(english?.length).toBeGreaterThan(0);
+
+    // The ENABLING CONDITION: the same caller, now on Spanish, does get Spanish
+    // from a surface that follows the reader.
+    setLanguage(owner.username, "es");
+    await server.agentManager.sendMessage(agent.id, "/compact", owner.username);
+    expect(systemEntries(server, agent.id)).toContain(
+      inLanguage("es", "commands.compact.message"),
+    );
+
+    expect(await badRequest()).toBe(english);
   });
 
   it("delivers an agent's message as agent INPUT, with no localized response", async () => {
@@ -512,11 +552,11 @@ describe("what stays English", () => {
     );
 
     // And Isomux wrote no /help answer for it, in any language.
-    const after = systemEntries(server, receiver.id);
-    expect(after.length).toBe(before);
-    for (const line of after) {
-      expect(line).not.toContain("**Tips:**");
-      expect(line).not.toContain("**Consejos:**");
-    }
+    expect(systemEntries(server, receiver.id).length).toBe(before);
+    expect(
+      server.agentManager
+        .getAgentLogs(receiver.id)
+        .some((e: LogEntry) => e.metadata?.helpContent !== undefined),
+    ).toBe(false);
   });
 });

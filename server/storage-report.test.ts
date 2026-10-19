@@ -78,10 +78,35 @@ function usageFixture(
 
 const labels = { agentLabel: (id: string) => ({ name: `name:${id}` }) };
 
-// Every assertion below is about the ENGLISH report - the arithmetic and the
-// owner/non-owner split - so they run on the English translator and keep the
-// bytes they always had. The language assertions live in their own block at
-// the bottom (internal-docs/i18n-loop.md, S7).
+// Every assertion below up to the language block is about the arithmetic and
+// the owner/non-owner split, on the English translator. Sizes and counts are
+// Intl output, so they stay literal; the prose around them is read from the
+// catalog (internal-docs/testing-guide.md, principle 15). The language
+// assertions live in their own block at the bottom (internal-docs/i18n-loop.md,
+// S7).
+const { t } = english;
+const BACKUPS = t("settings.storage.category.backups");
+const SNAPSHOTS = t("settings.storage.category.updateSnapshots");
+const KILLED = t("storageReport.killed");
+
+// The totals sentence sits under the heading and one blank line.
+function headline(out: string): string {
+  const lines = out.split("\n");
+  expect(lines[0]).toBe(`## ${t("storageReport.heading")}`);
+  expect(lines[1]).toBe("");
+  return lines[2];
+}
+
+// A bold summary row of the category table, found by its bold size.
+function boldRowIndex(out: string, size: string): number {
+  return out
+    .split("\n")
+    .findIndex((l) =>
+      new RegExp(
+        `^\\| \\*\\*[^*|]+\\*\\* \\| \\*\\*${size}\\*\\* \\| \\|$`,
+      ).test(l),
+    );
+}
 
 describe("renderStorageReport", () => {
   it("totals the state root plus the locations outside it", () => {
@@ -92,10 +117,17 @@ describe("renderStorageReport", () => {
     );
     // 100 MB in-root + 400 MB of backups; the headline is the sum, and the
     // state-root subtotal stays separate from it.
-    expect(out).toContain("**500.0 MB total:**");
-    expect(out).toContain("plus 400.0 MB in backups.");
-    expect(out).toContain("| **Total office state** | **100.0 MB** | |");
-    expect(out).toContain("| **Total** | **500.0 MB** | |");
+    expect(headline(out)).toBe(
+      t("storageReport.totalWithOutside", {
+        total: "500.0 MB",
+        stateRoot: "100.0 MB",
+        outside: "400.0 MB",
+        locations: BACKUPS.toLowerCase(),
+      }),
+    );
+    const subtotal = boldRowIndex(out, "100.0 MB");
+    expect(subtotal).toBeGreaterThan(-1);
+    expect(boldRowIndex(out, "500.0 MB")).toBeGreaterThan(subtotal);
   });
 
   it("says everything is office state when nothing lives outside it", () => {
@@ -106,9 +138,10 @@ describe("renderStorageReport", () => {
         agentLabel: () => ({ name: "x" }),
       },
     );
-    expect(out).toContain("**2.0 MB total**, all of it office state.");
     // No phantom credit to locations with nothing in them.
-    expect(out).not.toContain("plus");
+    expect(headline(out)).toBe(
+      t("storageReport.totalOnly", { total: "2.0 MB" }),
+    );
   });
 
   it("names only the out-of-root locations that hold bytes", () => {
@@ -117,13 +150,18 @@ describe("renderStorageReport", () => {
       usageFixture({ backups: 1 * MB, "update-snapshots": 1 * MB }),
       labels,
     );
-    expect(both).toContain("in backups and update snapshots.");
-    const snapshotsOnly = renderStorageReport(
-      english,
-      usageFixture({ "update-snapshots": 1 * MB }),
-      labels,
+    expect(headline(both)).toContain(
+      `${BACKUPS.toLowerCase()}${t("storageReport.locationsJoin")}${SNAPSHOTS.toLowerCase()}`,
     );
-    expect(snapshotsOnly).toContain("in update snapshots.");
+    const snapshotsOnly = headline(
+      renderStorageReport(
+        english,
+        usageFixture({ "update-snapshots": 1 * MB }),
+        labels,
+      ),
+    );
+    expect(snapshotsOnly).toContain(SNAPSHOTS.toLowerCase());
+    expect(snapshotsOnly).not.toContain(BACKUPS.toLowerCase());
   });
 
   it("marks an unconfigured location as none rather than zero", () => {
@@ -132,8 +170,10 @@ describe("renderStorageReport", () => {
       usageFixture({ transcripts: 1 * MB }, { snapshotsAvailable: false }),
       labels,
     );
-    expect(out).toContain("| Update snapshots | none | - |");
-    expect(out).toContain("update snapshots (not set up)");
+    expect(out).toContain(`| ${SNAPSHOTS} | ${t("storageReport.none")} | - |`);
+    expect(out).toContain(
+      t("storageReport.locationNotSetUp", { label: SNAPSHOTS.toLowerCase() }),
+    );
   });
 
   it("gives the owner paths and the per-agent breakdown", () => {
@@ -147,14 +187,15 @@ describe("renderStorageReport", () => {
             : { name: "Live" },
       },
     );
-    expect(out).toContain("office state `/srv/state`");
-    expect(out).toContain("### Biggest agents");
+    expect(out).toContain("`/srv/state`");
+    expect(out).toContain(`### ${t("storageReport.biggestAgents")}`);
+    expect(out).not.toContain(t("storageReport.ownerOnly"));
     // Sorted by transcripts + attachments, so the killed 40 MB agent leads.
-    const ghostRow = out.indexOf("| Ghost _(killed)_ |");
+    const ghostRow = out.indexOf(`| Ghost ${KILLED} |`);
     const liveRow = out.indexOf("| Live |");
     expect(ghostRow).toBeGreaterThan(-1);
     expect(ghostRow).toBeLessThan(liveRow);
-    // No transcript mtime at all reads as an em dash, not "just now".
+    // No transcript mtime at all reads as a dash, not "just now".
     expect(out).toContain("| 3 | - |");
   });
 
@@ -163,12 +204,12 @@ describe("renderStorageReport", () => {
     const out = renderStorageReport(english, aggregateOnly(full), labels);
     expect(out).not.toContain("/srv/state");
     expect(out).not.toContain("/srv/isomux-backups");
-    expect(out).not.toContain("Biggest agents");
+    expect(out).not.toContain(t("storageReport.biggestAgents"));
     expect(out).not.toContain("name:agent-live");
-    expect(out).toContain("owner-only");
+    expect(out).toContain(t("storageReport.ownerOnly"));
     // The sizes themselves still come through - that is the whole point of the
     // projection.
-    expect(out).toContain("**3.0 MB total:**");
+    expect(headline(out)).toContain("3.0 MB");
   });
 
   // One-agent report whose single row carries whatever name the case supplies.
@@ -215,18 +256,19 @@ describe("renderStorageReport", () => {
   });
 
   it("keeps the killed annotation renderer-owned, not forgeable by a name", () => {
-    // The trusted form: the renderer's own italics, from the flag.
+    // The annotation is live markdown, which is what a forgery would exploit.
+    expect(KILLED).toMatch(/[_*]/u);
+    // The trusted form: the renderer's own markup, from the flag.
     const trusted = rowFor("Gone", true);
-    expect(trusted).toBe("| Gone _(killed)_ | 7.0 MB | 0 B | 1 | - |");
+    expect(trusted).toBe(`| Gone ${KILLED} | 7.0 MB | 0 B | 1 | - |`);
 
     // A LIVE agent whose name is itself the annotation must not be able to
-    // produce that form. The underscores are escaped, so it renders as the
-    // literal characters a person typed, not as the report's verdict.
-    const forged = rowFor("Gone _(killed)_");
+    // produce that form. The markup is escaped, so it renders as the literal
+    // characters a person typed, not as the report's verdict.
+    const forged = rowFor(`Gone ${KILLED}`);
     expect(forged).not.toBe(trusted);
-    expect(forged).toBe("| Gone \\_\\(killed\\)\\_ | 7.0 MB | 0 B | 1 | - |");
-    // No unescaped copy of the annotation anywhere in the forged row.
-    expect(forged.includes(" _(killed)_")).toBe(false);
+    expect(forged.includes(KILLED)).toBe(false);
+    expect(forged.endsWith(" | 7.0 MB | 0 B | 1 | - |")).toBe(true);
 
     // And an ordinary alive name stays clean.
     expect(rowFor("Gone")).toBe("| Gone | 7.0 MB | 0 B | 1 | - |");
@@ -246,7 +288,7 @@ describe("renderStorageReport", () => {
       agentLabel: (id) => ({ name: id }),
     });
     expect(out).toContain(
-      "Showing the 10 largest of 14 agents with stored data.",
+      t("storageReport.showing", { shown: "10", total: "14" }),
     );
     expect(out).toContain("| agent9 |");
     expect(out).not.toContain("| agent10 |");
@@ -255,33 +297,82 @@ describe("renderStorageReport", () => {
 
 // The same measurement, read by a Spanish and a Catalan user: the words, the
 // decimal mark and the thousands separator all follow the reader
-// (internal-docs/i18n-loop.md, S7, rulings 1 and 12). Literal strings, never
-// text read back through the translator (ruling 14).
+// (internal-docs/i18n-loop.md, S7, rulings 1 and 12). Each element is compared
+// with the same element of the English report, so a line that falls back to
+// English fails without the test freezing the translation (principle 15).
 describe("renderStorageReport in the reader's language", () => {
+  function both(
+    language: "es" | "ca",
+    usage: StorageUsage,
+  ): { en: string[]; local: string[] } {
+    return {
+      en: renderStorageReport(english, usage, labels).split("\n"),
+      local: renderStorageReport(
+        translatorForLanguage(language),
+        usage,
+        labels,
+      ).split("\n"),
+    };
+  }
+
   it("gives a Spanish reader Spanish words and Spanish number marks", () => {
-    const out = renderStorageReport(
-      translatorForLanguage("es"),
+    const { en, local } = both(
+      "es",
       usageFixture({ transcripts: 100 * MB, backups: 400 * MB }),
-      labels,
     );
-    expect(out).toContain("## Almacenamiento de Isomux");
-    expect(out).toContain("**500,0 MB en total:**");
-    expect(out).toContain("más 400,0 MB en copias de seguridad.");
-    expect(out).toContain("| Categoría | Tamaño | Archivos |");
-    expect(out).toContain("| **Total del estado de la oficina** |");
+    expect(local.length).toBe(en.length);
+    // Heading and totals sentence, then the table header cell by cell.
+    for (const index of [0, 2]) {
+      expect(en[index].length).toBeGreaterThan(0);
+      expect(local[index]).not.toBe(en[index]);
+    }
+    const header = (lines: string[]) =>
+      lines[6]
+        .split("|")
+        .map((cell) => cell.trim())
+        .filter(Boolean);
+    expect(header(en).length).toBe(3);
+    for (const [index, cell] of header(local).entries())
+      expect([index, cell]).not.toEqual([index, header(en)[index]]);
+    expect(local[2]).toContain("500,0 MB");
+    expect(local[2]).toContain("400,0 MB");
+    expect(local[2]).not.toContain("500.0 MB");
+    const subtotal = (lines: string[]) =>
+      lines.find(
+        (l) => l.includes("**100.0 MB**") || l.includes("**100,0 MB**"),
+      );
+    expect(subtotal(en)).toBeDefined();
+    expect(subtotal(local)).toBeDefined();
+    expect(subtotal(local)).not.toBe(subtotal(en));
     // The category names are the storage panel's keys, so chat and the panel
     // still call the same bytes the same thing.
-    expect(out).toContain("| Transcripciones de conversaciones |");
+    const key = "settings.storage.category.transcripts";
+    const spanish = translatorForLanguage("es").t(key);
+    expect(spanish).not.toBe(t(key));
+    expect(local).toContain(`| ${spanish} | 100,0 MB | 3 |`);
   });
 
   it("gives a Catalan reader Catalan", () => {
-    const out = renderStorageReport(
-      translatorForLanguage("ca"),
+    const { en, local } = both(
+      "ca",
       usageFixture({ transcripts: 1 * MB }, { snapshotsAvailable: false }),
-      labels,
     );
-    expect(out).toContain("## Emmagatzematge d'Isomux");
-    expect(out).toContain("| Instantànies d'actualització | cap | - |");
-    expect(out).toContain("instantànies d'actualització (sense configurar)");
+    expect(local.length).toBe(en.length);
+    expect(local[0]).not.toBe(en[0]);
+    // The unconfigured location's row, cell by cell: its name and its "none".
+    const unset = (lines: string[]) => {
+      const row = lines.find((l) => /^\| [^|]+ \| [^|]+ \| - \|$/u.test(l));
+      expect(row).toBeDefined();
+      return row!.split(" | ").slice(0, 2);
+    };
+    for (const [index, cell] of unset(local).entries())
+      expect([index, cell]).not.toEqual([index, unset(en)[index]]);
+    // ...and its entry in the locations line.
+    const locations = (lines: string[]) => {
+      const line = lines.find((l) => l.includes("`/srv/state`"));
+      expect(line).toBeDefined();
+      return line!.split(", ").at(-1);
+    };
+    expect(locations(local)).not.toBe(locations(en));
   });
 });

@@ -1,7 +1,6 @@
 // The commit-mode (source checkout) update-notice copy, composed in one place
 // so the UI (header pill, modal title/body, clipboard text) and the tests
-// share the exact strings. The copy matrix in update-notice.test.ts is the
-// signed-off enumeration of every state; change copy there and here together.
+// share the exact strings.
 //
 // Shape of the notice: one compact paragraph giving (a) what the
 // box runs - the exact tag, or the commit; (b) the latest release and whether

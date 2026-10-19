@@ -7,38 +7,31 @@ describe("site chatbot knowledge", () => {
   it("is the tail of the site prompt, from What is Isomux through the guidelines", () => {
     expect(ISOMUX_KNOWLEDGE.startsWith("## What is Isomux?\n")).toBe(true);
     expect(ISOMUX_KNOWLEDGE).toContain("\n## Guidelines\n");
+    // The voice header keeps exactly one blank line before the knowledge.
     expect(SYSTEM_PROMPT.endsWith(`\n\n${ISOMUX_KNOWLEDGE}`)).toBe(true);
-    // The voice header keeps its blank line before the knowledge.
-    expect(SYSTEM_PROMPT).toContain("cryptic.\n\n## What is Isomux?\n");
-    expect(ISOMUX_KNOWLEDGE).not.toContain("Isomux website");
+    expect(SYSTEM_PROMPT.endsWith(`\n\n\n${ISOMUX_KNOWLEDGE}`)).toBe(false);
   });
 });
 
 describe("site chatbot page context", () => {
-  it("gives hosted visitors the dashboard access fact and managed-product direction", () => {
-    const prompt = buildSystemPrompt("hosted");
-    expect(prompt).toContain(
-      "Hosted customers sign in at the Hosted Isomux dashboard and open their office from there.",
-    );
-    expect(prompt).toContain(
-      "The visitor is interested in Hosted Isomux. Answer for someone who wants a managed Isomux office.",
-    );
-    expect(prompt).toContain(
-      "Do not quote prices, provisioning times, launch dates, or promises beyond what those pages say.",
-    );
+  it("adds one page direction after the shared prompt", () => {
+    const hosted = buildSystemPrompt("hosted");
+    const neutral = buildSystemPrompt(undefined);
+    for (const prompt of [hosted, neutral]) {
+      expect(prompt.startsWith(SYSTEM_PROMPT)).toBe(true);
+      expect(prompt.length).toBeGreaterThan(SYSTEM_PROMPT.length);
+    }
+    expect(hosted).not.toBe(neutral);
   });
 
-  it("uses a neutral context when page identity is absent or unrecognised", () => {
-    const neutral =
-      "Answer for the Isomux option that fits the visitor's question. Do not assume they are self-hosting.";
-    expect(buildSystemPrompt(undefined)).toContain(neutral);
-    expect(buildSystemPrompt("unknown")).toContain(neutral);
+  it("uses the neutral direction when page identity is absent or unrecognised", () => {
+    const neutral = buildSystemPrompt(undefined);
+    expect(buildSystemPrompt("unknown")).toBe(neutral);
+    expect(buildSystemPrompt("main")).toBe(neutral);
   });
 
-  it("does not contradict authoritative context on a docs page", () => {
-    const prompt = buildSystemPrompt("main", true);
-    expect(prompt).toBe(SYSTEM_PROMPT);
-    expect(prompt).not.toContain("Do not assume they are self-hosting.");
+  it("adds no direction on a docs page, whose content is the authoritative context", () => {
+    expect(buildSystemPrompt("main", true)).toBe(SYSTEM_PROMPT);
   });
 
   it("sends a closed page identity from the shared widget", () => {

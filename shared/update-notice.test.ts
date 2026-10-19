@@ -76,6 +76,17 @@ describe("commit-mode notice decisions", () => {
       );
   });
 
+  it("names what the box runs and the latest release, in every language", () => {
+    for (const { code } of SUPPORTED_LANGUAGES)
+      for (const [version, release, comparison] of visible) {
+        const body = notice(version, release, comparison, code)!.notice;
+        // A tagged box is named by its tag, an untagged one by its short sha.
+        expect(body).toContain(version.release ?? sha.slice(0, 7));
+        expect(body).not.toContain(sha);
+        if (release) expect(body).toContain(release.tag);
+      }
+  });
+
   it("stays quiet for states that do not require an update notice", () => {
     const quiet = [
       notice(onTag("v2026.7.22"), latest, cmp(0)),

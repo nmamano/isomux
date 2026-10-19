@@ -1,9 +1,11 @@
 // The server's language resolution (server/i18n.ts): which language the server
 // writes in for a given actor. See internal-docs/i18n-loop.md, S7.
 //
-// The oracle is a LITERAL translated string, never text read back through the
-// translator (ruling 14), so a resolver that silently returned English could
-// not pass its own test.
+// The claim is which language was picked, so the expectation is the catalog
+// value of KEY in that language (internal-docs/testing-guide.md, principle 15
+// and its one exception). The up-front test proves KEY's values are pairwise
+// distinct across the shipped languages, so a resolver that returned English,
+// or any other wrong language, fails.
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
@@ -15,14 +17,23 @@ import {
 } from "./i18n.ts";
 import type { Identity } from "./identity/index.ts";
 import { _testResetUsers, claimUser, updateUserById } from "./users.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
+import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 
-// "Resume cancelled." in each language - a key S7 added, so it exercises
-// the new catalog rather than an older slice's.
-const EN = "Resume cancelled.";
-const ES = "Retomada cancelada.";
-const CA = "Represa cancel·lada.";
-const ZH = "已取消继续会话。";
+// A key S7 added, so it exercises the new catalog rather than an older slice's.
 const KEY = "systemEntries.resumeCancelled" as const;
+const EN = translatorFor("en").t(KEY);
+const ES = translatorFor("es").t(KEY);
+const CA = translatorFor("ca").t(KEY);
+const ZH = translatorFor("zh").t(KEY);
+
+it("tells every shipped language apart by KEY", () => {
+  const values = SUPPORTED_LANGUAGES.map(({ code }) =>
+    translatorFor(code).t(KEY),
+  );
+  expect(values.every((value) => value.length > 0 && value !== KEY)).toBe(true);
+  expect(new Set(values).size).toBe(SUPPORTED_LANGUAGES.length);
+});
 
 function seed(
   name: string,
@@ -101,16 +112,17 @@ describe("translatorForUserId - the actorless fallback", () => {
 describe("interpolation survives resolution", () => {
   it("fills a placeholder in the resolved language", () => {
     seed("Ana", "es");
-    expect(
-      translatorForUsername("Ana").t("systemEntries.resumedSession", {
-        label: "topic",
-      }),
-    ).toBe("Sesión retomada: topic");
-    expect(
-      translatorForUsername("Nobody").t("systemEntries.resumedSession", {
-        label: "topic",
-      }),
-    ).toBe("Resumed session: topic");
+    const key = "systemEntries.resumedSession" as const;
+    const params = { label: "topic" };
+    const es = translatorFor("es").t(key, params);
+    const en = translatorFor("en").t(key, params);
+    expect(es).not.toBe(en);
+    const spanish = translatorForUsername("Ana").t(key, params);
+    expect(spanish).toBe(es);
+    expect(spanish).toContain("topic");
+    const fallback = translatorForUsername("Nobody").t(key, params);
+    expect(fallback).toBe(en);
+    expect(fallback).toContain("topic");
   });
 });
 

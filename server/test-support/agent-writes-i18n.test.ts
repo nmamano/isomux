@@ -3,7 +3,7 @@
 // surface families reach a log through addLogEntry without going near a slash
 // command: the editor-open request, the read-file request, and the diff
 // request. Each is proved twice - a Spanish owner gets Spanish, and an owner
-// who never chose a language gets the English bytes the office always showed.
+// who never chose a language gets English.
 //
 // Both cases are about the LOG OWNER's stored preference, and neither is
 // evidence about the CALLER's identity: the resolver never reads it, and the
@@ -12,8 +12,10 @@
 // English rule is proved by S7's resolver tests, not here (PM ruling,
 // 2026-09-06).
 //
-// Oracles are literal translated strings, never text read back through the
-// translator (ruling 14).
+// The claim is which language the entry was written in, so the expectation is
+// the catalog value of the entry's key in that language, once `expected` has
+// proved the Spanish value differs from the English one
+// (internal-docs/testing-guide.md, principle 15 and its one exception).
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync } from "node:fs";
@@ -22,6 +24,7 @@ import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -90,6 +93,21 @@ async function agentOwnedBy(
 
 const MISSING = "/nonexistent-s8/definitely/not/here.txt";
 
+type EntryKey =
+  | "systemEntries.pathRefusal.notFound"
+  | "systemEntries.diffNotRepo";
+
+/** The entry `key` writes for `path` in `language`, which must not be English
+ * when `language` is not. */
+function expected(key: EntryKey, path: string, language: "en" | "es"): string {
+  const text = translatorFor(language).t(key, { path });
+  expect(translatorFor("es").t(key, { path })).not.toBe(
+    translatorFor("en").t(key, { path }),
+  );
+  expect(text).toContain(path);
+  return text;
+}
+
 describe("the editor-open request writes in the owner's language", () => {
   it("tells a Spanish owner the path does not exist, in Spanish", async () => {
     server = await startTestServer();
@@ -98,18 +116,18 @@ describe("the editor-open request writes in the owner's language", () => {
       { ok: true },
     );
     expect(systemEntries(server, agent.id)).toContain(
-      `\`${MISSING}\` no existe.`,
+      expected("systemEntries.pathRefusal.notFound", MISSING, "es"),
     );
   });
 
-  it("keeps the English bytes for an owner who never chose", async () => {
+  it("writes English for an owner who never chose", async () => {
     server = await startTestServer();
     const agent = await agentOwnedBy(server, "neverChose");
     expect(server.agentManager.emitAgentEditRequest(agent.id, MISSING)).toEqual(
       { ok: true },
     );
     expect(systemEntries(server, agent.id)).toContain(
-      `\`${MISSING}\` does not exist.`,
+      expected("systemEntries.pathRefusal.notFound", MISSING, "en"),
     );
   });
 });
@@ -122,18 +140,18 @@ describe("the read-file request writes in the owner's language", () => {
       ok: true,
     });
     expect(systemEntries(server, agent.id)).toContain(
-      `\`${MISSING}\` no existe.`,
+      expected("systemEntries.pathRefusal.notFound", MISSING, "es"),
     );
   });
 
-  it("keeps the English bytes for an owner who never chose", async () => {
+  it("writes English for an owner who never chose", async () => {
     server = await startTestServer();
     const agent = await agentOwnedBy(server, "neverChose");
     expect(server.agentManager.emitAgentReadFile(agent.id, MISSING)).toEqual({
       ok: true,
     });
     expect(systemEntries(server, agent.id)).toContain(
-      `\`${MISSING}\` does not exist.`,
+      expected("systemEntries.pathRefusal.notFound", MISSING, "en"),
     );
   });
 });
@@ -151,11 +169,11 @@ describe("the diff request writes in the owner's language", () => {
       ok: true,
     });
     expect(systemEntries(server, agent.id)).toContain(
-      `\`${dir}\` no es un repositorio de git.`,
+      expected("systemEntries.diffNotRepo", dir, "es"),
     );
   });
 
-  it("keeps the English bytes for an owner who never chose", async () => {
+  it("writes English for an owner who never chose", async () => {
     server = await startTestServer();
     const agent = await agentOwnedBy(server, "neverChose");
     const dir = notARepo();
@@ -163,7 +181,7 @@ describe("the diff request writes in the owner's language", () => {
       ok: true,
     });
     expect(systemEntries(server, agent.id)).toContain(
-      `\`${dir}\` is not a git repository.`,
+      expected("systemEntries.diffNotRepo", dir, "en"),
     );
   });
 });

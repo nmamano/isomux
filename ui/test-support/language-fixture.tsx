@@ -7,9 +7,8 @@
 // imports ui/store.tsx, which touches the window at module scope, so a test
 // loads it with `await import(...)` after setUpDomTestFile(), never statically.
 //
-// Assert literal translated text in the test that uses this, never text read
-// back through translatorFor: an oracle that repeats the implementation approves
-// a wrong translation.
+// Assert that the text differs from the same element on English, never
+// literal translated text (internal-docs/testing-guide.md, principle 15).
 
 import type { ReactElement } from "react";
 import { StateCtx, initialState, type AppState } from "../store.tsx";
