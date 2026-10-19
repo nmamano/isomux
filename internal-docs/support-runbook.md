@@ -25,9 +25,13 @@ Do not act only on an office name, Stripe receipt, or forwarded message.
 
 The production database is the local record of account ownership and service
 work. Stripe is the authority for payments, invoices, subscription state, and
-refund state. Neon was retired on 2026-10-15, and there is no hardened reader
-for the VPS database yet (task fd71c74c). Do not copy credentials into a ticket,
-support message, command line, or transcript.
+refund state. Read the database with the support lookup
+(`control-plane/deploy/vps/support/README.md`): one SSH command with the
+account email prints that account's offices and the records this runbook
+checks, as JSON with the column names below. The exact command is in
+`internal-docs/private/hosted-vps-loop.md`. If the lookup refuses an address,
+escalate. Do not copy
+credentials into a ticket, support message, command line, or transcript.
 
 ## Decide refund eligibility
 

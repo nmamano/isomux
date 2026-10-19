@@ -1,0 +1,10 @@
+#!/bin/sh
+# Forced command of the hostedsupport SSH login (task fd71c74c; README.md beside
+# this file). The client's command is the email address to look up. It goes to
+# the read program on stdin, never as an argument: the sudoers rule allows that
+# program with no arguments only. A login with no command is refused.
+if [ -z "${SSH_ORIGINAL_COMMAND:-}" ]; then
+  echo "FAIL this login takes an email address as its command" >&2
+  exit 2
+fi
+printf '%s\n' "$SSH_ORIGINAL_COMMAND" | /usr/bin/sudo -n /usr/local/sbin/hosted-support-read

@@ -1366,6 +1366,13 @@ two unit files from `control-plane/deploy/vps/` copied to `/etc/systemd/system`,
 isomux-hosted-autodeploy.timer`. After that, the units follow the deployed release, so a unit
 change ships like code.
 
+### The support lookup
+
+`deploy/vps/support/` is a read-only lookup of one customer account by email,
+for the support runbook: an SSH login whose forced command prints one JSON
+line, read by a role with SELECT on the needed columns only. Its README has the
+install steps. Run its `role.sql` again after every `restore.sh`.
+
 ### Moving Hosted Isomux to a Docker host
 
 Hosted Isomux moved from Fly.io and Vercel to its Docker host this way in
@@ -1387,7 +1394,9 @@ credentials before the create latches arrive can pay for a box twice. In order:
    `restore-check.ts fingerprint > source.json` with the old owner's string, and
    `pg_dump -Fc` 18.6 from its direct endpoint, not a pooler, with the password
    in `PGPASSWORD` and not on the command line.
-4. On the host: `deploy/vps/restore.sh <dump> source.json` (below).
+4. On the host: `deploy/vps/restore.sh <dump> source.json` (below). Then
+   install the support lookup (`deploy/vps/support/README.md`): its `role.sql`
+   grants on the restored tables, and restore keeps only the bootstrap's grants.
 5. Export the provisioner state from the old provisioner (below).
 6. On the host, into the empty state volume:
    `docker compose ... run --rm --no-deps -T provisioner bun control-plane/state-move.ts import < state.json`

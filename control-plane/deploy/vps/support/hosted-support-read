@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# The Hosted support lookup (task fd71c74c; README.md beside this file).
+#
+# Only the forced command of the hostedsupport SSH login runs this, as root,
+# through one sudoers rule with no arguments. It reads one email address on
+# stdin and prints ONE JSON line: every account with that email
+# (case-insensitive) and the records the support runbook checks (lookup.sql
+# beside this file). Any failure prints one FAIL line on stderr and exits 1.
+#
+# The database is read through the db container's local socket as the role
+# hostedsupport_read (role.sql), with no password. The address reaches psql only
+# as the value of the psql variable `email`, which psql quotes as a literal;
+# the strict pattern below is the first wall. Downstream stderr is dropped,
+# never forwarded: psql error text can quote its input. docker, timeout and
+# logger are found on PATH, which sudo sets to its secure_path.
+set -euo pipefail
+export LC_ALL=C
+
+PROJECT=isomux-hosted
+DATABASE=isomux
+READ_ROLE=hostedsupport_read
+# A 64-character local part at most, ASCII letters, digits and ._%+- only; a
+# domain of dot-separated labels ending in a letters-only top-level domain; 254
+# characters in all. An address outside this pattern exits with FAIL email.
+EMAIL='^[A-Za-z0-9._%+-]{1,64}@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$'
+MAX_EMAIL=254
+
+# Exactly one syslog line per run, stage and counts only: never the address.
+log() { logger -t hosted-support -- "$1" 2>/dev/null || true; }
+die() {
+  printf 'FAIL %s\n' "$1" >&2
+  log "FAIL $1"
+  exit 1
+}
+
+[[ $# -eq 0 ]] || die "args: this program takes no arguments"
+
+here=$(dirname "$(readlink -f "$0")")
+[[ -r $here/lookup.sql ]] || die "lookup_sql: not readable"
+lookup=$(<"$here/lookup.sql")
+
+# One line ending in a newline, read with a bound. A NUL becomes a line break,
+# so it is refused like a second line.
+input=$(head -c 300 | tr '\0' '\n'; printf x)
+input=${input%x}
+[[ $input == *$'\n' ]] || die "input: not one line ending in a newline"
+email=${input%$'\n'}
+[[ $email != *$'\n'* ]] || die "input: more than one line"
+[[ ${#email} -le $MAX_EMAIL && $email =~ $EMAIL ]] || die "email: not an accepted address"
+
+code=0
+ids=$(timeout 15 docker ps -q --no-trunc \
+  --filter "label=com.docker.compose.project=$PROJECT" \
+  --filter label=com.docker.compose.service=db \
+  --filter label=com.docker.compose.oneoff=False 2>/dev/null) || code=$?
+[[ $code -eq 0 ]] || die "db_container: docker ps exit=$code"
+read -r -d '' -a running <<<"$ids" || true
+[[ ${#running[@]} -eq 1 ]] || die "db_container: ${#running[@]} running db containers, not 1"
+
+script="set statement_timeout = '20s';
+begin isolation level repeatable read, read only;
+prepare support_lookup(text) as
+${lookup%;};
+execute support_lookup(:'email');
+commit;"
+
+out=$(timeout 40 docker exec -i -u postgres "${running[0]}" psql -X -q -At \
+  -v ON_ERROR_STOP=1 -v "email=$email" -U "$READ_ROLE" -d "$DATABASE" \
+  --no-password <<<"$script" 2>/dev/null) || code=$?
+[[ $code -eq 0 ]] || die "lookup: psql exit=$code"
+[[ -n $out && $out != *$'\n'* ]] || die "lookup: not one output line"
+
+count() { { grep -o "\"$1\":" <<<"$out" || true; } | wc -l; }
+printf '%s\n' "$out"
+log "ok accounts=$(count offices) offices=$(count checkout_state)"

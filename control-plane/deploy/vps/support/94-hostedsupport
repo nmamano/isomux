@@ -1,0 +1,2 @@
+# Hosted support lookup (task fd71c74c, README.md): the login may run the lookup program as root, with no arguments, and nothing else.
+hostedsupport ALL=(root) NOPASSWD: /usr/local/sbin/hosted-support-read ""
