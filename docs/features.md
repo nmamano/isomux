@@ -89,7 +89,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Right-click context menu** - resume past sessions, edit agent, kill.
 - **File attachments** - agents understand images and PDFs. Upload via button, drag-and-drop, or paste.
 - **Image display** - agents can show images inline in the conversation.
-- **Office language** - each person picks English, Spanish, Catalan or Simplified Chinese under Settings → You → Preferences and the whole office reads in it.
+- **Office language** - each person picks a language, like Spanish or Chinese, under Settings → You → Preferences and the whole office reads in it.
 - **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost). Saying "submit" sends the message, "period" adds a '.', "question mark" adds a '?', and so on. This works across languages.
 - **Text-to-speech** for agent replies via the browser's `SpeechSynthesis` API.
 - **Context check** - agents and humans (`/context`) can see how full a context window is, and a battery meter in the header drains as it fills. Isomux nudges the agent at about 50% and 75%.
