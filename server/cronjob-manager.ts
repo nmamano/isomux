@@ -1145,6 +1145,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         env: bestEffortRunEnv(active),
         modelFamily: active.modelFamily,
         words: readerWords(active.jobId),
+        credentialsRejected: true,
       });
       if (activeRuns.get(active.runId) !== active) return;
       writeLog(active, "system", instructions.text);

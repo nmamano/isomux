@@ -846,6 +846,86 @@ describe("provider auth affordances", () => {
     });
   });
 
+  // A dead Codex refresh token leaves auth.json on disk (task 1403b454): a
+  // failed turn gets the sign-in walkthrough, never "signed in, /clear". A
+  // typed /login is not a failure and keeps the signed-in notice.
+  describe("a Codex agent whose stored sign-in fails", () => {
+    async function codexWithAuthJson() {
+      const codexHome = join(STATE_ROOT, `dead-codex-${crypto.randomUUID()}`);
+      mkdirSync(codexHome, { recursive: true });
+      writeFileSync(join(codexHome, "auth.json"), "{}");
+      setTestManagedOfficeEnv({ CODEX_HOME: codexHome, OPENAI_API_KEY: "" });
+      const fake = new FakeBackend({
+        isAuthError: (text) => codexBackend.detectAuthError(text),
+        session: {
+          onSend: (_text, _attachments, session) => {
+            session.push({ kind: "auth_needed" });
+            session.push({
+              kind: "turn_completed",
+              status: "failed",
+              error: "401 Unauthorized",
+            });
+          },
+        },
+      });
+      // The real Codex answer for whatever the manager passes.
+      fake.getLoginInstructions = (opts) =>
+        codexBackend.getLoginInstructions(opts);
+      // A personal account, so no office-owner gate stands in front of the
+      // walkthrough.
+      const h = await harness({
+        backendType: "codex",
+        fake,
+        target: () => ({
+          provider: "codex",
+          scope: "personal",
+          dir: codexHome,
+        }),
+      });
+      expect(isCodexAuthenticated(h.mgr.buildEnvForUserId("user-a"))).toBe(
+        true,
+      );
+      const signedOut = await codexBackend.getLoginInstructions({
+        env: { CODEX_HOME: join(codexHome, "absent"), OPENAI_API_KEY: "" },
+      });
+      expect(signedOut.kind).toBe("login");
+      expect(signedOut.commands?.length).toBeGreaterThan(0);
+      const signedInText = english.t(
+        "systemEntries.loginInstructions.codexSignedIn",
+      );
+      const logs = () => h.mgr.getAgentLogs(h.agentId);
+      const notices = () =>
+        logs()
+          .filter(
+            (e) =>
+              e.kind === "system" &&
+              (e.content === signedOut.text || e.content === signedInText),
+          )
+          .map((e) => e.content);
+      const commands = () =>
+        logs()
+          .filter((e) => e.kind === "terminal-command")
+          .map((e) => e.terminal?.command);
+      return { ...h, signedOut, signedInText, notices, commands };
+    }
+
+    it("gives a failed turn the sign-in walkthrough", async () => {
+      const h = await codexWithAuthJson();
+      await h.mgr.sendMessage(h.agentId, "hello", "tester");
+      await settle(() => h.notices().length > 0);
+      expect(h.notices()).toEqual([h.signedOut.text]);
+      expect(h.commands()).toEqual(h.signedOut.commands!);
+    });
+
+    it("keeps the signed-in notice on a typed /login", async () => {
+      const h = await codexWithAuthJson();
+      await h.mgr.sendMessage(h.agentId, "/login", "tester");
+      await settle(() => h.notices().length > 0);
+      expect(h.notices()).toEqual([h.signedInText]);
+      expect(h.commands()).toEqual([]);
+    });
+  });
+
   it("coalesces Claude system_text and an auth-looking stream exit", async () => {
     const fake = new FakeBackend({
       isAuthError: (text) => /not logged in|401/i.test(text),

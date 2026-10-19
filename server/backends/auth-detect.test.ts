@@ -101,6 +101,44 @@ describe("getLoginInstructions - already-authed short-circuit", () => {
   });
 });
 
+// A dead Codex refresh token leaves auth.json on disk (task 1403b454). Once
+// Codex has rejected it, auth.json is no proof of a sign-in: the member gets
+// the same walkthrough as a signed-out one. An env key and a typed /login keep
+// the /clear hint.
+describe("codexBackend after the engine rejected its credentials", () => {
+  const signedOut = () =>
+    codexBackend.getLoginInstructions({
+      env: { CODEX_HOME: tempCodexHome(false), OPENAI_API_KEY: "" },
+    });
+
+  it("auth.json only: the signed-out walkthrough", async () => {
+    const env = { CODEX_HOME: tempCodexHome(true), OPENAI_API_KEY: "" };
+    expect(isCodexAuthenticated(env)).toBe(true);
+    const r = await codexBackend.getLoginInstructions({
+      env,
+      credentialsRejected: true,
+    });
+    const expected = await signedOut();
+    expect(expected.kind).toBe("login");
+    expect(expected.commands?.length).toBeGreaterThan(0);
+    expect(r).toEqual(expected);
+  });
+
+  for (const [name, env, credentialsRejected] of [
+    ["auth.json on a typed /login", { OPENAI_API_KEY: "" }, undefined],
+    ["OPENAI_API_KEY", { OPENAI_API_KEY: "sk-test" }, true],
+  ] as const) {
+    it(`${name}: the /clear hint`, async () => {
+      const r = await codexBackend.getLoginInstructions({
+        env: { ...env, CODEX_HOME: tempCodexHome(true) },
+        credentialsRejected,
+      });
+      expect(r.kind).toBe("already_authed");
+      expect(r.commands).toBeUndefined();
+    });
+  }
+});
+
 describe("claudeBackend terminal sign-in", () => {
   function tempDir(): string {
     const dir = mkdtempSync(join(tmpdir(), "isomux-claude-login-"));

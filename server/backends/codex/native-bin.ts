@@ -133,9 +133,8 @@ export function withIsomuxCodexHome(
 }
 
 // Cheap probe for "user has already completed codex login at some point".
-// Used by the login-instructions path so an agent that hit an auth-error
-// before the user logged in (and is still in a dead session afterwards)
-// shows a "/clear to refresh" hint instead of repeating the full login
+// Used by the signed-out check before a turn, and by a typed /login, which
+// then shows a "/clear to refresh" hint instead of repeating the full login
 // walkthrough at a user who's already done their part.
 //
 // Two positive signals, either is enough:
@@ -156,9 +155,17 @@ export function isCodexAuthenticated(env?: {
   [key: string]: string | undefined;
 }): boolean {
   const effective = env ?? getAgentHost().baseEnv();
-  if (effective.OPENAI_API_KEY) return true;
+  if (hasCodexApiKey(effective)) return true;
   const codexHome = effective.CODEX_HOME ?? ISOMUX_CODEX_HOME;
   return existsSync(join(codexHome, "auth.json"));
+}
+
+// Signal 1 alone. After Codex rejects a stored sign-in, auth.json is still on
+// disk but proves nothing.
+export function hasCodexApiKey(env?: {
+  [key: string]: string | undefined;
+}): boolean {
+  return !!(env ?? getAgentHost().baseEnv()).OPENAI_API_KEY;
 }
 
 // Idempotently materialize the `~/.isomux/bin/codex` wrapper script that

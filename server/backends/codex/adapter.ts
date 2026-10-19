@@ -102,6 +102,7 @@ import {
   codexWrapperCommandForShell,
   ensureCodexWrapperScript,
   getCodexLoginCommands,
+  hasCodexApiKey,
   isCodexAuthenticated,
 } from "./native-bin.ts";
 
@@ -3688,11 +3689,19 @@ export const codexBackend: Backend = {
   async getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
     words?: Translator["t"];
+    credentialsRejected?: boolean;
   }): Promise<LoginInstructions> {
     const words = opts?.words ?? translatorFor("en").t;
     // Signed in already (auth.json present, or OPENAI_API_KEY in env): the
     // session predates the login, so a /clear is all the member needs.
-    if (isCodexAuthenticated(opts?.env)) {
+    // After a rejection only the key counts: Codex re-reads auth.json before
+    // it gives up on a 401, so a failing session already holds what is on
+    // disk, and a dead token stays there.
+    if (
+      opts?.credentialsRejected
+        ? hasCodexApiKey(opts.env)
+        : isCodexAuthenticated(opts?.env)
+    ) {
       return {
         kind: "already_authed",
         cardEligible: false,

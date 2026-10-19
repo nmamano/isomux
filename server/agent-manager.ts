@@ -697,7 +697,10 @@ export function createAgentManager(deps: ManagerDeps) {
   // In the words of the person who typed /login, else the agent's owner.
   async function agentLoginInstructions(
     managed: ManagedAgent | undefined,
-    username?: string,
+    {
+      username,
+      credentialsRejected,
+    }: { username?: string; credentialsRejected?: boolean } = {},
   ): Promise<LoginInstructions> {
     const words = managed
       ? logWords(managed.info.id, username)
@@ -728,6 +731,7 @@ export function createAgentManager(deps: ManagerDeps) {
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
         modelFamily: managed.info.modelFamily,
         words,
+        credentialsRejected,
       });
     } catch (err) {
       // The sign-in state is unknown: give the generic guidance.
@@ -861,7 +865,7 @@ export function createAgentManager(deps: ManagerDeps) {
       }
       await emitLoginInstructions(
         agentId,
-        await agentLoginInstructions(managed),
+        await agentLoginInstructions(managed, { credentialsRejected: true }),
       );
     })();
   }
@@ -6803,24 +6807,26 @@ export function createAgentManager(deps: ManagerDeps) {
     beginTurn,
     openChoiceInteraction,
     emitLoginInstructionsFor: (agentId, managed, username) => {
-      void agentLoginInstructions(managed, username).then((instructions) => {
-        if (managed && agents.get(agentId) !== managed) return;
-        if (instructions.kind === "already_authed") {
-          void emitAlreadySignedInAffordance(
+      void agentLoginInstructions(managed, { username }).then(
+        (instructions) => {
+          if (managed && agents.get(agentId) !== managed) return;
+          if (instructions.kind === "already_authed") {
+            void emitAlreadySignedInAffordance(
+              agentId,
+              managed,
+              instructions,
+              username,
+            );
+            return;
+          }
+          void emitLoginInstructions(
             agentId,
-            managed,
             instructions,
             username,
+            "login_command",
           );
-          return;
-        }
-        void emitLoginInstructions(
-          agentId,
-          instructions,
-          username,
-          "login_command",
-        );
-      });
+        },
+      );
     },
     emitLogoutAffordanceFor: emitLogoutAffordance,
     newConversation: (agentId, opts) =>

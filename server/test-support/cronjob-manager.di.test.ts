@@ -25,6 +25,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { NormalizedEvent } from "../backends/types.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
+import { codexBackend } from "../backends/codex/adapter.ts";
 import {
   resolveToken,
   getRunTokenRaw,
@@ -649,6 +650,68 @@ describe("CronjobManager DI (temp-state isolated)", () => {
       expect(mgr.findRun(job.id, run.id)?.status).toBe("timed_out");
     } finally {
       fake.sessions.forEach((session) => session.close());
+    }
+  });
+
+  // A dead Codex refresh token leaves auth.json on disk (task 1403b454). A
+  // run has no /clear, so its hint is the sign-in walkthrough, never "signed
+  // in, /clear".
+  it("writes the Codex sign-in walkthrough when auth.json is present", async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), "isomux-cron-codex-"));
+    try {
+      writeFileSync(join(codexHome, "auth.json"), "{}");
+      const env = { CODEX_HOME: codexHome, OPENAI_API_KEY: "" };
+      const fake = new FakeBackend({
+        session: {
+          onSend: (_t, _a, s) =>
+            s.pushAll([
+              { kind: "auth_needed" },
+              { kind: "turn_completed", status: "failed" },
+            ]),
+        },
+      });
+      // The real Codex answer for whatever the manager passes.
+      fake.getLoginInstructions = (opts) =>
+        codexBackend.getLoginInstructions(opts);
+      const signedOut = await codexBackend.getLoginInstructions({
+        env: { ...env, CODEX_HOME: join(codexHome, "absent") },
+      });
+      expect(signedOut.kind).toBe("login");
+      const { events, sink } = capture();
+      const mgr = createCronjobManager(
+        baseDeps({
+          resolveBackend: () => fake,
+          resolveEnv: () => env,
+          eventSink: sink,
+        }),
+      );
+      const job = mgr.addCronjob({
+        ...intervalInput("DeadCodexToken"),
+        agentType: "codex",
+        modelFamily: "gpt-test-cron",
+        effort: "high",
+        permissionMode: "never",
+        codexSandbox: "read-only",
+      });
+      const run = mgr.runCronjobNow(job.id, "Nil")!;
+      try {
+        const deadline = Date.now() + 2000;
+        while (
+          mgr.findRun(job.id, run.id)?.status === "running" &&
+          Date.now() < deadline
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        expect(mgr.findRun(job.id, run.id)?.status).toBe("failed");
+        const last = events
+          .flatMap((event) => (event.type === "log_entry" ? [event.entry] : []))
+          .at(-1);
+        expect(last).toMatchObject({ kind: "system", content: signedOut.text });
+      } finally {
+        fake.sessions.forEach((session) => session.close());
+      }
+    } finally {
+      rmSync(codexHome, { recursive: true, force: true });
     }
   });
 
