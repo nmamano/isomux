@@ -1876,10 +1876,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       onChange={(e) => setAutoHandoff(e.target.checked)}
                       style={{ cursor: "pointer", margin: 0 }}
                     />
+                    <span style={dialogHint}>
+                      {t("dialogs.agent.autoHandoffHint")}
+                    </span>
                   </label>
-                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>
-                    {t("dialogs.agent.autoHandoffHint")}
-                  </p>
                 </div>
               )}
               {showLimitResume && (
@@ -1901,10 +1901,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       onChange={(e) => setLimitResume(e.target.checked)}
                       style={{ cursor: "pointer", margin: 0 }}
                     />
+                    <span style={dialogHint}>
+                      {t("dialogs.agent.limitResumeHint")}
+                    </span>
                   </label>
-                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>
-                    {t("dialogs.agent.limitResumeHint")}
-                  </p>
                 </div>
               )}
             </section>
@@ -2086,10 +2086,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   </p>
                 </div>
 
-                {/* Privileged operator access. Grants this agent its spawning user's
-              room-scoped operator powers (drive other agents' sessions: resume,
-              new conversation, send-now, lifecycle; plus cron over the user's own
-              jobs). Scope stays the agent - it never posts as the user. Conferred
+                {/* Privileged operator access. Grants this agent its manager's
+              operator powers (the Privileged Operator Capabilities in
+              server/system-prompt.ts). It still acts as itself. Conferred
               via the dedicated user-gated route, so toggling a running agent
               re-mints its token and restarts its session, like a model change.
               Shown only to a user who may actually set it (owner, or the agent's
@@ -2113,13 +2112,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         onChange={(e) => setPrivileged(e.target.checked)}
                         style={{ cursor: "pointer", margin: 0 }}
                       />
+                      <span style={dialogHint}>
+                        {t("dialogs.agent.privilegedHint")}
+                        {!isSpawn &&
+                          privileged !== (agent!.privileged ?? false) &&
+                          ` ${t("dialogs.agent.privilegedRestart")}`}
+                      </span>
                     </label>
-                    <p style={{ ...dialogHint, margin: "5px 0 0" }}>
-                      {t("dialogs.agent.privilegedHint")}
-                      {!isSpawn &&
-                        privileged !== (agent!.privileged ?? false) &&
-                        ` ${t("dialogs.agent.privilegedRestart")}`}
-                    </p>
                   </div>
                 )}
               </div>

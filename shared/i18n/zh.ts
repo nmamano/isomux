@@ -1213,7 +1213,7 @@ App 的一些原则：
     "智能体使用此成员的提供方连接和个人变量。请查看「集成」页面。",
   "dialogs.agent.privileged": "特权操作权限",
   "dialogs.agent.privilegedHint":
-    "允许此智能体使用创建成员的房间范围权限，操作其他智能体的会话（继续、新对话、立即发送），并管理自己的定时任务。它仍以智能体身份操作，绝不以成员身份操作。",
+    "让此智能体在整个办公室代你操作：创建和移除智能体并操作它们的对话，管理房间、定时任务和集成，并在成员聊天中发言。如果你是办公室所有者，它还可以添加成员并更改办公室设置。它以自己的身份操作，使用你的权限。",
   "dialogs.agent.privilegedRestart": "保存会重启智能体的会话。",
   "dialogs.agent.autoHandoff": "自动交接",
   "dialogs.agent.autoHandoffHint":

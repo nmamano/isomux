@@ -286,7 +286,7 @@ ${emitThemesCss()}
   .agent-privileged-control,
   .agent-auto-handoff-control {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
     min-height: 38px;
     padding: 8px 12px;
@@ -298,7 +298,9 @@ ${emitThemesCss()}
     cursor: pointer;
   }
   .agent-privileged-control input,
-  .agent-auto-handoff-control input { width: 18px; height: 18px; }
+  .agent-auto-handoff-control input { width: 18px; height: 18px; flex-shrink: 0; }
+  .agent-privileged-control span,
+  .agent-auto-handoff-control span { line-height: 18px; }
   @media (min-width: 1000px) {
     .edit-agent-dialog-desktop,
     .spawn-agent-dialog-desktop { width: min(1040px, 94vw); }

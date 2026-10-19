@@ -1341,7 +1341,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The agent uses this member’s provider connections and personal variables. See the Integrations page.",
   "dialogs.agent.privileged": "Privileged operator access",
   "dialogs.agent.privilegedHint":
-    "Lets this agent drive other agents' sessions (resume, new conversation, send-now) and manage its own cronjobs, with the spawning member's room-scoped permissions. It still acts as the agent, never as the member.",
+    "Lets this agent act for you across the office: set up and remove agents and drive their conversations, manage rooms, cronjobs and integrations, and post in members chat. If you are an office owner, it can also add members and change office settings. It acts as itself, with your access.",
   "dialogs.agent.privilegedRestart": "Saving restarts the agent's session.",
   "dialogs.agent.autoHandoff": "Automatic handoff",
   "dialogs.agent.autoHandoffHint":

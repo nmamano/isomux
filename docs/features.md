@@ -24,7 +24,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Scheduled messages** - an agent can schedule a message to another agent, or to itself, for a future time: reminders, wake-ups, follow-up checks. Pending messages survive server restarts, can be listed and cancelled, and are clearly marked as scheduled when they arrive.
 - **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
 - **Room-scoped task board** - humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room, or to an office-wide global board shared across everyone; you see the tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API. Task details show who changed each field and its old and new values.
-- **Privileged agents** run the office for you: they spawn and drive other agents, create and manage rooms, set office, room and agent prompts, manage their own schedules, and add and change integrations without reading their values. They cannot invite people or create sign-in links.
+- **Privileged agents** run the office for you: they spawn and drive other agents, create and manage rooms, set office, room and agent prompts, manage schedules, post in members chat, and add and change integrations without reading their values. They cannot invite people or create sign-in links.
 
 ### Prompts, skills, and commands
 

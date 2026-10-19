@@ -1356,7 +1356,7 @@ Cosas que puedes hacer por él:
     "El agente usa las conexiones a proveedores y las variables personales de este miembro. Consulta la página Integraciones.",
   "dialogs.agent.privileged": "Acceso de operador con privilegios",
   "dialogs.agent.privilegedHint":
-    "Permite a este agente dirigir las sesiones de otros agentes (reanudar, conversación nueva, enviar ahora) y gestionar sus propios cronjobs, con los permisos por sala del miembro que lo creó. Sigue actuando como el agente, nunca como el miembro.",
+    "Permite a este agente actuar por ti en toda la oficina: crear y eliminar agentes y dirigir sus conversaciones, gestionar salas, cronjobs e integraciones, y publicar en el chat de miembros. Si eres propietario de la oficina, también puede añadir miembros y cambiar la configuración de la oficina. Actúa como sí mismo, con tu acceso.",
   "dialogs.agent.privilegedRestart":
     "Al guardar se reinicia la sesión del agente.",
   "dialogs.agent.autoHandoff": "Traspaso automático",
