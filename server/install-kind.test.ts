@@ -36,21 +36,17 @@ describe("access install kind", () => {
     expect(isHostedAccess("hosted", null)).toBe(true);
   });
   it("recognizes the configured hosted suffix without a marker", () => {
-    expect(isHostedAccess("self-hosted", "https://office.isomux.app")).toBe(
-      true,
-    );
-    expect(isHostedAccess("self-hosted", "https://OFFICE.ISOMUX.APP")).toBe(
-      true,
-    );
+    expect(isHostedAccess("self-hosted", "https://acme.isomux.app")).toBe(true);
+    expect(isHostedAccess("self-hosted", "https://ACME.ISOMUX.APP")).toBe(true);
     expect(isHostedAccess("self-hosted", "https://isomux.app")).toBe(true);
   });
   it("leaves other origins self-hosted, including lookalikes", () => {
     for (const origin of [
       null,
       "invalid",
-      "http://office.isomux.app",
+      "http://acme.isomux.app",
       "https://notisomux.app",
-      "https://office.isomux.app.evil.example",
+      "https://acme.isomux.app.evil.example",
       "https://isomux.app@custom.example",
       "https://custom.example/isomux.app",
     ]) {

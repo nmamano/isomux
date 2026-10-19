@@ -13,12 +13,12 @@ it("shows the hosted address with no URL input, toggle or save", async () => {
   setApiShim(async () => ({
     hosted: true,
     externalAccess: true,
-    publicOrigin: "https://office.isomux.app",
+    publicOrigin: "https://acme.isomux.app",
     boundLoopback: false,
   }));
   const view = render(onLanguage(null, <ExternalAccessPane />));
   await act(async () => {});
-  expect(view.getByText("https://office.isomux.app")).toBeTruthy();
+  expect(view.getByText("https://acme.isomux.app")).toBeTruthy();
   expect(
     view.getByText(
       "Hosted Isomux manages this office's address; it cannot be changed.",

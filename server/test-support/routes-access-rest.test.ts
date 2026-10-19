@@ -322,7 +322,7 @@ describe("hosted access policy", () => {
       const origin =
         installKind === "hosted"
           ? "https://custom.example"
-          : "https://office.isomux.app";
+          : "https://acme.isomux.app";
       const configPath = join(STATE_ROOT, "office-config.json");
       writeFileSync(
         configPath,
@@ -434,7 +434,7 @@ it("a leftover ISOMUX_PUBLIC_ORIGIN is not the hosted address; the stored one is
     configPath,
     JSON.stringify({
       externalAccess: true,
-      publicOrigin: "https://office.isomux.app",
+      publicOrigin: "https://acme.isomux.app",
     }),
   );
   const before = readFileSync(configPath, "utf8");
@@ -448,7 +448,7 @@ it("a leftover ISOMUX_PUBLIC_ORIGIN is not the hosted address; the stored one is
       await api(srv, "/api/office/access", { rawSessionId: owner.rawSessionId })
     ).body as AccessSettings;
     expect(access.hosted).toBe(true);
-    expect(access.publicOrigin).toBe("https://office.isomux.app");
+    expect(access.publicOrigin).toBe("https://acme.isomux.app");
     const toEnv = await api(srv, "/api/office/access", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,
@@ -463,7 +463,7 @@ it("a leftover ISOMUX_PUBLIC_ORIGIN is not the hosted address; the stored one is
       rawSessionId: owner.rawSessionId,
       body: {
         externalAccess: true,
-        publicOrigin: "https://office.isomux.app/",
+        publicOrigin: "https://acme.isomux.app/",
       },
     });
     expect(r.status).toBe(200);
@@ -490,7 +490,7 @@ it("refuses enabling an already-disabled hosted office without writes or invites
     configPath,
     JSON.stringify({
       externalAccess: false,
-      publicOrigin: "https://office.isomux.app",
+      publicOrigin: "https://acme.isomux.app",
     }),
   );
   const before = readFileSync(configPath, "utf8");
@@ -500,7 +500,7 @@ it("refuses enabling an already-disabled hosted office without writes or invites
   const r = await api(srv, "/api/office/access", {
     method: "PUT",
     rawSessionId: owner.rawSessionId,
-    body: { externalAccess: true, publicOrigin: "https://office.isomux.app" },
+    body: { externalAccess: true, publicOrigin: "https://acme.isomux.app" },
   });
   expect(r.status).toBe(403);
   expect(readFileSync(configPath, "utf8")).toBe(before);

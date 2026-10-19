@@ -22,7 +22,7 @@ const agent = (id: string, desk: number, roomId = "r1") =>
     state: "idle",
     modelFamily: "opus",
   }) as unknown as AgentInfo;
-const ROOMS = [{ id: "r1", name: "Akido", prompt: null }] as never;
+const ROOMS = [{ id: "r1", name: "Lab", prompt: null }] as never;
 
 function show(focused: AgentInfo, agents: AgentInfo[]) {
   const opened: string[] = [];

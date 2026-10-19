@@ -104,7 +104,7 @@ The server reads `trustedProxy` once at boot from `office-config.json`
   With a remote egress proxy, agent calls to `localhost:PORT` fail today, so
   F7 changes nothing there. A proxy in the same pod that adds
   `X-Forwarded-For` would reach the office from loopback and now get 401. In
-  both cases the fix is `NO_PROXY=localhost,127.0.0.1`. Unchecked for the Akido
+  both cases the fix is `NO_PROXY=localhost,127.0.0.1`. Unchecked for the customer's
   EKS pilot.
 - An on-box process that sends a forwarding header with an agent token gets
   401. None is known in the repo; check with grep during the implementation.

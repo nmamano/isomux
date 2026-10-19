@@ -1,6 +1,6 @@
 # Kubernetes (EKS) deployment - design
 
-Task 86c8351a. Draft 2026-09-26. Target: Akido runs the published GHCR image on
+Task 86c8351a. Draft 2026-09-26. Target: a customer runs the published GHCR image on
 EKS from their infrastructure-as-code, first try, before the week of 2026-09-28.
 
 ## 1. Packaging: plain manifests with Kustomize
@@ -184,7 +184,7 @@ meets the list below works.
   only when the VPC CNI has network policy turned on, and any other policy
   that selects the pod and allows that address defeats the exclusion
   (policies add up). A commented `except` line blocks the VPC's private
-  ranges; that is Akido's choice. The guide covers IPv4 clusters only; an
+  ranges; that is the customer's choice. The guide covers IPv4 clusters only; an
   IPv6 cluster also has metadata at `fd00:ec2::254`, and the guide says it is
   out of scope.
 - ServiceAccount with no RBAC and `automountServiceAccountToken: false`, and
@@ -235,7 +235,7 @@ Proposal - **needs a PM decision (wire shape, overlaps a80d8bbb)**:
   `RENDER=true` → the Render guide; else the container reference.
 - The setup page (`bootstrap.ts`) gets a Kubernetes help line that names the
   Secret, from the same detection.
-- Sequencing: this is server code, so Akido only gets it in a release. The
+- Sequencing: this is server code, so the customer only gets it in a release. The
   manifests and docs do not need a release (they pin v2026.9.23 by digest).
   I propose Phase 2a = manifests + docs + cluster run; 2b = the update-mode
   change, shared with a80d8bbb, as the PM sequences it. Until 2b ships, the
@@ -310,7 +310,7 @@ Checks, image `ghcr.io/nmamano/isomux@<v2026.9.23 digest>`:
 
 Not covered locally, and stated so in the report: ALB, ACM, EBS gp3,
 IMDS, AL2023 kernel and containerd. **Question for PM/Nil:** a disposable EKS
-run before Akido's trial (EKS control plane, one m6i.large AL2023 node, one
+run before the customer's trial (EKS control plane, one m6i.large AL2023 node, one
 ALB, one small EBS volume, a few hours; needs an AWS account, credentials and
 authorization for the cost). It adds the checks above on EKS plus a pod-side
 IMDS check: from the office pod, the IMDSv2 token request and a plain
