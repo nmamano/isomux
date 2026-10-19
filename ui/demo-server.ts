@@ -80,6 +80,7 @@ import type {
   WebhookWire,
 } from "../shared/types.ts";
 import {
+  ASK_DISMISSED_TEXT,
   LOBBY_ROOM_ID,
   DEFAULT_AGENT_CAPABILITIES,
   DEFAULT_EFFORT,
@@ -3837,7 +3838,9 @@ export async function demoApi(
     if (!entry) throw new ApiError(404, "not_found", "No such open ask.");
     const dismissed = askMatch[2] === "dismiss";
     const sent = (body as { text?: unknown } | undefined)?.text;
-    const text = dismissed ? "Dismissed" : typeof sent === "string" ? sent : "";
+    const typed = typeof sent === "string" ? sent : "";
+    // A dismiss carries the member's reason when they typed one.
+    const text = dismissed && typed.trim() === "" ? ASK_DISMISSED_TEXT : typed;
     demoAsks = entries.filter((e) => e.id !== entry.id);
     shimEmit({ type: "ask_removed", id: entry.id });
     shimEmit({

@@ -1324,6 +1324,7 @@ App 的一些原则：
   "asks.link": "请示",
   "asks.openLink": "打开「{page}」",
   "asks.dismissed": "已忽略",
+  "asks.dismissedReason": "已忽略：{reason}",
   "asks.badge.one": "{count} 条请示",
   "asks.badge.other": "{count} 条请示",
   "asks.answerFailed": "未发送：{error}",

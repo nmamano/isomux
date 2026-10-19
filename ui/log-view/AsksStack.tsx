@@ -155,6 +155,7 @@ export function AsksStack({
         ref={bodyRef}
         onScroll={measure}
         data-asks-body=""
+        data-asks-list=""
         style={{
           maxHeight: isMobile ? MAX_HEIGHT_MOBILE : MAX_HEIGHT_DESKTOP,
           overflowY: "auto",

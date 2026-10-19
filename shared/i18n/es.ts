@@ -1489,6 +1489,7 @@ Cosas que puedes hacer por él:
   "asks.link": "Petición",
   "asks.openLink": "Abrir {page}",
   "asks.dismissed": "Descartada",
+  "asks.dismissedReason": "Descartada: {reason}",
   "asks.badge.one": "{count} petición",
   "asks.badge.other": "{count} peticiones",
   "asks.answerFailed": "No enviado: {error}",

@@ -25,6 +25,7 @@ import type {
   AgentInfo,
   AgentState,
   AppWire,
+  AskEntry,
   CronjobListWire,
   CronjobRun,
   LogEntry,
@@ -1541,5 +1542,78 @@ describe("reducer: workingSince", () => {
       reducer(before, fullState("tool_executing")).workingSince.get(A),
     ).toBe(1);
     expect(reducer(before, fullState("idle")).workingSince.has(A)).toBe(false);
+  });
+});
+
+// A member's reply draft lives in the store, keyed by ask, so it outlives the
+// card (task b612b515). It goes when the ask closes, and only then.
+describe("reducer: ask reply drafts", () => {
+  const ask = (id: string): AskEntry => ({
+    id,
+    agentId: "a1",
+    memberUserId: "u1",
+    prompt: `${id}?`,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  // A cleared field is a draft too: the member removed the default.
+  const drafted = (): AppState => ({
+    ...initialState,
+    asks: [ask("k1"), ask("k2")],
+    askDrafts: new Map([
+      ["k1", "not yet"],
+      ["k2", ""],
+    ]),
+  });
+
+  it("keeps a draft per ask, including a cleared field, and null forgets it", () => {
+    let s: AppState = { ...initialState, asks: [ask("k1"), ask("k2")] };
+    s = reducer(s, { type: "set_ask_draft", askId: "k1", text: "not yet" });
+    s = reducer(s, { type: "set_ask_draft", askId: "k2", text: "" });
+    expect([...s.askDrafts]).toEqual([
+      ["k1", "not yet"],
+      ["k2", ""],
+    ]);
+    const forgot = reducer(s, {
+      type: "set_ask_draft",
+      askId: "k1",
+      text: null,
+    });
+    expect([...forgot.askDrafts]).toEqual([["k2", ""]]);
+  });
+
+  it("drops the draft of a closed ask and keeps the others", () => {
+    const s = reducer(drafted(), { type: "ask_removed", id: "k1" });
+    expect([...s.askDrafts]).toEqual([["k2", ""]]);
+  });
+
+  it("drops drafts for asks a fresh list no longer holds, but not on a refused snapshot", () => {
+    const base = drafted();
+    const fresh = reducer(base, {
+      type: "asks_loaded",
+      entries: [ask("k2")],
+      revision: base.asksRevision,
+    });
+    expect(fresh.asks.map((e) => e.id)).toEqual(["k2"]);
+    expect([...fresh.askDrafts]).toEqual([["k2", ""]]);
+    // A snapshot issued before a delta is refused whole, drafts included.
+    const stale = reducer(base, {
+      type: "asks_loaded",
+      entries: [],
+      revision: base.asksRevision - 1,
+    });
+    expect(stale.asks.map((e) => e.id)).toEqual(["k1", "k2"]);
+    expect([...stale.askDrafts]).toEqual([
+      ["k1", "not yet"],
+      ["k2", ""],
+    ]);
+  });
+
+  it("keeps the draft when the ask is updated", () => {
+    const s = reducer(drafted(), {
+      type: "ask_upserted",
+      entry: { ...ask("k1"), updatedAt: 2 },
+    });
+    expect(s.askDrafts.get("k1")).toBe("not yet");
   });
 });

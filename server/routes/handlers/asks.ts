@@ -24,7 +24,7 @@ import {
   type RouteHandler,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import type { AskEntry } from "../../../shared/types.ts";
+import { ASK_DISMISSED_TEXT, type AskEntry } from "../../../shared/types.ts";
 import type { AskAgentWire } from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
@@ -41,9 +41,7 @@ import {
   officeLinkFor,
 } from "../../../shared/office-links.ts";
 
-// The member message text of a dismiss. The chat shows it translated from the
-// entry's metadata; the agent reads these words.
-export const ASK_DISMISSED_TEXT = "Dismissed";
+export { ASK_DISMISSED_TEXT };
 
 export interface AsksDeps {
   store: AskStore;
@@ -147,6 +145,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         if (typeof body.text !== "string" || body.text.trim().length === 0)
           return fail(400, "invalid_text", "text is required");
         text = body.text;
+      } else if (body.text !== undefined) {
+        // A dismiss can carry the member's reason; a blank one is a bare
+        // dismiss.
+        if (typeof body.text !== "string")
+          return fail(400, "invalid_text", "text must be a string");
+        if (body.text.trim().length > 0) text = body.text;
       }
       const entry = addressedTo(ctx.identity, ctx.params.askId);
       if (!entry) return notFound();

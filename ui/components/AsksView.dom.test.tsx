@@ -148,3 +148,29 @@ it("answers with an option the card draws", async () => {
   expect(bodies).toEqual([{ text: "No" }]);
   expect(groupIds(view)).toEqual(["a2"]);
 });
+
+it("moves with Tab from one agent's reply field to the next agent's, in page order", () => {
+  const { view } = mount([ask("later", "a1", 30), ask("first", "a2", 90)]);
+  const field = (id: string) =>
+    view.container.querySelector<HTMLInputElement>(
+      `[data-ask="${id}"] form input`,
+    )!;
+  // A scalar: a failed toBe on two DOM nodes serialises both.
+  const focused = () => {
+    const el = document.activeElement;
+    return `${el?.closest<HTMLElement>("[data-ask]")?.dataset.ask}/${el?.tagName}`;
+  };
+  // a2 waited longest, so its group is drawn first.
+  act(() => field("first").focus());
+  let free = true;
+  act(() => {
+    free = fireEvent.keyDown(field("first"), { key: "Tab" });
+  });
+  expect(free).toBe(false);
+  expect(focused()).toBe("later/INPUT");
+  act(() => {
+    free = fireEvent.keyDown(field("later"), { key: "Tab", shiftKey: true });
+  });
+  expect(free).toBe(false);
+  expect(focused()).toBe("first/INPUT");
+});

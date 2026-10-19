@@ -5,8 +5,13 @@
 // line is plain text.
 
 import { createContext, useContext } from "react";
-import type { AskRef, LogEntry } from "../../shared/types.ts";
+import {
+  ASK_DISMISSED_TEXT,
+  type AskRef,
+  type LogEntry,
+} from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
+import type { Translator } from "../../shared/i18n/translate.ts";
 import { describeIsomuxRoute } from "./isomux-curl.ts";
 import { isomuxRequestForToolCall } from "./tool-call-groups.ts";
 
@@ -17,6 +22,22 @@ export function askRefOf(entry: LogEntry): AskRef | null {
   const r = raw as Record<string, unknown>;
   if (typeof r.id !== "string" || typeof r.prompt !== "string") return null;
   return { id: r.id, prompt: r.prompt, dismissed: r.dismissed === true };
+}
+
+/**
+ * The text a member message answering an ask shows: the content of a reply,
+ * the translated "Dismissed" of a bare dismiss, and "Dismissed: <reason>"
+ * when the member typed a reason.
+ */
+export function askAnswerText(
+  t: Translator["t"],
+  ask: AskRef | null | undefined,
+  content: string,
+): string {
+  if (!ask?.dismissed) return content;
+  return content === ASK_DISMISSED_TEXT
+    ? t("asks.dismissed")
+    : t("asks.dismissedReason", { reason: content });
 }
 
 const CREATED_ID = /"id"\s*:\s*"([0-9a-f]{8})"/;

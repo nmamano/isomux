@@ -78,6 +78,7 @@ import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 import { SkillsPopover, type CommandEntry } from "./SkillsPopover.tsx";
 import type { TaskMap } from "./task-links.tsx";
+import { AskLink, askAnswerText } from "./ask-link.tsx";
 import { shortenCwd } from "../cwd-display.ts";
 import { PENDING_PROMPT_LABEL } from "../pending-prompt.ts";
 import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
@@ -347,6 +348,8 @@ function QueueChips({
                 >
                   {i18n.t("logView.queue.chip", { label })}
                 </div>
+                {/* An answer to an ask says so, as the sent message will. */}
+                {msg.ask && <AskLink ask={msg.ask} isMobile={isMobile} />}
                 {msg.text && (
                   <div
                     style={{
@@ -357,7 +360,7 @@ function QueueChips({
                       overflow: "hidden",
                     }}
                   >
-                    {msg.text}
+                    {askAnswerText(i18n.t, msg.ask, msg.text)}
                   </div>
                 )}
                 {attachmentCount > 0 && (

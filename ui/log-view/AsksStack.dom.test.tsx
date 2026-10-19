@@ -32,7 +32,7 @@ const entry = (
   createdAt: NOW - ageMin * 60_000,
   updatedAt: NOW - ageMin * 60_000,
 });
-const ENTRIES = [
+const ENTRIES: AskEntry[] = [
   entry("bbbb0002", "a1", "Second question?", 5),
   entry("aaaa0001", "a1", "First question?", 120),
   entry("cccc0003", "a2", "Another agent's question?", 1),
@@ -47,6 +47,20 @@ const ENTRIES = [
     ...entry("ffff0006", "a4", "Who gives the toast?", 4),
     options: ["Jim", "Dwight"],
   },
+  // Agent a5 has a secret request between two reply asks.
+  entry("gggg0007", "a5", "Ship it?", 30),
+  {
+    ...entry("hhhh0008", "a5", "To open the pull request.", 20),
+    secret: {
+      requestId: "req-1",
+      scope: "personal",
+      name: "GH_TOKEN",
+      hosts: ["api.github.com"],
+      form: { kind: "authorization" },
+      reason: "To open the pull request.",
+    },
+  },
+  entry("iiii0009", "a5", "Tag it?", 10),
 ];
 
 // No socket: the store's provider would open one.
@@ -82,20 +96,28 @@ function Seed({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function mount(
+function tree(
   isMobile: boolean,
   agentId = "a1",
   opener: ((link: OfficeLink) => void) | null = null,
 ) {
-  return render(
+  return (
     <StoreProvider>
       <OfficeLinkOpener.Provider value={opener}>
         <Seed>
           <AsksStack agentId={agentId} isMobile={isMobile} />
         </Seed>
       </OfficeLinkOpener.Provider>
-    </StoreProvider>,
+    </StoreProvider>
   );
+}
+
+function mount(
+  isMobile: boolean,
+  agentId = "a1",
+  opener: ((link: OfficeLink) => void) | null = null,
+) {
+  return render(tree(isMobile, agentId, opener));
 }
 
 const cards = (root: HTMLElement) =>
@@ -324,4 +346,147 @@ it("leaves the options live after a refused tap, so the next tap posts again", a
   ]);
   expect(cards(view.container)).toEqual([]);
   view.unmount();
+});
+
+// The reply field of one card.
+const field = (root: HTMLElement, id: string) =>
+  root.querySelector<HTMLInputElement>(`[data-ask="${id}"] form input`)!;
+const selection = (el: HTMLInputElement) => [
+  el.selectionStart,
+  el.selectionEnd,
+];
+// The focused element as "<card>/<tag>": a scalar, since a failed toBe on two
+// DOM nodes serialises both.
+const focused = () => {
+  const el = document.activeElement;
+  return `${el?.closest<HTMLElement>("[data-ask]")?.dataset.ask}/${el?.tagName}`;
+};
+
+it("keeps a typed reply, per ask, when the member leaves the chat and comes back", async () => {
+  const view = mount(false);
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  const prefilled = field(view.container, "bbbb0002").value;
+  fireEvent.change(field(view.container, "aaaa0001"), {
+    target: { value: "half a thought" },
+  });
+  // Another agent's chat: this agent's cards unmount.
+  view.rerender(tree(false, "a2"));
+  expect(cards(view.container)).toEqual(["cccc0003"]);
+  view.rerender(tree(false, "a1"));
+  expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
+  expect(field(view.container, "aaaa0001").value).toBe("half a thought");
+  expect(field(view.container, "bbbb0002").value).toBe(prefilled);
+  view.unmount();
+});
+
+it("selects the untouched default on focus and on click, and leaves the caret alone once edited", async () => {
+  const view = mount(false);
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  const input = field(view.container, "aaaa0001");
+  const length = input.value.length;
+  expect(length).toBeGreaterThan(0);
+  input.setSelectionRange(length, length);
+  act(() => input.focus());
+  expect(selection(input)).toEqual([0, length]);
+  // A browser's mouseup after the focus collapses the selection; the click
+  // selects again.
+  input.setSelectionRange(1, 1);
+  fireEvent.click(input);
+  expect(selection(input)).toEqual([0, length]);
+
+  fireEvent.change(input, { target: { value: "done, mostly" } });
+  act(() => input.blur());
+  input.setSelectionRange(4, 4);
+  act(() => input.focus());
+  fireEvent.click(input);
+  expect(selection(input)).toEqual([4, 4]);
+  view.unmount();
+});
+
+it("moves between the reply fields with Tab and Shift+Tab, and lets the browser go on at either end", async () => {
+  const view = mount(false);
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  const first = field(view.container, "aaaa0001");
+  const second = field(view.container, "bbbb0002");
+  // fireEvent returns false when a handler prevented the default.
+  const press = (el: HTMLElement, init: Record<string, unknown> = {}) => {
+    let free = true;
+    act(() => {
+      free = fireEvent.keyDown(el, { key: "Tab", ...init });
+    });
+    return free;
+  };
+  act(() => first.focus());
+  expect(press(first)).toBe(false);
+  expect(focused()).toBe("bbbb0002/INPUT");
+  // The field it lands on is untouched, so the default is selected.
+  expect(selection(second)).toEqual([0, second.value.length]);
+  // The last field: the browser's own order goes on to the buttons.
+  expect(press(second)).toBe(true);
+  expect(focused()).toBe("bbbb0002/INPUT");
+  expect(press(second, { shiftKey: true })).toBe(false);
+  expect(focused()).toBe("aaaa0001/INPUT");
+  expect(press(first, { shiftKey: true })).toBe(true);
+  expect(focused()).toBe("aaaa0001/INPUT");
+  // A modifier or an open IME composition is not this move.
+  for (const init of [
+    { ctrlKey: true },
+    { altKey: true },
+    { metaKey: true },
+    { isComposing: true },
+  ]) {
+    expect([init, press(first, init)]).toEqual([init, true]);
+    expect(focused()).toBe("aaaa0001/INPUT");
+  }
+  view.unmount();
+});
+
+it("skips a secret request's fields when it moves with Tab", async () => {
+  const view = mount(false, "a5");
+  await waitFor(() =>
+    expect(cards(view.container)).toEqual(["gggg0007", "hhhh0008", "iiii0009"]),
+  );
+  const first = field(view.container, "gggg0007");
+  act(() => first.focus());
+  act(() => {
+    fireEvent.keyDown(first, { key: "Tab" });
+  });
+  expect(focused()).toBe("iiii0009/INPUT");
+  view.unmount();
+});
+
+it("sends a typed reason with a dismiss, and nothing for the default or a blank field", async () => {
+  for (const [typed, body] of [
+    [null, {}],
+    ["  not this week ", { text: "  not this week " }],
+    ["", {}],
+    ["   ", {}],
+    // The member deleted the default and typed it again: no reason.
+    ["DEFAULT", {}],
+  ] as const) {
+    posts = [];
+    const view = mount(false);
+    await waitFor(() => expect(cards(view.container).length).toBe(2));
+    const input = field(view.container, "aaaa0001");
+    const prefilled = input.value;
+    if (typed !== null) {
+      fireEvent.change(input, { target: { value: "" } });
+      if (typed !== "")
+        fireEvent.change(input, {
+          target: { value: typed === "DEFAULT" ? prefilled : typed },
+        });
+    }
+    const dismiss = view.container.querySelector<HTMLButtonElement>(
+      '[data-ask="aaaa0001"] form button[type=button]',
+    )!;
+    await act(async () => {
+      fireEvent.click(dismiss);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect([typed, posts]).toEqual([
+      typed,
+      [{ path: "/api/asks/aaaa0001/dismiss", body }],
+    ]);
+    view.unmount();
+  }
 });

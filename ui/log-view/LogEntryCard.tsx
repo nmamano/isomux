@@ -38,7 +38,7 @@ import {
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
 import { failedEditText } from "../../shared/failed-edit.ts";
-import { AskLink, askRefOf } from "./ask-link.tsx";
+import { AskLink, askAnswerText, askRefOf } from "./ask-link.tsx";
 import {
   parseReviewFindings,
   type ReviewFinding,
@@ -538,7 +538,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       // An answer to an ask: the link above it, and a dismiss in the
       // viewer's language (the agent reads the English word).
       const ask = askRefOf(entry);
-      const content = ask?.dismissed ? t("asks.dismissed") : entry.content;
+      const content = askAnswerText(t, ask, entry.content);
       if (isEditing) {
         return (
           <EditableUserMessage

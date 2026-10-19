@@ -1,6 +1,7 @@
 // An answer to an ask in the agent's chat: a one-line link above the
 // member's message that jumps to the agent's "Create ask" card, and a
-// dismiss shown in the viewer's language. Also the count dot on the desk.
+// dismiss shown in the viewer's language, also while the answer waits in the
+// queue. Also the count dot on the desk.
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -11,6 +12,9 @@ const { ChatTranscript, useChatTranscript } =
   await import("./ChatTranscript.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { DeskUnit } = await import("../office/DeskUnit.tsx");
+const { LogView } = await import("./LogView.tsx");
+const { setApiShim } = await import("../api.ts");
+const { createElement } = await import("react");
 type LogEntry = import("../../shared/types.ts").LogEntry;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 
@@ -55,6 +59,18 @@ function logs(withCard: boolean): LogEntry[] {
       timestamp: 4,
       kind: "user_message",
       content: "Dismissed",
+      metadata: {
+        username: "Tester",
+        ask: { id: "abcd1234", prompt: "Go?", dismissed: true },
+      },
+    },
+    // A dismiss with the reason the member typed.
+    {
+      id: "dismiss-reason",
+      agentId: "a1",
+      timestamp: 5,
+      kind: "user_message",
+      content: "wrong room",
       metadata: {
         username: "Tester",
         ask: { id: "abcd1234", prompt: "Go?", dismissed: true },
@@ -116,7 +132,73 @@ it("shows a dismiss in the viewer's language, not the English word the agent rea
   expect(
     view.container.querySelector('[data-log-entry-id="reply"]')!.textContent,
   ).toContain("yes");
+  // A typed reason shows under the translated dismiss.
+  const reason = view.container.querySelector<HTMLElement>(
+    '[data-log-entry-id="dismiss-reason"]',
+  )!.textContent;
+  expect(reason).toContain("Descartada");
+  expect(reason).toContain("wrong room");
   view.unmount();
+});
+
+it("shows a queued answer as an answer to its ask, as the sent message will be", () => {
+  setApiShim(async () => undefined);
+  const queued = {
+    ...agent,
+    state: "thinking",
+    queue: [
+      {
+        id: "q1",
+        sender: { kind: "user", username: "Tester", device: "Windows" },
+        text: "Approve copy, hold the push",
+        ask: { id: "abcd1234", prompt: "Go?" },
+        queuedAt: 1,
+      },
+      {
+        id: "q2",
+        sender: { kind: "user", username: "Tester" },
+        text: "wrong room",
+        ask: { id: "abcd1234", prompt: "Go?", dismissed: true },
+        queuedAt: 2,
+      },
+    ],
+  } as unknown as AgentInfo;
+  try {
+    const view = render(
+      onLanguage(
+        "ca",
+        createElement(LogView, {
+          agent: queued,
+          logs: [],
+          onBack: () => {},
+          onEditAgent: () => {},
+        }),
+        {
+          agents: [queued],
+          hasReceivedInitialState: true,
+          connected: true,
+        },
+      ),
+    );
+    // No transcript entries: every ask line is a queue chip's.
+    const lines = [
+      ...view.container.querySelectorAll<HTMLElement>(
+        '[data-ask-link="abcd1234"]',
+      ),
+    ];
+    expect(lines.map((l) => l.textContent?.includes("Go?"))).toEqual([
+      true,
+      true,
+    ]);
+    const text = view.container.textContent ?? "";
+    expect(text).toContain("Approve copy, hold the push");
+    // Only the dismiss with a reason can say dismissed here.
+    expect(text).toContain("Descartada");
+    expect(text).toContain("wrong room");
+    view.unmount();
+  } finally {
+    setApiShim(null);
+  }
 });
 
 const agent = {

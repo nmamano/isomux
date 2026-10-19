@@ -134,6 +134,9 @@ export interface AppState {
   // per-room notification preferences. null if the room couldn't be resolved.
   soundTrigger: { seq: number; roomId: string | null };
   drafts: Map<string, string>; // agentId → unsent chat input
+  // askId → the member's reply draft. No entry: the field still shows the
+  // untouched default. "" is a kept value (the member cleared the field).
+  askDrafts: Map<string, string>;
   // agentId → which side panel was open (terminal/editor) when the user last
   // viewed this agent. Persists across LogView remount on agent switch so
   // the panel reopens automatically when the member returns. `undefined` means
@@ -350,6 +353,8 @@ type Action =
       currentSessionId: string | null;
     }
   | { type: "set_draft"; agentId: string; text: string }
+  // null deletes the draft.
+  | { type: "set_ask_draft"; askId: string; text: string | null }
   | {
       type: "set_side_panel";
       agentId: string;
@@ -506,6 +511,26 @@ type Action =
       seq: number;
     }
   | { type: "cronjob_run_updated"; run: CronjobRun };
+
+// A reply draft lives until its ask closes.
+function withoutAskDraft(
+  drafts: Map<string, string>,
+  askId: string,
+): Map<string, string> {
+  if (!drafts.has(askId)) return drafts;
+  const next = new Map(drafts);
+  next.delete(askId);
+  return next;
+}
+
+function keepAskDrafts(
+  drafts: Map<string, string>,
+  open: readonly AskEntry[],
+): Map<string, string> {
+  const ids = new Set(open.map((e) => e.id));
+  if ([...drafts.keys()].every((id) => ids.has(id))) return drafts;
+  return new Map([...drafts].filter(([id]) => ids.has(id)));
+}
 
 // Keep at most pagerResolvedAllowance resolved pages: drop the oldest in
 // resolve order. Open and acked pages and the pinned link page stay. A drop
@@ -935,6 +960,12 @@ export function reducer(state: AppState, action: Action): AppState {
       }
       return { ...state, drafts };
     }
+    case "set_ask_draft": {
+      const askDrafts = new Map(state.askDrafts);
+      if (action.text === null) askDrafts.delete(action.askId);
+      else askDrafts.set(action.askId, action.text);
+      return { ...state, askDrafts };
+    }
     case "set_side_panel": {
       const sidePanels = new Map(state.sidePanels);
       if (action.panel === null) {
@@ -1257,7 +1288,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case "asks_loaded":
       if (action.revision !== state.asksRevision)
         return { ...state, asksFetchSeq: state.asksFetchSeq + 1 };
-      return { ...state, asks: action.entries };
+      return {
+        ...state,
+        asks: action.entries,
+        askDrafts: keepAskDrafts(state.askDrafts, action.entries),
+      };
     case "ask_upserted": {
       const idx = state.asks.findIndex((e) => e.id === action.entry.id);
       return {
@@ -1275,6 +1310,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         asks: state.asks.filter((e) => e.id !== action.id),
+        askDrafts: withoutAskDraft(state.askDrafts, action.id),
         asksRevision: state.asksRevision + 1,
       };
     case "webhooks_loaded":
@@ -1594,6 +1630,7 @@ export const initialState: AppState = {
   sessionsList: new Map(),
   soundTrigger: { seq: 0, roomId: null },
   drafts: new Map(),
+  askDrafts: new Map(),
   sidePanels: new Map(),
   recentCwds: [],
   slashCommands: new Map(),

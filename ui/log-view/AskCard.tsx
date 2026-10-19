@@ -5,10 +5,22 @@
 // 204, without waiting for ask_removed. An ask with a link to an office page
 // has a button that opens it (ui/office-link.tsx); the ask stays open. An
 // ask with options has a button for each, and a tap sends it as the reply.
+//
+// The reply draft lives in the store per ask (askDrafts), so it outlives the
+// card. While the field holds the untouched default, focus and click select
+// it, and Dismiss sends nothing more; a typed reason goes with the dismiss.
+// Tab and Shift+Tab move between the reply fields inside the list that draws
+// the cards ([data-asks-list]); at either end the browser's order goes on.
 
-import { useContext, useLayoutEffect, useRef, useState } from "react";
+import {
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { apiFetch, ApiError } from "../api.ts";
-import { useDispatch } from "../store.tsx";
+import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { getDevice } from "../device-settings.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
@@ -23,6 +35,24 @@ import { officeLinkFor } from "../../shared/office-links.ts";
 import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
 
 const PROMPT_LINES = 3;
+
+// Tab and Shift+Tab to the next or previous reply field of the list. No move
+// past either end, so focus is never trapped.
+function tabToReplyField(e: KeyboardEvent<HTMLInputElement>) {
+  if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.nativeEvent.isComposing) return;
+  const list = e.currentTarget.closest("[data-asks-list]");
+  if (!list) return;
+  const fields = [
+    ...list.querySelectorAll<HTMLInputElement>("input[data-ask-reply-input]"),
+  ].filter((f) => !f.disabled);
+  const at = fields.indexOf(e.currentTarget);
+  if (at === -1) return;
+  const next = fields[at + (e.shiftKey ? -1 : 1)];
+  if (!next) return;
+  e.preventDefault();
+  next.focus();
+}
 
 // One ask, of either kind.
 export function AskCard({
@@ -48,7 +78,9 @@ function ReplyAskCard({
 }) {
   const { t, language } = useI18n();
   const dispatch = useDispatch();
-  const [reply, setReply] = useState(() => t("asks.replyDefault"));
+  const draft = useAppState().askDrafts.get(entry.id);
+  const untouched = draft === undefined;
+  const reply = draft ?? t("asks.replyDefault");
   const [busy, setBusy] = useState(false);
   // One answer at a time: a second tap in the same frame still sees busy false.
   const sending = useRef(false);
@@ -71,6 +103,20 @@ function ReplyAskCard({
   const age = since.kind === "now" ? t("common.justNow") : since.text;
   const fontSize = isMobile ? 14 : 13;
 
+  // What the member typed, unless it is blank or the default again.
+  function dismissReason(): string | null {
+    if (draft === undefined) return null;
+    const typed = draft.trim();
+    return typed === "" || typed === t("asks.replyDefault").trim()
+      ? null
+      : draft;
+  }
+
+  // While the field holds the untouched default, typing replaces it.
+  function selectDefault(el: HTMLInputElement) {
+    if (untouched) el.setSelectionRange(0, el.value.length);
+  }
+
   async function answer(dismiss: boolean, text = reply) {
     if (sending.current) return;
     if (!dismiss && text.trim() === "") return;
@@ -79,11 +125,13 @@ function ReplyAskCard({
     setError(null);
     const device = getDevice() || undefined;
     try {
-      if (dismiss)
+      if (dismiss) {
+        const reason = dismissReason();
         await apiFetch("POST", `/api/asks/${entry.id}/dismiss`, {
+          ...(reason !== null ? { text: reason } : {}),
           ...(device ? { device } : {}),
         } satisfies AskDismissReq);
-      else
+      } else
         await apiFetch("POST", `/api/asks/${entry.id}/reply`, {
           text,
           ...(device ? { device } : {}),
@@ -231,7 +279,17 @@ function ReplyAskCard({
         <input
           value={reply}
           disabled={busy}
-          onChange={(e) => setReply(e.target.value)}
+          data-ask-reply-input=""
+          onChange={(e) =>
+            dispatch({
+              type: "set_ask_draft",
+              askId: entry.id,
+              text: e.target.value,
+            })
+          }
+          onFocus={(e) => selectDefault(e.currentTarget)}
+          onClick={(e) => selectDefault(e.currentTarget)}
+          onKeyDown={tabToReplyField}
           aria-label={t("asks.reply")}
           style={{
             flex: 1,

@@ -1491,6 +1491,7 @@ Coses que pots fer per ell:
   "asks.link": "Petició",
   "asks.openLink": "Obre {page}",
   "asks.dismissed": "Descartada",
+  "asks.dismissedReason": "Descartada: {reason}",
   "asks.badge.one": "{count} petició",
   "asks.badge.other": "{count} peticions",
   "asks.answerFailed": "No enviat: {error}",

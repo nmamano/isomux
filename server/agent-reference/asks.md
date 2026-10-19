@@ -14,7 +14,7 @@ When the member must act on an office page, for example to sign in to an MCP ser
 
 When the answer is one of a few choices, add 2 to 4 options, one `option=<text>` each in the query (or `options` in a JSON body). Each is at most 80 characters, and they must differ. The card shows a button for each, and a tap sends that option as the reply. The member can still type another answer. A secret request has no options.
 
-The answer arrives as a normal message from the member, starting with `[Reply to your ask <id>: "<prompt>"]`. If the member dismisses it, the bracket says `Dismissed your ask` and the message is `Dismissed`. Either way the ask closes.
+The answer arrives as a normal message from the member, starting with `[Reply to your ask <id>: "<prompt>"]`. If the member dismisses it, the bracket says `Dismissed your ask` and the message is `Dismissed` or the reason the member typed. Either way the ask closes.
 
 `GET /api/agents/:id/asks/:askId` returns the ask while it is open and 404 once it is closed. `GET /api/agents/:id/asks` lists your open ones. Change the prompt with `PATCH /api/agents/:id/asks/:askId` and a text/plain body. The edit keeps the link unless you send `link=<page>` to change it or `link=` to remove it. In the same way, `option=` values replace the options, and a single empty `option=` (or `options: []`) removes them. When the question no longer applies, for example because the member answered in the chat, delete it with `DELETE /api/agents/:id/asks/:askId`. You can have 50 open at a time. You can manage only your own asks.
 

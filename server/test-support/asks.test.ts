@@ -733,6 +733,74 @@ describe("the member's answer", () => {
     );
   });
 
+  it("sends the text the member typed with a dismiss, still marked as dismissed", async () => {
+    const w = await world();
+    const created = await open(w, "Book the room?");
+    const r = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${created.id}/dismiss`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: { text: "We moved it to Friday." } },
+    );
+    expect(r.status).toBe(204);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(created.id)),
+      "dismiss delivered",
+    );
+    const sent = sentTexts(w.srv, w.asker.id).find((t) =>
+      t.includes(created.id),
+    )!;
+    const dismissNote = askReplyNote({ ...created, dismissed: true });
+    // The typed text takes the place of the bare word, under the dismiss note.
+    expect(sent).toBe(
+      `[${w.owner.username}] ${dismissNote}We moved it to Friday.`,
+    );
+    const entry = w.srv.agentManager
+      .getAgentLogs(w.asker.id)
+      .find((e) => e.kind === "user_message")!;
+    expect(entry.content).toBe("We moved it to Friday.");
+    expect(entry.metadata?.ask).toEqual({
+      id: created.id,
+      prompt: "Book the room?",
+      dismissed: true,
+    });
+  });
+
+  it("refuses a dismiss text that is not a string and leaves the ask open; a blank one is a bare dismiss", async () => {
+    const w = await world();
+    const created = await open(w, "Book the room?");
+    const dismiss = (json: unknown) =>
+      call(
+        w.srv,
+        "POST",
+        `/api/asks/${created.id}/dismiss`,
+        { rawSessionId: w.owner.rawSessionId },
+        { json },
+      );
+    const refused = await dismiss({ text: 5 });
+    expect([refused.status, refused.code]).toEqual([400, "invalid_text"]);
+    const still = await call(
+      w.srv,
+      "GET",
+      `/api/agents/${w.asker.id}/asks/${created.id}`,
+      w.as(w.asker.id),
+    );
+    expect(still.status).toBe(200);
+    expect(sentTexts(w.srv, w.asker.id)).toEqual([]);
+
+    const blank = await dismiss({ text: " \n " });
+    expect(blank.status).toBe(204);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(created.id)),
+      "dismiss delivered",
+    );
+    const dismissNote = askReplyNote({ ...created, dismissed: true });
+    expect(sentTexts(w.srv, w.asker.id)).toEqual([
+      `[${w.owner.username}] ${dismissNote}${ASK_DISMISSED_TEXT}`,
+    ]);
+  });
+
   it("is never read as the answer to a pending permission prompt, and waits for it", async () => {
     const w = await world();
     const created = await open(w, "Proceed?");

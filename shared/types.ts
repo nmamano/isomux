@@ -1205,6 +1205,10 @@ export interface AskEntry {
   sessionId?: string;
 }
 
+// The member message text of a bare dismiss. The chat shows it translated
+// from the entry's metadata; the agent reads these words.
+export const ASK_DISMISSED_TEXT = "Dismissed";
+
 // The ask a member message answers. Rides on the queued item and on the
 // user_message log entry's metadata (`ask`), where the chat draws the
 // link back to the agent's "Create ask" card.

@@ -65,7 +65,7 @@ export function AsksView({
           padding: isMobile ? "10px 12px" : "16px 20px",
         }}
       >
-        <div style={{ maxWidth: 760, margin: "0 auto" }}>
+        <div data-asks-list="" style={{ maxWidth: 760, margin: "0 auto" }}>
           {groups.length === 0 ? (
             <div
               data-asks-empty=""

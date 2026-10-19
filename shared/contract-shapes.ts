@@ -737,6 +737,9 @@ export interface AskReplyReq {
   device?: string;
 }
 export interface AskDismissReq {
+  // What the member typed, sent as the dismissal's reason. Blank or absent:
+  // the agent reads "Dismissed".
+  text?: string;
   device?: string;
 }
 // What an agent reads back: the stored entry plus the target's username.
