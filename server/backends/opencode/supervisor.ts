@@ -166,6 +166,7 @@ export class OpenCodeSupervisor {
   private launchEnv: Record<string, string | undefined>;
   private environmentRevision: string;
   private replacementPromise: Promise<void> | null = null;
+  private starting: Promise<void> | null = null;
   private readonly idleScheduler: NonNullable<
     OpenCodeSupervisorOptions["idleScheduler"]
   >;
@@ -271,6 +272,13 @@ export class OpenCodeSupervisor {
           await this.replaceServerIfRequested(1);
           if (this.shutdownPromise) await this.shutdownPromise;
           await this.validateServerForTurn(this.activeTurns > 0);
+          // A start this entry joined, or a turn that ended during it, can
+          // leave a stale server that only this entry holds: replace it now.
+          if (
+            this.recordStale() &&
+            (await this.replaceServerIfRequested(1)) === "replaced"
+          )
+            await this.validateServerForTurn(this.activeTurns > 0);
           turnActive = true;
           this.activeTurns++;
           if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
@@ -415,8 +423,31 @@ export class OpenCodeSupervisor {
     );
   }
 
+  // One start at a time: a second start with other revisions would stop the
+  // server the first brings up, which a lease can already hold. A caller
+  // joins the start in flight and takes its server; older revisions on it
+  // are a pending replacement, made when the last turn or hold ends.
   private async ensureServer(replaceMarked = false): Promise<void> {
     this.ensureServerSink();
+    while (this.starting !== null) {
+      await this.starting.catch(() => undefined);
+      // A third caller can have started again since.
+      if (this.starting !== null) continue;
+      const record = this.record;
+      if (
+        record &&
+        processIdentityMatches(record.pid, record.startTicks) &&
+        !(replaceMarked && record.pid === this.unresponsive?.pid)
+      )
+        return;
+    }
+    this.starting = this.startServer(replaceMarked).finally(() => {
+      this.starting = null;
+    });
+    await this.starting;
+  }
+
+  private async startServer(replaceMarked: boolean): Promise<void> {
     const binary = this.binary;
     const host = getAgentHost();
     await host.fs.mkdir(this.profileDir, 0o777);

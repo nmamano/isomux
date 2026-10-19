@@ -1293,6 +1293,7 @@ describe("OpenCode shared server supervisor", () => {
     options: {
       providerDelayMs?: number;
       turnHealthCheck?: () => Promise<OpenCodeServerHealth>;
+      ensureServerSink?: () => void;
     } = {},
   ) {
     const { binary } = await makeHealthOnlyBinary(
@@ -1310,6 +1311,9 @@ describe("OpenCode shared server supervisor", () => {
       ...(options.turnHealthCheck
         ? { turnHealthCheck: options.turnHealthCheck }
         : {}),
+      ...(options.ensureServerSink
+        ? { ensureServerSink: options.ensureServerSink }
+        : {}),
     });
     supervisors.push(supervisor);
     const long = await supervisor.acquire();
@@ -1319,6 +1323,56 @@ describe("OpenCode shared server supervisor", () => {
       "revision-after",
     );
     return { supervisor, long, priorPid: long.pid };
+  }
+
+  // Holds every server start (not a stop) at the agent host until the test
+  // releases it. The caller restores localAgentHost.
+  function holdServerStarts() {
+    const held: { run: () => void; done: Promise<void> }[] = [];
+    let holding = true;
+    setAgentHost({
+      ...localAgentHost,
+      run: async (argv, options) => {
+        if (!holding || options?.env?.OPENCODE_SERVER_ACTION === "stop")
+          return localAgentHost.run(argv, options);
+        let run = () => {};
+        const gate = new Promise<void>((resolve) => (run = resolve));
+        let finish = () => {};
+        const done = new Promise<void>((resolve) => (finish = resolve));
+        held.push({ run, done });
+        await gate;
+        try {
+          return await localAgentHost.run(argv, options);
+        } finally {
+          finish();
+        }
+      },
+    });
+    return {
+      held,
+      // Waits until `calls` reports a second caller in ensureServer, then
+      // gives a second start time to reach the host.
+      async secondCaller(calls: () => number, count: number) {
+        while (calls() < count) await Bun.sleep(5);
+        const deadline = Date.now() + 500;
+        while (held.length < 2 && Date.now() < deadline) await Bun.sleep(5);
+      },
+      // Runs the held starts one at a time, the last one first: a later start
+      // completes before the start in flight, the order in which the start
+      // in flight finds a server it cannot adopt and stops it. Starts after
+      // this run at once.
+      async releaseLastFirst() {
+        holding = false;
+        for (const start of [...held].reverse()) {
+          start.run();
+          await start.done;
+        }
+      },
+    };
+  }
+
+  async function launches(marker: string): Promise<number> {
+    return (await readFile(marker, "utf8")).split("\n").filter(Boolean).length;
   }
 
   async function dies(pid: number, ms = 5000): Promise<boolean> {
@@ -1378,7 +1432,9 @@ describe("OpenCode shared server supervisor", () => {
     long.release();
   }, 20_000);
 
-  it("keeps the server for a turn still entering when the last turn ends", async () => {
+  // Task 935e795e: once the other turn has ended, nothing else holds the
+  // server, so the entering turn replaces it and runs with the current env.
+  it("keeps the server for a turn still entering when the last turn ends, and that turn's entry replaces it", async () => {
     const path = await root();
     let gate: Promise<void> | null = null;
     let open = () => {};
@@ -1402,10 +1458,10 @@ describe("OpenCode shared server supervisor", () => {
     expect(await dies(priorPid, 1000), "the entry's hold keeps it").toBe(false);
     open();
     await entered;
-    expect(next.pid).toBe(priorPid);
-    expect(alive(priorPid)).toBe(true);
+    expect(next.pid).not.toBe(priorPid);
+    expect(alive(priorPid)).toBe(false);
+    await expectChildEnvironment(next.pid, { S4_ENV_CANARY: "after" });
     next.endTurn();
-    expect(await dies(priorPid), "replaced at that turn's end").toBe(true);
     next.release();
     long.release();
   }, 20_000);
@@ -1513,35 +1569,24 @@ describe("OpenCode shared server supervisor", () => {
     long.release();
   }, 20_000);
 
-  // Task 63efb5b1: a start in flight while a replacement ran brought up a
-  // server with an older environment, and the replacement then cleared the
-  // newer request.
-  it("replaces a server that a start in flight brought up with an older environment", async () => {
+  // Task 935e795e: a lease that acquires while the start of replaceOnceIdle
+  // is in flight takes the server that start brings up, even when it has an
+  // older environment, and that server stays while the lease holds it. Its
+  // turn entry replaces it (task 63efb5b1: with the current environment).
+  it("keeps the server a lease took from a start in flight while it holds it, and its turn gets the current environment", async () => {
     const path = await root();
-    const { supervisor, long, priorPid } = await pendingReplacement(path);
-    let open = () => {};
-    let gate: Promise<void> | null = new Promise<void>(
-      (resolve) => (open = resolve),
-    );
-    let gated = false;
-    setAgentHost({
-      ...localAgentHost,
-      run: async (argv, options) => {
-        const wait = gate;
-        if (wait && options?.env?.OPENCODE_SERVER_ACTION !== "stop") {
-          gate = null;
-          gated = true;
-          await wait;
-        }
-        return localAgentHost.run(argv, options);
-      },
+    let ensures = 0;
+    const { supervisor, long, priorPid } = await pendingReplacement(path, {
+      ensureServerSink: () => ensures++,
     });
+    const starts = holdServerStarts();
     try {
+      ensures = 0;
       // The last turn's end replaces the server; the start for the retained
-      // lease waits at the gate with the second environment.
+      // lease is held with the second environment.
       long.endTurn();
-      while (!gated) await Bun.sleep(5);
-      expect(alive(priorPid)).toBe(false);
+      while (starts.held.length < 1) await Bun.sleep(5);
+      expect(await dies(priorPid), "the replacement stopped it").toBe(true);
       supervisor.updateLaunchEnvironment(
         {
           OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
@@ -1549,23 +1594,170 @@ describe("OpenCode shared server supervisor", () => {
         },
         "revision-third",
       );
-      const next = await supervisor.acquire();
-      const thirdPid = next.pid;
-      await expectChildEnvironment(thirdPid, { S4_ENV_CANARY: "third" });
-      open();
-      // The gated start replaces that server with the second environment.
-      const deadline = Date.now() + 5000;
-      while (next.pid === thirdPid && Date.now() < deadline)
-        await Bun.sleep(25);
-      expect(alive(thirdPid), "the gated start ran").toBe(false);
-      await expectChildEnvironment(next.pid, { S4_ENV_CANARY: "after" });
+      const acquiring = supervisor.acquire();
+      let heldPid = 0;
+      void acquiring.then(
+        (lease) => (heldPid = lease.pid),
+        () => {},
+      );
+      await starts.secondCaller(() => ensures, 2);
+      await starts.releaseLastFirst();
+      const next = await acquiring;
+      expect(await dies(heldPid, 500), "the held server stays").toBe(false);
+      expect(next.pid).toBe(heldPid);
+      await expectChildEnvironment(heldPid, { S4_ENV_CANARY: "after" });
+      expect(next.replacementPending).toBe(true);
       await next.beginTurn();
+      expect(next.pid).not.toBe(heldPid);
       await expectChildEnvironment(next.pid, { S4_ENV_CANARY: "third" });
+      expect(alive(heldPid)).toBe(false);
       next.endTurn();
       next.release();
     } finally {
       setAgentHost(localAgentHost);
       long.release();
+    }
+  }, 20_000);
+
+  // Task 935e795e: a retained lease's turn entry that joins that start gets
+  // the current environment, since nothing else holds the server.
+  it("gives the current environment to a turn that enters while a start with an older one is in flight", async () => {
+    const path = await root();
+    let ensures = 0;
+    const { supervisor, long, priorPid } = await pendingReplacement(path, {
+      ensureServerSink: () => ensures++,
+    });
+    const starts = holdServerStarts();
+    try {
+      ensures = 0;
+      long.endTurn();
+      while (starts.held.length < 1) await Bun.sleep(5);
+      expect(await dies(priorPid), "the replacement stopped it").toBe(true);
+      supervisor.updateLaunchEnvironment(
+        {
+          OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
+          S4_ENV_CANARY: "third",
+        },
+        "revision-third",
+      );
+      const entering = long.beginTurn();
+      await starts.secondCaller(() => ensures, 2);
+      await starts.releaseLastFirst();
+      await entering;
+      const turnPid = long.pid;
+      expect(await dies(turnPid, 500), "the turn's server stays").toBe(false);
+      await expectChildEnvironment(turnPid, { S4_ENV_CANARY: "third" });
+      expect(long.replacementPending).toBe(false);
+      long.endTurn();
+    } finally {
+      setAgentHost(localAgentHost);
+      long.release();
+    }
+  }, 20_000);
+
+  // Task 935e795e: two acquires start a server with different environments;
+  // the second takes the first's server instead of starting one that the
+  // first's start then stops.
+  it("keeps the server of each lease when two acquires start with different environments", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    let ensures = 0;
+    const memberDir = join(path, "member-opencode");
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: { share: "disabled" },
+      idleShutdownMs: 1000,
+      launchEnv: { OPENCODE_CONFIG_DIR: memberDir, S4_ENV_CANARY: "first" },
+      environmentRevision: "revision-first",
+      binary,
+      ensureServerSink: () => ensures++,
+    });
+    supervisors.push(supervisor);
+    const starts = holdServerStarts();
+    try {
+      const acquiringFirst = supervisor.acquire();
+      while (starts.held.length < 1) await Bun.sleep(5);
+      supervisor.updateLaunchEnvironment(
+        { OPENCODE_CONFIG_DIR: memberDir, S4_ENV_CANARY: "second" },
+        "revision-second",
+      );
+      const acquiringSecond = supervisor.acquire();
+      let secondPid = 0;
+      void acquiringSecond.then(
+        (lease) => (secondPid = lease.pid),
+        () => {},
+      );
+      await starts.secondCaller(() => ensures, 2);
+      await starts.releaseLastFirst();
+      const first = await acquiringFirst;
+      const second = await acquiringSecond;
+      expect(alive(secondPid), "the second lease's server stays").toBe(true);
+      expect(second.pid).toBe(secondPid);
+      expect(first.pid).toBe(secondPid);
+      await expectChildEnvironment(secondPid, { S4_ENV_CANARY: "first" });
+      expect(second.replacementPending).toBe(true);
+      // The pending replacement runs once both holds end.
+      first.settle();
+      expect(await dies(secondPid, 500), "the first hold keeps it").toBe(false);
+      second.settle();
+      expect(await dies(secondPid), "replaced once no hold is left").toBe(true);
+      const deadline = Date.now() + 5000;
+      while (
+        (first.pid === secondPid || !alive(first.pid)) &&
+        Date.now() < deadline
+      )
+        await Bun.sleep(25);
+      await expectChildEnvironment(first.pid, { S4_ENV_CANARY: "second" });
+      first.release();
+      second.release();
+    } finally {
+      setAgentHost(localAgentHost);
+    }
+  }, 20_000);
+
+  // Task 935e795e: an acquire that must replace an unresponsive server and
+  // joins a start that adopted that server still replaces it.
+  it("replaces an unresponsive server for an acquire that joined a start which adopted it", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    let ensures = 0;
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: { share: "disabled" },
+      idleShutdownMs: 1000,
+      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      binary,
+      ensureServerSink: () => ensures++,
+    });
+    supervisors.push(supervisor);
+    const active = await supervisor.acquire();
+    await active.beginTurn();
+    const markedPid = active.pid;
+    const starts = holdServerStarts();
+    try {
+      ensures = 0;
+      // An unmarked start, which adopts the server.
+      const acquiringAdopter = supervisor.acquire();
+      while (starts.held.length < 1) await Bun.sleep(5);
+      active.markUnresponsive(markedPid, true);
+      const acquiringReplacer = supervisor.acquire();
+      await starts.secondCaller(() => ensures, 2);
+      await starts.releaseLastFirst();
+      const adopter = await acquiringAdopter;
+      const replacer = await acquiringReplacer;
+      expect(replacer.pid).not.toBe(markedPid);
+      expect(alive(markedPid)).toBe(false);
+      expect(alive(replacer.pid)).toBe(true);
+      expect(adopter.pid).toBe(replacer.pid);
+      expect(await launches(launchMarker), "one launch replaced it").toBe(2);
+      adopter.release();
+      replacer.release();
+    } finally {
+      setAgentHost(localAgentHost);
+      active.endTurn();
+      active.release();
     }
   }, 20_000);
 
