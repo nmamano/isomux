@@ -2813,8 +2813,6 @@ Cosas que puedes hacer por él:
     "Cancelado mientras se detenía la sesión anterior",
   "systemEntries.permissionOutcome.sessionEnded":
     "Cancelado porque la sesión terminó",
-  "systemEntries.permissionOutcome.turnStopped":
-    "Cancelado al detenerse el turno",
   "systemEntries.permissionOutcome.agentKilled":
     "Cancelado al eliminar el agente",
   "systemEntries.permissionOutcome.failed": "No se pudo resolver",

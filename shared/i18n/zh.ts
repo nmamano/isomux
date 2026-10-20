@@ -2526,7 +2526,6 @@ App 的一些原则：
   "systemEntries.permissionOutcome.sessionChanged": "会话更改时取消",
   "systemEntries.permissionOutcome.priorSessionStopped": "原会话停止时取消",
   "systemEntries.permissionOutcome.sessionEnded": "因会话结束而取消",
-  "systemEntries.permissionOutcome.turnStopped": "本轮停止时取消",
   "systemEntries.permissionOutcome.agentKilled": "智能体终止时取消",
   "systemEntries.permissionOutcome.failed": "处理失败",
   "systemEntries.permissionChoice": "权限选择：{label}。",

@@ -2817,8 +2817,6 @@ Coses que pots fer per ell:
     "Cancel·lat mentre s'aturava la sessió anterior",
   "systemEntries.permissionOutcome.sessionEnded":
     "Cancel·lat perquè la sessió va acabar",
-  "systemEntries.permissionOutcome.turnStopped":
-    "Cancel·lat en aturar-se el torn",
   "systemEntries.permissionOutcome.agentKilled":
     "Cancel·lat en eliminar l'agent",
   "systemEntries.permissionOutcome.failed": "No s'ha pogut resoldre",

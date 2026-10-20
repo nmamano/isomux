@@ -2781,8 +2781,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Canceled while the prior session stopped",
   "systemEntries.permissionOutcome.sessionEnded":
     "Canceled because the session ended",
-  "systemEntries.permissionOutcome.turnStopped":
-    "Canceled when the turn stopped",
   "systemEntries.permissionOutcome.agentKilled":
     "Canceled when the agent was killed",
   "systemEntries.permissionOutcome.failed": "Failed to resolve",

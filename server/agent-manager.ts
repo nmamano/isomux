@@ -10068,15 +10068,10 @@ export function createAgentManager(deps: ManagerDeps) {
     // the eventual turn_completed); covering both in the race means a single
     // timer protects the whole hot path.
     const inFlight = (async () => {
+      // No permission cleanup here: abort() denied the open and waiting
+      // requests before this ran, and SessionManager.consume drops every
+      // approval_request while `aborting` is set.
       await managed.sessionManager.session!.abort();
-      // Mirror createSession's stale-approval cleanup: replaceSession would
-      // have cleared this; the hot path doesn't go through createSession.
-      cancelPermissionRequests(
-        agentId,
-        managed,
-        "canceled",
-        logWords(agentId)("systemEntries.permissionOutcome.turnStopped"),
-      );
       // Attach to the in-flight turn's promise (snapshot once) so abortPromise
       // doesn't resolve before pendingTurn settles - otherwise a follow-up
       // createTurnDeferred would supersede the original turn with a

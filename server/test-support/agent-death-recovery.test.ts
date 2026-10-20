@@ -1287,6 +1287,90 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     expect(permissionOutcomes(server, agent.id)).toHaveLength(0);
   });
 
+  // Task 35b9d497. The session can end while an answer is applied, and the
+  // stream's clean end clears no permission state. A waiting request of that
+  // session has no backend left to answer it.
+  it("opens no card for a waiting request whose session ended during an answer", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const agent = await spawnAgent(server, "Ended", firstRoomId(server));
+    const firstCard = await parkOnTwoPermissions(
+      server,
+      owner.rawSessionId,
+      agent.id,
+    );
+    const session = server.fakeBackend.sessionForAgent(agent.id)!;
+    session.onApprove = () => session.endStream();
+    const allow = await clickPermission(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      firstCard.id,
+      "1",
+    );
+    expect(allow.status).toBe(200);
+    await waitUntil(
+      () =>
+        permissionOutcomes(server!, agent.id).length === 2 ||
+        server!.agentManager.getPendingInteractions().length > 0,
+      2000,
+      "the waiting request was handled",
+    );
+    // The condition under test: the session was gone when the answer ended.
+    expect(agentOf(server, agent.id).dormant).toBe(true);
+    // MUTANT: showNextPermission opens the waiting request whatever its
+    // session, so a card for a dead session parks the agent.
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
+    expect(session.approvals).toEqual([
+      { approvalId: "ap-1", decision: { kind: "allow_once" } },
+    ]);
+    expect(
+      permissionOutcomes(server, agent.id).map(
+        (entry) => entry.metadata?.permissionAudit,
+      ),
+    ).toMatchObject([
+      { outcome: "allow_once", inputSummary: { command: "rm -rf /tmp/x" } },
+      { outcome: "canceled", inputSummary: { command: "ls /tmp/y" } },
+    ]);
+  });
+
+  // Task 35b9d497. A kill removes the agent with its prompt, so the audit is
+  // the only place that tells what happened to the request.
+  it("records a canceled outcome for the open request when the agent is killed", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const agent = await spawnAgent(server, "Killed", firstRoomId(server));
+    await parkOnPermission(server, owner.rawSessionId, agent.id);
+    const audits = () =>
+      persistedEntries(server!, agent.id)
+        .map(
+          (entry) =>
+            entry.metadata?.permissionAudit as
+              | { event?: string; outcome?: string }
+              | undefined,
+        )
+        .filter((audit) => audit !== undefined);
+    // The condition under test: the prompt itself reached the disk.
+    await waitUntil(
+      () => audits().some((audit) => audit.event === "prompt"),
+      2000,
+      "prompt audit persisted",
+    );
+
+    await server.agentManager.kill(agent.id);
+    // MUTANT: kill() drops the prompt without an outcome, so the audit shows
+    // a request that never ended.
+    await waitUntil(
+      () => audits().some((audit) => audit.event === "outcome"),
+      2000,
+      "outcome audit persisted",
+    );
+    expect(audits().filter((audit) => audit.event === "outcome")).toEqual([
+      expect.objectContaining({ outcome: "canceled" }),
+    ]);
+  });
+
   it("tells clients to remove an interaction that a new one replaces", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner();
@@ -1476,6 +1560,10 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     expect(await res.text()).not.toContain("permission");
   });
 
+  // The in-place (hot) abort path: the session that held the prompt stays
+  // alive, so nothing but abort() itself ends the prompt. Task 35b9d497: a
+  // ReferenceError in this path once passed every suite, because abort()'s
+  // catch turns a throw into a 204 with the agent left in `error`.
   it("abort denies the pending prompt and unparks the agent", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend(true) });
     const owner = await server.seedOwner();
@@ -1486,6 +1574,9 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
       "opencode",
     );
     await parkOnPermission(server, owner.rawSessionId, a.id);
+    const card = server.agentManager.getPendingInteractions()[0];
+    if (!card) throw new Error("permission interaction missing");
+    const sessionCount = server.fakeBackend.sessions.length;
 
     const session = server.fakeBackend.sessionForAgent(a.id)!;
     const response = server.http(`/api/agents/${a.id}/abort`, {
@@ -1495,6 +1586,35 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     await waitUntil(() => session.abortCount === 1);
     session.push({ kind: "turn_completed", status: "interrupted" });
     expect((await response).status).toBe(204);
+    // MUTANT: a throw in tryHotAbort after session.abort() still returns 204,
+    // but leaves the agent in `error`.
+    expect(agentOf(server, a.id).state).toBe("waiting_for_response");
+    // The hot path kept the session: no replacement was made.
+    expect(server.fakeBackend.sessions.length).toBe(sessionCount);
+    expect(server.fakeBackend.sessionForAgent(a.id)).toBe(session);
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+
+    // A click that was on its way to the old card lands nothing: the route
+    // reports the card as canceled, and no second answer reaches the backend.
+    const staleClick = await clickPermission(
+      server,
+      owner.rawSessionId,
+      a.id,
+      card.id,
+      "1",
+    );
+    expect(((await staleClick.json()) as { status?: string }).status).toBe(
+      "canceled",
+    );
+    expect(session.approvals.map((approval) => approval.approvalId)).toEqual([
+      "ap-1",
+    ]);
+
+    // The next message goes to the same session as an ordinary message.
+    await sendHuman(server, owner.rawSessionId, a.id, "carry on");
+    await waitUntil(() => session.sent.length === 2, 2000, "next message sent");
+    expect(session.sent[1].text).toContain("carry on");
+    expect(server.fakeBackend.sessions.length).toBe(sessionCount);
 
     // The backend's approval callback was resolved as a denial - without this
     // the SDK's canUseTool promise never settles and the agent stays parked.
