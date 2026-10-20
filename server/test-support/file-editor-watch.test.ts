@@ -77,7 +77,9 @@ describe("watchFile", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("fires on in-place writes", async () => {
+  // Quarantined (task e490d5ad): red once in ci:remote on db2de07c (no event
+  // within the 3 s wait), green on the next run.
+  it.skip("fires on in-place writes", async () => {
     writeFileSync(file, "v1");
     await waitFor(() => events.length > 0);
     expect(events.length).toBeGreaterThan(0);
