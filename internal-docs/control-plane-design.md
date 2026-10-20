@@ -855,25 +855,21 @@ in-flight box is the sharpest thing in this design:
 
 ## First run: connecting a model
 
-The office seeds two welcome agents on first install. On a box with no model
-credentials the first message to either one fails, and per ruling 4 **that is
-the intended flow**: the failure message directs the customer to the terminal
-panel to run `claude` and `/login`, or `codex` and its equivalent. Both are
-packaged with isomux, so there is nothing to install. Subscription-first, not
-API-key-first; the paste-an-API-key form proposed in the previous revision is
-rejected and is no longer a launch prerequisite.
+The office seeds three welcome agents on first install. The OpenCode one
+answers on a free model with no credentials. On a box with no model
+credentials the first message to the Claude or Codex one fails, and per ruling
+4 **that is the intended flow**: the failure message carries a sign-in card in
+the chat. The same card is on the Integrations page (Model providers tab). For
+Codex the card shows a device code; for Claude the customer pastes back the
+code the sign-in page shows. Neither needs a localhost callback, so both
+complete on a VPS with no tunnel. The terminal panel (`claude` and `/login`, or `codex login`)
+stays as a fallback. Subscription-first, not API-key-first; the
+paste-an-API-key form proposed in the previous revision is rejected and is no
+longer a launch prerequisite.
 
 The control plane's only job here is expectation-setting at handoff: say that
-signing in to a model is the first thing to do inside the office, and that it
-happens in the terminal panel.
-
-Two things to verify on a real hosted box before calling this done, both
-isomux-side rather than control-plane work: that `claude` is actually on `PATH`
-for a terminal-panel session (it arrives as a dependency, not as a system
-install), and that both login flows complete headlessly - Codex's browser
-callback has historically bound a localhost port, which on a VPS needs a tunnel
-the customer does not have. If either is false, the not-logged-in message is
-pointing at a dead end, and that message is the whole activation path.
+signing in to a model is the first thing to do inside the office, from the chat
+or the Integrations page.
 
 We never resell tokens and never proxy model traffic. BYOK, per the parent
 design.
