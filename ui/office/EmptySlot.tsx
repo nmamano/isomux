@@ -38,6 +38,7 @@ export function EmptySlot({
         const src = parseInt(e.dataTransfer.getData("text/plain"), 10);
         if (!isNaN(src) && src !== deskIndex) onSwap?.(src, deskIndex);
       }}
+      data-turn-anchor={`${pxLeft + 90},${pxTop + 116}`}
       style={{
         position: "absolute",
         left: pxLeft,

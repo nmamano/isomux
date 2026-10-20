@@ -10,7 +10,21 @@ import { ChatWidthHandle } from "../members-chat/ChatWidthHandle.tsx";
 import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
 import { send } from "../ws.ts";
 import { LOBBY_ROOM_ID, ordinaryRooms } from "../../shared/types.ts";
-import { useMemo, useState, useEffect, useCallback, useContext } from "react";
+import {
+  useMemo,
+  useState,
+  useEffect,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useRef,
+} from "react";
+import {
+  beginRoomTurn,
+  cancelRoomTurn,
+  finishRoomTurn,
+  type TurnSide,
+} from "./room-turn.ts";
 import { SceneDecorationContext } from "./scene-decoration.tsx";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
 import { inboxTabFor, useInboxCounts, type InboxTab } from "../inbox.ts";
@@ -277,6 +291,17 @@ export function OfficeView({
   // positional door nav (prev/next neighbour); -1 when nothing is selected.
   const currentRoomIndex = rooms.findIndex((r) => r.id === currentRoomId);
   const dispatch = useDispatch();
+  // A wall door between two rooms turns the room (the Room switch animation
+  // device setting); tabs and the lobby doors switch with no animation.
+  const contentEl = useRef<HTMLDivElement | null>(null);
+  const doorGo = (side: TurnSide, roomId: string) => {
+    beginRoomTurn(contentEl.current, side, roomId);
+    dispatch({ type: "set_current_room", roomId });
+  };
+  useLayoutEffect(() => {
+    finishRoomTurn(lobbyOpen ? null : currentRoomId);
+  }, [currentRoomId, lobbyOpen]);
+  useEffect(() => cancelRoomTurn, []);
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
   const decorateScene = useContext(SceneDecorationContext);
@@ -713,9 +738,10 @@ export function OfficeView({
             >
               {/* Centered scene container - static centering transform */}
               <div
-                // viewport.setContent: same stable-callback pattern as setScene above.
-                // eslint-disable-next-line react-hooks/refs
-                ref={viewport.setContent}
+                ref={(el) => {
+                  viewport.setContent(el);
+                  contentEl.current = el;
+                }}
                 style={{
                   // Custom properties are legal in an inline style but absent
                   // from CSSProperties, the same cast Ghost.tsx makes.
@@ -828,10 +854,7 @@ export function OfficeView({
                                   number: currentRoomIndex,
                                 }),
                               onClick: () =>
-                                dispatch({
-                                  type: "set_current_room",
-                                  roomId: rooms[currentRoomIndex - 1].id,
-                                }),
+                                doorGo("left", rooms[currentRoomIndex - 1].id),
                               dragOver: leftDoorDragOver,
                               reject: leftDoorReject,
                               passCount: leftDoorUses,
@@ -858,10 +881,7 @@ export function OfficeView({
                                   number: currentRoomIndex + 2,
                                 }),
                               onClick: () =>
-                                dispatch({
-                                  type: "set_current_room",
-                                  roomId: rooms[currentRoomIndex + 1].id,
-                                }),
+                                doorGo("right", rooms[currentRoomIndex + 1].id),
                               dragOver: rightDoorDragOver,
                               reject: rightDoorReject,
                               passCount: rightDoorUses,
@@ -880,10 +900,7 @@ export function OfficeView({
                         // handler to suppress clicks during pan-drag.
                         // eslint-disable-next-line react-hooks/refs
                         onClick={viewport.wrapClick(() =>
-                          dispatch({
-                            type: "set_current_room",
-                            roomId: rooms[currentRoomIndex - 1].id,
-                          }),
+                          doorGo("left", rooms[currentRoomIndex - 1].id),
                         )}
                         onDragOverChange={(over) => setLeftDoorDragOver(over)}
                         onDrop={(deskIndex) => {
@@ -915,10 +932,7 @@ export function OfficeView({
                           // viewport.wrapClick: same stable-callback pattern as left door.
                           // eslint-disable-next-line react-hooks/refs
                           onClick={viewport.wrapClick(() =>
-                            dispatch({
-                              type: "set_current_room",
-                              roomId: rooms[currentRoomIndex + 1].id,
-                            }),
+                            doorGo("right", rooms[currentRoomIndex + 1].id),
                           )}
                           onDragOverChange={(over) =>
                             setRightDoorDragOver(over)

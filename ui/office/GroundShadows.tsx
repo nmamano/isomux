@@ -87,6 +87,7 @@ export function GroundShadows() {
 
   return (
     <svg
+      data-turn="floor"
       style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }}
       width={SCENE_W}
       height={SCENE_H}

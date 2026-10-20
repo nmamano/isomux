@@ -553,6 +553,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.device.label": "Device Label",
   "settings.device.optional": "(optional)",
   "settings.device.placeholder": "Phone, Laptop, …",
+  "settings.roomTurn.title": "Room switch animation",
+  "settings.roomTurn.hint": "Plays when you click a door between two rooms.",
+  "settings.roomTurn.off": "Off",
+  "settings.roomTurn.turn": "Turn, {ms} ms",
+  "settings.roomTurn.cube": "Cube flip, {ms} ms",
 
   "settings.devices.title": "Sign-in links",
   "settings.devices.outstandingLinks": "Outstanding device links",

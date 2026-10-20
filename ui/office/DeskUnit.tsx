@@ -137,6 +137,7 @@ export function DeskUnit({
   return (
     <>
       <div
+        data-turn-anchor={`${pxLeft + 90},${pxTop + 116}`}
         ref={containerRef}
         draggable
         data-no-pan
@@ -271,6 +272,7 @@ export function DeskUnit({
           (z + 10000) preserves the front-vs-back isometric ordering
           between nametags themselves when two desks' chips overlap. */}
       <div
+        data-turn-anchor={`${pxLeft + 90},${pxTop + 116}`}
         style={{
           position: "absolute",
           top: pxTop + (agent.topic ? -58 : -48),

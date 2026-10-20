@@ -214,6 +214,7 @@ export function Floor({ desk8Cable = true }: { desk8Cable?: boolean }) {
 
   return (
     <svg
+      data-turn="floor"
       style={SVG_STYLE}
       width={SCENE_W}
       height={SCENE_H}
@@ -965,6 +966,7 @@ export function WallDoors({
 }) {
   return (
     <svg
+      data-turn="doors"
       style={SVG_STYLE}
       width={SCENE_W}
       height={SCENE_H}
@@ -1079,6 +1081,7 @@ export function Walls({
 
   return (
     <svg
+      data-turn="walls"
       style={SVG_STYLE}
       width={SCENE_W}
       height={SCENE_H}

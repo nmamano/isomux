@@ -584,6 +584,7 @@ export function PetCorner({
   const snores = drawing.snores ?? true;
   return (
     <g
+      data-turn-anchor="120,470"
       transform={`translate(${PET_SPOT.x}, ${PET_SPOT.y})`}
       // The props svg sets pointerEvents none, so the pet opts back in on its
       // own. data-no-pan keeps the click off the viewport's pan handler, the
@@ -743,7 +744,10 @@ const PropsScene = memo(function PropsScene({
       {/* Potted plant - west corner of office. Drawn in ui/office/plants.tsx,
           which the window plant and the desk plants also draw from. */}
       {floorPlant === "plant" && (
-        <g transform="translate(-245, 212) scale(1.5)">
+        <g
+          transform="translate(-245, 212) scale(1.5)"
+          data-turn-anchor="-245,242"
+        >
           <CornerPlant />
         </g>
       )}

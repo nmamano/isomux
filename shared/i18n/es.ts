@@ -545,6 +545,12 @@ Cosas que puedes hacer por él:
   "settings.device.label": "Etiqueta del dispositivo",
   "settings.device.optional": "(opcional)",
   "settings.device.placeholder": "Móvil, Portátil, …",
+  "settings.roomTurn.title": "Animación al cambiar de sala",
+  "settings.roomTurn.hint":
+    "Se reproduce al hacer clic en una puerta entre dos salas.",
+  "settings.roomTurn.off": "Desactivada",
+  "settings.roomTurn.turn": "Giro, {ms} ms",
+  "settings.roomTurn.cube": "Cubo, {ms} ms",
 
   "settings.devices.title": "Enlaces de inicio de sesión",
   "settings.devices.outstandingLinks": "Enlaces de dispositivo pendientes",
