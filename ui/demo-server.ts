@@ -3806,6 +3806,8 @@ export async function demoApi(
           customInstructions: changes.customInstructions ?? undefined,
         }),
       );
+      // A rename carries the agent's tasks along, as on the server.
+      emitEvents(state.syncAssigneeName(id));
       return { agent: state.getAgent(id) };
     }
     emitEvents(state.kill(id));

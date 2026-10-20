@@ -2141,6 +2141,7 @@ App 的一些原则：
   "tasks.roomChipTitle": "房间：{room}",
   "tasks.globalChipTitle": "办公室全局任务",
   "tasks.createdFor": "{who} · 为 {target}",
+  "tasks.killedName": "{name}（已终止）",
   "office.newAgent": "新智能体",
   "apps.actionFailed.start": "无法启动。",
   "apps.actionFailed.stop": "无法停止。",

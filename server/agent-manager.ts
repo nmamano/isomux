@@ -1341,6 +1341,7 @@ export function createAgentManager(deps: ManagerDeps) {
       assignee?: string;
       username?: string;
       roomId?: string;
+      createdByAgentId?: string;
     },
   ): TaskItem {
     const events = officeState.addTask(title, createdBy, opts);
@@ -1578,6 +1579,10 @@ export function createAgentManager(deps: ManagerDeps) {
       if (Object.keys(meta).length > 0) {
         for (const event of officeState.editAgent(agentId, meta)) emit(event);
       }
+      // A rename carries the agent's tasks along (task 83f71be9). This path
+      // never rolls the name back, so the tasks follow it before the engine
+      // switch, which can fail.
+      for (const event of officeState.syncAssigneeName(agentId)) emit(event);
       await newConversation(agentId, changes.agentType, {
         modelFamily: changes.modelFamily,
         effort: changes.effort,
@@ -1965,6 +1970,9 @@ export function createAgentManager(deps: ManagerDeps) {
     // (a throw rolled the edit back, so the old measurement still stands).
     if (updated.modelFamily) invalidateContextMeasurement(managed);
 
+    // A rename carries the agent's tasks along (task 83f71be9). It runs only
+    // once the edit can no longer roll back, so a failed rename writes no task.
+    events.push(...officeState.syncAssigneeName(agentId));
     for (const event of events) eventHandler(event);
   }
 

@@ -159,7 +159,13 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
       method: "POST",
       rawSessionId: owner.rawSessionId,
       // Spoof attempt: createdBy/username in the body MUST be ignored.
-      body: { title: "Ship 3a", createdBy: "EVIL", username: "EVIL" },
+      body: {
+        title: "Ship 3a",
+        createdBy: "EVIL",
+        username: "EVIL",
+        createdByAgentId: "EVIL",
+        assigneeAgentId: "EVIL",
+      },
     });
     expect(r.status).toBe(201);
     const t = r.body as TaskItem;
@@ -167,6 +173,9 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     expect(t.createdBy).toBe("Boss");
     expect(t.username).toBe("Boss");
     expect(t.status).toBe("open");
+    // A member creates with no agent id, and the body cannot supply one.
+    expect(t).not.toHaveProperty("createdByAgentId");
+    expect(t).not.toHaveProperty("assigneeAgentId");
   });
 
   it("PATCH/claim/done update the task; DELETE -> 204; unknown id -> 404", async () => {
@@ -314,6 +323,8 @@ describe("routes/tasks REST: agent bearer", () => {
     const t = r.body as TaskItem;
     expect(t.createdBy).toBe("TaskBot");
     expect(t.username).toBe("Boss");
+    // The creating agent's id rides next to its name (task 83f71be9).
+    expect(t.createdByAgentId).toBe(bot.id);
   });
 });
 
@@ -350,6 +361,7 @@ describe("routes/tasks REST: cron-run bearer", () => {
     // The run acts as the job, not as the human who created the job.
     expect(t.createdBy).toBe("Nightly Sweep");
     expect(t.username).toBe("Boss");
+    expect(t).not.toHaveProperty("createdByAgentId");
   });
 
   // task:write is one coarse capability, and the surface a run inherited (the
@@ -1649,4 +1661,293 @@ it("refuses to restore a task from a closed room", async () => {
   expect(restored.status).toBe(409);
   expect(restored.body).toMatchObject({ error: { code: "room_unavailable" } });
   expect(srv.agentManager.getTasks().some((t) => t.id === task.id)).toBe(false);
+});
+
+// --- The assignee's agent id (task 83f71be9) --------------------------------
+// A task remembers WHICH agent its assignee name named. A new agent that takes
+// a killed agent's name does not get that agent's tasks, and a rename carries
+// the agent's tasks along.
+
+describe("routes/tasks REST: the assignee's agent id", () => {
+  type HeldErr = {
+    error: {
+      code: string;
+      assignee?: string;
+      assigneeAgentId?: string;
+      killed?: boolean;
+    };
+  };
+  const heldErr = (r: Res) => (r.body as HeldErr).error;
+  const idsOf = (r: Res) => new Set((r.body as TaskItem[]).map((t) => t.id));
+
+  async function setup() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sid = owner.rawSessionId;
+    const stored = (id: string) =>
+      srv.agentManager.getTasks().find((x) => x.id === id)!;
+    const create = async (title: string, extra: object = {}) => {
+      const r = await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: sid,
+        body: { title, ...extra },
+      });
+      expect(r.status).toBe(201);
+      return r.body as TaskItem;
+    };
+    const claim = (id: string, assignee: string) =>
+      api(srv, `/api/tasks/${id}/claim`, {
+        method: "POST",
+        rawSessionId: sid,
+        body: { assignee },
+      });
+    const patch = (id: string, body: object) =>
+      api(srv, `/api/tasks/${id}`, {
+        method: "PATCH",
+        rawSessionId: sid,
+        body: { version: stored(id).version, ...body },
+      });
+    const listBy = (assignee: string) =>
+      api(
+        srv,
+        `/api/tasks?status=all&assignee=${encodeURIComponent(assignee)}`,
+        { rawSessionId: sid },
+      );
+    const kill = async (agentId: string) => {
+      const r = await api(srv, `/api/agents/${agentId}`, {
+        method: "DELETE",
+        rawSessionId: sid,
+      });
+      expect(r.status).toBe(204);
+    };
+    return { srv, sid, stored, create, claim, patch, listBy, kill };
+  }
+
+  it("create, claim and PATCH stamp the live agent the name names; a member name or a clear stamps none", async () => {
+    const { srv, sid, stored, create, claim, patch } = await setup();
+    const worker = await spawnAgent(srv, "Worker");
+
+    // Create resolves the name case-insensitively and trimmed.
+    const made = await create("assigned at create", { assignee: " worker " });
+    expect(stored(made.id).assigneeAgentId).toBe(worker.id);
+
+    const t = await create("claimed");
+    expect(stored(t.id)).not.toHaveProperty("assigneeAgentId");
+    // The id is the server's to stamp: a body that carries one is ignored.
+    const claimed = await api(srv, `/api/tasks/${t.id}/claim`, {
+      method: "POST",
+      rawSessionId: sid,
+      body: { assignee: "Worker", assigneeAgentId: "agent-spoof" },
+    });
+    expect(claimed.status).toBe(200);
+    expect(stored(t.id).assigneeAgentId).toBe(worker.id);
+    expect((claimed.body as TaskItem).assigneeAgentId).toBe(worker.id);
+
+    // A name no live agent has (a member) stamps no id.
+    expect((await patch(t.id, { assignee: "Boss" })).status).toBe(200);
+    expect(stored(t.id).assignee).toBe("Boss");
+    expect(stored(t.id)).not.toHaveProperty("assigneeAgentId");
+
+    expect(
+      (
+        await patch(t.id, {
+          assignee: "Worker",
+          assigneeAgentId: "agent-spoof",
+        })
+      ).status,
+    ).toBe(200);
+    expect(stored(t.id).assigneeAgentId).toBe(worker.id);
+
+    // A clear drops the name and the id together.
+    expect((await patch(t.id, { assignee: null })).status).toBe(200);
+    expect(stored(t.id)).not.toHaveProperty("assignee");
+    expect(stored(t.id)).not.toHaveProperty("assigneeAgentId");
+
+    // Re-claim by a namesake string with another case: same agent, same id.
+    expect((await claim(t.id, "WORKER")).status).toBe(200);
+    expect(stored(t.id).assigneeAgentId).toBe(worker.id);
+  });
+
+  it("a claimant that resolves to the holder's id may claim, whatever the case of its name", async () => {
+    const { srv, stored, create, claim } = await setup();
+    const worker = await spawnAgent(srv, "Worker");
+    const t = await create("held");
+    expect((await claim(t.id, "Worker")).status).toBe(200);
+    // The same agent, written another way: the ids match, so no 409.
+    const again = await claim(t.id, "worker");
+    expect(again.status).toBe(200);
+    expect(stored(t.id).assigneeAgentId).toBe(worker.id);
+  });
+
+  it("a killed holder's tasks do not pass to a new agent with its name", async () => {
+    const { srv, sid, stored, create, claim, patch, listBy, kill } =
+      await setup();
+    const first = await spawnAgent(srv, "Worker");
+    const held = await create("held by the first Worker");
+    expect((await claim(held.id, "Worker")).status).toBe(200);
+    expect(stored(held.id).assigneeAgentId).toBe(first.id);
+    await kill(first.id);
+
+    // Dead id, no live namesake: the name filter still finds the task by its
+    // string, and a claim by that name is refused as held by a killed agent.
+    expect(idsOf(await listBy("Worker")).has(held.id)).toBe(true);
+    const noNamesake = await claim(held.id, "Worker");
+    expect(noNamesake.status).toBe(409);
+    expect(heldErr(noNamesake)).toMatchObject({
+      code: "task_held",
+      assignee: "Worker",
+      assigneeAgentId: first.id,
+      killed: true,
+    });
+
+    // A task the name claims while no agent has it carries no id: a legacy-
+    // shaped row, matched by string as before.
+    const legacy = await create("claimed while no Worker lived");
+    expect((await claim(legacy.id, "Worker")).status).toBe(200);
+    expect(stored(legacy.id)).not.toHaveProperty("assigneeAgentId");
+
+    const second = await spawnAgent(srv, "Worker");
+    expect(second.id).not.toBe(first.id);
+    const fresh = await create("held by the second Worker");
+    expect((await claim(fresh.id, "Worker")).status).toBe(200);
+    expect(stored(fresh.id).assigneeAgentId).toBe(second.id);
+
+    // Dead id, live namesake: the claim is refused and names the dead holder.
+    const namesake = await claim(held.id, "Worker");
+    expect(namesake.status).toBe(409);
+    expect(heldErr(namesake)).toMatchObject({
+      code: "task_held",
+      assigneeAgentId: first.id,
+      killed: true,
+    });
+    expect(stored(held.id)).toMatchObject({
+      assignee: "Worker",
+      assigneeAgentId: first.id,
+    });
+    // A live holder's 409 says it is not killed.
+    const live = await claim(fresh.id, "Helper");
+    expect(live.status).toBe(409);
+    expect(heldErr(live)).toMatchObject({
+      assigneeAgentId: second.id,
+      killed: false,
+    });
+
+    // The namesake's filter lists its own task and the string-only row, never
+    // the dead agent's task.
+    const mine = idsOf(await listBy("Worker"));
+    expect(mine.has(fresh.id)).toBe(true);
+    expect(mine.has(legacy.id)).toBe(true);
+    expect(mine.has(held.id)).toBe(false);
+
+    // A legacy row keeps today's string rule: the namesake may claim it.
+    expect((await claim(legacy.id, "Worker")).status).toBe(200);
+
+    // A title-only edit and an echo of the stored name keep the dead id; the
+    // echo must not re-resolve to the live namesake.
+    expect((await patch(held.id, { title: "renamed task" })).status).toBe(200);
+    expect(stored(held.id).assigneeAgentId).toBe(first.id);
+    expect((await patch(held.id, { assignee: "Worker" })).status).toBe(200);
+    expect(stored(held.id).assigneeAgentId).toBe(first.id);
+
+    // Delete and restore keep the dead id: no re-resolve on restore.
+    expect(
+      (
+        await api(srv, `/api/tasks/${held.id}`, {
+          method: "DELETE",
+          rawSessionId: sid,
+        })
+      ).status,
+    ).toBe(204);
+    const restored = await api(srv, `/api/tasks/${held.id}/restore`, {
+      method: "POST",
+      rawSessionId: sid,
+    });
+    expect(restored.status).toBe(201);
+    expect(stored(held.id).assigneeAgentId).toBe(first.id);
+
+    // The namesake takes over with a clear and then a set.
+    expect((await patch(held.id, { assignee: null })).status).toBe(200);
+    expect((await patch(held.id, { assignee: "Worker" })).status).toBe(200);
+    expect(stored(held.id).assigneeAgentId).toBe(second.id);
+    expect((await claim(held.id, "Worker")).status).toBe(200);
+  });
+
+  it("a rename moves the agent's open and closed tasks to the new name, and nothing else", async () => {
+    const { srv, sid, stored, create, claim, kill } = await setup();
+    const dead = await spawnAgent(srv, "Worker");
+    const deadTask = await create("dead Worker's task");
+    await claim(deadTask.id, "Worker");
+    await kill(dead.id);
+    const legacy = await create("string-only Worker row");
+    await claim(legacy.id, "Worker");
+
+    const worker = await spawnAgent(srv, "Worker");
+    const open = await create("open");
+    const closed = await create("closed");
+    for (const t of [open, closed]) await claim(t.id, "Worker");
+    await api(srv, `/api/tasks/${closed.id}/done`, {
+      method: "POST",
+      rawSessionId: sid,
+      body: {},
+    });
+    const closedVersion = stored(closed.id).version;
+
+    const res = await api(srv, `/api/agents/${worker.id}`, {
+      method: "PATCH",
+      rawSessionId: sid,
+      body: { name: "Builder" },
+    });
+    expect(res.status).toBe(200);
+    expect(srv.agentManager.getAgent(worker.id)?.name).toBe("Builder");
+
+    for (const t of [open, closed]) {
+      expect(stored(t.id)).toMatchObject({
+        assignee: "Builder",
+        assigneeAgentId: worker.id,
+      });
+    }
+    // The write bumps the version like any task write.
+    expect(stored(closed.id).version).not.toBe(closedVersion);
+    expect(stored(closed.id).status).toBe("done");
+    // Neither the dead agent's task nor the string-only row moves.
+    expect(stored(deadTask.id).assignee).toBe("Worker");
+    expect(stored(legacy.id).assignee).toBe("Worker");
+    // createdBy stays as written.
+    expect(stored(open.id).createdBy).toBe("Boss");
+  });
+
+  it("a rename that rolls back leaves the tasks on the old name", async () => {
+    const { srv, sid, stored, create, claim } = await setup();
+    const worker = await spawnAgent(srv, "Worker");
+    const t = await create("held");
+    await claim(t.id, "Worker");
+    // A session-bearing Claude agent must move its .jsonl on a cwd change; no
+    // file exists for the fake session id, so the edit fails and rolls back
+    // (the fault seam of routes-agents-rest.test.ts, "failed cwd+instructions
+    // edit rolls back ...").
+    const enq = srv.agentManager.enqueueMessage(worker.id, {
+      sender: { kind: "user", username: "tester" },
+      text: "wake",
+    });
+    expect(enq.ok).toBe(true);
+    await waitUntil(
+      () => srv.agentManager.getCurrentSessionId(worker.id) !== null,
+      2000,
+      "sessionId",
+    );
+    const versionBefore = stored(t.id).version;
+    const res = await api(srv, `/api/agents/${worker.id}`, {
+      method: "PATCH",
+      rawSessionId: sid,
+      body: { name: "Builder", cwd: "/tmp" },
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error?: { code?: string } }).error?.code).toBe(
+      "edit_failed",
+    );
+    expect(srv.agentManager.getAgent(worker.id)?.name).toBe("Worker");
+    expect(stored(t.id).assignee).toBe("Worker");
+    expect(stored(t.id).version).toBe(versionBefore);
+  });
 });

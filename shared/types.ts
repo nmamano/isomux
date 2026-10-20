@@ -1077,7 +1077,15 @@ export interface TaskItem {
   priority?: TaskPriority;
   status: TaskStatus;
   assignee?: string;
+  // The agent the assignee name named when it was set, stamped by the server
+  // only (task 83f71be9). Absent when the name named no live agent (a member)
+  // and on rows written before the field existed. A new agent that reuses a
+  // killed agent's name does not get its tasks.
+  assigneeAgentId?: string;
   createdBy: string; // Actor that created the record (agent name or user name)
+  // The creating agent's id, stamped by the server from an agent token. Absent
+  // for members, cron runs, apps and older rows.
+  createdByAgentId?: string;
   username?: string; // Human member this record is on behalf of
   createdAt: number;
   // Room this task belongs to. ABSENT/empty === office-global (visible to

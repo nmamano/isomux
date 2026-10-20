@@ -200,7 +200,11 @@ object carries the current `version` and `task`.
 `POST /api/tasks/<id>/claim` with `{ assignee }` sets the task in progress. It
 takes a task with no assignee, or one that assignee already holds. A task
 someone else holds returns 409 `task_held`, with the holder in `assignee`; to
-reassign it, PATCH `assignee` with the version. `POST /api/tasks/<id>/done`
+reassign it, PATCH `assignee` with the version. A task held by an agent also
+carries the agent's `assigneeAgentId`, so a new agent with a killed agent's
+name does not get its tasks: the 409 then has `killed: true`, and the new
+agent takes the task with a PATCH of `assignee` to `null` and then to its
+name. `POST /api/tasks/<id>/done`
 needs no version. A task dropped without doing it is closed with a PATCH of
 status `obsolete`, with the reason in `description`.
 

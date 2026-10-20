@@ -1294,7 +1294,8 @@ export type TaskUpdateReq = { version: string } & Partial<{
   // no-priority. Any other value must be a real level (P0-P4).
   priority: TaskItem["priority"] | null;
   status: TaskItem["status"];
-  assignee: string;
+  // Absent === leave the assignee unchanged; null clears it.
+  assignee: string | null;
   // Re-room the task (mirrors TaskCreateReq.roomId). Absent === leave the room
   // unchanged; an explicit empty string === clear to office-global; a non-empty
   // id moves it to that room, subject to the caller's room access.

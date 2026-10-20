@@ -45,10 +45,19 @@ const startedP4 = {
   version: "v-started",
 } as TaskItem;
 
+const assigned = {
+  ...base,
+  id: "44444444",
+  title: "Assigned task",
+  status: "in_progress",
+  assignee: "Worker",
+  version: "v-assigned",
+} as TaskItem;
+
 function mount() {
   const state = {
     ...initialState,
-    tasks: [editable, shelved, startedP4],
+    tasks: [editable, shelved, startedP4, assigned],
     tasksLoaded: true,
     currentRoomId: "r1",
     rooms: [{ id: "r1", name: "One" }],
@@ -92,6 +101,34 @@ it("an edit sends the version of the task it shows, and closes once saved", asyn
   expect((sent[0] as { version?: string }).version).toBe(editable.version);
   expect(view.queryByDisplayValue("Edited") === null).toBe(true);
   expect(view.queryByRole("alert") === null).toBe(true);
+});
+
+// The assignee goes in the body only when the user changed it (task 83f71be9):
+// an echo would re-stamp the agent id the server keeps for the name, and a
+// cleared field must reach the server as a clear, not vanish from the JSON.
+it("an edit sends the assignee only when it changed, and null when cleared", async () => {
+  const sent: unknown[] = [];
+  setApiShim(async (method, _path, body) => {
+    if (method === "PATCH") sent.push(JSON.parse(JSON.stringify(body)));
+    return {};
+  });
+  const { view, open } = mount();
+  await open(assigned.id);
+  const title = await view.findByDisplayValue(assigned.title);
+  fireEvent.change(title, { target: { value: "Retitled" } });
+  await act(async () => fireEvent.keyDown(title, { key: "Enter" }));
+  expect(sent).toHaveLength(1);
+  expect((sent[0] as { title?: string }).title).toBe("Retitled");
+  expect(sent[0]).not.toHaveProperty("assignee");
+
+  await open(assigned.id);
+  const again = await view.findByDisplayValue(assigned.title);
+  fireEvent.change(view.getByDisplayValue("Worker"), {
+    target: { value: "  " },
+  });
+  await act(async () => fireEvent.keyDown(again, { key: "Enter" }));
+  expect(sent).toHaveLength(2);
+  expect((sent[1] as { assignee?: unknown }).assignee).toBeNull();
 });
 
 it("the status select closes a task as obsolete", async () => {

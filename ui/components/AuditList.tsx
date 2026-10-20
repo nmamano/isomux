@@ -464,6 +464,10 @@ const HIDDEN_FIELDS = new Set([
   "createdBy",
   "username",
   "updatedAt",
+  // The agent ids beside assignee and createdBy (task 83f71be9): the name
+  // change already shows.
+  "assigneeAgentId",
+  "createdByAgentId",
 ]);
 
 // The actor sits above full-width changes. Interface words

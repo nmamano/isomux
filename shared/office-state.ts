@@ -30,7 +30,7 @@ import {
   firstFreeBackSeat,
   hasBackRoom,
 } from "./desks.ts";
-import { taskVersion } from "./task-board.ts";
+import { agentIdForName, taskVersion } from "./task-board.ts";
 import { randomOutfit } from "./outfit-options.ts";
 
 // Domain events - callers translate these to ServerMessage
@@ -821,8 +821,10 @@ export class OfficeState {
       assignee?: string;
       username?: string;
       roomId?: string;
+      createdByAgentId?: string;
     },
   ): OfficeEvent[] {
+    const assigneeAgentId = agentIdForName(opts?.assignee, this.getAllAgents());
     // Normalize roomId: only a non-empty string scopes the task; anything else
     // (undefined or "") is office-global, represented as an ABSENT field so the
     // persisted/wire shape has one canonical "global" - no empty-string variant.
@@ -837,7 +839,11 @@ export class OfficeState {
       priority: opts?.priority,
       status: "open",
       assignee: opts?.assignee,
+      ...(assigneeAgentId ? { assigneeAgentId } : {}),
       createdBy,
+      ...(opts?.createdByAgentId
+        ? { createdByAgentId: opts.createdByAgentId }
+        : {}),
       username: opts?.username,
       createdAt: Date.now(),
       ...(roomId ? { roomId } : {}),
@@ -882,6 +888,18 @@ export class OfficeState {
     // Same for a cleared priority: `priority: undefined` in
     // `changes` must leave a task shaped like one that never had a priority.
     if ("priority" in changes && !next.priority) delete next.priority;
+    // The assignee's agent id follows the name only when the name changes: an
+    // edit that echoes the stored name keeps the stored id, even a killed
+    // agent's, so a new agent with that name does not take the task.
+    if ("assignee" in changes && changes.assignee !== task.assignee) {
+      const agentId = agentIdForName(changes.assignee, this.getAllAgents());
+      if (agentId) next.assigneeAgentId = agentId;
+      else delete next.assigneeAgentId;
+    }
+    if ("assignee" in changes && !next.assignee) {
+      delete next.assignee;
+      delete next.assigneeAgentId;
+    }
     next.version = taskVersion(next);
     this.beforeTaskChange?.({ kind: "updated", task: { ...next }, prevRoomId });
     this._tasks = this._tasks.map((t) => (t.id === id ? next : t));
@@ -894,6 +912,19 @@ export class OfficeState {
     ];
     this.emitEvents(events);
     return events;
+  }
+
+  // After a committed rename (task 83f71be9): every task whose assigneeAgentId
+  // is this agent gets the agent's current name. No-op when they already match.
+  syncAssigneeName(agentId: string): OfficeEvent[] {
+    const agent = this.agents.get(agentId);
+    if (!agent) return [];
+    const stale = this._tasks.filter(
+      (t) => t.assigneeAgentId === agentId && t.assignee !== agent.name,
+    );
+    return stale.flatMap((t) =>
+      this.updateTask(t.id, { assignee: agent.name }),
+    );
   }
 
   deleteTask(id: string): OfficeEvent[] {

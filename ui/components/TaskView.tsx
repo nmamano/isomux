@@ -516,8 +516,13 @@ function TaskDetailPanel({
         description: description.trim() || undefined,
         priority: priority === "" ? null : priority,
         status,
-        assignee: assignee.trim() || undefined,
       };
+      // Sent only when changed, like roomId: an echo of the stored name would
+      // be harmless on the server, but a blank must reach it as a clear (null),
+      // which JSON would drop as undefined.
+      if (assignee.trim() !== (task.assignee ?? "")) {
+        body.assignee = assignee.trim() || null;
+      }
       // roomId re-files the task, so it carries meaning even when "" (= clear to
       // office-global). Absent === leave the room untouched, so only send it
       // when the selection actually changed - never on an unrelated field edit.
@@ -1013,6 +1018,7 @@ export function TaskView({
     tasks,
     tasksLoaded,
     agents,
+    killedAgents,
     isMobile,
     rooms,
     currentRoomId,
@@ -1315,9 +1321,30 @@ export function TaskView({
     return sorted;
   }, [base, filterStatuses, filterPriorities, sortField, sortDir]);
 
-  function renderName(name: string | undefined) {
+  // A task names an agent by id first (task 83f71be9): a live id links to that
+  // agent under its current name; a killed id keeps the stored name, unlinked
+  // and marked; an id in neither list shows the stored name. A row with no id
+  // (a member, or written before the ids) keeps the name lookup.
+  function renderName(name: string | undefined, storedAgentId?: string) {
     if (!name) return "";
-    const agentId = agentsByName.get(name.toLowerCase());
+    let agentId: string | undefined;
+    if (storedAgentId) {
+      const live = agents.find((a) => a.id === storedAgentId);
+      if (live) {
+        agentId = live.id;
+        name = live.name;
+      } else if (killedAgents.some((k) => k.id === storedAgentId)) {
+        return (
+          <span>
+            {rich("tasks.killedName", {
+              name: <span {...noTranslate()}>{name}</span>,
+            })}
+          </span>
+        );
+      }
+    } else {
+      agentId = agentsByName.get(name.toLowerCase());
+    }
     if (agentId && onFocusAgent) {
       return (
         <span
@@ -1905,7 +1932,7 @@ export function TaskView({
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {renderName(task.assignee)}
+                        {renderName(task.assignee, task.assigneeAgentId)}
                       </td>
                       {!isMobile && (
                         <td
@@ -1921,10 +1948,13 @@ export function TaskView({
                         >
                           {task.username && task.username !== task.createdBy
                             ? rich("tasks.createdFor", {
-                                who: renderName(task.createdBy),
+                                who: renderName(
+                                  task.createdBy,
+                                  task.createdByAgentId,
+                                ),
                                 target: renderName(task.username),
                               })
-                            : renderName(task.createdBy)}
+                            : renderName(task.createdBy, task.createdByAgentId)}
                         </td>
                       )}
                       <td

@@ -2372,6 +2372,7 @@ Coses que pots fer per ell:
   "tasks.roomChipTitle": "Sala: {room}",
   "tasks.globalChipTitle": "Tasca global de l'oficina",
   "tasks.createdFor": "{who} · per a {target}",
+  "tasks.killedName": "{name} (aturat)",
   "office.newAgent": "Agent nou",
   "apps.actionFailed.start": "No s'ha pogut engegar.",
   "apps.actionFailed.stop": "No s'ha pogut aturar.",

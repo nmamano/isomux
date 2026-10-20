@@ -22,10 +22,30 @@ describe("taskVersion", () => {
       { ...base, assignee: "A" },
       { ...base, username: "Nil" },
       { ...base, roomId: "r1" },
+      { ...base, assigneeAgentId: "agent-1" },
+      { ...base, createdByAgentId: "agent-1" },
     ];
     const versions = new Set(variants.map(taskVersion));
     expect(versions.size).toBe(variants.length);
     expect(versions.has(taskVersion(base))).toBe(false);
+  });
+
+  // A task written before the agent ids existed keeps the version it had, so
+  // a client that holds it across the upgrade gets no false version_conflict
+  // (task 83f71be9). The literals are the versions such rows had before.
+  it("is unchanged for a row with no agent ids", () => {
+    expect(taskVersion(base)).toBe("c7de4cbe6af6");
+    expect(
+      taskVersion({
+        ...base,
+        status: "in_progress",
+        assignee: "Worker",
+        username: "Nil",
+        roomId: "r1",
+        priority: "P2",
+        description: "d",
+      }),
+    ).toBe("880c44674f35");
   });
 });
 

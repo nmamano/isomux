@@ -2315,6 +2315,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "tasks.roomChipTitle": "Room: {room}",
   "tasks.globalChipTitle": "Office-global task",
   "tasks.createdFor": "{who} · for {target}",
+  "tasks.killedName": "{name} (killed)",
   "office.newAgent": "New Agent",
   "apps.actionFailed.start": "Could not start.",
   "apps.actionFailed.stop": "Could not stop.",

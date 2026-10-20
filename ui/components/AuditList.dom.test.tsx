@@ -89,6 +89,42 @@ it("reads task-scoped history and renders changed values", async () => {
   expect(view.container.textContent).toContain("after-title");
 });
 
+// The agent id rides next to the assignee name (task 83f71be9). History shows
+// the name change once; the id that changed with it is bookkeeping.
+it("task history shows an assignee change once, without the agent id beside it", async () => {
+  setApiShim(async () => ({
+    createdAt: 1,
+    createdBy: "Creator",
+    items: [
+      {
+        sequence: 1,
+        time: 2,
+        actor: { name: "Editor" },
+        operation: "tasks.update",
+        targets: ["task-1"],
+        fields: ["assignee", "assigneeAgentId", "createdByAgentId"],
+        taskChanges: {
+          assignee: { old: "Old Holder", new: "New Holder" },
+          assigneeAgentId: { old: "agent-1-old", new: "agent-2-new" },
+          createdByAgentId: { old: null, new: "agent-3-maker" },
+        },
+      },
+    ],
+    nextBefore: null,
+  }));
+  const view = render(<TaskHistoryList id="task-1" version="v1" />);
+  await act(async () => {
+    const details = view.container.querySelector("details")!;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+  });
+  await act(async () => {});
+  const text = view.container.textContent ?? "";
+  expect(text).toContain("Old Holder");
+  expect(text).toContain("New Holder");
+  expect(text).not.toContain("assigneeAgentId");
+  expect(text).not.toContain("createdByAgentId");
+});
 it("maps roster IDs and local minute bounds, keeps filters when paging, and clears the cursor", async () => {
   // bun test runs in UTC with TZ unset, and deleting TZ falls back to the
   // system zone, so restore the zone the process actually had.

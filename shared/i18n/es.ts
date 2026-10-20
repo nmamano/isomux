@@ -2369,6 +2369,7 @@ Cosas que puedes hacer por él:
   "tasks.roomChipTitle": "Sala: {room}",
   "tasks.globalChipTitle": "Tarea global de la oficina",
   "tasks.createdFor": "{who} · para {target}",
+  "tasks.killedName": "{name} (detenido)",
   "office.newAgent": "Agente nuevo",
   "apps.actionFailed.start": "No se pudo arrancar.",
   "apps.actionFailed.stop": "No se pudo parar.",

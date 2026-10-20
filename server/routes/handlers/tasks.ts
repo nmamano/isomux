@@ -30,7 +30,11 @@ import {
 import type { Identity } from "../../identity/index.ts";
 import type { TaskItem } from "../../../shared/types.ts";
 import { isValidStatus, isValidPriority } from "../../../shared/types.ts";
-import { inDefaultTaskList, isClosedTask } from "../../../shared/task-board.ts";
+import {
+  agentIdForName,
+  inDefaultTaskList,
+  isClosedTask,
+} from "../../../shared/task-board.ts";
 import type {
   TaskCreateReq,
   TaskUpdateReq,
@@ -49,9 +53,13 @@ export interface TasksDeps {
   deletedTask?(id: string): Omit<TaskItem, "version"> | null;
   restoreTask?(task: Omit<TaskItem, "version">): TaskItem;
   listTasks(): TaskItem[];
+  // The live agents, to resolve an assignee name to an agent id (claim and
+  // the assignee filter, task 83f71be9).
+  liveAgents(): { id: string; name: string }[];
   createTask(input: {
     title: string;
     createdBy: string;
+    createdByAgentId?: string;
     username?: string;
     description?: string;
     priority?: TaskItem["priority"];
@@ -176,7 +184,18 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       if (priorityFilter) {
         filtered = filtered.filter((t) => t.priority === priorityFilter);
       }
-      if (assignee) filtered = filtered.filter((t) => t.assignee === assignee);
+      if (assignee) {
+        // A name a live agent has lists that agent's tasks, and rows with no
+        // agent id that carry the name. A killed agent's task does not pass to
+        // a new agent with its name (task 83f71be9). Any other name matches
+        // the stored string.
+        const agentId = agentIdForName(assignee, deps.liveAgents());
+        filtered = filtered.filter((t) =>
+          agentId && t.assigneeAgentId
+            ? t.assigneeAgentId === agentId
+            : t.assignee === assignee,
+        );
+      }
       if (titleFilter) {
         const q = titleFilter.toLowerCase();
         filtered = filtered.filter((t) => t.title.toLowerCase().includes(q));
@@ -233,6 +252,9 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       const task = deps.createTask({
         title: body.title,
         createdBy,
+        // From the token, like createdBy; never from the body.
+        createdByAgentId:
+          ctx.identity.scope === "agent" ? ctx.identity.agentId : undefined,
         username,
         description:
           typeof body.description === "string" ? body.description : undefined,
@@ -351,12 +373,28 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
         typeof body.assignee === "string" && body.assignee.length > 0
           ? body.assignee
           : undefined;
-      if (current.assignee && current.assignee !== claimant) {
+      // A holder with an agent id is matched by id, so a new agent with a
+      // killed holder's name cannot claim its task (task 83f71be9). A holder
+      // with no id is matched by name.
+      const live = deps.liveAgents();
+      const held = current.assigneeAgentId
+        ? agentIdForName(claimant, live) !== current.assigneeAgentId
+        : !!current.assignee && current.assignee !== claimant;
+      if (held) {
+        const holderId = current.assigneeAgentId;
         return fail(
           409,
           "task_held",
           `the task is held by ${current.assignee}; to reassign it, PATCH assignee with the task's version`,
-          { assignee: current.assignee },
+          {
+            assignee: current.assignee,
+            ...(holderId
+              ? {
+                  assigneeAgentId: holderId,
+                  killed: !live.some((a) => a.id === holderId),
+                }
+              : {}),
+          },
         );
       }
       const changes: TaskChanges = { status: "in_progress" };
