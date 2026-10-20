@@ -22,6 +22,7 @@ import {
   WEB_BUDGET,
   WEB_GRANTS,
   WEB_ROLE,
+  webMatrixAgainstReachable,
   WORST_CASE_AGGREGATE,
   assertIdentifier,
   boundsAreExact,
@@ -214,6 +215,46 @@ describe("the matrix is exactly what the deployed command reaches", () => {
     for (const entry of PROVISIONER_REACHABLE) {
       expect(entry.via.length).toBeGreaterThan(20);
     }
+  });
+});
+
+/**
+ * The web's matrix against its audited call graph, in BOTH directions. The
+ * web had no such check, so on 2026-08-24 the facade reached name_reservations
+ * UPDATE and only production noticed. web-reachability.test.ts pins the names
+ * the audit started from.
+ */
+describe("the web matrix is exactly what the web app reaches", () => {
+  test("no verb the web reaches is missing, and none is excess", () => {
+    const verdict = webMatrixAgainstReachable();
+    expect(verdict.missing).toEqual([]);
+    expect(verdict.excess).toEqual([]);
+    expect(verdict.exact).toBe(true);
+  });
+
+  // The 2026-08-24 matrix: signup persisted its Checkout session onto the
+  // reservation, and the grant stopped at SELECT and INSERT.
+  test("a withheld reachable verb is reported as MISSING", () => {
+    const narrowed = WEB_GRANTS.map((g) =>
+      g.table === "name_reservations"
+        ? { ...g, verbs: g.verbs.filter((v) => v !== "update") }
+        : g,
+    );
+    const verdict = webMatrixAgainstReachable(narrowed);
+    expect(verdict.missing).toEqual(["name_reservations:update"]);
+    expect(verdict.excess).toEqual([]);
+    expect(verdict.exact).toBe(false);
+  });
+
+  test("a verb nothing reaches is reported as EXCESS", () => {
+    const widened = [
+      ...WEB_GRANTS,
+      { table: "operations", verbs: ["update"] as const, because: "nothing" },
+    ];
+    const verdict = webMatrixAgainstReachable(widened);
+    expect(verdict.excess).toEqual(["operations:update"]);
+    expect(verdict.missing).toEqual([]);
+    expect(verdict.exact).toBe(false);
   });
 });
 

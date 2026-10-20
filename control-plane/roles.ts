@@ -156,7 +156,9 @@ export function grantKeys(grant: TableGrant): string[] {
  *
  * Every entry below was traced from `web/lib/services.server.ts` and the app's
  * route handlers through the modules they reach, to the store method or raw
- * statement that names the table. The absences are the interesting part and are
+ * statement that names the table, and the trace is written down as
+ * `WEB_REACHABLE`. `webMatrixAgainstReachable` compares the two in both
+ * directions, so the matrix is EXACT, as the provisioner's is. The absences are the interesting part and are
  * listed at the bottom of this comment, because an absence is what a privilege
  * boundary actually is.
  *
@@ -620,6 +622,302 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
       "applyPolledCheckout (select ... for update, then the reconciled mark)",
   },
 ];
+
+/**
+ * WHAT THE WEB APP'S CALL GRAPH ACTUALLY REACHES.
+ *
+ * The web's half of `PROVISIONER_REACHABLE`, and hand-maintained for the same
+ * reason. Audited verb by verb 2026-10-20, from every control-plane name a
+ * shipped app file uses (`AUDITED_WEB_SURFACES`) through the modules it
+ * reaches, to the statement. Every `via` starts at the pinned name, written
+ * `<module>:<name>`, so `web-reachability.test.ts` can check that each pinned
+ * name is either cited here or listed in `WEB_TABLE_FREE`.
+ *
+ * Only `web/lib/services.server.ts` can hold a store (`web-boundary.test.ts`),
+ * so every verb below starts in it. The 2026-08-24 signup outage is the case
+ * this list exists for: the facade started to call
+ * `signup:recordOrdinaryCheckoutSession`, the grant did not follow, and the
+ * customer got a 500 after Stripe had created the session.
+ */
+export const WEB_REACHABLE: readonly ReachableVerb[] = [
+  {
+    table: "accounts",
+    verb: "select",
+    via:
+      "identityForSignIn -> signup:bindGoogleSubject, signup:accountForEmailSignIn " +
+      "(accountByGoogleSubject, accountByAddress); continueSignup -> " +
+      "stripe/billing-store:getAccount; ops:opsFloor, ops:opsInstance, " +
+      "ops:acknowledgeInstance -> operator.ts isOperator",
+  },
+  {
+    table: "accounts",
+    verb: "insert",
+    via:
+      "identityForSignIn -> signup:bindGoogleSubject, signup:accountForEmailSignIn, " +
+      "signup:accountForDevSignIn -> stripe/billing-store.ts ensureAccount",
+  },
+  {
+    table: "accounts",
+    verb: "update",
+    via:
+      "identityForSignIn -> signup:bindGoogleSubject -> stripe/billing-store.ts " +
+      "casAccount binds the Google subject; ops:opsFloor, ops:opsInstance and " +
+      "ops:acknowledgeInstance -> operator.ts isOperator, whose select ... for " +
+      "share inside a transaction needs UPDATE on the row it locks",
+  },
+  {
+    table: "name_reservations",
+    verb: "select",
+    via:
+      "signupPageState and officesForAccount -> signup:reservationsForAccount; " +
+      "continueSignup and officeRouteForAccount -> signup:reservationByName; " +
+      "reinstateOffice -> signup:instanceOwnedBy; signup:reserveOffice admission count",
+  },
+  {
+    table: "name_reservations",
+    verb: "insert",
+    via: "signUpOffice -> signup:reserveOffice inserts the reservation",
+  },
+  {
+    table: "name_reservations",
+    verb: "update",
+    via:
+      "continueSignup and signUpOffice -> openReservedCheckout -> " +
+      "signup:recordOrdinaryCheckoutSession, signup:recordTerminalOrdinarySession, " +
+      "signup:advanceExpiredOrdinaryCheckout; the 42501 of 2026-08-24",
+  },
+  {
+    table: "instances",
+    verb: "select",
+    via:
+      "reinstateOffice -> store:getInstance; signup:reserveOffice reads a held " +
+      "instance; progress:projectionFor (store.progressRows); ops:opsFloor " +
+      "(store.listInstances)",
+  },
+  {
+    table: "instances",
+    verb: "insert",
+    via: "signUpOffice -> signup:reserveOffice -> store.createInstance",
+  },
+  {
+    table: "instances",
+    verb: "update",
+    via:
+      "acknowledgeOpsInstance -> ops:acknowledgeInstance -> attention-ack.ts " +
+      "acknowledgeAttentionIn -> store.refreshAttentionSummary",
+  },
+  {
+    table: "provider_assets",
+    verb: "select",
+    via:
+      "progress:projectionFor (store.progressRows); requests:requestRestart and " +
+      "requests:requestInvite -> store.assetForInstance; " +
+      "reinstatement:prepareReinstatementCheckout eligibility",
+  },
+  {
+    table: "provider_assets",
+    verb: "insert",
+    via: "signUpOffice -> signup:reserveOffice -> store.createAsset placeholder",
+  },
+  {
+    table: "operations",
+    verb: "select",
+    via:
+      "progress:projectionFor (store.progressRows, store.getOperation); requests:" +
+      "requestInvite, requests:confirmHandoff, requests:requestRestart -> " +
+      "store.operationsFor / activeOperation; ops:opsFloor (store.overdueOperations)",
+  },
+  {
+    table: "operations",
+    verb: "insert",
+    via:
+      "requests:requestInvite, requests:confirmHandoff, requests:requestRestart -> " +
+      "requests.ts openCustomerOperation -> store.enqueue",
+  },
+  {
+    table: "attention_reasons",
+    verb: "select",
+    via:
+      "progress:projectionFor (store.progressRows); ops:opsFloor " +
+      "(store.openReasons); ops:opsInstance (store.allReasons)",
+  },
+  {
+    table: "attention_reasons",
+    verb: "update",
+    via:
+      "acknowledgeOpsInstance -> ops:acknowledgeInstance -> " +
+      "store.acknowledgeReasons records that a human saw them",
+  },
+  {
+    table: "audit_events",
+    verb: "select",
+    via: "opsInstance -> ops:opsInstance -> store.auditEvents",
+  },
+  {
+    table: "audit_events",
+    verb: "insert",
+    via:
+      "store.appendAudit, from signup:reserveOffice, requests:requestInvite, " +
+      "cancel:requestCancel, cancel:requestUncancel, " +
+      "reinstatement:prepareReinstatementCheckout, ops:acknowledgeInstance",
+  },
+  {
+    table: "instance_liveness",
+    verb: "select",
+    via: "progress:projectionFor (store.progressRows) reports whether the box answers",
+  },
+  {
+    table: "sequences",
+    verb: "select",
+    via:
+      "openedStore -> store:openRuntime asserts the audit seed row; " +
+      "store.nextSeq returns the bumped value",
+  },
+  {
+    table: "sequences",
+    verb: "update",
+    via:
+      "store.nextSeq, from store.appendAudit and requests.ts openCustomerOperation " +
+      "(requests:requestInvite) and cancel:requestCancel's request key",
+  },
+  {
+    table: "subscriptions",
+    verb: "select",
+    via:
+      "signupPageState and continueSignup -> stripe/billing-store:" +
+      "subscriptionForInstance; cancel:requestCancel and requests:requestRestart " +
+      "-> reinstatement.ts currentSubscriptionForInstance; progress:projectionFor",
+  },
+  {
+    table: "reinstatement_attempts",
+    verb: "select",
+    via:
+      "reinstatement.ts currentSubscriptionForInstance (stripe/billing-store:" +
+      "subscriptionForInstance); progress:projectionFor (attemptForClosedSubscription); " +
+      "reinstatement:prepareReinstatementCheckout (attemptById)",
+  },
+  {
+    table: "reinstatement_attempts",
+    verb: "insert",
+    via: "reinstateOffice -> reinstatement:prepareReinstatementCheckout opens the attempt",
+  },
+  {
+    table: "reinstatement_attempts",
+    verb: "update",
+    via:
+      "reinstateOffice -> reinstatement:prepareReinstatementCheckout (next generation), " +
+      "reinstatement:recordReinstatementSession, " +
+      "reinstatement:recordFetchedExpiredReinstatementSession, " +
+      "reinstatement:recordReinstatementCheckoutFailure",
+  },
+  {
+    table: "schema_meta",
+    verb: "select",
+    via: "openedStore -> boot:proveDatabaseIdentity reads the database identity row",
+  },
+];
+
+/**
+ * EVERY CONTROL-PLANE RUNTIME NAME A SHIPPED WEB FILE USES, per module.
+ *
+ * The premise of `WEB_REACHABLE`, pinned to the real app: `web-reachability.test.ts`
+ * reads every shipped file under `web/` and requires the names it uses from
+ * each control-plane module to equal this list. A new import fails that test
+ * until it is audited: cited in a `WEB_REACHABLE` entry, or listed in
+ * `WEB_TABLE_FREE` with a reason.
+ */
+export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
+  {
+    boot: ["DATABASE_IDENTITY_ENV", "proveDatabaseIdentity"],
+    cancel: ["requestCancel", "requestUncancel"],
+    "mint-client": ["fetchInviteFromSeam", "seamConfigFrom"],
+    ops: ["acknowledgeInstance", "opsFloor", "opsInstance"],
+    plans: ["PLANS", "planById", "planByProviderProduct", "resolveStripePrice"],
+    progress: ["projectionFor"],
+    reinstatement: [
+      "REINSTATEMENT_REFUSAL_WORDS",
+      "prepareReinstatementCheckout",
+      "recordFetchedExpiredReinstatementSession",
+      "recordReinstatementCheckoutFailure",
+      "recordReinstatementSession",
+      "reinstatementSessionKey",
+    ],
+    report: ["credentialValues", "redactLogText"],
+    requests: ["confirmHandoff", "requestInvite", "requestRestart"],
+    signup: [
+      "OFFICE_DOMAIN",
+      "SubjectBindingConflict",
+      "accountForDevSignIn",
+      "accountForEmailSignIn",
+      "advanceExpiredOrdinaryCheckout",
+      "bindGoogleSubject",
+      "checkoutInputsFor",
+      "customerReason",
+      "instanceOwnedBy",
+      "originIsTrusted",
+      "recordOrdinaryCheckoutSession",
+      "recordTerminalOrdinarySession",
+      "reservationByName",
+      "reservationsForAccount",
+      "reserveOffice",
+      "validateSignup",
+    ],
+    store: ["Store"],
+    "stripe/billing-store": ["getAccount", "subscriptionForInstance"],
+    "stripe/checkout": ["CheckoutCreationError", "openCheckout"],
+    "stripe/client": ["StripeClient"],
+    "stripe/mode": ["resolveStripeMode", "stripeKeyFromEnv"],
+    "stripe/reader": ["LiveStripeReader"],
+  };
+
+/** The Store methods the facade calls on its own store. Every other store
+ * call happens inside a module named in `AUDITED_WEB_SURFACES`. */
+export const AUDITED_WEB_STORE_CALLS: readonly string[] = [
+  "close",
+  "getInstance",
+  "openRuntime",
+];
+
+/**
+ * The audited names that reach no table, and why.
+ *
+ * Keyed `<module>:<name>` like the citations in `WEB_REACHABLE`, so a name is
+ * in exactly one of the two places and the reason is never optional.
+ */
+export const WEB_TABLE_FREE: Readonly<Record<string, string>> = {
+  "boot:DATABASE_IDENTITY_ENV": "the name of an environment variable",
+  "mint-client:fetchInviteFromSeam":
+    "an HTTP call to the provisioner's invite seam; the seam's reads are the provisioner's verbs",
+  "mint-client:seamConfigFrom":
+    "reads the seam address and credential from the environment",
+  "plans:PLANS": "the plan catalog, a constant",
+  "plans:planById": "a lookup in the plan catalog",
+  "plans:planByProviderProduct": "a lookup in the plan catalog",
+  "plans:resolveStripePrice": "maps a plan to its configured Stripe price",
+  "reinstatement:REINSTATEMENT_REFUSAL_WORDS": "customer sentences, a constant",
+  "reinstatement:reinstatementSessionKey":
+    "derives an idempotency key from its arguments",
+  "report:credentialValues":
+    "lists credential values to redact from a log line",
+  "report:redactLogText": "redacts a log line",
+  "signup:OFFICE_DOMAIN": "the office host suffix, a constant",
+  "signup:SubjectBindingConflict": "an error class",
+  "signup:checkoutInputsFor":
+    "builds Checkout arguments from rows the caller read",
+  "signup:customerReason": "maps a refusal to a customer sentence",
+  "signup:originIsTrusted": "compares two origins",
+  "signup:validateSignup": "validates the form without touching anything",
+  "store:Store":
+    "the class; the facade's calls on it are pinned as store:<method>",
+  "store:close": "ends the pool after a failed identity proof",
+  "stripe/checkout:CheckoutCreationError": "an error class",
+  "stripe/checkout:openCheckout":
+    "creates a Stripe Checkout session; it writes nothing to the store (stripe/checkout.ts)",
+  "stripe/client:StripeClient": "HTTP to Stripe",
+  "stripe/mode:resolveStripeMode": "reads the Stripe mode from the environment",
+  "stripe/mode:stripeKeyFromEnv": "reads the Stripe key from the environment",
+  "stripe/reader:LiveStripeReader": "reads Checkout sessions from Stripe",
+};
 
 /**
  * WHAT THE AUDIT WALKED, as the roster it walked.
@@ -1200,7 +1498,20 @@ export interface MatrixVerdict {
 export function provisionerMatrixAgainstReachable(
   grants: readonly TableGrant[] = PROVISIONER_GRANTS,
   reachable: readonly ReachableVerb[] = PROVISIONER_REACHABLE,
-): { missing: string[]; excess: string[]; exact: boolean } {
+): MatrixAgainstReachable {
+  return matrixAgainstReachable(grants, reachable);
+}
+
+export interface MatrixAgainstReachable {
+  missing: string[];
+  excess: string[];
+  exact: boolean;
+}
+
+function matrixAgainstReachable(
+  grants: readonly TableGrant[],
+  reachable: readonly ReachableVerb[],
+): MatrixAgainstReachable {
   const granted = new Set(grants.flatMap(grantKeys));
   const needed = new Set(
     reachable.flatMap((r) =>
@@ -1216,6 +1527,18 @@ export function provisionerMatrixAgainstReachable(
     excess,
     exact: missing.length === 0 && excess.length === 0,
   };
+}
+
+/**
+ * Is the web's matrix EXACTLY what its call graph reaches? The same two
+ * directions as `provisionerMatrixAgainstReachable`, against `WEB_REACHABLE`.
+ * MISSING here is the 2026-08-24 signup outage.
+ */
+export function webMatrixAgainstReachable(
+  grants: readonly TableGrant[] = WEB_GRANTS,
+  reachable: readonly ReachableVerb[] = WEB_REACHABLE,
+): MatrixAgainstReachable {
+  return matrixAgainstReachable(grants, reachable);
 }
 
 export function judgeMatrix(

@@ -654,6 +654,17 @@ added without an audit entry fails a test; `startMintSeam` is why the second
 half matters, because the verb the 2026-08-12 run was refused is reached from a
 surface rather than from a handler.
 
+**The web's matrix is EXACT the same way, since 2026-10-20.** `WEB_REACHABLE`
+is the audited call graph of the web app, and `webMatrixAgainstReachable`
+compares it with `WEB_GRANTS` in both directions. Before it, a facade change
+that called `recordOrdinaryCheckoutSession` reached `name_reservations` UPDATE
+without the grant, passed every suite, and failed in production on 2026-08-24.
+Its premise is pinned in `web-reachability.test.ts`: the test parses every
+shipped app file and requires the control-plane names it uses to equal
+`AUDITED_WEB_SURFACES`, and the facade's own `Store` calls to equal
+`AUDITED_WEB_STORE_CALLS`. Each pinned name is either cited in a
+`WEB_REACHABLE` entry or listed in `WEB_TABLE_FREE` with a reason.
+
 No `ALTER DEFAULT PRIVILEGES`. Default privileges can only say "every future
 table, these verbs", which cannot mirror a per-table matrix and would grant on
 tables nobody has reviewed. The statement list in `roles.ts` is the one place a
