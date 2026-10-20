@@ -11,7 +11,7 @@ import type {
   LogEntry,
   MembersChatMessage,
 } from "../shared/types.ts";
-import type { PresenceInfo, ServerMessage } from "../shared/types.ts";
+import type { AppWire, PresenceInfo, ServerMessage } from "../shared/types.ts";
 import { cronjobRunStreamId, ordinaryRooms } from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
@@ -22,6 +22,7 @@ import {
   seedDemoDeviceDefaults,
   sendInitialState,
 } from "./demo-server.ts";
+import { demoAppMockContent } from "./demo-app.ts";
 import { addRawListener, removeRawListener } from "./ws.ts";
 import {
   getMembersChatHidden,
@@ -308,6 +309,18 @@ describe("demo fixture data", () => {
         ).toFixed(2),
       ),
     );
+  });
+
+  // One fixture defines a demo app: the Apps tab's list and the page the
+  // app opens on. The page content stays off the apps wire.
+  it("opens every listed app on its own page and keeps page content off the wire", async () => {
+    const apps = (await demoApi("GET", "/api/apps")) as AppWire[];
+    expect(apps.length).toBeGreaterThan(0);
+    const fallback = demoAppMockContent("");
+    for (const app of apps) {
+      expect(demoAppMockContent(app.name)).not.toEqual(fallback);
+      expect(Object.keys(app)).not.toContain("page");
+    }
   });
 });
 

@@ -15,6 +15,7 @@ import {
 import { detectBrowserLanguage } from "../shared/languages.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 import { displayLanguage } from "./preference-form.ts";
+import { demoAppFixtures } from "./demo-app.ts";
 import type {
   CronCreateReq,
   CronUpdateReq,
@@ -1087,54 +1088,12 @@ const demoCronjobWire = (cronjob: Cronjob): CronjobListWire => ({
   canManage: true,
 });
 
-// Agent-built apps. The demo has no systemd, so `state` is whatever the last
-// verb set it to - enough to exercise the Apps tab's list, verbs and log view.
-// Both seeds start healthy so the customer-facing demo opens on working apps.
-//
-// The creators are deliberately one of each: `standup-board` names an agent the
-// demo office still has, so its row links to that conversation and the app
-// belongs to that agent's room, while `cost-tracker` names one it does not and
-// stays plain text with no room.
+// The demo apps and their pages are defined in ui/demo-app.ts. This copy
+// drops each page and is the one the verbs below change.
 // The demo member manages both apps, as an owner does on a real office.
-const demoApps: (AppWire & { canManage: true })[] = [
-  {
-    name: "standup-board",
-    hostLabel: "standup-board",
-    hostGen: 1,
-    port: 21000,
-    command: "bun run serve.ts",
-    cwd: "/home/ricky/standup-board",
-    description: "Morning standup notes, one card per agent.",
-    dataDir: "/home/ricky/.isomux/apps/data/standup-board",
-    userId: "demo-user",
-    username: "Ricky",
-    createdBy: "Pam",
-    createdByAgentId: "demo-pam",
-    createdAt: Date.now() - 86_400_000,
-    state: "running",
-    restartCount: 0,
-    url: "https://standup-board.office.example",
-    canManage: true,
-  },
-  {
-    name: "cost-tracker",
-    hostLabel: "cost-tracker",
-    hostGen: 1,
-    port: 21001,
-    command: "bun run index.ts --watch",
-    cwd: "/home/ricky/cost-tracker",
-    description: "Token spend per room, refreshed hourly.",
-    dataDir: "/home/ricky/.isomux/apps/data/cost-tracker",
-    userId: "demo-user",
-    username: "Ricky",
-    createdBy: "Ledger",
-    createdAt: Date.now() - 3_600_000,
-    state: "running",
-    restartCount: 0,
-    url: "https://cost-tracker.office.example",
-    canManage: true,
-  },
-];
+const demoApps: (AppWire & { canManage: true })[] = demoAppFixtures.map(
+  ({ page: _page, ...app }) => ({ ...app, canManage: true }),
+);
 
 // Asks to the viewer. Michael's are the ones his chat shows him
 // opening: short prompts and a long one, so the stack shows its clamp and,
