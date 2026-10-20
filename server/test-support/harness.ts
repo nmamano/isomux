@@ -46,6 +46,9 @@ import { _testResetApiTokens } from "../api-tokens.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
 import type { UserRole } from "../../shared/types.ts";
 
+// The backup dir a harness boot reports. It is not created: no backup runs.
+const TEST_BACKUP_DIR = `${STATE_ROOT}/test-backups`;
+
 export interface SeededIdentity {
   username: string;
   role: UserRole;
@@ -290,13 +293,19 @@ async function bootTestServer(
       quiet: true,
       awaitRestore: true,
       getBackupStatus: () => ({
-        backupDir: `${STATE_ROOT}/test-backups`,
+        backupDir: TEST_BACKUP_DIR,
         retention: 7,
         lastBackupAt: null,
         lastBackupOk: null,
         lastBackupError: null,
         lastBackupFile: null,
         running: false,
+      }),
+      // Never the host's backup dir or the snapshot dir an update.conf names.
+      storageRoots: () => ({
+        stateRoot: STATE_ROOT,
+        backupDir: TEST_BACKUP_DIR,
+        snapshotDir: null,
       }),
       ...opts.startServer,
     });

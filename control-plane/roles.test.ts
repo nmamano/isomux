@@ -31,7 +31,9 @@ import {
   grantMatrixStatements,
   governedRoleCount,
   judgeEffective,
+  readRolePosture,
   residueIsInert,
+  type RolePosture,
   type TableGrant,
 } from "./roles.ts";
 import { GOVERNED_SETTINGS } from "./store.ts";
@@ -309,6 +311,42 @@ describe("the statements that put it in place", () => {
         ownerRole: "owner",
         bounds: [["statement_timeout", "30s'; drop role x --"]],
       }),
+    ).toThrow();
+  });
+
+  test("it governs every role an injected roster names, however many", () => {
+    const role = (name: string): RolePosture => ({
+      role: name,
+      budget: WEB_BUDGET,
+      grants: WEB_GRANTS,
+    });
+    for (const roster of [
+      [role("cp_one")],
+      [role("cp_one"), role("cp_two"), role("cp_three")],
+    ]) {
+      const built = governanceStatements({
+        ownerRole: "owner",
+        bounds: BOUNDS,
+        roster,
+      });
+      for (const { role: name } of roster) {
+        expect(
+          built.some((s) => s.includes("create role") && s.includes(name)),
+        ).toBe(true);
+        expect(
+          built.some((s) =>
+            s.startsWith(`grant usage on schema public to ${name}`),
+          ),
+        ).toBe(true);
+      }
+    }
+  });
+
+  // A run over no roles would report every role it governs as exact while
+  // governing nothing.
+  test("it refuses an empty roster", () => {
+    expect(() =>
+      governanceStatements({ ownerRole: "owner", bounds: BOUNDS, roster: [] }),
     ).toThrow();
   });
 
@@ -646,6 +684,42 @@ describe("a pre-existing role is only adopted if it is inert", () => {
   test("a count this build could not read refuses rather than passing", () => {
     expect(residueIsInert(identity({ owns_anything: -1 }))).toBe(false);
     expect(residueIsInert(identity({ backends: Number.NaN }))).toBe(false);
+  });
+});
+
+describe("readRolePosture", () => {
+  // It builds no SQL from a name: every name is a bind parameter, so it reads
+  // back an owner name that the statement builders would refuse.
+  test("binds the names and reports facts for an owner it would not interpolate", async () => {
+    const owner = "Owner-Not-Plain";
+    const calls: { sql: string; args: unknown[] }[] = [];
+    const facts = await readRolePosture(
+      async (sql, args) => {
+        calls.push({ sql, args });
+        return [
+          {
+            role: owner,
+            connection_limit: -1,
+            can_login: true,
+            config: null,
+            memberships: "0",
+            write_grants: "0",
+          },
+        ];
+      },
+      BOUNDS,
+      owner,
+      [{ role: "cp_only", budget: WEB_BUDGET, grants: WEB_GRANTS }],
+    );
+    expect(calls.length).toBe(1);
+    expect(calls[0].sql).not.toContain(owner);
+    expect(calls[0].args).toEqual([["cp_only", owner]]);
+    expect(facts.get(owner)).toMatchObject({
+      present: true,
+      canLogin: true,
+      connectionLimit: -1,
+    });
+    expect(facts.get("cp_only")?.present).toBe(false);
   });
 });
 

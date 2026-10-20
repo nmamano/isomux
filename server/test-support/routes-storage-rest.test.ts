@@ -13,12 +13,17 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import {
   mkdirSync,
+  mkdtempSync,
+  rmSync,
   writeFileSync,
   readFileSync,
   existsSync,
   utimesSync,
 } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
+import { getBackupStatus } from "../backup.ts";
+import { readUpdateConf } from "../update-conf.ts";
 import { resetStorageUsageCache } from "../storage-usage.ts";
 import {
   startTerminalRecording,
@@ -186,6 +191,65 @@ describe("routes/storage.usage REST", () => {
     expect(r.body!.agents).toEqual([]);
 
     expect((await api(srv, "/api/storage/usage")).status).toBe(401);
+  });
+
+  // The harness injects its own storage roots, so a test boot measures neither
+  // the host's backup dir nor the snapshot dir an update.conf names - on the
+  // route and on the /isomux-storage command alike.
+  it("measures the harness roots, never the host's backup or snapshot dir", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const injected = join(srv.stateRoot, "test-backups");
+    const hostBackups = getBackupStatus().backupDir;
+    expect(hostBackups).not.toBe(injected);
+
+    const fixture = mkdtempSync(join(tmpdir(), "isomux-storage-roots-"));
+    const snapshots = join(fixture, "snapshots");
+    mkdirSync(snapshots);
+    writeFileSync(join(snapshots, "snap.tar"), "x".repeat(4096));
+    const conf = join(fixture, "update.conf");
+    writeFileSync(conf, `SNAPSHOT_DIR=${snapshots}\n`);
+    const previous = process.env.ISOMUX_UPDATE_CONF;
+    process.env.ISOMUX_UPDATE_CONF = conf;
+    try {
+      // The host-side read would find the fixture snapshot dir.
+      expect(readUpdateConf()).toEqual({
+        state: "parsed",
+        values: { SNAPSHOT_DIR: snapshots },
+      });
+      resetStorageUsageCache();
+
+      const r = await api(srv, "/api/storage/usage", {
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(r.status).toBe(200);
+      const categories = r.body!.categories as {
+        id: string;
+        path: string | null;
+        bytes: number;
+      }[];
+      const byId = new Map(categories.map((c) => [c.id, c]));
+      expect(byId.get("backups")?.path).toBe(injected);
+      expect(byId.get("update-snapshots")?.path).toBeNull();
+      expect(byId.get("update-snapshots")?.bytes).toBe(0);
+
+      const room = srv.agentManager.getRooms()[0];
+      const agent = await spawnAgent(srv, "Worker", room.id);
+      await srv.agentManager.sendMessage(agent.id, "/isomux-storage", "Boss");
+      const report = srv.agentManager
+        .getAgentLogs(agent.id)
+        .filter((e) => e.kind === "system")
+        .map((e) => e.content)
+        .join("\n");
+      expect(report).toContain(`\`${injected}\``);
+      expect(report).not.toContain(hostBackups);
+      expect(report).not.toContain(snapshots);
+    } finally {
+      if (previous === undefined) delete process.env.ISOMUX_UPDATE_CONF;
+      else process.env.ISOMUX_UPDATE_CONF = previous;
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 });
 

@@ -850,10 +850,12 @@ export function runtimeRoles(): RolePosture[] {
 
 /**
  * PostgreSQL identifiers cannot be bind parameters in DDL. Production uses the
- * literal roster above; tests can supply a collision-free roster through an
- * explicit function argument. Every name is therefore validated before it is
- * interpolated: lower-case identifier syntax, PostgreSQL's 63-byte limit, no
- * duplicates, and no collision with the owner role.
+ * literal roster above; tests can supply a collision-free roster, of any size,
+ * through an explicit function argument. Every name is therefore validated
+ * before it is interpolated: lower-case identifier syntax, PostgreSQL's 63-byte
+ * limit, no duplicates, and no collision with the owner role. An empty roster
+ * is refused: a run over no roles would report a governed posture it never
+ * applied.
  */
 const IDENTIFIER = /^[a-z][a-z0-9_]*$/;
 
@@ -873,8 +875,8 @@ export function validateRuntimeRoster(
 ): readonly RolePosture[] {
   const owner = assertIdentifier(ownerRole);
   const seen = new Set<string>();
-  if (roster.length !== 2) {
-    throw new Error("the runtime roster must contain exactly two roles");
+  if (roster.length === 0) {
+    throw new Error("the runtime roster names no role");
   }
   for (const entry of roster) {
     const role = assertIdentifier(entry.role);
@@ -1089,6 +1091,10 @@ export function boundsAreExact(
  * reporting its own intent. Everything returned is a boolean or a small
  * integer - no role is named back, because a role name is the username half of
  * a connection string.
+ *
+ * It validates no name: the names go to the catalog as a bind parameter, never
+ * into the statement. Every caller has validated the roster against the owner
+ * before it mutated anything.
  */
 export async function readRolePosture(
   query: (sql: string, args: unknown[]) => Promise<Record<string, unknown>[]>,
@@ -1096,10 +1102,7 @@ export async function readRolePosture(
   ownerRole: string,
   roster: readonly RolePosture[] = runtimeRoles(),
 ): Promise<Map<string, RoleFacts>> {
-  const wanted = [
-    ...validateRuntimeRoster(roster, ownerRole).map((r) => r.role),
-    ownerRole,
-  ];
+  const wanted = [...roster.map((r) => r.role), ownerRole];
   const rows = (await query(roleFactsSql(), [wanted])) as {
     role: string;
     connection_limit: number;
@@ -1481,33 +1484,6 @@ export function governedRoleCount(
     }
   }
   return exact;
-}
-
-/** The budget a role is supposed to carry, by name. */
-export function budgetFor(
-  role: string,
-  ownerRole: string,
-  roster: readonly RolePosture[] = runtimeRoles(),
-): number {
-  const entry = roster.find((candidate) => candidate.role === role);
-  if (entry) return entry.budget;
-  // The owner is break-glass and uncapped: -1 is what the catalog itself
-  // reports for "no limit", so the instrument compares against the truth.
-  if (role === ownerRole) return -1;
-  return -1;
-}
-
-/** The label a transcript uses for a role, so no role NAME is ever printed. */
-export function labelFor(
-  role: string,
-  ownerRole: string,
-  roster: readonly RolePosture[] = runtimeRoles(),
-): string {
-  const index = roster.findIndex((candidate) => candidate.role === role);
-  if (index === 0) return "web";
-  if (index === 1) return "provisioner";
-  if (role === ownerRole) return "owner";
-  return "other";
 }
 
 /**

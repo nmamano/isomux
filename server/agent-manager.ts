@@ -214,7 +214,7 @@ import {
   type TerminalDeps,
 } from "./terminal.ts";
 import { createCommandHandling } from "./command-handlers.ts";
-import { measureStorageCached } from "./storage-usage.ts";
+import { measureStorageCached, type StorageRoots } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { pushStopArm, settleStopArm } from "./stop-notice-arms.ts";
 import {
@@ -393,6 +393,10 @@ export interface ManagerDeps {
   // Production supplies the box provider homes. Tests omit this field so
   // fixtures never read the real member home.
   providerSkillSourceRoots?: { claude: string; codex: string };
+  // The roots /isomux-storage measures. Production supplies
+  // productionStorageRoots. Tests omit this field: the state root alone is
+  // measured, and no host backup or snapshot dir is read.
+  storageRoots?: () => StorageRoots;
   // The clock and timers of the resume after a usage limit
   // (server/limit-resume.ts). Defaults to the real ones; tests move time.
   limitResumeClock?: LimitResumeClock;
@@ -7042,10 +7046,16 @@ export function createAgentManager(deps: ManagerDeps) {
       }),
     turnFailure: ownedTurnFailure,
     enqueueMessage,
-    // Same measurement, same roots, same 30s memo as GET /api/storage/usage -
-    // productionStorageRoots() is the single answer to "what counts as isomux
-    // storage", shared by the route and the /isomux-storage command.
-    getStorageUsage: () => measureStorageCached(productionStorageRoots()),
+    // Same measurement, same roots, same 30s memo as GET /api/storage/usage:
+    // isomux-office passes the route's storage roots here.
+    getStorageUsage: () =>
+      measureStorageCached(
+        deps.storageRoots?.() ?? {
+          stateRoot: STATE_ROOT,
+          backupDir: null,
+          snapshotDir: null,
+        },
+      ),
     userSkillRootsFor,
     claudeConfigDirFor,
     limitedClaudeFamiliesFor: (managed) =>
@@ -12281,6 +12291,7 @@ export function createProductionAgentManager(overrides?: {
     userId: string,
     provider: ProviderAccountProvider,
   ) => EffectiveProviderAccountTarget;
+  storageRoots?: ManagerDeps["storageRoots"];
 }): AgentManager {
   const initialOfficeConfig = loadOfficeConfig();
   const initialLoadedAgents = loadAgents();
@@ -12319,6 +12330,7 @@ export function createProductionAgentManager(overrides?: {
     initialRooms: initialLoadedAgents,
     listProviderAccounts: overrides?.listProviderAccounts,
     effectiveProviderAccountTarget: overrides?.effectiveProviderAccountTarget,
+    storageRoots: overrides?.storageRoots ?? (() => productionStorageRoots()),
     providerSkillSourceRoots: {
       // A getter, so an office env edit reaches discovery, linking and new
       // skills without a restart.

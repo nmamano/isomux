@@ -39,8 +39,17 @@ import { writeManagedUserEnv, removeManagedUserEnv } from "../user-env.ts";
 import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { join } from "node:path";
-import { lstatSync, mkdirSync, writeFileSync } from "node:fs";
-import { loadavg } from "node:os";
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { loadavg, tmpdir } from "node:os";
+import { getBackupStatus } from "../backup.ts";
+import { claimUser, deleteUser } from "../users.ts";
+import { readUpdateConf } from "../update-conf.ts";
 import {
   createAgentManager,
   createProductionAgentManager,
@@ -168,6 +177,64 @@ describe("AgentManager DI (temp-state isolated)", () => {
     expect(info).not.toBeNull();
     await mgr.runAgentBrowserAction(info!.id, { action: "close" });
     expect(calls).toEqual([{ agentId: info!.id, profileId: "user-stable-id" }]);
+  });
+
+  // A DI manager is a test fixture: with no storage roots injected,
+  // /isomux-storage measures the state root only and never reads the host's
+  // backup dir or the snapshot dir an update.conf names.
+  it("measures no backup or snapshot dir when no storage roots are injected", async () => {
+    const owner = "StorageRootsOwner";
+    const fixture = mkdtempSync(join(tmpdir(), "isomux-storage-roots-"));
+    const snapshots = join(fixture, "snapshots");
+    mkdirSync(snapshots);
+    writeFileSync(join(snapshots, "snap.tar"), "x".repeat(4096));
+    const conf = join(fixture, "update.conf");
+    writeFileSync(conf, `SNAPSHOT_DIR=${snapshots}\n`);
+    const previous = process.env.ISOMUX_UPDATE_CONF;
+    process.env.ISOMUX_UPDATE_CONF = conf;
+    claimUser(owner, { role: "owner", allowedRooms: [], notifRooms: [] });
+    try {
+      // The host-side read would find the fixture snapshot dir.
+      expect(readUpdateConf()).toEqual({
+        state: "parsed",
+        values: { SNAPSHOT_DIR: snapshots },
+      });
+      const mgr = createAgentManager({
+        resolveBackend: () => new FakeBackend(),
+        officeState: new OfficeState({ rooms: rooms("room-storage-roots") }),
+        initialRooms: [],
+      });
+      const info = await mgr.spawn(
+        "Storage agent",
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        "room-storage-roots",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "claude",
+      );
+      await mgr.sendMessage(info!.id, "/isomux-storage", owner);
+      const report = mgr
+        .getAgentLogs(info!.id)
+        .filter((entry) => entry.kind === "system")
+        .map((entry) => entry.content)
+        .join("\n");
+      // The owner's report names the measured state root (backticked: the
+      // host backup dir is the state root's sibling and shares its prefix)...
+      expect(report).toContain(`\`${STATE_ROOT}\``);
+      // ...and neither host-side root.
+      expect(report).not.toContain(getBackupStatus().backupDir);
+      expect(report).not.toContain(snapshots);
+    } finally {
+      deleteUser(owner);
+      if (previous === undefined) delete process.env.ISOMUX_UPDATE_CONF;
+      else process.env.ISOMUX_UPDATE_CONF = previous;
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it("classifies OpenCode and Codex sessions as fixed to their birth cwd", () => {

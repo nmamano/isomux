@@ -467,7 +467,7 @@ import {
   resetMemberUsageCap,
   usageCapText,
 } from "./member-usage-cap.ts";
-import { measureStorageCached } from "./storage-usage.ts";
+import { measureStorageCached, type StorageRoots } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
 import { updateHandlers } from "./routes/handlers/update.ts";
@@ -757,6 +757,9 @@ let discoverWelcomeOpenCodeModels:
 const CODEX_MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
 
 let listCodexModelsSeam: StartServerOpts["listCodexModels"];
+// The storage roots GET /api/storage/usage and /isomux-storage measure. One
+// function for both, resolved in createManagers.
+let storageRoots: () => StorageRoots = () => productionStorageRoots();
 let codexModelDiscoveryTimeoutMs = CODEX_MODEL_DISCOVERY_TIMEOUT_MS;
 let hostPlatform: NodeJS.Platform = process.platform;
 
@@ -808,6 +811,9 @@ function createManagers(startOpts: StartServerOpts): void {
   codexModelDiscoveryTimeoutMs =
     startOpts.codexModelDiscoveryTimeoutMs ?? CODEX_MODEL_DISCOVERY_TIMEOUT_MS;
   welcomeModelTiming = startOpts.welcomeModelTiming ?? WELCOME_MODEL_TIMING;
+  storageRoots =
+    startOpts.storageRoots ??
+    (() => productionStorageRoots(startOpts.getBackupStatus));
   providerAccountManager = new ProviderAccountManager(
     (userId, accounts) => {
       liveEmit("provider_accounts_updated", { accounts }, { userId });
@@ -826,6 +832,7 @@ function createManagers(startOpts: StartServerOpts): void {
     createProductionAgentManager({
       runBrowserAction: (agent, body) => extensionSessions!.run(agent, body),
       resolveBackend: startOpts.resolveBackend,
+      storageRoots: () => storageRoots(),
       listProviderAccounts: async (userId, options) => {
         const accounts = await providerAccountManager.list(
           userId,
@@ -5911,8 +5918,8 @@ function buildExecutorDeps(
   // Storage visibility + the MANUAL pruner. Nothing here is
   // scheduled: the only way anything gets deleted is an owner POSTing
   // apply:true. The three locations are resolved fresh per call by
-  // productionStorageRoots(), which the /isomux-storage slash command shares so
-  // the two surfaces cannot disagree about what counts as isomux storage.
+  // storageRoots(), which the /isomux-storage slash command shares so the two
+  // surfaces cannot disagree about what counts as isomux storage.
   //
   // Rebuilt per call so the active-session set is never a stale snapshot: a
   // plan computed a minute ago must not authorize deleting a session an agent
@@ -5994,7 +6001,7 @@ function buildExecutorDeps(
   };
   register(
     storageHandlers({
-      getUsage: () => measureStorageCached(productionStorageRoots()),
+      getUsage: () => measureStorageCached(storageRoots()),
       planPrune: (target, policy) => planPrune(target, policy, pruneDeps()),
       applyPrune: (plan) => applyPrune(plan, pruneDeps()),
     }),
@@ -8588,6 +8595,10 @@ export interface StartServerOpts {
   // value so a skipped backup scheduler cannot expose host backup state. The
   // route's production projection still runs over this internal shape.
   getBackupStatus?: () => BackupStatus;
+  // The roots the storage route and /isomux-storage measure. Defaults to
+  // productionStorageRoots over getBackupStatus; the harness supplies its own
+  // so a test boot reads neither the host backup dir nor update.conf.
+  storageRoots?: () => StorageRoots;
   // Await agent restore before resolving (tests that assert on a
   // fully-restored office). Production leaves this false: fire-and-forget so the
   // listener is up immediately, matching today's behavior.

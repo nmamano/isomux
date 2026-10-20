@@ -45,11 +45,9 @@ import {
   WEB_GRANTS,
   WEB_ROLE,
   boundsAreExact,
-  budgetFor,
   effectivePrivilegeSql,
   judgeEffective,
   judgeMatrix,
-  labelFor,
   matrixSql,
   validateRuntimeRoster,
 } from "./roles.ts";
@@ -141,13 +139,9 @@ beforeAll(async () => {
   productionRolesBefore = await productionRoleSnapshot();
 });
 
-describe("injected runtime roster metadata", () => {
-  test("uses the injected names for budgets and stable labels", () => {
+describe("injected runtime roster", () => {
+  test("refuses a duplicate, the owner's name, or an over-long name", () => {
     const roster = caseNames().roster;
-    expect(budgetFor(roster[0].role, "owner", roster)).toBe(WEB_BUDGET);
-    expect(budgetFor(roster[1].role, "owner", roster)).toBe(PROVISIONER_BUDGET);
-    expect(labelFor(roster[0].role, "owner", roster)).toBe("web");
-    expect(labelFor(roster[1].role, "owner", roster)).toBe("provisioner");
     expect(() =>
       validateRuntimeRoster([roster[0], roster[0]], "owner"),
     ).toThrow(/unique/);
@@ -219,40 +213,48 @@ async function dropRoles(
 }
 
 afterAll(async () => {
-  await inCleanupPool(databases, async (entry) => {
-    const { name, roster, probe, owner } = entry;
-    const url = new URL(LOCAL_DATABASE_URL);
-    url.pathname = `/${name}`;
-    if (
-      [probe, owner].some((role) => [WEB_ROLE, PROVISIONER_ROLE].includes(role))
-    ) {
-      throw new Error("refusing to drop a production runtime role");
-    }
-    await admin.query(`revoke ${roster[0].role} from ${probe}`).catch(() => {});
-    await admin.query(`drop role if exists ${probe}`).catch(() => {});
-    await dropRoles(url.toString(), roster);
-    await admin
-      .query(
-        "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
-        [name],
-      )
-      .catch(() => {});
-    await admin.query(`drop database if exists ${name}`).catch(() => {});
-    // Last: the database and the runtime roles are gone.
-    await admin.query(`drop role if exists ${owner}`).catch(() => {});
-  });
-  const testNames = databases.flatMap(({ roster, probe, owner }) => [
-    ...roster.map((entry) => entry.role),
-    probe,
-    owner,
-  ]);
-  const leftovers = await admin.query<{ n: string }>(
-    "select count(*)::text as n from pg_roles where rolname = any($1)",
-    [testNames],
-  );
-  expect(leftovers.rows[0]?.n).toBe("0");
-  expect(await productionRoleSnapshot()).toEqual(productionRolesBefore);
-  await admin.end().catch(() => {});
+  // try/finally: a failing final expect must not leak the admin pool.
+  try {
+    await inCleanupPool(databases, async (entry) => {
+      const { name, roster, probe, owner } = entry;
+      const url = new URL(LOCAL_DATABASE_URL);
+      url.pathname = `/${name}`;
+      if (
+        [probe, owner].some((role) =>
+          [WEB_ROLE, PROVISIONER_ROLE].includes(role),
+        )
+      ) {
+        throw new Error("refusing to drop a production runtime role");
+      }
+      await admin
+        .query(`revoke ${roster[0].role} from ${probe}`)
+        .catch(() => {});
+      await admin.query(`drop role if exists ${probe}`).catch(() => {});
+      await dropRoles(url.toString(), roster);
+      await admin
+        .query(
+          "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
+          [name],
+        )
+        .catch(() => {});
+      await admin.query(`drop database if exists ${name}`).catch(() => {});
+      // Last: the database and the runtime roles are gone.
+      await admin.query(`drop role if exists ${owner}`).catch(() => {});
+    });
+    const testNames = databases.flatMap(({ roster, probe, owner }) => [
+      ...roster.map((entry) => entry.role),
+      probe,
+      owner,
+    ]);
+    const leftovers = await admin.query<{ n: string }>(
+      "select count(*)::text as n from pg_roles where rolname = any($1)",
+      [testNames],
+    );
+    expect(leftovers.rows[0]?.n).toBe("0");
+    expect(await productionRoleSnapshot()).toEqual(productionRolesBefore);
+  } finally {
+    await admin.end().catch(() => {});
+  }
   // This hook drops one database per case: see PG_DROP_DATABASE_HOOK_TIMEOUT_MS.
 }, PG_DROP_DATABASE_HOOK_TIMEOUT_MS);
 
