@@ -5,11 +5,6 @@ import { App } from "./App.tsx";
 import { WidgetOfficeBridge } from "./WidgetOfficeBridge.tsx";
 import type { AppWidgetBoot } from "./app-widget-state.ts";
 import { LanguageProvider } from "./i18n.tsx";
-import { initFocusDebug } from "./focus-debug.ts";
-
-// Diagnostic tracer for the editor input-capture bug - inert unless the
-// localStorage flag is set (see focus-debug.ts).
-initFocusDebug();
 
 const widgetMeta = document.querySelector<HTMLMetaElement>(
   'meta[name="isomux-app-widget"]',
