@@ -960,3 +960,69 @@ describe("the shipped script", () => {
     expect(hardcoded).toEqual([]);
   });
 });
+
+describe("the earlyoom drop-in", () => {
+  // Task 416a473f. The office stamps every process it starts with one score
+  // (server/oom-stamp.ts), so among them size decides who dies. A name-based
+  // earlyoom bias on top tips that choice: --prefer once gave `claude` 300
+  // points, and earlyoom killed the agent instead of the multi-GB `bun` build
+  // it had started.
+  /** The arguments of the earlyoom command line the drop-in installs. */
+  async function earlyoomArgs(): Promise<string[]> {
+    const root = mkdtempSync(join(dir, "proc-earlyoom-"));
+    const { out, exit } = await run(
+      root,
+      [
+        `write_file() { cat; }`,
+        `systemctl() { :; }`,
+        `run() { :; }`,
+        `configure_earlyoom`,
+      ].join("; "),
+    );
+    expect(exit).toBe(0);
+    const line = out
+      .split("\n")
+      .find((l) => l.startsWith("ExecStart=") && l !== "ExecStart=");
+    expect(line).toBeDefined();
+    // Shell words, with single quotes removed, as systemd splits them.
+    const args = (
+      line!.slice("ExecStart=".length).match(/'[^']*'|\S+/g) ?? []
+    ).map((w) => w.replace(/^'(.*)'$/, "$1"));
+    expect(args[0]).toBe("/usr/bin/earlyoom");
+    return args;
+  }
+
+  it("gives no process a bonus for its name: --avoid is the only name rule", async () => {
+    const args = await earlyoomArgs();
+    // earlyoom's three name-matching options.
+    const nameRules = args.filter((a) =>
+      ["--avoid", "--prefer", "--ignore"].includes(a),
+    );
+    expect(nameRules).toEqual(["--avoid"]);
+  });
+
+  it("shields the box's daemons and the office, never an agent or its build", async () => {
+    const args = await earlyoomArgs();
+    const avoid = new RegExp(args[args.indexOf("--avoid") + 1]);
+    for (const name of [
+      "systemd",
+      "systemd-resolved",
+      "sshd",
+      "tailscaled",
+      "caddy",
+      "earlyoom",
+      "isomux",
+    ]) {
+      expect({ name, avoided: avoid.test(name) }).toEqual({
+        name,
+        avoided: true,
+      });
+    }
+    for (const name of ["bun", "claude", "codex", "node", "chrome"]) {
+      expect({ name, avoided: avoid.test(name) }).toEqual({
+        name,
+        avoided: false,
+      });
+    }
+  });
+});

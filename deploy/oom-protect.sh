@@ -163,7 +163,7 @@ install_earlyoom() {
   log "installed earlyoom"
 }
 
-# Thresholds and preferences, as a drop-in rather than /etc/default/earlyoom:
+# Thresholds and the shield list, as a drop-in rather than /etc/default/earlyoom:
 # the packaged command line is replaced outright, so there is exactly one place
 # that decides how the daemon runs.
 #
@@ -173,9 +173,14 @@ install_earlyoom() {
 #              means the kill never arrives: the machine spends the whole
 #              descent thrashing instead.
 # --avoid      the daemons that keep the box reachable and the office alive
-# --prefer     agent processes: the memory hogs, and the cheapest to lose
 #
-# Both lists match a process NAME, which is why the office server is shielded as
+# There is no --prefer. The office already raises every process it starts to
+# one score (server/oom-stamp.ts), so among them size decides and the biggest
+# goes first - usually the build that caused the spike. A name bonus for
+# `claude`, `node` or `chrome` overrode that: earlyoom killed a 300 MB agent
+# before the multi-GB `bun` build it had started (task 416a473f).
+#
+# --avoid matches a process NAME, which is why the office server is shielded as
 # `isomux` and not as `bun`. It runs under bun, so its name used to be `bun` - 
 # and so is every `bun install` and `bun run build` an agent starts. Shielding
 # that name shielded the multi-GB build spike this whole setup exists to kill,
@@ -196,7 +201,7 @@ configure_earlyoom() {
 # /etc/default/earlyoom is not consulted.
 [Service]
 ExecStart=
-ExecStart=/usr/bin/earlyoom -m 10,5 -s 100,100 -r 3600 --avoid '^(systemd|systemd-.+|sshd|tailscaled|caddy|earlyoom|isomux)$' --prefer '^(claude|codex|node|chrome)$'
+ExecStart=/usr/bin/earlyoom -m 10,5 -s 100,100 -r 3600 --avoid '^(systemd|systemd-.+|sshd|tailscaled|caddy|earlyoom|isomux)$'
 # The process that decides who dies must never be a candidate itself.
 OOMScoreAdjust=-1000
 Nice=-20
@@ -313,8 +318,8 @@ EOF
 # Two facts worth remembering. A score is inherited at fork, so these tiers
 # would hand the office's own agents and builds the same protection as the
 # office - the office undoes that from inside the server by raising its
-# descendants back above itself (server/oom-stamp.ts), and earlyoom's --prefer
-# above steers by name on top. Neither is this table's job. And on a user-level
+# descendants back above itself (server/oom-stamp.ts). That is not this
+# table's job. And on a user-level
 # office (systemctl --user) the -500 from the unit file does not apply: Ubuntu's
 # user manager lacks the privilege to lower scores, the write fails silently,
 # and everything runs at 100. This script repairs the running server from root
@@ -786,9 +791,10 @@ main() {
     log "Memory-pressure policy converged without changing swap."
   elif [[ -n $have_earlyoom ]]; then
     log "Out-of-memory protection is on: when free memory drops under 10%, one"
-    log "agent process is killed instead of the whole box becoming unresponsive."
-    log "SSH, DNS, networking and the office server are killed last (and Tailscale,"
-    log "if this box uses it). Re-kick the agent and carry on."
+    log "process is killed, usually the largest one the office started, instead of"
+    log "the whole box becoming unresponsive. SSH, DNS, networking and the office"
+    log "server are killed last (and Tailscale, if this box uses it). Message a"
+    log "killed agent to bring it back."
   else
     log "Kill order and swap settings applied, but earlyoom is not installed, so"
     log "nothing steps in early under memory pressure."

@@ -11,10 +11,10 @@
 //
 // What this buys is a strong bias, not a guarantee. `oom_score_adj` is one input
 // among several: memory footprint still counts, and earlyoom (deploy/oom-protect.sh)
-// adds its own name-based preference on top. So the honest claim is that the
-// office is much less likely to be the one chosen, and that among the office's
-// own processes the heavier ones are much more likely to go first. Nothing here
-// promises which descendant dies.
+// ranks by the same score. So the honest claim is that the office is much less
+// likely to be the one chosen, and that among the office's own processes the
+// heavier ones are much more likely to go first. Nothing here promises which
+// descendant dies.
 //
 // Raising an `oom_score_adj` needs no privilege; only lowering one does (measured
 // on an office box, 2026-08-01: a process at 100 could set itself to 300 and was
@@ -49,9 +49,8 @@ import { readdirSync, readFileSync, writeFileSync } from "fs";
  *
  * One value for every descendant, deliberately: with the bias equal, what
  * separates them is how much memory they hold, so the heavier ones are the more
- * likely victims. That is a bias, not an ordering the kernel owes us - earlyoom
- * layers a name-based preference on top of it. Tiering agents against their own
- * children would work against even the bias.
+ * likely victims. That is a bias, not an ordering the kernel owes us. Tiering
+ * agents against their own children would work against even the bias.
  */
 export const AGENT_OOM_SCORE_ADJ = 300;
 

@@ -41,13 +41,15 @@ memory-safety path) is pending Nil's ruling.
 new box:
 
 - **earlyoom** at `-m 10,5 -s 100,100`, `--avoid`
-  `^(systemd|systemd-.+|sshd|tailscaled|caddy|earlyoom|isomux)$`, `--prefer`
-  `^(claude|codex|node|chrome)$`. Something is killed while there is still
+  `^(systemd|systemd-.+|sshd|tailscaled|caddy|earlyoom|isomux)$`, and no
+  `--prefer`. Something is killed while there is still
   memory to act with, instead of the box thrashing into the kernel's
   last-resort killer. The `--avoid` list originally shielded `bun`, which
   protected the builds themselves; fixed 2026-07-31 (a51393e7): the server
-  renames itself `isomux` and that name is shielded instead. Whether
-  `--prefer` still earns its place is open (task 416a473f).
+  renames itself `isomux` and that name is shielded instead. The
+  `--prefer '^(claude|codex|node|chrome)$'` bonus was removed 2026-10-20
+  (task 416a473f): it made earlyoom kill a small agent before the large build
+  it had started.
 - **`OOMScoreAdjust` tiers** written to unit drop-ins and to the running PIDs,
   so applying them restarts nothing but earlyoom: ssh + tailscaled `-900`;
   systemd-resolved, systemd-networkd and systemd-logind `-900` plus
@@ -72,17 +74,14 @@ See decision 4 for the numbers and for the withdrawn auto-replacement.
 `isomux-oom-protect`'s own comments do conflate them (see the follow-up at the
 end of this doc):
 
-- earlyoom's regexes are the mechanism intended to steer the victim toward an
-  agent: it ranks candidates by `oom_score`, with `--prefer` adding 300 to a
-  match and `--avoid` subtracting 300. That is a strong preference, not a
-  one-agent guarantee, and the score still participates, so a match can lose to
-  another candidate.
+- earlyoom's regex shields by name: it ranks candidates by `oom_score`, and
+  `--avoid` subtracts 300 from a match. That is a strong preference, not a
+  guarantee, and the score still participates, so a match can still be picked.
+  (A `--prefer` list that added 300 to agent names was removed 2026-10-20, task
+  416a473f: see "What shipped" below.)
 
-  Two consequences worth knowing, both from earlyoom's own documentation. For
-  `--prefer` matches a negative `oom_score_adj` is ignored and the effective
-  score is at least 300, so earlyoom already neutralizes the inherited `-500`
-  for anything matching `claude|codex|node|chrome`. And `--avoid` matches
-  process *names*, so the `bun` entry that protects the office server also
+  One consequence worth knowing, from earlyoom's own documentation: `--avoid`
+  matches process *names*, so the `bun` entry that protects the office server also
   protects every `bun install` and `bun run build` an agent starts. The
   multi-GB build spike this whole design is sized around is therefore the one
   thing earlyoom is currently biased *against* killing, and its selection is
@@ -211,18 +210,18 @@ undo a deliberate value. It reads every write back and re-checks the process
 identity either side, the same discipline as `stamp_pid`. And one value for all
 descendants is deliberate: with the bias equal, what separates them is size, so
 the heavier ones are the likelier victims - a bias, not an ordering the kernel
-owes us, and earlyoom's name preference still layers on top. 300 was picked
+owes us. 300 was picked
 against measurement rather than
 taste - on an 8 GB box `+100` of `oom_score_adj` moves `oom_score` by ~67 points
 while a 1.2 GB difference in RSS moves it by ~51, so 300 clears a user-level
 office's forced 100 by a margin equivalent to roughly 3 GB of office growth on
 that box.
 
-Two things this does *not* settle, both left to Nil. Once descendants carry 300,
-earlyoom's `--prefer '^(claude|codex|node|chrome)$'` bonus of +300 can still pick
-a smaller `claude` over the bigger `bun` build underneath it, so that list may
-now be doing more harm than good. And the `user@<uid>.service` floor below stays
-open.
+Two things this did *not* settle, both left to Nil. Once descendants carry 300,
+earlyoom's `--prefer '^(claude|codex|node|chrome)$'` bonus of +300 could still
+pick a smaller `claude` over the bigger `bun` build underneath it. Settled
+2026-10-20 (task 416a473f): `--prefer` is removed, so size decides among the
+office's processes. The `user@<uid>.service` floor below stays open.
 
 ## What the incident task assumed, and what changed
 
@@ -649,6 +648,6 @@ for Nil rather than settled here:
 The `oom_score_adj` stamp on agent processes was likewise a Nil call, being a
 scope addition rather than a provisioning default. **Accepted 2026-07-31 (D4) and
 shipped 2026-08-01 as task 37b194be**, in the server rather than at spawn time.
-Two follow-ups it leaves behind, both his: whether earlyoom's `--prefer` list
-still earns its place now that agents carry their own bias, and the
-`user@<uid>.service` floor.
+Two follow-ups it left behind, both his: whether earlyoom's `--prefer` list
+still earned its place now that agents carry their own bias (no: removed
+2026-10-20, task 416a473f), and the `user@<uid>.service` floor.
