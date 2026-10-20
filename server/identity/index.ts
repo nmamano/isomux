@@ -301,10 +301,12 @@ export function agentCapabilities(privileged: boolean): readonly Capability[] {
 // task board. The cron-run analogue of an agent token; closes the loopback hole
 // for a firing run's in-flight read-file/diff without relying on a bypass.
 //
-// `log:read` is DELIBERATELY absent. A run has no room, no chat, and no history
-// to reconnect itself to; its room-access set is empty by rule
-// (accessibleRoomIdsForIdentity), so the capability would reach nothing anyway -
-// but leaving it out states the intent instead of relying on that coincidence.
+// `log:read` is DELIBERATELY absent. A run has no chat and no history of its
+// own to reconnect to, so it does not read agent logs.
+//
+// A run acts for its job's creator the way an agent acts for its manager: its
+// userId is the creator's, so a route that only a room-access guard gates
+// (hasRoomAccess) gives the run its creator's rooms, on purpose.
 //
 // task:read + task:write are here because the cron system prompt gives a run the
 // board, and it reached it over the (now retired) loopback /tasks route. The

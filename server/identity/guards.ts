@@ -497,6 +497,8 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
     // OWNER's. Without this line an ownerless app would inherit every room its
     // owner can reach. With an owner agent the app has that agent's reach, and
     // the agent's is exactly its manager's rooms, which is this userId.
+    // A CRON-RUN passes with its creator's rooms on purpose: its userId is the
+    // job's creator, and a run acts for its creator as an agent for its manager.
     if (identity.scope === "app" && !actsForAgent(identity)) return FORBIDDEN;
     const roomId = resolveRoomId(ref, params, body, deps);
     if (roomId === null) return FORBIDDEN;

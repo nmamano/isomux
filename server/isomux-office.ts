@@ -2604,7 +2604,9 @@ function appActorName(appName: string): string {
 // but a cron run has no room of its own and its prompt calls the board
 // office-global. This keeps that promise, and matches what runs could reach on
 // the retired loopback /tasks surface. Same empty set for a token whose user is
-// gone.
+// gone. This set is not the run's room access: room-gated guards use
+// hasRoomAccess, which keys on the run's userId and so gives a run its
+// creator's rooms.
 function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
   // Humans, their agents, and their remote-member API tokens inherit the user's
   // rooms. Written as an allowlist
