@@ -284,7 +284,12 @@ export class OfficeState {
       desk = placed;
     }
 
-    const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    // Two spawns in one millisecond can draw the same suffix, and a repeated
+    // id would replace the agent that holds it.
+    let id: string;
+    do {
+      id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    } while (this.agents.has(id));
     const agent: AgentInfo = {
       id,
       name: opts.name,

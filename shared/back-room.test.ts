@@ -2,7 +2,7 @@
 // growth and shrinking, the n x n room derived from the seats in use, the
 // order new agents take seats in, the cap, and OfficeState placement.
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, spyOn } from "bun:test";
 import {
   BACK_SEAT_BASE,
   BACK_ROOM_MAX_SIDE,
@@ -194,13 +194,41 @@ describe("OfficeState placement", () => {
     expect(spawn(state, "Y", "lobby")).toBeNull();
   });
 
-  // Quarantined (task b45385e6): red once in ci:remote on a87b7796 (a spawn
-  // in the fill loop returned null), green on the rerun of the same commit.
-  it.skip("spawn: refuses when the front and all back seats are taken", () => {
+  it("spawn: refuses when the front and all back seats are taken", () => {
     const state = office();
     for (let i = 0; i < DESK_COUNT + BACK_ROOM_SEATS; i++)
       expect(spawn(state, `A${i}`, "r1")).not.toBeNull();
     expect(spawn(state, "Last", "r1")).toBeNull();
+  });
+
+  // Two spawns in one millisecond can draw the same suffix. A repeated id
+  // replaced the first agent in the map and freed its seat (task b45385e6:
+  // the test above was red once in CI this way).
+  it("spawn: an id that is taken is drawn again", () => {
+    const state = office();
+    const realRandom = Math.random.bind(Math);
+    const now = spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const random = spyOn(Math, "random").mockReturnValue(0.123456);
+    try {
+      const first = spawn(state, "First", "r1");
+      // The pinned clock and draw make the id, so the same draw repeats it.
+      expect(first?.id).toBe(
+        `agent-${Date.now()}-${(0.123456).toString(36).slice(2, 6)}`,
+      );
+      let draws = 0;
+      random.mockImplementation(() =>
+        draws++ === 0 ? 0.123456 : realRandom(),
+      );
+      const second = spawn(state, "Second", "r1");
+      expect(second).not.toBeNull();
+      expect(second!.id).not.toBe(first!.id);
+      expect(state.getAgent(first!.id)?.name).toBe("First");
+      expect(state.getAgent(second!.id)?.name).toBe("Second");
+      expect(second!.desk).not.toBe(first!.desk);
+    } finally {
+      now.mockRestore();
+      random.mockRestore();
+    }
   });
 
   it("placeAgent: no desk keeps the agent's area", () => {
