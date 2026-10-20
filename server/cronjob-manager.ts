@@ -23,7 +23,8 @@ import {
 // whose nextFireAt has passed. A job with the "none" schedule never fires on
 // the clock. Overlap rule: if a *scheduled* run is still in flight for the
 // same cronjob, write a "skipped" row instead of firing. Manual "Run now" and
-// webhook runs bypass the overlap rule.
+// webhook runs bypass the overlap rule. A slot that came due while the server
+// was down fires once on the first tick after boot, however many were missed.
 //
 // Each fire creates a fresh session for the cronjob's selected backend, sends
 // the prompt as the first user message,
@@ -2505,6 +2506,16 @@ How to answer questions about Isomux itself: the source lives at https://github.
     let dirty = false;
     for (const job of cronjobs) {
       const schedule = clampSchedule(job.schedule);
+      // Keep an overdue slot so the initial tick fires it as the catch-up;
+      // recomputing from `now` would skip to the next future slot.
+      if (
+        job.enabled &&
+        schedule.type !== "none" &&
+        typeof job.nextFireAt === "number" &&
+        job.nextFireAt <= now
+      ) {
+        continue;
+      }
       const anchor = job.lastFireAt ?? job.createdAt;
       const next = computeNextFire(schedule, anchor, now);
       if (next !== job.nextFireAt) {

@@ -1685,6 +1685,174 @@ describe('CronjobManager: the "none" schedule', () => {
   });
 });
 
+// A slot that comes due while the server is down fires once after the boot,
+// never zero times and never once per missed period (task 11e89a8c).
+describe("CronjobManager: a slot due across a restart", () => {
+  const HOUR_MS = 60 * 60 * 1000;
+  const DAY_MS = 24 * HOUR_MS;
+  const settle = () => new Promise((r) => setTimeout(r, 25));
+
+  type Persistence = ReturnType<typeof makeFakeCronPersistence>;
+  const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
+
+  // One server process on a shared clock.
+  function serverOn(persistence: Persistence, clock: { t: number }) {
+    const sched = fakeScheduler();
+    const fake = new FakeBackend();
+    const mgr = createCronjobManager(
+      baseDeps({
+        persistence,
+        resolveBackend: () => fake,
+        clock: { now: () => clock.t },
+        scheduler: sched.scheduler,
+      }),
+    );
+    return { mgr, sched, fake, persistence };
+  }
+
+  // What the next process reads from disk: a copy, so the stopped process's
+  // objects are not shared with the new one.
+  function diskCopy(from: Persistence): Persistence {
+    const disk = makeFakeCronPersistence();
+    disk.saveCronjobs(clone(from.loadCronjobs()));
+    for (const id of from.listAllCronjobIdsOnDisk()) {
+      disk.saveRuns(id, clone(from.loadRuns(id)));
+    }
+    return disk;
+  }
+
+  // Boot, then run the initial tick and one more interval tick a minute later.
+  async function bootAndTick(
+    server: ReturnType<typeof serverOn>,
+    clock: { t: number },
+  ) {
+    server.mgr.startCronjobScheduler();
+    for (const { fn } of server.sched.timeouts) fn();
+    await settle();
+    clock.t += 60_000;
+    server.sched.intervals[0].fn();
+    await settle();
+  }
+
+  const job = (server: ReturnType<typeof serverOn>, id: string) =>
+    server.mgr.listCronjobs().find((c) => c.id === id)!;
+
+  it("an interval job down across several due times runs once after the boot", async () => {
+    const clock = { t: FIXED_NOW };
+    const before = serverOn(makeFakeCronPersistence(), clock);
+    const { id } = before.mgr.addCronjob(intervalInput("WatchJob"));
+    before.mgr.startCronjobScheduler();
+    // A normal run before the stop.
+    clock.t = job(before, id).nextFireAt! + 13_000;
+    before.sched.intervals[0].fn();
+    await settle();
+    before.fake.sessions[0].completeTurn({ text: "done" });
+    await settle();
+    const stored = clone(job(before, id));
+    expect(stored.lastFireAt).toBe(clock.t);
+
+    // Down across three due times of the 60-minute interval.
+    const bootAt = stored.nextFireAt! + 2 * HOUR_MS + 30 * 60_000;
+    expect(stored.nextFireAt!).toBeLessThan(bootAt);
+    clock.t = bootAt;
+    const after = serverOn(diskCopy(before.persistence), clock);
+    await bootAndTick(after, clock);
+
+    const sinceBoot = after.mgr
+      .getRunsForCronjob(id)
+      .filter((r) => r.startedAt >= bootAt);
+    expect(sinceBoot.map((r) => r.trigger)).toEqual(["scheduled"]);
+    expect(after.fake.createSessionCount).toBe(1);
+    expect(job(after, id).nextFireAt!).toBeGreaterThan(clock.t);
+    after.fake.sessions.forEach((s) => s.close());
+  });
+
+  it("a daily job down across its time of day runs once after the boot", async () => {
+    const clock = { t: FIXED_NOW };
+    const before = serverOn(makeFakeCronPersistence(), clock);
+    const { id, nextFireAt } = before.mgr.addCronjob({
+      ...intervalInput("DailyJob"),
+      schedule: { type: "daily", hour: 6, minute: 0 },
+    });
+
+    // Down across two occurrences.
+    const bootAt = nextFireAt! + DAY_MS + HOUR_MS;
+    clock.t = bootAt;
+    const after = serverOn(diskCopy(before.persistence), clock);
+    await bootAndTick(after, clock);
+
+    const runs = after.mgr.getRunsForCronjob(id);
+    expect(runs.map((r) => r.trigger)).toEqual(["scheduled"]);
+    expect(runs[0].startedAt).toBe(bootAt);
+    const next = job(after, id).nextFireAt!;
+    expect(next).toBeGreaterThan(clock.t);
+    expect(next).toBeLessThanOrEqual(bootAt + DAY_MS);
+    after.fake.sessions.forEach((s) => s.close());
+  });
+
+  it("only an enabled clock schedule catches up: not a paused job, not a none job", async () => {
+    const clock = { t: FIXED_NOW };
+    const before = serverOn(makeFakeCronPersistence(), clock);
+    const control = before.mgr.addCronjob(intervalInput("ControlJob"));
+    const paused = before.mgr.addCronjob(intervalInput("PausedJob"));
+    before.mgr.updateCronjob(paused.id, { enabled: false });
+    const onDemand = before.mgr.addCronjob(intervalInput("OnDemandJob"));
+
+    const disk = diskCopy(before.persistence);
+    // A "none" record that still carries the due time of its old schedule.
+    disk.saveCronjobs(
+      disk
+        .loadCronjobs()
+        .map((c) =>
+          c.id === onDemand.id
+            ? { ...c, schedule: { type: "none" as const } }
+            : c,
+        ),
+    );
+    const bootAt = FIXED_NOW + 5 * HOUR_MS;
+    for (const c of disk.loadCronjobs()) {
+      expect(c.nextFireAt!).toBeLessThan(bootAt);
+    }
+    clock.t = bootAt;
+    const after = serverOn(disk, clock);
+    await bootAndTick(after, clock);
+
+    expect(
+      after.mgr.getRunsForCronjob(control.id).map((r) => r.trigger),
+    ).toEqual(["scheduled"]);
+    expect(after.mgr.getRunsForCronjob(paused.id)).toEqual([]);
+    expect(job(after, paused.id).nextFireAt!).toBeGreaterThan(clock.t);
+    expect(after.mgr.getRunsForCronjob(onDemand.id)).toEqual([]);
+    expect(job(after, onDemand.id).nextFireAt).toBeNull();
+    after.fake.sessions.forEach((s) => s.close());
+  });
+
+  it("a run cut by the restart is recorded as failed and does not run again", async () => {
+    const clock = { t: FIXED_NOW };
+    const before = serverOn(makeFakeCronPersistence(), clock);
+    const { id } = before.mgr.addCronjob(intervalInput("CutJob"));
+    before.mgr.startCronjobScheduler();
+    clock.t = job(before, id).nextFireAt! + 13_000;
+    before.sched.intervals[0].fn();
+    await settle();
+    const [cut] = before.mgr.getRunsForCronjob(id);
+    expect(cut.status).toBe("running");
+
+    // The restart comes before the next due time.
+    const bootAt = clock.t + 40_000;
+    expect(job(before, id).nextFireAt!).toBeGreaterThan(bootAt + 60_000);
+    clock.t = bootAt;
+    const after = serverOn(diskCopy(before.persistence), clock);
+    await bootAndTick(after, clock);
+
+    const runs = after.mgr.getRunsForCronjob(id);
+    expect(runs.map((r) => [r.id, r.status])).toEqual([[cut.id, "failed"]]);
+    expect(runs[0].endedAt).toBe(bootAt);
+    expect(after.fake.createSessionCount).toBe(0);
+    before.fake.sessions.forEach((s) => s.close());
+  });
+});
+
 // What a schedule run writes for a person is in that person's language
 // (task beb6089b): the typist's on a follow-up or an edit, else the
 // schedule owner's. The API answer stays English (ruling 2).
