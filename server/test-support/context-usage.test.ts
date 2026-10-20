@@ -37,6 +37,10 @@ import {
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { loadLog } from "../persistence.ts";
 import { STATE_ROOT } from "../config.ts";
+import { getUserByName, updateUserById } from "../users.ts";
+import { localizeLogParts } from "../../shared/i18n/log-message.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+import { formatNumber } from "../../shared/i18n/number.ts";
 import type { AgentInfo, RoomWire } from "../../shared/types.ts";
 import type { ContextUsage } from "../backends/types.ts";
 import type { AgentContextUsageResp } from "../../shared/contract-shapes.ts";
@@ -335,6 +339,39 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
     expect(sys).not.toContain("No active session.");
     // Reading the snapshot must NOT wake the released session.
     expect(srv.agentManager.getAgent(agent.id)?.dormant).toBe(true);
+  });
+
+  // The reply is stored in English and words its numbers for each reader
+  // (task c37a7365): a Spanish typist used to put Spanish into a log every
+  // reader of the agent sees.
+  it("/context stores English and words the token counts for each reader", async () => {
+    const srv = await startTestServer({ fakeBackend: backendWith(usage(63)) });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const user = getUserByName(owner.username)!;
+    expect(updateUserById(user.id, { language: "es" }).ok).toBe(true);
+    // The ENABLING CONDITION: the typist reads Spanish.
+    expect(getUserByName(owner.username)?.language).toBe("es");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+
+    await runTurn(srv, agent.id, "hi");
+    await srv.agentManager.sendMessage(agent.id, "/context", owner.username);
+    const reading = srv.agentManager
+      .getAgentLogs(agent.id)
+      .find((e) => e.kind === "system" && e.content.includes("fake-model"));
+    expect(reading).toBeDefined();
+    // Stored English: English digit grouping.
+    expect(reading!.content).toContain(formatNumber("en", 63_000));
+    expect(localizeLogParts(translatorFor("en"), reading!.message)).toBe(
+      reading!.content,
+    );
+    // The Spanish reader gets Spanish grouping, which differs.
+    const spanish = localizeLogParts(translatorFor("es"), reading!.message);
+    expect(formatNumber("es", 63_000)).not.toBe(formatNumber("en", 63_000));
+    expect(spanish).toContain(formatNumber("es", 63_000));
+    expect(spanish).toContain(formatNumber("es", 100_000));
+    expect(spanish).not.toBe(reading!.content);
   });
 
   it("/context renders an over-100% reading instead of crashing", async () => {

@@ -213,3 +213,45 @@ describe("an entry's message keys", () => {
     expect(prepared.message).toBeUndefined();
   });
 });
+
+// The /help body rides in metadata as helpContentMessage, next to its English
+// in helpContent (task c37a7365, slice 2). It holds command descriptions the
+// registry supplies, so it gets the same rule as `message`: kept only when
+// every language's render is clean, and dropped alone otherwise.
+describe("the help body's message keys", () => {
+  const helpEntry = (helpContentMessage: LogPart[]): LogEntry => ({
+    id: "log-help-redaction",
+    agentId: "redaction-agent",
+    timestamp: 1,
+    kind: "system",
+    content: renderLogText(english, [msg("commands.help.header")]),
+    message: [msg("commands.help.header")],
+    metadata: {
+      helpContent: renderLogText(english, helpContentMessage),
+      helpContentMessage,
+    },
+  });
+
+  it("keeps a help body that is clean in every language", () => {
+    const body = [msg("systemEntries.pathRefusal.notFound", { path: "/x" })];
+    const prepared = prepareLogEntry(helpEntry(body));
+    expect(prepared.metadata?.helpContentMessage).toEqual(body);
+    expect(prepared.message).toEqual([msg("commands.help.header")]);
+  });
+
+  it("drops only the help body's keys when one language's render shows a secret shape", () => {
+    const name = "OPENAI_API_KEY_PROD_1";
+    const KEY = "cards.secretRequest.title" as const;
+    // The ENABLING CONDITIONS, as for `message` above.
+    const englishText = translatorFor("en").t(KEY, { name });
+    expect(scanner.redactSecretText(englishText)).toBe(englishText);
+    const catalan = translatorFor("ca").t(KEY, { name });
+    expect(scanner.redactSecretText(catalan)).not.toBe(catalan);
+
+    const prepared = prepareLogEntry(helpEntry([msg(KEY, { name })]));
+    expect(prepared.metadata?.helpContentMessage).toBeUndefined();
+    expect(prepared.metadata?.helpContent).toBe(englishText);
+    // The entry's own message is clean, so it stays.
+    expect(prepared.message).toEqual([msg("commands.help.header")]);
+  });
+});

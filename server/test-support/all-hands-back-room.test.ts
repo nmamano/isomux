@@ -4,6 +4,8 @@
 import { describe, it, expect } from "bun:test";
 import { createCommandHandling } from "../command-handlers.ts";
 import { deskOfBackSeat } from "../../shared/desks.ts";
+import { renderLogText, type LogText } from "../../shared/i18n/log-message.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 function agent(id: string, name: string, roomId: string, desk: number) {
   return {
@@ -35,8 +37,11 @@ describe("/isomux-all-hands", () => {
       agents,
       getRooms: () => [],
       globalRoomIndexOf: (roomId: string) => (roomId === "r1" ? 0 : 1),
-      addLogEntry: (_id: string, kind: string, content: string) => {
-        if (kind === "system") report = content;
+      // The reply is message parts each reader words (task c37a7365); this
+      // reads its English render.
+      addLogEntry: (_id: string, kind: string, content: LogText) => {
+        if (kind === "system")
+          report = renderLogText(translatorFor("en"), content);
       },
       updateState: () => {},
     } as unknown as Parameters<typeof createCommandHandling>[0];

@@ -11,12 +11,9 @@
 // - the pre-sign-in pages of S9 - where Accept-Language is the only thing the
 // visitor has said about what they read.
 //
-// One policy function, `translatorForLanguage`, and three adapters for the
-// shapes an actor actually arrives in on this server:
+// One policy function, `translatorForLanguage`, and two adapters for the
+// shapes a reader actually arrives in on this server:
 //
-//   - `translatorForUsername` - the chat path. A slash command typed in an
-//     agent's chat carries its sender as a display NAME (agent-manager's
-//     sendMessage -> handleSlashCommand), not a user id.
 //   - `translatorForUserId` - a delivery to one known user, such as a pager
 //     page or a web push.
 //   - `translatorForRequest` - the pre-sign-in pages (S9). The visitor may have
@@ -24,10 +21,9 @@
 //     Accept-Language header decide together: a known reader's stored
 //     preference first, the header only for a stranger.
 //
-// The system lines and choice cards that agent-manager, cronjob-manager and
-// session-manager write use none of these: every reader of the agent sees
-// them, so they are message keys each UI words (shared/i18n/log-message.ts,
-// task c37a7365).
+// Nothing an agent's log holds uses these - system lines, choice cards and
+// slash-command replies alike: every reader of the agent sees them, so they
+// are message keys each UI words (shared/i18n/log-message.ts, task c37a7365).
 //
 // S7 had no identity-shaped adapter because no route handler writes
 // human-facing log prose (checked across server/isomux-office.ts and
@@ -49,7 +45,7 @@ import {
 } from "../shared/languages.ts";
 import type { Identity } from "./identity/index.ts";
 import { translatorFor, type Translator } from "../shared/i18n/translate.ts";
-import { getUserById, getUserByName } from "./users.ts";
+import { getUserById } from "./users.ts";
 
 /**
  * The translator for a stored preference. `null` is "never chosen", which is
@@ -66,18 +62,9 @@ export function translatorForLanguage(
 export const english: Translator = translatorForLanguage(DEFAULT_LANGUAGE);
 
 /**
- * The translator for the human who typed a slash command. `username` is the
- * display name the chat path carries; an absent or unrecognized one is
- * English.
- */
-export function translatorForUsername(username?: string | null): Translator {
-  return translatorForLanguage(getUserByName(username)?.language);
-}
-
-/**
- * The translator for a user id - in practice an agent's owner, used where the
- * server writes human-facing text with no actor in scope. Only a USER record
- * resolves: an id that names anything else falls through to English.
+ * The translator for a user id: the recipient of a delivery made to one
+ * person (a pager page, a web push). Only a USER record resolves: an id that
+ * names anything else falls through to English.
  */
 export function translatorForUserId(userId?: string | null): Translator {
   return translatorForLanguage(getUserById(userId)?.language);

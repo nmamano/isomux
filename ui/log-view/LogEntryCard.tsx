@@ -38,7 +38,10 @@ import {
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
 import { failedEditText } from "../../shared/failed-edit.ts";
-import { logEntryText } from "../../shared/i18n/log-message.ts";
+import {
+  localizeLogParts,
+  logEntryText,
+} from "../../shared/i18n/log-message.ts";
 import { AskLink, askAnswerText, askRefOf } from "./ask-link.tsx";
 import { unescapeDollars } from "./plain-copy.ts";
 import {
@@ -663,7 +666,14 @@ export const LogEntryCard = memo(function LogEntryCard({
           <SystemEntryCard
             content={display}
             button={
-              <SystemPromptButton helpContent={entry.metadata.helpContent} />
+              <SystemPromptButton
+                // The whole body in the reader's language, else the stored
+                // English (task c37a7365).
+                helpContent={
+                  localizeLogParts(i18n, entry.metadata.helpContentMessage) ??
+                  entry.metadata.helpContent
+                }
+              />
             }
           />
         );

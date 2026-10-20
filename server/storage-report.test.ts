@@ -9,6 +9,7 @@
 import { describe, it, expect } from "bun:test";
 import { renderStorageReport } from "./storage-report.ts";
 import { english, translatorForLanguage } from "./i18n.ts";
+import { localizeLogParts, renderLogText } from "../shared/i18n/log-message.ts";
 import { aggregateOnly, type StorageUsage } from "./storage-usage.ts";
 import type { StorageCategoryId } from "../shared/contract-shapes.ts";
 
@@ -85,6 +86,10 @@ const labels = { agentLabel: (id: string) => ({ name: `name:${id}` }) };
 // assertions live in their own block at the bottom (internal-docs/i18n-loop.md,
 // S7).
 const { t } = english;
+// The report is message parts each reader words (task c37a7365); these read
+// its English render.
+const report = (...args: Parameters<typeof renderStorageReport>) =>
+  renderLogText(english, renderStorageReport(...args));
 const BACKUPS = t("settings.storage.category.backups");
 const SNAPSHOTS = t("settings.storage.category.updateSnapshots");
 const KILLED = t("storageReport.killed");
@@ -110,8 +115,7 @@ function boldRowIndex(out: string, size: string): number {
 
 describe("renderStorageReport", () => {
   it("totals the state root plus the locations outside it", () => {
-    const out = renderStorageReport(
-      english,
+    const out = report(
       usageFixture({ transcripts: 100 * MB, backups: 400 * MB }),
       labels,
     );
@@ -131,13 +135,9 @@ describe("renderStorageReport", () => {
   });
 
   it("says everything is office state when nothing lives outside it", () => {
-    const out = renderStorageReport(
-      english,
-      usageFixture({ transcripts: 2 * MB }),
-      {
-        agentLabel: () => ({ name: "x" }),
-      },
-    );
+    const out = report(usageFixture({ transcripts: 2 * MB }), {
+      agentLabel: () => ({ name: "x" }),
+    });
     // No phantom credit to locations with nothing in them.
     expect(headline(out)).toBe(
       t("storageReport.totalOnly", { total: "2.0 MB" }),
@@ -145,8 +145,7 @@ describe("renderStorageReport", () => {
   });
 
   it("names only the out-of-root locations that hold bytes", () => {
-    const both = renderStorageReport(
-      english,
+    const both = report(
       usageFixture({ backups: 1 * MB, "update-snapshots": 1 * MB }),
       labels,
     );
@@ -154,19 +153,14 @@ describe("renderStorageReport", () => {
       `${BACKUPS.toLowerCase()}${t("storageReport.locationsJoin")}${SNAPSHOTS.toLowerCase()}`,
     );
     const snapshotsOnly = headline(
-      renderStorageReport(
-        english,
-        usageFixture({ "update-snapshots": 1 * MB }),
-        labels,
-      ),
+      report(usageFixture({ "update-snapshots": 1 * MB }), labels),
     );
     expect(snapshotsOnly).toContain(SNAPSHOTS.toLowerCase());
     expect(snapshotsOnly).not.toContain(BACKUPS.toLowerCase());
   });
 
   it("marks an unconfigured location as none rather than zero", () => {
-    const out = renderStorageReport(
-      english,
+    const out = report(
       usageFixture({ transcripts: 1 * MB }, { snapshotsAvailable: false }),
       labels,
     );
@@ -177,16 +171,12 @@ describe("renderStorageReport", () => {
   });
 
   it("gives the owner paths and the per-agent breakdown", () => {
-    const out = renderStorageReport(
-      english,
-      usageFixture({ transcripts: 1 * MB }),
-      {
-        agentLabel: (id: string) =>
-          id === "agent-gone"
-            ? { name: "Ghost", killed: true }
-            : { name: "Live" },
-      },
-    );
+    const out = report(usageFixture({ transcripts: 1 * MB }), {
+      agentLabel: (id: string) =>
+        id === "agent-gone"
+          ? { name: "Ghost", killed: true }
+          : { name: "Live" },
+    });
     expect(out).toContain("`/srv/state`");
     expect(out).toContain(`### ${t("storageReport.biggestAgents")}`);
     expect(out).not.toContain(t("storageReport.ownerOnly"));
@@ -201,7 +191,7 @@ describe("renderStorageReport", () => {
 
   it("withholds paths and per-agent detail from the aggregate projection", () => {
     const full = usageFixture({ transcripts: 1 * MB, backups: 2 * MB });
-    const out = renderStorageReport(english, aggregateOnly(full), labels);
+    const out = report(aggregateOnly(full), labels);
     expect(out).not.toContain("/srv/state");
     expect(out).not.toContain("/srv/isomux-backups");
     expect(out).not.toContain(t("storageReport.biggestAgents"));
@@ -226,7 +216,7 @@ describe("renderStorageReport", () => {
         lastActivityAt: null,
       },
     ];
-    const out = renderStorageReport(english, usage, {
+    const out = report(usage, {
       agentLabel: () => ({ name, ...(killed ? { killed } : {}) }),
     });
     return out
@@ -284,7 +274,7 @@ describe("renderStorageReport", () => {
       lastActivityAt: null,
     }));
     // Punctuation-free names here: this case is about the cap, not escaping.
-    const out = renderStorageReport(english, usage, {
+    const out = report(usage, {
       agentLabel: (id) => ({ name: id }),
     });
     expect(out).toContain(
@@ -306,11 +296,12 @@ describe("renderStorageReport in the reader's language", () => {
     usage: StorageUsage,
   ): { en: string[]; local: string[] } {
     return {
-      en: renderStorageReport(english, usage, labels).split("\n"),
-      local: renderStorageReport(
-        translatorForLanguage(language),
-        usage,
-        labels,
+      en: report(usage, labels).split("\n"),
+      local: (
+        localizeLogParts(
+          translatorForLanguage(language),
+          renderStorageReport(usage, labels),
+        ) ?? ""
       ).split("\n"),
     };
   }

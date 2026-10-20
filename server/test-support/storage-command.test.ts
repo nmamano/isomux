@@ -24,6 +24,15 @@ import { _testResetSentinel } from "../migrations.ts";
 import { createCommandHandling } from "../command-handlers.ts";
 import type { StorageUsage } from "../storage-usage.ts";
 import type { StorageCategoryId } from "../../shared/contract-shapes.ts";
+import {
+  localizeLogParts,
+  logParts,
+  renderLogText,
+  type LogText,
+} from "../../shared/i18n/log-message.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+import { formatBytes } from "../../shared/i18n/number.ts";
+import { CATEGORY_KEYS } from "../../shared/storage-labels.ts";
 
 const MB = 1024 * 1024;
 
@@ -64,7 +73,7 @@ function usageFixture(): StorageUsage {
 
 interface Logged {
   kind: string;
-  content: string;
+  content: LogText;
 }
 
 // Minimal deps: the handler under test reads only these. Cast through the
@@ -76,7 +85,7 @@ function harness(opts: { usage?: StorageUsage } = {}) {
   const deps = {
     agents: new Map(),
     getRooms: () => [],
-    addLogEntry: (_agentId: string, kind: string, content: string) => {
+    addLogEntry: (_agentId: string, kind: string, content: LogText) => {
       logged.push({ kind, content });
     },
     updateState: () => {},
@@ -98,7 +107,15 @@ function harness(opts: { usage?: StorageUsage } = {}) {
         username,
         undefined,
       ),
-    report: () => logged.find((l) => l.kind === "system")?.content ?? "",
+    // The English a reader on English sees; the report is message parts each
+    // reader words (task c37a7365).
+    report: () =>
+      renderLogText(
+        translatorFor("en"),
+        logged.find((l) => l.kind === "system")?.content ?? "",
+      ),
+    reportParts: () =>
+      logParts(logged.find((l) => l.kind === "system")?.content ?? ""),
   };
 }
 
@@ -162,6 +179,35 @@ describe("/isomux-storage access boundary", () => {
       "Storage usage is only available to signed-in office members.",
     );
     expect(h.measurements()).toBe(0);
+  });
+
+  it("words the report for each reader: labels, sizes, the age and the locations", async () => {
+    claimUser("Owner", { role: "owner", allowedRooms: [], notifRooms: [] });
+    const h = harness();
+    await h.run("Owner");
+    const es = translatorFor("es");
+    const spanish = localizeLogParts(es, h.reportParts());
+    expect(spanish).not.toBeNull();
+    // A table row: the category label and the size in the reader's words.
+    const transcripts = es.t(CATEGORY_KEYS.transcripts);
+    expect(transcripts).not.toBe(
+      translatorFor("en").t(CATEGORY_KEYS.transcripts),
+    );
+    expect(spanish).toContain(
+      `| ${transcripts} | ${formatBytes("es", 10 * MB)} | 4 |`,
+    );
+    // The measurement age, measured just now.
+    expect(spanish).toContain(
+      es.t("storageReport.measured", { age: es.t("common.justNow") }),
+    );
+    // A location: the lowercased label, then the path as written.
+    expect(spanish).toContain(
+      `${es.t(CATEGORY_KEYS.backups).toLocaleLowerCase("es")} \`/srv/office-backups\``,
+    );
+    // The English render is the report an English reader saw before.
+    expect(localizeLogParts(translatorFor("en"), h.reportParts())).toBe(
+      h.report(),
+    );
   });
 
   it("echoes the invocation before answering", async () => {

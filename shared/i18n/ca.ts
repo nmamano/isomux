@@ -2105,6 +2105,7 @@ Coses que pots fer per ell:
   "contextMenu.resume": "Reprèn",
   "common.current": "(actual)",
   "common.date": "{date}",
+  "common.value": "{value}",
   "contextMenu.branched": "(ramificada)",
   "contextMenu.killAgent": "Elimina l'agent",
   "contextMenu.moveToBackRoom": "Mou a la rebotiga",

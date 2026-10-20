@@ -93,11 +93,29 @@ const preparedLogEntries = new WeakSet<LogEntry>();
 // secret shape (task c37a7365): a translated template can put a label
 // ("secret:") next to a value where English has none, and the UI would show
 // that render. The English content was redacted as a whole, so it stays.
-function messageCleanInEveryLanguage(message: LogPart[]): boolean {
+function messageCleanInEveryLanguage(message: unknown): boolean {
+  if (!Array.isArray(message)) return false;
   return SUPPORTED_LANGUAGES.every(({ code }) => {
-    const text = renderLogText(translatorFor(code), message);
+    const text = renderLogText(translatorFor(code), message as LogPart[]);
     return redactSecretText(text) === text;
   });
+}
+
+// Every part list an entry stores goes through this one check: the entry's
+// `message` and the /help body's metadata.helpContentMessage. A list that
+// fails is dropped alone; the English text beside it stays.
+function dropUncleanMessages(entry: LogEntry): void {
+  if (entry.message && !messageCleanInEveryLanguage(entry.message))
+    delete entry.message;
+  const metadata = entry.metadata;
+  if (
+    metadata &&
+    Object.hasOwn(metadata, "helpContentMessage") &&
+    !messageCleanInEveryLanguage(metadata.helpContentMessage)
+  ) {
+    const { helpContentMessage: _dropped, ...rest } = metadata;
+    entry.metadata = rest;
+  }
 }
 
 export function prepareLogEntry(entry: LogEntry): LogEntry {
@@ -105,8 +123,7 @@ export function prepareLogEntry(entry: LogEntry): LogEntry {
   try {
     const scanned = redactLogEntry(entry);
     const out = scanned === entry ? { ...entry } : scanned;
-    if (out.message && !messageCleanInEveryLanguage(out.message))
-      delete out.message;
+    dropUncleanMessages(out);
     preparedLogEntries.add(out);
     return out;
   } catch {

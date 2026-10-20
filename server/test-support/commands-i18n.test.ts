@@ -1,12 +1,11 @@
 // Server-produced text reaches a user in the user's language, over the real
 // paths (internal-docs/i18n-loop.md, S7; task c37a7365). Four claims:
 //
-//   1. a slash command's reply is worded for the user who typed it: Spanish
-//      for a user whose stored language is `es`, English for one who never
-//      chose;
-//   2. a choice card, its text fallback, and a system line are stored in
-//      English and carry a message each reader words in their own language,
-//      whoever typed (or nobody, for a permission the BACKEND asked for);
+//   1. a slash command's reply is stored in English and carries a message
+//      each reader words in their own language, whoever typed it;
+//   2. a choice card, its text fallback, and a system line are stored the
+//      same way, whoever typed (or nobody, for a permission the BACKEND asked
+//      for);
 //   3. an API error stays English for a Spanish user (ruling 2);
 //   4. an AGENT's message is agent INPUT, not a command: it reaches the backend
 //      as its literal text and produces no Isomux response entry in any
@@ -107,59 +106,64 @@ function systemEntries(srv: TestServer, agentId: string): string[] {
     .map((e: LogEntry) => e.content);
 }
 
-describe("a slash command answers in the typing user's language", () => {
-  it("gives a Spanish user Spanish and a never-chose user English", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+describe("a slash command's reply is stored in English and worded per reader", () => {
+  // The typist reads Spanish: the old writer put Spanish into a log every
+  // reader of the agent sees.
+  async function spanishTypist(srv: TestServer) {
+    const owner = await srv.seedOwner("Boss");
     setLanguage(owner.username, "es");
-    const room = server.agentManager.getRooms()[0];
-    const agent = await spawnAgent(server, "A", room.id, owner.username);
-
-    // The ENABLING CONDITION for this test: the sender is a known human whose
-    // stored preference is Spanish. Asserted so a resolver that stopped reading
-    // the preference could not pass by accident.
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "A", room.id, owner.username);
+    // The ENABLING CONDITION, asserted so a writer that still worded the
+    // reply for the typist would fail on its stored text.
     expect(getUserByName(owner.username)?.language).toBe("es");
+    return { owner, agent };
+  }
 
+  it("stores /resume's nothing-to-resume line in English, worded per reader", async () => {
+    server = await startTestServer();
+    const { owner, agent } = await spanishTypist(server);
     // /resume on a fresh agent answers with one of its two "nothing to
     // resume" lines (/clear answers with nothing since 2026-09-13: the empty
     // state is its confirmation).
-    const spanishReplies = [
-      inLanguage("es", "commands.resume.none"),
-      inLanguage("es", "commands.resume.noOthers"),
-    ];
-    const { t: en } = translatorFor("en");
-    const englishReplies = [
-      en("commands.resume.none"),
-      en("commands.resume.noOthers"),
-    ];
     await server.agentManager.sendMessage(agent.id, "/resume", owner.username);
-    expect(
-      systemEntries(server, agent.id).some((e) => spanishReplies.includes(e)),
-    ).toBe(true);
-
-    // Same command, a user who never chose a language: English.
-    const member = await server.seedMember("Sam");
-    expect(getUserByName(member.username)?.language).toBeNull();
-    const other = await spawnAgent(server, "B", room.id, member.username);
-    await server.agentManager.sendMessage(other.id, "/resume", member.username);
-    expect(
-      systemEntries(server, other.id).some((e) => englishReplies.includes(e)),
-    ).toBe(true);
+    // Found by either language, so a Spanish line fails on its words.
+    const keys = ["commands.resume.none", "commands.resume.noOthers"] as const;
+    const texts = (k: (typeof keys)[number]) =>
+      ["en", "es"].map((l) => translatorFor(l as "en" | "es").t(k));
+    const entries = server.agentManager
+      .getAgentLogs(agent.id)
+      .filter((e) => e.kind === "system");
+    const key = keys.find((k) =>
+      entries.some((e) => texts(k).includes(e.content)),
+    );
+    expect(key).toBeDefined();
+    expectWorded(
+      entries.find((e) => texts(key!).includes(e.content)),
+      key!,
+    );
   });
 
-  it("translates a command's DESCRIPTION in /help, from the catalog", async () => {
+  it("stores /help's header and body in English, with the body worded per reader", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    setLanguage(owner.username, "es");
-    const room = server.agentManager.getRooms()[0];
-    const agent = await spawnAgent(server, "A", room.id, owner.username);
-
+    const { owner, agent } = await spanishTypist(server);
     await server.agentManager.sendMessage(agent.id, "/help", owner.username);
     const helpEntry = server.agentManager
       .getAgentLogs(agent.id)
       .find((entry) => typeof entry.metadata?.helpContent === "string");
-    const help = helpEntry?.metadata?.helpContent as string | undefined;
-    expect(help).toBeDefined();
+    expectWorded(helpEntry, "commands.help.header");
+
+    // The English body stays where older clients and agents read it, and the
+    // parts beside it word the same text.
+    const english = helpEntry?.metadata?.helpContent as string;
+    const parts = helpEntry?.metadata?.helpContentMessage;
+    expect(wordedIn("en", parts)).toBe(english);
+    expect(
+      english.indexOf(translatorFor("en").t("commands.help.receptionist")),
+    ).toBe(0);
+
+    const help = localizeLogParts(translatorFor("es"), parts);
+    expect(help).not.toBeNull();
     const { t } = translatorFor("es");
     // The Receptionist pointer and the docs link lead; the reference material
     // follows, and the skill sections come after the command list.
@@ -175,7 +179,6 @@ describe("a slash command answers in the typing user's language", () => {
     );
     expect(skillsAt).toBeGreaterThan(docsAt);
     expect(commandsAt).toBeGreaterThan(skillsAt);
-    expect(helpEntry?.content).toBe(t("commands.help.header"));
     const diffLine = help!
       .split("\n")
       .find((line) => line.includes("`/isomux-diff`"));
@@ -219,16 +222,20 @@ describe("a slash command answers in the typing user's language", () => {
     }
   });
 
-  it("refuses an unsupported command in the user's language", async () => {
+  it("stores an unsupported command's refusal in English, worded per reader", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    setLanguage(owner.username, "ca");
-    const room = server.agentManager.getRooms()[0];
-    const agent = await spawnAgent(server, "A", room.id, owner.username);
-
+    const { owner, agent } = await spanishTypist(server);
     await server.agentManager.sendMessage(agent.id, "/compact", owner.username);
-    expect(systemEntries(server, agent.id)).toContain(
-      inLanguage("ca", "commands.compact.message"),
+    // Found by either language, so a Spanish line fails on its words.
+    const texts = [
+      translatorFor("en").t("commands.compact.message"),
+      inLanguage("es", "commands.compact.message"),
+    ];
+    expectWorded(
+      server.agentManager
+        .getAgentLogs(agent.id)
+        .find((e) => e.kind === "system" && texts.includes(e.content)),
+      "commands.compact.message",
     );
   });
 });
@@ -559,14 +566,10 @@ describe("what stays English", () => {
     const english = await badRequest();
     expect(english?.length).toBeGreaterThan(0);
 
-    // The ENABLING CONDITION: the same caller, now on Spanish, does get Spanish
-    // from a surface that follows the reader.
+    // The ENABLING CONDITION: the same caller is now on Spanish, and the
+    // answer does not follow.
     setLanguage(owner.username, "es");
-    await server.agentManager.sendMessage(agent.id, "/compact", owner.username);
-    expect(systemEntries(server, agent.id)).toContain(
-      inLanguage("es", "commands.compact.message"),
-    );
-
+    expect(getUserByName(owner.username)?.language).toBe("es");
     expect(await badRequest()).toBe(english);
   });
 

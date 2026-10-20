@@ -1885,6 +1885,7 @@ App 的一些原则：
   "contextMenu.resume": "继续",
   "common.current": "（当前）",
   "common.date": "{date}",
+  "common.value": "{value}",
   "contextMenu.branched": "（已创建分支）",
   "contextMenu.killAgent": "终止智能体",
   "contextMenu.moveToBackRoom": "移到后屋",

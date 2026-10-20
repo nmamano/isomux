@@ -2056,6 +2056,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // A date alone, worded in the reader's format: for a log line that
   // shows a date as a part of its own.
   "common.date": "{date}",
+  // A value alone, worded in the reader's format: a size or a count in a
+  // table cell of a log line.
+  "common.value": "{value}",
   "contextMenu.branched": "(branched)",
   "contextMenu.killAgent": "Kill Agent",
   "contextMenu.moveToBackRoom": "Move to back room",

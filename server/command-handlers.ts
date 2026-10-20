@@ -12,12 +12,14 @@ import type {
 import { ENGINE_NAMES } from "../shared/types.ts";
 import { sessionResumeLabel } from "../shared/session-label.ts";
 import { isBackSeat } from "../shared/desks.ts";
-import { translatorForUsername } from "./i18n.ts";
+import { english } from "./i18n.ts";
+import { errorText } from "./localized-error.ts";
 import { getUserByName } from "./users.ts";
-import type { Translator } from "../shared/i18n/translate.ts";
 import {
   joinLogText,
+  logParts,
   msg,
+  renderLogText,
   type ChoiceInput,
   type LogMessage,
   type LogPart,
@@ -25,7 +27,6 @@ import {
 } from "../shared/i18n/log-message.ts";
 import { COMMAND_DESCRIPTION_KEYS } from "../shared/i18n/command-keys.ts";
 import { keyFrom } from "../shared/i18n/translate.ts";
-import { formatDecimal, formatNumber } from "../shared/i18n/number.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import {
   effortLevelsFor,
@@ -34,7 +35,6 @@ import {
   knownModelFamiliesFor,
 } from "../shared/types.ts";
 import { formatPrefix } from "../shared/identity.ts";
-import { errMessage } from "../shared/errors.ts";
 import { listAgentSessions, loadAgentHistory } from "./persistence.ts";
 import { tildifyCwd } from "./cwd-utils.ts";
 import {
@@ -121,8 +121,8 @@ function buildMeta(
 // group carries the full name list (canonical + aliases) and a shared
 // description. Used by /help to render e.g. `/diff (or /isomux-diff)`
 // instead of two separate lines for the same handler.
-type AliasItem = { name: string; description?: string; aliasFor?: string };
-type AliasGroup = { names: string[]; description?: string };
+type AliasItem = { name: string; description?: LogText; aliasFor?: string };
+type AliasGroup = { names: string[]; description?: LogText };
 function groupByAlias(items: AliasItem[]): AliasGroup[] {
   const canonicalIndex = new Map<string, AliasGroup>();
   for (const it of items) {
@@ -151,19 +151,19 @@ function groupByAlias(items: AliasItem[]): AliasGroup[] {
 
 // Render one alias group as a single bullet line. Shortest name leads
 // (friendlier shorthand reads first); the rest go in parens.
-function formatAliasGroup(
-  t: Translator["t"],
-  names: string[],
-  description?: string,
-): string {
+function formatAliasGroup(names: string[], description?: LogText): LogPart[] {
   const sorted = [...names].sort((a, b) => a.length - b.length);
   const primary = `\`/${sorted[0]}\``;
   const others = sorted.slice(1).map((n) => `\`/${n}\``);
   const head =
     others.length > 0
-      ? t("commands.help.aliasGroup", { primary, others: others.join(", ") })
+      ? msg("commands.help.aliasGroup", { primary, others: others.join(", ") })
       : primary;
-  return description ? `  ${head} - ${description}` : `  ${head}`;
+  return joinLogText([
+    "  ",
+    head,
+    description ? [" - ", ...logParts(description)] : "",
+  ]);
 }
 
 // What a slash command became. true: handled here, nothing goes to the
@@ -218,8 +218,8 @@ interface HandlerDeps {
   emitLoginInstructionsFor: (
     agentId: string,
     managed: ManagedAgent,
-    // The person who typed /login, so the explanatory text reads in their
-    // language rather than the agent owner's.
+    // The person who typed /login: their role decides whether they get the
+    // office sign-in.
     username?: string,
   ) => void;
   emitLogoutAffordanceFor: (
@@ -318,7 +318,6 @@ function turnRunning(managed: ManagedAgent): boolean {
 export function createCommandHandling(deps: HandlerDeps) {
   const commandHandlers: Record<string, HandlerFn> = {
     async clear(agentId, _managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       // The same reset as POST new-conversation: the agent goes dormant until
@@ -329,7 +328,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.emitEphemeralLog(
           agentId,
           "error",
-          t("commands.clear.failed", { error: errMessage(err) }),
+          msg("commands.clear.failed", { error: errorText(err) }),
         );
         deps.updateState(agentId, "error");
       }
@@ -337,7 +336,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async context(agentId, managed, _args, rawText, username, device) {
-      const { t, language } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       const headerLines = (u: {
@@ -345,7 +343,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         totalTokens: number;
         maxTokens: number;
         percentage: number;
-      }): string[] => {
+      }): LogText[] => {
         const pct = Math.round(u.percentage);
         const barLen = 30;
         // Clamped into [0, barLen]: a reading outside 0-100% (a backend
@@ -359,10 +357,10 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
         const bar = "█".repeat(filled) + "░".repeat(barLen - filled);
         return [
-          t("commands.context.header", {
+          msg("commands.context.header", {
             model: u.model,
-            used: formatNumber(language, u.totalTokens),
-            max: formatNumber(language, u.maxTokens),
+            used: { number: u.totalTokens },
+            max: { number: u.maxTokens },
             percent: pct,
           }),
           `\`${bar}\``,
@@ -372,25 +370,27 @@ export function createCommandHandling(deps: HandlerDeps) {
       // read fails: fall back to the last committed snapshot - the same
       // reading the battery pill shows. Reading the snapshot
       // does NOT wake a dormant session.
-      const snapshotFallback = (note?: (age: string) => string): boolean => {
+      const snapshotFallback = (
+        note?: (age: LogMessage) => LogMessage,
+      ): boolean => {
         const snap = managed.contextUsage;
         if (!snap) return false;
-        const lines = [...headerLines(snap)];
+        const lines: LogText[] = [...headerLines(snap)];
         if (note) {
           const ageMs = Date.now() - snap.sampledAtMs;
           const ageMin = Math.round(ageMs / 60_000);
           const age =
             ageMin < 1
-              ? t("commands.context.ageUnderMinute")
+              ? msg("commands.context.ageUnderMinute")
               : ageMin < 60
-                ? t("commands.context.ageMinutes", { minutes: ageMin })
-                : t("commands.context.ageHoursMinutes", {
+                ? msg("commands.context.ageMinutes", { minutes: ageMin })
+                : msg("commands.context.ageHoursMinutes", {
                     hours: Math.floor(ageMin / 60),
                     minutes: ageMin % 60,
                   });
           lines.push("", note(age));
         }
-        deps.addLogEntry(agentId, "system", lines.join("\n"));
+        deps.addLogEntry(agentId, "system", joinLogText(lines, "\n"));
         return true;
       };
       if (!managed.sessionManager.session) {
@@ -398,7 +398,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         // lifecycle note - remaining context doesn't change when the session
         // process is released).
         if (snapshotFallback()) return true;
-        deps.addLogEntry(agentId, "system", t("commands.context.noSession"));
+        deps.addLogEntry(agentId, "system", msg("commands.context.noSession"));
         return true;
       }
       try {
@@ -406,44 +406,46 @@ export function createCommandHandling(deps: HandlerDeps) {
         if (!ctx) {
           if (
             snapshotFallback((age) =>
-              t("commands.context.staleUnavailable", { age }),
+              msg("commands.context.staleUnavailable", { age }),
             )
           )
             return true;
           deps.addLogEntry(
             agentId,
             "system",
-            t("commands.context.unavailable"),
+            msg("commands.context.unavailable"),
           );
           return true;
         }
-        const lines: string[] = [...headerLines(ctx)];
+        const lines: LogText[] = [...headerLines(ctx)];
 
         if ((ctx.categories?.length ?? 0) > 0 && ctx.categories) {
           lines.push("");
           for (const cat of ctx.categories) {
             if (cat.tokens > 0) {
-              const catPct = ((cat.tokens / ctx.maxTokens) * 100).toFixed(1);
-              lines.push(
-                `  ${t("commands.context.category", {
+              const catPct = (cat.tokens / ctx.maxTokens) * 100;
+              lines.push([
+                "  ",
+                msg("commands.context.category", {
                   name: cat.name,
-                  tokens: formatNumber(language, cat.tokens),
-                  percent: catPct,
-                })}`,
-              );
+                  tokens: { number: cat.tokens },
+                  percent: { number: catPct, digits: 1 },
+                }),
+              ]);
             }
           }
         }
 
         if ((ctx.memoryFiles?.length ?? 0) > 0 && ctx.memoryFiles) {
-          lines.push(`\n${t("commands.context.memoryFiles")}`);
+          lines.push(["\n", msg("commands.context.memoryFiles")]);
           for (const f of ctx.memoryFiles) {
-            lines.push(
-              `  ${t("commands.context.memoryFile", {
+            lines.push([
+              "  ",
+              msg("commands.context.memoryFile", {
                 path: f.path,
-                tokens: formatNumber(language, f.tokens),
-              })}`,
-            );
+                tokens: { number: f.tokens },
+              }),
+            ]);
           }
         }
 
@@ -451,14 +453,15 @@ export function createCommandHandling(deps: HandlerDeps) {
           (ctx.systemPromptSections?.length ?? 0) > 0 &&
           ctx.systemPromptSections
         ) {
-          lines.push(`\n${t("commands.context.systemPrompt")}`);
+          lines.push(["\n", msg("commands.context.systemPrompt")]);
           for (const s of ctx.systemPromptSections) {
-            lines.push(
-              `  ${t("commands.context.systemPromptSection", {
+            lines.push([
+              "  ",
+              msg("commands.context.systemPromptSection", {
                 name: s.name,
-                tokens: formatNumber(language, s.tokens),
-              })}`,
-            );
+                tokens: { number: s.tokens },
+              }),
+            ]);
           }
         }
 
@@ -466,42 +469,44 @@ export function createCommandHandling(deps: HandlerDeps) {
           const compactPct = Math.round(
             (ctx.autoCompactThreshold / ctx.maxTokens) * 100,
           );
-          lines.push(
-            `\n${t("commands.context.autoCompact", {
+          lines.push([
+            "\n",
+            msg("commands.context.autoCompact", {
               percent: compactPct,
-              tokens: formatNumber(language, ctx.autoCompactThreshold),
-            })}`,
-          );
+              tokens: { number: ctx.autoCompactThreshold },
+            }),
+          ]);
         }
 
-        deps.addLogEntry(agentId, "system", lines.join("\n"));
+        deps.addLogEntry(agentId, "system", joinLogText(lines, "\n"));
       } catch (err) {
         if (
-          snapshotFallback((age) => t("commands.context.staleFailed", { age }))
+          snapshotFallback((age) =>
+            msg("commands.context.staleFailed", { age }),
+          )
         )
           return true;
         deps.addLogEntry(
           agentId,
           "system",
-          t("commands.context.failed", { error: errMessage(err) }),
+          msg("commands.context.failed", { error: errorText(err) }),
         );
       }
       return true;
     },
 
     async help(agentId, managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       // The Receptionist pointer and the docs link lead: anything conceptual is
       // a question for the Receptionist, so a reader meets that before the
       // reference material they came for.
-      const lines: string[] = [
-        t("commands.help.receptionist"),
-        t("commands.help.docs", { url: DOCS_URL }),
+      const lines: LogText[] = [
+        msg("commands.help.receptionist"),
+        msg("commands.help.docs", { url: DOCS_URL }),
         // Skills are listed on the Skills page, not here (Nil, 2026-10-12).
-        t("commands.help.skills", { url: SKILLS_PAGE_PATH }),
+        msg("commands.help.skills", { url: SKILLS_PAGE_PATH }),
       ];
 
       // Collapse aliased entries (e.g. `/diff` aliasFor `/isomux-diff`) into a
@@ -515,30 +520,34 @@ export function createCommandHandling(deps: HandlerDeps) {
           const key = keyFrom(COMMAND_DESCRIPTION_KEYS, c.name);
           return {
             name: c.name,
-            description: key ? t(key) : c.description,
+            description: key ? msg(key) : c.description,
             aliasFor: c.aliasFor,
           };
         }),
       );
-      const cmdList = cmdGroups
-        .map((g) => formatAliasGroup(t, g.names, g.description))
-        .join("\n");
-      lines.push(`${t("commands.help.commands")}\n${cmdList}`);
+      const cmdList = joinLogText(
+        cmdGroups.map((g) => formatAliasGroup(g.names, g.description)),
+        "\n",
+      );
+      lines.push(joinLogText([msg("commands.help.commands"), "\n", cmdList]));
 
-      deps.addLogEntry(agentId, "system", t("commands.help.header"), {
-        helpContent: lines.join("\n"),
+      // The body is English for agents and older clients, and its parts are
+      // worded by each reader's UI (helpContentMessage, task c37a7365).
+      const body = joinLogText(lines, "\n");
+      deps.addLogEntry(agentId, "system", msg("commands.help.header"), {
+        helpContent: renderLogText(english, body),
+        helpContentMessage: body,
       });
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
 
     async resume(agentId, managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       const sessions = listAgentSessions(agentId);
       if (sessions.length === 0) {
-        deps.emitEphemeralLog(agentId, "system", t("commands.resume.none"));
+        deps.emitEphemeralLog(agentId, "system", msg("commands.resume.none"));
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
@@ -579,7 +588,11 @@ export function createCommandHandling(deps: HandlerDeps) {
         }
       }
       if (pickable.length === 0) {
-        deps.emitEphemeralLog(agentId, "system", t("commands.resume.noOthers"));
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          msg("commands.resume.noOthers"),
+        );
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
@@ -617,14 +630,13 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async model(agentId, managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       if (managed.info.agentType === "opencode") {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          t("commands.model.openCodeUnsupported"),
+          msg("commands.model.openCodeUnsupported"),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;
@@ -658,14 +670,13 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async effort(agentId, managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       if (managed.info.agentType === "opencode") {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          t("commands.effort.openCodeSettings"),
+          msg("commands.effort.openCodeSettings"),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;
@@ -686,7 +697,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          t("commands.effort.unsupported", { model }),
+          msg("commands.effort.unsupported", { model }),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;
@@ -727,7 +738,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     // menu is rebuilt. OpenCode loads plugins and config once per server, so
     // a member who edits one asks for a new server.
     async reloadPlugins(agentId, managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       deps.emitEphemeralLog(
         agentId,
         "user_message",
@@ -741,7 +751,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.emitEphemeralLog(
             agentId,
             "system",
-            t("commands.reloadPlugins.busy"),
+            msg("commands.reloadPlugins.busy"),
           );
           return true;
         }
@@ -753,7 +763,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.emitEphemeralLog(
             agentId,
             "system",
-            t("commands.reloadPlugins.nextMessage"),
+            msg("commands.reloadPlugins.nextMessage"),
           );
           return true;
         };
@@ -765,7 +775,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.emitEphemeralLog(
             agentId,
             "error",
-            t("commands.reloadPlugins.failed", { error: errMessage(err) }),
+            msg("commands.reloadPlugins.failed", { error: errorText(err) }),
           );
           return true;
         }
@@ -776,8 +786,8 @@ export function createCommandHandling(deps: HandlerDeps) {
           .map((command) => command.name)
           .filter((name) => !name.startsWith("mcp__"));
         deps.refreshSkillMenu(agentId);
-        const lines = [
-          t(
+        const lines: LogText[] = [
+          msg(
             reload.toolsChanged
               ? "commands.reloadPlugins.reloadedToolsChanged"
               : "commands.reloadPlugins.reloaded",
@@ -785,9 +795,9 @@ export function createCommandHandling(deps: HandlerDeps) {
         ];
         if (reload.errorCount > 0)
           lines.push(
-            t("commands.reloadPlugins.errors", { count: reload.errorCount }),
+            msg("commands.reloadPlugins.errors", { count: reload.errorCount }),
           );
-        deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
+        deps.emitEphemeralLog(agentId, "system", joinLogText(lines, "\n"));
         return true;
       }
       deps.refreshSkillMenu(agentId);
@@ -795,7 +805,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          t(
+          msg(
             engine === "claude"
               ? "commands.reloadPlugins.nextMessage"
               : "commands.reloadPlugins.menuRefreshed",
@@ -808,7 +818,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          t(
+          msg(
             outcome === "reloaded"
               ? "commands.reloadPlugins.done"
               : "commands.reloadPlugins.pending",
@@ -818,7 +828,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.emitEphemeralLog(
           agentId,
           "error",
-          t("commands.reloadPlugins.failed", { error: errMessage(err) }),
+          msg("commands.reloadPlugins.failed", { error: errorText(err) }),
         );
       }
       return true;
@@ -827,7 +837,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     // Toggles the engine's own plan mode. `/plan <text>` turns it on and sends
     // the text, as in Claude Code.
     async plan(agentId, managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       const text = rawText.replace(/^\s*\/\S+/, "").trim();
       if (!deps.planModeAvailable(managed)) {
@@ -835,7 +844,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          t("commands.plan.unavailable", {
+          msg("commands.plan.unavailable", {
             engine: ENGINE_NAMES[managed.info.agentType],
           }),
         );
@@ -853,14 +862,14 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.addLogEntry(
             agentId,
             "error",
-            t("systemEntries.genericError", { error: errMessage(err) }),
+            msg("systemEntries.genericError", { error: errorText(err) }),
           );
           return true;
         }
         deps.addLogEntry(
           agentId,
           "system",
-          t(on ? "commands.plan.on" : "commands.plan.off"),
+          msg(on ? "commands.plan.on" : "commands.plan.off"),
         );
       }
       if (!text) return true;
@@ -876,7 +885,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async isomuxAllHands(agentId, _managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
@@ -890,7 +898,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         roomMap.get(roomIdx)!.push(a);
       }
 
-      const lines: string[] = [];
+      const lines: LogText[] = [];
       const sortedRooms = [...roomMap.keys()].sort((a, b) => a - b);
 
       for (const room of sortedRooms) {
@@ -900,41 +908,55 @@ export function createCommandHandling(deps: HandlerDeps) {
         const roomAgents = inRoom
           .filter((a) => !isBackSeat(a.info.desk))
           .sort((a, b) => a.info.desk - b.info.desk);
-        lines.push(t("commands.isomuxAllHands.room", { number: room + 1 }));
+        lines.push(msg("commands.isomuxAllHands.room", { number: room + 1 }));
         lines.push("");
 
         for (const a of roomAgents) {
-          const selfTag =
-            a.info.id === agentId ? `  ${t("commands.isomuxAllHands.me")}` : "";
+          const selfTag: LogText =
+            a.info.id === agentId
+              ? ["  ", msg("commands.isomuxAllHands.me")]
+              : "";
           const modelLabel = modelListingLabel(
             a.info.agentType,
             a.info.modelFamily,
             a.info.claudeFamilyModels,
           );
           const topic = a.info.topic;
-          const desk = t("commands.isomuxAllHands.desk", {
+          const desk = msg("commands.isomuxAllHands.desk", {
             number: a.info.desk + 1,
           });
-          const header = `**${a.info.name}** (${desk})${selfTag} - ${modelLabel} - \`${a.info.cwd}\``;
+          const header = joinLogText([
+            `**${a.info.name}** (`,
+            desk,
+            ")",
+            selfTag,
+            ` - ${modelLabel} - \`${a.info.cwd}\``,
+          ]);
           if (topic) {
             lines.push(header);
-            lines.push(`  ${t("commands.isomuxAllHands.topic", { topic })}`);
+            lines.push(["  ", msg("commands.isomuxAllHands.topic", { topic })]);
           } else {
-            lines.push(`<span style="color: var(--text-dim)">${header}</span>`);
+            lines.push(
+              joinLogText([
+                '<span style="color: var(--text-dim)">',
+                header,
+                "</span>",
+              ]),
+            );
           }
           lines.push("");
         }
         if (backCount > 0) {
           lines.push(
-            t("commands.isomuxAllHands.backRoom", { count: backCount }),
+            msg("commands.isomuxAllHands.backRoom", { count: backCount }),
           );
           lines.push("");
         }
       }
 
-      lines.push(t("commands.isomuxAllHands.footer"));
+      lines.push(msg("commands.isomuxAllHands.footer"));
 
-      deps.addLogEntry(agentId, "system", lines.join("\n"));
+      deps.addLogEntry(agentId, "system", joinLogText(lines, "\n"));
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
@@ -947,13 +969,12 @@ export function createCommandHandling(deps: HandlerDeps) {
       username,
       device,
     ) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       deps.addLogEntry(
         agentId,
         "system",
-        t("commands.isomuxSystemPrompt.header"),
+        msg("commands.isomuxSystemPrompt.header"),
         { systemPrompt: true },
       );
       deps.updateState(agentId, "waiting_for_response");
@@ -968,7 +989,6 @@ export function createCommandHandling(deps: HandlerDeps) {
       username,
       device,
     ) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
@@ -1002,7 +1022,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.addLogEntry(
             agentId,
             "system",
-            t("commands.isomuxCronjobSystemPrompt.noSchedules"),
+            msg("commands.isomuxCronjobSystemPrompt.noSchedules"),
           );
           deps.updateState(agentId, "waiting_for_response");
           return true;
@@ -1040,23 +1060,23 @@ export function createCommandHandling(deps: HandlerDeps) {
 
       if (!target) {
         if (byNameMatches.length > 1) {
-          const lines = [
-            t("commands.isomuxCronjobSystemPrompt.ambiguous", { query }),
+          const lines: LogText[] = [
+            msg("commands.isomuxCronjobSystemPrompt.ambiguous", { query }),
           ];
           for (const c of byNameMatches) lines.push(`  \`${c.id}\``);
-          deps.addLogEntry(agentId, "system", lines.join("\n"));
+          deps.addLogEntry(agentId, "system", joinLogText(lines, "\n"));
         } else {
           deps.addLogEntry(
             agentId,
             "system",
-            t("commands.isomuxCronjobSystemPrompt.noMatch", { query }),
+            msg("commands.isomuxCronjobSystemPrompt.noMatch", { query }),
           );
         }
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
 
-      const header = t("commands.isomuxCronjobSystemPrompt.header", {
+      const header = msg("commands.isomuxCronjobSystemPrompt.header", {
         name: target.name,
       });
       deps.addLogEntry(agentId, "system", header, {
@@ -1068,7 +1088,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async isomuxEdit(agentId, managed, args, rawText, username, device) {
-      const { t, language } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
@@ -1077,7 +1096,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          t("commands.isomuxEdit.usage", {
+          msg("commands.isomuxEdit.usage", {
             usage: EDIT_USAGE,
             cwd: managed.info.cwd,
           }),
@@ -1087,7 +1106,11 @@ export function createCommandHandling(deps: HandlerDeps) {
       }
       const resolved = resolveEditorPath(rawPath, managed.info.cwd);
       if (resolved.kind === "bad_path") {
-        deps.addLogEntry(agentId, "system", t("commands.isomuxEdit.emptyPath"));
+        deps.addLogEntry(
+          agentId,
+          "system",
+          msg("commands.isomuxEdit.emptyPath"),
+        );
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
@@ -1096,34 +1119,34 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          t("systemEntries.pathRefusal.notFound", { path: resolved.path }),
+          msg("systemEntries.pathRefusal.notFound", { path: resolved.path }),
         );
       } else if (probe.kind === "not_file") {
         deps.addLogEntry(
           agentId,
           "system",
-          t("systemEntries.pathRefusal.notFile", { path: resolved.path }),
+          msg("systemEntries.pathRefusal.notFile", { path: resolved.path }),
         );
       } else if (probe.kind === "binary") {
         deps.addLogEntry(
           agentId,
           "system",
-          t("systemEntries.pathRefusal.binary", { path: resolved.path }),
+          msg("systemEntries.pathRefusal.binary", { path: resolved.path }),
         );
       } else if (probe.kind === "too_large") {
         deps.addLogEntry(
           agentId,
           "system",
-          t("systemEntries.pathRefusal.tooLarge", {
+          msg("systemEntries.pathRefusal.tooLarge", {
             path: resolved.path,
-            size: `${formatDecimal(language, probe.size / 1024, 1)} KB`,
+            size: { bytes: probe.size },
           }),
         );
       } else if (probe.kind === "io_error") {
         deps.addLogEntry(
           agentId,
           "system",
-          t("systemEntries.fileOpenFailed", {
+          msg("systemEntries.fileOpenFailed", {
             path: resolved.path,
             message: probe.message,
           }),
@@ -1132,7 +1155,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          t("systemEntries.pathRefusal.credential", { path: resolved.path }),
+          msg("systemEntries.pathRefusal.credential", { path: resolved.path }),
         );
       } else {
         deps.addLogEntry(
@@ -1151,7 +1174,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async isomuxDiff(agentId, managed, args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
@@ -1164,30 +1186,27 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.addLogEntry(
             agentId,
             "system",
-            t("commands.isomuxDiff.notDirectory", { path: result.attempted }),
+            msg("commands.isomuxDiff.notDirectory", { path: result.attempted }),
           );
           break;
         case "not_repo":
           deps.addLogEntry(
             agentId,
             "system",
-            t("systemEntries.diffNotRepo", { path: result.cwd }),
+            msg("systemEntries.diffNotRepo", { path: result.cwd }),
           );
           break;
         case "git_error":
-          deps.addLogEntry(
-            agentId,
-            "system",
-            `${t("systemEntries.diffFailed", {
-              path: result.cwd,
-            })}\n\n\`\`\`\n${result.message}\n\`\`\``,
-          );
+          deps.addLogEntry(agentId, "system", [
+            msg("systemEntries.diffFailed", { path: result.cwd }),
+            `\n\n\`\`\`\n${result.message}\n\`\`\``,
+          ]);
           break;
         case "clean":
           deps.addLogEntry(
             agentId,
             "system",
-            t("systemEntries.diffClean", { path: result.cwd }),
+            msg("systemEntries.diffClean", { path: result.cwd }),
           );
           break;
         case "ok":
@@ -1227,21 +1246,23 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async usage(agentId, managed, _args, rawText, username, device) {
-      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       deps.addLogEntry(
         agentId,
         "system",
-        [
-          t(
-            managed.info.agentType === "opencode"
-              ? "commands.usage.unavailable"
-              : "commands.usage.meter",
-          ),
-          "",
-          t("commands.usage.office"),
-        ].join("\n"),
+        joinLogText(
+          [
+            msg(
+              managed.info.agentType === "opencode"
+                ? "commands.usage.unavailable"
+                : "commands.usage.meter",
+            ),
+            "",
+            msg("commands.usage.office"),
+          ],
+          "\n",
+        ),
       );
       deps.updateState(agentId, "waiting_for_response");
       return true;
@@ -1266,7 +1287,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async isomuxStorage(agentId, _managed, _args, rawText, username, device) {
-      const i18n = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       // Same gate as GET /api/storage/usage: office:read, which every human
@@ -1278,7 +1298,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          i18n.t("commands.isomuxStorage.forbidden"),
+          msg("commands.isomuxStorage.forbidden"),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;
@@ -1307,7 +1327,6 @@ export function createCommandHandling(deps: HandlerDeps) {
         agentId,
         "system",
         renderStorageReport(
-          i18n,
           // Per-agent detail and filesystem paths are owner-only, exactly as
           // on the route.
           user.role === "owner" ? usage : aggregateOnly(usage),
@@ -1380,7 +1399,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          translatorForUsername(username).t("commands.skill.queueFailed", {
+          msg("commands.skill.queueFailed", {
             command: rawText,
             error: result.error,
           }),
@@ -1452,7 +1471,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     username?: string,
     device?: string,
   ): Promise<SlashCommandResult> {
-    const { t } = translatorForUsername(username);
     const userMeta = buildMeta(username, device);
     const cfg: CommandConfig | undefined = commands[cmd];
 
@@ -1482,7 +1500,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
       }
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(t, cmd));
+      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
       return true;
     }
 
@@ -1516,7 +1534,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.emitEphemeralLog(
             agentId,
             "system",
-            t("commands.unsupported.engine", {
+            msg("commands.unsupported.engine", {
               name: cmd,
               engines: (cfg.engines ?? [])
                 .map((e) => ENGINE_NAMES[e])
@@ -1540,7 +1558,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
       }
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(t, cmd));
+      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
       return true;
     }
 
@@ -1552,7 +1570,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     deps.emitEphemeralLog(
       agentId,
       "system",
-      t("commands.unsupported.unknownCommand", { name: cmd }),
+      msg("commands.unsupported.unknownCommand", { name: cmd }),
     );
     return true;
   }

@@ -18,7 +18,7 @@ import {
   COMMAND_MESSAGE_KEYS,
 } from "./i18n/command-keys.ts";
 import { keyFrom } from "./i18n/translate.ts";
-import type { Translator } from "./i18n/translate.ts";
+import { msg, type LogMessage } from "./i18n/log-message.ts";
 import type { AgentBackendType } from "./types.ts";
 
 export type CommandType = "hardcoded" | "bundled-skill";
@@ -511,17 +511,18 @@ export function autocompleteCommands(engine: AgentBackendType): {
  * it: its text shows `/plugin add <name>`, and a bare `<name>` inside a
  * catalog value would parse as an unclosed rich-text tag (ruling 19).
  */
-export function unsupportedMessage(t: Translator["t"], name: string): string {
+export function unsupportedMessage(name: string): LogMessage {
   // Own-property lookups throughout: `name` is whatever the user typed after
   // the slash, so "constructor" and "__proto__" reach here.
   const cfg = Object.hasOwn(commands, name) ? commands[name] : undefined;
   const messageKey = keyFrom(COMMAND_MESSAGE_KEYS, name);
-  if (messageKey) return t(messageKey, { addCommand: PLUGIN_ADD_COMMAND });
+  if (messageKey) return msg(messageKey, { addCommand: PLUGIN_ADD_COMMAND });
   const descriptionKey = keyFrom(COMMAND_DESCRIPTION_KEYS, name);
   if (!cfg || !descriptionKey)
-    return t("commands.unsupported.notAvailable", { name });
-  const description = t(descriptionKey).toLowerCase();
+    return msg("commands.unsupported.notAvailable", { name });
+  // Lowercased by each reader, in the reader's language.
+  const description = { lower: msg(descriptionKey) };
   return cfg.type === "hardcoded"
-    ? t("commands.unsupported.hardcoded", { name, description })
-    : t("commands.unsupported.bundledSkill", { name, description });
+    ? msg("commands.unsupported.hardcoded", { name, description })
+    : msg("commands.unsupported.bundledSkill", { name, description });
 }

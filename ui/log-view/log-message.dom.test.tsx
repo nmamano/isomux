@@ -12,7 +12,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { render } = await import("@testing-library/react");
+const { render, fireEvent } = await import("@testing-library/react");
 const { LogEntryCard } = await import("./LogEntryCard.tsx");
 const { ChoiceInteractionCard } = await import("./LogView.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
@@ -158,6 +158,60 @@ describe("a choice card with a message", () => {
       expect(text).toContain(en.t(key));
       expect(text).not.toContain(es.t(key));
     }
+    view.unmount();
+  });
+});
+
+// /help keeps its body in metadata: helpContent in English, and the parts in
+// helpContentMessage (task c37a7365, slice 2). The help dialog shows the body
+// in the reader's language, or the English body whole when the parts are
+// unreadable.
+describe("the /help body with a message", () => {
+  const body = () => [
+    msg("systemEntries.effortCancelled"),
+    "\n\n",
+    msg("systemEntries.modelCancelled"),
+  ];
+  const englishBody = () =>
+    `${en.t("systemEntries.effortCancelled")}\n\n${en.t("systemEntries.modelCancelled")}`;
+
+  function openHelp(helpContentMessage: unknown) {
+    const help: LogEntry = {
+      id: "help",
+      agentId: "agent",
+      timestamp: 0,
+      kind: "system",
+      content: en.t("commands.help.header"),
+      message: [msg("commands.help.header")],
+      metadata: { helpContent: englishBody(), helpContentMessage },
+    };
+    const view = render(onLanguage("es", <LogEntryCard entry={help} />));
+    fireEvent.click(
+      view.getByRole("button", { name: es.t("dialogs.agent.showHelp") }),
+    );
+    return view;
+  }
+
+  it("shows the help body in the reader's language", () => {
+    const view = openHelp(body());
+    const text = view.getByRole("dialog").textContent ?? "";
+    expect(text).toContain(
+      differs(
+        es.t("systemEntries.effortCancelled"),
+        en.t("systemEntries.effortCancelled"),
+      ),
+    );
+    expect(text).toContain(es.t("systemEntries.modelCancelled"));
+    expect(text).not.toContain(en.t("systemEntries.effortCancelled"));
+    view.unmount();
+  });
+
+  it("shows the English body whole when the parts are unreadable", () => {
+    const view = openHelp([...body(), { key: "commands.help.fromTheFuture" }]);
+    const text = view.getByRole("dialog").textContent ?? "";
+    expect(text).toContain(en.t("systemEntries.effortCancelled"));
+    expect(text).toContain(en.t("systemEntries.modelCancelled"));
+    expect(text).not.toContain(es.t("systemEntries.effortCancelled"));
     view.unmount();
   });
 });

@@ -22,7 +22,7 @@ import {
 } from "./log-message.ts";
 import { translatorFor } from "./translate.ts";
 import { formatBytes, formatDecimal, formatNumber } from "./number.ts";
-import { formatDateTime, timeUntilFine } from "./time.ts";
+import { formatDateTime, timeSince, timeUntilFine } from "./time.ts";
 
 const en = translatorFor("en");
 const es = translatorFor("es");
@@ -223,6 +223,85 @@ describe("each value kind is worded for the reader", () => {
   });
 });
 
+describe("slice 2 value kinds", () => {
+  afterEach(() => setSystemTime());
+
+  // "Measured 5 minutes ago" is frozen like a duration: the line says what
+  // it said when the server wrote it.
+  it("an elapsed time is frozen when the server writes it", () => {
+    const FIVE_MINUTES = 5 * 60 * 1000;
+    const written = Date.UTC(2026, 9, 20, 12, 0);
+    const ago = (lang: "en" | "es") => {
+      const r = timeSince(lang, written - FIVE_MINUTES, written);
+      expect(r.kind).toBe("formatted");
+      return r.kind === "formatted" ? r.text : "";
+    };
+    const m = msg("settings.storage.measured", {
+      when: { elapsed: FIVE_MINUTES },
+    });
+    const wantEs = differs(
+      es.t("settings.storage.measured", { when: ago("es") }),
+      en.t("settings.storage.measured", { when: ago("en") }),
+    );
+    setSystemTime(new Date(written));
+    expect(localizeLogParts(es, [m])).toBe(wantEs);
+    expect(renderLogText(en, m)).toBe(
+      en.t("settings.storage.measured", { when: ago("en") }),
+    );
+    setSystemTime(new Date(written + 2 * 60 * 60 * 1000));
+    expect(localizeLogParts(es, [m])).toBe(wantEs);
+  });
+
+  it("an elapsed time under a minute is the reader's word for just now", () => {
+    const m = msg("settings.storage.measured", { when: { elapsed: 10_000 } });
+    expect(localizeLogParts(es, [m])).toBe(
+      differs(
+        es.t("settings.storage.measured", { when: es.t("common.justNow") }),
+        en.t("settings.storage.measured", { when: en.t("common.justNow") }),
+      ),
+    );
+    expect(renderLogText(en, m)).toBe(
+      en.t("settings.storage.measured", { when: en.t("common.justNow") }),
+    );
+  });
+
+  it("a lowered label is worded, then lowercased in the reader's language", () => {
+    const m = msg("storageReport.locationNotSetUp", {
+      label: { lower: msg("common.field.workingDirectory") },
+    });
+    const want = (tr: typeof en) =>
+      tr.t("storageReport.locationNotSetUp", {
+        label: tr
+          .t("common.field.workingDirectory")
+          .toLocaleLowerCase(tr.language),
+      });
+    // The enabling condition: the label has capitals to lose.
+    expect(en.t("common.field.workingDirectory")).not.toBe(
+      en.t("common.field.workingDirectory").toLowerCase(),
+    );
+    expect(renderLogText(en, m)).toBe(want(en));
+    expect(localizeLogParts(es, [m])).toBe(differs(want(es), want(en)));
+  });
+
+  it("a part list is one value: strings as written, messages worded", () => {
+    const m = msg("storageReport.locations", {
+      paths: {
+        parts: [
+          { key: "common.field.model" },
+          msg("storageReport.locationsJoin"),
+          "`/srv/{state}`",
+        ],
+      },
+    });
+    const want = (tr: typeof en) =>
+      tr.t("storageReport.locations", {
+        paths: `${tr.t("common.field.model")}${tr.t("storageReport.locationsJoin")}\`/srv/{state}\``,
+      });
+    expect(renderLogText(en, m)).toBe(want(en));
+    expect(localizeLogParts(es, [m])).toBe(differs(want(es), want(en)));
+  });
+});
+
 describe("anything unknown or malformed falls back to the stored English", () => {
   // Every case is one defect applied to a valid base. The base is checked
   // first, so each null below is that defect's, not a broken fixture's.
@@ -305,6 +384,32 @@ describe("anything unknown or malformed falls back to the stored English", () =>
     ["a negative duration", withParams({ path: { duration: -60_000 } })],
     ["a NaN duration", withParams({ path: { duration: NaN } })],
     ["a duration under a minute", withParams({ path: { duration: 10_000 } })],
+    // Slice 2 kinds.
+    ["a NaN elapsed time", withParams({ path: { elapsed: NaN } })],
+    ["a negative elapsed time", withParams({ path: { elapsed: -1 } })],
+    [
+      "an elapsed time that is a string",
+      withParams({ path: { elapsed: "5" } }),
+    ],
+    [
+      "a lowered value that is not a message",
+      withParams({ path: { lower: "Model" } }),
+    ],
+    [
+      "a lowered message with an unknown key",
+      withParams({ path: { lower: { key: "systemEntries.noSuchLine" } } }),
+    ],
+    ["a part list that is not a list", withParams({ path: { parts: "a, b" } })],
+    [
+      "a part list with a number part",
+      withParams({ path: { parts: ["a", 5] } }),
+    ],
+    [
+      "a part list with an unknown key",
+      withParams({
+        path: { parts: ["a", { key: "systemEntries.noSuchLine" }] },
+      }),
+    ],
     // A message inside a message is held to the same rules.
     [
       "an unknown key inside a message",
@@ -365,6 +470,12 @@ describe("anything unknown or malformed falls back to the stored English", () =>
     };
     expect(localizeLogParts(es, [nest(2)])).not.toBeNull();
     expect(localizeLogParts(es, [nest(50)])).toBeNull();
+    // A part list does not reset the bound.
+    const throughParts = {
+      key: "systemEntries.contextCompacted",
+      params: { summary: { parts: [nest(50)] } },
+    };
+    expect(localizeLogParts(es, [throughParts])).toBeNull();
 
     const cyclic: { key: string; params: Record<string, unknown> } = {
       key: "systemEntries.contextCompacted",

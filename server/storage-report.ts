@@ -2,7 +2,7 @@
 // view of the same measurement GET /api/storage/usage returns.
 //
 // PURE. Takes an already-measured StorageUsage plus a name resolver and returns
-// a string; it never stats the disk, so the report can be pinned by a test
+// message parts; it never stats the disk, so the report can be pinned by a test
 // without a fixture tree (server/storage-usage.test.ts already owns the
 // measuring). Everything the report knows about access control arrives in the
 // StorageUsage it is handed: the caller passes the full measurement for the
@@ -18,12 +18,18 @@ import type {
 // Shared with the attachment prompt so an agent-facing size reads the same.
 import { escapeMarkdownTableCellText } from "../shared/format-human.ts";
 
-// Sizes, counts and ages in the reader's language (ruling 12). The report and
-// the storage panel measure the same bytes, so they divide by the same 1024.
-import { formatBytes, formatNumber } from "../shared/i18n/number.ts";
-import { formatDateTime, timeSince } from "../shared/i18n/time.ts";
+// Sizes, counts and ages are values each reader words in their language
+// (ruling 12; task c37a7365). The report and the storage panel measure the
+// same bytes, so they divide by the same 1024 (formatBytes).
+import {
+  joinLogText,
+  msg,
+  type LogMessage,
+  type LogParam,
+  type LogPart,
+  type LogText,
+} from "../shared/i18n/log-message.ts";
 import { keyFrom } from "../shared/i18n/translate.ts";
-import type { Translator } from "../shared/i18n/translate.ts";
 
 // Reading order and the category key table are shared with the owner-only
 // storage panel in office settings, so the same bytes are never called two
@@ -56,39 +62,54 @@ export interface StorageReportOptions {
   agentLabel: (agentId: string) => AgentLabel;
 }
 
+// A value alone, as a part of a line: a size, a count or an age in a cell.
+function value(param: LogParam): LogMessage {
+  return msg("common.value", { value: param });
+}
+
 /**
  * A size a person reads, or the catalog's words for a value that is not a size.
- * formatBytes returns null for that case rather than inventing a reading.
+ * formatBytes returns null for that case, so the writer picks the words here
+ * and a {bytes} value never carries something that is not a size.
  */
-function size(i18n: Translator, bytes: number): string {
-  return formatBytes(i18n.language, bytes) ?? i18n.t("common.unknownSize");
+function size(bytes: number): LogMessage {
+  return Number.isFinite(bytes) && bytes >= 0
+    ? value({ bytes })
+    : msg("common.unknownSize");
 }
 
 /**
  * Coarse "how long ago" for the report header. Anything older than a week
  * becomes an absolute date - "23d ago" is harder to place than "Jul 8" - which
  * is the rule the hand-built formatter in shared/format-human.ts used before
- * this moved onto Intl.
+ * this moved onto Intl. Decided when the report is written, and frozen there.
  */
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-function measuredAge(i18n: Translator, ts: number): string {
-  if (Date.now() - ts >= WEEK_MS)
-    return formatDateTime(i18n.language, ts, "monthDay");
-  const since = timeSince(i18n.language, ts);
-  return since.kind === "now" ? i18n.t("common.justNow") : since.text;
+function measuredAge(ts: number): LogParam {
+  const ago = Date.now() - ts;
+  if (ago >= WEEK_MS) return { time: ts, shape: "monthDay" };
+  return { elapsed: Math.max(0, ago) };
 }
 
 export function renderStorageReport(
-  i18n: Translator,
   usage: StorageUsageWire,
   opts: StorageReportOptions,
-): string {
-  const { t, language } = i18n;
+): LogPart[] {
   // Own-property lookup like every other key table, so a category id that is
-  // not one cannot reach t() with something inherited from Object.prototype.
-  const label = (id: StorageCategoryId) => {
+  // not one cannot reach msg() with something inherited from Object.prototype.
+  const label = (id: StorageCategoryId): LogText => {
     const key = keyFrom(CATEGORY_KEYS, id);
-    return key ? t(key) : id;
+    return key ? msg(key) : id;
+  };
+  // The label lowercased in the reader's language, for use inside a sentence:
+  // as a value, and as a part of a line.
+  const lowerParam = (id: StorageCategoryId): LogParam => {
+    const key = keyFrom(CATEGORY_KEYS, id);
+    return key ? { lower: msg(key) } : id.toLowerCase();
+  };
+  const lowerLabel = (id: StorageCategoryId): LogPart => {
+    const param = lowerParam(id);
+    return typeof param === "string" ? param : value(param);
   };
   // The owner gets paths and the per-agent breakdown; everyone else got the
   // aggregateOnly() projection, whose tell is a nulled state root.
@@ -102,32 +123,42 @@ export function renderStorageReport(
   const totalBytes = usage.stateRootBytes + outsideBytes;
   // Name only the out-of-root locations this box actually has, so the headline
   // never credits bytes to update snapshots on a machine that has none.
-  const outsideLabels = OUT_OF_ROOT_ORDER.filter(
-    (id) => (byId.get(id)?.bytes ?? 0) > 0,
-  ).map((id) => label(id).toLowerCase());
+  const outsideLabels: LogPart[] = [];
+  for (const id of OUT_OF_ROOT_ORDER) {
+    if ((byId.get(id)?.bytes ?? 0) <= 0) continue;
+    if (outsideLabels.length > 0)
+      outsideLabels.push(msg("storageReport.locationsJoin"));
+    outsideLabels.push(lowerLabel(id));
+  }
 
-  const lines: string[] = [];
-  lines.push(`## ${t("storageReport.heading")}`);
+  const lines: LogText[] = [];
+  lines.push(["## ", msg("storageReport.heading")]);
   lines.push("");
   lines.push(
     outsideBytes > 0
-      ? t("storageReport.totalWithOutside", {
-          total: size(i18n, totalBytes),
-          stateRoot: size(i18n, usage.stateRootBytes),
-          outside: size(i18n, outsideBytes),
-          locations: outsideLabels.join(t("storageReport.locationsJoin")),
+      ? msg("storageReport.totalWithOutside", {
+          total: size(totalBytes),
+          stateRoot: size(usage.stateRootBytes),
+          outside: size(outsideBytes),
+          locations: { parts: outsideLabels },
         })
-      : t("storageReport.totalOnly", { total: size(i18n, totalBytes) }),
+      : msg("storageReport.totalOnly", { total: size(totalBytes) }),
   );
   lines.push("");
   lines.push(
-    t("storageReport.measured", { age: measuredAge(i18n, usage.measuredAt) }),
+    msg("storageReport.measured", { age: measuredAge(usage.measuredAt) }),
   );
   lines.push("");
 
-  lines.push(
-    `| ${t("storageReport.columnCategory")} | ${t("storageReport.columnSize")} | ${t("storageReport.columnFiles")} |`,
-  );
+  lines.push([
+    "| ",
+    msg("storageReport.columnCategory"),
+    " | ",
+    msg("storageReport.columnSize"),
+    " | ",
+    msg("storageReport.columnFiles"),
+    " |",
+  ]);
   lines.push(`| --- | ---: | ---: |`);
   const row = (id: StorageCategoryId) => {
     const c = byId.get(id);
@@ -136,44 +167,71 @@ export function renderStorageReport(
     // phantom zero row.
     if (!c) return;
     if (!c.available) {
-      lines.push(`| ${label(id)} | ${t("storageReport.none")} | - |`);
+      lines.push(
+        joinLogText([
+          "| ",
+          label(id),
+          " | ",
+          msg("storageReport.none"),
+          " | - |",
+        ]),
+      );
       return;
     }
     lines.push(
-      `| ${label(id)} | ${size(i18n, c.bytes)} | ${formatNumber(language, c.files)} |`,
+      joinLogText([
+        "| ",
+        label(id),
+        " | ",
+        size(c.bytes),
+        " | ",
+        value({ number: c.files }),
+        " |",
+      ]),
     );
   };
   for (const id of IN_ROOT_ORDER) row(id);
   // The in-root categories sum to exactly stateRootBytes (other-state is
   // derived by subtraction), so this subtotal is an identity, not a re-add.
-  lines.push(
-    `| **${t("storageReport.totalOfficeState")}** | **${size(i18n, usage.stateRootBytes)}** | |`,
-  );
+  lines.push([
+    "| **",
+    msg("storageReport.totalOfficeState"),
+    "** | **",
+    size(usage.stateRootBytes),
+    "** | |",
+  ]);
   for (const id of OUT_OF_ROOT_ORDER) row(id);
-  lines.push(
-    `| **${t("storageReport.total")}** | **${size(i18n, totalBytes)}** | |`,
-  );
+  lines.push([
+    "| **",
+    msg("storageReport.total"),
+    "** | **",
+    size(totalBytes),
+    "** | |",
+  ]);
   lines.push("");
-  lines.push(t("storageReport.outsideNote"));
+  lines.push(msg("storageReport.outsideNote"));
 
   if (isOwner) {
-    const paths = [
-      `${t("storageReport.locationOfficeState")} \`${usage.stateRoot}\``,
-      ...OUT_OF_ROOT_ORDER.map((id) => {
+    const paths: LogText[] = [
+      [msg("storageReport.locationOfficeState"), ` \`${usage.stateRoot}\``],
+      ...OUT_OF_ROOT_ORDER.map((id): LogText => {
         const c = byId.get(id);
-        const name = label(id).toLowerCase();
         return c?.path
-          ? `${name} \`${c.path}\``
-          : t("storageReport.locationNotSetUp", { label: name });
+          ? [lowerLabel(id), ` \`${c.path}\``]
+          : msg("storageReport.locationNotSetUp", { label: lowerParam(id) });
       }),
     ];
     lines.push("");
-    lines.push(t("storageReport.locations", { paths: paths.join(", ") }));
+    lines.push(
+      msg("storageReport.locations", {
+        paths: { parts: joinLogText(paths, ", ") },
+      }),
+    );
   } else {
     // Same reason the route strips this: the per-agent breakdown enumerates
     // log directories for agents in rooms the caller may not be able to see.
     lines.push("");
-    lines.push(t("storageReport.ownerOnly"));
+    lines.push(msg("storageReport.ownerOnly"));
   }
 
   if (isOwner && usage.agents.length > 0) {
@@ -185,33 +243,56 @@ export function renderStorageReport(
     );
     const shown = sorted.slice(0, AGENT_ROWS);
     lines.push("");
-    lines.push(`### ${t("storageReport.biggestAgents")}`);
+    lines.push(["### ", msg("storageReport.biggestAgents")]);
     lines.push("");
-    lines.push(
-      `| ${t("storageReport.columnAgent")} | ${t("storageReport.columnTranscripts")} | ${t("storageReport.columnAttachments")} | ${t("storageReport.columnSessions")} | ${t("storageReport.columnLastActivity")} |`,
-    );
+    lines.push([
+      "| ",
+      msg("storageReport.columnAgent"),
+      " | ",
+      msg("storageReport.columnTranscripts"),
+      " | ",
+      msg("storageReport.columnAttachments"),
+      " | ",
+      msg("storageReport.columnSessions"),
+      " | ",
+      msg("storageReport.columnLastActivity"),
+      " |",
+    ]);
     lines.push(`| --- | ---: | ---: | ---: | --- |`);
     for (const a of shown) {
-      const last =
-        a.lastActivityAt === null ? "-" : measuredAge(i18n, a.lastActivityAt);
+      const last: LogText =
+        a.lastActivityAt === null ? "-" : value(measuredAge(a.lastActivityAt));
       const agent = opts.agentLabel(a.agentId);
       // The name is escaped to literal text FIRST, then the "(killed)"
       // annotation is appended - so the only live markdown in the cell is this
       // line's own, and a name reading `Gone _(killed)_` renders as those
       // characters rather than as the report's annotation.
-      const name =
-        escapeMarkdownTableCellText(agent.name) +
-        (agent.killed ? ` ${t("storageReport.killed")}` : "");
+      const name = joinLogText([
+        escapeMarkdownTableCellText(agent.name),
+        agent.killed ? [" ", msg("storageReport.killed")] : "",
+      ]);
       lines.push(
-        `| ${name} | ${size(i18n, a.transcriptBytes)} | ${size(i18n, a.attachmentBytes)} | ${formatNumber(language, a.sessions)} | ${last} |`,
+        joinLogText([
+          "| ",
+          name,
+          " | ",
+          size(a.transcriptBytes),
+          " | ",
+          size(a.attachmentBytes),
+          " | ",
+          value({ number: a.sessions }),
+          " | ",
+          last,
+          " |",
+        ]),
       );
     }
     if (sorted.length > shown.length) {
       lines.push("");
       lines.push(
-        t("storageReport.showing", {
-          shown: formatNumber(language, shown.length),
-          total: formatNumber(language, sorted.length),
+        msg("storageReport.showing", {
+          shown: { number: shown.length },
+          total: { number: sorted.length },
         }),
       );
     }
@@ -219,8 +300,8 @@ export function renderStorageReport(
 
   if (isOwner) {
     lines.push("");
-    lines.push(t("storageReport.nothingDeleted"));
+    lines.push(msg("storageReport.nothingDeleted"));
   }
 
-  return lines.join("\n");
+  return joinLogText(lines, "\n");
 }

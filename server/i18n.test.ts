@@ -10,7 +10,6 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
   translatorForLanguage,
-  translatorForUsername,
   translatorForUserId,
   translatorForRequest,
   english,
@@ -64,42 +63,13 @@ describe("translatorForLanguage", () => {
   });
 });
 
-describe("translatorForUsername - the chat path", () => {
-  it("uses the stored preference of the user who typed the command", () => {
-    seed("Ana", "es");
-    seed("Jordi", "ca");
-    expect(translatorForUsername("Ana").t(KEY)).toBe(ES);
-    expect(translatorForUsername("Jordi").t(KEY)).toBe(CA);
-  });
-
-  it("resolves the name case-insensitively, as the rest of the server does", () => {
-    seed("Ana", "es");
-    expect(translatorForUsername("ana").t(KEY)).toBe(ES);
-  });
-
-  it("falls back to English for a user who never chose one", () => {
-    seed("Sam", null);
-    expect(translatorForUsername("Sam").t(KEY)).toBe(EN);
-  });
-
-  it("falls back to English for an unknown or absent sender", () => {
-    // The absent case is how an agent reaches this: an inter-agent message is
-    // enqueued with a structured sender and carries no username, so nothing
-    // the server writes for it is ever localized.
-    expect(translatorForUsername("Nobody").t(KEY)).toBe(EN);
-    expect(translatorForUsername(undefined).t(KEY)).toBe(EN);
-    expect(translatorForUsername(null).t(KEY)).toBe(EN);
-    expect(translatorForUsername("").t(KEY)).toBe(EN);
-  });
-});
-
-describe("translatorForUserId - the actorless fallback", () => {
-  it("uses the owner's preference when no actor is in scope", () => {
+describe("translatorForUserId - a delivery to one user", () => {
+  it("uses the recipient's stored preference", () => {
     const id = seed("Ana", "es");
     expect(translatorForUserId(id).t(KEY)).toBe(ES);
   });
 
-  it("falls back to English for an unowned agent or an id that is not a user", () => {
+  it("falls back to English for no id or an id that is not a user", () => {
     seed("Ana", "es");
     // An AGENT id, not a user id. Only a user record carries a language, so a
     // non-user id must not pick one up.
@@ -111,16 +81,16 @@ describe("translatorForUserId - the actorless fallback", () => {
 
 describe("interpolation survives resolution", () => {
   it("fills a placeholder in the resolved language", () => {
-    seed("Ana", "es");
+    const id = seed("Ana", "es");
     const key = "systemEntries.resumedSession" as const;
     const params = { label: "topic" };
     const es = translatorFor("es").t(key, params);
     const en = translatorFor("en").t(key, params);
     expect(es).not.toBe(en);
-    const spanish = translatorForUsername("Ana").t(key, params);
+    const spanish = translatorForUserId(id).t(key, params);
     expect(spanish).toBe(es);
     expect(spanish).toContain("topic");
-    const fallback = translatorForUsername("Nobody").t(key, params);
+    const fallback = translatorForUserId("not-a-user").t(key, params);
     expect(fallback).toBe(en);
     expect(fallback).toContain("topic");
   });
@@ -165,9 +135,8 @@ describe("translatorForRequest - the pre-sign-in pages", () => {
   });
 });
 
-it("uses Chinese for a member by name, ID and direct preference", () => {
+it("uses Chinese for a member by ID and direct preference", () => {
   const id = seed("Lin", "zh");
-  expect(translatorForUsername("Lin").t(KEY)).toBe(ZH);
   expect(translatorForUserId(id).t(KEY)).toBe(ZH);
   expect(translatorForLanguage("zh").t(KEY)).toBe(ZH);
 });

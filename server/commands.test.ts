@@ -2,10 +2,13 @@ import { describe, it, expect } from "bun:test";
 import { commands, unsupportedMessage } from "./commands.ts";
 import { english } from "./i18n.ts";
 import { COMMAND_MESSAGE_KEYS } from "../shared/i18n/command-keys.ts";
+import { renderLogText } from "../shared/i18n/log-message.ts";
 
-// The copy assertions below are the signed-off ENGLISH, so they run on the
-// English translator; the catalog test covers the other languages.
-const t = english.t;
+// The copy assertions below are the signed-off ENGLISH, so they read the
+// English render of the message (task c37a7365); the catalog test covers the
+// other languages.
+const unsupportedText = (name: string) =>
+  renderLogText(english, unsupportedMessage(name));
 
 describe("unsupportedMessage", () => {
   it("returns the Nil-dictated copy for /loop", () => {
@@ -14,7 +17,7 @@ describe("unsupportedMessage", () => {
     // fe0c21fd) - /loop is deliberately not supported
     // natively; the message redirects to isomux's own recurring-work
     // primitives. Do not reword without boss sign-off.
-    expect(unsupportedMessage(t, "loop")).toBe(
+    expect(unsupportedText("loop")).toBe(
       "not supported natively; see if the Automations page or scheduled messages satisfy your use case",
     );
   });
@@ -26,7 +29,7 @@ describe("unsupportedMessage", () => {
     // key table; only the prose moved to the catalog.
     expect("lorem-ipsum" in COMMAND_MESSAGE_KEYS).toBe(false);
     expect("loop" in COMMAND_MESSAGE_KEYS).toBe(true);
-    expect(unsupportedMessage(t, "lorem-ipsum")).toBe(
+    expect(unsupportedText("lorem-ipsum")).toBe(
       "`/lorem-ipsum` (generate placeholder text) is a Claude Code bundled skill, but it's not supported in Isomux. You can override it by creating your own skill file.",
     );
   });
@@ -50,7 +53,7 @@ describe("unsupportedMessage", () => {
 describe("a command name that names an inherited property", () => {
   for (const name of ["constructor", "__proto__", "toString", "valueOf"]) {
     it(`refuses /${name} instead of throwing`, () => {
-      expect(unsupportedMessage(t, name)).toBe(
+      expect(unsupportedText(name)).toBe(
         `\`/${name}\` is not available in Isomux.`,
       );
     });

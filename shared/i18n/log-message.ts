@@ -12,6 +12,7 @@ import { formatBytes, formatDecimal, formatNumber } from "./number.ts";
 import {
   formatDateTime,
   isDateShape,
+  timeSince,
   timeUntilFine,
   type DateShape,
 } from "./time.ts";
@@ -41,6 +42,14 @@ export type LogParam =
   | { time: number; shape: DateShape }
   // A time span, frozen when the server writes it ("in 3 hours").
   | { duration: number }
+  // How long ago, frozen when the server writes it ("3 hours ago").
+  | { elapsed: number }
+  // A message lowercased in the reader's language. Only for a label with no
+  // placeholders: the whole rendered text is lowercased.
+  | { lower: LogMessage }
+  // Several parts as one value, such as a list; the writer puts the
+  // separators in.
+  | { parts: LogPart[] }
   // A message inside a message.
   | LogMessage;
 
@@ -274,6 +283,33 @@ function wordParam(
     const span = timeUntilFine(lang, now + duration, now);
     return span.kind === "formatted" ? span.text : fail("");
   }
+  if ("elapsed" in value) {
+    const { elapsed } = value;
+    if (typeof elapsed !== "number" || !Number.isFinite(elapsed) || elapsed < 0)
+      return fail("");
+    const now = Date.now();
+    const since = timeSince(lang, now - elapsed, now);
+    return since.kind === "formatted" ? since.text : tr.t("common.justNow");
+  }
+  if ("lower" in value) {
+    if (!isRecord(value.lower)) return fail("");
+    const worded = wordMessage(tr, value.lower, depth + 1, strict);
+    return worded === null ? null : worded.toLocaleLowerCase(lang);
+  }
+  if ("parts" in value) {
+    if (!Array.isArray(value.parts)) return fail("");
+    let out = "";
+    for (const part of value.parts as unknown[]) {
+      if (typeof part === "string") {
+        out += part;
+        continue;
+      }
+      const worded = wordMessage(tr, part, depth + 1, strict);
+      if (worded === null) return null;
+      out += worded;
+    }
+    return out;
+  }
   return fail("");
 }
 
@@ -405,14 +441,11 @@ export function choiceCardFields(
   };
 }
 
-/**
- * `text` as one placeholder value. A LogText of several parts has no value
- * shape, so it gives its English render; writers pass single messages.
- */
+/** `text` as one placeholder value: several parts become a { parts } value. */
 export function logParam(text: LogText): LogParam {
   if (typeof text === "string") return text;
   if (!Array.isArray(text)) return text as LogMessage;
   const parts = text as readonly LogPart[];
   if (parts.length === 1) return parts[0];
-  return renderLogText(ENGLISH, parts);
+  return { parts: [...parts] };
 }

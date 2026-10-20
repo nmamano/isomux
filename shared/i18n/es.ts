@@ -2101,6 +2101,7 @@ Cosas que puedes hacer por él:
   "contextMenu.resume": "Reanudar",
   "common.current": "(actual)",
   "common.date": "{date}",
+  "common.value": "{value}",
   "contextMenu.branched": "(ramificada)",
   "contextMenu.killAgent": "Eliminar el agente",
   "contextMenu.moveToBackRoom": "Mover a la trastienda",
