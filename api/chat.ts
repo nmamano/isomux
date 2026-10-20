@@ -13,28 +13,74 @@ function jsonError(
 }
 
 // --- Rate limiting (in-memory, resets on cold start) ---
+// Sliding windows per IP. Every response reports them in the RateLimit-Policy
+// and RateLimit fields of the IETF draft draft-ietf-httpapi-ratelimit-headers.
+const POLICIES = [
+  { name: "minute", quota: 5, windowMs: 60_000 },
+  { name: "hour", quota: 20, windowMs: 60 * 60 * 1000 },
+];
+const LONGEST_WINDOW_MS = Math.max(...POLICIES.map((p) => p.windowMs));
 const hits = new Map<string, number[]>();
 
-function rateLimit(ip: string): {
-  allowed: boolean;
-  retryAfterSeconds?: number;
-} {
-  const now = Date.now();
-  const windowMs = 60 * 60 * 1000;
-  const timestamps = (hits.get(ip) || []).filter((t) => now - t < windowMs);
+type Quota = {
+  name: string;
+  quota: number;
+  windowMs: number;
+  remaining: number;
+  /** Seconds until the oldest counted request leaves the window; 0 if none. */
+  resetSeconds: number;
+};
 
-  const lastMinute = timestamps.filter((t) => now - t < 60_000);
-  if (lastMinute.length >= 5) return { allowed: false, retryAfterSeconds: 60 };
-  if (timestamps.length >= 20) {
+/** Where an IP stands in each window, without counting a request. */
+function quotaState(ip: string, now: number): Quota[] {
+  const timestamps = hits.get(ip) ?? [];
+  return POLICIES.map((policy) => {
+    const inWindow = timestamps.filter((t) => now - t < policy.windowMs);
     return {
-      allowed: false,
-      retryAfterSeconds: Math.ceil((timestamps[0] + windowMs - now) / 1000),
+      ...policy,
+      remaining: Math.max(0, policy.quota - inWindow.length),
+      resetSeconds: inWindow.length
+        ? Math.ceil((inWindow[0] + policy.windowMs - now) / 1000)
+        : 0,
     };
-  }
+  });
+}
 
-  timestamps.push(now);
+/** Count a request if every window has room. Quotas are the state after it. */
+function rateLimit(ip: string): { allowed: boolean; quotas: Quota[] } {
+  const now = Date.now();
+  const timestamps = (hits.get(ip) ?? []).filter(
+    (t) => now - t < LONGEST_WINDOW_MS,
+  );
   hits.set(ip, timestamps);
-  return { allowed: true };
+  if (quotaState(ip, now).some((q) => q.remaining === 0)) {
+    return { allowed: false, quotas: quotaState(ip, now) };
+  }
+  timestamps.push(now);
+  return { allowed: true, quotas: quotaState(ip, now) };
+}
+
+/** Seconds until a request is allowed: the latest reset of a spent window. */
+function retryAfterSeconds(quotas: Quota[]): number {
+  return Math.max(
+    0,
+    ...quotas.filter((q) => q.remaining === 0).map((q) => q.resetSeconds),
+  );
+}
+
+function setRateLimitFields(headers: Headers, quotas: Quota[]): void {
+  headers.set(
+    "RateLimit-Policy",
+    quotas
+      .map((q) => `"${q.name}";q=${q.quota};w=${q.windowMs / 1000}`)
+      .join(", "),
+  );
+  headers.set(
+    "RateLimit",
+    quotas
+      .map((q) => `"${q.name}";r=${q.remaining};t=${q.resetSeconds}`)
+      .join(", "),
+  );
 }
 
 // --- System prompt ---
@@ -370,24 +416,37 @@ async function* parseAnthropicStream(
 
 // --- Handler ---
 export default async function handler(req: Request) {
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  // A request that is not a POST is refused before it is counted.
+  const { allowed, quotas } =
+    req.method === "POST"
+      ? rateLimit(ip)
+      : { allowed: true, quotas: quotaState(ip, Date.now()) };
+  let response: Response;
+  if (allowed) {
+    response = await answer(req, ip);
+  } else {
+    const wait = retryAfterSeconds(quotas);
+    response = jsonError(
+      429,
+      "rate_limit_exceeded",
+      `The request limit was reached. Try again in ${wait} seconds.`,
+      `Wait ${wait} seconds before the next request.`,
+    );
+    response.headers.set("Retry-After", String(wait));
+  }
+  setRateLimitFields(response.headers, quotas);
+  return response;
+}
+
+async function answer(req: Request, ip: string): Promise<Response> {
   if (req.method !== "POST") {
     return jsonError(
       405,
       "method_not_allowed",
       "This endpoint accepts POST requests only.",
       "Send a POST request with a JSON body containing a messages array.",
-    );
-  }
-
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const { allowed, retryAfterSeconds } = rateLimit(ip);
-  if (!allowed) {
-    return jsonError(
-      429,
-      "rate_limit_exceeded",
-      `The request limit was reached. Try again in ${retryAfterSeconds} seconds.`,
-      `Wait ${retryAfterSeconds} seconds before the next request.`,
     );
   }
 

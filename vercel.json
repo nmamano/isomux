@@ -54,6 +54,11 @@
       "source": "/privacy",
       "destination": "/hosted-privacy",
       "permanent": true
+    },
+    {
+      "source": "/pricing",
+      "destination": "/hosted#plans",
+      "permanent": false
     }
   ],
   "headers": [
@@ -117,6 +122,19 @@
         {
           "key": "Vary",
           "value": "Accept, Accept-Encoding"
+        },
+        {
+          "key": "Link",
+          "value": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\""
+        }
+      ]
+    },
+    {
+      "source": "/.well-known/api-catalog",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/linkset+json; profile=\"https://www.rfc-editor.org/info/rfc9727\""
         }
       ]
     },
@@ -134,6 +152,10 @@
     {
       "source": "/.well-known/security.txt",
       "destination": "/security.txt"
+    },
+    {
+      "source": "/.well-known/api-catalog",
+      "destination": "/api-catalog.json"
     },
     {
       "source": "/:path*",

@@ -23,13 +23,19 @@
         "responses": {
           "200": {
             "description": "Server-sent event stream. Each data frame contains a text delta; the final frame is [DONE].",
+            "headers": {
+              "RateLimit": { "$ref": "#/components/headers/RateLimit" },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              }
+            },
             "content": {
               "text/event-stream": { "schema": { "type": "string" } }
             }
           },
           "400": { "$ref": "#/components/responses/JsonError" },
           "405": { "$ref": "#/components/responses/JsonError" },
-          "429": { "$ref": "#/components/responses/JsonError" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
           "502": { "$ref": "#/components/responses/JsonError" }
         }
       }
@@ -89,9 +95,44 @@
         "additionalProperties": false
       }
     },
+    "headers": {
+      "RateLimit-Policy": {
+        "description": "The request quotas per client IP, as in the IETF draft draft-ietf-httpapi-ratelimit-headers: \"minute\";q=5;w=60, \"hour\";q=20;w=3600. q is the number of requests and w the window in seconds; both windows slide.",
+        "schema": { "type": "string" }
+      },
+      "RateLimit": {
+        "description": "Where the client stands in each policy of RateLimit-Policy (IETF draft draft-ietf-httpapi-ratelimit-headers): r is the remaining requests and t the seconds until the oldest counted request leaves that window. Requests other than POST are not counted.",
+        "schema": { "type": "string" }
+      },
+      "Retry-After": {
+        "description": "Seconds until the next request is allowed.",
+        "schema": { "type": "integer", "minimum": 0 }
+      }
+    },
     "responses": {
       "JsonError": {
         "description": "Structured error with a stable code and recovery hint.",
+        "headers": {
+          "RateLimit": { "$ref": "#/components/headers/RateLimit" },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimit-Policy"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "A request quota is spent. Wait the Retry-After seconds before the next request.",
+        "headers": {
+          "Retry-After": { "$ref": "#/components/headers/Retry-After" },
+          "RateLimit": { "$ref": "#/components/headers/RateLimit" },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimit-Policy"
+          }
+        },
         "content": {
           "application/json": {
             "schema": { "$ref": "#/components/schemas/Error" }

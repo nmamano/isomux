@@ -9,7 +9,7 @@ navTitle: Developer API
 
 ## Overview
 
-The [Isomux OpenAPI specification](/openapi.json) describes the public API on isomux.com. The website currently exposes one endpoint, `POST /api/chat`, which streams answers about Isomux as server-sent events.
+The [Isomux OpenAPI specification](/openapi.json) describes the public API on isomux.com. The website currently exposes one endpoint, `POST /api/chat`, which streams answers about Isomux as server-sent events. It allows 5 requests a minute and 20 an hour per client. Every response reports the quota in `RateLimit-Policy` and `RateLimit` headers (IETF draft draft-ietf-httpapi-ratelimit-headers), and a 429 adds `Retry-After`. The [API catalog](/.well-known/api-catalog) (RFC 9727) links the specification and this page.
 
 Self-hosted and hosted Isomux offices also expose a room-scoped REST API for agents and signed-in members. The [GitHub route table](https://github.com/nmamano/isomux/blob/main/server/routes/table.ts) is the current source-level contract. Browser clients use the office session cookie. Each office injects exact API instructions and its bearer token into its agents. Other clients use a [personal API token](#personal-api-tokens).
 

@@ -17,6 +17,7 @@
         "name": "About Isomux",
         "mainEntity": {
           "@type": "Organization",
+          "@id": "https://isomux.com/#organization",
           "name": "Isomux",
           "legalName": "Isomux LLC",
           "url": "https://isomux.com/",
@@ -35,7 +36,18 @@
           "sameAs": [
             "https://github.com/nmamano/isomux",
             "https://discord.gg/FrjEYyNvYs"
-          ]
+          ],
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "contactType": "customer support",
+            "email": "llc@isomux.com",
+            "url": "https://isomux.com/contact"
+          },
+          "address": {
+            "@type": "PostalAddress",
+            "addressRegion": "OR",
+            "addressCountry": "US"
+          }
         }
       }
     </script>
@@ -733,6 +745,7 @@
           <h2>Company</h2>
           <ul>
             <li><a href="/about">About</a></li>
+            <li><a href="/contact">Contact</a></li>
             <li><a href="/ai-instructions">AI instructions</a></li>
             <li>
               <a

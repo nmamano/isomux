@@ -2,11 +2,21 @@
 
 > Isomux is a source-available meta-harness for managing Claude, Codex, and OpenCode agents side by side.
 
+## When to use Isomux
+
+- Run several coding agents (Claude Code, Codex, OpenCode) side by side as persistent coworkers, reachable from any device.
+- Let a team of people and agents share rooms, a task board, messages and memory in one office.
+- Set up an office: Hosted Isomux, or self-hosted on own hardware, a VPS or a cloud. See [Hosting and setup](https://isomux.com/docs/hosting).
+- Script an office: each office serves its own HTTP API; see [Isomux developer API resources](https://isomux.com/docs/developer-api). isomux.com serves only the website chat API.
+- Agents run on the user's own Claude, ChatGPT or other provider accounts.
+
 ## Company
 
 - [About Isomux](https://isomux.com/about): Who builds Isomux, licensing, enterprise use, and key facts
 - [Isomux for Enterprise](https://isomux.com/enterprise): Why a company uses Isomux, where it can run, the commercial license, and how to start
 - [AI instructions](https://isomux.com/ai-instructions): How AI assistants should describe Isomux
+- [Contact](https://isomux.com/contact): Email, Discord, GitHub issues, security reports, and commercial licenses
+- [Pricing](https://isomux.com/hosted#plans): Hosted Isomux plans. The software is free for personal use and for organizations of up to 10 people; larger organizations need a commercial license
 
 ## Documentation
 
@@ -26,5 +36,6 @@
 ## Machine-readable resources
 
 - [Isomux OpenAPI specification](https://isomux.com/openapi.json): Website API contract
+- [Isomux API catalog](https://isomux.com/.well-known/api-catalog): RFC 9727 linkset for the website API
 - [Sitemap](https://isomux.com/sitemap.xml): Public page index
 - [GitHub repository](https://github.com/nmamano/isomux): Source, issues, and releases

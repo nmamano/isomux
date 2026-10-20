@@ -24,7 +24,81 @@
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Linux, macOS, Windows",
         "isAccessibleForFree": true,
-        "sameAs": ["https://github.com/nmamano/isomux"]
+        "sameAs": ["https://github.com/nmamano/isomux"],
+        "publisher": { "@id": "https://isomux.com/#organization" },
+        "offers": [
+          {
+            "@type": "Offer",
+            "name": "Programari Isomux",
+            "description": "Gratuït per a ús personal i per a organitzacions de fins a 10 persones. Les organitzacions més grans en producció necessiten una llicència comercial.",
+            "price": "0",
+            "priceCurrency": "EUR",
+            "url": "https://isomux.com/enterprise"
+          },
+          {
+            "@type": "Offer",
+            "name": "Hosted Isomux Entry",
+            "price": "8",
+            "priceCurrency": "EUR",
+            "url": "https://isomux.com/hosted#plans",
+            "priceSpecification": {
+              "@type": "UnitPriceSpecification",
+              "price": "8",
+              "priceCurrency": "EUR",
+              "unitCode": "MON"
+            }
+          },
+          {
+            "@type": "Offer",
+            "name": "Hosted Isomux Poweruser",
+            "price": "17",
+            "priceCurrency": "EUR",
+            "url": "https://isomux.com/hosted#plans",
+            "priceSpecification": {
+              "@type": "UnitPriceSpecification",
+              "price": "17",
+              "priceCurrency": "EUR",
+              "unitCode": "MON"
+            }
+          }
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": "https://isomux.com/#organization",
+        "name": "Isomux",
+        "legalName": "Isomux LLC",
+        "url": "https://isomux.com/",
+        "email": "llc@isomux.com",
+        "foundingDate": "2026-08-03",
+        "founder": {
+          "@type": "Person",
+          "name": "Nil Mamano",
+          "url": "https://nilmamano.com",
+          "sameAs": [
+            "https://x.com/Nil053",
+            "https://linkedin.com/in/nilmamano",
+            "https://github.com/nmamano"
+          ]
+        },
+        "sameAs": [
+          "https://github.com/nmamano/isomux",
+          "https://discord.gg/FrjEYyNvYs"
+        ],
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "contactType": "customer support",
+          "email": "llc@isomux.com",
+          "url": "https://isomux.com/contact"
+        },
+        "address": {
+          "@type": "PostalAddress",
+          "addressRegion": "OR",
+          "addressCountry": "US"
+        }
       }
     </script>
 
@@ -1102,6 +1176,7 @@ bun run dev</pre
           <h2>Empresa</h2>
           <ul>
             <li><a href="/about">Quant a</a></li>
+            <li><a href="/contact">Contacte</a></li>
             <li><a href="/ai-instructions">Instruccions per a IA</a></li>
             <li>
               <a

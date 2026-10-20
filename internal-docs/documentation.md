@@ -35,7 +35,7 @@ Keep these consistent across all surfaces below.
   - `<section id="how-it-works">` - one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.
 - **Update when:** headline features change. Always update this file, the README and the two translated copies in the same commit so they don't drift.
 - **Languages:** the English file is the source. Every edit to it is repeated in the Spanish, Catalan and Simplified Chinese copies in the same commit; a copy that keeps an English sentence is a bug, not a fallback. All four carry the same five `rel=alternate hreflang` links and the same language menu in the footer (a `<details>` that names the page's language and links the others). `scripts/site-i18n-check.test.ts` holds the eight pages to that.
-- **Footer:** one layout on the landing, hosted, about, enterprise, AI instructions and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in all fourteen. The about, enterprise, AI instructions and legal pages are English only and carry no language menu.
+- **Footer:** one layout on the landing, hosted, about, enterprise, AI instructions, contact and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in all fifteen. The about, enterprise, AI instructions, contact and legal pages are English only and carry no language menu.
 - **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`). `cleanUrls` serves the copies at `/es` and `/ca`; both appear in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`). After each Production deploy, `.github/workflows/indexnow.yml` sends IndexNow the sitemap URLs whose built page changed, was added or was removed since the previous deploy (`scripts/indexnow.ts`; key file `site/<key>.txt`).
 
 ## 2b. Hosted landing page (isomux.com/hosted)
@@ -86,6 +86,15 @@ Keep these consistent across all surfaces below.
 - **Language:** English only. All footers link it under Product; the Spanish, Catalan and Chinese footers translate the link label (Empresas, Empreses, 企业).
 - **Deploy note:** static, `cleanUrls`, served at `/enterprise`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
 
+## 2g. Contact page (isomux.com/contact)
+
+- **File:** `site/contact.html`.
+- **Audience:** visitors, and agents that check for a contact page before they recommend a company.
+- **Structure:** one list of the published channels: email, Discord, GitHub issues, security reports (the security policy and `security.txt`), and commercial licenses. It names no channel that is not already published elsewhere on the site. Styled like the AI instructions page.
+- **Update when:** a contact channel, the response-time statement (it matches the about page and the hosted terms) or the commercial-license path changes. The `contactPoint` in the Organization JSON-LD (section 4b) links this page.
+- **Language:** English only. All footers link it under Company; the Spanish, Catalan and Chinese footers translate the link label (Contacto, Contacte, 联系我们).
+- **Deploy note:** static, `cleanUrls`, served at `/contact`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
+
 ## 3. Site chatbot system prompt
 
 - **File:** `api/chat.ts` - `SYSTEM_PROMPT` constant (around line 25).
@@ -117,10 +126,10 @@ Keep these consistent across all surfaces below.
 
 ## 4b. Machine-readable site resources
 
-- **Files:** `site/llms.txt`, `site/openapi.json`, the `SoftwareApplication` JSON-LD in `site/index.html`, the `AboutPage` JSON-LD in `site/about.html`, `site/ai-instructions.html` (section 2e), `site/_agent/index.md`, and the generated `site/_agent/docs/` Markdown variants.
+- **Files:** `site/llms.txt` (with a "When to use Isomux" section), `site/openapi.json`, `site/api-catalog.json` (the RFC 9727 API catalog, served at `/.well-known/api-catalog`), the JSON-LD in the four landing pages (`SoftwareApplication` with `offers`, and an `Organization`), the `AboutPage` JSON-LD in `site/about.html`, `site/ai-instructions.html` (section 2e), `site/_agent/index.md`, and the generated `site/_agent/docs/` Markdown variants. `vercel.json` adds a `Link` header on `/` (api-catalog, service-desc, describedby, service-doc) and a temporary `/pricing` redirect to `/hosted#plans`.
 - **Audience:** Agents, API clients, and search indexes.
-- **Update when:** public site routes, the website API, docs paths, or the product's developer-resource links change.
-- **Deploy note:** Vercel Routing Middleware negotiates HTML and Markdown for the landing and docs URLs. The response must keep `Vary: Accept, Accept-Encoding`; unsupported media types return 406.
+- **Update when:** public site routes, the website API, docs paths, the product's developer-resource links, prices, the license limit or contact channels change. The landing and about pages carry the same `Organization` object (`@id` `https://isomux.com/#organization`); edit both together. Its address is region and country only: the registered street address is a home address. The `offers` prices follow `site/hosted.html`, and the free offer states the license's people limit.
+- **Deploy note:** Vercel Routing Middleware negotiates HTML and Markdown for the landing and docs URLs. The response must keep `Vary: Accept, Accept-Encoding`; unsupported media types return 406. Every `/api/chat` response carries the `RateLimit-Policy` and `RateLimit` fields of the IETF draft draft-ietf-httpapi-ratelimit-headers, and a 429 adds `Retry-After`; `site/openapi.json` documents them.
 
 ## 5. `/help` slash command
 

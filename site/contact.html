@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="canonical" href="https://isomux.com/contact" />
+    <title>Contact | Isomux</title>
+    <meta
+      name="description"
+      content="How to reach Isomux LLC: email, Discord, GitHub issues, security reports, and commercial licenses."
+    />
+
+    <link rel="icon" href="/favicon.png" sizes="192x192" type="image/png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta
+      name="theme-color"
+      content="#0d1117"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      content="#f4f6f9"
+      media="(prefers-color-scheme: light)"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          if (saved) {
+            document.documentElement.setAttribute("data-theme", saved);
+            var lightIds = ["light", "solarized-light"];
+            document.documentElement.setAttribute(
+              "data-theme-mode",
+              lightIds.indexOf(saved) >= 0 ? "light" : "dark",
+            );
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="/footer.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --border: #30363d;
+        --max-width: 760px;
+        color-scheme: dark;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6f9;
+          --bg-surface: #ffffff;
+          --bg-card: #eef1f5;
+          --text: #1a2030;
+          --text-dim: #5a6a80;
+          --accent: #16803f;
+          --border: #d8dde6;
+          color-scheme: light;
+        }
+      }
+
+      :root[data-theme-mode="dark"] {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --border: #30363d;
+        color-scheme: dark;
+      }
+      :root[data-theme-mode="light"] {
+        --bg: #f4f6f9;
+        --bg-surface: #ffffff;
+        --bg-card: #eef1f5;
+        --text: #1a2030;
+        --text-dim: #5a6a80;
+        --accent: #16803f;
+        --border: #d8dde6;
+        color-scheme: light;
+      }
+
+      .theme-toggle {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        z-index: 90;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--bg-surface);
+        color: var(--text-dim);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition:
+          background 0.15s,
+          transform 0.15s;
+      }
+      .theme-toggle:hover {
+        background: var(--bg-card);
+        transform: scale(1.06);
+      }
+      .theme-toggle svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Helvetica,
+          Arial,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.65;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family:
+          "Space Grotesk",
+          -apple-system,
+          sans-serif;
+        letter-spacing: -0.01em;
+      }
+
+      .topbar {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 20px 24px 0;
+        font-size: 0.9rem;
+      }
+      .topbar a {
+        color: var(--text-dim);
+      }
+
+      main {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 24px 24px 8px;
+      }
+
+      h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 20px;
+      }
+
+      .lead {
+        font-size: 1.1rem;
+        margin-bottom: 12px;
+      }
+
+      h2 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin-top: 40px;
+        margin-bottom: 12px;
+      }
+
+      h3 {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-top: 20px;
+        margin-bottom: 6px;
+      }
+
+      p,
+      ul {
+        margin-bottom: 12px;
+      }
+
+      section p,
+      section li {
+        color: var(--text-dim);
+      }
+      section strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin-bottom: 6px;
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 20px 16px 8px;
+        }
+        h1 {
+          font-size: 1.6rem;
+        }
+        .topbar {
+          padding: 20px 16px 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar"><a href="/">&larr; isomux.com</a></div>
+
+    <main>
+      <h1>Contact</h1>
+
+      <section id="channels">
+        <ul>
+          <li>
+            <strong>Email:</strong>
+            <a href="mailto:llc@isomux.com">llc@isomux.com</a>, for questions
+            and for Hosted Isomux accounts and billing.
+          </li>
+          <li>
+            <strong>Discord:</strong> ask questions and talk to other Isomux
+            users in the
+            <a
+              href="https://discord.gg/FrjEYyNvYs"
+              target="_blank"
+              rel="noopener"
+              >Isomux Discord</a
+            >.
+          </li>
+          <li>
+            <strong>Bug reports:</strong>
+            <a
+              href="https://github.com/nmamano/isomux/issues"
+              target="_blank"
+              rel="noopener"
+              >GitHub issues</a
+            >.
+          </li>
+          <li>
+            <strong>Security reports:</strong> see the
+            <a
+              href="https://github.com/nmamano/isomux/security/policy"
+              target="_blank"
+              rel="noopener"
+              >security policy</a
+            >
+            and <a href="/.well-known/security.txt">security.txt</a>.
+          </li>
+          <li>
+            <strong>Commercial licenses:</strong> organizations of more than 10
+            people that run Isomux in production need a commercial license. Read
+            the
+            <a
+              href="https://github.com/nmamano/isomux/blob/main/COMMERCIAL-LICENSE.md"
+              target="_blank"
+              rel="noopener"
+              >commercial license terms</a
+            >
+            and <a href="/enterprise">Isomux for Enterprise</a>, then write to
+            <a href="mailto:llc@isomux.com">llc@isomux.com</a>.
+          </li>
+        </ul>
+        <p>
+          We aim to respond within 24 hours, but do not commit to a response
+          time.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <a class="footer-name" href="/">Isomux</a>
+      </div>
+      <div class="footer-columns">
+        <div class="footer-column">
+          <h2>Product</h2>
+          <ul>
+            <li><a href="/hosted">Hosted</a></li>
+            <li><a href="/enterprise">Enterprise</a></li>
+            <li>
+              <a
+                href="https://github.com/nmamano/isomux"
+                target="_blank"
+                rel="noopener"
+                >GitHub</a
+              >
+            </li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Company</h2>
+          <ul>
+            <li><a href="/about">About</a></li>
+            <li><a href="/contact">Contact</a></li>
+            <li><a href="/ai-instructions">AI instructions</a></li>
+            <li>
+              <a
+                href="https://nilmamano.com/blog/category/isomux"
+                target="_blank"
+                rel="noopener"
+                >Blog</a
+              >
+            </li>
+            <li>
+              <a href="https://nilmamano.com" target="_blank" rel="noopener"
+                >nilmamano.com</a
+              >
+            </li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Legal</h2>
+          <ul>
+            <li><a href="/hosted-terms">Terms</a></li>
+            <li><a href="/hosted-privacy">Privacy</a></li>
+            <li><a href="/hosted-refund">Refunds</a></li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+
+    <script defer src="/_vercel/insights/script.js"></script>
+    <script defer src="/analytics.js"></script>
+    <script defer src="/theme-toggle.js"></script>
+  </body>
+</html>

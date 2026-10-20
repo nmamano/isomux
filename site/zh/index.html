@@ -24,7 +24,81 @@
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Linux, macOS, Windows",
         "isAccessibleForFree": true,
-        "sameAs": ["https://github.com/nmamano/isomux"]
+        "sameAs": ["https://github.com/nmamano/isomux"],
+        "publisher": { "@id": "https://isomux.com/#organization" },
+        "offers": [
+          {
+            "@type": "Offer",
+            "name": "Isomux 软件",
+            "description": "个人使用以及 10 人以内的组织免费。在生产环境中使用 Isomux 的更大组织需要商业许可。",
+            "price": "0",
+            "priceCurrency": "EUR",
+            "url": "https://isomux.com/enterprise"
+          },
+          {
+            "@type": "Offer",
+            "name": "Hosted Isomux Entry",
+            "price": "8",
+            "priceCurrency": "EUR",
+            "url": "https://isomux.com/hosted#plans",
+            "priceSpecification": {
+              "@type": "UnitPriceSpecification",
+              "price": "8",
+              "priceCurrency": "EUR",
+              "unitCode": "MON"
+            }
+          },
+          {
+            "@type": "Offer",
+            "name": "Hosted Isomux Poweruser",
+            "price": "17",
+            "priceCurrency": "EUR",
+            "url": "https://isomux.com/hosted#plans",
+            "priceSpecification": {
+              "@type": "UnitPriceSpecification",
+              "price": "17",
+              "priceCurrency": "EUR",
+              "unitCode": "MON"
+            }
+          }
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": "https://isomux.com/#organization",
+        "name": "Isomux",
+        "legalName": "Isomux LLC",
+        "url": "https://isomux.com/",
+        "email": "llc@isomux.com",
+        "foundingDate": "2026-08-03",
+        "founder": {
+          "@type": "Person",
+          "name": "Nil Mamano",
+          "url": "https://nilmamano.com",
+          "sameAs": [
+            "https://x.com/Nil053",
+            "https://linkedin.com/in/nilmamano",
+            "https://github.com/nmamano"
+          ]
+        },
+        "sameAs": [
+          "https://github.com/nmamano/isomux",
+          "https://discord.gg/FrjEYyNvYs"
+        ],
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "contactType": "customer support",
+          "email": "llc@isomux.com",
+          "url": "https://isomux.com/contact"
+        },
+        "address": {
+          "@type": "PostalAddress",
+          "addressRegion": "OR",
+          "addressCountry": "US"
+        }
       }
     </script>
 
@@ -1053,6 +1127,7 @@ bun run dev</pre
           <h2>公司</h2>
           <ul>
             <li><a href="/about">About</a></li>
+            <li><a href="/contact">联系我们</a></li>
             <li><a href="/ai-instructions">AI 说明</a></li>
             <li>
               <a

@@ -1,0 +1,19 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://isomux.com/api/chat",
+      "service-desc": [
+        {
+          "href": "https://isomux.com/openapi.json",
+          "type": "application/openapi+json"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://isomux.com/docs/developer-api",
+          "type": "text/html"
+        }
+      ]
+    }
+  ]
+}
