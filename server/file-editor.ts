@@ -30,7 +30,7 @@ export type OpenFileResult =
       size: number;
       // Server-issued revision for this path (see the revision registry
       // below). Goes on the wire; the client compares revisions instead of
-      // timestamps, closing the same-millisecond mtime blind spot.
+      // timestamps, closing the same-clock-tick replace blind spot.
       rev: number;
       // Change signature of the stat this read was served from. Server-side
       // only (never on the wire): passed to watchFile as the poll baseline so
@@ -59,9 +59,10 @@ export type SaveFileResult =
 const MAX_FILE_BYTES = 1_000_000;
 
 // Change signature for the editor watch: mtime alone is not enough - a
-// rename-replace that lands within the same millisecond as the previous
-// state would compare equal. The inode catches replaces, size catches
-// same-ms in-place rewrites of different length.
+// rename-replace that lands within the same filesystem clock tick (a few ms
+// on Linux) as the previous state would compare equal. The inode catches
+// replaces, size catches same-tick in-place rewrites of different length. A
+// same-size in-place rewrite within one tick stays invisible.
 function fileSig(st: {
   mtimeMs: number;
   ino: number | bigint;
@@ -72,7 +73,7 @@ function fileSig(st: {
 
 // Per-path monotonic revision counters, keyed by absolute path. The client-
 // visible mtime cannot detect every disk change (a replace landing within the
-// same millisecond compares equal), but the server-side signature - which
+// same clock tick compares equal), but the server-side signature - which
 // includes the inode - can, as long as this process was up. So the server
 // issues a revision number with every open/save, bumps it whenever it observes
 // a signature change (open, save, or a watch poll), and the client compares
@@ -385,7 +386,7 @@ export function saveFile(
   expectedMtime: number,
   // The revision the client opened/last saved. When present, the concurrency
   // guard compares revisions (signature-backed - catches rollbacks and
-  // same-millisecond replaces the mtime guard misses); when absent (an older
+  // same-tick replaces the mtime guard misses); when absent (an older
   // client), it falls back to the legacy mtime comparison.
   expectedRev: number | undefined,
   force: boolean,

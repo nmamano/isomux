@@ -77,12 +77,32 @@ describe("watchFile", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  // Quarantined (task e490d5ad): red once in ci:remote on db2de07c (no event
-  // within the 3 s wait), green on the next run.
-  it.skip("fires on in-place writes", async () => {
-    writeFileSync(file, "v1");
-    await waitFor(() => events.length > 0);
-    expect(events.length).toBeGreaterThan(0);
+  it("fires on in-place writes", () => {
+    // A same-size in-place write keeps ino and size, so only mtime can move
+    // the signature. Linux stamps mtime from a coarse clock, and a write in
+    // the same tick as the baseline write keeps the old mtime (task
+    // e490d5ad: a real-clock version was red in most hot reruns), so the
+    // test moves mtime explicitly.
+    stopWatch(watcher);
+    jest.useFakeTimers();
+    watcher = openAndWatch(file, (ev) => events.push(ev), 50);
+    try {
+      const before = statSync(file);
+      writeFileSync(file, "v1");
+      const later = new Date(before.mtimeMs + 10_000);
+      utimesSync(file, later, later);
+      const after = statSync(file);
+      expect(after.ino).toBe(before.ino);
+      expect(after.size).toBe(before.size);
+      expect(after.mtimeMs).not.toBe(before.mtimeMs);
+
+      jest.advanceTimersByTime(50);
+      expect(events).toHaveLength(1);
+      expect(events[0]?.kind).toBe("change");
+    } finally {
+      stopWatch(watcher);
+      jest.useRealTimers();
+    }
   });
 
   it("fires on atomic rename-replace saves", async () => {
@@ -132,7 +152,7 @@ describe("watchFile", () => {
     const r = openFile(file2);
     if (r.kind !== "ok") throw new Error("open failed");
     // Change lands after the read but before the watch is armed (atomic
-    // rename, the same-ms-capable worst case).
+    // rename, the same-tick-capable worst case).
     const tmp = join(dir, "gap.txt.tmp.1.a");
     writeFileSync(tmp, "v1");
     renameSync(tmp, file2);
@@ -255,7 +275,7 @@ describe("watchFile deletion", () => {
 
 // Revision registry (task 259224b6): the server issues a per-path revision on
 // open/save and bumps it on every observed signature change, so clients can
-// compare revisions instead of timestamps (the mtime same-millisecond blind
+// compare revisions instead of timestamps (the mtime same-clock-tick blind
 // spot, and the rollback case where mtime moves BACKWARDS).
 describe("file revisions", () => {
   let dir: string;
@@ -275,7 +295,7 @@ describe("file revisions", () => {
     const r2 = openFile(file);
     if (r1.kind !== "ok" || r2.kind !== "ok") throw new Error("open failed");
     expect(r2.rev).toBe(r1.rev);
-    // Replace the file (new inode - detectable even in the same millisecond).
+    // Replace the file (new inode - detectable even in the same clock tick).
     const tmp = join(dir, "rev.txt.tmp");
     writeFileSync(tmp, "v1");
     renameSync(tmp, file);
@@ -290,7 +310,7 @@ describe("file revisions", () => {
     const r = openFile(file);
     if (r.kind !== "ok") throw new Error("open failed");
     // Longer content on purpose: an equal-length in-place write landing in
-    // the same millisecond would produce an identical signature (no bump).
+    // the same clock tick would produce an identical signature (no bump).
     const s = saveFile(file, "v1 with more bytes", r.mtime, r.rev, false);
     expect(s.kind).toBe("ok");
     if (s.kind !== "ok") return;
@@ -474,7 +494,7 @@ describe("file revisions", () => {
       const r = openFile(file);
       if (r.kind !== "ok") throw new Error("open failed");
       // Different length than "v0" so the write is a signature change even
-      // within the same millisecond.
+      // within the same clock tick.
       const s = saveFile(file, "v1 with more bytes", r.mtime, r.rev, false);
       if (s.kind !== "ok") throw new Error(`save failed: ${s.kind}`);
       await waitFor(() => events.some((e) => e.kind === "change"));
