@@ -806,6 +806,9 @@ export interface AgentInfo {
   // turn, the server has the agent write a brief and hands off to a fresh
   // session (internal-docs/auto-handoff-design.md). Absent reads as false.
   autoHandoff?: boolean;
+  // The automatic handoff's token trigger (shared/auto-handoff.ts). Absent
+  // reads as AUTO_HANDOFF_DEFAULT_TOKENS.
+  autoHandoffTokens?: number;
   // Resume after a usage limit: a turn a usage limit stopped is continued
   // after the limit resets (server/limit-resume.ts). Absent reads as true; the
   // server sets it only when off.

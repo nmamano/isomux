@@ -1355,6 +1355,9 @@ Cosas que puedes hacer por él:
   "dialogs.agent.autoHandoff": "Traspaso automático",
   "dialogs.agent.autoHandoffHint":
     "Cuando el contexto se llena, el agente escribe un resumen y continúa en una sesión nueva. El chat se vacía.",
+  "dialogs.agent.autoHandoffTokens": "Traspasar al llegar a {input}k tokens",
+  "dialogs.agent.autoHandoffTokensError":
+    "Introduce un número de {min} a {max}.",
   "dialogs.agent.limitResume": "Reanudar tras el límite de uso",
   "dialogs.agent.limitResumeHint":
     "Cuando un límite de uso detiene al agente, continúa cuando el límite se restablece.",

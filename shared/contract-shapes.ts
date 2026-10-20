@@ -103,6 +103,7 @@ export type EditAgentReq = Partial<
     | "permissionMode"
     | "codexSandbox"
     | "autoHandoff"
+    | "autoHandoffTokens"
     | "limitResume"
     // Changing the engine starts a fresh conversation on the new engine (the old
     // one is preserved in the resume history). Model/effort/permission sent in

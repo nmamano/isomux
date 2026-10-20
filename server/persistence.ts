@@ -784,6 +784,9 @@ export interface PersistedAgent {
   privileged?: boolean;
   // Automatic handoff switch. Written only when on; absent reads as false.
   autoHandoff?: boolean;
+  // Its token trigger. Written only off the default; absent reads as
+  // AUTO_HANDOFF_DEFAULT_TOKENS.
+  autoHandoffTokens?: number;
   // Resume-after-usage-limit switch. Written only when off; absent reads as
   // true.
   limitResume?: boolean;
@@ -1395,6 +1398,8 @@ export interface AgentHistoryEntry {
   privileged?: boolean;
   // Automatic handoff switch, snapshotted like privileged. Absent ⇒ off.
   autoHandoff?: boolean;
+  // Its token trigger, snapshotted the same way. Absent ⇒ the default.
+  autoHandoffTokens?: number;
   // Resume-after-usage-limit switch, snapshotted like autoHandoff. Absent ⇒ on.
   limitResume?: boolean;
 }

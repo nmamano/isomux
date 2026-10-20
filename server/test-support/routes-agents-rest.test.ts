@@ -860,6 +860,91 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(persisted()).not.toHaveProperty("autoHandoff");
   });
 
+  it("PATCH sets the automatic handoff token value in range; it persists only off the default; anything else is 422", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const x = await spawnAt(
+      srv,
+      "Tokens",
+      srv.agentManager.getRooms()[0].id,
+      0,
+    );
+    const tokens = () => srv.agentManager.getAgent(x.id)?.autoHandoffTokens;
+    const persisted = () =>
+      loadAgents()
+        .flatMap((r) => r.agents)
+        .find((a) => a.id === x.id);
+    const patch = (body: Record<string, unknown>) =>
+      req(srv, "PATCH", `/api/agents/${x.id}`, {
+        body,
+        rawSessionId: owner.rawSessionId,
+      });
+    expect(persisted()).toBeDefined();
+    expect(persisted()).not.toHaveProperty("autoHandoffTokens");
+
+    const set = await patch({ autoHandoffTokens: 300_000 });
+    expect(set.status).toBe(200);
+    expect(
+      (set.body as { agent: { autoHandoffTokens?: number } }).agent
+        .autoHandoffTokens,
+    ).toBe(300_000);
+    expect(persisted()?.autoHandoffTokens).toBe(300_000);
+
+    // Not an integer, or outside the sanity range: rejected, nothing changes.
+    for (const bad of ["300000", 300_000.5, 49_999, 10_000_001, true, -1]) {
+      const res = await patch({ autoHandoffTokens: bad });
+      expect({ bad, status: res.status, code: errCode(res.body) }).toEqual({
+        bad,
+        status: 422,
+        code: "invalid_request",
+      });
+      expect(tokens()).toBe(300_000);
+    }
+
+    // Both ends of the range are accepted.
+    expect((await patch({ autoHandoffTokens: 50_000 })).status).toBe(200);
+    expect(tokens()).toBe(50_000);
+    expect((await patch({ autoHandoffTokens: 10_000_000 })).status).toBe(200);
+    expect(tokens()).toBe(10_000_000);
+    // null is tolerated, as for the other fields, and changes nothing.
+    expect(
+      (await patch({ autoHandoffTokens: null, name: "Still" })).status,
+    ).toBe(200);
+    expect(tokens()).toBe(10_000_000);
+
+    // Back at the default: nothing stored.
+    expect((await patch({ autoHandoffTokens: 500_000 })).status).toBe(200);
+    expect(tokens() ?? 500_000).toBe(500_000);
+    expect(persisted()).not.toHaveProperty("autoHandoffTokens");
+  });
+
+  it("an engine switch carries the automatic handoff token value saved with it", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const x = await spawnAt(
+      srv,
+      "Switch",
+      srv.agentManager.getRooms()[0].id,
+      0,
+    );
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: {
+        agentType: "codex",
+        modelFamily: "gpt-5.5",
+        autoHandoff: true,
+        autoHandoffTokens: 300_000,
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    const after = srv.agentManager.getAgent(x.id);
+    expect(after?.agentType).toBe("codex");
+    expect(after?.autoHandoff).toBe(true);
+    expect(after?.autoHandoffTokens).toBe(300_000);
+  });
+
   it("PATCH sets the resume-after-usage-limit switch, on by default; off persists; a non-boolean is 422", async () => {
     const srv = await startTestServer();
     server = srv;

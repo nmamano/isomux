@@ -38,6 +38,7 @@ const BASE: AgentFormSnapshot = {
   codexSandbox: "workspace-write",
   privileged: false,
   autoHandoff: false,
+  autoHandoffTokens: "500",
   limitResume: true,
 };
 
@@ -64,6 +65,17 @@ describe("agentFormDirty", () => {
     for (const edit of edits) {
       expect(agentFormDirty({ ...BASE, ...edit }, BASE, false)).toBe(true);
     }
+  });
+
+  // The handoff threshold field shows only while the switch is on.
+  it("counts the handoff threshold only while the automatic handoff switch is on", () => {
+    const on = { ...BASE, autoHandoff: true };
+    expect(agentFormDirty({ ...on, autoHandoffTokens: "300" }, on, false)).toBe(
+      true,
+    );
+    expect(
+      agentFormDirty({ ...BASE, autoHandoffTokens: "300" }, BASE, false),
+    ).toBe(false);
   });
 
   it("counts memory edits, which live outside the form snapshot", () => {

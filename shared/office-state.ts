@@ -22,6 +22,7 @@ import {
 } from "./types.ts";
 import { generateTaskId, generateRoomId } from "./types.ts";
 import { versionOf } from "./blob-version.ts";
+import { AUTO_HANDOFF_DEFAULT_TOKENS } from "./auto-handoff.ts";
 import {
   roomSlotCount,
   isValidDesk,
@@ -366,6 +367,7 @@ export class OfficeState {
       effort?: AgentInfo["effort"];
       codexSandbox?: AgentInfo["codexSandbox"];
       autoHandoff?: boolean;
+      autoHandoffTokens?: number;
       limitResume?: boolean;
     },
   ): OfficeEvent[] {
@@ -431,6 +433,17 @@ export class OfficeState {
     ) {
       agent.autoHandoff = changes.autoHandoff;
       updated.autoHandoff = changes.autoHandoff;
+    }
+    if (
+      typeof changes.autoHandoffTokens === "number" &&
+      changes.autoHandoffTokens !==
+        (agent.autoHandoffTokens ?? AUTO_HANDOFF_DEFAULT_TOKENS)
+    ) {
+      // The default is stored as absent, like the persisted form.
+      if (changes.autoHandoffTokens === AUTO_HANDOFF_DEFAULT_TOKENS)
+        delete agent.autoHandoffTokens;
+      else agent.autoHandoffTokens = changes.autoHandoffTokens;
+      updated.autoHandoffTokens = changes.autoHandoffTokens;
     }
     if (
       typeof changes.limitResume === "boolean" &&

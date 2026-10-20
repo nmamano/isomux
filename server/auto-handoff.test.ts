@@ -65,6 +65,48 @@ describe("autoHandoffTrigger", () => {
   });
 });
 
+describe("autoHandoffTrigger with the agent's own token value", () => {
+  it("replaces 500k as the tokens limit", () => {
+    expect(autoHandoffTrigger({ maxTokens: 1_000_000 }, 300_000)).toEqual({
+      tokens: 300_000,
+      measure: "tokens",
+      maxTokens: 1_000_000,
+    });
+    // Raised past 500k, still under 85% of the window.
+    expect(autoHandoffTrigger({ maxTokens: 1_000_000 }, 700_000)).toEqual({
+      tokens: 700_000,
+      measure: "tokens",
+      maxTokens: 1_000_000,
+    });
+  });
+
+  it("does not move the 85% limit or the compaction guard", () => {
+    expect(autoHandoffTrigger({ maxTokens: 200_000 }, 300_000)).toMatchObject({
+      tokens: 170_000,
+      measure: "percent",
+    });
+    expect(
+      autoHandoffTrigger(
+        { maxTokens: 1_000_000, compactAtTokens: 400_000 },
+        450_000,
+      ),
+    ).toMatchObject({ tokens: 350_000, measure: "compaction" });
+  });
+
+  it("keeps the tie order: tokens, then percent, then compaction", () => {
+    expect(autoHandoffTrigger({ maxTokens: 200_000 }, 170_000)).toMatchObject({
+      tokens: 170_000,
+      measure: "tokens",
+    });
+    expect(
+      autoHandoffTrigger(
+        { maxTokens: 1_000_000, compactAtTokens: 350_000 },
+        300_000,
+      ),
+    ).toMatchObject({ tokens: 300_000, measure: "tokens" });
+  });
+});
+
 describe("OpenCode compaction point", () => {
   it("OpenCode: the context limit less the capped output limit", () => {
     expect(

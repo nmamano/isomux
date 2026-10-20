@@ -1357,6 +1357,9 @@ Coses que pots fer per ell:
   "dialogs.agent.autoHandoff": "Traspàs automàtic",
   "dialogs.agent.autoHandoffHint":
     "Quan el context s'omple, l'agent escriu un resum i continua en una sessió nova. El xat es buida.",
+  "dialogs.agent.autoHandoffTokens": "Traspassar en arribar a {input}k tokens",
+  "dialogs.agent.autoHandoffTokensError":
+    "Introdueix un número de {min} a {max}.",
   "dialogs.agent.limitResume": "Reprendre després del límit d'ús",
   "dialogs.agent.limitResumeHint":
     "Quan un límit d'ús atura l'agent, continua quan el límit es restableix.",

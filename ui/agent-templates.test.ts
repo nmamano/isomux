@@ -431,6 +431,7 @@ describe("Blank template dirty state", () => {
     codexSandbox: "workspace-write",
     privileged: false,
     autoHandoff: false,
+    autoHandoffTokens: "500",
     limitResume: true,
   };
 

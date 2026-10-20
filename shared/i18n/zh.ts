@@ -1209,6 +1209,8 @@ App 的一些原则：
   "dialogs.agent.autoHandoff": "自动交接",
   "dialogs.agent.autoHandoffHint":
     "上下文快满时，智能体会写一份简报并在新会话中继续。聊天记录会清空。",
+  "dialogs.agent.autoHandoffTokens": "在 {input}k 个 token 时交接",
+  "dialogs.agent.autoHandoffTokensError": "请输入 {min} 到 {max} 之间的数字。",
   "dialogs.agent.limitResume": "用量限制后继续",
   "dialogs.agent.limitResumeHint":
     "用量限制让智能体停下时，限制重置后它会继续。",

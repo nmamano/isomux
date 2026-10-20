@@ -4,11 +4,11 @@
 // hands off to a fresh session. The state machine lives in agent-manager; this
 // module holds the trigger and the words.
 
+import { AUTO_HANDOFF_DEFAULT_TOKENS } from "../shared/auto-handoff.ts";
 import type { ManagedAgent } from "./internal-types.ts";
 
-// Nil, 2026-10-13 and 2026-10-14: hand off at 500k tokens or at 85% of the
-// window, whichever comes first.
-export const AUTO_HANDOFF_MAX_TOKENS = 500_000;
+// Nil, 2026-10-13 and 2026-10-14: hand off at the agent's token value (500k
+// by default) or at 85% of the window, whichever comes first.
 export const AUTO_HANDOFF_MAX_PERCENT = 85;
 // An engine that compacts on its own before that point would compact first and
 // the handoff would never fire, so the trigger moves this many points of the
@@ -31,14 +31,17 @@ export interface AutoHandoffTrigger {
  *  compaction point, absent when the engine does not compact or its point is
  *  not knowable (Codex: see backends/codex/adapter.ts getContextUsage). On a
  *  tie the earlier limit in the order tokens, percent, compaction is the one
- *  reported. */
-export function autoHandoffTrigger(snap: {
-  maxTokens: number;
-  compactAtTokens?: number;
-}): AutoHandoffTrigger {
+ *  reported. `tokens` is the agent's own value (AgentInfo.autoHandoffTokens). */
+export function autoHandoffTrigger(
+  snap: {
+    maxTokens: number;
+    compactAtTokens?: number;
+  },
+  tokens: number = AUTO_HANDOFF_DEFAULT_TOKENS,
+): AutoHandoffTrigger {
   const { maxTokens } = snap;
   let best: AutoHandoffTrigger = {
-    tokens: AUTO_HANDOFF_MAX_TOKENS,
+    tokens,
     measure: "tokens",
     maxTokens,
   };
@@ -54,6 +57,23 @@ export function autoHandoffTrigger(snap: {
       best = { tokens: guard, measure: "compaction", maxTokens };
   }
   return best;
+}
+
+/** The agent's own token value, or the default. */
+export function autoHandoffTokensOf(info: {
+  autoHandoffTokens?: number;
+}): number {
+  return info.autoHandoffTokens ?? AUTO_HANDOFF_DEFAULT_TOKENS;
+}
+
+/** The token value for agents.json and the agent history: written only off
+ *  the default, so a default value reads as absent. */
+export function persistedAutoHandoffTokens(value: number | undefined): {
+  autoHandoffTokens?: number;
+} {
+  return value !== undefined && value !== AUTO_HANDOFF_DEFAULT_TOKENS
+    ? { autoHandoffTokens: value }
+    : {};
 }
 
 /** The limit that fired, for the member's two lines: the trigger itself, not

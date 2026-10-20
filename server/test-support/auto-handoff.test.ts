@@ -471,6 +471,76 @@ describe("automatic handoff: arming", () => {
   });
 });
 
+describe("automatic handoff: the agent's own token value", () => {
+  it("arms at exactly that value, and both lines name it", async () => {
+    const h = makeHarness();
+    const info = await spawn(h);
+    await h.mgr.editAgent(info.id, { autoHandoffTokens: 300_000 });
+    // One token under it: nothing arms.
+    const old = await turnEndingAt(h, info.id, ctx(299_999, 1_000_000));
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "at rest",
+    );
+    await settle();
+    expect(texts(old).some(isBriefPrompt)).toBe(false);
+    // At it: the next message starts the handoff.
+    await turnEndingAt(h, info.id, ctx(300_000, 1_000_000));
+    await nextMessage(h, info.id);
+    await freshSession(h, info.id, old);
+    expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+    expect(systemLines(h)).toContain(
+      en.t("systemEntries.autoHandoff.writingTokens", { thousands: 300 }),
+    );
+    expect(systemLines(h)).toContain(
+      en.t("systemEntries.autoHandoff.doneTokens", { thousands: 300 }),
+    );
+  });
+
+  // Armed at 510k of 1M by the default 500k; the edit lands before the brief
+  // turn starts.
+  async function armedAt510k(h: Harness): Promise<{
+    info: AgentInfo;
+    old: FakeSession;
+  }> {
+    const info = await spawn(h);
+    const old = await turnEndingAt(h, info.id, ctx(510_000, 1_000_000));
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "at rest after the crossing turn",
+    );
+    await settle();
+    return { info, old };
+  }
+
+  it("an edit while armed that leaves the context above the value keeps it armed, and the lines name the new value", async () => {
+    const h = makeHarness();
+    const { info, old } = await armedAt510k(h);
+    await h.mgr.editAgent(info.id, { autoHandoffTokens: 505_000 });
+    await nextMessage(h, info.id);
+    const fresh = await freshSession(h, info.id, old);
+    expect(texts(old).filter(isBriefPrompt)).toHaveLength(1);
+    expect(sent(fresh, NEXT)).toBe(true);
+    expect(systemLines(h)).toContain(
+      en.t("systemEntries.autoHandoff.writingTokens", { thousands: 505 }),
+    );
+    expect(systemLines(h)).toContain(
+      en.t("systemEntries.autoHandoff.doneTokens", { thousands: 505 }),
+    );
+  });
+
+  it("an edit while armed that raises the value past the context disarms it, and the next message runs in place", async () => {
+    const h = makeHarness();
+    const { info, old } = await armedAt510k(h);
+    await h.mgr.editAgent(info.id, { autoHandoffTokens: 600_000 });
+    await nextMessage(h, info.id);
+    await waitUntil(() => sent(old, NEXT), "message runs in the old session");
+    await settle();
+    expect(texts(old).some(isBriefPrompt)).toBe(false);
+    expect(h.fake.sessions).toHaveLength(1);
+  });
+});
+
 describe("automatic handoff: the next message starts it", () => {
   const kinds: {
     name: string;
@@ -1200,5 +1270,45 @@ describe("automatic handoff: the switch survives a restart", () => {
     await mgr.restoreAgents();
     expect(mgr.getAgent("on")?.autoHandoff).toBe(true);
     expect(mgr.getAgent("legacy")?.autoHandoff ?? false).toBe(false);
+  });
+
+  it("restores the agent's own token value", async () => {
+    const fake = new FakeBackend();
+    activeFakes.push(fake);
+    const persisted = {
+      id: "custom",
+      name: "custom",
+      desk: 0,
+      cwd: STATE_ROOT,
+      outfit: {
+        hat: "none" as const,
+        color: "#ffffff",
+        hair: "#000000",
+        hairStyle: "short" as const,
+        skin: "#ffffff",
+        beard: "none" as const,
+        accessory: null,
+      },
+      permissionMode: "default" as const,
+      modelFamily: "opus",
+      agentType: "claude" as const,
+      lastSessionId: null,
+      topic: null,
+      customInstructions: null,
+      userId: null,
+      username: null,
+      autoHandoff: true,
+      autoHandoffTokens: 300_000,
+    };
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms }),
+      initialRooms: [
+        { id: "room-a", name: "room-a", prompt: null, agents: [persisted] },
+      ],
+    });
+    mgr.configureAgentTurnDeps();
+    await mgr.restoreAgents();
+    expect(mgr.getAgent("custom")?.autoHandoffTokens).toBe(300_000);
   });
 });

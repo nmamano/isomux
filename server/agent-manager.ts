@@ -208,8 +208,10 @@ import {
   autoHandoffBriefPrompt,
   autoHandoffMeasureParams,
   autoHandoffPossible,
+  autoHandoffTokensOf,
   autoHandoffTrigger,
   joinBriefChunks,
+  persistedAutoHandoffTokens,
 } from "./auto-handoff.ts";
 import {
   LIMIT_RESUME_BOOT_DELAY_MS,
@@ -1516,6 +1518,7 @@ export function createAgentManager(deps: ManagerDeps) {
       codexSandbox?: AgentInfo["codexSandbox"];
       agentType?: AgentInfo["agentType"];
       autoHandoff?: boolean;
+      autoHandoffTokens?: number;
       limitResume?: boolean;
     },
     // Who made the edit, for the settings notice. An edit without one (an
@@ -1564,6 +1567,8 @@ export function createAgentManager(deps: ManagerDeps) {
         meta.customInstructions = changes.customInstructions;
       if (typeof changes.autoHandoff === "boolean")
         meta.autoHandoff = changes.autoHandoff;
+      if (typeof changes.autoHandoffTokens === "number")
+        meta.autoHandoffTokens = changes.autoHandoffTokens;
       if (typeof changes.limitResume === "boolean")
         meta.limitResume = changes.limitResume;
       if (Object.keys(meta).length > 0) {
@@ -1592,6 +1597,8 @@ export function createAgentManager(deps: ManagerDeps) {
       validated.customInstructions = changes.customInstructions;
     if (typeof changes.autoHandoff === "boolean")
       validated.autoHandoff = changes.autoHandoff;
+    if (typeof changes.autoHandoffTokens === "number")
+      validated.autoHandoffTokens = changes.autoHandoffTokens;
     if (typeof changes.limitResume === "boolean")
       validated.limitResume = changes.limitResume;
     if (changes.modelFamily) {
@@ -1680,6 +1687,7 @@ export function createAgentManager(deps: ManagerDeps) {
       effort: managed.info.effort,
       codexSandbox: managed.info.codexSandbox,
       autoHandoff: managed.info.autoHandoff,
+      autoHandoffTokens: managed.info.autoHandoffTokens,
       limitResume: managed.info.limitResume,
     };
 
@@ -1698,6 +1706,25 @@ export function createAgentManager(deps: ManagerDeps) {
     ) {
       managed.autoHandoffPhase = null;
       releaseAutoHandoffQueue(agentId, managed);
+    }
+    // A new token value before the brief turn started: the armed handoff
+    // follows it, or does not happen when the context is now below it.
+    const phase = managed.autoHandoffPhase;
+    if (
+      phase &&
+      !phase.briefStarted &&
+      events[0].type === "agent_updated" &&
+      events[0].changes.autoHandoffTokens !== undefined
+    ) {
+      const snap = managed.contextUsage;
+      const trigger =
+        snap && autoHandoffTrigger(snap, autoHandoffTokensOf(managed.info));
+      if (snap && trigger && snap.totalTokens >= trigger.tokens) {
+        phase.trigger = trigger;
+      } else {
+        managed.autoHandoffPhase = null;
+        releaseAutoHandoffQueue(agentId, managed);
+      }
     }
     // Switched off: a pending resume after a usage limit does not happen.
     if (managed.info.limitResume === false) dropLimitResume(agentId, managed);
@@ -2198,6 +2225,7 @@ export function createAgentManager(deps: ManagerDeps) {
       roomId: a.info.roomId,
       privileged: a.info.privileged ?? false,
       ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
+      ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
       ...(a.info.limitResume === false ? { limitResume: false } : {}),
       ...(a.limitResumeAt !== null ? { limitResumeAt: a.limitResumeAt } : {}),
     };
@@ -2261,6 +2289,7 @@ export function createAgentManager(deps: ManagerDeps) {
         username: a.info.username,
         privileged: a.info.privileged ?? false,
         ...(a.info.autoHandoff ? { autoHandoff: true } : {}),
+        ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
         ...(a.info.limitResume === false ? { limitResume: false } : {}),
       };
     }
@@ -2539,6 +2568,7 @@ export function createAgentManager(deps: ManagerDeps) {
       username: p.username ?? null,
       privileged: p.privileged ?? false,
       ...(p.autoHandoff === true ? { autoHandoff: true } : {}),
+      ...persistedAutoHandoffTokens(p.autoHandoffTokens),
       ...(p.limitResume === false ? { limitResume: false } : {}),
       queue: [],
       sessionSwapping: false,
@@ -9987,6 +10017,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // agents, and revive reads entry.privileged).
           privileged: managed.info.privileged ?? false,
           ...(managed.info.autoHandoff ? { autoHandoff: true } : {}),
+          ...persistedAutoHandoffTokens(managed.info.autoHandoffTokens),
           ...(managed.info.limitResume === false ? { limitResume: false } : {}),
         };
         saveAgentHistory(history);
@@ -10240,6 +10271,7 @@ export function createAgentManager(deps: ManagerDeps) {
       username: entry.username,
       privileged: entry.privileged ?? false,
       ...(entry.autoHandoff ? { autoHandoff: true } : {}),
+      ...persistedAutoHandoffTokens(entry.autoHandoffTokens),
       ...(entry.limitResume === false ? { limitResume: false } : {}),
     };
 
@@ -10476,7 +10508,7 @@ export function createAgentManager(deps: ManagerDeps) {
       !managed.info.capabilities.autoHandoff
     )
       return;
-    const trigger = autoHandoffTrigger(snap);
+    const trigger = autoHandoffTrigger(snap, autoHandoffTokensOf(managed.info));
     const above = snap.totalTokens >= trigger.tokens;
     if (!above || managed.autoHandoffSpent || managed.autoHandoffPhase) return;
     const agentId = managed.info.id;

@@ -94,6 +94,10 @@ function deskFieldFailure(
 }
 import { AGENT_TEMPLATES } from "../../../shared/agent-templates.ts";
 import {
+  AUTO_HANDOFF_TOKENS_MAX,
+  AUTO_HANDOFF_TOKENS_MIN,
+} from "../../../shared/auto-handoff.ts";
+import {
   NEVER_PROMPTING_MODE,
   spawnedAgentMode,
 } from "../../agent-validators.ts";
@@ -292,7 +296,14 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
       typeof b.autoHandoff !== "boolean") ||
     (b.limitResume !== undefined &&
       b.limitResume !== null &&
-      typeof b.limitResume !== "boolean")
+      typeof b.limitResume !== "boolean") ||
+    (b.autoHandoffTokens !== undefined &&
+      b.autoHandoffTokens !== null &&
+      !(
+        Number.isInteger(b.autoHandoffTokens) &&
+        (b.autoHandoffTokens as number) >= AUTO_HANDOFF_TOKENS_MIN &&
+        (b.autoHandoffTokens as number) <= AUTO_HANDOFF_TOKENS_MAX
+      ))
   ) {
     return true;
   }

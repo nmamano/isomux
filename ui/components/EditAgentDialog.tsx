@@ -1,5 +1,10 @@
 import { RECEPTIONIST_PROFILE_KEY } from "../../shared/receptionist-profile.ts";
 import { useEffect, useRef, useState } from "react";
+import {
+  AUTO_HANDOFF_DEFAULT_TOKENS,
+  AUTO_HANDOFF_TOKENS_MAX,
+  AUTO_HANDOFF_TOKENS_MIN,
+} from "../../shared/auto-handoff.ts";
 import type {
   AgentBackendType,
   AgentInfo,
@@ -187,6 +192,8 @@ export interface AgentFormSnapshot {
   codexSandbox: CodexSandboxMode;
   privileged: boolean;
   autoHandoff: boolean;
+  // The threshold field as typed, in thousands of tokens.
+  autoHandoffTokens: string;
   limitResume: boolean;
 }
 
@@ -219,7 +226,25 @@ export function agentFormDirty(
   for (const k of exact) {
     if (current[k] !== baseline[k]) return true;
   }
+  // The threshold field shows only while the switch is on.
+  if (
+    current.autoHandoff &&
+    current.autoHandoffTokens !== baseline.autoHandoffTokens
+  )
+    return true;
   return false;
+}
+
+// The threshold field in thousands of tokens, as tokens: null unless it is a
+// whole number of tokens in the sanity range. Parsed from the digits, so
+// "123.456" is exactly 123_456. Exported for tests.
+export function parseAutoHandoffThousands(text: string): number | null {
+  const m = /^(\d+)(?:\.(\d{1,3}))?$/.exec(text.trim());
+  if (!m) return null;
+  const tokens = Number(m[1]) * 1000 + Number((m[2] ?? "").padEnd(3, "0"));
+  return tokens >= AUTO_HANDOFF_TOKENS_MIN && tokens <= AUTO_HANDOFF_TOKENS_MAX
+    ? tokens
+    : null;
 }
 
 type EditAgentDialogProps = {
@@ -368,6 +393,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // agent can't self-confer. At spawn we two-step: create, then toggle.
   const [privileged, setPrivileged] = useState(agent?.privileged ?? false);
   const [autoHandoff, setAutoHandoff] = useState(agent?.autoHandoff ?? false);
+  const [autoHandoffTokens, setAutoHandoffTokens] = useState(() =>
+    String((agent?.autoHandoffTokens ?? AUTO_HANDOFF_DEFAULT_TOKENS) / 1000),
+  );
+  const [autoHandoffTokensError, setAutoHandoffTokensError] = useState(false);
   // Absent reads as on.
   const [limitResume, setLimitResume] = useState(agent?.limitResume ?? true);
   const [saving, setSaving] = useState(false);
@@ -447,6 +476,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     codexSandbox,
     privileged,
     autoHandoff,
+    autoHandoffTokens,
     limitResume,
   };
   // Copied, not aliased: the effects below re-stamp individual baseline entries
@@ -885,6 +915,15 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       return;
     }
     setConfirmDiscard(false);
+    // The threshold counts only while it shows; an invalid one blocks Save.
+    const handoffTokens =
+      showAutoHandoff && autoHandoff
+        ? parseAutoHandoffThousands(autoHandoffTokens)
+        : undefined;
+    if (handoffTokens === null) {
+      setAutoHandoffTokensError(true);
+      return;
+    }
     // name_taken routes under the Name input; everything else under cwd (the
     // prior agent_save_response.field === "name" routing, now keyed on the REST
     // ApiError.code).
@@ -934,6 +973,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           if (autoHandoff || (!limitResume && !isOpenCode))
             await apiFetch("PATCH", `/api/agents/${res.agent.id}`, {
               ...(autoHandoff ? { autoHandoff: true } : {}),
+              ...(handoffTokens !== undefined &&
+              handoffTokens !== AUTO_HANDOFF_DEFAULT_TOKENS
+                ? { autoHandoffTokens: handoffTokens }
+                : {}),
               ...(!limitResume && !isOpenCode ? { limitResume: false } : {}),
             } satisfies EditAgentReq);
           if (privileged)
@@ -1000,6 +1043,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       }
       if (autoHandoff !== (agent!.autoHandoff ?? false))
         changes.autoHandoff = autoHandoff;
+      if (
+        handoffTokens !== undefined &&
+        handoffTokens !==
+          (agent!.autoHandoffTokens ?? AUTO_HANDOFF_DEFAULT_TOKENS)
+      )
+        changes.autoHandoffTokens = handoffTokens;
       if (showLimitResume && limitResume !== (agent!.limitResume ?? true))
         changes.limitResume = limitResume;
       const hasChanges = !!(
@@ -1013,6 +1062,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.codexSandbox ||
         changes.agentType ||
         changes.autoHandoff !== undefined ||
+        changes.autoHandoffTokens !== undefined ||
         changes.limitResume !== undefined
       );
       // Privilege is its OWN user-gated route (PUT /privileged), never part of
@@ -1880,6 +1930,43 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       {t("dialogs.agent.autoHandoffHint")}
                     </span>
                   </label>
+                  {autoHandoff && (
+                    <label
+                      className="agent-auto-handoff-tokens"
+                      htmlFor="agent-auto-handoff-tokens"
+                    >
+                      {i18n.rich("dialogs.agent.autoHandoffTokens", {
+                        input: (
+                          <input
+                            id="agent-auto-handoff-tokens"
+                            type="text"
+                            inputMode="decimal"
+                            value={autoHandoffTokens}
+                            onChange={(e) => {
+                              setAutoHandoffTokens(e.target.value);
+                              setAutoHandoffTokensError(false);
+                            }}
+                            aria-invalid={autoHandoffTokensError}
+                            style={{ ...inputStyle, width: 90 }}
+                          />
+                        ),
+                      })}
+                    </label>
+                  )}
+                  {autoHandoff && autoHandoffTokensError && (
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "var(--red-text)",
+                        margin: "4px 0 0",
+                      }}
+                    >
+                      {t("dialogs.agent.autoHandoffTokensError", {
+                        min: AUTO_HANDOFF_TOKENS_MIN / 1000,
+                        max: AUTO_HANDOFF_TOKENS_MAX / 1000,
+                      })}
+                    </p>
+                  )}
                 </div>
               )}
               {showLimitResume && (

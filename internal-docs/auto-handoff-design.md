@@ -11,13 +11,14 @@ A per-agent switch, off by default. When it is on and a completed turn leaves th
 **A per-agent boolean `autoHandoff`, default `false`, set in the agent edit dialog.**
 
 - It sits with the other per-agent settings: `AgentInfo`, `PersistedAgent` and the `EditAgentReq` pick. The persisted field is optional, written only when on and read as `?? false`, so old state files load with no migration. Spawn takes no such field; the spawn dialog switches it on with an edit right after the spawn.
+- **A per-agent token value `autoHandoffTokens`, default 500k (task 758f361c, 2026-10-20).** The field under the switch, "Hand off at N k tokens", shows only while the switch is on. It replaces 500k in the trigger (section 2). It follows the switch through `AgentInfo`, `PersistedAgent`, the agent history and the `EditAgentReq` pick, and is written only off the default. The PATCH takes an integer from 50k to 10M (`shared/auto-handoff.ts`), else 422: below 50k a fresh session opens above the trigger, and the loop guard (section 6) pauses every later conversation. The dialog works in thousands and sends the value only when the member changed it.
 - No room or office default.
 - Off by default, because the mode skips the member-approval step of `/handoff` (`skills/isomux-handoff/SKILL.md`, step 2) and clears the chat (section 5).
 - The switch shows only where the engine supports the mode, through `AgentCapabilities.autoHandoff`. Claude, Codex and OpenCode set it; the OpenCode tracer does not.
 
 ## 2. Trigger and measurement
 
-**Hand off at 500k tokens or at 85% of the window, whichever comes first (Nil, 2026-10-13; 85% since 2026-10-14). An engine that compacts on its own before that point gets a trigger 5 points of the window ahead of its compaction point.** In tokens: `min(500_000, 0.85 x window, compactAt - 0.05 x window)`, the last term only when the engine's compaction point is knowable. On a tie the earlier term in that order is the one reported. Constants, not settings: `server/auto-handoff.ts`. The 5 points leave room for the brief turn, which runs in the old context.
+**Hand off at 500k tokens or at 85% of the window, whichever comes first (Nil, 2026-10-13; 85% since 2026-10-14). An engine that compacts on its own before that point gets a trigger 5 points of the window ahead of its compaction point.** In tokens: `min(tokens, 0.85 x window, compactAt - 0.05 x window)`, where `tokens` is the agent's `autoHandoffTokens` (section 1, 500k by default), and the last term applies only when the engine's compaction point is knowable. On a tie the earlier term in that order is the one reported. The 85% and the 5 points are constants, not settings: `server/auto-handoff.ts`. A token value above them has no effect. The 5 points leave room for the brief turn, which runs in the old context.
 
 Each engine feeds `ManagedAgent.contextUsage`. Claude reports its compaction point through the SDK's `autoCompactThreshold`; an adapter reports its own in the internal `ContextUsage.compactAtTokens`, which `/context` does not show. The snapshot keeps the point as `compactAtTokens`; it is not on the wire.
 
@@ -40,6 +41,7 @@ Nil, 2026-10-15: "one issue with the automatic handoff -- i didn't see the last 
 - **The next message.** It waits for the whole brief turn and the reset, and then goes to the fresh session after the brief, through `handoff`'s queue carry. A member's Ctrl/Cmd+Enter on an armed agent at rest does not abort the brief turn that the message starts.
 - **A message queued during the crossing turn** reaches the agent when that turn ends, which is past the threshold, so it starts the handoff at once. The reply then stays on screen only for the length of the brief turn.
 - **An edit** forks the conversation at the member's chosen message, with no brief turn. The fork is a conversation boundary, so the phase ends; the fork arms again if its own turn ends above the trigger.
+- **A new token value while armed**, before the brief turn starts, re-measures the latest sample: still at or above the new trigger, the phase stays armed and the lines name the new value; below it, the phase ends as when the switch goes off. An edit never arms by itself; a lower value arms at the next completed turn.
 - **Turn in flight.** It always finishes. Mid-turn the number is stale, and a reset would kill running tool calls.
 - **During the brief turn.** A member's message waits in the queue (the phase counts as busy). A new steer is declined with `steerDeclined: "auto_handoff"`. A member's send-now still aborts the brief turn: the member's explicit action wins, the attempt fails (section 6), and the queue flushes to the old session.
 - **Cost of in-memory arming.** A restart, or nothing arriving, leaves the agent armed with no handoff. After a restart the next message goes to the old session and runs one more turn above the trigger, which can reach the engine's own compaction before the mode arms again.
@@ -97,7 +99,7 @@ Lead rulings (2026-10-13), for implementation after Nil's go:
 
 ## Doc surfaces
 
-`docs/features.md` and `api/chat.ts` (the `/handoff` line), `server/agent-reference/conversation-lifecycle.md` (the server can run the handoff; 409 meanwhile), `server/agent-reference/agent-management.md` (`autoHandoff` is a PATCH field). `server/system-prompt.ts` does not change: the brief-turn prompt and the fresh-session notice say all the agent needs, and the system prompt avoids per-agent differences.
+`docs/features.md` and `api/chat.ts` (the `/handoff` line), `server/agent-reference/conversation-lifecycle.md` (the server can run the handoff; 409 meanwhile), `server/agent-reference/agent-management.md` (`autoHandoff` and `autoHandoffTokens` are PATCH fields). `server/system-prompt.ts` does not change: the brief-turn prompt and the fresh-session notice say all the agent needs, and the system prompt avoids per-agent differences.
 
 ---
 

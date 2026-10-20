@@ -301,6 +301,14 @@ ${emitThemesCss()}
   .agent-auto-handoff-control input { width: 18px; height: 18px; flex-shrink: 0; }
   .agent-privileged-control span,
   .agent-auto-handoff-control span { line-height: 18px; }
+  .agent-auto-handoff-tokens {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
   @media (min-width: 1000px) {
     .edit-agent-dialog-desktop,
     .spawn-agent-dialog-desktop { width: min(1040px, 94vw); }
