@@ -23,6 +23,7 @@ import {
 } from "./browser-input";
 import { browserExtensionTransport } from "./browser-extension-transport";
 import type { ExtensionConnection } from "./browser-extension-bridge";
+import { officePageRefused } from "./browser-office-gate";
 import type { BrowserExtensionService } from "./browser-extension-service";
 import {
   BROWSER_ACTION_DEADLINE_MS,
@@ -65,6 +66,16 @@ const failure = (
     | "action_timeout",
   error: string,
 ): BrowserResult => ({ ok: false, status: 500, code, error });
+const OFFICE_REFUSED =
+  "Browser control refuses an Isomux office page that your manager did not offer. Go to another page, or ask your manager to offer a tab on the office.";
+// The page data of a refused office page never reaches the agent: no url,
+// title, text, snapshot, screenshot or dialog.
+const officeRefused = (): BrowserResult => ({
+  ok: false,
+  status: 403,
+  code: "office_page_refused",
+  error: OFFICE_REFUSED,
+});
 const ended = () =>
   failure(
     "browser_control_ended",
@@ -134,6 +145,7 @@ type Resolved = {
   connection: ExtensionConnection;
   grant: string;
   target: string;
+  offerOrigin: string | undefined;
 };
 const same = (a: Resolved | undefined, b: Resolved | undefined): boolean =>
   a?.connection === b?.connection && a?.grant === b?.grant;
@@ -246,6 +258,15 @@ export class ExtensionBrowserSessions {
         "Open the Chrome extension popup on an HTTP(S) tab, choose All or this agent, and turn on Agent control",
       );
     const { connection, grant, target } = bound;
+    if (
+      params.action === "goto" &&
+      officePageRefused(
+        params.url!.href,
+        bound.offerOrigin,
+        this.service.bridge.offices.all(),
+      )
+    )
+      return officeRefused();
     if (params.action === "close") {
       this.end(key);
       connection.revoke(agent, target);
@@ -777,6 +798,9 @@ export class ExtensionBrowserSessions {
     };
     // The action promise can reject before Chrome finishes the underlying CDP
     // command. Keep that work fenced independently of the caller's response.
+    // Read before task() starts: it runs to its first await at once, and a
+    // command refused in that tick must count.
+    const refusals = connection.officeRefusals(grant);
     const operation = task().finally(() => {
       operationSettled = true;
     });
@@ -863,7 +887,15 @@ export class ExtensionBrowserSessions {
           }
         : result;
     try {
-      return withDialogs(await respond());
+      const result = await respond();
+      // A clean action that left the office page stays ok, even when
+      // Playwright's own commands on the office document were refused.
+      if (
+        connection.officeGated(grant) ||
+        (!result.ok && connection.officeRefusals(grant) > refusals)
+      )
+        return officeRefused();
+      return withDialogs(result);
     } finally {
       watched?.removeEventListener("abort", onEnd);
       clearTimeout(timer);

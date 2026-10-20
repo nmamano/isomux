@@ -64,6 +64,7 @@ export class BrowserExtensionService {
       memberName?(member: string): string;
       agentName?(agent: string): string;
       agents?(member: string): string[];
+      officeOrigins?(): string[];
     },
   ) {
     this.bridge = new BrowserExtensionBridge({
@@ -74,6 +75,7 @@ export class BrowserExtensionService {
       browserName: (hash) => store.browserForHash(hash)?.browser.name ?? "",
       agents: (member) => access.agents?.(member) ?? [],
       mayUse: (member, agent) => access.mayUse(member, agent),
+      officeOrigins: () => access.officeOrigins?.() ?? [],
       ...(access.memberName && access.agentName
         ? {
             memberDisplay: (member: string) =>

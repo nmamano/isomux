@@ -2,7 +2,7 @@
 
 Consolidated from Isomux room memory, 2026-08-22. DOM render tests (see
 internal-docs/testing-guide.md) cover wiring; what a surface looks like is
-verified with headless Chrome. Five proven recipes.
+verified with headless Chrome.
 
 ## Demo-bundle route
 
@@ -72,3 +72,19 @@ noisy. `deviceScaleFactor` sets the measurement resolution, so raise it when
 the defect is a unit or less; at 1 a one-unit leak is one pixel and rounds
 away. Keep the clip off the floating nameplates and the live ghost, which
 animate independently of the scene SVG. (visual-wall lane, 2026-09-05.)
+
+## User-scoped panes
+
+An agent token gets 403 on `/api/me/*`, so the Settings and Integrations panes
+of a member need a member session. Two ways:
+
+- **Scratch office.** Boot the worktree's server on a spare port with its own
+  state: `PORT=<port> ISOMUX_HOME=/tmp/t-<task8>/office
+  ISOMUX_BACKUP_DIR=/tmp/t-<task8>/backups HOME=/tmp/t-<task8>/home bun run
+  server/isomux-office.ts`. Claim the owner through the setup link it prints,
+  then drive it in headless Chrome. This reproduces a code defect, not one
+  that needs the real office's data. (Isomux Worker 2, 2026-10-19, task
+  2a3b5645.)
+- **The real office.** The member offers a Chrome tab that shows the office
+  (Browser Use). Browser control refuses an office page in a tab offered on
+  another site, so the member must offer the office tab itself.

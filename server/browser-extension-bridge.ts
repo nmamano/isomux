@@ -12,6 +12,12 @@ import {
   type Fields,
   type BrowserDisplay,
 } from "../shared/browser-extension-protocol";
+import {
+  OFFICE_MARKER_HEADER,
+  OfficeOrigins,
+  httpOrigin,
+  officePageRefused,
+} from "./browser-office-gate";
 
 const COMMAND_TIMED_OUT = "Browser command timed out";
 
@@ -60,6 +66,12 @@ type Assignment = {
   children: Map<string, string>;
   popups: Map<string, Fields>;
   leafTargetId?: string;
+  // The office gate (browser-office-gate.ts). The offer origin is pinned at the
+  // offer. Pages are keyed by CDP session: the tab's own, or a popup's.
+  offerOrigin?: string;
+  pages: Map<string, { url?: string; gated: boolean }>;
+  childPages: Map<string, string>;
+  officeRefusals: number;
   creating: boolean;
   connected: boolean;
   announced: boolean;
@@ -85,6 +97,7 @@ export type BrowserTab = {
 // connection, and an agent sees the offers of all of them as one set.
 export class BrowserExtensionBridge {
   private live = new Map<string, ExtensionConnection>();
+  readonly offices: OfficeOrigins;
   constructor(
     private readonly access: {
       memberForCredentialHash(hash: string): string | undefined;
@@ -93,9 +106,12 @@ export class BrowserExtensionBridge {
       memberDisplay?(member: string): BrowserDisplay;
       agentDisplay?(agent: string): BrowserDisplay;
       agents?(member: string): string[];
+      officeOrigins?(): string[];
     },
     private clock: GrantClock = grantClock,
-  ) {}
+  ) {
+    this.offices = new OfficeOrigins(() => access.officeOrigins?.() ?? []);
+  }
 
   connect(credential: string, peer: BridgePeer): ExtensionConnection {
     const hash = browserCredentialHash(credential);
@@ -124,6 +140,7 @@ export class BrowserExtensionBridge {
       // One individual offer per agent across all of the member's browsers,
       // including offers that are still attaching.
       (agent) => this.connections(member).some((c) => c.holdsAgent(agent)),
+      this.offices,
     );
     this.live.set(hash, connection);
     try {
@@ -177,7 +194,12 @@ export class BrowserExtensionBridge {
     agent: string,
     target?: string,
   ):
-    | { connection: ExtensionConnection; grant: string; target: string }
+    | {
+        connection: ExtensionConnection;
+        grant: string;
+        target: string;
+        offerOrigin: string | undefined;
+      }
     | undefined {
     const offers = this.offers(memberId, agent);
     const chosen =
@@ -188,7 +210,12 @@ export class BrowserExtensionBridge {
     if (!chosen) return undefined;
     const grant = chosen.connection.offered(agent, chosen.tab.target);
     return grant
-      ? { connection: chosen.connection, grant, target: chosen.tab.target }
+      ? {
+          connection: chosen.connection,
+          grant,
+          target: chosen.tab.target,
+          offerOrigin: chosen.connection.offerOrigin(grant),
+        }
       : undefined;
   }
 
@@ -219,7 +246,141 @@ export class ExtensionConnection {
     readonly credentialHash = "",
     private agentTaken: (agentId: string) => boolean = (agentId) =>
       this.holdsAgent(agentId),
-  ) {}
+    readonly offices: OfficeOrigins = new OfficeOrigins(() => []),
+  ) {
+    // A new office origin can refuse a page that committed before it was known.
+    this.stopLearning = offices.onLearn(() => {
+      for (const a of this.assignments.values())
+        for (const [key, page] of a.pages)
+          if (page.url !== undefined && this.officeRefused(a, page.url))
+            this.closeGate(a, key);
+    });
+  }
+  private stopLearning: () => void;
+
+  /** The origin of the page the member offered, pinned at the offer. */
+  offerOrigin(grant: string): string | undefined {
+    return this.assignments.get(grant)?.offerOrigin;
+  }
+
+  /** Commands the office gate refused on this grant so far. */
+  officeRefusals(grant: string): number {
+    return this.assignments.get(grant)?.officeRefusals ?? 0;
+  }
+
+  /** True while the gate of the grant's leaf page is closed. */
+  officeGated(grant: string): boolean {
+    const a = this.assignments.get(grant);
+    if (!a) return false;
+    const leaf =
+      [...a.popups].find(([, t]) => t.targetId === a.leafTargetId)?.[0] ??
+      a.session;
+    return a.pages.get(leaf)?.gated ?? false;
+  }
+
+  private officeRefused(a: Assignment, url: string): boolean {
+    return officePageRefused(url, a.offerOrigin, this.offices.all());
+  }
+
+  // Closing stops the page load. The stop is outside this.pending and the
+  // action fence, as a capture kick is; receive() drops its late result.
+  private closeGate(a: Assignment, key: string): void {
+    const page = a.pages.get(key);
+    if (!page || page.gated) return;
+    page.gated = true;
+    if (!this.active || a.closed || a.recovery) return;
+    try {
+      this.peer.send({
+        kind: "command",
+        generation: this.generation,
+        id: ++this.sequence,
+        assignment: a.id,
+        method: "cdp",
+        params: {
+          method: "Page.stopLoading",
+          params: {},
+          ...(key === a.session ? {} : { sessionId: key }),
+        },
+      });
+    } catch {
+      this.close();
+    }
+  }
+
+  // Events of a page session close or open its gate. An iframe session (key
+  // undefined) never does: Chrome refuses to frame an office.
+  private officeEvent(
+    a: Assignment,
+    method: string,
+    params: Fields,
+    key: string | undefined,
+  ): void {
+    if (method === "Network.responseReceived") {
+      const response = params.response as Fields | undefined;
+      const headers = response?.headers;
+      if (
+        typeof response?.url === "string" &&
+        headers &&
+        typeof headers === "object" &&
+        Object.keys(headers).some(
+          (name) => name.toLowerCase() === OFFICE_MARKER_HEADER,
+        )
+      )
+        this.offices.learn(response.url);
+    }
+    if (key === undefined) return;
+    const page = a.pages.get(key);
+    if (!page) return;
+    const targetId =
+      key === a.session ? a.target?.targetId : a.popups.get(key)?.targetId;
+    const mainDocument =
+      params.type === "Document" && params.frameId === targetId;
+    if (method === "Network.requestWillBeSent" && mainDocument) {
+      const url = (params.request as Fields | undefined)?.url;
+      if (typeof url === "string" && this.officeRefused(a, url))
+        this.closeGate(a, key);
+    } else if (method === "Network.responseReceived" && mainDocument) {
+      const url = (params.response as Fields | undefined)?.url;
+      if (typeof url === "string" && this.officeRefused(a, url))
+        this.closeGate(a, key);
+    } else if (method === "Page.frameNavigated") {
+      const frame = params.frame as Fields | undefined;
+      if (!frame || frame.parentId !== undefined) return;
+      if (typeof frame.url !== "string") return;
+      page.url = frame.url;
+      if (this.officeRefused(a, frame.url)) this.closeGate(a, key);
+      else page.gated = false;
+    }
+  }
+
+  // While a page's gate is closed, its commands and its iframes' are refused,
+  // except a stop and a navigation away. A navigation to a refused page is
+  // refused with the gate open too.
+  private officeCommand(
+    a: Assignment,
+    method: string,
+    params: Fields,
+    sessionId: string,
+  ): void {
+    const key =
+      sessionId === a.session || a.popups.has(sessionId)
+        ? sessionId
+        : (a.childPages.get(sessionId) ?? a.session);
+    const url =
+      method === "Page.navigate" && typeof params.url === "string"
+        ? params.url
+        : undefined;
+    const toRefused = url === undefined || this.officeRefused(a, url);
+    // Away from a gated page means another http(s) page: a javascript: or
+    // data: URL would run in or replace the office document.
+    const allowed = a.pages.get(key)?.gated
+      ? method === "Page.stopLoading" ||
+        (url !== undefined && httpOrigin(url) !== undefined && !toRefused)
+      : method !== "Page.navigate" || !toRefused;
+    if (allowed) return;
+    a.officeRefusals++;
+    throw new Error("Office page refused");
+  }
 
   holdsAgent(agentId: string): boolean {
     return [...this.assignments.values()].some(
@@ -385,6 +546,9 @@ export class ExtensionConnection {
       peer: { send() {}, close() {} },
       children: new Map(),
       popups: new Map(),
+      pages: new Map(),
+      childPages: new Map(),
+      officeRefusals: 0,
       creating: true,
       connected: false,
       announced: false,
@@ -404,6 +568,8 @@ export class ExtensionConnection {
       )
         throw new Error("Invalid offered target");
       a.target = target;
+      a.offerOrigin = httpOrigin(target.url);
+      a.pages.set(a.session, { url: target.url, gated: false });
       a.creating = false;
       a.expiresAt =
         durationMinutes === 0
@@ -643,6 +809,7 @@ export class ExtensionConnection {
         a.peer = { send() {}, close() {} };
         a.connected = false;
         a.children.clear();
+        a.childPages.clear();
         for (const [id, pending] of this.pending) {
           if (pending.assignment !== a.id) continue;
           clearTimeout(pending.timer);
@@ -690,6 +857,12 @@ export class ExtensionConnection {
           throw new Error("Invalid popup");
         a.popups.set(params.sessionId, target);
         a.leafTargetId = target.targetId;
+        a.pages.set(params.sessionId, {
+          url: typeof target.url === "string" ? target.url : undefined,
+          gated: false,
+        });
+        if (typeof target.url === "string" && this.officeRefused(a, target.url))
+          this.closeGate(a, params.sessionId);
         a.peer.send({
           method: "Target.attachedToTarget",
           params: {
@@ -706,6 +879,9 @@ export class ExtensionConnection {
         const popup = a.popups.get(params.sessionId);
         if (!popup) return;
         a.popups.delete(params.sessionId);
+        a.pages.delete(params.sessionId);
+        for (const [child, page] of a.childPages)
+          if (page === params.sessionId) a.childPages.delete(child);
         if (a.leafTargetId === popup.targetId)
           a.leafTargetId = popup.openerId as string;
         a.peer.send({
@@ -719,6 +895,20 @@ export class ExtensionConnection {
         typeof msg.sessionId === "string" ? msg.sessionId : undefined;
       if (child && !a.children.has(child) && !a.popups.has(child)) return;
       const params = fields(msg.params);
+      // The page this session belongs to: the tab, a popup, or, for an
+      // iframe session, the page that holds it.
+      const page =
+        child === undefined
+          ? a.session
+          : a.popups.has(child)
+            ? child
+            : (a.childPages.get(child) ?? a.session);
+      this.officeEvent(
+        a,
+        msg.method,
+        params,
+        child === undefined || a.popups.has(child) ? page : undefined,
+      );
       if (msg.method === "Target.attachedToTarget") {
         const info = fields(params.targetInfo);
         if (
@@ -736,12 +926,14 @@ export class ExtensionConnection {
         )
           throw new Error("Invalid child target");
         a.children.set(params.sessionId, info.targetId);
+        a.childPages.set(params.sessionId, page);
       } else if (msg.method === "Target.detachedFromTarget") {
         if (
           typeof params.sessionId !== "string" ||
           !a.children.delete(params.sessionId)
         )
           return;
+        a.childPages.delete(params.sessionId);
       } else if (msg.method.startsWith("Target.")) return;
       a.peer.send({
         method: msg.method,
@@ -869,7 +1061,25 @@ export class ExtensionConnection {
     }
     if (!pageCommandAllowed(method, params))
       throw new Error("Unsupported page command");
+    this.officeCommand(a, method, params, sessionId);
     const target = sessionId === a.session ? undefined : sessionId;
+    if (method === "Page.getFrameTree" && !a.children.has(sessionId)) {
+      // A new client's first look at a page that may have committed while no
+      // client watched.
+      const result = await this.request(a, "cdp", {
+        method,
+        params,
+        sessionId: target,
+      });
+      const tree = result.frameTree as Fields | undefined;
+      const url = (tree?.frame as Fields | undefined)?.url;
+      const page = a.pages.get(sessionId);
+      if (page && typeof url === "string" && !a.closed) {
+        page.url = url;
+        if (this.officeRefused(a, url)) this.closeGate(a, sessionId);
+      }
+      return result;
+    }
     if (method !== "Page.captureScreenshot")
       return this.request(a, "cdp", { method, params, sessionId: target });
     if (params.captureBeyondViewport === true)
@@ -1052,6 +1262,7 @@ export class ExtensionConnection {
     }
     this.pending.clear();
     for (const a of this.assignments.values()) this.release(a);
+    this.stopLearning();
     this.onClose();
     this.peer.close();
   }

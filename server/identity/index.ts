@@ -260,7 +260,9 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // messageSend user-path) still blocks a privileged agent - those exclusions are
 // defense-in-depth on top of that. Whenever a new capability is added, decide
 // explicitly whether a privileged agent should hold it; do NOT let it ride in by
-// default.
+// default. The exclusions bind the agent token only: in a Chrome tab that its
+// manager offered on the office, an agent acts with the manager's browser
+// session (docs/security-audit.md section 6.5).
 // user:prompt grants only member-prompt reads and edits through its guards.
 // integration:manage changes its manager's variables, secrets and MCP servers
 // (and the office's and other members' while the manager is an owner); user:env

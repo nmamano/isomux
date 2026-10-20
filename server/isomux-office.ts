@@ -854,6 +854,7 @@ function createManagers(startOpts: StartServerOpts): void {
       agents: () => agentManager.getAllAgents().map((agent) => agent.id),
       memberName: (member) => getUserById(member)?.name ?? "",
       agentName: (agent) => agentManager.getAgent(agent)?.name ?? "",
+      officeOrigins: () => [buildPublicOrigin().origin],
     },
   );
   extensionSessions = new ExtensionBrowserSessions(

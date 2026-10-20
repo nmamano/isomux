@@ -65,6 +65,7 @@ async function offer(
   messages: Fields[],
   agent: string,
   targetId: string,
+  url = "https://example.com/",
 ) {
   const assignment = crypto.randomUUID();
   connection.receive({
@@ -80,7 +81,7 @@ async function offer(
     generation: connection.generation,
     id: command.id,
     result: {
-      targetInfo: { targetId, type: "page", url: "https://example.com/" },
+      targetInfo: { targetId, type: "page", url },
     },
   });
   await Promise.resolve();
@@ -1738,6 +1739,590 @@ describe("screenshot kicks", () => {
       expect(captures(h)).toHaveLength(1 + 7);
     } finally {
       time.restore();
+      h.connection.close();
+    }
+  });
+});
+
+// The office gate (task 2a3b5645). An agent may not reach an Isomux office page
+// that the member did not offer. The bridge sees every relayed CDP event before
+// Playwright and every page command before Chrome, so the gate lives here: a
+// check at action boundaries would let an auto-waiting click land on an office
+// that commits during the wait.
+describe("office gate", () => {
+  const OFFICE = "https://office.test";
+  const SITE = "https://site.test";
+  const credentials = ["gate-credential-a", "gate-credential-b"];
+  type Gate = Awaited<ReturnType<typeof gateHarness>>;
+  async function gateHarness(
+    opts: {
+      offerUrl?: string;
+      offices?: () => string[];
+      retainGrant?: boolean;
+    } = {},
+  ) {
+    const extension = peer();
+    const seed = opts.offices ?? (() => [OFFICE]);
+    const bridge = new BrowserExtensionBridge({
+      memberForCredentialHash: (hash) =>
+        credentials.map(browserCredentialHash).includes(hash)
+          ? "member"
+          : undefined,
+      mayUse: (member, agent) =>
+        member === "member" && ["agent", "agent-2"].includes(agent),
+      officeOrigins: seed,
+    });
+    const connection = bridge.connect(credentials[0], extension);
+    const assignment = await offer(
+      connection,
+      extension.messages,
+      "agent",
+      "owned",
+      opts.offerUrl ?? `${SITE}/start`,
+    );
+    const h = {
+      bridge,
+      connection,
+      extension,
+      assignment,
+      client: peer(),
+      agent: undefined as unknown as ReturnType<typeof connection.assign>,
+      sessionId: "",
+      ids: 100,
+    };
+    await attach(h, opts.retainGrant ?? false);
+    return h;
+  }
+  async function attach(h: Gate, retainGrant: boolean) {
+    h.client = peer();
+    h.agent = h.connection.assign("agent", h.client, retainGrant);
+    await h.agent.receive({
+      id: 1,
+      method: "Target.setAutoAttach",
+      params: { autoAttach: true },
+    });
+    h.sessionId = fields(
+      h.client.messages.find((m) => m.method === "Target.attachedToTarget")!
+        .params,
+    ).sessionId as string;
+  }
+  const event = (
+    h: Gate,
+    [method, params]: [string, Fields],
+    sessionId?: string,
+  ) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.assignment,
+      method,
+      params,
+      ...(sessionId ? { sessionId } : {}),
+    });
+  // CDP event shapes as Chrome sends them. The main frame id of a page target
+  // is its target id.
+  const request = (
+    url: string,
+    opts: { frameId?: string; type?: string; redirectedFrom?: string } = {},
+  ): [string, Fields] => [
+    "Network.requestWillBeSent",
+    {
+      requestId: "req",
+      loaderId: "req",
+      frameId: opts.frameId ?? "owned",
+      type: opts.type ?? "Document",
+      documentURL: url,
+      request: { url, method: "GET", headers: {} },
+      ...(opts.redirectedFrom
+        ? {
+            redirectResponse: {
+              url: opts.redirectedFrom,
+              status: 302,
+              headers: { location: url },
+            },
+          }
+        : {}),
+    },
+  ];
+  const commit = (url: string, frameId = "owned"): [string, Fields] => [
+    "Page.frameNavigated",
+    {
+      frame: {
+        id: frameId,
+        loaderId: "loader",
+        url,
+        securityOrigin: new URL(url).origin,
+        mimeType: "text/html",
+      },
+      type: "Navigation",
+    },
+  ];
+  const response = (
+    url: string,
+    headers: Record<string, string>,
+    opts: { frameId?: string; type?: string } = {},
+  ): [string, Fields] => [
+    "Network.responseReceived",
+    {
+      requestId: "res",
+      loaderId: "res",
+      frameId: opts.frameId ?? "owned",
+      type: opts.type ?? "Document",
+      response: { url, status: 200, headers, mimeType: "text/html" },
+    },
+  ];
+  const marked = { "X-Isomux-Office": "1" };
+  // Sends one page command as Playwright would and answers it if it reaches
+  // the extension.
+  async function command(
+    h: Gate,
+    method: string,
+    params: Fields = {},
+    sessionId: string = h.sessionId,
+    reply: Fields = {},
+  ) {
+    const id = ++h.ids;
+    const before = h.extension.messages.length;
+    const work = h.agent.receive({ id, method, params, sessionId });
+    for (
+      let i = 0;
+      i < 50 &&
+      h.extension.messages.length === before &&
+      !h.client.messages.some((m) => m.id === id);
+      i++
+    )
+      await Promise.resolve();
+    const sent = h.extension.messages
+      .slice(before)
+      .find(
+        (m) =>
+          m.kind === "command" &&
+          m.method === "cdp" &&
+          fields(m.params).method === method,
+      );
+    if (sent)
+      h.connection.receive({
+        kind: "result",
+        generation: h.connection.generation,
+        id: sent.id,
+        result: reply,
+      });
+    await work;
+    const answer = h.client.messages.find((m) => m.id === id);
+    return { forwarded: !!sent, refused: !!answer?.error };
+  }
+  const passes = { forwarded: true, refused: false };
+  const refused = { forwarded: false, refused: true };
+  // The CDP session of each Page.stopLoading the gate sent: undefined is the
+  // offered tab itself.
+  const stops = (h: Gate) =>
+    h.extension.messages
+      .filter(
+        (m) =>
+          m.kind === "command" &&
+          m.method === "cdp" &&
+          fields(m.params).method === "Page.stopLoading",
+      )
+      .map((m) => fields(m.params).sessionId);
+  // Every command class an action uses: reads, input, upload, capture, reload.
+  const PAGE_COMMANDS: [string, Fields][] = [
+    ["Runtime.evaluate", { expression: "document.title" }],
+    ["Runtime.callFunctionOn", { functionDeclaration: "() => 1" }],
+    ["DOM.getDocument", {}],
+    ["Input.dispatchMouseEvent", { type: "mousePressed", x: 1, y: 1 }],
+    ["Input.dispatchKeyEvent", { type: "keyDown", key: "Enter" }],
+    ["Input.insertText", { text: "hello" }],
+    ["DOM.setFileInputFiles", { files: [], backendNodeId: 1 }],
+    ["Page.captureScreenshot", {}],
+    ["Page.reload", {}],
+  ];
+  async function expectGated(h: Gate, sessionId = h.sessionId) {
+    const start = h.connection.officeRefusals(h.assignment);
+    for (const [method, params] of PAGE_COMMANDS)
+      expect({
+        method,
+        ...(await command(h, method, params, sessionId)),
+      }).toEqual({ method, ...refused });
+    expect(h.connection.officeRefusals(h.assignment)).toBe(
+      start + PAGE_COMMANDS.length,
+    );
+  }
+  const read = (h: Gate, sessionId = h.sessionId) =>
+    command(h, "Runtime.evaluate", { expression: "1" }, sessionId);
+
+  test("a main-frame navigation toward a known office closes the page gate until a commit elsewhere", async () => {
+    const h = await gateHarness();
+    try {
+      expect(await read(h)).toEqual(passes);
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      expect(h.connection.offerOrigin(h.assignment)).toBe(SITE);
+
+      event(h, request(`${OFFICE}/settings?tab=tokens`));
+      // The gate stops the load outside the action fence: the next action is
+      // not held behind it.
+      expect(stops(h)).toEqual([undefined]);
+      expect(h.connection.pendingCount(h.assignment)).toBe(0);
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      await expectGated(h);
+
+      // Only a stop, or a navigation that leaves for a page that is not
+      // refused, passes.
+      expect(await command(h, "Page.stopLoading")).toEqual(passes);
+      expect(await command(h, "Page.navigate", { url: `${OFFICE}/` })).toEqual(
+        refused,
+      );
+      // A navigation that would run in the office document is no way out.
+      for (const url of ["javascript:alert(1)", "data:text/html,x"])
+        expect({
+          url,
+          ...(await command(h, "Page.navigate", { url })),
+        }).toEqual({ url, ...refused });
+      expect(
+        await command(h, "Page.navigate", { url: `${SITE}/next` }),
+      ).toEqual(passes);
+      // A request is not a commit: the gate stays closed until one.
+      event(h, request(`${SITE}/next`));
+      expect(await read(h)).toEqual(refused);
+      event(h, commit(`${SITE}/next`));
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      expect(await read(h)).toEqual(passes);
+
+      // The late answer to the gate's own stop is dropped.
+      const stop = h.extension.messages.find(
+        (m) =>
+          m.kind === "command" &&
+          fields(m.params).method === "Page.stopLoading",
+      )!;
+      h.connection.receive({
+        kind: "result",
+        generation: h.connection.generation,
+        id: stop.id,
+        result: {},
+      });
+      expect(h.extension.closed).toBe(false);
+      expect(await read(h)).toEqual(passes);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a navigation to a known office is refused at the bridge with the gate open", async () => {
+    const h = await gateHarness();
+    try {
+      for (const url of [
+        `${OFFICE}/`,
+        `${OFFICE}/api/tokens`,
+        "HTTPS://OFFICE.TEST:443/x",
+      ])
+        expect(await command(h, "Page.navigate", { url })).toEqual(refused);
+      expect(h.connection.officeRefusals(h.assignment)).toBe(3);
+      expect(
+        await command(h, "Page.navigate", { url: `${SITE}/other` }),
+      ).toEqual(passes);
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      expect(await read(h)).toEqual(passes);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  const triggers: {
+    name: string;
+    events: [string, Fields][];
+    closes: boolean;
+  }[] = [
+    {
+      name: "a main-frame document request",
+      events: [request(`${OFFICE}/`)],
+      closes: true,
+    },
+    {
+      name: "a redirect hop to the office",
+      events: [
+        request(`${SITE}/hop`),
+        request(`${OFFICE}/`, { redirectedFrom: `${SITE}/hop` }),
+      ],
+      closes: true,
+    },
+    {
+      name: "a main-frame commit",
+      events: [commit(`${OFFICE}/tasks`)],
+      closes: true,
+    },
+    {
+      name: "a marked document response from an unknown origin",
+      events: [response("https://unknown.test/", marked)],
+      closes: true,
+    },
+    {
+      // HTTP/2 sends header names in lower case.
+      name: "a lower-case marker",
+      events: [response("https://unknown.test/", { "x-isomux-office": "1" })],
+      closes: true,
+    },
+    {
+      name: "a document request elsewhere",
+      events: [request("https://elsewhere.test/")],
+      closes: false,
+    },
+    {
+      name: "a subresource request to the office",
+      events: [request(`${OFFICE}/icon.png`, { type: "Image" })],
+      closes: false,
+    },
+    {
+      name: "an iframe document request to the office",
+      events: [request(`${OFFICE}/`, { frameId: "child-frame" })],
+      closes: false,
+    },
+    {
+      name: "an unmarked document response from an unknown origin",
+      events: [response("https://unknown.test/", {})],
+      closes: false,
+    },
+    {
+      name: "a marked document response from the offer's own origin",
+      events: [response(`${SITE}/page`, marked)],
+      closes: false,
+    },
+    {
+      name: "a marked subresource while the page is elsewhere",
+      events: [
+        commit(`${SITE}/page`),
+        response("https://unknown.test/api", marked, { type: "XHR" }),
+      ],
+      closes: false,
+    },
+  ];
+  for (const { name, events, closes } of triggers)
+    test(`${name} ${closes ? "closes" : "leaves open"} the gate`, async () => {
+      const h = await gateHarness();
+      try {
+        for (const e of events) event(h, e);
+        expect(h.connection.officeGated(h.assignment)).toBe(closes);
+        expect(stops(h)).toEqual(closes ? [undefined] : []);
+        expect(await read(h)).toEqual(closes ? refused : passes);
+      } finally {
+        h.connection.close();
+      }
+    });
+
+  test("a marked response teaches its origin to every connection of the process", async () => {
+    const h = await gateHarness();
+    const other = peer();
+    const second = h.bridge.connect(credentials[1], other);
+    try {
+      // A subresource is enough to learn; it does not close the gate.
+      event(
+        h,
+        response("https://learned.test/app.js", marked, { type: "Script" }),
+      );
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      await offer(second, other.messages, "agent-2", "second-tab", `${SITE}/b`);
+      const client = peer();
+      const agent = second.assign("agent-2", client);
+      await agent.receive({
+        id: 1,
+        method: "Target.setAutoAttach",
+        params: { autoAttach: true },
+      });
+      const sessionId = fields(
+        client.messages.find((m) => m.method === "Target.attachedToTarget")!
+          .params,
+      ).sessionId;
+      const before = other.messages.length;
+      const work = agent.receive({
+        id: 2,
+        method: "Page.navigate",
+        params: { url: "https://learned.test/" },
+        sessionId,
+      });
+      for (let i = 0; i < 50 && other.messages.length === before; i++)
+        await Promise.resolve();
+      const forwarded = other.messages.slice(before);
+      for (const sent of forwarded)
+        second.receive({
+          kind: "result",
+          generation: second.generation,
+          id: sent.id,
+          result: {},
+        });
+      await work;
+      expect(forwarded).toHaveLength(0);
+      expect(client.messages.find((m) => m.id === 2)?.error).toBeDefined();
+    } finally {
+      second.close();
+      h.connection.close();
+    }
+  });
+
+  test("the seed is read at each check, normalized, and a bad value is skipped", async () => {
+    const seed = ["HTTPS://Office.Test:443/some/path", "not a url"];
+    const h = await gateHarness({ offices: () => seed });
+    try {
+      expect(await read(h)).toEqual(passes);
+      expect(await command(h, "Page.navigate", { url: `${OFFICE}/x` })).toEqual(
+        refused,
+      );
+      // The public origin changed after the bridge was built.
+      seed.push("https://moved.test");
+      expect(
+        await command(h, "Page.navigate", { url: "https://moved.test/" }),
+      ).toEqual(refused);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("an office page that committed unseen is gated once its origin is known", async () => {
+    // A commit to an origin the process has not learned yet leaves the gate
+    // open; the first marked response from that origin closes it.
+    const seen = await gateHarness();
+    try {
+      event(seen, commit("https://late.test/"));
+      expect(await read(seen)).toEqual(passes);
+      event(
+        seen,
+        response("https://late.test/assets/main.js", marked, {
+          type: "Script",
+        }),
+      );
+      expect(seen.connection.officeGated(seen.assignment)).toBe(true);
+      expect(stops(seen)).toEqual([undefined]);
+      expect(await read(seen)).toEqual(refused);
+    } finally {
+      seen.connection.close();
+    }
+    // A new client's first frame tree read is the only sight of a page that
+    // committed while no client watched: a known office closes the gate, and
+    // an unknown one is checked again when its origin is learned.
+    for (const [url, closesAtOnce] of [
+      [`${OFFICE}/`, true],
+      ["https://later.test/", false],
+    ] as const) {
+      const h = await gateHarness();
+      try {
+        expect(
+          await command(h, "Page.getFrameTree", {}, h.sessionId, {
+            frameTree: { frame: { id: "owned", loaderId: "l", url } },
+          }),
+        ).toEqual(passes);
+        expect({ url, gated: h.connection.officeGated(h.assignment) }).toEqual({
+          url,
+          gated: closesAtOnce,
+        });
+        if (!closesAtOnce) {
+          event(h, response(`${url}api/state`, marked, { type: "Fetch" }));
+          expect(h.connection.officeGated(h.assignment)).toBe(true);
+        }
+        expect(await read(h)).toEqual(refused);
+      } finally {
+        h.connection.close();
+      }
+    }
+  });
+
+  test("a tab the member offered on an office stays usable on that office only", async () => {
+    const h = await gateHarness({
+      offerUrl: `${OFFICE}/tasks`,
+      offices: () => [OFFICE, "https://second.test"],
+    });
+    try {
+      expect(h.connection.offerOrigin(h.assignment)).toBe(OFFICE);
+      event(h, request(`${OFFICE}/settings`));
+      event(h, response(`${OFFICE}/settings`, marked));
+      event(h, commit(`${OFFICE}/settings`));
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      expect(await read(h)).toEqual(passes);
+      expect(
+        await command(h, "Page.navigate", { url: `${OFFICE}/integrations` }),
+      ).toEqual(passes);
+      expect(
+        await command(h, "Page.navigate", { url: "https://second.test/" }),
+      ).toEqual(refused);
+      event(h, request("https://second.test/"));
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      expect(await read(h)).toEqual(refused);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a popup has its own gate, and the leaf page decides officeGated", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, [
+        "popup",
+        {
+          sessionId: "popup-session",
+          targetInfo: {
+            type: "page",
+            targetId: "popup",
+            openerId: "owned",
+            url: `${SITE}/popup`,
+          },
+        },
+      ]);
+      expect(await read(h, "popup-session")).toEqual(passes);
+      // The popup's main frame id is the popup's target id.
+      event(h, request(`${OFFICE}/`, { frameId: "popup" }), "popup-session");
+      expect(stops(h)).toEqual(["popup-session"]);
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      await expectGated(h, "popup-session");
+      // The opener tab is not gated by its popup.
+      expect(await read(h)).toEqual(passes);
+      event(h, ["popupDetached", { sessionId: "popup-session" }]);
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      expect(await read(h)).toEqual(passes);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("iframe sessions follow the gate of their page and never close it", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, [
+        "Target.attachedToTarget",
+        {
+          sessionId: "child-session",
+          targetInfo: { targetId: "child-target", type: "iframe" },
+        },
+      ]);
+      // An office document inside an iframe session does not close the page
+      // gate: Chrome refuses to frame an office.
+      event(h, commit(`${OFFICE}/`, "child-target"), "child-session");
+      event(
+        h,
+        response(`${OFFICE}/`, marked, { frameId: "child-target" }),
+        "child-session",
+      );
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      expect(await read(h, "child-session")).toEqual(passes);
+      expect(await read(h)).toEqual(passes);
+      event(h, commit(`${OFFICE}/`));
+      expect(await read(h)).toEqual(refused);
+      expect(await read(h, "child-session")).toEqual(refused);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("debugger recovery keeps a closed gate and the pinned offer origin", async () => {
+    const h = await gateHarness({ retainGrant: true });
+    try {
+      event(h, commit(`${OFFICE}/`));
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      event(h, ["recovering", {}]);
+      event(h, ["recovered", {}]);
+      expect(h.client.closed).toBe(true);
+      await attach(h, true);
+      expect(h.connection.offerOrigin(h.assignment)).toBe(SITE);
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      expect(await read(h)).toEqual(refused);
+      event(h, commit(`${SITE}/back`));
+      expect(await read(h)).toEqual(passes);
+    } finally {
       h.connection.close();
     }
   });

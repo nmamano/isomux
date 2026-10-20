@@ -36,11 +36,12 @@ export type BrowserErrorCode =
   | "browser_control_ended"
   | "invalid_request"
   | "action_failed"
-  | "action_timeout";
+  | "action_timeout"
+  | "office_page_refused";
 
 export interface BrowserFailure {
   ok: false;
-  status: 400 | 500;
+  status: 400 | 403 | 500;
   code: BrowserErrorCode;
   error: string;
   /** Dialogs that the failed action opened, in order. */

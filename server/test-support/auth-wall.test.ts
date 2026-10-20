@@ -36,6 +36,7 @@ import {
   _testSetSessionExpiry,
 } from "../auth.ts";
 import { getUserByName } from "../users.ts";
+import { OFFICE_MARKER_HEADER } from "../browser-office-gate.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -101,6 +102,8 @@ function expectOfficeSecurityHeaders(response: Response): void {
   expect(response.headers.get("referrer-policy")).not.toBeNull();
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   expect(response.headers.get("x-frame-options")).toBe("DENY");
+  // Browser control finds office pages by this marker (task 2a3b5645).
+  expect(response.headers.get(OFFICE_MARKER_HEADER)).toBe("1");
 }
 
 describe("auth/wall: WS upgrade gate", () => {
@@ -275,9 +278,13 @@ describe("auth/wall: public disclosure and response hardening", () => {
       await raw(server, "/", { rawSessionId: owner.rawSessionId }),
       await raw(server, "/api/version"),
       await raw(server, "/manifest.json"),
+      // The signed-out wall and a redirect: a navigation that lands on either
+      // is still an office page.
+      await raw(server, "/"),
+      await raw(server, "/setup"),
     ];
     expect(responses.map((response) => response.status)).toEqual([
-      200, 401, 200,
+      200, 401, 200, 401, 302,
     ]);
     for (const response of responses) expectOfficeSecurityHeaders(response);
   });

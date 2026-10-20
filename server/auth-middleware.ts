@@ -23,6 +23,7 @@ import {
 } from "./auth.ts";
 import type { ClaimErr } from "./auth.ts";
 import { readCappedBody } from "./app-thumbnails.ts";
+import { OFFICE_MARKER_HEADER } from "./browser-office-gate.ts";
 import {
   activeSetupKeyMatches,
   activeSetupKeySource,
@@ -147,6 +148,8 @@ export function securityHeaders(opts?: {
       : "strict-origin-when-cross-origin",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
+    // Browser control finds office pages by this header.
+    [OFFICE_MARKER_HEADER]: "1",
   };
   if (isHttps) {
     h["Strict-Transport-Security"] = "max-age=31536000";

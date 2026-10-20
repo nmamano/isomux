@@ -26,7 +26,11 @@ const wait = async (test: () => Promise<boolean>) => {
   }
   throw new Error("Extension did not connect");
 };
-async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
+async function runOfficeScenario(
+  framesOnly: boolean,
+  readingOnly = false,
+  officeGate = false,
+) {
   const dir = mkdtempSync(join(tmpdir(), "isomux-extension-office-"));
   let setup: BrowserContext | undefined;
   let raw: Awaited<ReturnType<typeof launchRawExtensionChrome>> | undefined;
@@ -307,6 +311,22 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
       const { checkBrowserReading } =
         await import("./test-support/browser-reading-checks");
       await checkBrowserReading(firstPage, (body) => action(first.id, body));
+      return;
+    }
+    if (officeGate) {
+      const { checkOfficeGate } =
+        await import("./test-support/browser-office-gate-checks");
+      await checkOfficeGate({
+        officeOrigin,
+        offeredPage: firstPage,
+        offered: (body) => action(first.id, body),
+        offerOfficeTab: async () => {
+          const officePage = await setup!.newPage();
+          await officePage.goto(officeOrigin + "/");
+          await offer(officePage, second.id);
+          return (body) => action(second.id, body);
+        },
+      });
       return;
     }
     await secondPage.bringToFront();
@@ -1013,5 +1033,11 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
 test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   "real office browser reads composers, scopes long feeds and sanitizes selector errors",
   () => runOfficeScenario(true, true),
+  130_000,
+);
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "real Chrome refuses an office page the member did not offer, also mid-click",
+  () => runOfficeScenario(false, false, true),
   130_000,
 );

@@ -28,6 +28,7 @@ import {
 } from "./app-host-test-kit.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { appRegistry } from "../app-registry.ts";
+import { OFFICE_MARKER_HEADER } from "../browser-office-gate.ts";
 import { APP_COOKIE_NAME } from "../app-auth.ts";
 import { APP_STOPPED_BODY } from "../app-host-responses.ts";
 
@@ -103,6 +104,8 @@ describe("app-host relay: end to end", () => {
       `frame-ancestors 'self' https://${OFFICE_HOST}`,
     );
     expect(res.headers["x-content-type-options"]).toBeUndefined();
+    // An app is not the office: browser control must not refuse it.
+    expect(res.headers[OFFICE_MARKER_HEADER]).toBeUndefined();
     // The app's own cookie reaches the browser untouched...
     expect(res.setCookies).toEqual(["app_pref=blue; Path=/"]);
     // ...and the credential that admits to the app never reaches the app.
