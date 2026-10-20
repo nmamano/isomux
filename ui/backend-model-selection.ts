@@ -1,5 +1,5 @@
 import {
-  CODEX_MODELS,
+  codexDefaultModel,
   DEFAULT_EFFORT,
   EFFORT_LEVELS,
   OPENCODE_DEFAULT_MODEL,
@@ -75,16 +75,12 @@ export function defaultBackendModel(
   models: BackendModelWire[],
   isCodex: boolean,
 ): BackendModelWire | undefined {
-  const visibleModels = models.filter((model) => !model.hidden);
-  // Codex: follow the default Codex reports for this account, then our
-  // static fallback default.
+  // Codex: the rule a spawn with no model uses on the server.
   if (isCodex) {
-    return (
-      visibleModels.find((model) => model.isDefault) ??
-      visibleModels.find((model) => model.id === CODEX_MODELS[0].value) ??
-      visibleModels[0]
-    );
+    const id = codexDefaultModel(models);
+    return models.find((model) => model.id === id);
   }
+  const visibleModels = models.filter((model) => !model.hidden);
   return (
     preferredFreeOpenCodeModel(visibleModels, OPENCODE_DEFAULT_MODEL) ??
     visibleModels.find((model) => model.isDefault) ??

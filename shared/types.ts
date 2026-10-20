@@ -365,9 +365,10 @@ export function effortDisplayLabel(
 // Every slug is listed by `codex debug models` on codex-cli 0.160.0
 // (2026-10-02), which dropped gpt-5.4 and gpt-5.4-mini.
 // Default first (CODEX_MODELS[0]): gpt-6.1-sol, the model Codex 0.160 marks
-// isDefault. Isomux follows Codex's own default (Nil, 2026-10-02): pickers
-// take the discovered isDefault model first, and this order is the fallback
-// when discovery is unavailable (welcome agent, validators, offline dialogs).
+// isDefault. Isomux follows Codex's own default (Nil, 2026-10-02): pickers and
+// no-model spawns take the login's discovered default (codexDefaultModel), and
+// this order is the fallback when discovery is unavailable (boot restore,
+// failed discovery, offline dialogs). A ChatGPT login can lack gpt-6.1-sol.
 export const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
   { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
@@ -376,6 +377,21 @@ export const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
   { value: "gpt-5.5", label: "GPT-5.5" },
 ];
+
+// The model a new Codex agent gets when its spawn names none, from the login's
+// discovered list: the visible model Codex marks isDefault, then
+// CODEX_MODELS[0] when the list shows it, then the first visible model.
+// Undefined when no model is visible. The UI pickers and the server share it.
+export function codexDefaultModel(
+  models: BackendModelWire[],
+): string | undefined {
+  const visible = models.filter((model) => !model.hidden);
+  return (
+    visible.find((model) => model.isDefault) ??
+    visible.find((model) => model.id === CODEX_MODELS[0].value) ??
+    visible[0]
+  )?.id;
+}
 
 // Deterministic test-double model only. Production OpenCode agents must select
 // a connected provider/model ID from pinned-runtime discovery.

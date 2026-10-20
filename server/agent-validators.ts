@@ -64,6 +64,9 @@ export function validateModelFamily(
     // start with a "model not supported" turn error (whose system_text
     // hint already points the user back at settings).
     if (raw && typeof raw === "string" && raw.length > 0) return raw;
+    // Static fallback. Interactive spawns and engine switches with no model
+    // resolve the login's default first (resolveCodexDefaultModel in
+    // isomux-office.ts), so this serves restore and failed discovery.
     return CODEX_MODELS[0].value;
   }
   if (agentType === "opencode") {

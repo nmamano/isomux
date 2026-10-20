@@ -167,6 +167,7 @@ import type {
 } from "../shared/types.ts";
 import {
   CODEX_MODELS,
+  codexDefaultModel,
   LOBBY_ROOM_ID,
   MODEL_FAMILIES,
   OPENCODE_DEFAULT_MODEL,
@@ -694,6 +695,12 @@ let appSupervisor: AppSupervisor;
 let discoverWelcomeOpenCodeModels:
   | ((userId: string) => Promise<BackendModelWire[]>)
   | undefined;
+// How long a Codex spawn with no model waits for the login's model list
+// before it takes CODEX_MODELS[0].
+const CODEX_MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
+
+let listCodexModelsSeam: StartServerOpts["listCodexModels"];
+let codexModelDiscoveryTimeoutMs = CODEX_MODEL_DISCOVERY_TIMEOUT_MS;
 let hostPlatform: NodeJS.Platform = process.platform;
 
 function openCodeRunsOnHost(): boolean {
@@ -740,6 +747,9 @@ function createManagers(startOpts: StartServerOpts): void {
   // Containers only: learn at boot whether Codex's sandbox can run here.
   void codexSandboxProbe();
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
+  listCodexModelsSeam = startOpts.listCodexModels;
+  codexModelDiscoveryTimeoutMs =
+    startOpts.codexModelDiscoveryTimeoutMs ?? CODEX_MODEL_DISCOVERY_TIMEOUT_MS;
   welcomeModelTiming = startOpts.welcomeModelTiming ?? WELCOME_MODEL_TIMING;
   providerAccountManager = new ProviderAccountManager(
     (userId, accounts) => {
@@ -919,6 +929,53 @@ const WELCOME_MODEL_TIMING: WelcomeModelTiming = {
   windowMs: 10 * 60_000,
 };
 let welcomeModelTiming = WELCOME_MODEL_TIMING;
+
+// The model for a new Codex agent or cron job whose request names none: the
+// default of the owner's discovered model list (codexDefaultModel), or
+// CODEX_MODELS[0] when discovery fails, lists no visible model or times out.
+// The timeout aborts discovery and stops its codex process.
+async function resolveCodexDefaultModel(
+  userId: string,
+  cwd: string,
+): Promise<string> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`timed out after ${codexModelDiscoveryTimeoutMs} ms`));
+    }, codexModelDiscoveryTimeoutMs);
+  });
+  try {
+    const discovery = listCodexModelsSeam
+      ? listCodexModelsSeam({ userId, cwd, signal: controller.signal })
+      : listBackendModels({
+          agentType: "codex",
+          cwd,
+          includeHidden: false,
+          userId,
+          signal: controller.signal,
+        }).then((r) => {
+          if (!r.ok) throw new Error(r.error);
+          return r.models;
+        });
+    // Race the bound here too: a discovery that ignores its signal must not
+    // hold the spawn.
+    const id = codexDefaultModel(await Promise.race([discovery, timedOut]));
+    if (id) return id;
+    console.warn(
+      `[codex] the model list has no visible model; using ${CODEX_MODELS[0].value}`,
+    );
+  } catch (err) {
+    console.warn(
+      `[codex] default model discovery failed; using ${CODEX_MODELS[0].value}:`,
+      errMessage(err),
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+  return CODEX_MODELS[0].value;
+}
 
 let seedWelcomeAgentsForFirstOwner:
   | ((username: string) => Promise<void>)
@@ -1346,10 +1403,13 @@ function registerBootHooks(): void {
       CLAUDE_WELCOME_OUTFIT,
       username,
     );
+    const owner = getUserByName(username);
     await spawnWelcomeAgent(
       "Codex Welcome Agent",
       "codex",
-      CODEX_MODELS[0].value,
+      owner
+        ? await resolveCodexDefaultModel(owner.id, "~")
+        : CODEX_MODELS[0].value,
       undefined,
       CODEX_WELCOME_OUTFIT,
       username,
@@ -1958,6 +2018,7 @@ async function listBackendModels(input: {
   cwd: string;
   includeHidden: boolean;
   userId: string;
+  signal?: AbortSignal;
 }): Promise<
   | { ok: true; models: BackendModelWire[] }
   | { ok: false; error: string; authError: boolean }
@@ -1979,6 +2040,7 @@ async function listBackendModels(input: {
         input.userId,
       ),
       includeHidden: input.includeHidden,
+      signal: input.signal,
     });
     const wire: BackendModelWire[] = models.map((m) => ({
       id: m.id,
@@ -3394,15 +3456,41 @@ function buildExecutorDeps(
       defaultCreateRoomId: defaultCreateRoomIdForIdentity,
       buildCronjobSystemPrompt: (cronjob) =>
         cronjobManager.buildCronjobSystemPrompt(cronjob),
-      createCronjob: (input) =>
+      // A Codex job with no model, made or switched to Codex, takes its
+      // owner's login default, as a new Codex agent does.
+      createCronjob: async (input) =>
         cronjobManager.addCronjob({
           ...input,
           agentType: input.agentType ?? "claude",
+          modelFamily:
+            input.agentType === "codex" && !input.modelFamily && input.userId
+              ? await resolveCodexDefaultModel(input.userId, input.cwd)
+              : input.modelFamily,
           // cron:manage is USER-only, so a valid caller always resolves a
           // username; the fallback only satisfies the definite-string contract.
           username: input.username ?? "unknown",
         }),
-      updateCronjob: (id, changes) => cronjobManager.updateCronjob(id, changes),
+      updateCronjob: async (id, changes) => {
+        const existing = cronjobManager
+          .listCronjobs()
+          .find((cronjob) => cronjob.id === id);
+        if (
+          changes.agentType === "codex" &&
+          !changes.modelFamily &&
+          existing &&
+          existing.agentType !== "codex" &&
+          existing.userId
+        ) {
+          changes = {
+            ...changes,
+            modelFamily: await resolveCodexDefaultModel(
+              existing.userId,
+              changes.cwd ?? existing.cwd,
+            ),
+          };
+        }
+        return cronjobManager.updateCronjob(id, changes);
+      },
       deleteCronjob: (id) => cronjobManager.deleteCronjob(id),
       setPrompt: (value) => cronjobManager.setCronjobsPrompt(value),
       runNow: (id, username) => cronjobManager.runCronjobNow(id, username),
@@ -4755,6 +4843,11 @@ function buildExecutorDeps(
             message: modelSelection.error,
           };
         }
+        // A Codex spawn with no model takes the login's default, not the
+        // static CODEX_MODELS[0], which the login can lack.
+        let modelFamily = modelSelection.modelFamily;
+        if (input.agentType === "codex" && !modelFamily && input.userId)
+          modelFamily = await resolveCodexDefaultModel(input.userId, input.cwd);
         saveRecentCwd(input.cwd);
         try {
           const spawned = await agentManager.spawn(
@@ -4777,7 +4870,7 @@ function buildExecutorDeps(
               : input.customInstructions,
             input.roomId,
             input.outfit,
-            modelSelection.modelFamily,
+            modelFamily,
             input.effort,
             input.username,
             input.agentType,
@@ -4934,6 +5027,16 @@ function buildExecutorDeps(
             };
           }
           resolvedModelFamily = modelSelection.modelFamily;
+        }
+        // An engine switch to Codex with no model takes the owner's login
+        // default, as a new Codex agent does.
+        if (changes.agentType === "codex" && !resolvedModelFamily) {
+          const current = agentManager.getAgent(agentId);
+          if (current && current.agentType !== "codex" && current.userId)
+            resolvedModelFamily = await resolveCodexDefaultModel(
+              current.userId,
+              changes.cwd ?? current.cwd,
+            );
         }
         if (changes.cwd) saveRecentCwd(changes.cwd);
         try {
@@ -8568,6 +8671,16 @@ export interface StartServerOpts {
   // Test seam for the seed's discovery timeout and the background retry after
   // a seed used the fallback model.
   welcomeModelTiming?: WelcomeModelTiming;
+  // Test seam for the Codex default-model discovery of a spawn or cron job
+  // with no model. Production uses the same backend model-list path as the
+  // picker. The resolver aborts `signal` at its timeout.
+  listCodexModels?: (input: {
+    userId: string;
+    cwd: string;
+    signal: AbortSignal;
+  }) => Promise<BackendModelWire[]>;
+  // Test seam for that discovery's timeout (production: 10 s).
+  codexModelDiscoveryTimeoutMs?: number;
   // Inject the app supervisor. Tests MUST pass a fake: the production one
   // writes systemd unit files and runs systemctl against the real user manager,
   // which is shared with whatever office is running on the same box.

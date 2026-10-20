@@ -25,7 +25,14 @@ import {
   appendRunLog,
   loadCronjobs,
 } from "../cronjob-persistence.ts";
-import type { Cronjob, CronjobRun, LogEntry } from "../../shared/types.ts";
+import type { StartServerOpts } from "../isomux-office.ts";
+import { CODEX_MODELS } from "../../shared/types.ts";
+import type {
+  BackendModelWire,
+  Cronjob,
+  CronjobRun,
+  LogEntry,
+} from "../../shared/types.ts";
 
 // AddCronjobInput is a factory-local interface; derive it from the method.
 type AddCronjobInput = Parameters<
@@ -528,5 +535,125 @@ describe("routes/cron REST: runNow + emit double-signal", () => {
       2000,
       "cronjob_added for the new job",
     );
+  });
+});
+
+// Task 141beeb6: a Codex schedule made with no model takes the default of its
+// owner's discovered model list (the listCodexModels seam), not the static
+// CODEX_MODELS[0], which a login can lack.
+describe("routes/cron REST: Codex default model from discovery", () => {
+  const LOGIN_MODELS: BackendModelWire[] = [
+    { id: CODEX_MODELS[0].value, label: "Static", supportedEfforts: [] },
+    {
+      id: "gpt-login-default",
+      label: "Login default",
+      isDefault: true,
+      supportedEfforts: [],
+    },
+  ];
+  type DiscoveryInput = Parameters<
+    NonNullable<StartServerOpts["listCodexModels"]>
+  >[0];
+
+  async function setup() {
+    const calls: DiscoveryInput[] = [];
+    const srv = await startTestServer({
+      startServer: {
+        listCodexModels: async (input) => {
+          calls.push(input);
+          return LOGIN_MODELS;
+        },
+      },
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    return { srv, owner, calls, userId: getUserByName("Boss")!.id };
+  }
+
+  it("POST a Codex schedule with an empty model -> the login's default", async () => {
+    const { srv, owner, calls, userId } = await setup();
+    const r = await api(srv, "/api/cronjobs", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: createBody({
+        agentType: "codex",
+        modelFamily: "",
+        effort: "high",
+        permissionMode: "never",
+      }),
+    });
+    expect(r.status).toBe(201);
+    const job = r.body as Cronjob;
+    expect(job.modelFamily).toBe("gpt-login-default");
+    expect(
+      loadCronjobs().find((saved) => saved.id === job.id)?.modelFamily,
+    ).toBe("gpt-login-default");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].userId).toBe(userId);
+    expect(calls[0].cwd).toBe(srv.stateRoot);
+  });
+
+  it("POST a Codex schedule with a model keeps it and costs no discovery", async () => {
+    const { srv, owner, calls } = await setup();
+    const r = await api(srv, "/api/cronjobs", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: createBody({
+        agentType: "codex",
+        modelFamily: "gpt-5.5",
+        effort: "high",
+        permissionMode: "never",
+      }),
+    });
+    expect(r.status).toBe(201);
+    expect((r.body as Cronjob).modelFamily).toBe("gpt-5.5");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("PATCH claude->codex with no model -> the login's default, discovered for the job's owner", async () => {
+    const { srv, owner, calls, userId } = await setup();
+    const job = seedJob(srv, "Boss", "EngineSwitch");
+    const r = await api(srv, `/api/cronjobs/${job.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { agentType: "codex", effort: "high", permissionMode: "never" },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body as Cronjob).toMatchObject({
+      agentType: "codex",
+      modelFamily: "gpt-login-default",
+    });
+    expect(
+      loadCronjobs().find((saved) => saved.id === job.id)?.modelFamily,
+    ).toBe("gpt-login-default");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].userId).toBe(userId);
+  });
+
+  it("PATCH a Codex schedule that names no model keeps its model and costs no discovery", async () => {
+    const { srv, owner, calls } = await setup();
+    const job = seedJob(srv, "Boss", "CodexJob");
+    const toCodex = await api(srv, `/api/cronjobs/${job.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { agentType: "codex", modelFamily: "gpt-5.5" },
+    });
+    expect(toCodex.status).toBe(200);
+    for (const body of [
+      { name: "Renamed", effort: "low" },
+      { agentType: "codex", effort: "high" },
+    ]) {
+      const r = await api(srv, `/api/cronjobs/${job.id}`, {
+        method: "PATCH",
+        rawSessionId: owner.rawSessionId,
+        body,
+      });
+      expect(r.status).toBe(200);
+      expect((r.body as Cronjob).modelFamily).toBe("gpt-5.5");
+    }
+    expect(loadCronjobs().find((saved) => saved.id === job.id)?.name).toBe(
+      "Renamed",
+    );
+    expect(calls).toHaveLength(0);
   });
 });

@@ -262,6 +262,12 @@ async function bootTestServer(
           supportedEfforts: [],
         },
       ],
+      // A Codex spawn with no model must never start the box's real codex
+      // binary: discovery fails, so the static default applies. A test of the
+      // discovered default passes its own list through opts.startServer.
+      listCodexModels: async () => {
+        throw new Error("test harness: no Codex model discovery");
+      },
       appSupervisor,
       createCodexAccountClient: unavailableAccountClient,
       createClaudeAccountClient: unavailableAccountClient,

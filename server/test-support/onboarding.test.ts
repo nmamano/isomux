@@ -44,6 +44,7 @@ import { BackendNotConfiguredError } from "../internal-types.ts";
 import { _testRunOwnerCreatedHook } from "../auth-middleware.ts";
 import { STATE_ROOT } from "../config.ts";
 import { listAgentSessions } from "../persistence.ts";
+import { getUserByName } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import { MODEL_FAMILIES } from "../../shared/types.ts";
 import type { OneShotOptions } from "../backends/types.ts";
@@ -258,6 +259,31 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(names).toContain(CLAUDE_WELCOME);
     expect(names).toContain(CODEX_WELCOME);
     expect(names).toContain(OPENCODE_WELCOME);
+  });
+
+  it("seeds the Codex welcome agent on the owner's discovered default model (task 141beeb6)", async () => {
+    const calls: string[] = [];
+    server = await startTestServer({
+      startServer: {
+        listCodexModels: async ({ userId }) => {
+          calls.push(userId);
+          return [
+            { id: "gpt-6.1-sol", label: "Static", supportedEfforts: [] },
+            {
+              id: "gpt-login-default",
+              label: "Login default",
+              isDefault: true,
+              supportedEfforts: [],
+            },
+          ];
+        },
+      },
+    });
+    await claimOwner(server, "Boss");
+    expect(requireAgentByName(server, CODEX_WELCOME).modelFamily).toBe(
+      "gpt-login-default",
+    );
+    expect(calls).toEqual([getUserByName("Boss")!.id]);
   });
 
   it("does not add welcome agents when the first-owner hook runs again", async () => {

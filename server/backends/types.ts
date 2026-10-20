@@ -508,6 +508,8 @@ export interface ListModelsOptions {
   environmentKey?: string;
   environmentRevision?: string;
   includeHidden?: boolean;
+  // Abort stops the request and the process behind it; listModels rejects.
+  signal?: AbortSignal;
 }
 
 // Backend-owned fact about a stored conversation. Callers decide whether a

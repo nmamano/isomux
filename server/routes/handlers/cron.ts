@@ -75,8 +75,8 @@ export interface CronDeps {
     username: string | undefined;
     userId: string | null;
     roomId: string | undefined;
-  }): Cronjob;
-  updateCronjob(id: string, changes: CronUpdateReq): Cronjob | null;
+  }): Promise<Cronjob>;
+  updateCronjob(id: string, changes: CronUpdateReq): Promise<Cronjob | null>;
   deleteCronjob(id: string): boolean;
   setPrompt(value: string | null): void;
   runNow(id: string, username: string): CronjobRun | null;
@@ -180,7 +180,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         : fail(404, "not_found");
     },
 
-    "cron.create": (ctx) => {
+    "cron.create": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<CronCreateReq>;
       if (typeof body.name !== "string" || body.name.length === 0) {
         return fail(400, "invalid_request", "name is required");
@@ -216,7 +216,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       if (!room.ok) return room.response;
       deps.saveRecentCwd(body.cwd);
       const { username } = deps.attributionFor(ctx.identity);
-      const job = deps.createCronjob({
+      const job = await deps.createCronjob({
         name: body.name,
         schedule: body.schedule,
         prompt: body.prompt,
@@ -241,7 +241,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         : fail(500, "internal_error", "created schedule is not visible");
     },
 
-    "cron.update": (ctx) => {
+    "cron.update": async (ctx) => {
       // Authorization (cronjobOwnerOrOfficeOwner) was already enforced by the
       // route guard. Re-validate cwd if it's being changed (the now-retired WS
       // arm did the same).
@@ -265,7 +265,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         if (familyErr) return fail(422, "invalid_model_family", familyErr);
       }
       const { roomId: _roomId, ...rest } = body;
-      const job = deps.updateCronjob(ctx.params.id, {
+      const job = await deps.updateCronjob(ctx.params.id, {
         ...rest,
         ...(room.roomId !== undefined ? { roomId: room.roomId } : {}),
       });

@@ -3435,6 +3435,99 @@ function toBackendModel(m: CodexProtocolModel): BackendModel {
   };
 }
 
+// The model/list client's launcher, for tests: a fake binary and its args.
+export type CodexListModelsClientOptions = Pick<
+  JsonRpcLiteClientOptions,
+  "codexBin" | "args"
+>;
+
+// codexBackend.listModels, with the launcher open to tests. An abort of
+// opts.signal rejects at once and closes the client, which kills the
+// app-server's process group (launcher and native grandchild).
+export async function listCodexModels(
+  opts: ListModelsOptions,
+  launcher: CodexListModelsClientOptions = {},
+): Promise<BackendModel[]> {
+  const signal = opts.signal;
+  signal?.throwIfAborted();
+  // Spin up a one-shot JsonRpcLiteClient just for model/list. The pattern
+  // mirrors oneShotPrompt but skips thread/start - model/list is a
+  // server-level RPC, not thread-scoped. ~1-2s end-to-end including
+  // subprocess spawn.
+  const client = new JsonRpcLiteClient({
+    ...launcher,
+    cwd: opts.cwd,
+    env: opts.env,
+  });
+  const started = client.start();
+  if (!signal) return listModelsOver(client, started, opts);
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      // A close() while start() is still before its spawn would mark the
+      // client killed with no child yet, and the child spawned next would
+      // then never be signalled. Close once start() has settled.
+      const close = () => void client.close();
+      started.then(close, close);
+      reject(new Error("Codex model discovery was aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([listModelsOver(client, started, opts), aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+// model/list over a started client, paginated until nextCursor === null.
+// Closes the client whatever the outcome.
+async function listModelsOver(
+  client: JsonRpcLiteClient,
+  started: Promise<unknown>,
+  opts: ListModelsOptions,
+): Promise<BackendModel[]> {
+  try {
+    await started;
+    await client.initialize({
+      clientInfo: {
+        name: CLIENT_INFO_NAME,
+        version: CLIENT_INFO_VERSION,
+        title: null,
+      },
+      capabilities: {
+        experimentalApi: true,
+        // Decline attestation/generate: the adapter doesn't handle that server
+        // request yet, so opting in would surface
+        // unhandled requests. 0.144 made this capability required.
+        requestAttestation: false,
+        optOutNotificationMethods: null,
+      },
+    });
+    const collected: CodexProtocolModel[] = [];
+    let cursor: string | null = null;
+    // Hard cap on iterations: defensive against a malformed nextCursor
+    // loop. Real model lists are well under 100 entries.
+    for (let i = 0; i < 32; i++) {
+      const params: ModelListParams = {
+        cursor: cursor ?? null,
+        limit: null,
+        includeHidden: opts.includeHidden ?? false,
+      };
+      const resp = await client.request<ModelListResponse>(
+        "model/list",
+        params,
+      );
+      collected.push(...resp.data);
+      if (!resp.nextCursor) break;
+      cursor = resp.nextCursor;
+    }
+    return collected.map(toBackendModel);
+  } finally {
+    await client.close();
+  }
+}
+
 export const codexBackend: Backend = {
   capabilities: CAPABILITIES,
   toolBoundaryDelivery: true,
@@ -3448,51 +3541,8 @@ export const codexBackend: Backend = {
     return PERMISSION_MODES;
   },
 
-  async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
-    // Spin up a one-shot JsonRpcLiteClient just for model/list. The pattern
-    // mirrors oneShotPrompt but skips thread/start - model/list is a
-    // server-level RPC, not thread-scoped. Pagination loops until
-    // nextCursor === null. ~1-2s end-to-end including subprocess spawn.
-    const client = new JsonRpcLiteClient({ cwd: opts.cwd, env: opts.env });
-    try {
-      await client.start();
-      await client.initialize({
-        clientInfo: {
-          name: CLIENT_INFO_NAME,
-          version: CLIENT_INFO_VERSION,
-          title: null,
-        },
-        capabilities: {
-          experimentalApi: true,
-          // Decline attestation/generate: the adapter doesn't handle that server
-          // request yet, so opting in would surface
-          // unhandled requests. 0.144 made this capability required.
-          requestAttestation: false,
-          optOutNotificationMethods: null,
-        },
-      });
-      const collected: CodexProtocolModel[] = [];
-      let cursor: string | null = null;
-      // Hard cap on iterations: defensive against a malformed nextCursor
-      // loop. Real model lists are well under 100 entries.
-      for (let i = 0; i < 32; i++) {
-        const params: ModelListParams = {
-          cursor: cursor ?? null,
-          limit: null,
-          includeHidden: opts.includeHidden ?? false,
-        };
-        const resp = await client.request<ModelListResponse>(
-          "model/list",
-          params,
-        );
-        collected.push(...resp.data);
-        if (!resp.nextCursor) break;
-        cursor = resp.nextCursor;
-      }
-      return collected.map(toBackendModel);
-    } finally {
-      await client.close();
-    }
+  listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
+    return listCodexModels(opts);
   },
 
   createSession(opts: CreateSessionOptions): BackendSession {

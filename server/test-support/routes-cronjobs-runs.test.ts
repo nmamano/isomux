@@ -813,10 +813,10 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
       assignableRoomIds: () => new Set(),
       defaultCreateRoomId: () => undefined,
       buildCronjobSystemPrompt: () => "system prompt",
-      createCronjob: () => {
+      createCronjob: async () => {
         throw new Error("unused");
       },
-      updateCronjob: () => null,
+      updateCronjob: async () => null,
       deleteCronjob: () => false,
       setPrompt: () => {},
       runNow: () => null,

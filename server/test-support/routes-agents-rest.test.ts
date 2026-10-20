@@ -20,12 +20,17 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
+import type { StartServerOpts } from "../isomux-office.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { loadAgents, loadRecentCwds } from "../persistence.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
-import type { AgentPermissionMode } from "../../shared/types.ts";
+import { CODEX_MODELS } from "../../shared/types.ts";
+import type {
+  AgentPermissionMode,
+  BackendModelWire,
+} from "../../shared/types.ts";
 
 let server: TestServer | null = null;
 
@@ -1990,5 +1995,207 @@ describe("agents.spawn REST: mode of an agent-spawned agent", () => {
     expect(
       (res.body as { agent: { permissionMode: string } }).agent.permissionMode,
     ).toBe("default");
+  });
+});
+
+// Task 141beeb6: a Codex agent made with no model takes the default of its
+// owner's discovered model list, not the static CODEX_MODELS[0], which a login
+// can lack. Discovery is the listCodexModels seam (production: model/list).
+describe("Codex default model from discovery", () => {
+  const FALLBACK = CODEX_MODELS[0].value;
+  // The static default is listed and comes first, so only the isDefault rule
+  // picks the login's model.
+  const LOGIN_MODELS: BackendModelWire[] = [
+    { id: FALLBACK, label: FALLBACK, supportedEfforts: [] },
+    {
+      id: "gpt-login-default",
+      label: "Login default",
+      isDefault: true,
+      supportedEfforts: [],
+    },
+  ];
+  type Discovery = NonNullable<StartServerOpts["listCodexModels"]>;
+  type DiscoveryInput = Parameters<Discovery>[0];
+
+  async function setup(
+    discover: (input: DiscoveryInput) => Promise<BackendModelWire[]>,
+    extra: Partial<StartServerOpts> = {},
+  ) {
+    const calls: DiscoveryInput[] = [];
+    const srv = await startTestServer({
+      startServer: {
+        listCodexModels: (input) => {
+          calls.push(input);
+          return discover(input);
+        },
+        ...extra,
+      },
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const userId = getUserByName("Boss")!.id;
+    return { srv, owner, roomId, userId, calls };
+  }
+
+  const codexBody = (srv: TestServer, roomId: string, over = {}) => ({
+    name: "Cody",
+    cwd: srv.stateRoot,
+    roomId,
+    desk: 0,
+    agentType: "codex",
+    permissionMode: "never",
+    ...over,
+  });
+
+  const spawnedModel = (res: Res) =>
+    (res.body as { agent?: { id: string; modelFamily?: string } }).agent;
+
+  it("a spawn with no model takes the login's default, discovered for the spawner", async () => {
+    const { srv, owner, roomId, userId, calls } = await setup(
+      async () => LOGIN_MODELS,
+    );
+    const res = await req(srv, "POST", "/api/agents", {
+      body: codexBody(srv, roomId),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    const agent = spawnedModel(res)!;
+    expect(agent.modelFamily).toBe("gpt-login-default");
+    expect(srv.agentManager.getAgent(agent.id)?.modelFamily).toBe(
+      "gpt-login-default",
+    );
+    // The list is the spawner's (their env stack decides the login).
+    expect(calls).toHaveLength(1);
+    expect(calls[0].userId).toBe(userId);
+    expect(calls[0].cwd).toBe(srv.stateRoot);
+  });
+
+  const fallbacks: [string, () => Promise<BackendModelWire[]>][] = [
+    [
+      "discovery fails",
+      async () => {
+        throw new Error("model/list failed");
+      },
+    ],
+    ["discovery lists no model", async () => []],
+    [
+      "discovery lists only hidden models",
+      async () => [
+        {
+          id: "gpt-hidden",
+          label: "Hidden",
+          isDefault: true,
+          hidden: true,
+          supportedEfforts: [],
+        },
+      ],
+    ],
+  ];
+  for (const [name, discover] of fallbacks) {
+    it(`${name}: the spawn still lands, on CODEX_MODELS[0]`, async () => {
+      const { srv, owner, roomId, calls } = await setup(discover);
+      const res = await req(srv, "POST", "/api/agents", {
+        body: codexBody(srv, roomId),
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(calls).toHaveLength(1);
+      expect(res.status).toBe(201);
+      expect(spawnedModel(res)?.modelFamily).toBe(FALLBACK);
+    });
+  }
+
+  it("discovery that never answers: the spawn lands on CODEX_MODELS[0] at the bound, and the discovery is aborted", async () => {
+    // The fake ignores its signal, so the resolver itself must stop waiting.
+    const { srv, owner, roomId, calls } = await setup(
+      () => new Promise<BackendModelWire[]>(() => {}),
+      { codexModelDiscoveryTimeoutMs: 50 },
+    );
+    const started = Date.now();
+    const res = await req(srv, "POST", "/api/agents", {
+      body: codexBody(srv, roomId),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    expect(spawnedModel(res)?.modelFamily).toBe(FALLBACK);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(calls).toHaveLength(1);
+    // The abort is what stops the codex app-server behind real discovery.
+    expect(calls[0].signal.aborted).toBe(true);
+  });
+
+  it("an explicit model is kept and costs no discovery", async () => {
+    const { srv, owner, roomId, calls } = await setup(async () => LOGIN_MODELS);
+    const res = await req(srv, "POST", "/api/agents", {
+      body: codexBody(srv, roomId, { modelFamily: "gpt-5.5" }),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    expect(spawnedModel(res)?.modelFamily).toBe("gpt-5.5");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("a request the front door rejects costs no discovery", async () => {
+    const { srv, owner, roomId, calls } = await setup(async () => LOGIN_MODELS);
+    const badCwd = await req(srv, "POST", "/api/agents", {
+      body: codexBody(srv, roomId, { cwd: join(srv.stateRoot, "missing") }),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(badCwd.status).toBe(400);
+    expect(errCode(badCwd.body)).toBe("invalid_cwd");
+    const badModel = await req(srv, "POST", "/api/agents", {
+      body: codexBody(srv, roomId, { modelFamily: "opus" }),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(badModel.status).toBe(422);
+    expect(errCode(badModel.body)).toBe("invalid_model_family");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("PATCH claude->codex with no model takes the owner's login default", async () => {
+    const { srv, owner, roomId, userId, calls } = await setup(
+      async () => LOGIN_MODELS,
+    );
+    // Spawned through the route, so Boss owns it: discovery uses the owner's
+    // env stack, the one the agent runs with.
+    const spawned = await req(srv, "POST", "/api/agents", {
+      body: codexBody(srv, roomId, {
+        agentType: "claude",
+        permissionMode: "default",
+      }),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(spawned.status).toBe(201);
+    const x = spawnedModel(spawned)!;
+    expect(srv.agentManager.getAgent(x.id)?.userId).toBe(userId);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { agentType: "codex" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    const after = srv.agentManager.getAgent(x.id);
+    expect(after?.agentType).toBe("codex");
+    expect(after?.modelFamily).toBe("gpt-login-default");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].userId).toBe(userId);
+  });
+
+  it("PATCH of a Codex agent that names no model keeps its model and costs no discovery", async () => {
+    const { srv, owner, roomId, calls } = await setup(async () => LOGIN_MODELS);
+    const spawned = await req(srv, "POST", "/api/agents", {
+      body: codexBody(srv, roomId, { modelFamily: "gpt-5.5" }),
+      rawSessionId: owner.rawSessionId,
+    });
+    const id = spawnedModel(spawned)!.id;
+    for (const body of [{ name: "Renamed" }, { agentType: "codex" }]) {
+      const res = await req(srv, "PATCH", `/api/agents/${id}`, {
+        body,
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(res.status).toBe(200);
+      expect(srv.agentManager.getAgent(id)?.modelFamily).toBe("gpt-5.5");
+    }
+    expect(srv.agentManager.getAgent(id)?.name).toBe("Renamed");
+    expect(calls).toHaveLength(0);
   });
 });
