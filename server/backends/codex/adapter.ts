@@ -116,6 +116,7 @@ import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/Thread
 import type { TokenUsageBreakdown } from "./_generated/v2/TokenUsageBreakdown.ts";
 import type { AccountRateLimitsUpdatedNotification } from "./_generated/v2/AccountRateLimitsUpdatedNotification.ts";
 import type { ErrorNotification } from "./_generated/v2/ErrorNotification.ts";
+import type { ToolRequestUserInputResponse } from "./_generated/v2/ToolRequestUserInputResponse.ts";
 import type { GetAccountRateLimitsResponse } from "./_generated/v2/GetAccountRateLimitsResponse.ts";
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 import type { RateLimitWindow } from "./_generated/v2/RateLimitWindow.ts";
@@ -364,6 +365,10 @@ const THREAD_HISTORY_PAGE_CAP = 1_000;
 // thread stored with legacy history (threads from before paginated history);
 // those threads still list their turns with the items inline.
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
+
+// What the model receives as the answer to each request_user_input question.
+const REQUEST_USER_INPUT_ANSWER =
+  "The member cannot see this question. Ask it in your reply, then end your turn and wait for the member's answer.";
 
 // One pass over thread/turns/list. With itemsView "full" each turn carries its
 // items; with "notLoaded" the items come from thread/items/list.
@@ -2962,17 +2967,27 @@ export class CodexSession implements BackendSession {
           "Permissions profile changes are not supported in Isomux v1.",
         );
 
-      case "item/tool/requestUserInput":
-        // ToolRequestUserInputResponse shape is { answers: HashMap<...> }, no
-        // canceled/decline field. Sending a JSON-RPC error is the correct
-        // way to say "the client can't answer this."
-        this.enqueue({
-          kind: "system_text",
-          text: `Auto-declined structured tool-input request from codex (v1 doesn't support agent-issued Q&A).`,
-        });
-        throw new Error(
-          "Isomux v1 does not implement item/tool/requestUserInput.",
-        );
+      case "item/tool/requestUserInput": {
+        // Isomux has no question card, so the model must ask in the chat,
+        // as a Claude agent does with AskUserQuestion off. A JSON-RPC error
+        // cannot say that: Codex's app-server (bespoke_event_handling.rs)
+        // replaces any client error with empty answers, and core
+        // (tools/handlers/request_user_input.rs) sends the model only the
+        // answers. So every question gets the instruction as a free-form
+        // answer (Codex sets isOther on every question). Never an option
+        // label: the model would read it as the member's choice.
+        const questions = Array.isArray(params?.questions)
+          ? (params.questions as unknown[])
+          : [];
+        const answers: ToolRequestUserInputResponse["answers"] = {};
+        for (const q of questions) {
+          const id = (q as { id?: unknown } | null)?.id;
+          if (typeof id === "string") {
+            answers[id] = { answers: [REQUEST_USER_INPUT_ANSWER] };
+          }
+        }
+        return { answers } satisfies ToolRequestUserInputResponse;
+      }
 
       case "mcpServer/elicitation/request":
         // Confirmed against the schema: { action: "accept" | "decline" | "cancel" }.

@@ -3210,6 +3210,70 @@ describe("CodexSession auto-declined server requests", () => {
     expect(ev.text).toContain("elicitation");
     expect(await resp).toEqual({ action: "decline" });
   });
+
+  // Codex replaces a JSON-RPC error on item/tool/requestUserInput with empty
+  // answers (app-server bespoke_event_handling.rs), so the model never reads
+  // the error. Isomux answers each question with a free-form instruction to
+  // ask in the chat instead, and adds no chat line: the question itself
+  // reaches the chat in the model's reply.
+  it("item/tool/requestUserInput -> a free-form answer for every question, no chat line", async () => {
+    const { fake, it } = await bootstrapped();
+    const options = [
+      { label: "Postgres", description: "a" },
+      { label: "SQLite", description: "b" },
+    ];
+    const question = (id: string) => ({
+      id,
+      header: id,
+      question: `question ${id}?`,
+      isOther: true,
+      isSecret: false,
+      options,
+    });
+    const result = (await fake.fireServerRequest({
+      id: "rui-1",
+      method: "item/tool/requestUserInput",
+      params: {
+        threadId: FIXTURE_THREAD_ID,
+        turnId: "turn-1",
+        itemId: "item-1",
+        questions: [question("a"), question("b")],
+        isBlocking: true,
+        autoResolutionMs: null,
+      },
+    })) as { answers: Record<string, { answers: string[] }> };
+    expect(Object.keys(result.answers).sort()).toEqual(["a", "b"]);
+    const labels = options.map((o) => o.label);
+    for (const id of ["a", "b"]) {
+      const given = result.answers[id].answers;
+      expect(given).toHaveLength(1);
+      expect(given[0].trim().length).toBeGreaterThan(0);
+      // An option label would tell the model the member picked that option.
+      expect(labels).not.toContain(given[0]);
+    }
+    // The request emitted nothing: the next event is the marker.
+    fake.fireStderr("marker");
+    expect(expectKind(await nextEvent(it, "marker"), "system_text").text).toBe(
+      "[codex stderr] marker",
+    );
+  });
+
+  it("item/tool/requestUserInput with no usable questions -> empty answers, no error", async () => {
+    const { fake } = await bootstrapped();
+    for (const [n, params] of [
+      {},
+      { questions: "nope" },
+      { questions: [{ header: "no id" }, null] },
+    ].entries()) {
+      expect(
+        await fake.fireServerRequest({
+          id: `rui-bad-${n}`,
+          method: "item/tool/requestUserInput",
+          params,
+        }),
+      ).toEqual({ answers: {} });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
