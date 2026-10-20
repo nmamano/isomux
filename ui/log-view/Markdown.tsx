@@ -341,9 +341,12 @@ function ensureKatexStylesheet() {
   const link = document.createElement("link");
   link.rel = "stylesheet";
   link.dataset.katexStylesheet = "";
-  const demoPath =
-    location.pathname === "/demo" || location.pathname.startsWith("/demo/");
-  link.href = `${demoPath ? "/demo" : ""}/katex/katex.min.css`;
+  // The HTML shell declares the folder its bundle is served from, and the
+  // build copies katex/ beside the bundle (scripts/build.sh, build-demo.ts).
+  const root =
+    document.querySelector<HTMLMetaElement>('meta[name="isomux-asset-root"]')
+      ?.content || "/";
+  link.href = `${root}katex/katex.min.css`;
   document.head.appendChild(link);
 }
 
