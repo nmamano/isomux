@@ -2882,6 +2882,8 @@ Cosas que puedes hacer por él:
     "No se pudo preparar el entorno: {error}",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "No se puede retomar esta ejecución de OpenCode porque su programación se eliminó y ya no se puede resolver su perfil de entorno compartido.",
+  "systemEntries.scheduleRun.jobDeleted":
+    "Ejecución detenida: se eliminó la programación.",
   "systemEntries.scheduleRun.sendFailed": "No se pudo enviar: {error}",
   "systemEntries.scheduleRun.editBusy":
     "No se puede editar mientras la ejecución está ocupada.",

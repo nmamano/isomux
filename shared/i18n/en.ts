@@ -2847,6 +2847,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.scheduleRun.envFailed": "Cannot build env: {error}",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "Cannot resume this OpenCode run because its schedule was deleted and its shared environment profile can no longer be resolved.",
+  "systemEntries.scheduleRun.jobDeleted":
+    "Run stopped: the schedule was deleted.",
   "systemEntries.scheduleRun.sendFailed": "Failed to send: {error}",
   "systemEntries.scheduleRun.editBusy": "Cannot edit while the run is busy.",
   "systemEntries.scheduleRun.editSkipped":

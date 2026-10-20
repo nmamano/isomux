@@ -2883,6 +2883,8 @@ Coses que pots fer per ell:
     "No s'ha pogut preparar l'entorn: {error}",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "No es pot reprendre aquesta execució d'OpenCode perquè la seva programació es va eliminar i ja no es pot resoldre el seu perfil d'entorn compartit.",
+  "systemEntries.scheduleRun.jobDeleted":
+    "Execució aturada: s'ha eliminat la programació.",
   "systemEntries.scheduleRun.sendFailed": "No s'ha pogut enviar: {error}",
   "systemEntries.scheduleRun.editBusy":
     "No es pot editar mentre l'execució està ocupada.",

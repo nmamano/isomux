@@ -2585,6 +2585,7 @@ App 的一些原则：
   "systemEntries.scheduleRun.envFailed": "无法构建环境：{error}",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "无法继续此 OpenCode 运行：其定时任务已删除，共享环境配置文件也无法再解析。",
+  "systemEntries.scheduleRun.jobDeleted": "运行已停止：定时任务已删除。",
   "systemEntries.scheduleRun.sendFailed": "发送失败：{error}",
   "systemEntries.scheduleRun.editBusy": "运行繁忙时无法编辑。",
   "systemEntries.scheduleRun.editSkipped":

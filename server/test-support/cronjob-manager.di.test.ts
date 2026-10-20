@@ -34,7 +34,11 @@ import {
 import { STATE_ROOT } from "../config.ts";
 import { createMember, deleteUserById, updateUserById } from "../users.ts";
 import { tmpdir } from "os";
-import { translatorFor } from "../../shared/i18n/translate.ts";
+import {
+  CATALOGS,
+  translatorFor,
+  type MessageKey,
+} from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
   setMemberUsageCapForTests,
@@ -1133,6 +1137,35 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     fake.sessions.forEach((s) => s.close());
   });
 
+  it("deleting the schedule ends a resumed turn in flight and revokes its bearer", async () => {
+    let sends = 0;
+    const fake = new FakeBackend({
+      session: {
+        // The primary turn completes; the resumed turn stays live.
+        onSend: (_t, _a, s) => {
+          if (++sends === 1) s.completeTurn({ text: "done" });
+        },
+      },
+    });
+    const { mgr, job, run } = await primaryRunThenLeaf(fake);
+    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+    await waitFor(() => sends === 2, "resumed turn sent");
+    const resumed = fake.lastSession!;
+    expect(resumed.isResume).toBe(true);
+    const raw = resumed.opts.env?.ISOMUX_AGENT_TOKEN as string;
+    expect(resolveToken(raw)).not.toBeNull();
+    expect(mgr.findRun(job.id, run.id)?.status).toBe("running");
+
+    expect(mgr.deleteCronjob(job.id)).toBe(true);
+
+    expect(resolveToken(raw)).toBeNull();
+    expect(resumed.closed).toBe(true);
+    const after = mgr.findRun(job.id, run.id)!;
+    expect(after.status).toBe("failed");
+    expect(after.endedAt).toBe(FIXED_NOW);
+    fake.sessions.forEach((s) => s.close());
+  });
+
   it("each resumed turn mints a fresh RUN bearer; the prior token is dead", async () => {
     let sends = 0;
     const fake = new FakeBackend({
@@ -1589,6 +1622,93 @@ describe("CronjobManager webhook runs", () => {
   });
 });
 
+describe("CronjobManager: deleting a schedule ends its live runs", () => {
+  afterEach(() => _testResetTokens());
+
+  const waitFor = async (pred: () => boolean, label: string) => {
+    for (let i = 0; i < 400; i++) {
+      if (pred()) return;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`waitFor timed out: ${label}`);
+  };
+
+  it("ends the deleted schedule's in-flight run and leaves every other run as it was", async () => {
+    let sends = 0;
+    // Send #1 (the doomed job's first run) completes; every later send stays
+    // live.
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_t, _a, s) => {
+          if (++sends === 1) s.completeTurn({ text: "done" });
+        },
+      },
+    });
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, eventSink: sink }),
+    );
+    const doomed = mgr.addCronjob(intervalInput("DoomedJob"));
+    const kept = mgr.addCronjob(intervalInput("KeptJob"));
+
+    const finished = mgr.runCronjobNow(doomed.id, "Nil")!;
+    await waitFor(
+      () => mgr.findRun(doomed.id, finished.id)?.status === "completed",
+      "first run completed",
+    );
+    const finishedBefore = mgr.findRun(doomed.id, finished.id)!;
+    const live = mgr.runCronjobNow(doomed.id, "Nil")!;
+    const other = mgr.runCronjobNow(kept.id, "Nil")!;
+    await waitFor(() => sends === 3, "both live runs sent");
+
+    const [, liveSession, otherSession] = fake.sessions;
+    const liveRaw = liveSession.opts.env?.ISOMUX_AGENT_TOKEN as string;
+    const otherRaw = otherSession.opts.env?.ISOMUX_AGENT_TOKEN as string;
+    expect(resolveToken(liveRaw)?.runId).toBe(live.id);
+    expect(resolveToken(otherRaw)?.runId).toBe(other.id);
+    expect(mgr.findRun(doomed.id, live.id)?.status).toBe("running");
+    const eventsBefore = events.length;
+
+    expect(mgr.deleteCronjob(doomed.id)).toBe(true);
+
+    // The in-flight run of the deleted schedule: token dead, session closed,
+    // row ended, and the change is announced.
+    expect(resolveToken(liveRaw)).toBeNull();
+    expect(liveSession.closed).toBe(true);
+    const ended = mgr.findRun(doomed.id, live.id)!;
+    expect(ended.status).toBe("failed");
+    expect(ended.endedAt).toBe(FIXED_NOW);
+    expect(ended.errorReason).toBeTruthy();
+    const announced = events
+      .slice(eventsBefore)
+      .flatMap((e) => (e.type === "cronjob_run_updated" ? [e.run] : []));
+    expect(
+      announced.filter((r) => r.id === live.id).map((r) => r.status),
+    ).toEqual(["failed"]);
+    const reasons = events
+      .slice(eventsBefore)
+      .flatMap((e) =>
+        e.type === "log_entry" &&
+        e.jobId === doomed.id &&
+        e.entry.kind === "error"
+          ? [e.entry.content]
+          : [],
+      );
+    expect(reasons).toHaveLength(1);
+
+    // The run that had already ended keeps its row.
+    expect(mgr.findRun(doomed.id, finished.id)).toEqual(finishedBefore);
+
+    // Another schedule's in-flight run is untouched.
+    expect(resolveToken(otherRaw)?.runId).toBe(other.id);
+    expect(otherSession.closed).toBe(false);
+    expect(mgr.findRun(kept.id, other.id)?.status).toBe("running");
+    expect(announced.some((r) => r.id === other.id)).toBe(false);
+
+    fake.sessions.forEach((s) => s.close());
+  });
+});
+
 describe('CronjobManager: the "none" schedule', () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -2017,5 +2137,49 @@ describe("CronjobManager run text in the reader's language", () => {
     await mgr.sendRunMessage(job.id, run.id, "again", typist);
     await mgr.editRunMessage(job.id, run.id, "any-entry", "x", typist);
     expect(errors()).toEqual([PROBLEM, PROBLEM]);
+  });
+
+  it("tells the schedule owner in their language that the deletion stopped the run", async () => {
+    // A live run per owner; the English owner's line names the catalog key.
+    const fake = new FakeBackend();
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, eventSink: sink }),
+    );
+    const start = (owner: { id: string; name: string }) => {
+      const job = mgr.addCronjob({
+        ...intervalInput(`I18nDelete ${owner.name}`),
+        username: owner.name,
+        userId: owner.id,
+      });
+      mgr.runCronjobNow(job.id, owner.name);
+      return job;
+    };
+    const enJob = start(member("en"));
+    const esJob = start(member("es"));
+    const lines = (jobId: string) =>
+      events.flatMap((e) =>
+        e.type === "log_entry" && e.jobId === jobId && e.entry.kind === "error"
+          ? [e.entry.content]
+          : [],
+      );
+    try {
+      await waitFor(() => fake.sessions.length === 2, "both runs live");
+      expect(lines(enJob.id)).toEqual([]);
+      expect(lines(esJob.id)).toEqual([]);
+
+      mgr.deleteCronjob(enJob.id);
+      mgr.deleteCronjob(esJob.id);
+
+      const [enLine] = lines(enJob.id);
+      const key = (Object.keys(CATALOGS.en) as MessageKey[]).find(
+        (k) => CATALOGS.en[k] === enLine,
+      );
+      expect(key).toBeDefined();
+      expect(CATALOGS.es[key!]).not.toBe(CATALOGS.en[key!]);
+      expect(lines(esJob.id)).toEqual([CATALOGS.es[key!]]);
+    } finally {
+      fake.sessions.forEach((session) => session.close());
+    }
   });
 });

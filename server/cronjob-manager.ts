@@ -550,11 +550,24 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const idx = cronjobs.findIndex((c) => c.id === id);
     if (idx < 0) return false;
     const removed = cronjobs[idx];
+    // The owner's words, read while the job still exists.
+    const words = readerWords(id);
     cronjobs.splice(idx, 1);
     saveCronjobs(cronjobs);
     const history = loadCronjobHistory();
     history[removed.id] = { lastName: removed.name };
     saveCronjobHistory(history);
+    // End the job's in-flight runs: a run token carries the creator's reach
+    // until finalizeRun revokes it.
+    const inFlight = [...activeRuns.values()].filter((a) => a.jobId === id);
+    for (const active of inFlight) {
+      active.killed = true;
+      try {
+        active.session.close();
+      } catch {}
+      writeLog(active, "error", words("systemEntries.scheduleRun.jobDeleted"));
+      finalizeRun(active, "failed", "schedule deleted");
+    }
     eventHandler({ type: "cronjob_deleted", id, cronjob: removed });
     return true;
   }
