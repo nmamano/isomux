@@ -14,7 +14,12 @@
 
 import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
-import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
+import type {
+  BackendSession,
+  CommandRow,
+  EnginePlugin,
+  NormalizedEvent,
+} from "./backends/types.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
 import type { BackendFailureId } from "./backend-failure-text.ts";
 import {
@@ -77,6 +82,9 @@ export interface SessionHost {
   lastActiveAt: number;
   dormantReason: DormantReason;
   messageQueue: { readonly length: number };
+  // The live process's plugin list; it goes with the process.
+  reportedPlugins?: EnginePlugin[] | null;
+  reportedSkills?: CommandRow[] | null;
 }
 
 // What the operations need from the manager. No behaviour hides here: each
@@ -288,6 +296,8 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     // idle install may safely discard residue.
     if (!this.turnIsLive(host)) this.clearLiveTurn(host);
     this.session = session;
+    host.reportedPlugins = null;
+    host.reportedSkills = null;
     this.consumerPromise = this.consume(host, session);
     // Stamp activity + clear dormant in lockstep with the session going live, so
     // a just-woken agent isn't immediately re-demoted and `info.dormant` can
@@ -381,6 +391,8 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         this.clearLiveTurn(host);
         this.pendingTurn = null;
         this.session = null;
+        host.reportedPlugins = null;
+        host.reportedSkills = null;
         this.consumerPromise = null;
         host.dormantReason = "stream-ended";
         // Any turn still in its PRE-SEND window (notice assembly; no
@@ -572,6 +584,8 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       this.session?.close();
     } catch {}
     this.session = null;
+    host.reportedPlugins = null;
+    host.reportedSkills = null;
     this.consumerPromise = null;
     for (const event of this.deps.updateAgent(this.agentId, { dormant: true }))
       this.deps.emit(event);

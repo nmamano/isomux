@@ -339,8 +339,6 @@ export const commands: Record<string, CommandConfig> = {
   "terminal-setup": {
     ...UNSUPPORTED_HARDCODED,
   },
-  // OpenCode only: Claude loads plugins per session, and the handler keeps
-  // its pointer to the Claude CLI.
   "reload-plugins": {
     type: "hardcoded",
     supported: true,
@@ -348,7 +346,6 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "reloadPlugins",
     autoRun: true,
-    engines: ["opencode"],
   },
 
   tasks: {

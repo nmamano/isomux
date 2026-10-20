@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from "bun:test";
+import { expectRejection } from "../test-support/expect-rejection.ts";
 import type {
   SDKMessage,
   SDKUserMessage,
@@ -170,6 +171,8 @@ class FakeQuery implements V1QueryLike {
   // SDK release that renames or drops the experimental method.
   mcpServerStatus?: () => Promise<unknown>;
   setMcpServers?: V1QueryLike["setMcpServers"];
+  reloadPlugins?: V1QueryLike["reloadPlugins"];
+  initializationResult?: V1QueryLike["initializationResult"];
 
   usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> =
     async () => {
@@ -228,6 +231,123 @@ describe("wrapV1Query", () => {
       throw new Error("control request failed");
     };
     expect(await conv.getMcpServers?.()).toBeNull();
+  });
+
+  it("reloadPlugins() asks to hold on a cache cost first, and applies a held reload anyway", async () => {
+    const q = new FakeQuery();
+    const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>());
+    const calls: ({ holdOnCacheImpact?: boolean } | undefined)[] = [];
+    const response = (held: boolean | undefined, name: string) => ({
+      commands: [
+        {
+          name: `${name}:s`,
+          description: "a skill",
+          argumentHint: "",
+          aliases: [`${name}-alias`],
+        },
+        {
+          name: "clear",
+          description: "Clear",
+          argumentHint: "",
+          builtin: true,
+        },
+      ],
+      agents: [],
+      plugins: [{ name, path: `/plugins/${name}`, source: `${name}@m` }],
+      mcpServers: [],
+      error_count: 2,
+      ...(held === undefined ? {} : { held }),
+      ...(held
+        ? {
+            cache_impact: {
+              mcp_servers_added: ["plugin:a:srv"],
+              mcp_servers_removed: [],
+              lsp_tool_change: null,
+            },
+          }
+        : {}),
+    });
+
+    // No cache cost: the first call applied the reload.
+    q.reloadPlugins = async (options) => {
+      calls.push(options);
+      return response(false, "applied");
+    };
+    expect(await conv.reloadPlugins?.()).toEqual({
+      plugins: [
+        { name: "applied", path: "/plugins/applied", source: "applied@m" },
+      ],
+      commands: [
+        {
+          name: "applied:s",
+          description: "a skill",
+          aliases: ["applied-alias"],
+        },
+        { name: "clear", description: "Clear", builtin: true },
+      ],
+      toolsChanged: false,
+      errorCount: 2,
+    });
+    expect(calls).toEqual([{ holdOnCacheImpact: true }]);
+
+    // Held: the second call, without the hold, applies it, and its answer is
+    // the session's state.
+    calls.length = 0;
+    q.reloadPlugins = async (options) => {
+      calls.push(options);
+      return options?.holdOnCacheImpact
+        ? response(true, "before")
+        : response(undefined, "after");
+    };
+    const held = await conv.reloadPlugins?.();
+    expect(calls.length).toBe(2);
+    expect(calls[0]).toEqual({ holdOnCacheImpact: true });
+    expect(calls[1]?.holdOnCacheImpact).not.toBe(true);
+    expect(held).toMatchObject({
+      plugins: [{ name: "after", path: "/plugins/after" }],
+      commands: [
+        { name: "after:s", description: "a skill", aliases: ["after-alias"] },
+        { name: "clear", description: "Clear", builtin: true },
+      ],
+      toolsChanged: true,
+    });
+
+    // A failed control request is the caller's error to show.
+    q.reloadPlugins = async () => {
+      throw new Error("control request failed");
+    };
+    await expectRejection(conv.reloadPlugins!(), /control request failed/);
+  });
+
+  it("listCommands() reads the process's command rows from its initialization", async () => {
+    const q = new FakeQuery();
+    const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>());
+    q.initializationResult = async () => ({
+      commands: [
+        {
+          name: "docx",
+          description: "Docs",
+          argumentHint: "",
+          aliases: ["anthropic-skills:docx"],
+        },
+        {
+          name: "clear",
+          description: "Clear",
+          argumentHint: "",
+          builtin: true,
+        },
+        { name: "mine", description: "Mine", argumentHint: "", builtin: false },
+      ],
+      agents: [],
+      models: [],
+      output_style: "default",
+      available_output_styles: [],
+    });
+    expect(await conv.listCommands?.()).toEqual([
+      { name: "docx", description: "Docs", aliases: ["anthropic-skills:docx"] },
+      { name: "clear", description: "Clear", builtin: true },
+      { name: "mine", description: "Mine" },
+    ]);
   });
 
   it("messages() yields the underlying query", async () => {

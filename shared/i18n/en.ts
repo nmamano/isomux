@@ -2432,8 +2432,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.vim.description": "Toggle vim keybindings",
   "commands.terminalSetup.description": "Configure terminal integration",
   "commands.reloadPlugins.description": "Reload plugins and config",
-  "commands.reloadPlugins.message":
-    "To reload plugins, open the built-in terminal (click the terminal icon on the agent's desk), run `claude`, and type `/reload-plugins`.",
+  "commands.reloadPlugins.reloaded": "Plugins reloaded.",
+  "commands.reloadPlugins.reloadedToolsChanged":
+    "Plugins reloaded. The agent's tools changed, so its next turn costs more.",
+  "commands.reloadPlugins.errors": "Plugin errors: {count}",
+  "commands.reloadPlugins.busy":
+    "Plugins cannot reload during a turn. Send `/reload-plugins` again when it ends.",
+  "commands.reloadPlugins.nextMessage":
+    "Skills & commands list updated. Plugins load again at the next message.",
+  "commands.reloadPlugins.menuRefreshed": "Skills & commands list updated.",
   "commands.reloadPlugins.done": "Plugins and config reload at the next turn.",
   "commands.reloadPlugins.pending":
     "Plugins and config reload once no OpenCode turn is running.",
@@ -2461,7 +2468,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.upgrade.description": "Upgrade Claude Code",
   "commands.plugin.description": "Manage plugins",
   "commands.plugin.message":
-    "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` - interactive plugin manager (browse, install, enable/disable)\n- `{addCommand}` - install a plugin by name\n- `/plugin marketplace add owner/repo` - add a community marketplace\n\nAfter installing a plugin, run `/reload-plugins` inside the Claude session to activate it.",
+    "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` - interactive plugin manager (browse, install, enable/disable)\n- `{addCommand}` - install a plugin by name\n- `/plugin marketplace add owner/repo` - add a community marketplace\n\nAfter installing a plugin, send `/reload-plugins` to the agent.",
   "commands.batch.description": "Decompose into parallel worktree agents",
   "commands.claudeApi.description":
     "Load API/SDK reference for detected language",

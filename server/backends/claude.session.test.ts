@@ -28,7 +28,12 @@ import {
   type SdkMcpRegistration,
   type SdkOneShotOptions,
 } from "./claude";
-import type { ContextUsage, SubscriptionUsageResult } from "./types";
+import type {
+  CommandRow,
+  ContextUsage,
+  SessionPluginReload,
+  SubscriptionUsageResult,
+} from "./types";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 
 // ---------------------------------------------------------------------------
@@ -799,6 +804,36 @@ describe("ClaudeSession getContextUsage", () => {
     const fake = new FakeSdkClient();
     const { session } = makeSession(fake);
     expect(await session.getContextUsage()).toBeNull();
+  });
+});
+
+describe("ClaudeSession plugin reload and command list", () => {
+  it("reloads through the session's conversation", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const reload: SessionPluginReload = {
+      plugins: [{ name: "p", path: "/plugins/p", source: "p@m" }],
+      commands: [{ name: "p:s", description: "skill" }],
+      toolsChanged: true,
+      errorCount: 1,
+    };
+    let calls = 0;
+    (conv as SdkConversation).reloadPlugins = async () => {
+      calls++;
+      return reload;
+    };
+    expect(await session.reloadPlugins()).toEqual(reload);
+    expect(calls).toBe(1);
+  });
+
+  it("lists commands through the session's conversation", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const rows: CommandRow[] = [
+      { name: "docx", description: "Docs", aliases: ["anthropic-skills:docx"] },
+    ];
+    (conv as SdkConversation).listCommands = async () => rows;
+    expect(await session.listCommands()).toEqual(rows);
   });
 });
 

@@ -2492,8 +2492,16 @@ Coses que pots fer per ell:
     "Configurar la integració amb el terminal",
   "commands.reloadPlugins.description":
     "Tornar a carregar els plugins i la configuració",
-  "commands.reloadPlugins.message":
-    "Per tornar a carregar els plugins, obre el terminal integrat (fes clic a la icona de terminal de l'escriptori de l'agent), executa `claude` i escriu `/reload-plugins`.",
+  "commands.reloadPlugins.reloaded": "Plugins carregats de nou.",
+  "commands.reloadPlugins.reloadedToolsChanged":
+    "Plugins carregats de nou. Les eines de l'agent han canviat, així que el seu proper torn costa més.",
+  "commands.reloadPlugins.errors": "Errors de plugins: {count}",
+  "commands.reloadPlugins.busy":
+    "Els plugins no es poden tornar a carregar durant un torn. Torna a enviar `/reload-plugins` quan acabi.",
+  "commands.reloadPlugins.nextMessage":
+    "Llista d'habilitats i ordres actualitzada. Els plugins es tornen a carregar amb el proper missatge.",
+  "commands.reloadPlugins.menuRefreshed":
+    "Llista d'habilitats i ordres actualitzada.",
   "commands.reloadPlugins.done":
     "Els plugins i la configuració es tornen a carregar al proper torn.",
   "commands.reloadPlugins.pending":
@@ -2524,7 +2532,7 @@ Coses que pots fer per ell:
   "commands.upgrade.description": "Actualitzar Claude Code",
   "commands.plugin.description": "Gestionar els plugins",
   "commands.plugin.message":
-    "Gestionar plugins requereix la CLI de Claude Code directament.\n\nPer gestionar els plugins:\n1. Obre el terminal integrat (fes clic a la icona de terminal de l'escriptori de l'agent)\n2. Executa `claude`\n3. Escriu `/plugin` per explorar, instal·lar, activar o desactivar plugins\n\nOrdres útils:\n- `/plugin` - gestor interactiu de plugins (explorar, instal·lar, activar/desactivar)\n- `{addCommand}` - instal·lar un plugin pel seu nom\n- `/plugin marketplace add owner/repo` - afegir un marketplace de la comunitat\n\nDesprés d'instal·lar un plugin, executa `/reload-plugins` dins de la sessió de Claude per activar-lo.",
+    "Gestionar plugins requereix la CLI de Claude Code directament.\n\nPer gestionar els plugins:\n1. Obre el terminal integrat (fes clic a la icona de terminal de l'escriptori de l'agent)\n2. Executa `claude`\n3. Escriu `/plugin` per explorar, instal·lar, activar o desactivar plugins\n\nOrdres útils:\n- `/plugin` - gestor interactiu de plugins (explorar, instal·lar, activar/desactivar)\n- `{addCommand}` - instal·lar un plugin pel seu nom\n- `/plugin marketplace add owner/repo` - afegir un marketplace de la comunitat\n\nDesprés d'instal·lar un plugin, envia `/reload-plugins` a l'agent.",
   "commands.batch.description":
     "Descompondre en agents paral·lels amb worktree",
   "commands.claudeApi.description":

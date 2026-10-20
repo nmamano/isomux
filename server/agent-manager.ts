@@ -186,6 +186,7 @@ import {
   discoverUserSkills,
   discoverProjectSkills,
   discoverPluginSkills,
+  discoverSyncedSkills,
   discoverBundledSkills,
   deduplicateSkills,
   type UserSkillRoot,
@@ -2633,10 +2634,18 @@ export function createAgentManager(deps: ManagerDeps) {
         ...discoverProjectSkills(p.cwd),
         ...discoverPluginSkills(
           discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+          p.cwd,
         ),
         ...discoverBundledSkills(),
+        ...discoverSyncedSkills(
+          discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+          null,
+          new Set(),
+        ),
       ]),
       sdkReportedCommands: [],
+      reportedPlugins: null,
+      reportedSkills: null,
       thinkingStartedAt: 0,
       turnStartedAt: 0,
       lastNormalizedEventAt: 0,
@@ -5132,6 +5141,8 @@ export function createAgentManager(deps: ManagerDeps) {
         );
         if (managed) {
           managed.sdkReportedCommands = filteredSdkCommands;
+          managed.reportedPlugins = ev.plugins ?? null;
+          listSessionCommands(agentId, managed);
         }
         // Autocomplete: config entries with autocomplete:true + all discovered skills.
         // SDK-reported commands are NOT added to autocomplete (per design).
@@ -6392,32 +6403,72 @@ export function createAgentManager(deps: ManagerDeps) {
   // The agent's skills in priority order, deduplicated by name (highest
   // priority wins). The Sk menu lists these.
   function discoverSkillsFor(managed: ManagedAgent): SkillInfo[] {
-    return deduplicateSkills([
+    const claudeConfigDir = claudeConfigDirFor(managed);
+    const found = [
       ...discoverUserSkills(userSkillRootsFor(managed)),
       ...discoverProjectSkills(managed.info.cwd),
-      ...discoverPluginSkills(claudeConfigDirFor(managed)),
+      ...discoverPluginSkills(
+        claudeConfigDir,
+        managed.info.cwd,
+        managed.reportedPlugins,
+      ),
       ...discoverBundledSkills(),
+    ];
+    const listed = new Set([
+      ...found.map((skill) => skill.name),
+      ...autocompleteCommands(managed.info.agentType).map((c) => c.name),
     ]);
+    return deduplicateSkills([
+      ...found,
+      ...discoverSyncedSkills(claudeConfigDir, managed.reportedSkills, listed),
+    ]);
+  }
+
+  // The live session's command rows, for the account's skills in the menu.
+  // Rows that arrive after the session was replaced describe a process that
+  // is gone.
+  function listSessionCommands(agentId: string, managed: ManagedAgent): void {
+    const session = managed.sessionManager.session;
+    if (!session?.listCommands) return;
+    session
+      .listCommands()
+      .then((rows) => {
+        if (
+          agents.get(agentId) !== managed ||
+          managed.sessionManager.session !== session
+        )
+          return;
+        managed.reportedSkills = rows;
+        refreshSkillMenu(agentId);
+      })
+      .catch((err: unknown) => {
+        console.error(`listCommands failed for ${agentId}:`, errMessage(err));
+      });
+  }
+
+  // The agent's Sk menu, discovered again now and sent to clients.
+  function refreshSkillMenu(agentId: string): void {
+    const managed = agents.get(agentId);
+    if (!managed) return;
+    let skills: SkillInfo[];
+    try {
+      skills = discoverSkillsFor(managed);
+    } catch {
+      return;
+    }
+    managed.skills = skills;
+    emit({
+      type: "slash_commands",
+      agentId,
+      commands: managed.slashCommands,
+      skills,
+    });
   }
 
   // A skill created, saved or deleted on the skills page reaches every agent's Sk menu
   // now instead of at the agent's next session start.
   function refreshSkillMenus(): void {
-    for (const [agentId, managed] of agents) {
-      let skills: SkillInfo[];
-      try {
-        skills = discoverSkillsFor(managed);
-      } catch {
-        continue;
-      }
-      managed.skills = skills;
-      emit({
-        type: "slash_commands",
-        agentId,
-        commands: managed.slashCommands,
-        skills,
-      });
-    }
+    for (const agentId of agents.keys()) refreshSkillMenu(agentId);
   }
 
   // What the skills page needs to list what agents run, per engine: the user
@@ -6892,10 +6943,19 @@ export function createAgentManager(deps: ManagerDeps) {
         ...discoverPluginSkills(
           buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
             join(homedir(), ".claude"),
+          resolvedCwd,
         ),
         ...discoverBundledSkills(),
+        ...discoverSyncedSkills(
+          buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
+            join(homedir(), ".claude"),
+          null,
+          new Set(),
+        ),
       ]),
       sdkReportedCommands: [],
+      reportedPlugins: null,
+      reportedSkills: null,
       thinkingStartedAt: 0,
       turnStartedAt: 0,
       lastNormalizedEventAt: 0,
@@ -7094,6 +7154,7 @@ export function createAgentManager(deps: ManagerDeps) {
     planModeAvailable: (managed) =>
       getBackend(managed.info.agentType).planMode === true,
     setPlanMode,
+    refreshSkillMenu,
     reloadEnginePlugins: async (managed) => {
       const backend = getBackend(managed.info.agentType);
       if (!backend.reloadPlugins)
@@ -10598,6 +10659,11 @@ export function createAgentManager(deps: ManagerDeps) {
                 logWords(agentId)("systemEntries.newConversation")),
         );
       if (!opts?.handoff) addQueueCarriedLine(agentId, managed, carried);
+      // The menu leaves the old process's plugin list now; the next process
+      // reports its own at init.
+      managed.reportedPlugins = null;
+      managed.reportedSkills = null;
+      refreshSkillMenu(agentId);
       // Last statement: close the live session and drain its consumer, leaving the
       // agent dormant (info.dormant=true). Rejects any in-flight turn with
       // SessionSwappedError; the consumer's catch returns early on the stale

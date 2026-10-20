@@ -55,6 +55,7 @@ import {
   type EnqueueResult,
 } from "./internal-types.ts";
 import { runAgentTurn } from "./agent-turn.ts";
+import type { SessionPluginReload } from "./backends/types.ts";
 import { directInputCapped } from "./member-usage-cap.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
 
@@ -265,6 +266,8 @@ interface HandlerDeps {
   // later session through ManagedAgent.planMode. Rejects when the engine
   // refuses, leaving the flag as it was.
   setPlanMode: (managed: ManagedAgent, on: boolean) => Promise<void>;
+  // The agent's Sk menu, discovered again now and sent to clients.
+  refreshSkillMenu: (agentId: string) => void;
   // Asks the agent's engine to load its plugins and config again. Throws
   // when the engine has no reload.
   reloadEnginePlugins: (
@@ -281,6 +284,18 @@ interface HandlerDeps {
       clientMessageId?: string;
     },
   ) => EnqueueResult;
+}
+
+// The agent runs a turn, or is about to. An armed automatic handoff counts
+// as busy, as in sendMessage.
+function turnRunning(managed: ManagedAgent): boolean {
+  const state = managed.info.state;
+  return (
+    state === "thinking" ||
+    state === "tool_executing" ||
+    managed.sessionManager.pendingTurn !== null ||
+    managed.autoHandoffPhase !== null
+  );
 }
 
 export function createCommandHandling(deps: HandlerDeps) {
@@ -690,9 +705,11 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    // OpenCode loads plugins and config once per server, so a member who
-    // edits one asks for a new server. Claude loads them per session and
-    // keeps its pointer to the Claude CLI.
+    // A live Claude session reloads its plugins in place and keeps the
+    // conversation; its answer becomes the agent's plugin and command lists.
+    // Without one, the next Claude process loads plugins fresh, so only the
+    // menu is rebuilt. OpenCode loads plugins and config once per server, so
+    // a member who edits one asks for a new server.
     async reloadPlugins(agentId, managed, _args, rawText, username, device) {
       const { t } = translatorForUsername(username);
       deps.emitEphemeralLog(
@@ -702,24 +719,71 @@ export function createCommandHandling(deps: HandlerDeps) {
         buildMeta(username, device),
       );
       const engine = managed.info.agentType;
-      if (engine === "claude") {
-        deps.emitEphemeralLog(
-          agentId,
-          "system",
-          t("commands.reloadPlugins.message"),
-        );
+      const session = managed.sessionManager.session;
+      if (engine === "claude" && session?.reloadPlugins) {
+        if (turnRunning(managed)) {
+          deps.emitEphemeralLog(
+            agentId,
+            "system",
+            t("commands.reloadPlugins.busy"),
+          );
+          return true;
+        }
+        // A /clear, /resume or engine switch during the reload: the answer
+        // describes a process that is gone, and the next one loads plugins
+        // fresh.
+        const replaced = () => {
+          if (managed.sessionManager.session === session) return false;
+          deps.emitEphemeralLog(
+            agentId,
+            "system",
+            t("commands.reloadPlugins.nextMessage"),
+          );
+          return true;
+        };
+        let reload: SessionPluginReload;
+        try {
+          reload = await session.reloadPlugins();
+        } catch (err) {
+          if (replaced()) return true;
+          deps.emitEphemeralLog(
+            agentId,
+            "error",
+            t("commands.reloadPlugins.failed", { error: errMessage(err) }),
+          );
+          return true;
+        }
+        if (replaced()) return true;
+        managed.reportedPlugins = reload.plugins;
+        managed.reportedSkills = reload.commands;
+        managed.sdkReportedCommands = reload.commands
+          .map((command) => command.name)
+          .filter((name) => !name.startsWith("mcp__"));
+        deps.refreshSkillMenu(agentId);
+        const lines = [
+          t(
+            reload.toolsChanged
+              ? "commands.reloadPlugins.reloadedToolsChanged"
+              : "commands.reloadPlugins.reloaded",
+          ),
+        ];
+        if (reload.errorCount > 0)
+          lines.push(
+            t("commands.reloadPlugins.errors", { count: reload.errorCount }),
+          );
+        deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
         return true;
       }
-      if (!runsOnEngine(commands["reload-plugins"], engine)) {
+      deps.refreshSkillMenu(agentId);
+      if (engine !== "opencode") {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          t("commands.unsupported.engine", {
-            name: "reload-plugins",
-            engines: (commands["reload-plugins"].engines ?? [])
-              .map((e) => ENGINE_NAMES[e])
-              .join(", "),
-          }),
+          t(
+            engine === "claude"
+              ? "commands.reloadPlugins.nextMessage"
+              : "commands.reloadPlugins.menuRefreshed",
+          ),
         );
         return true;
       }
@@ -1287,14 +1351,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     // /clear or /isomux-diff, but wrong for skills that actually run the
     // model. Multi-step pending flows still take the immediate path: the
     // user's reply during /resume etc. is a pick, not a skill.
-    const state = managed.info.state;
-    // An armed automatic handoff counts as busy, as in sendMessage.
-    const busy =
-      state === "thinking" ||
-      state === "tool_executing" ||
-      managed.sessionManager.pendingTurn !== null ||
-      managed.autoHandoffPhase !== null;
-    if (busy && !inMultiStepFlow(managed)) {
+    if (turnRunning(managed) && !inMultiStepFlow(managed)) {
       const result = deps.enqueueMessage(agentId, {
         sender: { kind: "user", username, device },
         text: rawText,
@@ -1417,6 +1474,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.userSkillRootsFor(managed),
       true,
       deps.claudeConfigDirFor(managed),
+      managed.reportedPlugins,
+      managed.reportedSkills,
     );
     if (skillPrompt) {
       countUse();

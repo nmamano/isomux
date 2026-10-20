@@ -2248,8 +2248,15 @@ App 的一些原则：
   "commands.vim.description": "切换 vim 快捷键",
   "commands.terminalSetup.description": "配置终端集成",
   "commands.reloadPlugins.description": "重新加载插件和配置",
-  "commands.reloadPlugins.message":
-    "要重新加载插件，请打开内置终端（点击智能体工位上的终端图标），运行 `claude`，然后输入 `/reload-plugins`。",
+  "commands.reloadPlugins.reloaded": "插件已重新加载。",
+  "commands.reloadPlugins.reloadedToolsChanged":
+    "插件已重新加载。智能体的工具已更改，因此下一轮的成本更高。",
+  "commands.reloadPlugins.errors": "插件错误：{count}",
+  "commands.reloadPlugins.busy":
+    "轮次进行中无法重新加载插件。请在轮次结束后再次发送 `/reload-plugins`。",
+  "commands.reloadPlugins.nextMessage":
+    "技能和命令列表已更新。插件将在下一条消息时重新加载。",
+  "commands.reloadPlugins.menuRefreshed": "技能和命令列表已更新。",
   "commands.reloadPlugins.done": "插件和配置将在下一轮重新加载。",
   "commands.reloadPlugins.pending":
     "插件和配置将在没有 OpenCode 轮次运行时重新加载。",
@@ -2277,7 +2284,7 @@ App 的一些原则：
   "commands.upgrade.description": "升级 Claude Code",
   "commands.plugin.description": "管理插件",
   "commands.plugin.message":
-    "管理插件需要直接使用 Claude Code CLI。\n\n管理步骤：\n1. 打开内置终端（点击智能体工位上的终端图标）\n2. 运行 `claude`\n3. 输入 `/plugin`，浏览、安装、启用或禁用插件\n\n常用命令：\n- `/plugin`：交互式插件管理器（浏览、安装、启用或禁用）\n- `{addCommand}`：按名称安装插件\n- `/plugin marketplace add owner/repo`：添加社区市场\n\n安装插件后，在 Claude 会话中运行 `/reload-plugins` 以激活插件。",
+    "管理插件需要直接使用 Claude Code CLI。\n\n管理步骤：\n1. 打开内置终端（点击智能体工位上的终端图标）\n2. 运行 `claude`\n3. 输入 `/plugin`，浏览、安装、启用或禁用插件\n\n常用命令：\n- `/plugin`：交互式插件管理器（浏览、安装、启用或禁用）\n- `{addCommand}`：按名称安装插件\n- `/plugin marketplace add owner/repo`：添加社区市场\n\n安装插件后，向智能体发送 `/reload-plugins`。",
   "commands.batch.description": "拆分任务，交由使用 worktree 的智能体并行执行",
   "commands.claudeApi.description": "加载所检测语言的 API/SDK 参考资料",
   "commands.claudeInChrome.description": "自动操作 Chrome 浏览器",

@@ -105,6 +105,27 @@ describe("translateSDKMessage - system", () => {
     });
   });
 
+  it("init carries the plugins the process loaded", () => {
+    const [event] = translate({
+      type: "system",
+      subtype: "init",
+      session_id: "s-1",
+      slash_commands: [],
+      model: "x",
+      plugins: [
+        { name: "p", path: "/plugins/p", source: "p@m" },
+        { name: "core", path: "builtin", source: "core@builtin" },
+      ],
+    });
+    expect(event).toMatchObject({
+      kind: "system_init",
+      plugins: [
+        { name: "p", path: "/plugins/p", source: "p@m" },
+        { name: "core", path: "builtin", source: "core@builtin" },
+      ],
+    });
+  });
+
   it("init without session_id emits with undefined sessionId", () => {
     const events = translate({
       type: "system",

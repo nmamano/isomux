@@ -170,6 +170,11 @@ describe("skill catalog", () => {
       join(claudeHome, "plugins", "installed_plugins.json"),
       JSON.stringify({ plugins: { "p@market": [{ installPath: install }] } }),
     );
+    // An install enables the plugin in the user settings.
+    writeFileSync(
+      join(claudeHome, "settings.json"),
+      JSON.stringify({ enabledPlugins: { "p@market": true } }),
+    );
     const list = entries(
       context({ userRoots: [user], pluginRoot: claudeHome }),
     );

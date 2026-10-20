@@ -14,12 +14,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   discoverPluginSkills,
+  discoverSyncedSkills,
   discoverProjectSkills,
   discoverUserSkills,
   discoverBundledSkills,
   deduplicateSkills,
   resolveSkillPrompt,
 } from "./skills.ts";
+import type { CommandRow, EnginePlugin } from "./backends/types.ts";
 import {
   agentUserSkillRoots,
   exposePersonalProviderSkills,
@@ -393,6 +395,11 @@ describe("effective Claude home skill agreement", () => {
         plugins: { "helper@test": [{ installPath: install }] },
       }),
     );
+    // An install enables the plugin in the user settings.
+    writeFileSync(
+      join(home, "settings.json"),
+      JSON.stringify({ enabledPlugins: { "helper@test": true } }),
+    );
     const listed = discoverPluginSkills(home).map((item) => item.name);
     expect(listed).toContain("helper:do-work");
     expect(listed).toContain("helper:legacy");
@@ -419,5 +426,223 @@ describe("effective Claude home skill agreement", () => {
     expect(resolveSkillPrompt("project-command", cwd, home)).toBe(
       "project command prompt",
     );
+  });
+});
+
+// The plugins whose skills the Sk menu lists and skill lookup runs (task
+// 66645144). Without a live Claude process the disk decides:
+// installed_plugins.json, minus what the settings files do not enable. A live
+// process's own list replaces the disk read. Menu and lookup always agree.
+describe("plugin list", () => {
+  // Installs each plugin under `home` with one skill `<name>:s-<name>`.
+  function installAll(home: string, names: string[]): void {
+    const plugins: Record<string, { installPath: string }[]> = {};
+    for (const name of names) {
+      const install = join(home, "cache", name);
+      skill(install, `s-${name}`, `${name} prompt`);
+      plugins[`${name}@m`] = [{ installPath: install }];
+    }
+    mkdirSync(join(home, "plugins"), { recursive: true });
+    writeFileSync(
+      join(home, "plugins", "installed_plugins.json"),
+      JSON.stringify({ version: 2, plugins }),
+    );
+  }
+  function settings(path: string, enabledPlugins: Record<string, boolean>) {
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, JSON.stringify({ enabledPlugins }));
+  }
+  const listed = (home: string, cwd: string, reported?: EnginePlugin[]) =>
+    discoverPluginSkills(home, cwd, reported)
+      .map((item) => item.name)
+      .sort();
+  const lookup = (
+    name: string,
+    home: string,
+    cwd: string,
+    reported?: EnginePlugin[],
+  ) => resolveSkillPrompt(name, cwd, home, true, undefined, reported);
+
+  it("without a live list, shows and runs a plugin only when the winning settings layer enables it", () => {
+    const home = root("plugin-settings-home");
+    const cwd = root("plugin-settings-cwd");
+    const all = ["on", "off", "unset", "projectOff", "projectOn", "localOff"];
+    installAll(home, all);
+    // User, then project, then local: the later file wins per key.
+    settings(join(home, "settings.json"), {
+      "on@m": true,
+      "off@m": false,
+      "projectOff@m": true,
+      "projectOn@m": false,
+    });
+    settings(join(cwd, ".claude", "settings.json"), {
+      "projectOff@m": false,
+      "projectOn@m": true,
+      "localOff@m": true,
+    });
+    settings(join(cwd, ".claude", "settings.local.json"), {
+      "localOff@m": false,
+    });
+    // A key with no value in any file does not load in the CLI (measured,
+    // 2026-10-20), so "unset" does not show either.
+    const shown = ["on", "projectOn"];
+    expect(listed(home, cwd)).toEqual(
+      shown.map((name) => `${name}:s-${name}`).sort(),
+    );
+    for (const name of all)
+      expect(lookup(`${name}:s-${name}`, home, cwd), name).toBe(
+        shown.includes(name) ? `${name} prompt` : null,
+      );
+  });
+
+  it("with a live list, the process's plugins and folders are the answer", () => {
+    const home = root("plugin-live-home");
+    const cwd = root("plugin-live-cwd");
+    // Installed and enabled on disk: "copy" (the process loads it from
+    // another folder) and "notLoaded" (the process did not load it).
+    installAll(home, ["copy", "notLoaded"]);
+    settings(join(home, "settings.json"), {
+      "copy@m": true,
+      "notLoaded@m": true,
+      // The process loaded it anyway; its list wins over this prediction.
+      "offDisk@m": false,
+    });
+    const src = root("plugin-live-src");
+    skill(join(src, "copy"), "s-copy", "copy live prompt");
+    skill(join(src, "offDisk"), "s-offDisk", "offDisk prompt");
+    const reported: EnginePlugin[] = [
+      { name: "copy", path: join(src, "copy"), source: "copy@m" },
+      { name: "offDisk", path: join(src, "offDisk"), source: "offDisk@m" },
+      // Built into the CLI: no folder.
+      { name: "core", path: "builtin", source: "core@builtin" },
+      // A folder that is gone.
+      { name: "gone", path: join(src, "gone"), source: "gone@m" },
+    ];
+    expect(listed(home, cwd, reported)).toEqual([
+      "copy:s-copy",
+      "offDisk:s-offDisk",
+    ]);
+    expect(lookup("copy:s-copy", home, cwd, reported)).toBe("copy live prompt");
+    expect(lookup("offDisk:s-offDisk", home, cwd, reported)).toBe(
+      "offDisk prompt",
+    );
+    expect(lookup("notLoaded:s-notLoaded", home, cwd, reported)).toBeNull();
+    // Enabled on disk, so the disk read alone shows it.
+    expect(lookup("notLoaded:s-notLoaded", home, cwd)).toBe("notLoaded prompt");
+  });
+
+  it("an empty live list means the process loaded no plugin", () => {
+    const home = root("plugin-empty-home");
+    const cwd = root("plugin-empty-cwd");
+    installAll(home, ["on"]);
+    settings(join(home, "settings.json"), { "on@m": true });
+    expect(listed(home, cwd)).toEqual(["on:s-on"]);
+    expect(listed(home, cwd, [])).toEqual([]);
+    expect(lookup("on:s-on", home, cwd, [])).toBeNull();
+  });
+});
+
+// Account-synced Claude Code skills (task 66645144, from 211da772). Without a
+// live Claude process the menu reads <cfg>/skills/synced/<bucket>/<name>/;
+// with one, the process's command rows replace that read.
+describe("synced skills", () => {
+  function synced(home: string, bucket: string, name: string, body: string) {
+    const dir = join(home, "skills", "synced", bucket, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      `---\nname: ${name}\ndescription: ${body} description\n---\n${body}\n`,
+    );
+  }
+
+  it("without rows, lists and runs each synced folder once, after the user's own skills", () => {
+    const home = root("synced-home");
+    const cwd = root("synced-cwd");
+    synced(home, "bucket-a", "docx", "docx from a");
+    synced(home, "bucket-b", "docx", "docx from b");
+    synced(home, "bucket-b", "pdf", "pdf body");
+    // Not skills: a bucket's manifest file and a folder without SKILL.md.
+    writeFileSync(
+      join(home, "skills", "synced", "bucket-a", "manifest.json"),
+      "{}",
+    );
+    mkdirSync(join(home, "skills", "synced", "bucket-a", "empty"));
+    const listed = discoverSyncedSkills(home, null, new Set());
+    expect(listed.map((s) => s.name).sort()).toEqual(["docx", "pdf"]);
+    expect(listed.every((s) => s.origin === "user")).toBe(true);
+    // The menu and the lookup take the same copy of a name in two buckets.
+    const docx = listed.find((s) => s.name === "docx")!;
+    const ran = resolveSkillPrompt(
+      "docx",
+      cwd,
+      home,
+      true,
+      undefined,
+      null,
+      null,
+    );
+    expect(ran === null ? null : `${ran} description`).toBe(docx.description!);
+    expect(
+      resolveSkillPrompt("pdf", cwd, home, true, undefined, null, null),
+    ).toBe("pdf body");
+    // The user's own skill of the same name wins the lookup.
+    const user = root("synced-user");
+    skill(user, "pdf", "user pdf");
+    expect(
+      resolveSkillPrompt(
+        "pdf",
+        cwd,
+        [{ root: user, includeCommands: true }],
+        true,
+        home,
+        null,
+        null,
+      ),
+    ).toBe("user pdf");
+  });
+
+  it("with rows, lists the process's own skills the rest of the menu lacks, and leaves their run to the process", () => {
+    const home = root("synced-rows-home");
+    const cwd = root("synced-rows-cwd");
+    synced(home, "bucket", "docx", "docx body");
+    synced(home, "bucket", "pdf", "pdf body");
+    const rows: CommandRow[] = [
+      { name: "docx", description: "Docs", aliases: ["anthropic-skills:docx"] },
+      { name: "anthropic-skills:deep-research", description: "Research" },
+      { name: "clear", description: "Clear", builtin: true },
+      { name: "mcp__srv__prompt", description: "An MCP prompt" },
+      // Listed elsewhere in the menu, by name or by alias.
+      { name: "mine", description: "Mine" },
+      { name: "theirs", description: "Theirs", aliases: ["mine-too"] },
+    ];
+    const listed = discoverSyncedSkills(
+      home,
+      rows,
+      new Set(["mine", "mine-too"]),
+    );
+    expect(
+      listed.map((s) => ({
+        name: s.name,
+        origin: s.origin,
+        description: s.description,
+      })),
+    ).toEqual([
+      { name: "docx", origin: "user", description: "Docs" },
+      {
+        name: "anthropic-skills:deep-research",
+        origin: "user",
+        description: "Research",
+      },
+    ]);
+    // The folder is not read: "pdf" is on disk but not in the rows, and a
+    // synced name does not resolve to its folder's text.
+    expect(
+      resolveSkillPrompt("pdf", cwd, home, true, undefined, null, rows),
+    ).toBeNull();
+    expect(
+      resolveSkillPrompt("docx", cwd, home, true, undefined, null, rows),
+    ).toBeNull();
+    // An empty row list is a list.
+    expect(discoverSyncedSkills(home, [], new Set())).toEqual([]);
   });
 });

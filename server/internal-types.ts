@@ -9,7 +9,12 @@ import type {
   SubscriptionUsageWire,
 } from "../shared/types.ts";
 import type { SettingsNoticeArm } from "./settings-notice.ts";
-import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
+import type {
+  BackendSession,
+  CommandRow,
+  EnginePlugin,
+  NormalizedEvent,
+} from "./backends/types.ts";
 import type { DormantReason, SessionManager } from "./session-manager.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import type { BillingAccount } from "./member-usage-cap.ts";
@@ -87,6 +92,13 @@ export interface ManagedAgent {
   }[];
   skills: SkillInfo[];
   sdkReportedCommands: string[];
+  // The plugins the agent's live Claude process reports (init or
+  // /reload-plugins), or null when no live process reported them. In memory
+  // only; it goes when the process goes.
+  reportedPlugins: EnginePlugin[] | null;
+  // The commands and skills the live Claude process offers, or null when no
+  // live process reported them. Same lifecycle as reportedPlugins.
+  reportedSkills: CommandRow[] | null;
   thinkingStartedAt: number;
   // Live turn timing. These are in-memory only and reset on every terminal
   // boundary/session install. `lastNormalizedEventAt` is the watchdog's

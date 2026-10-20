@@ -116,6 +116,36 @@ export interface TokenUsage {
 // for the response to the ServerRequest; Claude: the SDK's canUseTool callback
 // is awaiting a resolve). The orchestrator calls `session.approve()` to unblock.
 
+// A plugin a running engine process loaded, as the Claude CLI reports it:
+// `path` is the plugin's folder, or "builtin" for one built into the CLI;
+// `source` is its name@marketplace key.
+export interface EnginePlugin {
+  name: string;
+  path: string;
+  source?: string;
+}
+
+// A command or skill a running engine process offers, as the Claude CLI
+// reports it. `builtin` marks Claude Code's own.
+export interface CommandRow {
+  name: string;
+  description?: string;
+  aliases?: string[];
+  builtin?: boolean;
+}
+
+// A finished in-place plugin reload of a live session.
+export interface SessionPluginReload {
+  plugins: EnginePlugin[];
+  // The session's commands after the reload.
+  commands: CommandRow[];
+  // True when the reload changed the session's tool list, so the next turn
+  // cannot use the prompt cache.
+  toolsChanged: boolean;
+  // Plugins or plugin parts that did not load.
+  errorCount: number;
+}
+
 export type NormalizedEvent =
   // First event from a fresh or resumed session/thread. Carries the backend-
   // assigned id; orchestrator persists this as SessionManager.sessionId.
@@ -133,6 +163,8 @@ export type NormalizedEvent =
       // list on the integrations page (server/claude-connectors.ts).
       mcpServers?: { name: string; status?: string; source?: string }[];
       apiKeySource?: string;
+      // Claude only: the plugins the session's process loaded.
+      plugins?: EnginePlugin[];
     }
   // Final or streamed assistant text. Backends may emit multiple per turn.
   | { kind: "assistant_text"; text: string }
@@ -474,6 +506,13 @@ export interface BackendSession {
   // Turn the engine's native plan mode on or off. Present only on sessions
   // of backends that declare `planMode`.
   setPlanMode?(on: boolean): Promise<void>;
+
+  // Load the engine's plugins again inside the running process, keeping the
+  // conversation. Claude only.
+  reloadPlugins?(): Promise<SessionPluginReload>;
+
+  // The commands and skills the running process offers. Claude only.
+  listCommands?(): Promise<CommandRow[]>;
 
   // Close the session and release resources. Idempotent. Must unblock any
   // parked `stream()` generator.

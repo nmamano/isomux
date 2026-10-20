@@ -2490,8 +2490,16 @@ Cosas que puedes hacer por él:
     "Configurar la integración con el terminal",
   "commands.reloadPlugins.description":
     "Recargar los plugins y la configuración",
-  "commands.reloadPlugins.message":
-    "Para recargar los plugins, abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente), ejecuta `claude` y escribe `/reload-plugins`.",
+  "commands.reloadPlugins.reloaded": "Plugins recargados.",
+  "commands.reloadPlugins.reloadedToolsChanged":
+    "Plugins recargados. Las herramientas del agente cambiaron, así que su próximo turno cuesta más.",
+  "commands.reloadPlugins.errors": "Errores de plugins: {count}",
+  "commands.reloadPlugins.busy":
+    "Los plugins no se pueden recargar durante un turno. Envía `/reload-plugins` de nuevo cuando termine.",
+  "commands.reloadPlugins.nextMessage":
+    "Lista de habilidades y comandos actualizada. Los plugins se vuelven a cargar con el próximo mensaje.",
+  "commands.reloadPlugins.menuRefreshed":
+    "Lista de habilidades y comandos actualizada.",
   "commands.reloadPlugins.done":
     "Los plugins y la configuración se recargan en el próximo turno.",
   "commands.reloadPlugins.pending":
@@ -2523,7 +2531,7 @@ Cosas que puedes hacer por él:
   "commands.upgrade.description": "Actualizar Claude Code",
   "commands.plugin.description": "Gestionar los plugins",
   "commands.plugin.message":
-    "Gestionar plugins requiere la CLI de Claude Code directamente.\n\nPara gestionar los plugins:\n1. Abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente)\n2. Ejecuta `claude`\n3. Escribe `/plugin` para explorar, instalar, activar o desactivar plugins\n\nComandos útiles:\n- `/plugin` - gestor interactivo de plugins (explorar, instalar, activar/desactivar)\n- `{addCommand}` - instalar un plugin por su nombre\n- `/plugin marketplace add owner/repo` - añadir un marketplace de la comunidad\n\nDespués de instalar un plugin, ejecuta `/reload-plugins` dentro de la sesión de Claude para activarlo.",
+    "Gestionar plugins requiere la CLI de Claude Code directamente.\n\nPara gestionar los plugins:\n1. Abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente)\n2. Ejecuta `claude`\n3. Escribe `/plugin` para explorar, instalar, activar o desactivar plugins\n\nComandos útiles:\n- `/plugin` - gestor interactivo de plugins (explorar, instalar, activar/desactivar)\n- `{addCommand}` - instalar un plugin por su nombre\n- `/plugin marketplace add owner/repo` - añadir un marketplace de la comunidad\n\nDespués de instalar un plugin, envía `/reload-plugins` al agente.",
   "commands.batch.description": "Descomponer en agentes paralelos con worktree",
   "commands.claudeApi.description":
     "Cargar la referencia de la API o el SDK del lenguaje detectado",

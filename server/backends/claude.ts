@@ -43,6 +43,8 @@ import {
   type PermissionMode,
   type PermissionResult,
   type PermissionUpdate,
+  type SDKControlReloadPluginsResponse,
+  type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
 
 // Internal session-options shape - the boundary between the orchestrator-
@@ -113,6 +115,7 @@ import type {
   BackendCapabilities,
   BackendModel,
   BackendSession,
+  CommandRow,
   ContextUsage,
   CreateSessionOptions,
   ListModelsOptions,
@@ -123,6 +126,7 @@ import type {
   NormalizedMessage,
   OneShotOptions,
   PermissionModeOption,
+  SessionPluginReload,
   SubagentOrigin,
   SubscriptionUsageResult,
   SubscriptionUsageWindow,
@@ -218,6 +222,10 @@ export interface SdkConversation {
   >;
   /** Switch the live session's permission mode (Query.setPermissionMode). */
   setPermissionMode(mode: PermissionMode): Promise<void>;
+  /** Load plugins again in the running process (Query.reloadPlugins). */
+  reloadPlugins?(): Promise<SessionPluginReload>;
+  /** The process's commands and skills (Query.initializationResult). */
+  listCommands?(): Promise<CommandRow[]>;
 }
 
 export interface SdkOneShotOptions {
@@ -365,6 +373,16 @@ export function makePushableInput<T>(): PushableInput<T> {
   };
 }
 
+// A command row as isomux keeps it: `builtin` only when true.
+function toCommandRow(command: SlashCommand): CommandRow {
+  return {
+    name: command.name,
+    description: command.description,
+    ...(command.aliases ? { aliases: command.aliases } : {}),
+    ...(command.builtin ? { builtin: true } : {}),
+  };
+}
+
 // Anything that satisfies our use of V1's `Query` interface. Lets tests stub
 // `query()` without depending on the full SDK shape.
 export interface V1QueryLike extends AsyncIterable<SDKMessage> {
@@ -385,6 +403,10 @@ export interface V1QueryLike extends AsyncIterable<SDKMessage> {
   mcpServerStatus?: () => Promise<unknown>;
   setPermissionMode?: (mode: PermissionMode) => Promise<unknown>;
   setMcpServers?: (servers: SdkMcpRegistration["servers"]) => Promise<unknown>;
+  reloadPlugins?: (options?: {
+    holdOnCacheImpact?: boolean;
+  }) => Promise<unknown>;
+  initializationResult?: () => Promise<unknown>;
 }
 
 // Which claude.ai rate-limit windows isomux surfaces, in DISPLAY order (the
@@ -695,6 +717,37 @@ export function wrapV1Query(
       } catch {
         return null;
       }
+    },
+    async reloadPlugins(): Promise<SessionPluginReload> {
+      if (typeof q.reloadPlugins !== "function")
+        throw new Error("This Claude SDK cannot reload plugins.");
+      // The hold reports whether applying changes the session's tool list,
+      // which costs the next turn its prompt cache. The reload applies
+      // either way; the caller tells the member the cost.
+      let response = (await q.reloadPlugins({
+        holdOnCacheImpact: true,
+      })) as SDKControlReloadPluginsResponse;
+      const toolsChanged = response.held === true;
+      if (toolsChanged)
+        response = (await q.reloadPlugins()) as SDKControlReloadPluginsResponse;
+      return {
+        plugins: response.plugins.map((plugin) => ({
+          name: plugin.name,
+          path: plugin.path,
+          ...(plugin.source ? { source: plugin.source } : {}),
+        })),
+        commands: response.commands.map(toCommandRow),
+        toolsChanged,
+        errorCount: response.error_count,
+      };
+    },
+    async listCommands(): Promise<CommandRow[]> {
+      if (typeof q.initializationResult !== "function")
+        throw new Error("This Claude SDK cannot list commands.");
+      const init = (await q.initializationResult()) as {
+        commands: SlashCommand[];
+      };
+      return init.commands.map(toCommandRow);
     },
     async getMcpServers() {
       if (typeof q.mcpServerStatus !== "function") return null;
@@ -1227,6 +1280,18 @@ export class ClaudeSession implements BackendSession {
     return (await this.conversation.getMcpServers?.()) ?? null;
   }
 
+  async reloadPlugins(): Promise<SessionPluginReload> {
+    if (!this.conversation.reloadPlugins)
+      throw new Error("This Claude SDK cannot reload plugins.");
+    return this.conversation.reloadPlugins();
+  }
+
+  async listCommands(): Promise<CommandRow[]> {
+    if (!this.conversation.listCommands)
+      throw new Error("This Claude SDK cannot list commands.");
+    return this.conversation.listCommands();
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -1341,6 +1406,19 @@ export function* translateSDKMessage(
               }
             : {}),
           ...(msg.apiKeySource ? { apiKeySource: msg.apiKeySource } : {}),
+          ...(Array.isArray(msg.plugins)
+            ? {
+                plugins: msg.plugins.map((plugin) => {
+                  // Typed without it, sent with it (SDK 0.3.293).
+                  const { source } = plugin as { source?: unknown };
+                  return {
+                    name: plugin.name,
+                    path: plugin.path,
+                    ...(typeof source === "string" ? { source } : {}),
+                  };
+                }),
+              }
+            : {}),
         };
       } else if (subtype === "local_command_output") {
         const { content } = msg;
