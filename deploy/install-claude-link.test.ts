@@ -19,6 +19,13 @@ const step = source.slice(
   source.indexOf("link_bundled_claude() {"),
   source.indexOf("# Root-of-trust config"),
 );
+// The probe's PATH comes from this helper, which asks the system manager.
+const helperStart = source.indexOf("\nservice_path() {") + 1;
+if (helperStart === 0) throw new Error("install.sh has no service_path()");
+const helper = source.slice(
+  helperStart,
+  source.indexOf("\n}\n", helperStart) + 3,
+);
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0))
@@ -59,7 +66,15 @@ as_service_user() {
     "$@"
   fi
 }
-${step.replace("/usr/local/bin:/usr/bin:/bin", `${bin}:${other}:/usr/bin:/bin`).replaceAll("/usr/local/bin/claude", link)}
+# systemd's built-in default lacks both fixture directories: the service's
+# PATH reaches the probe only through the system manager.
+SYSTEMD_DEFAULT_PATH=/usr/bin:/bin
+systemctl() {
+  [[ $* == show-environment ]] || return 64
+  printf '%s\n' LANG=C.UTF-8 "PATH=${bin}:${other}:/usr/bin:/bin"
+}
+${helper}
+${step.replaceAll("/usr/local/bin/claude", link)}
 link_bundled_claude
 printf 'continued\\n'
 `,

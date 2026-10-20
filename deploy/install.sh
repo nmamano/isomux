@@ -124,9 +124,9 @@ BWRAP_PROFILE=/etc/apparmor.d/$BWRAP_PROFILE_NAME
 BWRAP_PROFILE_DISABLED=/etc/apparmor.d/disable/$BWRAP_PROFILE_NAME
 BWRAP_PROFILE_PACKAGED=/usr/share/apparmor/extra-profiles/$BWRAP_PROFILE_NAME
 USERNS_RESTRICT_SYSCTL=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
-# systemd's default PATH, which the isomux service runs with (its unit sets
-# none), so Codex looks up bwrap here.
-BWRAP_SERVICE_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+# systemd's built-in default PATH for the system manager, used when the
+# manager cannot be asked (see service_path).
+SYSTEMD_DEFAULT_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 BASE_URL=http://127.0.0.1:4000
 ADMIN_SOCK=$SERVICE_HOME/.isomux/admin.sock
 HEALTH_TIMEOUT_S=180
@@ -460,6 +460,17 @@ run_as_service_user() {
   else
     as_service_user "$@"
   fi
+}
+
+# The PATH the isomux service runs with: its unit sets none, so it inherits the
+# system manager's environment, where generators can add directories such as
+# /snap/bin. Never fails: -E would fire the ERR trap inside $(service_path).
+# awk reads to the end, so an early exit cannot SIGPIPE systemctl.
+service_path() {
+  local p
+  p=$(systemctl show-environment 2>/dev/null |
+    awk '!found && sub(/^PATH=/, "") { print; found = 1 }') || p=""
+  printf '%s\n' "${p:-$SYSTEMD_DEFAULT_PATH}"
 }
 
 # Write stdin to a file with the given mode, or print intent in dry-run mode.
@@ -2984,7 +2995,7 @@ configure_codex_sandbox() {
   fi
   # apt's exit status is not proof: the service must find bwrap itself.
   if ! bwrap_on_service_path; then
-    log "warning: bwrap is not on the isomux service's PATH ($BWRAP_SERVICE_PATH), so codex agents use the copy bundled with Codex and show a bubblewrap warning. Nothing else is affected."
+    log "warning: bwrap is not on the isomux service's PATH ($(service_path)), so codex agents use the copy bundled with Codex and show a bubblewrap warning. Nothing else is affected."
     outcome_add "Codex's sandbox is not ready: bwrap is not on the isomux service's PATH."
     return 0
   fi
@@ -3012,7 +3023,7 @@ configure_codex_sandbox() {
 
 # True when the service account finds bwrap on the service's PATH.
 bwrap_on_service_path() {
-  as_service_user env "PATH=$BWRAP_SERVICE_PATH" sh -c 'command -v bwrap' >/dev/null 2>&1
+  as_service_user env "PATH=$(service_path)" sh -c 'command -v bwrap' >/dev/null 2>&1
 }
 
 # The narrowest thing a codex sandbox does that the user-namespace restriction
@@ -3021,7 +3032,7 @@ bwrap_on_service_path() {
 # users - as root this would pass on a box where codex cannot start at all.
 # Prints whatever bwrap said, so a caller can show the real diagnostic.
 bwrap_smoke_test() {
-  as_service_user env "PATH=$BWRAP_SERVICE_PATH" bwrap --unshare-net --dev-bind / / /bin/true 2>&1
+  as_service_user env "PATH=$(service_path)" bwrap --unshare-net --dev-bind / / /bin/true 2>&1
 }
 
 # True when the kernel is refusing unprivileged user namespaces to unconfined
@@ -3295,9 +3306,8 @@ build_isomux() {
 
 link_bundled_claude() {
   step link-bundled-claude
-  local service_path=/usr/local/bin:/usr/bin:/bin
   local link=/usr/local/bin/claude target current
-  if as_service_user env "PATH=$service_path" sh -c 'command -v claude' >/dev/null 2>&1; then
+  if as_service_user env "PATH=$(service_path)" sh -c 'command -v claude' >/dev/null 2>&1; then
     return 0
   fi
   # Preserve other installs, including non-executable files and foreign links.

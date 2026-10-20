@@ -90,6 +90,8 @@ interface Run {
   reachedEnd: boolean;
   /** Update-outcome entries the step recorded for the owner. */
   outcomes: string[];
+  /** Commands that fired the installer's ERR trap (report_failure). */
+  errTraps: string[];
 }
 
 interface Opts {
@@ -101,6 +103,12 @@ interface Opts {
   bwrapOffServicePath?: boolean;
   /** The service's PATH finds a different bwrap first, one that always fails. */
   serviceBwrapBroken?: boolean;
+  /**
+   * What `systemctl show-environment` gives: the service's PATH (the default),
+   * a failure, no PATH line, or an empty PATH. In the last three the
+   * service's PATH is installed as systemd's built-in default instead.
+   */
+  systemctl?: "path" | "fails" | "no-path" | "empty-path";
   /** /proc knob: 1 restricted, 0 not, "absent" for a kernel without it. */
   userns?: "1" | "0" | "absent";
   /** apparmor-profiles ships the profile to copy. */
@@ -210,6 +218,16 @@ exit 0
   writeFileSync(bwrapSrc, `#!/usr/bin/env bash\n${BWRAP_STUB}`);
   chmodSync(bwrapSrc, 0o755);
 
+  const servicePath = opts.bwrapOffServicePath
+    ? shadow
+    : opts.serviceBwrapBroken
+      ? `${serviceBin}:${shadow}`
+      : `${bin}:${shadow}`;
+  const systemctlMode = opts.systemctl ?? "path";
+  // Exists and stays empty: a PATH entry that is not the service's.
+  const defaultBin = join(dir, "default-bin");
+  mkdirSync(defaultBin);
+
   const script = `
 set -Eeuo pipefail
 # FIRST definition only: install.sh also carries deploy/harden-ssh.sh and
@@ -217,7 +235,7 @@ set -Eeuo pipefail
 # as_service_user / run / write_file. A plain sed range would eval the
 # embedded copy over the installer's own and test the wrong function.
 extract() { awk -v fn="$1() {" 'index($0, fn) == 1 {f = 1} f {print} f && /^}$/ {exit}' "$INSTALL_SH"; }
-for fn in run as_service_user write_file configure_codex_sandbox \
+for fn in run as_service_user service_path write_file configure_codex_sandbox \
   bwrap_on_service_path bwrap_smoke_test userns_restricted install_bwrap_profile; do
   eval "$(extract "$fn")"
 done
@@ -232,7 +250,19 @@ BWRAP_PROFILE="${profile}"
 BWRAP_PROFILE_DISABLED="${disabled}"
 BWRAP_PROFILE_PACKAGED="${packaged}"
 USERNS_RESTRICT_SYSCTL="${sysctl}"
-BWRAP_SERVICE_PATH="${opts.bwrapOffServicePath ? shadow : opts.serviceBwrapBroken ? `${serviceBin}:${shadow}` : `${bin}:${shadow}`}"
+# The system manager is the only source of the service's PATH. The built-in
+# default finds no bwrap at all unless a case installs the service's PATH there.
+SYSTEMD_DEFAULT_PATH="${systemctlMode === "path" ? `${defaultBin}:${shadow}` : servicePath}"
+systemctl() {
+  [[ $* == show-environment ]] || { echo "systemctl $*" >> "$STUB_LOG"; return 64; }
+  case ${systemctlMode} in
+    path) printf '%s\n' LANG=C.UTF-8 "MANPATH=${defaultBin}" "PATH=${servicePath}" XDG_DATA_DIRS=/usr/share ;;
+    fails) echo "Failed to connect to bus: No such file or directory" >&2; return 1 ;;
+    no-path) printf '%s\n' LANG=C.UTF-8 "MANPATH=${servicePath}" ;;
+    empty-path) printf '%s\n' LANG=C.UTF-8 PATH= ;;
+  esac
+}
+trap 'echo "ERR-TRAP: $BASH_COMMAND" >&2' ERR
 log() { echo "LOG: $*"; }
 outcome_add() { echo "OUTCOME: $*"; }
 step() { echo "STEP: $1"; }
@@ -262,6 +292,7 @@ echo "REACHED-END"
     profile: existsSync(profile) ? readFileSync(profile, "utf8") : null,
     reachedEnd: out.includes("REACHED-END"),
     outcomes: out.split("\n").filter((line) => line.startsWith("OUTCOME: ")),
+    errTraps: out.split("\n").filter((line) => line.startsWith("ERR-TRAP: ")),
   };
 }
 
@@ -537,6 +568,56 @@ describe("install.sh codex sandbox: a broken sandbox is a warning, not a failed 
     expect(r.out).toContain("setting up uid map: Permission denied");
     expect(r.outcomes).toHaveLength(1);
   });
+
+  it("asks the system manager for the service's PATH", () => {
+    // bwrap is only in a directory systemd's built-in default lacks, the way
+    // snapd's environment generator adds /snap/bin: found, with no apt run.
+    const r = runStep({ bwrapWorks: true });
+    expect(r.out).toContain("codex sandbox ready");
+    expect(r.calls.filter((c) => c.startsWith("apt-get"))).toEqual([]);
+    expect(r.calls.filter((c) => c.startsWith("systemctl"))).toEqual([]);
+    expect(r.errTraps).toEqual([]);
+  });
+
+  it("names the service's PATH when bwrap is not on it", () => {
+    const r = runStep({
+      bwrapMissing: true,
+      bwrapWorks: true,
+      bwrapOffServicePath: true,
+    });
+    const warnings = r.out
+      .split("\n")
+      .filter((l) => l.startsWith("LOG: warning:"));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(`(${shadow})`);
+    expect(warnings[0]).not.toContain("default-bin");
+  });
+
+  for (const mode of ["fails", "no-path", "empty-path"] as const) {
+    it(`uses systemd's built-in PATH when the manager gives none (${mode})`, () => {
+      const r = runStep({ bwrapWorks: true, systemctl: mode });
+      expect(r.out).toContain("codex sandbox ready");
+      expect(r.calls.filter((c) => c.startsWith("apt-get"))).toEqual([]);
+      expect(r.calls.some((c) => c.startsWith("bwrap "))).toBe(true);
+      expect(r.reachedEnd).toBe(true);
+      // The warning is the one call site outside an if condition, so the one
+      // where a failed probe inside $(...) fires the installer's ERR trap:
+      // report_failure would mark the install failed while it carries on.
+      const off = runStep({
+        bwrapMissing: true,
+        bwrapWorks: true,
+        bwrapOffServicePath: true,
+        systemctl: mode,
+      });
+      const warnings = off.out
+        .split("\n")
+        .filter((l) => l.startsWith("LOG: warning:"));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(`(${shadow})`);
+      expect(off.errTraps).toEqual([]);
+      expect(off.reachedEnd).toBe(true);
+    });
+  }
 
   it("records every failure in the update outcome, and nothing when ready", () => {
     const failures: Opts[] = [
