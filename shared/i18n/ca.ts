@@ -6,10 +6,22 @@ import type { Catalog } from "./en.ts";
 
 export const ca: Catalog = {
   "apiCall.audit.list": "Llegeix el registre d’auditoria",
+  "apiCall.terminalRecordings.list": "Llista els enregistraments de terminals",
+  "apiCall.terminalRecordings.get": "Llegeix un enregistrament de terminal",
   "apiCall.tasks.history": "Llegeix l’historial de la tasca",
   "apiCall.tasks.restore": "Restaura la tasca",
 
   "audit.title": "Registre d’auditoria",
+  "audit.recordTerminals": "Enregistra els terminals",
+  "audit.recordTerminalsHint":
+    "Desa el que mostra cada terminal i qui hi va escriure i quan, mai les tecles premudes. S'aplica als terminals oberts després del canvi.",
+  "audit.replay": "Reprodueix",
+  "audit.replay.failed": "No s'ha pogut carregar l'enregistrament.",
+  "audit.replay.pause": "Pausa",
+  "audit.replay.play": "Reprodueix",
+  "audit.replay.speed": "Velocitat",
+  "audit.replay.title": "Reproducció del terminal",
+  "audit.replay.typing": "Últim a escriure: {name}",
   "audit.restore": "Restaura",
   "audit.restored": "Restaurat",
   "audit.actorKind": "Tipus d’actor",
@@ -641,6 +653,8 @@ Coses que pots fer per ell:
   "settings.storage.title": "Emmagatzematge de l'oficina",
   "settings.storage.category.transcripts": "Transcripcions de converses",
   "settings.storage.category.tokenLogs": "Converses de tokens d’API",
+  "settings.storage.category.terminalRecordings":
+    "Enregistraments de terminals",
   "settings.storage.category.attachments": "Adjunts del xat",
   "settings.storage.category.sessionMetadata": "Metadades de sessió",
   "settings.storage.category.codexHome": "Directori de Codex",
@@ -660,6 +674,8 @@ Coses que pots fer per ell:
     "una altra conversa s'ha bifurcat a partir d'elles",
   "settings.storage.skip.referenced":
     "encara es mostren en una conversa que pots llegir",
+  "settings.storage.skip.liveRecording":
+    "pertanyen a un terminal que encara és obert",
   "settings.storage.skip.queueStateUnknown":
     "esperen en una cua de missatges que no s'ha pogut llegir",
   "settings.storage.measureFailed": "No s'ha pogut mesurar l'emmagatzematge.",
@@ -1907,6 +1923,8 @@ Coses que pots fer per ell:
   "panels.terminal.interrupt": "Interromp",
   "panels.terminal.interruptHint": "Interromp l'ordre en primer pla",
   "panels.terminal.restart": "Reinicia",
+  "panels.terminal.recorded":
+    "Aquest terminal s'enregistra. Els propietaris de l'oficina el poden reproduir.",
   "panels.terminal.envStale":
     "Els secrets o les variables han canviat. Reinicia aquest terminal per fer-los servir.",
   "panels.terminal.restartHint": "Reinicia la terminal",

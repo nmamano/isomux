@@ -37,6 +37,7 @@ const TARGETS: readonly PruneTarget[] = [
   "transcripts",
   "attachments",
   "token-logs",
+  "terminal-recordings",
 ];
 
 // A prune that could reach today's files is not a retention policy, it is a

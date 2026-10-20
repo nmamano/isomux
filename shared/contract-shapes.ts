@@ -847,6 +847,8 @@ export interface OfficeSettingsReq {
   // The member share of the weekly limit, in percent: a multiple of 10 from
   // 10 to 100. Omitted preserves it.
   memberUsageShare?: number;
+  // The "Record terminals" switch. Omitted preserves it.
+  recordTerminals?: boolean;
 }
 
 // `notes`: the usage note of each variable that has one (integrations A4).
@@ -1254,6 +1256,7 @@ export type OfficeSettingsRes = Pick<OfficeSettings, "prompt" | "name"> & {
   memberUsageCap?: boolean;
   memberUsageShare?: number;
   memberUsageStatus?: OfficeUsageStatusWire[];
+  recordTerminals?: boolean;
 };
 
 export interface ValidateCwdReq {
@@ -1693,6 +1696,7 @@ export type WebhookErrorCode =
 export type StorageCategoryId =
   | "transcripts"
   | "token-logs"
+  | "terminal-recordings"
   | "attachments"
   | "session-metadata"
   | "codex-home"
@@ -1784,7 +1788,11 @@ export interface UsageReportWire {
   };
 }
 
-export type PruneTarget = "transcripts" | "attachments" | "token-logs";
+export type PruneTarget =
+  | "transcripts"
+  | "attachments"
+  | "token-logs"
+  | "terminal-recordings";
 
 export interface PrunePolicy {
   olderThanDays: number;
@@ -1818,7 +1826,9 @@ export type PruneSkipReason =
   // Attachments only, FAIL-CLOSED: the durable message queue could not be read,
   // so whether these files are still owed is UNKNOWN. Unknown is not empty -
   // everything is spared and an apply is refused.
-  | "queue-state-unknown";
+  | "queue-state-unknown"
+  // Terminal recordings only: the terminal session is still recording.
+  | "live-recording";
 
 export interface PruneSkipWire {
   reason: PruneSkipReason;
@@ -1881,4 +1891,21 @@ export interface AppWidgetStatus {
   appUrl: string;
   sessionExpiresAt: number | null;
   chat: { agentId: string; agentName: string; sessionId: string | null } | null;
+}
+
+// GET /api/terminal-recordings (task 749cb7fd), newest first.
+export interface TerminalRecordingSummaryWire {
+  id: string;
+  agentId: string;
+  // Unix milliseconds.
+  startedAt: number;
+  startedBy: { kind: string; id: string; name: string };
+  bytes: number;
+  // Unix milliseconds of the "end" event; absent while live or after a crash.
+  endedAt?: number;
+  capped?: true;
+}
+
+export interface TerminalRecordingsListRes {
+  items: TerminalRecordingSummaryWire[];
 }

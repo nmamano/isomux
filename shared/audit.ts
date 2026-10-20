@@ -38,6 +38,8 @@ export interface AuditEntry {
   promptContent?: string;
   // secrets.use: the request that got the value. The path has no query.
   secretUse?: { host: string; method: string; path: string };
+  // terminal.open and terminal.join of a recorded terminal: the recording.
+  terminalRecording?: { id: string };
 }
 export interface AuditFilter {
   actorKind?: AuditActorKind;

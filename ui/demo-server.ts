@@ -2210,6 +2210,13 @@ const DEMO_STORAGE_CATEGORIES: StorageUsageWire["categories"] = [
     files: 2,
   },
   {
+    id: "terminal-recordings",
+    path: "~/.isomux/terminal-recordings",
+    available: true,
+    bytes: 4_718_592,
+    files: 3,
+  },
+  {
     id: "attachments",
     path: "~/.isomux/logs/*/files",
     available: true,

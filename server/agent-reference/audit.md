@@ -8,4 +8,6 @@ Filters: `actorKind`, `actorId`, `ownerId`, `targetId`, `operation`, `from`, `to
 
 To restore an earlier memory or prompt text, write the text from its entry back through the normal route for that memory or prompt. The write records its own entry.
 
+A `terminal.join` entry records a member who opened a terminal another member started. When the office setting `recordTerminals` is on, each terminal session started after the change is recorded, and its `terminal.open` and `terminal.join` entries carry `terminalRecording: {id}`. The same readers get `GET /api/terminal-recordings`, `{items:[{id,agentId,startedAt,startedBy,bytes,endedAt?,capped?}]}` newest first (`?agentId=` filters), and `GET /api/terminal-recordings/:id`, the file. The file follows the asciicast v2 layout: a header line, then `[t,"o",output]`, `[t,"r","COLSxROWS"]`, `[t,"u",{kind,id,name}]` when a member starts typing, and `[t,"x","cap"]` or `[t,"x","end"]`; `t` is seconds from the start. The output is masked like logs. Keystrokes are never recorded. An unknown id returns 404. `endedAt` is absent while the session runs, and after a crash.
+
 Safe example: `GET /api/audit-log?limit=100`.

@@ -300,7 +300,7 @@ Every prompt PATCH, including a human save, requires the version from the read. 
 
 ### Office settings
 
-`GET /api/office/settings` returns `{prompt,name,version,memberUsageCap,memberUsageShare,memberUsageStatus}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value and a null `prompt` clears the office prompt. Owners, their API tokens and privileged agents whose manager is an owner can call both.
+`GET /api/office/settings` returns `{prompt,name,version,memberUsageCap,memberUsageShare,memberUsageStatus,recordTerminals}`. `PUT /api/office/settings` takes the `version` from the read and only the fields to change; an omitted field keeps its value and a null `prompt` clears the office prompt. Owners, their API tokens and privileged agents whose manager is an owner can call both.
 
 ## App page readiness
 

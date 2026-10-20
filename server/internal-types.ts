@@ -303,6 +303,12 @@ export interface ManagedAgent {
   // terminal started: the terminal keeps its old environment until it
   // restarts, and the panel says so. A new terminal clears it.
   ptyEnvStale?: boolean;
+  // The recording of this terminal session, when the office records
+  // terminals (server/terminal-recorder.ts). Set at the start only.
+  ptyRecording?: import("./terminal-recorder.ts").TerminalRecording | null;
+  // The members who opened this terminal session, for the one terminal.join
+  // audit row per member. Reset when the session ends.
+  ptyMembers?: Set<string>;
   // The same change, while the agent's process was busy: the process is
   // released when its turn ends, so the next turn starts with the current
   // secrets and variables.

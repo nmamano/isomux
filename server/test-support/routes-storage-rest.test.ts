@@ -20,6 +20,10 @@ import {
 } from "fs";
 import { join } from "path";
 import { resetStorageUsageCache } from "../storage-usage.ts";
+import {
+  startTerminalRecording,
+  terminalRecordingPath,
+} from "../terminal-recorder.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
@@ -123,6 +127,7 @@ describe("routes/storage.usage REST", () => {
     expect(categories.map((c) => c.id)).toEqual([
       "transcripts",
       "token-logs",
+      "terminal-recordings",
       "attachments",
       "session-metadata",
       "codex-home",
@@ -574,4 +579,76 @@ it("counts and prunes token logs only on explicit owner apply, including revoked
   expect(applied.status).toBe(200);
   expect(applied.body!.applied).toMatchObject({ deleted: 1, bytes: 12 });
   expect(existsSync(file)).toBe(false);
+});
+
+it("counts terminal recordings, and prunes old ones but never a live one", async () => {
+  const srv = await startTestServer();
+  server = srv;
+  const owner = await srv.seedOwner("Boss");
+  const startedBy = { kind: "member" as const, id: "u-boss", name: "Boss" };
+  const start = (agentId: string) =>
+    startTerminalRecording({ agentId, cols: 80, rows: 24, startedBy });
+  const old = start("agent-old");
+  const live = start("agent-live");
+  const recent = start("agent-recent");
+  await old.close();
+  await recent.close();
+  live.output("still typing\r\n");
+  await live.flush();
+  const file = (id: string) => terminalRecordingPath(id)!;
+  // The live session's last write is old too: a quiet shell left open.
+  const aged = new Date(Date.now() - 40 * 86400000);
+  utimesSync(file(old.id), aged, aged);
+  utimesSync(file(live.id), aged, aged);
+
+  resetStorageUsageCache();
+  const usage = await api(srv, "/api/storage/usage", {
+    rawSessionId: owner.rawSessionId,
+  });
+  const size = (id: string) => readFileSync(file(id)).length;
+  expect(
+    (usage.body!.categories as { id: string; bytes: number }[]).find(
+      (c) => c.id === "terminal-recordings",
+    )?.bytes,
+  ).toBe(size(old.id) + size(live.id) + size(recent.id));
+  // Counted once: the in-root categories still add up to the state root.
+  const inRoot = (usage.body!.categories as { id: string; bytes: number }[])
+    .filter((c) => c.id !== "backups" && c.id !== "update-snapshots")
+    .reduce((sum, c) => sum + c.bytes, 0);
+  expect(inRoot).toBe(usage.body!.stateRootBytes as number);
+
+  const request = {
+    method: "POST",
+    rawSessionId: owner.rawSessionId,
+    body: { target: "terminal-recordings", olderThanDays: 30 },
+  };
+  const dry = await api(srv, "/api/storage/prune", request);
+  expect(dry.status).toBe(200);
+  const plan = dry.body!.plan as {
+    candidates: { path: string }[];
+    skipped: { reason: string; count: number }[];
+  };
+  expect(plan.candidates.map((c) => c.path)).toEqual([`${old.id}.cast`]);
+  // The live one is spared as live, not as recent: its file is old.
+  expect(plan.skipped).toContainEqual(
+    expect.objectContaining({ reason: "live-recording", count: 1 }),
+  );
+  const applied = await api(srv, "/api/storage/prune", {
+    ...request,
+    body: { ...request.body, apply: true },
+  });
+  expect(applied.status).toBe(200);
+  expect(applied.body!.applied).toMatchObject({ deleted: 1 });
+  expect(existsSync(file(old.id))).toBe(false);
+  expect(existsSync(file(live.id))).toBe(true);
+  expect(existsSync(file(recent.id))).toBe(true);
+  // Once it ends, the session left open is old content like any other.
+  await live.close();
+  utimesSync(file(live.id), aged, aged);
+  const after = await api(srv, "/api/storage/prune", request);
+  expect(
+    (after.body!.plan as { candidates: { path: string }[] }).candidates.map(
+      (c) => c.path,
+    ),
+  ).toEqual([`${live.id}.cast`]);
 });

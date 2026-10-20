@@ -117,6 +117,7 @@ import {
   type Room,
   type AgentHistory,
   type AgentHistoryEntry,
+  loadRecordTerminals,
 } from "./persistence.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import {
@@ -11726,6 +11727,7 @@ export function createAgentManager(deps: ManagerDeps) {
       buildEnvForUserId(userId, getAgentHost().baseEnv()),
     getAgent: (agentId) => agents.get(agentId),
     emit: (event) => emit(event),
+    recordTerminals: () => loadRecordTerminals(),
   };
 
   function openTerminal(agentId: string, actor?: AuditActor): boolean {
@@ -11740,12 +11742,17 @@ export function createAgentManager(deps: ManagerDeps) {
     return readTerminalImpl(agentId, terminalDeps);
   }
 
-  function terminalInput(agentId: string, data: string) {
-    terminalInputImpl(agentId, data, terminalDeps);
+  function terminalInput(agentId: string, data: string, actor?: AuditActor) {
+    terminalInputImpl(agentId, data, terminalDeps, actor);
   }
 
-  function terminalResize(agentId: string, cols: number, rows: number) {
-    terminalResizeImpl(agentId, cols, rows, terminalDeps);
+  function terminalResize(
+    agentId: string,
+    cols: number,
+    rows: number,
+    actor?: AuditActor,
+  ) {
+    terminalResizeImpl(agentId, cols, rows, terminalDeps, actor);
   }
 
   function closeTerminal(agentId: string, actor?: AuditActor) {

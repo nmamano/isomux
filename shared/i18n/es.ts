@@ -6,10 +6,22 @@ import type { Catalog } from "./en.ts";
 
 export const es: Catalog = {
   "apiCall.audit.list": "Leer registro de auditoría",
+  "apiCall.terminalRecordings.list": "Listar grabaciones de terminales",
+  "apiCall.terminalRecordings.get": "Leer una grabación de terminal",
   "apiCall.tasks.history": "Leer historial de la tarea",
   "apiCall.tasks.restore": "Restaurar tarea",
 
   "audit.title": "Registro de auditoría",
+  "audit.recordTerminals": "Grabar terminales",
+  "audit.recordTerminalsHint":
+    "Guarda lo que muestra cada terminal y quién escribió y cuándo, nunca las teclas pulsadas. Se aplica a los terminales abiertos después del cambio.",
+  "audit.replay": "Reproducir",
+  "audit.replay.failed": "No se pudo cargar la grabación.",
+  "audit.replay.pause": "Pausa",
+  "audit.replay.play": "Reproducir",
+  "audit.replay.speed": "Velocidad",
+  "audit.replay.title": "Reproducción del terminal",
+  "audit.replay.typing": "Último en escribir: {name}",
   "audit.restore": "Restaurar",
   "audit.restored": "Restaurado",
   "audit.actorKind": "Tipo de actor",
@@ -644,6 +656,7 @@ Cosas que puedes hacer por él:
   "settings.storage.title": "Almacenamiento de la oficina",
   "settings.storage.category.transcripts": "Transcripciones de conversaciones",
   "settings.storage.category.tokenLogs": "Conversaciones de tokens de API",
+  "settings.storage.category.terminalRecordings": "Grabaciones de terminales",
   "settings.storage.category.attachments": "Adjuntos del chat",
   "settings.storage.category.sessionMetadata": "Metadatos de sesión",
   "settings.storage.category.codexHome": "Directorio de Codex",
@@ -664,6 +677,8 @@ Cosas que puedes hacer por él:
     "otra conversación se bifurcó a partir de ellas",
   "settings.storage.skip.referenced":
     "aún se muestran en una conversación que puedes leer",
+  "settings.storage.skip.liveRecording":
+    "pertenecen a un terminal que sigue abierto",
   "settings.storage.skip.queueStateUnknown":
     "esperan en una cola de mensajes que no se pudo leer",
   "settings.storage.measureFailed": "No se pudo medir el almacenamiento.",
@@ -1904,6 +1919,8 @@ Cosas que puedes hacer por él:
   "panels.terminal.interrupt": "Interrumpir",
   "panels.terminal.interruptHint": "Interrumpir el comando en primer plano",
   "panels.terminal.restart": "Reiniciar",
+  "panels.terminal.recorded":
+    "Este terminal se graba. Los propietarios de la oficina pueden reproducirlo.",
   "panels.terminal.envStale":
     "Los secretos o las variables cambiaron. Reinicia este terminal para usarlos.",
   "panels.terminal.restartHint": "Reiniciar la terminal",

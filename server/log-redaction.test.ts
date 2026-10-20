@@ -4,6 +4,8 @@ import { afterEach } from "bun:test";
 import {
   redactLogEntry,
   setSecretValuesForRedaction,
+  redactSecretText,
+  createRedactingTextStream,
 } from "./log-redaction.ts";
 
 function entry(
@@ -245,5 +247,69 @@ describe("secret values", () => {
     expect(redactLogEntry(entry("abcdef tabcount")).content).toBe(
       "abcdef tabcount",
     );
+  });
+});
+
+// Terminal recordings redact a stream of output chunks (task 749cb7fd): the
+// result must not depend on where the PTY happened to split the text.
+describe("redacting a text stream", () => {
+  afterEach(() => setSecretValuesForRedaction([]));
+  const stored = "plain words/that+look=harmless";
+  const shaped = "sk-ant-api03-" + "A1b2C3d4E5f6G7h8I9j0K1l2";
+  // An assignment split after its label must still be caught.
+  const text = `$ cat .env\r\nX=${stored}\r\nKEY ${shaped} done\r\nexport password = 'Zq8wLmN3vB7xKp2Rt9'\r\n`;
+
+  it("is the string redaction log entries get", () => {
+    setSecretValuesForRedaction([stored]);
+    for (const sample of [
+      text,
+      "nothing secret here",
+      `token=${"q".repeat(20)}`,
+    ])
+      expect(redactSecretText(sample)).toBe(
+        redactLogEntry(entry(sample)).content,
+      );
+    expect(redactSecretText(text)).not.toContain(stored);
+    expect(redactSecretText(text)).not.toContain(shaped);
+  });
+
+  it("gives the same text at every split point, the held tail included", () => {
+    setSecretValuesForRedaction([stored]);
+    const whole = redactSecretText(text);
+    for (let cut = 0; cut <= text.length; cut++) {
+      const stream = createRedactingTextStream();
+      const out =
+        stream.push(text.slice(0, cut)) +
+        stream.push(text.slice(cut)) +
+        stream.end();
+      expect(out, `cut at ${cut}`).toBe(whole);
+    }
+    // One character per chunk, as a slow PTY can deliver it.
+    const stream = createRedactingTextStream();
+    let out = "";
+    for (const ch of text) out += stream.push(ch);
+    expect(out + stream.end()).toBe(whole);
+  });
+
+  it("does not hold an endless key run, and masks it as the whole string would", () => {
+    // `cat` of a one-line file: 256 KB of key characters in 4 KB chunks.
+    // The end: each kind of key keeps its own characters, so the batch masks
+    // "-b.c" whole, in part, or not at all.
+    const end = "-b.c\r\n";
+    for (const start of ["x", "sk-", "sk-proj-", "password="]) {
+      const run = start + "A".repeat(256 * 1024);
+      const stream = createRedactingTextStream();
+      let released = "";
+      for (let i = 0; i < run.length; i += 4096)
+        released += stream.push(run.slice(i, i + 4096));
+      // Written before the run ends: the stream did not hold the whole run.
+      expect(released.length, start).toBeGreaterThan(0);
+      if (start === "x")
+        expect(released.length, start).toBeGreaterThan(run.length - 64 * 1024);
+      // After the run, the stream is back to normal: "ok" is not dropped.
+      const out =
+        released + stream.push(end) + stream.push("ok\r\n") + stream.end();
+      expect(out, start).toBe(redactSecretText(run + end + "ok\r\n"));
+    }
   });
 });

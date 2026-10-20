@@ -1,4 +1,4 @@
-import { redactText } from "./log-redaction.ts";
+import { redactSecretText } from "./log-redaction.ts";
 
 // Turns the raw PTY buffer into text an agent can read: escape codes removed,
 // carriage returns and backspaces replayed, secrets masked, and optionally only
@@ -17,7 +17,7 @@ export function terminalText(
 ): string {
   let text = Bun.stripANSI(raw).replace(/\r\n/g, "\n");
   if (opts.truncated) text = dropPartialHead(text);
-  text = redactText(replay(redactText(text)));
+  text = redactSecretText(replay(redactSecretText(text)));
   return opts.lines === undefined ? text : lastLines(text, opts.lines);
 }
 

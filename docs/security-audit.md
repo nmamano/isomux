@@ -201,7 +201,7 @@ A terminal panel does not get an agent token.
 
 An owner can make any agent privileged. A member can make privileged only the agents that they spawned. No agent can set the flag.
 
-A privileged agent gets a part of its member's capabilities: it can drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1), and change the office prompt, the office name and the member usage cap. It cannot mint sign-in links, revoke sessions, change room access or other office settings, or open a terminal panel.
+A privileged agent gets a part of its member's capabilities: it can drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1), and change the office prompt, the office name, the member usage cap and the **Record terminals** setting. It cannot mint sign-in links, revoke sessions, change room access or other office settings, or open a terminal panel.
 
 A privileged agent can read and edit its manager's special instructions, or any member's when its manager is an office owner. This does not grant other user-record edits. Prompt writes from agents and humans require the version from the read; stale writes return 409.
 
@@ -278,7 +278,7 @@ Daily backups do not include the managed environment files, the secrets, the reg
 
 ### 8.3 Secret redaction in logs
 
-Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. It also masks the value of every secret of 8 characters or more, whatever its shape, raw, URL-encoded and base64. The app logs route removes the same values from each line it returns. A new secret value must have at least 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments and backend transcripts are not scanned. Terminal output is not stored; the terminal read (section 6.5) masks it on each read.
+Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. It also masks the value of every secret of 8 characters or more, whatever its shape, raw, URL-encoded and base64. The app logs route removes the same values from each line it returns. A new secret value must have at least 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments and backend transcripts are not scanned. Live terminal output is not stored; the terminal read (section 6.5) masks it on each read. Terminal recordings are masked too (section 8.10).
 
 ### 8.4 Telemetry
 
@@ -329,6 +329,17 @@ Voice input and read aloud use the speech services of the member's browser. The 
 - **Read aloud.** Isomux prefers a voice whose name contains "Google". In desktop Chrome, these voices are remote: Chrome sends the reply text to Google, which makes the audio.
 
 No office setting turns these features off.
+
+### 8.10 Terminal recordings
+
+The office setting **Record terminals** is off by default. When an owner turns it on, each terminal session started after that is saved to one file under `terminal-recordings/` in the state directory (mode 0600): the output, the resizes, and a mark with the member's name when a member starts typing. The server takes that name from the member's session. Keystrokes and their count are never saved. A terminal echoes what members type, so the commands are in the output. A password prompt that echoes nothing leaves nothing of the password.
+
+- **Who reads them.** The audit log's readers: owners, their API tokens, and privileged agents whose manager is an owner. Each change of the setting is its own audit entry.
+- **Notice.** A recorded terminal tells every member who opens it. A change of the setting applies from the next terminal start.
+- **Redaction.** Before writing, Isomux masks the output as it masks logs (section 8.3), with the secrets stored at that moment. These are not caught: a secret split by escape sequences (colour, cursor movement), a secret printed in another encoding, and a password that a program echoes as one `*` per character, which shows its length. Anything else a member shows on screen, such as `cat .env`, is in the recording.
+- **Timing.** A mark starts when a member types after a pause of 2 seconds with new output in between, so a prompt that echoes nothing gives one mark at any typing speed.
+- **Limits.** A recording stops at 100 MB. Recordings stay until an owner prunes them in the storage panel. Backups include them.
+- **Replay.** The replay terminal takes no input, ignores clipboard writes and opens no links. The route serves the file as a download.
 
 ---
 

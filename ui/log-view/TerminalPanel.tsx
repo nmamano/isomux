@@ -18,54 +18,7 @@ import {
   installReplayGuard,
   type ReplayGuard,
 } from "./terminal-replay-guard.ts";
-
-const DARK_THEME = {
-  background: "#0a0e16",
-  foreground: "#c0c8d8",
-  cursor: "#50B86C",
-  cursorAccent: "#0a0e16",
-  selectionBackground: "rgba(126,184,255,0.2)",
-  black: "#1a2030",
-  red: "#E85D75",
-  green: "#50B86C",
-  yellow: "#F5A623",
-  blue: "#7eb8ff",
-  magenta: "#9B6DFF",
-  cyan: "#56d4dd",
-  white: "#c0c8d8",
-  brightBlack: "#5a6f8f",
-  brightRed: "#ff7b92",
-  brightGreen: "#6fd88a",
-  brightYellow: "#ffc44d",
-  brightBlue: "#a0d0ff",
-  brightMagenta: "#b98eff",
-  brightCyan: "#7eeef5",
-  brightWhite: "#e0e8f5",
-};
-
-const LIGHT_THEME = {
-  background: "#f0f2f6",
-  foreground: "#3a4a60",
-  cursor: "#16a34a",
-  cursorAccent: "#f0f2f6",
-  selectionBackground: "rgba(59,130,246,0.2)",
-  black: "#1a2030",
-  red: "#dc2626",
-  green: "#16a34a",
-  yellow: "#d97706",
-  blue: "#3b82f6",
-  magenta: "#7c3aed",
-  cyan: "#0891b2",
-  white: "#3a4a60",
-  brightBlack: "#7a8a9a",
-  brightRed: "#ef4444",
-  brightGreen: "#22c55e",
-  brightYellow: "#eab308",
-  brightBlue: "#60a5fa",
-  brightMagenta: "#a78bfa",
-  brightCyan: "#22d3ee",
-  brightWhite: "#1a2030",
-};
+import { DARK_THEME, LIGHT_THEME } from "./terminal-themes.ts";
 
 // xterm escape sequences for navigation keys we expose on the soft-key bar.
 const ESC = "\x1b";
@@ -332,6 +285,9 @@ export function TerminalPanel({
   // The agent's secrets or variables changed after this shell started
   // (server flag).
   const [envStale, setEnvStale] = useState(false);
+  // The office records this terminal session (server flag): every member who
+  // opens it is told.
+  const [recorded, setRecorded] = useState(false);
   const [owner, setOwner] = useState<{
     process: string;
     shell: boolean;
@@ -394,6 +350,7 @@ export function TerminalPanel({
         } else if (msg.type === "terminal_status" && msg.agentId === agentId) {
           setOwner({ process: msg.process, shell: msg.shell });
           setEnvStale(msg.envStale === true);
+          setRecorded(msg.recorded === true);
           setCommandIssue(null);
           const status = {
             type: "status" as const,
@@ -912,6 +869,22 @@ export function TerminalPanel({
           </button>
         </div>
       </div>
+
+      {recorded && (
+        <div
+          role="status"
+          style={{
+            padding: "4px 12px",
+            fontSize: mobile ? 12 : 11,
+            color: "var(--text-muted)",
+            borderBottom: "1px solid var(--border-strong)",
+            background: "var(--bg-surface)",
+            flexShrink: 0,
+          }}
+        >
+          {t("panels.terminal.recorded")}
+        </div>
+      )}
 
       {envStale && (
         <div

@@ -49,15 +49,15 @@ export function scrubPatterns(values: Iterable<string>): string[] {
     .sort((a, b) => b.length - a.length);
 }
 
-// Replace every pattern in `text`. One left-to-right pass: at each position
-// the longest pattern that starts there wins.
-function replaceAll(
+// Where scrubText replaces, as [start, end) offsets into `text`. One
+// left-to-right pass: at each position the longest pattern that starts there
+// wins.
+export function scrubSpans(
   text: string,
   patterns: readonly string[],
-): { text: string; lastEnd: number } {
-  let out = "";
+): [number, number][] {
+  const spans: [number, number][] = [];
   let i = 0;
-  let lastEnd = 0;
   for (;;) {
     let best = -1;
     let bestPattern = "";
@@ -74,9 +74,23 @@ function replaceAll(
         bestPattern = pattern;
       }
     }
-    if (best === -1) break;
-    out += text.slice(i, best) + SCRUB_MARKER;
+    if (best === -1) return spans;
+    spans.push([best, best + bestPattern.length]);
     i = best + bestPattern.length;
+  }
+}
+
+// Replace every pattern in `text`, at the spans scrubSpans finds.
+function replaceAll(
+  text: string,
+  patterns: readonly string[],
+): { text: string; lastEnd: number } {
+  let out = "";
+  let i = 0;
+  let lastEnd = 0;
+  for (const [start, end] of scrubSpans(text, patterns)) {
+    out += text.slice(i, start) + SCRUB_MARKER;
+    i = end;
     lastEnd = out.length;
   }
   return { text: out + text.slice(i), lastEnd };

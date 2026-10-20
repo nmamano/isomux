@@ -21,10 +21,22 @@
 
 export const en = {
   "apiCall.audit.list": "Read audit log",
+  "apiCall.terminalRecordings.list": "List terminal recordings",
+  "apiCall.terminalRecordings.get": "Read a terminal recording",
   "apiCall.tasks.history": "Read task history",
   "apiCall.tasks.restore": "Restore task",
 
   "audit.title": "Audit log",
+  "audit.recordTerminals": "Record terminals",
+  "audit.recordTerminalsHint":
+    "Saves what each terminal shows and who typed when, never the keys typed. Applies to terminals opened after the change.",
+  "audit.replay": "Replay",
+  "audit.replay.failed": "Could not load the recording.",
+  "audit.replay.pause": "Pause",
+  "audit.replay.play": "Play",
+  "audit.replay.speed": "Speed",
+  "audit.replay.title": "Terminal replay",
+  "audit.replay.typing": "Last to type: {name}",
   "audit.restore": "Restore",
   "audit.restored": "Restored",
   "audit.actorKind": "Actor kind",
@@ -645,6 +657,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.storage.title": "Office Storage",
   "settings.storage.category.transcripts": "Conversation transcripts",
   "settings.storage.category.tokenLogs": "API token conversations",
+  "settings.storage.category.terminalRecordings": "Terminal recordings",
   "settings.storage.category.attachments": "Chat attachments",
   "settings.storage.category.sessionMetadata": "Session metadata",
   "settings.storage.category.codexHome": "Codex home",
@@ -662,6 +675,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "another conversation was forked from it",
   "settings.storage.skip.referenced":
     "still shown in a conversation you can read",
+  "settings.storage.skip.liveRecording":
+    "belongs to a terminal that is still open",
   "settings.storage.skip.queueStateUnknown":
     "waiting on a message queue that could not be read",
   "settings.storage.measureFailed": "Could not measure storage.",
@@ -1862,6 +1877,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "panels.terminal.interrupt": "Interrupt",
   "panels.terminal.interruptHint": "Interrupt the foreground command",
   "panels.terminal.restart": "Restart",
+  "panels.terminal.recorded":
+    "This terminal is recorded. Office owners can replay it.",
   "panels.terminal.envStale":
     "Secrets or variables changed. Restart this terminal to use them.",
   "panels.terminal.restartHint": "Restart the terminal",

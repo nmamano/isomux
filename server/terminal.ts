@@ -4,6 +4,7 @@ import { join } from "path";
 import type { ManagedAgent } from "./internal-types.ts";
 import { getAgentHost, type AgentHost } from "./agent-host.ts";
 import { createTerminalFinalizer } from "./terminal-finalizer.ts";
+import { startTerminalRecording } from "./terminal-recorder.ts";
 
 const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.ts");
 const MAX_PTY_BUFFER = 100_000;
@@ -15,6 +16,8 @@ type TerminalEvent =
       agentId: string;
       process: string;
       shell: boolean;
+      envStale?: true;
+      recorded?: true;
     }
   | { type: "terminal_exit"; agentId: string; exitCode: number };
 
@@ -32,11 +35,20 @@ export interface TerminalDeps {
   ) => Record<string, string | undefined> | undefined;
   // Defaults to the office's agent host (server/agent-host.ts).
   host?: AgentHost;
+  // The office setting "Record terminals", read at each terminal start.
+  recordTerminals?: () => boolean;
 }
 
 function sidecarSend(managed: ManagedAgent, msg: Record<string, unknown>) {
   const stdin = managed.ptySidecar?.stdin;
   if (stdin) void stdin.write(JSON.stringify(msg) + "\n");
+}
+
+// Ends the session's recording and forgets who joined it. Idempotent.
+function endSession(managed: ManagedAgent) {
+  void managed.ptyRecording?.close();
+  managed.ptyRecording = null;
+  managed.ptyMembers = new Set();
 }
 
 export function openTerminal(
@@ -47,7 +59,24 @@ export function openTerminal(
   const managed = deps.getAgent(agentId);
   if (!managed) return false;
 
-  if (managed.ptySidecar) return true;
+  if (managed.ptySidecar) {
+    // One row per member who joins a running session; the opener and a
+    // remount write nothing.
+    const members = (managed.ptyMembers ??= new Set());
+    if (actor && !members.has(actor.id)) {
+      members.add(actor.id);
+      recordAudit({
+        actor,
+        operation: "terminal.join",
+        targets: [agentId],
+        fields: [],
+        ...(managed.ptyRecording
+          ? { terminalRecording: { id: managed.ptyRecording.id } }
+          : {}),
+      });
+    }
+    return true;
+  }
 
   let managedEnv: Record<string, string | undefined> | undefined;
   try {
@@ -79,12 +108,25 @@ export function openTerminal(
   managed.ptySidecar = sidecar;
   // A new terminal starts with the current environment.
   managed.ptyEnvStale = false;
+  // The setting applies at the start: a running session keeps its state.
+  const recording =
+    actor && deps.recordTerminals?.()
+      ? startTerminalRecording({
+          agentId,
+          cols: 80,
+          rows: 24,
+          startedBy: actor,
+        })
+      : null;
+  managed.ptyRecording = recording;
+  managed.ptyMembers = new Set(actor ? [actor.id] : []);
   if (actor)
     recordAudit({
       actor,
       operation: "terminal.open",
       targets: [agentId],
       fields: [],
+      ...(recording ? { terminalRecording: { id: recording.id } } : {}),
     });
   managed.ptyBuffer = "";
 
@@ -94,6 +136,7 @@ export function openTerminal(
     isCurrent: () => managed.ptySidecar === sidecar,
     detach: () => {
       managed.ptySidecar = null;
+      endSession(managed);
     },
     emitExit: (exitCode) =>
       deps.emit({ type: "terminal_exit", agentId, exitCode }),
@@ -122,6 +165,7 @@ export function openTerminal(
           if (msg.type === "output" && typeof msg.data === "string") {
             if (managed.ptySidecar !== sidecar) continue;
             managed.ptyBuffer += msg.data;
+            recording?.output(msg.data);
             if (managed.ptyBuffer.length > MAX_PTY_BUFFER) {
               managed.ptyBuffer = managed.ptyBuffer.slice(-MAX_PTY_BUFFER);
             }
@@ -144,6 +188,7 @@ export function openTerminal(
               process: msg.process,
               shell: msg.shell,
               ...(managed.ptyEnvStale ? { envStale: true as const } : {}),
+              ...(recording ? { recorded: true as const } : {}),
             });
           } else if (msg.type === "exit") {
             console.log(
@@ -204,9 +249,13 @@ export function terminalInput(
   agentId: string,
   data: string,
   deps: TerminalDeps,
+  actor?: AuditActor,
 ) {
   const managed = deps.getAgent(agentId);
-  if (managed?.ptySidecar) sidecarSend(managed, { type: "input", data });
+  if (!managed?.ptySidecar) return;
+  sidecarSend(managed, { type: "input", data });
+  // Who typed, never what: the data stays out of the recording.
+  if (actor) managed.ptyRecording?.input(actor);
 }
 
 export function terminalResize(
@@ -214,9 +263,13 @@ export function terminalResize(
   cols: number,
   rows: number,
   deps: TerminalDeps,
+  actor?: AuditActor,
 ) {
+  void actor;
   const managed = deps.getAgent(agentId);
-  if (managed?.ptySidecar) sidecarSend(managed, { type: "resize", cols, rows });
+  if (!managed?.ptySidecar) return;
+  sidecarSend(managed, { type: "resize", cols, rows });
+  managed.ptyRecording?.resize(cols, rows);
 }
 
 export function terminalStatus(agentId: string, deps: TerminalDeps) {
@@ -241,6 +294,7 @@ export function closeTerminal(
     });
   managed.ptySidecar = null;
   managed.ptyBuffer = "";
+  endSession(managed);
 }
 
 export function restartTerminal(
@@ -254,6 +308,7 @@ export function restartTerminal(
 
 // Used during kill flow: shut down a sidecar held in `managed` directly.
 export function killSidecar(managed: ManagedAgent) {
+  endSession(managed);
   try {
     sidecarSend(managed, { type: "kill" });
     managed.ptySidecar?.kill();

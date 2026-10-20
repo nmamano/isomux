@@ -783,6 +783,8 @@ function matchIsomuxUrl(
 // unknown isomux path still gets a card, just without the label.
 const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/audit-log", "apiCall.audit.list"],
+  ["GET", "/api/terminal-recordings", "apiCall.terminalRecordings.list"],
+  ["GET", "/api/terminal-recordings/*", "apiCall.terminalRecordings.get"],
   ["GET", "/api/tasks/*/history", "apiCall.tasks.history"],
   ["POST", "/api/tasks/*/restore", "apiCall.tasks.restore"],
   ["GET", "/api/members-chat", "apiCall.membersChat.read"],

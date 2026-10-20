@@ -1482,6 +1482,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   "backends.listModels": { caps: ["agent:manage"], emits: [] },
   // Tasks
   "audit.list": { caps: ["audit:read"], emits: [] },
+  "terminalRecordings.list": { caps: ["audit:read"], emits: [] },
+  "terminalRecordings.get": { caps: ["audit:read"], emits: [] },
   "tasks.history": { caps: ["task:read"], emits: [] },
   "tasks.restore": { caps: ["audit:read"], emits: ["tasks"] },
   "tasks.list": { caps: ["task:read"], emits: [] },
@@ -2041,6 +2043,8 @@ describe("agents.listSessions / readQueue / cancelQueued / terminal non-agent se
 // through. The first run against the old guards is deliberately red.
 const API_REACHABLE_OPIDS = [
   "audit.list",
+  "terminalRecordings.list",
+  "terminalRecordings.get",
   "tasks.history",
   "tasks.restore",
   "agentReference.list",
@@ -2403,7 +2407,12 @@ it("every executor write declares audit ownership or an explicit exclusion", () 
   }
 });
 it("audit and restore reject member-owned API tokens and admit owner proxies", () => {
-  for (const opId of ["audit.list", "tasks.restore"]) {
+  for (const opId of [
+    "audit.list",
+    "terminalRecordings.list",
+    "terminalRecordings.get",
+    "tasks.restore",
+  ]) {
     const route = API_ROUTES.find((route) => route.opId === opId)!;
     for (const scope of ["api", "agent"] as const) {
       const identity: Identity = {

@@ -59,6 +59,8 @@ function deps(logsDir: string, overrides: Partial<PruneDeps> = {}): PruneDeps {
   return {
     logsDir,
     tokenLogsDir: join(logsDir, "..", "token-logs"),
+    terminalRecordingsDir: join(logsDir, "..", "terminal-recordings"),
+    liveTerminalRecordingIds: new Set<string>(),
     now: NOW,
     activeSessionIds: new Set<string>(),
     killedAgentIds: new Set<string>(),

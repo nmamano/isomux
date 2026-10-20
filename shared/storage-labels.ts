@@ -20,6 +20,7 @@ import type { MessageKey } from "./i18n/en.ts";
 export const IN_ROOT_ORDER: readonly StorageCategoryId[] = [
   "transcripts",
   "token-logs",
+  "terminal-recordings",
   "attachments",
   "session-metadata",
   "codex-home",
@@ -48,6 +49,7 @@ export type StorageCategoryKey =
 export const CATEGORY_KEYS: Record<StorageCategoryId, StorageCategoryKey> = {
   transcripts: "settings.storage.category.transcripts",
   "token-logs": "settings.storage.category.tokenLogs",
+  "terminal-recordings": "settings.storage.category.terminalRecordings",
   attachments: "settings.storage.category.attachments",
   "session-metadata": "settings.storage.category.sessionMetadata",
   "codex-home": "settings.storage.category.codexHome",

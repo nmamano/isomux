@@ -104,6 +104,8 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "rooms.setSettings": "rooms",
   "apiTokenInbox.send": "messaging",
   "audit.list": "audit",
+  "terminalRecordings.list": "audit",
+  "terminalRecordings.get": "audit",
   "tasks.history": "tasks",
   "tasks.restore": "audit",
   "tasks.list": "tasks",

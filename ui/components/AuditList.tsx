@@ -4,8 +4,10 @@ import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useAppState } from "../store.tsx";
 import { AUDIT_OPERATIONS } from "../audit-operations.ts";
+import { TerminalReplay } from "./TerminalReplay.tsx";
 import { AUDIT_ACTOR_KINDS } from "../../shared/audit.ts";
 import type { MemoryScope } from "../../shared/types.ts";
+import type { OfficeSettingsRes } from "../../shared/contract-shapes.ts";
 import type {
   PlainMessageKey,
   Translator,
@@ -79,67 +81,158 @@ function AuditRows({
 }) {
   const { t } = useI18n();
   const [restored, setRestored] = useState<number[]>([]);
+  const [replay, setReplay] = useState<{ id: string; title: string } | null>(
+    null,
+  );
   return (
-    <ol style={{ paddingLeft: 20, overflowWrap: "anywhere" }}>
-      {items.map((entry) => (
-        <li key={entry.sequence} style={{ marginBottom: 16 }}>
-          <div style={{ ...HINT, marginBottom: 6 }}>
-            {new Date(entry.time).toLocaleString()} ·{" "}
-            <span title={entry.actor.id}>
-              {entry.actor.name || names.get(entry.actor.id) || entry.actor.id}
-            </span>{" "}
-            · {entry.operation}
-          </div>
-          <div>
-            {entry.targets.map((id, index) => (
-              <span key={id} title={id}>
-                {index > 0 && ", "}
-                {targetName(id, entry, names, t)}
-              </span>
-            ))}
-          </div>
-          {entry.operation.startsWith("tasks.") ? (
-            <TaskChanges entry={entry} />
-          ) : (
-            <div style={HINT}>{entry.fields.join(", ")}</div>
-          )}
-          {typeof entry.secretUse?.host === "string" &&
-            typeof entry.secretUse.method === "string" &&
-            typeof entry.secretUse.path === "string" && (
-              <div style={HINT}>
-                {entry.secretUse.method} {entry.secretUse.host}
-                {entry.secretUse.path}
-              </div>
+    <>
+      {replay && (
+        <TerminalReplay
+          recordingId={replay.id}
+          title={replay.title}
+          onClose={() => setReplay(null)}
+        />
+      )}
+      <ol style={{ paddingLeft: 20, overflowWrap: "anywhere" }}>
+        {items.map((entry) => (
+          <li key={entry.sequence} style={{ marginBottom: 16 }}>
+            <div style={{ ...HINT, marginBottom: 6 }}>
+              {new Date(entry.time).toLocaleString()} ·{" "}
+              <span title={entry.actor.id}>
+                {entry.actor.name ||
+                  names.get(entry.actor.id) ||
+                  entry.actor.id}
+              </span>{" "}
+              · {entry.operation}
+            </div>
+            <div>
+              {entry.targets.map((id, index) => (
+                <span key={id} title={id}>
+                  {index > 0 && ", "}
+                  {targetName(id, entry, names, t)}
+                </span>
+              ))}
+            </div>
+            {entry.operation.startsWith("tasks.") ? (
+              <TaskChanges entry={entry} />
+            ) : (
+              <div style={HINT}>{entry.fields.join(", ")}</div>
             )}
-          {entry.memoryContent !== undefined && (
-            <pre style={{ whiteSpace: "pre-wrap" }}>{entry.memoryContent}</pre>
-          )}
-          {entry.promptContent !== undefined && (
-            <pre style={{ whiteSpace: "pre-wrap" }}>{entry.promptContent}</pre>
-          )}
-          {restore && entry.deletedTask && (
-            <button
-              style={dialogCancelBtn}
-              disabled={restored.includes(entry.sequence)}
-              onClick={() => {
-                void apiFetch(
-                  "POST",
-                  `/api/tasks/${encodeURIComponent(entry.deletedTask!.id)}/restore`,
-                )
-                  .then(() => setRestored((old) => [...old, entry.sequence]))
-                  .catch((error) => onError(String(error)));
-              }}
-            >
-              {restored.includes(entry.sequence)
-                ? t("audit.restored")
-                : t("audit.restore")}
-            </button>
-          )}
-        </li>
-      ))}
-    </ol>
+            {typeof entry.secretUse?.host === "string" &&
+              typeof entry.secretUse.method === "string" &&
+              typeof entry.secretUse.path === "string" && (
+                <div style={HINT}>
+                  {entry.secretUse.method} {entry.secretUse.host}
+                  {entry.secretUse.path}
+                </div>
+              )}
+            {entry.memoryContent !== undefined && (
+              <pre style={{ whiteSpace: "pre-wrap" }}>
+                {entry.memoryContent}
+              </pre>
+            )}
+            {entry.promptContent !== undefined && (
+              <pre style={{ whiteSpace: "pre-wrap" }}>
+                {entry.promptContent}
+              </pre>
+            )}
+            {restore && entry.deletedTask && (
+              <button
+                style={dialogCancelBtn}
+                disabled={restored.includes(entry.sequence)}
+                onClick={() => {
+                  void apiFetch(
+                    "POST",
+                    `/api/tasks/${encodeURIComponent(entry.deletedTask!.id)}/restore`,
+                  )
+                    .then(() => setRestored((old) => [...old, entry.sequence]))
+                    .catch((error) => onError(String(error)));
+                }}
+              >
+                {restored.includes(entry.sequence)
+                  ? t("audit.restored")
+                  : t("audit.restore")}
+              </button>
+            )}
+            {typeof entry.terminalRecording?.id === "string" && (
+              <button
+                style={dialogCancelBtn}
+                onClick={() =>
+                  setReplay({
+                    id: entry.terminalRecording!.id,
+                    title: entry.targets
+                      .map((id) => names.get(id) ?? id)
+                      .join(", "),
+                  })
+                }
+              >
+                {t("audit.replay")}
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
+    </>
   );
 }
+// The office setting "Record terminals": the recordings play from this list.
+function RecordTerminalsSwitch() {
+  const { t } = useI18n();
+  const [on, setOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    apiFetch<OfficeSettingsRes>("GET", "/api/office/settings")
+      .then((settings) => {
+        if (live) setOn(settings.recordTerminals === true);
+      })
+      .catch((err) => {
+        if (live) setError(String(err));
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const change = async (value: boolean) => {
+    setBusy(true);
+    setError("");
+    try {
+      // The settings PUT is guarded by the version of a fresh read.
+      const { version } = await apiFetch<OfficeSettingsRes>(
+        "GET",
+        "/api/office/settings",
+      );
+      await apiFetch("PUT", "/api/office/settings", {
+        version,
+        recordTerminals: value,
+      });
+      setOn(value);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input
+          type="checkbox"
+          checked={on === true}
+          disabled={on === null || busy}
+          onChange={(event) => void change(event.target.checked)}
+        />
+        {t("audit.recordTerminals")}
+      </label>
+      <p style={{ ...HINT, margin: "4px 0 0" }}>
+        {t("audit.recordTerminalsHint")}
+      </p>
+      {error && <p role="alert">{error}</p>}
+    </div>
+  );
+}
+
 export function AuditPane() {
   const { t } = useI18n();
   const state = useAppState();
@@ -187,6 +280,7 @@ export function AuditPane() {
   return (
     <section style={{ padding: 20 }}>
       <h2>{t("audit.title")}</h2>
+      <RecordTerminalsSwitch />
       <form
         onSubmit={(event) => {
           event.preventDefault();

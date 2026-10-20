@@ -76,6 +76,7 @@ const TARGETS: readonly PruneTarget[] = [
   "transcripts",
   "attachments",
   "token-logs",
+  "terminal-recordings",
 ];
 
 // Why the planner spared something. The wire reasons are terse enum values; a
@@ -90,6 +91,7 @@ const SKIP_KEYS: Record<
   "fork-ancestor": "settings.storage.skip.forkAncestor",
   referenced: "settings.storage.skip.referenced",
   "queue-state-unknown": "settings.storage.skip.queueStateUnknown",
+  "live-recording": "settings.storage.skip.liveRecording",
 };
 
 // The wraps of the catalog's rich entries (ruling 16).

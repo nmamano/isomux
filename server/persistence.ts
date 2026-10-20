@@ -1138,6 +1138,16 @@ export function saveMemberUsageCap(enabled: boolean): void {
   saveOfficeConfigField("memberUsageCap", enabled);
 }
 
+// The "Record terminals" switch (server/terminal-recorder.ts), beside the
+// settings in office-config.json. An absent switch reads as off.
+export function loadRecordTerminals(): boolean {
+  return readOfficeConfigRaw().recordTerminals === true;
+}
+
+export function saveRecordTerminals(enabled: boolean): void {
+  saveOfficeConfigField("recordTerminals", enabled);
+}
+
 export function loadMemberUsageShare(): number {
   const share = readOfficeConfigRaw().memberUsageShare;
   return validMemberShare(share) ? share : DEFAULT_MEMBER_SHARE;

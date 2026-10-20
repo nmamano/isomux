@@ -2270,6 +2270,8 @@ export type ServerMessage =
       // The secrets in the agent's scope changed after this terminal started:
       // it keeps its old environment until it restarts.
       envStale?: true;
+      // The office records this terminal session; the panel shows the notice.
+      recorded?: true;
     }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
   | {

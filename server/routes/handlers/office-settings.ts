@@ -30,6 +30,7 @@ import {
   noContent,
   fail,
   type RouteHandler,
+  type RouteHandlerContext,
   type HandlerErrorStatus,
 } from "../executor.ts";
 import type { OfficeSettingsRes } from "../../../shared/contract-shapes.ts";
@@ -50,15 +51,21 @@ export interface OfficeSettingsDeps {
   // `prompt === undefined` preserves the current prompt; null clears it.
   // `name === undefined` preserves the current name; null or empty clears it.
   // `memberUsageCap === undefined` preserves the switch, and
-  // `memberUsageShare === undefined` the share.
-  // Throws nothing - invalid input returns { ok: false }.
-  applySettings(input: {
-    prompt?: string | null;
-    name?: string | null;
-    memberUsageCap?: boolean;
-    memberUsageShare?: number;
-    expectedVersion: string;
-  }): ApplyOfficeSettingsResult;
+  // `memberUsageShare === undefined` the share, and `recordTerminals ===
+  // undefined` the "Record terminals" switch.
+  // Throws nothing - invalid input returns { ok: false }. `ctx` names the
+  // writer for the switch's own audit row.
+  applySettings(
+    input: {
+      prompt?: string | null;
+      name?: string | null;
+      memberUsageCap?: boolean;
+      memberUsageShare?: number;
+      recordTerminals?: boolean;
+      expectedVersion: string;
+    },
+    ctx: RouteHandlerContext,
+  ): ApplyOfficeSettingsResult;
 }
 
 export function officeSettingsHandlers(
@@ -74,6 +81,7 @@ export function officeSettingsHandlers(
         version?: unknown;
         memberUsageCap?: unknown;
         memberUsageShare?: unknown;
+        recordTerminals?: unknown;
       };
       // Distinguish "omitted" (undefined → preserve) from "set to null" (→
       // clear), for the prompt and the name. JSON access yields undefined for
@@ -107,6 +115,16 @@ export function officeSettingsHandlers(
         return fail(400, "invalid_request", "memberUsageCap must be a boolean");
       }
       if (
+        b.recordTerminals !== undefined &&
+        typeof b.recordTerminals !== "boolean"
+      ) {
+        return fail(
+          400,
+          "invalid_request",
+          "recordTerminals must be a boolean",
+        );
+      }
+      if (
         b.memberUsageShare !== undefined &&
         !validMemberShare(b.memberUsageShare)
       ) {
@@ -116,13 +134,17 @@ export function officeSettingsHandlers(
           "memberUsageShare must be a multiple of 10 from 10 to 100",
         );
       }
-      const r = deps.applySettings({
-        prompt,
-        name,
-        memberUsageCap: b.memberUsageCap,
-        memberUsageShare: b.memberUsageShare,
-        expectedVersion: b.version,
-      });
+      const r = deps.applySettings(
+        {
+          prompt,
+          name,
+          memberUsageCap: b.memberUsageCap,
+          memberUsageShare: b.memberUsageShare,
+          recordTerminals: b.recordTerminals,
+          expectedVersion: b.version,
+        },
+        ctx,
+      );
       if (!r.ok) {
         if ("conflict" in r) {
           return fail(

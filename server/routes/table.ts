@@ -249,6 +249,7 @@ import type {
   WebhookUpdateReq,
   WebhookWire,
   TerminalReadRes,
+  TerminalRecordingsListRes,
 } from "../../shared/contract-shapes.ts";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -426,6 +427,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "audit.list",
     method: "GET",
     path: "/api/audit-log",
+    auth: cap("audit:read", auditOwner),
+    emits: [],
+  }),
+  // Terminal recordings (task 749cb7fd): the audit log's readers.
+  defineRoute<void, TerminalRecordingsListRes>({
+    opId: "terminalRecordings.list",
+    method: "GET",
+    path: "/api/terminal-recordings",
+    auth: cap("audit:read", auditOwner),
+    emits: [],
+  }),
+  defineRoute({
+    opId: "terminalRecordings.get",
+    method: "GET",
+    path: "/api/terminal-recordings/:id",
     auth: cap("audit:read", auditOwner),
     emits: [],
   }),

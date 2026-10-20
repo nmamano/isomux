@@ -107,6 +107,9 @@ export interface PruneDeps {
   // <stateRoot>/logs. Each target selects its own fence root.
   logsDir: string;
   tokenLogsDir: string;
+  // <stateRoot>/terminal-recordings, and the recordings still being written.
+  terminalRecordingsDir: string;
+  liveTerminalRecordingIds: ReadonlySet<string>;
   now: number;
   // Session ids currently live across the office. Session ids are UUIDs, so a
   // flat set needs no per-agent keying.
@@ -466,6 +469,7 @@ function planAttachments(
 const SKIP_ORDER: PruneSkipReason[] = [
   "queue-state-unknown",
   "active-session",
+  "live-recording",
   "keep-newest",
   "fork-ancestor",
   "referenced",
@@ -500,7 +504,56 @@ function finishPlan(
 // applyPrune explains a refusal, and it would be an unbounded response field if
 // it rode on the wire.
 function targetRoot(target: PruneTarget, deps: PruneDeps): string {
-  return target === "token-logs" ? deps.tokenLogsDir : deps.logsDir;
+  if (target === "token-logs") return deps.tokenLogsDir;
+  if (target === "terminal-recordings") return deps.terminalRecordingsDir;
+  return deps.logsDir;
+}
+
+// Terminal recordings by the age of their last write. A recording still being
+// written is spared whatever its age: a quiet shell left open writes nothing.
+function planTerminalRecordings(
+  deps: PruneDeps,
+  policy: PrunePolicy,
+  ledger: SkipLedger,
+): PrunePlan {
+  const root = targetRoot("terminal-recordings", deps);
+  const candidates: PruneCandidate[] = [];
+  let names: string[];
+  try {
+    if (!lstatSync(root).isDirectory())
+      return finishPlan("terminal-recordings", policy, candidates, ledger);
+    names = readdirSync(root);
+  } catch {
+    return finishPlan("terminal-recordings", policy, candidates, ledger);
+  }
+  for (const name of names) {
+    const match = /^(tr-[0-9a-f]{16})\.cast$/.exec(name);
+    if (!match) continue;
+    let stat;
+    try {
+      stat = lstatSync(join(root, name));
+    } catch {
+      continue;
+    }
+    if (!stat.isFile()) continue;
+    if (deps.liveTerminalRecordingIds.has(match[1])) {
+      addSkip(ledger, name, "live-recording", stat.size);
+      continue;
+    }
+    const ageDays = (deps.now - stat.mtimeMs) / DAY_MS;
+    if (ageDays < policy.olderThanDays) {
+      addSkip(ledger, name, "too-recent", stat.size);
+      continue;
+    }
+    candidates.push({
+      path: name,
+      agentId: "",
+      bytes: stat.size,
+      ageDays,
+      mtimeMs: stat.mtimeMs,
+    });
+  }
+  return finishPlan("terminal-recordings", policy, candidates, ledger);
 }
 
 function planTokenLogs(
@@ -555,9 +608,11 @@ function planPruneDetailed(
   const plan =
     target === "token-logs"
       ? planTokenLogs(deps, policy, ledger)
-      : target === "transcripts"
-        ? planTranscripts(deps, policy, ledger)
-        : planAttachments(deps, policy, ledger);
+      : target === "terminal-recordings"
+        ? planTerminalRecordings(deps, policy, ledger)
+        : target === "transcripts"
+          ? planTranscripts(deps, policy, ledger)
+          : planAttachments(deps, policy, ledger);
   return { plan, sparedBy: ledger.byPath };
 }
 

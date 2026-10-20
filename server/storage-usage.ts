@@ -27,6 +27,7 @@ import type {
   AgentStorageWire,
   StorageUsageWire,
 } from "../shared/contract-shapes.ts";
+import { TERMINAL_RECORDINGS_DIR } from "../shared/terminal-recording.ts";
 
 // The wire contract IS the domain type here - no projection layer, so the route
 // response and the measurement cannot drift. Local aliases keep the call sites
@@ -198,6 +199,8 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
   const logsDir = join(stateRoot, "logs");
   const tokenLogsDir = join(stateRoot, "token-logs");
   const tokenLogs = measureTree(tokenLogsDir);
+  const recordingsDir = join(stateRoot, TERMINAL_RECORDINGS_DIR);
+  const recordings = measureTree(recordingsDir);
   const codexHome = join(stateRoot, "codex-home");
   const providerHomes = join(stateRoot, "provider-homes");
   const cronjobs = join(stateRoot, "cronjobs");
@@ -217,6 +220,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
   // Derived by subtraction so the categories always sum to stateRootBytes.
   const claimedBytes =
     tokenLogs.bytes +
+    recordings.bytes +
     logs.transcripts.bytes +
     logs.attachments.bytes +
     logs.metadata.bytes +
@@ -227,6 +231,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
     hooks.bytes;
   const claimedFiles =
     tokenLogs.files +
+    recordings.files +
     logs.transcripts.files +
     logs.attachments.files +
     logs.metadata.files +
@@ -253,6 +258,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
   const categories: StorageCategory[] = [
     cat("transcripts", logsDir, logs.transcripts),
     cat("token-logs", tokenLogsDir, tokenLogs),
+    cat("terminal-recordings", recordingsDir, recordings),
     cat("attachments", logsDir, logs.attachments),
     cat("session-metadata", logsDir, logs.metadata),
     cat("codex-home", codexHome, codex),

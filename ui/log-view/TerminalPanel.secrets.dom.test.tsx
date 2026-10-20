@@ -59,3 +59,42 @@ describe("the secrets notice", () => {
     view.unmount();
   });
 });
+
+// Terminal recording (task 749cb7fd): every member who opens a recorded
+// terminal is told, from the server's terminal_status flag alone.
+describe("the recording notice", () => {
+  it("shows while the status says the session is recorded, beside the secrets notice", async () => {
+    setShim(
+      () => {},
+      () => {},
+    );
+    const view = render(
+      createElement(TerminalPanel, { agentId: AGENT, onClose: () => {} }),
+    );
+    await settle();
+    const notices = () => view.queryAllByRole("status");
+    expect(notices()).toHaveLength(0);
+    const status = (flags: { recorded?: true; envStale?: true }) =>
+      act(() =>
+        shimEmit({
+          type: "terminal_status",
+          agentId: AGENT,
+          process: "bash",
+          shell: true,
+          ...flags,
+        }),
+      );
+
+    status({ recorded: true });
+    await settle();
+    expect(notices()).toHaveLength(1);
+    status({ recorded: true, envStale: true });
+    await settle();
+    expect(notices()).toHaveLength(2);
+    // A new, unrecorded session.
+    status({});
+    await settle();
+    expect(notices()).toHaveLength(0);
+    view.unmount();
+  });
+});

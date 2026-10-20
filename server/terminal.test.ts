@@ -1,7 +1,23 @@
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { readFileSync } from "fs";
 import { homedir, userInfo } from "os";
+import type { TerminalRecordingEvent } from "../shared/terminal-recording.ts";
+import { officeAuditStore } from "./audit-store.ts";
 import type { ManagedAgent } from "./internal-types.ts";
-import { openTerminal, type TerminalDeps } from "./terminal.ts";
+import {
+  closeTerminal,
+  killSidecar,
+  openTerminal,
+  restartTerminal,
+  terminalInput,
+  terminalResize,
+  type TerminalDeps,
+} from "./terminal.ts";
+import {
+  listTerminalRecordings,
+  parseTerminalRecording,
+  terminalRecordingPath,
+} from "./terminal-recorder.ts";
 import { localAgentHost, type AgentHost } from "./agent-host.ts";
 
 afterEach(() => mock.restore());
@@ -276,5 +292,256 @@ describe("the secrets notice", () => {
     expect(statuses).toHaveLength(2);
     expect(statuses[0]).not.toHaveProperty("envStale");
     expect(statuses[1]).toMatchObject({ envStale: true });
+  });
+});
+
+// Terminal recording (task 749cb7fd, slice b): which sessions are recorded,
+// what reaches the file from the terminal, how each way a session ends closes
+// the file, and the terminal.join row.
+describe("terminal recording", () => {
+  const alice = { kind: "member" as const, id: "u-rec-alice", name: "Alice" };
+  const bob = { kind: "member" as const, id: "u-rec-bob", name: "Bob" };
+
+  // An agent whose sidecars the test drives: output and status lines, the
+  // stdout end, and the process exit.
+  function rig(recordTerminals?: () => boolean) {
+    const agentId = `agent-rec-${crypto.randomUUID().slice(0, 8)}`;
+    const managed = {
+      info: { id: agentId, userId: "member-id", cwd: "/tmp" },
+      ptySidecar: null,
+      ptyBuffer: "",
+    } as unknown as ManagedAgent;
+    const sidecars: {
+      send: (msg: object) => void;
+      endOutput: () => void;
+      exit: (code: number) => void;
+    }[] = [];
+    spyOn(Bun, "spawn").mockImplementation(() => {
+      let out!: ReadableStreamDefaultController<Uint8Array>;
+      let exit!: (code: number) => void;
+      sidecars.push({
+        send: (msg) =>
+          out.enqueue(new TextEncoder().encode(JSON.stringify(msg) + "\n")),
+        endOutput: () => out.close(),
+        exit: (code) => exit(code),
+      });
+      return {
+        stdin: { write: () => 1 },
+        stdout: new ReadableStream<Uint8Array>({
+          start(controller) {
+            out = controller;
+          },
+        }),
+        exited: new Promise<number>((resolve) => {
+          exit = resolve;
+        }),
+        pid: 123,
+        kill: () => {},
+      } as unknown as ReturnType<typeof Bun.spawn>;
+    });
+    spyOn(console, "log").mockImplementation(() => {});
+    const events: Parameters<TerminalDeps["emit"]>[0][] = [];
+    const deps: TerminalDeps = {
+      getAgent: (id) => (id === agentId ? managed : undefined),
+      emit: (event) => events.push(event),
+      buildEnvForUserId: () => ({}),
+      ...(recordTerminals ? { recordTerminals } : {}),
+    };
+    return {
+      agentId,
+      managed,
+      sidecars,
+      events,
+      deps,
+      recordings: () => listTerminalRecordings({ agentId }),
+      // The terminal audit rows of this agent, oldest first.
+      rows: () =>
+        officeAuditStore()
+          .list({ targetId: agentId })
+          .items.filter((row) => row.operation.startsWith("terminal."))
+          .reverse(),
+    };
+  }
+
+  // The sidecar's lines are read asynchronously.
+  const settle = () => Bun.sleep(5);
+
+  // A recording, once its "end" or "cap" event is on disk.
+  async function finished(id: string) {
+    const deadline = Date.now() + 2000;
+    for (;;) {
+      const parsed = parseTerminalRecording(
+        readFileSync(terminalRecordingPath(id)!, "utf8"),
+      );
+      if (parsed.events.at(-1)?.[1] === "x") return parsed;
+      if (Date.now() > deadline) throw new Error(`recording ${id} never ended`);
+      await Bun.sleep(5);
+    }
+  }
+
+  const outputText = (events: TerminalRecordingEvent[]) =>
+    events
+      .filter((e) => e[1] === "o")
+      .map((e) => e[2])
+      .join("");
+
+  it("is off when the office gives no setting", async () => {
+    const r = rig();
+    expect(openTerminal(r.agentId, r.deps, alice)).toBe(true);
+    r.sidecars[0].send({ type: "output", data: "hello\r\n" });
+    await settle();
+    closeTerminal(r.agentId, r.deps, alice);
+    expect(r.recordings()).toEqual([]);
+    expect(r.rows().map((row) => row.terminalRecording)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("records a session only when the setting is on at its start", async () => {
+    let on = false;
+    const r = rig(() => on);
+    openTerminal(r.agentId, r.deps, alice);
+    // Turned on mid-session: the running terminal stays unrecorded.
+    on = true;
+    r.sidecars[0].send({ type: "output", data: "before\r\n" });
+    await settle();
+    expect(r.recordings()).toEqual([]);
+    closeTerminal(r.agentId, r.deps, alice);
+
+    openTerminal(r.agentId, r.deps, alice);
+    // Turned off mid-session: the running terminal stays recorded.
+    on = false;
+    r.sidecars[1].send({ type: "output", data: "after\r\n" });
+    await settle();
+    closeTerminal(r.agentId, r.deps, alice);
+
+    const [recording, ...more] = r.recordings();
+    expect(more).toEqual([]);
+    const { header, events } = await finished(recording.id);
+    expect(header.isomux.startedBy.id).toBe(alice.id);
+    expect(outputText(events)).toBe("after\r\n");
+    // The open row of the recorded session names its recording.
+    const opens = r.rows().filter((row) => row.operation === "terminal.open");
+    expect(opens.map((row) => row.terminalRecording?.id)).toEqual([
+      undefined,
+      recording.id,
+    ]);
+  });
+
+  it("writes the output, the resizes and who typed, never what they typed", async () => {
+    const r = rig(() => true);
+    openTerminal(r.agentId, r.deps, alice);
+    r.sidecars[0].send({ type: "output", data: "$ " });
+    await settle();
+    terminalResize(r.agentId, 100, 30, r.deps, alice);
+    terminalInput(r.agentId, "typed-only-xyz\r", r.deps, bob);
+    r.sidecars[0].send({ type: "output", data: "done\r\n" });
+    await settle();
+    closeTerminal(r.agentId, r.deps, alice);
+    const [recording] = r.recordings();
+    const { events } = await finished(recording.id);
+    expect(outputText(events)).toBe("$ done\r\n");
+    expect(events.filter((e) => e[1] === "r").map((e) => e[2])).toEqual([
+      "100x30",
+    ]);
+    expect(
+      events
+        .filter((e) => e[1] === "u")
+        .map((e) => (e[2] as { id: string }).id),
+    ).toEqual([bob.id]);
+    expect(
+      readFileSync(terminalRecordingPath(recording.id)!, "utf8"),
+    ).not.toContain("typed-only-xyz");
+  });
+
+  // Every way a terminal session ends writes the "end" event.
+  const endings: [string, (r: ReturnType<typeof rig>) => void][] = [
+    ["a member closes it", (r) => closeTerminal(r.agentId, r.deps, alice)],
+    ["a member restarts it", (r) => restartTerminal(r.agentId, r.deps, alice)],
+    [
+      "the shell exits",
+      (r) => r.sidecars[0].send({ type: "exit", exitCode: 0 }),
+    ],
+    [
+      "the sidecar dies without an exit line",
+      (r) => {
+        r.sidecars[0].endOutput();
+        r.sidecars[0].exit(9);
+      },
+    ],
+    ["the agent is killed", (r) => killSidecar(r.managed)],
+  ];
+  for (const [way, end] of endings) {
+    it(`ends the recording when ${way}`, async () => {
+      const r = rig(() => true);
+      openTerminal(r.agentId, r.deps, alice);
+      r.sidecars[0].send({ type: "output", data: "work\r\n" });
+      await settle();
+      const [first] = r.recordings();
+      end(r);
+      const { events } = await finished(first.id);
+      expect(events.at(-1)?.[2]).toBe("end");
+      expect(outputText(events)).toBe("work\r\n");
+      if (way === "a member restarts it") {
+        // The new session is a new recording, and its open row says so.
+        const ids = r.recordings().map((rec) => rec.id);
+        expect(ids).toHaveLength(2);
+        const second = ids.find((id) => id !== first.id);
+        expect(r.rows().at(-1)?.terminalRecording?.id).toBe(second);
+      }
+    });
+  }
+
+  it("writes one terminal.join row per member who joins a running session", async () => {
+    let on = true;
+    const r = rig(() => on);
+    openTerminal(r.agentId, r.deps, alice);
+    // The opener's remount writes nothing.
+    openTerminal(r.agentId, r.deps, alice);
+    openTerminal(r.agentId, r.deps, bob);
+    // Nor does the joiner's remount.
+    openTerminal(r.agentId, r.deps, bob);
+    closeTerminal(r.agentId, r.deps, alice);
+    // A new, unrecorded session: Bob opens it, Alice joins it.
+    on = false;
+    openTerminal(r.agentId, r.deps, bob);
+    openTerminal(r.agentId, r.deps, alice);
+    openTerminal(r.agentId, r.deps, alice);
+
+    const [recording, ...more] = r.recordings();
+    expect(more).toEqual([]);
+    const rows = r.rows();
+    expect(rows.map((row) => [row.operation, row.actor.id])).toEqual([
+      ["terminal.open", alice.id],
+      ["terminal.join", bob.id],
+      ["terminal.close", alice.id],
+      ["terminal.open", bob.id],
+      ["terminal.join", alice.id],
+    ]);
+    const joins = rows.filter((row) => row.operation === "terminal.join");
+    expect(joins.map((row) => row.targets)).toEqual([[r.agentId], [r.agentId]]);
+    expect(joins.map((row) => row.terminalRecording?.id)).toEqual([
+      recording.id,
+      undefined,
+    ]);
+  });
+
+  it("says in terminal_status that the session is recorded, only while it is", async () => {
+    let on = true;
+    const r = rig(() => on);
+    const status = { type: "status", process: "bash", shell: true };
+    openTerminal(r.agentId, r.deps, alice);
+    r.sidecars[0].send(status);
+    await settle();
+    closeTerminal(r.agentId, r.deps, alice);
+    on = false;
+    openTerminal(r.agentId, r.deps, alice);
+    r.sidecars[1].send(status);
+    await settle();
+    const statuses = r.events.filter((e) => e.type === "terminal_status");
+    expect(statuses).toHaveLength(2);
+    expect(statuses[0]).toMatchObject({ recorded: true });
+    expect(statuses[1]).not.toHaveProperty("recorded");
   });
 });

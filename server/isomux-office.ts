@@ -4,7 +4,13 @@ import {
 } from "./app-widget-metadata.ts";
 import { appWidgetHandlers } from "./routes/handlers/app-widget.ts";
 import { auditHandlers } from "./routes/handlers/audit.ts";
+import { terminalRecordingHandlers } from "./routes/handlers/terminal-recordings.ts";
 import { auditActor } from "./audit-actor.ts";
+import {
+  liveTerminalRecordingIds,
+  TERMINAL_RECORDINGS_DIR,
+} from "./terminal-recorder.ts";
+import type { AuditActor } from "../shared/audit.ts";
 import { officeAuditStore, recordAudit } from "./audit-store.ts";
 import { noteAuditTarget, notePromptContent } from "./audit-context.ts";
 import { BrowserExtensionStore } from "./browser-extension-store";
@@ -118,6 +124,8 @@ import {
   saveServerConfig,
   loadSessionsMap,
   peekMessageQueuesRaw,
+  loadRecordTerminals,
+  saveRecordTerminals,
 } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
@@ -1919,6 +1927,7 @@ function officeSettingsVersion(): string {
       s.name,
       memberUsageCap().isEnabled(),
       memberUsageCap().share(),
+      loadRecordTerminals(),
     ]),
   );
 }
@@ -1929,13 +1938,17 @@ function officeSettingsVersion(): string {
 // stale clients and for an agent that changes one field. A null prompt CLEARS
 // it, and so does a null or empty name. setOfficeSettings emits
 // office_settings_updated via the sink.
-function applyOfficeSettings(input: {
-  prompt?: string | null;
-  name?: string | null;
-  memberUsageCap?: boolean;
-  memberUsageShare?: number;
-  expectedVersion: string;
-}):
+function applyOfficeSettings(
+  input: {
+    prompt?: string | null;
+    name?: string | null;
+    memberUsageCap?: boolean;
+    memberUsageShare?: number;
+    recordTerminals?: boolean;
+    expectedVersion: string;
+  },
+  actor: AuditActor,
+):
   | { ok: true }
   | { ok: false; status: 400; error: string }
   | { ok: false; conflict: true; version: string } {
@@ -1974,6 +1987,23 @@ function applyOfficeSettings(input: {
     input.memberUsageShare !== memberUsageCap().share()
   )
     memberUsageCap().setShare(input.memberUsageShare);
+  if (
+    input.recordTerminals !== undefined &&
+    input.recordTerminals !== loadRecordTerminals()
+  ) {
+    saveRecordTerminals(input.recordTerminals);
+    // Its own row, with the new value in the operation: the executor's row
+    // names the fields, never their values. Nobody turns recording off, acts
+    // and turns it back on without a trace.
+    recordAudit({
+      actor,
+      operation: input.recordTerminals
+        ? "terminal.recordingOn"
+        : "terminal.recordingOff",
+      targets: ["office"],
+      fields: [],
+    });
+  }
   return { ok: true };
 }
 
@@ -3065,6 +3095,7 @@ function buildExecutorDeps(
     }),
   );
   register(auditHandlers(officeAuditStore));
+  register(terminalRecordingHandlers());
 
   register(
     tasksHandlers({
@@ -4574,6 +4605,7 @@ function buildExecutorDeps(
           version: officeSettingsVersion(),
           memberUsageCap: memberUsageCap().isEnabled(),
           memberUsageShare: memberUsageCap().share(),
+          recordTerminals: loadRecordTerminals(),
         };
         // Status reads the providers, so only while the cap is on.
         return {
@@ -4583,7 +4615,11 @@ function buildExecutorDeps(
             : [],
         };
       },
-      applySettings: (input) => applyOfficeSettings(input),
+      applySettings: (input, ctx) =>
+        applyOfficeSettings(
+          input,
+          auditActor(ctx.identity, attributionFor(ctx.identity).createdBy),
+        ),
     }),
   );
   // Room-structure mutation handlers stay thin; the COMPOUND effects live here
@@ -5821,6 +5857,8 @@ function buildExecutorDeps(
     return {
       logsDir: join(STATE_ROOT, "logs"),
       tokenLogsDir: join(STATE_ROOT, "token-logs"),
+      terminalRecordingsDir: join(STATE_ROOT, TERMINAL_RECORDINGS_DIR),
+      liveTerminalRecordingIds: liveTerminalRecordingIds(),
       now: Date.now(),
       activeSessionIds: new Set(
         agentManager
@@ -7308,7 +7346,12 @@ async function handleInboundMessage(
       }
       case "terminal_input":
         if (!agentVisibleForSession(session, cmd.agentId)) break;
-        agentManager.terminalInput(cmd.agentId, cmd.data);
+        // The typist is the socket's member, never a field of the frame.
+        agentManager.terminalInput(cmd.agentId, cmd.data, {
+          kind: "member",
+          id: session.userId,
+          name: getUserById(session.userId)?.name ?? session.userId,
+        });
         break;
       case "terminal_status_request":
         if (!agentVisibleForSession(session, cmd.agentId)) break;
@@ -7316,7 +7359,11 @@ async function handleInboundMessage(
         break;
       case "terminal_resize":
         if (!agentVisibleForSession(session, cmd.agentId)) break;
-        agentManager.terminalResize(cmd.agentId, cmd.cols, cmd.rows);
+        agentManager.terminalResize(cmd.agentId, cmd.cols, cmd.rows, {
+          kind: "member",
+          id: session.userId,
+          name: getUserById(session.userId)?.name ?? session.userId,
+        });
         break;
       case "terminal_close":
         if (!agentVisibleForSession(session, cmd.agentId)) break;
