@@ -44,6 +44,16 @@
       "source": "/_agent/docs/deployments/index.md",
       "destination": "/_agent/docs/hosting/index.md",
       "permanent": true
+    },
+    {
+      "source": "/terms",
+      "destination": "/hosted-terms",
+      "permanent": true
+    },
+    {
+      "source": "/privacy",
+      "destination": "/hosted-privacy",
+      "permanent": true
     }
   ],
   "headers": [
