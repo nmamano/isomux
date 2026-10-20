@@ -113,6 +113,7 @@ import type {
   AgentSystemPromptPreviewReq,
   EditAgentReq,
   SetPrivilegedReq,
+  SetManagerReq,
   ReviveReq,
   MoveAgentReq,
   SwapDesksReq,
@@ -587,6 +588,32 @@ export const API_ROUTES: readonly RouteDef[] = [
       and(userScope, or(officeOwner, agentManagerMatch("id"))),
     ),
     emits: ["agent_updated"],
+  }),
+  // Manager transfer (task 6a9deaba). An office owner only (Nil, 2026-09-15),
+  // by cookie session: `agent:privilege` keeps every agent and API token out at
+  // stage 1, and `userScope` at stage 2. A transfer hands the agent the new
+  // manager's credentials. No agent reads any member's secret values, and an
+  // API token reads only its own user's (user:env and secret:show under
+  // selfUserOrApi), so a privileged agent or a token, an owner's too, that
+  // could move an agent onto a member would get another member's
+  // credentials. No manager-match branch: a manager cannot give an agent
+  // away.
+  defineRoute<SetManagerReq, AgentEnvelope>({
+    opId: "agents.setManager",
+    audit: {
+      owner: "executor",
+      targets: selectedTargets({ body: ["userId"] }),
+    },
+    method: "PUT",
+    path: "/api/agents/:id/manager",
+    auth: cap("agent:privilege", and(userScope, officeOwner)),
+    emits: [
+      "agent_updated",
+      "clear_logs",
+      "app_upserted",
+      "cronjob_updated",
+      "webhook_upserted",
+    ],
   }),
   defineRoute<MoveAgentReq, AgentEnvelope>({
     opId: "agents.move",

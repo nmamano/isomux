@@ -44,6 +44,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Live member presence** - other members and your other devices show as ghosts next to the agent they are viewing, and walk through the door when they change rooms. Click a ghost to open that member's settings.
 - **Members chat** - a humans-only, office-wide chat in the lobby.
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office. The first owner manages it; it is an ordinary agent with that owner's access.
+- **Agent managers** - an office owner can give an agent another manager in its settings. When a member is removed, their agents pass to the oldest office owner.
 - **Member roster** - office owners can see each member's signed-in sessions, with device name and last-active time, from the Members page.
 - **Customizable ghosts** - each member picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
 

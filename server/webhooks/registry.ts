@@ -396,6 +396,13 @@ export interface WebhookRegistry {
   // Drops the secret, the record and the hook's directory. Null when no hook
   // has that id.
   remove(id: string): WebhookRecord | null;
+  // Give a hook a new owner (an agent manager transfer, task 6a9deaba). Null
+  // when no hook has that id.
+  setOwner(
+    id: string,
+    userId: string,
+    username: string | null,
+  ): WebhookRecord | null;
   secretState(id: string): "set" | "missing";
   // The two human secret routes, and ingress to verify a delivery. Never put
   // into any other response.
@@ -552,6 +559,16 @@ export function createWebhookRegistry(
         );
       }
       const updated: WebhookRecord = { ...hooks[index], ...fields };
+      hooks[index] = updated;
+      writeHooks(hooks);
+      return updated;
+    },
+
+    setOwner(id, userId, username) {
+      const hooks = loadHooks();
+      const index = hooks.findIndex((hook) => hook.id === id);
+      if (index === -1) return null;
+      const updated: WebhookRecord = { ...hooks[index], userId, username };
       hooks[index] = updated;
       writeHooks(hooks);
       return updated;

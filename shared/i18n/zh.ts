@@ -1220,7 +1220,9 @@ App 的一些原则：
   "dialogs.agent.beard.mustache": "八字胡",
   "dialogs.agent.recent": "最近使用",
   "dialogs.agent.manager": "负责人",
-  "dialogs.agent.managerTitle": "创建时设置，智能体创建后无法更改负责人。",
+  "dialogs.agent.managerTitle": "只有办公室所有者可以更改负责人。",
+  "dialogs.agent.managerRestart": "保存后会开始新对话。",
+  "dialogs.agent.managerNoRoomAccess": "{name} 无权访问此房间。",
   "dialogs.agent.managerNoUser": "（未指定成员）",
   "dialogs.agent.managerUnowned": "（无所有者）",
   "dialogs.agent.managerHint":
@@ -2397,6 +2399,8 @@ App 的一些原则：
   "choices.permission.denyByMessage":
     "也可以输入其他消息，以该消息作为拒绝理由。",
   "systemEntries.newConversation": "新对话已开始。",
+  "systemEntries.managerChanged":
+    "{actor} 将 {member} 设为负责人。新对话已开始。",
   "systemEntries.autoHandoff.writingTokens":
     "上下文已达 {thousands}k 个 token。正在为新会话撰写交接简报。",
   "systemEntries.autoHandoff.writingPercent":
@@ -2524,6 +2528,8 @@ App 的一些原则：
   "systemEntries.permissionSessionGone": "无法处理权限请求，会话已不存在。",
   "systemEntries.permissionResolveFailed": "处理权限请求失败：{error}",
   "systemEntries.resumedSession": "已继续会话：{label}",
+  "systemEntries.sessionPreviousManager":
+    "此会话的负责人仍是 {name}，并使用其连接。",
   "systemEntries.resumeFailed":
     "继续失败：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
   "systemEntries.resumeCancelled": "已取消继续会话。",

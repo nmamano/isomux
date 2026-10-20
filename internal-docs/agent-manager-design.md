@@ -1,180 +1,173 @@
 # Reassigning an agent's manager
 
-Status: design, 2026-09-15, with Nil's rulings at the end. Nothing here is
-implemented.
+Status: implemented in task 6a9deaba (2026-10-20). Designed 2026-09-15; Nil's
+rulings of 2026-09-15 and 2026-10-20 are at the end and win where the text
+differs. References name files and symbols, not line numbers.
 
-## What manager means today
+## What manager means
 
-An agent has two persisted manager fields. `userId` is the stable identity of
-the member who spawned it. `username` is a display snapshot and can become
-stale. Both are set at spawn and are documented as immutable
-(`shared/types.ts:540-550`). The REST spawn path derives both values from the
-authenticated identity, not the request body (`server/isomux-office.ts:3272-3275,
-3303-3329`); `OfficeState.spawn` writes them into `AgentInfo`
-(`shared/office-state.ts:287-316`). They are saved in the live-agent file and in
-agent history (`server/agent-manager.ts:1751-1769,1800-1828`).
+An agent has two persisted manager fields (`AgentInfo.userId`, `username` in
+`shared/types.ts`). `userId` is the stable identity of the member who manages
+the agent; `username` is a display snapshot. Both are set at spawn from the
+authenticated identity, never the request body, and change together at a
+transfer. They are saved in the live-agent file and in agent history
+(`persistAll`, `updateAgentHistory` in `server/agent-manager.ts`).
 
 The code reads the manager for these behaviors:
 
 - **Process environment and sign-in.** Every backend create, resume, stored-
-  session check, and terminal launch selects the
-  member's managed variables with `userId` (`server/agent-manager.ts:4837-4853,
-  4937-4954,5024-5142`; `server/terminal.ts:113-135`). Member variables override
-  office variables. An active personal Claude or Codex connection also selects
-  that member's `CLAUDE_CONFIG_DIR` or `CODEX_HOME`
-  (`server/env-loader.ts:77-111`; `server/provider-homes.ts:35-63`). Therefore
-  variables used by git or `gh` also change if they are present in the managed
-  environment; the terminal forces the host `HOME`, `USER`, `PATH`, `SHELL`, and
-  `LANG` after the merge (`server/terminal.ts:128-137`).
+  session check and terminal launch selects the member's managed variables with
+  `userId` (`buildSessionEnv` in `server/agent-manager.ts`; `server/terminal.ts`).
+  Member variables override office variables. An active personal Claude or
+  Codex connection also selects that member's `CLAUDE_CONFIG_DIR` or
+  `CODEX_HOME` (`server/env-loader.ts`; `server/provider-homes.ts`).
 - **Provider-account guidance.** Sign-in checks and sign-in-required cards read
-  the manager's active provider accounts and personal/office scope
-  (`server/agent-manager.ts:560-592,613-720`). The provider card is shown only to
-  the manager (`ui/log-view/LogView.tsx:2617-2620`).
+  the manager's provider accounts. The provider card is shown only to the
+  manager (`ui/log-view/LogView.tsx`).
 - **Agent bearer identity and authority.** The token stores the manager
-  `userId`. A privileged token receives the privileged capability set
-  (`server/identity/tokens.ts:82-104,149-174`). Room guards resolve an agent's
-  access through that `userId` (`server/identity/guard-deps.ts:55-63`). A
-  privileged agent can operate only on cronjobs owned by the same member
-  (`server/identity/guards.ts:402-438`), while agent-owned app access and
-  office-owner inheritance also compare the token's member identity
-  (`server/identity/guards.ts:349-399`).
-- **Who may change privilege.** The current manager or an office owner may grant
-  or revoke agent privilege. The route excludes every non-user identity with an
-  outer `userScope`, and the edit dialog mirrors the same manager comparison
-  (`server/routes/table.ts:375-396`; `server/identity/guards.ts:309-328`;
-  `ui/components/EditAgentDialog.tsx:275-282`). A manager transfer changes who
-  holds this power.
+  `userId`; a privileged token gets the privileged capability set
+  (`server/identity/tokens.ts`). Room guards resolve an agent's access through
+  that `userId` (`server/identity/guard-deps.ts`). A privileged agent operates
+  only on cronjobs owned by its manager, and an app has its creator agent's
+  reach only while the agent's manager owns the app (`server/identity/guards.ts`;
+  `appIdentityFromToken` in `server/app-tokens.ts`).
+- **Who may change privilege.** The manager or an office owner, by cookie
+  session (`agents.setPrivileged` in `server/routes/table.ts`).
 - **Prompt and language.** A new backend session loads the manager's member
-  memory by `userId`, but looks up the member prompt and language by the
-  `username` snapshot (`server/agent-manager.ts:4979-5007,5090-5113`). The prompt
-  preview has the same split (`server/agent-system-prompt.ts:23-74`). Server log
-  text without a known human actor uses the manager's language by `userId`
-  (`server/agent-manager.ts:2887-2918`). A reassignment must update `userId` and
-  `username` together to avoid a mixed identity.
-- **Killed agents and transcripts.** Kill copies both fields into history
-  (`server/agent-manager.ts:7557-7595`). The killed list and killed-log guard use
-  the recorded `userId`: the recorded manager and office owners can read them
-  (`server/agent-manager.ts:1899-1927`; `server/identity/guards.ts:609-638`;
-  `server/isomux-office.ts:5831-5887`).
-- **Browser controls.** Actions use the current manager’s paired Chrome connection and an explicitly offered tab. The bridge revalidates ownership and room access. Server browser profiles and the remote panel are retired.
-- **Remote API-token inboxes.** API tokens belong to members independently of
-  agents. An agent can reply only through a token owned by its manager; both the
-  precondition and handler derive that manager from the live agent
-  (`server/isomux-office.ts:3776-3783,4010-4016`;
-  `server/routes/handlers/api-tokens.ts:103-126`). Reassignment does not transfer
-  or revoke a member's API tokens.
-- **UI events.** Turn-end
-  sound notifications are not manager-owned: each viewer receives visible
-  agent state and applies their own room notification preference
-  (`ui/store.tsx:110-113,1363-1384`).
+  memory, member prompt and language. Server log lines without a human actor use
+  the manager's language (`logWords`).
+- **Killed agents and transcripts.** Kill copies both fields into history. The
+  killed list and killed-log guard use the recorded `userId`: the recorded
+  manager and office owners can read them.
+- **Browser controls.** Actions use the current manager's paired Chrome
+  connection and a tab that member offered. The bridge checks on every action
+  that the agent's current manager is the paired member (`mayUseExtension` in
+  `server/isomux-office.ts`; `ExtensionBrowserSessions.run` in
+  `server/browser-extension-session.ts`), so a transfer needs no browser step:
+  the old member's offer answers "ended" on the next action.
+- **Remote API-token inboxes.** API tokens belong to members. An agent replies
+  only through a token its manager owns, derived from the live agent. A transfer
+  does not move or revoke API tokens.
+- **App secrets.** An app reads the member-scope secrets of its owner only
+  (`envFor` in `server/app-secrets.ts`).
 
-Two related resources take a snapshot at creation and do not follow the agent.
-A cronjob created by an agent stores the token's current `userId`, and later
-uses that value for environment and authorization
-(`server/routes/handlers/cron.ts:145-169`; `server/cronjob-manager.ts:836-902,
-1122-1141`). An app registered by an agent also stores the current `userId`
-(`server/routes/handlers/apps.ts:329-342`). Existing cronjobs and apps must stay
-with their original member unless a separate transfer feature is approved. The
-transferred agent then loses control of apps it registered and privileged
-cronjobs it created: both guards compare the resource owner with the agent
-token's now-new `userId` (`server/identity/guards.ts:395-397,435-437`). App logs,
-app restart/update/delete, and cronjob management consequently deny it.
+## The transfer
 
-## Required live transition
+`PUT /api/agents/:id/manager` with `{userId}` (`agents.setManager`). Only an
+office owner by cookie session: `agent:privilege` plus `userScope`. No agent
+and no API token, an owner's included, can call it: no agent reads a member's
+secret values and a token reads only its own user's, so moving an agent onto a
+member would give either of them another member's credentials. Errors: 422
+`invalid_request` for a bad body, 422 `unknown_member`, 404 `agent_not_found`.
+The same manager is a 200 no-op.
 
-Changing only the persisted fields is unsafe. The current backend process has
-the old environment and system prompt, and its injected bearer token has the old
-identity. The reassignment must be one server transaction that:
+`transferAgentManager` (`server/isomux-office.ts`) calls
+`agentManager.setManager`, then moves what the agent made. `setManager`, in
+this order:
 
-1. rejects a missing target member and writes the target's stable `userId` plus
-   current display name;
-2. closes any active browser context before changing the fields, so it saves to
-   the old member's profile and the next action opens the new member's profile;
-3. re-mints the agent token with the new `userId` and its unchanged privilege
-   flag; and
-4. replaces a live backend session with the target member's environment and a
-   fresh conversation, unless Nil explicitly chooses one of the provider-
-   specific continuity trade-offs below. A dormant agent needs no process
-   replacement, but its next wake must use the same fresh-session rule.
+1. stamps every session of the agent that has no manager stamp with the old
+   manager (`stampSessionManagers`: `userId` plus a name snapshot in
+   `sessions.json`). An unstamped session was born under the current manager;
+2. writes the new `userId` and the member's current name;
+3. re-mints the token with the new `userId` and the same privilege flag;
+4. resets the allowance reading, the limited Claude families, and marks the
+   terminal's environment stale;
+5. kills the running session with `newConversation`: the process closes, a
+   pending choice is cancelled, the chat clears and shows one line naming the
+   actor and the new manager, and the next message starts a fresh conversation
+   under the new manager's environment, prompt, memory and token.
 
-This necessarily interrupts an in-flight turn. The existing privilege toggle
-is the closest safe precedent: it persists, rotates the token, and session-swaps
-the live process because the old process otherwise holds a revoked token
-(`server/agent-manager.ts:4501-4528`). The replacement rebuilds the environment,
-prompt, member memory, member prompt, language, skills, and token. The UI must
-state that transfer stops current work and starts a new conversation; the old
-transcript stays readable under the agent. A pending permission or interaction
-must not silently become the new manager's decision; implementation must either
-reject transfer while one is pending or cancel it visibly.
+Steps 2 and 3 run before step 5 with no await between them, because
+`newConversation` flushes the held queue during its drain and that flush starts
+the fresh session with the identity set at that moment.
 
-Conversation continuity and a clean credential transfer cannot both be promised:
+The privilege toggle's session swap is not used: it resumes the same session,
+which for Claude keeps the old manager's pinned config directory.
 
-- Claude pins each session to the config directory that created it. The pin
-  overrides the current manager environment, explicitly so account changes do
-  not recover a pinned session (`server/agent-manager.ts:4842-4852`;
-  `server/persistence.ts:371-376`; `server/claude-session-root.ts:13-35`). Resume
-  preserves context by continuing to use the old manager's provider home.
-- OpenCode stores a session inside the profile derived from the environment
-  source key (`server/backends/opencode/storage.ts:48-59`;
-  `server/backends/opencode/profile-paths.ts:15-33`). That key hashes the member
-  env-file path (`server/env-loader.ts:135-148`). A different target profile
-  cannot find the old session; using the old profile also keeps the old
-  environment boundary.
-- Codex finds resumable rollouts under the effective `CODEX_HOME`
-  (`server/cwd-utils.ts:145-164,185-217`). Resume uses the target environment
-  (`server/backends/codex/adapter.ts:2656-2667`), so it fails its preflight when
-  the target's `CODEX_HOME` does not contain that rollout
-  (`server/backends/codex/adapter.ts:2670-2684`). Continuity is possible only
-  when both managers resolve to a home containing the same rollout; retaining
-  the old personal home retains the old account boundary.
+Then the office moves, for each record the agent made that its old manager
+still owns (`createdByAgentId === agent` and owner `=== old manager`):
 
-Therefore the safe default is a fresh conversation under the target manager.
-Resume under an old provider home must be a separate, explicit policy choice,
-not an automatic part of manager transfer.
+- apps: `appRegistry.update(name, {owner})`, then `appSecrets.syncNow()`. The
+  app loses the old manager's secrets, gets the new owner's, and a running app
+  whose secrets file changed restarts;
+- cronjobs: `setCronjobOwner`. A job records its creating agent since this
+  task (`Cronjob.createdByAgentId`). For an older job the audit log's
+  `cron.create` row by that agent, with the job id as target and a time within
+  10 seconds of `createdAt`, stands in (the id alone is not enough: a deleted
+  job's id can come back). Jobs older than the audit log stay with the old
+  member. A run in flight keeps its environment;
+- webhooks: `webhookRegistry.setOwner`. Ingress checks that the owner can reach
+  the target agent, so a hook left behind would stop.
 
-The target member must already have access to the agent's current room. Every
-agent, not only a privileged one, derives room reach from its manager's live
-grants (`server/isomux-office.ts:1563-1570,1687-1698`). Without this rule, the
-agent loses its room-scoped agent discovery, task-board, messaging, and log
-reach, and the target manager cannot see the agent. Recommend refusing the
-transfer instead of silently granting a room.
+A record the agent made that a third member owns stays with that member. The
+old manager's own schedules and webhooks that target the agent stay with the
+old manager.
 
-After reassignment, the old manager loses manager-only browser control, killed-
-history ownership for a later kill, the agent's inherited room reach, privilege
-control, and API inbox reply reach. The new manager supplies those powers and
-limits. Existing apps and cronjobs do not move. Room-visible conversation logs
-remain governed by room access while the agent is live; reassignment is not
-transcript redaction.
+### Resume
 
-Member deletion needs a new invariant. Today deletion leaves agent and cronjob
-`userId` references in place (`server/users.ts:405-408`) and evicts the member's
-login sessions and their sockets (`server/isomux-office.ts:2957-2989`;
-`server/auth.ts:1208-1231`). It does not close the agent's browser context.
-Room lookup then finds no user record and denies the stale id
-(`server/isomux-office.ts:1553-1555,1563-1569`).
-The environment resolver itself checks files and provider activation by id, not
-user existence (`server/env-loader.ts:58-111`), so dangling credentials can
-remain selectable if their state remains on disk. Recommendation: block member
-deletion while they manage live or killed agents, and require transfer or
-permanent deletion first. Apply an equivalent explicit rule to their cronjobs,
-apps, API tokens, provider state, managed variables, memory, and browser profile;
-their cleanup/retention policy is outside this task.
+A session born under an earlier manager may be resumed. After a successful
+resume (`resume()` in `server/agent-manager.ts`) the chat shows "This session
+still has X as manager and uses their connections." with X the member's
+current name, or the snapshot when the member was deleted. A session of an
+agent that had no manager gets no line.
 
-## Nil's rulings (2026-09-15)
+The sentence is exact for Claude: a session is pinned to the config directory
+that created it (`getSessionClaudeConfigDir`). Codex resumes under the new
+manager's `CODEX_HOME`: with a personal Codex connection the rollout is not
+there and the resume fails its preflight, so no line shows. OpenCode looks for
+the session in the profile of the new manager's environment, and does not find
+it either.
 
-Not scheduled for implementation (task 6a9deaba, P2). These rulings override
-anything above that conflicts with them, including the fresh-conversation
-default, the room-access refusal and the consent flow first proposed.
+### Room access
+
+There is no room-access check (ruling 1). A manager without access to the
+agent's room leaves the agent without room reach (discovery, board, messaging,
+logs), and the manager does not see it. The edit dialog shows a hint when the
+chosen member has no grant for the agent's room.
+
+### What does not move
+
+API tokens, member memory, provider state and managed variables stay with the
+old member. The old member loses manager-only browser control, killed-history
+ownership for a later kill, the agent's inherited room reach, privilege
+control and API inbox reply reach. Room-visible conversation logs remain
+governed by room access; a transfer is not transcript redaction.
+
+## Member deletion
+
+`users.delete` (a member deleting their own record, or an owner) passes the
+member's agents to the oldest office owner other than the member, by
+`createdAt` (`heirOwnerFor`). It runs after the last-owner 409 check, so a
+refused delete moves nothing, and before the record and secrets go, so the
+session stamps find the member's name. Live agents go through
+`transferAgentManager` with the caller as actor. Killed agents get the owner in
+their history entry and their sessions are stamped
+(`agentManager.reassignKilledAgents`), so a revived agent warns on resume. The
+member's own apps and schedules that no agent made are not part of this.
+
+## Nil's rulings
+
+2026-09-15:
 
 1. Only office owners can change an agent's manager. There is no consent step,
    no room-access precondition and no confirmation.
 2. A session started under a previous manager may still be resumed. On resume,
    the chat shows a warning: "This session still has X as manager and uses their
    connections."
-
 3. Member deletion is not blocked while the member manages agents; that was
    rejected as annoying. The agents they manage pass to an office owner
-   automatically instead. Which owner, and what happens to the running
-   sessions, is open.
+   automatically instead.
 
-Also open: whether privilege carries over on transfer.
+2026-10-20:
+
+4. Apps and schedules the agent created move with the agent: their owner
+   changes to the new manager.
+5. A deleted member's agents pass to the oldest office owner.
+6. A transfer kills the agent's running session, for an owner change and a
+   member deletion alike.
+7. Privilege carries over on transfer.
+
+Implication of rulings 4 and 5, applied in task 6a9deaba: the webhooks the
+agent created move too, by the same rule. A webhook left with a deleted member
+stops at ingress, so the agent's own wake (a GitHub hook, for example) would
+fail without a message.

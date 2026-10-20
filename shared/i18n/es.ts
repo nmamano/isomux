@@ -1368,7 +1368,9 @@ Cosas que puedes hacer por él:
   "dialogs.agent.recent": "Recientes",
   "dialogs.agent.manager": "Responsable",
   "dialogs.agent.managerTitle":
-    "Se fija al crear el agente - el responsable no se puede cambiar después.",
+    "Solo un propietario de la oficina puede cambiar el responsable.",
+  "dialogs.agent.managerRestart": "Al guardar empieza una conversación nueva.",
+  "dialogs.agent.managerNoRoomAccess": "{name} no tiene acceso a esta sala.",
   "dialogs.agent.managerNoUser": "(sin miembro asignado)",
   "dialogs.agent.managerUnowned": "(sin propietario)",
   "dialogs.agent.managerHint":
@@ -2662,6 +2664,8 @@ Cosas que puedes hacer por él:
   "choices.permission.denyByMessage":
     "O escribe cualquier otro mensaje para denegar con ese motivo.",
   "systemEntries.newConversation": "Conversación nueva iniciada.",
+  "systemEntries.managerChanged":
+    "{actor} hizo responsable a {member}. Conversación nueva iniciada.",
   "systemEntries.autoHandoff.writingTokens":
     "El contexto está en {thousands}k tokens. Escribiendo un resumen de traspaso para una sesión nueva.",
   "systemEntries.autoHandoff.writingPercent":
@@ -2815,6 +2819,8 @@ Cosas que puedes hacer por él:
   "systemEntries.permissionResolveFailed":
     "No se pudo resolver el permiso: {error}",
   "systemEntries.resumedSession": "Sesión retomada: {label}",
+  "systemEntries.sessionPreviousManager":
+    "Esta sesión todavía tiene a {name} como responsable y usa sus conexiones.",
   "systemEntries.resumeFailed":
     "No se pudo retomar: {error}\nEscribe /clear para empezar de cero, o /resume para elegir otra sesión.",
   "systemEntries.resumeCancelled": "Retomada cancelada.",

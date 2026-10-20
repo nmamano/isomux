@@ -75,6 +75,7 @@ export interface CronDeps {
     username: string | undefined;
     userId: string | null;
     roomId: string | undefined;
+    createdByAgentId?: string;
   }): Promise<Cronjob>;
   updateCronjob(id: string, changes: CronUpdateReq): Promise<Cronjob | null>;
   deleteCronjob(id: string): boolean;
@@ -228,6 +229,9 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         codexSandbox: body.codexSandbox,
         username,
         userId: ctx.identity.userId,
+        ...(ctx.identity.scope === "agent" && ctx.identity.agentId
+          ? { createdByAgentId: ctx.identity.agentId }
+          : {}),
         roomId:
           room.roomId === undefined
             ? deps.defaultCreateRoomId(ctx.identity)

@@ -795,6 +795,8 @@ export interface UpdateAppInput {
   messageTargetAgentId?: string;
   // Resolved together from a live agent by the route handler.
   creator?: { id: string; name: string };
+  // A new owning member (an agent manager transfer, task 6a9deaba).
+  owner?: { userId: string; username: string };
   // Set by the thumbnail upload, never by PATCH.
   thumbnailUpdatedAt?: number;
   // true sets the flag; false removes the key.
@@ -1064,6 +1066,9 @@ export function createAppRegistry(
               createdByAgentId: patch.creator.id,
               createdBy: patch.creator.name,
             }
+          : {}),
+        ...(patch.owner
+          ? { userId: patch.owner.userId, username: patch.owner.username }
           : {}),
         ...(patch.command !== undefined ? { command: patch.command } : {}),
         ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),

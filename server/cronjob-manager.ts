@@ -410,6 +410,25 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     userId?: string | null;
     // Absent = no room (maker + office owners only).
     roomId?: string;
+    // The creating agent, from the token identity.
+    createdByAgentId?: string;
+  }
+
+  // Give a job a new owner (an agent manager transfer, task 6a9deaba).
+  // Null when no job has that id.
+  function setCronjobOwner(
+    id: string,
+    userId: string,
+    username: string,
+  ): Cronjob | null {
+    const idx = cronjobs.findIndex((c) => c.id === id);
+    if (idx < 0) return null;
+    const prev = cronjobs[idx];
+    const next: Cronjob = { ...prev, userId, username };
+    cronjobs[idx] = next;
+    saveCronjobs(cronjobs);
+    eventHandler({ type: "cronjob_updated", cronjob: next, previous: prev });
+    return next;
   }
 
   function addCronjob(input: AddCronjobInput): Cronjob {
@@ -443,6 +462,9 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         input.userId ??
         (input.username ? (getUserByName(input.username)?.id ?? null) : null),
       username: input.username,
+      ...(input.createdByAgentId
+        ? { createdByAgentId: input.createdByAgentId }
+        : {}),
       ...(input.roomId ? { roomId: input.roomId } : {}),
       createdAt: now,
       lastFireAt: null,
@@ -2583,6 +2605,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     setCronjobsPrompt,
     addCronjob,
     updateCronjob,
+    setCronjobOwner,
     deleteCronjob,
     getRunsForCronjob,
     getAllRunsByJob,

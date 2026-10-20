@@ -257,6 +257,10 @@ type SessionsMap = Record<
     forkBaseUsage?: PersistedUsage;
     usageSnapshots?: UsageSnapshot[];
     lastAccountedUsageId?: string;
+    // The manager this session was born under, written only at a manager
+    // transfer (task 6a9deaba). Absent = born under the agent's current
+    // manager. `name` is a snapshot for a member who was deleted later.
+    manager?: { userId: string | null; name: string | null };
   }
 >;
 
@@ -392,6 +396,38 @@ export function ensureSessionCwd(
   };
   saveSessionsMap(agentId, map);
   return fallbackCwd;
+}
+
+// Stamp each listed session that has no manager yet with `manager`, creating
+// the entry when it is missing. Called at a manager transfer, before the
+// agent's fields change: every unstamped session was born under the manager
+// being replaced.
+export function stampSessionManagers(
+  agentId: string,
+  sessionIds: readonly string[],
+  manager: { userId: string | null; name: string | null },
+): void {
+  const map = loadSessionsMap(agentId);
+  let changed = false;
+  for (const sessionId of sessionIds) {
+    const existing = map[sessionId];
+    if (existing?.manager) continue;
+    map[sessionId] = {
+      ...(existing ?? { topic: null, lastModified: Date.now() }),
+      manager,
+    };
+    changed = true;
+  }
+  if (changed) saveSessionsMap(agentId, map);
+}
+
+// The manager a session was born under, or undefined when it was born under
+// the agent's current manager.
+export function getSessionManager(
+  agentId: string,
+  sessionId: string,
+): { userId: string | null; name: string | null } | undefined {
+  return loadSessionsMap(agentId)[sessionId]?.manager;
 }
 
 export function getSessionClaudeConfigDir(

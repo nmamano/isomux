@@ -98,6 +98,8 @@ import {
   ensureSessionCwd,
   getSessionClaudeConfigDir,
   ensureSessionClaudeConfigDir,
+  getSessionManager,
+  stampSessionManagers,
   getSessionEngineConfig,
   stampSessionEngineConfig,
   backfillSessionEngineConfigs,
@@ -5500,6 +5502,105 @@ export function createAgentManager(deps: ManagerDeps) {
     return managed.info;
   }
 
+  // Give an agent a new manager (task 6a9deaba). The core mutation only: the
+  // route guard authorizes, and the office moves the agent's apps, schedules
+  // and webhooks (transferAgentManager). `username` is the member's current
+  // name. Returns the updated AgentInfo, or null for a killed/unknown agent.
+  //
+  // A transfer kills the running session (Nil, 2026-10-20): the conversation
+  // resets like /clear and the next message starts a fresh one under the new
+  // manager's environment, prompt and token. Before that, each of the agent's
+  // sessions is stamped with the old manager, so a later resume of one names
+  // them (resume()). ORDER IS LOAD-BEARING: the fields and the token change
+  // before newConversation, with no await between, because newConversation
+  // flushes the held queue during its drain and that flush starts the fresh
+  // session with whatever identity is set at that moment.
+  async function setManager(
+    agentId: string,
+    userId: string,
+    username: string,
+    changedBy: string,
+  ): Promise<AgentInfo | null> {
+    const managed = agents.get(agentId);
+    if (!managed) return null;
+    if (managed.info.userId === userId) return managed.info;
+    stampAgentSessions(
+      agentId,
+      managed.sessionManager.sessionId,
+      managed.info.userId,
+      managed.info.username,
+    );
+    for (const event of officeState.updateAgent(agentId, {
+      userId,
+      username,
+    }))
+      emit(event);
+    mintAgentToken(
+      agentId,
+      tokenUserIdFor(managed.info),
+      managed.info.privileged ?? false,
+    );
+    // Another member's provider accounts and variables.
+    resetSubscriptionUsage(managed);
+    managed.envStale = false;
+    refreshLimitedClaudeFamilies(userId);
+    if (managed.ptySidecar) {
+      managed.ptyEnvStale = true;
+      terminalStatus(agentId);
+    }
+    await newConversation(agentId, undefined, undefined, {
+      notice: logWords(agentId)("systemEntries.managerChanged", {
+        actor: changedBy,
+        member: username,
+      }),
+    });
+    return managed.info;
+  }
+
+  // Stamp every session of the agent that has no manager yet with the
+  // manager it was born under. The current session may not have an entry
+  // yet, so it is named explicitly.
+  function stampAgentSessions(
+    agentId: string,
+    currentSessionId: string | null | undefined,
+    userId: string | null,
+    username: string | null,
+  ): void {
+    const ids = new Set([
+      ...listAgentSessions(agentId).map((s) => s.sessionId),
+      ...Object.keys(loadSessionsMap(agentId)),
+    ]);
+    if (currentSessionId) ids.add(currentSessionId);
+    const name = (userId ? getUserById(userId)?.name : undefined) ?? username;
+    stampSessionManagers(agentId, [...ids], { userId, name });
+  }
+
+  // Give every killed agent that `fromUserId` managed to `to` (a member
+  // deletion, task 6a9deaba): the history entries and their sessions' manager
+  // stamps, so a revived agent warns on resume. Call it while the member's
+  // record still exists, for the name in the stamps. Returns the ids it
+  // changed.
+  function reassignKilledAgents(
+    fromUserId: string,
+    to: { userId: string; username: string },
+  ): string[] {
+    const history = loadAgentHistory();
+    const changed: string[] = [];
+    for (const [id, entry] of Object.entries(history)) {
+      if (agents.has(id) || entry.userId !== fromUserId) continue;
+      stampAgentSessions(
+        id,
+        entry.lastSessionId,
+        fromUserId,
+        entry.username ?? null,
+      );
+      history[id] = { ...entry, userId: to.userId, username: to.username };
+      changed.push(id);
+    }
+    if (changed.length > 0) saveAgentHistory(history);
+    return changed;
+  }
+
   // Manager-wide drain bound. _testSetConsumerDrainTimeout writes it and every
   // SessionManager reads it through deps.getConsumerDrainTimeoutMs; the
   // constant and its rationale live in server/session-manager.ts.
@@ -10239,10 +10340,12 @@ export function createAgentManager(deps: ManagerDeps) {
     // reset the automatic handoff runs: the fresh conversation gets its
     // notice, its member line and the loop guard.
     // `typed` marks the typed /clear: no "New conversation started." line.
+    // `notice` replaces that line (a manager transfer says who changed what).
     opts?: {
       handoff?: boolean;
       autoHandoff?: AutoHandoffPhase;
       typed?: boolean;
+      notice?: string;
     },
   ) {
     const managed = agents.get(agentId);
@@ -10344,7 +10447,8 @@ export function createAgentManager(deps: ManagerDeps) {
           "system",
           opts?.autoHandoff
             ? autoHandoffLine(agentId, opts.autoHandoff, "done")
-            : logWords(agentId)("systemEntries.newConversation"),
+            : (opts?.notice ??
+                logWords(agentId)("systemEntries.newConversation")),
         );
       if (!opts?.handoff) addQueueCarriedLine(agentId, managed, carried);
       // Last statement: close the live session and drain its consumer, leaving the
@@ -11190,6 +11294,21 @@ export function createAgentManager(deps: ManagerDeps) {
           label: restoredTopic || sessionId.slice(0, 8) + "...",
         }),
       );
+      // A session born under an earlier manager still runs on that member's
+      // connections (a Claude session is pinned to its config directory). A
+      // session of an agent that had no manager ran on the office's.
+      const bornUnder = getSessionManager(agentId, sessionId)?.userId;
+      if (bornUnder && bornUnder !== managed.info.userId)
+        addLogEntry(
+          agentId,
+          "system",
+          logWords(agentId)("systemEntries.sessionPreviousManager", {
+            name:
+              getUserById(bornUnder)?.name ??
+              getSessionManager(agentId, sessionId)?.name ??
+              bornUnder,
+          }),
+        );
       addQueueCarriedLine(agentId, managed, carried);
 
       // No topic: fill it now, as the /resume two-step flow above does.
@@ -11941,6 +12060,8 @@ export function createAgentManager(deps: ManagerDeps) {
     getAgentDisplay,
     editAgent,
     setPrivileged,
+    setManager,
+    reassignKilledAgents,
     swapDesks,
     createRoom,
     closeRoom,

@@ -257,6 +257,16 @@ export interface AgentsDeps {
     agentId: string,
     privileged: boolean,
   ): Promise<AgentInfo | null>;
+  // Gives the agent a new manager (task 6a9deaba): the agent's fields and
+  // token, a fresh conversation, and the apps, schedules and webhooks it made.
+  // Authorization (an office owner by cookie session) is the route guard's
+  // job. changedBy: the caller's display name, for the chat line. Null for a
+  // killed or unknown agent; "unknown_member" when no member has that id.
+  setManager(
+    agentId: string,
+    userId: string,
+    changedBy: string,
+  ): Promise<AgentInfo | null | "unknown_member">;
   // Live AgentInfo lookup for the instructions read. The
   // agentParam guard already gated existence + room access, so a miss here is
   // a post-guard race (-> defensive 404).
@@ -615,6 +625,24 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         return fail(status, r.reason, r.message);
       }
       return ok({ agent: r.agent });
+    },
+
+    "agents.setManager": async (ctx) => {
+      // Gated to an office owner by cookie session; the heavy lifting (fields,
+      // token, fresh conversation, what the agent made) is the office's.
+      const b = (ctx.body ?? {}) as { userId?: unknown };
+      if (typeof b.userId !== "string" || b.userId.length === 0) {
+        return fail(422, "invalid_request", "userId (string) is required");
+      }
+      const r = await deps.setManager(
+        ctx.params.id,
+        b.userId,
+        deps.attributionFor(ctx.identity).createdBy,
+      );
+      if (r === "unknown_member")
+        return fail(422, "unknown_member", "No member has this id");
+      if (!r) return fail(404, "agent_not_found", "Agent not found");
+      return ok({ agent: r });
     },
 
     "agents.setPrivileged": async (ctx) => {

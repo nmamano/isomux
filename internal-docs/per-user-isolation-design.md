@@ -7,7 +7,7 @@ This document covers the design for closing the cross-member credential-leak gap
 ## Terminology
 
 - **Office owner**: the user holding the office-owner role from the auth system. Has admin authority over the whole office. Typically a single human per office.
-- **Manager** (of an agent): the user who controls a specific agent. Set at spawn time and **immutable** for the agent's lifetime. Drives the agent's managed variable loading and its system-prompt user section. Stored as `userId` on `AgentInfo` / `PersistedAgent`.
+- **Manager** (of an agent): the user who controls a specific agent. Set at spawn time; only an office owner can change it, and a deleted member's agents pass to the oldest office owner (internal-docs/agent-manager-design.md). Drives the agent's managed variable loading and its system-prompt user section. Stored as `userId` on `AgentInfo` / `PersistedAgent`.
 - **Member**: a user with the member role from the auth system. Can manage their own agents but cannot administer the office.
 - **Personal folder**: a per-user top-level directory under `~/` (the host running-user's home) that the user designates as their workspace. Used by the privacy ACL - cross-user agents are denied access to it. Opt-in; users without one have no carve-out (solo-dev default).
 
@@ -34,7 +34,7 @@ This document covers the design for closing the cross-member credential-leak gap
 **Closed by this design**:
 - Goals 1, 2, 3: by the per-agent forbiddenRoots ACL at the application layer (Claude SDK PreToolUse + HTTP endpoints). Goals 1 and 2 fully closed only after bwrap (Phase B) lands, since autonomous bash-tool walks of the FS bypass the application layer.
 - Goal 4: by adding path-deny checks to the HTTP file-affordance endpoints (today they have none).
-- Goal 5: by making the manager field immutable post-spawn (live as of commit `cb9fa3c`).
+- Goal 5: by setting the manager field at spawn from the authenticated identity (live as of commit `cb9fa3c`). Since task 6a9deaba only an office owner, by cookie session, can change it (internal-docs/agent-manager-design.md).
 
 **Accepted residual risk**:
 - **"Trust users" model**: a member's agent could still walk the filesystem via its bash tool and read past the application-layer deny-list. Closed by bwrap (Phase B) on Linux. On macOS this gap is permanent unless a `sandbox-exec` backend is built.
@@ -47,12 +47,12 @@ This document covers the design for closing the cross-member credential-leak gap
 
 Every agent has:
 
-- `userId: string | null` - the manager. Set at spawn from the spawning user; immutable. Drives `buildEnvForUserId` (managed variable selection at spawn/resume/cronjob-fire) and appears in the agent's system prompt user section.
+- `userId: string | null` - the manager. Set at spawn from the spawning user; an office owner can change it (internal-docs/agent-manager-design.md). Drives `buildEnvForUserId` (managed variable selection at spawn/resume/cronjob-fire) and appears in the agent's system prompt user section.
 - `username: string | null` - display snapshot of the manager's name at spawn time. Goes stale on rename; not authoritative for any behavior. Kept for UI/audit purposes.
 
 Both null on legacy unowned agents that pre-date the user/device split.
 
-The manager-as-immutable-spawn-stamp framing replaces an earlier design that exposed manager reassignment via `edit_agent`. Reassignment was dropped because (a) the field's powers in main today are env-source-selection and display only; (b) handoff use cases are rare and serviceable by killing the agent and respawning under the new manager.
+The manager-as-spawn-stamp framing replaced an earlier design that exposed manager reassignment via `edit_agent`. Reassignment came back in task 6a9deaba as its own owner-only route (`agents.setManager`), not as an edit field.
 
 ### Per-user `privateFolder` field
 
@@ -131,7 +131,7 @@ The slices land in this order:
 
 | Layer | Linux | macOS |
 |---|---|---|
-| Manager field (immutable) | ✓ | ✓ |
+| Manager field (set at spawn, owner-only change) | ✓ | ✓ |
 | Personal folder field + validation | ✓ | ✓ |
 | forbiddenRootsForAgent (application layer) | ✓ | ✓ |
 | Claude PreToolUse per-agent hook | ✓ | ✓ |

@@ -1372,7 +1372,9 @@ Coses que pots fer per ell:
   "dialogs.agent.recent": "Recents",
   "dialogs.agent.manager": "Responsable",
   "dialogs.agent.managerTitle":
-    "Es fixa en crear l'agent - el responsable no es pot canviar després.",
+    "Només un propietari de l'oficina pot canviar el responsable.",
+  "dialogs.agent.managerRestart": "En desar comença una conversa nova.",
+  "dialogs.agent.managerNoRoomAccess": "{name} no té accés a aquesta sala.",
   "dialogs.agent.managerNoUser": "(cap membre assignat)",
   "dialogs.agent.managerUnowned": "(sense propietari)",
   "dialogs.agent.managerHint":
@@ -2664,6 +2666,8 @@ Coses que pots fer per ell:
   "choices.permission.denyByMessage":
     "O escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
   "systemEntries.newConversation": "Conversa nova iniciada.",
+  "systemEntries.managerChanged":
+    "{actor} ha fet responsable {member}. Conversa nova iniciada.",
   "systemEntries.autoHandoff.writingTokens":
     "El context és a {thousands}k tokens. S'està escrivint un resum de traspàs per a una sessió nova.",
   "systemEntries.autoHandoff.writingPercent":
@@ -2820,6 +2824,8 @@ Coses que pots fer per ell:
   "systemEntries.permissionResolveFailed":
     "No s'ha pogut resoldre el permís: {error}",
   "systemEntries.resumedSession": "Sessió represa: {label}",
+  "systemEntries.sessionPreviousManager":
+    "Aquesta sessió encara té {name} com a responsable i fa servir les seves connexions.",
   "systemEntries.resumeFailed":
     "No s'ha pogut reprendre: {error}\nEscriu /clear per començar de zero, o /resume per triar una altra sessió.",
   "systemEntries.resumeCancelled": "Represa cancel·lada.",

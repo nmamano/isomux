@@ -1145,6 +1145,18 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["agent:privilege"],
     emits: ["agent_updated"],
   },
+  // A transfer clears the chat and moves the apps, schedules and webhooks
+  // the agent made (task 6a9deaba).
+  "agents.setManager": {
+    caps: ["agent:privilege"],
+    emits: [
+      "agent_updated",
+      "clear_logs",
+      "app_upserted",
+      "cronjob_updated",
+      "webhook_upserted",
+    ],
+  },
   "agents.move": { caps: ["agent:manage"], emits: ["agent_updated"] },
   "agents.setTopic": { caps: ["agent:manage"], emits: ["agent_updated"] },
   "agents.regenerateTopic": {

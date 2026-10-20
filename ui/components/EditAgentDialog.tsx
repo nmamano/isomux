@@ -46,6 +46,7 @@ import type {
   SpawnReq,
   EditAgentReq,
   SetPrivilegedReq,
+  SetManagerReq,
   ReviveReq,
 } from "../../shared/contract-shapes.ts";
 import { useAppState } from "../store.tsx";
@@ -295,6 +296,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     sessionContext,
     killedAgents,
     unavailableEngines,
+    users,
   } = useAppState();
   // The name a spawn gets when the member leaves it empty.
   const defaultSpawnName =
@@ -392,6 +394,26 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // PUT /api/agents/:id/privileged route (never the spawn/edit PATCH), so an
   // agent can't self-confer. At spawn we two-step: create, then toggle.
   const [privileged, setPrivileged] = useState(agent?.privileged ?? false);
+  // Manager transfer (PUT /api/agents/:id/manager): an office owner only, in
+  // edit mode, mirroring the server gate. "" is an agent with no manager.
+  const canChangeManager = !isSpawn && sessionContext?.role === "owner";
+  const [managerUserId, setManagerUserId] = useState(agent?.userId ?? "");
+  const managerChanged =
+    canChangeManager &&
+    managerUserId !== "" &&
+    managerUserId !== (agent!.userId ?? "");
+  const managerChoices = [...users.values()].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+  // A member without a grant for the agent's room: the agent loses its room
+  // reach and the member does not see it. A hint, never a block (Nil,
+  // 2026-09-15). An owner reaches every room.
+  const chosenManager = managerChoices.find((u) => u.id === managerUserId);
+  const managerLacksRoom =
+    managerChanged &&
+    chosenManager?.role === "member" &&
+    chosenManager.allowedRooms !== undefined &&
+    !chosenManager.allowedRooms.includes(agent!.roomId);
   const [autoHandoff, setAutoHandoff] = useState(agent?.autoHandoff ?? false);
   const [autoHandoffTokens, setAutoHandoffTokens] = useState(() =>
     String((agent?.autoHandoffTokens ?? AUTO_HANDOFF_DEFAULT_TOKENS) / 1000),
@@ -1069,7 +1091,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // the PATCH - it re-mints the token and restarts the session like a model
       // change. Toggled independently of the other field edits.
       const privilegedChanged = privileged !== (agent!.privileged ?? false);
-      if (!hasChanges && !privilegedChanged && !mem.dirty) {
+      if (!hasChanges && !managerChanged && !privilegedChanged && !mem.dirty) {
         onClose();
         return;
       }
@@ -1082,6 +1104,14 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       const ops: Array<() => Promise<unknown>> = [];
       if (hasChanges)
         ops.push(() => apiFetch("PATCH", `/api/agents/${agent!.id}`, changes));
+      // A transfer keeps the privilege flag, so a privilege change in the same
+      // save comes after it.
+      if (managerChanged)
+        ops.push(() =>
+          apiFetch("PUT", `/api/agents/${agent!.id}/manager`, {
+            userId: managerUserId,
+          } satisfies SetManagerReq),
+        );
       if (privilegedChanged)
         ops.push(() =>
           apiFetch("PUT", `/api/agents/${agent!.id}/privileged`, {
@@ -1101,6 +1131,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.cwd ||
         changes.agentType ||
         changes.customInstructions !== undefined ||
+        managerChanged ||
         privilegedChanged ||
         mem.dirty
       ) {
@@ -2142,27 +2173,54 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   <label style={{ ...labelStyle, marginTop: 12 }}>
                     {t("dialogs.agent.manager")}
                   </label>
-                  <div
-                    title={t("dialogs.agent.managerTitle")}
-                    style={{
-                      ...inputStyle,
-                      display: "flex",
-                      alignItems: "center",
-                      color: "var(--text-muted)",
-                      fontFamily: "var(--font-ui)",
-                      textTransform: "uppercase",
-                      letterSpacing: 0.5,
-                      fontWeight: 600,
-                      cursor: "not-allowed",
-                      background: "var(--bg-elevated)",
-                    }}
-                  >
-                    {isSpawn
-                      ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
-                      : (agent!.username ??
-                        agent!.userId ??
-                        t("dialogs.agent.managerUnowned"))}
-                  </div>
+                  {canChangeManager ? (
+                    <select
+                      value={managerUserId}
+                      onChange={(e) => setManagerUserId(e.target.value)}
+                      style={{
+                        ...inputStyle,
+                        appearance: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {/* No manager, or one who is no longer a member: shown
+                          as chosen until the owner picks a member. */}
+                      {!managerChoices.some((u) => u.id === agent!.userId) && (
+                        <option value={agent!.userId ?? ""}>
+                          {agent!.username ?? t("dialogs.agent.managerUnowned")}
+                        </option>
+                      )}
+                      {managerChoices.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div
+                      title={
+                        isSpawn ? undefined : t("dialogs.agent.managerTitle")
+                      }
+                      style={{
+                        ...inputStyle,
+                        display: "flex",
+                        alignItems: "center",
+                        color: "var(--text-muted)",
+                        fontFamily: "var(--font-ui)",
+                        textTransform: "uppercase",
+                        letterSpacing: 0.5,
+                        fontWeight: 600,
+                        cursor: "not-allowed",
+                        background: "var(--bg-elevated)",
+                      }}
+                    >
+                      {isSpawn
+                        ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
+                        : (agent!.username ??
+                          agent!.userId ??
+                          t("dialogs.agent.managerUnowned"))}
+                    </div>
+                  )}
                   <p
                     style={{
                       ...dialogHint,
@@ -2170,6 +2228,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     }}
                   >
                     {t("dialogs.agent.managerHint")}
+                    {managerChanged && ` ${t("dialogs.agent.managerRestart")}`}
+                    {managerLacksRoom &&
+                      ` ${t("dialogs.agent.managerNoRoomAccess", {
+                        name: chosenManager.name,
+                      })}`}
                   </p>
                 </div>
 

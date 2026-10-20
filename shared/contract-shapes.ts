@@ -140,6 +140,12 @@ export interface SetPrivilegedReq {
   privileged: boolean;
 }
 
+// Body for agents.setManager (PUT /api/agents/:id/manager). Its own route for
+// the reason SetPrivilegedReq is: an office owner only, by cookie session.
+export interface SetManagerReq {
+  userId: string;
+}
+
 export interface MoveAgentReq {
   targetRoomId: string;
   // A free front desk, null for a back room seat, or omitted to keep the

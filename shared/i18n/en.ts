@@ -1349,8 +1349,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.beard.mustache": "Mustache",
   "dialogs.agent.recent": "Recent",
   "dialogs.agent.manager": "Manager",
-  "dialogs.agent.managerTitle":
-    "Set at spawn - manager cannot be changed after the agent is created.",
+  "dialogs.agent.managerTitle": "Only an office owner can change the manager.",
+  "dialogs.agent.managerRestart": "Saving starts a new conversation.",
+  "dialogs.agent.managerNoRoomAccess": "{name} has no access to this room.",
   "dialogs.agent.managerNoUser": "(no member assigned)",
   "dialogs.agent.managerUnowned": "(unowned)",
   "dialogs.agent.managerHint":
@@ -2633,6 +2634,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // actor - a backend event or a route call produced them - so they are worded
   // for the agent's owner (internal-docs/i18n-loop.md, S7).
   "systemEntries.newConversation": "New conversation started.",
+  "systemEntries.managerChanged":
+    "{actor} made {member} the manager. New conversation started.",
   "systemEntries.autoHandoff.writingTokens":
     "Context is at {thousands}k tokens. Writing a handoff brief for a fresh session.",
   "systemEntries.autoHandoff.writingPercent":
@@ -2784,6 +2787,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.permissionResolveFailed":
     "Failed to resolve permission: {error}",
   "systemEntries.resumedSession": "Resumed session: {label}",
+  "systemEntries.sessionPreviousManager":
+    "This session still has {name} as manager and uses their connections.",
   "systemEntries.resumeFailed":
     "Failed to resume: {error}\nType /clear to start fresh, or /resume to pick another session.",
   "systemEntries.resumeCancelled": "Resume cancelled.",

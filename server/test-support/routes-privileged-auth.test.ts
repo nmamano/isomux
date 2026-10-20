@@ -24,6 +24,7 @@ import {
   USER_CAPABILITIES,
   AGENT_CAPABILITIES,
   PRIVILEGED_AGENT_CAPABILITIES,
+  API_CAPABILITIES,
   type Identity,
 } from "../identity/index.ts";
 
@@ -446,5 +447,79 @@ describe("agents.setPrivileged: double-gated + (i-b) manager-or-owner conferral"
         unowned,
       ),
     ).toBe(true);
+  });
+});
+
+// agents.setManager (task 6a9deaba): an office owner by cookie session only
+// (Nil, 2026-09-15). A transfer hands the agent its new manager's
+// credentials, so no agent and no API token reaches it, also when its user is
+// an office owner, and a manager cannot give their own agent away.
+describe("agents.setManager: an office owner by cookie session only", () => {
+  const body = { userId: "u-new" };
+  // Every live fact that could open another branch is true: the caller's user
+  // is an office owner by the live record and manages the agent.
+  const generous = (userId: string) =>
+    deps({
+      isOfficeOwnerUserId: () => true,
+      agentManagerUserId: () => userId,
+    });
+
+  it("lets an office owner move any agent, also one with no manager", () => {
+    expect(
+      can("agents.setManager", owner, AGENT_PARAMS, body, generous("u-x")),
+    ).toBe(true);
+    expect(
+      can(
+        "agents.setManager",
+        owner,
+        AGENT_PARAMS,
+        body,
+        deps({ agentManagerUserId: () => null }),
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses a member, also the agent's own manager", () => {
+    expect(
+      can(
+        "agents.setManager",
+        member,
+        AGENT_PARAMS,
+        body,
+        deps({ agentManagerUserId: () => member.userId }),
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses every agent and an office owner's API token", () => {
+    const ownerUser = owner.userId!;
+    const ownersAgent = (capabilities: Identity["capabilities"]): Identity => ({
+      scope: "agent",
+      userId: ownerUser,
+      agentId: "a-2",
+      role: "owner",
+      capabilities,
+    });
+    const ownersApiToken: Identity = {
+      scope: "api",
+      userId: ownerUser,
+      role: "owner",
+      apiTokenId: "t-1",
+      capabilities: API_CAPABILITIES,
+    };
+    for (const identity of [
+      ownersAgent(PRIVILEGED_AGENT_CAPABILITIES),
+      ownersAgent(AGENT_CAPABILITIES),
+      ownersApiToken,
+    ])
+      expect(
+        can(
+          "agents.setManager",
+          identity,
+          AGENT_PARAMS,
+          body,
+          generous(ownerUser),
+        ),
+      ).toBe(false);
   });
 });

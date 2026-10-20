@@ -80,7 +80,9 @@ export interface UsersDeps {
   // Delete (selfOrOwner + the two delete preconditions already passed). Re-checks
   // the not-last-owner invariant atomically (TOCTOU), then deletes + evicts the
   // target's sessions + emits users_list. Missing target is an idempotent no-op.
-  delete(input: { username: string }): Promise<DeleteOutcome>;
+  // actor: the caller's display name, for the chat line of each agent the
+  // member managed (they pass to the oldest office owner).
+  delete(input: { username: string; actor: string }): Promise<DeleteOutcome>;
   attributionFor(identity: Identity): { createdBy: string };
 }
 
@@ -214,7 +216,10 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
     },
 
     "users.delete": async (ctx) => {
-      const r = await deps.delete({ username: ctx.params.username });
+      const r = await deps.delete({
+        username: ctx.params.username,
+        actor: deps.attributionFor(ctx.identity).createdBy,
+      });
       return r.ok ? noContent() : fail(r.status, r.code, r.error);
     },
   };

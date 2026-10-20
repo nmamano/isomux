@@ -804,9 +804,10 @@ export interface AgentInfo {
   // reference used for per-user env lookup (drives buildEnvFor at spawn /
   // resume / cronjob-fire time) and identifies the agent's manager - the
   // user shown in the system prompt user section and whose managed variables load
-  // on session recreate. Set at spawn and immutable: reassignment is not
-  // exposed; the spawning user remains the manager for the agent's
-  // lifetime. `username` is the matching display snapshot; goes stale
+  // on session recreate. Set at spawn; an office owner can give the agent
+  // another manager (agents.setManager), and a deleted member's agents pass
+  // to the oldest office owner. Both fields change together.
+  // `username` is the matching display snapshot; goes stale
   // across renames but isn't authoritative for any behavior. Both null
   // on legacy unowned agents that pre-date the user/device split.
   userId: string | null;
@@ -1480,6 +1481,10 @@ export interface Cronjob {
   codexSandbox?: CodexSandboxMode; // Codex only; undefined → backend default
   enabled: boolean;
   createdBy: string; // Actor that created the record (agent name or user name)
+  // The agent that created the job, when an agent did. A manager transfer
+  // moves the job with this agent (task 6a9deaba). Absent on jobs a member
+  // made and on jobs made before the field existed.
+  createdByAgentId?: string;
   // Identity reference used for per-user env at fire time. `username` is a
   // display snapshot that can go stale across renames; `userId` is the
   // stable handle for env / ownership lookups. Both null for legacy

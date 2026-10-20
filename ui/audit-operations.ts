@@ -28,6 +28,7 @@ export const AUDIT_OPERATIONS = [
   "agents.saveFile",
   "agents.sendMessage",
   "agents.sendNow",
+  "agents.setManager",
   "agents.setPrivileged",
   "agents.setTopic",
   "agents.spawn",

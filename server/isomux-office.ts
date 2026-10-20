@@ -3053,6 +3053,96 @@ function announceAppAudienceChanges(
   extensionService?.revalidate();
 }
 
+// Give a live agent a new manager (task 6a9deaba): the agent manager's core
+// mutation, then the apps, schedules and webhooks the agent made that its old
+// manager still owns. The agents.setManager route and a member deletion
+// (to the oldest office owner) both come here.
+async function transferAgentManager(
+  agentId: string,
+  toUserId: string,
+  changedBy: string,
+): Promise<AgentInfo | null | "unknown_member"> {
+  const to = getUserById(toUserId);
+  if (!to) return "unknown_member";
+  const before = agentManager.getAgent(agentId);
+  if (!before) return null;
+  const from = before.userId;
+  if (from === toUserId) return before;
+  // What the agent made and its old manager still owns. A record the agent
+  // made that a third member owns now is that member's and stays.
+  const made = (record: { createdByAgentId?: string; userId: string | null }) =>
+    record.createdByAgentId === agentId && record.userId === from;
+  const appAudienceBefore = snapshotAppVisibility(made);
+  const webhookAudienceBefore = snapshotWebhookAudience(made);
+  const info = await agentManager.setManager(
+    agentId,
+    to.id,
+    to.name,
+    changedBy,
+  );
+  if (!info) return null;
+  try {
+    for (const app of appRegistry.list().filter(made))
+      appRegistry.update(app.name, {
+        owner: { userId: to.id, username: to.name },
+      });
+  } catch (err) {
+    console.error(`[manager] the apps of ${agentId} did not move:`, err);
+  }
+  try {
+    for (const job of cronjobManager.listCronjobs())
+      if (job.userId === from && cronjobMadeBy(job, agentId))
+        cronjobManager.setCronjobOwner(job.id, to.id, to.name);
+  } catch (err) {
+    console.error(`[manager] the schedules of ${agentId} did not move:`, err);
+  }
+  try {
+    for (const hook of webhookRegistry.list().filter(made))
+      webhookRegistry.setOwner(hook.id, to.id, to.name);
+  } catch (err) {
+    console.error(`[manager] the webhooks of ${agentId} did not move:`, err);
+  }
+  announceAppAudienceChanges(appAudienceBefore);
+  announceWebhookAudienceChanges(webhookAudienceBefore);
+  // An app reads only its owner's member secrets: the old manager's leave
+  // it, and a running app whose file changed restarts.
+  appSecrets.syncNow();
+  return agentManager.getAgent(agentId) ?? info;
+}
+
+// Whether `agentId` made the job. A job made before jobs recorded their agent
+// has only the audit log's cron.create row, matched on the time too: a job id
+// is unique only among live jobs, so a deleted job's id can come back.
+function cronjobMadeBy(job: Cronjob, agentId: string): boolean {
+  if (job.createdByAgentId !== undefined)
+    return job.createdByAgentId === agentId;
+  try {
+    return (
+      officeAuditStore().list({
+        operation: "cron.create",
+        actorKind: "agent",
+        actorId: agentId,
+        targetId: job.id,
+        from: job.createdAt - CRON_AUDIT_MATCH_MS,
+        to: job.createdAt + CRON_AUDIT_MATCH_MS,
+        limit: 1,
+      }).items.length > 0
+    );
+  } catch (err) {
+    console.error("[manager] the audit log could not be read:", err);
+    return false;
+  }
+}
+const CRON_AUDIT_MATCH_MS = 10_000;
+
+// The owner who gets a deleted member's agents: the oldest office owner
+// other than the member (Nil, 2026-10-20). Ties go by id.
+function heirOwnerFor(deletedUserId: string): UserRecord | undefined {
+  return listUsers()
+    .filter((u) => u.role === "owner" && u.id !== deletedUserId)
+    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0];
+}
+
 // Assemble the executor deps for the migrated /api surface. Called from
 // startServer once the managers exist. Each resource slice registers its
 // handlers (and any precondition enforcers) here over its own slim deps bundle;
@@ -4495,7 +4585,7 @@ function buildExecutorDeps(
         announceWebhookAudienceChanges(webhookAudienceBefore);
         return { ok: true, user: result.user };
       },
-      delete: async ({ username }) => {
+      delete: async ({ username, actor }) => {
         const target = getUser(username);
         const appAudienceBefore = target
           ? snapshotAppVisibility(
@@ -4521,6 +4611,23 @@ function buildExecutorDeps(
               "This is the last owner record. Promote another user to owner first, then retry.",
           };
         }
+        // The member's agents, live and killed, pass to the oldest office
+        // owner with the apps, schedules and webhooks they made (Nil,
+        // 2026-10-20). After the 409 above, so a refused delete moves
+        // nothing; before the record goes, so the sessions' manager stamps
+        // still find the member's name. The caller can be the member.
+        if (target) {
+          const heir = heirOwnerFor(target.id);
+          if (heir) {
+            for (const agent of agentManager.getAllAgents())
+              if (agent.userId === target.id)
+                await transferAgentManager(agent.id, heir.id, actor);
+            agentManager.reassignKilledAgents(target.id, {
+              userId: heir.id,
+              username: heir.name,
+            });
+          }
+        }
         // The member's own secrets, variables and MCP servers go with them
         // (Nil's ruling, 2026-10-13), before the record: a failed delete
         // leaves the member, and a retry finishes the job.
@@ -4536,8 +4643,8 @@ function buildExecutorDeps(
         deleteUser(username);
         emitUsersList();
         if (target) {
-          // The proxy drops the secrets; the member's agents that had one
-          // restart without them after their turn.
+          // The proxy drops the secrets. The member's agents passed to the
+          // heir above, so none of them still carries the member's.
           try {
             await secretsChanged();
           } catch {
@@ -5154,6 +5261,8 @@ function buildExecutorDeps(
       },
       setPrivileged: (agentId, privileged) =>
         agentManager.setPrivileged(agentId, privileged),
+      setManager: (agentId, userId, changedBy) =>
+        transferAgentManager(agentId, userId, changedBy),
     }),
   );
   // reviveLastRoomAccess: revive needs access to BOTH the target room
