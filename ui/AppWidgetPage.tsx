@@ -34,8 +34,6 @@ const WIDGET_CSS = `
 .app-widget-launcher[aria-expanded="true"] { border-color:var(--accent); color:var(--accent-text); box-shadow:inset 0 0 0 1px var(--accent); }
 .app-widget-dock-direct { display:flex; align-items:center; justify-content:center; min-width:40px; min-height:40px; border:1px solid var(--border); border-radius:9px; background:var(--bg-surface-solid); color:var(--text-secondary); }
 .app-widget-dock-direct:hover { color:var(--text-primary); }
-.app-widget-dock-direct:has(+ .app-widget-launcher) { border-right:0; border-radius:9px 0 0 9px; }
-.app-widget-dock-direct + .app-widget-launcher { border-radius:0 9px 9px 0; }
 .app-widget .app-widget-direct { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-secondary); white-space:nowrap; }
 .app-widget-direct:hover { color:var(--text-primary); }
 .app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
@@ -216,8 +214,9 @@ export function AppWidgetPage({
     ? safariHref(appUrl + "/" + window.location.search, readSafariEnv())
     : null;
   const chatReady = !!target && !!agent;
-  // The open panel's header holds the direct link; otherwise the dock does.
-  const panelShown = chatReady && open && !state.isMobile;
+  // With a chat, only the open panel's header holds the direct link; with no
+  // chat, the dock does.
+  const dockDirect = !chatReady && directHref;
   return (
     <main
       className="app-widget"
@@ -239,12 +238,12 @@ export function AppWidgetPage({
           {t("appWidget.unavailable")}
         </p>
       )}
-      {((directHref && !panelShown) || chatReady) && (
+      {(dockDirect || chatReady) && (
         <div className="app-widget-dock">
-          {directHref && !panelShown && (
+          {dockDirect && (
             <a
               className="app-widget-dock-direct"
-              href={directHref}
+              href={dockDirect}
               target="_blank"
               rel="noopener noreferrer"
               aria-label={t("appWidget.direct")}

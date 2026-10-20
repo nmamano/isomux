@@ -535,15 +535,16 @@ it("toggles the desktop chat with its launcher, and Escape closes it", async () 
       expect(panel.style.display).toBe(expanded === "true" ? "flex" : "none");
       return expanded === "true";
     };
-    // The direct link rides on the launcher's dock while the panel is
-    // closed, and moves into the panel header while it is open.
+    // The direct link is only in the open panel's header: the closed dock
+    // holds the launcher alone (Nil, 2026-10-20).
     const direct = "https://hello.office.example/" + window.location.search;
+    const dock = view!.container.querySelector(".app-widget-dock")!;
     const dockLink = () =>
       view!.container.querySelector<HTMLAnchorElement>(".app-widget-dock a");
     const headerLink = () => panel.querySelector<HTMLAnchorElement>("header a");
     expect(isOpen()).toBe(false);
-    expect(dockLink()?.href).toBe(direct);
-    expect(dockLink()?.target).toBe("_blank");
+    expect(dock.contains(launcher)).toBe(true);
+    expect(dockLink()).toBeNull();
     fireEvent.click(launcher);
     expect(isOpen()).toBe(true);
     expect(dockLink()).toBeNull();
@@ -553,7 +554,7 @@ it("toggles the desktop chat with its launcher, and Escape closes it", async () 
     expect(panel.querySelector("header button")).toBeNull();
     fireEvent.click(launcher);
     expect(isOpen()).toBe(false);
-    expect(dockLink()?.href).toBe(direct);
+    expect(dockLink()).toBeNull();
     fireEvent.click(launcher);
     fireEvent.keyDown(panel.querySelector("textarea")!, { key: "Escape" });
     expect(isOpen()).toBe(false);
@@ -564,18 +565,20 @@ it("toggles the desktop chat with its launcher, and Escape closes it", async () 
   }
 });
 
-// The iPhone Home Screen variant: the direct link must leave the Home Screen
-// window for Safari, since that window has no Back button.
-for (const variant of [
-  "phone",
-  "no chat target",
-  "iPhone Home Screen",
+// With no expanded view the widget shows no direct link: a phone's chat
+// launcher opens the office instead. With no chat target there is no widget,
+// and the lone dock link is the way out of the frame; on the iPhone Home
+// Screen it must leave for Safari, since that window has no Back button.
+for (const [variant, phone, homeScreen] of [
+  ["phone", true, false],
+  ["phone on the iPhone Home Screen", true, true],
+  ["no chat target", false, false],
+  ["no chat target on the iPhone Home Screen", false, true],
 ] as const) {
-  it(`keeps the direct link in the bottom dock with no chat panel (${variant})`, async () => {
+  it(`shows the direct link only where no chat launcher is (${variant})`, async () => {
     sessionStorage.clear();
     const { asDevice, IPHONE_HOME_SCREEN } =
       await import("./test-support/ios-home-screen.ts");
-    const homeScreen = variant === "iPhone Home Screen";
     const undo = homeScreen ? asDevice(IPHONE_HOME_SCREEN) : () => {};
     const { StateCtx, initialState } = await import("./store.tsx");
     const settings = (
@@ -589,10 +592,7 @@ for (const variant of [
       ...boot,
       appUrl: "https://hello.office.example",
       sessionExpiresAt: Date.now() + 1000000,
-      chat:
-        variant === "no chat target"
-          ? null
-          : { agentId: agent.id, agentName: agent.name },
+      chat: phone ? { agentId: agent.id, agentName: agent.name } : null,
     }));
     let view: ReturnType<typeof render> | undefined;
     try {
@@ -603,7 +603,7 @@ for (const variant of [
               ...initialState,
               agents: [agent],
               connected: true,
-              isMobile: variant !== "no chat target",
+              isMobile: phone,
             }}
           >
             <AppWidgetPage boot={boot} />
@@ -612,6 +612,12 @@ for (const variant of [
       });
       const dock = view!.container.querySelector(".app-widget-dock")!;
       const links = view!.container.querySelectorAll<HTMLAnchorElement>("a");
+      expect(view!.container.querySelector("#app-widget-chat")).toBeNull();
+      expect(dock.querySelector(".app-widget-launcher") !== null).toBe(phone);
+      if (phone) {
+        expect(links).toHaveLength(0);
+        return;
+      }
       expect(links).toHaveLength(1);
       expect(dock.contains(links[0])).toBe(true);
       expect(links[0].getAttribute("href")).toBe(
@@ -620,10 +626,6 @@ for (const variant of [
           window.location.search,
       );
       expect(links[0].getAttribute("aria-label")).toBeTruthy();
-      expect(view!.container.querySelector("#app-widget-chat")).toBeNull();
-      expect(dock.querySelector(".app-widget-launcher") !== null).toBe(
-        variant !== "no chat target",
-      );
     } finally {
       view?.unmount();
       settings.disableIframePageLoading = iframeLoading;
