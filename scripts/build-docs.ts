@@ -93,6 +93,7 @@ const NAV_ORDER = [
   "access-and-invites",
   "llm-providers",
   "security-audit",
+  "data-retention",
 ];
 
 function slugify(filename: string): string {

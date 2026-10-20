@@ -9,3 +9,5 @@ description: Choose a complete guide for hosted Isomux, a cloud server, your own
 Follow the diagram to open the guide for your setup.
 
 <!-- hosting-navigation -->
+
+To erase an office's data, see [Data retention and deletion](data-retention.md).

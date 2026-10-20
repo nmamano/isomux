@@ -269,7 +269,8 @@ office's operating-system account.
 
 Isomux keeps seven daily backups of its state on the same data disk. These do
 not cover the complete home and workspace directories. Keep separate snapshots
-of the complete EBS volume for recovery from disk loss.
+of the complete EBS volume for recovery from disk loss. To erase office data,
+see [Data retention and deletion](https://isomux.com/docs/data-retention).
 
 For source builds, custom deployments, and technical details, see the
 [container reference](reference.md).
