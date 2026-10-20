@@ -168,11 +168,12 @@ export function claudeOfficeProbe(
   };
 }
 
-// A standalone Codex app-server on the office CODEX_HOME.
+// A standalone Codex app-server on the office CODEX_HOME. It reads the plan
+// of the stored sign-in, so an office OPENAI_API_KEY does not sign it in.
 export function codexOfficeProbe(
   env: Record<string, string | undefined>,
 ): OfficeUsageProbe {
-  const client = new JsonRpcLiteClient({ env });
+  const client = new JsonRpcLiteClient({ env, envApiKeyLogin: false });
   let started: Promise<void> | null = null;
   return {
     async read() {

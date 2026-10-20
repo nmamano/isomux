@@ -39,7 +39,8 @@ export class CodexAccountClient {
   private completed: AccountLoginCompletedNotification | null = null;
 
   constructor(env?: Record<string, string | undefined>) {
-    this.client = new JsonRpcLiteClient({ env });
+    // The card reads and writes the stored sign-in, never the env key.
+    this.client = new JsonRpcLiteClient({ env, envApiKeyLogin: false });
     this.client.onNotification((n: JsonRpcNotification) => {
       if (n.method === "account/login/completed") {
         const completed = n.params as AccountLoginCompletedNotification;

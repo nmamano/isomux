@@ -2851,6 +2851,8 @@ Coses que pots fer per ell:
     "Per iniciar la sessió a Codex, fes clic a [Copia a la terminal] a la targeta de sota:\n\n- `{command} login --device-auth`\n\nPrem Retorn per executar-lo, segueix les indicacions i després fes servir `/clear` en aquesta conversa per aplicar la nova autenticació. Els altres agents de Codex l'apliquen al seu proper `/clear`.\n\nAlternativa: afegeix `OPENAI_API_KEY` a la pàgina Integracions (pestanya Variables) i després fes servir `/clear`.",
   "systemEntries.loginInstructions.codexSignedIn":
     "Codex té la sessió iniciada. Escriu `/clear` per renovar la sessió d'aquest agent i aplicar la nova autenticació.",
+  "systemEntries.loginInstructions.codexKeyRejected":
+    "Codex ha rebutjat `OPENAI_API_KEY`. Corregeix o elimina aquesta clau a la pàgina Integracions i després fes servir `/clear`.",
   "systemEntries.loginInstructions.openCode":
     "Afegeix `OPENCODE_API_KEY` a la pàgina Integracions (pestanya Variables) i després fes servir `/clear`, o fes servir un agent amb el motor Claude o Codex.",
   "systemEntries.codexTokenRefresh":

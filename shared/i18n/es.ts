@@ -2850,6 +2850,8 @@ Cosas que puedes hacer por él:
     "Para iniciar sesión en Codex, haz clic en [Copiar en la terminal] en la tarjeta de abajo:\n\n- `{command} login --device-auth`\n\nPulsa Intro para ejecutarlo, sigue las indicaciones y luego usa `/clear` en esta conversación para aplicar la nueva autenticación. Los demás agentes de Codex la aplican en su próximo `/clear`.\n\nAlternativa: añade `OPENAI_API_KEY` en la página Integraciones (pestaña Variables) y luego usa `/clear`.",
   "systemEntries.loginInstructions.codexSignedIn":
     "Codex tiene la sesión iniciada. Escribe `/clear` para renovar la sesión de este agente y aplicar la nueva autenticación.",
+  "systemEntries.loginInstructions.codexKeyRejected":
+    "Codex rechazó `OPENAI_API_KEY`. Corrige o elimina esa clave en la página Integraciones y luego usa `/clear`.",
   "systemEntries.loginInstructions.openCode":
     "Añade `OPENCODE_API_KEY` en la página Integraciones (pestaña Variables) y luego usa `/clear`, o usa un agente con el motor Claude o Codex.",
   "systemEntries.codexTokenRefresh":

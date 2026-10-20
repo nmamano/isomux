@@ -138,8 +138,9 @@ export function withIsomuxCodexHome(
 // walkthrough at a user who's already done their part.
 //
 // Two positive signals, either is enough:
-//   1. OPENAI_API_KEY in the agent's effective env - env-var auth bypasses
-//      auth.json entirely. Caller passes the agent's resolved env
+//   1. OPENAI_API_KEY in the agent's effective env - the app-server client
+//      signs in with it over JSON-RPC and ignores auth.json (client.ts
+//      envApiKeyLogin). Caller passes the agent's resolved env
 //      (process.env + office variables + managed personal variables, in override order);
 //      defaults to process.env if no env supplied.
 //   2. auth.json exists in the agent's effective CODEX_HOME (a managed
@@ -160,8 +161,8 @@ export function isCodexAuthenticated(env?: {
   return existsSync(join(codexHome, "auth.json"));
 }
 
-// Signal 1 alone. After Codex rejects a stored sign-in, auth.json is still on
-// disk but proves nothing.
+// Signal 1 alone: after a rejection, it tells a wrong key from a dead stored
+// sign-in (auth.json is still on disk but proves nothing).
 export function hasCodexApiKey(env?: {
   [key: string]: string | undefined;
 }): boolean {

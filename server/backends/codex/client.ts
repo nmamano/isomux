@@ -99,6 +99,13 @@ export interface JsonRpcLiteClientOptions {
   // malformed, missing, or untrusted hooks. Production callers must never set
   // this; the default keeps every new spawn site protected by construction.
   skipSafetyPreflightForTestProbe?: boolean;
+  // Codex 0.160 reads no API key from its env (task 5e0917f3). With
+  // OPENAI_API_KEY in the env, the app-server keeps its logins in memory only
+  // and initialize() signs it in with the key, so the key wins over a stored
+  // sign-in and never lands in a shared CODEX_HOME. Clients that must read
+  // or write the stored sign-in (the sign-in card, the office plan probe)
+  // pass false.
+  envApiKeyLogin?: boolean;
 }
 
 export type NotificationHandler = (notification: JsonRpcNotification) => void;
@@ -137,6 +144,8 @@ export class JsonRpcLiteClient {
     signal: NodeJS.Signals | null;
   } | null = null;
   private initialized = false;
+  // The key initialize() signs in with; set by start().
+  private envApiKey: string | null = null;
 
   private notificationHandlers = new Set<NotificationHandler>();
   private serverRequestHandlers: ServerRequestHandler[] = [];
@@ -171,10 +180,21 @@ export class JsonRpcLiteClient {
     }
     // Analytics starts with the App Server, before thread config overrides.
     // A launch override also covers per-user CODEX_HOME without file writes.
+    const baseArgs = this.opts.args ?? ["app-server", "--listen", "stdio://"];
+    const envApiKey = effectiveEnv.OPENAI_API_KEY;
+    this.envApiKey =
+      this.opts.envApiKeyLogin !== false &&
+      baseArgs[0] === "app-server" &&
+      envApiKey
+        ? envApiKey
+        : null;
     const codexArgs = [
-      ...(this.opts.args ?? ["app-server", "--listen", "stdio://"]),
+      ...baseArgs,
       "-c",
       "analytics.enabled=false",
+      ...(this.envApiKey
+        ? ["-c", 'cli_auth_credentials_store="ephemeral"']
+        : []),
     ];
     let bin: string;
     let spawnArgs: string[];
@@ -288,6 +308,24 @@ export class JsonRpcLiteClient {
     );
     this.initialized = true;
     this.notify("initialized", {});
+    const apiKey = this.envApiKey;
+    if (apiKey) {
+      // Codex refuses an API-key login only by its own config (a bad key
+      // fails at the first turn instead). Its reason must not echo the key,
+      // so the new error carries no cause.
+      const refusal = await this.request("account/login/start", {
+        type: "apiKey",
+        apiKey,
+      }).then(
+        () => null,
+        (err: unknown) =>
+          errMessage(err).replaceAll(apiKey, "[OPENAI_API_KEY]"),
+      );
+      if (refusal !== null)
+        throw new Error(
+          `Codex refused to sign in with OPENAI_API_KEY: ${refusal}`,
+        );
+    }
     return response;
   }
 

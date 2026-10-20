@@ -16,6 +16,7 @@ import { join } from "path";
 
 import { claudeBackend } from "./claude.ts";
 import { codexBackend } from "./codex/adapter.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 import {
   codexWrapperCommandForShell,
   isCodexAuthenticated,
@@ -103,8 +104,9 @@ describe("getLoginInstructions - already-authed short-circuit", () => {
 
 // A dead Codex refresh token leaves auth.json on disk (task 1403b454). Once
 // Codex has rejected it, auth.json is no proof of a sign-in: the member gets
-// the same walkthrough as a signed-out one. An env key and a typed /login keep
-// the /clear hint.
+// the same walkthrough as a signed-out one. A typed /login keeps the /clear
+// hint. A rejected OPENAI_API_KEY wins over any sign-in, so the member must
+// fix or remove the key (task 5e0917f3): no /clear hint, no sign-in commands.
 describe("codexBackend after the engine rejected its credentials", () => {
   const signedOut = () =>
     codexBackend.getLoginInstructions({
@@ -124,19 +126,32 @@ describe("codexBackend after the engine rejected its credentials", () => {
     expect(r).toEqual(expected);
   });
 
-  for (const [name, env, credentialsRejected] of [
-    ["auth.json on a typed /login", { OPENAI_API_KEY: "" }, undefined],
-    ["OPENAI_API_KEY", { OPENAI_API_KEY: "sk-test" }, true],
-  ] as const) {
-    it(`${name}: the /clear hint`, async () => {
-      const r = await codexBackend.getLoginInstructions({
-        env: { ...env, CODEX_HOME: tempCodexHome(true) },
-        credentialsRejected,
-      });
-      expect(r.kind).toBe("already_authed");
-      expect(r.commands).toBeUndefined();
+  it("auth.json on a typed /login: the /clear hint", async () => {
+    const r = await codexBackend.getLoginInstructions({
+      env: { OPENAI_API_KEY: "", CODEX_HOME: tempCodexHome(true) },
     });
-  }
+    expect(r.kind).toBe("already_authed");
+    expect(r.commands).toBeUndefined();
+  });
+
+  it("a rejected OPENAI_API_KEY: fix the key, with no /clear loop and no sign-in", async () => {
+    for (const signedIn of [true, false]) {
+      const r = await codexBackend.getLoginInstructions({
+        env: { OPENAI_API_KEY: "sk-test", CODEX_HOME: tempCodexHome(signedIn) },
+        credentialsRejected: true,
+      });
+      expect(r).toEqual({
+        kind: "login",
+        cardEligible: false,
+        text: translatorFor("en").t(
+          "systemEntries.loginInstructions.codexKeyRejected",
+        ),
+      });
+      expect(r.text).not.toBe(
+        translatorFor("en").t("systemEntries.loginInstructions.codexSignedIn"),
+      );
+    }
+  });
 });
 
 describe("claudeBackend terminal sign-in", () => {

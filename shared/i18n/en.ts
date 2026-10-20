@@ -2816,6 +2816,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "To sign in to Codex, click [Copy to terminal] on the card below:\n\n- `{command} login --device-auth`\n\nPress Enter to run, follow the prompts, then `/clear` this conversation to apply the new auth. Other codex agents apply on their next `/clear`.\n\nAlternative: add `OPENAI_API_KEY` on the Integrations page (Variables tab), then `/clear`.",
   "systemEntries.loginInstructions.codexSignedIn":
     "Codex is signed in. Type `/clear` to refresh this agent's session and pick up the new auth.",
+  "systemEntries.loginInstructions.codexKeyRejected":
+    "Codex rejected `OPENAI_API_KEY`. Fix or remove it on the Integrations page, then `/clear`.",
   "systemEntries.loginInstructions.openCode":
     "Add `OPENCODE_API_KEY` on the Integrations page (Variables tab), then `/clear`, or use an agent with the Claude or Codex backend.",
   "systemEntries.codexTokenRefresh":

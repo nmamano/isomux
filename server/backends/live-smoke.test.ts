@@ -18,8 +18,8 @@
 // preload, so provider auth must come from the ambient env, not ~/.isomux):
 //   - Claude: a logged-in `claude` (~/.claude/.credentials.json) or
 //     ANTHROPIC_API_KEY in the shell env.
-//   - Codex: OPENAI_API_KEY in the shell env (env-var auth bypasses the codex
-//     auth.json, which would otherwise resolve under the temp home).
+//   - Codex: OPENAI_API_KEY in the shell env (the app-server client signs in
+//     with it; a codex auth.json would resolve under the temp home).
 // Run, e.g.:
 //   OPENAI_API_KEY=sk-... ISOMUX_TEST_LIVE=1 bun test server/backends/live-smoke.test.ts
 import { afterAll, describe, expect, it } from "bun:test";

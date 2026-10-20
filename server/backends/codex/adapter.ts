@@ -3836,16 +3836,22 @@ export const codexBackend: Backend = {
     credentialsRejected?: boolean;
   }): Promise<LoginInstructions> {
     const words = opts?.words ?? translatorFor("en").t;
+    // After a rejection, an OPENAI_API_KEY in env is what Codex used (it wins
+    // over a stored sign-in), so the key is wrong: neither a /clear nor a
+    // sign-in helps until the member fixes or removes it.
+    if (opts?.credentialsRejected && hasCodexApiKey(opts.env)) {
+      return {
+        kind: "login",
+        cardEligible: false,
+        text: words("systemEntries.loginInstructions.codexKeyRejected"),
+      };
+    }
     // Signed in already (auth.json present, or OPENAI_API_KEY in env): the
     // session predates the login, so a /clear is all the member needs.
-    // After a rejection only the key counts: Codex re-reads auth.json before
-    // it gives up on a 401, so a failing session already holds what is on
-    // disk, and a dead token stays there.
-    if (
-      opts?.credentialsRejected
-        ? hasCodexApiKey(opts.env)
-        : isCodexAuthenticated(opts?.env)
-    ) {
+    // After a rejection auth.json proves nothing: Codex re-reads it before it
+    // gives up on a 401, so a failing session already holds what is on disk,
+    // and a dead token stays there.
+    if (!opts?.credentialsRejected && isCodexAuthenticated(opts?.env)) {
       return {
         kind: "already_authed",
         cardEligible: false,

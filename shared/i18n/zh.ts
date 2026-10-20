@@ -2554,6 +2554,8 @@ App 的一些原则：
     "要登录 Codex，请点击下方卡片上的 [复制到终端]：\n\n- `{command} login --device-auth`\n\n按 Enter 运行并按提示操作，然后在此对话中输入 `/clear` 以使用新的身份验证。其他 Codex 智能体会在下次 `/clear` 时生效。\n\n也可以在「集成」页面（「变量」标签页）添加 `OPENAI_API_KEY`，然后输入 `/clear`。",
   "systemEntries.loginInstructions.codexSignedIn":
     "Codex 已登录。输入 `/clear` 刷新此智能体的会话，以使用新的身份验证。",
+  "systemEntries.loginInstructions.codexKeyRejected":
+    "Codex 拒绝了 `OPENAI_API_KEY`。请在「集成」页面修正或删除该密钥，然后输入 `/clear`。",
   "systemEntries.loginInstructions.openCode":
     "请在「集成」页面（「变量」标签页）添加 `OPENCODE_API_KEY`，然后输入 `/clear`，或改用 Claude 或 Codex 引擎的智能体。",
   "systemEntries.codexTokenRefresh":
