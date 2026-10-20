@@ -1046,6 +1046,7 @@ export interface LogEntry {
     | "system"
     | "user_message"
     | "api_token_outbound"
+    | "agent_outbound"
     | "diff"
     | "edit-request"
     | "terminal-command"

@@ -135,7 +135,6 @@ describe("inbound message height", () => {
       message("boss", { username: "Nil" }),
       message("reply", {}, "text"),
       message("cron", { sender_cronjob_name: "Nightly" }),
-      message("outgoing", {}, "api_token_outbound"),
     ];
     const view = render(mount(logs));
     const buttons = view.getAllByRole("button", { name: "Expand message" });
@@ -158,7 +157,7 @@ describe("inbound message height", () => {
     expect(
       view.getAllByRole("button", { name: "Expand message" }),
     ).toHaveLength(2);
-    for (const id of ["boss", "cron", "outgoing"])
+    for (const id of ["boss", "cron"])
       expect(
         view.getByText(`Long ${id} message`).parentElement!.parentElement!.style
           .maxHeight,

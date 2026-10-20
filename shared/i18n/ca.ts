@@ -1760,8 +1760,6 @@ Coses que pots fer per ell:
   "common.sender.webhook": "{name} · webhook",
   "cards.userMessage.expand": "Expandeix el missatge",
   "cards.userMessage.collapse": "Contrau el missatge",
-  "cards.userMessage.toRemoteBoss": "Al membre remot",
-  "cards.userMessage.toRemoteBossNamed": 'Al membre remot "{name}"',
   "cards.userMessage.editAndBranch": "Edita i ramifica",
   "cards.failedEdit.restore": "Recupera el text",
   "cards.thinking.label": "Pensant...",

@@ -99,6 +99,10 @@ export interface ScheduledMessageManagerDeps {
   // Best-effort failure notice into the SENDER's chat (production: a system
   // log entry - member-visible, burns no turn). Failures here are swallowed.
   notifySender(senderAgentId: string, text: string): void;
+  // Sender-side record of a delivered scheduled message (production:
+  // agentManager.addAgentOutbound), so the sender's log search finds it.
+  // Best-effort like notifySender.
+  recordSent(entry: ScheduledMessageEntry, messageId: string | undefined): void;
   persistence: ScheduledMessagesPersistence;
   clock: ScheduledMessagesClock;
   scheduler: ScheduledMessagesScheduler;
@@ -358,6 +362,17 @@ export function createScheduledMessageManager(
     }
   }
 
+  function recordSent(entry: ScheduledMessageEntry, messageId?: string) {
+    try {
+      deps.recordSent(entry, messageId);
+    } catch (err) {
+      console.error(
+        "Failed to record a fired scheduled message in the sender's log:",
+        errMessage(err),
+      );
+    }
+  }
+
   function notify(senderAgentId: string, text: string) {
     try {
       deps.notifySender(senderAgentId, text);
@@ -403,6 +418,9 @@ export function createScheduledMessageManager(
         if (result.ok) {
           // Enqueue-then-persist-removal (at-least-once; see header).
           removeAndPersistBestEffort(entry);
+          // After the removal: a throw before it would re-fire the entry.
+          if (!senderGone && entry.senderAgentId !== entry.receiverAgentId)
+            recordSent(entry, result.messageId);
           continue;
         }
         if (result.status === 404) {

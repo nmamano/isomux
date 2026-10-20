@@ -76,6 +76,13 @@ function makeWorld(over: Partial<ScheduledMessageManagerDeps> = {}) {
     messageId: "q1",
   });
   const notices: { senderAgentId: string; text: string }[] = [];
+  // Each recordSent call, with whether the entry was still persisted then.
+  const recorded: {
+    entry: ScheduledMessageEntry;
+    messageId: string | undefined;
+    stillPersisted: boolean;
+  }[] = [];
+  let recordThrows = false;
   const store = {
     saved: [] as ScheduledMessageEntry[],
     saveCount: 0,
@@ -91,6 +98,14 @@ function makeWorld(over: Partial<ScheduledMessageManagerDeps> = {}) {
     getAgentDisplay: (id) => agents.get(id) ?? null,
     notifySender: (senderAgentId, text) => {
       notices.push({ senderAgentId, text });
+    },
+    recordSent: (entry, messageId) => {
+      recorded.push({
+        entry: { ...entry },
+        messageId,
+        stillPersisted: store.saved.some((e) => e.id === entry.id),
+      });
+      if (recordThrows) throw new Error("log write failed");
     },
     persistence: {
       load: () => [...store.saved],
@@ -115,6 +130,10 @@ function makeWorld(over: Partial<ScheduledMessageManagerDeps> = {}) {
       enqueueResult = fn;
     },
     notices,
+    recorded,
+    setRecordThrows: (v: boolean) => {
+      recordThrows = v;
+    },
     store,
     setNow: (t: number) => {
       now = t;
@@ -586,6 +605,88 @@ describe("firing (tick)", () => {
     w.setNow(IN_1H + 1);
     tick();
     expect(w.enqueueCalls).toHaveLength(1);
+  });
+});
+
+// The sender-side record of a fired message (task 40b82508): the sender's log
+// search finds what it sent. The record is best-effort and must never change
+// delivery: a throw before the removal is persisted would re-fire the entry.
+describe("firing: the record in the sender's log", () => {
+  it("records a delivered message once, with its queue id, after the removal is persisted", () => {
+    const w = makeWorld();
+    const m = createScheduledMessageManager(w.deps);
+    const entry = scheduleOk(m, { text: "check the build" });
+    w.setEnqueueResult(() => ({ ok: true, queued: true, messageId: "q7" }));
+    w.setNow(IN_1H + 1);
+    const tick = makeTicker(m, w.sched);
+    tick();
+    tick();
+    expect(w.recorded).toHaveLength(1);
+    expect(w.recorded[0]).toEqual({
+      entry,
+      messageId: "q7",
+      stillPersisted: false,
+    });
+  });
+
+  it("records nothing while delivery is retried or after the entry is dropped", () => {
+    const w = makeWorld();
+    const m = createScheduledMessageManager(w.deps);
+    scheduleOk(m);
+    w.setEnqueueResult(() => ({
+      ok: false,
+      error: "agent_stopped",
+      status: 409,
+    }));
+    w.setNow(IN_1H + 1);
+    const tick = makeTicker(m, w.sched);
+    tick();
+    w.setEnqueueResult(() => ({
+      ok: false,
+      error: "agent not found",
+      status: 404,
+    }));
+    tick();
+    // Both outcomes were reached: one retry, then a drop with a notice.
+    expect(w.enqueueCalls).toHaveLength(2);
+    expect(w.notices).toHaveLength(1);
+    expect(w.recorded).toHaveLength(0);
+  });
+
+  it("records nothing for a message to self or from a deleted sender", () => {
+    const w = makeWorld();
+    const m = createScheduledMessageManager(w.deps);
+    scheduleOk(m, { receiverAgentId: "agent-a", text: "note to self" });
+    scheduleOk(m, {
+      senderAgentId: "agent-b",
+      receiverAgentId: "agent-a",
+      text: "from a gone sender",
+    });
+    w.agents.delete("agent-b");
+    w.setNow(IN_1H + 1);
+    makeTicker(m, w.sched)();
+    // Both messages were delivered.
+    expect(w.enqueueCalls.map((c) => c.msg.text).sort()).toEqual([
+      "from a gone sender",
+      "note to self",
+    ]);
+    expect(w.recorded).toHaveLength(0);
+  });
+
+  it("a failing record neither re-fires the message nor stops the tick", () => {
+    const w = makeWorld();
+    const m = createScheduledMessageManager(w.deps);
+    scheduleOk(m, { text: "first", deliverAt: IN_1H });
+    scheduleOk(m, { text: "second", deliverAt: IN_1H + 1 });
+    w.setRecordThrows(true);
+    w.setNow(IN_1H + 2);
+    const tick = makeTicker(m, w.sched);
+    expect(() => tick()).not.toThrow();
+    tick();
+    expect(w.recorded.map((r) => r.entry.text)).toEqual(["first", "second"]);
+    expect(w.enqueueCalls.map((c) => c.msg.text)).toEqual(["first", "second"]);
+    expect(m.listBySender("agent-a")).toHaveLength(0);
+    expect(w.store.saved).toHaveLength(0);
   });
 });
 

@@ -7,6 +7,7 @@ import {
 } from "./ActivityIndicator.tsx";
 import { StatusShape } from "../components/StatusShape.tsx";
 import { coalesceCodexDiagnostics } from "../../shared/codex-diagnostics.ts";
+import { chatVisibleEntries } from "./chat-entries.ts";
 import {
   useState,
   useRef,
@@ -622,7 +623,10 @@ export function LogView({
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
-  const logs = useMemo(() => coalesceCodexDiagnostics(rawLogs), [rawLogs]);
+  const logs = useMemo(
+    () => chatVisibleEntries(coalesceCodexDiagnostics(rawLogs)),
+    [rawLogs],
+  );
   const i18n = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

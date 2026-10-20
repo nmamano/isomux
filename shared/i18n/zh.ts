@@ -1569,8 +1569,6 @@ App 的一些原则：
   "common.sender.webhook": "{name} · Webhook",
   "cards.userMessage.expand": "展开消息",
   "cards.userMessage.collapse": "折叠消息",
-  "cards.userMessage.toRemoteBoss": "发送给远程成员",
-  "cards.userMessage.toRemoteBossNamed": "发送给远程成员「{name}」",
   "cards.userMessage.editAndBranch": "编辑并创建分支",
   "cards.failedEdit.restore": "放回输入框",
   "cards.thinking.label": "正在思考…",

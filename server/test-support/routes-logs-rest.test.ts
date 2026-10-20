@@ -311,6 +311,7 @@ describe("routes/logs REST: the three modes", () => {
       "user_message",
       "text",
       "api_token_outbound",
+      "agent_outbound",
     ]);
 
     // The handle round-trips: feed {sessionId, entryId} straight back.

@@ -1718,8 +1718,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.sender.webhook": "{name} · webhook",
   "cards.userMessage.expand": "Expand message",
   "cards.userMessage.collapse": "Collapse message",
-  "cards.userMessage.toRemoteBoss": "To remote member",
-  "cards.userMessage.toRemoteBossNamed": 'To remote member "{name}"',
   "cards.userMessage.editAndBranch": "Edit & branch",
   "cards.failedEdit.restore": "Restore text",
   "cards.thinking.label": "Thinking...",

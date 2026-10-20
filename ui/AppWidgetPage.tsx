@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../shared/types.ts";
@@ -12,6 +12,7 @@ import {
   useChatTranscript,
 } from "./log-view/ChatTranscript.tsx";
 import { LiveCharacter } from "./office/LiveCharacter.tsx";
+import { chatVisibleEntries } from "./log-view/chat-entries.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
 import { readSafariEnv, safariHref } from "./safari-link.ts";
 import {
@@ -200,7 +201,8 @@ export function AppWidgetPage({
 
   const target = liveStatus?.chat;
   const agent = state.agents.find((item) => item.id === target?.agentId);
-  const logs = target ? (state.logs.get(target.agentId) ?? []) : [];
+  const agentLogs = target ? state.logs.get(target.agentId) : undefined;
+  const logs = useMemo(() => chatVisibleEntries(agentLogs ?? []), [agentLogs]);
   const latest = logs.at(-1)?.id;
   const [readMark, setReadMark] = useState<{ agent?: string; latest?: string }>(
     {},

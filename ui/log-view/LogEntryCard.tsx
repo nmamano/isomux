@@ -154,14 +154,7 @@ export function serializeEntries(
 ): string {
   const parts: string[] = [];
   for (const e of entries) {
-    if (e.kind === "api_token_outbound") {
-      const recipient = e.metadata?.recipient_api_token_name;
-      parts.push(
-        typeof recipient === "string"
-          ? `[${i18n.t("cards.userMessage.toRemoteBossNamed", { name: recipient })}] ${e.content}`
-          : e.content,
-      );
-    } else if (e.kind === "user_message") {
+    if (e.kind === "user_message") {
       parts.push(e.content);
     } else if (e.kind === "text") {
       parts.push(unescapeDollars(e.content));
@@ -589,34 +582,10 @@ export const LogEntryCard = memo(function LogEntryCard({
         />
       );
     }
-    case "api_token_outbound": {
-      const recipient = entry.metadata?.recipient_api_token_name;
-      return (
-        <UserMessage
-          content={entry.content}
-          renderedContent={
-            tasks && onOpenTask ? (
-              <PlainTaskText
-                content={entry.content}
-                tasks={tasks}
-                onOpen={onOpenTask}
-              />
-            ) : undefined
-          }
-          isMobile={isMobile}
-          username={
-            typeof recipient === "string"
-              ? t("cards.userMessage.toRemoteBossNamed", { name: recipient })
-              : t("cards.userMessage.toRemoteBoss")
-          }
-          fromNonHuman
-          outgoing
-          agentId={entry.agentId}
-          canEdit={false}
-          timestamp={entry.timestamp}
-        />
-      );
-    }
+    // The chat filters both out (chat-entries.ts); this is only a backstop.
+    case "api_token_outbound":
+    case "agent_outbound":
+      return null;
     case "text":
       return (
         <AssistantText

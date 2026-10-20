@@ -873,3 +873,78 @@ it("links the agent's name in the header to its office chat, in a new tab", () =
   expect(link!.getAttribute("rel")?.split(" ")).toContain("noopener");
   view.unmount();
 });
+
+// The server records an agent's sends in its own log (task 40b82508). The
+// widget shows no card for such a record, and a record that arrives while the
+// chat is closed (a scheduled send fires) does not mark the chat unread.
+it("a recorded send neither shows in the widget chat nor marks it unread", async () => {
+  sessionStorage.clear();
+  const { StateCtx, initialState } = await import("./store.tsx");
+  const settings = (
+    window as unknown as {
+      happyDOM: { settings: { disableIframePageLoading: boolean } };
+    }
+  ).happyDOM.settings;
+  const iframeLoading = settings.disableIframePageLoading;
+  settings.disableIframePageLoading = true;
+  setApiShim(async () => ({
+    ...boot,
+    appUrl: "https://hello.office.example",
+    sessionExpiresAt: Date.now() + 1000000,
+    chat: { agentId: agent.id, agentName: agent.name },
+  }));
+  type LogEntry = import("../shared/types.ts").LogEntry;
+  const reply = (id: string): LogEntry => ({
+    id,
+    agentId: agent.id,
+    timestamp: 1,
+    kind: "text",
+    content: `reply ${id}`,
+  });
+  const sent: LogEntry = {
+    id: "o1",
+    agentId: agent.id,
+    timestamp: 2,
+    kind: "agent_outbound",
+    content: "RECORDED-SEND body",
+    metadata: { recipient_agent_id: "two", recipient_agent_name: "Two" },
+  };
+  const tree = (logs: LogEntry[]) => (
+    <StateCtx.Provider
+      value={{
+        ...initialState,
+        agents: [agent],
+        connected: true,
+        logs: new Map([[agent.id, logs]]),
+      }}
+    >
+      <AppWidgetPage boot={boot} />
+    </StateCtx.Provider>
+  );
+  let view: ReturnType<typeof render> | undefined;
+  try {
+    await act(async () => {
+      view = render(tree([reply("r1")]));
+    });
+    const launcher = view!.container.querySelector<HTMLButtonElement>(
+      ".app-widget-launcher",
+    )!;
+    expect(launcher.getAttribute("aria-expanded")).toBe("false");
+    // The unread dot is the launcher's one element besides the avatar.
+    const dots = () =>
+      Array.from(launcher.children).filter(
+        (el) => !el.classList.contains("app-widget-avatar"),
+      ).length;
+    expect(dots()).toBe(0);
+    view!.rerender(tree([reply("r1"), sent]));
+    expect(dots()).toBe(0);
+    expect(view!.container.textContent).toContain("reply r1");
+    expect(view!.container.textContent).not.toContain("RECORDED-SEND");
+    // Control: a visible entry does mark the closed chat unread.
+    view!.rerender(tree([reply("r1"), sent, reply("r2")]));
+    expect(dots()).toBe(1);
+  } finally {
+    view?.unmount();
+    settings.disableIframePageLoading = iframeLoading;
+  }
+});

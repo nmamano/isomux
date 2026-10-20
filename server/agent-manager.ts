@@ -434,6 +434,15 @@ export function backendSessionHasFixedCwd(
 // hand-written interface.)
 export type AgentManager = ReturnType<typeof createAgentManager>;
 
+// What an agent_outbound entry records beside the text. messageId is the
+// recipient's queue id; the scheduled fields tie a fired scheduled message to
+// the schedule the sender made earlier.
+export interface AgentOutboundExtra {
+  messageId?: string;
+  scheduledMessageId?: string;
+  scheduledFor?: number;
+}
+
 // The chat's terminal-command answer for each refusal (an HTTP 400 body).
 const TERMINAL_COMMAND_ERRORS: Record<
   Exclude<CommandCheck, { ok: true }>["kind"],
@@ -3979,6 +3988,28 @@ export function createAgentManager(deps: ManagerDeps) {
   ): void {
     addLogEntry(agentId, "api_token_outbound", text, {
       recipient_api_token_name: formatApiTokenName(tokenName),
+    });
+  }
+
+  // The sender-side record of a message this agent sent to another agent,
+  // so the sender's own log search finds what it sent. The chat does not show
+  // it: the curl card of the same tool call is the view (Nil, 2026-09-07).
+  function addAgentOutbound(
+    senderAgentId: string,
+    recipientAgentId: string,
+    text: string,
+    extra: AgentOutboundExtra,
+  ): void {
+    addLogEntry(senderAgentId, "agent_outbound", text, {
+      recipient_agent_id: recipientAgentId,
+      recipient_agent_name: getAgentDisplay(recipientAgentId)?.name ?? null,
+      ...(extra.messageId !== undefined ? { message_id: extra.messageId } : {}),
+      ...(extra.scheduledMessageId !== undefined
+        ? { scheduled_message_id: extra.scheduledMessageId }
+        : {}),
+      ...(extra.scheduledFor !== undefined
+        ? { scheduled_for: extra.scheduledFor }
+        : {}),
     });
   }
 
@@ -12219,6 +12250,7 @@ export function createAgentManager(deps: ManagerDeps) {
     prepareEnqueue,
     addSystemNote,
     addApiTokenOutbound,
+    addAgentOutbound,
     cancelQueued,
     readQueue,
     sendNow,

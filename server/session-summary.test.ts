@@ -134,6 +134,7 @@ describe("conversation summary: what one write reads and stores", () => {
         entry("h1", "thinking", "THINKNOISE-1"),
         entry("r1", "tool_result", "TOOLNOISE-2"),
         entry("o1", "api_token_outbound", "QUINCE-3 sent to a token"),
+        entry("o2", "agent_outbound", "QUINCE-5 sent to an agent"),
         entry("u2", "user_message", "QUINCE-4 next"),
         entry("r2", "tool_result", "TOOLNOISE-3"),
       ],
@@ -144,7 +145,13 @@ describe("conversation summary: what one write reads and stores", () => {
 
     expect(r.prompts).toHaveLength(1);
     const input = text(r.prompts[0]);
-    for (const m of ["QUINCE-1", "QUINCE-2", "QUINCE-3", "QUINCE-4"])
+    for (const m of [
+      "QUINCE-1",
+      "QUINCE-2",
+      "QUINCE-3",
+      "QUINCE-4",
+      "QUINCE-5",
+    ])
       expect(input).toContain(m);
     for (const m of ["TOOLNOISE-1", "TOOLNOISE-2", "TOOLNOISE-3", "THINKNOISE"])
       expect(input).not.toContain(m);

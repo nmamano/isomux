@@ -1757,8 +1757,6 @@ Cosas que puedes hacer por él:
   "common.sender.webhook": "{name} · webhook",
   "cards.userMessage.expand": "Expandir mensaje",
   "cards.userMessage.collapse": "Contraer mensaje",
-  "cards.userMessage.toRemoteBoss": "Al miembro remoto",
-  "cards.userMessage.toRemoteBossNamed": 'Al miembro remoto "{name}"',
   "cards.userMessage.editAndBranch": "Editar y ramificar",
   "cards.failedEdit.restore": "Recuperar el texto",
   "cards.thinking.label": "Pensando...",

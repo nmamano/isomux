@@ -98,6 +98,7 @@ export const ALL_KINDS = [
   "system",
   "user_message",
   "api_token_outbound",
+  "agent_outbound",
   "diff",
   "edit-request",
   "terminal-command",
@@ -116,7 +117,12 @@ void _kindsAreExhaustive;
 
 export const TIERS: Record<LogTier, readonly LogKind[] | null> = {
   prompts: ["user_message"],
-  conversation: ["user_message", "text", "api_token_outbound"],
+  conversation: [
+    "user_message",
+    "text",
+    "api_token_outbound",
+    "agent_outbound",
+  ],
   // null means "no filter at all", which is what makes `full` genuinely
   // everything rather than everything-we-remembered-to-list.
   full: null,

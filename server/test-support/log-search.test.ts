@@ -886,7 +886,12 @@ describe("log search: the response describes the selection it actually applied",
   it("names the tier when a preset was used", async () => {
     const res = await searchLogs(source, AGENT, q("q=permission+prompt"), scan);
     expect(res.tier).toBe("conversation");
-    expect(res.kinds).toEqual(["user_message", "text", "api_token_outbound"]);
+    expect(res.kinds).toEqual([
+      "user_message",
+      "text",
+      "api_token_outbound",
+      "agent_outbound",
+    ]);
   });
 
   it("reports tier:null when kind= overrode the preset", async () => {
@@ -920,6 +925,7 @@ describe("log search: the response describes the selection it actually applied",
       "user_message",
       "text",
       "api_token_outbound",
+      "agent_outbound",
     ]);
     const override = await retrieveSession(
       source,

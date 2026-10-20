@@ -894,6 +894,17 @@ function createManagers(startOpts: StartServerOpts): void {
         );
       }
     },
+    recordSent: (entry, messageId) =>
+      agentManager.addAgentOutbound(
+        entry.senderAgentId,
+        entry.receiverAgentId,
+        entry.text,
+        {
+          messageId,
+          scheduledMessageId: entry.id,
+          scheduledFor: entry.deliverAt,
+        },
+      ),
     persistence: {
       load: loadScheduledMessagesRaw,
       save: saveScheduledMessages,
@@ -5395,6 +5406,21 @@ function buildExecutorDeps(
           // this can't be a second request.
           { steer },
         );
+        // The sender-side record, so the sender's own log search finds what it
+        // sent. Best-effort: the message is already delivered, and a 500 here
+        // would make the sender retry it.
+        if (result.ok && !result.deduped) {
+          try {
+            agentManager.addAgentOutbound(senderAgentId, receiverId, text, {
+              messageId: result.messageId,
+            });
+          } catch (err) {
+            console.error(
+              "Failed to record an agent's sent message in its log:",
+              errMessage(err),
+            );
+          }
+        }
         if (result.ok)
           return {
             ok: true,

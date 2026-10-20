@@ -60,6 +60,7 @@ const SPEAKER: Partial<Record<LogEntry["kind"], string>> = {
   user_message: "User",
   text: "Assistant",
   api_token_outbound: "Assistant, to an API-token inbox",
+  agent_outbound: "Assistant, to another agent",
 };
 
 // One entry as the model reads it.
