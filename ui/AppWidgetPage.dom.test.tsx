@@ -805,3 +805,57 @@ for (const echo of ["before", "after"] as const) {
     }
   });
 }
+
+it("shows the queued count in its own element while messages wait, busy or not", () => {
+  sessionStorage.clear();
+  const queued = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: `q${i}`,
+      sender: { kind: "user" },
+      text: `message ${i}`,
+    })) as unknown as import("../shared/types.ts").QueuedMessage[];
+  const pill = () => view.container.querySelector(".app-widget-queue");
+  const status = () =>
+    view.container.querySelector(".app-widget-status")?.textContent;
+  const view = render(
+    <WidgetChat
+      {...props}
+      agent={{ ...agent, state: "thinking", queue: queued(2) }}
+    />,
+  );
+  try {
+    // Busy with two waiting: the count shows next to the busy status, not in
+    // place of it.
+    expect(pill()).not.toBeNull();
+    expect(pill()!.closest("form")).not.toBeNull();
+    expect(pill()!.closest(".app-widget-status")).toBeNull();
+    expect(pill()!.textContent).toContain("2");
+    expect(status()).toBe(en["logView.state.thinking"]);
+
+    // The count follows the queue.
+    view.rerender(
+      <WidgetChat
+        {...props}
+        agent={{ ...agent, state: "tool_executing", queue: queued(3) }}
+      />,
+    );
+    expect(pill()!.textContent).toContain("3");
+    expect(pill()!.textContent).not.toContain("2");
+
+    // Idle with messages still waiting (before the flush): the count stays.
+    view.rerender(
+      <WidgetChat {...props} agent={{ ...agent, queue: queued(1) }} />,
+    );
+    expect(pill()!.textContent).toContain("1");
+    expect(status()).toBe("");
+
+    // Empty queue: no element at all.
+    view.rerender(
+      <WidgetChat {...props} agent={{ ...agent, state: "thinking" }} />,
+    );
+    expect(pill()).toBeNull();
+    expect(status()).toBe(en["logView.state.thinking"]);
+  } finally {
+    view.unmount();
+  }
+});

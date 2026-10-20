@@ -49,6 +49,7 @@ const WIDGET_CSS = `
 .app-widget-image img { width:104px; height:80px; object-fit:contain; display:block; }
 .app-widget-image button { font-size:12px; padding:3px 8px; }
 .app-widget-hint { font-size:12px; color:var(--text-secondary); margin:0 0 8px; }
+.app-widget-queue { display:inline-block; margin-bottom:8px; padding:3px 10px; border:1px solid var(--accent); border-radius:999px; color:var(--accent-text); font-size:13px; font-weight:600; }
 .app-widget-status { margin-right:auto; font-size:12px; color:var(--text-secondary); }
 .app-widget-unavailable { position:fixed; bottom:20px; right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
 `;
@@ -634,6 +635,11 @@ export function WidgetChat({
           void send();
         }}
       >
+        {agent.queue?.length ? (
+          <div className="app-widget-queue" role="status">
+            {t("logView.queue.count", { count: agent.queue.length })}
+          </div>
+        ) : null}
         <p className="app-widget-hint">
           {t(
             screenshotHint(
@@ -717,11 +723,9 @@ export function WidgetChat({
               ? t("app.reconnecting")
               : failed
                 ? t("logView.outbox.notSent")
-                : agent.queue?.length
-                  ? t("logView.queue.count", { count: agent.queue.length })
-                  : busy
-                    ? t("logView.state.thinking")
-                    : ""}
+                : busy
+                  ? t("logView.state.thinking")
+                  : ""}
           </span>
           <button
             type="submit"
