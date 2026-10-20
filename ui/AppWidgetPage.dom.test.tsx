@@ -824,13 +824,13 @@ it("shows the queued count in its own element while messages wait, busy or not",
     />,
   );
   try {
-    // Busy with two waiting: the count shows next to the busy status, not in
-    // place of it.
+    // Busy with two waiting: the count shows in its own element. The status
+    // text stays empty, since the avatar and the Queue button show the work.
     expect(pill()).not.toBeNull();
     expect(pill()!.closest("form")).not.toBeNull();
     expect(pill()!.closest(".app-widget-status")).toBeNull();
     expect(pill()!.textContent).toContain("2");
-    expect(status()).toBe(en["logView.state.thinking"]);
+    expect(status()).toBe("");
 
     // The count follows the queue.
     view.rerender(
@@ -854,7 +854,7 @@ it("shows the queued count in its own element while messages wait, busy or not",
       <WidgetChat {...props} agent={{ ...agent, state: "thinking" }} />,
     );
     expect(pill()).toBeNull();
-    expect(status()).toBe(en["logView.state.thinking"]);
+    expect(status()).toBe("");
   } finally {
     view.unmount();
   }
