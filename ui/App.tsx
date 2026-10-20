@@ -60,6 +60,7 @@ import {
   pageUnder,
   pageShortcut,
   backRoomShortcut,
+  createLoneShiftTracker,
   type Page,
 } from "./routes.ts";
 import { OfficeLinkOpener } from "./office-link.tsx";
@@ -125,6 +126,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   // The current room's back room screen (task 5b503e32). Not a route: like a
   // chat it is one level deep, and a reload lands on the front.
   const [backRoomOpen, setBackRoomOpen] = useState(false);
+  const [loneShift] = useState(createLoneShiftTracker);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -700,12 +702,50 @@ export function App({ routing = true }: { routing?: boolean }) {
 
   // Keyboard shortcuts: Escape → office, 1-8 → jump to agent at desk
   useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement)?.tagName;
-      const isInput =
+    function isInputTarget(target: EventTarget | null) {
+      const tag = (target as HTMLElement)?.tagName;
+      return (
         tag === "INPUT" ||
         tag === "TEXTAREA" ||
-        (e.target as HTMLElement)?.isContentEditable;
+        !!(target as HTMLElement)?.isContentEditable
+      );
+    }
+    function backRoomState() {
+      return {
+        hasBackRoom:
+          !lobbyOpen && hasBackRoom(rooms.find((r) => r.id === currentRoomId)),
+        backRoomOpen,
+        covered: !!focusedAgentId || page !== null,
+      };
+    }
+    // The lone Shift tracker listens in the capture phase: a component that
+    // stops a keydown's propagation must still spoil a Shift press.
+    function feedLoneShift(e: KeyboardEvent) {
+      loneShift.keydown(e.key, e.repeat);
+    }
+    function resetLoneShift() {
+      loneShift.reset();
+    }
+    // A lone Shift goes from the back room to the front. The keyup's own
+    // modifiers go to the rule, so a Shift tapped with Ctrl, Alt or Meta held
+    // does nothing.
+    function handleKeyUp(e: KeyboardEvent) {
+      if (!loneShift.keyup(e.key)) return;
+      const backRoomKey = backRoomShortcut(
+        {
+          key: e.key,
+          loneShift: true,
+          isInput: isInputTarget(e.target),
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+        },
+        backRoomState(),
+      );
+      if (backRoomKey === "close") goHome();
+    }
+    function handleKey(e: KeyboardEvent) {
+      const isInput = isInputTarget(e.target);
       if (e.key === "Escape") {
         closeLog();
         setSpawnPickerDesk(null);
@@ -766,14 +806,9 @@ export function App({ routing = true }: { routing?: boolean }) {
           metaKey: e.metaKey,
           ctrlKey: e.ctrlKey,
           altKey: e.altKey,
+          shiftKey: e.shiftKey,
         },
-        {
-          hasBackRoom:
-            !lobbyOpen &&
-            hasBackRoom(rooms.find((r) => r.id === currentRoomId)),
-          backRoomOpen,
-          covered: !!focusedAgentId || page !== null,
-        },
+        backRoomState(),
       );
       if (backRoomKey === "open") {
         e.preventDefault();
@@ -826,11 +861,13 @@ export function App({ routing = true }: { routing?: boolean }) {
           dispatch({ type: "focus", agentId: agent.id });
         }
       }
-      // Tab/Shift+Tab in office view: switch rooms
+      // Tab/Shift+Tab in office view: switch rooms, unless Shift+Tab just
+      // left the back room.
       if (
         !isInput &&
         !focusedAgentId &&
         e.key === "Tab" &&
+        backRoomKey === null &&
         roomCount > 1 &&
         !e.defaultPrevented
       ) {
@@ -860,7 +897,17 @@ export function App({ routing = true }: { routing?: boolean }) {
       }
     }
     window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    window.addEventListener("keydown", feedLoneShift, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("pointerdown", resetLoneShift, true);
+    window.addEventListener("blur", resetLoneShift);
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("keydown", feedLoneShift, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      window.removeEventListener("pointerdown", resetLoneShift, true);
+      window.removeEventListener("blur", resetLoneShift);
+    };
   }, [
     dispatch,
     goHome,
@@ -885,6 +932,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     lobbyOpen,
     backRoomOpen,
     page,
+    loneShift,
   ]);
 
   const isDeep = page !== null || focusedAgentId !== null || backRoomOpen;

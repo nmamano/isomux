@@ -20,7 +20,7 @@ const { App } = await import("./App.tsx");
 const { StoreProvider } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
 const { connect, setShim, shimEmit } = await import("./ws.ts");
-const { saveView } = await import("./view-persistence.ts");
+const { saveView, loadSavedView } = await import("./view-persistence.ts");
 const { createElement } = await import("react");
 
 type View = ReturnType<typeof render>;
@@ -53,7 +53,7 @@ afterEach(() => {
   typingField = null;
 });
 
-function boot(backRoom: boolean): View {
+function boot(backRoom: boolean, secondRoom = false): View {
   // Land in the room, not the lobby.
   saveView("ricky", { roomId: "r1", agentId: null, panel: null, lobby: false });
   setShim(
@@ -74,6 +74,17 @@ function boot(backRoom: boolean): View {
             canCloseWhenEmpty: true,
             backRoom,
           },
+          ...(secondRoom
+            ? [
+                {
+                  id: "r2",
+                  name: "Other room",
+                  prompt: null,
+                  canCloseWhenEmpty: true,
+                  backRoom: false,
+                },
+              ]
+            : []),
         ],
         office: {},
         recentCwds: [],
@@ -92,6 +103,39 @@ async function pressB(from: EventTarget = document.body) {
     );
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
+}
+
+async function key(
+  type: "keydown" | "keyup",
+  key: string,
+  init: KeyboardEventInit = {},
+  from: EventTarget = document.body,
+) {
+  await act(async () => {
+    from.dispatchEvent(
+      new KeyboardEvent(type, {
+        key,
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      }),
+    );
+  });
+}
+
+async function loneShift(from: EventTarget = document.body) {
+  await key("keydown", "Shift", { shiftKey: true }, from);
+  await key("keyup", "Shift", {}, from);
+}
+
+async function shiftTab(from: EventTarget = document.body) {
+  await key("keydown", "Tab", { shiftKey: true }, from);
+}
+
+/** The room App shows, as it saves the view spot. */
+function shownRoom(): string | null {
+  const saved = loadSavedView("ricky");
+  return saved?.lobby ? "lobby" : (saved?.roomId ?? null);
 }
 
 const backShowing = (view: View) =>
@@ -144,5 +188,119 @@ describe("the back room shortcut", () => {
     await pressB();
     expect(backShowing(view)).toBe(false);
     expect(window.history.length).toBe(entries);
+  });
+});
+
+// Nil, 2026-10-20: in a back room, a lone Shift or Shift+Tab goes to the
+// front of the same room. The rule and the lone-Shift tracker are in
+// ui/routes.test.ts; this proves App's wiring.
+describe("Shift and Shift+Tab in a back room", () => {
+  // Each App boot costs a few hundred ms against the file's DOM cap, so each
+  // test walks many cases on one boot.
+  async function bootInBack(secondRoom = false): Promise<View> {
+    const view = boot(true, secondRoom);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    await pressB();
+    expect(backShowing(view)).toBe(true);
+    return view;
+  }
+
+  async function click() {
+    await act(async () => {
+      document.body.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, shiftKey: true }),
+      );
+    });
+  }
+
+  async function blur() {
+    await act(async () => {
+      window.dispatchEvent(new Event("blur"));
+    });
+  }
+
+  it("a lone Shift goes to the front; a Shift with anything else in it does nothing", async () => {
+    const view = await bootInBack();
+    await loneShift();
+    expect(backShowing(view)).toBe(false);
+    expect(trapDoor(view)).toBe(true);
+    await pressB();
+    expect(backShowing(view)).toBe(true);
+
+    // Shift down: the keydown alone is not a lone press.
+    await key("keydown", "Shift", { shiftKey: true });
+    expect(backShowing(view)).toBe(true);
+    // A capital.
+    await key("keydown", "A", { shiftKey: true });
+    await key("keyup", "A", { shiftKey: true });
+    await key("keyup", "Shift");
+    expect(backShowing(view)).toBe(true);
+    // Shift+click.
+    await key("keydown", "Shift", { shiftKey: true });
+    await click();
+    await key("keyup", "Shift");
+    expect(backShowing(view)).toBe(true);
+    // Shift held through a click, long enough to repeat.
+    await key("keydown", "Shift", { shiftKey: true });
+    await click();
+    await key("keydown", "Shift", { shiftKey: true, repeat: true });
+    await key("keyup", "Shift");
+    expect(backShowing(view)).toBe(true);
+    // Shift tapped while Ctrl is held: the keyup carries the modifier.
+    await key("keydown", "Control", { ctrlKey: true });
+    await key("keydown", "Shift", { ctrlKey: true, shiftKey: true });
+    await key("keyup", "Shift", { ctrlKey: true });
+    await key("keyup", "Control");
+    expect(backShowing(view)).toBe(true);
+    // Shift held across a blur.
+    await key("keydown", "Shift", { shiftKey: true });
+    await blur();
+    await key("keyup", "Shift");
+    expect(backShowing(view)).toBe(true);
+    // A key whose keydown a child stops still spoils the Shift.
+    const stopper = document.createElement("div");
+    stopper.addEventListener("keydown", (e) => e.stopPropagation());
+    document.body.appendChild(stopper);
+    try {
+      await key("keydown", "Shift", { shiftKey: true });
+      await key("keydown", "Enter", { shiftKey: true }, stopper);
+      await key("keyup", "Shift");
+    } finally {
+      stopper.remove();
+    }
+    expect(backShowing(view)).toBe(true);
+    // A lone Shift in a text field.
+    typingField = document.createElement("input");
+    document.body.appendChild(typingField);
+    await loneShift(typingField);
+    expect(backShowing(view)).toBe(true);
+
+    // A Shift whose release a blur lost does not spoil the next press.
+    await key("keydown", "Shift", { shiftKey: true });
+    await blur();
+    await loneShift();
+    expect(backShowing(view)).toBe(false);
+  });
+
+  it("Shift+Tab goes to the front of the same room; from the front it still switches rooms", async () => {
+    const view = await bootInBack(true);
+    expect(shownRoom()).toBe("r1");
+    // Not from a text field.
+    typingField = document.createElement("input");
+    document.body.appendChild(typingField);
+    await shiftTab(typingField);
+    expect(backShowing(view)).toBe(true);
+    expect(shownRoom()).toBe("r1");
+
+    await shiftTab();
+    expect(backShowing(view)).toBe(false);
+    expect(trapDoor(view)).toBe(true);
+    expect(shownRoom()).toBe("r1");
+
+    await shiftTab();
+    expect(shownRoom()).not.toBe("r1");
+    expect(trapDoor(view)).toBe(false);
   });
 });

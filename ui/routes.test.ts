@@ -7,6 +7,7 @@ import {
   flagForPage,
   pageShortcut,
   backRoomShortcut,
+  createLoneShiftTracker,
   pagerIdForSearch,
   pageForLocation,
   mcpSignInForSearch,
@@ -517,5 +518,98 @@ describe("backRoomShortcut", () => {
       backRoomShortcut({ key: "b" }, { ...office, covered: true }),
     ).toBeNull();
     expect(backRoomShortcut({ key: "c" }, office)).toBeNull();
+  });
+
+  // Nil, 2026-10-20: in a back room, a lone Shift or Shift+Tab goes to the
+  // front. Neither opens the back room: from the front, Shift+Tab still
+  // switches rooms.
+  const loneShift: PageShortcutInput = { key: "Shift", loneShift: true };
+  const shiftTab: PageShortcutInput = { key: "Tab", shiftKey: true };
+  const open = { ...office, backRoomOpen: true };
+
+  it("a lone Shift or Shift+Tab in a back room goes to the front", () => {
+    expect(backRoomShortcut(loneShift, open)).toBe("close");
+    expect(backRoomShortcut(shiftTab, open)).toBe("close");
+    expect(backRoomShortcut(loneShift, office)).toBeNull();
+    expect(backRoomShortcut(shiftTab, office)).toBeNull();
+  });
+
+  it("a Shift that is not lone, or plain Tab, does nothing", () => {
+    // A Shift keydown reaches the rule with key "Shift" too: only the keyup
+    // path's loneShift flag makes it a lone press.
+    expect(backRoomShortcut({ key: "Shift" }, open)).toBeNull();
+    expect(backRoomShortcut({ key: "Shift", shiftKey: true }, open)).toBeNull();
+    expect(backRoomShortcut({ key: "Tab" }, open)).toBeNull();
+  });
+
+  it("lone Shift and Shift+Tab keep the guards of b", () => {
+    for (const input of [loneShift, shiftTab]) {
+      expect(
+        backRoomShortcut(input, { ...open, hasBackRoom: false }),
+      ).toBeNull();
+      expect(backRoomShortcut({ ...input, isInput: true }, open)).toBeNull();
+      for (const mod of ["metaKey", "ctrlKey", "altKey"] as const)
+        expect(backRoomShortcut({ ...input, [mod]: true }, open)).toBeNull();
+      expect(backRoomShortcut(input, { ...open, covered: true })).toBeNull();
+    }
+  });
+});
+
+describe("createLoneShiftTracker", () => {
+  it("counts Shift pressed and released with nothing in between", () => {
+    const t = createLoneShiftTracker();
+    t.keydown("Shift");
+    expect(t.keyup("Shift")).toBe(true);
+  });
+
+  it("keeps a held Shift lone across its repeat keydowns", () => {
+    const t = createLoneShiftTracker();
+    t.keydown("Shift");
+    t.keydown("Shift", true);
+    t.keydown("Shift", true);
+    expect(t.keyup("Shift")).toBe(true);
+  });
+
+  // A blur loses the release of a Shift held as the window lost focus.
+  it("after a reset, a new Shift press counts, and the repeats of a held one do not", () => {
+    const fresh = createLoneShiftTracker();
+    fresh.keydown("Shift");
+    fresh.reset();
+    fresh.keydown("Shift");
+    expect(fresh.keyup("Shift")).toBe(true);
+
+    const held = createLoneShiftTracker();
+    held.keydown("Shift");
+    held.reset();
+    held.keydown("Shift", true);
+    held.keydown("Shift", true);
+    expect(held.keyup("Shift")).toBe(false);
+  });
+
+  it("does not count Shift used with another key, a click or a blur", () => {
+    const capital = createLoneShiftTracker();
+    capital.keydown("Shift");
+    capital.keydown("A");
+    capital.keyup("A");
+    expect(capital.keyup("Shift")).toBe(false);
+
+    const clicked = createLoneShiftTracker();
+    clicked.keydown("Shift");
+    clicked.reset();
+    expect(clicked.keyup("Shift")).toBe(false);
+  });
+
+  it("counts one press once, and a spoiled press does not spoil the next", () => {
+    const t = createLoneShiftTracker();
+    expect(t.keyup("Shift")).toBe(false);
+    t.keydown("Shift");
+    expect(t.keyup("Shift")).toBe(true);
+    expect(t.keyup("Shift")).toBe(false);
+    // A spoiled press does not spoil the next one.
+    t.keydown("Shift");
+    t.keydown("A");
+    expect(t.keyup("Shift")).toBe(false);
+    t.keydown("Shift");
+    expect(t.keyup("Shift")).toBe(true);
   });
 });

@@ -191,6 +191,10 @@ export interface PageShortcutInput {
   metaKey?: boolean;
   ctrlKey?: boolean;
   altKey?: boolean;
+  shiftKey?: boolean;
+  /** Set only by the keyup path, when createLoneShiftTracker saw Shift
+   *  pressed and released with no other key in between. */
+  loneShift?: boolean;
 }
 
 export interface PageShortcutUpdate {
@@ -263,14 +267,15 @@ export interface BackRoomShortcutState {
   covered: boolean;
 }
 
-/** "b" goes between a room's front and its back room (Nil, 2026-10-15):
- *  "open" or "close" the back room, or null when the key does nothing. */
+/** "b" goes between a room's front and its back room (Nil, 2026-10-15),
+ *  and a lone Shift or Shift+Tab goes from the back room to the front
+ *  (Nil, 2026-10-20): "open" or "close" the back room, or null when the key
+ *  does nothing. */
 export function backRoomShortcut(
   input: PageShortcutInput,
   state: BackRoomShortcutState,
 ): "open" | "close" | null {
   if (
-    input.key !== "b" ||
     input.isInput ||
     input.metaKey ||
     input.ctrlKey ||
@@ -279,5 +284,39 @@ export function backRoomShortcut(
     !state.hasBackRoom
   )
     return null;
-  return state.backRoomOpen ? "close" : "open";
+  if (input.key === "b") return state.backRoomOpen ? "close" : "open";
+  const toFront =
+    (input.key === "Shift" && input.loneShift === true) ||
+    (input.key === "Tab" && input.shiftKey === true);
+  return toFront && state.backRoomOpen ? "close" : null;
+}
+
+export interface LoneShiftTracker {
+  /** repeat is KeyboardEvent.repeat: a held key's auto-repeat. */
+  keydown(key: string, repeat?: boolean): void;
+  /** True when this keyup ends a Shift press with no other key in it. */
+  keyup(key: string): boolean;
+  /** Forget a pending Shift press (a click or a window blur). */
+  reset(): void;
+}
+
+export function createLoneShiftTracker(): LoneShiftTracker {
+  // True from a Shift keydown until another key, a reset or Shift's keyup.
+  let armed = false;
+  return {
+    keydown(key, repeat = false) {
+      // A held key's auto-repeat changes nothing: a Shift held through a
+      // click stays spoiled.
+      if (!repeat) armed = key === "Shift";
+    },
+    keyup(key) {
+      if (key !== "Shift") return false;
+      const lone = armed;
+      armed = false;
+      return lone;
+    },
+    reset() {
+      armed = false;
+    },
+  };
 }
