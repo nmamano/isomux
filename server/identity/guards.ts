@@ -868,6 +868,27 @@ export const sessionListAccess: Guard = (ctx) => {
   }
 };
 
+// Queued-message cancel (agents.cancelQueued). Two levels of power:
+//   - cancel ANY item: a member, an API token, or an app or agent that holds
+//     agent:converse, with room access to the target (queueCancelAny). This is
+//     the power the route had before sender retract existed.
+//   - take back an item the caller SENT: every agent, in any queue, even one
+//     it cannot reach (it was allowed to message that agent). The handler
+//     enforces the sender match, so queueCancelAccess lets every agent through
+//     and the handler asks queueCancelAny which level applies.
+// An app never takes the sender branch: it has no agent id of its own, and it
+// never holds agent:send-as-self, so the route's capability stops an app whose
+// owner is not privileged.
+const queueRoomGuard = requiresRoomAccess({ kind: "paramAgentId", name: "id" });
+export const queueCancelAny: Guard = (ctx) => {
+  if (ctx.identity.scope === "cron-run") return FORBIDDEN;
+  if (!identityHasCapability(ctx.identity, "agent:converse")) return FORBIDDEN;
+  const identityGate = operationalAuthenticated(ctx);
+  return identityGate.ok ? queueRoomGuard(ctx) : identityGate;
+};
+export const queueCancelAccess: Guard = (ctx) =>
+  ctx.identity.scope === "agent" ? ALLOW : queueCancelAny(ctx);
+
 // Typed composition for the route table's compound guards (e.g. agents.move /
 // agents.revive need access to BOTH the source and target room). Encoding these
 // as combinators rather than free-form strings keeps the route table's authz

@@ -1538,6 +1538,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.agents.move": "Move {who}",
   "apiCall.agents.revive": "Revive {who}",
   "apiCall.agents.cancelQueued": "Cancel a queued message to {who}",
+  "apiCall.agents.readQueue": "List queued messages to {who}",
   "apiCall.agents.editMessage": "Edit a message in {who}'s chat",
   "apiCall.apiTokens.list": "List API tokens",
   "apiCall.apiTokens.create": "Create API token",

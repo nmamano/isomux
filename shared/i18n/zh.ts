@@ -1391,6 +1391,7 @@ App 的一些原则：
   "apiCall.agents.move": "移动 {who}",
   "apiCall.agents.revive": "恢复 {who}",
   "apiCall.agents.cancelQueued": "取消向 {who} 发送的一条队列消息",
+  "apiCall.agents.readQueue": "列出向 {who} 发送的队列消息",
   "apiCall.agents.editMessage": "编辑 {who} 聊天中的消息",
   "apiCall.apiTokens.list": "列出 API 令牌",
   "apiCall.apiTokens.create": "创建 API 令牌",

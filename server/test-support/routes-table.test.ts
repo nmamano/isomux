@@ -1147,7 +1147,14 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["interaction_removed", "agent_updated", "log_entry", "clear_logs"],
   },
   "agents.editMessage": { caps: ["agent:converse"], emits: ["log_entry"] },
-  "agents.cancelQueued": { caps: ["agent:converse"], emits: [] },
+  // Task e17989e0: a USER or privileged agent cancels through converse, an
+  // AGENT sender takes back its own item through send-as-self. Reading a queue
+  // has the session list's capability and guard.
+  "agents.cancelQueued": {
+    caps: ["agent:converse", "agent:send-as-self"],
+    emits: [],
+  },
+  "agents.readQueue": { caps: ["log:read"], emits: [] },
   // Agents - scheduled messages (task 8ff369b5). Same any-of pair as
   // sendMessage: a USER manages via converse rights, an AGENT via
   // send-as-self; the scheduledMessagesOwner guard then scopes the AGENT
@@ -1826,8 +1833,13 @@ const APP_REFUSED_OPIDS = [
   "validate.env",
 ];
 
-// An ORDINARY agent may also clear its own conversation; an app has none.
-const APP_REFUSED_SELF_ONLY_OPIDS = ["agents.newConversation"];
+// An ORDINARY agent may also clear its own conversation, and take back its own
+// queued messages (task e17989e0); an app has no conversation and sends under
+// no agent id of its own.
+const APP_REFUSED_SELF_ONLY_OPIDS = [
+  "agents.newConversation",
+  "agents.cancelQueued",
+];
 
 describe("route table: an APP has its live owner agent's reach", () => {
   const generousDeps: GuardDeps = {
@@ -1931,7 +1943,7 @@ describe("route table: an APP has its live owner agent's reach", () => {
   });
 });
 
-describe("agents.listSessions non-agent service scopes", () => {
+describe("agents.listSessions / readQueue / cancelQueued non-agent service scopes", () => {
   const deps: GuardDeps = {
     hasRoomAccess: () => true,
     roomIdForAgent: () => "room-1",
@@ -1945,9 +1957,18 @@ describe("agents.listSessions non-agent service scopes", () => {
   };
 
   it("refuses cron-run and app identities even with accessible-room dependencies", () => {
-    const route = API_ROUTES.find(
-      (candidate) => candidate.opId === "agents.listSessions",
-    )!;
+    for (const opId of [
+      "agents.listSessions",
+      "agents.readQueue",
+      "agents.cancelQueued",
+    ]) {
+      expectRefused(opId);
+    }
+  });
+
+  function expectRefused(opId: string) {
+    const route = API_ROUTES.find((candidate) => candidate.opId === opId)!;
+    expect(route, opId).toBeDefined();
     const run: Identity = {
       scope: "cron-run",
       userId: "owner-1",
@@ -1969,7 +1990,7 @@ describe("agents.listSessions non-agent service scopes", () => {
     expect(
       runAuthorize(route.auth, app, { id: "agent-1" }, undefined, deps).ok,
     ).toBe(false);
-  });
+  }
 });
 
 // Written before the API guards were widened (task d1908202). This is the
@@ -1999,6 +2020,7 @@ const API_REACHABLE_OPIDS = [
   "agents.cancelScheduledMessage",
   "agents.editMessage",
   "agents.cancelQueued",
+  "agents.readQueue",
   "agents.sendNow",
   "agents.newConversation",
   "agents.handoff",

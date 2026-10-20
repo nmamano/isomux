@@ -651,6 +651,21 @@ export interface QueuedMessage {
   queuedAt: number;
 }
 
+// One waiting message as GET /api/agents/:id/queue returns it to an agent:
+// no pre-expanded skill body (an agent pays for it in context), attachments by
+// name, and only the markers that change what the message means.
+export type QueuedMessageView = Pick<
+  QueuedMessage,
+  | "id"
+  | "sender"
+  | "text"
+  | "queuedAt"
+  | "steer"
+  | "scheduledFor"
+  | "handoff"
+  | "carried"
+> & { attachments?: string[] };
+
 // A message scheduled for future delivery (POST /api/agents/:id/messages with
 // deliverAt). Durable: persisted to ~/.isomux/scheduled-messages.json and
 // reloaded on boot; at fire time it hands off to the (also durable)

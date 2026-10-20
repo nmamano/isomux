@@ -1,6 +1,7 @@
 # Agent messaging: steering, queue control, lazy delivery, condition triggers
 
-> Status: §2.1 SHIPPED (task 80b2bb08, 2026-08-05); everything else is still design only.
+> Status: §2.1 SHIPPED (task 80b2bb08, 2026-08-05); §2.2 SHIPPED (task e17989e0, 2026-10-20); everything else
+> is still design only.
 > Covers tasks 80b2bb08, 0da22912, e17989e0, bca33c68. Outside §2.1 every API shape and
 > policy below is a proposal; the numbered list at the end marks which decisions are ruled.
 
@@ -121,7 +122,16 @@ ping-pong. Candidate mitigations (decisions, not settled here): refuse to steer 
 per receiver with excess degrading to a plain queue; the existing "Previous response was interrupted" system line
 keeps the interruption legible in the receiver's transcript either way.
 
-### 2.2 Queue visibility and manipulation by agents
+### 2.2 Queue visibility and manipulation by agents - SHIPPED
+
+**What shipped** (task e17989e0, decisions 3-6 ruled 2026-10-20). `GET /api/agents/:id/queue` (`agents.readQueue`)
+has the session list's guard (`sessionListAccess`): an agent reads its own queue and the queue of any agent in a
+room its member can reach. It returns what the chip row shows, without the pre-expanded skill body, with attachments
+by name. `DELETE /api/agents/:id/queue/:messageId` lets every agent take back an item it sent, from any queue; a
+member, an API token, or a privileged agent with room reach still cancels any item (`queueCancelAny`). Every miss
+(gone, delivered, another sender's item) answers 404 `not_queued`. Reorder and fetch-now were not built.
+
+The proposal as written before the ruling:
 
 New read: `GET /api/agents/:id/queue` returning `{queue: QueuedMessage[]}`. It needs its **own** guard rather than
 borrowing one: the log-read guard carries killed-agent clauses that mean nothing for a live queue. The model to
@@ -264,7 +274,8 @@ right to cancel another agent's outbox entry.
 
 ## 3. Phasing
 
-**Slice 1 (read-only, no delivery-core changes).** `GET /api/agents/:id/queue` with its own guard. Scheduled-message
+**Slice 1 (read-only, no delivery-core changes).** `GET /api/agents/:id/queue` - SHIPPED 2026-10-20 (task
+e17989e0) with the session list's guard, plus sender retract; see §2.2. Scheduled-message
 chips + the `scheduled` WS field. Nothing in `agent-manager`'s delivery path is touched.
 
 **Slice 2 (steering as a first-class flag).** SHIPPED 2026-08-05 (task 80b2bb08): `steer: true` on the send under
@@ -300,10 +311,13 @@ bca33c68 (conditions) as separate tasks since they ship in different slices.
 
 **Queue access**
 
-3. Cross-agent queue **reads**: any agent in the member's rooms, or privileged only?
-4. Own-queue **cancel** for an ordinary agent: allow or not?
-5. Cross-agent **cancel**: stays privileged-only, or opens to whoever can read the queue?
-6. Confirm reorder is dropped.
+RULED 2026-10-20 ("read + sender retract"), shipped; see §2.2.
+
+3. ~~Cross-agent queue reads~~ → any agent in the member's rooms (the session list's reach).
+4. ~~Own-queue cancel for an ordinary agent~~ → only the items it sent; not other senders' items in its own queue.
+5. ~~Cross-agent cancel~~ → any sender takes back its own item from any queue; cancelling other senders' items
+   stays with members and privileged agents with room reach.
+6. ~~Reorder~~ → dropped.
 
 **Lazy queueing**
 

@@ -31,6 +31,7 @@ import type {
   ProviderAccountWire,
   ProviderAccountProvider,
   QueuedMessage,
+  QueuedMessageView,
   AskRef,
   RoomWire,
   SkillInfo,
@@ -8191,11 +8192,43 @@ export function createAgentManager(deps: ManagerDeps) {
     }
   }
 
-  function cancelQueued(agentId: string, messageId: string): boolean {
+  // The waiting items as an agent reads them (agents.readQueue): what the chip
+  // row shows, minus the skill body and the internal flags. null = no agent.
+  function readQueue(agentId: string): QueuedMessageView[] | null {
+    const managed = agents.get(agentId);
+    if (!managed) return null;
+    return unclaimedQueue(managed).map((m) => ({
+      id: m.id,
+      sender: m.sender,
+      text: m.text,
+      queuedAt: m.queuedAt,
+      ...(m.steer ? { steer: true } : {}),
+      ...(m.scheduledFor !== undefined ? { scheduledFor: m.scheduledFor } : {}),
+      ...(m.handoff ? { handoff: true } : {}),
+      ...(m.carried ? { carried: true } : {}),
+      ...(m.attachments?.length
+        ? { attachments: m.attachments.map((a) => a.originalName) }
+        : {}),
+    }));
+  }
+
+  // false = nothing was cancelled: no such item, already delivered, or (with
+  // senderAgentId) an item that agent did not send. Ids are unique only within
+  // the live queue, so the sender match is what keeps a reused id safe.
+  function cancelQueued(
+    agentId: string,
+    messageId: string,
+    senderAgentId?: string,
+  ): boolean {
     const managed = agents.get(agentId);
     if (!managed) return false;
     const idx = managed.messageQueue.findIndex((m) => m.id === messageId);
     if (idx < 0) return false;
+    if (senderAgentId !== undefined) {
+      const sender = managed.messageQueue[idx].sender;
+      if (sender.kind !== "agent" || sender.agentId !== senderAgentId)
+        return false;
+    }
     // Already delivered inside the running turn; only the drain is pending.
     if (liveClaimed(managed).has(managed.messageQueue[idx])) return false;
     managed.messageQueue.splice(idx, 1);
@@ -12122,6 +12155,7 @@ export function createAgentManager(deps: ManagerDeps) {
     addSystemNote,
     addApiTokenOutbound,
     cancelQueued,
+    readQueue,
     sendNow,
     sendMessage,
     respondToChoiceInteraction,

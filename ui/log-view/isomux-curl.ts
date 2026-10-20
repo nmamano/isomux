@@ -1178,6 +1178,8 @@ export function humanizeIsomuxRequest(
           return t("apiCall.agents.resume", { who });
         if (sub === "sessions" && m === "GET")
           return t("apiCall.agents.sessions", { who });
+        if (sub === "queue" && m === "GET")
+          return t("apiCall.agents.readQueue", { who });
         // /logs is one route with three modes, so the label is chosen from the
         // query rather than the path - "Search" would be wrong two thirds of
         // the time.

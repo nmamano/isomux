@@ -33,6 +33,7 @@ import type {
   ScheduledMessageEntry,
   SessionInfo,
   AgentBackendType,
+  QueuedMessageView,
 } from "../../../shared/types.ts";
 import type {
   SendMessageReq,
@@ -180,7 +181,17 @@ export interface ConversationDeps {
     username: string | undefined,
     device: string | undefined,
   ): void;
-  cancelQueued(agentId: string, messageId: string): void;
+  // false = nothing cancelled (see agentManager.cancelQueued). With
+  // senderAgentId only an item that agent sent is cancelled.
+  cancelQueued(
+    agentId: string,
+    messageId: string,
+    senderAgentId?: string,
+  ): boolean;
+  // queueCancelAny for this caller and receiver: may it cancel any item, or
+  // only take back its own?
+  mayCancelAnyQueued(identity: Identity, agentId: string): boolean;
+  readQueue(agentId: string): QueuedMessageView[] | null;
   // Returns the outcome rather than void: "flush started" and "cannot flush"
   // are different answers and the caller has to be able to tell them apart.
   // Synchronous - it decides, then kicks the delivery off.
@@ -551,9 +562,31 @@ export function conversationHandlers(
       return ok({ messageId: "" });
     },
 
+    // One 404 for every miss (gone, delivered, or another sender's item), so a
+    // sender learns nothing about a queue it cannot read.
     "agents.cancelQueued": (ctx) => {
-      deps.cancelQueued(ctx.params.id, ctx.params.messageId);
-      return noContent();
+      const anyItem = deps.mayCancelAnyQueued(ctx.identity, ctx.params.id);
+      const senderAgentId =
+        anyItem || ctx.identity.scope !== "agent"
+          ? undefined
+          : ctx.identity.agentId;
+      const cancelled =
+        (anyItem || !!senderAgentId) &&
+        deps.cancelQueued(ctx.params.id, ctx.params.messageId, senderAgentId);
+      return cancelled
+        ? noContent()
+        : fail(
+            404,
+            "not_queued",
+            "No waiting message with that id that you can cancel. It may have been delivered already.",
+          );
+    },
+
+    "agents.readQueue": (ctx) => {
+      const queue = deps.readQueue(ctx.params.id);
+      return queue
+        ? ok({ queue })
+        : fail(404, "agent_not_found", "No such agent.");
     },
 
     // Scheduled-message outbox. `:id` is the SENDER here; the

@@ -65,6 +65,7 @@ import {
   conversationReset,
   logSearchAccess,
   sessionListAccess,
+  queueCancelAccess,
   cronjobOwnerOrOfficeOwner,
   appOwnerOrOfficeOwner,
   appScope,
@@ -87,6 +88,7 @@ import type {
   CronjobListWire,
   CronjobRun,
   ScheduledMessageEntry,
+  QueuedMessageView,
   SessionInfo,
   SessionWire,
   InviteWire,
@@ -393,6 +395,7 @@ type AgentMessageAck = {
 // messageId.
 type ScheduledAck = { scheduledId: string; deliverAt: string };
 type ScheduledMessagesListRes = { scheduled: ScheduledMessageEntry[] };
+type QueueReadRes = { queue: QueuedMessageView[] };
 type AgentEnvelope = { agent: AgentInfo };
 // agents.readInstructions: the customInstructions blob + its
 // concurrency token - the read half of the read-then-PATCH flow that
@@ -671,7 +674,18 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/agents/:id/queue/:messageId",
-    auth: cap("agent:converse", agentParam("id")),
+    // Every agent may take back a message it sent; cancelling anything else
+    // needs queueCancelAny's reach, which the handler checks.
+    auth: cap(["agent:converse", "agent:send-as-self"], queueCancelAccess),
+    emits: [],
+  }),
+  // The receiver's waiting messages, as the chat's queue chips show them. Same
+  // reach as the session list.
+  defineRoute<void, QueueReadRes>({
+    opId: "agents.readQueue",
+    method: "GET",
+    path: "/api/agents/:id/queue",
+    auth: cap("log:read", sessionListAccess),
     emits: [],
   }),
   defineRoute<void, NoContent>({

@@ -1571,6 +1571,7 @@ Coses que pots fer per ell:
   "apiCall.agents.move": "Moure {who}",
   "apiCall.agents.revive": "Reviure {who}",
   "apiCall.agents.cancelQueued": "Cancel·lar un missatge en cua per a {who}",
+  "apiCall.agents.readQueue": "Llistar els missatges en cua per a {who}",
   "apiCall.agents.editMessage": "Editar un missatge del xat de {who}",
   "apiCall.apiTokens.list": "Llistar els tokens d'API",
   "apiCall.apiTokens.create": "Crear un token d'API",

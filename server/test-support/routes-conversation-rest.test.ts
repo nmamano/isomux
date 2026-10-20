@@ -312,19 +312,9 @@ describe("agents.editMessage / resume REST (Phase 3d slice 6a)", () => {
   });
 });
 
-describe("agents cancelQueued / sendNow / newConversation REST -> 204 (Phase 3d slice 6a)", () => {
-  it("cancelQueued -> 204 (no-op safe on an unknown messageId)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const r1 = srv.agentManager.getRooms()[0].id;
-    const x = await spawnAt(srv, "X", r1);
-    const res = await req(srv, "DELETE", `/api/agents/${x.id}/queue/nope`, {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(204);
-  });
-
+// cancelQueued left this block with task e17989e0: a miss now answers 404
+// not_queued instead of 204, pinned in queue-read-retract.test.ts.
+describe("agents sendNow / newConversation REST (Phase 3d slice 6a)", () => {
   // Contract CHANGED by task 5dcb0a02: send-now with nothing to send used to
   // answer 204. The case that mattered was an agent whose backend had died,
   // where the flush is gated out and silently moves nothing - the 204 read as

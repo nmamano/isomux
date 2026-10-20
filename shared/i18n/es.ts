@@ -1569,6 +1569,7 @@ Cosas que puedes hacer por él:
   "apiCall.agents.move": "Mover a {who}",
   "apiCall.agents.revive": "Revivir a {who}",
   "apiCall.agents.cancelQueued": "Cancelar un mensaje en cola para {who}",
+  "apiCall.agents.readQueue": "Listar los mensajes en cola para {who}",
   "apiCall.agents.editMessage": "Editar un mensaje del chat de {who}",
   "apiCall.apiTokens.list": "Listar los tokens de API",
   "apiCall.apiTokens.create": "Crear un token de API",

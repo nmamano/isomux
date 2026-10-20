@@ -187,6 +187,7 @@ import {
 } from "./identity/guard-deps.ts";
 import {
   cronjobOwnerOrOfficeOwner,
+  queueCancelAny,
   type GuardDeps,
 } from "./identity/guards.ts";
 import {
@@ -5237,9 +5238,15 @@ function buildExecutorDeps(
           device,
         );
       },
-      cancelQueued: (agentId, messageId) => {
-        agentManager.cancelQueued(agentId, messageId);
-      },
+      cancelQueued: (agentId, messageId, senderAgentId) =>
+        agentManager.cancelQueued(agentId, messageId, senderAgentId),
+      mayCancelAnyQueued: (identity, agentId) =>
+        queueCancelAny({
+          identity,
+          params: { id: agentId },
+          deps: buildLiveGuardDeps(),
+        }).ok,
+      readQueue: (agentId) => agentManager.readQueue(agentId),
       // AWAITED, unlike the fire-and-forget it used to be: the refusal is the
       // point. sendNow resolves as soon as it has decided whether it can flush -
       // the delivery itself still streams over WS.

@@ -104,13 +104,12 @@ const CRON_PARAMS = { id: "job-1" };
 const ROOM_PARAMS = { roomId: "r-1" };
 
 describe("privileged agent: INTENDED room-scoped operator routes are reachable", () => {
-  it("drives another agent's chat (resume / sendNow / newConversation / handoff / cancelQueued / editMessage)", () => {
+  it("drives another agent's chat (resume / sendNow / newConversation / handoff / editMessage)", () => {
     const DRIVE_OPS = [
       "agents.resume",
       "agents.sendNow",
       "agents.newConversation",
       "agents.handoff",
-      "agents.cancelQueued",
       "agents.editMessage",
     ];
     // A privileged agent reaches all of them on any reachable agent.
@@ -130,11 +129,10 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
     for (const op of ["agents.newConversation", "agents.handoff"]) {
       expect(can(op, normalAgent, { id: "a-1" })).toBe(true);
     }
-    // The other four have no self path - a normal agent is blocked even on itself.
+    // The other three have no self path - a normal agent is blocked even on itself.
     for (const op of [
       "agents.resume",
       "agents.sendNow",
-      "agents.cancelQueued",
       "agents.editMessage",
     ]) {
       expect(can(op, normalAgent, { id: "a-1" })).toBe(false);
@@ -170,6 +168,36 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
         noRoom,
       ),
     ).toBe(false);
+  });
+  // Task e17989e0: every agent passes cancelQueued's route auth on any agent,
+  // in a reachable room or not - a sender takes back its own item from any
+  // queue it may message, and the handler cancels nothing else for it (pinned
+  // in queue-read-retract.test.ts). A member keeps the room reach.
+  it("lets every agent reach cancelQueued on any agent; a member needs room access", () => {
+    const noAccess = deps({ hasRoomAccess: () => false });
+    for (const agent of [privilegedAgent, normalAgent]) {
+      for (const d of [deps(), noAccess]) {
+        expect(
+          can("agents.cancelQueued", agent, { id: "a-other" }, undefined, d),
+        ).toBe(true);
+      }
+    }
+    expect(can("agents.cancelQueued", member, AGENT_PARAMS)).toBe(true);
+    expect(
+      can("agents.cancelQueued", member, AGENT_PARAMS, undefined, noAccess),
+    ).toBe(false);
+  });
+  it("gives readQueue exactly the listSessions reach", () => {
+    const noRoom = deps({ hasRoomAccess: () => false });
+    for (const identity of [privilegedAgent, normalAgent, owner, member]) {
+      for (const params of [AGENT_PARAMS, { id: "a-other" }]) {
+        for (const d of [deps(), noRoom]) {
+          expect(can("agents.readQueue", identity, params, undefined, d)).toBe(
+            can("agents.listSessions", identity, params, undefined, d),
+          );
+        }
+      }
+    }
   });
   // Task f4452169: abort left the operator set. Every agent, privileged or
   // not, stops any agent it may message - message reach is not room-scoped.
