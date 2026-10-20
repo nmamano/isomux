@@ -3,6 +3,14 @@ import { isAbsolute, resolve } from "path";
 // Backend login files are both protected from agent reads and omitted from
 // office backups. Keep the two consumers on this shared list: adding a backend
 // credential location must update both policies in the same change.
+//
+// The two consumers agree on the paths Isomux creates, not on every path. A
+// read regex accepts any prefix and matches one component with [^/]+. A tar
+// exclusion is rooted at the state root (anywhere() adds one level that
+// matches any depth), and its "*" also matches "/". So a backup omits
+// opencode/profiles/a/b/data/opencode/auth.json, which agents may read, and
+// keeps x/opencode/profiles/p/opencode.json, which agents may not. Isomux
+// creates neither path.
 
 export interface BackendCredentialPath {
   id:
