@@ -1,4 +1,4 @@
-import type { Translator } from "../../shared/i18n/translate.ts";
+import type { LogMessage, LogText } from "../../shared/i18n/log-message.ts";
 import type { AgentMcpServer } from "../mcp-servers.ts";
 // Backend abstraction shared by Claude (claude-agent-sdk) and Codex (App Server).
 //
@@ -67,8 +67,6 @@ export interface CreateSessionOptions {
   // the model as context inside the running turn; null delivers nothing.
   // Synchronous and cheap: the backend awaits it before the model continues.
   takeToolBoundaryMessage?: () => string | null;
-  // Translates notices the backend writes into the chat; English when absent.
-  words?: Translator["t"];
   // Remote MCP servers Isomux registers for this agent (server/mcp-servers.ts).
   // Their headers can carry a credential: a backend gives them to its engine
   // only through a channel that is neither argv nor the environment.
@@ -89,7 +87,6 @@ export interface SessionEnvironmentOptions {
 }
 
 export interface SessionAccessOptions extends SessionEnvironmentOptions {
-  words?: Translator["t"];
   cwd: string;
   modelFamily: string;
   permissionMode: string;
@@ -256,7 +253,8 @@ export type NormalizedEvent =
       cost?: number;
       costMode?: "turn";
       usageId?: string;
-      error?: string;
+      // Isomux's own words are a message; a provider's text stays a string.
+      error?: LogText;
       // The backend stayed healthy, but the provider refused the turn after
       // bounded capacity retries. The orchestrator keeps the session usable.
       causedByProviderCapacity?: boolean;
@@ -279,7 +277,8 @@ export type NormalizedEvent =
   // Context compaction occurred mid-conversation (Codex-only at v1).
   | { kind: "compacted"; summary?: string }
   // Backend-level error (stream / RPC failure, etc.).
-  | { kind: "error"; message: string; code?: string }
+  // Isomux's own words are a message; a backend's text stays a string.
+  | { kind: "error"; message: string | LogMessage; code?: string }
   // The provider refused the member's credentials. The backend decides this
   // (server/backends/auth-signal.ts) and sends it before the error or
   // turn_completed it belongs to; the orchestrator shows the sign-in card.
@@ -299,7 +298,7 @@ export type NormalizedEvent =
   // not say why: an expired subscription and an admin block both send it.
   | {
       kind: "system_text";
-      text: string;
+      text: LogText;
       claudeAccessDenied?: true;
     }
   // Background-task lifecycle breadcrumb (Claude-only at v1). Emitted when a
@@ -561,7 +560,7 @@ export type LoginInstructionKind = "already_authed" | "login" | "not_installed";
 export interface LoginInstructions {
   kind: LoginInstructionKind;
   cardEligible: boolean;
-  text: string;
+  text: LogText;
   commands?: string[];
 }
 
@@ -652,11 +651,10 @@ export interface Backend {
     sessionId: string,
     opts: {
       cwd: string;
-      words?: Translator["t"];
       env?: { [key: string]: string | undefined };
       environmentKey?: string;
     },
-  ): string | null;
+  ): string | LogMessage | null;
 
   // Branch a conversation so that `targetMessageId` and everything after it
   // is replaced. The backend resolves predecessor / first-message semantics
@@ -702,8 +700,6 @@ export interface Backend {
     env?: { [key: string]: string | undefined };
     environmentKey?: string;
     modelFamily?: string;
-    // The reader's words for the instructions text; English when absent.
-    words?: Translator["t"];
     // Set when a chat turn needs sign-in (the auth-needed path), absent on a
     // typed /login. Credentials that exist on disk are then not proof of a
     // working sign-in. Codex reads it; Claude ignores it.

@@ -19,8 +19,7 @@ import type {
   ProviderAccountProvider,
 } from "../shared/types.ts";
 import type { OfficeUsageStatusWire } from "../shared/contract-shapes.ts";
-import type { Translator } from "../shared/i18n/translate.ts";
-import { timeUntilFine } from "../shared/i18n/time.ts";
+import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 import { DEFAULT_MEMBER_SHARE } from "../shared/member-usage-share.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
 import {
@@ -128,24 +127,20 @@ export function managerCapped(userId: string | null | undefined): boolean {
   return getUserById(userId)?.role === "member";
 }
 
+// The span is frozen when the line is written: "try again in 3 hours" does
+// not shrink on a later read. At least a minute, so it always has a number.
 export function usageCapText(
-  translator: Translator,
   err: Pick<UsageCapError, "retryAtMs">,
   now: number = Date.now(),
-): string {
-  const until = timeUntilFine(
-    translator.language,
-    Math.max(err.retryAtMs, now + 60_000),
-    now,
-  );
-  return translator.t("systemEntries.usageCap.pace", {
-    when: until.kind === "formatted" ? until.text : "",
+): LogMessage {
+  return msg("systemEntries.usageCap.pace", {
+    when: { duration: Math.max(err.retryAtMs - now, 60_000) },
   });
 }
 
 // No usage figures: members never see the office account's numbers.
-export function usageHeadsUpText(translator: Translator): string {
-  return translator.t("systemEntries.usageCap.headsUp");
+export function usageHeadsUpText(): LogMessage {
+  return msg("systemEntries.usageCap.headsUp");
 }
 
 export interface MemberUsageCap {

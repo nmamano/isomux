@@ -31,9 +31,9 @@ import { join } from "path";
 
 import { STATE_ROOT } from "../../config.ts";
 import { translatorFor } from "../../../shared/i18n/translate.ts";
+import { msg, renderLogText } from "../../../shared/i18n/log-message.ts";
 import { inertMarkdown, providerText } from "../provider-text.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
-import { callFor, render, spyWords } from "../../test-support/spy-words.ts";
 import {
   buildCodexUserInput,
   CODEX_THREAD_CONFIG_OVERRIDES,
@@ -72,7 +72,6 @@ import {
   codexSandboxProbe,
   resetCodexSandboxProbeForTests,
 } from "./sandbox-probe.ts";
-import type { Translator } from "../../../shared/i18n/translate.ts";
 import { SAFETY_WARNING } from "./safety-hook.ts";
 
 const FIXTURE_THREAD_ID = "thread-fixture-1";
@@ -563,8 +562,7 @@ describe("CodexSession sandbox in a container", () => {
     if (savedSupervisor === undefined) delete process.env.ISOMUX_APP_SUPERVISOR;
     else process.env.ISOMUX_APP_SUPERVISOR = savedSupervisor;
   });
-  const words = ((key: string) => `t:${key}`) as Translator["t"];
-  const NOTICE = "t:systemEntries.codexSandboxUnavailable";
+  const NOTICE = msg("systemEntries.codexSandboxUnavailable");
 
   // After system_init, the next event is either the notice or this marker.
   async function eventAfterInit(
@@ -585,7 +583,6 @@ describe("CodexSession sandbox in a container", () => {
         ...resume,
         sandbox: "read-only",
         permissionMode: "untrusted",
-        words,
       });
       const ev = await eventAfterInit(fake, it);
       expect(fake.requests[0].method).toBe(method);
@@ -601,7 +598,6 @@ describe("CodexSession sandbox in a container", () => {
       const { fake, it } = start(undefined, {
         ...resume,
         sandbox: "danger-full-access",
-        words,
       });
       const ev = await eventAfterInit(fake, it);
       expect(fake.requests[0].params).toMatchObject({
@@ -619,7 +615,6 @@ describe("CodexSession sandbox in a container", () => {
         const { fake, it } = start(undefined, {
           ...resume,
           sandbox: "workspace-write",
-          words,
         });
         const ev = await eventAfterInit(fake, it);
         expect(fake.requests[0].params).toMatchObject({
@@ -649,7 +644,7 @@ describe("CodexSession sandbox in a container", () => {
 
   it("an agent with no sandbox setting starts on full access and gets no notice", async () => {
     await probeSays("denied");
-    const { fake, it } = start(undefined, { words });
+    const { fake, it } = start(undefined);
     const ev = await eventAfterInit(fake, it);
     expect(fake.requests[0].params).toMatchObject({
       sandbox: "danger-full-access",
@@ -4685,13 +4680,9 @@ describe("CodexSession provider refusals", () => {
   // a body far over the bound.
   const REFUSED = `unexpected status 403 Forbidden: {"error":{"message":"Request blocked.\nKey ${SECRET}"}}, url: https://api.openai.com/v1/responses, request id: req_1 ${"x".repeat(400)}`;
   const FORBIDDEN = { httpConnectionFailed: { httpStatusCode: 403 } };
-  const en = translatorFor("en").t;
-  const refusalLine = (
-    provider: string,
-    message: string,
-    words: Translator["t"] = en,
-  ) =>
-    words("systemEntries.providerRefused", {
+  // The line is a message each reader words (task c37a7365).
+  const refusalLine = (provider: string, message: string) =>
+    msg("systemEntries.providerRefused", {
       provider,
       message: providerText(message)!,
     });
@@ -4740,8 +4731,8 @@ describe("CodexSession provider refusals", () => {
           codexErrorInfo,
           line: refusalLine("azure-openai", REFUSED),
         });
-        expect(line).not.toContain(SECRET.slice(3));
-        expect(line).not.toContain("\n");
+        expect(JSON.stringify(line)).not.toContain(SECRET.slice(3));
+        expect(line?.params?.message).not.toContain("\n");
       }
     });
 
@@ -4766,17 +4757,6 @@ describe("CodexSession provider refusals", () => {
         ).toBeNull();
       expect(codexProviderRefusal(null, "openai")).toBeNull();
       expect(codexProviderRefusal(undefined, "openai")).toBeNull();
-    });
-
-    it("words the line in the member's language", () => {
-      const spanish = translatorFor("es").t;
-      const line = codexProviderRefusal(
-        { message: REFUSED, codexErrorInfo: FORBIDDEN },
-        "openai",
-        spanish,
-      );
-      expect(line).toBe(refusalLine("openai", REFUSED, spanish));
-      expect(line).not.toBe(refusalLine("openai", REFUSED));
     });
   });
 
@@ -4846,18 +4826,6 @@ describe("CodexSession provider refusals", () => {
         expectKind(await nextEvent(it, "marker"), "system_text").text,
       ).toBe("[codex stderr] marker");
     });
-
-  it("words the refusal in the session's language", async () => {
-    const spanish = translatorFor("es").t;
-    const { session, fake, it } = await bootstrapped(undefined, {
-      words: spanish,
-    });
-    await session.send("go");
-    fireRefusal(fake, "turn-es");
-    expect(
-      expectKind(await nextEvent(it, "refused turn"), "turn_completed").error,
-    ).toBe(refusalLine("openai", REFUSED, spanish));
-  });
 
   it("keeps a latched refusal when the subprocess exits before turn/completed", async () => {
     const { session, fake, it } = await bootstrapped();
@@ -4976,12 +4944,12 @@ describe("CodexSession provider refusals", () => {
 
 // Codex asks Isomux to refresh a ChatGPT token, and Isomux has no token
 // store. The member needs to sign in again: the session says so with
-// auth_needed, which brings the translated sign-in instructions, and its
-// error states the problem only, in the session's words (task beb6089b).
+// auth_needed, which brings the sign-in instructions, and its error states
+// the problem only, as a message each reader words (tasks beb6089b,
+// c37a7365).
 describe("CodexSession ChatGPT token refresh request", () => {
-  it("signals sign-in and states the problem in the session's words", async () => {
-    const { t, calls } = spyWords();
-    const { fake, it } = await bootstrapped(undefined, { words: t });
+  it("signals sign-in and states the problem as a message", async () => {
+    const { fake, it } = await bootstrapped();
     await expectRejection(
       fake.fireServerRequest({
         id: "refresh-1",
@@ -4991,10 +4959,11 @@ describe("CodexSession ChatGPT token refresh request", () => {
     );
     expectKind(await nextEvent(it, "auth_needed"), "auth_needed");
     const error = expectKind(await nextEvent(it, "refresh error"), "error");
-    const call = callFor(calls, error.message);
-    expect(call).toBeDefined();
+    expect(typeof error.message).toBe("object");
     // The instructions come with auth_needed; the error does not repeat them.
-    expect(render("en", call!)).not.toContain("login --device-auth");
+    expect(renderLogText(translatorFor("en"), error.message)).not.toContain(
+      "login --device-auth",
+    );
   });
 });
 

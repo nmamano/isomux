@@ -8,7 +8,8 @@ import {
   inspectCodexStoredSession,
   validateCwd,
 } from "./cwd-utils.ts";
-import { callFor, render, spyWords } from "./test-support/spy-words.ts";
+import { renderLogText } from "../shared/i18n/log-message.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
 
 const THREAD_ID = "019a7b3c-1111-7222-8333-123456789abc";
 const roots: string[] = [];
@@ -59,8 +60,8 @@ describe("inspectCodexStoredSession", () => {
 });
 
 // Why a cwd cannot be used, per cause (task beb6089b). The session start
-// words each cause in the reader's language, so the cause and the resolved
-// path must come back as data, not as an English sentence.
+// writes each cause as a message each reader words, so the cause and the
+// resolved path must come back as data, not as an English sentence.
 describe("cwdProblem", () => {
   const scratch = () => {
     const root = mkdtempSync(join(tmpdir(), "isomux-cwd-problem-"));
@@ -114,33 +115,29 @@ describe("cwdProblem", () => {
 });
 
 // The hint written after a Claude process exits stands alone in the log, so
-// both causes are worded in the reader's language, and the missing-session
-// one carries its own /resume hint (task beb6089b).
+// both causes are messages each reader words, and the missing-session one
+// carries its own /resume hint (tasks beb6089b, c37a7365).
 describe("diagnoseProcessExit", () => {
-  it("words a missing cwd through the words it is given", () => {
+  it("words a missing cwd as a message, with the path as a value", () => {
     const missing = join(tmpdir(), `isomux-exit-cwd-${process.pid}-gone`);
-    const { t, calls } = spyWords();
-    const hint = diagnoseProcessExit(missing, null, {}, t);
-    const call = callFor(calls, hint ?? "");
-    expect(call).toBeDefined();
+    const hint = diagnoseProcessExit(missing, null, {});
+    expect(hint).not.toBeNull();
     // The path is a value in the sentence, not part of the template.
-    expect(Object.values(call!.params ?? {})).toContain(missing);
+    expect(Object.values(hint!.params ?? {})).toContain(missing);
   });
 
-  it("words a missing session through the words it is given, with one /resume hint", () => {
+  it("words a missing session as a message, with one /resume hint", () => {
     const configDir = mkdtempSync(join(tmpdir(), "isomux-exit-session-"));
     roots.push(configDir);
     const cwd = mkdtempSync(join(tmpdir(), "isomux-exit-cwd-"));
     roots.push(cwd);
-    const { t, calls } = spyWords();
     const hint = diagnoseProcessExit(
       cwd,
       "0b1f0c3e-0000-4000-8000-000000000000",
       { CLAUDE_CONFIG_DIR: configDir },
-      t,
     );
-    const call = callFor(calls, hint ?? "");
-    expect(call).toBeDefined();
-    expect(render("en", call!).split("/resume").length - 1).toBe(1);
+    expect(hint).not.toBeNull();
+    const english = renderLogText(translatorFor("en"), hint!);
+    expect(english.split("/resume").length - 1).toBe(1);
   });
 });

@@ -2053,6 +2053,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "contextMenu.newEngineConversation": "New {engine} Conversation",
   "contextMenu.resume": "Resume",
   "common.current": "(current)",
+  // A date alone, worded in the reader's format: for a log line that
+  // shows a date as a part of its own.
+  "common.date": "{date}",
   "contextMenu.branched": "(branched)",
   "contextMenu.killAgent": "Kill Agent",
   "contextMenu.moveToBackRoom": "Move to back room",

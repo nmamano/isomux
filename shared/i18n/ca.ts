@@ -2104,6 +2104,7 @@ Coses que pots fer per ell:
   "contextMenu.newEngineConversation": "Conversa nova de {engine}",
   "contextMenu.resume": "Reprèn",
   "common.current": "(actual)",
+  "common.date": "{date}",
   "contextMenu.branched": "(ramificada)",
   "contextMenu.killAgent": "Elimina l'agent",
   "contextMenu.moveToBackRoom": "Mou a la rebotiga",

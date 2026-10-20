@@ -14,6 +14,7 @@ import {
   type OfficeWeeklyOutcome,
 } from "./office-usage.ts";
 import { english } from "./i18n.ts";
+import { msg, renderLogText } from "../shared/i18n/log-message.ts";
 
 const NOW = Date.parse("2026-10-02T12:00:00Z");
 
@@ -377,20 +378,30 @@ describe("billingAccountFor", () => {
   });
 });
 
+// Both lines are messages each reader words (task c37a7365).
 describe("usageCapText", () => {
-  it("names the wait until members resume", () => {
-    const text = usageCapText(english, { retryAtMs: NOW + 3 * 3600_000 }, NOW);
+  it("names the wait until members resume, frozen as a span when written", () => {
+    const line = usageCapText({ retryAtMs: NOW + 3 * 3600_000 }, NOW);
+    expect(line).toEqual(
+      msg("systemEntries.usageCap.pace", { when: { duration: 3 * 3600_000 } }),
+    );
+    const text = renderLogText(english, line);
     expect(text).toContain("3");
     expect(text).not.toContain("{");
+  });
+
+  it("names at least a minute when the retry time has passed", () => {
+    expect(usageCapText({ retryAtMs: NOW - 5_000 }, NOW)).toEqual(
+      msg("systemEntries.usageCap.pace", { when: { duration: 60_000 } }),
+    );
   });
 });
 
 describe("usageHeadsUpText", () => {
   it("renders a sentence with no usage figures", () => {
-    const text = usageHeadsUpText(english);
-    expect(text).toBe(english.t("systemEntries.usageCap.headsUp"));
-    expect(text).not.toBe("systemEntries.usageCap.headsUp");
+    const line = usageHeadsUpText();
+    expect(line).toEqual(msg("systemEntries.usageCap.headsUp"));
     // Members never see the office account's numbers (owner-only status).
-    expect(text).not.toMatch(/[0-9{]/);
+    expect(renderLogText(english, line)).not.toMatch(/[0-9{]/);
   });
 });

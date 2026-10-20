@@ -1,7 +1,5 @@
-import {
-  translatorFor,
-  type Translator,
-} from "../../../shared/i18n/translate.ts";
+import { msg } from "../../../shared/i18n/log-message.ts";
+import { LocalizedError } from "../../localized-error.ts";
 import { join } from "node:path";
 import type {
   SessionStore,
@@ -19,14 +17,13 @@ export function claudeSessionStore(
   sessionId: string,
   cwd: string,
   env?: Record<string, string | undefined>,
-  t: Translator["t"] = translatorFor("en").t,
 ): SessionStore {
   const host = getAgentHost();
   const projectDir = claudeProjectDir(cwd, env ?? host.baseEnv());
   return {
     async load(key) {
       if (key.sessionId !== sessionId || key.subpath)
-        throw new Error(t("systemEntries.claudeSession.invalid"));
+        throw new LocalizedError(msg("systemEntries.claudeSession.invalid"));
       try {
         const text = await host.fs.readText(
           join(projectDir, `${sessionId}.jsonl`),
@@ -48,7 +45,7 @@ export function claudeSessionStore(
         key.subpath ||
         !/^[0-9a-f-]{36}$/i.test(key.sessionId)
       ) {
-        throw new Error(t("systemEntries.claudeSession.invalid"));
+        throw new LocalizedError(msg("systemEntries.claudeSession.invalid"));
       }
       await host.fs.writeText(
         join(projectDir, `${key.sessionId}.jsonl`),

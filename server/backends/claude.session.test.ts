@@ -34,7 +34,7 @@ import type {
   SessionPluginReload,
   SubscriptionUsageResult,
 } from "./types";
-import { translatorFor } from "../../shared/i18n/translate.ts";
+import { msg } from "../../shared/i18n/log-message.ts";
 
 // ---------------------------------------------------------------------------
 // FakeSdkConversation - test double for SdkConversation
@@ -1064,14 +1064,13 @@ describe("createClaudeBackend.oneShotPrompt", () => {
   });
 });
 
-// Task 2bd836d5: the session names the provider its env selects and words
-// the refusal in the member's language, on both start paths.
+// Task 2bd836d5: the session names the provider its env selects, on both
+// start paths. The line is a message each reader words (task c37a7365).
 describe("createClaudeBackend - provider refusal", () => {
   for (const path of ["createSession", "resumeSession"] as const)
-    it(`${path} words a 403 with the env's provider and the member's language`, async () => {
+    it(`${path} words a 403 with the env's provider`, async () => {
       const fake = new FakeSdkClient();
       const backend = createClaudeBackend(fake);
-      const spanish = translatorFor("es").t;
       const opts = {
         agentId: "refusal-agent",
         modelFamily: "opus",
@@ -1080,7 +1079,6 @@ describe("createClaudeBackend - provider refusal", () => {
         systemPrompt: "test",
         permissionMode: "default",
         effort: "high",
-        words: spanish,
       };
       const session =
         path === "createSession"
@@ -1102,7 +1100,7 @@ describe("createClaudeBackend - provider refusal", () => {
       });
       expect(await nextEvent(it)).toEqual({
         kind: "system_text",
-        text: spanish("systemEntries.providerRefused", {
+        text: msg("systemEntries.providerRefused", {
           provider: "vertex",
           message: "403 Request not allowed",
         }),

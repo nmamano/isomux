@@ -1,12 +1,12 @@
 // Server-produced text reaches a user in the user's language, over the real
-// paths (internal-docs/i18n-loop.md, S7). Four claims:
+// paths (internal-docs/i18n-loop.md, S7; task c37a7365). Four claims:
 //
-//   1. a slash command typed by a user whose stored language is `es` answers in
-//      Spanish, and the same command from a user who never chose one answers in
-//      English;
-//   2. a choice interaction the user opened (/effort) carries their language,
-//      and one opened with NO actor - a permission the BACKEND asked for -
-//      falls back to the agent owner's language;
+//   1. a slash command's reply is worded for the user who typed it: Spanish
+//      for a user whose stored language is `es`, English for one who never
+//      chose;
+//   2. a choice card, its text fallback, and a system line are stored in
+//      English and carry a message each reader words in their own language,
+//      whoever typed (or nobody, for a permission the BACKEND asked for);
 //   3. an API error stays English for a Spanish user (ruling 2);
 //   4. an AGENT's message is agent INPUT, not a command: it reaches the backend
 //      as its literal text and produces no Isomux response entry in any
@@ -14,7 +14,7 @@
 //
 // Every claim is which language (or which reader's language) a text was
 // written in, so the expectation is the catalog value of its key, read through
-// `inLanguage`, which first proves that value differs from English
+// `inLanguage` or worded.ts, which first prove that value differs from English
 // (internal-docs/testing-guide.md, principle 15 and its one exception). The
 // API error and the agent's wake notice are compared with English on the same
 // grounds.
@@ -30,7 +30,9 @@ import {
   type MessageKey,
   type ParamsFor,
 } from "../../shared/i18n/translate.ts";
+import { localizeLogParts } from "../../shared/i18n/log-message.ts";
 import { DOCS_URL, SKILLS_PAGE_PATH } from "../command-handlers.ts";
+import { expectWorded, expectWordedText } from "./worded.ts";
 
 async function waitUntil(
   pred: () => boolean,
@@ -231,50 +233,92 @@ describe("a slash command answers in the typing user's language", () => {
   });
 });
 
-describe("a choice interaction the user opened carries their language", () => {
-  it("gives a Catalan user a Catalan title and instruction", async () => {
+// From here on, the line or card is written once for every reader (task
+// c37a7365): its stored text is English whoever typed and whoever owns the
+// agent, and its message words it for each reader. Before that task, these
+// were worded for the typist (or the owner when nobody typed), so a Catalan
+// typist's line reached an English reader in Catalan.
+
+/** The entry's message, or a card field's parts, in `language`. */
+function wordedIn(language: "en" | "ca", parts: unknown): string | null {
+  return localizeLogParts(translatorFor(language), parts);
+}
+
+function lastSystemEntry(
+  srv: TestServer,
+  agentId: string,
+): LogEntry | undefined {
+  return srv.agentManager
+    .getAgentLogs(agentId)
+    .filter((e: LogEntry) => e.kind === "system")
+    .at(-1);
+}
+
+describe("a choice card stores English and words itself for each reader", () => {
+  it("gives the /effort card English fields and a message for each reader", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     setLanguage(owner.username, "ca");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "A", room.id, owner.username);
+    // The ENABLING CONDITION: the typist reads Catalan, so a card worded for
+    // the typist would have Catalan fields and fail.
+    expect(getUserByName(owner.username)?.language).toBe("ca");
 
     await server.agentManager.sendMessage(agent.id, "/effort", owner.username);
     const interaction = server.agentManager.getPendingInteractions()[0];
     expect(interaction?.kind).toBe("effort");
-    expect(interaction?.title).toBe(inLanguage("ca", "choices.effort.title"));
-    expect(interaction?.instruction).toContain(
+    expectWordedText(
+      interaction?.title,
+      interaction?.message?.title,
+      "choices.effort.title",
+    );
+    const { t: en } = translatorFor("en");
+    expect(interaction?.instruction.trim()).toBe(
+      en("choices.model.instruction"),
+    );
+    expect(wordedIn("ca", interaction?.message?.instruction)?.trim()).toBe(
       inLanguage("ca", "choices.model.instruction"),
     );
-    // The level labels come from the catalog too, keyed by id.
-    expect(interaction?.choices.map((c) => c.label)).toContain(
-      inLanguage("ca", "common.effort.high"),
-    );
+    // A level label is catalog text too, keyed by its id.
+    const high = interaction?.choices.find((c) => c.value === "high");
+    expectWordedText(high?.label, high?.message?.label, "common.effort.high");
+
+    // The text fallback the log shows next to the card is the same words.
+    const fallback = server.agentManager
+      .getAgentLogs(agent.id)
+      .find((e) => e.metadata?.interactionFallback === true);
+    expect(fallback?.content).toContain(en("choices.model.instruction"));
+    expect(fallback?.content).toContain(en("common.effort.high"));
+    const catalan = wordedIn("ca", fallback?.message);
+    expect(catalan).toContain(inLanguage("ca", "choices.model.instruction"));
+    expect(catalan).toContain(inLanguage("ca", "common.effort.high"));
+    expect(catalan).not.toContain(en("choices.model.instruction"));
   });
 });
 
-describe("a KNOWN actor wins over the agent's owner", () => {
-  // The regression for the round-1 finding: several sites inside sendMessage
-  // resolved from the owner even though the sender was in scope. With the
-  // owner on English and the actor on Catalan, owner-only code reads English
-  // and fails here.
-  it("cancels an effort pick in the ACTOR's language, not the owner's", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
+describe("a line a member caused reads in each reader's language", () => {
+  // The owner reads English and the member who types reads Catalan: one
+  // entry has to serve both.
+  async function mixedOffice(srv: TestServer) {
+    const owner = await srv.seedOwner("Boss");
     setLanguage(owner.username, null);
-    const member = await server.seedMember("Jordi");
+    const member = await srv.seedMember("Jordi");
     setLanguage(member.username, "ca");
-    const room = server.agentManager.getRooms()[0];
-    // The agent belongs to the OWNER; the member is only the one typing.
-    const agent = await spawnAgent(server, "A", room.id, owner.username);
-
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "A", room.id, owner.username);
     // Both ENABLING CONDITIONS, so neither side can pass for the wrong reason.
     expect(getUserByName(owner.username)?.language).toBeNull();
     expect(getUserByName(member.username)?.language).toBe("ca");
-    expect(server.agentManager.getAgent(agent.id)?.userId).toBe(
+    expect(srv.agentManager.getAgent(agent.id)?.userId).toBe(
       getUserByName(owner.username)?.id,
     );
+    return { agent, member };
+  }
 
+  it("stores a cancelled effort pick in English, worded for each reader", async () => {
+    server = await startTestServer();
+    const { agent, member } = await mixedOffice(server);
     await server.agentManager.sendMessage(agent.id, "/effort", member.username);
     expect(server.agentManager.getPendingInteractions()).toHaveLength(1);
     // Anything that is not a listed number cancels the pick.
@@ -283,25 +327,15 @@ describe("a KNOWN actor wins over the agent's owner", () => {
       "no thanks",
       member.username,
     );
-    expect(systemEntries(server, agent.id)).toContain(
-      inLanguage("ca", "systemEntries.effortCancelled"),
-    );
-    expect(systemEntries(server, agent.id)).not.toContain(
-      translatorFor("en").t("systemEntries.effortCancelled"),
+    expectWorded(
+      lastSystemEntry(server, agent.id),
+      "systemEntries.effortCancelled",
     );
   });
 
-  it("cancels a model pick in the ACTOR's language, not the owner's", async () => {
+  it("stores a cancelled model pick in English, worded for each reader", async () => {
     server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    setLanguage(owner.username, null);
-    const member = await server.seedMember("Jordi");
-    setLanguage(member.username, "ca");
-    const room = server.agentManager.getRooms()[0];
-    const agent = await spawnAgent(server, "A", room.id, owner.username);
-    expect(getUserByName(owner.username)?.language).toBeNull();
-    expect(getUserByName(member.username)?.language).toBe("ca");
-
+    const { agent, member } = await mixedOffice(server);
     await server.agentManager.sendMessage(agent.id, "/model", member.username);
     expect(server.agentManager.getPendingInteractions()).toHaveLength(1);
     await server.agentManager.sendMessage(
@@ -309,24 +343,24 @@ describe("a KNOWN actor wins over the agent's owner", () => {
       "no thanks",
       member.username,
     );
-    expect(systemEntries(server, agent.id)).toContain(
-      inLanguage("ca", "systemEntries.modelCancelled"),
+    expectWorded(
+      lastSystemEntry(server, agent.id),
+      "systemEntries.modelCancelled",
     );
   });
 });
 
-describe("an actorless choice interaction falls back to the agent's owner", () => {
-  it("words a backend permission prompt in the OWNER's language", async () => {
+describe("a line nobody typed reads in each reader's language", () => {
+  it("words a backend permission prompt for each reader", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     setLanguage(owner.username, "ca");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "A", room.id, owner.username);
 
-    // The ENABLING CONDITION: the agent is owned by the Catalan user, and the
-    // permission arrives from the BACKEND, so no actor is in scope. If the
-    // owner link were missing this would read English and the assertions below
-    // would fail rather than pass vacuously.
+    // The ENABLING CONDITION: the agent is owned by the Catalan user and the
+    // permission arrives from the BACKEND, the case the old writer worded in
+    // the owner's language.
     expect(server.agentManager.getAgent(agent.id)?.userId).toBe(
       getUserByName(owner.username)?.id,
     );
@@ -354,25 +388,43 @@ describe("an actorless choice interaction falls back to the agent's owner", () =
 
     const interaction = server.agentManager.getPendingInteractions()[0];
     expect(interaction?.kind).toBe("permission");
-    expect(interaction?.title).toBe(
-      inLanguage("ca", "choices.permission.title", { tool: "Bash" }),
+    expectWordedText(
+      interaction?.title,
+      interaction?.message?.title,
+      "choices.permission.title",
+      { tool: "Bash" },
     );
-    expect(interaction?.instruction).toBe(
-      inLanguage("ca", "choices.permission.instruction"),
+    expectWordedText(
+      interaction?.instruction,
+      interaction?.message?.instruction,
+      "choices.permission.instruction",
     );
-    expect(interaction?.choices.map((c) => c.label)).toEqual([
-      inLanguage("ca", "choices.permission.allowOnce"),
-      inLanguage("ca", "choices.permission.deny"),
-    ]);
+    const [allow, deny] = interaction?.choices ?? [];
+    expectWordedText(
+      allow?.label,
+      allow?.message?.label,
+      "choices.permission.allowOnce",
+    );
+    expectWordedText(
+      deny?.label,
+      deny?.message?.label,
+      "choices.permission.deny",
+    );
     // The prompt text the log shows alongside the card is the same words.
-    expect(systemEntries(server, agent.id).join("\n")).toContain(
+    const { t: en } = translatorFor("en");
+    const prompt = server.agentManager
+      .getAgentLogs(agent.id)
+      .find(
+        (e) =>
+          e.kind === "system" &&
+          e.content.includes(en("choices.permission.reply")),
+      );
+    expect(wordedIn("ca", prompt?.message)).toContain(
       inLanguage("ca", "choices.permission.reply"),
     );
   });
-});
 
-describe("an actorless LIFECYCLE entry falls back to the agent's owner", () => {
-  it("words the API new-conversation entry in the OWNER's language", async () => {
+  it("words the API new-conversation entry for each reader", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     setLanguage(owner.username, "ca");
@@ -380,16 +432,14 @@ describe("an actorless LIFECYCLE entry falls back to the agent's owner", () => {
     const agent = await spawnAgent(server, "A", room.id, owner.username);
 
     // The ENABLING CONDITION: newConversation is reached from a route whose
-    // handler contract passes no identity, so nothing but the ownership link
-    // can supply a language here. Asserted so the Catalan expectation below
-    // cannot pass for the wrong reason.
+    // handler contract passes no identity, so the old writer fell back to the
+    // Catalan owner.
     expect(server.agentManager.getAgent(agent.id)?.userId).toBe(
       getUserByName(owner.username)?.id,
     );
     expect(getUserByName(owner.username)?.language).toBe("ca");
 
-    // The real HTTP route, not the manager call: this is the path whose
-    // handler contract passes no identity through.
+    // The real HTTP route, not the manager call.
     const res = await server.http(`/api/agents/${agent.id}/new-conversation`, {
       method: "POST",
       rawSessionId: owner.rawSessionId,
@@ -397,29 +447,34 @@ describe("an actorless LIFECYCLE entry falls back to the agent's owner", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(204);
-    const catalan = inLanguage("ca", "systemEntries.newConversation");
-    await waitUntil(
-      () => systemEntries(server!, agent.id).includes(catalan),
-      2000,
-      "new-conversation entry in Catalan",
-    );
+    // Found by either language, so a Catalan entry fails on its words, not
+    // on a timeout.
+    const texts = [
+      translatorFor("en").t("systemEntries.newConversation"),
+      inLanguage("ca", "systemEntries.newConversation"),
+    ];
+    const entry = () =>
+      server!.agentManager
+        .getAgentLogs(agent.id)
+        .find((e) => e.kind === "system" && texts.includes(e.content));
+    await waitUntil(() => !!entry(), 2000, "new-conversation entry");
+    expectWorded(entry(), "systemEntries.newConversation");
   });
 });
 
 describe("the dormant-wake message is split by reader", () => {
-  // One string used to serve both surfaces. It now serves two, and this is the
-  // test that tells them apart: the human's log follows the reader, the
-  // agent's wake notice stays English because an agent always reads English
-  // (internal-docs/i18n-loop.md, S7).
-  it("logs the wake in Catalan and sends the agent the English notice", async () => {
+  // The human's log is worded per reader; the agent's wake notice stays
+  // English because an agent always reads English (internal-docs/i18n-loop.md,
+  // S7).
+  it("words the logged wake for each reader and sends the agent the English notice", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     setLanguage(owner.username, "ca");
     const room = server.agentManager.getRooms()[0];
     const agent = await spawnAgent(server, "A", room.id, owner.username);
 
-    // ENABLING CONDITIONS: the reader is on Catalan and owns the agent, so an
-    // English log here would be a real failure rather than a missing fixture.
+    // ENABLING CONDITIONS: the owner reads Catalan, so an owner-worded log
+    // would put Catalan in the stored text.
     expect(getUserByName(owner.username)?.language).toBe("ca");
     expect(server.agentManager.getAgent(agent.id)?.userId).toBe(
       getUserByName(owner.username)?.id,
@@ -446,13 +501,26 @@ describe("the dormant-wake message is split by reader", () => {
       "woke after stream end",
     );
 
-    // The HUMAN's surface, in the reader's language.
     const keys = [
       "systemEntries.wake.afterBackendEnded",
       "systemEntries.wake.inFlightWarning",
     ] as const;
-    const log = systemEntries(server, agent.id).join("\n");
-    for (const key of keys) expect(log).toContain(inLanguage("ca", key));
+    const { t: en } = translatorFor("en");
+    const wake = server.agentManager
+      .getAgentLogs(agent.id)
+      .find(
+        (e) =>
+          e.kind === "system" &&
+          (e.content.includes(en(keys[0])) ||
+            e.content.includes(translatorFor("ca").t(keys[0]))),
+      );
+    // The HUMAN's surface: English stored, Catalan for the Catalan reader.
+    const catalan = wordedIn("ca", wake?.message);
+    for (const key of keys) {
+      expect(wake?.content).toContain(en(key));
+      expect(catalan).toContain(inLanguage("ca", key));
+      expect(catalan).not.toContain(en(key));
+    }
 
     // The AGENT's surface, in English, inside the wake-notice envelope.
     const sent = (server.fakeBackend.sessionForAgent(agent.id)?.sent ?? [])
@@ -460,7 +528,7 @@ describe("the dormant-wake message is split by reader", () => {
       .join("\n");
     expect(sent).toContain("--- begin isomux: wake-notice ---");
     for (const key of keys) {
-      expect(sent).toContain(translatorFor("en").t(key));
+      expect(sent).toContain(en(key));
       // And the agent never sees the reader's language.
       expect(sent).not.toContain(translatorFor("ca").t(key));
     }

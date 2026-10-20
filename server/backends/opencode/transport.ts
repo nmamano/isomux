@@ -37,10 +37,7 @@ import {
   EFFORT_LEVELS,
   type EffortLevel,
 } from "../../../shared/types.ts";
-import {
-  translatorFor,
-  type Translator,
-} from "../../../shared/i18n/translate.ts";
+import { msg } from "../../../shared/i18n/log-message.ts";
 
 export const OPENCODE_PERMISSION_ID_WARNING =
   "Isomux stopped this turn: OpenCode asked to use a tool but sent no id " +
@@ -264,9 +261,6 @@ export interface OpenCodeTransportOptions {
   streamSilenceSink?: OpenCodeStreamSilenceSink;
   completedStepSink?: (breakdown: OpenCodeContextBreakdown) => void;
   eventStreamDeadlineMs?: number;
-  // Translates the notices the transport writes into the chat; English when
-  // absent.
-  words?: Translator["t"];
   deadlineScheduler?: OpenCodeDeadlineScheduler;
 }
 
@@ -417,7 +411,6 @@ export class OpenCodeTransport {
   private readonly contractShapeSink?: (shape: string) => void;
   private readonly safeErrorSink?: OpenCodeSafeErrorSink;
   private readonly streamSilenceSink?: OpenCodeStreamSilenceSink;
-  private readonly words: Translator["t"];
   private readonly completedStepSink?: (
     breakdown: OpenCodeContextBreakdown,
   ) => void;
@@ -481,7 +474,6 @@ export class OpenCodeTransport {
     this.contractShapeSink = options.contractShapeSink;
     this.safeErrorSink = options.safeErrorSink;
     this.streamSilenceSink = options.streamSilenceSink;
-    this.words = options.words ?? translatorFor("en").t;
     this.completedStepSink = options.completedStepSink;
     this.eventStreamDeadlineMs =
       options.eventStreamDeadlineMs ?? OPENCODE_EVENT_STREAM_DEADLINE_MS;
@@ -810,7 +802,7 @@ export class OpenCodeTransport {
       if (this.lease!.replacementPending)
         emit({
           kind: "system_text",
-          text: this.words("systemEntries.openCodePreviousSettings"),
+          text: msg("systemEntries.openCodePreviousSettings"),
         });
       this.authorityBinding?.activate(this.lease!.pid);
       this.activeTurn = true;
@@ -1438,7 +1430,6 @@ export class OpenCodeTransport {
                   event.message,
                   event.attempt,
                   splitModel(this.model)[0],
-                  this.words,
                 ),
               });
             }
@@ -1625,7 +1616,6 @@ export class OpenCodeTransport {
               const refusal = openCodeProviderRefusal(
                 event.error,
                 splitModel(this.model)[0],
-                this.words,
               );
               const failure =
                 refusal === null

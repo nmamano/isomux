@@ -18,14 +18,19 @@ import { claudeBackend } from "./claude.ts";
 import { codexBackend } from "./codex/adapter.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 import {
+  localizeLogParts,
+  logParts,
+  msg,
+  renderLogText,
+  type LogMessage,
+} from "../../shared/i18n/log-message.ts";
+import {
   codexWrapperCommandForShell,
   isCodexAuthenticated,
 } from "./codex/native-bin.ts";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
 import { opencodeBackend } from "./opencode/adapter.ts";
 import type { LoginInstructions } from "./types.ts";
-import type { Translator } from "../../shared/i18n/translate.ts";
-import { callFor, render, spyWords } from "../test-support/spy-words.ts";
 
 const tempDirs: string[] = [];
 afterAll(() => {
@@ -90,7 +95,7 @@ describe("getLoginInstructions - already-authed short-circuit", () => {
       env: { ANTHROPIC_API_KEY: "sk-ant-test" },
     });
     expect(r.commands).toBeUndefined();
-    expect(r.text).toMatch(/\/clear/i);
+    expect(renderLogText(translatorFor("en"), r.text)).toMatch(/\/clear/i);
   });
 
   it("codexBackend: OPENAI_API_KEY in env -> /clear hint, no command cards", async () => {
@@ -98,7 +103,7 @@ describe("getLoginInstructions - already-authed short-circuit", () => {
       env: { OPENAI_API_KEY: "sk-test" },
     });
     expect(r.commands).toBeUndefined();
-    expect(r.text).toMatch(/\/clear/i);
+    expect(renderLogText(translatorFor("en"), r.text)).toMatch(/\/clear/i);
   });
 });
 
@@ -143,13 +148,8 @@ describe("codexBackend after the engine rejected its credentials", () => {
       expect(r).toEqual({
         kind: "login",
         cardEligible: false,
-        text: translatorFor("en").t(
-          "systemEntries.loginInstructions.codexKeyRejected",
-        ),
+        text: msg("systemEntries.loginInstructions.codexKeyRejected"),
       });
-      expect(r.text).not.toBe(
-        translatorFor("en").t("systemEntries.loginInstructions.codexSignedIn"),
-      );
     }
   });
 });
@@ -168,7 +168,9 @@ describe("claudeBackend terminal sign-in", () => {
     expect(r.kind).toBe("login");
     expect(r.commands).toHaveLength(1);
     expect(r.commands![0].replaceAll("'", "")).toBe(CLAUDE_NATIVE_BIN);
-    expect(r.text).toContain(r.commands![0]);
+    expect(renderLogText(translatorFor("en"), r.text)).toContain(
+      r.commands![0],
+    );
   });
 
   // The /logout terminal fallback resolves the binary as sign-in does.
@@ -231,75 +233,68 @@ describe("isCodexAuthenticated env-detect", () => {
   });
 });
 
-// The sign-in walkthrough is written to the chat for a person, so each
-// backend words it in the reader's language when the caller passes words,
-// and in English when it does not (task beb6089b). The terminal command is a
-// value in the sentence: a translation never changes the command it names.
-describe("getLoginInstructions in the reader's words", () => {
+// The sign-in walkthrough is written to the chat, where every reader of the
+// agent sees it, so each backend returns it as a message each reader words
+// (task c37a7365). The terminal command is a value in the sentence: a
+// translation never changes the command it names.
+describe("getLoginInstructions as a message", () => {
   function tempDir(): string {
     const dir = mkdtempSync(join(tmpdir(), "isomux-login-words-"));
     tempDirs.push(dir);
     return dir;
   }
 
-  async function wordedAndEnglish(
-    get: (words?: Translator["t"]) => Promise<LoginInstructions>,
-  ) {
-    const { t, calls } = spyWords();
-    const worded = await get(t);
-    const english = await get();
-    const call = callFor(calls, worded.text);
-    expect(call).toBeDefined();
-    expect(english.text).toBe(render("en", call!));
-    // The words change the text only: the kind and the cards stay.
-    expect(worded.kind).toBe(english.kind);
-    expect(worded.commands).toEqual(english.commands);
-    return { worded, call: call! };
+  /** The instructions' text is one message, worded differently in Catalan. */
+  function messageOf(instructions: LoginInstructions): LogMessage {
+    const parts = logParts(instructions.text);
+    expect(parts).toHaveLength(1);
+    expect(typeof parts[0]).toBe("object");
+    const english = renderLogText(translatorFor("en"), parts);
+    const catalan = localizeLogParts(translatorFor("ca"), parts);
+    expect(catalan).not.toBeNull();
+    expect(catalan).not.toBe(english);
+    return parts[0] as LogMessage;
   }
 
   it("claudeBackend, signed out: the walkthrough, with the command as a value", async () => {
     const env = { PATH: tempDir(), CLAUDE_CONFIG_DIR: tempDir() };
-    const { worded, call } = await wordedAndEnglish((words) =>
-      claudeBackend.getLoginInstructions({ env, words }),
-    );
-    expect(worded.kind).toBe("login");
-    expect(Object.values(call.params ?? {})).toContain(worded.commands![0]);
+    const r = await claudeBackend.getLoginInstructions({ env });
+    expect(r.kind).toBe("login");
+    expect(Object.values(messageOf(r).params ?? {})).toContain(r.commands![0]);
   });
 
   it("claudeBackend, signed in: the /clear hint", async () => {
     const env = { ANTHROPIC_API_KEY: "sk-ant-test" };
-    const { worded } = await wordedAndEnglish((words) =>
-      claudeBackend.getLoginInstructions({ env, words }),
-    );
-    expect(worded.kind).toBe("already_authed");
+    const r = await claudeBackend.getLoginInstructions({ env });
+    expect(r.kind).toBe("already_authed");
+    messageOf(r);
   });
 
   it("codexBackend, signed out: the walkthrough, with the command as a value", async () => {
     const env = { CODEX_HOME: tempCodexHome(false) };
-    const { worded, call } = await wordedAndEnglish((words) =>
-      codexBackend.getLoginInstructions({ env, words }),
-    );
-    expect(worded.kind).toBe("login");
-    const command = worded.commands![0];
+    const r = await codexBackend.getLoginInstructions({ env });
+    expect(r.kind).toBe("login");
+    const command = r.commands![0];
     expect(
-      Object.values(call.params ?? {}).some(
-        (value) => String(value).length > 0 && command.includes(String(value)),
+      Object.values(messageOf(r).params ?? {}).some(
+        (value) =>
+          typeof value === "string" &&
+          value.length > 0 &&
+          command.includes(value),
       ),
     ).toBe(true);
   });
 
   it("codexBackend, signed in: the /clear hint", async () => {
     const env = { OPENAI_API_KEY: "sk-test" };
-    const { worded } = await wordedAndEnglish((words) =>
-      codexBackend.getLoginInstructions({ env, words }),
-    );
-    expect(worded.kind).toBe("already_authed");
+    const r = await codexBackend.getLoginInstructions({ env });
+    expect(r.kind).toBe("already_authed");
+    messageOf(r);
   });
 
   it("opencodeBackend: the API key guidance", async () => {
-    const { worded } = await wordedAndEnglish((words) =>
-      opencodeBackend.getLoginInstructions({ words }),
-    );
-    expect(worded.kind).toBe("login");
+    const r = await opencodeBackend.getLoginInstructions({});
+    expect(r.kind).toBe("login");
+    messageOf(r);
   });
 });

@@ -21,12 +21,10 @@ import {
   type AgentEvent,
 } from "./internal-types.ts";
 import { backendStoppedDuringTurn } from "./backend-failure-text.ts";
-import { english, translatorForLanguage } from "./i18n.ts";
-import type { Translator } from "../shared/i18n/translate.ts";
+import { msg, type LogText } from "../shared/i18n/log-message.ts";
 
-// A SessionManager under test has no user records behind it, so its logWords
-// dep resolves to English - which is what these assertions have always been.
-const BACKEND_STOPPED_DURING_TURN = backendStoppedDuringTurn(english.t);
+// Isomux's own lines are messages each reader words (task c37a7365).
+const BACKEND_STOPPED_DURING_TURN = backendStoppedDuringTurn();
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
 
@@ -51,13 +49,13 @@ function host(overrides: Partial<TestHost> = {}): TestHost {
 interface LoggedEntry {
   agentId: string;
   kind: LogEntry["kind"];
-  content: string;
+  content: LogText;
   metadata: Record<string, unknown> | undefined;
 }
 
 // A recording deps object. `whenProcessed(n)` resolves once the consumer has
 // forwarded n events, so tests wait on the loop itself instead of a timer.
-function fakeDeps(readerWords: { t: Translator["t"] } = english) {
+function fakeDeps() {
   const events: AgentEvent[] = [];
   const processed: NormalizedEvent[] = [];
   const logged: LoggedEntry[] = [];
@@ -82,7 +80,6 @@ function fakeDeps(readerWords: { t: Translator["t"] } = english) {
     updateAgent: (agentId, changes) => [
       { type: "agent_updated", agentId, changes },
     ],
-    logWords: () => readerWords.t,
     emit: (event) => events.push(event),
     isStillManaged: () => true,
     createSession: (_host, resumeSessionId) => {
@@ -444,13 +441,13 @@ describe("SessionManager.replaceWith", () => {
   });
 });
 
-// The visible "Stream error: " line is isomux's own framing, so it follows the
-// reader; the SUFFIX inside it is the backend's own text and does not. The raw
-// wrapper still goes to the metadata unchanged, because it keeps the backend's
-// wording (internal-docs/i18n-loop.md, S7).
+// The visible "Stream error: " line is isomux's own framing, so it is a
+// message each reader words; the SUFFIX inside it is the backend's own text
+// and stays a plain value. The raw wrapper still goes to the metadata
+// unchanged, because it keeps the backend's wording.
 describe("SessionManager consumer: an unclassified stream failure", () => {
-  it("localizes the prefix and keeps the backend suffix", async () => {
-    const { deps, logged } = fakeDeps(translatorForLanguage("ca"));
+  it("frames the backend text as a message and keeps the backend suffix", async () => {
+    const { deps, logged } = fakeDeps();
     const sm = new SessionManager<TestHost>("a1", deps);
     const h = host({ info: { state: "thinking", dormant: false } });
     const session = fakeSession();
@@ -466,8 +463,10 @@ describe("SessionManager consumer: an unclassified stream failure", () => {
 
     const entry = logged.find((e) => e.kind === "error");
     expect(entry).toBeDefined();
-    // Localized wrapper, literal backend text.
-    expect(entry!.content).toBe("Error de flux: ECONNRESET");
+    // Our wrapper as a message, the backend text as a literal value.
+    expect(entry!.content).toEqual(
+      msg("systemEntries.streamError", { error: "ECONNRESET" }),
+    );
     // An unclassified failure carries no rewritten-text metadata, exactly as
     // before.
     expect(entry!.metadata).toBeUndefined();

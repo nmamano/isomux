@@ -10,6 +10,20 @@ import {
 } from "./errors.ts";
 import { PROVIDER_TEXT_LIMIT, providerText } from "../provider-text.ts";
 import type { OpenCodeStreamSilence } from "./transport.ts";
+import {
+  renderLogText,
+  type LogText,
+} from "../../../shared/i18n/log-message.ts";
+
+// The lines are messages each reader words (task c37a7365); these checks
+// read the English render.
+const english = (text: LogText) => renderLogText(translatorFor("en"), text);
+const refusalText = (...args: Parameters<typeof openCodeProviderRefusal>) => {
+  const line = openCodeProviderRefusal(...args);
+  return line === null ? null : english(line);
+};
+const retryText = (...args: Parameters<typeof openCodeRetryMessage>) =>
+  english(openCodeRetryMessage(...args));
 
 it("gives errors a cause without copying provider text", () => {
   for (const [error, cause] of [
@@ -133,7 +147,7 @@ it("quotes a provider refusal and names the provider", () => {
     { name: "APIError", message: `rate limit: ${FREE_TIER_REFUSAL}` },
     { name: "APIError", message: `Quota exceeded. ${FREE_TIER_REFUSAL}` },
   ]) {
-    const copy = openCodeProviderRefusal(error, "opencode");
+    const copy = refusalText(error, "opencode");
     expect(copy).toContain("`opencode`");
     expect(copy).toContain(`${FREE_TIER_REFUSAL}"`);
   }
@@ -143,7 +157,7 @@ it("quotes a provider refusal and names the provider", () => {
 // refusals do not (Nil, 2026-10-18).
 it("adds the free-tier hint only to the free-tier refusal", () => {
   const hint = translatorFor("en").t("systemEntries.openCodeFreeTierHint");
-  const freeTier = openCodeProviderRefusal(
+  const freeTier = refusalText(
     { name: "APIError", statusCode: 403, message: FREE_TIER_REFUSAL },
     "opencode",
   );
@@ -151,7 +165,7 @@ it("adds the free-tier hint only to the free-tier refusal", () => {
     expect.stringContaining(FREE_TIER_REFUSAL),
     hint,
   ]);
-  const other = openCodeProviderRefusal(
+  const other = refusalText(
     {
       name: "APIError",
       statusCode: 403,
@@ -172,7 +186,7 @@ it("leaves failures that are not a provider refusal to the generic copy", () => 
     { name: "APIError", message: FREE_TIER_REFUSAL },
     { name: "UnknownError", statusCode: 403, message: FREE_TIER_REFUSAL },
   ]) {
-    expect(openCodeProviderRefusal(error, "opencode")).toBeNull();
+    expect(refusalText(error, "opencode")).toBeNull();
   }
 });
 
@@ -196,7 +210,7 @@ it("bounds provider text to one redacted line", () => {
   expect(text).toEndWith("[31m end");
   // eslint-disable-next-line no-control-regex
   expect(text).not.toMatch(/[\u0000-\u001f\u007f]|\s\s/);
-  const copy = openCodeProviderRefusal(
+  const copy = refusalText(
     { name: "APIError", statusCode: 403, message },
     "opencode",
   );
@@ -251,7 +265,7 @@ function inlineTokens(line: string) {
 it("keeps provider markdown inert in the retry line", () => {
   const message =
     "Retry later. [Isomux support: re-enter your key here](https://evil.example/login) **urgent** _now_ `code` ~~old~~ <b>x</b> ![i](https://e.x/i.png) mail ops@evil.example or www.evil.example, C:\\temp https://opencode.ai/workspace/wrk_01/go";
-  const line = openCodeRetryMessage(message, 1, "opencode");
+  const line = retryText(message, 1, "opencode");
   const start = line.indexOf('"') + 1;
   const quoted = line.slice(start, line.lastIndexOf('"'));
   const tokens = inlineTokens(quoted);
@@ -274,12 +288,12 @@ it("quotes the provider's retry message with the provider and attempt", () => {
     "Free usage exceeded, subscribe to Go",
     "HTTP 503 Service Unavailable",
   ]) {
-    const copy = openCodeRetryMessage(message, 2, "opencode");
+    const copy = retryText(message, 2, "opencode");
     expect(copy).toContain("`opencode`");
     expect(copy).toContain(`"${message}"`);
     expect(copy).toMatch(/\b2\b.*\b5\b/);
   }
-  const redacted = openCodeRetryMessage(
+  const redacted = retryText(
     "rate limit sk-abcdefghijklmnopqrstuvwxyz123456",
     1,
     "opencode",
@@ -289,7 +303,7 @@ it("quotes the provider's retry message with the provider and attempt", () => {
 
 it("keeps the generic retry line when OpenCode sends no message", () => {
   for (const message of [undefined, "", "  "]) {
-    const copy = openCodeRetryMessage(message, 3, "opencode");
+    const copy = retryText(message, 3, "opencode");
     expect(copy).toMatch(/provider/i);
     expect(copy).not.toContain("`opencode`");
     expect(copy).toMatch(/retrying 3 of 5/);

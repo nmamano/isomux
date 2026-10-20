@@ -2,7 +2,8 @@ import { join, resolve } from "node:path";
 import { claudeProjectDir, claudeSessionFileExists } from "./cwd-utils.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
 import { personalProviderHome } from "./provider-homes.ts";
-import { translatorFor, type Translator } from "../shared/i18n/translate.ts";
+import { msg } from "../shared/i18n/log-message.ts";
+import { LocalizedError } from "./localized-error.ts";
 import { getAgentHost } from "./agent-host.ts";
 
 type Env = Record<string, string | undefined>;
@@ -21,7 +22,6 @@ export function resolveClaudeSessionRoot(
   currentEnv: Env | undefined,
   pinned: string | undefined,
   userId: string | null,
-  t: Translator["t"] = translatorFor("en").t,
 ): string {
   if (pinned) return pinned;
   const roots = [
@@ -35,8 +35,8 @@ export function resolveClaudeSessionRoot(
     if (claudeSessionFileExists(cwd, sessionId, { CLAUDE_CONFIG_DIR: root }))
       return root;
   }
-  throw new Error(
-    t("systemEntries.claudeSession.missing", {
+  throw new LocalizedError(
+    msg("systemEntries.claudeSession.missing", {
       session: sessionId.slice(0, 8),
       paths: roots
         .map((root) =>

@@ -1,7 +1,4 @@
-import {
-  translatorFor,
-  type Translator,
-} from "../../../shared/i18n/translate.ts";
+import { msg, type LogText } from "../../../shared/i18n/log-message.ts";
 import { redactLogEntry } from "../../log-redaction.ts";
 import {
   inertMarkdown,
@@ -24,8 +21,7 @@ const OPENCODE_MAX_RETRIES = 5;
 export function openCodeProviderRefusal(
   error: Readonly<SafeOpenCodeError>,
   provider: string,
-  words: Translator["t"] = translatorFor("en").t,
-): string | null {
+): LogText | null {
   if (error.name !== "APIError") return null;
   const message = providerText(error.message);
   if (message === null) return null;
@@ -35,9 +31,9 @@ export function openCodeProviderRefusal(
       ? /rate.?limit|too many requests|quota|usage limit/i.test(message)
       : status >= 400 && status <= 499 && status !== 401;
   if (!refused) return null;
-  const line = providerRefusal(provider, message, words);
+  const line = providerRefusal(provider, message);
   return FREE_TIER_REFUSAL.test(message)
-    ? `${line}\n${words("systemEntries.openCodeFreeTierHint")}`
+    ? [line, "\n", msg("systemEntries.openCodeFreeTierHint")]
     : line;
 }
 
@@ -100,11 +96,10 @@ export function openCodeRetryMessage(
   message: string | undefined,
   attempt: number,
   provider: string,
-  words: Translator["t"] = translatorFor("en").t,
-): string {
+): LogText {
   const text = providerText(message);
   if (text !== null)
-    return words("systemEntries.openCodeProviderRetry", {
+    return msg("systemEntries.openCodeProviderRetry", {
       provider,
       message: inertMarkdown(text),
       attempt,

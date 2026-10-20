@@ -21,10 +21,15 @@ import type { OpenCodeSupervisor } from "./supervisor.ts";
 import type { OpenCodeAuthorityBroker } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
 import type { NormalizedEvent } from "../types.ts";
+import { translatorFor } from "../../../shared/i18n/translate.ts";
 import {
-  translatorFor,
-  type Translator,
-} from "../../../shared/i18n/translate.ts";
+  renderLogText,
+  type LogText,
+} from "../../../shared/i18n/log-message.ts";
+
+// Isomux's own lines are messages each reader words (task c37a7365); these
+// checks read the English render.
+const english = (text: LogText) => renderLogText(translatorFor("en"), text);
 import {
   openCodeErrorMessage,
   openCodeProviderRefusal,
@@ -855,7 +860,6 @@ describe("OpenCode permission event integration", () => {
     connectedProviders: string[] = [],
     laterTurns: unknown[][] = [],
     stopOnText = false,
-    words?: Translator["t"],
   ) {
     const replies: unknown[] = [];
     const replyIds: string[] = [];
@@ -909,7 +913,6 @@ describe("OpenCode permission event integration", () => {
       sessionId: "session-1",
       agent,
       completedStepSink: (value) => contexts.push(value.totalTokens),
-      words,
     });
     const events: NormalizedEvent[] = [];
     for (let turn = 0; turn <= laterTurns.length; turn++) {
@@ -1141,7 +1144,9 @@ describe("OpenCode permission event integration", () => {
               idle,
             ]),
       ]);
-      const retries = result.events.filter((e) => e.kind === "system_text");
+      const retries = result.events.flatMap((e) =>
+        e.kind === "system_text" ? [{ text: english(e.text) }] : [],
+      );
       expect(retries).toHaveLength(5);
       for (const [i, entry] of retries.entries()) {
         expect(entry.text).toMatch(new RegExp(`\\b${i + 1}\\b.*\\b5\\b`));
@@ -1201,13 +1206,13 @@ describe("OpenCode permission event integration", () => {
     ]);
     const last = result.events.at(-1);
     expect(last).toMatchObject({ kind: "turn_completed", status: "failed" });
-    const error = (last as { error: string }).error;
+    const error = english((last as { error: LogText }).error);
     expect(error).toContain("`provider`");
     expect(error).toContain(`"${message}"`);
     expect(error).not.toBe(openCodeModelUnavailableFailure("provider/model"));
   });
 
-  it("words the provider's refusal and retry in the member's language", async () => {
+  it("writes the provider's refusal and retry as messages each reader words", async () => {
     const message = "Free usage exceeded, subscribe to Go";
     const error = { name: "APIError", statusCode: 403, message };
     const frames = [
@@ -1218,23 +1223,18 @@ describe("OpenCode permission event integration", () => {
         error: { name: "APIError", data: { message, statusCode: 403 } },
       }),
     ];
-    const spanish = translatorFor("es").t;
-    const result = await runFrames(frames, undefined, [], [], false, spanish);
+    const result = await runFrames(frames);
     const retry = result.events.find((e) => e.kind === "system_text");
     expect(retry).toMatchObject({
-      text: openCodeRetryMessage(message, 1, "provider", spanish),
-    });
-    expect(retry).not.toMatchObject({
       text: openCodeRetryMessage(message, 1, "provider"),
     });
     expect(result.events.at(-1)).toEqual({
       kind: "turn_completed",
       status: "failed",
-      error: openCodeProviderRefusal(error, "provider", spanish)!,
+      error: openCodeProviderRefusal(error, "provider")!,
     });
-    expect(openCodeProviderRefusal(error, "provider", spanish)).not.toBe(
-      openCodeProviderRefusal(error, "provider"),
-    );
+    // Both carry a message, not finished text.
+    expect(typeof openCodeRetryMessage(message, 1, "provider")).toBe("object");
   });
 
   it("keeps the model line for a 403 with no provider message", async () => {

@@ -34,8 +34,10 @@ The code reads the manager for these behaviors:
 - **Who may change privilege.** The manager or an office owner, by cookie
   session (`agents.setPrivileged` in `server/routes/table.ts`).
 - **Prompt and language.** A new backend session loads the manager's member
-  memory, member prompt and language. Server log lines without a human actor use
-  the manager's language (`logWords`).
+  memory, member prompt and language. Server log lines and choice cards are not
+  in anyone's language: each stores English text plus the message keys, and
+  each member's UI words the keys in that member's language
+  (`shared/i18n/log-message.ts`). Agents read the English.
 - **Killed agents and transcripts.** Kill copies both fields into history. The
   killed list and killed-log guard use the recorded `userId`: the recorded
   manager and office owners can read them.

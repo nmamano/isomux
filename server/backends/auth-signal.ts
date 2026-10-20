@@ -15,14 +15,16 @@ export function authSignal(
   const needed: NormalizedEvent = { kind: "auth_needed" };
   switch (ev.kind) {
     case "system_text":
-      if (!detect(ev.text)) return [ev];
+      if (typeof ev.text !== "string" || !detect(ev.text)) return [ev];
       return opts?.keepText ? [ev, needed] : [needed];
     case "error":
-      return detect(ev.message) ? [needed, ev] : [ev];
+      return typeof ev.message === "string" && detect(ev.message)
+        ? [needed, ev]
+        : [ev];
     case "turn_completed":
       return ev.status === "failed" &&
         ev.providerRefusal !== true &&
-        ev.error !== undefined &&
+        typeof ev.error === "string" &&
         detect(ev.error)
         ? [needed, ev]
         : [ev];

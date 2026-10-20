@@ -28,6 +28,7 @@ import {
   RECEPTIONIST_OUTFIT,
 } from "../shared/receptionist-profile.ts";
 import { english, translatorForUserId } from "./i18n.ts";
+import { renderLogText } from "../shared/i18n/log-message.ts";
 import {
   INSTALL_KIND,
   isHostedAccess,
@@ -2595,7 +2596,7 @@ function enqueueFailure(result: Extract<EnqueueResult, { ok: false }>): {
     status: result.status as 400 | 404 | 409 | 429 | 500,
     code: result.error,
     message: result.usageCap
-      ? usageCapText(english, result.usageCap)
+      ? renderLogText(english, usageCapText(result.usageCap))
       : result.error,
     ...(result.usageCap
       ? { detail: { retryAtMs: result.usageCap.retryAtMs } }

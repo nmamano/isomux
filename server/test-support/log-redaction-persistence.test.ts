@@ -1,4 +1,4 @@
-import { expect, it, spyOn } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
@@ -11,6 +11,14 @@ import {
 } from "../persistence.ts";
 import { appendRunLog, loadRunLog } from "../cronjob-persistence.ts";
 import type { LogEntry } from "../../shared/types.ts";
+import {
+  msg,
+  renderLogText,
+  type LogPart,
+} from "../../shared/i18n/log-message.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+
+const english = translatorFor("en");
 
 const secret = "sk-proj-" + "Q".repeat(24);
 const safe = "sk-proj-...REDACTED";
@@ -154,4 +162,54 @@ it("scans a prepared entry only once across repeated agent and cron appends", ()
       scan.mockRestore();
     }
   }
+});
+
+// A server-written line carries its values as `message` params next to the
+// English content (task c37a7365). The params are redacted like every other
+// string, and the message is kept only when every language's render of the
+// redacted parts is itself clean: a translated template can put a label
+// ("secret:") next to a value where English has none.
+describe("an entry's message keys", () => {
+  const systemEntry = (content: string, message: LogPart[]): LogEntry => ({
+    id: "log-message-redaction",
+    agentId: "redaction-agent",
+    timestamp: 1,
+    kind: "system",
+    content,
+    message,
+  });
+
+  it("redacts a secret in a message value and keeps the message", () => {
+    const parts = [msg("systemEntries.pathRefusal.notFound", { path: secret })];
+    const input = systemEntry(renderLogText(english, parts), parts);
+    appendLog("redaction-agent", "message-session", input);
+    const raw = readFileSync(
+      join(STATE_ROOT, "logs", "redaction-agent", "message-session.jsonl"),
+      "utf8",
+    );
+    expect(raw).not.toContain(secret);
+    const [stored] = loadLog("redaction-agent", "message-session");
+    const safeParts = [
+      msg("systemEntries.pathRefusal.notFound", { path: safe }),
+    ];
+    expect(stored.content).toBe(renderLogText(english, safeParts));
+    expect(stored.message).toEqual(safeParts);
+  });
+
+  it("drops the message when one language's render shows a secret shape English does not", () => {
+    // A name that is no secret on its own, but follows "secret:" in Catalan.
+    const name = "OPENAI_API_KEY_PROD_1";
+    const KEY = "cards.secretRequest.title" as const;
+    // The ENABLING CONDITIONS: English is clean, so a check of English alone
+    // keeps the message; Catalan is not.
+    const englishText = translatorFor("en").t(KEY, { name });
+    expect(scanner.redactSecretText(englishText)).toBe(englishText);
+    const catalan = translatorFor("ca").t(KEY, { name });
+    expect(scanner.redactSecretText(catalan)).not.toBe(catalan);
+
+    const parts = [msg(KEY, { name })];
+    const prepared = prepareLogEntry(systemEntry(englishText, parts));
+    expect(prepared.content).toBe(englishText);
+    expect(prepared.message).toBeUndefined();
+  });
 });

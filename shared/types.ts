@@ -9,6 +9,7 @@ import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import { keyFrom } from "./i18n/translate.ts";
 import type { MessageKey, Translator } from "./i18n/translate.ts";
+import type { LogMessage, LogPart } from "./i18n/log-message.ts";
 
 export type AgentState =
   | "idle"
@@ -40,13 +41,17 @@ export interface AgentChoiceInteraction {
   id: string;
   agentId: string;
   kind: AgentChoiceInteractionKind;
+  // English. `message` carries the same text as keys for each reader's
+  // language (task c37a7365); a client that does not read it shows these.
   title: string;
   instruction: string;
+  message?: { title?: LogPart[]; instruction?: LogPart[] };
   choices: {
     value: string;
     label: string;
     description?: string;
     current?: boolean;
+    message?: { label?: LogPart[]; description?: LogPart[] };
   }[];
 }
 
@@ -358,6 +363,12 @@ export function effortDisplayLabel(
 ): string {
   const key = keyFrom(EFFORT_KEYS, level);
   return key ? t(key) : level;
+}
+
+/** effortDisplayLabel for a log writer: the catalog key, or the level itself. */
+export function effortLabelParam(level: string): LogMessage | string {
+  const key = keyFrom(EFFORT_KEYS, level);
+  return key ? { key } : level;
 }
 
 // Codex model identifiers and their UI labels. Lives here (shared) so both
@@ -1052,15 +1063,20 @@ export interface LogEntry {
     | "terminal-command"
     | "secret-request"
     | "file-view";
+  // The English text: what agents, log search and older clients read.
   content: string;
+  // The same text as message keys and values, for server-written lines; each
+  // member's UI words it in that member's language (shared/i18n/log-message.ts).
+  message?: LogPart[];
   metadata?: Record<string, unknown>;
   attachments?: Attachment[]; // file attachments, served via /api/files/<agentId>/<filename>
   diff?: DiffPayload; // present only when kind === "diff"
   file?: FilePayload; // present only when kind === "edit-request"
   terminal?: TerminalCommandPayload; // present only when kind === "terminal-command"
   secretRequest?: SecretRequestPayload; // present only when kind === "secret-request"
-  // UI-only markers (e.g. "Conversation cleared.") that must never reach disk.
-  // appendLog and the system_init backfill both skip entries with this set.
+  // UI-only entries (e.g. a permission prompt's typed-reply fallback) that must
+  // never reach disk. appendLog and the system_init backfill both skip
+  // entries with this set.
   ephemeral?: true;
 }
 

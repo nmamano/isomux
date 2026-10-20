@@ -38,6 +38,7 @@ import {
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
 import { failedEditText } from "../../shared/failed-edit.ts";
+import { logEntryText } from "../../shared/i18n/log-message.ts";
 import { AskLink, askAnswerText, askRefOf } from "./ask-link.tsx";
 import { unescapeDollars } from "./plain-copy.ts";
 import {
@@ -523,6 +524,9 @@ export const LogEntryCard = memo(function LogEntryCard({
 }) {
   const i18n = useI18n();
   const { t } = i18n;
+  // A server-written line in the reader's language (task c37a7365). Only what
+  // is shown reads it; the detectors below keep reading entry.content.
+  const display = logEntryText(i18n, entry);
   switch (entry.kind) {
     case "user_message": {
       const { label: senderLabel, fromHuman } = describeMessageSender(
@@ -645,7 +649,7 @@ export const LogEntryCard = memo(function LogEntryCard({
     case "error":
       return (
         <ErrorBlock
-          content={entry.content}
+          content={display}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
           isMobile={isMobile}
@@ -657,7 +661,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       if (typeof entry.metadata?.helpContent === "string") {
         return (
           <SystemEntryCard
-            content={entry.content}
+            content={display}
             button={
               <SystemPromptButton helpContent={entry.metadata.helpContent} />
             }
@@ -667,7 +671,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       if (entry.metadata?.systemPrompt === true) {
         return (
           <SystemEntryCard
-            content={entry.content}
+            content={display}
             button={
               <SystemPromptButton
                 agentId={entry.agentId}
@@ -712,7 +716,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       if (taskEvent) {
         return (
           <TaskBreadcrumb
-            content={entry.content}
+            content={display}
             phase={taskEvent.phase}
             isMobile={isMobile}
           />
@@ -721,9 +725,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       // A notice from isomux (metadata.notice names it, e.g. "settings"):
       // a system message whatever its line count.
       if (typeof entry.metadata?.notice === "string") {
-        return (
-          <SystemMessage content={entry.content} isMobile={isMobile} notice />
-        );
+        return <SystemMessage content={display} isMobile={isMobile} notice />;
       }
       // Subprocess stderr surfaced by a backend adapter (Codex prefixes it
       // "[codex stderr]"). Multiline SystemMessage renders through Markdown
@@ -736,21 +738,21 @@ export const LogEntryCard = memo(function LogEntryCard({
       if (findings) {
         return <ReviewFindingsCard findings={findings} isMobile={isMobile} />;
       }
-      return <SystemMessage content={entry.content} isMobile={isMobile} />;
+      return <SystemMessage content={display} isMobile={isMobile} />;
     }
     case "diff": {
       if (!entry.diff)
-        return <SystemMessage content={entry.content} isMobile={isMobile} />;
+        return <SystemMessage content={display} isMobile={isMobile} />;
       return <DiffCard payload={entry.diff} />;
     }
     case "edit-request": {
       if (!entry.file || !onOpenInEditor)
-        return <SystemMessage content={entry.content} isMobile={isMobile} />;
+        return <SystemMessage content={display} isMobile={isMobile} />;
       return <EditRequestCard payload={entry.file} onOpen={onOpenInEditor} />;
     }
     case "terminal-command": {
       if (!entry.terminal || !onCopyToTerminal)
-        return <SystemMessage content={entry.content} isMobile={isMobile} />;
+        return <SystemMessage content={display} isMobile={isMobile} />;
       return (
         <TerminalCommandCard
           payload={entry.terminal}
@@ -760,12 +762,12 @@ export const LogEntryCard = memo(function LogEntryCard({
     }
     case "secret-request": {
       if (!entry.secretRequest)
-        return <SystemMessage content={entry.content} isMobile={isMobile} />;
+        return <SystemMessage content={display} isMobile={isMobile} />;
       return <SecretRequestCard payload={entry.secretRequest} />;
     }
     case "file-view": {
       if (!entry.attachments || entry.attachments.length === 0)
-        return <SystemMessage content={entry.content} isMobile={isMobile} />;
+        return <SystemMessage content={display} isMobile={isMobile} />;
       // preview-url marks its entries with metadata.preview and sets content
       // to the captured page's sanitized URL - show it as a caption. Other
       // file-view producers (read-file) carry no marker and stay caption-free;
@@ -792,7 +794,7 @@ export const LogEntryCard = memo(function LogEntryCard({
             fontSize: isMobile ? 14 : 12,
           }}
         >
-          {entry.content}
+          {display}
         </div>
       );
   }

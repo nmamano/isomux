@@ -96,6 +96,11 @@ const relativeFormatters = new Map<
   Intl.RelativeTimeFormat
 >();
 // Keyed by language AND shape: one formatter per pair, built once.
+/** Whether `value` names a DateShape: own properties of the shape table only. */
+export function isDateShape(value: unknown): value is DateShape {
+  return typeof value === "string" && Object.hasOwn(SHAPE_OPTIONS, value);
+}
+
 const absoluteFormatters = new Map<string, Intl.DateTimeFormat>();
 
 function relativeFormatter(

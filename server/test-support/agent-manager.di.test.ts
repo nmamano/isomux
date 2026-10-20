@@ -23,6 +23,7 @@ import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
 import { DEFAULT_EFFORT, effortLevelsFor } from "../../shared/types.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
+import { renderLogText } from "../../shared/i18n/log-message.ts";
 import {
   ensureSessionClaudeConfigDir,
   type PersistedAgent,
@@ -854,7 +855,11 @@ describe("AgentManager DI (temp-state isolated)", () => {
       sender: { kind: "user", username: "tester" },
       text: "hello",
     });
-    const { text: guidance } = await opencode.getLoginInstructions();
+    // The guidance is a message; the log stores its English as content.
+    const guidance = renderLogText(
+      translatorFor("en"),
+      (await opencode.getLoginInstructions()).text,
+    );
     const deadline = Date.now() + 2000;
     while (
       !mgr.getAgentLogs(info!.id).some((entry) => entry.content === guidance) &&

@@ -29,7 +29,10 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { claudeProjectDir } from "../cwd-utils.ts";
+import { renderLogText, type LogText } from "../../shared/i18n/log-message.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 import { LIVE } from "../test-support/live-gate.ts";
+
 import { claudeBackend } from "./claude.ts";
 import { codexBackend } from "./codex/adapter.ts";
 import type {
@@ -39,6 +42,11 @@ import type {
   NormalizedMessage,
   SessionAccessOptions,
 } from "./types.ts";
+
+// Isomux's own words arrive as messages (task c37a7365); the checks read the
+// English a reader would see.
+const english = (text: LogText): string =>
+  renderLogText(translatorFor("en"), text);
 
 // Per-provider config. Cheapest model + an auto-run policy so a harmless command
 // executes without parking on an approval prompt (we also approve defensively
@@ -207,14 +215,14 @@ async function runTurns(
           current.toolCalls.push(ev.name);
           break;
         case "error":
-          current.said.push(ev.message);
+          current.said.push(english(ev.message));
           break;
         case "system_text":
-          current.said.push(ev.text);
+          current.said.push(english(ev.text));
           break;
         case "turn_completed":
           current.status = ev.status;
-          if (ev.error) current.said.push(ev.error);
+          if (ev.error) current.said.push(english(ev.error));
           turns.push(current);
           current = newTurn();
           if (sent === prompts.length) return { sessionId, turns };

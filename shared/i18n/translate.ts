@@ -152,12 +152,52 @@ export function pluralIn(
   count: number,
   params?: Params,
 ): string {
-  const exact = `${key}.${rules.select(count)}`;
-  const chosen =
-    catalog[exact] !== undefined || fallback[exact] !== undefined
-      ? exact
-      : `${key}.other`;
+  const chosen = pluralFormKey(catalog, fallback, rules, key, count);
   return lookupIn(catalog, fallback, chosen, { ...params, count });
+}
+
+/**
+ * Engine: the key of the form pluralIn picks for `count` - the exact category
+ * when either catalog has it, else ".other". Exported so a reader that checks
+ * a plural message before it renders it (log-message.ts) checks the same form.
+ */
+export function pluralFormKey(
+  catalog: Messages,
+  fallback: Messages,
+  rules: Intl.PluralRules,
+  key: string,
+  count: number,
+): string {
+  const exact = `${key}.${rules.select(count)}`;
+  return catalog[exact] !== undefined || fallback[exact] !== undefined
+    ? exact
+    : `${key}.other`;
+}
+
+/** pluralFormKey over the real catalogs, for `language`. */
+export function pluralFormKeyFor(
+  language: SupportedLanguageCode,
+  key: string,
+  count: number,
+): string {
+  return pluralFormKey(
+    CATALOGS[language],
+    CATALOGS[DEFAULT_LANGUAGE],
+    pluralRulesFor(language),
+    key,
+    count,
+  );
+}
+
+const pluralRules = new Map<SupportedLanguageCode, Intl.PluralRules>();
+
+function pluralRulesFor(language: SupportedLanguageCode): Intl.PluralRules {
+  let rules = pluralRules.get(language);
+  if (!rules) {
+    rules = new Intl.PluralRules(language);
+    pluralRules.set(language, rules);
+  }
+  return rules;
 }
 
 /**
@@ -188,7 +228,7 @@ export function translatorFor(language: SupportedLanguageCode): Translator {
   if (cached) return cached;
   const catalog = CATALOGS[language];
   const fallback = CATALOGS[DEFAULT_LANGUAGE];
-  const rules = new Intl.PluralRules(language);
+  const rules = pluralRulesFor(language);
   const translator: Translator = {
     language,
     t: (key, ...rest) =>

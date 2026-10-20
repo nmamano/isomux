@@ -17,13 +17,17 @@
 //   - `translatorForUsername` - the chat path. A slash command typed in an
 //     agent's chat carries its sender as a display NAME (agent-manager's
 //     sendMessage -> handleSlashCommand), not a user id.
-//   - `translatorForUserId` - the actorless fallback. A choice interaction
-//     opened by a backend event, or a lifecycle entry written from a route,
-//     has no actor in scope; the reader we do know is the agent's owner.
+//   - `translatorForUserId` - a delivery to one known user, such as a pager
+//     page or a web push.
 //   - `translatorForRequest` - the pre-sign-in pages (S9). The visitor may have
 //     no identity at all, so a resolved identity (or null) and the request's
 //     Accept-Language header decide together: a known reader's stored
 //     preference first, the header only for a stranger.
+//
+// The system lines and choice cards that agent-manager, cronjob-manager and
+// session-manager write use none of these: every reader of the agent sees
+// them, so they are message keys each UI words (shared/i18n/log-message.ts,
+// task c37a7365).
 //
 // S7 had no identity-shaped adapter because no route handler writes
 // human-facing log prose (checked across server/isomux-office.ts and

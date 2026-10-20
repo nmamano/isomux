@@ -45,7 +45,7 @@ import {
   claudePermissionModeFor,
   effortLevelsFor,
   familyDisplayLabel,
-  effortDisplayLabel,
+  effortLabelParam,
   generateRoomId,
   isClaudeFamily,
   knownModelFamiliesFor,
@@ -134,14 +134,26 @@ import {
   type PathRefusal,
 } from "./affordance-checks.ts";
 import { autocompleteCommands } from "./commands.ts";
-import { english, translatorForUserId, translatorForUsername } from "./i18n.ts";
-import type { Translator } from "../shared/i18n/translate.ts";
+import { LocalizedError, errorText } from "./localized-error.ts";
+import { english } from "./i18n.ts";
+import {
+  choiceCardFields,
+  joinLogText,
+  logParam,
+  logTextFields,
+  msg,
+  msgN,
+  renderLogText,
+  type LogMessage,
+  type LogPart,
+  type ChoiceInput,
+  type LogText,
+} from "../shared/i18n/log-message.ts";
 import {
   mergeSettingsNotice,
   renderSettingsNotice,
   type SettingsNoticeArm,
 } from "./settings-notice.ts";
-import { formatDecimal } from "../shared/i18n/number.ts";
 import { join, basename, resolve } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
@@ -476,11 +488,10 @@ export function needsInterruptionMarker(
 
 type PermissionOption = {
   kind: ApprovalDecision["kind"];
-  label: string;
+  label: string | LogMessage;
 };
 
 export function permissionOptions(
-  t: Translator["t"],
   allowPersistentLabel?: string,
   allowPrefixLabel?: string,
 ): PermissionOption[] {
@@ -493,23 +504,24 @@ export function permissionOptions(
     options.push({ kind: "allow_persistent", label: allowPersistentLabel });
   options.push({
     kind: "allow_once",
-    label: t("choices.permission.allowOnce"),
+    label: msg("choices.permission.allowOnce"),
   });
-  options.push({ kind: "deny", label: t("choices.permission.deny") });
+  options.push({ kind: "deny", label: msg("choices.permission.deny") });
   if (allowPrefixLabel)
     options.push({
       kind: "allow_prefix",
-      label: t("choices.permission.allowPrefix", { prefix: allowPrefixLabel }),
+      label: msg("choices.permission.allowPrefix", {
+        prefix: allowPrefixLabel,
+      }),
     });
   return options;
 }
 
 export function permissionInteractionChoices(
-  t: Translator["t"],
   allowPersistentLabel?: string,
   allowPrefixLabel?: string,
-): AgentChoiceInteraction["choices"] {
-  return permissionOptions(t, allowPersistentLabel, allowPrefixLabel).map(
+): ChoiceInput[] {
+  return permissionOptions(allowPersistentLabel, allowPrefixLabel).map(
     (option, index) => ({
       value: String(index + 1),
       label: option.label,
@@ -535,45 +547,47 @@ export function resolvePermissionReply(
   return { kind: option.kind };
 }
 
-export function permissionPromptLines(
-  t: Translator["t"],
-  request: {
-    toolName: string;
-    title?: string;
-    description?: string;
-    allowPersistentLabel?: string;
-    allowPrefixLabel?: string;
-    allowPrefixExample?: string;
-  },
-): string[] {
+// The typed-reply fallback of a permission card, as one text with a line per
+// row.
+export function permissionPromptLines(request: {
+  toolName: string;
+  title?: string;
+  description?: string;
+  allowPersistentLabel?: string;
+  allowPrefixLabel?: string;
+  allowPrefixExample?: string;
+}): LogPart[] {
   // A title and a description supplied by the backend stay as delivered; only
   // the fallback and the wrapper are Isomux's own words.
-  const title =
-    request.title ?? t("choices.permission.title", { tool: request.toolName });
-  const lines = [`**${title}**`];
+  const title: LogText =
+    request.title ??
+    msg("choices.permission.title", { tool: request.toolName });
+  const lines: LogText[] = [joinLogText(["**", title, "**"])];
   if (request.description) lines.push(request.description);
-  lines.push("", t("choices.permission.reply"));
+  lines.push("", msg("choices.permission.reply"));
   const options = permissionOptions(
-    t,
     request.allowPersistentLabel,
     request.allowPrefixLabel,
   );
   for (const [index, option] of options.entries()) {
-    lines.push(`  ${index + 1}. ${option.label}`);
+    lines.push(joinLogText([`  ${index + 1}. `, option.label]));
     if (option.kind === "allow_prefix" && request.allowPrefixExample) {
       lines.push(
-        `     ${t("choices.permission.prefixHint", {
-          // `<prefix>` is a code fragment: inside a catalog value it would
-          // parse as an unclosed rich-text tag (ruling 19).
-          replySpec: `${index + 1} <prefix>`,
-          index: index + 1,
-          example: request.allowPrefixExample,
-        })}`,
+        joinLogText([
+          "     ",
+          msg("choices.permission.prefixHint", {
+            // `<prefix>` is a code fragment: inside a catalog value it would
+            // parse as an unclosed rich-text tag (ruling 19).
+            replySpec: `${index + 1} <prefix>`,
+            index: index + 1,
+            example: request.allowPrefixExample,
+          }),
+        ]),
       );
     }
   }
-  lines.push("", t("choices.permission.denyByMessage"));
-  return lines;
+  lines.push("", msg("choices.permission.denyByMessage"));
+  return joinLogText(lines, "\n");
 }
 
 // Notes Isomux puts before messages it delivers into or across a busy turn
@@ -640,14 +654,14 @@ export function createAgentManager(deps: ManagerDeps) {
       signedOutProvider: (managed) => signedOutProvider(managed),
       contextNoticeSampleWaitMs,
       renderSettingsNotice: (managed, arm) =>
-        settingsNoticeText(english.t, managed, arm),
+        renderLogText(english, settingsNoticeText(managed, arm)),
       // metadata.notice makes the chat show it as a system message even
       // though it spans several lines (LogEntryCard's system case).
       logSettingsNotice: (managed, arm) =>
         addLogEntry(
           managed.info.id,
           "system",
-          settingsNoticeText(logWords(managed.info.id), managed, arm),
+          settingsNoticeText(managed, arm),
           { notice: "settings" },
         ),
       logUsageHeadsUp,
@@ -724,21 +738,14 @@ export function createAgentManager(deps: ManagerDeps) {
     if (managed.info.agentType === "codex") return !isCodexAuthenticated(env);
     return false;
   }
-  // In the words of the person who typed /login, else the agent's owner.
   async function agentLoginInstructions(
     managed: ManagedAgent | undefined,
-    {
-      username,
-      credentialsRejected,
-    }: { username?: string; credentialsRejected?: boolean } = {},
+    { credentialsRejected }: { credentialsRejected?: boolean } = {},
   ): Promise<LoginInstructions> {
-    const words = managed
-      ? logWords(managed.info.id, username)
-      : translatorForUsername(username).t;
     const generic: LoginInstructions = {
       kind: "login",
       cardEligible: false,
-      text: words("systemEntries.loginInstructions.generic"),
+      text: msg("systemEntries.loginInstructions.generic"),
     };
     if (!managed) return generic;
     // Resolve the merged env (process.env + office variables + managed personal variables, in
@@ -760,7 +767,6 @@ export function createAgentManager(deps: ManagerDeps) {
         env,
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
         modelFamily: managed.info.modelFamily,
-        words,
         credentialsRejected,
       });
     } catch (err) {
@@ -779,7 +785,7 @@ export function createAgentManager(deps: ManagerDeps) {
     agentId: string,
     instructions: LoginInstructions,
     // Present when a person typed /login; absent on the auth-error path, where
-    // logWords falls back to the agent's owner.
+    // the writer has no typist to name.
     username?: string,
     // A typed /login is not a message the engine failed to run.
     trigger: "turn" | "login_command" = "turn",
@@ -820,7 +826,7 @@ export function createAgentManager(deps: ManagerDeps) {
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId, username)(
+            msg(
               rejected
                 ? withheld
                   ? "systemEntries.signInRejectedOffice"
@@ -845,11 +851,7 @@ export function createAgentManager(deps: ManagerDeps) {
       instructions.kind === "login" &&
       officeSignInWithheld(managed, fallbackProviderTarget(managed), username)
     ) {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId, username)("settings.signIn.askOfficeOwner"),
-      );
+      addLogEntry(agentId, "system", msg("settings.signIn.askOfficeOwner"));
       return;
     }
     addLogEntry(agentId, "system", instructions.text);
@@ -914,8 +916,7 @@ export function createAgentManager(deps: ManagerDeps) {
     agentId: string,
     managed: ManagedAgent,
   ): Promise<void> {
-    const t = logWords(agentId);
-    addLogEntry(agentId, "system", t("systemEntries.claudeAuth.checking"));
+    addLogEntry(agentId, "system", msg("systemEntries.claudeAuth.checking"));
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -944,7 +945,7 @@ export function createAgentManager(deps: ManagerDeps) {
       );
       if (!account || account.accountStatus === "unavailable")
         throw new Error("Account check unavailable");
-      const location = t(
+      const location = msg(
         target.scope === "office"
           ? "systemEntries.claudeAuth.officeLocation"
           : "systemEntries.claudeAuth.personalLocation",
@@ -954,7 +955,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          t("systemEntries.claudeAuth.signingIn"),
+          msg("systemEntries.claudeAuth.signingIn"),
           { providerLogin: "claude" },
         );
       } else if (account.accountStatus === "not_connected") {
@@ -962,15 +963,15 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           "system",
           officeSignInWithheld(managed, target, undefined)
-            ? t("systemEntries.claudeAuth.disconnectedAskOwner")
-            : t("systemEntries.claudeAuth.disconnected", { location }),
+            ? msg("systemEntries.claudeAuth.disconnectedAskOwner")
+            : msg("systemEntries.claudeAuth.disconnected", { location }),
           { providerLogin: "claude" },
         );
       } else if (account.accountStatus === "connected") {
         addLogEntry(
           agentId,
           "system",
-          t(
+          msg(
             managed.sessionManager.sessionId &&
               getSessionClaudeConfigDir(
                 agentId,
@@ -989,7 +990,11 @@ export function createAgentManager(deps: ManagerDeps) {
         throw new Error("Account check incomplete");
       }
     } catch {
-      addLogEntry(agentId, "system", t("systemEntries.claudeAuth.incomplete"));
+      addLogEntry(
+        agentId,
+        "system",
+        msg("systemEntries.claudeAuth.incomplete"),
+      );
     } finally {
       if (timer) clearTimeout(timer);
       controller.abort();
@@ -1041,11 +1046,7 @@ export function createAgentManager(deps: ManagerDeps) {
   ): Promise<void> {
     const provider = managed.info.agentType;
     if (provider === "opencode") {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId, username)("systemEntries.signOutOpenCode"),
-      );
+      addLogEntry(agentId, "system", msg("systemEntries.signOutOpenCode"));
       return;
     }
     const target = fallbackProviderTarget(managed);
@@ -1053,7 +1054,7 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId, username)("systemEntries.signOutNoScope", {
+        msg("systemEntries.signOutNoScope", {
           provider: providerDisplayName(provider),
         }),
       );
@@ -1077,7 +1078,7 @@ export function createAgentManager(deps: ManagerDeps) {
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.manageSignIn", {
+            msg("systemEntries.manageSignIn", {
               provider: providerDisplayName(provider),
             }),
             { providerLogin: provider },
@@ -1087,11 +1088,7 @@ export function createAgentManager(deps: ManagerDeps) {
       } catch {}
     }
     if (officeSignInWithheld(managed, target, username)) {
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId, username)("settings.signIn.askOfficeOwner"),
-      );
+      addLogEntry(agentId, "system", msg("settings.signIn.askOfficeOwner"));
       return;
     }
     // The backend names the command, so it resolves the binary the same way
@@ -1117,7 +1114,7 @@ export function createAgentManager(deps: ManagerDeps) {
     addLogEntry(
       agentId,
       "system",
-      logWords(agentId, username)("systemEntries.runInTerminal", { command }),
+      msg("systemEntries.runInTerminal", { command }),
     );
     emitAgentTerminalCommand(agentId, command);
   }
@@ -1153,7 +1150,7 @@ export function createAgentManager(deps: ManagerDeps) {
             addLogEntry(
               agentId,
               "system",
-              logWords(agentId, username)("systemEntries.alreadySignedIn", {
+              msg("systemEntries.alreadySignedIn", {
                 provider: providerDisplayName(provider),
               }),
               { providerLogin: provider },
@@ -1175,7 +1172,7 @@ export function createAgentManager(deps: ManagerDeps) {
     addLogEntry(
       agentId,
       "system",
-      logWords(agentId)("systemEntries.freshSessionAfterRestoreFailure"),
+      msg("systemEntries.freshSessionAfterRestoreFailure"),
     );
   }
 
@@ -1218,10 +1215,7 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         agentId,
         "system",
-        logTranslator(managed).tn(
-          "systemEntries.queueKept.notConfigured",
-          queuedCount,
-        ),
+        msgN("systemEntries.queueKept.notConfigured", queuedCount),
       );
     }
     updateState(agentId, "waiting_for_response");
@@ -1251,8 +1245,6 @@ export function createAgentManager(deps: ManagerDeps) {
   const sessionManagerDeps: SessionManagerDeps<ManagedAgent> = {
     updateAgent: (agentId, changes) =>
       officeState.updateAgent(agentId, changes),
-    // A backend death has no actor, so this resolves to the agent's owner.
-    logWords: (agentId) => logWords(agentId),
     emit,
     isStillManaged: (managed) => agents.get(managed.info.id) === managed,
     createSession,
@@ -1269,12 +1261,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // envForHints note.
     diagnoseProcessExitHints: (managed, sessionId) =>
       managed.info.agentType === "claude"
-        ? diagnoseProcessExit(
-            managed.info.cwd,
-            sessionId,
-            envForHints(managed),
-            logWords(managed.info.id),
-          )
+        ? diagnoseProcessExit(managed.info.cwd, sessionId, envForHints(managed))
         : null,
     authNeededThisTurn: (managed) => managed.authNeededThisTurn,
     updateState,
@@ -1955,7 +1942,7 @@ export function createAgentManager(deps: ManagerDeps) {
               addLogEntry(
                 agentId,
                 "system",
-                logWords(agentId)("systemEntries.cwdMoveBackFailed", {
+                msg("systemEntries.cwdMoveBackFailed", {
                   previous: oldCwd,
                   target: targetCwd,
                 }),
@@ -2520,7 +2507,6 @@ export function createAgentManager(deps: ManagerDeps) {
             restoreEnv,
             getSessionClaudeConfigDir(p.id, p.lastSessionId),
             userId,
-            translatorForUserId(userId).t,
           );
           ensureSessionClaudeConfigDir(p.id, p.lastSessionId, root);
           restoreEnv = {
@@ -2756,7 +2742,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // settles so the broadcast state reflects reality (and so a failed revive
     // never emits an add the client will then see removed).
     let sessionOk = false;
-    let sessionError: string | null = null;
+    let sessionError: LogMessage | string | null = null;
 
     try {
       const session = resumeSessionId
@@ -2765,10 +2751,10 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.sessionManager.installSession(managed, session);
       sessionOk = true;
     } catch (err) {
-      sessionError = errMessage(err);
+      sessionError = errorText(err);
       if (resumeSessionId && opts.fallbackToFreshOnResumeFailure) {
         console.warn(
-          `[revive] Resume of ${p.name} failed, falling back to fresh session: ${sessionError}`,
+          `[revive] Resume of ${p.name} failed, falling back to fresh session: ${errMessage(err)}`,
         );
         summarizeEndedSession(p.id, managed.sessionManager.sessionId);
         managed.sessionManager.sessionId = null;
@@ -2787,7 +2773,7 @@ export function createAgentManager(deps: ManagerDeps) {
           sessionOk = true;
           sessionError = null;
         } catch (err2) {
-          sessionError = errMessage(err2);
+          sessionError = errorText(err2);
         }
       }
     }
@@ -2795,7 +2781,9 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!sessionOk) {
       console.error(
         `Failed to restore session for ${p.name}:`,
-        sessionError ?? "(unknown)",
+        sessionError === null
+          ? "(unknown)"
+          : renderLogText(english, sessionError),
       );
       officeState.updateAgent(p.id, { state: "error" });
       const entry: LogEntry = {
@@ -2803,9 +2791,11 @@ export function createAgentManager(deps: ManagerDeps) {
         agentId: p.id,
         timestamp: Date.now(),
         kind: "error",
-        content: logWords(p.id)("systemEntries.restoreOnStartupFailed", {
-          error: sessionError ?? "(unknown)",
-        }),
+        ...logTextFields(
+          msg("systemEntries.restoreOnStartupFailed", {
+            error: sessionError ?? "(unknown)",
+          }),
+        ),
       };
       const cached = logCache.get(p.id) ?? [];
       cached.push(entry);
@@ -2821,11 +2811,7 @@ export function createAgentManager(deps: ManagerDeps) {
       resumeSessionId !== null &&
       managed.sessionManager.sessionId === resumeSessionId
     ) {
-      addLogEntry(
-        p.id,
-        "system",
-        logWords(p.id)("systemEntries.previousInterrupted"),
-      );
+      addLogEntry(p.id, "system", msg("systemEntries.previousInterrupted"));
     }
 
     // Emit only on success so a failed revive doesn't flicker an add the
@@ -2834,7 +2820,11 @@ export function createAgentManager(deps: ManagerDeps) {
       emit({ type: "agent_added", agent: info });
     }
 
-    return { sessionOk, sessionError };
+    return {
+      sessionOk,
+      sessionError:
+        sessionError === null ? null : renderLogText(english, sessionError),
+    };
   }
 
   // Restore agents from disk on startup. Creates sessions and loads log history.
@@ -2945,30 +2935,28 @@ export function createAgentManager(deps: ManagerDeps) {
     return info.userId;
   }
 
-  // The system line for a path an affordance refused, in the agent's
-  // language. bad_path never gets here: the chat ops answer it with a 400.
+  // The system line for a path an affordance refused. bad_path never gets
+  // here: the chat ops answer it with a 400.
   function pathRefusalText(
-    agentId: string,
     refusal: Pick<PathRefusal, "kind" | "path" | "size" | "message">,
     opening: "edit" | "read",
-  ): string {
-    const words = logWords(agentId);
+  ): LogMessage {
     const path = refusal.path;
     switch (refusal.kind) {
       case "not_found":
-        return words("systemEntries.pathRefusal.notFound", { path });
+        return msg("systemEntries.pathRefusal.notFound", { path });
       case "not_file":
-        return words("systemEntries.pathRefusal.notFile", { path });
+        return msg("systemEntries.pathRefusal.notFile", { path });
       case "binary":
-        return words("systemEntries.pathRefusal.binary", { path });
+        return msg("systemEntries.pathRefusal.binary", { path });
       case "credential":
-        return words("systemEntries.pathRefusal.credential", { path });
+        return msg("systemEntries.pathRefusal.credential", { path });
       case "too_large":
         return opening === "edit"
-          ? editorTooLargeText(agentId, path, refusal.size ?? 0)
-          : readTooLargeText(agentId, path, refusal.size ?? 0);
+          ? editorTooLargeText(path, refusal.size ?? 0)
+          : readTooLargeText(path, refusal.size ?? 0);
       default:
-        return words(
+        return msg(
           opening === "edit"
             ? "systemEntries.fileOpenFailed"
             : "systemEntries.fileReadFailed",
@@ -2993,7 +2981,7 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!probe.ok) {
       if (probe.kind === "bad_path")
         return { ok: false, status: 400, error: "missing or empty path" };
-      addLogEntry(agentId, "system", pathRefusalText(agentId, probe, "edit"));
+      addLogEntry(agentId, "system", pathRefusalText(probe, "edit"));
       return { ok: true };
     }
     addLogEntry(
@@ -3105,7 +3093,7 @@ export function createAgentManager(deps: ManagerDeps) {
         return { ok: false, status: 400, error: "missing or empty path" };
       if (probe.kind === "credential")
         return { ok: false, status: 403, error: CREDENTIAL_PATH_MESSAGE };
-      addLogEntry(agentId, "system", pathRefusalText(agentId, probe, "read"));
+      addLogEntry(agentId, "system", pathRefusalText(probe, "read"));
       return { ok: true };
     }
     const copied = copyAskReadFile(agentId, probe.path);
@@ -3115,10 +3103,10 @@ export function createAgentManager(deps: ManagerDeps) {
         agentId,
         "system",
         copied.kind === "save_failed"
-          ? logWords(agentId)("systemEntries.fileSaveFailed", {
+          ? msg("systemEntries.fileSaveFailed", {
               path: probe.path,
             })
-          : pathRefusalText(agentId, copied, "read"),
+          : pathRefusalText(copied, "read"),
       );
       return { ok: true };
     }
@@ -3264,23 +3252,22 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId)("systemEntries.diffNotRepo", {
+          msg("systemEntries.diffNotRepo", {
             path: result.cwd,
           }),
         );
         break;
       case "git_error":
-        addLogEntry(
-          agentId,
-          "system",
-          `${logWords(agentId)("systemEntries.diffFailed", { path: result.cwd })}\n\n\`\`\`\n${result.message}\n\`\`\``,
-        );
+        addLogEntry(agentId, "system", [
+          msg("systemEntries.diffFailed", { path: result.cwd }),
+          `\n\n\`\`\`\n${result.message}\n\`\`\``,
+        ]);
         break;
       case "bad_commit":
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId)("systemEntries.diffBadDir", {
+          msg("systemEntries.diffBadDir", {
             path: result.attempted,
             message: result.message,
           }),
@@ -3291,8 +3278,8 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           "system",
           commit
-            ? logWords(agentId)("systemEntries.diffEmptyCommit", { commit })
-            : logWords(agentId)("systemEntries.diffClean", {
+            ? msg("systemEntries.diffEmptyCommit", { commit })
+            : msg("systemEntries.diffClean", {
                 path: result.cwd,
               }),
         );
@@ -3385,9 +3372,9 @@ export function createAgentManager(deps: ManagerDeps) {
   function openChoiceInteraction(
     agentId: string,
     kind: AgentChoiceInteractionKind,
-    title: string,
-    instruction: string,
-    choices: AgentChoiceInteraction["choices"],
+    title: LogText,
+    instruction: LogText,
+    choices: readonly ChoiceInput[],
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -3398,9 +3385,7 @@ export function createAgentManager(deps: ManagerDeps) {
       id: crypto.randomUUID(),
       agentId,
       kind,
-      title,
-      instruction,
-      choices,
+      ...choiceCardFields(title, instruction, choices),
     };
     // A client holds the cards it was sent until it hears they are gone, so
     // a replaced interaction must be removed out loud. Otherwise the client
@@ -3446,40 +3431,6 @@ export function createAgentManager(deps: ManagerDeps) {
     // the compatibility badge and emits removal without an intervening await.
     updateState(interaction.agentId, managed.info.state);
     return { interaction, value };
-  }
-
-  /**
-   * The translator for text the server writes into an agent's log: the actor
-   * when the server knows one, otherwise the agent's owner
-   * (internal-docs/i18n-loop.md, S7).
-   *
-   * Most entries here have no actor - they come from a backend event or a
-   * route call that carries no identity - and the reader we do know is the
-   * person whose agent it is. A chat-typed command does carry its sender, and
-   * that sender wins. An agent has no username, so it resolves to the owner's
-   * language too; nothing the server writes is ever delivered TO an agent,
-   * which reads its turns, not its log chrome.
-   */
-  function logTranslator(managed: ManagedAgent, username?: string): Translator {
-    return username
-      ? translatorForUsername(username)
-      : translatorForUserId(managed.info.userId);
-  }
-
-  /**
-   * logTranslator's `t`, reached by agent id. Most log writes here have the id
-   * but not the ManagedAgent, and an entry for an agent that has already gone
-   * still has to say something, so an unknown id falls back to English.
-   */
-  function logI18n(agentId: string, username?: string): Translator {
-    const managed = agents.get(agentId);
-    return managed
-      ? logTranslator(managed, username)
-      : translatorForUsername(username);
-  }
-
-  function logWords(agentId: string, username?: string): Translator["t"] {
-    return logI18n(agentId, username).t;
   }
 
   // Whether the member usage cap covers a queued item (Isomux PM ruling,
@@ -3542,15 +3493,10 @@ export function createAgentManager(deps: ManagerDeps) {
   function logUsageHeadsUp(
     managed: ManagedAgent,
     headsUp: { dayStartMs: number },
-    username?: string,
   ): void {
     if (managed.usageHeadsUpDay === headsUp.dayStartMs) return;
     managed.usageHeadsUpDay = headsUp.dayStartMs;
-    addLogEntry(
-      managed.info.id,
-      "system",
-      usageHeadsUpText(logTranslator(managed, username)),
-    );
+    addLogEntry(managed.info.id, "system", usageHeadsUpText());
   }
 
   // A turn the member usage cap refused before send: say why in the chat and
@@ -3559,48 +3505,28 @@ export function createAgentManager(deps: ManagerDeps) {
     agentId: string,
     managed: ManagedAgent,
     err: UsageCapError,
-    username?: string,
   ): void {
-    addLogEntry(
-      agentId,
-      "error",
-      usageCapText(logTranslator(managed, username), err),
-    );
+    addLogEntry(agentId, "error", usageCapText(err));
     updateState(agentId, "waiting_for_response");
   }
 
   /**
-   * The two "too large" system entries. The size is a number in the reader's
-   * language (ruling 12), so both need the translator and not only its `t`;
-   * the sentences are the ones /isomux-edit and the read-file path already
-   * showed, with the size passed in as data.
+   * The two "too large" system entries. The size is a value each reader
+   * words in their number format (ruling 12); the sentences are the ones
+   * /isomux-edit and the read-file path already showed.
    */
-  function editorTooLargeText(
-    agentId: string,
-    path: string,
-    bytes: number,
-  ): string {
-    const i18n = logI18n(agentId);
-    return i18n.t("systemEntries.pathRefusal.tooLarge", {
+  function editorTooLargeText(path: string, bytes: number): LogMessage {
+    return msg("systemEntries.pathRefusal.tooLarge", {
       path,
-      size: `${formatDecimal(i18n.language, bytes / 1024, 1)} KB`,
+      size: { bytes },
     });
   }
 
-  function readTooLargeText(
-    agentId: string,
-    path: string,
-    bytes: number,
-  ): string {
-    const i18n = logI18n(agentId);
-    return i18n.t("systemEntries.fileTooLargeToDisplay", {
+  function readTooLargeText(path: string, bytes: number): LogMessage {
+    return msg("systemEntries.fileTooLargeToDisplay", {
       path,
-      size: `${formatDecimal(i18n.language, bytes / (1024 * 1024), 1)} MB`,
-      limit: formatDecimal(
-        i18n.language,
-        MAX_READ_FILE_BYTES / (1024 * 1024),
-        0,
-      ),
+      size: { bytes },
+      limit: { number: MAX_READ_FILE_BYTES / (1024 * 1024), digits: 0 },
     });
   }
 
@@ -3640,25 +3566,16 @@ export function createAgentManager(deps: ManagerDeps) {
   ) {
     // Build the /resolve prompt. The backend owns the SDK resolver and
     // states per request which persistent choices it can represent.
-    // A backend event carries no actor, so this is worded for the agent's
-    // owner (internal-docs/i18n-loop.md, S7).
-    const { t } = translatorForUserId(managed.info.userId);
-    emitEphemeralLog(
-      agentId,
-      "system",
-      permissionPromptLines(t, ev).join("\n"),
-      {
-        interactionFallback: true,
-      },
-    );
+    emitEphemeralLog(agentId, "system", permissionPromptLines(ev), {
+      interactionFallback: true,
+    });
     managed.pendingPermission = queuedAsPending({ event: ev, inputSummary });
     openChoiceInteraction(
       agentId,
       "permission",
-      ev.title ?? t("choices.permission.title", { tool: ev.toolName }),
-      t("choices.permission.instruction"),
+      ev.title ?? msg("choices.permission.title", { tool: ev.toolName }),
+      msg("choices.permission.instruction"),
       permissionInteractionChoices(
-        t,
         ev.allowPersistentLabel,
         ev.allowPrefixLabel,
       ),
@@ -3682,9 +3599,7 @@ export function createAgentManager(deps: ManagerDeps) {
         agentId,
         queuedAsPending(next),
         "canceled",
-        logTranslator(managed).t(
-          "systemEntries.permissionOutcome.sessionChanged",
-        ),
+        msg("systemEntries.permissionOutcome.sessionChanged"),
       );
     }
   }
@@ -3695,7 +3610,7 @@ export function createAgentManager(deps: ManagerDeps) {
     agentId: string,
     managed: ManagedAgent,
     outcome: "canceled" | "session_gone",
-    label: string,
+    label: string | LogMessage,
     username?: string,
     device?: string,
   ) {
@@ -3721,19 +3636,15 @@ export function createAgentManager(deps: ManagerDeps) {
     agentId: string,
     pending: NonNullable<ManagedAgent["pendingPermission"]>,
     outcome: ApprovalDecision["kind"] | "session_gone" | "canceled" | "failed",
-    label: string,
+    label: string | LogMessage,
     username?: string,
     device?: string,
   ): void {
     const actor = buildUserMeta(username, device);
-    const managed = agents.get(agentId);
-    const { t } = managed
-      ? logTranslator(managed, username)
-      : translatorForUsername(username);
     addLogEntry(
       agentId,
       "system",
-      t("systemEntries.permissionChoice", { label }),
+      msg("systemEntries.permissionChoice", { label }),
       {
         permissionAudit: {
           event: "outcome",
@@ -3865,11 +3776,11 @@ export function createAgentManager(deps: ManagerDeps) {
     opts: {
       username?: string;
       label: string;
-      frame: (raw: string) => string;
+      frame: (error: LogMessage | string) => LogText;
     },
   ): void {
     if (err instanceof UsageCapError) {
-      refuseForUsageCap(agentId, managed, err, opts.username);
+      refuseForUsageCap(agentId, managed, err);
       return;
     }
     if (err instanceof BackendNotConfiguredError) {
@@ -3911,18 +3822,15 @@ export function createAgentManager(deps: ManagerDeps) {
     agentId: string,
     managed: ManagedAgent,
     err: unknown,
-    frame: (raw: string) => string,
+    frame: (error: LogMessage | string) => LogText,
   ) {
     const raw = errMessage(err);
-    const failure = humanizeBackendFailure(logWords(agentId), raw);
+    const failure = humanizeBackendFailure(raw);
     const classified = failure.raw !== undefined;
-    const text = classified ? failure.text : frame(raw);
+    const text = classified ? failure.text : frame(errorText(err));
     // Consume the stamp whatever we decide, so it can never suppress a second,
     // genuinely new failure later in the agent's life. Compared on the
-    // classification rather than the sentence: the consumer that wrote the
-    // stamp and this caller can resolve to two different languages, and the
-    // same death must still be recognized as the same death
-    // (internal-docs/i18n-loop.md, S7).
+    // classification rather than the sentence.
     const echoed = managed.sessionManager.lastBackendFailure === failure.id;
     managed.sessionManager.lastBackendFailure = null;
     // Only a CLASSIFIED death is ever suppressed. Two unrelated consecutive
@@ -3943,7 +3851,7 @@ export function createAgentManager(deps: ManagerDeps) {
   function addLogEntry(
     agentId: string,
     kind: LogEntry["kind"],
-    content: string,
+    content: LogText,
     metadata?: Record<string, unknown>,
     attachments?: Attachment[],
     extra?: Partial<
@@ -3959,7 +3867,7 @@ export function createAgentManager(deps: ManagerDeps) {
       agentId,
       timestamp: Date.now(),
       kind,
-      content,
+      ...logTextFields(content),
       metadata,
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
       ...(extra ?? {}),
@@ -4023,14 +3931,14 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   // Emit a log entry to the UI only (not persisted to disk) - for ephemeral
-  // messages like /resume, "Conversation cleared.", permission prompts, etc.
+  // messages like /resume, permission prompts, etc.
   // Entries are tagged ephemeral:true so appendLog and the system_init backfill
   // both skip them. They still go into logCache so the UI shows them, but they
   // vanish on server restart.
   function emitEphemeralLog(
     agentId: string,
     kind: LogEntry["kind"],
-    content: string,
+    content: LogText,
     metadata?: Record<string, unknown>,
     extra?: Partial<Pick<LogEntry, "diff" | "file">>,
   ) {
@@ -4039,7 +3947,7 @@ export function createAgentManager(deps: ManagerDeps) {
       agentId,
       timestamp: Date.now(),
       kind,
-      content,
+      ...logTextFields(content),
       metadata,
       ...(extra ?? {}),
       ephemeral: true,
@@ -5179,7 +5087,7 @@ export function createAgentManager(deps: ManagerDeps) {
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId)("systemEntries.claudeAuth.accessUnavailable"),
+            msg("systemEntries.claudeAuth.accessUnavailable"),
             { providerLogin: "claude" },
           );
           break;
@@ -5209,7 +5117,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId)("systemEntries.providerCapacityRetry", {
+          msg("systemEntries.providerCapacityRetry", {
             attempt: ev.attempt,
             maxAttempts: ev.maxAttempts,
             seconds: ev.delayMs / 1_000,
@@ -5227,11 +5135,11 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           "system",
           reason
-            ? logWords(agentId)("systemEntries.toolCallDeniedWithReason", {
+            ? msg("systemEntries.toolCallDeniedWithReason", {
                 tool: ev.toolName,
                 reason,
               })
-            : logWords(agentId)("systemEntries.toolCallDenied", {
+            : msg("systemEntries.toolCallDenied", {
                 tool: ev.toolName,
               }),
           {
@@ -5383,9 +5291,7 @@ export function createAgentManager(deps: ManagerDeps) {
             addLogEntry(
               agentId,
               "error",
-              logWords(agentId)(
-                "systemEntries.backendFailure.providerCapacity",
-              ),
+              msg("systemEntries.backendFailure.providerCapacity"),
               { backendFailureRaw: raw },
             );
             updateState(agentId, "waiting_for_response");
@@ -5399,13 +5305,12 @@ export function createAgentManager(deps: ManagerDeps) {
               ev.status === "failed";
             const errorText = isHotAbortDirty
               ? ev.error
-                ? logWords(agentId)(
-                    "systemEntries.codexInterruptExitedWithError",
-                    { error: ev.error },
-                  )
-                : logWords(agentId)("systemEntries.codexInterruptExited")
+                ? msg("systemEntries.codexInterruptExitedWithError", {
+                    error: logParam(ev.error),
+                  })
+                : msg("systemEntries.codexInterruptExited")
               : (ev.error ??
-                logWords(agentId)("systemEntries.agentStopped", {
+                msg("systemEntries.agentStopped", {
                   status: ev.status,
                 }));
             // Humanize only the ordinary failure path: the
@@ -5418,7 +5323,9 @@ export function createAgentManager(deps: ManagerDeps) {
             const failure: BackendFailureText =
               isHotAbortDirty || providerRefusal
                 ? { text: errorText, id: "unclassified" }
-                : humanizeBackendFailure(logWords(agentId), errorText);
+                : typeof errorText === "string"
+                  ? humanizeBackendFailure(errorText)
+                  : { text: errorText, id: "unclassified" };
             // The backend sent auth_needed earlier in this turn: the sign-in
             // card is already in the chat. A turn it ended with no words of
             // its own (Codex after its stderr 401) adds no error line.
@@ -5457,7 +5364,11 @@ export function createAgentManager(deps: ManagerDeps) {
           managed.sessionManager.pendingTurn = null;
           if (isProviderCapacity)
             turn.reject(
-              new ProviderCapacityError(ev.error ?? "Codex provider capacity"),
+              new ProviderCapacityError(
+                ev.error === undefined
+                  ? "Codex provider capacity"
+                  : renderLogText(english, ev.error),
+              ),
             );
           else turn.resolve();
         }
@@ -5513,7 +5424,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId)(ev.on ? "commands.plan.on" : "commands.plan.off"),
+          msg(ev.on ? "commands.plan.on" : "commands.plan.off"),
         );
         break;
       }
@@ -5522,10 +5433,10 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           "system",
           ev.summary
-            ? logWords(agentId)("systemEntries.contextCompacted", {
+            ? msg("systemEntries.contextCompacted", {
                 summary: ev.summary,
               })
-            : logWords(agentId)("systemEntries.contextCompactedNoSummary"),
+            : msg("systemEntries.contextCompactedNoSummary"),
         );
         break;
       case "file_view":
@@ -5539,7 +5450,10 @@ export function createAgentManager(deps: ManagerDeps) {
         // The backend's raw string ("Claude Code process exited
         // with code 143") goes to metadata; chat gets the explained version.
         // Everything below still classifies on ev.message.
-        const failure = humanizeBackendFailure(logWords(agentId), ev.message);
+        const failure: BackendFailureText =
+          typeof ev.message === "string"
+            ? humanizeBackendFailure(ev.message)
+            : { text: ev.message, id: "unclassified" };
         addLogEntry(
           agentId,
           "error",
@@ -5558,7 +5472,6 @@ export function createAgentManager(deps: ManagerDeps) {
             managed.info.cwd,
             managed.sessionManager.sessionId,
             envForHints(managed),
-            logWords(agentId),
           );
           if (hints) addLogEntry(agentId, "system", hints);
         }
@@ -5572,8 +5485,10 @@ export function createAgentManager(deps: ManagerDeps) {
             // that needed sign-in (AuthNeededError).
             turn.reject(
               isAuthError
-                ? new AuthNeededError(ev.message)
-                : new Error(ev.message),
+                ? new AuthNeededError(renderLogText(english, ev.message))
+                : typeof ev.message === "string"
+                  ? new Error(ev.message)
+                  : new LocalizedError(ev.message),
             );
           } catch {}
         }
@@ -5591,14 +5506,11 @@ export function createAgentManager(deps: ManagerDeps) {
         if (!managed) break;
         // Build the /resolve prompt. The backend owns the SDK resolver and
         // states per request which persistent choices it can represent.
-        // A backend event carries no actor, so this is worded for the agent's
-        // owner (internal-docs/i18n-loop.md, S7).
-        const { t } = translatorForUserId(managed.info.userId);
         const inputSummary = permissionInputSummary(ev.toolName, ev.input);
         addLogEntry(
           agentId,
           "system",
-          t("systemEntries.permissionRequested", {
+          msg("systemEntries.permissionRequested", {
             tool: ev.toolName,
             input: JSON.stringify(inputSummary),
           }),
@@ -5648,11 +5560,7 @@ export function createAgentManager(deps: ManagerDeps) {
       case "input_request": {
         const managed = agents.get(agentId);
         if (!managed) break;
-        addLogEntry(
-          agentId,
-          "error",
-          logWords(agentId)("systemEntries.inputRequest"),
-        );
+        addLogEntry(agentId, "error", msg("systemEntries.inputRequest"));
         void managed.sessionManager.session?.abort();
         updateState(agentId, "error");
         break;
@@ -5737,7 +5645,7 @@ export function createAgentManager(deps: ManagerDeps) {
       terminalStatus(agentId);
     }
     await newConversation(agentId, undefined, undefined, {
-      notice: logWords(agentId)("systemEntries.managerChanged", {
+      notice: msg("systemEntries.managerChanged", {
         actor: changedBy,
         member: username,
       }),
@@ -5829,52 +5737,46 @@ export function createAgentManager(deps: ManagerDeps) {
   // false rejection. The calm idle wording has nothing to warn about, so it
   // carries note: null and costs the agent no context.
   //
-  // The two surfaces were the same STRING until S7. They are now built from the
-  // same keys in two languages, because the reader differs: the human gets
-  // their own language, the agent always gets English
-  // (internal-docs/i18n-loop.md, S7). Changing a key changes both.
+  // The two surfaces are built from the same keys: the log line is a message
+  // each member words in their language, the agent always gets English
+  // (task c37a7365). Changing a key changes both.
   function dormantWakeMessage(
-    t: Translator["t"],
     managed: ManagedAgent,
     reason: ManagedAgent["dormantReason"],
     sessionId: string,
-  ): { log: string; note: string | null } {
+  ): { log: LogText; note: string | null } {
     // The agent hears of it too: its environment has the current secrets and
     // variables.
-    if (reason === "env")
-      return {
-        log: t("systemEntries.wake.env"),
-        note: english.t("systemEntries.wake.env"),
-      };
+    if (reason === "env") {
+      const env = msg("systemEntries.wake.env");
+      return { log: env, note: renderLogText(english, env) };
+    }
     if (reason !== "boot" && reason !== "stream-ended")
-      return { log: t("systemEntries.wake.idle"), note: null };
+      return { log: msg("systemEntries.wake.idle"), note: null };
     const clause = shutdownRejectionClause(managed, sessionId);
-    const build = (words: Translator["t"]): string => {
-      const opener =
-        reason === "boot"
-          ? words("systemEntries.wake.afterRestart")
-          : words("systemEntries.wake.afterBackendEnded");
-      const base = `${opener} ${words("systemEntries.wake.inFlightWarning")}`;
-      return clause
-        ? `${base} ${words("systemEntries.wake.shutdownRejection")}`
-        : base;
-    };
-    return { log: build(t), note: build(english.t) };
+    const parts: LogText[] = [
+      reason === "boot"
+        ? msg("systemEntries.wake.afterRestart")
+        : msg("systemEntries.wake.afterBackendEnded"),
+      msg("systemEntries.wake.inFlightWarning"),
+    ];
+    if (clause) parts.push(msg("systemEntries.wake.shutdownRejection"));
+    const log = joinLogText(parts, " ");
+    return { log, note: renderLogText(english, log) };
   }
 
-  // A settings restart's notice in one reader's words. The rejection sentence
-  // has the same proof rule as the dormant wake's.
+  // A settings restart's notice, as message parts. The rejection sentence has
+  // the same proof rule as the dormant wake's.
   function settingsNoticeText(
-    t: Translator["t"],
     managed: ManagedAgent,
     arm: SettingsNoticeArm,
-  ): string {
+  ): LogPart[] {
     const sessionId = managed.sessionManager.sessionId;
     const rejectionProven =
       arm.interrupted &&
       !!sessionId &&
       shutdownRejectionClause(managed, sessionId) !== "";
-    return renderSettingsNotice(arm, t, managed.info, rejectionProven);
+    return renderSettingsNotice(arm, managed.info, rejectionProven);
   }
 
   // Arms (or merges into) the settings notice for a settings change the
@@ -6132,11 +6034,7 @@ export function createAgentManager(deps: ManagerDeps) {
         console.error(
           `[queue-watchdog] ${managed.info.name} (${agentId}): Claude turn quiescent for ${now - quiescenceStartedAt}ms with ${managed.messageQueue.length} queued message(s), no active tool, tail=${tailKind}; forcing recovery via session replacement`,
         );
-        addLogEntry(
-          agentId,
-          "system",
-          logWords(agentId)("systemEntries.deliveryStalled"),
-        );
+        addLogEntry(agentId, "system", msg("systemEntries.deliveryStalled"));
         try {
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionManager.sessionId && !sessionId)
@@ -6178,11 +6076,7 @@ export function createAgentManager(deps: ManagerDeps) {
       console.error(
         `[queue-watchdog] ${managed.info.name} (${agentId}): flush stuck for ${now - managed.flushStartedAt}ms with ${managed.messageQueue.length} message(s) queued; forcing recovery via session replacement`,
       );
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("systemEntries.deliveryStalled"),
-      );
+      addLogEntry(agentId, "system", msg("systemEntries.deliveryStalled"));
       try {
         // Same resume-or-fresh dance as abort's slow path.
         const sessionId = pickAutoResumeSessionId(managed);
@@ -6337,7 +6231,6 @@ export function createAgentManager(deps: ManagerDeps) {
         base,
         getSessionClaudeConfigDir(managed.info.id, sessionId),
         managed.info.userId,
-        logWords(managed.info.id),
       );
       ensureSessionClaudeConfigDir(managed.info.id, sessionId, root);
       base = { ...(base ?? getAgentHost().baseEnv()), CLAUDE_CONFIG_DIR: root };
@@ -6685,17 +6578,16 @@ export function createAgentManager(deps: ManagerDeps) {
     }
   }
 
-  // Why the agent's cwd cannot start a session, in the owner's words.
-  function cwdInvalidText(agentId: string, problem: CwdProblem): string {
-    const words = logWords(agentId);
+  // Why the agent's cwd cannot start a session.
+  function cwdInvalidText(problem: CwdProblem): LogMessage {
     const path = problem.path;
     switch (problem.kind) {
       case "missing":
-        return words("systemEntries.cwdInvalid.missing", { path });
+        return msg("systemEntries.cwdInvalid.missing", { path });
       case "not_directory":
-        return words("systemEntries.cwdInvalid.notDirectory", { path });
+        return msg("systemEntries.cwdInvalid.notDirectory", { path });
       case "inaccessible":
-        return words("systemEntries.cwdInvalid.inaccessible", {
+        return msg("systemEntries.cwdInvalid.inaccessible", {
           path,
           message: problem.message ?? "",
         });
@@ -6713,14 +6605,12 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.info.id,
       managed,
       "canceled",
-      logTranslator(managed).t(
-        "systemEntries.permissionOutcome.sessionChanged",
-      ),
+      msg("systemEntries.permissionOutcome.sessionChanged"),
     );
     // Preflight checks so failures surface as readable errors instead of the
     // backend's opaque process-exit messages.
     const cwdIssue = cwdProblem(managed.info.cwd);
-    if (cwdIssue) throw new Error(cwdInvalidText(managed.info.id, cwdIssue));
+    if (cwdIssue) throw new LocalizedError(cwdInvalidText(cwdIssue));
     // Compute env once for both the backend-owned resume preflight and the
     // session options.
     const env = buildSessionEnv(managed, resumeSessionId ?? null);
@@ -6747,12 +6637,14 @@ export function createAgentManager(deps: ManagerDeps) {
         managed.info.agentType,
       ).checkSessionResumable(resumeSessionId, {
         cwd: managed.info.cwd,
-        words: logWords(managed.info.id),
         env,
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
       });
       // The problem only: the entry that shows it gives the /resume hint.
-      if (resumeError) throw new Error(resumeError);
+      if (resumeError)
+        throw typeof resumeError === "string"
+          ? new Error(resumeError)
+          : new LocalizedError(resumeError);
     }
     // A live agent's roomId always resolves to a real room; roomById
     // logs loud and we fail fast (vs silently building a prompt for room 0).
@@ -6797,7 +6689,6 @@ export function createAgentManager(deps: ManagerDeps) {
       // Codex-only sandbox; Claude backend ignores. Undefined falls back to
       // the Codex adapter's "workspace-write" default.
       sandbox: managed.info.codexSandbox,
-      words: logWords(managed.info.id),
       env,
       environmentKey: environmentSourceKeyForUserId(managed.info.userId),
       environmentRevision: environmentSourceRevisionForUserId(
@@ -7058,7 +6949,7 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         id,
         "error",
-        logWords(id, username)("systemEntries.startFailed", {
+        msg("systemEntries.startFailed", {
           error: cwdError,
         }),
       );
@@ -7067,7 +6958,7 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         id,
         "system",
-        logWords(info.id, username)("systemEntries.agentReady", {
+        msg("systemEntries.agentReady", {
           name,
           cwd: resolvedCwd,
           mode: info.permissionMode,
@@ -7098,26 +6989,24 @@ export function createAgentManager(deps: ManagerDeps) {
     beginTurn,
     openChoiceInteraction,
     emitLoginInstructionsFor: (agentId, managed, username) => {
-      void agentLoginInstructions(managed, { username }).then(
-        (instructions) => {
-          if (managed && agents.get(agentId) !== managed) return;
-          if (instructions.kind === "already_authed") {
-            void emitAlreadySignedInAffordance(
-              agentId,
-              managed,
-              instructions,
-              username,
-            );
-            return;
-          }
-          void emitLoginInstructions(
+      void agentLoginInstructions(managed).then((instructions) => {
+        if (managed && agents.get(agentId) !== managed) return;
+        if (instructions.kind === "already_authed") {
+          void emitAlreadySignedInAffordance(
             agentId,
+            managed,
             instructions,
             username,
-            "login_command",
           );
-        },
-      );
+          return;
+        }
+        void emitLoginInstructions(
+          agentId,
+          instructions,
+          username,
+          "login_command",
+        );
+      });
     },
     emitLogoutAffordanceFor: emitLogoutAffordance,
     newConversation: (agentId, opts) =>
@@ -7371,7 +7260,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId)("systemEntries.limitResume.resumed"),
+          msg("systemEntries.limitResume.resumed"),
         );
         continue;
       }
@@ -8147,7 +8036,7 @@ export function createAgentManager(deps: ManagerDeps) {
             addLogEntry(
               agentId,
               "system",
-              logWords(agentId)("systemEntries.previousInterrupted"),
+              msg("systemEntries.previousInterrupted"),
             );
           }
           // A blank-conversation wake (lazy spawn / released by /clear) is
@@ -8156,14 +8045,13 @@ export function createAgentManager(deps: ManagerDeps) {
           // logged nothing - so a "Started a fresh session…" note here would be
           // a NEW regression. Every other wake keeps its existing wording.
           if (sessionId) {
-            let wakeText = logWords(agentId)(
+            let wakeText: LogText = msg(
               "systemEntries.wake.resumedBeforeFlush",
             );
             if (wasDormant) {
               // Arms managed.wakeNotice as a side effect: the flush below is
               // the very send that carries it to the agent.
               const wake = dormantWakeMessage(
-                logWords(agentId),
                 managed,
                 dormantReason,
                 sessionId,
@@ -8176,15 +8064,15 @@ export function createAgentManager(deps: ManagerDeps) {
             addLogEntry(
               agentId,
               "system",
-              logWords(agentId)("systemEntries.freshSessionBeforeFlush"),
+              msg("systemEntries.freshSessionBeforeFlush"),
             );
           }
         } catch (err) {
           addLogEntry(
             agentId,
             "error",
-            logWords(agentId)("systemEntries.flushStartFailed", {
-              error: errMessage(err),
+            msg("systemEntries.flushStartFailed", {
+              error: errorText(err),
             }),
           );
           updateState(agentId, "error");
@@ -8249,11 +8137,7 @@ export function createAgentManager(deps: ManagerDeps) {
         if (admission.kind === "admitted") usageHeadsUp = admission.headsUp;
         if (admission.kind === "refused") {
           drainQueueItems(agentId, managed, refused);
-          addLogEntry(
-            agentId,
-            "error",
-            usageCapText(logTranslator(managed), admission),
-          );
+          addLogEntry(agentId, "error", usageCapText(admission));
         }
         // Items cancelled during the read are gone from the queue.
         items = items.filter(
@@ -8375,8 +8259,8 @@ export function createAgentManager(deps: ManagerDeps) {
               agentId,
               "system",
               err.reason === "settings"
-                ? logWords(agentId)("systemEntries.restartingForSettings")
-                : logWords(agentId)("systemEntries.flushInterrupted"),
+                ? msg("systemEntries.restartingForSettings")
+                : msg("systemEntries.flushInterrupted"),
             );
           }
           return;
@@ -8394,8 +8278,7 @@ export function createAgentManager(deps: ManagerDeps) {
         }
         ownedTurnFailure(agentId, managed, err, {
           label: "flush",
-          frame: (raw) =>
-            logWords(agentId)("systemEntries.flushError", { error: raw }),
+          frame: (raw) => msg("systemEntries.flushError", { error: raw }),
         });
       }
     } finally {
@@ -8631,19 +8514,13 @@ export function createAgentManager(deps: ManagerDeps) {
       // window vanishingly rare, so we accept the cosmetic mismatch rather than
       // re-probe durability under the wake.
       if (sessionId) {
-        let wakeText = logWords(
-          agentId,
-          username,
-        )("systemEntries.wake.resumedAfterUnexpectedEnd");
+        let wakeText: LogText = msg(
+          "systemEntries.wake.resumedAfterUnexpectedEnd",
+        );
         if (wasDormant) {
           // Arms managed.wakeNotice as a side effect: our caller sends the
           // message this wake serves, and runAgentTurn carries the note with it.
-          const wake = dormantWakeMessage(
-            logWords(agentId, username),
-            managed,
-            dormantReason,
-            sessionId,
-          );
+          const wake = dormantWakeMessage(managed, dormantReason, sessionId);
           managed.wakeNotice = wake.note;
           wakeText = wake.log;
         }
@@ -8679,8 +8556,8 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         agentId,
         "error",
-        logWords(agentId, username)("systemEntries.sessionStartFailed", {
-          error: errMessage(err),
+        msg("systemEntries.sessionStartFailed", {
+          error: errorText(err),
         }),
       );
       updateState(agentId, "error");
@@ -8873,7 +8750,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.queueFailed", {
+          msg("systemEntries.queueFailed", {
             error: result.error,
           }),
         );
@@ -8911,7 +8788,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.previousInterrupted"),
+          msg("systemEntries.previousInterrupted"),
         );
       }
     }
@@ -8976,10 +8853,7 @@ export function createAgentManager(deps: ManagerDeps) {
         agentId,
         managed,
         "canceled",
-        logWords(
-          agentId,
-          username,
-        )("systemEntries.permissionOutcome.priorSessionStopped"),
+        msg("systemEntries.permissionOutcome.priorSessionStopped"),
       );
     }
     // Skip auto-recovery for slash commands: they are control-plane actions
@@ -9055,10 +8929,7 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           pending,
           "session_gone",
-          logWords(
-            agentId,
-            username,
-          )("systemEntries.permissionOutcome.sessionEnded"),
+          msg("systemEntries.permissionOutcome.sessionEnded"),
           username,
           device,
         );
@@ -9067,23 +8938,19 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           managed,
           "session_gone",
-          logWords(
-            agentId,
-            username,
-          )("systemEntries.permissionOutcome.sessionEnded"),
+          msg("systemEntries.permissionOutcome.sessionEnded"),
           username,
           device,
         );
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.permissionSessionGone"),
+          msg("systemEntries.permissionSessionGone"),
         );
         refuse(promptGone);
         return;
       }
       const options = permissionOptions(
-        logWords(agentId, username),
         // Only presence controls this reconstructed option. The backend keeps
         // the real label; resolution needs the same list shape that was shown.
         pending.allowPersistent ? "persistent" : undefined,
@@ -9092,31 +8959,25 @@ export function createAgentManager(deps: ManagerDeps) {
       const resolved = resolvePermissionReply(trimmed, options);
       let decision: ApprovalDecision;
       let resumeState: AgentState;
-      let outcome: string;
+      let outcome: LogMessage;
       if (resolved?.kind === "allow_persistent") {
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(
-            agentId,
-            username,
-          )("systemEntries.permissionGrantedPersistent"),
+          msg("systemEntries.permissionGrantedPersistent"),
         );
         decision = { kind: "allow_persistent" };
         resumeState = "tool_executing";
-        outcome = logWords(
-          agentId,
-          username,
-        )("systemEntries.permissionOutcome.allowPersistent");
+        outcome = msg("systemEntries.permissionOutcome.allowPersistent");
       } else if (resolved?.kind === "allow_once") {
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.permissionGrantedOnce"),
+          msg("systemEntries.permissionGrantedOnce"),
         );
         decision = { kind: "allow_once" };
         resumeState = "tool_executing";
-        outcome = logWords(agentId, username)("choices.permission.allowOnce");
+        outcome = msg("choices.permission.allowOnce");
       } else if (resolved?.kind === "allow_prefix") {
         // No confirmation line here on purpose - the backend owns the rule and
         // emits one message saying what it actually remembered, including the
@@ -9126,34 +8987,25 @@ export function createAgentManager(deps: ManagerDeps) {
           ...(resolved.prefixText ? { prefixText: resolved.prefixText } : {}),
         };
         resumeState = "tool_executing";
-        outcome = logWords(
-          agentId,
-          username,
-        )("systemEntries.permissionOutcome.allowPrefix");
+        outcome = msg("systemEntries.permissionOutcome.allowPrefix");
       } else if (resolved?.kind === "deny") {
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.permissionDenied"),
+          msg("systemEntries.permissionDenied"),
         );
         decision = { kind: "deny" };
         resumeState = "thinking";
-        outcome = logWords(agentId, username)("choices.permission.deny");
+        outcome = msg("choices.permission.deny");
       } else {
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(
-            agentId,
-            username,
-          )("systemEntries.permissionDeniedWithReason"),
+          msg("systemEntries.permissionDeniedWithReason"),
         );
         decision = { kind: "deny", reason: text };
         resumeState = "thinking";
-        outcome = logWords(
-          agentId,
-          username,
-        )("systemEntries.permissionOutcome.denyWithReason");
+        outcome = msg("systemEntries.permissionOutcome.denyWithReason");
       }
       // The reply hands the turn back to the agent, so flip out of the
       // `waiting_for_response` state the prompt parked us in (set ~:1952) and
@@ -9188,15 +9040,15 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           pending,
           "failed",
-          logWords(agentId, username)("systemEntries.permissionOutcome.failed"),
+          msg("systemEntries.permissionOutcome.failed"),
           username,
           device,
         );
         emitEphemeralLog(
           agentId,
           "error",
-          logWords(agentId, username)("systemEntries.permissionResolveFailed", {
-            error: errMessage(err),
+          msg("systemEntries.permissionResolveFailed", {
+            error: errorText(err),
           }),
         );
         updateState(agentId, "error");
@@ -9291,7 +9143,7 @@ export function createAgentManager(deps: ManagerDeps) {
           emitEphemeralLog(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.resumedSession", {
+            msg("systemEntries.resumedSession", {
               label: picked.topic || picked.sessionId.slice(0, 8) + "...",
             }),
           );
@@ -9305,8 +9157,8 @@ export function createAgentManager(deps: ManagerDeps) {
           emitEphemeralLog(
             agentId,
             "error",
-            logWords(agentId, username)("systemEntries.resumeFailed", {
-              error: errMessage(err),
+            msg("systemEntries.resumeFailed", {
+              error: errorText(err),
             }),
           );
           updateState(agentId, "error");
@@ -9320,7 +9172,7 @@ export function createAgentManager(deps: ManagerDeps) {
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.resumeCancelled"),
+          msg("systemEntries.resumeCancelled"),
         );
       }
     }
@@ -9343,7 +9195,7 @@ export function createAgentManager(deps: ManagerDeps) {
           emitEphemeralLog(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.alreadyUsing", {
+            msg("systemEntries.alreadyUsing", {
               label,
             }),
           );
@@ -9394,7 +9246,7 @@ export function createAgentManager(deps: ManagerDeps) {
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.modelSwitched", {
+            msg("systemEntries.modelSwitched", {
               label,
             }),
           );
@@ -9404,7 +9256,7 @@ export function createAgentManager(deps: ManagerDeps) {
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.modelCancelled"),
+          msg("systemEntries.modelCancelled"),
         );
       }
     }
@@ -9433,15 +9285,12 @@ export function createAgentManager(deps: ManagerDeps) {
             selectedEffort.level,
           ),
         };
-        const label = effortDisplayLabel(
-          logWords(agentId, username),
-          picked.level,
-        );
+        const label = effortLabelParam(picked.level);
         if (picked.level === managed.info.effort) {
           emitEphemeralLog(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.alreadyUsing", {
+            msg("systemEntries.alreadyUsing", {
               label,
             }),
           );
@@ -9485,7 +9334,7 @@ export function createAgentManager(deps: ManagerDeps) {
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.effortSwitched", {
+            msg("systemEntries.effortSwitched", {
               label,
             }),
           );
@@ -9495,7 +9344,7 @@ export function createAgentManager(deps: ManagerDeps) {
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.effortCancelled"),
+          msg("systemEntries.effortCancelled"),
         );
       }
     }
@@ -9517,7 +9366,7 @@ export function createAgentManager(deps: ManagerDeps) {
       emitEphemeralLog(
         agentId,
         "system",
-        logWords(agentId, username)("systemEntries.cronjobPickCancelled"),
+        msg("systemEntries.cronjobPickCancelled"),
       );
     }
 
@@ -9552,7 +9401,7 @@ export function createAgentManager(deps: ManagerDeps) {
       emitEphemeralLog(
         agentId,
         "system",
-        logWords(agentId, username)("commands.native.attachments", {
+        msg("commands.native.attachments", {
           name: text.slice(1).trim().split(/\s+/)[0],
         }),
       );
@@ -9578,7 +9427,7 @@ export function createAgentManager(deps: ManagerDeps) {
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.queueFailed", {
+            msg("systemEntries.queueFailed", {
               error: result.error,
             }),
           );
@@ -9676,8 +9525,7 @@ export function createAgentManager(deps: ManagerDeps) {
       ownedTurnFailure(agentId, managed, err, {
         username,
         label: "send",
-        frame: (raw) =>
-          logWords(agentId)("systemEntries.genericError", { error: raw }),
+        frame: (raw) => msg("systemEntries.genericError", { error: raw }),
       });
     }
   }
@@ -9822,7 +9670,7 @@ export function createAgentManager(deps: ManagerDeps) {
         agentId,
         queuedAsPending(request),
         "canceled",
-        logWords(agentId)("systemEntries.permissionOutcome.sessionChanged"),
+        msg("systemEntries.permissionOutcome.sessionChanged"),
       );
     }
     if (requests.length === 0) return "gone";
@@ -9832,7 +9680,7 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           pending,
           "session_gone",
-          logWords(agentId)("systemEntries.permissionOutcome.sessionEnded"),
+          msg("systemEntries.permissionOutcome.sessionEnded"),
         );
       }
       return "gone";
@@ -9848,7 +9696,7 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           pending,
           "deny",
-          logWords(agentId)("systemEntries.permissionOutcome.denyWhenStopped"),
+          msg("systemEntries.permissionOutcome.denyWhenStopped"),
         );
       } catch (err) {
         failed = true;
@@ -9856,13 +9704,13 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           pending,
           "failed",
-          logWords(agentId)("systemEntries.permissionOutcome.failed"),
+          msg("systemEntries.permissionOutcome.failed"),
         );
         addLogEntry(
           agentId,
           "error",
-          logWords(agentId)("systemEntries.permissionResolveFailed", {
-            error: errMessage(err),
+          msg("systemEntries.permissionResolveFailed", {
+            error: errorText(err),
           }),
         );
       }
@@ -9920,8 +9768,8 @@ export function createAgentManager(deps: ManagerDeps) {
             addLogEntry(
               agentId,
               "error",
-              logWords(agentId)("systemEntries.interruptHandlerFailed", {
-                error: errMessage(err),
+              msg("systemEntries.interruptHandlerFailed", {
+                error: errorText(err),
               }),
             );
             updateState(agentId, "error");
@@ -9942,8 +9790,8 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           "system",
           denied === "failed"
-            ? logWords(agentId)("systemEntries.interruptedPermissionRestarted")
-            : logWords(agentId)("systemEntries.interruptedPermissionDenied"),
+            ? msg("systemEntries.interruptedPermissionRestarted")
+            : msg("systemEntries.interruptedPermissionDenied"),
         );
         return { ok: true };
       }
@@ -9952,11 +9800,7 @@ export function createAgentManager(deps: ManagerDeps) {
         managed.info.state === "tool_executing"
       ) {
         updateState(agentId, "waiting_for_response");
-        addLogEntry(
-          agentId,
-          "system",
-          logWords(agentId)("systemEntries.interrupted"),
-        );
+        addLogEntry(agentId, "system", msg("systemEntries.interrupted"));
         return { ok: true };
       }
       // Genuinely nothing to interrupt: no turn, no prompt, not busy. Reported
@@ -10013,8 +9857,8 @@ export function createAgentManager(deps: ManagerDeps) {
       agentId,
       "system",
       deniedPrompt === "denied" || deniedPrompt === "gone"
-        ? logWords(agentId)("systemEntries.interruptedPermissionDenied")
-        : logWords(agentId)("systemEntries.interrupted"),
+        ? msg("systemEntries.interruptedPermissionDenied")
+        : msg("systemEntries.interrupted"),
     );
 
     try {
@@ -10038,7 +9882,7 @@ export function createAgentManager(deps: ManagerDeps) {
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId)("systemEntries.codexInterruptFallback"),
+            msg("systemEntries.codexInterruptFallback"),
           );
           needsReplace = true;
         } else if (result === "session_died") {
@@ -10069,7 +9913,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId)("systemEntries.interruptedPermissionRestarted"),
+          msg("systemEntries.interruptedPermissionRestarted"),
         );
       }
       outcome = { ok: true };
@@ -10078,8 +9922,8 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         agentId,
         "error",
-        logWords(agentId)("systemEntries.interruptHandlerFailed", {
-          error: errMessage(err),
+        msg("systemEntries.interruptHandlerFailed", {
+          error: errorText(err),
         }),
       );
       updateState(agentId, "error");
@@ -10246,7 +10090,7 @@ export function createAgentManager(deps: ManagerDeps) {
       agentId,
       managed,
       "canceled",
-      logWords(agentId)("systemEntries.permissionOutcome.agentKilled"),
+      msg("systemEntries.permissionOutcome.agentKilled"),
     );
     const turn = managed.sessionManager.pendingTurn;
     managed.sessionManager.pendingTurn = null;
@@ -10552,7 +10396,7 @@ export function createAgentManager(deps: ManagerDeps) {
       handoff?: boolean;
       autoHandoff?: AutoHandoffPhase;
       typed?: boolean;
-      notice?: string;
+      notice?: LogText;
     },
   ) {
     const managed = agents.get(agentId);
@@ -10654,9 +10498,8 @@ export function createAgentManager(deps: ManagerDeps) {
           agentId,
           "system",
           opts?.autoHandoff
-            ? autoHandoffLine(agentId, opts.autoHandoff, "done")
-            : (opts?.notice ??
-                logWords(agentId)("systemEntries.newConversation")),
+            ? autoHandoffLine(opts.autoHandoff, "done")
+            : (opts?.notice ?? msg("systemEntries.newConversation")),
         );
       if (!opts?.handoff) addQueueCarriedLine(agentId, managed, carried);
       // The menu leaves the old process's plugin list now; the next process
@@ -10733,11 +10576,7 @@ export function createAgentManager(deps: ManagerDeps) {
     const agentId = managed.info.id;
     if (opened) {
       managed.autoHandoffSpent = true;
-      addLogEntry(
-        agentId,
-        "system",
-        logWords(agentId)("systemEntries.autoHandoff.paused"),
-      );
+      addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.paused"));
       return;
     }
     // A member who pressed Stop wants attention, not a reset.
@@ -10887,7 +10726,7 @@ export function createAgentManager(deps: ManagerDeps) {
     managed: ManagedAgent,
     phase: AutoHandoffPhase,
   ): Promise<void> {
-    addLogEntry(agentId, "system", autoHandoffLine(agentId, phase, "writing"));
+    addLogEntry(agentId, "system", autoHandoffLine(phase, "writing"));
     const capture: NonNullable<ManagedAgent["autoHandoffCapture"]> = {
       chunks: [],
       status: null,
@@ -10947,33 +10786,30 @@ export function createAgentManager(deps: ManagerDeps) {
     if (err instanceof SessionSwappedError) return;
     ownedTurnFailure(agentId, managed, err, {
       label: "auto-handoff brief",
-      frame: (raw) =>
-        logWords(agentId)("systemEntries.genericError", { error: raw }),
+      frame: (raw) => msg("systemEntries.genericError", { error: raw }),
     });
   }
 
   // The member's two lines, the old chat's ("writing") and the fresh chat's
   // first ("done"). Both name the limit that fired, so they give one reason.
   function autoHandoffLine(
-    agentId: string,
     phase: AutoHandoffPhase,
     which: "writing" | "done",
-  ): string {
-    const words = logWords(agentId);
+  ): LogMessage {
     const params = autoHandoffMeasureParams(phase.trigger);
     switch (phase.trigger.measure) {
       case "tokens":
         return which === "writing"
-          ? words("systemEntries.autoHandoff.writingTokens", params)
-          : words("systemEntries.autoHandoff.doneTokens", params);
+          ? msg("systemEntries.autoHandoff.writingTokens", params)
+          : msg("systemEntries.autoHandoff.doneTokens", params);
       case "percent":
         return which === "writing"
-          ? words("systemEntries.autoHandoff.writingPercent", params)
-          : words("systemEntries.autoHandoff.donePercent", params);
+          ? msg("systemEntries.autoHandoff.writingPercent", params)
+          : msg("systemEntries.autoHandoff.donePercent", params);
       case "compaction":
         return which === "writing"
-          ? words("systemEntries.autoHandoff.writingCompaction", params)
-          : words("systemEntries.autoHandoff.doneCompaction", params);
+          ? msg("systemEntries.autoHandoff.writingCompaction", params)
+          : msg("systemEntries.autoHandoff.doneCompaction", params);
     }
   }
 
@@ -10982,11 +10818,7 @@ export function createAgentManager(deps: ManagerDeps) {
   function failAutoHandoff(agentId: string, managed: ManagedAgent): void {
     managed.autoHandoffPhase = null;
     managed.autoHandoffSpent = true;
-    addLogEntry(
-      agentId,
-      "system",
-      logWords(agentId)("systemEntries.autoHandoff.failed"),
-    );
+    addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.failed"));
     maybeEmitUiContextNotice(managed);
     releaseAutoHandoffQueue(agentId, managed);
   }
@@ -11099,11 +10931,7 @@ export function createAgentManager(deps: ManagerDeps) {
     count: number,
   ): void {
     if (count === 0) return;
-    addLogEntry(
-      agentId,
-      "system",
-      logTranslator(managed).tn("systemEntries.queueCarried", count),
-    );
+    addLogEntry(agentId, "system", msgN("systemEntries.queueCarried", count));
   }
 
   // A direct send (member message, skill, edit) that a session swap cut
@@ -11114,7 +10942,7 @@ export function createAgentManager(deps: ManagerDeps) {
   function requeueSwappedSend(
     agentId: string,
     err: unknown,
-    msg: {
+    send: {
       text: string;
       sdkText?: string;
       native?: boolean;
@@ -11127,19 +10955,19 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!(err instanceof SwappedBeforeSendError)) return false;
     if (!agents.has(agentId)) return true;
     const result = enqueueMessage(agentId, {
-      sender: { kind: "user", username: msg.username, device: msg.device },
-      text: msg.text,
-      ...(msg.sdkText ? { sdkText: msg.sdkText } : {}),
-      ...(msg.native ? { native: true } : {}),
-      ...(msg.ask ? { ask: msg.ask } : {}),
-      attachments: msg.attachments,
+      sender: { kind: "user", username: send.username, device: send.device },
+      text: send.text,
+      ...(send.sdkText ? { sdkText: send.sdkText } : {}),
+      ...(send.native ? { native: true } : {}),
+      ...(send.ask ? { ask: send.ask } : {}),
+      attachments: send.attachments,
       resend: { echoed: err.reason !== "carry" },
     });
     if (!result.ok) {
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId, msg.username)("systemEntries.queueFailed", {
+        msg("systemEntries.queueFailed", {
           error: result.error,
         }),
       );
@@ -11273,9 +11101,9 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId)("systemEntries.resumeCwdUnavailable", {
+        msg("systemEntries.resumeCwdUnavailable", {
           stored: storedCwd,
-          error: errMessage(err),
+          error: errorText(err),
           previous: prevCwd,
         }),
       );
@@ -11487,7 +11315,7 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId)("systemEntries.resumedSession", {
+        msg("systemEntries.resumedSession", {
           label: restoredTopic || sessionId.slice(0, 8) + "...",
         }),
       );
@@ -11499,7 +11327,7 @@ export function createAgentManager(deps: ManagerDeps) {
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId)("systemEntries.sessionPreviousManager", {
+          msg("systemEntries.sessionPreviousManager", {
             name:
               getUserById(bornUnder)?.name ??
               getSessionManager(agentId, sessionId)?.name ??
@@ -11514,8 +11342,8 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         agentId,
         "error",
-        logWords(agentId)("systemEntries.resumeFailed", {
-          error: errMessage(err),
+        msg("systemEntries.resumeFailed", {
+          error: errorText(err),
         }),
       );
       updateState(agentId, "error");
@@ -11536,12 +11364,12 @@ export function createAgentManager(deps: ManagerDeps) {
     // Every exit that ends the edit without the edited message in the log
     // goes through here. The error entry keeps the edited text, so the member
     // can put it back in the composer from the chat (FAILED_EDIT_TEXT_KEY).
-    const failEdit = (content: string) =>
+    const failEdit = (content: LogText) =>
       addLogEntry(agentId, "error", content, {
         [FAILED_EDIT_TEXT_KEY]: newText,
       });
     if (managed.info.state !== "waiting_for_response") {
-      failEdit(logWords(agentId, username)("systemEntries.editBusy"));
+      failEdit(msg("systemEntries.editBusy"));
       return;
     }
     // Before any history read or fork: the edit could only fail at the
@@ -11577,7 +11405,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // error can return before the fork pipeline runs.
     const targetEntry = oldLogCache.find((e) => e.id === logEntryId);
     if (!targetEntry || targetEntry.kind !== "user_message") {
-      failEdit(logWords(agentId, username)("systemEntries.editNotFound"));
+      failEdit(msg("systemEntries.editNotFound"));
       return;
     }
 
@@ -11597,9 +11425,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // resuming a session / changing a model / answering a permission prompt.
       // Force the user to answer or cancel the pending flow first.
       if (inMultiStepFlow(managed)) {
-        failEdit(
-          logWords(agentId, username)("systemEntries.editPendingInteraction"),
-        );
+        failEdit(msg("systemEntries.editPendingInteraction"));
         return;
       }
       const targetPos = oldLogCache.findIndex((e) => e.id === logEntryId);
@@ -11607,7 +11433,7 @@ export function createAgentManager(deps: ManagerDeps) {
       const hasRealAfter = afterTarget.some((e) => !e.ephemeral);
       const hasUserAfter = afterTarget.some((e) => e.kind === "user_message");
       if (hasRealAfter || hasUserAfter) {
-        failEdit(logWords(agentId, username)("systemEntries.editNotSent"));
+        failEdit(msg("systemEntries.editNotSent"));
         return;
       }
       const trimmed = oldLogCache.slice(0, targetPos);
@@ -11625,7 +11451,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // can still fix a failed slash command in a session-less / first-message
     // state where sessionId is unset.
     if (!managed.sessionManager.sessionId) {
-      failEdit(logWords(agentId, username)("systemEntries.editNoSession"));
+      failEdit(msg("systemEntries.editNoSession"));
       return;
     }
 
@@ -11652,7 +11478,6 @@ export function createAgentManager(deps: ManagerDeps) {
         permissionMode: managed.info.permissionMode,
         interactive: true,
         env: editEnv,
-        words: logWords(agentId),
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
         environmentRevision: environmentSourceRevisionForUserId(
           managed.info.userId,
@@ -11713,7 +11538,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // chat can show entries from a session that isn't the current backend
         // session - e.g. ContextMenu "New conversation" doesn't clear logCache,
         // so the timeline continues across session boundaries.
-        let ownerHint = "";
+        let ownerHint: LogText = "";
         try {
           for (const s of listAgentSessions(agentId)) {
             if (s.sessionId === oldSessionId) continue;
@@ -11721,14 +11546,15 @@ export function createAgentManager(deps: ManagerDeps) {
               loadLog(agentId, s.sessionId).some((e) => e.id === logEntryId)
             ) {
               const label = s.topic ?? s.sessionId.slice(0, 8) + "...";
-              ownerHint = ` ${logWords(agentId, username)("systemEntries.editOtherSession", { label })}`;
+              ownerHint = [
+                " ",
+                msg("systemEntries.editOtherSession", { label }),
+              ];
               break;
             }
           }
         } catch {}
-        failEdit(
-          `${logWords(agentId, username)("systemEntries.editNotLocated")}${ownerHint}`,
-        );
+        failEdit(joinLogText([msg("systemEntries.editNotLocated"), ownerHint]));
         return;
       }
       // not_sent: the backend never recorded the target, so the branch keeps
@@ -11855,7 +11681,7 @@ export function createAgentManager(deps: ManagerDeps) {
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId, username)("systemEntries.branchedFrom", {
+        msg("systemEntries.branchedFrom", {
           label: oldTopic || oldSessionId.slice(0, 8) + "...",
         }),
       );
@@ -11979,14 +11805,13 @@ export function createAgentManager(deps: ManagerDeps) {
 
       if (err instanceof UsageCapError) {
         // The rollback above restored the pre-edit conversation.
-        failEdit(usageCapText(logTranslator(managed, username), err));
+        failEdit(usageCapText(err));
         updateState(agentId, "waiting_for_response");
         return;
       }
-      const branchFailed = logWords(agentId, username)(
-        "systemEntries.branchFailed",
-        { error: errMessage(err) },
-      );
+      const branchFailed = msg("systemEntries.branchFailed", {
+        error: errorText(err),
+      });
       if (err instanceof BackendNotConfiguredError) {
         // Rollback above already restored the pre-edit state; surface the
         // setup-required message calmly so the desk doesn't go red over a

@@ -1,13 +1,14 @@
 // The text a person reads when an agent's session cannot start, or when it
-// needs sign-in, is in that person's language (task beb6089b):
-//   - a bad cwd, per cause, in the owner's words;
+// needs sign-in, is stored in English and carries a message each reader
+// words in their own language (tasks beb6089b, c37a7365):
+//   - a bad cwd, per cause, with a Spanish owner;
 //   - a resume failure shows exactly one "/resume" hint, from the entry
 //     around it, whichever path wrote it;
-//   - the sign-in walkthrough is in the owner's words on the auth path and in
-//     the typist's words on /login, also when the backend cannot give one.
-// The FakeBackend renders its walkthrough through whatever words it gets, as
-// every real backend does (server/backends/auth-detect.test.ts); what these
-// tests check is the words the orchestrator passes and writes.
+//   - the sign-in walkthrough on the auth path and on /login, also when the
+//     backend cannot give one.
+// The FakeBackend returns its walkthrough as a message, as every real
+// backend does (server/backends/auth-detect.test.ts); what these tests check
+// is what the orchestrator writes.
 import { afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -15,7 +16,14 @@ import { join } from "path";
 
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
-import { translatorFor, type Translator } from "../../shared/i18n/translate.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+import {
+  localizeLogParts,
+  msg,
+  type LogText,
+} from "../../shared/i18n/log-message.ts";
+import type { LogEntry } from "../../shared/types.ts";
+import { expectWorded } from "./worded.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { createMember, deleteUserById, updateUserById } from "../users.ts";
@@ -104,11 +112,8 @@ const errors = (mgr: Manager, id: string) =>
     .filter((entry) => entry.kind === "error")
     .map((entry) => entry.content);
 
-const systemTexts = (mgr: Manager, id: string) =>
-  mgr
-    .getAgentLogs(id)
-    .filter((entry) => entry.kind === "system")
-    .map((entry) => entry.content);
+const systemEntries = (mgr: Manager, id: string): LogEntry[] =>
+  mgr.getAgentLogs(id).filter((entry) => entry.kind === "system");
 
 const resumeHints = (text: string) => text.split("/resume").length - 1;
 
@@ -151,7 +156,7 @@ describe("a bad cwd at session start", () => {
   async function startFailure(
     cause: Cause,
     owner?: { id: string; name: string },
-  ): Promise<{ entry: string; cwd: string }> {
+  ): Promise<{ entry: LogEntry; cwd: string }> {
     const fake = new FakeBackend();
     const mgr = manager(fake);
     const cwd = agentCwd();
@@ -160,32 +165,33 @@ describe("a bad cwd at session start", () => {
     void mgr.sendMessage(id, "hi", owner?.name).catch(() => {});
     await waitUntil(() => errors(mgr, id).length > 0, "start failure");
     expect(fake.createSessionCount + fake.resumeSessionCount).toBe(0);
-    return { entry: errors(mgr, id)[0], cwd };
+    const entry = mgr.getAgentLogs(id).find((e) => e.kind === "error")!;
+    return { entry, cwd };
   }
 
   for (const cause of ["missing", "not_directory", "inaccessible"] as const) {
-    it(`words the ${cause} cause in the owner's language`, async () => {
-      const spanish = await startFailure(cause, member("es"));
-      const english = await startFailure(cause);
-      const spanishCause = wrapped(
-        "es",
-        "systemEntries.sessionStartFailed",
-        spanish.entry,
-      );
+    it(`stores the ${cause} cause in English, worded for each reader`, async () => {
+      // The ENABLING CONDITION: the owner reads Spanish, the case the old
+      // writer worded in Spanish.
+      const { entry, cwd } = await startFailure(cause, member("es"));
       const englishCause = wrapped(
         "en",
         "systemEntries.sessionStartFailed",
-        english.entry,
+        entry.content,
       );
-      expect(spanishCause).not.toBeNull();
+      const spanishText = localizeLogParts(translatorFor("es"), entry.message);
+      expect(spanishText).not.toBeNull();
+      const spanishCause = wrapped(
+        "es",
+        "systemEntries.sessionStartFailed",
+        spanishText!,
+      );
       expect(englishCause).not.toBeNull();
-      // Each names its own path; with the paths taken out, the two sentences
-      // differ only when the cause is translated.
-      expect(spanishCause).toContain(spanish.cwd);
-      expect(englishCause).toContain(english.cwd);
-      expect(spanishCause!.replaceAll(spanish.cwd, "<cwd>")).not.toBe(
-        englishCause!.replaceAll(english.cwd, "<cwd>"),
-      );
+      expect(spanishCause).not.toBeNull();
+      // Each names the path; the cause inside the wrapper is worded too.
+      expect(englishCause).toContain(cwd);
+      expect(spanishCause).toContain(cwd);
+      expect(spanishCause).not.toBe(englishCause);
     });
   }
 });
@@ -253,15 +259,11 @@ describe("a resume failure", () => {
 });
 
 describe("the sign-in walkthrough", () => {
-  // Any key: the fake only has to render through the words it gets.
+  // Any key with a translation: the fake returns it as its walkthrough.
   const KEY = "systemEntries.resumeCancelled" as const;
-  const GENERIC = "systemEntries.loginInstructions.generic";
-  const words = (language: SupportedLanguageCode) =>
-    translatorFor(language).t as unknown as (key: string) => string;
+  const GENERIC = "systemEntries.loginInstructions.generic" as const;
 
-  function fakeWith(
-    getText: (words: Translator["t"] | undefined) => string,
-  ): FakeBackend {
+  function fakeWith(getText: () => LogText): FakeBackend {
     const fake = new FakeBackend({
       session: {
         onSend: (_t, _a, session) => {
@@ -270,61 +272,61 @@ describe("the sign-in walkthrough", () => {
         },
       },
     });
-    fake.getLoginInstructions = async (opts) => ({
+    fake.getLoginInstructions = async () => ({
       kind: "login",
       cardEligible: false,
-      text: getText(opts?.words),
+      text: getText(),
     });
     return fake;
   }
 
-  async function authFailure(fake: FakeBackend): Promise<string[]> {
+  async function authFailure(fake: FakeBackend): Promise<LogEntry[]> {
     const mgr = manager(fake);
     const owner = member("es");
     const id = await spawnAgent(mgr, "Sign-in", tempDir(), owner);
-    const before = systemTexts(mgr, id).length;
+    const before = systemEntries(mgr, id).length;
     mgr.enqueueMessage(id, {
       sender: { kind: "user", username: owner.name },
       text: "hi",
     });
     await waitUntil(
-      () => systemTexts(mgr, id).length > before,
+      () => systemEntries(mgr, id).length > before,
       "walkthrough written",
     );
     // Nothing else follows it: give a second entry time to land.
     await sleep(50);
-    return systemTexts(mgr, id).slice(before);
+    return systemEntries(mgr, id).slice(before);
   }
 
-  it("is in the owner's language on the auth path", async () => {
-    expect(words("es")(KEY)).not.toBe(words("en")(KEY));
-    const texts = await authFailure(
-      fakeWith((given) => (given ?? translatorFor("en").t)(KEY)),
-    );
-    expect(texts).toEqual([words("es")(KEY)]);
+  it("is stored in English and worded for each reader on the auth path", async () => {
+    const entries = await authFailure(fakeWith(() => msg(KEY)));
+    expect(entries).toHaveLength(1);
+    expectWorded(entries[0], KEY);
   });
 
-  it("falls back to the generic walkthrough in the owner's language", async () => {
+  it("falls back to the generic walkthrough, worded for each reader", async () => {
     const fake = fakeWith(() => {
       throw new Error("sign-in state unknown");
     });
-    const texts = await authFailure(fake);
-    expect(texts).toEqual([words("es")(GENERIC)]);
-    expect(words("es")(GENERIC)).not.toBe(words("en")(GENERIC));
+    const entries = await authFailure(fake);
+    expect(entries).toHaveLength(1);
+    expectWorded(entries[0], GENERIC);
   });
 
-  it("is in the typist's language on /login", async () => {
-    const fake = fakeWith((given) => (given ?? translatorFor("en").t)(KEY));
+  it("is stored in English and worded for each reader on /login", async () => {
+    const fake = fakeWith(() => msg(KEY));
     const mgr = manager(fake);
     const owner = member("es");
     const typist = member("ca");
     const id = await spawnAgent(mgr, "Login typist", tempDir(), owner);
-    const before = systemTexts(mgr, id).length;
+    const before = systemEntries(mgr, id).length;
     void mgr.sendMessage(id, "/login", typist.name).catch(() => {});
     await waitUntil(
-      () => systemTexts(mgr, id).length > before,
+      () => systemEntries(mgr, id).length > before,
       "walkthrough written",
     );
-    expect(systemTexts(mgr, id).slice(before)).toEqual([words("ca")(KEY)]);
+    const entries = systemEntries(mgr, id).slice(before);
+    expect(entries).toHaveLength(1);
+    expectWorded(entries[0], KEY);
   });
 });

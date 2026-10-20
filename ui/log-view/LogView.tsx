@@ -87,6 +87,7 @@ import { useI18n } from "../i18n.tsx";
 import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
+import { choiceCardText } from "../../shared/i18n/log-message.ts";
 import { noTranslate } from "../no-translate.ts";
 import {
   COMPOSER_MOBILE_FONT_SIZE,
@@ -467,6 +468,7 @@ export function ChoiceInteractionCard({
   const i18n = useI18n();
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const text = choiceCardText(i18n, interaction);
 
   async function choose(value: string) {
     if (submitting) return;
@@ -486,7 +488,7 @@ export function ChoiceInteractionCard({
 
   return (
     <section
-      aria-label={interaction.title}
+      aria-label={text.title}
       style={{
         margin: "12px 0 16px",
         padding: 16,
@@ -504,7 +506,7 @@ export function ChoiceInteractionCard({
           marginBottom: 10,
         }}
       >
-        {interaction.title}
+        {text.title}
       </div>
       <div style={{ display: "grid", gap: 8 }}>
         {interaction.choices.map((choice, index) => (
@@ -537,9 +539,9 @@ export function ChoiceInteractionCard({
           >
             <span>
               <span style={{ display: "block", fontWeight: 600 }}>
-                {index + 1}. {choice.label}
+                {index + 1}. {text.choices[index]?.label}
               </span>
-              {choice.description && (
+              {text.choices[index]?.description && (
                 <span
                   style={{
                     display: "block",
@@ -548,7 +550,7 @@ export function ChoiceInteractionCard({
                     marginTop: 2,
                   }}
                 >
-                  {choice.description}
+                  {text.choices[index]?.description}
                 </span>
               )}
             </span>
@@ -573,7 +575,7 @@ export function ChoiceInteractionCard({
           marginTop: 10,
         }}
       >
-        {interaction.instruction}
+        {text.instruction}
       </div>
       {error && (
         <div

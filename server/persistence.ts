@@ -1,4 +1,7 @@
-import { redactLogEntry } from "./log-redaction.ts";
+import { redactLogEntry, redactSecretText } from "./log-redaction.ts";
+import { renderLogText, type LogPart } from "../shared/i18n/log-message.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
+import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
 import type { RoomDecor } from "../shared/room-decor.ts";
@@ -86,11 +89,24 @@ export function atomicWriteFileSync(
 const preparedLogEntries = new WeakSet<LogEntry>();
 
 // Failure must not drop the entry or print the failed payload/exception.
+// A redacted message is kept only when no language's render of it shows a
+// secret shape (task c37a7365): a translated template can put a label
+// ("secret:") next to a value where English has none, and the UI would show
+// that render. The English content was redacted as a whole, so it stays.
+function messageCleanInEveryLanguage(message: LogPart[]): boolean {
+  return SUPPORTED_LANGUAGES.every(({ code }) => {
+    const text = renderLogText(translatorFor(code), message);
+    return redactSecretText(text) === text;
+  });
+}
+
 export function prepareLogEntry(entry: LogEntry): LogEntry {
   if (preparedLogEntries.has(entry)) return entry;
   try {
     const scanned = redactLogEntry(entry);
     const out = scanned === entry ? { ...entry } : scanned;
+    if (out.message && !messageCleanInEveryLanguage(out.message))
+      delete out.message;
     preparedLogEntries.add(out);
     return out;
   } catch {
@@ -120,8 +136,8 @@ export function appendLogOrThrow(
   sessionId: string,
   entry: LogEntry,
 ) {
-  // Ephemeral entries (e.g. UI-only "Conversation cleared." markers) must
-  // never reach disk - guarded here as defense-in-depth so future callers
+  // Ephemeral entries (UI-only lines such as a permission prompt's fallback)
+  // must never reach disk - guarded here as defense-in-depth so future callers
   // can't accidentally persist one by going through appendLog directly.
   if (entry.ephemeral) return;
   entry = prepareLogEntry(entry);

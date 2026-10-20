@@ -20,24 +20,27 @@
 // and session-file problems.
 //
 // The DECISIONS here are made on the raw backend text and are the same in every
-// language; only the sentence this module selects is worded for the reader
-// (internal-docs/i18n-loop.md, S7, ruled into the slice by the PM). The raw
+// language; the sentence this module selects is a message each reader words
+// (task c37a7365). The raw
 // string is handed back byte-identical, and an unrecognized failure is still
 // passed through exactly as it arrived - that text is the backend's, not ours
 // (ruling 11).
 //
 // `id` is the language-INDEPENDENT identity of a failure. It exists because the
 // orchestrator de-duplicates a death that two writers both saw, and it used to
-// do that by comparing the rendered sentences. Two writers can now resolve to
-// two languages, so comparing text would silently stop suppressing the
-// duplicate; they compare this instead.
+// do that by comparing the rendered sentences, which broke once two writers
+// could word one death in two languages; they compare this instead.
 //
 // It carries the SELECTED KEY AND the parameters that make two failures read
 // differently, not just the branch that was taken: signal 130 and signal 131
 // produce different explanations and are different deaths, so a bare "signal"
 // would have widened the suppression the sentence comparison used to draw.
 
-import type { Translator } from "../shared/i18n/translate.ts";
+import {
+  msg,
+  type LogMessage,
+  type LogText,
+} from "../shared/i18n/log-message.ts";
 import { serverStopping } from "./server-stop.ts";
 
 // A process killed by signal N exits with code 128+N (POSIX shell convention,
@@ -73,13 +76,14 @@ export type BackendFailureId =
  * ended mid-turn. Exported so the orchestrator's own stream-ended path words
  * itself identically rather than becoming a fourth inconsistent death surface.
  */
-export function backendStoppedDuringTurn(t: Translator["t"]): string {
-  return t("systemEntries.backendFailure.stoppedDuringTurn");
+export function backendStoppedDuringTurn(): LogMessage {
+  return msg("systemEntries.backendFailure.stoppedDuringTurn");
 }
 
 export interface BackendFailureText {
-  // What the user reads in chat, in the reader's language.
-  text: string;
+  // What the user reads in chat: a message each reader words, or the raw
+  // string itself when it passes through.
+  text: LogText;
   // The original string, present only when `text` differs from it. Callers put
   // this in the log entry's metadata so the diagnostic survives on disk. Always
   // the backend's own bytes.
@@ -101,10 +105,7 @@ const EXIT_CODE_RE = /exited with code (\d+)/i;
 // this fires, so the sentence has to say it is not the subscription.
 const PROVIDER_CAPACITY_RE = /\bat capacity\b/i;
 
-export function humanizeBackendFailure(
-  t: Translator["t"],
-  raw: string,
-): BackendFailureText {
+export function humanizeBackendFailure(raw: string): BackendFailureText {
   const exitMatch = EXIT_CODE_RE.exec(raw);
   if (exitMatch) {
     const code = Number(exitMatch[1]);
@@ -114,28 +115,32 @@ export function humanizeBackendFailure(
     // run (server-stop.ts). Name the stop, not out-of-memory protection.
     if (signalExit && serverStopping()) {
       return {
-        text: t("systemEntries.backendFailure.serverStopped", { code }),
+        text: msg("systemEntries.backendFailure.serverStopped", { code }),
         raw,
         id: `server-stopped:${code}`,
       };
     }
     if (code === SIGTERM_EXIT) {
       return {
-        text: t("systemEntries.backendFailure.sigterm", { code: SIGTERM_EXIT }),
+        text: msg("systemEntries.backendFailure.sigterm", {
+          code: SIGTERM_EXIT,
+        }),
         raw,
         id: `sigterm:${SIGTERM_EXIT}`,
       };
     }
     if (code === SIGKILL_EXIT) {
       return {
-        text: t("systemEntries.backendFailure.sigkill", { code: SIGKILL_EXIT }),
+        text: msg("systemEntries.backendFailure.sigkill", {
+          code: SIGKILL_EXIT,
+        }),
         raw,
         id: `sigkill:${SIGKILL_EXIT}`,
       };
     }
     if (signalExit) {
       return {
-        text: t("systemEntries.backendFailure.signal", {
+        text: msg("systemEntries.backendFailure.signal", {
           signal: code - 128,
           code,
         }),
@@ -156,7 +161,7 @@ export function humanizeBackendFailure(
   // user, so the whole line is replaced rather than appended to.
   if (raw.includes("error_during_execution")) {
     return {
-      text: backendStoppedDuringTurn(t),
+      text: backendStoppedDuringTurn(),
       raw,
       id: "stopped-during-turn",
     };
@@ -164,7 +169,7 @@ export function humanizeBackendFailure(
 
   if (PROVIDER_CAPACITY_RE.test(raw)) {
     return {
-      text: t("systemEntries.backendFailure.providerCapacity"),
+      text: msg("systemEntries.backendFailure.providerCapacity"),
       raw,
       id: "provider-capacity",
     };

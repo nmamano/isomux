@@ -1,4 +1,4 @@
-import { translatorFor, type Translator } from "../../shared/i18n/translate.ts";
+import { msg, type LogMessage } from "../../shared/i18n/log-message.ts";
 import { redactLogEntry } from "../log-redaction.ts";
 
 // Provider text that reaches the chat, from any backend (tasks 1a963907 and
@@ -54,10 +54,6 @@ export function inertMarkdown(text: string): string {
 
 // The member line for a request the provider refused, naming the provider as
 // the source. `message` is already providerText output.
-export function providerRefusal(
-  provider: string,
-  message: string,
-  words: Translator["t"] = translatorFor("en").t,
-): string {
-  return words("systemEntries.providerRefused", { provider, message });
+export function providerRefusal(provider: string, message: string): LogMessage {
+  return msg("systemEntries.providerRefused", { provider, message });
 }

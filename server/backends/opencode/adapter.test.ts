@@ -946,68 +946,6 @@ describe("OpenCode pinned transport", () => {
     expect(listed).toBe(refusal);
   });
 
-  // Task d4a7031e: the turn's previous-settings line is in the member's
-  // language, so the adapter hands the transport the session's translator.
-  it("writes a turn's previous-settings line through the session's translator", async () => {
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname === "/session" && request.method === "POST")
-          return Response.json({ id: "session-words" });
-        if (url.pathname === "/event")
-          return new Response(
-            new ReadableStream({
-              start(controller) {
-                controller.enqueue(new TextEncoder().encode(": connected\n\n"));
-              },
-            }),
-            { headers: { "content-type": "text/event-stream" } },
-          );
-        if (url.pathname === "/provider")
-          return Response.json({ connected: [], all: [] });
-        if (url.pathname === "/experimental/tool/ids")
-          return Response.json([OPENCODE_SAFETY_TOOL]);
-        if (url.pathname.endsWith("/prompt_async")) return Response.json(true);
-        return new Response("not found", { status: 404 });
-      },
-    });
-    cleanup.push(() => server.stop(true));
-    const lease = {
-      pid: 1,
-      baseUrl: `http://127.0.0.1:${server.port}`,
-      authHeader: "Basic test",
-      replacementPending: true,
-      settle: () => {},
-      beginTurn: async () => {},
-      endTurn: () => {},
-      serverStopped: () => false,
-      markUnresponsive: () => {},
-      release: () => {},
-    };
-    const supervisor = {
-      acquire: async () => lease,
-    } as unknown as OpenCodeSupervisor;
-    const backend = createOpenCodeBackend({ supervisor });
-    const session = backend.createSession({
-      ...opts,
-      modelFamily: "alpha/model-one",
-      words: ((key: string) => `[${key}]`) as never,
-    });
-    try {
-      await session.send("go");
-      const texts: string[] = [];
-      for await (const event of session.stream()) {
-        if (event.kind === "system_text") texts.push(event.text);
-        if (texts.length > 0) break;
-      }
-      expect(texts).toEqual(["[systemEntries.openCodePreviousSettings]"]);
-    } finally {
-      session.close();
-    }
-  }, 10_000);
-
   it("keeps each session model and permission profile in the prompt wire body", async () => {
     let nextSession = 0;
     const promptModels: unknown[] = [];

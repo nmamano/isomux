@@ -1,4 +1,4 @@
-import { translatorFor, type Translator } from "../shared/i18n/translate.ts";
+import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 import { resolve, join } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
@@ -436,11 +436,11 @@ export function diagnoseProcessExit(
   cwd: string,
   sessionId: string | null,
   env?: { [key: string]: string | undefined },
-  t: Translator["t"] = translatorFor("en").t,
-): string | null {
-  if (cwdProblem(cwd)) return t("systemEntries.claudeExit.cwdMissing", { cwd });
+): LogMessage | null {
+  if (cwdProblem(cwd))
+    return msg("systemEntries.claudeExit.cwdMissing", { cwd });
   if (sessionId && !claudeSessionFileExists(cwd, sessionId, env)) {
-    return t("systemEntries.claudeSession.missingAfterExit", {
+    return msg("systemEntries.claudeSession.missingAfterExit", {
       session: sessionId.slice(0, 8),
       paths: join(claudeProjectDir(cwd, env), `${sessionId}.jsonl`),
     });

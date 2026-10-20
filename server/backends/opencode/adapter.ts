@@ -24,9 +24,11 @@ import type {
   SubscriptionUsageResult,
 } from "../types.ts";
 import {
-  translatorFor,
-  type Translator,
-} from "../../../shared/i18n/translate.ts";
+  msg,
+  renderLogText,
+  type LogMessage,
+} from "../../../shared/i18n/log-message.ts";
+import { translatorFor } from "../../../shared/i18n/translate.ts";
 import { OPENCODE_TRACER_MODEL } from "../../../shared/types.ts";
 import {
   detectOpenCodeAuthError,
@@ -59,10 +61,8 @@ import {
   resolveAttachmentNotices,
 } from "../../attachment-prompt.ts";
 
-function authGuidance(words: Translator["t"] | undefined): string {
-  return (words ?? translatorFor("en").t)(
-    "systemEntries.loginInstructions.openCode",
-  );
+function authGuidance(): LogMessage {
+  return msg("systemEntries.loginInstructions.openCode");
 }
 
 // Where OpenCode compacts a session on its own, on its default path:
@@ -177,7 +177,6 @@ class OpenCodeServerSession implements BackendSession {
       contractShapeSink,
       safeErrorSink,
       streamSilenceSink: logOpenCodeStreamSilence,
-      words: opts.words,
       completedStepSink: (breakdown) => {
         this.latestContextBreakdown = breakdown;
       },
@@ -438,13 +437,13 @@ export function createOpenCodeBackend(
     inspectStoredSession(sessionId, opts): StoredSessionState {
       return inspectOpenCodeStoredSession(sessionId, opts.environmentKey);
     },
-    checkSessionResumable(sessionId, opts): string | null {
+    checkSessionResumable(sessionId, opts): LogMessage | null {
       const state = inspectOpenCodeStoredSession(
         sessionId,
         opts.environmentKey,
       );
       if (state === "durable") return null;
-      return (opts.words ?? translatorFor("en").t)(
+      return msg(
         state === "empty"
           ? "systemEntries.openCodeSession.empty"
           : "systemEntries.openCodeSession.missing",
@@ -542,7 +541,9 @@ export function createOpenCodeBackend(
             if (event.kind === "turn_completed") {
               if (event.status !== "completed") {
                 throw new Error(
-                  event.error ?? "OpenCode one-shot prompt failed.",
+                  event.error === undefined
+                    ? "OpenCode one-shot prompt failed."
+                    : renderLogText(translatorFor("en"), event.error),
                 );
               }
               return text;
@@ -574,11 +575,11 @@ export function createOpenCodeBackend(
     detectAuthError(text: string): boolean {
       return detectOpenCodeAuthError(text);
     },
-    async getLoginInstructions(opts) {
+    async getLoginInstructions() {
       return {
         kind: "login",
         cardEligible: false,
-        text: authGuidance(opts?.words),
+        text: authGuidance(),
       };
     },
   };

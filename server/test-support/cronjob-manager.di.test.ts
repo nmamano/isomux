@@ -32,13 +32,20 @@ import {
   _testResetTokens,
 } from "../identity/tokens.ts";
 import { STATE_ROOT } from "../config.ts";
-import { createMember, deleteUserById, updateUserById } from "../users.ts";
+import {
+  createMember,
+  deleteUserById,
+  getUserById,
+  updateUserById,
+} from "../users.ts";
 import { tmpdir } from "os";
 import {
   CATALOGS,
   translatorFor,
-  type MessageKey,
+  type PlainMessageKey,
 } from "../../shared/i18n/translate.ts";
+import { localizeLogParts } from "../../shared/i18n/log-message.ts";
+import { expectWorded } from "./worded.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
   setMemberUsageCapForTests,
@@ -49,6 +56,7 @@ import {
   MODEL_FAMILIES,
   cronjobRunStreamId,
   type AgentBackendType,
+  type LogEntry,
 } from "../../shared/types.ts";
 import {
   createCronjobManager,
@@ -1994,10 +2002,11 @@ describe("CronjobManager: a slot due across a restart", () => {
   });
 });
 
-// What a schedule run writes for a person is in that person's language
-// (task beb6089b): the typist's on a follow-up or an edit, else the
-// schedule owner's. The API answer stays English (ruling 2).
-describe("CronjobManager run text in the reader's language", () => {
+// What a schedule run writes for a person is stored in English and carries a
+// message each reader words in their own language (task c37a7365; before it,
+// the typist's or the schedule owner's language, task beb6089b). The API
+// answer stays English (ruling 2).
+describe("CronjobManager run text in each reader's language", () => {
   const cleanups: (() => void)[] = [];
   afterEach(() => {
     for (const cleanup of cleanups.splice(0).reverse()) cleanup();
@@ -2023,6 +2032,24 @@ describe("CronjobManager run text in the reader's language", () => {
     throw new Error(`waitFor timed out: ${label}`);
   };
 
+  // Two typists, one line: the same English text and message, which a
+  // Spanish reader reads in Spanish.
+  function expectSameWordedLine(
+    first: LogEntry | undefined,
+    second: LogEntry | undefined,
+    path: string,
+  ) {
+    expect(first).toBeDefined();
+    const { content, message } = first!;
+    expect(content).toContain(path);
+    expect(second?.content).toBe(content);
+    expect(second?.message).toEqual(message);
+    expect(localizeLogParts(translatorFor("en"), message)).toBe(content);
+    const spanish = localizeLogParts(translatorFor("es"), message);
+    expect(spanish).toContain(path);
+    expect(spanish).not.toBe(content);
+  }
+
   // A completed run in its own cwd, ready for a follow-up or an edit.
   async function completedRun(over: Partial<AddCronjobInput> = {}) {
     const root = mkdtempSync(join(tmpdir(), "isomux-cron-i18n-"));
@@ -2045,7 +2072,7 @@ describe("CronjobManager run text in the reader's language", () => {
     const errors = () =>
       events.flatMap((event) =>
         event.type === "log_entry" && event.entry.kind === "error"
-          ? [event.entry.content]
+          ? [event.entry]
           : [],
       );
     const leaf = () => {
@@ -2055,7 +2082,7 @@ describe("CronjobManager run text in the reader's language", () => {
     return { fake, mgr, job, run, cwd, errors, events, leaf };
   }
 
-  it("writes the sign-in hint in the schedule owner's language", async () => {
+  it("stores the sign-in hint in English, worded for each reader", async () => {
     const KEY = "systemEntries.scheduleRun.signIn" as const;
     const owner = member("es");
     const fake = new FakeBackend({
@@ -2085,17 +2112,81 @@ describe("CronjobManager run text in the reader's language", () => {
       const last = events
         .flatMap((event) => (event.type === "log_entry" ? [event.entry] : []))
         .at(-1);
-      const params = { provider: "Claude" };
-      expect(translatorFor("es").t(KEY, params)).not.toBe(
-        translatorFor("en").t(KEY, params),
-      );
-      expect(last?.content).toBe(translatorFor("es").t(KEY, params));
+      // The ENABLING CONDITION: the owner reads Spanish, so an owner-worded
+      // hint would put Spanish in the stored text.
+      expect(getUserById(owner.id)?.language).toBe("es");
+      expectWorded(last, KEY, { provider: "Claude" });
     } finally {
       fake.sessions.forEach((session) => session.close());
     }
   });
 
-  it("words a follow-up's missing cwd for the typist, and answers the API in English", async () => {
+  // The run's own lines that agent-manager also writes - a denied tool call,
+  // a compaction, a stream failure - are the same messages, not English
+  // literals every reader sees.
+  it("stores a denied tool call, a compaction and a stream error as messages", async () => {
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_t, _a, s) => {
+          s.pushAll([
+            {
+              kind: "permission_denied",
+              toolUseId: "tool-1",
+              toolName: "Bash",
+              message: "not allowed here",
+            },
+            { kind: "compacted", summary: "kept the plan" },
+          ]);
+          s.failStream(new Error("ECONNRESET"));
+        },
+      },
+    });
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, eventSink: sink }),
+    );
+    const job = mgr.addCronjob(intervalInput("I18nRunLines"));
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    try {
+      await waitFor(
+        () => mgr.findRun(job.id, run.id)?.status === "failed",
+        "run failed",
+      );
+      const entries = events.flatMap((event) =>
+        event.type === "log_entry" ? [event.entry] : [],
+      );
+      const english = translatorFor("en").t;
+      const find = (text: string) => entries.find((e) => e.content === text);
+      const denied = english("systemEntries.toolCallDeniedWithReason", {
+        tool: "Bash",
+        reason: "not allowed here",
+      });
+      const compacted = english("systemEntries.contextCompacted", {
+        summary: "kept the plan",
+      });
+      const streamError = english("systemEntries.streamError", {
+        error: "ECONNRESET",
+      });
+      // The ENABLING CONDITION: the run wrote all three lines, in English.
+      expect(entries.map((e) => e.content)).toEqual(
+        expect.arrayContaining([denied, compacted, streamError]),
+      );
+      expectWorded(find(denied), "systemEntries.toolCallDeniedWithReason", {
+        tool: "Bash",
+        reason: "not allowed here",
+      });
+      expectWorded(find(compacted), "systemEntries.contextCompacted", {
+        summary: "kept the plan",
+      });
+      expectWorded(find(streamError), "systemEntries.streamError", {
+        error: "ECONNRESET",
+      });
+    } finally {
+      fake.sessions.forEach((session) => session.close());
+    }
+  });
+
+  it("stores a follow-up's missing cwd once for every typist, and answers the API in English", async () => {
     const { mgr, job, run, cwd, errors } = await completedRun();
     rmSync(cwd, { recursive: true });
     const english = await mgr.sendRunMessage(
@@ -2114,15 +2205,13 @@ describe("CronjobManager run text in the reader's language", () => {
     expect(spanish.ok).toBe(false);
     if (english.ok || spanish.ok) return;
     const [englishEntry, spanishEntry] = errors();
-    expect(englishEntry).toContain(cwd);
-    expect(spanishEntry).toContain(cwd);
-    expect(spanishEntry).not.toBe(englishEntry);
+    expectSameWordedLine(englishEntry, spanishEntry, cwd);
     // The API answer is the English entry, whoever typed.
-    expect(english.message).toBe(englishEntry);
-    expect(spanish.message).toBe(englishEntry);
+    expect(english.message).toBe(englishEntry.content);
+    expect(spanish.message).toBe(englishEntry.content);
   });
 
-  it("words an edit's missing cwd for the typist", async () => {
+  it("stores an edit's missing cwd once for every typist", async () => {
     const { mgr, job, run, cwd, errors } = await completedRun();
     rmSync(cwd, { recursive: true });
     await mgr.editRunMessage(
@@ -2140,9 +2229,7 @@ describe("CronjobManager run text in the reader's language", () => {
       member("es").name,
     );
     const [englishEntry, spanishEntry] = errors();
-    expect(englishEntry).toContain(cwd);
-    expect(spanishEntry).toContain(cwd);
-    expect(spanishEntry).not.toBe(englishEntry);
+    expectSameWordedLine(englishEntry, spanishEntry, cwd);
   });
 
   // The backend's sentence states the whole problem; a prefix in front of it
@@ -2154,10 +2241,10 @@ describe("CronjobManager run text in the reader's language", () => {
     const typist = member(null).name;
     await mgr.sendRunMessage(job.id, run.id, "again", typist);
     await mgr.editRunMessage(job.id, run.id, "any-entry", "x", typist);
-    expect(errors()).toEqual([PROBLEM, PROBLEM]);
+    expect(errors().map((e) => e.content)).toEqual([PROBLEM, PROBLEM]);
   });
 
-  it("tells the schedule owner in their language that the deletion stopped the run", async () => {
+  it("stores the deletion notice in English, worded for each reader, whoever owns the schedule", async () => {
     // A live run per owner; the English owner's line names the catalog key.
     const fake = new FakeBackend();
     const { events, sink } = capture();
@@ -2178,7 +2265,7 @@ describe("CronjobManager run text in the reader's language", () => {
     const lines = (jobId: string) =>
       events.flatMap((e) =>
         e.type === "log_entry" && e.jobId === jobId && e.entry.kind === "error"
-          ? [e.entry.content]
+          ? [e.entry]
           : [],
       );
     try {
@@ -2190,12 +2277,14 @@ describe("CronjobManager run text in the reader's language", () => {
       mgr.deleteCronjob(esJob.id);
 
       const [enLine] = lines(enJob.id);
-      const key = (Object.keys(CATALOGS.en) as MessageKey[]).find(
-        (k) => CATALOGS.en[k] === enLine,
+      const key = (Object.keys(CATALOGS.en) as PlainMessageKey[]).find(
+        (k) => CATALOGS.en[k] === enLine?.content,
       );
       expect(key).toBeDefined();
-      expect(CATALOGS.es[key!]).not.toBe(CATALOGS.en[key!]);
-      expect(lines(esJob.id)).toEqual([CATALOGS.es[key!]]);
+      const esLines = lines(esJob.id);
+      expect(esLines).toHaveLength(1);
+      expectWorded(esLines[0], key!);
+      expect(esLines[0].message).toEqual(enLine?.message);
     } finally {
       fake.sessions.forEach((session) => session.close());
     }

@@ -17,6 +17,8 @@ import {
   setTestManagedOfficeEnv,
 } from "./test-support/managed-office-env.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
+import { renderLogText } from "../shared/i18n/log-message.ts";
+import { LocalizedError } from "./localized-error.ts";
 
 afterEach(clearTestManagedOfficeEnv);
 function fixture() {
@@ -83,20 +85,26 @@ it("keeps legacy metadata compatible, stamps the launch root once, and keeps it 
 it("missing legacy files name all checked paths without checking another user's home", () => {
   const f = fixture();
   f.write(personalProviderHome("other-owner", "claude"));
+  // The error carries its message for the log (task c37a7365); each
+  // language's render names the paths.
+  let thrown: unknown;
+  try {
+    resolveClaudeSessionRoot(
+      f.session,
+      f.cwd,
+      { CLAUDE_CONFIG_DIR: f.current },
+      undefined,
+      f.user,
+    );
+  } catch (caught) {
+    thrown = caught;
+  }
+  expect(thrown).toBeInstanceOf(LocalizedError);
   for (const language of ["en", "es", "ca"] as const) {
-    let error = "";
-    try {
-      resolveClaudeSessionRoot(
-        f.session,
-        f.cwd,
-        { CLAUDE_CONFIG_DIR: f.current },
-        undefined,
-        f.user,
-        translatorFor(language).t,
-      );
-    } catch (caught) {
-      error = (caught as Error).message;
-    }
+    const error = renderLogText(
+      translatorFor(language),
+      (thrown as LocalizedError).logMessage,
+    );
     for (const root of [
       f.current,
       f.office,
@@ -113,10 +121,10 @@ it("missing legacy files name all checked paths without checking another user's 
     expect(error).not.toContain("moved");
     expect(error).not.toContain("renamed");
   }
-  expect(
-    diagnoseProcessExit(f.cwd, f.session, { CLAUDE_CONFIG_DIR: f.current }),
-  ).toContain(f.current);
-  expect(
-    diagnoseProcessExit(f.cwd, f.session, { CLAUDE_CONFIG_DIR: f.current }),
-  ).not.toContain("moved");
+  const exitHint = renderLogText(
+    translatorFor("en"),
+    diagnoseProcessExit(f.cwd, f.session, { CLAUDE_CONFIG_DIR: f.current })!,
+  );
+  expect(exitHint).toContain(f.current);
+  expect(exitHint).not.toContain("moved");
 });

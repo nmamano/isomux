@@ -7,6 +7,7 @@ import type {
   OfficeSettings,
   QueuedMessage,
   RoomWire,
+  SessionInfo,
 } from "../shared/types.ts";
 import { ENGINE_NAMES } from "../shared/types.ts";
 import { sessionResumeLabel } from "../shared/session-label.ts";
@@ -14,15 +15,22 @@ import { isBackSeat } from "../shared/desks.ts";
 import { translatorForUsername } from "./i18n.ts";
 import { getUserByName } from "./users.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
+import {
+  joinLogText,
+  msg,
+  type ChoiceInput,
+  type LogMessage,
+  type LogPart,
+  type LogText,
+} from "../shared/i18n/log-message.ts";
 import { COMMAND_DESCRIPTION_KEYS } from "../shared/i18n/command-keys.ts";
 import { keyFrom } from "../shared/i18n/translate.ts";
 import { formatDecimal, formatNumber } from "../shared/i18n/number.ts";
-import { formatDateTime } from "../shared/i18n/time.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import {
   effortLevelsFor,
   familyDisplayLabel,
-  effortDisplayLabel,
+  effortLabelParam,
   knownModelFamiliesFor,
 } from "../shared/types.ts";
 import { formatPrefix } from "../shared/identity.ts";
@@ -74,14 +82,28 @@ type HandlerFn = (
 ) => Promise<boolean>;
 
 // The leading newline is layout, so it stays in code; only the sentence is
-// translated (internal-docs/i18n-loop.md, S7).
-function choiceInstruction(
-  t: Translator["t"],
-  kind: AgentChoiceInteractionKind,
-): string {
-  if (kind === "resume") return `\n${t("choices.resume.instruction")}`;
-  if (kind === "cronjob") return `\n${t("choices.cronjob.instruction")}`;
-  return `\n${t("choices.model.instruction")}`;
+// a message.
+function choiceInstruction(kind: AgentChoiceInteractionKind): LogPart[] {
+  if (kind === "resume") return ["\n", msg("choices.resume.instruction")];
+  if (kind === "cronjob") return ["\n", msg("choices.cronjob.instruction")];
+  return ["\n", msg("choices.model.instruction")];
+}
+
+// One numbered row of a picker's typed-reply fallback.
+function choiceLine(choice: ChoiceInput, index: number): LogPart[] {
+  return joinLogText([
+    `  ${index + 1}. `,
+    choice.label,
+    choice.current ? [" ", msg("common.current")] : "",
+  ]);
+}
+
+// A session's label in a /resume list: its topic or first message, else the
+// catalog's word for a conversation with neither.
+function resumeLabel(
+  session: Pick<SessionInfo, "topic" | "firstUserMessage">,
+): LogText {
+  return sessionResumeLabel(session, "") || msg("common.untitledConversation");
 }
 
 function buildMeta(
@@ -167,7 +189,7 @@ interface HandlerDeps {
   addLogEntry: (
     agentId: string,
     kind: LogEntry["kind"],
-    content: string,
+    content: LogText,
     metadata?: Record<string, unknown>,
     attachments?: Attachment[],
     extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
@@ -175,7 +197,7 @@ interface HandlerDeps {
   emitEphemeralLog: (
     agentId: string,
     kind: LogEntry["kind"],
-    content: string,
+    content: LogText,
     metadata?: Record<string, unknown>,
     extra?: Partial<Pick<LogEntry, "diff" | "file">>,
   ) => void;
@@ -185,14 +207,9 @@ interface HandlerDeps {
   openChoiceInteraction: (
     agentId: string,
     kind: AgentChoiceInteractionKind,
-    title: string,
-    instruction: string,
-    choices: {
-      value: string;
-      label: string;
-      description?: string;
-      current?: boolean;
-    }[],
+    title: LogText,
+    instruction: LogText,
+    choices: readonly ChoiceInput[],
   ) => void;
 
   // Login-instructions helper. Wraps agentLoginInstructions + per-backend
@@ -246,7 +263,7 @@ interface HandlerDeps {
     opts: {
       username?: string;
       label: string;
-      frame: (raw: string) => string;
+      frame: (error: LogMessage | string) => LogText;
     },
   ) => void;
   // The office's disk-usage measurement, FULL (per-agent detail included) -
@@ -516,7 +533,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async resume(agentId, managed, _args, rawText, username, device) {
-      const { t, language } = translatorForUsername(username);
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       const sessions = listAgentSessions(agentId);
@@ -525,31 +542,38 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const lines: string[] = [`${t("commands.resume.header")}\n`];
+      const lines: LogText[] = [[msg("commands.resume.header"), "\n"]];
       const pickable: typeof sessions = [];
       for (const s of sessions.slice(0, 20)) {
-        const dateStr = formatDateTime(
-          language,
-          s.lastModified,
-          "monthDayTime",
-        );
-        const rawLabel = sessionResumeLabel(
-          s,
-          t("common.untitledConversation"),
-        );
-        const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
-        const suffix = s.branched ? `  ${t("commands.resume.branched")}` : "";
+        const date = msg("common.date", {
+          date: { time: s.lastModified, shape: "monthDayTime" },
+        });
+        const label = joinLogText([s.forked ? "↳ " : "", resumeLabel(s)]);
         // cwd is a property of the session - surface it so the user sees which
         // directory each session will resume into (it can differ per session).
         // Abbreviate the home prefix to `~` to save horizontal space.
         const cwdStr = s.cwd ? `  ${tildifyCwd(s.cwd)}` : "";
         if (s.sessionId === managed.sessionManager.sessionId) {
           lines.push(
-            `  ● ${label}  ${dateStr}${cwdStr}  ${t("common.current")}`,
+            joinLogText([
+              "  ● ",
+              label,
+              "  ",
+              date,
+              `${cwdStr}  `,
+              msg("common.current"),
+            ]),
           );
         } else {
           lines.push(
-            `  ${pickable.length + 1}. ${label}  ${dateStr}${cwdStr}${suffix}`,
+            joinLogText([
+              `  ${pickable.length + 1}. `,
+              label,
+              "  ",
+              date,
+              cwdStr,
+              s.branched ? ["  ", msg("commands.resume.branched")] : "",
+            ]),
           );
           pickable.push(s);
         }
@@ -559,34 +583,32 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const instruction = choiceInstruction(t, "resume");
+      const instruction = choiceInstruction("resume");
       lines.push(instruction);
       managed.pendingResumeSessions = pickable;
-      deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
+      deps.emitEphemeralLog(agentId, "system", joinLogText(lines, "\n"), {
         interactionFallback: true,
       });
       deps.openChoiceInteraction(
         agentId,
         "resume",
-        t("choices.resume.title"),
+        msg("choices.resume.title"),
         instruction,
         pickable.map((session) => {
-          const date = formatDateTime(
-            language,
-            session.lastModified,
-            "monthDayTime",
-          );
           const cwd = session.cwd ? ` · ${tildifyCwd(session.cwd)}` : "";
-          const branched = session.branched
-            ? ` · ${t("choices.resume.branched")}`
-            : "";
           return {
             value: session.sessionId,
-            label: `${session.forked ? "↳ " : ""}${sessionResumeLabel(
-              session,
-              t("common.untitledConversation"),
-            )}`,
-            description: `${date}${cwd}${branched}`,
+            label: joinLogText([
+              session.forked ? "↳ " : "",
+              resumeLabel(session),
+            ]),
+            description: joinLogText([
+              msg("common.date", {
+                date: { time: session.lastModified, shape: "monthDayTime" },
+              }),
+              cwd,
+              session.branched ? [" · ", msg("choices.resume.branched")] : "",
+            ]),
           };
         }),
       );
@@ -609,8 +631,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       }
       const models = managed.info.claudeFamilyModels;
       const currentLabel = familyDisplayLabel(managed.info.modelFamily, models);
-      const lines: string[] = [
-        `${t("commands.model.header", { current: currentLabel })}\n`,
+      const lines: LogText[] = [
+        [msg("commands.model.header", { current: currentLabel }), "\n"],
       ];
       const families = knownModelFamiliesFor(managed.info.agentType) ?? [];
       const choices = families.map((modelFamily) => ({
@@ -618,21 +640,16 @@ export function createCommandHandling(deps: HandlerDeps) {
         label: familyDisplayLabel(modelFamily, models),
         current: modelFamily === managed.info.modelFamily,
       }));
-      lines.push(
-        ...choices.map(
-          (choice, index) =>
-            `  ${index + 1}. ${choice.label}${choice.current ? ` ${t("common.current")}` : ""}`,
-        ),
-      );
-      const instruction = choiceInstruction(t, "model");
+      lines.push(...choices.map(choiceLine));
+      const instruction = choiceInstruction("model");
       lines.push(instruction);
-      deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
+      deps.emitEphemeralLog(agentId, "system", joinLogText(lines, "\n"), {
         interactionFallback: true,
       });
       deps.openChoiceInteraction(
         agentId,
         "model",
-        t("choices.model.title"),
+        msg("choices.model.title"),
         instruction,
         choices,
       );
@@ -674,30 +691,29 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const currentLabel = effortDisplayLabel(t, managed.info.effort);
-      const lines: string[] = [
-        `${t("commands.effort.header", { current: currentLabel })}\n`,
+      const lines: LogText[] = [
+        [
+          msg("commands.effort.header", {
+            current: effortLabelParam(managed.info.effort),
+          }),
+          "\n",
+        ],
       ];
       const choices = levels.map((effort) => ({
         value: effort.level,
-        label: effortDisplayLabel(t, effort.level),
+        label: effortLabelParam(effort.level),
         current: effort.level === managed.info.effort,
       }));
-      lines.push(
-        ...choices.map(
-          (choice, index) =>
-            `  ${index + 1}. ${choice.label}${choice.current ? ` ${t("common.current")}` : ""}`,
-        ),
-      );
-      const instruction = choiceInstruction(t, "effort");
+      lines.push(...choices.map(choiceLine));
+      const instruction = choiceInstruction("effort");
       lines.push(instruction);
-      deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
+      deps.emitEphemeralLog(agentId, "system", joinLogText(lines, "\n"), {
         interactionFallback: true,
       });
       deps.openChoiceInteraction(
         agentId,
         "effort",
-        t("choices.effort.title"),
+        msg("choices.effort.title"),
         instruction,
         choices,
       );
@@ -991,19 +1007,22 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.updateState(agentId, "waiting_for_response");
           return true;
         }
-        const instruction = choiceInstruction(t, "cronjob");
-        const lines = [t("commands.isomuxCronjobSystemPrompt.pick"), ""];
+        const instruction = choiceInstruction("cronjob");
+        const lines: LogText[] = [
+          msg("commands.isomuxCronjobSystemPrompt.pick"),
+          "",
+        ];
         for (const [index, cronjob] of all.entries()) {
           lines.push(`  ${index + 1}. ${cronjob.name}`);
         }
         lines.push(instruction);
-        deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
+        deps.emitEphemeralLog(agentId, "system", joinLogText(lines, "\n"), {
           interactionFallback: true,
         });
         deps.openChoiceInteraction(
           agentId,
           "cronjob",
-          t("choices.cronjob.title"),
+          msg("choices.cronjob.title"),
           instruction,
           all.map((cronjob) => ({
             value: cronjob.id,
@@ -1418,8 +1437,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.turnFailure(agentId, managed, err, {
         username,
         label: "command",
-        frame: (raw) =>
-          translatorForUsername(username).t(errorKey, { error: raw }),
+        frame: (error) => msg(errorKey, { error }),
       });
     }
     return true;

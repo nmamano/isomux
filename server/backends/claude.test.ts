@@ -21,7 +21,7 @@ import {
   type ImageSink,
   type TranslateOptions,
 } from "./claude";
-import { translatorFor } from "../../shared/i18n/translate.ts";
+import { msg } from "../../shared/i18n/log-message.ts";
 import { inertMarkdown, providerText } from "./provider-text.ts";
 import type {
   SDKMessage,
@@ -346,8 +346,9 @@ describe("translateSDKMessage - assistant", () => {
       ...(error ? { error } : {}),
       message: { model: "<synthetic>", content: [{ type: "text", text }] },
     });
-    const refusalLine = (provider: string, words = translatorFor("en").t) =>
-      words("systemEntries.providerRefused", {
+    // The line is a message each reader words (task c37a7365).
+    const refusalLine = (provider: string) =>
+      msg("systemEntries.providerRefused", {
         provider,
         message: inertMarkdown(providerText(BODY)!),
       });
@@ -370,26 +371,6 @@ describe("translateSDKMessage - assistant", () => {
         ]);
         expect(JSON.stringify(events)).not.toContain(SECRET.slice(7));
       }
-    });
-
-    it("words the refusal in the member's language", () => {
-      const spanish = translatorFor("es").t;
-      const [event] = translate(
-        synthetic(
-          `Failed to authenticate. API Error: ${BODY}`,
-          "authentication_failed",
-        ),
-        noopSink,
-        { provider: "vertex", words: spanish },
-      );
-      expect(event).toEqual({
-        kind: "system_text",
-        text: refusalLine("vertex", spanish),
-      });
-      expect(event).not.toEqual({
-        kind: "system_text",
-        text: refusalLine("vertex"),
-      });
     });
 
     it("keeps a 401 on the sign-in path", () => {

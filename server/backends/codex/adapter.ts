@@ -39,10 +39,12 @@ import {
 import { mimeTypeForFilename } from "../../mime-types.ts";
 import { markdownInlineCode } from "../../../shared/format-human.ts";
 import { errMessage } from "../../../shared/errors.ts";
+import { translatorFor } from "../../../shared/i18n/translate.ts";
 import {
-  translatorFor,
-  type Translator,
-} from "../../../shared/i18n/translate.ts";
+  msg,
+  renderLogText,
+  type LogMessage,
+} from "../../../shared/i18n/log-message.ts";
 import {
   inertMarkdown,
   providerRefusal,
@@ -137,10 +139,10 @@ import type { PlanType } from "./_generated/PlanType.ts";
 // card never disagree - `~/.isomux/bin/codex` at the default root (byte-for-
 // byte prod), the active wrapper path under an ISOMUX_HOME override.
 const codexLoginCmd = codexWrapperCommandForShell();
-// The sign-in walkthrough in the reader's words. The JSON-RPC reply to a
-// token refresh request is for the engine, so it carries the English one.
-function loginInstructions(words: Translator["t"]): string {
-  return words("systemEntries.loginInstructions.codex", {
+// The sign-in walkthrough. The JSON-RPC reply to a token refresh request is
+// for the engine, so it carries the English render.
+function loginInstructions(): LogMessage {
+  return msg("systemEntries.loginInstructions.codex", {
     command: codexLoginCmd,
   });
 }
@@ -154,11 +156,10 @@ export function codexProviderRefusal(
     | null
     | undefined,
   provider: string,
-  words: Translator["t"] = translatorFor("en").t,
-): string | null {
+): LogMessage | null {
   if (!error || !isCodexRefusal(error.codexErrorInfo)) return null;
   const message = providerText(error.message ?? undefined);
-  return message === null ? null : providerRefusal(provider, message, words);
+  return message === null ? null : providerRefusal(provider, message);
 }
 
 const CODEX_REFUSAL_KINDS = new Set([
@@ -942,8 +943,6 @@ export interface CodexSessionInitOpts {
   permissionMode: string;
   sandbox?: string; // SandboxMode enum string; falls back to DEFAULT_SANDBOX_MODE
   env?: { [key: string]: string | undefined };
-  // Translates the session's own chat notices; English when absent.
-  words?: Translator["t"];
   resumeThreadId?: string;
   ephemeral?: boolean;
   // Remote MCP servers for the thread config (codexThreadConfig).
@@ -1050,7 +1049,7 @@ export class CodexSession implements BackendSession {
   private capacityErrorThisAttempt: string | null = null;
   // The refusal line of this attempt's terminal error notification. Codex
   // sends the same error again on the failed turn/completed, which shows it.
-  private refusalThisAttempt: string | null = null;
+  private refusalThisAttempt: LogMessage | null = null;
   // This attempt's last terminal error notification, for the turn watchdog.
   private terminalErrorThisAttempt: TurnErrorLike | null = null;
   private cancelTurnWatchdog: (() => void) | null = null;
@@ -1277,9 +1276,7 @@ export class CodexSession implements BackendSession {
       if (sandboxChoice.fellBack) {
         this.enqueue({
           kind: "system_text",
-          text: (this.opts.words ?? translatorFor("en").t)(
-            "systemEntries.codexSandboxUnavailable",
-          ),
+          text: msg("systemEntries.codexSandboxUnavailable"),
         });
       }
     } catch (err) {
@@ -2141,7 +2138,7 @@ export class CodexSession implements BackendSession {
     const refusal = causedByAuth
       ? null
       : (this.refusalThisAttempt ??
-        codexProviderRefusal(turnError, this.modelProvider, this.opts.words));
+        codexProviderRefusal(turnError, this.modelProvider));
     this.refusalThisAttempt = null;
     // Any other error text can quote the provider: bounded and redacted.
     const error = causedByAuth
@@ -2495,7 +2492,6 @@ export class CodexSession implements BackendSession {
           const refusal = codexProviderRefusal(
             notification?.error,
             this.modelProvider,
-            this.opts.words,
           );
           if (refusal !== null) {
             this.refusalThisAttempt = refusal;
@@ -3020,12 +3016,10 @@ export class CodexSession implements BackendSession {
         this.enqueue({ kind: "auth_needed" });
         this.enqueue({
           kind: "error",
-          message: (this.opts.words ?? translatorFor("en").t)(
-            "systemEntries.codexTokenRefresh",
-          ),
+          message: msg("systemEntries.codexTokenRefresh"),
         });
         throw new Error(
-          `No token store: ${loginInstructions(translatorFor("en").t)}`,
+          `No token store: ${renderLogText(translatorFor("en"), loginInstructions())}`,
         );
 
       // Untested at v1: attestation/generate (codex requests an attestation
@@ -3574,7 +3568,6 @@ export const codexBackend: Backend = {
       permissionMode: opts.permissionMode,
       sandbox: opts.sandbox,
       env: opts.env,
-      words: opts.words,
       mcpServers: opts.mcpServers,
       planMode: opts.planMode,
     });
@@ -3590,7 +3583,6 @@ export const codexBackend: Backend = {
       permissionMode: opts.permissionMode,
       sandbox: opts.sandbox,
       env: opts.env,
-      words: opts.words,
       resumeThreadId: sessionId,
       mcpServers: opts.mcpServers,
       planMode: opts.planMode,
@@ -3601,15 +3593,15 @@ export const codexBackend: Backend = {
     return inspectCodexStoredSession(sessionId, opts.env);
   },
 
-  checkSessionResumable(sessionId, opts): string | null {
+  checkSessionResumable(sessionId, opts): LogMessage | null {
     // Explicit-resume paths only block on missing-file. Header-only and corrupt
     // rollouts surface through Codex's own thread/resume error with a more
     // specific message.
     if (!codexRolloutFileExists(sessionId, opts.env)) {
-      return (opts.words ?? translatorFor("en").t)(
-        "systemEntries.codexSession.missing",
-        { thread: sessionId.slice(0, 8), dir: codexSessionsDir(opts.env) },
-      );
+      return msg("systemEntries.codexSession.missing", {
+        thread: sessionId.slice(0, 8),
+        dir: codexSessionsDir(opts.env),
+      });
     }
     return null;
   },
@@ -3847,10 +3839,8 @@ export const codexBackend: Backend = {
 
   async getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
-    words?: Translator["t"];
     credentialsRejected?: boolean;
   }): Promise<LoginInstructions> {
-    const words = opts?.words ?? translatorFor("en").t;
     // After a rejection, an OPENAI_API_KEY in env is what Codex used (it wins
     // over a stored sign-in), so the key is wrong: neither a /clear nor a
     // sign-in helps until the member fixes or removes it.
@@ -3858,7 +3848,7 @@ export const codexBackend: Backend = {
       return {
         kind: "login",
         cardEligible: false,
-        text: words("systemEntries.loginInstructions.codexKeyRejected"),
+        text: msg("systemEntries.loginInstructions.codexKeyRejected"),
       };
     }
     // Signed in already (auth.json present, or OPENAI_API_KEY in env): the
@@ -3870,13 +3860,13 @@ export const codexBackend: Backend = {
       return {
         kind: "already_authed",
         cardEligible: false,
-        text: words("systemEntries.loginInstructions.codexSignedIn"),
+        text: msg("systemEntries.loginInstructions.codexSignedIn"),
       };
     }
     return {
       kind: "login",
       cardEligible: true,
-      text: loginInstructions(words),
+      text: loginInstructions(),
       commands: getCodexLoginCommands(),
     };
   },

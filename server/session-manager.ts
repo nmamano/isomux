@@ -20,7 +20,8 @@ import type {
   EnginePlugin,
   NormalizedEvent,
 } from "./backends/types.ts";
-import type { Translator } from "../shared/i18n/translate.ts";
+import { msg, type LogText } from "../shared/i18n/log-message.ts";
+import { errorText } from "./localized-error.ts";
 import type { BackendFailureId } from "./backend-failure-text.ts";
 import {
   backendStoppedDuringTurn,
@@ -108,13 +109,9 @@ export interface SessionManagerDeps<H extends SessionHost> {
   addLogEntry: (
     agentId: string,
     kind: LogEntry["kind"],
-    content: string,
+    content: LogText,
     metadata?: Record<string, unknown>,
   ) => void;
-  // The translator for text written into this agent's log. A backend death has
-  // no actor, so this resolves to the agent's owner
-  // (internal-docs/i18n-loop.md, S7).
-  logWords: (agentId: string) => Translator["t"];
   // Stream-error diagnostics over manager-only state, called by the error
   // branch in this order: whether this turn already needed sign-in (the
   // backend's auth_needed; the stream failure text is never sniffed), asked
@@ -126,7 +123,7 @@ export interface SessionManagerDeps<H extends SessionHost> {
   diagnoseProcessExitHints: (
     host: H,
     sessionId: string | null,
-  ) => string | null;
+  ) => LogText | null;
   authNeededThisTurn: (host: H) => boolean;
   // Post-swap dead-turn normalization.
   updateState: (agentId: string, state: AgentState) => void;
@@ -427,7 +424,7 @@ export class SessionManager<H extends SessionHost = SessionHost> {
           this.deps.addLogEntry(
             this.agentId,
             "error",
-            backendStoppedDuringTurn(this.deps.logWords(this.agentId)),
+            backendStoppedDuringTurn(),
             {
               backendFailureRaw: "Backend stream ended unexpectedly mid-turn.",
             },
@@ -480,32 +477,28 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         `Agent ${this.agentId} stream error:`,
         errMessage(err),
       );
-      // TWO strings, on purpose. `errorText` keeps the original bytes for the
-      // metadata diagnostic, which keeps the backend's own wording. `errorLine` is
-      // the same framing worded for the reader, and is the only one that
-      // reaches the chat (internal-docs/i18n-loop.md, S7). The suffix inside
-      // both is the backend's text either way - only the wrapper is ours.
-      const errorText = `Stream error: ${errMessage(err)}`;
-      const errorLine = this.deps.logWords(this.agentId)(
-        "systemEntries.streamError",
-        { error: errMessage(err) },
-      );
+      // TWO texts, on purpose. `rawLine` keeps the original bytes for the
+      // metadata diagnostic, which keeps the backend's own wording. `errorLine`
+      // is the same framing as a message each reader words, and is the only
+      // one that reaches the chat. The suffix inside both is the backend's
+      // text either way - only the wrapper is ours.
+      const rawLine = `Stream error: ${errMessage(err)}`;
+      const errorLine = msg("systemEntries.streamError", {
+        error: errorText(err),
+      });
       // Classified against the RAW backend message, not the
       // "Stream error: " wrapper - the wrapper is isomux's own framing and
       // would otherwise be pasted in front of the explanation. An UNRECOGNIZED
       // failure keeps the wrapper it has always had; only a classified one
       // replaces the whole line.
-      const failure = humanizeBackendFailure(
-        this.deps.logWords(this.agentId),
-        errMessage(err),
-      );
+      const failure = humanizeBackendFailure(errMessage(err));
       const classified = failure.raw !== undefined;
       this.deps.addLogEntry(
         this.agentId,
         "error",
         classified ? failure.text : errorLine,
         classified
-          ? backendFailureMeta({ ...failure, raw: errorText })
+          ? backendFailureMeta({ ...failure, raw: rawLine })
           : undefined,
       );
       this.lastBackendFailure = failure.id;

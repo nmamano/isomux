@@ -26,6 +26,7 @@ import {
 import { STATE_ROOT } from "../config.ts";
 import { english } from "../i18n.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
+import { renderLogText } from "../../shared/i18n/log-message.ts";
 import { SUPPORTED_LANGUAGES } from "../../shared/languages.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { loadAgents } from "../persistence.ts";
@@ -917,6 +918,8 @@ describe("provider auth affordances", () => {
       });
       expect(signedOut.kind).toBe("login");
       expect(signedOut.commands?.length).toBeGreaterThan(0);
+      // The walkthrough is a message; the log stores its English as content.
+      const signedOutText = renderLogText(english, signedOut.text);
       const signedInText = english.t(
         "systemEntries.loginInstructions.codexSignedIn",
       );
@@ -926,7 +929,7 @@ describe("provider auth affordances", () => {
           .filter(
             (e) =>
               e.kind === "system" &&
-              (e.content === signedOut.text || e.content === signedInText),
+              (e.content === signedOutText || e.content === signedInText),
           )
           .map((e) => e.content);
       const commands = () =>
@@ -954,6 +957,7 @@ describe("provider auth affordances", () => {
       return {
         ...h,
         signedOut,
+        signedOutText,
         signedInText,
         notices,
         commands,
@@ -967,7 +971,7 @@ describe("provider auth affordances", () => {
       const h = await codexWithAuthJson();
       await h.mgr.sendMessage(h.agentId, "hello", "tester");
       await settle(() => h.notices().length > 0);
-      expect(h.notices()).toEqual([h.signedOut.text]);
+      expect(h.notices()).toEqual([h.signedOutText]);
       expect(h.commands()).toEqual(h.signedOut.commands!);
     });
 
@@ -1010,7 +1014,7 @@ describe("provider auth affordances", () => {
       await h.mgr.sendMessage(h.agentId, "hello", "tester");
       await h.settled();
       expect(h.cards()).toEqual([]);
-      expect(h.notices()).toEqual([h.signedOut.text]);
+      expect(h.notices()).toEqual([h.signedOutText]);
       expect(h.commands()).toEqual(h.signedOut.commands!);
     });
 

@@ -1,5 +1,5 @@
-// Each backend's resume check states the PROBLEM only, in the reader's words
-// (task beb6089b). The hint what to do next ("/resume ...") belongs to the
+// Each backend's resume check states the PROBLEM only, as a message each
+// reader words (tasks beb6089b, c37a7365). The hint what to do next ("/resume ...") belongs to the
 // log entry that shows the failure, so a backend that also gave one put the
 // hint in the log twice.
 import { afterAll, describe, expect, it } from "bun:test";
@@ -13,7 +13,11 @@ import { codexBackend } from "./codex/adapter.ts";
 import { opencodeBackend } from "./opencode/adapter.ts";
 import { openCodeProfilePaths } from "./opencode/profile-paths.ts";
 import type { Backend } from "./types.ts";
-import { callFor, render, spyWords } from "../test-support/spy-words.ts";
+import {
+  localizeLogParts,
+  renderLogText,
+} from "../../shared/i18n/log-message.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 const SESSION = "0b1f0c3e-1111-4222-8333-444455556666";
 const dirs: string[] = [];
@@ -84,19 +88,15 @@ const cases: [string, Backend, () => Opts][] = [
 
 describe("checkSessionResumable", () => {
   for (const [name, backend, opts] of cases) {
-    it(`${name}: one sentence in the reader's words, with no /resume hint`, () => {
-      const base = opts();
-      const { t, calls } = spyWords();
-      const worded = backend.checkSessionResumable(SESSION, {
-        ...base,
-        words: t,
-      });
-      const english = backend.checkSessionResumable(SESSION, base);
+    it(`${name}: one message each reader words, with no /resume hint`, () => {
+      const problem = backend.checkSessionResumable(SESSION, opts());
       // The enabling condition: the session really is not resumable.
-      expect(english).not.toBeNull();
-      const call = callFor(calls, worded ?? "");
-      expect(call).toBeDefined();
-      expect(english).toBe(render("en", call!));
+      expect(problem).not.toBeNull();
+      expect(typeof problem).toBe("object");
+      const english = renderLogText(translatorFor("en"), problem!);
+      const catalan = localizeLogParts(translatorFor("ca"), [problem]);
+      expect(catalan).not.toBeNull();
+      expect(catalan).not.toBe(english);
       expect(english).not.toContain("/resume");
     });
   }

@@ -5,13 +5,21 @@
 // and the /model and /effort swaps), delivered once by runAgentTurn as its own
 // settings-notice block.
 //
-// The arm keeps raw values and renders per reader, like dormantWakeMessage: the
-// member gets their language, the agent gets English. Values render with the
+// The arm keeps raw values and renders as message parts, like
+// dormantWakeMessage: each member reads their language, the agent English. Values render with the
 // edit dialog's words, never internal ids.
 
-import type { MessageKey, Translator } from "../shared/i18n/translate.ts";
+import type { MessageKey, PlainMessageKey } from "../shared/i18n/translate.ts";
 import {
-  effortDisplayLabel,
+  joinLogText,
+  msg,
+  type LogMessage,
+  type LogParam,
+  type LogPart,
+  type LogText,
+} from "../shared/i18n/log-message.ts";
+import {
+  effortLabelParam,
   familyDisplayLabel,
   type AgentInfo,
 } from "../shared/types.ts";
@@ -95,40 +103,38 @@ const SANDBOX_KEYS: Record<string, MessageKey> = {
 type NoticeAgent = Pick<AgentInfo, "agentType" | "claudeFamilyModels">;
 
 function fieldLabel(
-  t: Translator["t"],
   agent: NoticeAgent,
   field: SettingsNoticeField,
-): string {
+): LogMessage {
   switch (field) {
     case "modelFamily":
-      return t("common.field.model");
+      return msg("common.field.model");
     case "effort":
-      return t("common.field.effort");
+      return msg("common.field.effort");
     case "permissionMode":
       return agent.agentType === "codex"
-        ? t("common.field.approvalPolicy")
-        : t("common.field.permissionMode");
+        ? msg("common.field.approvalPolicy")
+        : msg("common.field.permissionMode");
     case "codexSandbox":
-      return t("common.field.sandbox");
+      return msg("common.field.sandbox");
     case "cwd":
-      return t("common.field.workingDirectory");
+      return msg("common.field.workingDirectory");
   }
 }
 
 function valueLabel(
-  t: Translator["t"],
   agent: NoticeAgent,
   field: SettingsNoticeField,
   value: string,
-): string {
+): LogParam {
   // A value with no catalog words renders as itself.
-  const keyed = (key: MessageKey | undefined) =>
-    key ? (t as (k: MessageKey) => string)(key) : value;
+  const keyed = (key: MessageKey | undefined): LogParam =>
+    key ? msg(key as PlainMessageKey) : value;
   switch (field) {
     case "modelFamily":
       return familyDisplayLabel(value, agent.claudeFamilyModels);
     case "effort":
-      return effortDisplayLabel(t, value);
+      return effortLabelParam(value);
     case "permissionMode":
       return keyed(PERMISSION_KEYS[agent.agentType]?.[value]);
     case "codexSandbox":
@@ -142,31 +148,31 @@ function valueLabel(
 // "user rejected" result (shutdownRejectionClause in agent-manager).
 export function renderSettingsNotice(
   arm: SettingsNoticeArm,
-  t: Translator["t"],
   agent: NoticeAgent,
   rejectionProven: boolean,
-): string {
-  const lines = [
-    t("systemEntries.settingsNotice.changed", { names: arm.by.join(", ") }),
+): LogPart[] {
+  const lines: LogText[] = [
+    msg("systemEntries.settingsNotice.changed", { names: arm.by.join(", ") }),
   ];
   for (const field of SETTINGS_NOTICE_FIELDS) {
     const change = arm.changes[field];
     if (!change) continue;
     lines.push(
-      t("systemEntries.settingsNotice.change", {
-        setting: fieldLabel(t, agent, field),
-        from: valueLabel(t, agent, field, change.from),
-        to: valueLabel(t, agent, field, change.typedTo ?? change.to),
+      msg("systemEntries.settingsNotice.change", {
+        setting: fieldLabel(agent, field),
+        from: valueLabel(agent, field, change.from),
+        to: valueLabel(agent, field, change.typedTo ?? change.to),
       }),
     );
   }
   if (arm.interrupted) {
-    const parts = [
-      t("systemEntries.settingsNotice.interrupted"),
-      t("systemEntries.wake.inFlightWarning"),
+    const parts: LogText[] = [
+      msg("systemEntries.settingsNotice.interrupted"),
+      msg("systemEntries.wake.inFlightWarning"),
     ];
-    if (rejectionProven) parts.push(t("systemEntries.wake.shutdownRejection"));
-    lines.push(parts.join(" "));
+    if (rejectionProven)
+      parts.push(msg("systemEntries.wake.shutdownRejection"));
+    lines.push(joinLogText(parts, " "));
   }
-  return lines.join("\n");
+  return joinLogText(lines, "\n");
 }

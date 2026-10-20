@@ -27,6 +27,7 @@ import { createAgentManager } from "../../agent-manager.ts";
 import { OfficeState } from "../../../shared/office-state.ts";
 import { STATE_ROOT } from "../../config.ts";
 import { join } from "node:path";
+import { msg, type LogText } from "../../../shared/i18n/log-message.ts";
 
 const CANARY = "LOCAL_FAILURE_HEADER_SECRET_CANARY";
 const failure = Object.assign(new Error(`Authorization: Bearer ${CANARY}`), {
@@ -1035,7 +1036,6 @@ function drivenTransport(
     onRecover?: () => void;
     agentId?: string;
     replacementPending?: boolean;
-    words?: (key: string) => string;
   } = {},
 ) {
   const marked: { pid: number; afterPrompt: boolean }[] = [];
@@ -1081,7 +1081,6 @@ function drivenTransport(
     ...(options.sessionId ? { sessionId: options.sessionId } : {}),
     ...(options.agent ? { agent: options.agent } : {}),
     ...(options.agentId ? { agentId: options.agentId } : {}),
-    ...(options.words ? { words: options.words as never } : {}),
     eventStreamDeadlineMs: DEADLINE_MS,
     deadlineScheduler: clock.scheduler,
     safeErrorSink: (error, context) => {
@@ -1096,7 +1095,7 @@ function drivenTransport(
   });
   const completions: Extract<NormalizedEvent, { kind: "turn_completed" }>[] =
     [];
-  const notices: string[] = [];
+  const notices: LogText[] = [];
   const texts: string[] = [];
   const approvals: string[] = [];
   const withdrawn: string[] = [];
@@ -2685,9 +2684,9 @@ it("journals a recovery that throws as error, before the turn's failure line", a
 });
 
 // Task d4a7031e: a changed setting waits for every turn on the shared server,
-// and the turn did not say it ran on the previous settings. The notice goes
-// through the member's translator.
-const previousSettings = "[systemEntries.openCodePreviousSettings]";
+// and the turn did not say it ran on the previous settings. The notice is a
+// message each reader words (task c37a7365).
+const previousSettings = msg("systemEntries.openCodePreviousSettings");
 for (const pending of [true, false])
   it(`${pending ? "says once" : "does not say"} that a turn uses the previous settings when the server's replacement ${pending ? "waits" : "does not wait"}`, async () => {
     const clock = drivenClock();
@@ -2695,7 +2694,6 @@ for (const pending of [true, false])
     const turn = drivenTransport(clock, {
       sessionId: "driven",
       replacementPending: pending,
-      words: (key) => `[${key}]`,
     });
     try {
       await turn.send();
@@ -2703,7 +2701,10 @@ for (const pending of [true, false])
       await settleUntil(() => turn.completions.length > 0);
       expect(turn.completions).toMatchObject([{ status: "completed" }]);
       expect(
-        turn.notices.filter((notice) => notice === previousSettings),
+        turn.notices.filter(
+          (notice) =>
+            JSON.stringify(notice) === JSON.stringify(previousSettings),
+        ),
       ).toHaveLength(pending ? 1 : 0);
     } finally {
       turn.transport.close();

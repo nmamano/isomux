@@ -9,11 +9,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { english } from "./i18n.ts";
+import { msg } from "../shared/i18n/log-message.ts";
 
 const STOP_MODULE = `${import.meta.dir}/server-stop.ts`;
 const FAILURE_TEXT_MODULE = `${import.meta.dir}/backend-failure-text.ts`;
-const I18N_MODULE = `${import.meta.dir}/i18n.ts`;
 const SUPERVISOR_MODULE = `${import.meta.dir}/backends/opencode/supervisor.ts`;
 
 // Far past a green run (about 0.2 s). A process that never re-raises its
@@ -219,9 +218,8 @@ describe("the death notice while the server stops", () => {
     const run = await runStop(
       "SIGTERM",
       `const { humanizeBackendFailure } = await import(${JSON.stringify(FAILURE_TEXT_MODULE)});
-       const { english } = await import(${JSON.stringify(I18N_MODULE)});
        const raws = ${JSON.stringify(raws)};
-       const notices = () => raws.map((raw) => humanizeBackendFailure(english.t, raw));
+       const notices = () => raws.map((raw) => humanizeBackendFailure(raw));
        out({ phase: "before", notices: notices() });
        runAtServerStop(async () => {
          out({ phase: "during", notices: notices() });
@@ -230,7 +228,7 @@ describe("the death notice while the server stops", () => {
     expect(death(run).signalCode).toBe("SIGTERM");
     const [before, during] = run.lines as {
       phase: string;
-      notices: { text: string; raw?: string; id: string }[];
+      notices: { text: unknown; raw?: string; id: string }[];
     }[];
     expect(run.lines.map((line) => line.phase)).toEqual(["before", "during"]);
 
@@ -238,8 +236,8 @@ describe("the death notice while the server stops", () => {
     expect(before.notices.map((n) => n.id)).toEqual(
       CASES.map(([, beforeId]) => beforeId),
     );
-    expect(before.notices[0].text).toBe(
-      english.t("systemEntries.backendFailure.sigterm", { code: 143 }),
+    expect(before.notices[0].text).toEqual(
+      msg("systemEntries.backendFailure.sigterm", { code: 143 }),
     );
 
     // During the stop: the stop is named for every signal exit.
@@ -247,15 +245,13 @@ describe("the death notice while the server stops", () => {
       CASES.map(([, , duringId]) => duringId),
     );
     expect(during.notices[0]).toEqual({
-      text: english.t("systemEntries.backendFailure.serverStopped", {
-        code: 143,
-      }),
+      text: msg("systemEntries.backendFailure.serverStopped", { code: 143 }),
       // The backend's own string stays in the log entry's metadata.
       raw: SIGTERM_RAW,
       id: "server-stopped:143",
     });
-    expect(during.notices[1].text).toBe(
-      english.t("systemEntries.backendFailure.serverStopped", { code: 137 }),
+    expect(during.notices[1].text).toEqual(
+      msg("systemEntries.backendFailure.serverStopped", { code: 137 }),
     );
   });
 });

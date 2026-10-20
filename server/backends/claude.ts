@@ -1,6 +1,10 @@
 import { claudeSessionStore } from "./claude/session-store.ts";
 import { withAgentSpawn } from "./claude/agent-spawn.ts";
-import { translatorFor, type Translator } from "../../shared/i18n/translate.ts";
+// `msg` names the SDK message throughout this file.
+import {
+  msg as logMsg,
+  type LogMessage,
+} from "../../shared/i18n/log-message.ts";
 // Claude backend.
 //
 // Owns every `@anthropic-ai/...` import. agent-manager talks to this module
@@ -1359,20 +1363,17 @@ const CLAUDE_REFUSAL = /\bAPI Error: (403\b.*)$/s;
 function claudeProviderRefusal(
   text: string,
   options: TranslateOptions,
-): string | null {
+): LogMessage | null {
   const quoted = CLAUDE_REFUSAL.exec(text)?.[1];
   const message = providerText(quoted);
   if (message === null) return null;
   return providerRefusal(
     options.provider ?? "anthropic",
     inertMarkdown(message),
-    options.words,
   );
 }
 
 export interface TranslateOptions {
-  // Translates the notices this translation writes; English when absent.
-  words?: Translator["t"];
   // The provider a refusal line names (claudeProviderId).
   provider?: string;
 }
@@ -1929,11 +1930,9 @@ export function toolBoundaryHooks(
   ];
 }
 
-// The session's refusal lines name the provider its env selects, in the
-// member's language.
+// The session's refusal lines name the provider its env selects.
 function claudeTranslateOptions(opts: CreateSessionOptions): TranslateOptions {
   return {
-    words: opts.words,
     provider: claudeProviderId(opts.env ?? getAgentHost().baseEnv()),
   };
 }
@@ -2053,15 +2052,12 @@ export function createClaudeBackend(
       return "durable";
     },
 
-    checkSessionResumable(sessionId, opts): string | null {
+    checkSessionResumable(sessionId, opts): LogMessage | null {
       if (!claudeSessionFileExists(opts.cwd, sessionId, opts.env)) {
-        return (opts.words ?? translatorFor("en").t)(
-          "systemEntries.claudeSession.missing",
-          {
-            session: sessionId.slice(0, 8),
-            paths: `${claudeProjectDir(opts.cwd, opts.env)}/${sessionId}.jsonl`,
-          },
-        );
+        return logMsg("systemEntries.claudeSession.missing", {
+          session: sessionId.slice(0, 8),
+          paths: `${claudeProjectDir(opts.cwd, opts.env)}/${sessionId}.jsonl`,
+        });
       }
       return null;
     },
@@ -2082,12 +2078,7 @@ export function createClaudeBackend(
       const cwd = access?.cwd ?? process.cwd();
       const options = {
         dir: cwd,
-        sessionStore: claudeSessionStore(
-          sessionId,
-          cwd,
-          access?.env,
-          access?.words,
-        ),
+        sessionStore: claudeSessionStore(sessionId, cwd, access?.env),
       };
       const messages = await sdkClient.getSessionMessages(sessionId, options);
       if (targetMessageId === null) {
@@ -2140,12 +2131,7 @@ export function createClaudeBackend(
     ): Promise<NormalizedMessage[]> {
       const messages = await sdkClient.getSessionMessages(sessionId, {
         dir: cwd,
-        sessionStore: claudeSessionStore(
-          sessionId,
-          cwd,
-          access?.env,
-          access?.words,
-        ),
+        sessionStore: claudeSessionStore(sessionId, cwd, access?.env),
       });
       const out: NormalizedMessage[] = [];
       for (const m of messages) {
@@ -2191,7 +2177,6 @@ export function createClaudeBackend(
 
     async getLoginInstructions(opts?: {
       env?: { [key: string]: string | undefined };
-      words?: Translator["t"];
     }): Promise<LoginInstructions> {
       // Short-circuit: if the office is already signed in (credentials.json
       // present, a macOS Keychain login, API key, or cloud provider selected),
@@ -2199,19 +2184,18 @@ export function createClaudeBackend(
       // with Codex's signed-in hint. The check honors the agent's merged
       // env so managed ANTHROPIC_API_KEY counts as authed. An "unknown" answer
       // gets the walkthrough below.
-      const words = opts?.words ?? translatorFor("en").t;
       if ((await claudeSignInState(opts?.env)) === "signed_in") {
         return {
           kind: "already_authed",
           cardEligible: false,
-          text: words("systemEntries.loginInstructions.claudeSignedIn"),
+          text: logMsg("systemEntries.loginInstructions.claudeSignedIn"),
         };
       }
       const command = loginCommand(opts?.env);
       return {
         kind: "login",
         cardEligible: true,
-        text: words("systemEntries.loginInstructions.claude", { command }),
+        text: logMsg("systemEntries.loginInstructions.claude", { command }),
         commands: [command],
       };
     },

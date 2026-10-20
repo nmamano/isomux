@@ -76,7 +76,6 @@ type AgentTurnDeps = {
   logUsageHeadsUp: (
     managed: ManagedAgent,
     headsUp: { dayStartMs: number },
-    username?: string,
   ) => void;
 };
 
@@ -321,8 +320,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
       }
     }
     // After the input's entries, so it reads under the member's message.
-    if (usageHeadsUp)
-      deps.logUsageHeadsUp(managed, usageHeadsUp, opts.usageCapUsername);
+    if (usageHeadsUp) deps.logUsageHeadsUp(managed, usageHeadsUp);
     await turn;
   } catch (err) {
     thrown = err;
