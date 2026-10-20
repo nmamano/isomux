@@ -5,7 +5,8 @@
 # Bypass with `git push --no-verify` only after deciding the push is safe.
 #
 # scripts/ci-remote.sh runs it, here or on the machine git config
-# isomux.ciRemote names, and tees the output to a file whose path it prints:
+# isomux.ciRemote names. It tees the output to a file whose path it prints,
+# and keeps that file after a red run:
 # the gate takes minutes, and its output otherwise lives only in whatever
 # invoked the push - a pipe, a truncating wrapper, or a tool that reports the
 # wrapper's exit code instead of this one. Losing it costs another full run to

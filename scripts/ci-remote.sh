@@ -16,6 +16,9 @@
 # included, means the remote could not run the suite, and the run happens here
 # instead. A red from the remote never falls back.
 #
+# Each run tees its output to a log under ${TMPDIR:-/tmp} and prints the path
+# first. A green run deletes its log; a red run keeps it.
+#
 # The remote needs git, curl, unzip, flock, jq, a working `docker compose`
 # and a user systemd manager; it needs no sudo. It keeps
 # ~/.cache/isomux-ci-remote: a bare repo, the pinned node, bun and Postgres,
@@ -44,7 +47,9 @@ run_here() {
   echo "  full output: $log"
   bun run ci 2>&1 | tee -a "$log"
   status=${PIPESTATUS[0]}
-  if [[ $status -ne 0 ]]; then
+  if [[ $status -eq 0 ]]; then
+    rm -f -- "$log"
+  else
     echo "✗ bun run ci failed (exit $status). Full output: $log"
   fi
   return "$status"
@@ -80,7 +85,10 @@ one_commit() {
   run_remote "$sha" "$log" "$id"
   status=$?
   case $status in
-    0) echo "✓ CI passed on $TARGET. Full output: $log" ;;
+    0)
+      rm -f -- "$log"
+      echo "✓ CI passed on $TARGET."
+      ;;
     1) echo "✗ CI failed on $TARGET. Full output: $log" ;;
     *)
       echo "→ $TARGET could not run CI (exit $status); running it here"

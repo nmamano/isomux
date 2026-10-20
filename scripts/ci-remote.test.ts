@@ -60,6 +60,8 @@ type Local = {
   /** One line per remote half started: its arguments. */
   remoteRuns(): string[];
   sshCalls(): string[];
+  /** The files the script left in its TMPDIR. */
+  logs(): string[];
 };
 
 function local(remoteCode: number, localCode = 0): Local {
@@ -94,7 +96,8 @@ cd "$FIX/home" || exit 1
 if [[ $1 == bash && $2 == -s ]]; then
   cat > "$FIX/remote-script"
   printf '%s\\n' "$*" >> "$FIX/remote.log"
-  echo "remote output"
+  echo "remote output for $5"
+  [[ -e $FIX/red-$5 ]] && exit 1
   exit ${remoteCode}
 fi
 exec bash -c "$*"`,
@@ -136,10 +139,21 @@ exit ${localCode}`,
     bunCalls: () => read(join(dir, "bun.log")).split("\n").filter(Boolean),
     remoteRuns: () => read(join(dir, "remote.log")).split("\n").filter(Boolean),
     sshCalls: () => read(join(dir, "ssh.log")).split("\n").filter(Boolean),
+    logs: () => readdirSync(join(dir, "tmp")).sort(),
   };
 }
 
 const TARGET = "ci@ci-box";
+
+// A red run keeps its log, and the verdict (the last line) names it.
+function keptLog(f: Local, out: string, prefix: string): string {
+  const logs = f.logs();
+  expect(logs, out).toHaveLength(1);
+  expect(logs[0]).toMatch(new RegExp(`^${prefix}-.+\\.log$`));
+  const path = join(f.dir, "tmp", logs[0]!);
+  expect(out.trim().split("\n").at(-1)).toContain(path);
+  return path;
+}
 
 describe("ci-remote, with no target", () => {
   it("runs bun run ci here, once, and never calls ssh", () => {
@@ -152,6 +166,18 @@ describe("ci-remote, with no target", () => {
     expect(r.status, r.out).toBe(1);
     expect(f.bunCalls()).toEqual([`run ci ${second}`]);
     expect(f.sshCalls()).toEqual([]);
+    keptLog(f, r.out, "isomux-pre-push");
+  });
+
+  it("deletes its log after a green run", () => {
+    const f = local(0, 0);
+    const r = f.run(["--pre-push"], {
+      entry: HOOK,
+      stdin: `refs/heads/main ${f.shas[1]} refs/heads/main ${f.shas[0]}\n`,
+    });
+    expect(r.status, r.out).toBe(0);
+    expect(f.bunCalls()).toEqual([`run ci ${f.shas[1]}`]);
+    expect(f.logs()).toEqual([]);
   });
 });
 
@@ -173,6 +199,8 @@ describe("ci-remote, with a target", () => {
     expect(git(bare, "cat-file", "-t", head)).toBe("commit");
     // The ref that carried it is gone once the run ends.
     expect(git(bare, "for-each-ref", "refs/ci/")).toBe("");
+    // A green has nothing to keep: the caller has the output.
+    expect(f.logs()).toEqual([]);
   });
 
   it("tests the commit it is given, not HEAD", () => {
@@ -187,6 +215,7 @@ describe("ci-remote, with a target", () => {
     const r = f.run([], { target: TARGET });
     expect(r.status, r.out).toBe(1);
     expect(f.bunCalls()).toEqual([]);
+    expect(read(keptLog(f, r.out, "isomux-ci"))).toContain("remote output");
   });
 
   it.each([
@@ -200,6 +229,8 @@ describe("ci-remote, with a target", () => {
       expect(r.status, r.out).toBe(expected);
       expect(f.remoteRuns()).toHaveLength(1);
       expect(f.bunCalls()).toEqual([`run ci ${f.shas[1]}`]);
+      if (expected === 0) expect(f.logs()).toEqual([]);
+      else keptLog(f, r.out, "isomux-ci");
     },
   );
 
@@ -254,6 +285,26 @@ describe("ci-remote, with a target", () => {
     });
     expect(r.status, r.out).toBe(1);
     expect(f.remoteRuns()).toHaveLength(1);
+  });
+
+  it("keeps only the log of the red commit when the hook tests several", () => {
+    const f = local(0);
+    const [first, second] = f.shas;
+    // The hook tests second, then first; the second one tested is red.
+    writeFileSync(join(f.dir, `red-${first}`), "");
+    const r = f.run([], {
+      entry: HOOK,
+      target: TARGET,
+      stdin: `refs/heads/a ${second} refs/heads/a ${first}\nrefs/heads/b ${first} refs/heads/b ${first}\n`,
+    });
+    expect(r.status, r.out).toBe(1);
+    expect(f.remoteRuns().map((line) => line.split(" ")[4])).toEqual([
+      second,
+      first,
+    ]);
+    const log = read(keptLog(f, r.out, "isomux-ci"));
+    expect(log).toContain(first);
+    expect(log).not.toContain(second);
   });
 
   it("runs nothing for a push that only deletes", () => {
