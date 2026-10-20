@@ -612,9 +612,11 @@ async function main(): Promise<void> {
         // proves the header is actually being checked.
         headers: { origin: BASE },
         form: {
+          signupIntent: "new",
           officeName: "cp1",
           plan: "office",
           couponId: couponId ?? "",
+          customerSshKey: submittedPublic,
         },
         maxRedirects: 0,
       });

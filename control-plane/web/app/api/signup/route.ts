@@ -14,9 +14,9 @@ export const dynamic = "force-dynamic";
 /**
  * The signup POST.
  *
- * The session's ACCOUNT ID is the only account selector: the form carries a
- * name, a plan and an optional code, and nothing it says is trusted as
- * identity.
+ * The session's ACCOUNT ID is the only account selector: nothing the form says
+ * is trusted as identity. Its signupIntent selects the path, "new" or
+ * "continue"; any other value is refused.
  * A refusal comes back to the form with its reason; a success is a redirect to
  * Stripe's own hosted page, which is the only place a card is ever entered.
  */
@@ -51,6 +51,8 @@ export async function POST(request: Request): Promise<Response> {
   const officeName = field("officeName");
   const customerSshKey = field("customerSshKey");
   const signupIntent = field("signupIntent");
+  if (signupIntent !== "new" && signupIntent !== "continue")
+    return new Response(null, { status: 400 });
   const state = await signupPageState(accountId);
   if (signupIntent === "continue") {
     if (customerSshKey) return new Response(null, { status: 400 });
@@ -78,7 +80,7 @@ export async function POST(request: Request): Promise<Response> {
     officeName,
     plan,
     couponId: couponRaw || null,
-    customerSshKey: customerSshKey || null,
+    customerSshKey,
   });
 
   if (!result.ok) {

@@ -184,6 +184,7 @@ export function SignupForm({
 
   return (
     <form className="form card" onSubmit={(event) => void submit(event)}>
+      <input type="hidden" name="signupIntent" value="new" />
       <OfficeAddressPreview
         language={language}
         initialName={initialName}

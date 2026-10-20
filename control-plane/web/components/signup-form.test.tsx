@@ -113,3 +113,19 @@ test("interactive signup announces a refusal at the payment action", () => {
     html.indexOf("Continue to payment"),
   );
 });
+
+test("the new-office form posts the new intent", () => {
+  const html = renderToStaticMarkup(
+    <SignupForm
+      language="en"
+      domain="test.isomux.app"
+      initialName=""
+      plans={[]}
+    />,
+  );
+  const form = html.match(/<form[\s\S]*<\/form>/)?.[0] ?? "";
+  const intent = form.match(/<input[^>]*name="signupIntent"[^>]*>/)?.[0];
+  expect(intent).toBeDefined();
+  expect(intent).toContain('type="hidden"');
+  expect(intent).toContain('value="new"');
+});

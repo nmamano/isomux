@@ -24,6 +24,8 @@ let continued: SignupResult | { ok: false; officeName: string } = {
   reason: "",
 };
 let signedUp: SignupResult = { ok: false, reason: "" };
+// Each stand-in service records its name when the route calls it.
+let calls: string[] = [];
 
 // Outside a Next request `auth()` and `next/headers` throw, and the services
 // need a database: the session, the language and the three business answers
@@ -45,9 +47,18 @@ await mock.module("../../../lib/i18n/request.server", () => ({
 }));
 await mock.module("../../../lib/services.server", () => ({
   ...realServices,
-  signupPageState: async () => pageState,
-  continueSignup: async () => continued,
-  signUpOffice: async () => signedUp,
+  signupPageState: async () => {
+    calls.push("signupPageState");
+    return pageState;
+  },
+  continueSignup: async () => {
+    calls.push("continueSignup");
+    return continued;
+  },
+  signUpOffice: async () => {
+    calls.push("signUpOffice");
+    return signedUp;
+  },
 }));
 afterAll(async () => {
   await mock.module("../../../auth", () => realAuth);
@@ -84,6 +95,7 @@ const signedIn: Session = {
 beforeEach(() => {
   session = signedIn;
   pageState = { kind: "new" };
+  calls = [];
 });
 
 describe("POST /api/signup redirects to the configured origin", () => {
@@ -120,6 +132,7 @@ describe("POST /api/signup redirects to the configured origin", () => {
     const target = location(
       await POST(
         signupPost({
+          signupIntent: "new",
           officeName: "acme",
           plan: "standard",
           customerSshKey: "ssh-ed25519 AAAA",
@@ -130,5 +143,83 @@ describe("POST /api/signup redirects to the configured origin", () => {
     expect(target.pathname).toBe("/signup");
     expect(target.searchParams.get("error")).toBe("signup-refused");
     expect(target.searchParams.get("name")).toBe("acme");
+  });
+});
+
+// The intent field is the only branch selector: "new" opens the new-office
+// path, "continue" the continuation, and anything else is refused before the
+// route reads the account's state or calls a service.
+describe("POST /api/signup selects its path only by signupIntent", () => {
+  const newOffice = {
+    officeName: "acme",
+    plan: "standard",
+    customerSshKey: "ssh-ed25519 AAAA",
+  };
+
+  test("a new-office post without an intent is refused before any service", async () => {
+    const response = await POST(signupPost(newOffice));
+    expect(response.status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
+  test("an unknown intent is refused before any service", async () => {
+    for (const signupIntent of ["Continue", "renew", "new-office"]) {
+      calls = [];
+      const response = await POST(signupPost({ ...newOffice, signupIntent }));
+      expect([signupIntent, response.status]).toEqual([signupIntent, 400]);
+      expect([signupIntent, calls]).toEqual([signupIntent, []]);
+    }
+  });
+
+  test("intent new with a key reaches the new-office service", async () => {
+    signedUp = { ok: false, reason: "signup-refused" };
+    const response = await POST(
+      signupPost({ ...newOffice, signupIntent: "new" }),
+    );
+    expect(location(response).searchParams.get("error")).toBe("signup-refused");
+    expect(calls).toContain("signUpOffice");
+    expect(calls).not.toContain("continueSignup");
+  });
+
+  test("intent new without a key is refused before the new-office service", async () => {
+    const response = await POST(
+      signupPost({ ...newOffice, customerSshKey: "", signupIntent: "new" }),
+    );
+    expect(response.status).toBe(400);
+    expect(calls).not.toContain("signUpOffice");
+    expect(calls).not.toContain("continueSignup");
+  });
+
+  test("intent continue with a key is refused before continuation", async () => {
+    pageState = { kind: "continue", officeName: "acme" };
+    const response = await POST(
+      signupPost({
+        signupIntent: "continue",
+        officeName: "acme",
+        customerSshKey: "ssh-ed25519 AAAA",
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(calls).not.toContain("continueSignup");
+    expect(calls).not.toContain("signUpOffice");
+  });
+
+  test("intent continue with nothing to continue is refused before continuation", async () => {
+    const response = await POST(
+      signupPost({ signupIntent: "continue", officeName: "acme" }),
+    );
+    expect(response.status).toBe(400);
+    expect(calls).toContain("signupPageState");
+    expect(calls).not.toContain("continueSignup");
+    expect(calls).not.toContain("signUpOffice");
+  });
+
+  test("intent continue for another name than the reserved one is a conflict", async () => {
+    pageState = { kind: "continue", officeName: "acme" };
+    const response = await POST(
+      signupPost({ signupIntent: "continue", officeName: "other" }),
+    );
+    expect(response.status).toBe(409);
+    expect(calls).not.toContain("continueSignup");
   });
 });
