@@ -1101,14 +1101,8 @@ export class CodexSession implements BackendSession {
   // total - last, so the pre-resume lifetime is never emitted again.
   private ownTurnIds = new Set<string>();
   private resumeBaselineSet = false;
-  // Latest snapshot for /context. We use the `last` (most recent turn) field
-  // of the tokenUsage notification, not `total` (cumulative-since-thread-
-  // start). `last.inputTokens` is the prompt size of the last turn - i.e.
-  // what was in context when the model spoke - and `last.outputTokens` is
-  // what was appended after. Together they approximate the context fullness
-  // heading into the next turn. Using `total.*` here would mis-report cache
-  // re-reads (which sum across turns) as live context usage. Null until the
-  // first notification arrives (typically right after the first turn).
+  // Window size from the latest tokenUsage notification; the /context
+  // denominator. Null until the first notification arrives.
   private modelContextWindow: number | null = null;
   // Child (subagent / review-mode) threads spawned by this thread, keyed by
   // child thread id. Registered from thread/started (parentThreadId === ours),
@@ -1135,6 +1129,16 @@ export class CodexSession implements BackendSession {
   // rate-limit data because nothing has been asked or pushed yet" (unknown)
   // from "asked, and this account reports none" (authoritative).
   private rateLimitsReadSettled = false;
+  // Latest snapshot for /context. We use the `last` (most recent turn) field
+  // of the tokenUsage notification, not `total` (cumulative-since-thread-
+  // start). `last.inputTokens` is the prompt size of the last turn - i.e.
+  // what was in context when the model spoke - and `last.outputTokens` is
+  // what was appended after. Together they approximate the context fullness
+  // heading into the next turn. Using `total.*` here would mis-report cache
+  // re-reads (which sum across turns) as live context usage. Null until the
+  // first notification arrives: on a new thread, after the first turn; on a
+  // resumed thread, codex 0.160.0 replays the last persisted usage right
+  // after thread/resume, before any turn (measured 2026-10-19).
   private lastTurnBreakdown: {
     inputNewTokens: number;
     inputCachedTokens: number;

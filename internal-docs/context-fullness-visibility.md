@@ -18,7 +18,7 @@ Nil greenlit a REDUCED scope for the first batch - the server-side core only. **
 
 With this, everything in this design is implemented.
 
-Decisions resolved with the reduced scope: threshold values/notice policy are moot until 50392514; no snapshot persistence across server restarts is ACCEPTED for v1 - after a restart + resume, the snapshot repopulates at the end of the first completed turn of the resumed conversation. (Cheap seed-earlier option, not built: fire one `refreshContextUsage` when a Claude session is installed on wake/resume - the SDK control request can report the resumed transcript without waiting for a turn. Codex has no equivalent until its first `tokenUsage` notification.)
+Decisions resolved with the reduced scope: threshold values/notice policy are moot until 50392514; no snapshot persistence across server restarts is ACCEPTED for v1. After a restart, a Claude agent's snapshot repopulates at the end of the first completed turn of the resumed conversation. (Cheap seed-earlier option, not built: fire one `refreshContextUsage` when a Claude session is installed on wake/resume - the SDK control request can report the resumed transcript without waiting for a turn.) A Codex agent's snapshot repopulates when the thread resumes (on wake, normally the first message), before that turn ends: codex 0.160.0 replays the last persisted usage in one `thread/tokenUsage/updated` right after `thread/resume` (measured 2026-10-19), and the adapter's `usage_update` for it triggers a sample.
 
 ## Scope
 
@@ -30,9 +30,9 @@ Decisions resolved with the reduced scope: threshold values/notice policy are mo
 
 Most of the signal plumbing is already built for the member-facing `/context` slash command:
 
-- `BackendSession.getContextUsage(): Promise<ContextUsage | null>` (`server/backends/types.ts:233-252`) with `{model, totalTokens, maxTokens, percentage, categories?, memoryFiles?, systemPromptSections?, isAutoCompactEnabled?, autoCompactThreshold?}`.
-- **Claude** (`server/backends/claude.ts:411`): control request to the SDK's `Query.getContextUsage()`. On-demand, rich breakdown, includes the auto-compact threshold. Returns null on error/not-ready.
-- **Codex** (`server/backends/codex/adapter.ts:725-758`): no on-demand RPC; synthesized from the cached `last.*` breakdown + `modelContextWindow` of the most recent `thread/tokenUsage/updated` notification. Correctly uses `last` (prompt size of the last turn ≈ live context), not `total` (cumulative, would misreport). **Null until the first turn's notification arrives.**
+- `BackendSession.getContextUsage(): Promise<ContextUsage | null>` (`ContextUsage` in `server/backends/types.ts`) with `{model, totalTokens, maxTokens, percentage, categories?, memoryFiles?, systemPromptSections?, isAutoCompactEnabled?, autoCompactThreshold?}`.
+- **Claude** (`getContextUsage` in `server/backends/claude.ts`): control request to the SDK's `Query.getContextUsage()`. On-demand, rich breakdown, includes the auto-compact threshold. Returns null on error/not-ready.
+- **Codex** (`getContextUsage` in `server/backends/codex/adapter.ts`): no on-demand RPC; synthesized from the cached `last.*` breakdown + `modelContextWindow` of the most recent `thread/tokenUsage/updated` notification. Correctly uses `last` (prompt size of the last turn ≈ live context), not `total` (cumulative, would misreport). **Null on a new thread until the first turn's notification arrives.** On a resumed thread, codex 0.160.0 replays the last persisted usage right after `thread/resume`, before any turn (measured 2026-10-19), so the reading is there as soon as the thread resumes.
 
 What's missing: nothing pushes this anywhere. There's no server-side snapshot, no WS field, no agent-facing surface, no UI rendering outside the manual `/context` command.
 

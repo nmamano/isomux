@@ -340,9 +340,9 @@ export interface NormalizedMessage {
   text: string;
 }
 
-// Subset of SDKControlGetContextUsageResponse used by the /context UI. Codex
-// doesn't expose an equivalent at v1; backends that don't support it return
-// null from getContextUsage.
+// Subset of SDKControlGetContextUsageResponse used by the /context UI. Other
+// backends synthesize it from what they report; a backend with no reading
+// returns null from getContextUsage.
 export interface ContextUsage {
   model: string;
   totalTokens: number;

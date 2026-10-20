@@ -114,9 +114,11 @@ export interface ManagedAgent {
   // See internal-docs/context-fullness-visibility.md.
   // Latest committed fullness measurement for the CURRENT conversation, or null
   // when none exists (fresh/blank conversation, resumed-but-not-yet-sampled,
-  // backend can't report - e.g. Codex before its first turn's tokenUsage
-  // notification). In-memory only; lost on server restart and repopulated at
-  // the end of the first completed turn.
+  // backend can't report - e.g. a new Codex thread before its first turn's
+  // tokenUsage notification). In-memory only; lost on server restart. Claude
+  // repopulates it at the end of the first completed turn. Codex repopulates
+  // it when the thread resumes (on wake), from the usage codex 0.160.0
+  // replays after thread/resume (measured 2026-10-19).
   contextUsage: ContextUsageSnapshot | null;
   // Conversation-generation token. Bumped SYNCHRONOUSLY (never after an await)
   // by every path that resets or switches the conversation (/clear, engine
