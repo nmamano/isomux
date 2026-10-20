@@ -389,7 +389,15 @@ async function openReservedCheckout(args: {
         instanceId: reservation.instance_id,
       };
     } else if (existing.kind === "ok") {
-      return { ok: false, reason: "Stripe returned a session with no URL" };
+      return {
+        ok: false,
+        reason: customerFailure(
+          language,
+          "configuration",
+          "checkout_reserved",
+          "Stripe returned a session with no URL",
+        ),
+      };
     }
   }
   const inputs = checkoutInputsFor({

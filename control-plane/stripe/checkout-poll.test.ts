@@ -30,6 +30,7 @@ import { pollPendingCheckouts } from "./checkout-poll.ts";
 import { applyEvent, applyPolledCheckout } from "./reconcile.ts";
 import type { ReadResult, StripeObjectReader } from "./reader.ts";
 import { continueSignup } from "../web/lib/services.server.ts";
+import { translatorFor } from "../web/lib/i18n/translate.ts";
 import type {
   InvoiceSnapshot,
   SessionSnapshot,
@@ -254,6 +255,76 @@ describe("pending ordinary Checkout polling", () => {
       reason:
         "We could not check your payment page just now - try again in a moment.",
     });
+  });
+
+  test("an open session with no URL reaches the customer as a translated refusal with a reference", async () => {
+    // Stripe can answer a session that is neither expired nor complete and
+    // still carry no URL. The diagnostic belongs in our log under the
+    // reference; the customer reads the checkout refusal in their language.
+    const store = await tempStore();
+    await pending(store, "no-url", "cs_nourl");
+    (
+      globalThis as {
+        [STORE_SLOT]?: { opening?: Promise<Store> };
+      }
+    )[STORE_SLOT] = { opening: Promise.resolve(store) };
+    process.env.AUTH_URL = "https://cloud.example.test";
+    process.env.CONTROL_PLANE_ENTRY_PRICE_ID = "price_entry";
+    process.env.CONTROL_PLANE_STRIPE_MODE = "test";
+    process.env.STRIPE_TEST_SECRET_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
+    const calls: string[] = [];
+    globalThis.fetch = (async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const requestUrl =
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      const path = new URL(requestUrl).pathname;
+      calls.push(`${init?.method ?? "GET"} ${path}`);
+      return new Response(
+        JSON.stringify({
+          id: "cs_nourl",
+          status: "open",
+          url: null,
+          expires_at: Math.floor((NOW + 60_000) / 1000),
+          livemode: false,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    const logged: string[] = [];
+    const realError = console.error;
+    console.error = (...parts: unknown[]) => {
+      logged.push(parts.map(String).join(" "));
+    };
+    try {
+      for (const language of ["en", "es"] as const) {
+        logged.length = 0;
+        const result = await continueSignup(language, "acct-1", "no-url");
+        expect(result.ok).toBe(false);
+        const reason = "reason" in result ? result.reason : "";
+        const refusal = translatorFor(language).t(
+          "errors.checkoutReservedConfiguration",
+        );
+        expect(reason).toStartWith(`${refusal} `);
+        const reference = /PAY-[0-9A-F]{10}/.exec(reason)?.[0];
+        expect(reference).toBeDefined();
+        expect(reason).not.toContain("no URL");
+        // Support finds the diagnostic by the reference the customer pastes.
+        expect(
+          logged.some(
+            (line) => line.includes(`${reference}`) && line.includes("no URL"),
+          ),
+        ).toBe(true);
+      }
+    } finally {
+      console.error = realError;
+    }
+    // The existing session was read, and no new session was opened.
+    expect(calls).toEqual([
+      "GET /v1/checkout/sessions/cs_nourl",
+      "GET /v1/checkout/sessions/cs_nourl",
+    ]);
   });
 
   test("Continue advances after the poll has already marked the session expired", async () => {
