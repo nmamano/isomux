@@ -848,9 +848,20 @@ describe("provider auth affordances", () => {
 
   // A dead Codex refresh token leaves auth.json on disk (task 1403b454): a
   // failed turn gets the sign-in walkthrough, never "signed in, /clear". A
-  // typed /login is not a failure and keeps the signed-in notice.
+  // typed /login is not a failure and keeps the signed-in notice. When the
+  // sign-in card can show, the failed turn points at the card instead
+  // (task 1492e688).
   describe("a Codex agent whose stored sign-in fails", () => {
-    async function codexWithAuthJson() {
+    async function codexWithAuthJson(
+      opts: {
+        // The account the card reads; absent, the account lookup is not wired.
+        account?: Partial<ProviderAccountWire>;
+        scope?: "office" | "personal";
+        manager?: "owner" | "member";
+      } = {},
+    ) {
+      const scope = opts.scope ?? "personal";
+      const manager = { id: "user-a", role: opts.manager ?? "member" };
       const codexHome = join(STATE_ROOT, `dead-codex-${crypto.randomUUID()}`);
       mkdirSync(codexHome, { recursive: true });
       writeFileSync(join(codexHome, "auth.json"), "{}");
@@ -871,14 +882,30 @@ describe("provider auth affordances", () => {
       // The real Codex answer for whatever the manager passes.
       fake.getLoginInstructions = (opts) =>
         codexBackend.getLoginInstructions(opts);
-      // A personal account, so no office-owner gate stands in front of the
-      // walkthrough.
+      // By default a personal account, so no office-owner gate stands in
+      // front of the walkthrough.
       const h = await harness({
         backendType: "codex",
         fake,
+        accounts: opts.account
+          ? async () => [
+              {
+                ...claudeWire(scope, opts.account),
+                provider: "codex" as const,
+              },
+            ]
+          : undefined,
+        findUser: (person) =>
+          (
+            "username" in person
+              ? person.username === "tester"
+              : person.userId === "user-a"
+          )
+            ? manager
+            : undefined,
         target: () => ({
           provider: "codex",
-          scope: "personal",
+          scope,
           dir: codexHome,
         }),
       });
@@ -906,7 +933,34 @@ describe("provider auth affordances", () => {
         logs()
           .filter((e) => e.kind === "terminal-command")
           .map((e) => e.terminal?.command);
-      return { ...h, signedOut, signedInText, notices, commands };
+      const cards = () =>
+        logs()
+          .filter((e) => e.metadata?.providerLogin === "codex")
+          .map((e) => e.content);
+      const askedOwner = () =>
+        logs().some(
+          (e) => e.content === english.t("settings.signIn.askOfficeOwner"),
+        );
+      // Bounded inside the per-test cap and asserts nothing: the expects
+      // after it name what failed.
+      const settled = () =>
+        settle(
+          () =>
+            notices().length > 0 ||
+            cards().length > 0 ||
+            commands().length > 0 ||
+            askedOwner(),
+        );
+      return {
+        ...h,
+        signedOut,
+        signedInText,
+        notices,
+        commands,
+        cards,
+        askedOwner,
+        settled,
+      };
     }
 
     it("gives a failed turn the sign-in walkthrough", async () => {
@@ -924,6 +978,104 @@ describe("provider auth affordances", () => {
       expect(h.notices()).toEqual([h.signedInText]);
       expect(h.commands()).toEqual([]);
     });
+
+    // Codex reads the account without refreshing its token, so a dead token
+    // can still read as connected. The manager can sign out and in on the
+    // card; only the office half held from a member says to ask an owner.
+    const rejectedCases = [
+      ["personal", "member", "systemEntries.signInRejected"],
+      ["office", "owner", "systemEntries.signInRejected"],
+      ["office", "member", "systemEntries.signInRejectedOffice"],
+    ] as const;
+    for (const [scope, manager, key] of rejectedCases) {
+      it(`points a failed turn at the card of a connected ${scope} account managed by ${manager === "owner" ? "an owner" : "a member"}`, async () => {
+        const h = await codexWithAuthJson({
+          account: { accountStatus: "connected", canBrowserLogin: true },
+          scope,
+          manager,
+        });
+        await h.mgr.sendMessage(h.agentId, "hello", "tester");
+        await h.settled();
+        expect(h.cards()).toEqual([english.t(key, { provider: "Codex" })]);
+        expect(h.notices()).toEqual([]);
+        expect(h.commands()).toEqual([]);
+        expect(h.askedOwner()).toBe(false);
+      });
+    }
+
+    it("keeps the walkthrough when the connected account cannot sign in on the card", async () => {
+      const h = await codexWithAuthJson({
+        account: { accountStatus: "connected", canBrowserLogin: false },
+      });
+      await h.mgr.sendMessage(h.agentId, "hello", "tester");
+      await h.settled();
+      expect(h.cards()).toEqual([]);
+      expect(h.notices()).toEqual([h.signedOut.text]);
+      expect(h.commands()).toEqual(h.signedOut.commands!);
+    });
+
+    it("keeps the signed-in card on a typed /login with a connected account", async () => {
+      const h = await codexWithAuthJson({
+        account: { accountStatus: "connected", canBrowserLogin: true },
+      });
+      await h.mgr.sendMessage(h.agentId, "/login", "tester");
+      await h.settled();
+      expect(h.cards()).toEqual([
+        english.t("systemEntries.alreadySignedIn", { provider: "Codex" }),
+      ]);
+      expect(h.notices()).toEqual([]);
+      expect(h.commands()).toEqual([]);
+    });
+  });
+
+  // A typed /login that reaches the walkthrough is not a rejection: the
+  // backend says to sign in, and a connected account does not change that.
+  it("keeps the walkthrough for a typed /login that the backend answers with a sign-in", async () => {
+    const fake = new FakeBackend({
+      loginInstructions: {
+        kind: "login",
+        text: "terminal fallback",
+        commands: ["~/.isomux/bin/codex login"],
+      },
+    });
+    const { mgr, agentId } = await harness({
+      backendType: "codex",
+      fake,
+      accounts: async () => [
+        {
+          ...claudeWire("personal", { accountStatus: "connected" }),
+          provider: "codex" as const,
+        },
+      ],
+      target: () => ({
+        provider: "codex",
+        scope: "personal",
+        dir: "/accounts/personal-codex",
+      }),
+    });
+    await mgr.sendMessage(agentId, "/login", "tester");
+    const logs = () => mgr.getAgentLogs(agentId);
+    await settle(() =>
+      logs().some(
+        (entry) =>
+          entry.kind === "terminal-command" ||
+          entry.metadata?.providerLogin === "codex",
+      ),
+    );
+    expect(
+      logs().filter((entry) => entry.metadata?.providerLogin === "codex"),
+    ).toEqual([]);
+    expect(
+      logs().filter(
+        (entry) =>
+          entry.kind === "system" && entry.content === "terminal fallback",
+      ),
+    ).toHaveLength(1);
+    expect(
+      logs()
+        .filter((entry) => entry.kind === "terminal-command")
+        .map((entry) => entry.terminal?.command),
+    ).toEqual(["~/.isomux/bin/codex login"]);
   });
 
   it("coalesces Claude system_text and an auth-looking stream exit", async () => {

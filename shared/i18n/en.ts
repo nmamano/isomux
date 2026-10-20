@@ -2873,6 +2873,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.scheduleRun.editNoFork":
     "Cannot edit: backend returned a fresh session (no linked fork).",
   "systemEntries.scheduleRun.forkFailed": "Fork failed: {error}",
+  "systemEntries.scheduleRun.signIn":
+    "Fix the {provider} sign-in or API key on the Integrations page. The next run uses it.",
+  "systemEntries.scheduleRun.signInOpenCode":
+    "Add `OPENCODE_API_KEY` on the Integrations page (Variables tab). The next run uses it.",
   "systemEntries.scheduleRun.forkStartFailed": "Failed to start fork: {error}",
   "systemEntries.claudeSession.missingAfterExit":
     "Cannot resume Claude session {session}…: its file was not found. Paths checked: {paths}. Use /resume to select another conversation, or start a new conversation.",
@@ -2887,6 +2891,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.notSignedIn": "{provider} is not signed in.",
   "systemEntries.signInRequiredOffice":
     "{provider} could not run this message because it is not signed in.",
+  "systemEntries.signInRejected":
+    "{provider} rejected the credentials. Sign out below, then sign in again.",
+  "systemEntries.signInRejectedOffice":
+    "{provider} rejected the credentials. Ask an office owner to sign in.",
   "systemEntries.manageSignIn": "Manage your {provider} sign-in below.",
   "systemEntries.alreadySignedIn":
     "You are already signed in. Manage your {provider} sign-in below.",

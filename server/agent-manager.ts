@@ -770,14 +770,20 @@ export function createAgentManager(deps: ManagerDeps) {
         if (cardHiddenFromTypist(managed, target, username))
           throw new Error("The typist cannot see the sign-in card.");
         const accounts = await deps.listProviderAccounts(managed.info.userId);
-        const cardIsActionable = accounts.some(
-          (account) =>
-            account.provider === provider &&
-            account.scope === target.scope &&
-            account.accountStatus !== "connected" &&
-            account.canBrowserLogin,
+        const account = accounts.find(
+          (value) =>
+            value.provider === provider &&
+            value.scope === target.scope &&
+            value.canBrowserLogin,
         );
-        if (cardIsActionable) {
+        // A failed turn on an account that reads connected means the stored
+        // sign-in was rejected (a dead Codex token stays in auth.json): the
+        // card's Sign out and Sign in replace it.
+        const rejected =
+          trigger === "turn" &&
+          instructions.kind === "login" &&
+          account?.accountStatus === "connected";
+        if (account && (account.accountStatus !== "connected" || rejected)) {
           // A member's card has no Sign in on the office half; it says to
           // ask an owner, so the entry does not say "sign in below".
           const withheld = officeSignInWithheld(managed, target, username);
@@ -785,13 +791,17 @@ export function createAgentManager(deps: ManagerDeps) {
             agentId,
             "system",
             logWords(agentId, username)(
-              trigger === "login_command"
+              rejected
                 ? withheld
-                  ? "systemEntries.notSignedIn"
-                  : "systemEntries.signInPrompt"
-                : withheld
-                  ? "systemEntries.signInRequiredOffice"
-                  : "systemEntries.signInRequired",
+                  ? "systemEntries.signInRejectedOffice"
+                  : "systemEntries.signInRejected"
+                : trigger === "login_command"
+                  ? withheld
+                    ? "systemEntries.notSignedIn"
+                    : "systemEntries.signInPrompt"
+                  : withheld
+                    ? "systemEntries.signInRequiredOffice"
+                    : "systemEntries.signInRequired",
               { provider: providerDisplayName(provider) },
             ),
             { providerLogin: provider },

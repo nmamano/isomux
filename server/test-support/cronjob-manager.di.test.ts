@@ -541,6 +541,10 @@ describe("CronjobManager DI (temp-state isolated)", () => {
   // The adapter says when a run needs sign-in (auth_needed); the run's
   // terminal event only decides when the hint is written. The fake still calls
   // "401" auth-shaped, so the last case fails if cron sniffs the text again.
+  const claudeRunHint = translatorFor("en").t(
+    "systemEntries.scheduleRun.signIn",
+    { provider: "Claude" },
+  );
   const authCases: Array<[string, NormalizedEvent[], boolean]> = [
     [
       "an error after auth_needed",
@@ -562,7 +566,7 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     it(`${hinted ? "writes" : "does not write"} the login hint for ${name}`, async () => {
       const fake = new FakeBackend({
         isAuthError: (text) => text.includes("401"),
-        loginInstructions: { kind: "login", text: "sign-in hint" },
+        loginInstructions: { kind: "login", text: "chat walkthrough" },
         session: {
           onSend: (_text, _attachments, session) => session.pushAll(events),
         },
@@ -577,7 +581,7 @@ describe("CronjobManager DI (temp-state isolated)", () => {
             emitted.push(event);
             if (
               event.type === "log_entry" &&
-              event.entry.content === "sign-in hint"
+              event.entry.content === claudeRunHint
             )
               statusAtHint.push(mgr.findRun(job.id, run.id)?.status);
           },
@@ -602,7 +606,7 @@ describe("CronjobManager DI (temp-state isolated)", () => {
         if (hinted)
           expect(entries.at(-1)).toMatchObject({
             kind: "system",
-            content: "sign-in hint",
+            content: claudeRunHint,
           });
       } finally {
         fake.sessions.forEach((session) => session.close());
@@ -610,114 +614,131 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     });
   }
 
-  it("drops a login hint that resolves after the run was torn down", async () => {
-    let releaseHint: () => void = () => {};
-    const hintRequested = Promise.withResolvers<void>();
-    const fake = new FakeBackend({
-      isAuthError: (text) => text.includes("401"),
-      session: {
-        onSend: (_text, _attachments, session) =>
-          session.pushAll([
-            { kind: "auth_needed" },
-            { kind: "error", message: "401 unauthorized" },
-          ]),
-      },
-    });
-    fake.getLoginInstructions = () => {
-      hintRequested.resolve();
-      return new Promise((resolve) => {
-        releaseHint = () =>
-          resolve({ kind: "login", cardEligible: false, text: "late hint" });
-      });
-    };
-    const timers = fakeScheduler();
-    const { events, sink } = capture();
-    const mgr = createCronjobManager(
-      baseDeps({
-        resolveBackend: () => fake,
-        eventSink: sink,
-        scheduler: timers.scheduler,
+  // A run log has no sign-in card and no /clear (task 1492e688). Every
+  // signed-out or rejected run gets the run hint, whatever the backend's chat
+  // walkthrough says for that env: a dead Codex token leaves auth.json on disk
+  // (task 1403b454), and a rejected OPENAI_API_KEY reads as signed in.
+  const runHintCases: Array<{
+    name: string;
+    agentType: AgentBackendType;
+    env: (codexHome: string) => Record<string, string>;
+    hint: string;
+  }> = [
+    {
+      name: "a Claude run",
+      agentType: "claude",
+      env: () => ({}),
+      hint: claudeRunHint,
+    },
+    {
+      name: "a Codex run with auth.json",
+      agentType: "codex",
+      env: (codexHome) => ({ CODEX_HOME: codexHome, OPENAI_API_KEY: "" }),
+      hint: translatorFor("en").t("systemEntries.scheduleRun.signIn", {
+        provider: "Codex",
       }),
-    );
-    const job = mgr.addCronjob(intervalInput("LateHint"));
-    const run = mgr.runCronjobNow(job.id, "Nil")!;
-    try {
-      await hintRequested.promise;
-      for (const timeout of timers.timeouts) timeout.fn();
-      expect(mgr.findRun(job.id, run.id)?.status).toBe("timed_out");
-      releaseHint();
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      const contents = events.flatMap((event) =>
-        event.type === "log_entry" ? [event.entry.content] : [],
-      );
-      expect(contents).not.toContain("late hint");
-      expect(mgr.findRun(job.id, run.id)?.status).toBe("timed_out");
-    } finally {
-      fake.sessions.forEach((session) => session.close());
-    }
-  });
-
-  // A dead Codex refresh token leaves auth.json on disk (task 1403b454). A
-  // run has no /clear, so its hint is the sign-in walkthrough, never "signed
-  // in, /clear".
-  it("writes the Codex sign-in walkthrough when auth.json is present", async () => {
-    const codexHome = mkdtempSync(join(tmpdir(), "isomux-cron-codex-"));
-    try {
-      writeFileSync(join(codexHome, "auth.json"), "{}");
-      const env = { CODEX_HOME: codexHome, OPENAI_API_KEY: "" };
-      const fake = new FakeBackend({
-        session: {
-          onSend: (_t, _a, s) =>
-            s.pushAll([
-              { kind: "auth_needed" },
-              { kind: "turn_completed", status: "failed" },
-            ]),
-        },
-      });
-      // The real Codex answer for whatever the manager passes.
-      fake.getLoginInstructions = (opts) =>
-        codexBackend.getLoginInstructions(opts);
-      const signedOut = await codexBackend.getLoginInstructions({
-        env: { ...env, CODEX_HOME: join(codexHome, "absent") },
-      });
-      expect(signedOut.kind).toBe("login");
-      const { events, sink } = capture();
-      const mgr = createCronjobManager(
-        baseDeps({
-          resolveBackend: () => fake,
-          resolveEnv: () => env,
-          eventSink: sink,
-        }),
-      );
-      const job = mgr.addCronjob({
-        ...intervalInput("DeadCodexToken"),
-        agentType: "codex",
-        modelFamily: "gpt-test-cron",
-        effort: "high",
-        permissionMode: "never",
-        codexSandbox: "read-only",
-      });
-      const run = mgr.runCronjobNow(job.id, "Nil")!;
+    },
+    {
+      name: "a Codex run with OPENAI_API_KEY",
+      agentType: "codex",
+      env: (codexHome) => ({
+        CODEX_HOME: join(codexHome, "absent"),
+        OPENAI_API_KEY: "sk-rejected",
+      }),
+      hint: translatorFor("en").t("systemEntries.scheduleRun.signIn", {
+        provider: "Codex",
+      }),
+    },
+    {
+      name: "an OpenCode run",
+      agentType: "opencode",
+      env: () => ({}),
+      hint: translatorFor("en").t("systemEntries.scheduleRun.signInOpenCode"),
+    },
+  ];
+  for (const c of runHintCases) {
+    it(`writes the run sign-in hint for ${c.name}`, async () => {
+      const codexHome = mkdtempSync(join(tmpdir(), "isomux-cron-codex-"));
       try {
-        const deadline = Date.now() + 2000;
-        while (
-          mgr.findRun(job.id, run.id)?.status === "running" &&
-          Date.now() < deadline
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 5));
+        writeFileSync(join(codexHome, "auth.json"), "{}");
+        const env = c.env(codexHome);
+        const fake = new FakeBackend({
+          session: {
+            onSend: (_t, _a, s) =>
+              s.pushAll([
+                { kind: "auth_needed" },
+                { kind: "turn_completed", status: "failed" },
+              ]),
+          },
+        });
+        // The real chat answer for Codex, a chat walkthrough with a terminal
+        // command for the others: the run must use neither.
+        fake.getLoginInstructions = async (opts) =>
+          c.agentType === "codex"
+            ? codexBackend.getLoginInstructions(opts)
+            : {
+                kind: "login",
+                cardEligible: true,
+                text: "chat walkthrough",
+                commands: ["terminal login"],
+              };
+        const chat = await fake.getLoginInstructions({
+          env,
+          credentialsRejected: true,
+        });
+        const { events, sink } = capture();
+        const mgr = createCronjobManager(
+          baseDeps({
+            resolveBackend: () => fake,
+            resolveEnv: () => env,
+            eventSink: sink,
+          }),
+        );
+        const job = mgr.addCronjob({
+          ...intervalInput(`RunHint ${c.name}`),
+          agentType: c.agentType,
+          ...(c.agentType === "codex"
+            ? {
+                modelFamily: "gpt-test-cron",
+                effort: "high",
+                permissionMode: "never",
+                codexSandbox: "read-only",
+              }
+            : c.agentType === "opencode"
+              ? { modelFamily: "gate/gate-model" }
+              : {}),
+        });
+        const run = mgr.runCronjobNow(job.id, "Nil")!;
+        try {
+          const deadline = Date.now() + 2000;
+          while (
+            mgr.findRun(job.id, run.id)?.status === "running" &&
+            Date.now() < deadline
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+          expect(mgr.findRun(job.id, run.id)?.status).toBe("failed");
+          const entries = events.flatMap((event) =>
+            event.type === "log_entry" ? [event.entry] : [],
+          );
+          expect(chat.text).not.toBe(c.hint);
+          expect(entries.at(-1)).toMatchObject({
+            kind: "system",
+            content: c.hint,
+          });
+          expect(entries.filter((e) => e.content === c.hint)).toHaveLength(1);
+          expect(entries.some((e) => e.content === chat.text)).toBe(false);
+          expect(entries.some((e) => e.kind === "terminal-command")).toBe(
+            false,
+          );
+        } finally {
+          fake.sessions.forEach((session) => session.close());
         }
-        expect(mgr.findRun(job.id, run.id)?.status).toBe("failed");
-        const last = events
-          .flatMap((event) => (event.type === "log_entry" ? [event.entry] : []))
-          .at(-1);
-        expect(last).toMatchObject({ kind: "system", content: signedOut.text });
       } finally {
-        fake.sessions.forEach((session) => session.close());
+        rmSync(codexHome, { recursive: true, force: true });
       }
-    } finally {
-      rmSync(codexHome, { recursive: true, force: true });
-    }
-  });
+    });
+  }
 
   it("aborts and explains an interactive question request", async () => {
     const fake = new FakeBackend({
@@ -2035,7 +2056,7 @@ describe("CronjobManager run text in the reader's language", () => {
   }
 
   it("writes the sign-in hint in the schedule owner's language", async () => {
-    const KEY = "systemEntries.resumeCancelled" as const;
+    const KEY = "systemEntries.scheduleRun.signIn" as const;
     const owner = member("es");
     const fake = new FakeBackend({
       session: {
@@ -2045,12 +2066,6 @@ describe("CronjobManager run text in the reader's language", () => {
             { kind: "turn_completed", status: "failed" },
           ]),
       },
-    });
-    // Renders through the words it gets, as every real backend does.
-    fake.getLoginInstructions = async (opts) => ({
-      kind: "login",
-      cardEligible: false,
-      text: (opts?.words ?? translatorFor("en").t)(KEY),
     });
     const { events, sink } = capture();
     const mgr = createCronjobManager(
@@ -2070,8 +2085,11 @@ describe("CronjobManager run text in the reader's language", () => {
       const last = events
         .flatMap((event) => (event.type === "log_entry" ? [event.entry] : []))
         .at(-1);
-      expect(translatorFor("es").t(KEY)).not.toBe(translatorFor("en").t(KEY));
-      expect(last?.content).toBe(translatorFor("es").t(KEY));
+      const params = { provider: "Claude" };
+      expect(translatorFor("es").t(KEY, params)).not.toBe(
+        translatorFor("en").t(KEY, params),
+      );
+      expect(last?.content).toBe(translatorFor("es").t(KEY, params));
     } finally {
       fake.sessions.forEach((session) => session.close());
     }

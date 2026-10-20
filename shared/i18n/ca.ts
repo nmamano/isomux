@@ -2910,6 +2910,10 @@ Coses que pots fer per ell:
   "systemEntries.scheduleRun.editNoFork":
     "No es pot editar: el motor ha retornat una sessió nova (sense branca vinculada).",
   "systemEntries.scheduleRun.forkFailed": "No s'ha pogut ramificar: {error}",
+  "systemEntries.scheduleRun.signIn":
+    "Corregeix l'inici de sessió o la clau d'API de {provider} a la pàgina Integracions. La propera execució el farà servir.",
+  "systemEntries.scheduleRun.signInOpenCode":
+    "Afegeix `OPENCODE_API_KEY` a la pàgina Integracions (pestanya Variables). La propera execució la farà servir.",
   "systemEntries.scheduleRun.forkStartFailed":
     "No s'ha pogut iniciar la conversa ramificada: {error}",
   "systemEntries.claudeSession.missingAfterExit":
@@ -2925,6 +2929,10 @@ Coses que pots fer per ell:
   "systemEntries.notSignedIn": "{provider} no ha iniciat sessió.",
   "systemEntries.signInRequiredOffice":
     "{provider} no ha pogut executar aquest missatge perquè no ha iniciat sessió.",
+  "systemEntries.signInRejected":
+    "{provider} ha rebutjat les credencials. Tanca la sessió a sota i torna a iniciar-la.",
+  "systemEntries.signInRejectedOffice":
+    "{provider} ha rebutjat les credencials. Demana a un propietari de l'oficina que iniciï la sessió.",
   "systemEntries.manageSignIn": "Gestiona la teva sessió de {provider} a sota.",
   "systemEntries.alreadySignedIn":
     "Ja has iniciat sessió. Gestiona la teva sessió de {provider} a sota.",

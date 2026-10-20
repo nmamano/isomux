@@ -2909,6 +2909,10 @@ Cosas que puedes hacer por él:
   "systemEntries.scheduleRun.editNoFork":
     "No se puede editar: el motor devolvió una sesión nueva (sin rama vinculada).",
   "systemEntries.scheduleRun.forkFailed": "No se pudo ramificar: {error}",
+  "systemEntries.scheduleRun.signIn":
+    "Corrige el inicio de sesión o la clave de API de {provider} en la página Integraciones. La próxima ejecución lo usará.",
+  "systemEntries.scheduleRun.signInOpenCode":
+    "Añade `OPENCODE_API_KEY` en la página Integraciones (pestaña Variables). La próxima ejecución la usará.",
   "systemEntries.scheduleRun.forkStartFailed":
     "No se pudo iniciar la conversación ramificada: {error}",
   "systemEntries.claudeSession.missingAfterExit":
@@ -2924,6 +2928,10 @@ Cosas que puedes hacer por él:
   "systemEntries.notSignedIn": "{provider} no ha iniciado sesión.",
   "systemEntries.signInRequiredOffice":
     "{provider} no pudo ejecutar este mensaje porque no ha iniciado sesión.",
+  "systemEntries.signInRejected":
+    "{provider} rechazó las credenciales. Cierra sesión abajo y vuelve a iniciarla.",
+  "systemEntries.signInRejectedOffice":
+    "{provider} rechazó las credenciales. Pide a un propietario de la oficina que inicie sesión.",
   "systemEntries.manageSignIn": "Gestiona tu sesión de {provider} abajo.",
   "systemEntries.alreadySignedIn":
     "Ya has iniciado sesión. Gestiona tu sesión de {provider} abajo.",

@@ -665,8 +665,8 @@ export interface Backend {
     modelFamily?: string;
     // The reader's words for the instructions text; English when absent.
     words?: Translator["t"];
-    // Set when a turn or run needs sign-in (the auth-needed paths), absent on
-    // a typed /login. Credentials that exist on disk are then not proof of a
+    // Set when a chat turn needs sign-in (the auth-needed path), absent on a
+    // typed /login. Credentials that exist on disk are then not proof of a
     // working sign-in. Codex reads it; Claude ignores it.
     credentialsRejected?: boolean;
   }): Promise<LoginInstructions>;

@@ -2608,6 +2608,10 @@ App 的一些原则：
   "systemEntries.scheduleRun.editNoFork":
     "无法编辑：引擎返回了新会话（没有关联的派生）。",
   "systemEntries.scheduleRun.forkFailed": "派生失败：{error}",
+  "systemEntries.scheduleRun.signIn":
+    "请在「集成」页面修正 {provider} 的登录或 API 密钥。下次运行会使用它。",
+  "systemEntries.scheduleRun.signInOpenCode":
+    "请在「集成」页面（「变量」标签页）添加 `OPENCODE_API_KEY`。下次运行会使用它。",
   "systemEntries.scheduleRun.forkStartFailed": "无法启动派生会话：{error}",
   "systemEntries.claudeSession.missingAfterExit":
     "无法继续 Claude 会话 {session}…：未找到其文件。已检查路径：{paths}。请使用 /resume 选择其他对话，或开始新对话。",
@@ -2621,6 +2625,10 @@ App 的一些原则：
   "systemEntries.signInPrompt": "在下方登录 {provider}。",
   "systemEntries.notSignedIn": "{provider} 未登录。",
   "systemEntries.signInRequiredOffice": "{provider} 未登录，无法处理此消息。",
+  "systemEntries.signInRejected":
+    "{provider} 拒绝了凭据。请在下方退出登录，然后重新登录。",
+  "systemEntries.signInRejectedOffice":
+    "{provider} 拒绝了凭据。请让办公室所有者登录。",
   "systemEntries.manageSignIn": "在下方管理 {provider} 登录。",
   "systemEntries.alreadySignedIn": "已经登录。在下方管理 {provider} 登录。",
   "systemEntries.signOutOpenCode": "OpenCode 智能体不提供退出登录功能。",

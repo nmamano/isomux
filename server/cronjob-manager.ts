@@ -126,7 +126,6 @@ interface ActiveRun {
   runId: string;
   streamId: string;
   agentType: AgentBackendType;
-  modelFamily: string;
   session: BackendSession;
   sessionId: string | null;
   rootSessionId: string;
@@ -910,24 +909,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
   }
 
-  // Resolve the run's spawn-env best-effort for auth-error hint generation.
-  // `buildEnvForUserId` throws when environment loading fails, which is correct
-  // behavior for spawn/preflight but wrong here - a hint generator that fails
-  // would mask the original auth error. Swallowing the error and falling back
-  // to `undefined` (which the backend treats as process.env) keeps the
-  // diagnostic shape intact. Symmetric with agent-manager's
-  // agentLoginInstructions try/catch.
-  function bestEffortRunEnv(
-    active: ActiveRun,
-  ): { [key: string]: string | undefined } | undefined {
-    try {
-      const job = cronjobs.find((c) => c.id === active.jobId);
-      return buildEnvForUserId(job?.userId ?? null);
-    } catch {
-      return undefined;
-    }
-  }
-
   function openCodeDeletedJobError(): Error {
     return new Error(english.t("systemEntries.scheduleRun.openCodeJobDeleted"));
   }
@@ -1118,14 +1099,13 @@ How to answer questions about Isomux itself: the source lives at https://github.
             ev.status === "completed"
               ? null
               : (ev.error ?? `Run stopped: ${ev.status}`);
-          if (ev.status !== "completed")
-            await writeLoginHintIfAuthNeeded(active);
+          if (ev.status !== "completed") writeLoginHintIfAuthNeeded(active);
           finalizeRun(active, status, errorReason);
           return;
         }
         if (ev.kind === "error") {
           // processNormalizedEvent already wrote the error LogEntry; terminate.
-          await writeLoginHintIfAuthNeeded(active);
+          writeLoginHintIfAuthNeeded(active);
           finalizeRun(active, "failed", ev.message);
           return;
         }
@@ -1146,29 +1126,21 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
   }
 
-  // Cronjob runs have no chat desk; surface the text portion of the login hint
-  // and drop the companion terminal-command - there's nowhere for a [Copy to
-  // terminal] card to render. The hint belongs to this run, so nothing is
-  // written once the run is gone (a hard timeout can finalize it during the
-  // await), and a failed lookup writes nothing.
-  async function writeLoginHintIfAuthNeeded(active: ActiveRun): Promise<void> {
+  // A run has no sign-in card and no /clear, and the next run starts a fresh
+  // session: the hint names the Integrations page instead of the chat
+  // walkthrough. One wording covers a rejected sign-in and a rejected API key.
+  function writeLoginHintIfAuthNeeded(active: ActiveRun): void {
     if (!active.authNeeded) return;
-    const backend = getBackend(active.agentType);
-    try {
-      const instructions = await backend.getLoginInstructions({
-        env: bestEffortRunEnv(active),
-        modelFamily: active.modelFamily,
-        words: readerWords(active.jobId),
-        credentialsRejected: true,
-      });
-      if (activeRuns.get(active.runId) !== active) return;
-      writeLog(active, "system", instructions.text);
-    } catch (err) {
-      console.error(
-        `Cronjob run ${active.runId} login hint failed:`,
-        errMessage(err),
-      );
-    }
+    const words = readerWords(active.jobId);
+    writeLog(
+      active,
+      "system",
+      active.agentType === "opencode"
+        ? words("systemEntries.scheduleRun.signInOpenCode")
+        : words("systemEntries.scheduleRun.signIn", {
+            provider: active.agentType === "claude" ? "Claude" : "Codex",
+          }),
+    );
   }
 
   function finalizeRun(
@@ -1362,7 +1334,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
       runId,
       streamId,
       agentType: job.agentType,
-      modelFamily: job.modelFamily,
       session,
       sessionId: null,
       launchedClaudeConfigDir:
@@ -1768,7 +1739,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
       runId: run.id,
       streamId,
       agentType: run.agentTypeSnapshot,
-      modelFamily: run.modelFamilySnapshot,
       session,
       sessionId,
       rootSessionId: run.rootSessionId,
