@@ -9,7 +9,8 @@ import type { NextConfig } from "next";
  * Turbopack refuses to resolve anything above its root, so pointing the root at
  * this directory made every service import a "module not found". The repository
  * root is also the honest answer to the question Next asks when it finds two
- * lockfiles: this IS the workspace.
+ * lockfiles: this IS the workspace. The root also holds the marketing site's
+ * middleware.ts, which the build would compile without proxy.ts here.
  */
 const repoRoot = path.join(import.meta.dirname, "..", "..");
 

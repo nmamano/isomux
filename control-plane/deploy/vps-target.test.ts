@@ -248,6 +248,7 @@ describe("the storefront image's build context", () => {
       "control-plane/web/app/home-view.test.tsx",
       "control-plane/web/e2e/signup-flow.e2e.ts",
       "server/index.ts",
+      "middleware.ts",
       "package.json",
       ".git/config",
     ]) {
