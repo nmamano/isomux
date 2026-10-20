@@ -541,7 +541,8 @@ it("toggles the desktop chat with its launcher, and Escape closes it", async () 
     const dock = view!.container.querySelector(".app-widget-dock")!;
     const dockLink = () =>
       view!.container.querySelector<HTMLAnchorElement>(".app-widget-dock a");
-    const headerLink = () => panel.querySelector<HTMLAnchorElement>("header a");
+    const headerLink = () =>
+      panel.querySelector<HTMLAnchorElement>("header a.app-widget-direct");
     expect(isOpen()).toBe(false);
     expect(dock.contains(launcher)).toBe(true);
     expect(dockLink()).toBeNull();
@@ -858,4 +859,17 @@ it("shows the queued count in its own element while messages wait, busy or not",
   } finally {
     view.unmount();
   }
+});
+
+it("links the agent's name in the header to its office chat, in a new tab", () => {
+  const view = render(<WidgetChat {...props} />);
+  const link = view.container.querySelector<HTMLAnchorElement>(
+    ".app-widget-header h1 a",
+  );
+  expect(link).not.toBeNull();
+  expect(link!.textContent).toBe(agent.name);
+  expect(link!.getAttribute("href")).toBe(`/agents/${agent.id}`);
+  expect(link!.getAttribute("target")).toBe("_blank");
+  expect(link!.getAttribute("rel")?.split(" ")).toContain("noopener");
+  view.unmount();
 });

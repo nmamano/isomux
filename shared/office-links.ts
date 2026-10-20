@@ -7,8 +7,9 @@
 // A link is an office page name in path form, or an agent's chat as
 // /agents/<agentId> (task 9aaec0eb). The Integrations tab forms
 // (/integrations/mcp) are also URL routes that the address bar accepts but
-// never shows (ui/routes.ts, task df206fe3). The agent form is a link target
-// only: the address bar resolves it as the office (pageForPath).
+// never shows (ui/routes.ts, task df206fe3). The agent form is accepted the
+// same way: it opens that chat and the address bar shows "/" (agentIdForPath,
+// task 680747d8).
 
 export const OFFICE_PAGES = [
   "tasks",

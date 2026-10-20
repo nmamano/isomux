@@ -52,6 +52,7 @@ import { cycleAgent } from "./agent-cycle.ts";
 import {
   pageForLocation,
   pageForPath,
+  agentIdForPath,
   pagerIdForSearch,
   mcpSignInForSearch,
   integrationsTabForPath,
@@ -614,6 +615,34 @@ export function App({ routing = true }: { routing?: boolean }) {
     },
     [pageState, openInboxTab, agents, applyPage, dispatch],
   );
+
+  // An agent's address (/agents/<agentId>, the app widget's link) opens that
+  // chat as an ask link does. Read once at mount, like the pager id: the path
+  // effect below rewrites the address to "/". It waits for the saved-spot
+  // restore, so it wins over the saved room, chat, page and lobby, and it is
+  // tried once: an agent that appears later in the session does not take the
+  // view.
+  const [bootAgentId, setBootAgentId] = useState(() =>
+    agentIdForPath(window.location.pathname),
+  );
+  useEffect(() => {
+    if (
+      bootAgentId === null ||
+      !hasReceivedInitialState ||
+      (persistEnabled && !restored)
+    )
+      return;
+    // One-shot, like the restore: the request is spent on its first try.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBootAgentId(null);
+    openOfficeLink({ agentId: bootAgentId });
+  }, [
+    bootAgentId,
+    hasReceivedInitialState,
+    persistEnabled,
+    restored,
+    openOfficeLink,
+  ]);
 
   const goHome = useCallback(() => {
     if (entryRef.current === "pushed") {

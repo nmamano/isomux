@@ -6,9 +6,12 @@
 // Agent chats and settings sections are deliberately NOT routes (ruling 3), so
 // a chat, a settings section and the office all share one path, "/". An
 // Integrations tab path (/integrations/mcp) opens its tab but is never
-// written: the address bar shows /integrations (task df206fe3).
+// written: the address bar shows /integrations (task df206fe3). An agent's
+// address (/agents/<agentId>) opens that chat the same way, and the address
+// bar shows "/" (task 680747d8).
 
 import {
+  askLinkFor,
   officeLinkFor,
   pathForPage,
   type IntegrationsTab,
@@ -94,6 +97,17 @@ const PAGER_LINK_ID_MAX = 64;
 export function pagerIdForSearch(search: string): string | null {
   const id = new URLSearchParams(search).get("pager")?.trim() ?? "";
   return id.length > 0 && id.length <= PAGER_LINK_ID_MAX ? id : null;
+}
+
+/**
+ * The agent an address names, `/agents/<agentId>` (the ask link form,
+ * shared/office-links.ts), or null. The app widget links an agent's name
+ * here (task 680747d8). Accepted, never produced: the office opens the chat
+ * and the address bar shows "/". A trailing slash is forgiven.
+ */
+export function agentIdForPath(pathname: string): string | null {
+  const link = askLinkFor(pathname.replace(/\/+$/, ""));
+  return link && "agentId" in link ? link.agentId : null;
 }
 
 /** The page the URL opens at boot: the pager link first, then the path. */

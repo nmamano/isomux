@@ -25,7 +25,7 @@ Paste or drop images into the open widget, or select an image file. Show each im
 Proposed new copy, for review (placeholders in braces):
 
 - Launcher: “Chat”
-- Title: “Chat with {agentName}”
+- Title: “Chat with {agentName}”; the name links to `/agents/<agentId>`, the agent's office chat, in a new tab (task 680747d8)
 - Notice: “Shared with members of the agent's room.”
 - Windows hint: “To share a screenshot: press Win+Shift+S, then paste it here.”
 - macOS hint: “To share a screenshot: press Shift+Command+4, then drag it here.”

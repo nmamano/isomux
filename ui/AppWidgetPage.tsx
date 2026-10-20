@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../shared/types.ts";
+import { AGENT_LINK_PREFIX } from "../shared/office-links.ts";
 import { apiFetch } from "./api.ts";
 import { useAppState } from "./store.tsx";
 import { useI18n } from "./i18n.tsx";
@@ -39,6 +40,8 @@ const WIDGET_CSS = `
 .app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
 .app-widget-header { padding:14px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); }
 .app-widget-header h1 { flex:1; font-size:16px; margin:0; }
+.app-widget-header h1 a { color:var(--accent-text); text-decoration:none; }
+.app-widget-header h1 a:hover { text-decoration:underline; }
 .app-widget-notice { padding:9px 14px; font-size:12px; color:var(--text-secondary); }
 .app-widget-log { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; padding:0 12px; }
 .app-widget-compose { padding:12px; border-top:1px solid var(--border); }
@@ -397,7 +400,7 @@ export function WidgetChat({
   onRecheck: () => void;
   stateChangedAt?: number;
 }) {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const transcript = useChatTranscript(
     logs,
     agent.state === "thinking" || agent.state === "tool_executing",
@@ -595,7 +598,20 @@ export function WidgetChat({
         >
           <LiveCharacter agent={agent} height={44} />
         </span>
-        <h1>{t("appWidget.title", { agentName: agent.name })}</h1>
+        <h1>
+          {rich("appWidget.title", {
+            // The agent's chat in the office, on the same origin as this page.
+            agentName: (
+              <a
+                href={`${AGENT_LINK_PREFIX}${agent.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {agent.name}
+              </a>
+            ),
+          })}
+        </h1>
         {directHref && (
           <a
             className="app-widget-direct"
