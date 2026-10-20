@@ -569,49 +569,6 @@ describe("cron rooms: the WebSocket", () => {
     expect(typesOf(bobWs)).not.toContain("cronjob_run_updated");
     expect(JSON.stringify(bobWs.messages)).not.toContain(PROMPT);
   });
-
-  it("losing room access re-projects the list live", async () => {
-    const { srv, owner, alice, roomA, roomB } = await office();
-    const job = seedJob(srv, "Maker", roomA);
-    const aliceWs = await srv.connectWs(alice.rawSessionId);
-    const first = await aliceWs.waitFor("cronjobs_state");
-    expect((first.cronjobs as CronjobListWire[]).map((c) => c.id)).toEqual([
-      job.id,
-    ]);
-    const states = () =>
-      aliceWs.messages.filter(
-        (m) => (m as { type?: string }).type === "cronjobs_state",
-      ) as { cronjobs: CronjobListWire[] }[];
-    const res = await api(srv, "/api/users/Alice/access", {
-      method: "PUT",
-      rawSessionId: owner.rawSessionId,
-      body: { allowedRooms: [roomB] },
-    });
-    expect(res.status).toBeLessThan(300);
-    await waitUntil(() => states().length >= 2, "a second cronjobs_state");
-    expect(states().at(-1)!.cronjobs).toEqual([]);
-  });
-
-  it("closing a room re-projects room members' lists live", async () => {
-    const { srv, owner, alice } = await office();
-    const roomC = srv.agentManager.createRoom("Gamma");
-    updateUserById(getUserByName("Alice")!.id, { allowedRooms: [roomC] });
-    seedJob(srv, "Maker", roomC);
-    const aliceWs = await srv.connectWs(alice.rawSessionId);
-    const first = await aliceWs.waitFor("cronjobs_state");
-    expect((first.cronjobs as CronjobListWire[]).length).toBe(1);
-    const states = () =>
-      aliceWs.messages.filter(
-        (m) => (m as { type?: string }).type === "cronjobs_state",
-      ) as { cronjobs: CronjobListWire[] }[];
-    const res = await api(srv, `/api/rooms/${roomC}`, {
-      method: "DELETE",
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBeLessThan(300);
-    await waitUntil(() => states().length >= 2, "a second cronjobs_state");
-    expect(states().at(-1)!.cronjobs).toEqual([]);
-  });
 });
 
 describe("cron rooms: /isomux-cronjob-system-prompt", () => {

@@ -237,7 +237,7 @@ function load(): Record<string, UserRecord> {
 }
 
 // users.json is auth state: roles ride here, and acceptInvite calls
-// claimUser/setUserRole before persisting the session. A swallowed write
+// claimUser/updateUserById before persisting the session. A swallowed write
 // failure would let us issue a session for an in-memory owner whose role
 // vanishes on restart. Persist must throw so callers can roll back.
 function persist() {
@@ -453,22 +453,63 @@ export function completeFirstSignIn(
   };
 }
 
-// Fired after a role actually changes (promote or demote) via
-// setUserRoleById or updateUserById. isomux-office.ts wires this at boot to
-// refresh the cached `ws.data.session` on the user's connected sockets, so
-// role-keyed audience selection (e.g. the owners-audience fan-out in
-// liveEmitDeps) reflects the change immediately instead of after the next
-// inbound message's revalidateByHash (a just-demoted ex-owner
-// could otherwise receive one more owner-only event). Defaults to no-op so
-// users.ts stays standalone; mirrors auth.ts's setOnSessionsChanged.
-let onUserRoleChangedHook: (userId: string) => void = () => {};
+// Fired after a persisted write changes what rooms a user can access: their
+// role (owners reach every room by rule) or their allowedRooms as a SET (an
+// order-only edit is no change). Every writer of either field goes through
+// setUserRoleById or updateUserById, so this hook is the one owner of the
+// invariant "an access change re-projects the user's live sockets":
+// isomux-office.ts wires it at boot to refresh the cached ws.data.session and
+// re-send that user's rooms, board and cronjobs. Two writers stay outside it on
+// purpose, because no socket can exist for them: pruneStaleRoomRefs (boot
+// only) and claimUser/createMember (a new user). Defaults to no-op so users.ts
+// stays standalone; mirrors auth.ts's setOnSessionsChanged.
+// previousAllowedRooms lets the listener tell a real change from a strip of a
+// room that no longer exists (rooms.close).
+export type UserAccessChange = {
+  role: boolean;
+  allowedRooms: boolean;
+  previousAllowedRooms: readonly string[];
+};
+let onUserAccessChangedHook: (
+  userId: string,
+  changed: UserAccessChange,
+) => void = () => {};
 
-export function setOnUserRoleChanged(cb: (userId: string) => void): void {
-  onUserRoleChangedHook = cb;
+export function setOnUserAccessChanged(
+  cb: (userId: string, changed: UserAccessChange) => void,
+): void {
+  onUserAccessChangedHook = cb;
+}
+
+function sameRoomSet(a: readonly string[], b: readonly string[]): boolean {
+  const set = new Set(a);
+  return set.size === new Set(b).size && b.every((id) => set.has(id));
+}
+
+// Post-persist: the on-disk record is authoritative, notify the transport
+// layer. A hook exception must not fail the (already-persisted) mutation.
+function notifyAccessChange(
+  id: string,
+  before: UserRecord,
+  after: UserRecord,
+): void {
+  const changed: UserAccessChange = {
+    role: before.role !== after.role,
+    allowedRooms: !sameRoomSet(before.allowedRooms, after.allowedRooms),
+    previousAllowedRooms: before.allowedRooms,
+  };
+  if (!changed.role && !changed.allowedRooms) return;
+  try {
+    onUserAccessChangedHook(id, changed);
+  } catch (err) {
+    console.error("[users] onUserAccessChangedHook threw:", err);
+  }
 }
 
 // Promote/demote an existing user by id. No-op if the user doesn't exist
-// or already has the target role.
+// or already has the target role. No production caller today (bootstrap
+// promotion writes role + allowedRooms in one updateUserById); tests use it
+// to set a role.
 export function setUserRoleById(id: string, role: UserRole): boolean {
   load();
   const existing = users[id];
@@ -481,19 +522,12 @@ export function setUserRoleById(id: string, role: UserRole): boolean {
     users[id] = existing;
     throw err;
   }
-  // Post-persist: the on-disk role is authoritative, notify the transport
-  // layer. A hook exception must not fail the (already-persisted) mutation.
-  try {
-    onUserRoleChangedHook(id);
-  } catch (err) {
-    console.error("[users] onUserRoleChangedHook threw:", err);
-  }
+  notifyAccessChange(id, existing, users[id]);
   return true;
 }
 
 // Compatibility wrapper. `setUserRole(name, role)` resolves by name and
-// delegates to setUserRoleById. Used by the bootstrap-promote-existing
-// path which only has the display name to work with.
+// delegates to setUserRoleById.
 export function setUserRole(name: string, role: UserRole): boolean {
   const u = getUserByName(name);
   if (!u) return false;
@@ -634,13 +668,7 @@ export function updateUserById(
     users[id] = existing;
     throw err;
   }
-  if (next.role !== existing.role) {
-    try {
-      onUserRoleChangedHook(id);
-    } catch (err) {
-      console.error("[users] onUserRoleChangedHook threw:", err);
-    }
-  }
+  notifyAccessChange(id, existing, next);
   return { ok: true, user: next };
 }
 

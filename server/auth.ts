@@ -31,7 +31,6 @@ import {
   getUserById,
   getUserByName,
   hasOwner,
-  setUserRoleById,
   updateUserById,
 } from "./users.ts";
 
@@ -691,62 +690,48 @@ function commitBootstrapOwnerUser(chosenName: string): {
     };
   }
   // Existing user - snapshot the prior state and build a single rollback
-  // closure BEFORE any mutation. Every post-allowedRooms failure path
-  // (setUserRoleById throws, the getUserById sanity check finds the row
-  // gone, or the caller hits a downstream persist failure and invokes
-  // rollback explicitly) reuses the same closure. Unconditional restore
-  // is idempotent: setUserRoleById back to prevRole is a no-op if role
-  // never changed; updateUserById allowedRooms back to prevAllowedRooms
-  // is a no-op if the snapshot equals the prior. If a rollback's own
-  // disk writes fail we log catastrophic and let the original error
-  // propagate.
+  // closure BEFORE any mutation. Each direction is ONE updateUserById write
+  // (role + allowedRooms together), so the users.ts access hook fires once,
+  // on the final state: two writes would re-project a connected member
+  // through a roomless intermediate (grants cleared, role still member).
+  // Every post-write failure path (the getUserById sanity check finds the
+  // row gone, or the caller hits a downstream persist failure and invokes
+  // rollback explicitly) reuses the same closure. If a rollback's own disk
+  // write fails we log catastrophic and let the original error propagate.
   const prevRole = existing.role;
   const prevAllowedRooms = [...existing.allowedRooms];
   const userId = existing.id;
   const restorePriorState = () => {
     try {
-      setUserRoleById(userId, prevRole);
-    } catch (err) {
-      console.error(
-        `[auth] bootstrap rollback: setUserRoleById restore to ${prevRole} threw for ${userId}`,
-        err,
-      );
-    }
-    try {
-      const rr = updateUserById(userId, { allowedRooms: prevAllowedRooms });
+      const rr = updateUserById(userId, {
+        role: prevRole,
+        allowedRooms: prevAllowedRooms,
+      });
       if (!rr.ok) {
         console.error(
-          `[auth] bootstrap rollback: allowedRooms restore returned not-ok for ${userId}: ${rr.error}`,
+          `[auth] bootstrap rollback: role/allowedRooms restore returned not-ok for ${userId}: ${rr.error}`,
         );
       }
     } catch (err) {
       console.error(
-        `[auth] bootstrap rollback: allowedRooms restore threw for ${userId}`,
+        `[auth] bootstrap rollback: role/allowedRooms restore threw for ${userId}`,
         err,
       );
     }
   };
 
-  // CLEAR owner grants (rule covers owner access; an owner carrying
-  // materialized grants is the demotion bomb). allowedRooms write first
-  // (idempotent - already [] for a previously-migrated owner), role second; if
-  // the write returns not-ok or throws, the user is unchanged on disk so we
-  // propagate without invoking rollback. notifRooms is left untouched (a
-  // promoted member keeps their notif prefs; the invariant still holds because
-  // an owner shows every room).
-  const r = updateUserById(userId, { allowedRooms: [] });
+  // Promote and CLEAR owner grants in one write (rule covers owner access; an
+  // owner carrying materialized grants is the demotion bomb). Clearing is
+  // idempotent - already [] for a previously-migrated owner. If the write
+  // returns not-ok or throws, the user is unchanged on disk (updateUserById
+  // reverts on a persist failure), so we propagate without invoking rollback.
+  // notifRooms is left untouched (a promoted member keeps their notif prefs;
+  // the invariant still holds because an owner shows every room).
+  const r = updateUserById(userId, { role: "owner", allowedRooms: [] });
   if (!r.ok) {
     throw new Error(
-      `bootstrap owner promotion: allowedRooms clear failed for ${existing.name}: ${r.error}`,
+      `bootstrap owner promotion: role/allowedRooms write failed for ${existing.name}: ${r.error}`,
     );
-  }
-  if (existing.role !== "owner") {
-    try {
-      setUserRoleById(userId, "owner");
-    } catch (err) {
-      restorePriorState();
-      throw err;
-    }
   }
   const updated = getUserById(userId);
   if (!updated) {

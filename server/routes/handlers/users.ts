@@ -12,7 +12,8 @@
 //
 // LEAF over the executor + shared types. The seam (isomux-office.ts) owns mutate→emit:
 // the deps run updateUserById/deleteUser + emitUserUpdated/emitUsersList/
-// pushProjectedFullStateForUserId/presence, mirroring the retired WS arms; these
+// presence (an access change re-projects through the users.ts access hook),
+// mirroring the retired WS arms; these
 // handlers stay pure REST mappers. The auth policy (selfOrOwner / officeOwner
 // guards + the two delete preconditions) is enforced by the executor BEFORE the
 // handler, so the deps never re-check role.

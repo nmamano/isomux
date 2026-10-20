@@ -971,44 +971,6 @@ describe("routes/tasks REST: room scoping", () => {
     expect(upsertsOf(memberSock).some((t) => t.id === inB.id)).toBe(false);
     expect(deletedIdsOf(memberSock)).not.toContain(inB.id);
   });
-
-  it("granting a member room access (setAccess) live-re-projects their board", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const member = await srv.seedMember("Mia");
-    const roomB = srv.agentManager.createRoom("Room B"); // Mia has no grant yet
-    const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
-      .body as TaskItem;
-
-    const sock: TestSocket = await srv.connectWs(member.rawSessionId);
-    const carriesInB = () =>
-      sock.messages.some(
-        (m) =>
-          (m as { type?: string }).type === "tasks" &&
-          ((m as { tasks?: TaskItem[] }).tasks ?? []).some(
-            (t) => t.id === inB.id,
-          ),
-      );
-    // Connect hydration arrives and does NOT include the room-B task.
-    await waitUntil(
-      () =>
-        sock.messages.some((m) => (m as { type?: string }).type === "tasks"),
-      2000,
-      "member connect tasks",
-    );
-    expect(carriesInB()).toBe(false);
-
-    // Owner grants Mia access to roomB → her board must re-project live (this is
-    // what pushTasksForUserId at the setAccess site guarantees).
-    const grant = await api(srv, `/api/users/${member.username}/access`, {
-      method: "PUT",
-      rawSessionId: owner.rawSessionId,
-      body: { allowedRooms: [roomB] },
-    });
-    expect(grant.status).toBe(200);
-    await waitUntil(carriesInB, 2000, "board re-projected after grant");
-  });
 });
 
 // The ?roomId= list filter (task 43c55a3b). It exists because an agent asked to

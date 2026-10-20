@@ -475,7 +475,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
 
   it("a demoted ex-owner's CONNECTED socket leaves the owners audience immediately (task edac170a)", async () => {
     // ownerSessions in liveEmitDeps selects owner-broadcast recipients by the
-    // CACHED ws.data.session.role. Before the setOnUserRoleChanged refresh
+    // CACHED ws.data.session.role. Before the access-change hook's (setOnUserAccessChanged) refresh
     // hook, a just-demoted ex-owner who stayed connected and SILENT (no
     // inbound message → no per-message revalidateByHash self-heal) received
     // one more owner-only event. This freezes the proactive refresh.

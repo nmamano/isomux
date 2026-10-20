@@ -1796,10 +1796,10 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["user:self", "user:admin", "user:prompt"],
       or(selfOrOwner, proxyMemberPromptUpdate),
     ),
-    // Record fields only (name/env/prompt/avatar).
-    // emitUserUpdated + emitUsersList; NO full_state - access/view prefs are not
-    // editable here, so nothing re-projects the subject's rooms.
-    emits: ["user_updated", "users_list"],
+    // Record fields (name/role/prompt/avatar). emitUserUpdated + emitUsersList;
+    // a role change also re-projects the subject's rooms (full_state) through
+    // the users.ts access hook. Access grants and view prefs are not editable here.
+    emits: ["user_updated", "users_list", "full_state"],
   }),
   defineRoute<SetAccessReq, { user: UserAdminWire }>({
     opId: "users.setAccess",

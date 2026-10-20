@@ -199,7 +199,8 @@ import {
   updateUserById,
   deleteUser,
   wouldDeleteLeaveNoOwner,
-  setOnUserRoleChanged,
+  setOnUserAccessChanged,
+  type UserAccessChange,
 } from "./users.ts";
 import { homedir, hostname as osHostname, userInfo } from "os";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
@@ -1245,37 +1246,14 @@ function registerBootHooks(): void {
     extensionService?.revalidate();
   });
 
-  // Role changes (promote/demote) refresh the cached ws.data.session on the
-  // affected user's connected sockets immediately. Without this, role-keyed
-  // audience selection - ownerSessions in liveEmitDeps - reads the STALE cached
-  // role until the socket's next inbound message re-validates it. Thus, a
-  // just-demoted ex-owner could receive one more owner-only event
-  // (invite_revoked / session_revoked). REFRESH, not evict:
-  // the session itself is still valid (eviction via session_expired+close is
-  // reserved for invalidated sessions - revoke/logout/delete/expiry), and
-  // this is the same revalidateByHash the per-message recheck uses, just run
-  // proactively. If revalidation fails (session expired/orphaned in the
-  // meantime), fall back to the notify-then-close contract the per-message
-  // path applies.
-  setOnUserRoleChanged((userId) => {
-    for (const ws of browsers) {
-      if (ws.data.session.userId !== userId) continue;
-      const fresh = revalidateByHash(ws.data.session.sessionIdHash);
-      if (!fresh) {
-        try {
-          ws.send(JSON.stringify({ type: "session_expired" }));
-        } catch {}
-        try {
-          ws.close();
-        } catch {}
-        continue;
-      }
-      ws.data.session = fresh;
-    }
-    recheckOpenAppSockets();
-    extensionService?.revalidate();
-  });
-
+  // The one owner of "a change to a user's room access re-projects their live
+  // sockets": users.ts fires this after every persisted write that changes a
+  // user's role or allowedRooms set, whichever route or flow made it
+  // (users.setAccess, users.update, the rooms.create creator grant, the
+  // rooms.close strip, bootstrap promotion and its rollback). The other source
+  // of access change is the live room set itself, which owners reach by rule;
+  // rooms.close re-projects that for everyone.
+  setOnUserAccessChanged(onUserAccessChanged);
   // First-install onboarding: pre-spawn one welcome agent for each backend.
   // OpenCode's bundled free model answers without provider credentials, so a
   // new owner has one working coworker before signing in to Claude or Codex.
@@ -4300,22 +4278,9 @@ function buildExecutorDeps(
         noteAuditTarget(result.user.id);
         if (changes.memberPrompt !== undefined)
           notePromptContent(result.user.memberPrompt);
-        if (roleChanged) {
-          for (const ws of browsers) {
-            if (ws.data.session.userId !== result.user.id) continue;
-            sendSessionContext(ws);
-            officeSend(
-              ws,
-              JSON.stringify({
-                type: "all_rooms_list",
-                rooms:
-                  result.user.role === "owner"
-                    ? agentManager.getOrdinaryRooms()
-                    : [],
-              }),
-            );
-          }
-        }
+        // A role change already re-projected the subject's sockets (session,
+        // owner room list, rooms, board, cronjobs) through the users.ts access
+        // hook inside updateUserById.
         const renamed =
           username.toLowerCase() !== result.user.name.toLowerCase();
         // Condition the PUBLIC refresh on an actual public-field delta.
@@ -4350,9 +4315,6 @@ function buildExecutorDeps(
           roleChanged ? accessible : undefined,
         );
         if (roleChanged) {
-          pushProjectedFullStateForUserId(result.user.id);
-          pushTasksForUserId(result.user.id);
-          pushCronjobsForUserId(result.user.id);
           if (appAudienceBefore) announceAppAudienceChanges(appAudienceBefore);
           if (webhookAudienceBefore) {
             announceWebhookAudienceChanges(webhookAudienceBefore);
@@ -4404,12 +4366,9 @@ function buildExecutorDeps(
         // every user. Owners get the new grants via the owners-only admin event;
         // the target re-projects via full_state and its own self event; presence
         // sanitizes currentRoomId.
+        // The re-projection itself (rooms, board, cronjobs) already ran through
+        // the users.ts access hook inside updateUserById.
         emitPrivateUserRecord(result.user);
-        pushProjectedFullStateForUserId(result.user.id);
-        // Their accessible-room set changed → re-project the room-scoped board
-        // and cronjobs.
-        pushTasksForUserId(result.user.id);
-        pushCronjobsForUserId(result.user.id);
         const presenceTouched = refreshPresenceForUser(
           result.user.id,
           {
@@ -4553,13 +4512,16 @@ function buildExecutorDeps(
   //    a room. OWNERS reach it by RULE (already in the room_created audience,
   //    received live, NO fan-out). A MEMBER creator needs an explicit GRANT to
   //    see their own creation (room_created fired during createRoom, before the
-  //    grant, so it was suppressed for them); grant it, then push a projected
-  //    full_state to catch them up. No owner allowedRooms/notifRooms fan-out and
+  //    grant, so it was suppressed for them); grant it, and the users.ts access
+  //    hook re-projects them. Owners need no re-projection: a new room holds no
+  //    tasks or cronjobs yet. No owner allowedRooms/notifRooms fan-out and
   //    NO user_updated broadcast of the creator's grant (that broadcast was the
   //    hidden-room-id leak - a grant change reaches only its own subject).
   //  - close: strip the closed roomId from every user's allowedRooms/notifRooms
   //    so stale references don't accumulate, fanning out user_updated per touched
-  //    record + a single users_list.
+  //    record + a single users_list. The access hook re-projects each touched
+  //    member; owners lose the room by RULE (no record write), so close itself
+  //    re-projects every socket's board and cronjobs.
   // Both re-push presence to keep the room-mutation→presence invariant uniform.
   register(
     roomsHandlers({
@@ -4571,16 +4533,11 @@ function buildExecutorDeps(
           creator.role !== "owner" &&
           !creator.allowedRooms.includes(newRoomId)
         ) {
-          const result = updateUserById(creator.id, {
+          // The grant re-projects the creator's sockets through the users.ts
+          // access hook. A failed write leaves them without the room, as before.
+          updateUserById(creator.id, {
             allowedRooms: [...creator.allowedRooms, newRoomId],
           });
-          if (result.ok) {
-            pushProjectedFullStateForUserId(creator.id);
-            // Creator's accessible set grew by the new room - re-project the
-            // board (the room is empty today, but keeps access↔board in lockstep).
-            pushTasksForUserId(creator.id);
-            pushCronjobsForUserId(creator.id);
-          }
         }
         // A new room is empty so no ghost moves post-cut (room ids are stable);
         // the re-push is harmless and keeps every room mutation paired with a
@@ -6131,11 +6088,9 @@ function replayFrames(agentIds: string[]): Iterator<string> {
 }
 
 // Push a fresh projected full_state to every WS owned by a specific
-// userId. Called after a successful update_user that changed allowedRooms
-// - every device that user is connected from gets the new view applied
-// without a reconnect. Users whose allowedRooms already covers every
-// room get the identity projection, so the call is cheap; we don't
-// need to branch on role.
+// userId. Called after a view change (hidden rooms) - every device that user
+// is connected from gets the new view applied without a reconnect. An access
+// change re-projects through onUserAccessChanged instead.
 function pushProjectedFullStateForUserId(userId: string) {
   for (const ws of browsers) {
     if (ws.data.session.userId === userId) {
@@ -6387,12 +6342,6 @@ function pushCronjobsToEachWs() {
   for (const ws of browsers) sendCronjobsTo(ws);
 }
 
-function pushCronjobsForUserId(userId: string) {
-  for (const ws of browsers) {
-    if (ws.data.session.userId === userId) sendCronjobsTo(ws);
-  }
-}
-
 function pushCronjobDeltaToEachWs(change: CronjobChange) {
   for (const ws of browsers) {
     const delta = cronjobDeltaFor(
@@ -6432,13 +6381,63 @@ function pushTasksToEachWs() {
   for (const ws of browsers) sendTasksTo(ws);
 }
 
-// Re-project the board to just ONE user's sockets. Called after that user's room
-// ACCESS changes (allowedRooms edit, creator room grant), which shifts which
-// room-scoped tasks they may see - no other user's projection changed.
-function pushTasksForUserId(userId: string) {
-  for (const ws of browsers) {
-    if (ws.data.session.userId === userId) sendTasksTo(ws);
+// A user's room access changed (users.ts setOnUserAccessChanged, wired at boot).
+// Re-project every socket of that user; no other user's projection changed.
+// A role change first refreshes the cached ws.data.session, which role-keyed
+// audiences (ownerSessions in liveEmitDeps) and visibleRoomProjection read, so
+// a just-demoted ex-owner gets no further owner-only event. REFRESH, not
+// evict: the session is still valid. If revalidation fails (expired/orphaned
+// in the meantime), fall back to the notify-then-close contract the
+// per-message path applies. The client then gets its role and owner room list
+// before the projected rooms, board and cronjobs.
+//
+// A grant write that leaves the LIVE accessible set unchanged re-projects
+// nothing: rooms.close strips the dead room id from every member after the
+// room is gone, and the bare room_closed delta plus close's own every-socket
+// board and cronjobs push already converge them (no full_state log replay).
+function onUserAccessChanged(userId: string, changed: UserAccessChange) {
+  if (!changed.role) {
+    const user = getUserById(userId);
+    if (!user) return;
+    const live = new Set(agentManager.getRooms().map((room) => room.id));
+    const liveIds = (ids: Set<string>) => [...ids].filter((id) => live.has(id));
+    const now = liveIds(accessibleRoomIdsFor(user));
+    const before = new Set(
+      liveIds(accessibleRoomIdsFor(user, changed.previousAllowedRooms)),
+    );
+    if (now.length === before.size && now.every((id) => before.has(id))) {
+      return;
+    }
   }
+  for (const ws of browsers) {
+    if (ws.data.session.userId !== userId) continue;
+    if (changed.role) {
+      const fresh = revalidateByHash(ws.data.session.sessionIdHash);
+      if (!fresh) {
+        try {
+          ws.send(JSON.stringify({ type: "session_expired" }));
+        } catch {}
+        try {
+          ws.close();
+        } catch {}
+        continue;
+      }
+      ws.data.session = fresh;
+      sendSessionContext(ws);
+      officeSend(
+        ws,
+        JSON.stringify({
+          type: "all_rooms_list",
+          rooms: fresh.role === "owner" ? agentManager.getOrdinaryRooms() : [],
+        }),
+      );
+    }
+    sendProjectedFullState(ws, { replayLogsForVisible: true });
+    sendTasksTo(ws);
+    sendCronjobsTo(ws);
+  }
+  recheckOpenAppSockets();
+  extensionService?.revalidate();
 }
 
 // Dedupe preserving FIRST occurrence (used for the sparse `order` list, so a
@@ -8766,7 +8765,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setRoomsSnapshotProvider(() => []);
   setOnInviteConsumed(() => {});
   setOnSessionsChanged(() => {});
-  setOnUserRoleChanged(() => {});
+  setOnUserAccessChanged(() => {});
   setOnOwnerCreated(async () => {});
   setAppOwnerAgentResolver(() => null);
   seedWelcomeAgentsForFirstOwner = null;

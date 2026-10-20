@@ -1405,7 +1405,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "users.update": {
     caps: ["user:self", "user:admin", "user:prompt"],
-    emits: ["user_updated", "users_list"],
+    emits: ["user_updated", "users_list", "full_state"],
   },
   "users.setAccess": {
     caps: ["user:admin"],
