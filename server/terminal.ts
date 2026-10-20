@@ -188,6 +188,18 @@ export function getTerminalBuffer(
   return managed.ptyBuffer;
 }
 
+// The agent's terminal output as the read route needs it. truncated is true
+// when the buffer reached MAX_PTY_BUFFER, so older output was dropped.
+export function readTerminal(
+  agentId: string,
+  deps: TerminalDeps,
+): { open: boolean; raw: string; truncated: boolean } {
+  const managed = deps.getAgent(agentId);
+  if (!managed?.ptySidecar) return { open: false, raw: "", truncated: false };
+  const raw = managed.ptyBuffer;
+  return { open: true, raw, truncated: raw.length >= MAX_PTY_BUFFER };
+}
+
 export function terminalInput(
   agentId: string,
   data: string,

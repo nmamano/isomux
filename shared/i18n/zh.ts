@@ -1388,6 +1388,8 @@ App 的一些原则：
   "apiCall.agents.interrupt": "打断 {who}",
   "apiCall.agents.resume": "为 {who} 继续会话",
   "apiCall.agents.sessions": "列出 {who} 的会话",
+  "apiCall.agents.terminal": "读取终端输出",
+  "apiCall.agents.terminalFor": "读取 {who} 的终端",
   "apiCall.agents.move": "移动 {who}",
   "apiCall.agents.revive": "恢复 {who}",
   "apiCall.agents.cancelQueued": "取消向 {who} 发送的一条队列消息",

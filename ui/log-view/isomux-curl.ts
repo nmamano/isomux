@@ -911,6 +911,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   // One route, three modes (search / retrieve / list). This static label is the
   // fallback; humanizeIsomuxRequest below reads the query and says which.
   ["GET", "/api/agents/*/logs", "apiCall.agents.logsSearch"],
+  ["GET", "/api/agents/*/terminal", "apiCall.agents.terminal"],
   ["GET", "/api/agents/*/instructions", "apiCall.agents.instructions"],
   ["POST", "/api/agents/system-prompt-preview", "apiCall.agents.systemPrompt"],
   ["GET", "/api/agents/*/system-prompt", "apiCall.agents.systemPrompt"],
@@ -1180,6 +1181,8 @@ export function humanizeIsomuxRequest(
           return t("apiCall.agents.sessions", { who });
         if (sub === "queue" && m === "GET")
           return t("apiCall.agents.readQueue", { who });
+        if (sub === "terminal" && m === "GET")
+          return t("apiCall.agents.terminalFor", { who });
         // /logs is one route with three modes, so the label is chosen from the
         // query rather than the path - "Search" would be wrong two thirds of
         // the time.

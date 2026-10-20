@@ -5,7 +5,7 @@ All routes target the current agent.
 - `POST /api/agents/:id/read-file` with `{path}` adds an inline image or file chip. Paths can be relative, absolute, or start with `~/`.
 - `POST /api/agents/:id/diff` with `{dir?}` shows uncommitted changes, or `{commit}` shows a commit or range.
 - `POST /api/agents/:id/edit-file` with `{path}` adds an editor card.
-- `POST /api/agents/:id/terminal-command` with `{command}` adds a single-line command for the server terminal. It does not run it. Do not use it for a command that must run on the member's device.
+- `POST /api/agents/:id/terminal-command` with `{command}` adds a single-line command for the server terminal. It does not run it. Do not use it for a command that must run on the member's device. To read what the terminal printed, see `conversation-history`.
 - `POST /api/agents/:id/preview-url` with `{url, viewport?, wait?}` opens an HTTP(S) URL twice in server Chrome and adds a screenshot. Avoid GET URLs with side effects. Decline suspicious public pages because they run on the server. `viewport` is `{width,height}`, integers 320-2560, default 1280x800; `wait` is 0-10000 ms of render budget that fast-forwards page timers. A reachable page always yields a screenshot, even an error page. An app's `url` opens signed in when your manager may open the app; its WebSockets do not connect. Errors include `unreachable`, `capture_busy` (retry after the wait its message names), and `no_browser`.
 
 Safe example: `POST /api/agents/:id/read-file` with `{"path":"plot.png"}`.

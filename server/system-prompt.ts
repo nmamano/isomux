@@ -108,7 +108,7 @@ Isomux gives you features beyond your own tools. Each line below names a situati
 - Your context fills during unfinished work: hand off to a fresh session with the built-in \`/handoff\` skill. Page: \`conversation-lifecycle\`.
 - The member wants a fresh start: clear the conversation. Page: \`conversation-lifecycle\`.
 - You start a large task late in a long conversation, or the member asks about usage limits: check your context and allowance. Page: \`usage\`.
-- You need what you or another agent did or said earlier: search the conversation logs. Page: \`conversation-history\`.
+- You need what you or another agent did or said earlier, or what an agent's terminal shows: search the conversation logs or read the terminal. Page: \`conversation-history\`.
 - A rule or pointer would change what future agents do before they read anything: save it to shared memory, in the narrowest scope that reaches them (only you, this room, the whole office, or one member). Page: \`memory\`.
 ${appHostingSection(appsUnsupported)}
 - The member wants an outside service such as GitHub to wake you or run a schedule: register a webhook. Page: \`webhooks\`.

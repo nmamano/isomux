@@ -351,6 +351,7 @@ import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
 import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
 import { logsHandlers } from "./routes/handlers/logs.ts";
+import { terminalReadHandlers } from "./routes/handlers/terminal.ts";
 import { buildSessionIndex, retrieveSession } from "./log-search.ts";
 import { fileLogSource } from "./log-source.ts";
 import { runSearchInChild } from "./log-search-runner.ts";
@@ -3582,6 +3583,13 @@ function buildExecutorDeps(
         runSearchInChild(callerKey, agentId, query),
       pendingPrompt: (agentId) => agentManager.pendingPrompt(agentId),
       inFlightTurn: (agentId) => agentManager.inFlightTurnForLogs(agentId),
+    }),
+  );
+
+  // Terminal output read (agents.terminal): the in-memory PTY buffer only.
+  register(
+    terminalReadHandlers({
+      readTerminal: (agentId) => agentManager.readTerminal(agentId),
     }),
   );
 

@@ -1568,6 +1568,8 @@ Coses que pots fer per ell:
   "apiCall.agents.interrupt": "Interrompre {who}",
   "apiCall.agents.resume": "Reprendre una sessió de {who}",
   "apiCall.agents.sessions": "Llistar les sessions de {who}",
+  "apiCall.agents.terminal": "Llegir la sortida del terminal",
+  "apiCall.agents.terminalFor": "Llegir el terminal de {who}",
   "apiCall.agents.move": "Moure {who}",
   "apiCall.agents.revive": "Reviure {who}",
   "apiCall.agents.cancelQueued": "Cancel·lar un missatge en cua per a {who}",

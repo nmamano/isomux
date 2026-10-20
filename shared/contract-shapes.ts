@@ -219,6 +219,14 @@ export interface HandoffReq {
   text: string;
 }
 
+// GET /api/agents/:id/terminal. open is false when the agent has no terminal
+// running; truncated is true when older output left the in-memory buffer.
+export interface TerminalReadRes {
+  open: boolean;
+  output: string;
+  truncated: boolean;
+}
+
 export interface TopicReq {
   topic: string;
 }

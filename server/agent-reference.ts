@@ -72,6 +72,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "agents.handoff": "conversation-lifecycle",
   "agents.resume": "agent-management",
   "agents.listSessions": "conversation-history",
+  "agents.terminal": "conversation-history",
   "agents.readFile": "chat-affordances",
   "agents.diff": "chat-affordances",
   "agents.editFile": "chat-affordances",

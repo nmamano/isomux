@@ -1185,6 +1185,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "agents.resume": { caps: ["agent:converse"], emits: ["log_entry"] },
   "agents.listSessions": { caps: ["log:read"], emits: [] },
+  "agents.terminal": { caps: ["log:read"], emits: [] },
   // Agents - self-affordances
   "agents.readFile": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.diff": { caps: ["self:affordance"], emits: ["log_entry"] },
@@ -1943,7 +1944,8 @@ describe("route table: an APP has its live owner agent's reach", () => {
   });
 });
 
-describe("agents.listSessions / readQueue / cancelQueued non-agent service scopes", () => {
+// listSessions, readQueue and terminal share liveAgentReadAccess (task 11d010ab).
+describe("agents.listSessions / readQueue / cancelQueued / terminal non-agent service scopes", () => {
   const deps: GuardDeps = {
     hasRoomAccess: () => true,
     roomIdForAgent: () => "room-1",
@@ -1961,6 +1963,7 @@ describe("agents.listSessions / readQueue / cancelQueued non-agent service scope
       "agents.listSessions",
       "agents.readQueue",
       "agents.cancelQueued",
+      "agents.terminal",
     ]) {
       expectRefused(opId);
     }
@@ -2026,6 +2029,7 @@ const API_REACHABLE_OPIDS = [
   "agents.handoff",
   "agents.resume",
   "agents.listSessions",
+  "agents.terminal",
   "secretRequests.save",
   "secretRequests.decline",
   "asks.list",

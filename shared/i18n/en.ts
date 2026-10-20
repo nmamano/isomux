@@ -1535,6 +1535,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.agents.interrupt": "Interrupt {who}",
   "apiCall.agents.resume": "Resume a session for {who}",
   "apiCall.agents.sessions": "List {who}'s sessions",
+  "apiCall.agents.terminal": "Read terminal output",
+  "apiCall.agents.terminalFor": "Read {who}'s terminal",
   "apiCall.agents.move": "Move {who}",
   "apiCall.agents.revive": "Revive {who}",
   "apiCall.agents.cancelQueued": "Cancel a queued message to {who}",

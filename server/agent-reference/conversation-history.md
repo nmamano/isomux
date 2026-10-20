@@ -8,6 +8,10 @@ Add `session=<id>` to fetch a conversation, or add `around=<entryId>&window=N` f
 
 Safe example: `GET /api/agents/:id/logs?q=permission`.
 
+## Terminal
+
+`GET /api/agents/:id/terminal` returns the output of your own terminal, or of the terminal of any agent in a room your manager can access. The server keeps only the last 100,000 characters of an open terminal, in memory: a closed terminal or a server restart loses them. Escape codes are removed and secrets are masked as in the logs. Full-screen programs such as vim or less read as jumbled text. Add `lines=N` (1 to 10000) for the last N lines.
+
 ## Route contract
 
-`GET /api/agents/:id/logs` uses the query modes and response shapes above. `GET /api/agents/:id/sessions` returns `{sessions:SessionInfo[],currentSessionId:string|null}`. User/API/agent callers need the route's room or killed-owner reach; cron-run and app callers are refused. Invalid query combinations return 400, inaccessible agents return 403, missing sessions return 404, and an expired search deadline returns 504.
+`GET /api/agents/:id/logs` uses the query modes and response shapes above. `GET /api/agents/:id/sessions` returns `{sessions:SessionInfo[],currentSessionId:string|null}`. User/API/agent callers need the route's room or killed-owner reach; cron-run callers and apps without an owner agent are refused. `GET /api/agents/:id/terminal` returns `{open,output,truncated}`: `open:false` with empty output when the agent has no terminal open, and `truncated:true` when older output was dropped. It has the reach of `/sessions`, and a bad `lines` returns 400 `invalid_lines`. Invalid query combinations return 400, inaccessible agents return 403, missing sessions return 404, and an expired search deadline returns 504.

@@ -846,13 +846,14 @@ export const logSearchAccess: Guard = (ctx) => {
   }
 };
 
-// Session-list READ (agents.listSessions): the same live reach as /logs, for
-// every scope that reads conversations. An agent reads itself and any agent
-// in a room its member can access (Nil, 2026-09-16: peer review and the other
-// bundled skills need a peer's sessions); humans and their API proxies keep
-// the target-room reach. Unlike /logs there is no killed-agent path: a killed
-// agent has no current session to list.
-export const sessionListAccess: Guard = (ctx) => {
+// Live-agent READ (agents.listSessions and agents.terminal): the same live
+// reach as /logs, for every scope that reads conversations. An agent reads
+// itself and any agent in a room its member can access (Nil, 2026-09-16: peer
+// review and the other bundled skills need a peer's sessions; Nil, 2026-10-20:
+// the same for its terminal); humans and their API proxies keep the
+// target-room reach. Unlike /logs there is no killed-agent path: a killed
+// agent has no current session to list and no terminal to read.
+export const liveAgentReadAccess: Guard = (ctx) => {
   switch (ctx.identity.scope) {
     case "user":
     case "api":

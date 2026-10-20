@@ -125,7 +125,7 @@ keeps the interruption legible in the receiver's transcript either way.
 ### 2.2 Queue visibility and manipulation by agents - SHIPPED
 
 **What shipped** (task e17989e0, decisions 3-6 ruled 2026-10-20). `GET /api/agents/:id/queue` (`agents.readQueue`)
-has the session list's guard (`sessionListAccess`): an agent reads its own queue and the queue of any agent in a
+has the session list's guard (`liveAgentReadAccess`): an agent reads its own queue and the queue of any agent in a
 room its member can reach. It returns what the chip row shows, without the pre-expanded skill body, with attachments
 by name. `DELETE /api/agents/:id/queue/:messageId` lets every agent take back an item it sent, from any queue; a
 member, an API token, or a privileged agent with room reach still cancels any item (`queueCancelAny`). Every miss

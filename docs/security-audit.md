@@ -241,6 +241,7 @@ This closes the one-call route. It does not close the class in section 3.2: a pr
 
 - **Show a file** (`read-file`) copies any file that the server's OS user can read, up to 20 MiB, into the chat. It does not check for secrets. The members of the room can then open the file. The agent does not read the content, so this is also a way to give a member a secret without passing it through the model.
 - **Preview a page** (`preview-url`) opens any HTTP or HTTPS URL in a browser on the server. This includes loopback and internal addresses. The only control is the agent system prompt.
+- **Read a terminal** (`GET /api/agents/:id/terminal`) returns the output of the agent's own terminal, or of the terminal of an agent in a room that its manager can access. Secrets in it are masked as in logs (section 8.3). The server keeps only the last 100,000 characters of each open terminal, in memory.
 - **Browser control** acts only on a tab that the agent's manager offers in the paired Chrome extension.
 
 ### 6.6 The secret proxy
@@ -275,7 +276,7 @@ Daily backups do not include the managed environment files, the secrets, the reg
 
 ### 8.3 Secret redaction in logs
 
-Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. It also masks the value of every secret of 8 characters or more, whatever its shape, raw, URL-encoded and base64. A new secret value must have at least 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments, terminal output and backend transcripts are not scanned.
+Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. It also masks the value of every secret of 8 characters or more, whatever its shape, raw, URL-encoded and base64. A new secret value must have at least 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments and backend transcripts are not scanned. Terminal output is not stored; the terminal read (section 6.5) masks it on each read.
 
 ### 8.4 Telemetry
 

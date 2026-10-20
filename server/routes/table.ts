@@ -64,7 +64,7 @@ import {
   scheduledMessagesOwner,
   conversationReset,
   logSearchAccess,
-  sessionListAccess,
+  liveAgentReadAccess,
   queueCancelAccess,
   cronjobOwnerOrOfficeOwner,
   appOwnerOrOfficeOwner,
@@ -245,6 +245,7 @@ import type {
   WebhookSecretRes,
   WebhookUpdateReq,
   WebhookWire,
+  TerminalReadRes,
 } from "../../shared/contract-shapes.ts";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -685,7 +686,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "agents.readQueue",
     method: "GET",
     path: "/api/agents/:id/queue",
-    auth: cap("log:read", sessionListAccess),
+    auth: cap("log:read", liveAgentReadAccess),
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -745,7 +746,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "agents.listSessions",
     method: "GET",
     path: "/api/agents/:id/sessions",
-    auth: cap("log:read", sessionListAccess),
+    auth: cap("log:read", liveAgentReadAccess),
+    emits: [],
+  }),
+  defineRoute<void, TerminalReadRes>({
+    opId: "agents.terminal",
+    method: "GET",
+    path: "/api/agents/:id/terminal",
+    auth: cap("log:read", liveAgentReadAccess),
     emits: [],
   }),
 

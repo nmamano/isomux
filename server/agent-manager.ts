@@ -192,6 +192,7 @@ import {
 import {
   openTerminal as openTerminalImpl,
   getTerminalBuffer as getTerminalBufferImpl,
+  readTerminal as readTerminalImpl,
   terminalInput as terminalInputImpl,
   terminalResize as terminalResizeImpl,
   closeTerminal as closeTerminalImpl,
@@ -11904,6 +11905,10 @@ export function createAgentManager(deps: ManagerDeps) {
     return getTerminalBufferImpl(agentId, terminalDeps);
   }
 
+  function readTerminal(agentId: string) {
+    return readTerminalImpl(agentId, terminalDeps);
+  }
+
   function terminalInput(agentId: string, data: string) {
     terminalInputImpl(agentId, data, terminalDeps);
   }
@@ -12171,6 +12176,7 @@ export function createAgentManager(deps: ManagerDeps) {
     resetTopic,
     openTerminal,
     getTerminalBuffer,
+    readTerminal,
     terminalInput,
     terminalResize,
     closeTerminal,
