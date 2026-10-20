@@ -1,3 +1,7 @@
+---
+description: What the Isomux installer does, its parameters, app hostnames, memory limits, and the proxy and domain options of each deployment.
+---
+
 # Hosting reference
 
 Choose a complete setup guide on the [hosting page](self-hosted.md). This page covers optional configuration and deployment boundaries.

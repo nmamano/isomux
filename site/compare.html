@@ -1,0 +1,1300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="canonical" href="https://isomux.com/compare" />
+    <title>Isomux compared with other agent tools</title>
+    <meta
+      name="description"
+      content="Isomux beside Omnigent, Orca, Conductor, Claude Squad, Vibe Kanban, OpenClaw, and other agent tools: license, agents, where each runs, phone access, and shared conversations."
+    />
+
+    <link rel="icon" href="/favicon.png" sizes="192x192" type="image/png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta
+      name="theme-color"
+      content="#0d1117"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      content="#f4f6f9"
+      media="(prefers-color-scheme: light)"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          if (saved) {
+            document.documentElement.setAttribute("data-theme", saved);
+            var lightIds = ["light", "solarized-light"];
+            document.documentElement.setAttribute(
+              "data-theme-mode",
+              lightIds.indexOf(saved) >= 0 ? "light" : "dark",
+            );
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="/footer.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --border: #30363d;
+        --max-width: 760px;
+        color-scheme: dark;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6f9;
+          --bg-surface: #ffffff;
+          --bg-card: #eef1f5;
+          --text: #1a2030;
+          --text-dim: #5a6a80;
+          --accent: #16803f;
+          --border: #d8dde6;
+          color-scheme: light;
+        }
+      }
+
+      :root[data-theme-mode="dark"] {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --border: #30363d;
+        color-scheme: dark;
+      }
+      :root[data-theme-mode="light"] {
+        --bg: #f4f6f9;
+        --bg-surface: #ffffff;
+        --bg-card: #eef1f5;
+        --text: #1a2030;
+        --text-dim: #5a6a80;
+        --accent: #16803f;
+        --border: #d8dde6;
+        color-scheme: light;
+      }
+
+      .theme-toggle {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        z-index: 90;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--bg-surface);
+        color: var(--text-dim);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition:
+          background 0.15s,
+          transform 0.15s;
+      }
+      .theme-toggle:hover {
+        background: var(--bg-card);
+        transform: scale(1.06);
+      }
+      .theme-toggle svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Helvetica,
+          Arial,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.65;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family:
+          "Space Grotesk",
+          -apple-system,
+          sans-serif;
+        letter-spacing: -0.01em;
+      }
+
+      .topbar {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 20px 24px 0;
+        font-size: 0.9rem;
+      }
+      .topbar a {
+        color: var(--text-dim);
+      }
+
+      main {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 24px 24px 8px;
+      }
+
+      h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 20px;
+      }
+
+      .lead {
+        font-size: 1.1rem;
+        margin-bottom: 12px;
+      }
+
+      h2 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin-top: 40px;
+        margin-bottom: 12px;
+      }
+
+      h3 {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-top: 20px;
+        margin-bottom: 6px;
+      }
+
+      p,
+      ul {
+        margin-bottom: 12px;
+      }
+
+      section p,
+      section li {
+        color: var(--text-dim);
+      }
+      section strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin-bottom: 6px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+        margin-bottom: 12px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        color: var(--text);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      td {
+        color: var(--text-dim);
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 20px 16px 8px;
+        }
+        h1 {
+          font-size: 1.6rem;
+        }
+        .topbar {
+          padding: 20px 16px 0;
+        }
+        th {
+          white-space: normal;
+        }
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin-bottom: 12px;
+      }
+      .table-wrap table {
+        min-width: 940px;
+        margin-bottom: 0;
+      }
+      .table-wrap td a {
+        color: inherit;
+        text-decoration: underline;
+        text-decoration-color: var(--border);
+        text-underline-offset: 3px;
+      }
+      .table-wrap th[scope="row"],
+      .table-wrap thead th:first-child {
+        position: sticky;
+        left: 0;
+        background: var(--bg);
+      }
+      .table-wrap th[scope="row"] {
+        white-space: normal;
+        min-width: 120px;
+      }
+      .table-wrap thead th {
+        white-space: normal;
+      }
+      .table-wrap tbody tr:first-child th,
+      .table-wrap tbody tr:first-child td {
+        color: var(--text);
+      }
+      .maker {
+        font-weight: 400;
+        font-size: 0.85rem;
+        color: var(--text-dim);
+      }
+      .checked {
+        font-size: 0.88rem;
+        color: var(--text-dim);
+      }
+      .shots {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin: 8px 0 16px;
+      }
+      .shots img {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        height: auto;
+        max-width: 100%;
+      }
+      .shots.phone img {
+        width: 260px;
+      }
+      :root {
+        --max-width: 1100px;
+      }
+      .lead,
+      .checked,
+      #tools {
+        max-width: 760px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar"><a href="/">&larr; isomux.com</a></div>
+    <main>
+      <h1>Isomux compared with other agent tools</h1>
+      <p class="lead">
+        Isomux is a meta-harness that runs Claude Code, Codex, and OpenCode
+        agents as coworkers in a shared office, on your own server or computer,
+        or on Hosted Isomux. This page puts it beside other tools that run AI
+        agents, using what each tool publishes about itself.
+      </p>
+      <section id="table">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Tool</th>
+                <th scope="col">License</th>
+                <th scope="col">Agents it runs</th>
+                <th scope="col">Where it runs</th>
+                <th scope="col">Phone</th>
+                <th scope="col">Several people in one conversation</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Isomux</th>
+                <td>
+                  <a
+                    href="https://github.com/nmamano/isomux/blob/main/LICENSE"
+                    target="_blank"
+                    rel="noopener"
+                    >Business Source License 1.1, free for personal use and up
+                    to 10 people</a
+                  >
+                </td>
+                <td>
+                  <a href="/docs/llm-providers">Claude Code, Codex, OpenCode</a>
+                </td>
+                <td>
+                  <a href="/docs/hosting"
+                    >Your server or computer (Linux, macOS), or Hosted Isomux;
+                    used from a browser</a
+                  >
+                </td>
+                <td>
+                  <a href="/use-cases/phone"
+                    >Mobile web app that installs to the home screen</a
+                  >
+                </td>
+                <td>
+                  <a href="/docs/access-and-invites"
+                    >Yes, members join the same agent conversation live</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Omnigent<br /><span class="maker">Databricks</span>
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/omnigent-ai/omnigent/blob/main/LICENSE"
+                    target="_blank"
+                    rel="noopener"
+                    >Apache 2.0</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/omnigent-ai/omnigent"
+                    target="_blank"
+                    rel="noopener"
+                    >Claude Code, Codex, Cursor, OpenCode, Hermes, Pi</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/omnigent-ai/omnigent"
+                    target="_blank"
+                    rel="noopener"
+                    >Terminal, web UI, macOS app, or a server you run</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/omnigent-ai/omnigent"
+                    target="_blank"
+                    rel="noopener"
+                    >Mobile web UI</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/omnigent-ai/omnigent"
+                    target="_blank"
+                    rel="noopener"
+                    >Yes, through a share link</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  qm<br /><span class="maker">Y Combinator</span>
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/yc-software/qm/blob/main/LICENSE"
+                    target="_blank"
+                    rel="noopener"
+                    >MIT</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/yc-software/qm"
+                    target="_blank"
+                    rel="noopener"
+                    >Pi, Claude Code</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/yc-software/qm"
+                    target="_blank"
+                    rel="noopener"
+                    >Your cloud account (Fly or AWS), used from Slack and the
+                    web</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/yc-software/qm/blob/main/plugins/web-ui/README.md"
+                    target="_blank"
+                    rel="noopener"
+                    >Mobile web UI, and Slack</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/yc-software/qm"
+                    target="_blank"
+                    rel="noopener"
+                    >Yes, in channels and group messages</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Orca<br /><span class="maker">Stably AI</span>
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/stablyai/orca/blob/main/LICENSE"
+                    target="_blank"
+                    rel="noopener"
+                    >MIT</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/stablyai/orca"
+                    target="_blank"
+                    rel="noopener"
+                    >Any CLI agent, such as Claude Code, Codex, OpenCode, Pi</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/stablyai/orca"
+                    target="_blank"
+                    rel="noopener"
+                    >Desktop app (macOS, Windows, Linux), with remote machines
+                    over SSH</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://www.onorca.dev/docs/mobile"
+                    target="_blank"
+                    rel="noopener"
+                    >iOS and Android apps that pair with the desktop app</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/stablyai/orca"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Munder Difflin<br /><span class="maker">chaitanyagiri</span>
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/chaitanyagiri/munder-difflin"
+                    target="_blank"
+                    rel="noopener"
+                    >MIT, with a paid Pro tier</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/chaitanyagiri/munder-difflin"
+                    target="_blank"
+                    rel="noopener"
+                    >Claude Code, Codex, Gemini CLI, OpenCode, Cursor, and other
+                    CLIs</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/chaitanyagiri/munder-difflin"
+                    target="_blank"
+                    rel="noopener"
+                    >Desktop app (macOS, Windows, Linux)</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/chaitanyagiri/munder-difflin"
+                    target="_blank"
+                    rel="noopener"
+                    >Slack bot</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/chaitanyagiri/munder-difflin"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented; offices can message each other</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  OpenClaw<br /><span class="maker">OpenClaw Foundation</span>
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/openclaw/openclaw/blob/main/LICENSE"
+                    target="_blank"
+                    rel="noopener"
+                    >MIT</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/openclaw/openclaw"
+                    target="_blank"
+                    rel="noopener"
+                    >Its own assistant; Claude, Codex and local models are
+                    plugins</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/openclaw/openclaw"
+                    target="_blank"
+                    rel="noopener"
+                    >Your computer (macOS, Linux, Windows)</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/openclaw/openclaw"
+                    target="_blank"
+                    rel="noopener"
+                    >iOS and Android apps, and chat apps such as WhatsApp and
+                    Telegram</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://docs.openclaw.ai/start/teams"
+                    target="_blank"
+                    rel="noopener"
+                    >Yes, team sessions</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Hermes Agent<br /><span class="maker">Nous Research</span>
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/NousResearch/hermes-agent/blob/main/LICENSE"
+                    target="_blank"
+                    rel="noopener"
+                    >MIT</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/NousResearch/hermes-agent"
+                    target="_blank"
+                    rel="noopener"
+                    >Its own agent, with the model you choose</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/NousResearch/hermes-agent"
+                    target="_blank"
+                    rel="noopener"
+                    >Your computer or server, from the CLI</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/NousResearch/hermes-agent"
+                    target="_blank"
+                    rel="noopener"
+                    >Chat apps such as Telegram, WhatsApp and Signal</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/discord"
+                    target="_blank"
+                    rel="noopener"
+                    >Optional, one shared session per channel</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Pi<br /><span class="maker">Earendil</span></th>
+                <td>
+                  <a href="https://pi.dev/" target="_blank" rel="noopener"
+                    >MIT</a
+                  >
+                </td>
+                <td>
+                  <a href="https://pi.dev/" target="_blank" rel="noopener"
+                    >Its own harness, with models from 15+ providers</a
+                  >
+                </td>
+                <td>
+                  <a href="https://pi.dev/" target="_blank" rel="noopener"
+                    >Terminal (macOS, Linux, Windows)</a
+                  >
+                </td>
+                <td>
+                  <a href="https://pi.dev/" target="_blank" rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+                <td>
+                  <a href="https://pi.dev/" target="_blank" rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  AdaL<br /><span class="maker">SylphAI</span>
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/SylphAI-Inc/adal-cli"
+                    target="_blank"
+                    rel="noopener"
+                    >No license file in its repo</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://docs.sylph.ai/getting-started/models"
+                    target="_blank"
+                    rel="noopener"
+                    >Its own harness; Claude, GPT, Gemini, local models, and
+                    others</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://docs.sylph.ai/"
+                    target="_blank"
+                    rel="noopener"
+                    >Terminal, desktop app (preview), and hosted cloud agents</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://docs.sylph.ai/"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://docs.sylph.ai/"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Cursor<br /><span class="maker"
+                    >Anysphere, part of SpaceX</span
+                  >
+                </th>
+                <td>
+                  <a
+                    href="https://cursor.com/terms-of-service"
+                    target="_blank"
+                    rel="noopener"
+                    >Proprietary</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://cursor.com/docs/models"
+                    target="_blank"
+                    rel="noopener"
+                    >Its own agent, with models from OpenAI, Anthropic, Google,
+                    and others</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://cursor.com/docs/cloud-agent"
+                    target="_blank"
+                    rel="noopener"
+                    >Desktop app, CLI, and cloud agents</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://cursor.com/mobile"
+                    target="_blank"
+                    rel="noopener"
+                    >iOS app; a web app on Android</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://cursor.com/docs/cloud-agent"
+                    target="_blank"
+                    rel="noopener"
+                    >Teammates can view cloud agents; an admin can let them send
+                    follow-ups</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Grok Bot<br /><span class="maker">SpaceXAI</span>
+                </th>
+                <td>
+                  <a
+                    href="https://docs.x.ai/grok-bot/overview"
+                    target="_blank"
+                    rel="noopener"
+                    >Proprietary; paid, with Cursor and SuperGrok plans</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://docs.x.ai/grok-bot/overview"
+                    target="_blank"
+                    rel="noopener"
+                    >Its own Bots</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://docs.x.ai/grok-bot/overview"
+                    target="_blank"
+                    rel="noopener"
+                    >Cloud computers; desktop and mobile apps</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://docs.x.ai/grok-bot/overview"
+                    target="_blank"
+                    rel="noopener"
+                    >iOS and Android apps</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://docs.x.ai/grok-bot/team-bots"
+                    target="_blank"
+                    rel="noopener"
+                    >Team Bots, with a private chat for each teammate; Slack
+                    threads are shared</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Muse<br /><span class="maker">Meta</span></th>
+                <td>
+                  <a
+                    href="https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/"
+                    target="_blank"
+                    rel="noopener"
+                    >Proprietary; free for most uses, with subscription plans</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/"
+                    target="_blank"
+                    rel="noopener"
+                    >Its own agent, on Meta's Muse Spark model</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/"
+                    target="_blank"
+                    rel="noopener"
+                    >A private cloud machine; iOS, Android and muse.ai</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/"
+                    target="_blank"
+                    rel="noopener"
+                    >iOS and Android apps, and WhatsApp</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Conductor<br /><span class="maker">Melty Labs</span>
+                </th>
+                <td>
+                  <a
+                    href="https://www.conductor.build/terms"
+                    target="_blank"
+                    rel="noopener"
+                    >Proprietary</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://www.conductor.build/docs/guides/providers"
+                    target="_blank"
+                    rel="noopener"
+                    >Claude Code, Codex, OpenCode, Cursor</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://www.conductor.build/docs/installation"
+                    target="_blank"
+                    rel="noopener"
+                    >Mac app, with optional cloud workspaces</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://www.conductor.build/docs/reference/remote-control"
+                    target="_blank"
+                    rel="noopener"
+                    >iOS app (experimental)</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://www.conductor.build/docs/cloud/collaboration"
+                    target="_blank"
+                    rel="noopener"
+                    >Yes, in cloud workspaces on paid plans</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Claude Squad<br /><span class="maker">smtg-ai</span>
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/smtg-ai/claude-squad/blob/main/LICENSE.md"
+                    target="_blank"
+                    rel="noopener"
+                    >AGPL-3.0</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/smtg-ai/claude-squad"
+                    target="_blank"
+                    rel="noopener"
+                    >Claude Code, Codex, Gemini, Aider, and other CLIs</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/smtg-ai/claude-squad"
+                    target="_blank"
+                    rel="noopener"
+                    >Terminal, with tmux</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/smtg-ai/claude-squad"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/smtg-ai/claude-squad"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Vibe Kanban<br /><span class="maker">Bloop</span>
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/BloopAI/vibe-kanban/blob/main/LICENSE"
+                    target="_blank"
+                    rel="noopener"
+                    >Apache 2.0</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/BloopAI/vibe-kanban"
+                    target="_blank"
+                    rel="noopener"
+                    >Claude Code, Codex, Gemini CLI, Cursor, OpenCode, and
+                    others</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://vibekanban.com/docs/getting-started"
+                    target="_blank"
+                    rel="noopener"
+                    >Web UI on your computer</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://www.vibekanban.com/blog/shutdown"
+                    target="_blank"
+                    rel="noopener"
+                    >Remote access was through Bloop's cloud service, which
+                    Bloop said would close in May 2026</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://github.com/BloopAI/vibe-kanban"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Claude Code agent teams<br /><span class="maker"
+                    >Anthropic</span
+                  >
+                </th>
+                <td>
+                  <a
+                    href="https://github.com/anthropics/claude-code/blob/main/LICENSE.md"
+                    target="_blank"
+                    rel="noopener"
+                    >Part of Claude Code, which is proprietary</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://code.claude.com/docs/en/agent-teams"
+                    target="_blank"
+                    rel="noopener"
+                    >Claude Code only</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://code.claude.com/docs/en/agent-teams"
+                    target="_blank"
+                    rel="noopener"
+                    >Inside one Claude Code session in a terminal</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://code.claude.com/docs/en/agent-teams"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented for teams</a
+                  >
+                </td>
+                <td>
+                  <a
+                    href="https://code.claude.com/docs/en/agent-teams"
+                    target="_blank"
+                    rel="noopener"
+                    >None documented</a
+                  >
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="checked">
+          Each cell links its source. Checked 2026-10-20. If a fact has changed,
+          write to <a href="mailto:llc@isomux.com">llc@isomux.com</a>.
+        </p>
+      </section>
+      <section id="tools">
+        <h2>The tools</h2>
+        <ul>
+          <li>
+            <strong>Omnigent</strong>, from Databricks, open-sourced under
+            Apache 2.0 in
+            <a
+              href="https://www.databricks.com/blog/introducing-omnigent-meta-harness-combine-control-and-share-your-agents"
+              target="_blank"
+              rel="noopener"
+              >June 2026</a
+            >. Its
+            <a
+              href="https://github.com/omnigent-ai/omnigent"
+              target="_blank"
+              rel="noopener"
+              >README</a
+            >
+            lists Claude Code, Codex, Cursor, OpenCode, Hermes, and Pi.
+          </li>
+          <li>
+            <strong>qm</strong>, from Y Combinator, is
+            <a
+              href="https://github.com/yc-software/qm"
+              target="_blank"
+              rel="noopener"
+              >a multiplayer agent harness</a
+            >
+            in Slack and on the web, under the MIT License. Pi and Claude Code
+            drive its core.
+          </li>
+          <li>
+            <strong>Orca</strong>, from Stably AI, is
+            <a
+              href="https://github.com/stablyai/orca"
+              target="_blank"
+              rel="noopener"
+              >an agent development environment</a
+            >
+            that runs Claude Code, Codex, OpenCode, Pi, and other CLI agents in
+            parallel, with desktop apps and iOS and Android apps. It is MIT
+            licensed.
+          </li>
+          <li>
+            <strong>Munder Difflin</strong>, by GitHub user chaitanyagiri, is
+            <a
+              href="https://github.com/chaitanyagiri/munder-difflin"
+              target="_blank"
+              rel="noopener"
+              >a local multi-agent harness</a
+            >
+            that runs Claude Code, Codex, OpenCode, Pi, and other agent CLIs as
+            an office of agents at desks. It is MIT licensed.
+          </li>
+          <li>
+            <strong>OpenClaw</strong> is an
+            <a
+              href="https://github.com/openclaw/openclaw"
+              target="_blank"
+              rel="noopener"
+              >open-source AI assistant</a
+            >
+            that runs on your own computer and talks to you through apps such as
+            Discord, Slack, Telegram, and WhatsApp. Peter Steinberger and the
+            community built it; the OpenClaw Foundation develops it under the
+            MIT License.
+          </li>
+          <li>
+            <strong>Hermes Agent</strong> is a
+            <a
+              href="https://github.com/NousResearch/hermes-agent"
+              target="_blank"
+              rel="noopener"
+              >self-improving AI agent</a
+            >
+            from Nous Research, reachable from the CLI, Telegram, Discord,
+            Slack, WhatsApp, and Signal. It is MIT licensed.
+          </li>
+          <li>
+            <strong>Pi</strong> is a
+            <a href="https://pi.dev/" target="_blank" rel="noopener"
+              >minimal agent harness</a
+            >
+            that Mario Zechner
+            <a
+              href="https://mariozechner.at/posts/2025-11-30-pi-coding-agent/"
+              target="_blank"
+              rel="noopener"
+              >started in 2025</a
+            >, now from Earendil Inc. under the MIT License.
+          </li>
+          <li>
+            <strong>AdaL</strong>, from SylphAI, is
+            <a
+              href="https://github.com/SylphAI-Inc/adal-cli"
+              target="_blank"
+              rel="noopener"
+              >an automation-first agent harness</a
+            >
+            named after Ada Lovelace. It works with Claude, GPT, Gemini, and
+            local models, among others.
+          </li>
+          <li>
+            <strong>Cursor</strong> is a coding agent from Anysphere, which
+            <a
+              href="https://cursor.com/blog/joining-spacex"
+              target="_blank"
+              rel="noopener"
+              >SpaceX acquired</a
+            >
+            in August 2026.
+          </li>
+          <li>
+            <strong>Grok Bot</strong> is a
+            <a
+              href="https://x.ai/news/introducing-grok-bot"
+              target="_blank"
+              rel="noopener"
+              >team of always-on agents</a
+            >
+            from SpaceXAI, launched in August 2026 for SuperGrok and Cursor
+            subscribers.
+          </li>
+          <li>
+            <strong>Muse</strong> is
+            <a
+              href="https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/"
+              target="_blank"
+              rel="noopener"
+              >a personal AI agent</a
+            >
+            from Meta, rolling out in the US since September 2026 on iOS,
+            Android, and muse.ai. It is free for most uses, with subscription
+            plans.
+          </li>
+          <li>
+            <strong>Conductor</strong>, from Melty Labs, is
+            <a
+              href="https://www.conductor.build/"
+              target="_blank"
+              rel="noopener"
+              >a Mac app</a
+            >
+            that runs many coding agents in parallel on one codebase. Its paid
+            cloud workspaces let a team open the same chats.
+          </li>
+          <li>
+            <strong>Claude Squad</strong> is
+            <a
+              href="https://github.com/smtg-ai/claude-squad"
+              target="_blank"
+              rel="noopener"
+              >a terminal app</a
+            >
+            that runs Claude Code, Codex, Gemini, and other agents in separate
+            tmux sessions and git worktrees. It is AGPL-3.0 licensed.
+          </li>
+          <li>
+            <strong>Vibe Kanban</strong>, from Bloop, plans work as kanban
+            issues and runs coding agents in workspaces. Bloop
+            <a
+              href="https://www.vibekanban.com/blog/shutdown"
+              target="_blank"
+              rel="noopener"
+              >announced its shutdown</a
+            >
+            in April 2026; the Apache 2.0 project continues, maintained by the
+            community.
+          </li>
+          <li>
+            <strong>Claude Code agent teams</strong> is
+            <a
+              href="https://code.claude.com/docs/en/agent-teams"
+              target="_blank"
+              rel="noopener"
+              >an experimental Claude Code feature</a
+            >, off by default. One Claude Code session leads a team of others,
+            which share a task list and message each other.
+          </li>
+        </ul>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <a class="footer-name" href="/">Isomux</a>
+      </div>
+      <div class="footer-columns">
+        <div class="footer-column">
+          <h2>Product</h2>
+          <ul>
+            <li><a href="/hosted">Hosted</a></li>
+            <li><a href="/enterprise">Enterprise</a></li>
+            <li><a href="/compare">Compare</a></li>
+            <li><a href="/use-cases/parallel-agents">Parallel agents</a></li>
+            <li><a href="/use-cases/phone">On your phone</a></li>
+            <li>
+              <a
+                href="https://github.com/nmamano/isomux"
+                target="_blank"
+                rel="noopener"
+                >GitHub</a
+              >
+            </li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Company</h2>
+          <ul>
+            <li><a href="/about">About</a></li>
+            <li><a href="/contact">Contact</a></li>
+            <li><a href="/ai-instructions">AI instructions</a></li>
+            <li>
+              <a
+                href="https://nilmamano.com/blog/category/isomux"
+                target="_blank"
+                rel="noopener"
+                >Blog</a
+              >
+            </li>
+            <li>
+              <a href="https://nilmamano.com" target="_blank" rel="noopener"
+                >nilmamano.com</a
+              >
+            </li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Legal</h2>
+          <ul>
+            <li><a href="/hosted-terms">Terms</a></li>
+            <li><a href="/hosted-privacy">Privacy</a></li>
+            <li><a href="/hosted-refund">Refunds</a></li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+
+    <script defer src="/_vercel/insights/script.js"></script>
+    <script defer src="/analytics.js"></script>
+    <script defer src="/theme-toggle.js"></script>
+  </body>
+</html>

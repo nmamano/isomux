@@ -2,17 +2,23 @@ import { readFileSync } from "node:fs";
 
 // One identity per complete guide. Fragments never become pages. AWS remains
 // readable on GitHub at its sole maintained source as well as on the docs site.
+// `detail` is the short line in the chooser; `description` is the guide page's
+// meta description, which search results show on their own.
 export const HOSTING_GUIDES = [
   {
     id: "hosted",
     label: "Hosted Isomux",
     detail: "A paid Isomux hosting service by the creator of Isomux",
+    description:
+      "Set up Hosted Isomux: sign in, pick an office name, and connect an AI provider. No server, domain or install needed.",
     source: "docs/hosting/hosted.md",
   },
   {
     id: "render",
     label: "Render",
     detail: "A paid container service",
+    description:
+      "Run an Isomux office on Render as one Docker web service with a persistent disk, at your own domain.",
     source: "docs/hosting/render.md",
     notice:
       "Deployment validation is incomplete. Render charges for the compute plan and persistent disk.",
@@ -21,42 +27,56 @@ export const HOSTING_GUIDES = [
     id: "aws",
     label: "AWS EC2 container",
     detail: "An Ubuntu server in your AWS account",
+    description:
+      "Run an Isomux office on an AWS EC2 server, in a container, at your own domain with HTTPS.",
     source: "deploy/container/README.md",
   },
   {
     id: "kubernetes",
     label: "Kubernetes (EKS)",
     detail: "A cluster in your AWS account",
+    description:
+      "Run an Isomux office in an Amazon EKS cluster from the published container image: one pod, one persistent disk.",
     source: "docs/hosting/kubernetes.md",
   },
   {
     id: "vps",
     label: "A VPS provider such as Hetzner",
     detail: "Your cloud server and domain",
+    description:
+      "Install Isomux on a fresh Ubuntu 24.04 VPS, such as Hetzner, and serve the office at your own domain with HTTPS.",
     source: "docs/hosting/vps.md",
   },
   {
     id: "local",
     label: "Host locally",
     detail: "An office on this computer",
+    description:
+      "Run an Isomux office on your own Linux or macOS computer. The office runs while its terminal is open.",
     source: "docs/hosting/local.md",
   },
   {
     id: "private",
     label: "Private Tailscale",
     detail: "Your Linux computer, private HTTPS",
+    description:
+      "Run Isomux on your Linux computer with a private HTTPS address that only people on your Tailscale network can open.",
     source: "docs/hosting/private.md",
   },
   {
     id: "funnel",
     label: "Public Tailscale Funnel",
     detail: "Your Linux computer, no domain needed",
+    description:
+      "Run Isomux on your Linux computer with a public HTTPS address from Tailscale Funnel, with no domain or port forwarding.",
     source: "docs/hosting/funnel.md",
   },
   {
     id: "domain",
     label: "Your computer and domain",
     detail: "Your Linux computer, public HTTPS and app addresses",
+    description:
+      "Run Isomux on your own Linux computer at your own domain, with Caddy serving the office and app addresses over HTTPS.",
     source: "docs/hosting/domain.md",
   },
 ] as const;

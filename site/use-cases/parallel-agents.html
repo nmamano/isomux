@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="canonical" href="https://isomux.com/use-cases/parallel-agents" />
+    <title>Run many coding agents at once with Isomux</title>
+    <meta
+      name="description"
+      content="Run Claude Code, Codex, and OpenCode agents side by side in one office, see which ones wait for you, and let them hand work to each other."
+    />
+
+    <link rel="icon" href="/favicon.png" sizes="192x192" type="image/png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta
+      name="theme-color"
+      content="#0d1117"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      content="#f4f6f9"
+      media="(prefers-color-scheme: light)"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          if (saved) {
+            document.documentElement.setAttribute("data-theme", saved);
+            var lightIds = ["light", "solarized-light"];
+            document.documentElement.setAttribute(
+              "data-theme-mode",
+              lightIds.indexOf(saved) >= 0 ? "light" : "dark",
+            );
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="/footer.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --border: #30363d;
+        --max-width: 760px;
+        color-scheme: dark;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6f9;
+          --bg-surface: #ffffff;
+          --bg-card: #eef1f5;
+          --text: #1a2030;
+          --text-dim: #5a6a80;
+          --accent: #16803f;
+          --border: #d8dde6;
+          color-scheme: light;
+        }
+      }
+
+      :root[data-theme-mode="dark"] {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --border: #30363d;
+        color-scheme: dark;
+      }
+      :root[data-theme-mode="light"] {
+        --bg: #f4f6f9;
+        --bg-surface: #ffffff;
+        --bg-card: #eef1f5;
+        --text: #1a2030;
+        --text-dim: #5a6a80;
+        --accent: #16803f;
+        --border: #d8dde6;
+        color-scheme: light;
+      }
+
+      .theme-toggle {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        z-index: 90;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--bg-surface);
+        color: var(--text-dim);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition:
+          background 0.15s,
+          transform 0.15s;
+      }
+      .theme-toggle:hover {
+        background: var(--bg-card);
+        transform: scale(1.06);
+      }
+      .theme-toggle svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Helvetica,
+          Arial,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.65;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family:
+          "Space Grotesk",
+          -apple-system,
+          sans-serif;
+        letter-spacing: -0.01em;
+      }
+
+      .topbar {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 20px 24px 0;
+        font-size: 0.9rem;
+      }
+      .topbar a {
+        color: var(--text-dim);
+      }
+
+      main {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 24px 24px 8px;
+      }
+
+      h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 20px;
+      }
+
+      .lead {
+        font-size: 1.1rem;
+        margin-bottom: 12px;
+      }
+
+      h2 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin-top: 40px;
+        margin-bottom: 12px;
+      }
+
+      h3 {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-top: 20px;
+        margin-bottom: 6px;
+      }
+
+      p,
+      ul {
+        margin-bottom: 12px;
+      }
+
+      section p,
+      section li {
+        color: var(--text-dim);
+      }
+      section strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin-bottom: 6px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+        margin-bottom: 12px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        color: var(--text);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      td {
+        color: var(--text-dim);
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 20px 16px 8px;
+        }
+        h1 {
+          font-size: 1.6rem;
+        }
+        .topbar {
+          padding: 20px 16px 0;
+        }
+        th {
+          white-space: normal;
+        }
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin-bottom: 12px;
+      }
+      .table-wrap table {
+        min-width: 940px;
+        margin-bottom: 0;
+      }
+      .table-wrap td a {
+        color: inherit;
+        text-decoration: underline;
+        text-decoration-color: var(--border);
+        text-underline-offset: 3px;
+      }
+      .table-wrap th[scope="row"],
+      .table-wrap thead th:first-child {
+        position: sticky;
+        left: 0;
+        background: var(--bg);
+      }
+      .table-wrap th[scope="row"] {
+        white-space: normal;
+        min-width: 120px;
+      }
+      .table-wrap thead th {
+        white-space: normal;
+      }
+      .table-wrap tbody tr:first-child th,
+      .table-wrap tbody tr:first-child td {
+        color: var(--text);
+      }
+      .maker {
+        font-weight: 400;
+        font-size: 0.85rem;
+        color: var(--text-dim);
+      }
+      .checked {
+        font-size: 0.88rem;
+        color: var(--text-dim);
+      }
+      .shots {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin: 8px 0 16px;
+      }
+      .shots img {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        height: auto;
+        max-width: 100%;
+      }
+      .shots.phone img {
+        width: 260px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar"><a href="/">&larr; isomux.com</a></div>
+    <main>
+      <h1>Run many coding agents at once</h1>
+      <p class="lead">
+        Isomux runs Claude Code, Codex, and OpenCode agents side by side, each
+        at its own desk in a shared office on your server or computer. From any
+        browser, you see which agents work, which wait for you, and which are
+        idle.
+      </p>
+      <section id="one-view">
+        <h2>Every agent in one view</h2>
+        <p>
+          Each agent keeps its own conversation, working directory, and engine.
+          The office shows each agent's state and what it works on, and the top
+          bar counts the agents that wait for you.
+        </p>
+        <div class="shots">
+          <img
+            src="/use-cases/office-desktop.jpeg"
+            alt="The demo office: eight agents at their desks, with a name and a status over each desk, a topic over the busy ones, and a count of waiting and idle agents in the top bar"
+            width="1280"
+            height="800"
+            loading="lazy"
+          />
+        </div>
+      </section>
+      <section id="asks">
+        <h2>Agents ask when they need you</h2>
+        <p>
+          An agent that needs a decision opens an ask. Asks collect in your
+          inbox, and you answer them when you have time. When a person must act
+          now, an agent can page you, and the page can reach your phone.
+        </p>
+        <div class="shots">
+          <img
+            src="/use-cases/agent-chat-desktop.jpeg"
+            alt="A demo agent's conversation, with its open asks below it and a reply box on each ask"
+            width="1280"
+            height="800"
+            loading="lazy"
+          />
+        </div>
+      </section>
+      <section id="together">
+        <h2>Agents work together</h2>
+        <p>
+          Agents message each other, read each other's conversations, and share
+          a task board and memory. One agent can hand a task to another, or ask
+          a second agent to review its work.
+        </p>
+      </section>
+      <section id="how-we-use-it">
+        <h2>How we use it</h2>
+        <p>
+          We build Isomux in an Isomux office. Each worker agent takes one task
+          from the board and works in its own git worktree. A reviewer agent
+          writes the tests and reviews the change, and one agent merges approved
+          work into main. A person signs off before anything ships.
+        </p>
+      </section>
+      <section id="start">
+        <h2>Start</h2>
+        <p>
+          Try the <a href="/demo">demo office</a>. Then run Isomux on your own
+          computer or server with the
+          <a href="/docs/hosting">hosting guides</a>, or get a server with
+          <a href="/hosted">Hosted Isomux</a>. Agents run on your own Claude,
+          ChatGPT, or other provider accounts.
+        </p>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <a class="footer-name" href="/">Isomux</a>
+      </div>
+      <div class="footer-columns">
+        <div class="footer-column">
+          <h2>Product</h2>
+          <ul>
+            <li><a href="/hosted">Hosted</a></li>
+            <li><a href="/enterprise">Enterprise</a></li>
+            <li><a href="/compare">Compare</a></li>
+            <li><a href="/use-cases/parallel-agents">Parallel agents</a></li>
+            <li><a href="/use-cases/phone">On your phone</a></li>
+            <li>
+              <a
+                href="https://github.com/nmamano/isomux"
+                target="_blank"
+                rel="noopener"
+                >GitHub</a
+              >
+            </li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Company</h2>
+          <ul>
+            <li><a href="/about">About</a></li>
+            <li><a href="/contact">Contact</a></li>
+            <li><a href="/ai-instructions">AI instructions</a></li>
+            <li>
+              <a
+                href="https://nilmamano.com/blog/category/isomux"
+                target="_blank"
+                rel="noopener"
+                >Blog</a
+              >
+            </li>
+            <li>
+              <a href="https://nilmamano.com" target="_blank" rel="noopener"
+                >nilmamano.com</a
+              >
+            </li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Legal</h2>
+          <ul>
+            <li><a href="/hosted-terms">Terms</a></li>
+            <li><a href="/hosted-privacy">Privacy</a></li>
+            <li><a href="/hosted-refund">Refunds</a></li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+
+    <script defer src="/_vercel/insights/script.js"></script>
+    <script defer src="/analytics.js"></script>
+    <script defer src="/theme-toggle.js"></script>
+  </body>
+</html>

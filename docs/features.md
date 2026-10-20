@@ -1,4 +1,5 @@
 ---
+description: Every Isomux feature. Isomux runs Claude Code, Codex and OpenCode agents side by side, with agent messaging, a task board, human collaboration and a mobile UI.
 navTitle: Full feature list
 ---
 

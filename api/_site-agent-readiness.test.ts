@@ -185,12 +185,20 @@ describe("isomux.com agent readiness", () => {
     expect(llms).toContain(canonical![1]);
   });
 
-  for (const file of ["site/ai-instructions.html", "site/contact.html"]) {
+  for (const file of [
+    "site/ai-instructions.html",
+    "site/contact.html",
+    "site/compare.html",
+    "site/use-cases/parallel-agents.html",
+    "site/use-cases/phone.html",
+  ]) {
     it(`links ${file} from the sitemap, llms.txt, and every site footer`, async () => {
       const page = await Bun.file(file).text();
       const canonical = page.match(/<link rel="canonical" href="([^"]+)"/);
       expect(canonical).not.toBeNull();
       const path = new URL(canonical![1]).pathname;
+      // cleanUrls serves the file at its canonical path.
+      expect(`site${path}.html`).toBe(file);
       expect(STATIC_PATHS).toContain(path);
       expect(await Bun.file("site/llms.txt").text()).toContain(canonical![1]);
 

@@ -35,7 +35,7 @@ Keep these consistent across all surfaces below.
   - `<section id="how-it-works">` - one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.
 - **Update when:** headline features change. Always update this file, the README and the two translated copies in the same commit so they don't drift.
 - **Languages:** the English file is the source. Every edit to it is repeated in the Spanish, Catalan and Simplified Chinese copies in the same commit; a copy that keeps an English sentence is a bug, not a fallback. All four carry the same five `rel=alternate hreflang` links and the same language menu in the footer (a `<details>` that names the page's language and links the others). `scripts/site-i18n-check.test.ts` holds the eight pages to that.
-- **Footer:** one layout on the landing, hosted, about, enterprise, AI instructions, contact and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in all fifteen. The about, enterprise, AI instructions, contact and legal pages are English only and carry no language menu.
+- **Footer:** one layout on the landing, hosted, about, compare, use-case, enterprise, AI instructions, contact and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in every page that has it (`api/_site-agent-readiness.test.ts` finds them). The pages other than the landing and hosted pages are English only and carry no language menu.
 - **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`). `cleanUrls` serves the copies at `/es` and `/ca`; both appear in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`). After each Production deploy, `.github/workflows/indexnow.yml` sends IndexNow the sitemap URLs whose built page changed, was added or was removed since the previous deploy (`scripts/indexnow.ts`; key file `site/<key>.txt`).
 
 ## 2b. Hosted landing page (isomux.com/hosted)
@@ -63,8 +63,8 @@ Keep these consistent across all surfaces below.
 
 - **File:** `site/about.html`.
 - **Audience:** Visitors and AI search engines that want to know what Isomux is and who builds it.
-- **Structure:** a one-sentence definition, then The team behind Isomux, Enterprise (a short paragraph that links the enterprise page, section 2f), Support, a Key facts table, FAQ, and Related projects. Features stay on the landing page and hosting options in the hosting guide; this page does not repeat them. It carries `AboutPage` / `Organization` JSON-LD. Styled like the legal pages (section 2c).
-- **Update when:** a fact on it changes - license, prices, support channels, status, or a named competitor. Every claim traces to a public surface (this repo, the site, nilmamano.com, or a competitor's own site or repo); a claim about a competitor is a verifiable fact with a source, never a subjective comparison.
+- **Structure:** a one-sentence definition, then The team behind Isomux, Enterprise (a short paragraph that links the enterprise page, section 2f), Support, a Key facts table, FAQ, and Related projects (one line that links the compare page, section 2h). Features stay on the landing page and hosting options in the hosting guide; this page does not repeat them. It carries `AboutPage` / `Organization` JSON-LD. Styled like the legal pages (section 2c).
+- **Update when:** a fact on it changes - license, prices, support channels, status, or a named competitor. The Competitors row names the same tools as the compare page. Every claim traces to a public surface (this repo, the site, nilmamano.com, or a competitor's own site or repo); a claim about a competitor is a verifiable fact with a source, never a subjective comparison.
 - **Language:** English only for now. The landing and hosted footers link it in all four languages.
 - **Deploy note:** static, `cleanUrls`, served at `/about`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
 
@@ -95,6 +95,24 @@ Keep these consistent across all surfaces below.
 - **Language:** English only. All footers link it under Company; the Spanish, Catalan and Chinese footers translate the link label (Contacto, Contacte, 联系我们).
 - **Deploy note:** static, `cleanUrls`, served at `/contact`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
 
+## 2h. Compare page (isomux.com/compare)
+
+- **File:** `site/compare.html`.
+- **Audience:** Visitors and AI search answers that compare Isomux with other agent tools ("Isomux vs X", "alternatives to X").
+- **Structure:** a one-paragraph definition, a table with a row per tool (Isomux first) and columns only for facts that rarely change (license, agents it runs, where it runs, phone, several people in one conversation), one "Checked <date>" line under the table, and one short section per tool. Every non-Isomux cell links the tool's own repo, docs or site, never a roundup. The page owns the per-tool text; the about page (section 2d) keeps only the Competitors row, with the same tools. Styled like the about page, with a wider layout for the table.
+- **Update when:** a tool is added or removed, or a fact in the table changes. Recheck every cell and change the date when you edit the table. No schedule refreshes it.
+- **Language:** English only. All footers link it under Product; the Spanish, Catalan and Chinese footers translate the link label (Comparativa, Comparativa, 对比).
+- **Deploy note:** static, `cleanUrls`, served at `/compare`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
+
+## 2i. Use-case pages (isomux.com/use-cases/parallel-agents, isomux.com/use-cases/phone)
+
+- **Files:** `site/use-cases/parallel-agents.html` and `site/use-cases/phone.html`, with their screenshots beside them in `site/use-cases/`.
+- **Audience:** Visitors and AI search answers for one buyer question each: how to run many coding agents at once, and how to reach them from a phone.
+- **Structure:** the answer in the lead paragraph, a few short sections with screenshots, and a Start section that links the demo, the hosting guides and the hosted page. Screenshots come from the demo office (`/demo`), never from a real office. One page per distinct question, never a page per phrasing of the same question (Google calls that scaled content abuse). Styled like the about page; every asset and link is root-absolute, because the pages sit one folder down.
+- **Update when:** a feature they describe changes (the office view, asks, pages, agent messaging, the mobile UI, install to home screen, voice input, notifications, hosting setups), or the demo's look changes enough that a screenshot misleads.
+- **Language:** English only. All footers link them under Product; the Spanish, Catalan and Chinese footers translate the link labels.
+- **Deploy note:** static, `cleanUrls`, served at `/use-cases/parallel-agents` and `/use-cases/phone`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
+
 ## 3. Site chatbot system prompt
 
 - **File:** `api/chat.ts` - `SYSTEM_PROMPT` constant (around line 25).
@@ -117,7 +135,7 @@ Keep these consistent across all surfaces below.
   - `how-it-works.md` - short multi-provider technical overview (Bun process, Claude SDK + Codex app-server, WebSocket sync, persistence).
   - `security-audit.md` - authorization-system threat model and findings, plus the access-internals appendix (state files, cookie semantics, link lifetimes, public origin, bootstrap window, trust boundaries, wire-level notes). Keep it short: remove a finding when it is fixed (git history keeps it) and update the "last updated" date at the top.
   - `developer-api.md` - Isomux developer resource index: website OpenAPI contract, self-hosted API authentication, route-table source, personal API tokens, memory READ/APPEND/REPLACE contract and limits, and structured error shape.
-- **Frontmatter:** `title`, `description`, `navTitle` (override the sidebar label when the H1 is too long), and `order` (override nav position).
+- **Frontmatter:** `title`, `description`, `navTitle` (override the sidebar label when the H1 is too long), and `order` (override nav position). Give a page a `description` when its first paragraph does not summarize it: search results show the description, and without one the build cuts the first paragraph. Hosting guide pages take theirs from the `description` field in `scripts/hosting-docs.ts`.
 - **Internal safety evidence:** `internal-docs/safety-hooks.md` records the maintained scope, evidence, and limits for Claude and Codex pre-tool safety hooks. Update it when the policy surface, backend hook contract, installation checks, failure behavior, or isolation boundary changes.
 - **Sidebar nav:** every doc page renders a sidebar listing all pages, with the current one highlighted (sticky on desktop, stacked above content on mobile).
 - **Build:** `bun run build:docs`. The renderer rewrites local `.md` links to clean `/docs/<slug>` URLs (links to `features.md` → `/docs`), auto-generates an "On this page" TOC from H2/H3 headings, and writes Markdown variants under `site/_agent/docs/` for content negotiation. Trusted-source-only - no HTML sanitization (see the comment at the top of the script if outside contributions to `docs/` are ever accepted).
@@ -232,3 +250,4 @@ These aren't user-facing docs, but they do describe features and can fall out of
 9. `nilmamano.com/app/lib/chat-prompts.ts` - only if the one-line summary needs to change.
 10. `nilmamano.com/_source_assets/resume_nilmamano.tex` - only for architecture/stack-level changes. Recompile the PDF (see section 10 for the command) and commit `public/resume/resume_nilmamano.pdf` alongside the .tex in the same change.
 11. `github.com/isomux/.github` `profile/README.md` - only if the headline tagline, the `Coworkers...` bullets, or the showcase clip changes.
+12. `site/use-cases/*.html` - only if the feature is one they describe (section 2i).

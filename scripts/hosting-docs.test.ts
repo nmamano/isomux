@@ -282,3 +282,40 @@ describe("legacy fragment maps", () => {
     }
   });
 });
+
+describe("docs meta descriptions", () => {
+  const description = async (path: string) => {
+    const window = parse(htmlAt(path));
+    const content = window.document
+      .querySelector('meta[name="description"]')
+      ?.getAttribute("content");
+    await window.happyDOM.close();
+    return content ?? "";
+  };
+
+  it("give each hosting guide its own summary, not its chooser text", async () => {
+    const seen = new Set<string>();
+    for (const guide of HOSTING_GUIDES) {
+      const text = await description(hostingUrl(guide.id));
+      expect(text, guide.id).not.toBe("");
+      expect(text, guide.id).not.toBe(guide.detail);
+      expect(text, guide.id).not.toBe(guide.label);
+      seen.add(text);
+    }
+    expect(seen.size).toBe(HOSTING_GUIDES.length);
+  });
+
+  it("never cut a page's first paragraph to fill the description", async () => {
+    const paths: string[] = [];
+    for await (const file of new Bun.Glob("site/docs/**/index.html").scan(
+      ".",
+    )) {
+      paths.push(file.replace(/^site/, "").replace(/\/index\.html$/, ""));
+    }
+    expect(paths).toContain("/docs");
+    for (const path of paths) {
+      // The first-paragraph fallback marks a cut with a trailing "...".
+      expect(await description(path), path).not.toEndWith("...");
+    }
+  });
+});

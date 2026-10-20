@@ -1,4 +1,5 @@
 ---
+description: Who can get access to an Isomux office, what each member, agent and API token can do after that, and the audit findings.
 navTitle: Security audit
 ---
 

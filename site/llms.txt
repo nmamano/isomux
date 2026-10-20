@@ -10,6 +10,12 @@
 - Script an office: each office serves its own HTTP API; see [Isomux developer API resources](https://isomux.com/docs/developer-api). isomux.com serves only the website chat API.
 - Agents run on the user's own Claude, ChatGPT or other provider accounts.
 
+## Compare and use cases
+
+- [Compare](https://isomux.com/compare): Isomux beside other agent harnesses and multi-agent tools: license, agents, where it runs, phone access, and shared conversations
+- [Run many coding agents at once](https://isomux.com/use-cases/parallel-agents): Run Claude Code, Codex and OpenCode agents side by side and keep track of them
+- [Agents on your phone](https://isomux.com/use-cases/phone): Check on and talk to your agents from a phone
+
 ## Company
 
 - [About Isomux](https://isomux.com/about): Who builds Isomux, licensing, enterprise use, and key facts
