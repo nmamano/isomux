@@ -259,16 +259,19 @@ it.skipIf(!LIVE)(
   25_000,
 );
 
-// Quarantined (task 55fb66d8): red twice in ci:remote on 8b478f85 at the 25 s
-// timeout (OpenCode sent no session.error for the turn), green on the third run
-// of the same commit. Restore skipIf(!LIVE) with the fix.
-it.skipIf(true)(
+it.skipIf(!LIVE)(
   "shows a real provider refusal without the provider key or headers in logs, agent JSONL or server logs",
   async () => {
     // Task 1a963907: the member reads the provider's own words, redacted.
     // The mock echoes the key it received, as some providers do.
     const canary = "OPENCODE_PROVIDER_ERROR_SECRET_CANARY";
-    const apiKey = `opencode-live-key-${crypto.randomUUID()}`;
+    // No digits: OpenCode 1.18.35 retries any error, even a 400, whose text
+    // holds 429, 500, 502, 503, 504 or 524, and the mock echoes the key. A
+    // UUID with "500" in it stalled this test past 25 s (task 55fb66d8).
+    const apiKey = `opencode-live-key-${crypto
+      .randomUUID()
+      .replace(/\d/g, (d) => "ghijklmnop"[Number(d)])}`;
+    expect(apiKey).toMatch(/^opencode-live-key-[a-z-]+$/);
     const plain = "ProviderPlainMarker7";
     const authorizations: string[] = [];
     const mock = Bun.serve({

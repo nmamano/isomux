@@ -4,6 +4,7 @@ import { OfficeState } from "../../shared/office-state.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { createOpenCodeBackend } from "../backends/opencode/adapter.ts";
 import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
+import { openCodeLogPath } from "../backends/opencode/profile-paths.ts";
 import { STATE_ROOT } from "../config.ts";
 
 import { createOpenCodeTestReaper } from "./opencode-test-reaper.ts";
@@ -17,14 +18,27 @@ afterAll(reaper.afterAll);
 const REFUSAL =
   "OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building.";
 
-async function until(condition: () => boolean) {
+async function until(condition: () => boolean, stalled: () => string) {
   const deadline = Date.now() + 20_000;
   while (!condition()) {
     if (Date.now() > deadline)
-      throw new Error("OpenCode control did not settle");
+      throw new Error(`OpenCode control did not settle: ${stalled()}`);
     await Bun.sleep(10);
   }
 }
+
+// The end of a scenario's OpenCode log, for a failure report. The mock
+// provider's key is "test-only", so the log holds nothing secret.
+async function logTail(profileDir: string): Promise<string> {
+  const file = Bun.file(openCodeLogPath(profileDir));
+  if (!(await file.exists())) return "(no OpenCode log)";
+  return (await file.text()).split("\n").slice(-40).join("\n");
+}
+
+// Below the 60 s test timeout, which equals OpenCode's startup timeout: a
+// stall anywhere, a server start included, then fails with what it waited
+// for rather than as a bare bun timeout (task 55fb66d8).
+const SCENARIO_DEADLINE_MS = 45_000;
 
 for (const scenario of [
   "overflow",
@@ -33,10 +47,7 @@ for (const scenario of [
   "retry",
   "refused",
 ] as const) {
-  // Quarantined (task 8f90dc4f): overflow red once in ci:remote on fc571183 at
-  // the 60 s timeout (the mock provider got no request), green on the second
-  // run of the same commit. Restore skipIf(!LIVE) with the fix.
-  it.skipIf(!LIVE || scenario === "overflow")(
+  it.skipIf(!LIVE)(
     `keeps real OpenCode ${scenario} answers on their own turn`,
     async () => {
       let requests = 0;
@@ -98,8 +109,9 @@ for (const scenario of [
           );
         },
       });
+      const profileDir = `${STATE_ROOT}/opencode-errors-${scenario}`;
       const supervisor = new OpenCodeSupervisor({
-        profileDir: `${STATE_ROOT}/opencode-errors-${scenario}`,
+        profileDir,
         serverCwd: STATE_ROOT,
         config: {
           autoupdate: false,
@@ -148,7 +160,14 @@ for (const scenario of [
         await supervisor.shutdown();
         await mock.stop(true);
       });
-      try {
+      let phase = "spawn";
+      const state = () =>
+        `${phase}; provider requests ${requests}; agent ${id ? mgr.getAgent(id)?.state : "not spawned"}`;
+      const wait = (label: string, condition: () => boolean) => {
+        phase = label;
+        return until(condition, state);
+      };
+      const scenarioBody = async () => {
         const agent = await mgr.spawn(
           "Error control",
           STATE_ROOT,
@@ -168,12 +187,19 @@ for (const scenario of [
           logs().some((e) => e.kind === "text" && e.content === content);
         const settled = () =>
           ["waiting_for_response", "error"].includes(mgr.getAgent(id!)!.state);
+        phase = "the baseline turn (the server start included)";
         await mgr.sendMessage(id, "BASELINE_PROMPT", "tester");
-        await until(() => has("BASELINE_REPLY") && settled());
+        await wait(
+          "the baseline reply",
+          () => has("BASELINE_REPLY") && settled(),
+        );
         const session = mgr.listSessions(id)[0]?.sessionId;
         const originalSend = mgr.sendMessage(id, "ORIGINAL_PROMPT", "tester");
         if (scenario === "retry") {
-          await until(() => has("FOLLOWUP_REPLY") && settled());
+          await wait(
+            "the reply after the retry",
+            () => has("FOLLOWUP_REPLY") && settled(),
+          );
           expect(
             logs().some(
               (e) =>
@@ -186,7 +212,8 @@ for (const scenario of [
           expect(requests).toBe(3);
         } else if (scenario === "refused") {
           // Task 1a963907: the member reads the provider's own words.
-          await until(
+          await wait(
+            "the refusal error",
             () => logs().some((e) => e.kind === "error") && settled(),
           );
           const error = logs().find((e) => e.kind === "error")!.content;
@@ -194,7 +221,8 @@ for (const scenario of [
           expect(error).toContain(`"${REFUSAL}"`);
           expect(requests).toBe(2);
         } else if (scenario === "terminal") {
-          await until(
+          await wait(
+            "the terminal error",
             () => logs().some((e) => e.kind === "error") && settled(),
           );
           expect(logs().find((e) => e.kind === "error")?.content).toMatch(
@@ -202,7 +230,8 @@ for (const scenario of [
           );
           expect(requests).toBe(2);
         } else {
-          await until(
+          await wait(
+            "the overflow and the held summary request",
             () => summaryHeld && rawErrors.includes("ContextOverflowError"),
           );
           expect(rawErrors).toContain("ContextOverflowError");
@@ -222,7 +251,8 @@ for (const scenario of [
             expect(requests).toBe(3);
           }
           releaseSummary.resolve();
-          await until(
+          await wait(
+            "the original reply after the summary",
             () =>
               has("ORIGINAL_REPLY") &&
               settled() &&
@@ -253,15 +283,40 @@ for (const scenario of [
           (e) => e.kind === "text" && e.content === "FOLLOWUP_REPLY",
         ).length;
         await mgr.sendMessage(id, "RECOVERY_PROMPT", "tester");
-        await until(
+        await wait(
+          "the recovery reply",
           () =>
             logs().filter(
               (e) => e.kind === "text" && e.content === "FOLLOWUP_REPLY",
             ).length > repliesBefore && settled(),
         );
         expect(mgr.listSessions(id)[0]?.sessionId).toBe(session);
+      };
+      const stalled = Promise.withResolvers<never>();
+      const timer = setTimeout(() => {
+        void logTail(profileDir).then((tail) =>
+          stalled.reject(
+            new Error(
+              `OpenCode ${scenario} stalled for ${SCENARIO_DEADLINE_MS} ms at ${state()}\n${tail}`,
+            ),
+          ),
+        );
+      }, SCENARIO_DEADLINE_MS);
+      try {
+        const run = scenarioBody();
+        // After a stall the abandoned body may still fail; that is reported
+        // above, not as an error between tests.
+        run.catch(() => {});
+        await Promise.race([run, stalled.promise]);
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith("OpenCode control"))
+          err.message += `\n${await logTail(profileDir)}`;
+        throw err;
       } finally {
-        await teardown();
+        clearTimeout(timer);
+        // Bounded, so a teardown stuck on the stalled turn cannot hide the
+        // error above; afterAll still shuts the server down.
+        await Promise.race([teardown(), Bun.sleep(10_000)]);
       }
     },
     60_000,
