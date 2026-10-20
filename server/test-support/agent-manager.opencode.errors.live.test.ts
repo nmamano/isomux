@@ -33,7 +33,10 @@ for (const scenario of [
   "retry",
   "refused",
 ] as const) {
-  it.skipIf(!LIVE)(
+  // Quarantined (task 8f90dc4f): overflow red once in ci:remote on fc571183 at
+  // the 60 s timeout (the mock provider got no request), green on the second
+  // run of the same commit. Restore skipIf(!LIVE) with the fix.
+  it.skipIf(!LIVE || scenario === "overflow")(
     `keeps real OpenCode ${scenario} answers on their own turn`,
     async () => {
       let requests = 0;
