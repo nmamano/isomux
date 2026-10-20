@@ -18,6 +18,7 @@ import {
 } from "./harness.ts";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
+import { mintApiToken } from "../api-tokens.ts";
 import type { AgentInfo, TaskItem } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -877,47 +878,89 @@ describe("routes/tasks REST: room scoping", () => {
   });
 
   // Closing a room changes who can see its tasks WITHOUT going through
-  // updateTask, so no delta describes it. Before the delta push, an unrelated
-  // mutation happened to sweep the orphans out (it re-sent the whole board);
-  // now nothing does, so the close itself has to re-project or the row sits on
-  // the board under a room the client was just told is gone.
-  it("closing a room re-projects the board, and an unrelated mutation doesn't bring the orphan back", async () => {
+  // updateTask, so no delta describes it: the close itself re-projects every
+  // board. The records stay, and office owners keep them (task 6abfcc18): an
+  // owner's board keeps the closed room's task, a member who had the room
+  // drops it, and the owner's later moves on it never reach the member.
+  it("closing a room keeps its tasks on an owner's board and drops them from a member's; the owner's moves on them never reach the member", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomA = srv.agentManager.getRooms()[0].id; // Mia has no grant
     const roomB = srv.agentManager.createRoom("Room B");
-    const doomed = (
-      await postTask(srv, owner.rawSessionId, "in doomed room", roomB)
-    ).body as TaskItem;
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
+    const kept = (await postTask(srv, owner.rawSessionId, "kept", roomB))
+      .body as TaskItem;
+    const moved = (await postTask(srv, owner.rawSessionId, "moved", roomB))
+      .body as TaskItem;
+    const gone = (await postTask(srv, owner.rawSessionId, "gone", roomB))
+      .body as TaskItem;
     const survivor = (await postTask(srv, owner.rawSessionId, "global", ""))
       .body as TaskItem;
 
-    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
-    const lastBoard = (): TaskItem[] | null => {
-      const boards = sock.messages.filter(
-        (m) => (m as { type?: string }).type === "tasks",
-      );
+    const ownerSock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    const memberSock: TestSocket = await srv.connectWs(member.rawSessionId);
+    const boardsOf = (s: TestSocket) =>
+      s.messages.filter((m) => (m as { type?: string }).type === "tasks");
+    const lastBoard = (s: TestSocket): TaskItem[] | null => {
+      const boards = boardsOf(s);
       return boards.length
         ? ((boards[boards.length - 1] as { tasks: TaskItem[] }).tasks ?? [])
         : null;
     };
-    await waitUntil(() => lastBoard() !== null, 2000, "connect hydration");
-    // Hydration holds both: the room is still open and the owner accesses it.
-    expect(lastBoard()!.some((t) => t.id === doomed.id)).toBe(true);
+    await waitUntil(
+      () => lastBoard(ownerSock) !== null && lastBoard(memberSock) !== null,
+      2000,
+      "connect hydration",
+    );
+    // Hydration holds the room's tasks for both: the room is open.
+    expect(lastBoard(ownerSock)!.some((t) => t.id === kept.id)).toBe(true);
+    expect(lastBoard(memberSock)!.some((t) => t.id === kept.id)).toBe(true);
+    const ownerBoardsBefore = boardsOf(ownerSock).length;
 
-    await api(srv, `/api/rooms/${roomB}`, {
+    expect(
+      (
+        await api(srv, `/api/rooms/${roomB}`, {
+          method: "DELETE",
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(204);
+    await waitUntil(
+      () => lastBoard(memberSock)!.every((t) => t.id !== kept.id),
+      2000,
+      "member board drops the closed room's tasks",
+    );
+    expect(lastBoard(memberSock)!.some((t) => t.id === survivor.id)).toBe(true);
+    // The owner got a fresh board too, and it still holds all three.
+    await waitUntil(
+      () => boardsOf(ownerSock).length > ownerBoardsBefore,
+      2000,
+      "owner board re-pushed",
+    );
+    for (const t of [kept, moved, gone]) {
+      expect(lastBoard(ownerSock)!.some((x) => x.id === t.id)).toBe(true);
+    }
+
+    // An edit in place, a re-file into room A (Mia has no grant there) and a
+    // delete: each reaches the owner and none reaches Mia.
+    await api(srv, `/api/tasks/${kept.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { version: currentVersion(srv, kept.id), title: "kept, edited" },
+    });
+    await api(srv, `/api/tasks/${moved.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { version: currentVersion(srv, moved.id), roomId: roomA },
+    });
+    await api(srv, `/api/tasks/${gone.id}`, {
       method: "DELETE",
       rawSessionId: owner.rawSessionId,
     });
-    await waitUntil(
-      () => lastBoard()!.every((t) => t.id !== doomed.id),
-      2000,
-      "post-close board drops the orphan",
-    );
-    expect(lastBoard()!.some((t) => t.id === survivor.id)).toBe(true);
-
-    // A later unrelated mutation is a delta about THAT task only - it must not
-    // resurrect the orphan (nor re-send a board that contains it).
+    // A last edit Mia CAN see orders the stream: once it arrives, every delta
+    // before it has been decided for her.
     await api(srv, `/api/tasks/${survivor.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
@@ -927,12 +970,27 @@ describe("routes/tasks REST: room scoping", () => {
       },
     });
     await waitUntil(
-      () => upsertsOf(sock).some((t) => t.title === "global, edited"),
+      () =>
+        upsertsOf(ownerSock).some((t) => t.title === "kept, edited") &&
+        upsertsOf(ownerSock).some(
+          (t) => t.id === moved.id && t.roomId === roomA,
+        ) &&
+        deletedIdsOf(ownerSock).includes(gone.id),
       2000,
-      "unrelated edit delta",
+      "owner hears all three moves",
     );
-    expect(upsertsOf(sock).some((t) => t.id === doomed.id)).toBe(false);
-    expect(lastBoard()!.every((t) => t.id !== doomed.id)).toBe(true);
+    await waitUntil(
+      () => upsertsOf(memberSock).some((t) => t.title === "global, edited"),
+      2000,
+      "member hears the global edit",
+    );
+    const closedIds = [kept.id, moved.id, gone.id];
+    expect(
+      upsertsOf(memberSock).filter((t) => closedIds.includes(t.id)),
+    ).toEqual([]);
+    expect(
+      deletedIdsOf(memberSock).filter((id) => closedIds.includes(id)),
+    ).toEqual([]);
   });
 
   it("deleting a task reaches a recipient who could see it as task_deleted", async () => {
@@ -1661,6 +1719,218 @@ it("refuses to restore a task from a closed room", async () => {
   expect(restored.status).toBe(409);
   expect(restored.body).toMatchObject({ error: { code: "room_unavailable" } });
   expect(srv.agentManager.getTasks().some((t) => t.id === task.id)).toBe(false);
+});
+
+// --- A closed room's tasks (task 6abfcc18) -----------------------------------
+// Closing a room leaves its tasks in the store. Office owners - the owner user,
+// their agents, their API tokens, and an app run by one of their agents - see
+// them and can edit, re-file, close or delete them with the ordinary routes. A
+// member who had the room, and a cron run, get the uniform 404. Nobody can file
+// INTO the closed room.
+describe("routes/tasks REST: a closed room's tasks", () => {
+  async function setup() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const ownerId = getUserByName("Boss")!.id;
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
+    const post = async (title: string, roomId: string) => {
+      const r = await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { title, roomId },
+      });
+      expect(r.status).toBe(201);
+      return r.body as TaskItem;
+    };
+    const stored = (id: string) =>
+      srv.agentManager.getTasks().find((t) => t.id === id);
+    return { srv, owner, member, ownerId, roomA, roomB, post, stored };
+  }
+  async function closeRoom(srv: TestServer, rawSessionId: string, id: string) {
+    const r = await api(srv, `/api/rooms/${id}`, {
+      method: "DELETE",
+      rawSessionId,
+    });
+    expect(r.status).toBe(204);
+    expect(srv.agentManager.getRooms().some((room) => room.id === id)).toBe(
+      false,
+    );
+  }
+  const listIds = async (
+    srv: TestServer,
+    auth: { rawSessionId?: string; bearer?: string },
+  ) => {
+    const r = await api(srv, "/api/tasks?status=all", auth);
+    expect(r.status).toBe(200);
+    return (r.body as TaskItem[]).map((t) => t.id);
+  };
+
+  it("an owner, the owner's agent, API token and agent-run app see the task; a member of the room and a cron run get 404", async () => {
+    const { srv, owner, member, ownerId, roomB, post } = await setup();
+    const bot = await srv.agentManager.spawn(
+      "OwnerBot",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      srv.agentManager.getRooms()[0].id,
+      undefined,
+      undefined,
+      undefined,
+      "Boss",
+      "claude",
+    );
+    if (!bot) throw new Error("spawn OwnerBot returned null");
+    const agentToken = mintAgentToken(bot.id, ownerId);
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: agentToken,
+      body: {
+        name: "board-app",
+        command: "bun run serve.ts",
+        cwd: srv.stateRoot,
+      },
+    });
+    expect(reg.status).toBe(201);
+    const appToken = srv.appSupervisor.tokenFiles.get("board-app");
+    if (!appToken) throw new Error("no token file for board-app");
+    const apiToken = (
+      await mintApiToken({
+        userId: ownerId,
+        name: "board",
+        expiresInDays: null,
+      })
+    ).token;
+    const runToken = mintRunToken("job-closed", "run-closed", ownerId);
+
+    const t = await post("in the closed room", roomB);
+    await closeRoom(srv, owner.rawSessionId, roomB);
+
+    const sees = [
+      { rawSessionId: owner.rawSessionId },
+      { bearer: agentToken },
+      { bearer: apiToken },
+      { bearer: appToken },
+    ];
+    for (const auth of sees) {
+      expect(await listIds(srv, auth)).toContain(t.id);
+      const got = await api(srv, `/api/tasks/${t.id}`, auth);
+      expect(got.status).toBe(200);
+      expect((got.body as TaskItem).roomId).toBe(roomB);
+    }
+    // Both blind callers can list (a 200), so the absence is the room rule,
+    // not a missing route or token.
+    for (const auth of [
+      { rawSessionId: member.rawSessionId },
+      { bearer: runToken },
+    ]) {
+      expect(await listIds(srv, auth)).not.toContain(t.id);
+      expect((await api(srv, `/api/tasks/${t.id}`, auth)).status).toBe(404);
+    }
+  });
+
+  it("an owner edits, claims, completes, re-files and deletes it; a member of the room gets 404 on each and changes nothing", async () => {
+    const { srv, owner, member, roomA, roomB, post, stored } = await setup();
+    const edited = await post("edit me", roomB);
+    const toRoomA = await post("re-file me into room A", roomB);
+    const toGlobal = await post("re-file me to global", roomB);
+    const deleted = await post("delete me", roomB);
+    await closeRoom(srv, owner.rawSessionId, roomB);
+
+    const mutations = (id: string) =>
+      [
+        ["GET", `/api/tasks/${id}/history`, undefined],
+        [
+          "PATCH",
+          `/api/tasks/${id}`,
+          { version: currentVersion(srv, id), title: "x" },
+        ],
+        ["POST", `/api/tasks/${id}/claim`, { assignee: "Mia" }],
+        ["POST", `/api/tasks/${id}/done`, {}],
+        ["DELETE", `/api/tasks/${id}`, undefined],
+      ] as const;
+    for (const [method, path, body] of mutations(edited.id)) {
+      const r = await api(srv, path, {
+        method,
+        rawSessionId: member.rawSessionId,
+        body,
+      });
+      expect(r.status).toBe(404);
+    }
+    expect(stored(edited.id)).toEqual(edited);
+
+    const as = (method: string, path: string, body?: unknown) =>
+      api(srv, path, { method, rawSessionId: owner.rawSessionId, body });
+    expect((await as("GET", `/api/tasks/${edited.id}/history`)).status).toBe(
+      200,
+    );
+    const patched = await as("PATCH", `/api/tasks/${edited.id}`, {
+      version: currentVersion(srv, edited.id),
+      title: "edited",
+    });
+    expect(patched.status).toBe(200);
+    // An edit that does not name a room leaves the task in the closed room.
+    expect(stored(edited.id)).toMatchObject({ title: "edited", roomId: roomB });
+    expect(
+      (await as("POST", `/api/tasks/${edited.id}/claim`, { assignee: "Boss" }))
+        .status,
+    ).toBe(200);
+    expect((await as("POST", `/api/tasks/${edited.id}/done`, {})).status).toBe(
+      200,
+    );
+    expect(stored(edited.id)?.status).toBe("done");
+
+    expect(
+      (
+        await as("PATCH", `/api/tasks/${toRoomA.id}`, {
+          version: currentVersion(srv, toRoomA.id),
+          roomId: roomA,
+        })
+      ).status,
+    ).toBe(200);
+    expect(stored(toRoomA.id)?.roomId).toBe(roomA);
+    expect(
+      (
+        await as("PATCH", `/api/tasks/${toGlobal.id}`, {
+          version: currentVersion(srv, toGlobal.id),
+          roomId: "",
+        })
+      ).status,
+    ).toBe(200);
+    expect(stored(toGlobal.id)).toBeDefined();
+    expect("roomId" in stored(toGlobal.id)!).toBe(false);
+
+    expect((await as("DELETE", `/api/tasks/${deleted.id}`)).status).toBe(204);
+    expect(stored(deleted.id)).toBeUndefined();
+  });
+
+  it("an owner cannot file into the closed room or filter the list by it", async () => {
+    const { srv, owner, roomB, post, stored } = await setup();
+    const glob = await post("global", "");
+    await closeRoom(srv, owner.rawSessionId, roomB);
+
+    const create = await api(srv, "/api/tasks", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { title: "into the closed room", roomId: roomB },
+    });
+    expect(create.status).toBe(404);
+    const into = await api(srv, `/api/tasks/${glob.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { version: currentVersion(srv, glob.id), roomId: roomB },
+    });
+    expect(into.status).toBe(404);
+    expect("roomId" in stored(glob.id)!).toBe(false);
+    const filtered = await api(srv, `/api/tasks?roomId=${roomB}`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(filtered.status).toBe(404);
+  });
 });
 
 // --- The assignee's agent id (task 83f71be9) --------------------------------

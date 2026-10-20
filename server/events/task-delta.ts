@@ -20,6 +20,7 @@
 
 import type { TaskItem } from "../../shared/types.ts";
 import type { TaskChange } from "../../shared/office-state.ts";
+import { taskVisibleTo, type TaskViewer } from "../task-visibility.ts";
 
 // The wire messages this rule produces. Structurally the `task_upserted` /
 // `task_deleted` members of ServerMessage; kept as a local type so this module
@@ -28,14 +29,9 @@ export type TaskDelta =
   | { type: "task_upserted"; task: TaskItem }
   | { type: "task_deleted"; taskId: string };
 
-// A task is visible to a recipient when it is office-global (no roomId) or its
-// room is in the recipient's accessible set. Same predicate the list projection
-// uses - access, not view, so a hidden room's tasks still count.
-function visibleIn(
-  roomId: string | undefined,
-  accessibleRoomIds: ReadonlySet<string>,
-): boolean {
-  return !roomId || accessibleRoomIds.has(roomId);
+// The shared board rule (server/task-visibility.ts), applied to one room id.
+function visibleIn(roomId: string | undefined, viewer: TaskViewer): boolean {
+  return taskVisibleTo(roomId, viewer);
 }
 
 /**
@@ -52,12 +48,9 @@ function visibleIn(
  */
 export function taskDeltaFor(
   change: TaskChange,
-  accessibleRoomIds: ReadonlySet<string>,
+  viewer: TaskViewer,
 ): TaskDelta | null {
-  if (
-    change.kind !== "deleted" &&
-    visibleIn(change.task.roomId, accessibleRoomIds)
-  ) {
+  if (change.kind !== "deleted" && visibleIn(change.task.roomId, viewer)) {
     return { type: "task_upserted", task: change.task };
   }
   // Where the task sat before this change: its own room for a delete (it had no
@@ -65,8 +58,7 @@ export function taskDeltaFor(
   // a recipient who can't see it now simply never hears of it.
   const wasVisible =
     change.kind === "deleted"
-      ? visibleIn(change.task.roomId, accessibleRoomIds)
-      : change.kind === "updated" &&
-        visibleIn(change.prevRoomId, accessibleRoomIds);
+      ? visibleIn(change.task.roomId, viewer)
+      : change.kind === "updated" && visibleIn(change.prevRoomId, viewer);
   return wasVisible ? { type: "task_deleted", taskId: change.task.id } : null;
 }

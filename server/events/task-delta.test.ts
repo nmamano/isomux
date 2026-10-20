@@ -12,6 +12,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { taskDeltaFor } from "./task-delta.ts";
+import type { TaskViewer } from "../task-visibility.ts";
 import type { TaskItem } from "../../shared/types.ts";
 
 function task(id: string, roomId?: string): TaskItem {
@@ -26,8 +27,25 @@ function task(id: string, roomId?: string): TaskItem {
   };
 }
 
-const inA = new Set(["room-a"]); // recipient can access room A only
-const none: ReadonlySet<string> = new Set();
+// Live rooms A and B; room-gone was closed. A member with access to room A
+// only, a recipient with no room access, and an office owner (every live room,
+// and a closed room's tasks).
+const liveRoomIds = new Set(["room-a", "room-b"]);
+const inA: TaskViewer = {
+  accessibleRoomIds: new Set(["room-a"]),
+  liveRoomIds,
+  seesClosedRooms: false,
+};
+const none: TaskViewer = {
+  accessibleRoomIds: new Set(),
+  liveRoomIds,
+  seesClosedRooms: false,
+};
+const owner: TaskViewer = {
+  accessibleRoomIds: liveRoomIds,
+  liveRoomIds,
+  seesClosedRooms: true,
+};
 
 describe("taskDeltaFor: created", () => {
   it("upserts a global task to everyone", () => {
@@ -116,6 +134,36 @@ describe("taskDeltaFor: deleted", () => {
     expect(
       taskDeltaFor({ kind: "deleted", task: task("t1", "room-b") }, inA),
     ).toBe(null);
+  });
+});
+
+// A closed room's tasks stay in the store and reach office owners only
+// (task 6abfcc18). An owner's edit or delete of such a task reaches the owner
+// and says nothing to a member, even a member who had the room before it
+// closed. The re-file out of a closed room is pinned over a real socket in
+// routes-tasks-rest.test.ts.
+describe("taskDeltaFor: a closed room's task", () => {
+  it("an edit in place upserts to an owner and says nothing to a member", () => {
+    const t = task("t1", "room-gone");
+    const change = {
+      kind: "updated",
+      task: t,
+      prevRoomId: "room-gone",
+    } as const;
+    expect(taskDeltaFor(change, owner)).toEqual({
+      type: "task_upserted",
+      task: t,
+    });
+    expect(taskDeltaFor(change, inA)).toBe(null);
+  });
+
+  it("a delete tells the owner and says nothing to a member", () => {
+    const change = { kind: "deleted", task: task("t1", "room-gone") } as const;
+    expect(taskDeltaFor(change, owner)).toEqual({
+      type: "task_deleted",
+      taskId: "t1",
+    });
+    expect(taskDeltaFor(change, inA)).toBe(null);
   });
 });
 

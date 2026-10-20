@@ -29,6 +29,7 @@ import {
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { TaskItem } from "../../../shared/types.ts";
+import { taskVisibleTo, type TaskViewer } from "../../task-visibility.ts";
 import { isValidStatus, isValidPriority } from "../../../shared/types.ts";
 import {
   agentIdForName,
@@ -80,6 +81,9 @@ export interface TasksDeps {
   // Room ACCESS, not view - a hidden room stays accessible. Global tasks (no
   // roomId) are visible to everyone and are NOT represented here.
   accessibleRoomIds(identity: Identity): Set<string>;
+  // Who this caller is to the board's visibility rule: its accessible rooms,
+  // the live rooms, and whether it sees a closed room's tasks.
+  taskViewer(identity: Identity): TaskViewer;
   // The room a create with NO roomId in the body defaults to: an AGENT caller's
   // OWN room, or undefined (office-global) for a user / unknown identity. This is
   // how "agent create → the agent's room" and "direct user/API create with no
@@ -87,12 +91,12 @@ export interface TasksDeps {
   defaultCreateRoomId(identity: Identity): string | undefined;
 }
 
-// A task is visible to a caller when it is office-global (no roomId) OR its room
-// is in the caller's accessible set. Used for list/get filtering and as the
-// pre-mutation object-visibility gate (update/claim/done/delete → 404 when the
-// caller can't see the task, so a room-task id is not a cross-room oracle).
-function taskVisible(task: TaskItem, accessible: Set<string>): boolean {
-  return !task.roomId || accessible.has(task.roomId);
+// The pre-mutation object-visibility gate and the list/get filter use the
+// shared board rule (server/task-visibility.ts): update/claim/done/delete 404
+// when the caller can't see the task, so a room-task id is not a cross-room
+// oracle.
+function taskVisible(task: TaskItem, viewer: TaskViewer): boolean {
+  return taskVisibleTo(task.roomId, viewer);
 }
 
 // "backlog" was a status until task 77460aea folded it into priority P4.
@@ -108,7 +112,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
   const visibleTask = (id: string, identity: Identity): TaskItem | null => {
     const t = deps.listTasks().find((x) => x.id === id);
     if (!t) return null;
-    return taskVisible(t, deps.accessibleRoomIds(identity)) ? t : null;
+    return taskVisible(t, deps.taskViewer(identity)) ? t : null;
   };
   return {
     "tasks.history": (ctx) => {
@@ -152,9 +156,11 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
         return fail(400, "invalid_request", "invalid priority, must be P0-P4");
       }
       // Room scope FIRST: a caller only ever sees their accessible rooms UNION
-      // office-global tasks; the status/assignee/title filters narrow within that.
-      const accessible = deps.accessibleRoomIds(ctx.identity);
-      let filtered = deps.listTasks().filter((t) => taskVisible(t, accessible));
+      // office-global tasks (UNION closed rooms' tasks for an office owner); the
+      // status/assignee/title filters narrow within that.
+      const viewer = deps.taskViewer(ctx.identity);
+      const accessible = viewer.accessibleRoomIds;
+      let filtered = deps.listTasks().filter((t) => taskVisible(t, viewer));
       // Explicit room filter, same grammar as the create/update
       // roomId field so one value means one thing across all three verbs:
       //   ?roomId=<id>  -> that room only, IF the caller can access it
@@ -204,11 +210,11 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
     },
 
     "tasks.get": (ctx) => {
-      const accessible = deps.accessibleRoomIds(ctx.identity);
+      const viewer = deps.taskViewer(ctx.identity);
       const task = deps.listTasks().find((t) => t.id === ctx.params.id);
       // Not-found and not-visible collapse to the SAME 404: a room-task id must
       // not be an existence oracle for a caller outside its room.
-      return task && taskVisible(task, accessible)
+      return task && taskVisible(task, viewer)
         ? ok(task)
         : fail(404, "not_found");
     },

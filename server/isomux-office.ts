@@ -501,6 +501,7 @@ import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import { taskDeltaFor } from "./events/task-delta.ts";
+import { taskVisibleTo, type TaskViewer } from "./task-visibility.ts";
 import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
 import { cronjobDeltaFor, type CronjobChange } from "./events/cronjob-delta.ts";
 import { webhookDeltaFor, type WebhookChange } from "./events/webhook-delta.ts";
@@ -2644,6 +2645,13 @@ function appActorName(appName: string): string {
 // hasRoomAccess, which keys on the run's userId and so gives a run its
 // creator's rooms.
 function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
+  const user = roomAccessUserFor(identity);
+  return user ? accessibleRoomIdsFor(user) : new Set<string>();
+}
+
+// The user whose rooms an identity reaches, or null for a scope that reaches
+// none (a cron run, an ownerless app) and for a token whose user is gone.
+function roomAccessUserFor(identity: Identity): UserRecord | null {
   // Humans, their agents, and their remote-member API tokens inherit the user's
   // rooms. Written as an allowlist
   // rather than "everything except cron-run": an APP identity also carries a
@@ -2658,10 +2666,23 @@ function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
     !actsForAgent(identity) &&
     identity.scope !== "api"
   ) {
-    return new Set<string>();
+    return null;
   }
-  const user = identity.userId ? getUserById(identity.userId) : null;
-  return user ? accessibleRoomIdsFor(user) : new Set<string>();
+  return identity.userId ? (getUserById(identity.userId) ?? null) : null;
+}
+
+// The board's visibility rule (server/task-visibility.ts) for one user. A
+// closed room's tasks reach office owners only.
+function taskViewerForUser(user: UserRecord | null): TaskViewer {
+  return {
+    accessibleRoomIds: user ? accessibleRoomIdsFor(user) : new Set<string>(),
+    liveRoomIds: new Set(agentManager.getRooms().map((room) => room.id)),
+    seesClosedRooms: user?.role === "owner",
+  };
+}
+
+function taskViewerForIdentity(identity: Identity): TaskViewer {
+  return taskViewerForUser(roomAccessUserFor(identity));
 }
 
 // The room a create with NO roomId in the body defaults to: an AGENT caller's
@@ -3223,6 +3244,7 @@ function buildExecutorDeps(
       deleteTask: (id) => agentManager.deleteTask(id),
       attributionFor,
       accessibleRoomIds: accessibleRoomIdsForIdentity,
+      taskViewer: taskViewerForIdentity,
       defaultCreateRoomId: defaultCreateRoomIdForIdentity,
     }),
   );
@@ -4816,24 +4838,11 @@ function buildExecutorDeps(
         // Drop any ghost orphaned by the close (its currentRoomId was the
         // now-gone room); buildPresenceListFor filters dangling entries.
         pushPresenceListToEachWs();
-        // NOTE (room-scoped board): the loop above stripped the closed roomId
-        // from every user's allowedRooms, and owners project against LIVE rooms
-        // - so this room's tasks are now inaccessible to EVERYONE and simply
-        // become orphans carrying a dead roomId. Whether a close should reassign
-        // those tasks to global, delete them, or preserve them as inaccessible
-        // orphans is an unresolved product decision flagged to the Manager, and
-        // this re-push does NOT settle it: the task RECORDS are untouched either
-        // way. It only makes live boards agree with what a reload already shows,
-        // which is the orphan semantics currently in force.
-        //
-        // Why it's needed at all: this used to say orphans drop
-        // out "on the next task mutation or reload", and the mutation half was
-        // true only because a mutation re-sent the WHOLE board and incidentally
-        // swept them. Mutations are per-task deltas now, so nothing sweeps and a
-        // stale row would sit under a room the client was just told is gone,
-        // until reload. Re-projecting per recipient here converges the transport
-        // and leaks nothing (each socket re-projects against its OWN access).
-        // Rare event, so the whole-board cost is irrelevant.
+        // The room's task records stay as they are: office owners keep them
+        // on their boards and can re-file, close or delete them; every member
+        // loses them (server/task-visibility.ts). Mutations are per-task
+        // deltas, so nothing else sweeps a member's board: re-project it here,
+        // per recipient, against each socket's own access.
         pushTasksToEachWs();
         // A job filed in the closed room falls back to its maker and office
         // owners; re-project so room members' lists drop it live.
@@ -6364,15 +6373,13 @@ function pushPresenceListForUserId(userId: string) {
 
 // The `tasks` wire event is per-recipient PROJECTED, not an all-audience
 // broadcast: each socket receives only the tasks in the rooms its user can
-// ACCESS, UNION every office-global task (no roomId). Access, not view - a
-// hidden room's tasks still show. This is the reconnect/full_state hydration
-// shape too, so a reload and a live push agree.
+// ACCESS, UNION every office-global task (no roomId), UNION closed rooms' tasks
+// for an office owner. Access, not view - a hidden room's tasks still show.
+// This is the reconnect/full_state hydration shape too, so a reload and a live
+// push agree.
 function projectTasksForSession(session: SessionLookup): TaskItem[] {
-  const user = getUserById(session.userId);
-  const accessible = user ? accessibleRoomIdsFor(user) : new Set<string>();
-  return agentManager
-    .getTasks()
-    .filter((t) => !t.roomId || accessible.has(t.roomId));
+  const viewer = taskViewerForUser(getUserById(session.userId) ?? null);
+  return agentManager.getTasks().filter((t) => taskVisibleTo(t.roomId, viewer));
 }
 
 function sendTasksTo(ws: ServerWebSocket<OfficeWsData>) {
@@ -6393,9 +6400,10 @@ function sendTasksTo(ws: ServerWebSocket<OfficeWsData>) {
 // access; see server/events/task-delta.ts for the rule and why silence matters.
 function pushTaskDeltaToEachWs(change: TaskChange) {
   for (const ws of browsers) {
-    const user = getUserById(ws.data.session.userId);
-    const accessible = user ? accessibleRoomIdsFor(user) : new Set<string>();
-    const delta = taskDeltaFor(change, accessible);
+    const viewer = taskViewerForUser(
+      getUserById(ws.data.session.userId) ?? null,
+    );
+    const delta = taskDeltaFor(change, viewer);
     if (delta) officeSend(ws, JSON.stringify(delta));
   }
 }
@@ -6610,9 +6618,10 @@ function pushCronjobRunEntryToEachWs(entry: LogEntry, jobId: string) {
 // Re-project the WHOLE board to every socket. Not a mutation path - a mutation
 // sends one delta (pushTaskDeltaToEachWs). This is for the rare change that
 // shifts what MANY recipients may see at once with no single task to point at:
-// today, a room close, which strips a room from every user's access and orphans
-// its tasks. Each socket re-projects against its own access, so this converges
-// live boards to the reload view without telling anyone anything new.
+// today, a room close, which strips a room from every user's access and leaves
+// its tasks to office owners. Each socket re-projects against its own access,
+// so this converges live boards to the reload view without telling anyone
+// anything new.
 function pushTasksToEachWs() {
   for (const ws of browsers) sendTasksTo(ws);
 }
