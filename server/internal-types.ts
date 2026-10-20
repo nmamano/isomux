@@ -109,6 +109,10 @@ export interface ManagedAgent {
   // doubles the wait. A success clears it; the manual refresh ignores it.
   // In-memory only.
   topicBackoff: { key: string; failures: number; retryAt: number } | null;
+  // Conversation entries added to this session since the last rolling
+  // summary trigger (task ac41c60e). A hint only: it starts at 0 after a
+  // restart or a resume, and the write reads the session's file.
+  summaryPending: { sessionId: string; count: number } | null;
   // See internal-docs/context-fullness-visibility.md.
   // Latest committed fullness measurement for the CURRENT conversation, or null
   // when none exists (fresh/blank conversation, resumed-but-not-yet-sampled,

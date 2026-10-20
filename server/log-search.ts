@@ -34,6 +34,7 @@ import type {
   LogSearchResp,
   LogSessionIndexEntry,
   LogSessionIndexResp,
+  LogSummaryHit,
   LogTier,
 } from "../shared/contract-shapes.ts";
 
@@ -45,6 +46,7 @@ export type {
   LogSearchResp,
   LogSessionIndexEntry,
   LogSessionIndexResp,
+  LogSummaryHit,
   LogTier,
 };
 
@@ -61,6 +63,9 @@ export const MAX_SEARCH_LIMIT = 100;
 
 export const DEFAULT_RETRIEVE_LIMIT = 200;
 export const MAX_RETRIEVE_LIMIT = 1000;
+
+// INDEX mode lists every session unless the caller sends limit=.
+export const MAX_INDEX_LIMIT = 1000;
 
 export const DEFAULT_WINDOW = 5;
 export const MAX_WINDOW = 50;
@@ -126,6 +131,7 @@ export interface SessionMeta {
   lastModified: number;
   forkedFrom?: string;
   forkMessageId?: string;
+  summary?: string;
 }
 
 export interface LogSource {
@@ -171,7 +177,11 @@ export interface LogQuery {
   // with a preset name it does not correspond to.
   kinds: readonly LogKind[] | null;
   tier: LogTier | null;
+  // SEARCH and RETRIEVE. INDEX does not read it: its default is the search
+  // default, and an index without limit= lists every session.
   limit: number;
+  // INDEX only: the limit= the caller sent. Absent means every session.
+  indexLimit?: number;
 }
 
 export interface QueryError {
@@ -287,7 +297,12 @@ export function parseLogQuery(query: URLSearchParams): LogQuery | QueryError {
     tier = null;
   }
 
-  const limitMax = mode === "retrieve" ? MAX_RETRIEVE_LIMIT : MAX_SEARCH_LIMIT;
+  const limitMax =
+    mode === "retrieve"
+      ? MAX_RETRIEVE_LIMIT
+      : mode === "index"
+        ? MAX_INDEX_LIMIT
+        : MAX_SEARCH_LIMIT;
   const limitDefault =
     mode === "retrieve" ? DEFAULT_RETRIEVE_LIMIT : DEFAULT_SEARCH_LIMIT;
   const limitParsed = parseIntParam(query.get("limit"), "limit", 1, limitMax);
@@ -339,6 +354,9 @@ export function parseLogQuery(query: URLSearchParams): LogQuery | QueryError {
     kinds,
     tier,
     limit,
+    ...(mode === "index" && limitParsed !== null
+      ? { indexLimit: limitParsed }
+      : {}),
   };
 }
 
@@ -506,9 +524,26 @@ export type SessionIndexResult = Omit<
   "pendingPrompt" | "inFlightTurn"
 >;
 
+// INDEX options. `before` keeps sessions whose lastModified is strictly
+// older, so the last listed session's lastModified is the cursor for the next
+// page. Without `limit` every matching session is listed.
+export interface SessionIndexOptions {
+  limit?: number;
+  before?: number;
+}
+
+// A session's paragraph, or undefined. sessions.json is file content: a value
+// of the wrong type is ignored, never matched or echoed.
+function summaryOf(m: SessionMeta | undefined): string | undefined {
+  return typeof m?.summary === "string" && m.summary !== ""
+    ? m.summary
+    : undefined;
+}
+
 export async function buildSessionIndex(
   source: LogSource,
   agentId: string,
+  opts: SessionIndexOptions = {},
 ): Promise<SessionIndexResult> {
   const listed = await source.listSessions(agentId);
   const meta = await source.readSessionsMeta(agentId);
@@ -516,9 +551,10 @@ export async function buildSessionIndex(
   for (const m of Object.values(meta)) {
     if (m.forkedFrom) branchedFrom.add(m.forkedFrom);
   }
-  const sessions = listed
+  const sorted = listed
     .map(({ sessionId, mtime }) => {
       const m = meta[sessionId];
+      const summary = summaryOf(m);
       return {
         sessionId,
         topic: m?.topic ?? null,
@@ -527,12 +563,16 @@ export async function buildSessionIndex(
         // pre-field and migrated sessions to the bottom of a list whose whole
         // job is recency.
         lastModified: m?.lastModified ?? mtime,
+        ...(summary !== undefined ? { summary } : {}),
         ...(branchedFrom.has(sessionId) ? { branched: true as const } : {}),
         ...(m?.forkedFrom ? { forked: true as const } : {}),
       };
     })
+    .filter((s) => opts.before === undefined || s.lastModified < opts.before)
     .sort((a, b) => b.lastModified - a.lastModified);
-  return { agentId, sessions };
+  const sessions =
+    opts.limit === undefined ? sorted : sorted.slice(0, opts.limit);
+  return { agentId, sessions, truncated: sessions.length < sorted.length };
 }
 
 function projectEntry(entry: NormalizedEntry): RetrievedEntry {
@@ -622,11 +662,13 @@ export async function retrieveSession(
     .filter((e): e is NormalizedEntry => e !== null);
   const meta = await source.readSessionsMeta(agentId);
   const topic = meta[sessionId]?.topic ?? null;
+  const summary = summaryOf(meta[sessionId]);
 
   const base = {
     agentId,
     sessionId,
     topic,
+    ...(summary !== undefined ? { summary } : {}),
     ...selectionOf(query),
   };
 
@@ -698,6 +740,37 @@ export interface ScanOptions {
   onBufferHighWater?: (n: number) => void;
 }
 
+// The sessions whose paragraph or topic matches `q`, newest first, at most
+// `limit`. A paragraph match is cut around the match; a topic-only match shows
+// the topic. `before` and `after` apply to lastModified, inclusive like the
+// entry hits; kinds do not apply, since a paragraph is not a log entry.
+function matchSummaries(
+  sessions: readonly { sessionId: string; mtime: number }[],
+  meta: Record<string, SessionMeta>,
+  q: string,
+  re: RegExp | null,
+  query: LogQuery,
+): LogSummaryHit[] {
+  const hits: LogSummaryHit[] = [];
+  for (const { sessionId, mtime } of sessions) {
+    const m = meta[sessionId];
+    const lastModified = m?.lastModified ?? mtime;
+    if (query.after !== undefined && lastModified < query.after) continue;
+    if (query.before !== undefined && lastModified > query.before) continue;
+    const topic = typeof m?.topic === "string" ? m.topic : null;
+    const summary = summaryOf(m);
+    const inSummary = summary !== undefined ? findMatch(summary, q, re) : null;
+    let snippet: string;
+    if (summary !== undefined && inSummary)
+      snippet = buildSnippet(summary, inSummary.index, inSummary.length);
+    else if (topic !== null && findMatch(topic, q, re)) snippet = topic;
+    else continue;
+    hits.push({ sessionId, topic, lastModified, snippet });
+  }
+  hits.sort((a, b) => b.lastModified - a.lastModified);
+  return hits.slice(0, query.limit);
+}
+
 // Scan an agent's logs for `q` and return the most recent `limit` hits.
 //
 // Two shapes, per the fork asymmetry documented on reconstructTimeline:
@@ -714,6 +787,16 @@ export async function searchLogs(
   const meta = await source.readSessionsMeta(agentId);
   const now = opts.now ?? Date.now;
   const deadline = now() + opts.budgetMs;
+  const sessions = await source.listSessions(agentId);
+  const summaryHits = matchSummaries(
+    query.session === undefined
+      ? sessions
+      : sessions.filter((s) => s.sessionId === query.session),
+    meta,
+    q,
+    re,
+    query,
+  );
 
   const hits: SearchHit[] = [];
   let totalMatches = 0;
@@ -778,7 +861,6 @@ export async function searchLogs(
     }
   } else {
     const prefilter = !re && canPrefilter(q) ? q.toLowerCase() : null;
-    const sessions = await source.listSessions(agentId);
     // Newest session first, so a scan that runs out of budget has already
     // covered the recent history the caller most likely wants. Falls back to
     // the file mtime when sessions.json has no lastModified, matching
@@ -837,5 +919,6 @@ export async function searchLogs(
     truncated: totalMatches > results.length,
     timedOut,
     results,
+    summaryHits,
   };
 }

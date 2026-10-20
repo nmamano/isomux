@@ -3758,7 +3758,8 @@ function buildExecutorDeps(
         officeLogSource
           .listSessions(agentId)
           .then((ss) => ss.map((s) => s.sessionId)),
-      sessionIndex: (agentId) => buildSessionIndex(officeLogSource, agentId),
+      sessionIndex: (agentId, opts) =>
+        buildSessionIndex(officeLogSource, agentId, opts),
       retrieveSession: (agentId, sessionId, query) =>
         retrieveSession(officeLogSource, agentId, sessionId, query),
       search: (callerKey, agentId, query) =>

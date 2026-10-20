@@ -1702,6 +1702,8 @@ export interface SessionInfo {
   modelFamily?: string | null;
   branched?: boolean; // true if another session was forked from this one
   forked?: boolean; // true if this session is a fork (was created by editing a message)
+  // The conversation summary paragraph; null when the session has none.
+  summary?: string | null;
 }
 
 export type SkillOrigin = "user" | "project" | "plugin" | "isomux" | "claude";

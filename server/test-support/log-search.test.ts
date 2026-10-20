@@ -960,3 +960,180 @@ describe("log index: recency without a recorded lastModified", () => {
     expect(res.sessions[0].lastModified).toBeGreaterThan(5_000);
   });
 });
+
+// Conversation summaries (task ac41c60e). A session's paragraph and topic are
+// searchable and come back as summaryHits, apart from the entry hits; the
+// index pages with limit= and a before= cursor; retrieval carries the
+// paragraph.
+describe("log summaries: search, index and retrieval", () => {
+  const SUM_AGENT = "agent-logsearch-summary";
+  const META: Record<string, Record<string, unknown>> = {
+    a: {
+      topic: "Alpha work",
+      lastModified: 1_000,
+      summary:
+        "We fixed the QUINCE importer in server/quince.ts for task 1234abcd.",
+    },
+    b: { topic: "Quince follow-up", lastModified: 2_000 },
+    c: {
+      topic: "Unrelated",
+      lastModified: 3_000,
+      summary: "Nothing here about that fruit.",
+    },
+    d: {
+      topic: "Other",
+      lastModified: 4_000,
+      summary: "The quince again, now in the export.",
+    },
+    // Untrusted file content: a summary of the wrong type is ignored, never
+    // matched or echoed.
+    e: { topic: "Broken record", lastModified: 5_000, summary: 42 },
+  };
+
+  beforeAll(() => {
+    const dir = join(LOGS_DIR, SUM_AGENT);
+    mkdirSync(dir, { recursive: true });
+    for (const id of Object.keys(META))
+      writeFileSync(
+        join(dir, `${id}.jsonl`),
+        JSON.stringify({
+          id: `${id}-1`,
+          agentId: SUM_AGENT,
+          kind: "user_message",
+          content: `plain message in ${id}`,
+          timestamp: 10,
+        }) + "\n",
+      );
+    writeFileSync(join(dir, "sessions.json"), JSON.stringify(META));
+  });
+
+  const search = (qs: string) => searchLogs(source, SUM_AGENT, q(qs), scan);
+  const hitIds = (res: Awaited<ReturnType<typeof search>>) =>
+    res.summaryHits.map((h) => h.sessionId);
+
+  it("matches paragraphs and topics, newest first, apart from the entry hits", async () => {
+    const res = await search("q=quince");
+    expect(res.results).toEqual([]);
+    expect(hitIds(res)).toEqual(["d", "b", "a"]);
+    const [d, b, a] = res.summaryHits;
+    expect(d).toMatchObject({ topic: "Other", lastModified: 4_000 });
+    expect(d.snippet).toContain("quince again");
+    // A paragraph hit is cut around the match, like an entry snippet.
+    expect(a.snippet).toContain("QUINCE importer");
+    // A topic-only hit shows the topic.
+    expect(b.snippet).toBe("Quince follow-up");
+  });
+
+  it("finds an entry and a paragraph in the same search, each in its own list", async () => {
+    const res = await search("q=plain+message+in+a");
+    expect(res.results.map((h) => h.entryId)).toEqual(["a-1"]);
+    expect(hitIds(res)).toEqual([]);
+  });
+
+  it("applies regex, session, limit, before and after; kind and tier do not narrow it", async () => {
+    expect(hitIds(await search("q=quince%5Cs%2Bagain&regex=1"))).toEqual(["d"]);
+    expect(hitIds(await search("q=quince&session=a"))).toEqual(["a"]);
+    expect(hitIds(await search("q=quince&limit=2"))).toEqual(["d", "b"]);
+    // Inclusive on both ends, like the entry hits.
+    expect(hitIds(await search("q=quince&after=2000&before=4000"))).toEqual([
+      "d",
+      "b",
+    ]);
+    expect(hitIds(await search("q=quince&kind=tool_call"))).toEqual([
+      "d",
+      "b",
+      "a",
+    ]);
+    expect(hitIds(await search("q=quince&tier=prompts"))).toEqual([
+      "d",
+      "b",
+      "a",
+    ]);
+  });
+
+  it("ignores a stored paragraph of the wrong type", async () => {
+    expect(hitIds(await search("q=42"))).toEqual([]);
+    const index = await buildSessionIndex(source, SUM_AGENT);
+    const e = index.sessions.find((s) => s.sessionId === "e");
+    expect(e && "summary" in e).toBe(false);
+  });
+
+  it("the index carries each paragraph, and no key for a session without one", async () => {
+    const res = await buildSessionIndex(source, SUM_AGENT);
+    expect(res.sessions.map((s) => s.sessionId)).toEqual([
+      "e",
+      "d",
+      "c",
+      "b",
+      "a",
+    ]);
+    expect(res.truncated).toBe(false);
+    const byId = new Map(res.sessions.map((s) => [s.sessionId, s]));
+    expect(byId.get("a")?.summary).toBe(META.a.summary as string);
+    expect(byId.has("b") && "summary" in byId.get("b")!).toBe(false);
+  });
+
+  it("retrieval carries the session's paragraph, and no key without one", async () => {
+    const a = await retrieveSession(source, SUM_AGENT, "a", q("session=a"));
+    expect(a.summary).toBe(META.a.summary as string);
+    const b = await retrieveSession(source, SUM_AGENT, "b", q("session=b"));
+    expect("summary" in b).toBe(false);
+  });
+});
+
+describe("log index: pages", () => {
+  const PAGE_AGENT = "agent-logsearch-pages";
+  const COUNT = 25;
+  // Newest first: s24 (lastModified 24_000) down to s00 (0).
+  const all = Array.from(
+    { length: COUNT },
+    (_, i) => `s${String(COUNT - 1 - i).padStart(2, "0")}`,
+  );
+
+  beforeAll(() => {
+    const dir = join(LOGS_DIR, PAGE_AGENT);
+    mkdirSync(dir, { recursive: true });
+    const meta: Record<string, unknown> = {};
+    for (let i = 0; i < COUNT; i++) {
+      const id = `s${String(i).padStart(2, "0")}`;
+      writeFileSync(join(dir, `${id}.jsonl`), "");
+      meta[id] = { topic: id, lastModified: i * 1_000 };
+    }
+    writeFileSync(join(dir, "sessions.json"), JSON.stringify(meta));
+  });
+
+  const ids = (res: { sessions: { sessionId: string }[] }) =>
+    res.sessions.map((s) => s.sessionId);
+
+  it("pages newest first with limit and a before cursor, and says when it cut", async () => {
+    const seen: string[] = [];
+    let before: number | undefined;
+    const truncatedFlags: boolean[] = [];
+    for (let page = 0; page < 3; page++) {
+      const res = await buildSessionIndex(source, PAGE_AGENT, {
+        limit: 10,
+        before,
+      });
+      seen.push(...ids(res));
+      truncatedFlags.push(res.truncated);
+      before = res.sessions.at(-1)?.lastModified;
+    }
+    expect(seen).toEqual(all);
+    expect(truncatedFlags).toEqual([true, true, false]);
+  });
+
+  it("before without limit lists every older session", async () => {
+    const res = await buildSessionIndex(source, PAGE_AGENT, {
+      before: 20_000,
+    });
+    expect(ids(res)).toEqual(all.slice(5));
+    expect(res.truncated).toBe(false);
+  });
+
+  it("parses an index limit up to its own ceiling, and none when absent", () => {
+    expect(q("").indexLimit).toBeUndefined();
+    expect(q("limit=1000").indexLimit).toBe(1000);
+    const over = parseLogQuery(new URLSearchParams("limit=1001"));
+    expect("code" in over && over.code).toBe("invalid_limit");
+  });
+});

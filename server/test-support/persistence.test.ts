@@ -26,7 +26,13 @@
 // nested/positional + userId-not-derived assertions stay current-behavior.
 
 import { describe, it, expect, beforeEach } from "bun:test";
-import { chmodSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+} from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { removeStateDir } from "./temp-state.ts";
@@ -50,6 +56,8 @@ import {
   listAgentSessions,
   appendLog,
   loadSessionsMap,
+  loadSessionSummaryState,
+  persistSessionSummary,
   type Room,
   type PersistedAgent,
   type AgentHistory,
@@ -1029,5 +1037,77 @@ describe("per-session engine config (Claude <-> Codex switching)", () => {
     } finally {
       chmodSync(unreadable, 0o600);
     }
+  });
+});
+
+// Conversation summaries (task ac41c60e). A write must not move the session in
+// the resume picker or the logs index (both sort on lastModified), and a write
+// that lands after the agent or the session is gone must not recreate it.
+describe("session summary persistence", () => {
+  const AGENT = "agent-summary-persist";
+  const sessionsFile = () => stateFile(`logs/${AGENT}/sessions.json`);
+
+  it("stores the paragraph and its marker beside the session and keeps lastModified", () => {
+    seed(`logs/${AGENT}/sessions.json`, {
+      s1: { topic: "Quince import", lastModified: 4_000, cwd: "/home/u/q" },
+      s2: { topic: "Other", lastModified: 9_000 },
+    });
+    writeFileSync(stateFile(`logs/${AGENT}/s1.jsonl`), "");
+    writeFileSync(stateFile(`logs/${AGENT}/s2.jsonl`), "");
+    expect(loadSessionSummaryState(AGENT, "s1")).toBeNull();
+
+    expect(
+      persistSessionSummary(AGENT, "s1", {
+        summary: "The quince import was fixed.",
+        throughEntryId: "log-7",
+        at: 12_345,
+      }),
+    ).toBe(true);
+
+    expect(loadSessionsMap(AGENT).s1).toEqual({
+      topic: "Quince import",
+      lastModified: 4_000,
+      cwd: "/home/u/q",
+      summary: "The quince import was fixed.",
+      summaryThroughEntryId: "log-7",
+      summaryAt: 12_345,
+    });
+    expect(loadSessionSummaryState(AGENT, "s1")).toEqual({
+      summary: "The quince import was fixed.",
+      throughEntryId: "log-7",
+    });
+    // The resume picker carries the paragraph and still lists s2 first.
+    const listed = listAgentSessions(AGENT);
+    expect(listed.map((s) => s.sessionId)).toEqual(["s2", "s1"]);
+    expect(listed[1].summary).toBe("The quince import was fixed.");
+    expect(listed[0].summary ?? null).toBeNull();
+  });
+
+  it("writes nothing for a session without an entry", () => {
+    seed(`logs/${AGENT}/sessions.json`, {
+      s1: { topic: "Quince import", lastModified: 4_000 },
+    });
+    const before = readFileSync(sessionsFile(), "utf-8");
+    expect(
+      persistSessionSummary(AGENT, "unknown", {
+        summary: "Late paragraph.",
+        throughEntryId: "log-1",
+        at: 1,
+      }),
+    ).toBe(false);
+    expect(readFileSync(sessionsFile(), "utf-8")).toBe(before);
+    expect(loadSessionSummaryState(AGENT, "unknown")).toBeNull();
+  });
+
+  it("writes nothing and creates no directory for an agent whose logs are gone", () => {
+    expect(existsSync(stateFile(`logs/${AGENT}`))).toBe(false);
+    expect(
+      persistSessionSummary(AGENT, "s1", {
+        summary: "Late paragraph.",
+        throughEntryId: "log-1",
+        at: 1,
+      }),
+    ).toBe(false);
+    expect(existsSync(stateFile(`logs/${AGENT}`))).toBe(false);
   });
 });

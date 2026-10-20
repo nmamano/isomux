@@ -261,6 +261,11 @@ type SessionsMap = Record<
     // transfer (task 6a9deaba). Absent = born under the agent's current
     // manager. `name` is a snapshot for a member who was deleted later.
     manager?: { userId: string | null; name: string | null };
+    // The conversation summary (task ac41c60e): the paragraph, the id of the
+    // last log entry it covers, and the epoch ms of its last write.
+    summary?: string;
+    summaryThroughEntryId?: string;
+    summaryAt?: number;
   }
 >;
 
@@ -349,6 +354,49 @@ export function persistSessionTopic(
     lastModified: Date.now(),
   };
   saveSessionsMap(agentId, map);
+}
+
+// The stored summary and its marker, or null when the session has none.
+export function loadSessionSummaryState(
+  agentId: string,
+  sessionId: string,
+): { summary?: string; throughEntryId?: string } | null {
+  const existing = loadSessionsMap(agentId)[sessionId];
+  const summary =
+    typeof existing?.summary === "string" ? existing.summary : undefined;
+  const throughEntryId =
+    typeof existing?.summaryThroughEntryId === "string"
+      ? existing.summaryThroughEntryId
+      : undefined;
+  if (summary === undefined && throughEntryId === undefined) return null;
+  return {
+    ...(summary !== undefined ? { summary } : {}),
+    ...(throughEntryId !== undefined ? { throughEntryId } : {}),
+  };
+}
+
+// Store a summary write. Keeps lastModified as it is, so a write never moves
+// a session in the resume picker or the logs index. Writes nothing and returns
+// false when the agent's log directory or the session's entry is gone.
+export function persistSessionSummary(
+  agentId: string,
+  sessionId: string,
+  write: { summary: string; throughEntryId: string; at: number },
+): boolean {
+  // saveSessionsMap creates the directory: a write that lands after the
+  // agent's logs are gone must not recreate them.
+  if (!existsSync(join(LOGS_DIR, agentId))) return false;
+  const map = loadSessionsMap(agentId);
+  const existing = map[sessionId];
+  if (!existing) return false;
+  map[sessionId] = {
+    ...existing,
+    summary: write.summary,
+    summaryThroughEntryId: write.throughEntryId,
+    summaryAt: write.at,
+  };
+  saveSessionsMap(agentId, map);
+  return true;
 }
 
 // Persist the cwd a session runs in. Source of truth for per-session cwd; the
@@ -687,6 +735,7 @@ export function listAgentSessions(agentId: string): {
   cwd: string | null;
   agentType: AgentInfo["agentType"] | null;
   modelFamily: AgentInfo["modelFamily"] | null;
+  summary: string | null;
   branched?: boolean;
   forked?: boolean;
 }[] {
@@ -730,6 +779,10 @@ export function listAgentSessions(agentId: string): {
           cwd: effectiveEntry?.cwd ?? null,
           agentType: effectiveEntry?.agentType ?? null,
           modelFamily: effectiveEntry?.modelFamily ?? null,
+          summary:
+            typeof effectiveEntry?.summary === "string"
+              ? effectiveEntry.summary
+              : null,
           ...(branchedFromIds.has(sid) ? { branched: true as const } : {}),
           ...(effectiveEntry?.forkedFrom ? { forked: true as const } : {}),
         };

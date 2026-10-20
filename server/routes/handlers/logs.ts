@@ -35,7 +35,8 @@ import {
   type LogQuery,
   type RetrieveResult,
   type SearchResult,
-  type SessionIndexEntry,
+  type SessionIndexOptions,
+  type SessionIndexResult,
 } from "../../log-search.ts";
 import type { PendingPromptKind } from "../../../shared/types.ts";
 import type { LogInFlightTurn } from "../../../shared/contract-shapes.ts";
@@ -50,7 +51,8 @@ export interface LogsDeps {
   listSessionIds(agentId: string): Promise<readonly string[]>;
   sessionIndex(
     agentId: string,
-  ): Promise<{ agentId: string; sessions: SessionIndexEntry[] }>;
+    opts: SessionIndexOptions,
+  ): Promise<SessionIndexResult>;
   retrieveSession(
     agentId: string,
     sessionId: string,
@@ -118,7 +120,10 @@ export function logsHandlers(deps: LogsDeps): Record<string, RouteHandler> {
       switch (query.mode) {
         case "index":
           return ok({
-            ...(await deps.sessionIndex(agentId)),
+            ...(await deps.sessionIndex(agentId, {
+              limit: query.indexLimit,
+              before: query.before,
+            })),
             pendingPrompt,
             inFlightTurn,
           });

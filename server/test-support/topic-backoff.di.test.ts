@@ -25,6 +25,7 @@ import {
   saveAgentHistory,
   type PersistedAgent,
 } from "../persistence.ts";
+import { buildSummaryPrompt } from "../session-summary.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import {
   clearTestManagedOfficeEnv,
@@ -32,6 +33,10 @@ import {
 } from "./managed-office-env.ts";
 
 const MINUTE = 60_000;
+// The conversation summary (task ac41c60e) shares the one-shot backend with
+// the topic. Its calls are told apart by their system prompt, answered apart,
+// and not counted, so `replies` and topicCalls describe topic calls only.
+const SUMMARY_SYSTEM_PROMPT = buildSummaryPrompt(null, []).systemPrompt;
 const START = new Date("2026-10-17T12:00:00Z").getTime();
 
 afterEach(() => {
@@ -78,14 +83,16 @@ async function harness(
 ) {
   setSystemTime(START);
   let calls = 0;
-  // One-shot calls whose reply has settled (answered or failed).
+  // Topic one-shot calls whose reply has settled (answered or failed).
   let answered = 0;
   const fake = new FakeBackend({
     models: [
       { id: "slow", label: "Slow", supportedEfforts: [], isDefault: true },
       { id: "fast", label: "Fast", supportedEfforts: [] },
     ],
-    oneShot: async () => {
+    oneShot: async (_prompt, oneShotOpts) => {
+      if (oneShotOpts.systemPrompt === SUMMARY_SYSTEM_PROMPT)
+        return "Summary paragraph";
       try {
         const reply = replies[calls++];
         if (reply === undefined) throw new Error("unexpected one-shot call");
@@ -132,8 +139,7 @@ async function harness(
   // The flag as the office snapshot carries it to a client that connects now.
   const generating = () => officeState.getAgent(agentId)?.topicGenerating;
   // Waits until every topic call so far has its reply and the flag is down.
-  const idle = () =>
-    waitFor(() => answered === fake.oneShotCount && generating() !== true);
+  const idle = () => waitFor(() => answered === calls && generating() !== true);
   // Sends one message and waits until any topic call it started has settled.
   const send = async (text: string) => {
     await mgr.sendMessage(agentId, text, "tester");
@@ -141,9 +147,9 @@ async function harness(
     await idle();
   };
   const refresh = async () => {
-    const before = fake.oneShotCount;
+    const before = calls;
     mgr.resetTopic(agentId);
-    await waitFor(() => fake.oneShotCount > before);
+    await waitFor(() => calls > before);
     await idle();
   };
   // agent_updated changes for this agent, from index `from` of the sink.
@@ -155,7 +161,7 @@ async function harness(
       );
   return {
     mgr,
-    fake,
+    topicCalls: () => calls,
     agentId,
     topic,
     generating,
@@ -174,27 +180,27 @@ describe("topic generation backoff", () => {
   it("skips automatic tries until the wait ends, and doubles the wait", async () => {
     const errors = spyOn(console, "error").mockImplementation(() => {});
     try {
-      const { fake, agentId, send } = await harness([
+      const { topicCalls, agentId, send } = await harness([
         timedOut(),
         timedOut(),
         timedOut(),
       ]);
       await send("first");
-      expect(fake.oneShotCount).toBe(1);
+      expect(topicCalls()).toBe(1);
       await send("second, same minute");
-      expect(fake.oneShotCount).toBe(1);
+      expect(topicCalls()).toBe(1);
 
       setSystemTime(START + 10 * MINUTE + 1);
       await send("after the first wait");
-      expect(fake.oneShotCount).toBe(2);
+      expect(topicCalls()).toBe(2);
 
       // The second failure waits 20 minutes, not 10.
       setSystemTime(START + 20 * MINUTE + 2);
       await send("10 minutes after the second failure");
-      expect(fake.oneShotCount).toBe(2);
+      expect(topicCalls()).toBe(2);
       setSystemTime(START + 30 * MINUTE + 2);
       await send("20 minutes after the second failure");
-      expect(fake.oneShotCount).toBe(3);
+      expect(topicCalls()).toBe(3);
 
       // One journal line per real attempt, none for a skipped one.
       const lines = errors.mock.calls.filter((call) =>
@@ -209,7 +215,7 @@ describe("topic generation backoff", () => {
   it("restarts the wait from the base after a success", async () => {
     const errors = spyOn(console, "error").mockImplementation(() => {});
     try {
-      const { mgr, fake, agentId, topic, send } = await harness([
+      const { mgr, topicCalls, agentId, topic, send } = await harness([
         timedOut(),
         "Label one",
         timedOut(),
@@ -218,19 +224,19 @@ describe("topic generation backoff", () => {
       await send("first");
       setSystemTime(START + 10 * MINUTE + 1);
       await send("after the wait");
-      expect(fake.oneShotCount).toBe(2);
+      expect(topicCalls()).toBe(2);
       expect(topic()).toBe("Label one");
 
       // A new conversation has no topic, so its first message tries again.
       await mgr.newConversation(agentId);
       expect(topic()).toBeNull();
       await send("new conversation");
-      expect(fake.oneShotCount).toBe(3);
+      expect(topicCalls()).toBe(3);
 
       // Counted as a first failure: 10 minutes, not 20.
       setSystemTime(START + 20 * MINUTE + 2);
       await send("10 minutes later");
-      expect(fake.oneShotCount).toBe(4);
+      expect(topicCalls()).toBe(4);
       expect(topic()).toBe("Label two");
     } finally {
       errors.mockRestore();
@@ -240,17 +246,17 @@ describe("topic generation backoff", () => {
   it("lets the manual refresh run during the wait", async () => {
     const errors = spyOn(console, "error").mockImplementation(() => {});
     try {
-      const { fake, topic, send, refresh } = await harness([
+      const { topicCalls, topic, send, refresh } = await harness([
         timedOut(),
         "Manual label",
       ]);
       await send("first");
-      expect(fake.oneShotCount).toBe(1);
+      expect(topicCalls()).toBe(1);
       // The wait is active: an automatic try in the same minute is skipped.
       await send("second, same minute");
-      expect(fake.oneShotCount).toBe(1);
+      expect(topicCalls()).toBe(1);
       await refresh();
-      expect(fake.oneShotCount).toBe(2);
+      expect(topicCalls()).toBe(2);
       expect(topic()).toBe("Manual label");
     } finally {
       errors.mockRestore();
@@ -277,16 +283,16 @@ describe("topic generation backoff", () => {
   it("ignores the wait after a model change", async () => {
     const errors = spyOn(console, "error").mockImplementation(() => {});
     try {
-      const { mgr, fake, agentId, topic, send } = await harness([
+      const { mgr, topicCalls, agentId, topic, send } = await harness([
         timedOut(),
         "Fast label",
       ]);
       await send("first");
-      expect(fake.oneShotCount).toBe(1);
+      expect(topicCalls()).toBe(1);
       await mgr.editAgent(agentId, { modelFamily: "fast" });
       expect(mgr.getAgent(agentId)?.modelFamily).toBe("fast");
       await send("second, same minute");
-      expect(fake.oneShotCount).toBe(2);
+      expect(topicCalls()).toBe(2);
       expect(topic()).toBe("Fast label");
     } finally {
       errors.mockRestore();
@@ -303,7 +309,7 @@ describe("topic generation backoff", () => {
       setTestManagedOfficeEnv({ CODEX_HOME: codexHome, OPENAI_API_KEY: "" });
       const notice = "401 Unauthorized";
       expect(codexBackend.detectAuthError(notice)).toBe(true);
-      const { mgr, fake, agentId, topic, generating, send, refresh } =
+      const { mgr, topicCalls, agentId, topic, generating, send, refresh } =
         await harness(
           [
             "Earlier label",
@@ -323,7 +329,7 @@ describe("topic generation backoff", () => {
       expect(topic()).toBe("Earlier label");
 
       await refresh();
-      expect(fake.oneShotCount).toBe(2);
+      expect(topicCalls()).toBe(2);
       expect(isCodexAuthenticated(mgr.buildEnvForUserId("user-a"))).toBe(false);
       expect(topic()).toBe("Earlier label");
       expect(generating()).toBe(false);
@@ -333,7 +339,7 @@ describe("topic generation backoff", () => {
       await mgr.newConversation(agentId);
       expect(topic()).toBeNull();
       await send("new conversation");
-      expect(fake.oneShotCount).toBe(3);
+      expect(topicCalls()).toBe(3);
       expect(topic()).toBe("Fresh label");
       expect(
         errors.mock.calls.filter((call) =>
@@ -350,7 +356,7 @@ describe("topic lifecycle (task 1b8084fd)", () => {
   it("keeps the label while a refresh runs and shows the run with a flag", async () => {
     const later = deferred();
     const {
-      fake,
+      topicCalls,
       topic,
       generating,
       events,
@@ -365,7 +371,7 @@ describe("topic lifecycle (task 1b8084fd)", () => {
 
     const from = events.length;
     mgr.resetTopic(agentId);
-    await waitFor(() => fake.oneShotCount === 2);
+    await waitFor(() => topicCalls() === 2);
     // The old label stays; the snapshot a new client reads says it runs.
     expect(topic()).toBe("Earlier label");
     expect(generating()).toBe(true);
@@ -386,12 +392,10 @@ describe("topic lifecycle (task 1b8084fd)", () => {
 
   it("lets a refresh run after a typed topic overtook a generation", async () => {
     const first = deferred();
-    const { fake, topic, mgr, agentId, refresh, answered } = await harness([
-      first.reply,
-      "Fresh label",
-    ]);
+    const { topicCalls, topic, mgr, agentId, refresh, answered } =
+      await harness([first.reply, "Fresh label"]);
     await mgr.sendMessage(agentId, "first", "tester");
-    await waitFor(() => fake.oneShotCount === 1);
+    await waitFor(() => topicCalls() === 1);
     mgr.setTopic(agentId, "Typed label");
     first.resolve("Late label");
     await waitFor(() => answered() === 1);
@@ -401,17 +405,17 @@ describe("topic lifecycle (task 1b8084fd)", () => {
     // Before the fix the overtaken call left the generator marked busy, so
     // no refresh or automatic fill ever ran again in this conversation.
     await refresh();
-    expect(fake.oneShotCount).toBe(2);
+    expect(topicCalls()).toBe(2);
     expect(topic()).toBe("Fresh label");
   });
 
   it("keeps the flag of a refresh that started while an overtaken call was out", async () => {
     const first = deferred();
     const second = deferred();
-    const { fake, topic, generating, mgr, agentId, idle, answered } =
+    const { topicCalls, topic, generating, mgr, agentId, idle, answered } =
       await harness([first.reply, second.reply]);
     await mgr.sendMessage(agentId, "first", "tester");
-    await waitFor(() => fake.oneShotCount === 1);
+    await waitFor(() => topicCalls() === 1);
     expect(generating()).toBe(true);
 
     mgr.setTopic(agentId, "Typed label");
@@ -420,7 +424,7 @@ describe("topic lifecycle (task 1b8084fd)", () => {
 
     // The refresh starts while the overtaken call is still out.
     mgr.resetTopic(agentId);
-    await waitFor(() => fake.oneShotCount === 2);
+    await waitFor(() => topicCalls() === 2);
     expect(generating()).toBe(true);
 
     // The overtaken call ends: its label is dropped and it leaves the
@@ -441,11 +445,11 @@ describe("topic lifecycle (task 1b8084fd)", () => {
     const errors = spyOn(console, "error").mockImplementation(() => {});
     try {
       // Any call after the first answers "unexpected one-shot call".
-      const { fake, topic, mgr, agentId, send } = await harness([
+      const { topicCalls, topic, mgr, agentId, send } = await harness([
         "First label",
       ]);
       await send("first");
-      expect(fake.oneShotCount).toBe(1);
+      expect(topicCalls()).toBe(1);
       expect(topic()).toBe("First label");
 
       // Each message adds a user entry and a reply: 15 messages are 30
@@ -453,14 +457,14 @@ describe("topic lifecycle (task 1b8084fd)", () => {
       for (let i = 0; i < 15; i++)
         await mgr.sendMessage(agentId, `generated ${i}`, "tester");
       await send("generated last");
-      expect(fake.oneShotCount).toBe(1);
+      expect(topicCalls()).toBe(1);
       expect(topic()).toBe("First label");
 
       mgr.setTopic(agentId, "Typed label");
       for (let i = 0; i < 15; i++)
         await mgr.sendMessage(agentId, `typed ${i}`, "tester");
       await send("typed last");
-      expect(fake.oneShotCount).toBe(1);
+      expect(topicCalls()).toBe(1);
       expect(topic()).toBe("Typed label");
     } finally {
       errors.mockRestore();
@@ -468,7 +472,7 @@ describe("topic lifecycle (task 1b8084fd)", () => {
   });
 
   it("clears the topic on a blank edit, and the next message fills it again", async () => {
-    const { fake, topic, mgr, agentId, send } = await harness([
+    const { topicCalls, topic, mgr, agentId, send } = await harness([
       "First label",
       "Second label",
     ]);
@@ -488,18 +492,18 @@ describe("topic lifecycle (task 1b8084fd)", () => {
     expect(stored()).toBeNull();
 
     await send("second");
-    expect(fake.oneShotCount).toBe(2);
+    expect(topicCalls()).toBe(2);
     expect(topic()).toBe("Second label");
   });
 
   it("keeps the topic when a refresh finds no user message", async () => {
-    const { fake, topic, generating, mgr, agentId } = await harness([
+    const { topicCalls, topic, generating, mgr, agentId } = await harness([
       "Unused label",
     ]);
     mgr.setTopic(agentId, "Typed label");
     mgr.resetTopic(agentId);
     await settle();
-    expect(fake.oneShotCount).toBe(0);
+    expect(topicCalls()).toBe(0);
     expect(topic()).toBe("Typed label");
     expect(generating()).toBe(false);
   });

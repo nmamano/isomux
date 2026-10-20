@@ -91,6 +91,8 @@ import {
   writeManifest,
   buildManifest,
   persistSessionTopic,
+  persistSessionSummary,
+  loadSessionSummaryState,
   storedTopic,
   persistSessionFork,
   persistSessionCwd,
@@ -143,6 +145,12 @@ import { formatDecimal } from "../shared/i18n/number.ts";
 import { join, basename, resolve } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
+import { fileLogSource } from "./log-source.ts";
+import { TIERS } from "./log-search.ts";
+import {
+  SUMMARY_ROLLING_EVERY,
+  createSessionSummarizer,
+} from "./session-summary.ts";
 import { rmSync, statSync, readFileSync } from "fs";
 import {
   resolveCwd,
@@ -2623,6 +2631,7 @@ export function createAgentManager(deps: ManagerDeps) {
       toolCallTimestamps: new Map(),
       topicGenToken: 0,
       topicBackoff: null,
+      summaryPending: null,
       contextUsage: null,
       contextGen: 0,
       contextSampleSeq: 0,
@@ -2739,6 +2748,7 @@ export function createAgentManager(deps: ManagerDeps) {
         console.warn(
           `[revive] Resume of ${p.name} failed, falling back to fresh session: ${sessionError}`,
         );
+        summarizeEndedSession(p.id, managed.sessionManager.sessionId);
         managed.sessionManager.sessionId = null;
         // Keep the loaded transcript in logCache so the chat view shows the
         // historical conversation (especially important for legacy revivals
@@ -3908,6 +3918,7 @@ export function createAgentManager(deps: ManagerDeps) {
 
     if (managed && sessionId) {
       if (!opts?.durable) appendLog(agentId, sessionId, entry);
+      countSummaryEntry(managed, sessionId, kind);
       // Track the last entry actually written to this session's JSONL so that
       // /isomux-usage's per-turn snapshots have a stable anchor inside the log.
       managed.lastWrittenEntryId = entry.id;
@@ -3990,11 +4001,7 @@ export function createAgentManager(deps: ManagerDeps) {
       !managed.info.capabilities.topicGen
     )
       return;
-    // Topic-gen model is backend-specific: Claude uses sonnet (cheap); Codex
-    // uses its default GPT-5 family. Per-backend `oneShotPrompt` honors the
-    // modelFamily arg, so we let the backend pick something sensible.
-    const topicModel =
-      managed.info.agentType === "claude" ? "sonnet" : managed.info.modelFamily;
+    const topicModel = oneShotModel(managed);
     // The backoff follows the model that answers the one-shot. A /clear keeps
     // it: the model is still slow.
     const backoffKey = `${managed.info.agentType}:${topicModel}`;
@@ -4051,24 +4058,7 @@ export function createAgentManager(deps: ManagerDeps) {
       const topicSystemPrompt = `You are a labelling tool. You receive a snippet of a conversation between a user and an AI assistant and you output a short topic label that summarizes what the conversation is about. You are NOT the assistant in the conversation, you do NOT have access to any files or systems mentioned, and you must NOT attempt to do the task. You only label.`;
       const prompt = `<conversation>\n${context}\n</conversation>\n\nOutput ONLY a topic label, max 8 words. No quotes, no trailing punctuation.`;
 
-      const backend = getBackend(managed.info.agentType);
-      const text = await backend.oneShotPrompt(prompt, {
-        cwd: managed.info.cwd,
-        modelFamily: topicModel,
-        systemPrompt: topicSystemPrompt,
-        env: buildEnvForUserId(managed.info.userId),
-        ...(managed.info.agentType === "opencode"
-          ? {
-              env: buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId),
-              environmentKey: environmentSourceKeyForUserId(
-                managed.info.userId,
-              ),
-              environmentRevision: environmentSourceRevisionForUserId(
-                managed.info.userId,
-              ),
-            }
-          : {}),
-      });
+      const text = await runOneShot(managed, prompt, topicSystemPrompt);
       if (!current()) return;
       // A signed-out backend can return its auth notice as a successful
       // one-shot result. Treat it like the quiet auth-error catch below
@@ -4118,6 +4108,114 @@ export function createAgentManager(deps: ManagerDeps) {
     } finally {
       if (current()) setTopicGenerating(agentId, false);
     }
+  }
+
+  // The one-shot model for the topic and the conversation summary is
+  // backend-specific: Claude uses sonnet (cheap); Codex uses its default GPT-5
+  // family. Per-backend `oneShotPrompt` honors the modelFamily arg, so we let
+  // the backend pick something sensible.
+  function oneShotModel(managed: ManagedAgent): string {
+    return managed.info.agentType === "claude"
+      ? "sonnet"
+      : managed.info.modelFamily;
+  }
+
+  function runOneShot(
+    managed: ManagedAgent,
+    prompt: string,
+    systemPrompt: string,
+  ): Promise<string> {
+    return getBackend(managed.info.agentType).oneShotPrompt(prompt, {
+      cwd: managed.info.cwd,
+      modelFamily: oneShotModel(managed),
+      systemPrompt,
+      env: buildEnvForUserId(managed.info.userId),
+      ...(managed.info.agentType === "opencode"
+        ? {
+            env: buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId),
+            environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+            environmentRevision: environmentSourceRevisionForUserId(
+              managed.info.userId,
+            ),
+          }
+        : {}),
+    });
+  }
+
+  // Conversation summaries (internal-docs/conversation-summary-design.md):
+  // a paragraph per session for log search, written by the topic's one-shot
+  // model. The summarizer reads the session's own file, never logCache, which
+  // after a fork also holds the parent's entries.
+  const summaryLogSource = fileLogSource(join(STATE_ROOT, "logs"));
+  const sessionSummarizer = createSessionSummarizer({
+    loadEntries: (agentId, sessionId) =>
+      summaryLogSource.readEntries(agentId, sessionId),
+    loadState: loadSessionSummaryState,
+    persist: persistSessionSummary,
+    backoffKey: (agentId) => {
+      const managed = agents.get(agentId);
+      if (!managed?.info.capabilities.topicGen) return null;
+      return `${managed.info.agentType}:${oneShotModel(managed)}`;
+    },
+    summarize: async (agentId, prompt) => {
+      const managed = agents.get(agentId);
+      // A signed-out engine cannot summarize: skip instead of failing.
+      if (!managed || (await agentIsKnownUnauthenticated(managed))) return null;
+      const text = await runOneShot(
+        managed,
+        prompt.prompt,
+        prompt.systemPrompt,
+      );
+      // An auth notice returned as a successful result is not a paragraph.
+      if (
+        detectAgentAuthError(managed, text) &&
+        (await agentIsKnownUnauthenticated(managed))
+      )
+        return null;
+      return text;
+    },
+    isAuthError: (agentId, message) => {
+      const managed = agents.get(agentId);
+      return !!managed && detectAgentAuthError(managed, message);
+    },
+    now: Date.now,
+  });
+
+  const SUMMARY_KINDS: readonly LogEntry["kind"][] = TIERS.conversation ?? [];
+
+  // Counts a conversation entry written to a session for the rolling trigger.
+  // Keyed by session, so a session switch starts again at 0 with no reset at
+  // the switch sites.
+  function countSummaryEntry(
+    managed: ManagedAgent,
+    sessionId: string,
+    kind: LogEntry["kind"],
+  ) {
+    if (!SUMMARY_KINDS.includes(kind)) return;
+    if (managed.summaryPending?.sessionId !== sessionId)
+      managed.summaryPending = { sessionId, count: 0 };
+    managed.summaryPending.count++;
+  }
+
+  // At a turn end: write the current session's paragraph once it has the
+  // rolling count of new conversation entries.
+  function maybeRollSummary(agentId: string, managed: ManagedAgent) {
+    const pending = managed.summaryPending;
+    if (
+      !pending ||
+      pending.sessionId !== managed.sessionManager.sessionId ||
+      pending.count < SUMMARY_ROLLING_EVERY
+    )
+      return;
+    pending.count = 0;
+    void sessionSummarizer.trigger(agentId, pending.sessionId);
+  }
+
+  // A session stops being current: write its paragraph if it has new entries.
+  // Called before each assignment that replaces a non-null session id with
+  // another one, or after it with the captured old id.
+  function summarizeEndedSession(agentId: string, sessionId: string | null) {
+    if (sessionId) void sessionSummarizer.trigger(agentId, sessionId);
   }
 
   // Derive agent state from one normalized event.
@@ -4880,6 +4978,7 @@ export function createAgentManager(deps: ManagerDeps) {
             hadPreviousSession &&
             sessionId !== managed.sessionManager.sessionId
           ) {
+            summarizeEndedSession(agentId, managed.sessionManager.sessionId);
             logCache.set(agentId, []);
             emit({ type: "clear_logs", agentId });
             // No "Conversation cleared." entry: an empty log shows the
@@ -5173,6 +5272,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // Subscription-allowance reading at the same boundary.
         if (managed) refreshSubscriptionUsage(managed, "turn_completed");
         if (managed) refreshSessionConnectors(managed);
+        if (managed) maybeRollSummary(agentId, managed);
         if (ev.status === "completed")
           flushPendingFreshRecoveryNotice(agentId, managed);
         const isProviderCapacity = ev.causedByProviderCapacity === true;
@@ -6388,6 +6488,7 @@ export function createAgentManager(deps: ManagerDeps) {
     managed: ManagedAgent,
   ): boolean {
     if (!managed.sessionManager.sessionId) return false;
+    summarizeEndedSession(agentId, managed.sessionManager.sessionId);
     managed.sessionManager.sessionId = null;
     // Dropping the conversation id for a fresh start is a conversation
     // boundary: the old transcript's fullness measurement doesn't describe
@@ -6725,6 +6826,7 @@ export function createAgentManager(deps: ManagerDeps) {
       toolCallTimestamps: new Map(),
       topicGenToken: 0,
       topicBackoff: null,
+      summaryPending: null,
       contextUsage: null,
       contextGen: 0,
       contextSampleSeq: 0,
@@ -9029,8 +9131,10 @@ export function createAgentManager(deps: ManagerDeps) {
             throw err;
           }
           managed.sessionManager.sessionId = picked.sessionId;
-          if (picked.sessionId !== prevResumeSessionId)
+          if (picked.sessionId !== prevResumeSessionId) {
             resetContextUsage(managed);
+            summarizeEndedSession(agentId, prevResumeSessionId);
+          }
           // Record the cwd we resumed in: backfill legacy/missing, or repair a
           // present-but-invalid value so it isn't sticky on future resumes.
           recordResumedSessionCwd(
@@ -10418,6 +10522,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // clobber the concurrent wake (e.g. stomp its waiting_for_response back to
       // idle). This inverts the old structure, which did updateState/addLogEntry
       // AFTER the session swap.
+      summarizeEndedSession(agentId, managed.sessionManager.sessionId);
       managed.sessionManager.sessionId = null;
       managed.dormantReason = "fresh";
       managed.topicGenToken++;
@@ -11244,7 +11349,10 @@ export function createAgentManager(deps: ManagerDeps) {
         throw err;
       }
       managed.sessionManager.sessionId = sessionId;
-      if (sessionId !== prevResumeSessionId) resetContextUsage(managed);
+      if (sessionId !== prevResumeSessionId) {
+        resetContextUsage(managed);
+        summarizeEndedSession(agentId, prevResumeSessionId);
+      }
       // Record the cwd we actually resumed in: backfill a legacy/missing value, or
       // repair a present-but-invalid one so it isn't sticky on future resumes.
       recordResumedSessionCwd(
@@ -11630,6 +11738,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // For fresh sessions, sessionId is set by the system/init event (like newConversation).
       // For forks, set it now.
       managed.sessionManager.sessionId = isFreshSession ? null : newSessionId;
+      summarizeEndedSession(agentId, oldSessionId);
       const parentEntries: LogEntry[] = [];
       for (const entry of oldLogCache) {
         if (entry.id === logEntryId) break;

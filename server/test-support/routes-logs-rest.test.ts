@@ -26,6 +26,7 @@ import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import type {
   LogRetrieveResp,
+  LogSearchResp,
   LogSessionIndexResp,
 } from "../../shared/contract-shapes.ts";
 
@@ -408,6 +409,87 @@ describe("routes/logs REST: the three modes", () => {
     );
     expect(traversal.status).toBe(400);
     expect(errCode(traversal)).toBe("unknown_session");
+  });
+
+  // Task ac41c60e. Over HTTP: the index lists every session unless limit= is
+  // sent (the search default of 20 must not reach it), and the paragraph
+  // reaches all three modes, including search's scan path.
+  it("carries summaries in all three modes, and the index cuts only on limit=", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
+    const bearer = mintAgentToken(agent.id, getUserByName(owner.username)!.id);
+    const dir = join(srv.stateRoot, "logs", agent.id);
+    mkdirSync(dir, { recursive: true });
+    const meta: Record<string, unknown> = {};
+    for (let i = 0; i < 25; i++) {
+      const id = `s${String(i).padStart(2, "0")}`;
+      writeFileSync(
+        join(dir, `${id}.jsonl`),
+        JSON.stringify({
+          id: `${id}-1`,
+          agentId: agent.id,
+          kind: "user_message",
+          content: `message ${id}`,
+          timestamp: 10,
+        }) + "\n",
+      );
+      meta[id] = { topic: `Topic ${id}`, lastModified: 1_000 + i };
+    }
+    meta.s24 = {
+      ...(meta.s24 as object),
+      summary: "The marmalade importer was fixed for task 1234abcd.",
+    };
+    writeFileSync(join(dir, "sessions.json"), JSON.stringify(meta));
+
+    const index = await api(srv, `/api/agents/${agent.id}/logs`, { bearer });
+    expect(index.status).toBe(200);
+    const indexBody = index.body as unknown as LogSessionIndexResp;
+    expect(indexBody.sessions).toHaveLength(25);
+    expect(indexBody.truncated).toBe(false);
+    expect(indexBody.sessions[0]).toMatchObject({
+      sessionId: "s24",
+      summary: "The marmalade importer was fixed for task 1234abcd.",
+    });
+
+    const page = await api(srv, `/api/agents/${agent.id}/logs?limit=2`, {
+      bearer,
+    });
+    const pageBody = page.body as unknown as LogSessionIndexResp;
+    expect(pageBody.sessions.map((s) => s.sessionId)).toEqual(["s24", "s23"]);
+    expect(pageBody.truncated).toBe(true);
+    const next = await api(
+      srv,
+      `/api/agents/${agent.id}/logs?limit=2&before=${pageBody.sessions[1].lastModified}`,
+      { bearer },
+    );
+    expect(
+      (next.body as unknown as LogSessionIndexResp).sessions.map(
+        (s) => s.sessionId,
+      ),
+    ).toEqual(["s22", "s21"]);
+
+    const found = await api(srv, `/api/agents/${agent.id}/logs?q=marmalade`, {
+      bearer,
+    });
+    expect(found.status).toBe(200);
+    const foundBody = found.body as unknown as LogSearchResp;
+    expect(foundBody.results).toEqual([]);
+    expect(foundBody.summaryHits.map((h) => h.sessionId)).toEqual(["s24"]);
+    expect(foundBody.summaryHits[0].snippet).toContain("marmalade");
+
+    const retrieved = await api(
+      srv,
+      `/api/agents/${agent.id}/logs?session=s24`,
+      {
+        bearer,
+      },
+    );
+    expect((retrieved.body as unknown as LogRetrieveResp).summary).toBe(
+      "The marmalade importer was fixed for task 1234abcd.",
+    );
   });
 });
 

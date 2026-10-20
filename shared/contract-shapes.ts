@@ -417,6 +417,8 @@ export interface LogSessionIndexEntry {
   sessionId: string;
   topic: string | null;
   lastModified: number;
+  /** The session's summary paragraph. Absent when it has none. */
+  summary?: string;
   /** This session was forked off another one. */
   forked?: true;
   /** Another session was forked off this one. */
@@ -438,6 +440,9 @@ export interface ManifestInFlightTurn {
 export interface LogSessionIndexResp {
   agentId: string;
   sessions: LogSessionIndexEntry[];
+  /** `limit=` left out older sessions; page on with `before=<lastModified>`
+   * of the last session listed. */
+  truncated: boolean;
   /**
    * Which two-step prompt the agent is parked on RIGHT NOW, or null.
    *
@@ -470,6 +475,18 @@ export interface LogSearchHit {
   timestamp: number;
   kind: LogEntryKind;
   entryId: string;
+  snippet: string;
+}
+
+/**
+ * A session whose summary paragraph or topic matches the query. Separate from
+ * the entry hits: a paragraph is not a log entry and has no entry id or kind.
+ * `snippet` is cut from the paragraph, or is the topic for a topic-only hit.
+ */
+export interface LogSummaryHit {
+  sessionId: string;
+  topic: string | null;
+  lastModified: number;
   snippet: string;
 }
 
@@ -508,6 +525,8 @@ export interface LogSearchResp {
    */
   timedOut: boolean;
   results: LogSearchHit[];
+  /** Sessions whose summary or topic matches, newest first, at most `limit`. */
+  summaryHits: LogSummaryHit[];
 }
 
 /**
@@ -528,6 +547,8 @@ export interface LogRetrieveResp {
   agentId: string;
   sessionId: string;
   topic: string | null;
+  /** The session's summary paragraph. Absent when it has none. */
+  summary?: string;
   /** The kinds actually applied; `null` means every kind. See LogSearchResp. */
   kinds: LogEntryKind[] | null;
   /** The preset they came from, or `null` when `kind=` overrode it. */
